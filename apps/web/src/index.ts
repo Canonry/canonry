@@ -1,1 +1,1 @@
-export const webAppStatus = 'phase-1-skeleton'
+export const webAppStatus = 'premium-dashboard'

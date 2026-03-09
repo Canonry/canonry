@@ -1,80 +1,480 @@
-:root {
-  color: #f5f1e8;
-  background:
-    radial-gradient(circle at top left, rgba(212, 151, 73, 0.24), transparent 35%),
-    linear-gradient(180deg, #16202a 0%, #0b1217 100%);
-  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: "Manrope", sans-serif;
 }
 
-body {
-  margin: 0;
-  min-height: 100vh;
+@layer base {
+  * {
+    @apply border-zinc-800;
+  }
+
+  html {
+    @apply scroll-smooth;
+  }
+
+  body {
+    @apply min-h-screen bg-black font-sans text-zinc-50 antialiased;
+    background-image:
+      radial-gradient(circle at top, rgba(255, 255, 255, 0.05), transparent 30%),
+      radial-gradient(circle at top left, rgba(59, 130, 246, 0.08), transparent 22%);
+  }
+
+  a {
+    @apply text-inherit no-underline;
+  }
+
+  button {
+    font: inherit;
+  }
+
+  ::selection {
+    background: rgba(250, 250, 250, 0.12);
+    color: #fafafa;
+  }
 }
 
-.shell {
-  max-width: 860px;
-  margin: 0 auto;
-  padding: 64px 24px 96px;
-}
+@layer components {
+  .skip-link {
+    @apply absolute left-4 top-[-3rem] z-50 rounded-md bg-zinc-50 px-4 py-2 text-sm font-medium text-black transition-all focus:top-4;
+  }
 
-.eyebrow {
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  font-size: 0.75rem;
-  color: #d49749;
-}
+  .app-shell {
+    @apply min-h-screen px-4 py-4 md:px-6;
+  }
 
-h1,
-h2,
-p,
-ul {
-  margin: 0;
-}
+  .topbar {
+    @apply sticky top-4 z-20 mx-auto flex max-w-6xl items-center justify-between gap-4 rounded-xl border border-zinc-800 bg-zinc-950/80 px-4 py-3 backdrop-blur;
+  }
 
-h1 {
-  margin-top: 12px;
-  font-size: clamp(2.5rem, 6vw, 4.5rem);
-}
+  .brand-lockup {
+    @apply flex flex-col gap-0.5;
+  }
 
-.lede {
-  margin-top: 20px;
-  max-width: 42rem;
-  font-size: 1.1rem;
-  color: rgba(245, 241, 232, 0.82);
-}
+  .brand-mark {
+    @apply text-base font-semibold tracking-tight text-zinc-50;
+  }
 
-.card {
-  margin-top: 24px;
-  padding: 24px;
-  border: 1px solid rgba(245, 241, 232, 0.12);
-  background: rgba(18, 27, 35, 0.82);
-  backdrop-filter: blur(10px);
-}
+  .brand-subtitle {
+    @apply text-[11px] uppercase tracking-[0.18em] text-zinc-500;
+  }
 
-h2 {
-  margin-bottom: 12px;
-}
+  .topnav {
+    @apply hidden items-center gap-1 md:flex;
+  }
 
-ul {
-  padding-left: 18px;
-}
+  .topnav-link {
+    @apply rounded-md px-3 py-2 text-sm text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-100;
+  }
 
-a {
-  color: #f5d596;
-}
+  .topnav-link-active {
+    @apply bg-zinc-900 text-zinc-100;
+  }
 
-.status {
-  margin-top: 6px;
-}
+  .topbar-actions {
+    @apply flex items-center gap-2;
+  }
 
-.status-checking {
-  color: #f5d596;
-}
+  .health-pill-row {
+    @apply hidden items-center gap-2 lg:flex;
+  }
 
-.status-ok {
-  color: #9fd7a7;
-}
+  .health-pill {
+    @apply rounded-md border px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.12em];
+  }
 
-.status-error {
-  color: #ff9a8a;
+  .health-pill-ok {
+    @apply border-emerald-500/20 bg-emerald-500/10 text-emerald-300;
+  }
+
+  .health-pill-checking {
+    @apply border-zinc-700 bg-zinc-900 text-zinc-400;
+  }
+
+  .health-pill-error {
+    @apply border-rose-500/20 bg-rose-500/10 text-rose-300;
+  }
+
+  .topbar-cta {
+    @apply hidden md:inline-flex;
+  }
+
+  .nav-toggle {
+    @apply md:hidden;
+  }
+
+  .mobile-nav {
+    @apply mx-auto mt-3 hidden max-w-6xl rounded-xl border border-zinc-800 bg-zinc-950/95 p-2 md:hidden;
+  }
+
+  .mobile-nav-open {
+    @apply grid gap-1;
+  }
+
+  .mobile-nav-link {
+    @apply rounded-md px-3 py-2 text-sm text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-100;
+  }
+
+  .mobile-nav-link-active {
+    @apply bg-zinc-900 text-zinc-100;
+  }
+
+  .page-shell {
+    @apply mx-auto max-w-6xl pb-16 pt-6;
+  }
+
+  .hero-grid {
+    @apply grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start;
+  }
+
+  .hero-grid-compact {
+    @apply lg:grid-cols-1;
+  }
+
+  .hero-grid-project {
+    @apply lg:grid-cols-[minmax(0,1fr)_18rem];
+  }
+
+  .hero-copy {
+    @apply space-y-2 rounded-xl border border-zinc-800 bg-zinc-950/50 px-4 py-4;
+  }
+
+  .eyebrow {
+    @apply text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500;
+  }
+
+  .eyebrow-soft {
+    @apply mb-1 text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-600;
+  }
+
+  .hero-copy h1 {
+    @apply text-2xl font-semibold tracking-tight text-zinc-50 md:text-[1.75rem];
+  }
+
+  .surface-card h2,
+  .surface-card h3,
+  .empty-card h1 {
+    @apply text-base font-semibold tracking-tight text-zinc-50;
+  }
+
+  .lede {
+    @apply max-w-3xl text-sm leading-6 text-zinc-400;
+  }
+
+  .hero-stack,
+  .compact-stack,
+  .run-list,
+  .project-list {
+    @apply grid gap-3;
+  }
+
+  .surface-card {
+    @apply rounded-xl p-4;
+  }
+
+  .compact-card {
+    @apply min-h-28;
+  }
+
+  .section-head {
+    @apply flex items-start justify-between gap-3;
+  }
+
+  .section-head-inline {
+    @apply mb-3;
+  }
+
+  .supporting-copy {
+    @apply text-sm leading-6 text-zinc-500;
+  }
+
+  .attention-list {
+    @apply grid gap-2;
+  }
+
+  .attention-item {
+    @apply flex items-start justify-between gap-4 rounded-lg border border-zinc-800 bg-zinc-950 px-4 py-3 transition hover:border-zinc-700 hover:bg-zinc-900;
+  }
+
+  .attention-item-negative {
+    @apply border-rose-500/20;
+  }
+
+  .attention-item-caution {
+    @apply border-amber-500/20;
+  }
+
+  .attention-title,
+  .compact-run-title,
+  .run-row-title,
+  .project-name,
+  .evidence-keyword {
+    @apply text-sm font-semibold text-zinc-100;
+  }
+
+  .attention-detail,
+  .project-domain,
+  .metric-description,
+  .run-row-detail,
+  .evidence-summary,
+  .drawer-copy {
+    @apply mt-1 text-sm leading-6 text-zinc-400;
+  }
+
+  .attention-action {
+    @apply pt-1 text-xs font-medium uppercase tracking-[0.14em] text-zinc-600;
+  }
+
+  .compact-run {
+    @apply flex items-center justify-between gap-4 rounded-lg border border-zinc-800 bg-zinc-950 px-4 py-3 text-left transition hover:bg-zinc-900;
+  }
+
+  .compact-run-detail {
+    @apply mt-1 text-sm text-zinc-500;
+  }
+
+  .page-section {
+    @apply mt-5;
+  }
+
+  .metric-grid {
+    @apply grid gap-3 md:grid-cols-2;
+  }
+
+  .insight-grid,
+  .health-grid,
+  .settings-grid,
+  .finding-grid,
+  .competitor-grid {
+    @apply grid gap-3 lg:grid-cols-3;
+  }
+
+  .evidence-grid,
+  .setup-grid {
+    @apply grid gap-3 lg:grid-cols-2;
+  }
+
+  .project-row {
+    @apply grid gap-3 rounded-xl border border-zinc-800 bg-zinc-950/70 p-4 lg:grid-cols-[minmax(0,1.5fr)_9rem_9rem_10rem_9rem_auto] lg:items-center;
+  }
+
+  .project-row-primary {
+    @apply min-w-0;
+  }
+
+  .project-row-stat {
+    @apply min-w-0;
+  }
+
+  .project-row-chart {
+    @apply hidden lg:block;
+  }
+
+  .project-row-link {
+    @apply justify-self-end;
+  }
+
+  .metric-inline-block {
+    @apply space-y-1;
+  }
+
+  .metric-inline-label {
+    @apply text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-600;
+  }
+
+  .metric-inline-value {
+    @apply text-lg font-semibold tracking-tight text-zinc-50;
+  }
+
+  .metric-inline-delta {
+    @apply text-sm text-zinc-500;
+  }
+
+  .project-insight,
+  .evidence-snippet {
+    @apply mt-2 text-sm leading-6 text-zinc-400;
+  }
+
+  .sparkline {
+    @apply h-10 w-full overflow-hidden;
+  }
+
+  .sparkline polyline {
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .sparkline-guide {
+    stroke: rgba(255, 255, 255, 0.08);
+    stroke-width: 1;
+  }
+
+  .sparkline-positive polyline {
+    stroke: #34d399;
+  }
+
+  .sparkline-caution polyline {
+    stroke: #fbbf24;
+  }
+
+  .sparkline-negative polyline {
+    stroke: #fb7185;
+  }
+
+  .sparkline-neutral polyline {
+    stroke: #a1a1aa;
+  }
+
+  .metric-card {
+    @apply grid gap-3;
+  }
+
+  .metric-card-head {
+    @apply flex items-center justify-between gap-3;
+  }
+
+  .metric-card-body {
+    @apply grid gap-3 sm:grid-cols-[minmax(0,1fr)_8rem] sm:items-center;
+  }
+
+  .metric-value {
+    @apply text-2xl font-semibold tracking-tight text-zinc-50;
+  }
+
+  .progress-track {
+    @apply h-1 overflow-hidden rounded-full bg-zinc-900;
+  }
+
+  .progress-fill {
+    @apply h-full rounded-full;
+  }
+
+  .progress-fill-positive {
+    @apply bg-emerald-400;
+  }
+
+  .progress-fill-caution {
+    @apply bg-amber-400;
+  }
+
+  .progress-fill-negative {
+    @apply bg-rose-400;
+  }
+
+  .progress-fill-neutral {
+    @apply bg-zinc-400;
+  }
+
+  .tag-row {
+    @apply mt-3 flex flex-wrap gap-2;
+  }
+
+  .tag {
+    @apply rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1 text-xs font-medium text-zinc-400;
+  }
+
+  .hero-action {
+    @apply gap-4;
+  }
+
+  .insight-card,
+  .evidence-card,
+  .finding-card,
+  .competitor-card,
+  .step-card {
+    @apply grid gap-3;
+  }
+
+  .run-row {
+    @apply grid gap-4 rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-4 xl:grid-cols-[minmax(0,1.6fr)_20rem_auto] xl:items-center;
+  }
+
+  .run-row-main {
+    @apply min-w-0;
+  }
+
+  .run-row-head {
+    @apply flex flex-wrap items-start justify-between gap-3;
+  }
+
+  .run-row-subtitle {
+    @apply mt-1 text-sm text-zinc-500;
+  }
+
+  .run-row-meta,
+  .definition-list {
+    @apply grid gap-3;
+  }
+
+  .run-row-meta {
+    @apply sm:grid-cols-3 xl:min-w-[20rem];
+  }
+
+  .run-row-meta dt,
+  .definition-list dt,
+  .detail-label {
+    @apply text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-600;
+  }
+
+  .run-row-meta dd,
+  .definition-list dd {
+    @apply mt-1 text-sm text-zinc-100;
+  }
+
+  .filter-row {
+    @apply mb-3 flex flex-wrap gap-2;
+  }
+
+  .filter-chip {
+    @apply rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-100;
+  }
+
+  .filter-chip-active {
+    @apply bg-zinc-900 text-zinc-100;
+  }
+
+  .health-row,
+  .health-check-row {
+    @apply flex items-start justify-between gap-4;
+  }
+
+  .detail-list {
+    @apply grid gap-2 pl-4 text-sm leading-6 text-zinc-400;
+  }
+
+  .blocking-copy {
+    @apply text-sm text-rose-300;
+  }
+
+  .empty-card {
+    @apply gap-3 p-6;
+  }
+
+  .footer {
+    @apply mx-auto flex max-w-6xl flex-col gap-3 border-t border-zinc-900 py-5 text-sm md:flex-row md:items-center md:justify-between;
+  }
+
+  .footer-links {
+    @apply flex flex-wrap gap-4;
+  }
+
+  .footer-links a {
+    @apply text-zinc-600 transition hover:text-zinc-200;
+  }
+
+  .drawer-head {
+    @apply gap-1;
+  }
+
+  .drawer-body,
+  .drawer-section {
+    @apply grid gap-4;
+  }
+
+  .detail-grid {
+    @apply grid gap-4 sm:grid-cols-2;
+  }
 }
