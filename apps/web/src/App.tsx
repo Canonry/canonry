@@ -2151,9 +2151,24 @@ export function App({
     setDrawerState({ kind: 'run', runId })
     setRunDetail(null)
     setRunDetailLoading(true)
+    const requestedRunId = runId
     fetchRunDetail(runId)
-      .then(detail => setRunDetail(detail))
-      .catch(() => setRunDetail(null))
+      .then(detail => {
+        setDrawerState(current => {
+          if (current?.kind === 'run' && current.runId === requestedRunId) {
+            setRunDetail(detail)
+          }
+          return current
+        })
+      })
+      .catch(() => {
+        setDrawerState(current => {
+          if (current?.kind === 'run' && current.runId === requestedRunId) {
+            setRunDetail(null)
+          }
+          return current
+        })
+      })
       .finally(() => setRunDetailLoading(false))
   }
 

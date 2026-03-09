@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI, type EnhancedGenerateContentResponse } from '@google/generative-ai'
+import { GoogleGenerativeAI, type EnhancedGenerateContentResponse, type GoogleSearchRetrievalTool } from '@google/generative-ai'
 import type {
   GeminiConfig,
   GeminiHealthcheckResult,
@@ -51,17 +51,11 @@ export async function executeTrackedQuery(input: GeminiTrackedQueryInput): Promi
   const model = input.config.model ?? DEFAULT_MODEL
   const genAI = new GoogleGenerativeAI(input.config.apiKey)
 
-  // Use the legacy googleSearchRetrieval tool only for known pre-2.5 models.
-  // Default to googleSearch (the current standard) for all other models.
-  const LEGACY_GROUNDING_MODELS = ['gemini-1.0', 'gemini-1.5', 'gemini-pro', 'gemini-ultra']
-  const useLegacyGrounding = LEGACY_GROUNDING_MODELS.some(prefix => model.startsWith(prefix))
-  const tools = useLegacyGrounding
-    ? [{ googleSearchRetrieval: {} }]
-    : [{ googleSearch: {} }]
+  const searchTool: GoogleSearchRetrievalTool = { googleSearchRetrieval: {} }
 
   const generativeModel = genAI.getGenerativeModel({
     model,
-    tools: tools as Parameters<typeof genAI.getGenerativeModel>[0]['tools'],
+    tools: [searchTool],
   })
 
   const prompt = buildPrompt(input.keyword)

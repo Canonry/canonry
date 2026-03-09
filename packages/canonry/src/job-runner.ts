@@ -64,8 +64,50 @@ export class JobRunner {
 
       const competitorDomains = projectCompetitors.map(c => c.domain)
 
+      // Enforce daily quota before dispatching any requests
+      const quota = this.geminiConfig.quotaPolicy
+      const todayPeriod = (() => {
+        const d = new Date()
+        return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+      })()
+      const todayUsage = this.db
+        .select()
+        .from(usageCounters)
+        .where(eq(usageCounters.scope, projectId))
+        .all()
+        .filter(r => r.period === todayPeriod && r.metric === 'queries')
+        .reduce((sum, r) => sum + r.count, 0)
+
+      if (todayUsage + projectKeywords.length > quota.maxRequestsPerDay) {
+        throw new Error(
+          `Daily quota exceeded: ${todayUsage} queries used today, limit is ${quota.maxRequestsPerDay}. ` +
+          `This run needs ${projectKeywords.length} more.`,
+        )
+      }
+
+      // Rate-limit: track request timestamps to stay within maxRequestsPerMinute
+      const minuteWindow: number[] = []
+
       // Process each keyword
       for (const kw of projectKeywords) {
+        // Enforce per-minute rate limit before each request
+        const now = Date.now()
+        const windowStart = now - 60_000
+        while (minuteWindow.length > 0 && minuteWindow[0]! < windowStart) {
+          minuteWindow.shift()
+        }
+        if (minuteWindow.length >= quota.maxRequestsPerMinute) {
+          const oldestInWindow = minuteWindow[0]!
+          const waitMs = oldestInWindow + 60_000 - now + 50
+          await new Promise(resolve => setTimeout(resolve, waitMs))
+          const nowAfterWait = Date.now()
+          const newWindowStart = nowAfterWait - 60_000
+          while (minuteWindow.length > 0 && minuteWindow[0]! < newWindowStart) {
+            minuteWindow.shift()
+          }
+        }
+        minuteWindow.push(Date.now())
+
         const raw = await executeTrackedQuery({
           keyword: kw.keyword,
           canonicalDomains: [project.canonicalDomain],

@@ -155,10 +155,12 @@ function computeCompetitorPressure(snapshots: ApiRunDetail['snapshots'], competi
   if (snapshots.length === 0 || competitorDomains.length === 0) {
     return { label: 'None', count: 0 }
   }
+  // Use competitorOverlap (root-domain-collapsed by the job runner) so subdomain
+  // citations are counted the same way as the per-competitor table below.
   const competitorSet = new Set(competitorDomains)
   let overlapCount = 0
   for (const snap of snapshots) {
-    if (snap.citedDomains.some(d => competitorSet.has(d))) {
+    if (snap.competitorOverlap.some(d => competitorSet.has(d))) {
       overlapCount++
     }
   }
