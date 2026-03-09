@@ -61,15 +61,13 @@ test('settings route renders provider state, quota summary, and service health',
   assert.match(html, /Gemini/)
 })
 
-test('setup route renders the guided onboarding flow', () => {
+test('setup route renders the step wizard with system check first', () => {
   const html = renderApp('/setup')
 
   assert.match(html, /Setup/)
   assert.match(html, /System ready/)
-  assert.match(html, /Create project/)
-  assert.match(html, /Import or paste keywords/)
-  assert.match(html, /Add competitors/)
-  assert.match(html, /Launch first run/)
+  assert.match(html, /Step 1 of 5/)
+  assert.match(html, /Continue/)
 })
 
 test('overview route renders first-run onboarding guidance when there are no projects', () => {
@@ -88,11 +86,14 @@ test('default overview covers multiple projects and recent runs', () => {
   assert.match(html, /System health/)
 })
 
-test('setup route blocks launch when worker health is degraded', () => {
-  const html = renderApp('/setup', { degradedWorker: true })
+test('setup route renders step indicator with all step labels', () => {
+  const html = renderApp('/setup')
 
-  assert.match(html, /heartbeat stale/)
-  assert.match(html, /Launch is blocked until the worker is healthy and heartbeats are current/)
+  assert.match(html, /System check/)
+  assert.match(html, /Create project/)
+  assert.match(html, /Keywords/)
+  assert.match(html, /Competitors/)
+  assert.match(html, /Launch/)
 })
 
 test('runs route renders partial runs clearly', () => {

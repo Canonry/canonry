@@ -11,7 +11,7 @@ Canonry is an open-source AEO monitoring tool in Phase 1 (scaffolding). The web 
 ## Design Principles
 
 1. **One command to start.** `npm install -g @ainyc/canonry` → `canonry init` → `canonry serve` → working instance.
-2. **CLI for setup, UI for analysis.** CLI handles project config and run triggers. Web dashboard handles visualization and drill-down.
+2. **Surface parity.** Every feature must be equally accessible through CLI, API, and UI. No surface is privileged — the API is the shared backbone; both CLI and UI are clients of it.
 3. **Single process for local.** API + job runner + bundled SPA in one Node.js process. No Docker, no Postgres, no message queue.
 4. **SQLite locally, Postgres for cloud.** Same Drizzle ORM schema, different driver. Switch via env var.
 5. **Same auth path everywhere.** Local mode auto-generates an API key on init. Code paths are identical to cloud.

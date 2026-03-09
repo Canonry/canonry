@@ -10,11 +10,7 @@
     "lint": "pnpm -r run lint",
     "dev:api": "pnpm --filter @ainyc/aeo-platform-api run dev",
     "dev:worker": "pnpm --filter @ainyc/aeo-platform-worker run dev",
-    "dev:web": "pnpm --filter @ainyc/aeo-platform-web run dev",
-    "docker:up": "docker compose up --build",
-    "docker:down": "docker compose down",
-    "docker:logs": "docker compose logs -f",
-    "docker:reset": "docker compose down -v --remove-orphans"
+    "dev:web": "pnpm --filter @ainyc/aeo-platform-web run dev"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
@@ -24,6 +20,9 @@
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.43.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["better-sqlite3", "esbuild"]
   },
   "engines": {
     "node": ">=20"

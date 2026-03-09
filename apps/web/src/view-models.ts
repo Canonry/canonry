@@ -58,8 +58,8 @@ export interface PortfolioProjectVm {
   project: ProjectDto
   visibilityScore: number
   visibilityDelta: string
-  readinessScore: number
-  readinessDelta: string
+  readinessScore?: number
+  readinessDelta?: string
   lastRun: RunListItemVm
   insight: string
   trend: number[]
@@ -123,12 +123,12 @@ export interface ProjectCommandCenterVm {
   dateRangeLabel: string
   contextLabel: string
   visibilitySummary: ScoreSummaryVm
-  readinessSummary: ScoreSummaryVm
+  readinessSummary?: ScoreSummaryVm
   competitorPressure: ScoreSummaryVm
   runStatus: ScoreSummaryVm
   insights: ProjectInsightVm[]
   visibilityEvidence: CitationInsightVm[]
-  technicalFindings: TechnicalFindingVm[]
+  technicalFindings?: TechnicalFindingVm[]
   competitors: CompetitorVm[]
   recentRuns: RunListItemVm[]
 }
