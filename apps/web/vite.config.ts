@@ -2,22 +2,20 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { defineConfig } from 'vite'
 
-const apiTarget = process.env.API_INTERNAL_BASE_URL ?? 'http://127.0.0.1:3000'
-const workerTarget = process.env.WORKER_INTERNAL_BASE_URL ?? 'http://127.0.0.1:3001'
+// In dev mode, proxy API requests to canonry serve (default port 4100)
+const cannonryTarget = process.env.CANONRY_API_URL ?? 'http://127.0.0.1:4100'
 
 export default defineConfig({
   plugins: [tailwindcss(), react()],
   server: {
     proxy: {
-      '/api-health': {
-        target: apiTarget,
+      '/api/v1': {
+        target: cannonryTarget,
         changeOrigin: true,
-        rewrite: () => '/health',
       },
-      '/worker-health': {
-        target: workerTarget,
+      '/health': {
+        target: cannonryTarget,
         changeOrigin: true,
-        rewrite: () => '/health',
       },
     },
   },

@@ -40,11 +40,18 @@ export async function createServer(opts: {
       wildcard: false,
     })
 
+    // Inject API key into index.html so the SPA can authenticate
+    const indexPath = path.join(assetsDir, 'index.html')
+    const injectConfig = (html: string): string => {
+      const configScript = `<script>window.__CANONRY_CONFIG__=${JSON.stringify({ apiKey: opts.config.apiKey })}</script>`
+      return html.replace('</head>', `${configScript}</head>`)
+    }
+
     // SPA fallback: serve index.html for unmatched routes
     app.setNotFoundHandler((_request, reply) => {
-      const indexPath = path.join(assetsDir, 'index.html')
       if (fs.existsSync(indexPath)) {
-        return reply.type('text/html').sendFile('index.html')
+        const html = fs.readFileSync(indexPath, 'utf-8')
+        return reply.type('text/html').send(injectConfig(html))
       }
       return reply.status(404).send({ error: 'Not found' })
     })

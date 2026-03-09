@@ -54,6 +54,16 @@ canonry export <project>
 - `packages/api-routes/` must not import from `apps/*`.
 - `packages/canonry/` is the only publishable artifact.
 
+## Surface Parity
+
+**Every feature must be equally accessible through CLI, API, and UI.** No surface is privileged — if a user can do something from the terminal, they must be able to do the same from the web dashboard and vice versa. The API is the shared backbone; both CLI and UI are clients of it.
+
+When adding a new feature:
+1. Add the API endpoint in `packages/api-routes/`.
+2. Add the CLI command in `packages/canonry/src/commands/`.
+3. Add the UI interaction in `apps/web/`.
+4. All three must ship together — do not defer one surface to a later phase.
+
 ## Maintenance Guidance
 
 - Keep shared shapes in `packages/contracts`.

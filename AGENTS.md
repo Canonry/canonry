@@ -109,6 +109,16 @@ All under `/api/v1/`. Auth: `Authorization: Bearer cnry_...`
 - **Single process locally**: Fastify + job runner + static SPA. No Docker/Postgres/queue.
 - **SQLite locally, Postgres for cloud**: Same Drizzle schema, different driver.
 
+## Surface Parity
+
+**Every feature must be equally accessible through CLI, API, and UI.** No surface is privileged. The API is the shared backbone; both CLI and UI are clients of it.
+
+When adding a new feature:
+1. Add the API endpoint in `packages/api-routes/`.
+2. Add the CLI command in `packages/canonry/src/commands/`.
+3. Add the UI interaction in `apps/web/`.
+4. All three must ship together.
+
 ## Maintenance Guidance
 
 - Keep shared shapes in `packages/contracts`.

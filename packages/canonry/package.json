@@ -13,6 +13,7 @@
   },
   "types": "./src/index.ts",
   "scripts": {
+    "build:web": "tsx build-web.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "tsx --test test/*.test.ts",
     "lint": "eslint src/ test/"

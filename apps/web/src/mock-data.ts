@@ -797,7 +797,7 @@ export function createDashboardFixture(options: DashboardFixtureOptions = {}): D
         actionLabel: 'Open evidence',
         evidenceId: project.visibilityEvidence[0]?.id,
       })
-      project.technicalFindings.unshift({
+      project.technicalFindings?.unshift({
         id: `${project.project.id}_drop_finding`,
         severity: 'high',
         title: 'Primary supporting page fell out of crawl emphasis',

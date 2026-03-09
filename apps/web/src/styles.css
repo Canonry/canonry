@@ -229,7 +229,7 @@
   }
 
   .page-header-right {
-    @apply flex items-center gap-2;
+    @apply flex shrink-0 items-center gap-2;
   }
 
   .tag-row {
@@ -271,11 +271,15 @@
   }
 
   .score-gauge {
-    @apply flex flex-col items-center rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-4 py-5;
+    @apply flex flex-col items-center rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-3 py-5 min-w-0 overflow-hidden;
+  }
+
+  .gauge-ring-wrapper {
+    @apply relative size-24;
   }
 
   .gauge-ring {
-    @apply size-28;
+    @apply size-full;
   }
 
   .gauge-bg {
@@ -306,27 +310,27 @@
   }
 
   .gauge-center {
-    @apply -mt-[5.5rem] mb-10 flex items-center justify-center;
+    @apply absolute inset-0 flex items-center justify-center;
   }
 
   .gauge-value {
-    @apply text-2xl font-bold tracking-tight text-zinc-50;
+    @apply text-xl font-bold tracking-tight text-zinc-50;
   }
 
   .gauge-value-text {
-    @apply text-lg font-bold tracking-tight text-zinc-50;
+    @apply text-sm font-bold tracking-tight text-zinc-50;
   }
 
   .gauge-label {
-    @apply mt-1 text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500;
+    @apply mt-1 text-center text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500 w-full truncate;
   }
 
   .gauge-delta {
-    @apply mt-1 text-[12px] text-zinc-400;
+    @apply mt-1 text-center text-[11px] text-zinc-400;
   }
 
   .gauge-description {
-    @apply mt-2 text-center text-[12px] leading-5 text-zinc-500;
+    @apply mt-1.5 text-center text-[11px] leading-4 text-zinc-500 w-full;
   }
 
   /* ── Surface cards ── */
@@ -539,9 +543,76 @@
     @apply grid gap-3 lg:grid-cols-3;
   }
 
-  .evidence-grid,
-  .setup-grid {
+  .evidence-grid {
     @apply grid gap-3 lg:grid-cols-2;
+  }
+
+  /* ── Setup wizard ── */
+
+  .setup-wizard {
+    @apply max-w-xl;
+  }
+
+  .setup-steps {
+    @apply flex items-center gap-2 mb-6 overflow-x-auto pb-1;
+  }
+
+  .setup-step {
+    @apply flex items-center gap-1.5 text-xs text-zinc-500 whitespace-nowrap;
+  }
+
+  .setup-step + .setup-step::before {
+    content: '';
+    @apply block w-4 h-px bg-zinc-700 mr-1;
+  }
+
+  .setup-step-number {
+    @apply flex items-center justify-center w-5 h-5 rounded-full border border-zinc-700 text-[10px] font-semibold;
+  }
+
+  .setup-step-active {
+    @apply text-zinc-100;
+  }
+
+  .setup-step-active .setup-step-number {
+    @apply border-emerald-500 bg-emerald-500/10 text-emerald-400;
+  }
+
+  .setup-step-done {
+    @apply text-zinc-400;
+  }
+
+  .setup-step-done .setup-step-number {
+    @apply border-emerald-600 bg-emerald-600/20 text-emerald-400;
+  }
+
+  .setup-nav {
+    @apply flex items-center justify-between gap-3 pt-2;
+  }
+
+  .setup-field {
+    @apply grid gap-1;
+  }
+
+  .setup-field-row {
+    @apply grid grid-cols-2 gap-3;
+  }
+
+  .setup-label {
+    @apply text-[10px] font-semibold uppercase tracking-wide text-zinc-500;
+  }
+
+  .setup-input {
+    @apply rounded-md border border-zinc-700 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500;
+  }
+
+  .setup-textarea {
+    @apply rounded-md border border-zinc-700 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500 resize-y font-mono;
+  }
+
+  .setup-input:disabled,
+  .setup-textarea:disabled {
+    @apply opacity-50 cursor-not-allowed;
   }
 
   /* ── Insight cards with left accent ── */
