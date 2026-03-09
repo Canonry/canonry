@@ -1,0 +1,17 @@
+{
+  "name": "@ainyc/aeo-platform-worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "tsx --test test/*.test.ts",
+    "lint": "eslint src/ test/"
+  },
+  "dependencies": {
+    "@ainyc/aeo-audit": "1.2.0",
+    "@ainyc/aeo-platform-config": "workspace:*",
+    "@ainyc/aeo-platform-contracts": "workspace:*"
+  }
+}

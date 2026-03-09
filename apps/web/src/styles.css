@@ -1,0 +1,80 @@
+:root {
+  color: #f5f1e8;
+  background:
+    radial-gradient(circle at top left, rgba(212, 151, 73, 0.24), transparent 35%),
+    linear-gradient(180deg, #16202a 0%, #0b1217 100%);
+  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+.shell {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 64px 24px 96px;
+}
+
+.eyebrow {
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  color: #d49749;
+}
+
+h1,
+h2,
+p,
+ul {
+  margin: 0;
+}
+
+h1 {
+  margin-top: 12px;
+  font-size: clamp(2.5rem, 6vw, 4.5rem);
+}
+
+.lede {
+  margin-top: 20px;
+  max-width: 42rem;
+  font-size: 1.1rem;
+  color: rgba(245, 241, 232, 0.82);
+}
+
+.card {
+  margin-top: 24px;
+  padding: 24px;
+  border: 1px solid rgba(245, 241, 232, 0.12);
+  background: rgba(18, 27, 35, 0.82);
+  backdrop-filter: blur(10px);
+}
+
+h2 {
+  margin-bottom: 12px;
+}
+
+ul {
+  padding-left: 18px;
+}
+
+a {
+  color: #f5d596;
+}
+
+.status {
+  margin-top: 6px;
+}
+
+.status-checking {
+  color: #f5d596;
+}
+
+.status-ok {
+  color: #9fd7a7;
+}
+
+.status-error {
+  color: #ff9a8a;
+}
