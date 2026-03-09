@@ -25,7 +25,7 @@ export function startHealthServer(
     const payload: WorkerHealthResponse = {
       service: 'aeo-platform-worker',
       status: 'ok',
-      version: 'phase-1',
+      version: '0.1.0',
       port: env.workerPort,
       databaseUrlConfigured: env.databaseUrl.length > 0,
       lastHeartbeatAt: getLastHeartbeatAt(),

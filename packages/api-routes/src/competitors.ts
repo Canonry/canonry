@@ -30,25 +30,26 @@ export async function competitorRoutes(app: FastifyInstance) {
 
     const now = new Date().toISOString()
 
-    // Delete existing
-    app.db.delete(competitors).where(eq(competitors.projectId, project.id)).run()
+    // Atomic replace: delete + insert in a single transaction
+    app.db.transaction((tx) => {
+      tx.delete(competitors).where(eq(competitors.projectId, project.id)).run()
 
-    // Insert new
-    for (const domain of body.competitors) {
-      app.db.insert(competitors).values({
-        id: crypto.randomUUID(),
+      for (const domain of body.competitors) {
+        tx.insert(competitors).values({
+          id: crypto.randomUUID(),
+          projectId: project.id,
+          domain,
+          createdAt: now,
+        }).run()
+      }
+
+      writeAuditLog(tx, {
         projectId: project.id,
-        domain,
-        createdAt: now,
-      }).run()
-    }
-
-    writeAuditLog(app.db, {
-      projectId: project.id,
-      actor: 'api',
-      action: 'competitors.replaced',
-      entityType: 'competitor',
-      diff: { competitors: body.competitors },
+        actor: 'api',
+        action: 'competitors.replaced',
+        entityType: 'competitor',
+        diff: { competitors: body.competitors },
+      })
     })
 
     const rows = app.db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()

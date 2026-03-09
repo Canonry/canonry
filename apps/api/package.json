@@ -10,8 +10,10 @@
     "lint": "eslint src/ test/"
   },
   "dependencies": {
+    "@ainyc/aeo-platform-api-routes": "workspace:*",
     "@ainyc/aeo-platform-config": "workspace:*",
     "@ainyc/aeo-platform-contracts": "workspace:*",
+    "@ainyc/aeo-platform-db": "workspace:*",
     "fastify": "^5.6.1"
   }
 }

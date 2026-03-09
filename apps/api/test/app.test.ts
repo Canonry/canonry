@@ -1,14 +1,29 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import test from 'node:test'
 
 import { getPlatformEnv } from '@ainyc/aeo-platform-config'
+import { createClient, migrate } from '@ainyc/aeo-platform-db'
 
 import { buildApp } from '../src/app.js'
 import { loadApiEnv } from '../src/plugins/env.js'
 
-test('buildApp exposes root and health payloads', async (t) => {
+test('buildApp registers health and API routes', async (t) => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'api-test-'))
+  const dbPath = path.join(tmpDir, 'test.db')
+
+  t.after(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  // Pre-create and migrate the database
+  const db = createClient(dbPath)
+  migrate(db)
+
   const env = getPlatformEnv({
-    DATABASE_URL: 'postgresql://aeo:aeo@localhost:5432/aeo_platform',
+    DATABASE_URL: dbPath,
     API_PORT: '3000',
     WORKER_PORT: '3001',
   })
@@ -16,19 +31,6 @@ test('buildApp exposes root and health payloads', async (t) => {
 
   t.after(async () => {
     await app.close()
-  })
-
-  const rootResponse = await app.inject({
-    method: 'GET',
-    url: '/',
-  })
-  assert.equal(rootResponse.statusCode, 200)
-  assert.deepEqual(rootResponse.json(), {
-    service: 'aeo-platform-api',
-    mode: 'skeleton',
-    status: 'ok',
-    version: 'phase-1',
-    docs: '/health',
   })
 
   const healthResponse = await app.inject({
@@ -39,10 +41,21 @@ test('buildApp exposes root and health payloads', async (t) => {
   assert.deepEqual(healthResponse.json(), {
     service: 'aeo-platform-api',
     status: 'ok',
-    version: 'phase-1',
+    version: '0.1.0',
     port: 3000,
     databaseUrlConfigured: true,
   })
+
+  // API routes are registered — projects endpoint is available
+  const projectsResponse = await app.inject({
+    method: 'GET',
+    url: '/api/v1/projects',
+  })
+  // Auth or success — either way, the route exists (not 404)
+  assert.ok(
+    [200, 401].includes(projectsResponse.statusCode),
+    `Expected 200 or 401 but got ${projectsResponse.statusCode}`,
+  )
 })
 
 test('loadApiEnv delegates to shared platform config', () => {

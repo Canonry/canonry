@@ -12,6 +12,8 @@
   "dependencies": {
     "@ainyc/aeo-audit": "1.2.0",
     "@ainyc/aeo-platform-config": "workspace:*",
-    "@ainyc/aeo-platform-contracts": "workspace:*"
+    "@ainyc/aeo-platform-contracts": "workspace:*",
+    "@ainyc/aeo-platform-db": "workspace:*",
+    "@ainyc/aeo-platform-provider-gemini": "workspace:*"
   }
 }

@@ -33,22 +33,39 @@ export async function createServer(opts: {
   const dirname = path.dirname(fileURLToPath(import.meta.url))
   const assetsDir = path.join(dirname, '..', 'assets')
   if (fs.existsSync(assetsDir)) {
-    const fastifyStatic = await import('@fastify/static')
-    await app.register(fastifyStatic.default, {
-      root: assetsDir,
-      prefix: '/',
-      wildcard: false,
-    })
-
-    // Inject API key into index.html so the SPA can authenticate
     const indexPath = path.join(assetsDir, 'index.html')
+
     const injectConfig = (html: string): string => {
       const configScript = `<script>window.__CANONRY_CONFIG__=${JSON.stringify({ apiKey: opts.config.apiKey })}</script>`
       return html.replace('</head>', `${configScript}</head>`)
     }
 
-    // SPA fallback: serve index.html for unmatched routes
-    app.setNotFoundHandler((_request, reply) => {
+    const fastifyStatic = await import('@fastify/static')
+    await app.register(fastifyStatic.default, {
+      root: assetsDir,
+      prefix: '/',
+      wildcard: false,
+      // Don't serve index.html automatically — we handle it with config injection
+      serve: true,
+      index: false,
+    })
+
+    // Serve index.html with injected API key for the root route
+    app.get('/', (_request, reply) => {
+      if (fs.existsSync(indexPath)) {
+        const html = fs.readFileSync(indexPath, 'utf-8')
+        return reply.type('text/html').send(injectConfig(html))
+      }
+      return reply.status(404).send({ error: 'Dashboard not built' })
+    })
+
+    // SPA fallback: serve index.html for unmatched non-API routes
+    app.setNotFoundHandler((request, reply) => {
+      // Never serve HTML for API routes — return proper JSON 404
+      if (request.url.startsWith('/api/')) {
+        return reply.status(404).send({ error: 'Not found', path: request.url })
+      }
+
       if (fs.existsSync(indexPath)) {
         const html = fs.readFileSync(indexPath, 'utf-8')
         return reply.type('text/html').send(injectConfig(html))

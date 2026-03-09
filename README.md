@@ -12,7 +12,7 @@ canonry init
 canonry serve
 ```
 
-This starts a local server with a web dashboard at `http://localhost:4173`.
+This starts a local server with a web dashboard at `http://localhost:4100`.
 
 ## CLI Usage
 

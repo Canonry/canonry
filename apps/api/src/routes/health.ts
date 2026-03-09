@@ -14,7 +14,7 @@ export function registerHealthRoutes(app: FastifyInstance, env: PlatformEnv): vo
   app.get('/health', async (): Promise<HealthResponse> => ({
     service: 'aeo-platform-api',
     status: 'ok',
-    version: 'phase-1',
+    version: '0.1.0',
     port: env.apiPort,
     databaseUrlConfigured: env.databaseUrl.length > 0,
   }))

@@ -113,7 +113,7 @@ canonry init
 # → Prints: "Ready. Run 'canonry serve' to open the dashboard."
 
 canonry serve
-# → Starts server on localhost:4173
+# → Starts server on localhost:4100
 # → Serves API at /api/v1/* (auth required, uses key from config)
 # → Serves web dashboard at /
 # → Opens browser
@@ -122,7 +122,7 @@ canonry serve
 ### Config file (`~/.canonry/config.yaml`)
 
 ```yaml
-apiUrl: http://localhost:4173
+apiUrl: http://localhost:4100
 database: ~/.canonry/data.db
 apiKey: cnry_a1b2c3d4...                # auto-generated on init
 geminiApiKey: gmni_...
@@ -709,7 +709,7 @@ Before writing any code, clean up stale/irrelevant documentation and ensure agen
 8. `canonry run mysite` → triggers visibility sweep, snapshots stored
 9. `canonry status mysite` → shows citation results in terminal
 10. `canonry history mysite` → shows audit trail of config changes
-11. Open `localhost:4173` → dashboard shows project with real visibility data, readiness marked "Unavailable"
+11. Open `localhost:4100` → dashboard shows project with real visibility data, readiness marked "Unavailable"
 12. `canonry export mysite` → valid canonry.yaml
 13. `canonry export mysite --include-results` → JSON with raw snapshots + computed transitions
 14. `canonry apply docs/examples/canonry.yaml` → idempotent apply, audit log records changes

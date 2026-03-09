@@ -21,7 +21,8 @@ export interface AuditEntry {
   diff?: unknown
 }
 
-export function writeAuditLog(db: DatabaseClient, entry: AuditEntry) {
+/** Accepts both the main DatabaseClient and a Drizzle transaction context */
+export function writeAuditLog(db: Pick<DatabaseClient, 'insert'>, entry: AuditEntry) {
   const now = new Date().toISOString()
   db.insert(auditLog).values({
     id: crypto.randomUUID(),

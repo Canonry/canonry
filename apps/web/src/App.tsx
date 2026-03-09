@@ -57,7 +57,6 @@ import type {
 const docs = [
   { label: 'Architecture', href: 'https://github.com/AINYC/canonry/blob/main/docs/architecture.md' },
   { label: 'Testing Guide', href: 'https://github.com/AINYC/canonry/blob/main/docs/testing.md' },
-  { label: 'Self-Hosting', href: 'https://github.com/AINYC/canonry/blob/main/docs/self-hosting.md' },
 ]
 
 const defaultFixture = createDashboardFixture()
@@ -1672,16 +1671,16 @@ export function App({
   initialHealthSnapshot,
   enableLiveStatus = true,
 }: AppProps) {
-  const [dashboard, setDashboard] = useState<DashboardVm>(
-    initialDashboard ?? defaultFixture.dashboard,
+  const [dashboard, setDashboard] = useState<DashboardVm | null>(
+    initialDashboard ?? null,
   )
   const [loading, setLoading] = useState(!initialDashboard)
-  const [_apiConnected, setApiConnected] = useState<boolean | null>(null)
+  const [apiConnected, setApiConnected] = useState<boolean | null>(initialDashboard ? true : null)
   const [pathname, setPathname] = useState(() => getInitialPathname(initialPathname))
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [drawerState, setDrawerState] = useState<DrawerState>(null)
   const [healthSnapshot, setHealthSnapshot] = useState<HealthSnapshot>(
-    initialHealthSnapshot ?? defaultFixture.health ?? defaultHealthSnapshot,
+    initialHealthSnapshot ?? defaultHealthSnapshot,
   )
 
   const refreshData = useCallback(async () => {
@@ -1771,12 +1770,41 @@ export function App({
     }
   }, [enableLiveStatus])
 
-  const route = resolveRoute(pathname, dashboard)
-  const activeProject = route.kind === 'project' ? findProjectVm(dashboard, route.projectId) : undefined
+  // Show disconnected state when API is unreachable (no mock data fallback)
+  if (!loading && !dashboard && apiConnected === false) {
+    return (
+      <div className="app-shell">
+        <div className="main-area" style={{ gridColumn: '1 / -1' }}>
+          <main id="content" className="page-shell">
+            <div className="page-container">
+              <div className="page-header">
+                <div className="page-header-left">
+                  <h1 className="page-title">Cannot connect to API</h1>
+                  <p className="page-subtitle">
+                    The dashboard could not reach the Canonry API. Make sure <code>canonry serve</code> is running
+                    and try refreshing the page.
+                  </p>
+                </div>
+              </div>
+              <Button type="button" onClick={() => { setLoading(true); void refreshData() }}>
+                Retry connection
+              </Button>
+            </div>
+          </main>
+        </div>
+      </div>
+    )
+  }
+
+  // While loading or dashboard not yet available, use a safe fallback for derived values
+  const safeDashboard = dashboard ?? defaultFixture.dashboard
+
+  const route = resolveRoute(pathname, safeDashboard)
+  const activeProject = route.kind === 'project' ? findProjectVm(safeDashboard, route.projectId) : undefined
   const projectPath = activeProject
     ? `/projects/${activeProject.project.id}`
-    : dashboard.projects[0]
-      ? `/projects/${dashboard.projects[0].project.id}`
+    : safeDashboard.projects[0]
+      ? `/projects/${safeDashboard.projects[0].project.id}`
       : '/setup'
 
   const navigate = (to: string) => {
@@ -1825,11 +1853,11 @@ export function App({
     }
   }
 
-  const systemHealthCards = buildSystemHealthCards(dashboard.portfolioOverview.systemHealth, healthSnapshot, dashboard.settings)
-  const setupModel = buildSetupModel(dashboard.setup, healthSnapshot, dashboard.settings)
-  const selectedRun = drawerState?.kind === 'run' ? findRunById(dashboard, drawerState.runId) : undefined
+  const systemHealthCards = buildSystemHealthCards(safeDashboard.portfolioOverview.systemHealth, healthSnapshot, safeDashboard.settings)
+  const setupModel = buildSetupModel(safeDashboard.setup, healthSnapshot, safeDashboard.settings)
+  const selectedRun = drawerState?.kind === 'run' ? findRunById(safeDashboard, drawerState.runId) : undefined
   const selectedEvidenceContext =
-    drawerState?.kind === 'evidence' ? findEvidenceById(dashboard, drawerState.evidenceId) : undefined
+    drawerState?.kind === 'evidence' ? findEvidenceById(safeDashboard, drawerState.evidenceId) : undefined
 
   const mainNavItems = [
     { label: 'Overview', href: '/', icon: LayoutDashboard, active: isNavActive(route, 'overview') },
@@ -1842,11 +1870,11 @@ export function App({
     route.kind === 'project' && activeProject
       ? {
           label: 'Run now',
-          action: () => openRun(findLatestRunForProject(dashboard, activeProject.project.id)?.id),
+          action: () => openRun(findLatestRunForProject(safeDashboard, activeProject.project.id)?.id),
         }
       : {
-          label: dashboard.projects.length > 0 ? 'Open project' : 'Launch setup',
-          action: () => navigate(dashboard.projects.length > 0 ? projectPath : '/setup'),
+          label: safeDashboard.projects.length > 0 ? 'Open project' : 'Launch setup',
+          action: () => navigate(safeDashboard.projects.length > 0 ? projectPath : '/setup'),
         }
 
   const breadcrumbLabel =
@@ -1891,10 +1919,10 @@ export function App({
             </a>
           ))}
 
-          {dashboard.projects.length > 0 ? (
+          {safeDashboard.projects.length > 0 ? (
             <>
               <p className="sidebar-section-title">Projects</p>
-              {dashboard.projects.map((projectVm) => {
+              {safeDashboard.projects.map((projectVm) => {
                 const isActive = route.kind === 'project' && activeProject?.project.id === projectVm.project.id
                 const visibilityTone = projectVm.visibilitySummary.tone
                 return (
@@ -2002,10 +2030,10 @@ export function App({
               {item.label}
             </a>
           ))}
-          {dashboard.projects.length > 0 ? (
+          {safeDashboard.projects.length > 0 ? (
             <div className="mobile-nav-section">
               <p className="mobile-nav-section-title">Projects</p>
-              {dashboard.projects.map((projectVm) => (
+              {safeDashboard.projects.map((projectVm) => (
                 <a
                   key={projectVm.project.id}
                   className="mobile-nav-link"
@@ -2034,7 +2062,7 @@ export function App({
             <>
               {route.kind === 'overview' ? (
                 <OverviewPage
-                  model={dashboard.portfolioOverview}
+                  model={safeDashboard.portfolioOverview}
                   systemHealth={systemHealthCards}
                   onNavigate={navigate}
                   onOpenRun={openRun}
@@ -2043,9 +2071,9 @@ export function App({
               {route.kind === 'project' && activeProject ? (
                 <ProjectPage model={activeProject} onOpenEvidence={openEvidence} onOpenRun={openRun} onTriggerRun={handleTriggerRun} onDeleteProject={handleDeleteProject} />
               ) : null}
-              {route.kind === 'runs' ? <RunsPage runs={dashboard.runs} onOpenRun={openRun} /> : null}
+              {route.kind === 'runs' ? <RunsPage runs={safeDashboard.runs} onOpenRun={openRun} /> : null}
               {route.kind === 'settings' ? (
-                <SettingsPage settings={dashboard.settings} healthSnapshot={healthSnapshot} />
+                <SettingsPage settings={safeDashboard.settings} healthSnapshot={healthSnapshot} />
               ) : null}
               {route.kind === 'setup' ? <SetupPage model={setupModel} onProjectCreated={refreshData} onNavigate={navigate} /> : null}
               {route.kind === 'not-found' ? <NotFoundPage onNavigate={navigate} /> : null}

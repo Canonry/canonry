@@ -41,7 +41,7 @@ test('createHeartbeatLog reports configured database and quota', () => {
 
   assert.equal(
     createHeartbeatLog(env),
-    '[worker] phase-1 skeleton heartbeat database=configured geminiConcurrency=6',
+    '[worker] heartbeat database=configured geminiConcurrency=6',
   )
 })
 
@@ -95,7 +95,7 @@ test('startHealthServer exposes worker health payload', async (t) => {
   assert.deepEqual(await response.json(), {
     service: 'aeo-platform-worker',
     status: 'ok',
-    version: 'phase-1',
+    version: '0.1.0',
     port: workerPort,
     databaseUrlConfigured: true,
     lastHeartbeatAt: '2026-03-09T00:00:00.000Z',

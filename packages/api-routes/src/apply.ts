@@ -70,42 +70,43 @@ export async function applyRoutes(app: FastifyInstance) {
       })
     }
 
-    // Replace keywords
-    app.db.delete(keywords).where(eq(keywords.projectId, projectId)).run()
-    for (const kw of config.spec.keywords) {
-      app.db.insert(keywords).values({
-        id: crypto.randomUUID(),
+    // Atomic replace: keywords + competitors in a single transaction
+    app.db.transaction((tx) => {
+      tx.delete(keywords).where(eq(keywords.projectId, projectId)).run()
+      for (const kw of config.spec.keywords) {
+        tx.insert(keywords).values({
+          id: crypto.randomUUID(),
+          projectId,
+          keyword: kw,
+          createdAt: now,
+        }).run()
+      }
+
+      writeAuditLog(tx, {
         projectId,
-        keyword: kw,
-        createdAt: now,
-      }).run()
-    }
+        actor: 'api',
+        action: 'keywords.replaced',
+        entityType: 'keyword',
+        diff: { keywords: config.spec.keywords },
+      })
 
-    writeAuditLog(app.db, {
-      projectId,
-      actor: 'api',
-      action: 'keywords.replaced',
-      entityType: 'keyword',
-      diff: { keywords: config.spec.keywords },
-    })
+      tx.delete(competitors).where(eq(competitors.projectId, projectId)).run()
+      for (const domain of config.spec.competitors) {
+        tx.insert(competitors).values({
+          id: crypto.randomUUID(),
+          projectId,
+          domain,
+          createdAt: now,
+        }).run()
+      }
 
-    // Replace competitors
-    app.db.delete(competitors).where(eq(competitors.projectId, projectId)).run()
-    for (const domain of config.spec.competitors) {
-      app.db.insert(competitors).values({
-        id: crypto.randomUUID(),
+      writeAuditLog(tx, {
         projectId,
-        domain,
-        createdAt: now,
-      }).run()
-    }
-
-    writeAuditLog(app.db, {
-      projectId,
-      actor: 'api',
-      action: 'competitors.replaced',
-      entityType: 'competitor',
-      diff: { competitors: config.spec.competitors },
+        actor: 'api',
+        action: 'competitors.replaced',
+        entityType: 'competitor',
+        diff: { competitors: config.spec.competitors },
+      })
     })
 
     const project = app.db.select().from(projects).where(eq(projects.id, projectId)).get()!

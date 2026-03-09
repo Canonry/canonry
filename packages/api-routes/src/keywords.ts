@@ -30,25 +30,26 @@ export async function keywordRoutes(app: FastifyInstance) {
 
     const now = new Date().toISOString()
 
-    // Delete existing keywords
-    app.db.delete(keywords).where(eq(keywords.projectId, project.id)).run()
+    // Atomic replace: delete + insert in a single transaction
+    app.db.transaction((tx) => {
+      tx.delete(keywords).where(eq(keywords.projectId, project.id)).run()
 
-    // Insert new keywords
-    for (const kw of body.keywords) {
-      app.db.insert(keywords).values({
-        id: crypto.randomUUID(),
+      for (const kw of body.keywords) {
+        tx.insert(keywords).values({
+          id: crypto.randomUUID(),
+          projectId: project.id,
+          keyword: kw,
+          createdAt: now,
+        }).run()
+      }
+
+      writeAuditLog(tx, {
         projectId: project.id,
-        keyword: kw,
-        createdAt: now,
-      }).run()
-    }
-
-    writeAuditLog(app.db, {
-      projectId: project.id,
-      actor: 'api',
-      action: 'keywords.replaced',
-      entityType: 'keyword',
-      diff: { keywords: body.keywords },
+        actor: 'api',
+        action: 'keywords.replaced',
+        entityType: 'keyword',
+        diff: { keywords: body.keywords },
+      })
     })
 
     const rows = app.db.select().from(keywords).where(eq(keywords.projectId, project.id)).all()
