@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS runs (
 CREATE TABLE IF NOT EXISTS query_snapshots (
   id                  TEXT PRIMARY KEY,
   run_id              TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-  keyword_id          TEXT NOT NULL REFERENCES keywords(id),
+  keyword_id          TEXT NOT NULL REFERENCES keywords(id) ON DELETE CASCADE,
   provider            TEXT NOT NULL DEFAULT 'gemini',
   citation_state      TEXT NOT NULL,
   answer_text         TEXT,

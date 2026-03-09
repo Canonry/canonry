@@ -53,7 +53,7 @@ export const runs = sqliteTable('runs', {
 export const querySnapshots = sqliteTable('query_snapshots', {
   id: text('id').primaryKey(),
   runId: text('run_id').notNull().references(() => runs.id, { onDelete: 'cascade' }),
-  keywordId: text('keyword_id').notNull().references(() => keywords.id),
+  keywordId: text('keyword_id').notNull().references(() => keywords.id, { onDelete: 'cascade' }),
   provider: text('provider').notNull().default('gemini'),
   citationState: text('citation_state').notNull(),
   answerText: text('answer_text'),
