@@ -52,8 +52,6 @@ export async function historyRoutes(app: FastifyInstance) {
       return reply.send({ snapshots: [], total: 0 })
     }
 
-    const runIds = new Set(projectRuns.map(r => r.id))
-
     // Get snapshots for these runs
     const allSnapshots = app.db
       .select({
