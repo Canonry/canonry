@@ -1,4 +1,4 @@
-import { eq, desc } from 'drizzle-orm'
+import { eq, desc, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { auditLog, querySnapshots, runs, keywords } from '@ainyc/aeo-platform-db'
 import { resolveProject } from './helpers.js'
@@ -54,7 +54,7 @@ export async function historyRoutes(app: FastifyInstance) {
 
     const runIds = new Set(projectRuns.map(r => r.id))
 
-    // Get all snapshots for these runs
+    // Get snapshots for these runs
     const allSnapshots = app.db
       .select({
         id: querySnapshots.id,
@@ -70,9 +70,9 @@ export async function historyRoutes(app: FastifyInstance) {
       })
       .from(querySnapshots)
       .leftJoin(keywords, eq(querySnapshots.keywordId, keywords.id))
+      .where(inArray(querySnapshots.runId, projectRuns.map(r => r.id)))
       .orderBy(desc(querySnapshots.createdAt))
       .all()
-      .filter(s => runIds.has(s.runId))
 
     const total = allSnapshots.length
     const paged = allSnapshots.slice(offset, offset + limit)
@@ -86,8 +86,8 @@ export async function historyRoutes(app: FastifyInstance) {
         provider: s.provider,
         citationState: s.citationState,
         answerText: s.answerText,
-        citedDomains: JSON.parse(s.citedDomains) as string[],
-        competitorOverlap: JSON.parse(s.competitorOverlap) as string[],
+        citedDomains: tryParseJson(s.citedDomains, [] as string[]),
+        competitorOverlap: tryParseJson(s.competitorOverlap, [] as string[]),
         createdAt: s.createdAt,
       })),
       total,
@@ -120,12 +120,12 @@ export async function historyRoutes(app: FastifyInstance) {
 
     const runIds = new Set(projectRuns.map(r => r.id))
 
-    // Get all snapshots
+    // Get snapshots for these runs
     const allSnapshots = app.db
       .select()
       .from(querySnapshots)
+      .where(inArray(querySnapshots.runId, [...runIds]))
       .all()
-      .filter(s => runIds.has(s.runId))
 
     // Build per-keyword timeline
     const timeline = projectKeywords.map(kw => {
@@ -240,8 +240,16 @@ function formatAuditEntry(row: {
     action: row.action,
     entityType: row.entityType,
     entityId: row.entityId,
-    diff: row.diff ? JSON.parse(row.diff) as unknown : null,
+    diff: row.diff ? tryParseJson(row.diff, null) : null,
     createdAt: row.createdAt,
+  }
+}
+
+function tryParseJson<T>(value: string, fallback: T): T {
+  try {
+    return JSON.parse(value) as T
+  } catch {
+    return fallback
   }
 }
 

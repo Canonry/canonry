@@ -7,6 +7,7 @@ import { addKeywords, listKeywords, importKeywords } from './commands/keyword.js
 import { addCompetitors, listCompetitors } from './commands/competitor.js'
 import { triggerRun, listRuns } from './commands/run.js'
 import { showStatus } from './commands/status.js'
+import { showEvidence } from './commands/evidence.js'
 import { showHistory } from './commands/history.js'
 import { applyConfig } from './commands/apply.js'
 import { exportProject } from './commands/export-cmd.js'
@@ -242,8 +243,7 @@ async function main() {
           console.error('Error: project name is required')
           process.exit(1)
         }
-        // Evidence uses the same endpoint as status — show keyword-level run results
-        await showStatus(project)
+        await showEvidence(project)
         break
       }
 

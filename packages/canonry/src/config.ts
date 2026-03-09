@@ -46,7 +46,7 @@ export function saveConfig(config: CanonryConfig): void {
     fs.mkdirSync(configDir, { recursive: true })
   }
   const yaml = stringify(config)
-  fs.writeFileSync(getConfigPath(), yaml, 'utf-8')
+  fs.writeFileSync(getConfigPath(), yaml, { encoding: 'utf-8', mode: 0o600 })
 }
 
 export function configExists(): boolean {

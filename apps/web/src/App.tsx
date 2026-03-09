@@ -1,15 +1,17 @@
-import { useEffect, useId, useState } from 'react'
+import { useCallback, useEffect, useId, useState } from 'react'
 import type { MouseEvent, ReactNode } from 'react'
 
 import {
   Activity,
   ChevronRight,
+  Download,
   Globe,
   LayoutDashboard,
   Menu,
   Play,
   Rocket,
   Settings,
+  Trash2,
   Users,
   X,
 } from 'lucide-react'
@@ -19,6 +21,22 @@ import { Button } from './components/ui/button.js'
 import { Card } from './components/ui/card.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './components/ui/sheet.js'
 import { createDashboardFixture, findEvidenceById, findProjectVm, findRunById } from './mock-data.js'
+import {
+  createProject,
+  fetchAllRuns,
+  fetchCompetitors,
+  fetchExport,
+  fetchKeywords,
+  fetchProjects,
+  fetchRunDetail,
+  fetchTimeline,
+  setCompetitors,
+  setKeywords,
+  triggerRun as apiTriggerRun,
+  deleteProject as apiDeleteProject,
+} from './api.js'
+import { buildDashboard } from './build-dashboard.js'
+import type { ProjectData } from './build-dashboard.js'
 import type {
   CitationInsightVm,
   DashboardVm,
@@ -350,6 +368,7 @@ function isNavActive(route: AppRoute, section: 'overview' | 'project' | 'runs' |
 
 function Sparkline({ points, tone }: { points: number[]; tone: MetricTone }) {
   const clipId = useId()
+  if (points.length === 0) return null
   const height = 42
   const width = 132
   const padding = 5
@@ -403,21 +422,23 @@ function ScoreGauge({
 
   return (
     <div className="score-gauge">
-      <svg className="gauge-ring" viewBox="0 0 120 120" aria-hidden="true">
-        <circle className="gauge-bg" cx="60" cy="60" r={radius} strokeWidth={strokeWidth} />
-        <circle
-          className={`gauge-fill gauge-fill-${tone}`}
-          cx="60"
-          cy="60"
-          r={radius}
-          strokeWidth={strokeWidth}
-          strokeDasharray={circumference}
-          strokeDashoffset={dashOffset}
-          transform="rotate(-90 60 60)"
-        />
-      </svg>
-      <div className="gauge-center">
-        <span className={isNumeric ? 'gauge-value' : 'gauge-value-text'}>{value.split(' / ')[0]}</span>
+      <div className="gauge-ring-wrapper">
+        <svg className="gauge-ring" viewBox="0 0 120 120" aria-hidden="true">
+          <circle className="gauge-bg" cx="60" cy="60" r={radius} strokeWidth={strokeWidth} />
+          <circle
+            className={`gauge-fill gauge-fill-${tone}`}
+            cx="60"
+            cy="60"
+            r={radius}
+            strokeWidth={strokeWidth}
+            strokeDasharray={circumference}
+            strokeDashoffset={dashOffset}
+            transform="rotate(-90 60 60)"
+          />
+        </svg>
+        <div className="gauge-center">
+          <span className={isNumeric ? 'gauge-value' : 'gauge-value-text'}>{value.split(' / ')[0]}</span>
+        </div>
       </div>
       <p className="gauge-label">{label}</p>
       <p className="gauge-delta">{delta}</p>
@@ -644,8 +665,8 @@ function OverviewProjectCard({
       <div className="project-row-stat">
         <div className="metric-inline-block">
           <p className="metric-inline-label">Technical Readiness</p>
-          <p className="metric-inline-value">{project.readinessScore}</p>
-          <p className="metric-inline-delta">{project.readinessDelta}</p>
+          <p className="metric-inline-value text-zinc-500">{project.readinessScore ?? '—'}</p>
+          <p className="metric-inline-delta">{project.readinessDelta ?? 'Coming soon'}</p>
         </div>
       </div>
       <div className="project-row-stat">
@@ -801,18 +822,61 @@ function ProjectPage({
   model,
   onOpenEvidence,
   onOpenRun,
+  onTriggerRun,
+  onDeleteProject,
 }: {
   model: ProjectCommandCenterVm
   onOpenEvidence: (evidenceId: string) => void
   onOpenRun: (runId?: string) => void
+  onTriggerRun: (projectName: string) => void
+  onDeleteProject: (projectName: string) => void
 }) {
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  async function handleExport() {
+    const data = await fetchExport(model.project.name)
+    const yaml = typeof data === 'string' ? data : JSON.stringify(data, null, 2)
+    const blob = new Blob([yaml], { type: 'text/yaml' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${model.project.name}.yaml`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
   const isNumericScore = (value: string) => !Number.isNaN(Number.parseInt(value, 10))
 
   return (
     <div className="page-container">
+      {showDeleteConfirm ? (
+        <Card className="surface-card p-6 mb-6 border-rose-800/60">
+          <h3 className="text-base font-semibold text-rose-400 mb-2">Delete project?</h3>
+          <p className="text-sm text-zinc-400 mb-4">
+            This will permanently delete <strong className="text-zinc-200">{model.project.displayName || model.project.name}</strong> and
+            all its keywords, competitors, runs, and snapshots. This cannot be undone.
+          </p>
+          <div className="flex items-center gap-3">
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deleting}
+              onClick={async () => {
+                setDeleting(true)
+                onDeleteProject(model.project.name)
+              }}
+            >
+              {deleting ? 'Deleting...' : 'Yes, delete project'}
+            </Button>
+            <Button type="button" variant="outline" disabled={deleting} onClick={() => setShowDeleteConfirm(false)}>
+              Cancel
+            </Button>
+          </div>
+        </Card>
+      ) : null}
       <div className="page-header">
         <div className="page-header-left">
-          <h1 className="page-title">{model.project.name}</h1>
+          <h1 className="page-title">{model.project.displayName || model.project.name}</h1>
           <p className="page-subtitle">
             {model.project.canonicalDomain} · {model.contextLabel}
           </p>
@@ -828,9 +892,17 @@ function ProjectPage({
         </div>
         <div className="page-header-right">
           <p className="text-sm text-zinc-500">{model.dateRangeLabel}</p>
-          <Button type="button" onClick={() => onOpenRun(model.recentRuns[0]?.id)}>
-            Run now
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="icon" onClick={handleExport} aria-label="Export project as YAML">
+              <Download className="h-4 w-4 text-zinc-400" />
+            </Button>
+            <Button type="button" variant="outline" size="icon" onClick={() => setShowDeleteConfirm(true)} aria-label="Delete project">
+              <Trash2 className="h-4 w-4 text-zinc-400" />
+            </Button>
+            <Button type="button" onClick={() => onTriggerRun(model.project.name)}>
+              Run now
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -844,14 +916,25 @@ function ProjectPage({
           description={model.visibilitySummary.description}
           isNumeric={isNumericScore(model.visibilitySummary.value)}
         />
-        <ScoreGauge
-          value={model.readinessSummary.value}
-          label={model.readinessSummary.label}
-          delta={model.readinessSummary.delta}
-          tone={model.readinessSummary.tone}
-          description={model.readinessSummary.description}
-          isNumeric={isNumericScore(model.readinessSummary.value)}
-        />
+        {model.readinessSummary ? (
+          <ScoreGauge
+            value={model.readinessSummary.value}
+            label={model.readinessSummary.label}
+            delta={model.readinessSummary.delta}
+            tone={model.readinessSummary.tone}
+            description={model.readinessSummary.description}
+            isNumeric={isNumericScore(model.readinessSummary.value)}
+          />
+        ) : (
+          <ScoreGauge
+            value="N/A"
+            label="Technical Readiness"
+            delta="Coming soon"
+            tone="neutral"
+            description="Enable with site audits in a future release."
+            isNumeric={false}
+          />
+        )}
         <ScoreGauge
           value={model.competitorPressure.value}
           label={model.competitorPressure.label}
@@ -908,17 +991,32 @@ function ProjectPage({
         <EvidenceTable evidence={model.visibilityEvidence} onOpenEvidence={onOpenEvidence} />
       </section>
 
-      {/* Technical findings table */}
-      <section className="page-section-divider">
-        <div className="section-head section-head-inline">
-          <div>
-            <p className="eyebrow eyebrow-soft">Technical findings</p>
-            <h2>Readiness signals</h2>
+      {/* Technical findings table — hidden when no site-audit data */}
+      {model.technicalFindings && model.technicalFindings.length > 0 ? (
+        <section className="page-section-divider">
+          <div className="section-head section-head-inline">
+            <div>
+              <p className="eyebrow eyebrow-soft">Technical findings</p>
+              <h2>Readiness signals</h2>
+            </div>
+            <p className="supporting-copy">{model.technicalFindings.length} findings</p>
           </div>
-          <p className="supporting-copy">{model.technicalFindings.length} findings</p>
-        </div>
-        <FindingsTable findings={model.technicalFindings} />
-      </section>
+          <FindingsTable findings={model.technicalFindings} />
+        </section>
+      ) : (
+        <section className="page-section-divider">
+          <Card className="surface-card compact-card">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow eyebrow-soft">Technical findings</p>
+                <h2 className="text-zinc-500">Unavailable</h2>
+              </div>
+              <ToneBadge tone="neutral">Coming soon</ToneBadge>
+            </div>
+            <p className="supporting-copy">Technical readiness findings require site audits, which are planned for a future release.</p>
+          </Card>
+        </section>
+      )}
 
       {/* Competitor table */}
       <section className="page-section-divider">
@@ -1098,7 +1196,374 @@ function SettingsPage({
   )
 }
 
-function SetupPage({ model }: { model: SetupWizardVm }) {
+const SETUP_STEPS = [
+  { label: 'System check', description: 'Verify your instance is ready' },
+  { label: 'Create project', description: 'Name, domain, and locale' },
+  { label: 'Keywords', description: 'Add keywords to track' },
+  { label: 'Competitors', description: 'Add competitor domains' },
+  { label: 'Launch', description: 'Start your first visibility sweep' },
+] as const
+
+function SetupStepIndicator({ current, labels }: { current: number; labels: readonly { label: string }[] }) {
+  return (
+    <div className="setup-steps" role="list" aria-label="Setup progress">
+      {labels.map((s, i) => {
+        const done = i < current
+        const active = i === current
+        return (
+          <div key={s.label} className={`setup-step ${done ? 'setup-step-done' : ''} ${active ? 'setup-step-active' : ''}`} role="listitem" aria-current={active ? 'step' : undefined}>
+            <span className="setup-step-number">{done ? '\u2713' : i + 1}</span>
+            <span className="setup-step-label">{s.label}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function SetupPage({
+  model,
+  onProjectCreated,
+  onNavigate,
+}: {
+  model: SetupWizardVm
+  onProjectCreated: () => void
+  onNavigate: (to: string) => void
+}) {
+  const [step, setStep] = useState(0)
+
+  const [projectName, setProjectName] = useState('')
+  const [displayName, setDisplayName] = useState('')
+  const [domain, setDomain] = useState('')
+  const [country, setCountry] = useState('US')
+  const [language, setLanguage] = useState('en')
+  const [createdProjectName, setCreatedProjectName] = useState<string | null>(null)
+  const [createdProjectId, setCreatedProjectId] = useState<string | null>(null)
+  const [projectError, setProjectError] = useState<string | null>(null)
+  const [projectSaving, setProjectSaving] = useState(false)
+
+  const [keywordsText, setKeywordsText] = useState('')
+  const [keywordsSaved, setKeywordsSaved] = useState(false)
+  const [keywordsError, setKeywordsError] = useState<string | null>(null)
+  const [keywordsSaving, setKeywordsSaving] = useState(false)
+
+  const [competitorsText, setCompetitorsText] = useState('')
+  const [competitorsSaved, setCompetitorsSaved] = useState(false)
+  const [competitorsError, setCompetitorsError] = useState<string | null>(null)
+  const [competitorsSaving, setCompetitorsSaving] = useState(false)
+
+  const [runTriggered, setRunTriggered] = useState(false)
+  const [runError, setRunError] = useState<string | null>(null)
+  const [runSaving, setRunSaving] = useState(false)
+
+  const slug = projectName.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+  const parsedKeywords = keywordsText.split('\n').map(k => k.trim()).filter(Boolean)
+  const parsedCompetitors = competitorsText.split('\n').map(c => c.trim()).filter(Boolean)
+
+  const allHealthy = model.healthChecks.every((c) => c.state === 'ready')
+
+  const handleCreateProject = async () => {
+    if (!slug || !domain) return
+    setProjectSaving(true)
+    setProjectError(null)
+    try {
+      const project = await createProject(slug, {
+        displayName: displayName || projectName,
+        canonicalDomain: domain,
+        country,
+        language,
+      })
+      setCreatedProjectName(slug)
+      setCreatedProjectId(project.id)
+      onProjectCreated()
+      setStep(2)
+    } catch (err) {
+      setProjectError(err instanceof Error ? err.message : 'Failed to create project')
+    } finally {
+      setProjectSaving(false)
+    }
+  }
+
+  const handleSaveKeywords = async () => {
+    if (!createdProjectName) return
+    const keywords = parsedKeywords
+    if (keywords.length === 0) return
+    setKeywordsSaving(true)
+    setKeywordsError(null)
+    try {
+      await setKeywords(createdProjectName, keywords)
+      setKeywordsSaved(true)
+      onProjectCreated()
+      setStep(3)
+    } catch (err) {
+      setKeywordsError(err instanceof Error ? err.message : 'Failed to save keywords')
+    } finally {
+      setKeywordsSaving(false)
+    }
+  }
+
+  const handleSaveCompetitors = async () => {
+    if (!createdProjectName) return
+    const competitors = parsedCompetitors
+    if (competitors.length === 0) return
+    setCompetitorsSaving(true)
+    setCompetitorsError(null)
+    try {
+      await setCompetitors(createdProjectName, competitors)
+      setCompetitorsSaved(true)
+      onProjectCreated()
+      setStep(4)
+    } catch (err) {
+      setCompetitorsError(err instanceof Error ? err.message : 'Failed to save competitors')
+    } finally {
+      setCompetitorsSaving(false)
+    }
+  }
+
+  const handleLaunchRun = async () => {
+    if (!createdProjectName) return
+    setRunSaving(true)
+    setRunError(null)
+    try {
+      await apiTriggerRun(createdProjectName)
+      setRunTriggered(true)
+      onProjectCreated()
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : 'Failed to trigger run')
+    } finally {
+      setRunSaving(false)
+    }
+  }
+
+  const goBack = () => setStep((s) => Math.max(0, s - 1))
+
+  const stepContent = (() => {
+    switch (step) {
+      case 0:
+        return (
+          <Card className="surface-card step-card">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow eyebrow-soft">Step 1 of 5</p>
+                <h2>System ready</h2>
+              </div>
+            </div>
+            <p className="supporting-copy">Checking that your Canonry instance is configured and reachable.</p>
+            <div className="compact-stack">
+              {model.healthChecks.map((check) => (
+                <div key={check.id} className="health-check-row">
+                  <div>
+                    <p className="run-row-title">{check.label}</p>
+                    <p className="supporting-copy">{check.detail}</p>
+                  </div>
+                  <ToneBadge tone={check.state === 'ready' ? 'positive' : 'caution'}>
+                    {check.state === 'ready' ? 'Ready' : 'Attention'}
+                  </ToneBadge>
+                </div>
+              ))}
+            </div>
+            <div className="setup-nav">
+              <span />
+              <Button type="button" disabled={!allHealthy} onClick={() => setStep(1)}>
+                Continue
+              </Button>
+            </div>
+          </Card>
+        )
+
+      case 1:
+        return (
+          <Card className="surface-card step-card">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow eyebrow-soft">Step 2 of 5</p>
+                <h2>Create project</h2>
+              </div>
+              {createdProjectName ? <ToneBadge tone="positive">Created</ToneBadge> : null}
+            </div>
+            {createdProjectName ? (
+              <div className="compact-stack">
+                <p className="text-zinc-300">Project <span className="text-zinc-100 font-medium">{createdProjectName}</span> created successfully.</p>
+                <div className="setup-nav">
+                  <Button type="button" variant="outline" onClick={goBack}>Back</Button>
+                  <Button type="button" onClick={() => setStep(2)}>Continue</Button>
+                </div>
+              </div>
+            ) : (
+              <div className="compact-stack">
+                <div className="setup-field">
+                  <label className="setup-label" htmlFor="project-name">Project name</label>
+                  <input id="project-name" className="setup-input" type="text" placeholder="my-website" value={projectName} onChange={(e) => setProjectName(e.target.value)} />
+                  {slug && slug !== projectName ? <p className="supporting-copy">Slug: {slug}</p> : null}
+                </div>
+                <div className="setup-field">
+                  <label className="setup-label" htmlFor="display-name">Display name (optional)</label>
+                  <input id="display-name" className="setup-input" type="text" placeholder="My Website" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+                </div>
+                <div className="setup-field">
+                  <label className="setup-label" htmlFor="domain">Canonical domain</label>
+                  <input id="domain" className="setup-input" type="text" placeholder="example.com" value={domain} onChange={(e) => setDomain(e.target.value)} />
+                </div>
+                <div className="setup-field-row">
+                  <div className="setup-field">
+                    <label className="setup-label" htmlFor="country">Country</label>
+                    <input id="country" className="setup-input" type="text" placeholder="US" maxLength={2} value={country} onChange={(e) => setCountry(e.target.value.toUpperCase())} />
+                  </div>
+                  <div className="setup-field">
+                    <label className="setup-label" htmlFor="language">Language</label>
+                    <input id="language" className="setup-input" type="text" placeholder="en" maxLength={5} value={language} onChange={(e) => setLanguage(e.target.value.toLowerCase())} />
+                  </div>
+                </div>
+                {projectError ? <p className="text-rose-400 text-sm">{projectError}</p> : null}
+                <div className="setup-nav">
+                  <Button type="button" variant="outline" onClick={goBack}>Back</Button>
+                  <Button type="button" disabled={!slug || !domain || projectSaving} onClick={handleCreateProject}>
+                    {projectSaving ? 'Creating...' : 'Create project'}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </Card>
+        )
+
+      case 2:
+        return (
+          <Card className="surface-card step-card">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow eyebrow-soft">Step 3 of 5</p>
+                <h2>Add keywords</h2>
+              </div>
+              {keywordsSaved ? (
+                <ToneBadge tone="positive">{parsedKeywords.length} saved</ToneBadge>
+              ) : (
+                <ToneBadge tone="neutral">{parsedKeywords.length} keyword{parsedKeywords.length !== 1 ? 's' : ''}</ToneBadge>
+              )}
+            </div>
+            <p className="supporting-copy">Enter the search queries you want to track. One keyword per line.</p>
+            {keywordsSaved ? (
+              <div className="compact-stack">
+                <ul className="detail-list">
+                  {parsedKeywords.map((kw) => <li key={kw}>{kw}</li>)}
+                </ul>
+                <div className="setup-nav">
+                  <Button type="button" variant="outline" onClick={goBack}>Back</Button>
+                  <Button type="button" onClick={() => setStep(3)}>Continue</Button>
+                </div>
+              </div>
+            ) : (
+              <div className="compact-stack">
+                <div className="setup-field">
+                  <label className="setup-label" htmlFor="keywords">Keywords (one per line)</label>
+                  <textarea
+                    id="keywords"
+                    className="setup-textarea"
+                    rows={6}
+                    placeholder={'emergency dentist brooklyn\nbest invisalign downtown brooklyn\npediatric dentist brooklyn heights'}
+                    value={keywordsText}
+                    onChange={(e) => setKeywordsText(e.target.value)}
+                  />
+                </div>
+                {keywordsError ? <p className="text-rose-400 text-sm">{keywordsError}</p> : null}
+                <div className="setup-nav">
+                  <Button type="button" variant="outline" onClick={goBack}>Back</Button>
+                  <Button type="button" disabled={parsedKeywords.length === 0 || keywordsSaving} onClick={handleSaveKeywords}>
+                    {keywordsSaving ? 'Saving...' : `Save ${parsedKeywords.length} keyword${parsedKeywords.length !== 1 ? 's' : ''}`}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </Card>
+        )
+
+      case 3:
+        return (
+          <Card className="surface-card step-card">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow eyebrow-soft">Step 4 of 5</p>
+                <h2>Add competitors</h2>
+              </div>
+              {competitorsSaved ? <ToneBadge tone="positive">Saved</ToneBadge> : null}
+            </div>
+            <p className="supporting-copy">Domains that compete for the same keywords. One per line.</p>
+            {competitorsSaved ? (
+              <div className="compact-stack">
+                <ul className="detail-list">
+                  {parsedCompetitors.map((c) => <li key={c}>{c}</li>)}
+                </ul>
+                <div className="setup-nav">
+                  <Button type="button" variant="outline" onClick={goBack}>Back</Button>
+                  <Button type="button" onClick={() => setStep(4)}>Continue</Button>
+                </div>
+              </div>
+            ) : (
+              <div className="compact-stack">
+                <div className="setup-field">
+                  <label className="setup-label" htmlFor="competitors">Competitor domains (one per line)</label>
+                  <textarea
+                    id="competitors"
+                    className="setup-textarea"
+                    rows={4}
+                    placeholder={'competitor1.com\ncompetitor2.com'}
+                    value={competitorsText}
+                    onChange={(e) => setCompetitorsText(e.target.value)}
+                  />
+                </div>
+                {competitorsError ? <p className="text-rose-400 text-sm">{competitorsError}</p> : null}
+                <div className="setup-nav">
+                  <Button type="button" variant="outline" onClick={goBack}>Back</Button>
+                  <Button type="button" disabled={parsedCompetitors.length === 0 || competitorsSaving} onClick={handleSaveCompetitors}>
+                    {competitorsSaving ? 'Saving...' : `Save ${parsedCompetitors.length} competitor${parsedCompetitors.length !== 1 ? 's' : ''}`}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </Card>
+        )
+
+      case 4:
+        return (
+          <Card className="surface-card step-card">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow eyebrow-soft">Step 5 of 5</p>
+                <h2>Launch first run</h2>
+              </div>
+              {runTriggered ? <ToneBadge tone="positive">Queued</ToneBadge> : null}
+            </div>
+            {runTriggered ? (
+              <div className="compact-stack">
+                <p className="text-zinc-300">Visibility sweep has been queued. View progress on the project page.</p>
+                <div className="setup-nav">
+                  <span />
+                  <Button type="button" onClick={() => onNavigate(createdProjectId ? `/projects/${createdProjectId}` : '/')}>
+                    Open project
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="compact-stack">
+                <p className="supporting-copy">
+                  Everything is configured. Launch an answer-visibility sweep to start tracking citations for <span className="text-zinc-100 font-medium">{createdProjectName}</span>.
+                </p>
+                {runError ? <p className="text-rose-400 text-sm">{runError}</p> : null}
+                <div className="setup-nav">
+                  <Button type="button" variant="outline" onClick={goBack}>Back</Button>
+                  <Button type="button" disabled={runSaving} onClick={handleLaunchRun}>
+                    {runSaving ? 'Launching...' : 'Launch visibility sweep'}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </Card>
+        )
+
+      default:
+        return null
+    }
+  })()
+
   return (
     <div className="page-container">
       <div className="page-header">
@@ -1108,102 +1573,10 @@ function SetupPage({ model }: { model: SetupWizardVm }) {
         </div>
       </div>
 
-      <section className="setup-grid">
-        <Card className="surface-card step-card">
-          <div className="section-head">
-            <div>
-              <p className="eyebrow eyebrow-soft">Step 1</p>
-              <h2>System ready</h2>
-            </div>
-          </div>
-          <div className="compact-stack">
-            {model.healthChecks.map((check) => (
-              <div key={check.id} className="health-check-row">
-                <div>
-                  <p className="run-row-title">{check.label}</p>
-                  <p className="supporting-copy">{check.detail}</p>
-                </div>
-                <ToneBadge tone={check.state === 'ready' ? 'positive' : 'caution'}>
-                  {check.state === 'ready' ? 'Ready' : 'Attention'}
-                </ToneBadge>
-              </div>
-            ))}
-          </div>
-        </Card>
+      <SetupStepIndicator current={step} labels={SETUP_STEPS} />
 
-        <Card className="surface-card step-card">
-          <div className="section-head">
-            <div>
-              <p className="eyebrow eyebrow-soft">Step 2</p>
-              <h2>Create project</h2>
-            </div>
-          </div>
-          <dl className="definition-list">
-            <div>
-              <dt>Name</dt>
-              <dd>{model.projectDraft.name}</dd>
-            </div>
-            <div>
-              <dt>Domain</dt>
-              <dd>{model.projectDraft.canonicalDomain}</dd>
-            </div>
-            <div>
-              <dt>Locale</dt>
-              <dd>
-                {model.projectDraft.country} / {model.projectDraft.language.toUpperCase()}
-              </dd>
-            </div>
-          </dl>
-        </Card>
-
-        <Card className="surface-card step-card">
-          <div className="section-head">
-            <div>
-              <p className="eyebrow eyebrow-soft">Step 3</p>
-              <h2>Import or paste keywords</h2>
-            </div>
-            <ToneBadge tone="neutral">{model.keywordImportState.keywordCount} keywords</ToneBadge>
-          </div>
-          <p className="supporting-copy">
-            Mode: {model.keywordImportState.mode === 'paste' ? 'Paste list' : 'CSV import'}
-          </p>
-          <ul className="detail-list">
-            {model.keywordImportState.preview.map((keyword) => (
-              <li key={keyword}>{keyword}</li>
-            ))}
-          </ul>
-        </Card>
-
-        <Card className="surface-card step-card">
-          <div className="section-head">
-            <div>
-              <p className="eyebrow eyebrow-soft">Step 4</p>
-              <h2>Add competitors</h2>
-            </div>
-          </div>
-          <ul className="detail-list">
-            {model.competitorDraft.domains.map((domain) => (
-              <li key={domain}>{domain}</li>
-            ))}
-          </ul>
-          <p className="supporting-copy">{model.competitorDraft.notes}</p>
-        </Card>
-
-        <Card className="surface-card step-card">
-          <div className="section-head">
-            <div>
-              <p className="eyebrow eyebrow-soft">Step 5</p>
-              <h2>Launch first run</h2>
-            </div>
-          </div>
-          <p>{model.launchState.summary}</p>
-          {model.launchState.blockedReason ? (
-            <p className="blocking-copy">{model.launchState.blockedReason}</p>
-          ) : null}
-          <Button type="button" disabled={!model.launchState.enabled}>
-            {model.launchState.ctaLabel}
-          </Button>
-        </Card>
+      <section className="setup-wizard">
+        {stepContent}
       </section>
     </div>
   )
@@ -1258,19 +1631,75 @@ function Drawer({
    Root app
    ──────────────────────────────────────────── */
 
+async function loadDashboardData(): Promise<DashboardVm | null> {
+  try {
+    const [projects, allRuns] = await Promise.all([fetchProjects(), fetchAllRuns()])
+
+    const projectDataList: ProjectData[] = await Promise.all(
+      projects.map(async (project) => {
+        const projectRuns = allRuns.filter(r => r.projectId === project.id)
+        const completedRuns = projectRuns
+          .filter(r => r.status === 'completed')
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+
+        const [kws, comps, timeline, latestRunDetail] = await Promise.all([
+          fetchKeywords(project.name).catch(() => []),
+          fetchCompetitors(project.name).catch(() => []),
+          fetchTimeline(project.name).catch(() => []),
+          completedRuns[0] ? fetchRunDetail(completedRuns[0].id).catch(() => null) : Promise.resolve(null),
+        ])
+
+        return {
+          project,
+          runs: projectRuns,
+          keywords: kws,
+          competitors: comps,
+          timeline,
+          latestRunDetail: latestRunDetail,
+        }
+      }),
+    )
+
+    return buildDashboard(projectDataList)
+  } catch {
+    return null
+  }
+}
+
 export function App({
   initialPathname,
   initialDashboard,
   initialHealthSnapshot,
   enableLiveStatus = true,
 }: AppProps) {
-  const dashboard = initialDashboard ?? defaultFixture.dashboard
+  const [dashboard, setDashboard] = useState<DashboardVm>(
+    initialDashboard ?? defaultFixture.dashboard,
+  )
+  const [loading, setLoading] = useState(!initialDashboard)
+  const [_apiConnected, setApiConnected] = useState<boolean | null>(null)
   const [pathname, setPathname] = useState(() => getInitialPathname(initialPathname))
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [drawerState, setDrawerState] = useState<DrawerState>(null)
   const [healthSnapshot, setHealthSnapshot] = useState<HealthSnapshot>(
     initialHealthSnapshot ?? defaultFixture.health ?? defaultHealthSnapshot,
   )
+
+  const refreshData = useCallback(async () => {
+    const data = await loadDashboardData()
+    if (data) {
+      setDashboard(data)
+      setApiConnected(true)
+    } else {
+      setApiConnected(false)
+    }
+    setLoading(false)
+  }, [])
+
+  // Initial data load from API
+  useEffect(() => {
+    if (initialDashboard) return
+    void refreshData()
+  }, [initialDashboard, refreshData])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -1309,6 +1738,7 @@ export function App({
     }
   }, [drawerState])
 
+  // Health check polling — uses /health endpoint from canonry serve
   useEffect(() => {
     if (!enableLiveStatus || typeof window === 'undefined') {
       return
@@ -1317,10 +1747,11 @@ export function App({
     let active = true
 
     const refresh = async () => {
-      const [apiStatus, workerStatus] = await Promise.all([
-        fetchServiceStatus('/api-health', 'API'),
-        fetchServiceStatus('/worker-health', 'Worker'),
-      ])
+      const apiStatus = await fetchServiceStatus('/health', 'API')
+      // Single-process local server has no separate worker
+      const workerStatus: ServiceStatus = apiStatus.state === 'ok'
+        ? { label: 'Runner', state: 'ok', detail: 'In-process job runner' }
+        : { label: 'Runner', state: apiStatus.state, detail: 'Depends on API' }
 
       if (!active) {
         return
@@ -1332,7 +1763,7 @@ export function App({
     void refresh()
     const timer = window.setInterval(() => {
       void refresh()
-    }, 10_000)
+    }, 15_000)
 
     return () => {
       active = false
@@ -1373,6 +1804,25 @@ export function App({
 
   const openEvidence = (evidenceId: string) => {
     setDrawerState({ kind: 'evidence', evidenceId })
+  }
+
+  const handleTriggerRun = async (projectName: string) => {
+    try {
+      await apiTriggerRun(projectName)
+      void refreshData()
+    } catch (err) {
+      console.error('Failed to trigger run:', err)
+    }
+  }
+
+  const handleDeleteProject = async (projectName: string) => {
+    try {
+      await apiDeleteProject(projectName)
+      navigate('/')
+      void refreshData()
+    } catch (err) {
+      console.error('Failed to delete project:', err)
+    }
   }
 
   const systemHealthCards = buildSystemHealthCards(dashboard.portfolioOverview.systemHealth, healthSnapshot, dashboard.settings)
@@ -1571,23 +2021,36 @@ export function App({
 
         {/* Page content */}
         <main id="content" className="page-shell">
-          {route.kind === 'overview' ? (
-            <OverviewPage
-              model={dashboard.portfolioOverview}
-              systemHealth={systemHealthCards}
-              onNavigate={navigate}
-              onOpenRun={openRun}
-            />
-          ) : null}
-          {route.kind === 'project' && activeProject ? (
-            <ProjectPage model={activeProject} onOpenEvidence={openEvidence} onOpenRun={openRun} />
-          ) : null}
-          {route.kind === 'runs' ? <RunsPage runs={dashboard.runs} onOpenRun={openRun} /> : null}
-          {route.kind === 'settings' ? (
-            <SettingsPage settings={dashboard.settings} healthSnapshot={healthSnapshot} />
-          ) : null}
-          {route.kind === 'setup' ? <SetupPage model={setupModel} /> : null}
-          {route.kind === 'not-found' ? <NotFoundPage onNavigate={navigate} /> : null}
+          {loading ? (
+            <div className="page-container">
+              <div className="page-header">
+                <div className="page-header-left">
+                  <h1 className="page-title">Loading</h1>
+                  <p className="page-subtitle">Connecting to API and loading dashboard data...</p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              {route.kind === 'overview' ? (
+                <OverviewPage
+                  model={dashboard.portfolioOverview}
+                  systemHealth={systemHealthCards}
+                  onNavigate={navigate}
+                  onOpenRun={openRun}
+                />
+              ) : null}
+              {route.kind === 'project' && activeProject ? (
+                <ProjectPage model={activeProject} onOpenEvidence={openEvidence} onOpenRun={openRun} onTriggerRun={handleTriggerRun} onDeleteProject={handleDeleteProject} />
+              ) : null}
+              {route.kind === 'runs' ? <RunsPage runs={dashboard.runs} onOpenRun={openRun} /> : null}
+              {route.kind === 'settings' ? (
+                <SettingsPage settings={dashboard.settings} healthSnapshot={healthSnapshot} />
+              ) : null}
+              {route.kind === 'setup' ? <SetupPage model={setupModel} onProjectCreated={refreshData} onNavigate={navigate} /> : null}
+              {route.kind === 'not-found' ? <NotFoundPage onNavigate={navigate} /> : null}
+            </>
+          )}
         </main>
 
         <footer className="footer">

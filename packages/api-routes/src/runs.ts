@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { eq, and, or } from 'drizzle-orm'
+import { eq, and, or, asc } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { runs, querySnapshots, keywords } from '@ainyc/aeo-platform-db'
 import { unsupportedKind, runInProgress } from '@ainyc/aeo-platform-contracts'
@@ -24,35 +24,43 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       return reply.status(err.statusCode).send(err.toJSON())
     }
 
-    // Check for existing active run
-    const activeRun = app.db
-      .select()
-      .from(runs)
-      .where(
-        and(
-          eq(runs.projectId, project.id),
-          or(eq(runs.status, 'queued'), eq(runs.status, 'running')),
-        ),
-      )
-      .get()
-
-    if (activeRun) {
-      const err = runInProgress(project.name)
-      return reply.status(err.statusCode).send(err.toJSON())
-    }
-
     const now = new Date().toISOString()
     const runId = crypto.randomUUID()
     const trigger = request.body?.trigger ?? 'manual'
 
-    app.db.insert(runs).values({
-      id: runId,
-      projectId: project.id,
-      kind,
-      status: 'queued',
-      trigger,
-      createdAt: now,
-    }).run()
+    // Check and insert atomically to prevent duplicate concurrent runs
+    const txResult = app.db.transaction((tx) => {
+      const activeRun = tx
+        .select()
+        .from(runs)
+        .where(
+          and(
+            eq(runs.projectId, project.id),
+            or(eq(runs.status, 'queued'), eq(runs.status, 'running')),
+          ),
+        )
+        .get()
+
+      if (activeRun) {
+        return { conflict: true } as const
+      }
+
+      tx.insert(runs).values({
+        id: runId,
+        projectId: project.id,
+        kind,
+        status: 'queued',
+        trigger,
+        createdAt: now,
+      }).run()
+
+      return { conflict: false } as const
+    })
+
+    if (txResult.conflict) {
+      const err = runInProgress(project.name)
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
 
     writeAuditLog(app.db, {
       projectId: project.id,
@@ -75,7 +83,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   app.get<{ Params: { name: string } }>('/projects/:name/runs', async (request, reply) => {
     const project = resolveProjectSafe(app, request.params.name, reply)
     if (!project) return
-    const rows = app.db.select().from(runs).where(eq(runs.projectId, project.id)).all()
+    const rows = app.db.select().from(runs).where(eq(runs.projectId, project.id)).orderBy(asc(runs.createdAt)).all()
     return reply.send(rows.map(formatRun))
   })
 
@@ -120,8 +128,8 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
         provider: s.provider,
         citationState: s.citationState,
         answerText: s.answerText,
-        citedDomains: JSON.parse(s.citedDomains) as string[],
-        competitorOverlap: JSON.parse(s.competitorOverlap) as string[],
+        citedDomains: tryParseJson(s.citedDomains, []),
+        competitorOverlap: tryParseJson(s.competitorOverlap, []),
         createdAt: s.createdAt,
       })),
     })
@@ -149,6 +157,14 @@ function formatRun(row: {
     finishedAt: row.finishedAt,
     error: row.error,
     createdAt: row.createdAt,
+  }
+}
+
+function tryParseJson<T>(value: string, fallback: T): T {
+  try {
+    return JSON.parse(value) as T
+  } catch {
+    return fallback
   }
 }
 
