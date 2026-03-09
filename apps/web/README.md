@@ -1,3 +1,5 @@
 # Web App
 
-`@ainyc/aeo-platform-web` is the Vite placeholder dashboard for the platform. In Phase 1 it renders a review-oriented landing page that links maintainers to the architecture and operations docs while the backend contracts are still being defined.
+`@ainyc/aeo-platform-web` is the Vite SPA dashboard for Canonry. In local mode, the built output is bundled into `packages/canonry/assets/` and served by the local Fastify server. In cloud mode, it's deployed to a CDN.
+
+Design system conventions are documented in `CLAUDE.md`.

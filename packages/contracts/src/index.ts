@@ -1,3 +1,5 @@
+export * from './config-schema.js'
+export * from './errors.js'
 export * from './project.js'
 export * from './provider.js'
 export * from './run.js'

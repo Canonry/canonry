@@ -1,3 +1,5 @@
 # API App
 
-`@ainyc/aeo-platform-api` is the Fastify placeholder API for the future self-hosted monitoring platform. In Phase 1 it exposes a typed health endpoint and the environment/bootstrap surface needed to review architecture and deployment shape.
+`@ainyc/aeo-platform-api` is the cloud deployment entry point for the Fastify API. It imports shared route plugins from `packages/api-routes/` and adds cloud-specific configuration (Postgres, pg-boss).
+
+For local use, the same route plugins are mounted by `packages/canonry/src/server.ts`.

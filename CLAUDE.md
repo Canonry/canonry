@@ -2,19 +2,28 @@
 
 ## Project Overview
 
-`canonry` is the monitoring application that sits on top of the published `@ainyc/aeo-audit` npm package. This repo owns the product surface, not the audit package itself.
+`canonry` is an open-source AEO monitoring tool that tracks how AI answer engines cite a domain for tracked keywords. Built on the published `@ainyc/aeo-audit` npm package.
+
+## Current Phase
+
+**Phase 2** — building the publishable `@ainyc/canonry` npm package with CLI, local server, SQLite, and Gemini visibility runs. See `docs/phase-2-design.md` for the full architecture plan.
+
+**In scope:** Visibility runs, CLI, config-as-code, API, bundled SPA, SQLite, auth, audit log, usage counters.
+**Deferred:** Site audit (Phase 3), scheduling (Phase 3), cloud/Postgres (Phase 4).
 
 ## Workspace Map
 
 ```text
-apps/api/             Fastify API
-apps/worker/          Background worker and audit/provider adapters
-apps/web/             Vite dashboard
-packages/contracts/   Shared DTOs and enums
-packages/config/      Typed environment parsing
-packages/db/          Database placeholder
-packages/provider-gemini/ Gemini adapter placeholder
-docs/                 Architecture, testing, self-hosting, ADRs
+apps/api/                 Cloud API entry point (imports packages/api-routes)
+apps/worker/              Cloud worker entry point
+apps/web/                 Vite SPA source (bundled into packages/canonry/assets/)
+packages/canonry/         Publishable npm package (CLI + server + bundled SPA)
+packages/api-routes/      Shared Fastify route plugins
+packages/contracts/       DTOs, enums, config-schema, error codes
+packages/config/          Typed environment parsing
+packages/db/              Drizzle ORM schema, migrations, client (SQLite/Postgres)
+packages/provider-gemini/ Gemini adapter
+docs/                     Architecture, product plan, testing, ADRs
 ```
 
 ## Commands
@@ -24,10 +33,17 @@ pnpm install
 pnpm run typecheck
 pnpm run test
 pnpm run lint
-pnpm run dev:api
-pnpm run dev:worker
 pnpm run dev:web
-pnpm run docker:up
+
+# CLI (after Phase 2 implementation)
+canonry init
+canonry serve
+canonry project create <name> --domain <domain> --country US --language en
+canonry keyword add <project> <keyword>...
+canonry run <project>
+canonry status <project>
+canonry apply <canonry.yaml>
+canonry export <project>
 ```
 
 ## Dependency Boundary
@@ -35,14 +51,63 @@ pnpm run docker:up
 - Use `@ainyc/aeo-audit` as an external dependency.
 - Do not copy source files out of the audit package repo into this repo.
 - Any use of the audit engine should go through explicit adapters in `apps/worker`.
+- `packages/api-routes/` must not import from `apps/*`.
+- `packages/canonry/` is the only publishable artifact.
+
+## Surface Parity
+
+**Every feature must be equally accessible through CLI, API, and UI.** No surface is privileged — if a user can do something from the terminal, they must be able to do the same from the web dashboard and vice versa. The API is the shared backbone; both CLI and UI are clients of it.
+
+When adding a new feature:
+1. Add the API endpoint in `packages/api-routes/`.
+2. Add the CLI command in `packages/canonry/src/commands/`.
+3. Add the UI interaction in `apps/web/`.
+4. All three must ship together — do not defer one surface to a later phase.
 
 ## Maintenance Guidance
 
 - Keep shared shapes in `packages/contracts`.
 - Keep environment parsing in `packages/config`.
 - Keep provider logic in `packages/provider-gemini`.
+- Keep API route plugins in `packages/api-routes` (no app-level concerns).
 - Keep API handlers thin.
 - Keep the monitoring app independent from the audit package repo except for the published npm dependency.
+- Raw observation snapshots only (`cited`/`not-cited`); transitions computed at query time.
+
+## Config-as-Code
+
+Projects are managed via `canonry.yaml` files with Kubernetes-style structure:
+
+```yaml
+apiVersion: canonry/v1
+kind: Project
+metadata:
+  name: my-project
+spec:
+  displayName: My Project
+  canonicalDomain: example.com
+  country: US
+  language: en
+  keywords:
+    - keyword one
+  competitors:
+    - competitor.com
+```
+
+Apply with `canonry apply <file>` or `POST /api/v1/apply`. DB is authoritative; config files are input.
+
+## API Surface
+
+All endpoints under `/api/v1/`. Auth via `Authorization: Bearer cnry_...`. Key endpoints:
+
+- `PUT /api/v1/projects/{name}` — create/update project
+- `POST /api/v1/projects/{name}/runs` — trigger visibility sweep
+- `GET /api/v1/projects/{name}/timeline` — per-keyword citation history
+- `GET /api/v1/projects/{name}/snapshots/diff` — compare two runs
+- `POST /api/v1/apply` — config-as-code apply
+- `GET /api/v1/openapi.json` — OpenAPI spec (no auth)
+
+See `docs/phase-2-design.md` section 6 for the complete API table.
 
 ## UI Design System
 
@@ -94,15 +159,16 @@ The web dashboard follows a dark, professional analytics aesthetic designed to r
 - Don't add decorative background gradients or glow effects.
 - Don't create new component files unless the component is reused across 3+ pages.
 
-## Improvement Order
+## Improvement Order (Phase 2)
 
-1. Shared contracts and docs
-2. Backend services and worker logic
-3. Provider execution and persistence
-4. UI expansion
+1. Database schema and contracts foundation
+2. API route plugins (`packages/api-routes/`)
+3. Provider execution (Gemini) and job runner
+4. Publishable package (`packages/canonry/`)
+5. Wire web dashboard to real API
 
 ## CI Guidance
 
-- This repo has validation CI only; there is no publish workflow here.
+- Validation CI: `typecheck`, `test`, `lint` across the full workspace on PRs.
 - Keep explicit job permissions.
-- Run `typecheck`, `test`, and `lint` across the full workspace on PRs.
+- Publish workflow will be added when `packages/canonry/` is ready for npm.
