@@ -10,7 +10,7 @@ test('App renders the skeleton shell and docs links', () => {
   const html = renderToStaticMarkup(<App />)
 
   assert.match(html, /Platform skeleton/)
-  assert.match(html, /aeo-monitor platform scaffold/)
+  assert.match(html, /canonry platform scaffold/)
   assert.match(html, /API status checking/)
   assert.match(html, /Worker status checking/)
   assert.match(html, /Architecture/)

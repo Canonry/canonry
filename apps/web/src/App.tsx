@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 
 const docs = [
-  { label: 'Architecture', href: 'https://github.com/AINYC/aeo-monitor/blob/main/docs/architecture.md' },
-  { label: 'Testing Guide', href: 'https://github.com/AINYC/aeo-monitor/blob/main/docs/testing.md' },
-  { label: 'Self-Hosting', href: 'https://github.com/AINYC/aeo-monitor/blob/main/docs/self-hosting.md' },
+  { label: 'Architecture', href: 'https://github.com/AINYC/canonry/blob/main/docs/architecture.md' },
+  { label: 'Testing Guide', href: 'https://github.com/AINYC/canonry/blob/main/docs/testing.md' },
+  { label: 'Self-Hosting', href: 'https://github.com/AINYC/canonry/blob/main/docs/self-hosting.md' },
 ]
 
 type StatusState = 'checking' | 'ok' | 'error'
@@ -96,7 +96,7 @@ export function App() {
 
       <section className="card">
         <h2>Project</h2>
-        <p>aeo-monitor platform scaffold</p>
+        <p>canonry platform scaffold</p>
       </section>
 
       <section className="card">

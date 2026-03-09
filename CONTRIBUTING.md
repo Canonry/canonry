@@ -1,10 +1,10 @@
-# Contributing to AEO Monitor
+# Contributing to Canonry
 
 ## Setup
 
 ```bash
 git clone <repo-url>
-cd aeo-monitor
+cd canonry
 pnpm install
 pnpm run typecheck
 pnpm run test

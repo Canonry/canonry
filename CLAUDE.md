@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-`aeo-monitor` is the monitoring application that sits on top of the published `@ainyc/aeo-audit` npm package. This repo owns the product surface, not the audit package itself.
+`canonry` is the monitoring application that sits on top of the published `@ainyc/aeo-audit` npm package. This repo owns the product surface, not the audit package itself.
 
 ## Workspace Map
 
