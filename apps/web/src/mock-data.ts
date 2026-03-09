@@ -29,6 +29,9 @@ const projects: ProjectDto[] = [
     country: 'US',
     language: 'en',
     tags: ['local intent', 'priority'],
+    labels: {},
+    configSource: 'cli',
+    configRevision: 1,
   },
   {
     id: 'project_harbor',
@@ -37,6 +40,9 @@ const projects: ProjectDto[] = [
     country: 'US',
     language: 'en',
     tags: ['lead gen'],
+    labels: {},
+    configSource: 'cli',
+    configRevision: 1,
   },
   {
     id: 'project_northstar',
@@ -45,6 +51,9 @@ const projects: ProjectDto[] = [
     country: 'US',
     language: 'en',
     tags: ['multi-location'],
+    labels: {},
+    configSource: 'cli',
+    configRevision: 1,
   },
 ]
 
@@ -61,6 +70,7 @@ function createRun(input: {
   statusDetail: string
   summary: string
   triggerLabel: string
+  trigger?: 'manual' | 'scheduled' | 'config-apply'
 }): RunListItemVm {
   return {
     id: input.id,
@@ -69,6 +79,7 @@ function createRun(input: {
     kind: input.kind,
     kindLabel: input.kindLabel,
     status: input.status,
+    trigger: input.trigger ?? 'manual',
     createdAt: input.createdAt,
     startedAt: input.startedAt,
     duration: input.duration,
