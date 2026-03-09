@@ -202,6 +202,7 @@ const citypointEvidence: CitationInsightVm[] = [
       'https://harbordental.com/same-day-emergency-care',
     ],
     competitorDomains: ['downtownsmiles.com', 'harbordental.com'],
+    groundingSources: [],
     relatedTechnicalSignals: [
       'FAQ schema missing on the emergency service page',
       'llms.txt not found during latest site audit',
@@ -222,6 +223,7 @@ const citypointEvidence: CitationInsightVm[] = [
       'https://citypointdental.com/case-studies/invisalign-open-bite',
     ],
     competitorDomains: ['clearlineortho.com'],
+    groundingSources: [],
     relatedTechnicalSignals: [
       'Structured data now present on two case-study pages',
       'Internal links from service pages to case studies improved crawl depth',
@@ -241,6 +243,7 @@ const citypointEvidence: CitationInsightVm[] = [
       'https://parkpediatricdental.com/insurance',
     ],
     competitorDomains: ['brightkidsdental.com', 'parkpediatricdental.com'],
+    groundingSources: [],
     relatedTechnicalSignals: [
       'No dedicated pediatric service page exists for Brooklyn Heights',
       'Insurance content is buried three clicks deep',
@@ -340,21 +343,30 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       {
         id: 'competitor_citypoint_downtown',
         domain: 'downtownsmiles.com',
+        citationCount: 4,
+        totalKeywords: 8,
         pressureLabel: 'High',
+        citedKeywords: ['emergency dentist', 'same-day dental', 'walk-in dentist', 'tooth pain'],
         movement: 'Up on emergency and availability prompts',
         notes: 'Recently added same-day booking proof and FAQ content.',
       },
       {
         id: 'competitor_citypoint_harbor',
         domain: 'harbordental.com',
-        pressureLabel: 'Medium',
+        citationCount: 2,
+        totalKeywords: 8,
+        pressureLabel: 'Moderate',
+        citedKeywords: ['family dentist', 'emergency dentist'],
         movement: 'Holding citations on family and emergency intents',
         notes: 'Strong appointment and insurance content keeps answers grounded.',
       },
       {
         id: 'competitor_citypoint_clearline',
         domain: 'clearlineortho.com',
+        citationCount: 1,
+        totalKeywords: 8,
         pressureLabel: 'Low',
+        citedKeywords: ['invisalign near me'],
         movement: 'Softening on Invisalign prompts',
         notes: 'Case-study content is aging, opening room for Citypoint.',
       },
@@ -424,7 +436,8 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         citedDomains: ['harborlegal.com'],
         evidenceUrls: ['https://harborlegal.com/personal-injury/brooklyn'],
         competitorDomains: ['shorelineinjury.com'],
-        relatedTechnicalSignals: ['Practice-area schema intact', 'Case results link directly from service pages'],
+        groundingSources: [],
+    relatedTechnicalSignals: ['Practice-area schema intact', 'Case results link directly from service pages'],
         summary: 'Grounding remains durable after the service-page consolidation.',
       },
     ],
@@ -441,7 +454,10 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       {
         id: 'competitor_harbor_shoreline',
         domain: 'shorelineinjury.com',
-        pressureLabel: 'Medium',
+        citationCount: 2,
+        totalKeywords: 6,
+        pressureLabel: 'Moderate',
+        citedKeywords: ['personal injury lawyer', 'car accident attorney'],
         movement: 'Stable',
         notes: 'Strong case-result pages keep it in rotation.',
       },
@@ -506,7 +522,8 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
           'https://northstarortho.com/locations/westchester/knee-replacement',
         ],
         competitorDomains: ['regionaljointcare.com'],
-        relatedTechnicalSignals: ['Physician bios now linked from treatment pages'],
+        groundingSources: [],
+    relatedTechnicalSignals: ['Physician bios now linked from treatment pages'],
         summary: 'Template cleanup is helping, but proof depth still matters.',
       },
     ],
@@ -523,7 +540,10 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       {
         id: 'competitor_northstar_regional',
         domain: 'regionaljointcare.com',
+        citationCount: 5,
+        totalKeywords: 7,
         pressureLabel: 'High',
+        citedKeywords: ['knee replacement', 'hip surgery', 'joint pain treatment', 'orthopedic surgeon', 'sports medicine'],
         movement: 'Winning broad treatment prompts',
         notes: 'Heavy physician proof and patient-story content.',
       },
@@ -675,6 +695,7 @@ const baseDashboard: DashboardVm = {
   settings: {
     providerStatus: {
       name: 'Gemini',
+      model: 'gemini-2.5-flash',
       state: 'ready',
       detail: 'API key detected and conservative quota defaults are active.',
     },
@@ -773,6 +794,7 @@ export function createDashboardFixture(options: DashboardFixtureOptions = {}): D
   if (options.providerNeedsConfig) {
     dashboard.settings.providerStatus = {
       name: 'Gemini',
+      model: 'gemini-2.5-flash',
       state: 'needs-config',
       detail: 'API key is missing, so answer-visibility sweeps are blocked.',
     }

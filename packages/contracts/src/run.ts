@@ -29,6 +29,13 @@ export const runDtoSchema = z.object({
 
 export type RunDto = z.infer<typeof runDtoSchema>
 
+export const groundingSourceSchema = z.object({
+  uri: z.string(),
+  title: z.string(),
+})
+
+export type GroundingSource = z.infer<typeof groundingSourceSchema>
+
 export const querySnapshotDtoSchema = z.object({
   id: z.string(),
   runId: z.string(),
@@ -40,6 +47,9 @@ export const querySnapshotDtoSchema = z.object({
   answerText: z.string().nullable().optional(),
   citedDomains: z.array(z.string()).default([]),
   competitorOverlap: z.array(z.string()).default([]),
+  groundingSources: z.array(groundingSourceSchema).default([]),
+  searchQueries: z.array(z.string()).default([]),
+  model: z.string().nullable().optional(),
   createdAt: z.string(),
 })
 

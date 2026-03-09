@@ -15,12 +15,14 @@ export async function createServer(opts: {
 }): Promise<FastifyInstance> {
   const app = Fastify({ logger: true })
 
-  const jobRunner = new JobRunner(opts.db, opts.config.geminiApiKey)
+  const jobRunner = new JobRunner(opts.db, opts.config.geminiApiKey, opts.config.geminiModel, opts.config.geminiQuota)
 
   // Register API routes
   await app.register(apiRoutes, {
     db: opts.db,
     skipAuth: false,
+    geminiModel: opts.config.geminiModel,
+    geminiQuota: opts.config.geminiQuota,
     onRunCreated: (runId: string, projectId: string) => {
       // Fire and forget — run executes in background
       jobRunner.executeRun(runId, projectId).catch((err: unknown) => {

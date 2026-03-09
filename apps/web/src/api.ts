@@ -1,3 +1,7 @@
+import type { GroundingSource } from '@ainyc/aeo-platform-contracts'
+
+export type { GroundingSource }
+
 const API_BASE = '/api/v1'
 
 declare global {
@@ -69,6 +73,9 @@ export interface ApiSnapshot {
   answerText: string | null
   citedDomains: string[]
   competitorOverlap: string[]
+  groundingSources: GroundingSource[]
+  searchQueries: string[]
+  model: string | null
   createdAt: string
 }
 
@@ -160,6 +167,13 @@ export function setKeywords(projectName: string, keywords: string[]): Promise<Ap
   })
 }
 
+export function appendKeywords(projectName: string, keywords: string[]): Promise<ApiKeyword[]> {
+  return apiFetch(`/projects/${encodeURIComponent(projectName)}/keywords`, {
+    method: 'POST',
+    body: JSON.stringify({ keywords }),
+  })
+}
+
 export function setCompetitors(projectName: string, competitors: string[]): Promise<ApiCompetitor[]> {
   return apiFetch(`/projects/${encodeURIComponent(projectName)}/competitors`, {
     method: 'PUT',
@@ -177,6 +191,22 @@ export async function deleteProject(name: string): Promise<void> {
 
 export function fetchExport(name: string): Promise<unknown> {
   return apiFetch(`/projects/${encodeURIComponent(name)}/export`)
+}
+
+export interface ApiSettings {
+  provider: {
+    name: string
+    model: string
+  }
+  quota: {
+    maxConcurrency: number
+    maxRequestsPerMinute: number
+    maxRequestsPerDay: number
+  }
+}
+
+export function fetchSettings(): Promise<ApiSettings> {
+  return apiFetch('/settings')
 }
 
 export async function fetchHealthCheck(): Promise<{ status: string }> {

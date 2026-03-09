@@ -5,6 +5,7 @@ import type {
   ApiProject,
   ApiRun,
   ApiRunDetail,
+  ApiSettings,
   ApiTimelineEntry,
 } from './api.js'
 import type {
@@ -78,10 +79,36 @@ function toRunListItem(run: ApiRun, projectName: string): RunListItemVm {
     createdAt: run.createdAt,
     startedAt: run.startedAt ? formatDate(run.startedAt) : formatDate(run.createdAt),
     duration: formatDuration(run.startedAt, run.finishedAt),
-    statusDetail: run.error ?? statusDetailFromRun(run),
+    statusDetail: run.error ? formatErrorDetail(run.error) : statusDetailFromRun(run),
     summary: summaryFromRun(run),
     triggerLabel: triggerLabel(run.trigger),
   }
+}
+
+function formatErrorDetail(error: string): string {
+  // Extract a human-readable message from raw API error JSON/strings
+  // Try to pull the "message" field from JSON error objects
+  try {
+    const parsed = JSON.parse(error)
+    if (typeof parsed === 'object' && parsed !== null) {
+      // Google API errors often nest: [{error: {message: "..."}}] or {message: "..."}
+      const msg = parsed.message ?? parsed.error?.message ?? parsed[0]?.error?.message
+      if (typeof msg === 'string' && msg.length > 0) {
+        return msg.length > 200 ? msg.slice(0, 200) + '…' : msg
+      }
+    }
+  } catch {
+    // Not JSON, use as-is
+  }
+
+  // For bracket-wrapped errors like [GoogleGenerativeAI Error]: ...
+  const bracketMatch = error.match(/\[.*?\]\s*(.+)/)
+  if (bracketMatch) {
+    const msg = bracketMatch[1]
+    return msg.length > 200 ? msg.slice(0, 200) + '…' : msg
+  }
+
+  return error.length > 200 ? error.slice(0, 200) + '…' : error
 }
 
 function statusDetailFromRun(run: ApiRun): string {
@@ -90,7 +117,7 @@ function statusDetailFromRun(run: ApiRun): string {
     case 'running': return 'Provider queries in progress.'
     case 'completed': return 'All keywords checked.'
     case 'partial': return 'Run completed with some keywords skipped.'
-    case 'failed': return run.error ?? 'Run failed.'
+    case 'failed': return run.error ? formatErrorDetail(run.error) : 'Run failed.'
     default: return ''
   }
 }
@@ -173,6 +200,7 @@ function buildEvidenceFromTimeline(
       evidenceUrls: [],
       competitorDomains: snap?.competitorOverlap ?? [],
       relatedTechnicalSignals: [],
+      groundingSources: snap?.groundingSources ?? [],
       summary: evidenceSummary(citationState, entry.keyword),
     }
   })
@@ -333,13 +361,31 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
     insights,
     visibilityEvidence: evidence,
     technicalFindings: undefined,
-    competitors: data.competitors.map((c, i) => ({
-      id: c.id || `comp_${i}`,
-      domain: c.domain,
-      pressureLabel: 'Tracked',
-      movement: '',
-      notes: '',
-    })),
+    competitors: data.competitors.map((c, i) => {
+      const citedKeywordSet = new Set<string>()
+      for (const snap of snapshots) {
+        if (
+          snap.competitorOverlap.includes(c.domain) ||
+          snap.citedDomains.includes(c.domain)
+        ) {
+          if (snap.keyword) citedKeywordSet.add(snap.keyword)
+        }
+      }
+      const citedKeywords = [...citedKeywordSet]
+      const uniqueKeywords = new Set(snapshots.map(s => s.keyword).filter(Boolean))
+      const ratio = uniqueKeywords.size > 0 ? citedKeywords.length / uniqueKeywords.size : 0
+      const pressureLabel = ratio >= 0.5 ? 'High' : ratio >= 0.2 ? 'Moderate' : citedKeywords.length > 0 ? 'Low' : 'None'
+      return {
+        id: c.id || `comp_${i}`,
+        domain: c.domain,
+        citationCount: citedKeywords.length,
+        totalKeywords: uniqueKeywords.size,
+        pressureLabel,
+        citedKeywords,
+        movement: '',
+        notes: '',
+      }
+    }),
     recentRuns: runItems.slice(0, 5),
   }
 }
@@ -387,7 +433,7 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
   }
 }
 
-export function buildDashboard(projectDataList: ProjectData[]): DashboardVm {
+export function buildDashboard(projectDataList: ProjectData[], apiSettings?: ApiSettings | null): DashboardVm {
   const allRuns: RunListItemVm[] = []
   const projectCenters: ProjectCommandCenterVm[] = []
   const portfolioProjects: PortfolioProjectVm[] = []
@@ -451,8 +497,13 @@ export function buildDashboard(projectDataList: ProjectData[]): DashboardVm {
       },
     },
     settings: {
-      providerStatus: { name: 'Gemini', state: 'ready', detail: 'Provider is configured via canonry init.' },
-      quotaSummary: { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 },
+      providerStatus: {
+        name: apiSettings?.provider.name ?? 'Gemini',
+        model: apiSettings?.provider.model ?? 'gemini-2.5-flash',
+        state: 'ready',
+        detail: 'Provider is configured via canonry init.',
+      },
+      quotaSummary: apiSettings?.quota ?? { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 },
       selfHostNotes: [
         'Configuration is stored in ~/.canonry/config.yaml.',
         'Database is SQLite at ~/.canonry/data.db.',

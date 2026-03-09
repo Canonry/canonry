@@ -111,6 +111,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
         answerText: querySnapshots.answerText,
         citedDomains: querySnapshots.citedDomains,
         competitorOverlap: querySnapshots.competitorOverlap,
+        rawResponse: querySnapshots.rawResponse,
         createdAt: querySnapshots.createdAt,
       })
       .from(querySnapshots)
@@ -130,6 +131,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
         answerText: s.answerText,
         citedDomains: tryParseJson(s.citedDomains, []),
         competitorOverlap: tryParseJson(s.competitorOverlap, []),
+        ...parseSnapshotRawResponse(s.rawResponse),
         createdAt: s.createdAt,
       })),
     })
@@ -157,6 +159,19 @@ function formatRun(row: {
     finishedAt: row.finishedAt,
     error: row.error,
     createdAt: row.createdAt,
+  }
+}
+
+function parseSnapshotRawResponse(raw: string | null): {
+  groundingSources: unknown[]
+  searchQueries: string[]
+  model: string | null
+} {
+  const parsed = tryParseJson(raw ?? '{}', {} as Record<string, unknown>)
+  return {
+    groundingSources: (parsed.groundingSources as unknown[] | undefined) ?? [],
+    searchQueries: (parsed.searchQueries as string[] | undefined) ?? [],
+    model: (parsed.model as string | undefined) ?? null,
   }
 }
 

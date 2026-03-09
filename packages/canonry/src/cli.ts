@@ -11,6 +11,7 @@ import { showEvidence } from './commands/evidence.js'
 import { showHistory } from './commands/history.js'
 import { applyConfig } from './commands/apply.js'
 import { exportProject } from './commands/export-cmd.js'
+import { showSettings } from './commands/settings.js'
 
 const USAGE = `
 canonry — AEO monitoring CLI
@@ -34,6 +35,7 @@ Usage:
   canonry history <project>           Show audit trail
   canonry export <project>            Export project as YAML
   canonry apply <file>                Apply declarative config
+  canonry settings                    Show active provider and quota settings
   canonry --help                      Show this help
   canonry --version                   Show version
 
@@ -277,6 +279,10 @@ async function main() {
         await applyConfig(filePath)
         break
       }
+
+      case 'settings':
+        await showSettings()
+        break
 
       default:
         console.error(`Unknown command: ${command}`)

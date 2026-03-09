@@ -2,15 +2,28 @@ import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/aeo-platform-db'
 import { runs, keywords, competitors, projects, querySnapshots, usageCounters } from '@ainyc/aeo-platform-db'
-import { executeTrackedQuery, normalizeResult } from '@ainyc/aeo-platform-provider-gemini'
+import { executeTrackedQuery, normalizeResult, type GeminiConfig } from '@ainyc/aeo-platform-provider-gemini'
 
 export class JobRunner {
   private db: DatabaseClient
-  private geminiApiKey: string
+  private geminiConfig: GeminiConfig
 
-  constructor(db: DatabaseClient, geminiApiKey: string) {
+  constructor(
+    db: DatabaseClient,
+    geminiApiKey: string,
+    geminiModel?: string,
+    quotaPolicy?: { maxConcurrency: number; maxRequestsPerMinute: number; maxRequestsPerDay: number },
+  ) {
     this.db = db
-    this.geminiApiKey = geminiApiKey
+    this.geminiConfig = {
+      apiKey: geminiApiKey,
+      model: geminiModel,
+      quotaPolicy: quotaPolicy ?? {
+        maxConcurrency: 2,
+        maxRequestsPerMinute: 10,
+        maxRequestsPerDay: 1000,
+      },
+    }
   }
 
   async executeRun(runId: string, projectId: string): Promise<void> {
@@ -57,6 +70,7 @@ export class JobRunner {
           keyword: kw.keyword,
           canonicalDomains: [project.canonicalDomain],
           competitorDomains,
+          config: this.geminiConfig,
         })
 
         const normalized = normalizeResult(raw)
@@ -68,12 +82,38 @@ export class JobRunner {
           ? 'cited'
           : 'not-cited'
 
-        // Compute competitor overlap
-        const overlap = normalized.citedDomains.filter(d =>
-          competitorDomains.some(cd => d === cd || d.endsWith(`.${cd}`)),
-        )
+        // Compute competitor overlap from grounding sources AND answer text
+        const overlapSet = new Set<string>()
 
-        // Insert query snapshot
+        // Check grounding source domains
+        for (const d of normalized.citedDomains) {
+          for (const cd of competitorDomains) {
+            if (d === cd || d.endsWith(`.${cd}`)) {
+              overlapSet.add(cd)
+            }
+          }
+        }
+
+        // Check answer text for competitor domain mentions
+        if (normalized.answerText) {
+          const lowerAnswer = normalized.answerText.toLowerCase()
+          for (const cd of competitorDomains) {
+            // Check for domain mention (e.g. "example.com")
+            if (lowerAnswer.includes(cd.toLowerCase())) {
+              overlapSet.add(cd)
+            }
+            // Check for whole-word brand name (domain without TLD, e.g. "example" from "example.com")
+            const brand = cd.split('.')[0]
+            if (brand.length >= 4 && new RegExp(`\\b${brand}\\b`, 'i').test(lowerAnswer)) {
+              overlapSet.add(cd)
+            }
+          }
+        }
+
+        const overlap = [...overlapSet]
+
+        // Insert query snapshot — rawResponse includes grounding sources
+        // and search queries for analyst review in the UI
         this.db.insert(querySnapshots).values({
           id: crypto.randomUUID(),
           runId,
@@ -83,7 +123,12 @@ export class JobRunner {
           answerText: normalized.answerText,
           citedDomains: JSON.stringify(normalized.citedDomains),
           competitorOverlap: JSON.stringify(overlap),
-          rawResponse: JSON.stringify(raw.rawResponse),
+          rawResponse: JSON.stringify({
+            model: raw.model,
+            groundingSources: normalized.groundingSources,
+            searchQueries: normalized.searchQueries,
+            apiResponse: raw.rawResponse,
+          }),
           createdAt: new Date().toISOString(),
         }).run()
       }

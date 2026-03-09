@@ -113,4 +113,8 @@ export class ApiClient {
   async getStatus(project: string): Promise<object> {
     return this.request<object>('GET', `/projects/${encodeURIComponent(project)}`)
   }
+
+  async getSettings(): Promise<object> {
+    return this.request<object>('GET', '/settings')
+  }
 }

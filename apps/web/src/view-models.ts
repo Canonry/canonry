@@ -1,4 +1,4 @@
-import type { ProjectDto, RunDto, RunStatus } from '@ainyc/aeo-platform-contracts'
+import type { ProjectDto, RunDto, RunStatus, GroundingSource } from '@ainyc/aeo-platform-contracts'
 
 export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
 export type HealthState = 'checking' | 'ok' | 'error'
@@ -90,6 +90,7 @@ export interface CitationInsightVm {
   evidenceUrls: string[]
   competitorDomains: string[]
   relatedTechnicalSignals: string[]
+  groundingSources: GroundingSource[]
   summary: string
 }
 
@@ -113,7 +114,10 @@ export interface TechnicalFindingVm {
 export interface CompetitorVm {
   id: string
   domain: string
+  citationCount: number
+  totalKeywords: number
   pressureLabel: string
+  citedKeywords: string[]
   movement: string
   notes: string
 }
@@ -169,6 +173,7 @@ export interface SetupWizardVm {
 export interface SettingsVm {
   providerStatus: {
     name: string
+    model: string
     state: 'ready' | 'needs-config'
     detail: string
   }

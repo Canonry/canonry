@@ -41,6 +41,9 @@ export async function initCommand(): Promise<void> {
     process.exit(1)
   }
 
+  // Prompt for Gemini model (with default)
+  const geminiModel = await prompt('Gemini model [gemini-2.5-flash]: ') || 'gemini-2.5-flash'
+
   // Generate random API key for the local server
   const rawApiKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
   const keyHash = crypto.createHash('sha256').update(rawApiKey).digest('hex')
@@ -69,6 +72,7 @@ export async function initCommand(): Promise<void> {
     database: databasePath,
     apiKey: rawApiKey,
     geminiApiKey,
+    geminiModel,
     geminiQuota: {
       maxConcurrency: 2,
       maxRequestsPerMinute: 10,

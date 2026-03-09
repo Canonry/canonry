@@ -22,6 +22,7 @@ import { Card } from './components/ui/card.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './components/ui/sheet.js'
 import { createDashboardFixture, findEvidenceById, findProjectVm, findRunById } from './mock-data.js'
 import {
+  appendKeywords,
   createProject,
   fetchAllRuns,
   fetchCompetitors,
@@ -34,6 +35,7 @@ import {
   setKeywords,
   triggerRun as apiTriggerRun,
   deleteProject as apiDeleteProject,
+  fetchSettings,
 } from './api.js'
 import { buildDashboard } from './build-dashboard.js'
 import type { ProjectData } from './build-dashboard.js'
@@ -245,6 +247,35 @@ function toneFromFindingSeverity(severity: TechnicalFindingVm['severity']): Metr
   }
 }
 
+function formatErrorLog(error: string): string {
+  // Extract the human-readable prefix and try to pretty-print any JSON within
+  const bracketMatch = error.match(/^(\[.*?\])\s*(.+)/)
+  if (bracketMatch) {
+    const prefix = bracketMatch[1]
+    const rest = bracketMatch[2]
+    // Try to find and pretty-print embedded JSON
+    const jsonStart = rest.indexOf('{')
+    if (jsonStart >= 0) {
+      const message = rest.slice(0, jsonStart).trim()
+      const jsonPart = rest.slice(jsonStart)
+      try {
+        const parsed = JSON.parse(jsonPart)
+        return `${prefix} ${message}\n\n${JSON.stringify(parsed, null, 2)}`
+      } catch {
+        // Not valid JSON, just format the text
+      }
+    }
+    return `${prefix}\n${rest}`
+  }
+  // Try to pretty-print the whole thing as JSON
+  try {
+    const parsed = JSON.parse(error)
+    return JSON.stringify(parsed, null, 2)
+  } catch {
+    return error
+  }
+}
+
 function toTitleCase(value: string): string {
   return value
     .split('-')
@@ -340,10 +371,6 @@ function buildSetupModel(base: SetupWizardVm, healthSnapshot: HealthSnapshot, se
     blockedReason ?? 'Queue a visibility sweep first, then follow with a site audit to explain movement.'
 
   return model
-}
-
-function findLatestRunForProject(dashboard: DashboardVm, projectId: string): RunListItemVm | undefined {
-  return dashboard.runs.find((run) => run.projectId === projectId)
 }
 
 function createNavigationHandler(navigate: (to: string) => void, to: string) {
@@ -601,7 +628,18 @@ function FindingsTable({ findings }: { findings: TechnicalFindingVm[] }) {
   )
 }
 
+function competitorTone(label: string): MetricTone {
+  if (label === 'High') return 'negative'
+  if (label === 'Moderate') return 'caution'
+  if (label === 'Low') return 'neutral'
+  return 'neutral'
+}
+
 function CompetitorTable({ competitors }: { competitors: ProjectCommandCenterVm['competitors'] }) {
+  if (competitors.length === 0) {
+    return <p className="text-sm text-zinc-500">No competitors configured. Add competitors to track overlap.</p>
+  }
+
   return (
     <div className="competitor-table-wrap">
       <table className="competitor-table">
@@ -609,8 +647,8 @@ function CompetitorTable({ competitors }: { competitors: ProjectCommandCenterVm[
           <tr>
             <th>Domain</th>
             <th>Pressure</th>
-            <th>Movement</th>
-            <th>Notes</th>
+            <th>Citations</th>
+            <th>Keywords</th>
           </tr>
         </thead>
         <tbody>
@@ -618,12 +656,20 @@ function CompetitorTable({ competitors }: { competitors: ProjectCommandCenterVm[
             <tr key={competitor.id}>
               <td className="font-medium text-zinc-100">{competitor.domain}</td>
               <td>
-                <ToneBadge tone={competitor.pressureLabel === 'High' ? 'negative' : 'caution'}>
+                <ToneBadge tone={competitorTone(competitor.pressureLabel)}>
                   {competitor.pressureLabel}
                 </ToneBadge>
               </td>
-              <td className="text-zinc-300">{competitor.movement}</td>
-              <td className="text-zinc-500">{competitor.notes}</td>
+              <td className="text-zinc-300 tabular-nums">
+                {competitor.totalKeywords > 0
+                  ? `${competitor.citationCount} / ${competitor.totalKeywords}`
+                  : '—'}
+              </td>
+              <td className="text-zinc-500 text-xs">
+                {competitor.citedKeywords.length > 0
+                  ? competitor.citedKeywords.join(', ')
+                  : 'Not cited'}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -646,7 +692,11 @@ function OverviewProjectCard({
   const projectPath = `/projects/${project.project.id}`
 
   return (
-    <article className="project-row">
+    <a
+      className="project-row cursor-pointer"
+      href={projectPath}
+      onClick={createNavigationHandler(onNavigate, projectPath)}
+    >
       <div className="project-row-primary">
         <div>
           <p className="project-name">{project.project.name}</p>
@@ -680,12 +730,10 @@ function OverviewProjectCard({
       <div className="project-row-chart">
         <Sparkline points={project.trend} tone={toneFromRunStatus(project.lastRun.status)} />
       </div>
-      <Button asChild variant="ghost" size="sm" className="project-row-link">
-        <a href={projectPath} onClick={createNavigationHandler(onNavigate, projectPath)}>
-          Open
-        </a>
-      </Button>
-    </article>
+      <span className="project-row-link">
+        <ChevronRight className="h-4 w-4 text-zinc-500" />
+      </span>
+    </a>
   )
 }
 
@@ -823,15 +871,27 @@ function ProjectPage({
   onOpenRun,
   onTriggerRun,
   onDeleteProject,
+  onAddKeywords,
+  onAddCompetitors,
 }: {
   model: ProjectCommandCenterVm
   onOpenEvidence: (evidenceId: string) => void
   onOpenRun: (runId?: string) => void
-  onTriggerRun: (projectName: string) => void
+  onTriggerRun: (projectName: string) => Promise<void>
   onDeleteProject: (projectName: string) => void
+  onAddKeywords: (projectName: string, keywords: string[]) => Promise<void>
+  onAddCompetitors: (projectName: string, domains: string[]) => Promise<void>
 }) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [runTriggering, setRunTriggering] = useState(false)
+  const [runError, setRunError] = useState<string | null>(null)
+  const [addingKeywords, setAddingKeywords] = useState(false)
+  const [newKeywordText, setNewKeywordText] = useState('')
+  const [keywordSaving, setKeywordSaving] = useState(false)
+  const [addingCompetitor, setAddingCompetitor] = useState(false)
+  const [newCompetitorDomain, setNewCompetitorDomain] = useState('')
+  const [competitorSaving, setCompetitorSaving] = useState(false)
 
   async function handleExport() {
     const data = await fetchExport(model.project.name)
@@ -844,6 +904,32 @@ function ProjectPage({
     a.click()
     URL.revokeObjectURL(url)
   }
+  async function handleAddKeywords() {
+    const keywords = newKeywordText.split('\n').map(k => k.trim()).filter(Boolean)
+    if (keywords.length === 0) return
+    setKeywordSaving(true)
+    try {
+      await onAddKeywords(model.project.name, keywords)
+      setNewKeywordText('')
+      setAddingKeywords(false)
+    } finally {
+      setKeywordSaving(false)
+    }
+  }
+
+  async function handleAddCompetitor() {
+    const domain = newCompetitorDomain.trim()
+    if (!domain) return
+    setCompetitorSaving(true)
+    try {
+      await onAddCompetitors(model.project.name, [domain])
+      setNewCompetitorDomain('')
+      setAddingCompetitor(false)
+    } finally {
+      setCompetitorSaving(false)
+    }
+  }
+
   const isNumericScore = (value: string) => !Number.isNaN(Number.parseInt(value, 10))
 
   return (
@@ -898,12 +984,33 @@ function ProjectPage({
             <Button type="button" variant="outline" size="icon" onClick={() => setShowDeleteConfirm(true)} aria-label="Delete project">
               <Trash2 className="h-4 w-4 text-zinc-400" />
             </Button>
-            <Button type="button" onClick={() => onTriggerRun(model.project.name)}>
-              Run now
+            <Button
+              type="button"
+              disabled={runTriggering}
+              onClick={async () => {
+                setRunTriggering(true)
+                setRunError(null)
+                try {
+                  await onTriggerRun(model.project.name)
+                } catch (err) {
+                  setRunError(err instanceof Error ? err.message : 'Failed to trigger run')
+                } finally {
+                  setRunTriggering(false)
+                }
+              }}
+            >
+              {runTriggering ? 'Starting...' : 'Run now'}
             </Button>
           </div>
         </div>
       </div>
+
+      {runError && (
+        <div className="mb-3 rounded-lg border border-rose-800/40 bg-rose-950/20 px-3 py-2 text-sm text-rose-300">
+          {runError}
+          <button type="button" className="ml-2 text-rose-400 hover:text-rose-200" onClick={() => setRunError(null)}>×</button>
+        </div>
+      )}
 
       {/* Score gauges */}
       <section className="gauge-row">
@@ -985,8 +1092,30 @@ function ProjectPage({
             <p className="eyebrow eyebrow-soft">Visibility evidence</p>
             <h2>Keyword citation tracking</h2>
           </div>
-          <p className="supporting-copy">{model.visibilityEvidence.length} keywords tracked</p>
+          <div className="flex items-center gap-3">
+            <p className="supporting-copy">{model.visibilityEvidence.length} keywords tracked</p>
+            <Button type="button" variant="outline" size="sm" onClick={() => setAddingKeywords(!addingKeywords)}>
+              {addingKeywords ? 'Cancel' : '+ Add keywords'}
+            </Button>
+          </div>
         </div>
+        {addingKeywords && (
+          <div className="mb-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+            <textarea
+              className="w-full resize-none rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+              rows={3}
+              placeholder="Enter keywords, one per line"
+              value={newKeywordText}
+              onChange={(e) => setNewKeywordText(e.target.value)}
+            />
+            <div className="mt-2 flex items-center justify-between">
+              <p className="text-xs text-zinc-500">{newKeywordText.split('\n').filter(k => k.trim()).length} keywords</p>
+              <Button type="button" size="sm" disabled={!newKeywordText.trim() || keywordSaving} onClick={handleAddKeywords}>
+                {keywordSaving ? 'Adding...' : 'Add keywords'}
+              </Button>
+            </div>
+          </div>
+        )}
         <EvidenceTable evidence={model.visibilityEvidence} onOpenEvidence={onOpenEvidence} />
       </section>
 
@@ -1024,8 +1153,28 @@ function ProjectPage({
             <p className="eyebrow eyebrow-soft">Competitors</p>
             <h2>Competitive landscape</h2>
           </div>
-          <p className="supporting-copy">{model.competitors.length} tracked</p>
+          <div className="flex items-center gap-3">
+            <p className="supporting-copy">{model.competitors.length} tracked</p>
+            <Button type="button" variant="outline" size="sm" onClick={() => setAddingCompetitor(!addingCompetitor)}>
+              {addingCompetitor ? 'Cancel' : '+ Add competitor'}
+            </Button>
+          </div>
         </div>
+        {addingCompetitor && (
+          <div className="mb-3 flex gap-2 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+            <input
+              className="flex-1 rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+              type="text"
+              placeholder="competitor.com"
+              value={newCompetitorDomain}
+              onChange={(e) => setNewCompetitorDomain(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleAddCompetitor()}
+            />
+            <Button type="button" size="sm" disabled={!newCompetitorDomain.trim() || competitorSaving} onClick={handleAddCompetitor}>
+              {competitorSaving ? 'Adding...' : 'Add'}
+            </Button>
+          </div>
+        )}
         <CompetitorTable competitors={model.competitors} />
       </section>
 
@@ -1119,7 +1268,14 @@ function SettingsPage({
               {settings.providerStatus.state === 'ready' ? 'Ready' : 'Needs config'}
             </ToneBadge>
           </div>
-          <p>{settings.providerStatus.detail}</p>
+          <dl className="definition-list mt-3">
+            <div>
+              <dt>Model</dt>
+              <dd className="font-mono text-xs">{settings.providerStatus.model}</dd>
+            </div>
+          </dl>
+          <p className="mt-2 text-sm text-zinc-500">{settings.providerStatus.detail}</p>
+          <p className="mt-1 text-xs text-zinc-600">Change via <code className="text-zinc-500">~/.canonry/config.yaml</code> → <code className="text-zinc-500">geminiModel</code> or <code className="text-zinc-500">canonry init</code></p>
         </Card>
 
         <Card className="surface-card">
@@ -1626,13 +1782,176 @@ function Drawer({
   )
 }
 
+/** Render text with **bold** markdown and paragraph breaks */
+function renderMarkdownText(text: string): ReactNode[] {
+  const paragraphs = text.split(/\n{2,}/)
+  const nodes: ReactNode[] = []
+
+  for (let pi = 0; pi < paragraphs.length; pi++) {
+    const para = paragraphs[pi].trim()
+    if (!para) continue
+
+    // Split on **bold** markers
+    const parts = para.split(/(\*\*[^*]+\*\*)/)
+    const children: ReactNode[] = parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={i} className="text-zinc-200 font-semibold">{part.slice(2, -2)}</strong>
+      }
+      return part
+    })
+
+    nodes.push(
+      <p key={pi} className={pi > 0 ? 'mt-2' : ''}>
+        {children}
+      </p>,
+    )
+  }
+
+  return nodes
+}
+
+function EvidenceDrawer({
+  evidence,
+  project,
+  onClose,
+}: {
+  evidence: CitationInsightVm
+  project: ProjectCommandCenterVm
+  onClose: () => void
+}) {
+  const [showFullAnswer, setShowFullAnswer] = useState(false)
+
+  const latestRun = project.recentRuns[0]
+
+  return (
+    <Drawer
+      open
+      title={evidence.keyword}
+      subtitle={`${project.project.name} · visibility evidence`}
+      onClose={onClose}
+    >
+      {/* Status + run context row */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <CitationBadge state={evidence.citationState} />
+          <span className="text-sm text-zinc-400">{evidence.changeLabel}</span>
+        </div>
+        {latestRun && (
+          <span className="shrink-0 text-[10px] uppercase tracking-wide text-zinc-600">
+            from latest run · {new Date(latestRun.createdAt).toLocaleDateString()}
+          </span>
+        )}
+      </div>
+
+      {/* AI answer */}
+      {evidence.answerSnippet && (
+        <div>
+          <p className="detail-label">AI answer</p>
+          <div className={`mt-1 rounded border border-zinc-800/60 bg-zinc-900/50 p-3 text-sm leading-relaxed text-zinc-400 ${showFullAnswer ? 'max-h-80 overflow-y-auto' : 'line-clamp-6'}`}>
+            {renderMarkdownText(evidence.answerSnippet)}
+          </div>
+          {evidence.answerSnippet.length > 300 && (
+            <button
+              type="button"
+              className="mt-1.5 text-xs text-zinc-500 hover:text-zinc-300"
+              onClick={() => setShowFullAnswer(!showFullAnswer)}
+            >
+              {showFullAnswer ? 'Collapse' : 'Show full answer'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Cited domains + competitor overlap side by side */}
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <p className="detail-label">Cited domains</p>
+          {evidence.citedDomains.length > 0 ? (
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {evidence.citedDomains.map(domain => (
+                <span key={domain} className="inline-flex items-center rounded-full border border-zinc-700 bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300">
+                  {domain}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-1 text-sm text-zinc-500">No domains cited</p>
+          )}
+        </div>
+
+        <div>
+          <p className="detail-label">Competitor overlap</p>
+          {evidence.competitorDomains.length > 0 ? (
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {evidence.competitorDomains.map(domain => (
+                <span key={domain} className="inline-flex items-center rounded-full border border-rose-800/50 bg-rose-950/40 px-2 py-0.5 text-xs text-rose-300">
+                  {domain}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-1 text-sm text-zinc-500">No competitors cited</p>
+          )}
+        </div>
+      </div>
+
+      {/* Grounding sources */}
+      {evidence.groundingSources.length > 0 && (
+        <div>
+          <p className="detail-label">Grounding sources ({evidence.groundingSources.length})</p>
+          <ul className="mt-1 space-y-0.5">
+            {evidence.groundingSources.map((src, i) => (
+              <li key={i} className="truncate text-sm">
+                <a href={src.uri} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-zinc-200">
+                  {src.title || src.uri}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Evidence URLs — only if populated */}
+      {evidence.evidenceUrls.length > 0 && (
+        <div>
+          <p className="detail-label">Evidence URLs</p>
+          <ul className="detail-list">
+            {evidence.evidenceUrls.map((url) => (
+              <li key={url}>{url}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Technical signals — only if populated */}
+      {evidence.relatedTechnicalSignals.length > 0 && (
+        <div>
+          <p className="detail-label">Related technical signals</p>
+          <ul className="detail-list">
+            {evidence.relatedTechnicalSignals.map((signal) => (
+              <li key={signal}>{signal}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Summary */}
+      <p className="text-xs text-zinc-600">{evidence.summary}</p>
+    </Drawer>
+  )
+}
+
 /* ────────────────────────────────────────────
    Root app
    ──────────────────────────────────────────── */
 
 async function loadDashboardData(): Promise<DashboardVm | null> {
   try {
-    const [projects, allRuns] = await Promise.all([fetchProjects(), fetchAllRuns()])
+    const [projects, allRuns, apiSettings] = await Promise.all([
+      fetchProjects(),
+      fetchAllRuns(),
+      fetchSettings().catch(() => null),
+    ])
 
     const projectDataList: ProjectData[] = await Promise.all(
       projects.map(async (project) => {
@@ -1659,7 +1978,7 @@ async function loadDashboardData(): Promise<DashboardVm | null> {
       }),
     )
 
-    return buildDashboard(projectDataList)
+    return buildDashboard(projectDataList, apiSettings)
   } catch {
     return null
   }
@@ -1679,6 +1998,8 @@ export function App({
   const [pathname, setPathname] = useState(() => getInitialPathname(initialPathname))
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [drawerState, setDrawerState] = useState<DrawerState>(null)
+  const [runDetail, setRunDetail] = useState<import('./api.js').ApiRunDetail | null>(null)
+  const [runDetailLoading, setRunDetailLoading] = useState(false)
   const [healthSnapshot, setHealthSnapshot] = useState<HealthSnapshot>(
     initialHealthSnapshot ?? defaultHealthSnapshot,
   )
@@ -1828,19 +2149,40 @@ export function App({
     }
 
     setDrawerState({ kind: 'run', runId })
+    setRunDetail(null)
+    setRunDetailLoading(true)
+    fetchRunDetail(runId)
+      .then(detail => setRunDetail(detail))
+      .catch(() => setRunDetail(null))
+      .finally(() => setRunDetailLoading(false))
   }
+
+  // Poll for run detail updates when run is in progress
+  useEffect(() => {
+    if (drawerState?.kind !== 'run' || !runDetail) return
+    if (runDetail.status !== 'running' && runDetail.status !== 'queued') return
+
+    const interval = setInterval(() => {
+      fetchRunDetail(drawerState.runId)
+        .then(detail => {
+          setRunDetail(detail)
+          if (detail.status !== 'running' && detail.status !== 'queued') {
+            void refreshData()
+          }
+        })
+        .catch(() => {})
+    }, 3000)
+
+    return () => clearInterval(interval)
+  }, [drawerState, runDetail?.status, runDetail?.snapshots.length, refreshData])
 
   const openEvidence = (evidenceId: string) => {
     setDrawerState({ kind: 'evidence', evidenceId })
   }
 
   const handleTriggerRun = async (projectName: string) => {
-    try {
-      await apiTriggerRun(projectName)
-      void refreshData()
-    } catch (err) {
-      console.error('Failed to trigger run:', err)
-    }
+    await apiTriggerRun(projectName)
+    void refreshData()
   }
 
   const handleDeleteProject = async (projectName: string) => {
@@ -1851,6 +2193,19 @@ export function App({
     } catch (err) {
       console.error('Failed to delete project:', err)
     }
+  }
+
+  const handleAddKeywords = async (projectName: string, keywords: string[]) => {
+    await appendKeywords(projectName, keywords)
+    await refreshData()
+  }
+
+  const handleAddCompetitors = async (projectName: string, domains: string[]) => {
+    const existing = await fetchCompetitors(projectName)
+    const existingDomains = existing.map(c => c.domain)
+    const merged = [...new Set([...existingDomains, ...domains])]
+    await setCompetitors(projectName, merged)
+    await refreshData()
   }
 
   const systemHealthCards = buildSystemHealthCards(safeDashboard.portfolioOverview.systemHealth, healthSnapshot, safeDashboard.settings)
@@ -1865,17 +2220,6 @@ export function App({
     { label: 'Runs', href: '/runs', icon: Play, active: isNavActive(route, 'runs') },
     { label: 'Settings', href: '/settings', icon: Settings, active: isNavActive(route, 'settings') },
   ]
-
-  const primaryAction =
-    route.kind === 'project' && activeProject
-      ? {
-          label: 'Run now',
-          action: () => openRun(findLatestRunForProject(safeDashboard, activeProject.project.id)?.id),
-        }
-      : {
-          label: safeDashboard.projects.length > 0 ? 'Open project' : 'Launch setup',
-          action: () => navigate(safeDashboard.projects.length > 0 ? projectPath : '/setup'),
-        }
 
   const breadcrumbLabel =
     route.kind === 'overview'
@@ -1989,9 +2333,6 @@ export function App({
                 Worker {healthSnapshot.workerStatus.state === 'ok' ? 'ok' : healthSnapshot.workerStatus.state}
               </span>
             </div>
-            <Button className="topbar-cta" type="button" onClick={primaryAction.action}>
-              {primaryAction.label}
-            </Button>
             <Button
               className="nav-toggle"
               variant="secondary"
@@ -2069,7 +2410,7 @@ export function App({
                 />
               ) : null}
               {route.kind === 'project' && activeProject ? (
-                <ProjectPage model={activeProject} onOpenEvidence={openEvidence} onOpenRun={openRun} onTriggerRun={handleTriggerRun} onDeleteProject={handleDeleteProject} />
+                <ProjectPage model={activeProject} onOpenEvidence={openEvidence} onOpenRun={openRun} onTriggerRun={handleTriggerRun} onDeleteProject={handleDeleteProject} onAddKeywords={handleAddKeywords} onAddCompetitors={handleAddCompetitors} />
               ) : null}
               {route.kind === 'runs' ? <RunsPage runs={safeDashboard.runs} onOpenRun={openRun} /> : null}
               {route.kind === 'settings' ? (
@@ -2101,71 +2442,97 @@ export function App({
           subtitle={`${selectedRun.projectName} · ${selectedRun.kindLabel}`}
           onClose={() => setDrawerState(null)}
         >
-          <div className="detail-grid">
-            <div>
-              <p className="detail-label">Status</p>
-              <StatusBadge status={selectedRun.status} />
-            </div>
-            <div>
-              <p className="detail-label">Started</p>
-              <p>{selectedRun.startedAt}</p>
-            </div>
-            <div>
-              <p className="detail-label">Duration</p>
-              <p>{selectedRun.duration}</p>
-            </div>
-            <div>
-              <p className="detail-label">Trigger</p>
-              <p>{selectedRun.triggerLabel}</p>
-            </div>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
+            <StatusBadge status={selectedRun.status} />
+            <span className="text-zinc-400">{selectedRun.startedAt}</span>
+            <span className="text-zinc-500">{selectedRun.duration}</span>
+            <span className="text-zinc-600">{selectedRun.triggerLabel}</span>
           </div>
-          <p className="drawer-copy">{selectedRun.statusDetail}</p>
+          {selectedRun.status === 'failed' && selectedRun.statusDetail && (
+            <p className="text-sm text-rose-300/80 mt-2">{selectedRun.statusDetail}</p>
+          )}
+
+          {/* Run activity log */}
+          <div className="mt-4">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-2">Activity Log</p>
+            {runDetailLoading ? (
+              <p className="text-sm text-zinc-500">Loading run details...</p>
+            ) : runDetail && runDetail.snapshots.length > 0 ? (
+              <div className="space-y-2">
+                {runDetail.snapshots.map((snap) => (
+                  <div key={snap.id} className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 p-3">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <p className="text-sm font-medium text-zinc-200 truncate">{snap.keyword ?? 'Unknown keyword'}</p>
+                      <Badge variant={snap.citationState === 'cited' ? 'success' : 'neutral'}>
+                        {snap.citationState}
+                      </Badge>
+                    </div>
+                    {snap.citedDomains.length > 0 && (
+                      <p className="text-xs text-zinc-500 mt-1">
+                        <span className="text-zinc-400">Sources:</span> {snap.citedDomains.join(', ')}
+                      </p>
+                    )}
+                    {snap.competitorOverlap.length > 0 && (
+                      <p className="text-xs text-rose-400/80 mt-0.5">
+                        Competitor cited: {snap.competitorOverlap.join(', ')}
+                      </p>
+                    )}
+                    {snap.groundingSources && snap.groundingSources.length > 0 && (
+                      <details className="mt-2">
+                        <summary className="text-xs text-zinc-500 cursor-pointer hover:text-zinc-400">
+                          {snap.groundingSources.length} grounding source{snap.groundingSources.length !== 1 ? 's' : ''}
+                        </summary>
+                        <ul className="mt-1 space-y-0.5">
+                          {snap.groundingSources.map((src: { uri: string; title: string }, i: number) => (
+                            <li key={i} className="text-xs text-zinc-500 truncate">
+                              <a href={src.uri} target="_blank" rel="noreferrer" className="hover:text-zinc-300">{src.title || src.uri}</a>
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
+                    {snap.answerText && (
+                      <details className="mt-1">
+                        <summary className="text-xs text-zinc-500 cursor-pointer hover:text-zinc-400">Answer preview</summary>
+                        <p className="mt-1 text-xs text-zinc-400 leading-relaxed line-clamp-4">{snap.answerText}</p>
+                      </details>
+                    )}
+                  </div>
+                ))}
+                {runDetail.status === 'running' && (
+                  <div className="flex items-center gap-2 p-3 text-sm text-zinc-500">
+                    <span className="inline-block h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                    Querying remaining keywords...
+                  </div>
+                )}
+              </div>
+            ) : runDetail && runDetail.status === 'running' ? (
+              <div className="flex items-center gap-2 p-3 text-sm text-zinc-500">
+                <span className="inline-block h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                Waiting for first keyword result...
+              </div>
+            ) : runDetail && runDetail.status === 'queued' ? (
+              <div className="flex items-center gap-2 p-3 text-sm text-zinc-500">
+                <span className="inline-block h-2 w-2 rounded-full bg-zinc-500 animate-pulse" />
+                Run queued, waiting for execution slot...
+              </div>
+            ) : runDetail && runDetail.error ? (
+              <div className="rounded-lg border border-rose-800/40 bg-rose-950/20 p-3">
+                <p className="text-sm font-medium text-rose-300 mb-2">Run failed</p>
+                <pre className="text-xs text-rose-300/80 whitespace-pre-wrap break-words max-h-48 overflow-y-auto font-mono leading-5">{formatErrorLog(runDetail.error)}</pre>
+              </div>
+            ) : (
+              <p className="text-sm text-zinc-500">No snapshot data available.</p>
+            )}
+            {runDetail?.snapshots?.[0]?.model && (
+              <p className="mt-3 text-[10px] text-zinc-600">Model: {runDetail.snapshots[0].model}</p>
+            )}
+          </div>
         </Drawer>
       ) : null}
 
       {selectedEvidenceContext ? (
-        <Drawer
-          open={selectedEvidenceContext !== undefined}
-          title={selectedEvidenceContext.evidence.keyword}
-          subtitle={`${selectedEvidenceContext.project.project.name} · visibility evidence`}
-          onClose={() => setDrawerState(null)}
-        >
-          <div className="detail-grid">
-            <div>
-              <p className="detail-label">Citation state</p>
-              <CitationBadge state={selectedEvidenceContext.evidence.citationState} />
-            </div>
-            <div>
-              <p className="detail-label">Change</p>
-              <p>{selectedEvidenceContext.evidence.changeLabel}</p>
-            </div>
-          </div>
-          <p className="drawer-copy">"{selectedEvidenceContext.evidence.answerSnippet}"</p>
-          <div className="drawer-section">
-            <p className="detail-label">Cited domains</p>
-            <p>{selectedEvidenceContext.evidence.citedDomains.join(', ')}</p>
-          </div>
-          <div className="drawer-section">
-            <p className="detail-label">Evidence URLs</p>
-            <ul className="detail-list">
-              {selectedEvidenceContext.evidence.evidenceUrls.map((url) => (
-                <li key={url}>{url}</li>
-              ))}
-            </ul>
-          </div>
-          <div className="drawer-section">
-            <p className="detail-label">Competitor overlap</p>
-            <p>{selectedEvidenceContext.evidence.competitorDomains.join(', ')}</p>
-          </div>
-          <div className="drawer-section">
-            <p className="detail-label">Related technical signals</p>
-            <ul className="detail-list">
-              {selectedEvidenceContext.evidence.relatedTechnicalSignals.map((signal) => (
-                <li key={signal}>{signal}</li>
-              ))}
-            </ul>
-          </div>
-        </Drawer>
+        <EvidenceDrawer evidence={selectedEvidenceContext.evidence} project={selectedEvidenceContext.project} onClose={() => setDrawerState(null)} />
       ) : null}
     </div>
   )

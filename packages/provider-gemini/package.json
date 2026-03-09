@@ -16,6 +16,7 @@
     "lint": "eslint src/ test/"
   },
   "dependencies": {
-    "@ainyc/aeo-platform-contracts": "workspace:*"
+    "@ainyc/aeo-platform-contracts": "workspace:*",
+    "@google/generative-ai": "^0.24.1"
   }
 }

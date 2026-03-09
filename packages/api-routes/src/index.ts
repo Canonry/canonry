@@ -8,6 +8,8 @@ import { runRoutes } from './runs.js'
 import type { RunRoutesOptions } from './runs.js'
 import { applyRoutes } from './apply.js'
 import { historyRoutes } from './history.js'
+import { settingsRoutes } from './settings.js'
+import type { SettingsRoutesOptions } from './settings.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -21,6 +23,14 @@ export interface ApiRoutesOptions {
   skipAuth?: boolean
   /** Callback when a run is created (wire up job runner) */
   onRunCreated?: (runId: string, projectId: string) => void
+  /** Currently configured Gemini model */
+  geminiModel?: string
+  /** Gemini quota config */
+  geminiQuota?: {
+    maxConcurrency: number
+    maxRequestsPerMinute: number
+    maxRequestsPerDay: number
+  }
 }
 
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
@@ -40,6 +50,10 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(runRoutes, { onRunCreated: opts.onRunCreated } satisfies RunRoutesOptions)
     await api.register(applyRoutes)
     await api.register(historyRoutes)
+    await api.register(settingsRoutes, {
+      geminiModel: opts.geminiModel,
+      geminiQuota: opts.geminiQuota,
+    } satisfies SettingsRoutesOptions)
   }, { prefix: '/api/v1' })
 }
 

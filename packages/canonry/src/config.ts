@@ -8,6 +8,7 @@ export interface CanonryConfig {
   database: string
   apiKey: string
   geminiApiKey: string
+  geminiModel?: string
   geminiQuota?: {
     maxConcurrency: number
     maxRequestsPerMinute: number

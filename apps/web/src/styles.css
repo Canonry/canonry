@@ -755,7 +755,7 @@
   /* ── Project row (overview) ── */
 
   .project-row {
-    @apply grid gap-3 rounded-xl border border-zinc-800/60 bg-zinc-900/20 p-4 transition hover:bg-zinc-900/40 lg:grid-cols-[minmax(0,1.5fr)_9rem_9rem_10rem_9rem_auto] lg:items-center;
+    @apply grid gap-3 rounded-xl border border-zinc-800/60 bg-zinc-900/20 p-4 transition hover:bg-zinc-900/40 lg:grid-cols-[minmax(0,1.5fr)_9rem_9rem_10rem_9rem_auto] lg:items-center no-underline text-inherit;
   }
 
   .project-row-primary {
@@ -801,7 +801,11 @@
   }
 
   .run-row-main {
-    @apply min-w-0;
+    @apply min-w-0 overflow-hidden;
+  }
+
+  .run-row-detail {
+    @apply line-clamp-3 break-words;
   }
 
   .run-row-head {
@@ -874,10 +878,13 @@
   /* ── Drawer ── */
 
   .drawer-head {
-    @apply gap-1;
+    @apply shrink-0 gap-1;
   }
 
-  .drawer-body,
+  .drawer-body {
+    @apply mt-3 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto;
+  }
+
   .drawer-section {
     @apply grid gap-4;
   }
