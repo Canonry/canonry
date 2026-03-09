@@ -26,9 +26,9 @@ function renderApp(
 test('overview route renders the premium portfolio dashboard', () => {
   const html = renderApp('/')
 
-  assert.match(html, /Portfolio overview/)
+  assert.match(html, /Portfolio/)
   assert.match(html, /Portfolio ranking/)
-  assert.match(html, /Trust the monitoring layer/)
+  assert.match(html, /Infrastructure/)
   assert.match(html, /Citypoint Dental NYC/)
   assert.match(html, /Harbor Legal Group/)
 })
@@ -36,18 +36,17 @@ test('overview route renders the premium portfolio dashboard', () => {
 test('project route renders a single command center with visibility and readiness sections', () => {
   const html = renderApp('/projects/project_citypoint')
 
-  assert.match(html, /Project command center/)
   assert.match(html, /Citypoint Dental NYC/)
   assert.match(html, /Interpretation before raw evidence/)
-  assert.match(html, /Why you are or are not cited/)
-  assert.match(html, /Readiness signals connected to visibility/)
+  assert.match(html, /Keyword citation tracking/)
+  assert.match(html, /Readiness signals/)
   assert.match(html, /Recent execution history/)
 })
 
 test('runs route renders the operational timeline and filters', () => {
   const html = renderApp('/runs')
 
-  assert.match(html, /Operational timeline/)
+  assert.match(html, /Runs/)
   assert.match(html, /All runs/)
   assert.match(html, /Queued follow-up after local ranking movement/)
   assert.match(html, /Citation losses on emergency-intent prompts/)

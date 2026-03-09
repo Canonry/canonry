@@ -44,6 +44,56 @@ pnpm run docker:up
 - Keep API handlers thin.
 - Keep the monitoring app independent from the audit package repo except for the published npm dependency.
 
+## UI Design System
+
+The web dashboard follows a dark, professional analytics aesthetic designed to rival tools like Semrush, Ahrefs, and Profound. Follow these conventions for all UI work:
+
+### Layout
+- **Sidebar navigation** (persistent left, `w-56`, hidden on mobile with full-screen overlay fallback).
+- **Compact topbar** with breadcrumb, health pills, and primary action button.
+- **Page container** (`max-w-6xl`, centered) for all page content.
+- Pages use a `page-header` (title + subtitle + optional actions) followed by sections separated by `page-section-divider`.
+
+### Color & Theme
+- Background: `bg-zinc-950`. Cards/surfaces: `bg-zinc-900/30` with `border-zinc-800/60`.
+- Font: **Manrope** (400–800 weights), `text-zinc-50` primary, `text-zinc-400` secondary, `text-zinc-500`/`text-zinc-600` for labels.
+- Tone colors: **positive** = emerald, **caution** = amber, **negative** = rose, **neutral** = zinc.
+- No decorative background gradients. Keep it clean and flat.
+
+### Components & Patterns
+- **Score gauges** (`ScoreGauge`): SVG radial progress rings for numeric and text metrics. Use on project pages instead of flat metric cards.
+- **Data tables** for evidence, findings, and competitors (not card grids). Tables are more scanable for analysts.
+- **Insight cards** with left-border accent color based on tone (`insight-card-positive`, `insight-card-caution`, `insight-card-negative`).
+- **Sparklines** for inline trend visualization in overview project rows.
+- **ToneBadge** for all status/state indicators. Map tones through helper functions (`toneFromRunStatus`, `toneFromCitationState`, etc.).
+- **Filter chips** use `rounded-full` pill style.
+- **Health pills** in topbar use `rounded-full` with tone-colored borders.
+
+### Sidebar
+- Main nav items use Lucide icons (`LayoutDashboard`, `Globe`, `Play`, `Settings`).
+- Projects section shows each project with a colored dot indicating visibility health tone.
+- Resources section at bottom with `Rocket` icon for Setup.
+- Doc links in sidebar footer.
+
+### Data Density
+- Prioritize information density. Analysts want to scan, not scroll through cards.
+- Use tables for any list of 3+ structured items (evidence, findings, competitors).
+- Use cards only for insights/interpretations where narrative matters.
+- Keep eyebrow labels (`text-[10px]`, uppercase, tracking-wide) for section context.
+
+### Accessibility
+- Skip-to-content link.
+- `aria-current="page"` on active nav items.
+- `aria-label` on nav landmarks.
+- Focus-visible rings on interactive elements.
+- Screen-reader-only labels (`.sr-only`) where needed.
+
+### Don'ts
+- Don't use hero grids with large descriptive text blocks on the project page. Keep headers compact.
+- Don't put evidence or findings in card grids. Use tables.
+- Don't add decorative background gradients or glow effects.
+- Don't create new component files unless the component is reused across 3+ pages.
+
 ## Improvement Order
 
 1. Shared contracts and docs

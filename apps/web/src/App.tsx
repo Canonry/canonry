@@ -1,7 +1,18 @@
 import { useEffect, useId, useState } from 'react'
 import type { MouseEvent, ReactNode } from 'react'
 
-import { Menu } from 'lucide-react'
+import {
+  Activity,
+  ChevronRight,
+  Globe,
+  LayoutDashboard,
+  Menu,
+  Play,
+  Rocket,
+  Settings,
+  Users,
+  X,
+} from 'lucide-react'
 
 import { Badge } from './components/ui/badge.js'
 import { Button } from './components/ui/button.js'
@@ -333,6 +344,10 @@ function isNavActive(route: AppRoute, section: 'overview' | 'project' | 'runs' |
   return route.kind === section
 }
 
+/* ────────────────────────────────────────────
+   Presentational components
+   ──────────────────────────────────────────── */
+
 function Sparkline({ points, tone }: { points: number[]; tone: MetricTone }) {
   const clipId = useId()
   const height = 42
@@ -361,6 +376,53 @@ function Sparkline({ points, tone }: { points: number[]; tone: MetricTone }) {
       <line className="sparkline-guide" x1={padding} x2={width - padding} y1={height - padding} y2={height - padding} />
       <polyline clipPath={`url(#${clipId})`} points={coordinates} vectorEffect="non-scaling-stroke" />
     </svg>
+  )
+}
+
+function ScoreGauge({
+  value,
+  label,
+  delta,
+  tone,
+  description,
+  isNumeric = true,
+}: {
+  value: string
+  label: string
+  delta: string
+  tone: MetricTone
+  description: string
+  isNumeric?: boolean
+}) {
+  const radius = 48
+  const strokeWidth = 6
+  const circumference = 2 * Math.PI * radius
+  const numericValue = Number.parseInt(value, 10)
+  const progress = isNumeric && !Number.isNaN(numericValue) ? Math.min(numericValue / 100, 1) : 0.5
+  const dashOffset = circumference * (1 - progress)
+
+  return (
+    <div className="score-gauge">
+      <svg className="gauge-ring" viewBox="0 0 120 120" aria-hidden="true">
+        <circle className="gauge-bg" cx="60" cy="60" r={radius} strokeWidth={strokeWidth} />
+        <circle
+          className={`gauge-fill gauge-fill-${tone}`}
+          cx="60"
+          cy="60"
+          r={radius}
+          strokeWidth={strokeWidth}
+          strokeDasharray={circumference}
+          strokeDashoffset={dashOffset}
+          transform="rotate(-90 60 60)"
+        />
+      </svg>
+      <div className="gauge-center">
+        <span className={isNumeric ? 'gauge-value' : 'gauge-value-text'}>{value.split(' / ')[0]}</span>
+      </div>
+      <p className="gauge-label">{label}</p>
+      <p className="gauge-delta">{delta}</p>
+      <p className="gauge-description">{description}</p>
+    </div>
   )
 }
 
@@ -445,6 +507,115 @@ function RunRow({
   )
 }
 
+function EvidenceTable({
+  evidence,
+  onOpenEvidence,
+}: {
+  evidence: CitationInsightVm[]
+  onOpenEvidence: (evidenceId: string) => void
+}) {
+  return (
+    <div className="evidence-table-wrap">
+      <table className="evidence-table">
+        <thead>
+          <tr>
+            <th>Keyword</th>
+            <th>Status</th>
+            <th>Change</th>
+            <th>Summary</th>
+            <th>Snippet</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {evidence.map((item) => (
+            <tr key={item.id}>
+              <td className="evidence-keyword-cell">{item.keyword}</td>
+              <td>
+                <CitationBadge state={item.citationState} />
+              </td>
+              <td className="evidence-change-cell">{item.changeLabel}</td>
+              <td className="evidence-summary-cell">{item.summary}</td>
+              <td className="evidence-snippet-cell" title={item.answerSnippet}>
+                {item.answerSnippet}
+              </td>
+              <td>
+                <Button variant="ghost" size="sm" type="button" onClick={() => onOpenEvidence(item.id)}>
+                  View
+                </Button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function FindingsTable({ findings }: { findings: TechnicalFindingVm[] }) {
+  return (
+    <div className="findings-table-wrap">
+      <table className="findings-table">
+        <thead>
+          <tr>
+            <th>Severity</th>
+            <th>Finding</th>
+            <th>Detail</th>
+            <th>Impact</th>
+          </tr>
+        </thead>
+        <tbody>
+          {findings.map((finding) => (
+            <tr key={finding.id}>
+              <td>
+                <ToneBadge tone={toneFromFindingSeverity(finding.severity)}>{toTitleCase(finding.severity)}</ToneBadge>
+              </td>
+              <td className="font-medium text-zinc-100">{finding.title}</td>
+              <td className="text-zinc-400">{finding.detail}</td>
+              <td className="text-zinc-500">{finding.impact}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function CompetitorTable({ competitors }: { competitors: ProjectCommandCenterVm['competitors'] }) {
+  return (
+    <div className="competitor-table-wrap">
+      <table className="competitor-table">
+        <thead>
+          <tr>
+            <th>Domain</th>
+            <th>Pressure</th>
+            <th>Movement</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {competitors.map((competitor) => (
+            <tr key={competitor.id}>
+              <td className="font-medium text-zinc-100">{competitor.domain}</td>
+              <td>
+                <ToneBadge tone={competitor.pressureLabel === 'High' ? 'negative' : 'caution'}>
+                  {competitor.pressureLabel}
+                </ToneBadge>
+              </td>
+              <td className="text-zinc-300">{competitor.movement}</td>
+              <td className="text-zinc-500">{competitor.notes}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/* ────────────────────────────────────────────
+   Page components
+   ──────────────────────────────────────────── */
+
 function OverviewProjectCard({
   project,
   onNavigate,
@@ -510,65 +681,65 @@ function OverviewPage({
   onOpenRun: (runId: string) => void
 }) {
   return (
-    <>
-      <section className="hero-grid">
-        <div className="hero-copy">
-          <p className="eyebrow">Portfolio overview</p>
-          <h1>Portfolio</h1>
-          <p className="lede">Answer visibility, technical readiness, and execution state in one compact view.</p>
+    <div className="page-container">
+      <div className="page-header">
+        <div className="page-header-left">
+          <h1 className="page-title">Portfolio</h1>
+          <p className="page-subtitle">Answer visibility, technical readiness, and execution state across all projects.</p>
         </div>
-        <div className="hero-stack">
-          <Card className="surface-card">
-            <div className="section-head">
-              <div>
-                <p className="eyebrow eyebrow-soft">Needs attention</p>
-                <h2>What changed</h2>
-              </div>
-              <p className="supporting-copy">{model.lastUpdatedAt}</p>
-            </div>
-            <div className="attention-list">
-              {model.attentionItems.map((item) => (
-                <a
-                  key={item.id}
-                  className={`attention-item attention-item-${item.tone}`}
-                  href={item.href}
-                  onClick={createNavigationHandler(onNavigate, item.href)}
-                >
-                  <div>
-                    <p className="attention-title">{item.title}</p>
-                    <p className="attention-detail">{item.detail}</p>
-                  </div>
-                  <span className="attention-action">{item.actionLabel}</span>
-                </a>
-              ))}
-            </div>
-          </Card>
+      </div>
 
-          <Card className="surface-card">
-            <div className="section-head">
-              <div>
-                <p className="eyebrow eyebrow-soft">Recent run state</p>
-                <h2>Operational pulse</h2>
-              </div>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <Card className="surface-card">
+          <div className="section-head">
+            <div>
+              <p className="eyebrow eyebrow-soft">Needs attention</p>
+              <h2>What changed</h2>
             </div>
-            <div className="compact-stack">
-              {model.recentRuns.length > 0 ? (
-                model.recentRuns.map((run) => (
-                  <button key={run.id} className="compact-run" type="button" onClick={() => onOpenRun(run.id)}>
-                    <div>
-                      <p className="compact-run-title">{run.projectName}</p>
-                      <p className="compact-run-detail">{run.summary}</p>
-                    </div>
-                    <StatusBadge status={run.status} />
-                  </button>
-                ))
-              ) : (
-                <p className="supporting-copy">Run history appears here after the first launch.</p>
-              )}
+            <p className="supporting-copy">{model.lastUpdatedAt}</p>
+          </div>
+          <div className="attention-list">
+            {model.attentionItems.map((item) => (
+              <a
+                key={item.id}
+                className={`attention-item attention-item-${item.tone}`}
+                href={item.href}
+                onClick={createNavigationHandler(onNavigate, item.href)}
+              >
+                <div>
+                  <p className="attention-title">{item.title}</p>
+                  <p className="attention-detail">{item.detail}</p>
+                </div>
+                <span className="attention-action">{item.actionLabel}</span>
+              </a>
+            ))}
+          </div>
+        </Card>
+
+        <Card className="surface-card">
+          <div className="section-head">
+            <div>
+              <p className="eyebrow eyebrow-soft">Recent runs</p>
+              <h2>Operational pulse</h2>
             </div>
-          </Card>
-        </div>
-      </section>
+          </div>
+          <div className="compact-stack">
+            {model.recentRuns.length > 0 ? (
+              model.recentRuns.map((run) => (
+                <button key={run.id} className="compact-run" type="button" onClick={() => onOpenRun(run.id)}>
+                  <div>
+                    <p className="compact-run-title">{run.projectName}</p>
+                    <p className="compact-run-detail">{run.summary}</p>
+                  </div>
+                  <StatusBadge status={run.status} />
+                </button>
+              ))
+            ) : (
+              <p className="supporting-copy">Run history appears here after the first launch.</p>
+            )}
+          </div>
+        </Card>
+      </div>
 
       <section className="page-section">
         <div className="section-head section-head-inline">
@@ -576,7 +747,6 @@ function OverviewPage({
             <p className="eyebrow eyebrow-soft">Projects</p>
             <h2>Portfolio ranking</h2>
           </div>
-          <p className="supporting-copy">Compact rows, separate signals.</p>
         </div>
 
         {model.projects.length > 0 ? (
@@ -605,9 +775,8 @@ function OverviewPage({
         <div className="section-head section-head-inline">
           <div>
             <p className="eyebrow eyebrow-soft">System health</p>
-            <h2>Trust the monitoring layer</h2>
+            <h2>Infrastructure</h2>
           </div>
-          <p className="supporting-copy">Operational confidence stays visible, but secondary.</p>
         </div>
         <div className="health-grid">
           {systemHealth.map((item) => (
@@ -624,7 +793,7 @@ function OverviewPage({
           ))}
         </div>
       </section>
-    </>
+    </div>
   )
 }
 
@@ -637,13 +806,16 @@ function ProjectPage({
   onOpenEvidence: (evidenceId: string) => void
   onOpenRun: (runId?: string) => void
 }) {
+  const isNumericScore = (value: string) => !Number.isNaN(Number.parseInt(value, 10))
+
   return (
-    <>
-      <section className="hero-grid hero-grid-project">
-        <div className="hero-copy">
-          <p className="eyebrow">Project command center</p>
-          <h1>{model.project.name}</h1>
-          <p className="lede">{model.project.canonicalDomain} · {model.contextLabel}</p>
+    <div className="page-container">
+      <div className="page-header">
+        <div className="page-header-left">
+          <h1 className="page-title">{model.project.name}</h1>
+          <p className="page-subtitle">
+            {model.project.canonicalDomain} · {model.contextLabel}
+          </p>
           <div className="tag-row">
             <span className="tag">{model.project.country}</span>
             <span className="tag">{model.project.language.toUpperCase()}</span>
@@ -654,26 +826,52 @@ function ProjectPage({
             ))}
           </div>
         </div>
-        <Card className="surface-card hero-action">
-          <p className="eyebrow eyebrow-soft">Monitoring window</p>
-          <h2>{model.dateRangeLabel}</h2>
-          <p className="supporting-copy">
-            Use the summary cards to separate visibility movement from readiness drift, then move into evidence.
-          </p>
+        <div className="page-header-right">
+          <p className="text-sm text-zinc-500">{model.dateRangeLabel}</p>
           <Button type="button" onClick={() => onOpenRun(model.recentRuns[0]?.id)}>
             Run now
           </Button>
-        </Card>
+        </div>
+      </div>
+
+      {/* Score gauges */}
+      <section className="gauge-row">
+        <ScoreGauge
+          value={model.visibilitySummary.value}
+          label={model.visibilitySummary.label}
+          delta={model.visibilitySummary.delta}
+          tone={model.visibilitySummary.tone}
+          description={model.visibilitySummary.description}
+          isNumeric={isNumericScore(model.visibilitySummary.value)}
+        />
+        <ScoreGauge
+          value={model.readinessSummary.value}
+          label={model.readinessSummary.label}
+          delta={model.readinessSummary.delta}
+          tone={model.readinessSummary.tone}
+          description={model.readinessSummary.description}
+          isNumeric={isNumericScore(model.readinessSummary.value)}
+        />
+        <ScoreGauge
+          value={model.competitorPressure.value}
+          label={model.competitorPressure.label}
+          delta={model.competitorPressure.delta}
+          tone={model.competitorPressure.tone}
+          description={model.competitorPressure.description}
+          isNumeric={isNumericScore(model.competitorPressure.value)}
+        />
+        <ScoreGauge
+          value={model.runStatus.value}
+          label={model.runStatus.label}
+          delta={model.runStatus.delta}
+          tone={model.runStatus.tone}
+          description={model.runStatus.description}
+          isNumeric={isNumericScore(model.runStatus.value)}
+        />
       </section>
 
-      <section className="metric-grid">
-        <MetricCard metric={model.visibilitySummary} />
-        <MetricCard metric={model.readinessSummary} />
-        <MetricCard metric={model.competitorPressure} />
-        <MetricCard metric={model.runStatus} />
-      </section>
-
-      <section className="page-section">
+      {/* Insights */}
+      <section className="page-section-divider">
         <div className="section-head section-head-inline">
           <div>
             <p className="eyebrow eyebrow-soft">What changed</p>
@@ -682,7 +880,7 @@ function ProjectPage({
         </div>
         <div className="insight-grid">
           {model.insights.map((insight) => (
-            <Card key={insight.id} className="surface-card insight-card">
+            <Card key={insight.id} className={`surface-card insight-card insight-card-${insight.tone}`}>
               <ToneBadge tone={insight.tone}>{insight.actionLabel}</ToneBadge>
               <h3>{insight.title}</h3>
               <p>{insight.detail}</p>
@@ -698,79 +896,44 @@ function ProjectPage({
         </div>
       </section>
 
-      <section className="page-section">
+      {/* Evidence table */}
+      <section className="page-section-divider">
         <div className="section-head section-head-inline">
           <div>
             <p className="eyebrow eyebrow-soft">Visibility evidence</p>
-            <h2>Why you are or are not cited</h2>
+            <h2>Keyword citation tracking</h2>
           </div>
-          <p className="supporting-copy">Answer snippets, cited domains, competitor overlap, and technical context.</p>
+          <p className="supporting-copy">{model.visibilityEvidence.length} keywords tracked</p>
         </div>
-        <div className="evidence-grid">
-          {model.visibilityEvidence.map((item) => (
-            <Card key={item.id} className="surface-card evidence-card">
-              <div className="section-head">
-                <div>
-                  <p className="evidence-keyword">{item.keyword}</p>
-                  <p className="supporting-copy">{item.changeLabel}</p>
-                </div>
-                <CitationBadge state={item.citationState} />
-              </div>
-              <p className="evidence-summary">{item.summary}</p>
-              <p className="evidence-snippet">“{item.answerSnippet}”</p>
-              <Button variant="outline" size="sm" type="button" onClick={() => onOpenEvidence(item.id)}>
-                View evidence
-              </Button>
-            </Card>
-          ))}
-        </div>
+        <EvidenceTable evidence={model.visibilityEvidence} onOpenEvidence={onOpenEvidence} />
       </section>
 
-      <section className="page-section">
+      {/* Technical findings table */}
+      <section className="page-section-divider">
         <div className="section-head section-head-inline">
           <div>
             <p className="eyebrow eyebrow-soft">Technical findings</p>
-            <h2>Readiness signals connected to visibility</h2>
+            <h2>Readiness signals</h2>
           </div>
+          <p className="supporting-copy">{model.technicalFindings.length} findings</p>
         </div>
-        <div className="finding-grid">
-          {model.technicalFindings.map((finding) => (
-            <Card key={finding.id} className="surface-card finding-card">
-              <div className="section-head">
-                <ToneBadge tone={toneFromFindingSeverity(finding.severity)}>{toTitleCase(finding.severity)}</ToneBadge>
-              </div>
-              <h3>{finding.title}</h3>
-              <p>{finding.detail}</p>
-              <p className="supporting-copy">Impact: {finding.impact}</p>
-            </Card>
-          ))}
-        </div>
+        <FindingsTable findings={model.technicalFindings} />
       </section>
 
-      <section className="page-section">
+      {/* Competitor table */}
+      <section className="page-section-divider">
         <div className="section-head section-head-inline">
           <div>
             <p className="eyebrow eyebrow-soft">Competitors</p>
-            <h2>Who is displacing you</h2>
+            <h2>Competitive landscape</h2>
           </div>
+          <p className="supporting-copy">{model.competitors.length} tracked</p>
         </div>
-        <div className="competitor-grid">
-          {model.competitors.map((competitor) => (
-            <Card key={competitor.id} className="surface-card competitor-card">
-              <div className="section-head">
-                <h3>{competitor.domain}</h3>
-                <ToneBadge tone={competitor.pressureLabel === 'High' ? 'negative' : 'caution'}>
-                  {competitor.pressureLabel}
-                </ToneBadge>
-              </div>
-              <p>{competitor.movement}</p>
-              <p className="supporting-copy">{competitor.notes}</p>
-            </Card>
-          ))}
-        </div>
+        <CompetitorTable competitors={model.competitors} />
       </section>
 
-      <section className="page-section">
+      {/* Run timeline */}
+      <section className="page-section-divider">
         <div className="section-head section-head-inline">
           <div>
             <p className="eyebrow eyebrow-soft">Run timeline</p>
@@ -783,7 +946,7 @@ function ProjectPage({
           ))}
         </div>
       </section>
-    </>
+    </div>
   )
 }
 
@@ -792,16 +955,17 @@ function RunsPage({ runs, onOpenRun }: { runs: RunListItemVm[]; onOpenRun: (runI
   const filteredRuns = filter === 'all' ? runs : runs.filter((run) => run.status === filter)
 
   return (
-    <>
-      <section className="hero-grid hero-grid-compact">
-        <div className="hero-copy">
-          <p className="eyebrow">Runs</p>
-          <h1>Operational timeline</h1>
-          <p className="lede">Status, type, project, duration, and the shortest explanation that makes the outcome trustworthy.</p>
+    <div className="page-container">
+      <div className="page-header">
+        <div className="page-header-left">
+          <h1 className="page-title">Runs</h1>
+          <p className="page-subtitle">
+            Status, type, project, duration, and the shortest explanation that makes the outcome trustworthy.
+          </p>
         </div>
-      </section>
+      </div>
 
-      <section className="page-section">
+      <section>
         <div className="filter-row" role="toolbar" aria-label="Run filters">
           {(['all', 'queued', 'running', 'completed', 'partial', 'failed'] as const).map((option) => (
             <button
@@ -827,7 +991,7 @@ function RunsPage({ runs, onOpenRun }: { runs: RunListItemVm[]; onOpenRun: (runI
           )}
         </div>
       </section>
-    </>
+    </div>
   )
 }
 
@@ -839,14 +1003,13 @@ function SettingsPage({
   healthSnapshot: HealthSnapshot
 }) {
   return (
-    <>
-      <section className="hero-grid hero-grid-compact">
-        <div className="hero-copy">
-          <p className="eyebrow">Settings</p>
-          <h1>Settings</h1>
-          <p className="lede">Provider state, quotas, and service health. Nothing more than the dashboard needs.</p>
+    <div className="page-container">
+      <div className="page-header">
+        <div className="page-header-left">
+          <h1 className="page-title">Settings</h1>
+          <p className="page-subtitle">Provider state, quotas, and service health.</p>
         </div>
-      </section>
+      </div>
 
       <section className="settings-grid">
         <Card className="surface-card">
@@ -920,7 +1083,7 @@ function SettingsPage({
           <div className="section-head">
             <div>
               <p className="eyebrow eyebrow-soft">Self-host notes</p>
-              <h2>Keep operational detail sparse</h2>
+              <h2>Operational guidance</h2>
             </div>
           </div>
           <ul className="detail-list">
@@ -931,20 +1094,19 @@ function SettingsPage({
           <p className="supporting-copy">{settings.bootstrapNote}</p>
         </Card>
       </section>
-    </>
+    </div>
   )
 }
 
 function SetupPage({ model }: { model: SetupWizardVm }) {
   return (
-    <>
-      <section className="hero-grid hero-grid-compact">
-        <div className="hero-copy">
-          <p className="eyebrow">Setup</p>
-          <h1>Setup</h1>
-          <p className="lede">Create a project, import keywords, add competitors, and launch the first run.</p>
+    <div className="page-container">
+      <div className="page-header">
+        <div className="page-header-left">
+          <h1 className="page-title">Setup</h1>
+          <p className="page-subtitle">Create a project, import keywords, add competitors, and launch the first run.</p>
         </div>
-      </section>
+      </div>
 
       <section className="setup-grid">
         <Card className="surface-card step-card">
@@ -1043,23 +1205,25 @@ function SetupPage({ model }: { model: SetupWizardVm }) {
           </Button>
         </Card>
       </section>
-    </>
+    </div>
   )
 }
 
 function NotFoundPage({ onNavigate }: { onNavigate: (to: string) => void }) {
   return (
-    <section className="page-section">
-      <Card className="surface-card empty-card">
-        <h1>Route not found</h1>
-        <p>The current path does not map to a dashboard view.</p>
-        <Button asChild>
-          <a href="/" onClick={createNavigationHandler(onNavigate, '/')}>
-            Return to overview
-          </a>
-        </Button>
-      </Card>
-    </section>
+    <div className="page-container">
+      <section className="page-section">
+        <Card className="surface-card empty-card">
+          <h1>Route not found</h1>
+          <p>The current path does not map to a dashboard view.</p>
+          <Button asChild>
+            <a href="/" onClick={createNavigationHandler(onNavigate, '/')}>
+              Return to overview
+            </a>
+          </Button>
+        </Card>
+      </section>
+    </div>
   )
 }
 
@@ -1089,6 +1253,10 @@ function Drawer({
     </Sheet>
   )
 }
+
+/* ────────────────────────────────────────────
+   Root app
+   ──────────────────────────────────────────── */
 
 export function App({
   initialPathname,
@@ -1213,11 +1381,11 @@ export function App({
   const selectedEvidenceContext =
     drawerState?.kind === 'evidence' ? findEvidenceById(dashboard, drawerState.evidenceId) : undefined
 
-  const navItems = [
-    { label: 'Overview', href: '/', active: isNavActive(route, 'overview') },
-    { label: 'Projects', href: projectPath, active: isNavActive(route, 'project') },
-    { label: 'Runs', href: '/runs', active: isNavActive(route, 'runs') },
-    { label: 'Settings', href: '/settings', active: isNavActive(route, 'settings') },
+  const mainNavItems = [
+    { label: 'Overview', href: '/', icon: LayoutDashboard, active: isNavActive(route, 'overview') },
+    { label: 'Projects', href: projectPath, icon: Globe, active: isNavActive(route, 'project') },
+    { label: 'Runs', href: '/runs', icon: Play, active: isNavActive(route, 'runs') },
+    { label: 'Settings', href: '/settings', icon: Settings, active: isNavActive(route, 'settings') },
   ]
 
   const primaryAction =
@@ -1231,25 +1399,152 @@ export function App({
           action: () => navigate(dashboard.projects.length > 0 ? projectPath : '/setup'),
         }
 
+  const breadcrumbLabel =
+    route.kind === 'overview'
+      ? 'Portfolio'
+      : route.kind === 'project' && activeProject
+        ? activeProject.project.name
+        : route.kind === 'runs'
+          ? 'Runs'
+          : route.kind === 'settings'
+            ? 'Settings'
+            : route.kind === 'setup'
+              ? 'Setup'
+              : 'Not found'
+
   return (
     <div className="app-shell">
       <a className="skip-link" href="#content">
         Skip to content
       </a>
 
-      <header className="topbar">
-        <div className="brand-lockup">
-          <a className="brand-mark" href="/" onClick={createNavigationHandler(navigate, '/')}>
-            Canonry
+      {/* ── Sidebar (desktop) ── */}
+      <aside className="sidebar" aria-label="Primary navigation">
+        <div className="sidebar-brand">
+          <a href="/" onClick={createNavigationHandler(navigate, '/')}>
+            <span className="brand-mark">Canonry</span>
+            <p className="brand-subtitle">AEO Monitor</p>
           </a>
-          <p className="brand-subtitle">Monitoring</p>
         </div>
 
-        <nav className="topnav" aria-label="Primary">
-          {navItems.map((item) => (
+        <nav className="sidebar-nav">
+          {mainNavItems.map((item) => (
             <a
               key={item.label}
-              className={`topnav-link ${item.active ? 'topnav-link-active' : ''}`}
+              className={`sidebar-link ${item.active ? 'sidebar-link-active' : ''}`}
+              href={item.href}
+              aria-current={item.active ? 'page' : undefined}
+              onClick={createNavigationHandler(navigate, item.href)}
+            >
+              <item.icon className="sidebar-icon" />
+              <span>{item.label}</span>
+            </a>
+          ))}
+
+          {dashboard.projects.length > 0 ? (
+            <>
+              <p className="sidebar-section-title">Projects</p>
+              {dashboard.projects.map((projectVm) => {
+                const isActive = route.kind === 'project' && activeProject?.project.id === projectVm.project.id
+                const visibilityTone = projectVm.visibilitySummary.tone
+                return (
+                  <a
+                    key={projectVm.project.id}
+                    className={`sidebar-project ${isActive ? 'sidebar-project-active' : ''}`}
+                    href={`/projects/${projectVm.project.id}`}
+                    onClick={createNavigationHandler(navigate, `/projects/${projectVm.project.id}`)}
+                  >
+                    <span className={`sidebar-dot sidebar-dot-${visibilityTone}`} />
+                    <span>{projectVm.project.name}</span>
+                  </a>
+                )
+              })}
+            </>
+          ) : null}
+
+          <p className="sidebar-section-title">Resources</p>
+          <a
+            className="sidebar-link"
+            href="/setup"
+            aria-current={route.kind === 'setup' ? 'page' : undefined}
+            onClick={createNavigationHandler(navigate, '/setup')}
+          >
+            <Rocket className="sidebar-icon" />
+            <span>Setup</span>
+          </a>
+        </nav>
+
+        <div className="sidebar-footer">
+          {docs.map((doc) => (
+            <a key={doc.href} className="sidebar-footer-link" href={doc.href} target="_blank" rel="noreferrer">
+              {doc.label}
+            </a>
+          ))}
+        </div>
+      </aside>
+
+      {/* ── Main area ── */}
+      <div className="main-area">
+        {/* Topbar */}
+        <header className="topbar">
+          <div className="topbar-left">
+            <div className="topbar-brand-mobile">
+              <a className="brand-mark" href="/" onClick={createNavigationHandler(navigate, '/')}>
+                Canonry
+              </a>
+            </div>
+            <nav className="breadcrumb" aria-label="Breadcrumb">
+              <a href="/" onClick={createNavigationHandler(navigate, '/')}>
+                Home
+              </a>
+              <ChevronRight className="breadcrumb-sep size-3" />
+              <span className="breadcrumb-current">{breadcrumbLabel}</span>
+            </nav>
+          </div>
+
+          <div className="topbar-actions">
+            <div className="health-pill-row">
+              <span className={`health-pill health-pill-${healthSnapshot.apiStatus.state}`}>
+                API {healthSnapshot.apiStatus.state === 'ok' ? 'ok' : healthSnapshot.apiStatus.state}
+              </span>
+              <span className={`health-pill health-pill-${healthSnapshot.workerStatus.state}`}>
+                Worker {healthSnapshot.workerStatus.state === 'ok' ? 'ok' : healthSnapshot.workerStatus.state}
+              </span>
+            </div>
+            <Button className="topbar-cta" type="button" onClick={primaryAction.action}>
+              {primaryAction.label}
+            </Button>
+            <Button
+              className="nav-toggle"
+              variant="secondary"
+              size="icon"
+              type="button"
+              aria-expanded={mobileNavOpen}
+              aria-controls="mobile-nav"
+              onClick={() => setMobileNavOpen((open) => !open)}
+            >
+              <Menu className="size-4" />
+              <span className="sr-only">Open navigation</span>
+            </Button>
+          </div>
+        </header>
+
+        {/* Mobile nav overlay */}
+        <div id="mobile-nav" className={`mobile-nav ${mobileNavOpen ? 'mobile-nav-open' : ''}`}>
+          <Button
+            className="mobile-nav-close"
+            variant="ghost"
+            size="icon"
+            type="button"
+            onClick={() => setMobileNavOpen(false)}
+          >
+            <X className="size-5" />
+            <span className="sr-only">Close navigation</span>
+          </Button>
+          {mainNavItems.map((item) => (
+            <a
+              key={item.label}
+              className={`mobile-nav-link ${item.active ? 'mobile-nav-link-active' : ''}`}
               href={item.href}
               aria-current={item.active ? 'page' : undefined}
               onClick={createNavigationHandler(navigate, item.href)}
@@ -1257,80 +1552,57 @@ export function App({
               {item.label}
             </a>
           ))}
-        </nav>
-
-        <div className="topbar-actions">
-          <div className="health-pill-row">
-            <span className={`health-pill health-pill-${healthSnapshot.apiStatus.state}`}>
-              API {healthSnapshot.apiStatus.state === 'ok' ? 'ok' : healthSnapshot.apiStatus.state}
-            </span>
-            <span className={`health-pill health-pill-${healthSnapshot.workerStatus.state}`}>
-              Worker {healthSnapshot.workerStatus.state === 'ok' ? 'ok' : healthSnapshot.workerStatus.state}
-            </span>
-          </div>
-          <Button className="topbar-cta" type="button" onClick={primaryAction.action}>
-            {primaryAction.label}
-          </Button>
-          <Button
-            className="nav-toggle"
-            variant="secondary"
-            size="icon"
-            type="button"
-            aria-expanded={mobileNavOpen}
-            aria-controls="mobile-nav"
-            onClick={() => setMobileNavOpen((open) => !open)}
-          >
-            <Menu className="size-4" />
-            <span className="sr-only">Open navigation</span>
-          </Button>
+          {dashboard.projects.length > 0 ? (
+            <div className="mobile-nav-section">
+              <p className="mobile-nav-section-title">Projects</p>
+              {dashboard.projects.map((projectVm) => (
+                <a
+                  key={projectVm.project.id}
+                  className="mobile-nav-link"
+                  href={`/projects/${projectVm.project.id}`}
+                  onClick={createNavigationHandler(navigate, `/projects/${projectVm.project.id}`)}
+                >
+                  {projectVm.project.name}
+                </a>
+              ))}
+            </div>
+          ) : null}
         </div>
-      </header>
 
-      <div id="mobile-nav" className={`mobile-nav ${mobileNavOpen ? 'mobile-nav-open' : ''}`}>
-        {navItems.map((item) => (
-          <a
-            key={item.label}
-            className={`mobile-nav-link ${item.active ? 'mobile-nav-link-active' : ''}`}
-            href={item.href}
-            aria-current={item.active ? 'page' : undefined}
-            onClick={createNavigationHandler(navigate, item.href)}
-          >
-            {item.label}
-          </a>
-        ))}
+        {/* Page content */}
+        <main id="content" className="page-shell">
+          {route.kind === 'overview' ? (
+            <OverviewPage
+              model={dashboard.portfolioOverview}
+              systemHealth={systemHealthCards}
+              onNavigate={navigate}
+              onOpenRun={openRun}
+            />
+          ) : null}
+          {route.kind === 'project' && activeProject ? (
+            <ProjectPage model={activeProject} onOpenEvidence={openEvidence} onOpenRun={openRun} />
+          ) : null}
+          {route.kind === 'runs' ? <RunsPage runs={dashboard.runs} onOpenRun={openRun} /> : null}
+          {route.kind === 'settings' ? (
+            <SettingsPage settings={dashboard.settings} healthSnapshot={healthSnapshot} />
+          ) : null}
+          {route.kind === 'setup' ? <SetupPage model={setupModel} /> : null}
+          {route.kind === 'not-found' ? <NotFoundPage onNavigate={navigate} /> : null}
+        </main>
+
+        <footer className="footer">
+          <p className="supporting-copy">Technical readiness and answer visibility stay separate.</p>
+          <div className="footer-links">
+            {docs.map((doc) => (
+              <a key={doc.href} href={doc.href} target="_blank" rel="noreferrer">
+                {doc.label}
+              </a>
+            ))}
+          </div>
+        </footer>
       </div>
 
-      <main id="content" className="page-shell">
-        {route.kind === 'overview' ? (
-          <OverviewPage
-            model={dashboard.portfolioOverview}
-            systemHealth={systemHealthCards}
-            onNavigate={navigate}
-            onOpenRun={openRun}
-          />
-        ) : null}
-        {route.kind === 'project' && activeProject ? (
-          <ProjectPage model={activeProject} onOpenEvidence={openEvidence} onOpenRun={openRun} />
-        ) : null}
-        {route.kind === 'runs' ? <RunsPage runs={dashboard.runs} onOpenRun={openRun} /> : null}
-        {route.kind === 'settings' ? (
-          <SettingsPage settings={dashboard.settings} healthSnapshot={healthSnapshot} />
-        ) : null}
-        {route.kind === 'setup' ? <SetupPage model={setupModel} /> : null}
-        {route.kind === 'not-found' ? <NotFoundPage onNavigate={navigate} /> : null}
-      </main>
-
-      <footer className="footer">
-        <p className="supporting-copy">Technical readiness and answer visibility stay separate.</p>
-        <div className="footer-links">
-          {docs.map((doc) => (
-            <a key={doc.href} href={doc.href} target="_blank" rel="noreferrer">
-              {doc.label}
-            </a>
-          ))}
-        </div>
-      </footer>
-
+      {/* ── Drawers ── */}
       {selectedRun ? (
         <Drawer
           open={selectedRun !== undefined}
@@ -1377,7 +1649,7 @@ export function App({
               <p>{selectedEvidenceContext.evidence.changeLabel}</p>
             </div>
           </div>
-          <p className="drawer-copy">“{selectedEvidenceContext.evidence.answerSnippet}”</p>
+          <p className="drawer-copy">"{selectedEvidenceContext.evidence.answerSnippet}"</p>
           <div className="drawer-section">
             <p className="detail-label">Cited domains</p>
             <p>{selectedEvidenceContext.evidence.citedDomains.join(', ')}</p>

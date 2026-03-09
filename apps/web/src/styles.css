@@ -15,10 +15,7 @@
   }
 
   body {
-    @apply min-h-screen bg-black font-sans text-zinc-50 antialiased;
-    background-image:
-      radial-gradient(circle at top, rgba(255, 255, 255, 0.05), transparent 30%),
-      radial-gradient(circle at top left, rgba(59, 130, 246, 0.08), transparent 22%);
+    @apply min-h-screen bg-zinc-950 font-sans text-zinc-50 antialiased;
   }
 
   a {
@@ -40,36 +37,106 @@
     @apply absolute left-4 top-[-3rem] z-50 rounded-md bg-zinc-50 px-4 py-2 text-sm font-medium text-black transition-all focus:top-4;
   }
 
+  /* ── Layout shell: sidebar + topbar + content ── */
+
   .app-shell {
-    @apply min-h-screen px-4 py-4 md:px-6;
+    @apply flex min-h-screen;
   }
 
-  .topbar {
-    @apply sticky top-4 z-20 mx-auto flex max-w-6xl items-center justify-between gap-4 rounded-xl border border-zinc-800 bg-zinc-950/80 px-4 py-3 backdrop-blur;
+  .sidebar {
+    @apply fixed inset-y-0 left-0 z-30 hidden w-56 flex-col border-r border-zinc-800/60 bg-zinc-950 lg:flex;
   }
 
-  .brand-lockup {
-    @apply flex flex-col gap-0.5;
+  .sidebar-brand {
+    @apply flex items-center gap-3 px-5 pt-5 pb-4;
   }
 
   .brand-mark {
-    @apply text-base font-semibold tracking-tight text-zinc-50;
+    @apply text-base font-bold tracking-tight text-zinc-50;
   }
 
   .brand-subtitle {
-    @apply text-[11px] uppercase tracking-[0.18em] text-zinc-500;
+    @apply text-[10px] uppercase tracking-[0.2em] text-zinc-500;
   }
 
-  .topnav {
-    @apply hidden items-center gap-1 md:flex;
+  .sidebar-nav {
+    @apply flex flex-1 flex-col gap-0.5 overflow-y-auto px-3 pb-4;
   }
 
-  .topnav-link {
-    @apply rounded-md px-3 py-2 text-sm text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-100;
+  .sidebar-section-title {
+    @apply mb-1 mt-5 px-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600;
   }
 
-  .topnav-link-active {
-    @apply bg-zinc-900 text-zinc-100;
+  .sidebar-link {
+    @apply flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-200;
+  }
+
+  .sidebar-link-active {
+    @apply bg-zinc-800/60 text-zinc-100;
+  }
+
+  .sidebar-icon {
+    @apply size-4 shrink-0;
+  }
+
+  .sidebar-project {
+    @apply flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-200;
+  }
+
+  .sidebar-project-active {
+    @apply text-zinc-200;
+  }
+
+  .sidebar-dot {
+    @apply size-1.5 shrink-0 rounded-full bg-zinc-600;
+  }
+
+  .sidebar-dot-positive {
+    @apply bg-emerald-400;
+  }
+
+  .sidebar-dot-caution {
+    @apply bg-amber-400;
+  }
+
+  .sidebar-dot-negative {
+    @apply bg-rose-400;
+  }
+
+  .sidebar-footer {
+    @apply border-t border-zinc-800/60 px-3 py-3;
+  }
+
+  .sidebar-footer-link {
+    @apply block rounded-lg px-2.5 py-1.5 text-[12px] text-zinc-600 transition hover:text-zinc-400;
+  }
+
+  .main-area {
+    @apply flex min-h-screen flex-1 flex-col lg:pl-56;
+  }
+
+  .topbar {
+    @apply sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-zinc-800/60 bg-zinc-950/95 px-4 py-2.5 backdrop-blur-sm md:px-6;
+  }
+
+  .topbar-left {
+    @apply flex items-center gap-3;
+  }
+
+  .topbar-brand-mobile {
+    @apply flex items-center gap-2 lg:hidden;
+  }
+
+  .breadcrumb {
+    @apply hidden items-center gap-1.5 text-sm text-zinc-500 md:flex;
+  }
+
+  .breadcrumb-sep {
+    @apply text-zinc-700;
+  }
+
+  .breadcrumb-current {
+    @apply text-zinc-200;
   }
 
   .topbar-actions {
@@ -77,15 +144,15 @@
   }
 
   .health-pill-row {
-    @apply hidden items-center gap-2 lg:flex;
+    @apply hidden items-center gap-1.5 lg:flex;
   }
 
   .health-pill {
-    @apply rounded-md border px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.12em];
+    @apply rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.1em];
   }
 
   .health-pill-ok {
-    @apply border-emerald-500/20 bg-emerald-500/10 text-emerald-300;
+    @apply border-emerald-500/20 bg-emerald-500/8 text-emerald-400;
   }
 
   .health-pill-checking {
@@ -93,7 +160,7 @@
   }
 
   .health-pill-error {
-    @apply border-rose-500/20 bg-rose-500/10 text-rose-300;
+    @apply border-rose-500/20 bg-rose-500/8 text-rose-400;
   }
 
   .topbar-cta {
@@ -101,28 +168,206 @@
   }
 
   .nav-toggle {
-    @apply md:hidden;
+    @apply lg:hidden;
   }
 
+  /* mobile nav */
   .mobile-nav {
-    @apply mx-auto mt-3 hidden max-w-6xl rounded-xl border border-zinc-800 bg-zinc-950/95 p-2 md:hidden;
+    @apply fixed inset-0 z-40 hidden flex-col bg-zinc-950/98 p-4 pt-16 backdrop-blur-sm;
   }
 
   .mobile-nav-open {
-    @apply grid gap-1;
+    @apply flex;
   }
 
   .mobile-nav-link {
-    @apply rounded-md px-3 py-2 text-sm text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-100;
+    @apply rounded-lg px-4 py-3 text-base font-medium text-zinc-400 transition hover:bg-zinc-900 hover:text-zinc-100;
   }
 
   .mobile-nav-link-active {
     @apply bg-zinc-900 text-zinc-100;
   }
 
-  .page-shell {
-    @apply mx-auto max-w-6xl pb-16 pt-6;
+  .mobile-nav-close {
+    @apply absolute right-4 top-4;
   }
+
+  .mobile-nav-section {
+    @apply mt-4 border-t border-zinc-800 pt-4;
+  }
+
+  .mobile-nav-section-title {
+    @apply mb-2 px-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-600;
+  }
+
+  /* ── Page content ── */
+
+  .page-shell {
+    @apply flex-1 px-4 py-5 md:px-6;
+  }
+
+  .page-container {
+    @apply mx-auto max-w-6xl;
+  }
+
+  /* ── Page header ── */
+
+  .page-header {
+    @apply flex flex-col gap-3 pb-5 sm:flex-row sm:items-start sm:justify-between;
+  }
+
+  .page-header-left {
+    @apply min-w-0;
+  }
+
+  .page-title {
+    @apply text-xl font-bold tracking-tight text-zinc-50;
+  }
+
+  .page-subtitle {
+    @apply mt-1 text-sm text-zinc-500;
+  }
+
+  .page-header-right {
+    @apply flex items-center gap-2;
+  }
+
+  .tag-row {
+    @apply mt-2 flex flex-wrap gap-1.5;
+  }
+
+  .tag {
+    @apply rounded-md border border-zinc-800 bg-zinc-900/50 px-2 py-0.5 text-[11px] font-medium text-zinc-400;
+  }
+
+  /* ── Eyebrow / labels ── */
+
+  .eyebrow {
+    @apply text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500;
+  }
+
+  .eyebrow-soft {
+    @apply mb-1 text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-600;
+  }
+
+  /* ── Typography ── */
+
+  .lede {
+    @apply max-w-3xl text-sm leading-6 text-zinc-400;
+  }
+
+  .supporting-copy {
+    @apply text-sm leading-6 text-zinc-500;
+  }
+
+  .blocking-copy {
+    @apply text-sm text-rose-300;
+  }
+
+  /* ── Score gauge ── */
+
+  .gauge-row {
+    @apply grid gap-3 sm:grid-cols-2 lg:grid-cols-4;
+  }
+
+  .score-gauge {
+    @apply flex flex-col items-center rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-4 py-5;
+  }
+
+  .gauge-ring {
+    @apply size-28;
+  }
+
+  .gauge-bg {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.06);
+  }
+
+  .gauge-fill {
+    fill: none;
+    stroke-linecap: round;
+    transition: stroke-dashoffset 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .gauge-fill-positive {
+    stroke: #34d399;
+  }
+
+  .gauge-fill-caution {
+    stroke: #fbbf24;
+  }
+
+  .gauge-fill-negative {
+    stroke: #fb7185;
+  }
+
+  .gauge-fill-neutral {
+    stroke: #a1a1aa;
+  }
+
+  .gauge-center {
+    @apply -mt-[5.5rem] mb-10 flex items-center justify-center;
+  }
+
+  .gauge-value {
+    @apply text-2xl font-bold tracking-tight text-zinc-50;
+  }
+
+  .gauge-value-text {
+    @apply text-lg font-bold tracking-tight text-zinc-50;
+  }
+
+  .gauge-label {
+    @apply mt-1 text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500;
+  }
+
+  .gauge-delta {
+    @apply mt-1 text-[12px] text-zinc-400;
+  }
+
+  .gauge-description {
+    @apply mt-2 text-center text-[12px] leading-5 text-zinc-500;
+  }
+
+  /* ── Surface cards ── */
+
+  .surface-card {
+    @apply rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4;
+  }
+
+  .compact-card {
+    @apply min-h-28;
+  }
+
+  .surface-card h2,
+  .surface-card h3,
+  .empty-card h1 {
+    @apply text-base font-semibold tracking-tight text-zinc-50;
+  }
+
+  .empty-card {
+    @apply gap-3 p-6;
+  }
+
+  /* ── Section layout ── */
+
+  .section-head {
+    @apply flex items-start justify-between gap-3;
+  }
+
+  .section-head-inline {
+    @apply mb-3;
+  }
+
+  .page-section {
+    @apply mt-6;
+  }
+
+  .page-section-divider {
+    @apply mt-8 border-t border-zinc-800/40 pt-6;
+  }
+
+  /* ── Hero area (overview + simple pages) ── */
 
   .hero-grid {
     @apply grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start;
@@ -137,29 +382,15 @@
   }
 
   .hero-copy {
-    @apply space-y-2 rounded-xl border border-zinc-800 bg-zinc-950/50 px-4 py-4;
-  }
-
-  .eyebrow {
-    @apply text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500;
-  }
-
-  .eyebrow-soft {
-    @apply mb-1 text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-600;
+    @apply space-y-2 rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-4 py-4;
   }
 
   .hero-copy h1 {
     @apply text-2xl font-semibold tracking-tight text-zinc-50 md:text-[1.75rem];
   }
 
-  .surface-card h2,
-  .surface-card h3,
-  .empty-card h1 {
-    @apply text-base font-semibold tracking-tight text-zinc-50;
-  }
-
-  .lede {
-    @apply max-w-3xl text-sm leading-6 text-zinc-400;
+  .hero-action {
+    @apply gap-4;
   }
 
   .hero-stack,
@@ -169,40 +400,22 @@
     @apply grid gap-3;
   }
 
-  .surface-card {
-    @apply rounded-xl p-4;
-  }
-
-  .compact-card {
-    @apply min-h-28;
-  }
-
-  .section-head {
-    @apply flex items-start justify-between gap-3;
-  }
-
-  .section-head-inline {
-    @apply mb-3;
-  }
-
-  .supporting-copy {
-    @apply text-sm leading-6 text-zinc-500;
-  }
+  /* ── Attention items ── */
 
   .attention-list {
     @apply grid gap-2;
   }
 
   .attention-item {
-    @apply flex items-start justify-between gap-4 rounded-lg border border-zinc-800 bg-zinc-950 px-4 py-3 transition hover:border-zinc-700 hover:bg-zinc-900;
+    @apply flex items-start justify-between gap-4 rounded-lg border border-zinc-800/60 bg-zinc-950/50 px-4 py-3 transition hover:border-zinc-700 hover:bg-zinc-900/60;
   }
 
   .attention-item-negative {
-    @apply border-rose-500/20;
+    @apply border-l-2 border-l-rose-500/60;
   }
 
   .attention-item-caution {
-    @apply border-amber-500/20;
+    @apply border-l-2 border-l-amber-500/60;
   }
 
   .attention-title,
@@ -226,106 +439,20 @@
     @apply pt-1 text-xs font-medium uppercase tracking-[0.14em] text-zinc-600;
   }
 
+  /* ── Compact run ── */
+
   .compact-run {
-    @apply flex items-center justify-between gap-4 rounded-lg border border-zinc-800 bg-zinc-950 px-4 py-3 text-left transition hover:bg-zinc-900;
+    @apply flex items-center justify-between gap-4 rounded-lg border border-zinc-800/60 bg-zinc-950/50 px-4 py-3 text-left transition hover:bg-zinc-900/60;
   }
 
   .compact-run-detail {
     @apply mt-1 text-sm text-zinc-500;
   }
 
-  .page-section {
-    @apply mt-5;
-  }
+  /* ── Metric card (kept for overview) ── */
 
   .metric-grid {
     @apply grid gap-3 md:grid-cols-2;
-  }
-
-  .insight-grid,
-  .health-grid,
-  .settings-grid,
-  .finding-grid,
-  .competitor-grid {
-    @apply grid gap-3 lg:grid-cols-3;
-  }
-
-  .evidence-grid,
-  .setup-grid {
-    @apply grid gap-3 lg:grid-cols-2;
-  }
-
-  .project-row {
-    @apply grid gap-3 rounded-xl border border-zinc-800 bg-zinc-950/70 p-4 lg:grid-cols-[minmax(0,1.5fr)_9rem_9rem_10rem_9rem_auto] lg:items-center;
-  }
-
-  .project-row-primary {
-    @apply min-w-0;
-  }
-
-  .project-row-stat {
-    @apply min-w-0;
-  }
-
-  .project-row-chart {
-    @apply hidden lg:block;
-  }
-
-  .project-row-link {
-    @apply justify-self-end;
-  }
-
-  .metric-inline-block {
-    @apply space-y-1;
-  }
-
-  .metric-inline-label {
-    @apply text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-600;
-  }
-
-  .metric-inline-value {
-    @apply text-lg font-semibold tracking-tight text-zinc-50;
-  }
-
-  .metric-inline-delta {
-    @apply text-sm text-zinc-500;
-  }
-
-  .project-insight,
-  .evidence-snippet {
-    @apply mt-2 text-sm leading-6 text-zinc-400;
-  }
-
-  .sparkline {
-    @apply h-10 w-full overflow-hidden;
-  }
-
-  .sparkline polyline {
-    fill: none;
-    stroke-width: 2;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-
-  .sparkline-guide {
-    stroke: rgba(255, 255, 255, 0.08);
-    stroke-width: 1;
-  }
-
-  .sparkline-positive polyline {
-    stroke: #34d399;
-  }
-
-  .sparkline-caution polyline {
-    stroke: #fbbf24;
-  }
-
-  .sparkline-negative polyline {
-    stroke: #fb7185;
-  }
-
-  .sparkline-neutral polyline {
-    stroke: #a1a1aa;
   }
 
   .metric-card {
@@ -345,11 +472,11 @@
   }
 
   .progress-track {
-    @apply h-1 overflow-hidden rounded-full bg-zinc-900;
+    @apply h-1 overflow-hidden rounded-full bg-zinc-800;
   }
 
   .progress-fill {
-    @apply h-full rounded-full;
+    @apply h-full rounded-full transition-all duration-500;
   }
 
   .progress-fill-positive {
@@ -365,22 +492,78 @@
   }
 
   .progress-fill-neutral {
-    @apply bg-zinc-400;
+    @apply bg-zinc-500;
   }
 
-  .tag-row {
-    @apply mt-3 flex flex-wrap gap-2;
+  /* ── Sparkline ── */
+
+  .sparkline {
+    @apply h-10 w-full overflow-hidden;
   }
 
-  .tag {
-    @apply rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1 text-xs font-medium text-zinc-400;
+  .sparkline polyline {
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 
-  .hero-action {
-    @apply gap-4;
+  .sparkline-guide {
+    stroke: rgba(255, 255, 255, 0.06);
+    stroke-width: 1;
   }
 
-  .insight-card,
+  .sparkline-positive polyline {
+    stroke: #34d399;
+  }
+
+  .sparkline-caution polyline {
+    stroke: #fbbf24;
+  }
+
+  .sparkline-negative polyline {
+    stroke: #fb7185;
+  }
+
+  .sparkline-neutral polyline {
+    stroke: #a1a1aa;
+  }
+
+  /* ── Grids ── */
+
+  .insight-grid,
+  .health-grid,
+  .settings-grid,
+  .finding-grid,
+  .competitor-grid {
+    @apply grid gap-3 lg:grid-cols-3;
+  }
+
+  .evidence-grid,
+  .setup-grid {
+    @apply grid gap-3 lg:grid-cols-2;
+  }
+
+  /* ── Insight cards with left accent ── */
+
+  .insight-card {
+    @apply grid gap-3 border-l-2 border-l-zinc-700;
+  }
+
+  .insight-card-positive {
+    @apply border-l-emerald-500/60;
+  }
+
+  .insight-card-caution {
+    @apply border-l-amber-500/60;
+  }
+
+  .insight-card-negative {
+    @apply border-l-rose-500/60;
+  }
+
+  /* ── Evidence / finding / competitor / step cards ── */
+
   .evidence-card,
   .finding-card,
   .competitor-card,
@@ -388,8 +571,162 @@
     @apply grid gap-3;
   }
 
+  .evidence-snippet {
+    @apply mt-2 text-sm leading-6 text-zinc-400;
+  }
+
+  /* ── Evidence table ── */
+
+  .evidence-table-wrap {
+    @apply overflow-x-auto rounded-xl border border-zinc-800/60;
+  }
+
+  .evidence-table {
+    @apply w-full text-sm;
+  }
+
+  .evidence-table thead {
+    @apply border-b border-zinc-800/60 bg-zinc-900/50;
+  }
+
+  .evidence-table th {
+    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500;
+  }
+
+  .evidence-table tbody tr {
+    @apply border-b border-zinc-800/30 transition hover:bg-zinc-900/30;
+  }
+
+  .evidence-table tbody tr:last-child {
+    @apply border-b-0;
+  }
+
+  .evidence-table td {
+    @apply px-4 py-3 text-zinc-300;
+  }
+
+  .evidence-keyword-cell {
+    @apply font-medium text-zinc-100;
+  }
+
+  .evidence-change-cell {
+    @apply text-zinc-500;
+  }
+
+  .evidence-summary-cell {
+    @apply max-w-sm text-zinc-400;
+  }
+
+  .evidence-snippet-cell {
+    @apply max-w-xs truncate text-zinc-500 italic;
+  }
+
+  /* ── Findings table ── */
+
+  .findings-table-wrap {
+    @apply overflow-x-auto rounded-xl border border-zinc-800/60;
+  }
+
+  .findings-table {
+    @apply w-full text-sm;
+  }
+
+  .findings-table thead {
+    @apply border-b border-zinc-800/60 bg-zinc-900/50;
+  }
+
+  .findings-table th {
+    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500;
+  }
+
+  .findings-table tbody tr {
+    @apply border-b border-zinc-800/30 transition hover:bg-zinc-900/30;
+  }
+
+  .findings-table tbody tr:last-child {
+    @apply border-b-0;
+  }
+
+  .findings-table td {
+    @apply px-4 py-3 text-zinc-300;
+  }
+
+  /* ── Competitor table ── */
+
+  .competitor-table-wrap {
+    @apply overflow-x-auto rounded-xl border border-zinc-800/60;
+  }
+
+  .competitor-table {
+    @apply w-full text-sm;
+  }
+
+  .competitor-table thead {
+    @apply border-b border-zinc-800/60 bg-zinc-900/50;
+  }
+
+  .competitor-table th {
+    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500;
+  }
+
+  .competitor-table tbody tr {
+    @apply border-b border-zinc-800/30 transition hover:bg-zinc-900/30;
+  }
+
+  .competitor-table tbody tr:last-child {
+    @apply border-b-0;
+  }
+
+  .competitor-table td {
+    @apply px-4 py-3 text-zinc-300;
+  }
+
+  /* ── Project row (overview) ── */
+
+  .project-row {
+    @apply grid gap-3 rounded-xl border border-zinc-800/60 bg-zinc-900/20 p-4 transition hover:bg-zinc-900/40 lg:grid-cols-[minmax(0,1.5fr)_9rem_9rem_10rem_9rem_auto] lg:items-center;
+  }
+
+  .project-row-primary {
+    @apply min-w-0;
+  }
+
+  .project-row-stat {
+    @apply min-w-0;
+  }
+
+  .project-row-chart {
+    @apply hidden lg:block;
+  }
+
+  .project-row-link {
+    @apply justify-self-end;
+  }
+
+  .project-insight {
+    @apply mt-2 text-sm leading-6 text-zinc-400;
+  }
+
+  .metric-inline-block {
+    @apply space-y-1;
+  }
+
+  .metric-inline-label {
+    @apply text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-600;
+  }
+
+  .metric-inline-value {
+    @apply text-lg font-semibold tracking-tight text-zinc-50;
+  }
+
+  .metric-inline-delta {
+    @apply text-sm text-zinc-500;
+  }
+
+  /* ── Run row ── */
+
   .run-row {
-    @apply grid gap-4 rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-4 xl:grid-cols-[minmax(0,1.6fr)_20rem_auto] xl:items-center;
+    @apply grid gap-4 rounded-xl border border-zinc-800/60 bg-zinc-900/20 px-4 py-4 transition hover:bg-zinc-900/40 xl:grid-cols-[minmax(0,1.6fr)_20rem_auto] xl:items-center;
   }
 
   .run-row-main {
@@ -424,17 +761,21 @@
     @apply mt-1 text-sm text-zinc-100;
   }
 
+  /* ── Filter chips ── */
+
   .filter-row {
     @apply mb-3 flex flex-wrap gap-2;
   }
 
   .filter-chip {
-    @apply rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-100;
+    @apply rounded-full border border-zinc-800 bg-zinc-950 px-3 py-1.5 text-sm text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-100;
   }
 
   .filter-chip-active {
-    @apply bg-zinc-900 text-zinc-100;
+    @apply border-zinc-600 bg-zinc-800 text-zinc-100;
   }
+
+  /* ── Health / settings ── */
 
   .health-row,
   .health-check-row {
@@ -445,16 +786,10 @@
     @apply grid gap-2 pl-4 text-sm leading-6 text-zinc-400;
   }
 
-  .blocking-copy {
-    @apply text-sm text-rose-300;
-  }
-
-  .empty-card {
-    @apply gap-3 p-6;
-  }
+  /* ── Footer ── */
 
   .footer {
-    @apply mx-auto flex max-w-6xl flex-col gap-3 border-t border-zinc-900 py-5 text-sm md:flex-row md:items-center md:justify-between;
+    @apply mx-auto flex max-w-6xl flex-col gap-3 border-t border-zinc-800/40 px-4 py-5 text-sm md:flex-row md:items-center md:justify-between md:px-6;
   }
 
   .footer-links {
@@ -462,8 +797,10 @@
   }
 
   .footer-links a {
-    @apply text-zinc-600 transition hover:text-zinc-200;
+    @apply text-zinc-600 transition hover:text-zinc-300;
   }
+
+  /* ── Drawer ── */
 
   .drawer-head {
     @apply gap-1;
@@ -476,5 +813,34 @@
 
   .detail-grid {
     @apply grid gap-4 sm:grid-cols-2;
+  }
+
+  /* ── Summary stats strip ── */
+
+  .stats-strip {
+    @apply flex flex-wrap gap-4 rounded-xl border border-zinc-800/60 bg-zinc-900/20 px-4 py-3;
+  }
+
+  .stat-item {
+    @apply flex items-baseline gap-1.5;
+  }
+
+  .stat-value {
+    @apply text-lg font-bold tracking-tight text-zinc-100;
+  }
+
+  .stat-label {
+    @apply text-[12px] text-zinc-500;
+  }
+
+  .stat-divider {
+    @apply mx-1 self-center text-zinc-800;
+  }
+
+  /* ── Misc helpers ── */
+
+  .sr-only {
+    @apply absolute -m-px h-px w-px overflow-hidden border-0 p-0;
+    clip: rect(0 0 0 0);
   }
 }
