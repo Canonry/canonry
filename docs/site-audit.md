@@ -1,5 +1,7 @@
 # Site Audit Design
 
+> **Deferred to Phase 3.** Not in scope for Phase 2. This document captures the future design for reference.
+
 ## Scope
 
 Site audits are planned as sitemap-first crawls built on top of the existing root audit engine.

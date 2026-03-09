@@ -2,107 +2,85 @@
 
 ## Overview
 
-This repository contains the monitoring product only. The shared technical audit engine lives in the published `@ainyc/aeo-audit` npm package and is consumed as an external dependency from the worker.
+Canonry is a self-hosted AEO monitoring application built on the published `@ainyc/aeo-audit` npm package. It tracks how AI answer engines (starting with Gemini) cite or omit a domain for tracked keywords.
 
-The monitoring app is the primary system. The audit CLI is outside this repo and is only supporting tooling for developers, CI, and one-off technical diagnosis.
+## Local Architecture (Phase 2)
 
-## Component Diagram
+The local installation runs as a **single Node.js process** — no Docker, no Postgres, no message queue.
 
 ```mermaid
 flowchart LR
-  User["Developer / Analyst"]
-  Target["Tracked websites"]
-  DB["Postgres"]
-  Gemini["packages/provider-gemini\nGemini API"]
-  AuditPkg["@ainyc/aeo-audit\npublished npm package"]
+  User["Analyst"]
+  Target["AI answer engines"]
 
-  subgraph Platform["Monitoring platform"]
+  subgraph Process["canonry serve"]
     direction LR
-    Web["apps/web\nVite SPA"] --> API["apps/api\nFastify API"]
-    API --> Queue["pg-boss jobs"]
-    API --> DB
-    Queue --> Worker["apps/worker"]
-    Worker --> Gemini
-    Worker --> AuditPkg
-    Worker --> DB
+    SPA["Static SPA\n/"] --> API["Fastify API\n/api/v1/*"]
+    API --> JobRunner["In-process\njob runner"]
+    API --> SQLite["SQLite"]
+    JobRunner --> Gemini["provider-gemini"]
+    JobRunner --> SQLite
   end
 
-  subgraph ExternalTools["Supporting external tools"]
-    direction TB
-    CLI["Audit CLI"]
-    Npm["npm package tarball"]
-    CLI --> Npm
-    Npm --> AuditPkg
-  end
-
-  User --> Web
-  User -. one-off audits / CI .-> CLI
-  AuditPkg --> Target
+  User --> SPA
+  User -. CLI .-> API
+  Gemini --> Target
 ```
 
-## Why the CLI Still Exists
+### Key components
 
-The monitoring app should deliver the main user experience. The CLI exists for four narrower reasons:
+- **`packages/canonry/`** — publishable npm package (`@ainyc/canonry`). Bundles CLI, Fastify server, job runner, and pre-built SPA.
+- **`packages/api-routes/`** — shared Fastify route plugins. Used by both the local server and the cloud `apps/api/`.
+- **`packages/db/`** — Drizzle ORM schema. SQLite locally, Postgres for cloud. Auto-migration on startup.
+- **`packages/provider-gemini/`** — Gemini adapter: `executeTrackedQuery`, `normalizeResult`, retry with backoff.
+- **`packages/contracts/`** — shared DTOs, enums, config-schema (Zod), error codes.
+- **`apps/web/`** — Vite SPA source. Built and bundled into `packages/canonry/assets/`.
 
-- one-off technical audits while debugging why a domain is or is not being cited
-- CI and release checks for technical readiness outside the hosted UI
-- local development and regression testing of the shared audit engine
-- preserving the existing OSS audit package as a standalone tool
+### Data flow
 
-The primary platform path is `web -> api -> worker -> provider -> postgres`. The CLI is adjacent to that flow, not in the center of it.
+1. Analyst runs `canonry run <project>` (CLI) or triggers from the dashboard
+2. API creates a run record and enqueues a job
+3. Job runner executes `executeTrackedQuery` for each keyword via Gemini
+4. Raw observation snapshots (`cited` / `not-cited`) are persisted per keyword per run
+5. Transitions (`lost`, `emerging`) are computed at query time by comparing consecutive snapshots
+6. Dashboard polls API for results and renders visibility data
 
-## Run Flow
+## Cloud Architecture (Phase 4+)
 
-```mermaid
-sequenceDiagram
-  actor Analyst
-  participant Web
-  participant API
-  participant DB
-  participant Queue as pg-boss
-  participant Worker
-  participant Gemini
-  participant AuditPkg as @ainyc/aeo-audit
+| Concern | Local | Cloud |
+|---------|-------|-------|
+| Database | SQLite | Managed Postgres |
+| Process model | Single process | API + Worker + CDN |
+| Job queue | In-process async | pg-boss |
+| Auth | Auto-generated local key | Bootstrap endpoint + team keys |
+| Web hosting | Fastify static | CDN |
 
-  Analyst->>Web: Trigger manual run
-  Web->>API: POST /api/projects/:id/runs
-  API->>DB: Insert run (queued)
-  API->>Queue: Enqueue job
-  API-->>Web: Run accepted
-
-  Queue->>Worker: Deliver job
-  Worker->>Gemini: executeTrackedQuery()
-  Gemini-->>Worker: Answer + grounding data
-  Worker->>DB: Persist query and citation snapshots
-  Worker->>AuditPkg: runAeoAudit()/runSiteAudit()
-  AuditPkg-->>Worker: Technical report
-  Worker->>DB: Update aggregates and run status
-
-  Web->>API: GET /api/runs/:id
-  API->>DB: Read run and snapshots
-  API-->>Web: Normalized result
-```
+The same API routes, contracts, Drizzle schema, and dashboard code are used in both modes. The cloud deployment replaces the single-process server with separate services.
 
 ## Service Boundaries
 
-- `@ainyc/aeo-audit`: shared technical audit engine, CLI, formatters, report types
-- API: HTTP surface, validation, orchestration, read APIs
-- Worker: jobs, provider execution, retries, future site audits
-- Web: dashboard and bootstrap/setup UX
-- Contracts: shared DTOs, enums, and validation shapes
-- Config: typed environment parsing
-- Provider Gemini: provider adapter and normalization layer
-- DB: schema and database access layer
+- **`@ainyc/aeo-audit`** — external npm dependency. Technical audit engine, CLI, formatters.
+- **`packages/api-routes/`** — HTTP surface, validation, orchestration, read APIs.
+- **`packages/canonry/`** — CLI, local server, job runner (the publishable artifact).
+- **`packages/provider-gemini/`** — provider adapter and normalization layer.
+- **`packages/db/`** — schema, migrations, database access.
+- **`packages/contracts/`** — DTOs, enums, config validation, error codes.
+- **`packages/config/`** — typed environment parsing.
+- **`apps/api/`** — cloud API entry point (imports `packages/api-routes/`).
+- **`apps/worker/`** — cloud worker entry point.
+- **`apps/web/`** — SPA source code.
 
 ## Design Constraints
 
-- This repo should remain independent from the audit package repo
-- The monitoring app should consume only published audit-package releases
-- Future hosted deployment should be possible without rewriting the core data model
+- This repo remains independent from the audit package repo
+- Consume only published `@ainyc/aeo-audit` releases
+- Same auth path for local and cloud (API key-based)
+- Raw observation snapshots only; transitions computed at query time
+- Visibility-only in Phase 2; site audit deferred to Phase 3
 
 ## Score Families
 
-- Technical readiness: `@ainyc/aeo-audit` and future site-audit rollups
-- Answer visibility: provider-driven keyword tracking and citation outcomes
+- **Answer visibility**: provider-driven keyword tracking and citation outcomes (Phase 2)
+- **Technical readiness**: `@ainyc/aeo-audit` and future site-audit rollups (Phase 3)
 
 These remain separate to avoid mixing technical readiness with live-answer visibility.

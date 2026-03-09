@@ -2,47 +2,51 @@
 
 ## Goal
 
-Build a self-hosted AEO analysis and monitoring application on top of the published `@ainyc/aeo-audit` package.
-
-## Phase 1 Scope
-
-- Add a workspace skeleton for API, worker, web, and shared packages
-- Add platform architecture and maintenance documentation
-- Add workspace-level CI for the monitoring product
-- Add Docker Compose for a placeholder local stack
+Build an open-source AEO monitoring tool that a technical analyst can install globally and use immediately. Future cloud-hosted version with usage-based tiers.
 
 ## Product Direction
 
-- OSS self-hosting first
-- SaaS-ready architecture later
+- OSS self-hosting first, SaaS-ready architecture from day one
 - Gemini is the first provider
+- CLI for setup, UI for analysis
+- Config-as-code (`canonry.yaml`) for agent/AI-first workflows
+- API-complete: everything the CLI and UI can do goes through the API
+- Single process locally (no Docker, no Postgres, no message queue)
 - Technical readiness and answer visibility remain separate score families
-- Manual keyword import and manual competitor setup in the first product release
-- The monitoring app is the primary product surface
-- The technical audit engine is consumed from the published `@ainyc/aeo-audit` package
 
-## Planned Phases
+## Phase 1 (Complete)
 
-### Phase 1
+- Docs, architecture diagrams, workspace scaffolding
+- External audit-package adapter
+- Workspace CI (typecheck, test, lint)
+- Mock web dashboard with design system
 
-- Docs, architecture diagrams, workspace scaffolding, external audit-package adapter, and workspace CI
+## Phase 2 (Current)
 
-### Phase 2
+- Publishable `@ainyc/canonry` npm package with bundled SPA and CLI
+- `canonry init` + `canonry serve` — one command to start
+- SQLite database with Drizzle ORM and auto-migration
+- Project CRUD, keyword/competitor management via CLI and API
+- Answer visibility runs against Gemini (the core value)
+- Raw observation snapshots with computed transitions
+- Audit log for all config mutations
+- Snapshot history, diff, and timeline endpoints
+- Config-as-code apply/export
+- Per-project scoped usage counters
+- OpenAPI spec generation
+- Same auth path for local and cloud
 
-- Postgres schema, API skeleton behavior, worker lifecycle, bootstrap flow
+See [phase-2-design.md](./phase-2-design.md) for the full architecture plan.
 
-### Phase 3
+## Phase 3
 
-- Gemini answer visibility execution, quotas, retries, persistence
+- Site audit runs + Technical Readiness scores
+- Scheduling / cron
+- MCP server for AI agents
+- Webhooks and SSE events
 
-### Phase 4
+## Phase 4+
 
-- Site audit orchestration, trend aggregation, partial-result handling
-
-### Phase 5
-
-- Minimal Vite dashboard wired to stable API contracts
-
-### Phase 6
-
-- Export flows, self-host polish, CI smoke coverage, release hardening
+- Cloud deployment, Postgres mode
+- Multi-tenancy and workspaces
+- Billing integration (Stripe)
