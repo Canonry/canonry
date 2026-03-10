@@ -177,8 +177,9 @@ export class JobRunner {
           .run()
       }
 
-      // Increment usage counters
-      this.incrementUsage(projectId, 'queries', totalSnapshotsInserted)
+      // Increment usage counters — track queries-per-provider (not total snapshots) so
+      // that the per-provider daily quota check stays consistent with the counter value
+      this.incrementUsage(projectId, 'queries', queriesPerProvider)
       this.incrementUsage(projectId, 'runs', 1)
     } catch (err: unknown) {
       // Mark run as failed

@@ -208,12 +208,19 @@ function buildEvidenceFromTimeline(
         ? (snap.citationState === 'cited' ? 'cited' : 'not-cited')
         : citationState
 
+      // For multi-provider runs, the aggregated timeline transition may contradict this
+      // provider's own citation state (e.g. "emerging" but snapState is 'not-cited').
+      // Use the provider's own state as the basis for the label when providers > 1.
+      const effectiveTransition = providers.length > 1
+        ? (snapState === 'cited' ? 'cited' : 'not-cited')
+        : transition
+
       results.push({
         id: `evidence_${idx++}`,
         keyword: entry.keyword,
         provider: snap?.provider ?? provider,
         citationState: snapState,
-        changeLabel: changeLabel(transition, entry.runs.length),
+        changeLabel: changeLabel(effectiveTransition, entry.runs.length),
         answerSnippet: snap?.answerText ?? '',
         citedDomains: snap?.citedDomains ?? [],
         evidenceUrls: [],

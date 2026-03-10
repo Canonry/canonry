@@ -27,7 +27,15 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     const now = new Date().toISOString()
     const runId = crypto.randomUUID()
     const trigger = request.body?.trigger ?? 'manual'
-    const providers = request.body?.providers?.length ? request.body.providers : undefined
+    const rawProviders = request.body?.providers
+    const validProviders = ['gemini', 'openai', 'claude'] as const
+    if (rawProviders?.length) {
+      const invalid = rawProviders.filter(p => !(validProviders as readonly string[]).includes(p))
+      if (invalid.length) {
+        return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: `Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validProviders.join(', ')}` } })
+      }
+    }
+    const providers = rawProviders?.length ? rawProviders : undefined
 
     // Check and insert atomically to prevent duplicate concurrent runs
     const txResult = app.db.transaction((tx) => {
