@@ -418,6 +418,59 @@
     @apply grid gap-3;
   }
 
+  /* Scrollable list containers — cap height, fade bottom edge */
+
+  .project-list-scrollable {
+    max-height: 32rem;
+    overflow-y: auto;
+    mask-image: linear-gradient(to bottom, black calc(100% - 2rem), transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 2rem), transparent 100%);
+    padding-bottom: 0.5rem;
+  }
+
+  .attention-list-scrollable {
+    max-height: 18rem;
+    overflow-y: auto;
+    mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
+    padding-bottom: 0.25rem;
+  }
+
+  .compact-stack-scrollable {
+    max-height: 18rem;
+    overflow-y: auto;
+    mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
+    padding-bottom: 0.25rem;
+  }
+
+  /* Thin scrollbar for scrollable containers */
+  .project-list-scrollable,
+  .attention-list-scrollable,
+  .compact-stack-scrollable {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(113, 113, 122, 0.3) transparent;
+  }
+
+  .project-list-scrollable::-webkit-scrollbar,
+  .attention-list-scrollable::-webkit-scrollbar,
+  .compact-stack-scrollable::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .project-list-scrollable::-webkit-scrollbar-track,
+  .attention-list-scrollable::-webkit-scrollbar-track,
+  .compact-stack-scrollable::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .project-list-scrollable::-webkit-scrollbar-thumb,
+  .attention-list-scrollable::-webkit-scrollbar-thumb,
+  .compact-stack-scrollable::-webkit-scrollbar-thumb {
+    background: rgba(113, 113, 122, 0.3);
+    border-radius: 2px;
+  }
+
   /* ── Attention items ── */
 
   .attention-list {

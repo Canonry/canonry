@@ -812,7 +812,7 @@ function OverviewPage({
       </div>
 
       {model.projects.length > 0 ? (
-        <div className="project-list">
+        <div className="project-list project-list-scrollable">
           {model.projects.map((project) => (
             <OverviewProjectCard key={project.project.id} project={project} onNavigate={onNavigate} />
           ))}
@@ -841,7 +841,7 @@ function OverviewPage({
                 <h2 className="section-title-sm">What changed</h2>
               </div>
             </div>
-            <div className="attention-list">
+            <div className="attention-list attention-list-scrollable">
               {model.attentionItems.map((item) => (
                 <a
                   key={item.id}
@@ -867,7 +867,7 @@ function OverviewPage({
               <h2 className="section-title-sm">Activity</h2>
             </div>
           </div>
-          <div className="compact-stack">
+          <div className="compact-stack compact-stack-scrollable">
             {model.recentRuns.length > 0 ? (
               model.recentRuns.map((run) => (
                 <button key={run.id} className="compact-run" type="button" onClick={() => onOpenRun(run.id)}>
