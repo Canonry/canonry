@@ -1,6 +1,10 @@
+import { createRequire } from 'node:module'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+const _require = createRequire(import.meta.url)
+const { version: PKG_VERSION } = _require('../package.json') as { version: string }
 import Fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import { apiRoutes } from '@ainyc/canonry-api-routes'
@@ -234,7 +238,7 @@ export async function createServer(opts: {
   app.get('/health', async () => ({
     status: 'ok',
     service: 'canonry',
-    version: '0.1.0',
+    version: PKG_VERSION,
   }))
 
   // Start scheduler after setup

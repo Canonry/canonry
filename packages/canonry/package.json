@@ -1,6 +1,6 @@
 {
   "name": "@ainyc/canonry",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "type": "module",
   "license": "AGPL-3.0-only",
   "bin": {
@@ -8,16 +8,16 @@
   },
   "exports": {
     ".": {
-      "types": "./src/index.ts",
+      "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }
   },
-  "types": "./src/index.ts",
+  "types": "./dist/index.d.ts",
   "files": [
     "bin/",
     "dist/",
     "assets/",
-    "src/",
+    "package.json",
     "README.md"
   ],
   "engines": {
@@ -39,7 +39,7 @@
     "drizzle-orm": "^0.45.1",
     "fastify": "^5.4.0",
     "node-cron": "^4.2.1",
-    "openai": "^4.85.0",
+    "openai": "^6.0.0",
     "pino-pretty": "^13.1.3",
     "yaml": "^2.7.1",
     "zod": "^4.1.12"

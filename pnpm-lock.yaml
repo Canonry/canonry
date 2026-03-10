@@ -154,8 +154,8 @@ importers:
         specifier: ^4.2.1
         version: 4.2.1
       openai:
-        specifier: ^4.85.0
-        version: 4.104.0(zod@4.3.6)
+        specifier: ^6.0.0
+        version: 6.27.0(zod@4.3.6)
       pino-pretty:
         specifier: ^13.1.3
         version: 13.1.3
@@ -256,7 +256,7 @@ importers:
         version: link:../contracts
       openai:
         specifier: ^4.85.0
-        version: 4.104.0(zod@4.3.6)
+        version: 4.104.0
 
   packages/provider-openai:
     dependencies:
@@ -264,8 +264,8 @@ importers:
         specifier: workspace:*
         version: link:../contracts
       openai:
-        specifier: ^4.85.0
-        version: 4.104.0(zod@4.3.6)
+        specifier: ^6.0.0
+        version: 6.27.0(zod@4.3.6)
 
 packages:
 
@@ -2427,6 +2427,18 @@ packages:
     peerDependencies:
       ws: ^8.18.0
       zod: ^3.23.8
+    peerDependenciesMeta:
+      ws:
+        optional: true
+      zod:
+        optional: true
+
+  openai@6.27.0:
+    resolution: {integrity: sha512-osTKySlrdYrLYTt0zjhY8yp0JUBmWDCN+Q+QxsV4xMQnnoVFpylgKGgxwN8sSdTNw0G4y+WUXs4eCMWpyDNWZQ==}
+    hasBin: true
+    peerDependencies:
+      ws: ^8.18.0
+      zod: ^3.25 || ^4.0
     peerDependenciesMeta:
       ws:
         optional: true
@@ -4818,7 +4830,7 @@ snapshots:
     dependencies:
       wrappy: 1.0.2
 
-  openai@4.104.0(zod@4.3.6):
+  openai@4.104.0:
     dependencies:
       '@types/node': 18.19.130
       '@types/node-fetch': 2.6.13
@@ -4827,10 +4839,12 @@ snapshots:
       form-data-encoder: 1.7.2
       formdata-node: 4.4.1
       node-fetch: 2.7.0
-    optionalDependencies:
-      zod: 4.3.6
     transitivePeerDependencies:
       - encoding
+
+  openai@6.27.0(zod@4.3.6):
+    optionalDependencies:
+      zod: 4.3.6
 
   optionator@0.9.4:
     dependencies:

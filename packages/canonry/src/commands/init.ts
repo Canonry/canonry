@@ -26,12 +26,12 @@ const DEFAULT_QUOTA = {
   maxRequestsPerDay: 500,
 }
 
-export async function initCommand(): Promise<void> {
+export async function initCommand(opts?: { force?: boolean }): Promise<void> {
   console.log('Initializing canonry...\n')
 
-  if (configExists()) {
+  if (configExists() && !opts?.force) {
     console.log(`Config already exists at ${getConfigPath()}`)
-    console.log('To reinitialize, delete the config file first.')
+    console.log('To reinitialize, run "canonry init --force".')
     return
   }
 

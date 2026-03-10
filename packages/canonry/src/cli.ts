@@ -19,7 +19,7 @@ const USAGE = `
 canonry — AEO monitoring CLI
 
 Usage:
-  canonry init                        Initialize config and database
+  canonry init [--force]               Initialize config and database
   canonry serve                       Start the local server
   canonry project create <name>       Create a project
   canonry project list                List all projects
@@ -54,6 +54,7 @@ Usage:
 
 Options:
   --port <port>        Server port (default: 4100)
+  --host <host>        Server bind address (default: 127.0.0.1)
   --domain <domain>    Canonical domain for project create
   --country <code>     Country code (default: US)
   --language <lang>    Language code (default: en)
@@ -66,7 +67,9 @@ Options:
   --events <list>      Comma-separated notification events
 `.trim()
 
-const VERSION = '0.1.0'
+import { createRequire } from 'node:module'
+const _require = createRequire(import.meta.url)
+const { version: VERSION } = _require('../package.json') as { version: string }
 
 async function main() {
   const args = process.argv.slice(2)
@@ -85,19 +88,23 @@ async function main() {
 
   try {
     switch (command) {
-      case 'init':
-        await initCommand()
+      case 'init': {
+        const initForce = args.includes('--force') || args.includes('-f')
+        await initCommand({ force: initForce })
         break
+      }
 
       case 'serve': {
         const { values } = parseArgs({
           args: args.slice(1),
           options: {
             port: { type: 'string', short: 'p', default: '4100' },
+            host: { type: 'string', short: 'H' },
           },
           allowPositionals: false,
         })
         process.env.CANONRY_PORT = values.port
+        if (values.host) process.env.CANONRY_HOST = values.host
         await serveCommand()
         break
       }

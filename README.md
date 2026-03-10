@@ -197,6 +197,33 @@ Access it at [http://localhost:4100](http://localhost:4100) after running `canon
 
 - Node.js >= 20
 - At least one provider API key (or a local LLM endpoint)
+- A C++ toolchain for building `better-sqlite3` native bindings (only needed if prebuilt binaries aren't available for your platform)
+
+### Native dependency setup
+
+Canonry uses `better-sqlite3` for its embedded database. Prebuilt binaries are downloaded automatically for most platforms, but if `npm install` fails with a `node-gyp` error, you need to install build tools:
+
+**macOS:**
+```bash
+xcode-select --install
+```
+
+**Debian / Ubuntu:**
+```bash
+sudo apt-get install -y python3 make g++
+```
+
+**Alpine Linux (Docker):**
+```bash
+apk add --no-cache python3 make g++ gcc musl-dev
+```
+
+**Windows:**
+```bash
+npm install -g windows-build-tools
+```
+
+If you're running in a minimal Docker image or CI environment without these tools, the install will fail. See the [better-sqlite3 troubleshooting guide](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/troubleshooting.md) for additional help.
 
 ## Development
 

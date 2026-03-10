@@ -10,6 +10,7 @@ export default defineConfig({
   platform: 'node',
   splitting: true,
   clean: true,
+  dts: { entry: { index: 'src/index.ts' } },
   // Real npm deps — keep as external (installed by end user)
   external: [
     'better-sqlite3',
