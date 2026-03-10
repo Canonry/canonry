@@ -1339,6 +1339,12 @@ const PROVIDER_KEY_URLS: Record<string, string> = {
   claude: 'https://platform.claude.com/settings/keys',
 }
 
+const PROVIDER_MODEL_PLACEHOLDERS: Record<string, string> = {
+  gemini: 'e.g. gemini-2.5-flash',
+  openai: 'e.g. gpt-4o',
+  claude: 'e.g. claude-opus-4-6',
+}
+
 function ProviderConfigForm({ providerName, onSaved }: { providerName: string; onSaved: () => void }) {
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState('')
@@ -1368,6 +1374,7 @@ function ProviderConfigForm({ providerName, onSaved }: { providerName: string; o
   }
 
   const keyUrl = PROVIDER_KEY_URLS[providerName.toLowerCase()]
+  const modelPlaceholder = PROVIDER_MODEL_PLACEHOLDERS[providerName.toLowerCase()] ?? 'Use default model'
 
   return (
     <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 space-y-2">
@@ -1400,7 +1407,7 @@ function ProviderConfigForm({ providerName, onSaved }: { providerName: string; o
           id={`model-${providerName}`}
           type="text"
           className="mt-0.5 w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-          placeholder="Use default model"
+          placeholder={modelPlaceholder}
           value={model}
           onChange={(e) => setModel(e.target.value)}
         />

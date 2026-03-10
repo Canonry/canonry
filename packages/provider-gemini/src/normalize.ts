@@ -10,15 +10,37 @@ import type {
 
 const DEFAULT_MODEL = 'gemini-2.5-flash'
 
+/**
+ * Resolve the effective model name, validating that it is a recognised Gemini
+ * model identifier (must start with "gemini-").  If an invalid name is stored
+ * (e.g. "vertex", which refers to a different product) the default is used and
+ * a warning is logged so the misconfiguration is visible in server logs.
+ */
+function resolveModel(config: GeminiConfig): string {
+  const m = config.model
+  if (!m) return DEFAULT_MODEL
+  if (m.startsWith('gemini-')) return m
+  console.warn(
+    `[provider-gemini] Invalid model name "${m}" — this provider uses the Gemini AI Studio API ` +
+    `(generativelanguage.googleapis.com) which only accepts "gemini-*" model names. ` +
+    `Falling back to ${DEFAULT_MODEL}.`,
+  )
+  return DEFAULT_MODEL
+}
+
 export function validateConfig(config: GeminiConfig): GeminiHealthcheckResult {
   if (!config.apiKey || config.apiKey.length === 0) {
     return { ok: false, provider: 'gemini', message: 'missing api key' }
   }
+  const model = resolveModel(config)
+  const warning = config.model && !config.model.startsWith('gemini-')
+    ? ` (invalid model "${config.model}" replaced with default)`
+    : ''
   return {
     ok: true,
     provider: 'gemini',
-    message: 'config valid',
-    model: config.model ?? DEFAULT_MODEL,
+    message: `config valid${warning}`,
+    model,
   }
 }
 
@@ -28,7 +50,7 @@ export async function healthcheck(config: GeminiConfig): Promise<GeminiHealthche
 
   try {
     const genAI = new GoogleGenerativeAI(config.apiKey)
-    const model = genAI.getGenerativeModel({ model: config.model ?? DEFAULT_MODEL })
+    const model = genAI.getGenerativeModel({ model: resolveModel(config) })
     const result = await model.generateContent('Say "ok"')
     const text = result.response.text()
     return {
@@ -48,7 +70,7 @@ export async function healthcheck(config: GeminiConfig): Promise<GeminiHealthche
 }
 
 export async function executeTrackedQuery(input: GeminiTrackedQueryInput): Promise<GeminiRawResult> {
-  const model = input.config.model ?? DEFAULT_MODEL
+  const model = resolveModel(input.config)
   const genAI = new GoogleGenerativeAI(input.config.apiKey)
 
   // Use google_search tool (replaces deprecated googleSearchRetrieval).
