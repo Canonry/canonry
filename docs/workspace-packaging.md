@@ -23,6 +23,8 @@ This repository is a pnpm monorepo for the Canonry AEO monitoring application. T
 - `packages/config/` — typed environment parsing
 - `packages/db/` — Drizzle ORM schema, migrations, client
 - `packages/provider-gemini/` — Gemini adapter
+- `packages/provider-openai/` — OpenAI adapter
+- `packages/provider-claude/` — Claude/Anthropic adapter
 - `docs/` — product and architecture documentation
 
 ## External Dependency

@@ -36,6 +36,7 @@ import {
   triggerRun as apiTriggerRun,
   deleteProject as apiDeleteProject,
   fetchSettings,
+  updateProviderConfig,
 } from './api.js'
 import { buildDashboard } from './build-dashboard.js'
 import type { ProjectData } from './build-dashboard.js'
@@ -307,12 +308,16 @@ function buildSystemHealthCards(
       }
     }
 
+    const configuredCount = settings.providerStatuses.filter(p => p.state === 'ready').length
+    const totalCount = settings.providerStatuses.length
+    const allReady = configuredCount > 0
+    const configuredNames = settings.providerStatuses.filter(p => p.state === 'ready').map(p => p.name).join(' · ')
     return {
       ...card,
-      label: settings.providerStatus.name,
-      tone: settings.providerStatus.state === 'ready' ? 'positive' : 'caution',
-      detail: settings.providerStatus.state === 'ready' ? 'Configured' : 'Needs config',
-      meta: settings.providerStatus.detail,
+      label: 'Providers',
+      tone: allReady ? 'positive' : 'caution',
+      detail: `${configuredCount} of ${totalCount} configured`,
+      meta: configuredNames || 'None configured',
     }
   })
 }
@@ -330,8 +335,8 @@ function getLaunchBlockedReason(healthSnapshot: HealthSnapshot, settings: Settin
     return 'Launch is blocked until the worker is healthy and heartbeats are current.'
   }
 
-  if (settings.providerStatus.state !== 'ready') {
-    return 'Launch is blocked until Gemini credentials are configured.'
+  if (!settings.providerStatuses.some(p => p.state === 'ready')) {
+    return 'Launch is blocked until at least one provider is configured.'
   }
 
   return undefined
@@ -358,10 +363,11 @@ function buildSetupModel(base: SetupWizardVm, healthSnapshot: HealthSnapshot, se
       }
     }
 
+    const anyReady = settings.providerStatuses.some(p => p.state === 'ready')
     return {
       ...check,
-      detail: settings.providerStatus.detail,
-      state: settings.providerStatus.state === 'ready' ? 'ready' : 'attention',
+      detail: anyReady ? 'At least one provider configured.' : 'No providers configured.',
+      state: anyReady ? 'ready' : 'attention',
     }
   })
 
@@ -554,6 +560,19 @@ function RunRow({
   )
 }
 
+function ProviderBadge({ provider }: { provider: string }) {
+  const colors: Record<string, string> = {
+    gemini: 'border-blue-800/50 bg-blue-950/40 text-blue-300',
+    openai: 'border-green-800/50 bg-green-950/40 text-green-300',
+    claude: 'border-amber-800/50 bg-amber-950/40 text-amber-300',
+  }
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${colors[provider] ?? 'border-zinc-700 bg-zinc-800 text-zinc-300'}`}>
+      {provider}
+    </span>
+  )
+}
+
 function EvidenceTable({
   evidence,
   onOpenEvidence,
@@ -561,12 +580,41 @@ function EvidenceTable({
   evidence: CitationInsightVm[]
   onOpenEvidence: (evidenceId: string) => void
 }) {
+  const [providerFilter, setProviderFilter] = useState<string>('all')
+  const providers = [...new Set(evidence.map(e => e.provider))].sort()
+  const showProviderColumn = providers.length > 1
+  const filtered = providerFilter === 'all' ? evidence : evidence.filter(e => e.provider === providerFilter)
+
   return (
     <div className="evidence-table-wrap">
+      {showProviderColumn && (
+        <div className="filter-row mb-2" role="toolbar" aria-label="Provider filters">
+          <button
+            className={`filter-chip ${providerFilter === 'all' ? 'filter-chip-active' : ''}`}
+            type="button"
+            aria-pressed={providerFilter === 'all'}
+            onClick={() => setProviderFilter('all')}
+          >
+            All providers
+          </button>
+          {providers.map((p) => (
+            <button
+              key={p}
+              className={`filter-chip ${providerFilter === p ? 'filter-chip-active' : ''}`}
+              type="button"
+              aria-pressed={providerFilter === p}
+              onClick={() => setProviderFilter(p)}
+            >
+              {toTitleCase(p)}
+            </button>
+          ))}
+        </div>
+      )}
       <table className="evidence-table">
         <thead>
           <tr>
             <th>Keyword</th>
+            {showProviderColumn && <th>Provider</th>}
             <th>Status</th>
             <th>Change</th>
             <th>Summary</th>
@@ -575,9 +623,12 @@ function EvidenceTable({
           </tr>
         </thead>
         <tbody>
-          {evidence.map((item) => (
+          {filtered.map((item) => (
             <tr key={item.id}>
               <td className="evidence-keyword-cell">{item.keyword}</td>
+              {showProviderColumn && (
+                <td><ProviderBadge provider={item.provider} /></td>
+              )}
               <td>
                 <CitationBadge state={item.citationState} />
               </td>
@@ -1059,6 +1110,31 @@ function ProjectPage({
         />
       </section>
 
+      {/* Per-provider visibility breakdown */}
+      {model.providerScores.length > 1 && (
+        <section className="page-section-divider">
+          <div className="section-head section-head-inline">
+            <div>
+              <p className="eyebrow eyebrow-soft">Provider breakdown</p>
+              <h2>Visibility by provider</h2>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            {model.providerScores.map((ps) => (
+              <Card key={ps.provider} className="surface-card compact-card">
+                <div className="flex items-center justify-between">
+                  <ProviderBadge provider={ps.provider} />
+                  <span className={`text-lg font-semibold ${ps.score >= 70 ? 'text-emerald-400' : ps.score >= 40 ? 'text-amber-400' : 'text-rose-400'}`}>
+                    {ps.score}%
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-zinc-500">{ps.cited} of {ps.total} keywords cited</p>
+              </Card>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Insights */}
       <section className="page-section-divider">
         <div className="section-head section-head-inline">
@@ -1241,13 +1317,78 @@ function RunsPage({ runs, onOpenRun }: { runs: RunListItemVm[]; onOpenRun: (runI
   )
 }
 
+function ProviderConfigForm({ providerName, onSaved }: { providerName: string; onSaved: () => void }) {
+  const [apiKey, setApiKey] = useState('')
+  const [model, setModel] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState(false)
+
+  async function handleSave() {
+    if (!apiKey.trim()) return
+    setSaving(true)
+    setError(null)
+    setSuccess(false)
+    try {
+      await updateProviderConfig(providerName.toLowerCase(), {
+        apiKey: apiKey.trim(),
+        ...(model.trim() ? { model: model.trim() } : {}),
+      })
+      setApiKey('')
+      setModel('')
+      setSuccess(true)
+      onSaved()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update provider')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 space-y-2">
+      <div>
+        <label className="text-xs text-zinc-500" htmlFor={`api-key-${providerName}`}>API Key</label>
+        <input
+          id={`api-key-${providerName}`}
+          type="password"
+          className="mt-0.5 w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          placeholder={`Enter ${providerName} API key`}
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+        />
+      </div>
+      <div>
+        <label className="text-xs text-zinc-500" htmlFor={`model-${providerName}`}>Model (optional)</label>
+        <input
+          id={`model-${providerName}`}
+          type="text"
+          className="mt-0.5 w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          placeholder="Use default model"
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+        />
+      </div>
+      {error && <p className="text-xs text-rose-400">{error}</p>}
+      {success && <p className="text-xs text-emerald-400">Provider updated.</p>}
+      <Button type="button" size="sm" disabled={!apiKey.trim() || saving} onClick={handleSave}>
+        {saving ? 'Saving...' : 'Save'}
+      </Button>
+    </div>
+  )
+}
+
 function SettingsPage({
   settings,
   healthSnapshot,
+  onSettingsChanged,
 }: {
   settings: SettingsVm
   healthSnapshot: HealthSnapshot
+  onSettingsChanged?: () => void
 }) {
+  const [configuringProvider, setConfiguringProvider] = useState<string | null>(null)
+
   return (
     <div className="page-container">
       <div className="page-header">
@@ -1258,48 +1399,57 @@ function SettingsPage({
       </div>
 
       <section className="settings-grid">
-        <Card className="surface-card">
-          <div className="section-head">
-            <div>
-              <p className="eyebrow eyebrow-soft">Provider</p>
-              <h2>{settings.providerStatus.name}</h2>
+        {settings.providerStatuses.map((provider) => (
+          <Card key={provider.name} className="surface-card">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow eyebrow-soft">Provider</p>
+                <h2>{provider.name}</h2>
+              </div>
+              <ToneBadge tone={provider.state === 'ready' ? 'positive' : 'caution'}>
+                {provider.state === 'ready' ? 'Ready' : 'Needs config'}
+              </ToneBadge>
             </div>
-            <ToneBadge tone={settings.providerStatus.state === 'ready' ? 'positive' : 'caution'}>
-              {settings.providerStatus.state === 'ready' ? 'Ready' : 'Needs config'}
-            </ToneBadge>
-          </div>
-          <dl className="definition-list mt-3">
-            <div>
-              <dt>Model</dt>
-              <dd className="font-mono text-xs">{settings.providerStatus.model}</dd>
+            <dl className="definition-list mt-3">
+              <div>
+                <dt>Model</dt>
+                <dd className="font-mono text-xs">{provider.model}</dd>
+              </div>
+              {provider.quota && (
+                <>
+                  <div>
+                    <dt>Concurrency</dt>
+                    <dd>{provider.quota.maxConcurrency}</dd>
+                  </div>
+                  <div>
+                    <dt>Rate limit</dt>
+                    <dd>{provider.quota.maxRequestsPerMinute}/min · {provider.quota.maxRequestsPerDay}/day</dd>
+                  </div>
+                </>
+              )}
+            </dl>
+            <p className="mt-2 text-sm text-zinc-500">{provider.detail}</p>
+            <div className="mt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setConfiguringProvider(configuringProvider === provider.name ? null : provider.name)}
+              >
+                {configuringProvider === provider.name ? 'Cancel' : provider.state === 'ready' ? 'Update key' : 'Configure'}
+              </Button>
             </div>
-          </dl>
-          <p className="mt-2 text-sm text-zinc-500">{settings.providerStatus.detail}</p>
-          <p className="mt-1 text-xs text-zinc-600">Change via <code className="text-zinc-500">~/.canonry/config.yaml</code> → <code className="text-zinc-500">geminiModel</code> or <code className="text-zinc-500">canonry init</code></p>
-        </Card>
-
-        <Card className="surface-card">
-          <div className="section-head">
-            <div>
-              <p className="eyebrow eyebrow-soft">Quota summary</p>
-              <h2>Conservative defaults</h2>
-            </div>
-          </div>
-          <dl className="definition-list">
-            <div>
-              <dt>Max concurrency</dt>
-              <dd>{settings.quotaSummary.maxConcurrency}</dd>
-            </div>
-            <div>
-              <dt>Requests per minute</dt>
-              <dd>{settings.quotaSummary.maxRequestsPerMinute}</dd>
-            </div>
-            <div>
-              <dt>Requests per day</dt>
-              <dd>{settings.quotaSummary.maxRequestsPerDay}</dd>
-            </div>
-          </dl>
-        </Card>
+            {configuringProvider === provider.name && (
+              <ProviderConfigForm
+                providerName={provider.name}
+                onSaved={() => {
+                  setConfiguringProvider(null)
+                  onSettingsChanged?.()
+                }}
+              />
+            )}
+          </Card>
+        ))}
 
         <Card className="surface-card">
           <div className="section-head">
@@ -1834,6 +1984,7 @@ function EvidenceDrawer({
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <CitationBadge state={evidence.citationState} />
+          <ProviderBadge provider={evidence.provider} />
           <span className="text-sm text-zinc-400">{evidence.changeLabel}</span>
         </div>
         {latestRun && (
@@ -1957,7 +2108,7 @@ async function loadDashboardData(): Promise<DashboardVm | null> {
       projects.map(async (project) => {
         const projectRuns = allRuns.filter(r => r.projectId === project.id)
         const completedRuns = projectRuns
-          .filter(r => r.status === 'completed')
+          .filter(r => r.status === 'completed' || r.status === 'partial')
           .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 
         const [kws, comps, timeline, latestRunDetail] = await Promise.all([
@@ -2429,7 +2580,7 @@ export function App({
               ) : null}
               {route.kind === 'runs' ? <RunsPage runs={safeDashboard.runs} onOpenRun={openRun} /> : null}
               {route.kind === 'settings' ? (
-                <SettingsPage settings={safeDashboard.settings} healthSnapshot={healthSnapshot} />
+                <SettingsPage settings={safeDashboard.settings} healthSnapshot={healthSnapshot} onSettingsChanged={refreshData} />
               ) : null}
               {route.kind === 'setup' ? <SetupPage model={setupModel} onProjectCreated={refreshData} onNavigate={navigate} /> : null}
               {route.kind === 'not-found' ? <NotFoundPage onNavigate={navigate} /> : null}
@@ -2478,9 +2629,12 @@ export function App({
                   <div key={snap.id} className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 p-3">
                     <div className="flex items-center justify-between gap-2 mb-1">
                       <p className="text-sm font-medium text-zinc-200 truncate">{snap.keyword ?? 'Unknown keyword'}</p>
-                      <Badge variant={snap.citationState === 'cited' ? 'success' : 'neutral'}>
-                        {snap.citationState}
-                      </Badge>
+                      <div className="flex items-center gap-1.5">
+                        <ProviderBadge provider={snap.provider} />
+                        <Badge variant={snap.citationState === 'cited' ? 'success' : 'neutral'}>
+                          {snap.citationState}
+                        </Badge>
+                      </div>
                     </div>
                     {snap.citedDomains.length > 0 && (
                       <p className="text-xs text-zinc-500 mt-1">
@@ -2509,7 +2663,7 @@ export function App({
                     {snap.answerText && (
                       <details className="mt-1">
                         <summary className="text-xs text-zinc-500 cursor-pointer hover:text-zinc-400">Answer preview</summary>
-                        <p className="mt-1 text-xs text-zinc-400 leading-relaxed line-clamp-4">{snap.answerText}</p>
+                        <p className="mt-1 text-xs text-zinc-400 leading-relaxed whitespace-pre-wrap">{snap.answerText}</p>
                       </details>
                     )}
                   </div>

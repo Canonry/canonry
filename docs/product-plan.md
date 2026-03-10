@@ -7,7 +7,7 @@ Build an open-source AEO monitoring tool that a technical analyst can install gl
 ## Product Direction
 
 - OSS self-hosting first, SaaS-ready architecture from day one
-- Gemini is the first provider
+- Multi-provider: Gemini, OpenAI, and Claude
 - CLI for setup, UI for analysis
 - Config-as-code (`canonry.yaml`) for agent/AI-first workflows
 - API-complete: everything the CLI and UI can do goes through the API
@@ -27,7 +27,7 @@ Build an open-source AEO monitoring tool that a technical analyst can install gl
 - `canonry init` + `canonry serve` — one command to start
 - SQLite database with Drizzle ORM and auto-migration
 - Project CRUD, keyword/competitor management via CLI and API
-- Answer visibility runs against Gemini (the core value)
+- Answer visibility runs against Gemini, OpenAI, and Claude (multi-provider)
 - Raw observation snapshots with computed transitions
 - Audit log for all config mutations
 - Snapshot history, diff, and timeline endpoints

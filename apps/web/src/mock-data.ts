@@ -192,6 +192,7 @@ const citypointEvidence: CitationInsightVm[] = [
   {
     id: 'evidence_citypoint_emergency',
     keyword: 'emergency dentist brooklyn',
+    provider: 'gemini',
     citationState: 'lost',
     changeLabel: 'Lost since Mar 5',
     answerSnippet:
@@ -213,6 +214,7 @@ const citypointEvidence: CitationInsightVm[] = [
   {
     id: 'evidence_citypoint_invisalign',
     keyword: 'best invisalign dentist downtown brooklyn',
+    provider: 'openai',
     citationState: 'emerging',
     changeLabel: 'First citation in 7 days',
     answerSnippet:
@@ -233,6 +235,7 @@ const citypointEvidence: CitationInsightVm[] = [
   {
     id: 'evidence_citypoint_children',
     keyword: 'pediatric dentist brooklyn heights',
+    provider: 'claude',
     citationState: 'not-cited',
     changeLabel: 'No citation across 4 runs',
     answerSnippet:
@@ -265,6 +268,11 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       description: 'Lost citation share on emergency-intent prompts while Invisalign visibility improved.',
       trend: [73, 71, 69, 66, 61],
     },
+    providerScores: [
+      { provider: 'gemini', score: 55, cited: 5, total: 9 },
+      { provider: 'openai', score: 67, cited: 6, total: 9 },
+      { provider: 'claude', score: 44, cited: 4, total: 9 },
+    ],
     readinessSummary: {
       label: 'Technical Readiness',
       value: '78 / 100',
@@ -385,6 +393,10 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       description: 'Branded prompts are stable and informational queries are gradually improving.',
       trend: [68, 70, 71, 73, 74],
     },
+    providerScores: [
+      { provider: 'gemini', score: 75, cited: 3, total: 4 },
+      { provider: 'openai', score: 50, cited: 2, total: 4 },
+    ],
     readinessSummary: {
       label: 'Technical Readiness',
       value: '83 / 100',
@@ -429,6 +441,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       {
         id: 'evidence_harbor_personal_injury',
         keyword: 'brooklyn personal injury lawyer',
+        provider: 'gemini',
         citationState: 'cited',
         changeLabel: 'Held for 5 runs',
         answerSnippet:
@@ -476,6 +489,9 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       description: 'The current run is measuring whether treatment-location pages improved citation breadth.',
       trend: [52, 54, 55, 57, 58],
     },
+    providerScores: [
+      { provider: 'openai', score: 58, cited: 4, total: 7 },
+    ],
     readinessSummary: {
       label: 'Technical Readiness',
       value: '76 / 100',
@@ -513,6 +529,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       {
         id: 'evidence_northstar_knee',
         keyword: 'knee replacement surgeon westchester',
+        provider: 'openai',
         citationState: 'emerging',
         changeLabel: 'Improving',
         answerSnippet:
@@ -632,11 +649,11 @@ const baseDashboard: DashboardVm = {
         meta: 'heartbeat moments ago',
       },
       {
-        id: 'provider',
-        label: 'Gemini',
+        id: 'providers',
+        label: 'Providers',
         tone: 'positive',
-        detail: 'Configured',
-        meta: '2 concurrent · 10/min · 1000/day',
+        detail: '2 of 3 configured',
+        meta: 'Gemini · OpenAI',
       },
     ],
     lastUpdatedAt: 'Mar 9, 8:08 AM ET',
@@ -693,17 +710,28 @@ const baseDashboard: DashboardVm = {
     },
   },
   settings: {
-    providerStatus: {
-      name: 'Gemini',
-      model: 'gemini-2.5-flash',
-      state: 'ready',
-      detail: 'API key detected and conservative quota defaults are active.',
-    },
-    quotaSummary: {
-      maxConcurrency: 2,
-      maxRequestsPerMinute: 10,
-      maxRequestsPerDay: 1000,
-    },
+    providerStatuses: [
+      {
+        name: 'Gemini',
+        model: 'gemini-2.5-flash',
+        state: 'ready',
+        detail: 'API key detected and conservative quota defaults are active.',
+        quota: { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 },
+      },
+      {
+        name: 'OpenAI',
+        model: 'gpt-4o',
+        state: 'ready',
+        detail: 'API key configured.',
+        quota: { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 },
+      },
+      {
+        name: 'Claude',
+        model: 'claude-sonnet-4-20250514',
+        state: 'needs-config',
+        detail: 'API key is missing.',
+      },
+    ],
     selfHostNotes: [
       'Run behind a reverse proxy before exposing the dashboard outside a trusted network.',
       'Keep bootstrap and provider secrets out of source control.',
@@ -792,12 +820,11 @@ export function createDashboardFixture(options: DashboardFixtureOptions = {}): D
   }
 
   if (options.providerNeedsConfig) {
-    dashboard.settings.providerStatus = {
-      name: 'Gemini',
-      model: 'gemini-2.5-flash',
-      state: 'needs-config',
+    dashboard.settings.providerStatuses = dashboard.settings.providerStatuses.map(p => ({
+      ...p,
+      state: 'needs-config' as const,
       detail: 'API key is missing, so answer-visibility sweeps are blocked.',
-    }
+    }))
   }
 
   if (options.visibilityDropProjectId) {

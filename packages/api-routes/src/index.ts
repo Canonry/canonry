@@ -9,7 +9,7 @@ import type { RunRoutesOptions } from './runs.js'
 import { applyRoutes } from './apply.js'
 import { historyRoutes } from './history.js'
 import { settingsRoutes } from './settings.js'
-import type { SettingsRoutesOptions } from './settings.js'
+import type { SettingsRoutesOptions, ProviderSummaryEntry } from './settings.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -23,14 +23,10 @@ export interface ApiRoutesOptions {
   skipAuth?: boolean
   /** Callback when a run is created (wire up job runner) */
   onRunCreated?: (runId: string, projectId: string) => void
-  /** Currently configured Gemini model */
-  geminiModel?: string
-  /** Gemini quota config */
-  geminiQuota?: {
-    maxConcurrency: number
-    maxRequestsPerMinute: number
-    maxRequestsPerDay: number
-  }
+  /** Provider configuration summary for settings endpoint */
+  providerSummary?: ProviderSummaryEntry[]
+  /** Callback when a provider config is updated via API */
+  onProviderUpdate?: (provider: string, apiKey: string, model?: string) => ProviderSummaryEntry | null
 }
 
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
@@ -51,8 +47,8 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(applyRoutes)
     await api.register(historyRoutes)
     await api.register(settingsRoutes, {
-      geminiModel: opts.geminiModel,
-      geminiQuota: opts.geminiQuota,
+      providerSummary: opts.providerSummary,
+      onProviderUpdate: opts.onProviderUpdate,
     } satisfies SettingsRoutesOptions)
   }, { prefix: '/api/v1' })
 }

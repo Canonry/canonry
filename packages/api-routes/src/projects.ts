@@ -16,6 +16,7 @@ export async function projectRoutes(app: FastifyInstance) {
       language: string
       tags?: string[]
       labels?: Record<string, string>
+      providers?: string[]
       configSource?: string
     }
   }>('/projects/:name', async (request, reply) => {
@@ -37,6 +38,7 @@ export async function projectRoutes(app: FastifyInstance) {
         language: body.language,
         tags: JSON.stringify(body.tags ?? []),
         labels: JSON.stringify(body.labels ?? {}),
+        providers: JSON.stringify(body.providers ?? []),
         configSource: body.configSource ?? 'api',
         configRevision: existing.configRevision + 1,
         updatedAt: now,
@@ -64,6 +66,7 @@ export async function projectRoutes(app: FastifyInstance) {
       language: body.language,
       tags: JSON.stringify(body.tags ?? []),
       labels: JSON.stringify(body.labels ?? {}),
+      providers: JSON.stringify(body.providers ?? []),
       configSource: body.configSource ?? 'api',
       configRevision: 1,
       createdAt: now,
@@ -157,6 +160,7 @@ export async function projectRoutes(app: FastifyInstance) {
         language: project.language,
         keywords: kws.map(k => k.keyword),
         competitors: comps.map(c => c.domain),
+        providers: JSON.parse(project.providers || '[]') as string[],
       },
     }
 
@@ -173,6 +177,7 @@ function formatProject(row: {
   language: string
   tags: string
   labels: string
+  providers: string
   configSource: string
   configRevision: number
   createdAt: string
@@ -187,6 +192,7 @@ function formatProject(row: {
     language: row.language,
     tags: JSON.parse(row.tags) as string[],
     labels: JSON.parse(row.labels) as Record<string, string>,
+    providers: JSON.parse(row.providers || '[]') as string[],
     configSource: row.configSource,
     configRevision: row.configRevision,
     createdAt: row.createdAt,

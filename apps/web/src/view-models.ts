@@ -83,6 +83,7 @@ export interface PortfolioOverviewVm {
 export interface CitationInsightVm {
   id: string
   keyword: string
+  provider: string
   citationState: CitationState
   changeLabel: string
   answerSnippet: string
@@ -127,6 +128,7 @@ export interface ProjectCommandCenterVm {
   dateRangeLabel: string
   contextLabel: string
   visibilitySummary: ScoreSummaryVm
+  providerScores: { provider: string; score: number; cited: number; total: number }[]
   readinessSummary?: ScoreSummaryVm
   competitorPressure: ScoreSummaryVm
   runStatus: ScoreSummaryVm
@@ -170,18 +172,20 @@ export interface SetupWizardVm {
   }
 }
 
-export interface SettingsVm {
-  providerStatus: {
-    name: string
-    model: string
-    state: 'ready' | 'needs-config'
-    detail: string
-  }
-  quotaSummary: {
+export interface ProviderStatusVm {
+  name: string
+  model: string
+  state: 'ready' | 'needs-config'
+  detail: string
+  quota?: {
     maxConcurrency: number
     maxRequestsPerMinute: number
     maxRequestsPerDay: number
   }
+}
+
+export interface SettingsVm {
+  providerStatuses: ProviderStatusVm[]
   selfHostNotes: string[]
   bootstrapNote: string
 }

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { providerNameSchema } from './provider.js'
 
 export const runStatusSchema = z.enum(['queued', 'running', 'completed', 'partial', 'failed'])
 export type RunStatus = z.infer<typeof runStatusSchema>
@@ -41,7 +42,7 @@ export const querySnapshotDtoSchema = z.object({
   runId: z.string(),
   keywordId: z.string(),
   keyword: z.string().optional(),
-  provider: z.string().default('gemini'),
+  provider: providerNameSchema,
   citationState: citationStateSchema,
   transition: computedTransitionSchema.optional(),
   answerText: z.string().nullable().optional(),

@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI, type EnhancedGenerateContentResponse, type GoogleSearchRetrievalTool } from '@google/generative-ai'
+import { GoogleGenerativeAI, type EnhancedGenerateContentResponse } from '@google/generative-ai'
 import type {
   GeminiConfig,
   GeminiHealthcheckResult,
@@ -51,11 +51,11 @@ export async function executeTrackedQuery(input: GeminiTrackedQueryInput): Promi
   const model = input.config.model ?? DEFAULT_MODEL
   const genAI = new GoogleGenerativeAI(input.config.apiKey)
 
-  const searchTool: GoogleSearchRetrievalTool = { googleSearchRetrieval: {} }
-
+  // Use google_search tool (replaces deprecated googleSearchRetrieval).
+  // SDK types don't include this yet, so we cast through unknown.
   const generativeModel = genAI.getGenerativeModel({
     model,
-    tools: [searchTool],
+    tools: [{ googleSearch: {} } as unknown as Record<string, unknown>],
   })
 
   const prompt = buildPrompt(input.keyword)
@@ -147,17 +147,63 @@ function extractCitedDomains(raw: GeminiRawResult): string[] {
   const domains = new Set<string>()
 
   for (const source of raw.groundingSources) {
+    // Try extracting from URI first
     const domain = extractDomainFromUri(source.uri)
-    if (domain) domains.add(domain)
+    if (domain) {
+      domains.add(domain)
+      continue
+    }
+    // Gemini proxy URLs (vertexaisearch.cloud.google.com) use base64-encoded
+    // redirect paths, so URI extraction fails. Fall back to the title field,
+    // which reliably contains the domain name (e.g. "pbjmarketing.com").
+    if (source.title) {
+      const titleDomain = extractDomainFromTitle(source.title)
+      if (titleDomain) domains.add(titleDomain)
+    }
   }
 
   return [...domains]
 }
 
+function extractDomainFromTitle(title: string): string | null {
+  // The title is often just a bare domain like "pbjmarketing.com"
+  const trimmed = title.trim().toLowerCase()
+  if (/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z]{2,})+$/.test(trimmed)) {
+    return trimmed.replace(/^www\./, '')
+  }
+  return null
+}
+
 function extractDomainFromUri(uri: string): string | null {
   try {
     const url = new URL(uri)
-    return url.hostname.replace(/^www\./, '')
+    const hostname = url.hostname.replace(/^www\./, '')
+
+    // Gemini returns grounding sources through a Google proxy:
+    // vertexaisearch.cloud.google.com/grounding-api-redirect/...
+    // The real target URL is encoded in the path after the redirect prefix.
+    if (hostname === 'vertexaisearch.cloud.google.com') {
+      // Try to extract real URL from the redirect path
+      // Format: /grounding-api-redirect/<encoded-url-or-path>
+      const redirectPath = url.pathname.replace(/^\/grounding-api-redirect\//, '')
+      if (redirectPath && redirectPath !== url.pathname) {
+        // The path may contain a URL-like string (e.g., "aHR0cHM6..." base64, or direct URL segments)
+        // Try decoding as a URL first
+        try {
+          const decoded = decodeURIComponent(redirectPath)
+          if (decoded.startsWith('http')) {
+            const realUrl = new URL(decoded)
+            return realUrl.hostname.replace(/^www\./, '')
+          }
+        } catch {
+          // Not a decodable URL
+        }
+      }
+      // If we can't extract from redirect, skip this proxy domain
+      return null
+    }
+
+    return hostname
   } catch {
     return null
   }

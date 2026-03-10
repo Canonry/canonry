@@ -45,6 +45,7 @@ export interface ApiProject {
   language: string
   tags: string[]
   labels: Record<string, string>
+  providers: string[]
   configSource: string
   configRevision: number
   createdAt: string
@@ -193,16 +194,19 @@ export function fetchExport(name: string): Promise<unknown> {
   return apiFetch(`/projects/${encodeURIComponent(name)}/export`)
 }
 
-export interface ApiSettings {
-  provider: {
-    name: string
-    model: string
-  }
-  quota: {
+export interface ApiProviderSummary {
+  name: string
+  model?: string
+  configured: boolean
+  quota?: {
     maxConcurrency: number
     maxRequestsPerMinute: number
     maxRequestsPerDay: number
   }
+}
+
+export interface ApiSettings {
+  providers: ApiProviderSummary[]
 }
 
 export function fetchSettings(): Promise<ApiSettings> {
@@ -213,4 +217,14 @@ export async function fetchHealthCheck(): Promise<{ status: string }> {
   const res = await fetch('/health')
   if (!res.ok) throw new Error(`Health check failed: ${res.status}`)
   return res.json() as Promise<{ status: string }>
+}
+
+export function updateProviderConfig(provider: string, body: {
+  apiKey: string
+  model?: string
+}): Promise<ApiProviderSummary> {
+  return apiFetch(`/settings/providers/${encodeURIComponent(provider)}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
 }

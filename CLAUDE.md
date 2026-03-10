@@ -6,7 +6,7 @@
 
 ## Current Phase
 
-**Phase 2** — building the publishable `@ainyc/canonry` npm package with CLI, local server, SQLite, and Gemini visibility runs. See `docs/phase-2-design.md` for the full architecture plan.
+**Phase 2** — building the publishable `@ainyc/canonry` npm package with CLI, local server, SQLite, and multi-provider visibility runs (Gemini, OpenAI, Claude). See `docs/phase-2-design.md` for the full architecture plan.
 
 **In scope:** Visibility runs, CLI, config-as-code, API, bundled SPA, SQLite, auth, audit log, usage counters.
 **Deferred:** Site audit (Phase 3), scheduling (Phase 3), cloud/Postgres (Phase 4).
@@ -23,6 +23,8 @@ packages/contracts/       DTOs, enums, config-schema, error codes
 packages/config/          Typed environment parsing
 packages/db/              Drizzle ORM schema, migrations, client (SQLite/Postgres)
 packages/provider-gemini/ Gemini adapter
+packages/provider-openai/ OpenAI adapter
+packages/provider-claude/ Claude/Anthropic adapter
 docs/                     Architecture, product plan, testing, ADRs
 ```
 
@@ -41,6 +43,7 @@ canonry serve
 canonry project create <name> --domain <domain> --country US --language en
 canonry keyword add <project> <keyword>...
 canonry run <project>
+canonry run <project> --provider gemini          # single-provider run
 canonry status <project>
 canonry apply <canonry.yaml>
 canonry export <project>
@@ -68,7 +71,7 @@ When adding a new feature:
 
 - Keep shared shapes in `packages/contracts`.
 - Keep environment parsing in `packages/config`.
-- Keep provider logic in `packages/provider-gemini`.
+- Keep provider logic in `packages/provider-*/`.
 - Keep API route plugins in `packages/api-routes` (no app-level concerns).
 - Keep API handlers thin.
 - Keep the monitoring app independent from the audit package repo except for the published npm dependency.
@@ -92,6 +95,9 @@ spec:
     - keyword one
   competitors:
     - competitor.com
+  providers:
+    - gemini
+    - openai
 ```
 
 Apply with `canonry apply <file>` or `POST /api/v1/apply`. DB is authoritative; config files are input.
@@ -163,7 +169,7 @@ The web dashboard follows a dark, professional analytics aesthetic designed to r
 
 1. Database schema and contracts foundation
 2. API route plugins (`packages/api-routes/`)
-3. Provider execution (Gemini) and job runner
+3. Provider execution (Gemini, OpenAI, Claude) and job runner
 4. Publishable package (`packages/canonry/`)
 5. Wire web dashboard to real API
 

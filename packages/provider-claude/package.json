@@ -1,0 +1,22 @@
+{
+  "name": "@ainyc/aeo-platform-provider-claude",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "tsx --test test/*.test.ts",
+    "lint": "eslint src/ test/"
+  },
+  "dependencies": {
+    "@ainyc/aeo-platform-contracts": "workspace:*",
+    "@anthropic-ai/sdk": "^0.78.0"
+  }
+}

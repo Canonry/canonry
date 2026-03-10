@@ -5,8 +5,19 @@ import Fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import { apiRoutes } from '@ainyc/aeo-platform-api-routes'
 import type { DatabaseClient } from '@ainyc/aeo-platform-db'
+import { geminiAdapter } from '@ainyc/aeo-platform-provider-gemini'
+import { openaiAdapter } from '@ainyc/aeo-platform-provider-openai'
+import { claudeAdapter } from '@ainyc/aeo-platform-provider-claude'
 import type { CanonryConfig } from './config.js'
+import { saveConfig } from './config.js'
 import { JobRunner } from './job-runner.js'
+import { ProviderRegistry } from './provider-registry.js'
+
+const DEFAULT_QUOTA = {
+  maxConcurrency: 2,
+  maxRequestsPerMinute: 10,
+  maxRequestsPerDay: 1000,
+}
 
 export async function createServer(opts: {
   config: CanonryConfig
@@ -15,19 +26,112 @@ export async function createServer(opts: {
 }): Promise<FastifyInstance> {
   const app = Fastify({ logger: true })
 
-  const jobRunner = new JobRunner(opts.db, opts.config.geminiApiKey, opts.config.geminiModel, opts.config.geminiQuota)
+  // Build provider registry from config (with legacy field migration)
+  const registry = new ProviderRegistry()
+  const providers = opts.config.providers ?? {}
+
+  // Migrate legacy geminiApiKey if providers.gemini is not set
+  if (opts.config.geminiApiKey && !providers.gemini) {
+    providers.gemini = {
+      apiKey: opts.config.geminiApiKey,
+      model: opts.config.geminiModel,
+      quota: opts.config.geminiQuota,
+    }
+  }
+
+  console.log('[Server] Provider config keys:', Object.keys(providers).filter(k => providers[k as keyof typeof providers]?.apiKey))
+
+  if (providers.gemini?.apiKey) {
+    registry.register(geminiAdapter, {
+      provider: 'gemini',
+      apiKey: providers.gemini.apiKey,
+      model: providers.gemini.model,
+      quotaPolicy: providers.gemini.quota ?? DEFAULT_QUOTA,
+    })
+  }
+  if (providers.openai?.apiKey) {
+    registry.register(openaiAdapter, {
+      provider: 'openai',
+      apiKey: providers.openai.apiKey,
+      model: providers.openai.model,
+      quotaPolicy: providers.openai.quota ?? DEFAULT_QUOTA,
+    })
+  }
+  if (providers.claude?.apiKey) {
+    registry.register(claudeAdapter, {
+      provider: 'claude',
+      apiKey: providers.claude.apiKey,
+      model: providers.claude.model,
+      quotaPolicy: providers.claude.quota ?? DEFAULT_QUOTA,
+    })
+  }
+
+  const jobRunner = new JobRunner(opts.db, registry)
+
+  // Build provider summary for API routes
+  const providerSummary = (['gemini', 'openai', 'claude'] as const).map(name => ({
+    name,
+    model: registry.get(name)?.config.model,
+    configured: !!registry.get(name),
+    quota: registry.get(name)?.config.quotaPolicy,
+  }))
+
+  const adapterMap = { gemini: geminiAdapter, openai: openaiAdapter, claude: claudeAdapter } as const
 
   // Register API routes
   await app.register(apiRoutes, {
     db: opts.db,
     skipAuth: false,
-    geminiModel: opts.config.geminiModel,
-    geminiQuota: opts.config.geminiQuota,
+    providerSummary,
     onRunCreated: (runId: string, projectId: string) => {
       // Fire and forget — run executes in background
       jobRunner.executeRun(runId, projectId).catch((err: unknown) => {
         app.log.error({ runId, err }, 'Job runner failed')
       })
+    },
+    onProviderUpdate: (providerName: string, apiKey: string, model?: string) => {
+      const name = providerName as keyof typeof adapterMap
+      if (!(name in adapterMap)) return null
+
+      // Update config and persist
+      if (!opts.config.providers) opts.config.providers = {}
+      const existing = opts.config.providers[name]
+      opts.config.providers[name] = {
+        apiKey,
+        model: model || existing?.model,
+        quota: existing?.quota,
+      }
+
+      try {
+        saveConfig(opts.config)
+      } catch (err) {
+        app.log.error({ err }, 'Failed to save config')
+        return null
+      }
+
+      // Re-register in the live registry
+      const quota = opts.config.providers[name]!.quota ?? DEFAULT_QUOTA
+      registry.register(adapterMap[name], {
+        provider: name,
+        apiKey,
+        model: model || undefined,
+        quotaPolicy: quota,
+      })
+
+      // Update the providerSummary array in-place
+      const entry = providerSummary.find(p => p.name === name)
+      if (entry) {
+        entry.configured = true
+        entry.model = model || registry.get(name)?.config.model
+        entry.quota = quota
+      }
+
+      return {
+        name,
+        model: entry?.model,
+        configured: true,
+        quota,
+      }
     },
   })
 

@@ -56,7 +56,7 @@ test('settings route renders provider state, quota summary, and service health',
   const html = renderApp('/settings')
 
   assert.match(html, /Settings/)
-  assert.match(html, /Conservative defaults/)
+  assert.match(html, /Rate limit/)
   assert.match(html, /Service health/)
   assert.match(html, /Gemini/)
 })

@@ -33,15 +33,15 @@ async function getAvailablePort(): Promise<number> {
   return address.port
 }
 
-test('createHeartbeatLog reports configured database and quota', () => {
+test('createHeartbeatLog reports configured database and provider count', () => {
   const env = getPlatformEnv({
     DATABASE_URL: 'postgresql://aeo:aeo@localhost:5432/aeo_platform',
-    GEMINI_MAX_CONCURRENCY: '6',
+    GEMINI_API_KEY: 'test-key',
   })
 
   assert.equal(
     createHeartbeatLog(env),
-    '[worker] heartbeat database=configured geminiConcurrency=6',
+    '[worker] heartbeat database=configured providers=1',
   )
 })
 

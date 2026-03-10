@@ -6,9 +6,13 @@ function getClient(): ApiClient {
   return new ApiClient(config.apiUrl, config.apiKey)
 }
 
-export async function triggerRun(project: string): Promise<void> {
+export async function triggerRun(project: string, opts?: { provider?: string }): Promise<void> {
   const client = getClient()
-  const run = await client.triggerRun(project) as {
+  const body: Record<string, unknown> = {}
+  if (opts?.provider) {
+    body.providers = [opts.provider]
+  }
+  const run = await client.triggerRun(project, body) as {
     id: string
     status: string
     kind: string
@@ -16,6 +20,9 @@ export async function triggerRun(project: string): Promise<void> {
   console.log(`Run created: ${run.id}`)
   console.log(`  Kind:   ${run.kind}`)
   console.log(`  Status: ${run.status}`)
+  if (opts?.provider) {
+    console.log(`  Provider: ${opts.provider}`)
+  }
 }
 
 export async function listRuns(project: string): Promise<void> {

@@ -9,6 +9,7 @@ export const projects = sqliteTable('projects', {
   language: text('language').notNull(),
   tags: text('tags').notNull().default('[]'),
   labels: text('labels').notNull().default('{}'),
+  providers: text('providers').notNull().default('[]'),
   configSource: text('config_source').notNull().default('cli'),
   configRevision: integer('config_revision').notNull().default(1),
   createdAt: text('created_at').notNull(),

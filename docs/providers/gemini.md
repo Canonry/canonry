@@ -2,7 +2,7 @@
 
 ## Role
 
-`packages/provider-gemini` is the first answer-visibility provider adapter. It queries the Gemini API with Google Search grounding enabled to determine which domains are cited in AI-generated answers for tracked keywords.
+`packages/provider-gemini` is one of three answer-visibility provider adapters (alongside OpenAI and Claude). It queries the Gemini API with Google Search grounding enabled to determine which domains are cited in AI-generated answers for tracked keywords.
 
 ## Provider Contract
 

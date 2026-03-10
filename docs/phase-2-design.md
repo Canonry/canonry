@@ -107,7 +107,7 @@ npm install -g @ainyc/canonry
 canonry init
 # → Creates ~/.canonry/ directory
 # → Creates ~/.canonry/data.db (SQLite)
-# → Prompts: "Enter your Gemini API key: "
+# → Prompts for provider API keys (Gemini, OpenAI, Claude — at least one required)
 # → Auto-generates API key: cnry_abc123...
 # → Saves config to ~/.canonry/config.yaml
 # → Prints: "Ready. Run 'canonry serve' to open the dashboard."
@@ -125,11 +125,17 @@ canonry serve
 apiUrl: http://localhost:4100
 database: ~/.canonry/data.db
 apiKey: cnry_a1b2c3d4...                # auto-generated on init
-geminiApiKey: gmni_...
-geminiQuota:
-  maxConcurrency: 2
-  maxRequestsPerMinute: 10
-  maxRequestsPerDay: 1000
+providers:
+  gemini:
+    apiKey: gmni_...
+    quota:
+      maxConcurrency: 2
+      maxRequestsPerMinute: 10
+      maxRequestsPerDay: 1000
+  openai:
+    apiKey: sk-...
+  claude:
+    apiKey: sk-ant-...
 ```
 
 ### Auth (same path everywhere)
@@ -496,7 +502,7 @@ This is explicit "unavailable" treatment, not silent omission. The UI tells the 
 - SQLite database with Drizzle ORM + auto-migration
 - Project CRUD via CLI and API
 - Keyword and competitor management
-- **Answer visibility runs against Gemini** (the core value)
+- **Answer visibility runs against Gemini, OpenAI, and Claude** (multi-provider)
 - Raw observation snapshots with computed transitions
 - Audit log for all config mutations
 - Snapshot history, diff, and timeline endpoints
@@ -619,8 +625,11 @@ Before writing any code, clean up stale/irrelevant documentation and ensure agen
 
 ### Phase 2c: Provider Execution
 18. Implement `packages/provider-gemini/src/index.ts` — Real Gemini API calls
-19. `packages/canonry/src/job-runner.ts` — In-process async job queue
-20. Wire: API trigger → job runner → Gemini → snapshot persistence → usage counter increment
+18b. Implement `packages/provider-openai/` — OpenAI Responses API with web_search_preview
+18c. Implement `packages/provider-claude/` — Anthropic Messages API with web_search_20250305
+19. `packages/canonry/src/job-runner.ts` — In-process async job queue with multi-provider fan-out
+19b. `packages/canonry/src/provider-registry.ts` — Provider registry for adapter management
+20. Wire: API trigger → job runner → provider registry → all configured providers → snapshot persistence → usage counter increment
 
 ### Phase 2d: Publishable Package
 21. Create `packages/canonry/` — CLI + server + build script

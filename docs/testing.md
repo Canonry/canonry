@@ -38,23 +38,30 @@ canonry serve
 
 ## Provider Tests
 
-The Gemini provider (`packages/provider-gemini`) has unit tests that validate:
+All three providers (`packages/provider-gemini`, `packages/provider-openai`, `packages/provider-claude`) have unit tests that validate:
 
 - Config validation (accepts valid keys, rejects empty)
 - Custom model passthrough
-- Answer text extraction from Gemini candidate response structure
+- Answer text extraction from provider-specific response structures
 - Domain extraction from grounding source URIs (www. stripping, deduplication)
 - Graceful handling of empty responses and invalid URIs
 
-These tests do **not** make real API calls. They test `normalizeResult` against synthetic `GeminiRawResult` objects to verify the parsing and extraction logic.
+These tests do **not** make real API calls. They test `normalizeResult` against synthetic raw result objects to verify the parsing and extraction logic.
 
-To test a live Gemini API call, use the CLI with a real API key:
+### Provider-specific response formats
+
+- **Gemini**: `candidates[].content.parts[].text` + `groundingMetadata.groundingChunks`
+- **OpenAI**: `output[].content[].text` + `output[].content[].annotations[]` (URL citations)
+- **Claude**: `content[].text` + `web_search_tool_result` blocks with `search_results`
+
+To test live API calls, use the CLI with real API keys:
 
 ```bash
-canonry init                                    # provide your Gemini API key
+canonry init                                    # provide API keys for one or more providers
 canonry project create test --domain example.com --country US --language en
 canonry keyword add test "best dentist brooklyn"
-canonry run test                                # makes a live Gemini API call
+canonry run test                                # runs against all configured providers
+canonry run test --provider gemini              # single-provider run
 canonry status test                             # view citation results
 ```
 
@@ -62,8 +69,8 @@ canonry status test                             # view citation results
 
 1. `canonry init` creates `~/.canonry/` with SQLite DB and auto-generated API key
 2. `canonry serve` starts server, dashboard loads
-3. `canonry project create` / `keyword add` / `run` workflow completes with real Gemini results
-4. Run results include grounding sources, search queries, and cited domains
+3. `canonry project create` / `keyword add` / `run` workflow completes with results from all configured providers
+4. Run results include per-provider grounding sources, search queries, and cited domains
 5. `canonry export` produces valid `canonry.yaml`
 6. `canonry apply` is idempotent and records audit log entries
 7. Dashboard shows visibility data with readiness marked "Unavailable"

@@ -2,17 +2,27 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { parse, stringify } from 'yaml'
+import type { ProviderQuotaPolicy } from '@ainyc/aeo-platform-contracts'
+
+export interface ProviderConfigEntry {
+  apiKey: string
+  model?: string
+  quota?: ProviderQuotaPolicy
+}
 
 export interface CanonryConfig {
   apiUrl: string
   database: string
   apiKey: string
-  geminiApiKey: string
+  // Legacy single-provider fields (backward compat)
+  geminiApiKey?: string
   geminiModel?: string
-  geminiQuota?: {
-    maxConcurrency: number
-    maxRequestsPerMinute: number
-    maxRequestsPerDay: number
+  geminiQuota?: ProviderQuotaPolicy
+  // Multi-provider config
+  providers?: {
+    gemini?: ProviderConfigEntry
+    openai?: ProviderConfigEntry
+    claude?: ProviderConfigEntry
   }
 }
 
@@ -33,11 +43,33 @@ export function loadConfig(): CanonryConfig {
   }
   const raw = fs.readFileSync(configPath, 'utf-8')
   const parsed = parse(raw) as CanonryConfig
-  if (!parsed.apiUrl || !parsed.database || !parsed.apiKey || !parsed.geminiApiKey) {
+  if (!parsed.apiUrl || !parsed.database || !parsed.apiKey) {
     throw new Error(
-      `Invalid config at ${configPath}. Required fields: apiUrl, database, apiKey, geminiApiKey`,
+      `Invalid config at ${configPath}. Required fields: apiUrl, database, apiKey`,
     )
   }
+
+  // Migrate legacy geminiApiKey to providers map
+  if (parsed.geminiApiKey && !parsed.providers?.gemini) {
+    parsed.providers = {
+      ...parsed.providers,
+      gemini: {
+        apiKey: parsed.geminiApiKey,
+        model: parsed.geminiModel,
+        quota: parsed.geminiQuota,
+      },
+    }
+  }
+
+  // Must have at least one provider configured
+  const hasProvider = parsed.providers &&
+    (parsed.providers.gemini?.apiKey || parsed.providers.openai?.apiKey || parsed.providers.claude?.apiKey)
+  if (!hasProvider) {
+    throw new Error(
+      `No provider API keys configured at ${configPath}. At least one provider is required.`,
+    )
+  }
+
   return parsed
 }
 

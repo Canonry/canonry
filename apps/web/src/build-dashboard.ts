@@ -176,36 +176,56 @@ function buildEvidenceFromTimeline(
 ): CitationInsightVm[] {
   if (!latestRunDetail) return []
 
-  const snapshotsByKeyword = new Map<string, ApiRunDetail['snapshots'][number]>()
+  // Group snapshots by keyword+provider for multi-provider support
+  const snapshotsByKey = new Map<string, ApiRunDetail['snapshots'][number]>()
   for (const snap of latestRunDetail.snapshots) {
     if (snap.keyword) {
-      snapshotsByKeyword.set(snap.keyword, snap)
+      const key = `${snap.keyword}::${snap.provider}`
+      snapshotsByKey.set(key, snap)
     }
   }
 
-  return timeline.map((entry, idx) => {
+  // Collect unique providers from snapshots
+  const providers = [...new Set(latestRunDetail.snapshots.map(s => s.provider))].sort()
+  if (providers.length === 0) providers.push('gemini')
+
+  const results: CitationInsightVm[] = []
+  let idx = 0
+
+  for (const entry of timeline) {
     const latestRun = entry.runs.at(-1)
-    const snap = snapshotsByKeyword.get(entry.keyword)
     const transition = latestRun?.transition ?? 'not-cited'
     const citationState: CitationState = transition === 'lost' ? 'lost'
       : transition === 'emerging' ? 'emerging'
       : transition === 'cited' ? 'cited'
       : 'not-cited'
 
-    return {
-      id: `evidence_${idx}`,
-      keyword: entry.keyword,
-      citationState,
-      changeLabel: changeLabel(transition, entry.runs.length),
-      answerSnippet: snap?.answerText ?? '',
-      citedDomains: snap?.citedDomains ?? [],
-      evidenceUrls: [],
-      competitorDomains: snap?.competitorOverlap ?? [],
-      relatedTechnicalSignals: [],
-      groundingSources: snap?.groundingSources ?? [],
-      summary: evidenceSummary(citationState, entry.keyword),
+    for (const provider of providers) {
+      const snap = snapshotsByKey.get(`${entry.keyword}::${provider}`)
+      if (!snap && providers.length > 1) continue
+
+      const snapState: CitationState = snap
+        ? (snap.citationState === 'cited' ? 'cited' : 'not-cited')
+        : citationState
+
+      results.push({
+        id: `evidence_${idx++}`,
+        keyword: entry.keyword,
+        provider: snap?.provider ?? provider,
+        citationState: snapState,
+        changeLabel: changeLabel(transition, entry.runs.length),
+        answerSnippet: snap?.answerText ?? '',
+        citedDomains: snap?.citedDomains ?? [],
+        evidenceUrls: [],
+        competitorDomains: snap?.competitorOverlap ?? [],
+        relatedTechnicalSignals: [],
+        groundingSources: snap?.groundingSources ?? [],
+        summary: evidenceSummary(snapState, entry.keyword),
+      })
     }
-  })
+  }
+
+  return results
 }
 
 function changeLabel(transition: string, runCount: number): string {
@@ -334,6 +354,24 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
   const sortedRuns = [...data.runs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   const runItems = sortedRuns.map(r => toRunListItem(r, data.project.displayName || data.project.name))
 
+  // Compute per-provider scores
+  const providerGroups = new Map<string, { cited: number; total: number }>()
+  for (const snap of snapshots) {
+    const p = snap.provider || 'gemini'
+    const group = providerGroups.get(p) ?? { cited: 0, total: 0 }
+    group.total++
+    if (snap.citationState === 'cited') group.cited++
+    providerGroups.set(p, group)
+  }
+  const providerScores = [...providerGroups.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([provider, { cited, total }]) => ({
+      provider,
+      score: total > 0 ? Math.round((cited / total) * 100) : 0,
+      cited,
+      total,
+    }))
+
   return {
     project: dto,
     dateRangeLabel: 'All time',
@@ -348,6 +386,7 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
         : 'No visibility data yet. Trigger a run to start tracking.',
       trend: [],
     },
+    providerScores,
     readinessSummary: undefined,
     competitorPressure: {
       label: 'Competitor Pressure',
@@ -499,13 +538,13 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
       },
     },
     settings: {
-      providerStatus: {
-        name: apiSettings?.provider.name ?? 'Gemini',
-        model: apiSettings?.provider.model ?? 'gemini-2.5-flash',
-        state: 'ready',
-        detail: 'Provider is configured via canonry init.',
-      },
-      quotaSummary: apiSettings?.quota ?? { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 },
+      providerStatuses: (apiSettings?.providers ?? []).map(p => ({
+        name: p.name.charAt(0).toUpperCase() + p.name.slice(1),
+        model: p.model ?? '(default)',
+        state: (p.configured ? 'ready' : 'needs-config') as 'ready' | 'needs-config',
+        detail: p.configured ? 'Provider is configured.' : 'API key is missing.',
+        quota: p.quota,
+      })),
       selfHostNotes: [
         'Configuration is stored in ~/.canonry/config.yaml.',
         'Database is SQLite at ~/.canonry/data.db.',

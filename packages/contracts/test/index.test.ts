@@ -128,6 +128,7 @@ test('querySnapshotDtoSchema applies defaults', () => {
     id: 'snap_1',
     runId: 'run_1',
     keywordId: 'kw_1',
+    provider: 'gemini',
     citationState: 'cited',
     createdAt: '2026-03-09T00:00:00.000Z',
   })
@@ -135,6 +136,20 @@ test('querySnapshotDtoSchema applies defaults', () => {
   assert.equal(snapshot.provider, 'gemini')
   assert.deepEqual(snapshot.citedDomains, [])
   assert.deepEqual(snapshot.competitorOverlap, [])
+})
+
+test('querySnapshotDtoSchema accepts all provider names', () => {
+  for (const provider of ['gemini', 'openai', 'claude']) {
+    const snapshot = querySnapshotDtoSchema.parse({
+      id: 'snap_1',
+      runId: 'run_1',
+      keywordId: 'kw_1',
+      provider,
+      citationState: 'cited',
+      createdAt: '2026-03-09T00:00:00.000Z',
+    })
+    assert.equal(snapshot.provider, provider)
+  }
 })
 
 test('auditLogEntrySchema validates log entries', () => {

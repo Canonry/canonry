@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { providerNameSchema } from './provider.js'
 
 export const configMetadataSchema = z.object({
   name: z.string().min(1).max(63).regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, {
@@ -14,6 +15,7 @@ export const configSpecSchema = z.object({
   language: z.string().min(2),
   keywords: z.array(z.string().min(1)).optional().default([]),
   competitors: z.array(z.string().min(1)).optional().default([]),
+  providers: z.array(providerNameSchema).optional().default([]),
 })
 
 export const projectConfigSchema = z.object({

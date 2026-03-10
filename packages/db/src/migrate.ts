@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS projects (
   language          TEXT NOT NULL,
   tags              TEXT NOT NULL DEFAULT '[]',
   labels            TEXT NOT NULL DEFAULT '{}',
+  providers         TEXT NOT NULL DEFAULT '[]',
   config_source     TEXT NOT NULL DEFAULT 'cli',
   config_revision   INTEGER NOT NULL DEFAULT 1,
   created_at        TEXT NOT NULL,
@@ -102,6 +103,11 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_prefix ON api_keys(key_prefix);
 CREATE INDEX IF NOT EXISTS idx_usage_scope_period ON usage_counters(scope, period);
 `
 
+const MIGRATIONS = [
+  // v2: Add providers column to projects for multi-provider support
+  `ALTER TABLE projects ADD COLUMN providers TEXT NOT NULL DEFAULT '[]'`,
+]
+
 export function migrate(db: DatabaseClient) {
   const statements = MIGRATION_SQL.split(';')
     .map(s => s.trim())
@@ -109,5 +115,15 @@ export function migrate(db: DatabaseClient) {
 
   for (const statement of statements) {
     db.run(sql.raw(statement))
+  }
+
+  // Run incremental migrations (safe to re-run — ALTER TABLE ADD COLUMN
+  // fails silently if the column already exists in SQLite)
+  for (const migration of MIGRATIONS) {
+    try {
+      db.run(sql.raw(migration))
+    } catch {
+      // Column already exists — ignore
+    }
   }
 }

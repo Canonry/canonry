@@ -74,7 +74,8 @@ test('loadApiEnv delegates to shared platform config', () => {
   assert.equal(env.apiPort, 4100)
   assert.equal(env.workerPort, 4101)
   assert.equal(env.bootstrapSecret, 'secret')
-  assert.deepEqual(env.providerQuota, {
+  assert.ok(env.providers.gemini)
+  assert.deepEqual(env.providers.gemini!.quota, {
     maxConcurrency: 4,
     maxRequestsPerMinute: 15,
     maxRequestsPerDay: 500,
