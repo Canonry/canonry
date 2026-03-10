@@ -1,0 +1,58 @@
+name: Publish to npm
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/canonry/package.json'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check if version changed
+        id: version-check
+        run: |
+          CURRENT=$(node -p "require('./packages/canonry/package.json').version")
+          PREVIOUS=$(git show HEAD~1:packages/canonry/package.json 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).version" 2>/dev/null || echo "")
+          if [ "$CURRENT" = "$PREVIOUS" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Version unchanged ($CURRENT), skipping publish"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Version changed: $PREVIOUS -> $CURRENT"
+          fi
+
+      - uses: pnpm/action-setup@v4
+        if: steps.version-check.outputs.skip != 'true'
+        with:
+          version: 10.28.2
+
+      - uses: actions/setup-node@v4
+        if: steps.version-check.outputs.skip != 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - run: pnpm install --frozen-lockfile
+        if: steps.version-check.outputs.skip != 'true'
+
+      - run: pnpm run typecheck
+        if: steps.version-check.outputs.skip != 'true'
+
+      - run: pnpm run test
+        if: steps.version-check.outputs.skip != 'true'
+
+      - name: Build and publish
+        if: steps.version-check.outputs.skip != 'true'
+        run: pnpm --filter @ainyc/canonry publish --no-git-checks --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
