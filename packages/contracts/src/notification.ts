@@ -15,6 +15,7 @@ export const notificationDtoSchema = z.object({
   url: z.string().url(),
   events: z.array(notificationEventSchema),
   enabled: z.boolean().default(true),
+  webhookSecret: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 })
@@ -22,6 +23,7 @@ export const notificationDtoSchema = z.object({
 export type NotificationDto = z.infer<typeof notificationDtoSchema>
 
 export interface WebhookPayload {
+  source: 'canonry'
   event: NotificationEvent
   project: { name: string; canonicalDomain: string }
   run: { id: string; status: string; finishedAt: string | null }

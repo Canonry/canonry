@@ -1334,23 +1334,83 @@ function ProjectPage({
   )
 }
 
-// --- Schedule presets ---
-const SCHEDULE_PRESETS = [
-  { value: 'daily', label: 'Daily at 6am UTC' },
-  { value: 'daily@12', label: 'Daily at noon UTC' },
-  { value: 'daily@18', label: 'Daily at 6pm UTC' },
-  { value: 'twice-daily', label: 'Twice daily (6am & 6pm UTC)' },
-  { value: 'weekly', label: 'Weekly (Monday 6am UTC)' },
-  { value: 'weekly@fri', label: 'Weekly (Friday 6am UTC)' },
+// --- Schedule helpers ---
+const FREQ_OPTIONS = [
+  { value: 'daily', label: 'Every day' },
+  { value: 'weekly@mon', label: 'Every Monday' },
+  { value: 'weekly@wed', label: 'Every Wednesday' },
+  { value: 'weekly@fri', label: 'Every Friday' },
+  { value: 'twice-daily', label: 'Twice a day (6am & 6pm)' },
+  { value: 'custom', label: 'Custom cron expression' },
 ] as const
+
+const COMMON_TIMEZONES = [
+  'UTC',
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'America/Toronto',
+  'America/Vancouver',
+  'Europe/London',
+  'Europe/Paris',
+  'Europe/Berlin',
+  'Asia/Tokyo',
+  'Asia/Shanghai',
+  'Asia/Singapore',
+  'Australia/Sydney',
+] as const
+
+function formatHour(h: number): string {
+  if (h === 0) return '12:00 AM'
+  if (h < 12) return `${h}:00 AM`
+  if (h === 12) return '12:00 PM'
+  return `${h - 12}:00 PM`
+}
+
+function buildPreset(freq: string, hour: number): string {
+  if (freq === 'twice-daily') return 'twice-daily'
+  if (freq.startsWith('weekly@')) return `${freq}@${hour}`
+  return `daily@${hour}`
+}
+
+function parsePreset(preset: string | null, cronExpr: string): { freq: string; hour: number; customCron: string } {
+  if (!preset) return { freq: 'custom', hour: 6, customCron: cronExpr }
+  if (preset === 'twice-daily') return { freq: 'twice-daily', hour: 6, customCron: '' }
+  const dailyMatch = preset.match(/^daily(?:@(\d+))?$/)
+  if (dailyMatch) return { freq: 'daily', hour: dailyMatch[1] ? parseInt(dailyMatch[1]) : 6, customCron: '' }
+  const weeklyMatch = preset.match(/^(weekly@(?:mon|tue|wed|thu|fri|sat|sun))(?:@(\d+))?$/)
+  if (weeklyMatch) return { freq: weeklyMatch[1], hour: weeklyMatch[2] ? parseInt(weeklyMatch[2]) : 6, customCron: '' }
+  return { freq: 'custom', hour: 6, customCron: cronExpr }
+}
+
+function scheduleLabel(preset: string | null, cronExpr: string, timezone: string): string {
+  const tzShort = timezone === 'UTC' ? 'UTC' : (timezone.split('/').pop()?.replace(/_/g, ' ') ?? timezone)
+  if (!preset) return `Custom: ${cronExpr} · ${tzShort}`
+  if (preset === 'twice-daily') return `Twice a day (6am & 6pm) · ${tzShort}`
+  const dailyMatch = preset.match(/^daily(?:@(\d+))?$/)
+  if (dailyMatch) {
+    const h = dailyMatch[1] ? parseInt(dailyMatch[1]) : 6
+    return `Every day at ${formatHour(h)} · ${tzShort}`
+  }
+  const weeklyMatch = preset.match(/^weekly@(mon|tue|wed|thu|fri|sat|sun)(?:@(\d+))?$/)
+  if (weeklyMatch) {
+    const days: Record<string, string> = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' }
+    const h = weeklyMatch[2] ? parseInt(weeklyMatch[2]) : 6
+    return `Every ${days[weeklyMatch[1]]} at ${formatHour(h)} · ${tzShort}`
+  }
+  return `${preset} · ${tzShort}`
+}
 
 function ScheduleSection({ projectName }: { projectName: string }) {
   const [schedule, setSchedule] = useState<ApiSchedule | null | 'loading'>('loading')
   const [editing, setEditing] = useState(false)
-  const [preset, setPreset] = useState('daily')
-  const [useCustom, setUseCustom] = useState(false)
+  const [freq, setFreq] = useState('daily')
+  const [hour, setHour] = useState(6)
   const [customCron, setCustomCron] = useState('')
   const [timezone, setTimezone] = useState('UTC')
+  const [tzOther, setTzOther] = useState(false)
+  const [tzOtherValue, setTzOtherValue] = useState('')
   const [saving, setSaving] = useState(false)
   const [removing, setRemoving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1361,15 +1421,21 @@ function ScheduleSection({ projectName }: { projectName: string }) {
 
   const startEditing = () => {
     if (schedule && schedule !== 'loading') {
-      setPreset(schedule.preset ?? 'daily')
-      setUseCustom(!schedule.preset)
-      setCustomCron(schedule.preset ? '' : schedule.cronExpr)
-      setTimezone(schedule.timezone)
+      const parsed = parsePreset(schedule.preset, schedule.cronExpr)
+      setFreq(parsed.freq)
+      setHour(parsed.hour)
+      setCustomCron(parsed.customCron)
+      const isKnownTz = (COMMON_TIMEZONES as readonly string[]).includes(schedule.timezone)
+      setTimezone(isKnownTz ? schedule.timezone : 'Other')
+      setTzOther(!isKnownTz)
+      setTzOtherValue(isKnownTz ? '' : schedule.timezone)
     } else {
-      setPreset('daily')
-      setUseCustom(false)
+      setFreq('daily')
+      setHour(6)
       setCustomCron('')
       setTimezone('UTC')
+      setTzOther(false)
+      setTzOtherValue('')
     }
     setError(null)
     setEditing(true)
@@ -1379,9 +1445,10 @@ function ScheduleSection({ projectName }: { projectName: string }) {
     setSaving(true)
     setError(null)
     try {
-      const body: Parameters<typeof saveSchedule>[1] = { timezone }
-      if (useCustom) body.cron = customCron.trim()
-      else body.preset = preset
+      const effectiveTz = tzOther ? tzOtherValue.trim() || 'UTC' : timezone
+      const body: Parameters<typeof saveSchedule>[1] = { timezone: effectiveTz }
+      if (freq === 'custom') body.cron = customCron.trim()
+      else body.preset = buildPreset(freq, hour)
       const result = await saveSchedule(projectName, body)
       setSchedule(result)
       setEditing(false)
@@ -1451,8 +1518,8 @@ function ScheduleSection({ projectName }: { projectName: string }) {
         <Card className="surface-card compact-card">
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-1">
-              <p className="text-sm font-medium text-zinc-200">{schedule.preset ?? schedule.cronExpr}</p>
-              <p className="text-xs text-zinc-500">Cron: <span className="font-mono">{schedule.cronExpr}</span> · Timezone: {schedule.timezone}</p>
+              <p className="text-sm font-medium text-zinc-200">{scheduleLabel(schedule.preset, schedule.cronExpr, schedule.timezone)}</p>
+              <p className="text-xs text-zinc-500">Cron: <span className="font-mono">{schedule.cronExpr}</span></p>
               {schedule.nextRunAt && (
                 <p className="text-xs text-zinc-500">Next run: {new Date(schedule.nextRunAt).toLocaleString()}</p>
               )}
@@ -1478,22 +1545,36 @@ function ScheduleSection({ projectName }: { projectName: string }) {
 
       {editing && (
         <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 space-y-3">
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-zinc-400">Schedule</label>
-            <select
-              className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200 focus:border-zinc-500 focus:outline-none"
-              value={useCustom ? '__custom__' : preset}
-              onChange={(e) => {
-                if (e.target.value === '__custom__') { setUseCustom(true) }
-                else { setUseCustom(false); setPreset(e.target.value) }
-              }}
-            >
-              {SCHEDULE_PRESETS.map(p => (
-                <option key={p.value} value={p.value}>{p.label}</option>
-              ))}
-              <option value="__custom__">Custom cron expression</option>
-            </select>
-            {useCustom && (
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-zinc-400">Frequency</label>
+              <select
+                className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200 focus:border-zinc-500 focus:outline-none"
+                value={freq}
+                onChange={(e) => setFreq(e.target.value)}
+              >
+                {FREQ_OPTIONS.map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-zinc-400">Time</label>
+              <select
+                className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200 focus:border-zinc-500 focus:outline-none disabled:opacity-40"
+                value={hour}
+                disabled={freq === 'twice-daily' || freq === 'custom'}
+                onChange={(e) => setHour(parseInt(e.target.value))}
+              >
+                {Array.from({ length: 24 }, (_, i) => (
+                  <option key={i} value={i}>{formatHour(i)}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {freq === 'custom' && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-zinc-400">Cron expression</label>
               <input
                 className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 font-mono focus:border-zinc-500 focus:outline-none"
                 type="text"
@@ -1501,18 +1582,32 @@ function ScheduleSection({ projectName }: { projectName: string }) {
                 value={customCron}
                 onChange={(e) => setCustomCron(e.target.value)}
               />
-            )}
-          </div>
+            </div>
+          )}
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-zinc-400">Timezone</label>
-            <input
-              className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-              type="text"
-              placeholder="UTC"
-              value={timezone}
-              onChange={(e) => setTimezone(e.target.value)}
-            />
-            <p className="text-xs text-zinc-600">IANA timezone name — e.g. America/New_York, Europe/London</p>
+            <select
+              className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200 focus:border-zinc-500 focus:outline-none"
+              value={tzOther ? 'Other' : timezone}
+              onChange={(e) => {
+                if (e.target.value === 'Other') { setTzOther(true); setTimezone('Other') }
+                else { setTzOther(false); setTimezone(e.target.value) }
+              }}
+            >
+              {COMMON_TIMEZONES.map(tz => (
+                <option key={tz} value={tz}>{tz}</option>
+              ))}
+              <option value="Other">Other (enter manually)…</option>
+            </select>
+            {tzOther && (
+              <input
+                className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                type="text"
+                placeholder="e.g. America/New_York"
+                value={tzOtherValue}
+                onChange={(e) => setTzOtherValue(e.target.value)}
+              />
+            )}
           </div>
           {error && <p className="text-rose-400 text-sm">{error}</p>}
           <div className="flex gap-2 justify-end">
@@ -1520,7 +1615,7 @@ function ScheduleSection({ projectName }: { projectName: string }) {
             <Button
               type="button"
               size="sm"
-              disabled={saving || (useCustom && !customCron.trim())}
+              disabled={saving || (freq === 'custom' && !customCron.trim())}
               onClick={handleSave}
             >
               {saving ? 'Saving...' : 'Save schedule'}
@@ -1547,7 +1642,7 @@ function NotificationsSection({ projectName }: { projectName: string }) {
   const [selectedEvents, setSelectedEvents] = useState<string[]>(['citation.lost', 'citation.gained'])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [testStates, setTestStates] = useState<Record<string, 'testing' | 'ok' | 'fail'>>({})
+  const [testStates, setTestStates] = useState<Record<string, { state: 'testing' | 'ok' | 'fail'; status?: number }>>({})
 
   useEffect(() => {
     listNotifications(projectName).then(setNotifs).catch(() => setNotifs([]))
@@ -1588,12 +1683,12 @@ function NotificationsSection({ projectName }: { projectName: string }) {
   }
 
   const handleTest = async (id: string) => {
-    setTestStates(prev => ({ ...prev, [id]: 'testing' }))
+    setTestStates(prev => ({ ...prev, [id]: { state: 'testing' } }))
     try {
       const result = await sendTestNotification(projectName, id)
-      setTestStates(prev => ({ ...prev, [id]: result.ok ? 'ok' : 'fail' }))
+      setTestStates(prev => ({ ...prev, [id]: { state: result.ok ? 'ok' : 'fail', status: result.status } }))
     } catch {
-      setTestStates(prev => ({ ...prev, [id]: 'fail' }))
+      setTestStates(prev => ({ ...prev, [id]: { state: 'fail' } }))
     }
   }
 
@@ -1695,12 +1790,18 @@ function NotificationsSection({ projectName }: { projectName: string }) {
                   </td>
                   <td>
                     <div className="flex items-center gap-1 justify-end">
-                      {testStates[n.id] && (
-                        <ToneBadge tone={testStates[n.id] === 'ok' ? 'positive' : testStates[n.id] === 'fail' ? 'negative' : 'neutral'}>
-                          {testStates[n.id] === 'testing' ? 'Sending…' : testStates[n.id] === 'ok' ? 'Delivered' : 'Failed'}
-                        </ToneBadge>
-                      )}
-                      <Button variant="ghost" size="sm" type="button" disabled={testStates[n.id] === 'testing'} onClick={() => handleTest(n.id)}>
+                      {testStates[n.id] && (() => {
+                        const t = testStates[n.id]
+                        const label = t.state === 'testing' ? 'Sending…'
+                          : t.state === 'ok' ? `Delivered${t.status ? ` (${t.status})` : ''}`
+                          : `Failed${t.status ? ` (${t.status})` : ''}`
+                        return (
+                          <ToneBadge tone={t.state === 'ok' ? 'positive' : t.state === 'fail' ? 'negative' : 'neutral'}>
+                            {label}
+                          </ToneBadge>
+                        )
+                      })()}
+                      <Button variant="ghost" size="sm" type="button" disabled={testStates[n.id]?.state === 'testing'} onClick={() => handleTest(n.id)}>
                         Test
                       </Button>
                       <Button variant="ghost" size="sm" type="button" onClick={() => handleRemove(n.id)}>

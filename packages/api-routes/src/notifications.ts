@@ -21,13 +21,21 @@ function validateWebhookUrl(raw: string): { ok: true; url: URL } | { ok: false; 
   const h = parsed.hostname
   if (
     h === 'localhost' ||
-    h === '::1' ||
     h === '0.0.0.0' ||
     /^127\./.test(h) ||
     /^10\./.test(h) ||
     /^192\.168\./.test(h) ||
     /^172\.(1[6-9]|2\d|3[01])\./.test(h) ||
-    /^169\.254\./.test(h)
+    /^169\.254\./.test(h) ||
+    // IPv6 loopback and private ranges
+    h === '::1' ||
+    /^\[::1\]$/.test(h) ||
+    /^::ffff:/i.test(h) ||          // IPv4-mapped (::ffff:10.x.x.x etc.)
+    /^\[::ffff:/i.test(h) ||
+    /^fe[89ab][0-9a-f]:/i.test(h) || // link-local fe80::/10
+    /^\[fe[89ab][0-9a-f]:/i.test(h) ||
+    /^f[cd][0-9a-f]{2}:/i.test(h) || // unique-local fc00::/7
+    /^\[f[cd][0-9a-f]{2}:/i.test(h)
   ) {
     return { ok: false, message: '"url" must not point to a private or loopback address' }
   }
@@ -73,12 +81,14 @@ export async function notificationRoutes(app: FastifyInstance) {
 
     const now = new Date().toISOString()
     const id = crypto.randomUUID()
+    const webhookSecret = crypto.randomBytes(32).toString('hex')
 
     app.db.insert(notifications).values({
       id,
       projectId: project.id,
       channel: 'webhook',
       config: JSON.stringify({ url, events }),
+      webhookSecret,
       enabled: 1,
       createdAt: now,
       updatedAt: now,
@@ -145,6 +155,15 @@ export async function notificationRoutes(app: FastifyInstance) {
     }
 
     const config = JSON.parse(notification.config) as { url: string; events: string[] }
+
+    // Re-validate URL at delivery time (stored URLs may predate validation logic)
+    const urlCheck = validateWebhookUrl(config.url)
+    if (!urlCheck.ok) {
+      return reply.status(400).send({
+        error: { code: 'VALIDATION_ERROR', message: `Stored webhook URL is invalid: ${urlCheck.message}` },
+      })
+    }
+
     const payload = {
       event: 'run.completed',
       project: { name: project.name, canonicalDomain: project.canonicalDomain },
@@ -154,19 +173,31 @@ export async function notificationRoutes(app: FastifyInstance) {
       ],
     }
 
+    const body = JSON.stringify(payload)
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'User-Agent': 'Canonry/0.1.0',
+    }
+    if (notification.webhookSecret) {
+      headers['X-Canonry-Signature'] = 'sha256=' + crypto.createHmac('sha256', notification.webhookSecret).update(body).digest('hex')
+    }
+
     let status: number
     let error: string | null = null
+    request.log.info(`[Notification test] POST ${config.url}`)
     try {
       const res = await fetch(config.url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'User-Agent': 'Canonry/0.1.0' },
-        body: JSON.stringify(payload),
+        headers,
+        body,
         signal: AbortSignal.timeout(10000),
       })
       status = res.status
+      request.log.info(`[Notification test] Response: HTTP ${status} from ${config.url}`)
     } catch (err: unknown) {
       status = 0
       error = err instanceof Error ? err.message : String(err)
+      request.log.warn(`[Notification test] Failed: ${error}`)
     }
 
     writeAuditLog(app.db, {
@@ -194,6 +225,7 @@ function formatNotification(row: typeof notifications.$inferSelect) {
     url: config.url,
     events: config.events,
     enabled: row.enabled === 1,
+    webhookSecret: row.webhookSecret ?? undefined,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }

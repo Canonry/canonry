@@ -27,7 +27,19 @@ export async function createServer(opts: {
   db: DatabaseClient
   open?: boolean
 }): Promise<FastifyInstance> {
-  const app = Fastify({ logger: true })
+  const app = Fastify({
+    logger: {
+      transport: {
+        target: 'pino-pretty',
+        options: {
+          colorize: true,
+          translateTime: 'HH:MM:ss',
+          ignore: 'pid,hostname,reqId',
+          messageFormat: '{msg} {req.method} {req.url}',
+        },
+      },
+    },
+  })
 
   // Build provider registry from config (with legacy field migration)
   const registry = new ProviderRegistry()

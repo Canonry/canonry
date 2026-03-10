@@ -4,6 +4,38 @@ import { notifications, runs, querySnapshots, keywords, projects, auditLog } fro
 import type { NotificationEvent, WebhookPayload } from '@ainyc/aeo-platform-contracts'
 import crypto from 'node:crypto'
 
+/** Validate that a webhook URL does not point to a private or loopback address. */
+function isSafeWebhookUrl(raw: string): boolean {
+  let parsed: URL
+  try {
+    parsed = new URL(raw)
+  } catch {
+    return false
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+  const h = parsed.hostname
+  if (
+    h === 'localhost' ||
+    h === '0.0.0.0' ||
+    /^127\./.test(h) ||
+    /^10\./.test(h) ||
+    /^192\.168\./.test(h) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(h) ||
+    /^169\.254\./.test(h) ||
+    h === '::1' ||
+    /^\[::1\]$/.test(h) ||
+    /^::ffff:/i.test(h) ||
+    /^\[::ffff:/i.test(h) ||
+    /^fe[89ab][0-9a-f]:/i.test(h) ||
+    /^\[fe[89ab][0-9a-f]:/i.test(h) ||
+    /^f[cd][0-9a-f]{2}:/i.test(h) ||
+    /^\[f[cd][0-9a-f]{2}:/i.test(h)
+  ) {
+    return false
+  }
+  return true
+}
+
 export class Notifier {
   private db: DatabaseClient
   private serverUrl: string
@@ -13,8 +45,10 @@ export class Notifier {
     this.serverUrl = serverUrl
   }
 
-  /** Called after a run completes (success or partial). */
+  /** Called after a run completes (success, partial, or failed). */
   async onRunCompleted(runId: string, projectId: string): Promise<void> {
+    console.log(`[Notifier] onRunCompleted: runId=${runId} projectId=${projectId}`)
+
     // Get project notifications
     const notifs = this.db
       .select()
@@ -23,21 +57,33 @@ export class Notifier {
       .all()
       .filter(n => n.enabled === 1)
 
-    if (notifs.length === 0) return
+    if (notifs.length === 0) {
+      console.log(`[Notifier] No enabled notifications for project ${projectId} — skipping`)
+      return
+    }
+
+    console.log(`[Notifier] Found ${notifs.length} enabled notification(s) for project ${projectId}`)
 
     // Get the completed run
     const run = this.db.select().from(runs).where(eq(runs.id, runId)).get()
-    if (!run) return
+    if (!run) {
+      console.error(`[Notifier] Run ${runId} not found — skipping notification dispatch`)
+      return
+    }
 
     // Get the project
     const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
-    if (!project) return
+    if (!project) {
+      console.error(`[Notifier] Project ${projectId} not found — skipping notification dispatch`)
+      return
+    }
 
     // Compute transitions by comparing to previous run
     const transitions = this.computeTransitions(runId, projectId)
 
     // Determine which events occurred
     const events: NotificationEvent[] = []
+    console.log(`[Notifier] Run status: ${run.status}`)
 
     if (run.status === 'completed' || run.status === 'partial') {
       events.push('run.completed')
@@ -59,6 +105,7 @@ export class Notifier {
 
       // Filter to events this notification cares about
       const matchingEvents = events.filter(e => subscribedEvents.includes(e))
+      console.log(`[Notifier] Notification ${notif.id}: subscribed=${JSON.stringify(subscribedEvents)} matched=${JSON.stringify(matchingEvents)}`)
       if (matchingEvents.length === 0) continue
 
       // Send one webhook per matching event
@@ -68,6 +115,7 @@ export class Notifier {
           : transitions
 
         const payload: WebhookPayload = {
+          source: 'canonry',
           event,
           project: { name: project.name, canonicalDomain: project.canonicalDomain },
           run: { id: run.id, status: run.status, finishedAt: run.finishedAt },
@@ -75,7 +123,7 @@ export class Notifier {
           dashboardUrl: `${this.serverUrl}/projects/${project.name}`,
         }
 
-        await this.sendWebhook(config.url, payload, notif.id, projectId)
+        await this.sendWebhook(config.url, payload, notif.id, projectId, notif.webhookSecret ?? null)
       }
     }
   }
@@ -147,25 +195,46 @@ export class Notifier {
     return transitions
   }
 
-  private async sendWebhook(url: string, payload: WebhookPayload, notificationId: string, projectId: string): Promise<void> {
+  private async sendWebhook(url: string, payload: WebhookPayload, notificationId: string, projectId: string, webhookSecret: string | null): Promise<void> {
+    // Safety: re-validate the URL at delivery time to guard against DNS rebinding
+    // and any records that predate the SSRF check.
+    if (!isSafeWebhookUrl(url)) {
+      console.error(`[Notifier] Webhook URL blocked by SSRF check: ${url}`)
+      this.logDelivery(projectId, notificationId, payload.event, 'failed', 'SSRF: URL resolved to a blocked address')
+      return
+    }
+
+    console.log(`[Notifier] Sending webhook event="${payload.event}" to ${url}`)
+
     const maxRetries = 3
     const delays = [1000, 4000, 16000]
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
+        const body = JSON.stringify(payload)
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'User-Agent': 'Canonry/0.1.0',
+        }
+        if (webhookSecret) {
+          headers['X-Canonry-Signature'] = 'sha256=' + crypto.createHmac('sha256', webhookSecret).update(body).digest('hex')
+        }
+
         const response = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'User-Agent': 'Canonry/0.1.0' },
-          body: JSON.stringify(payload),
+          headers,
+          body,
           signal: AbortSignal.timeout(10000),
         })
 
         if (response.ok) {
+          console.log(`[Notifier] Webhook delivered: event="${payload.event}" status=${response.status}`)
           this.logDelivery(projectId, notificationId, payload.event, 'sent', null)
           return
         }
 
         const errorDetail = `HTTP ${response.status}`
+        console.warn(`[Notifier] Webhook attempt ${attempt + 1}/${maxRetries} failed: ${errorDetail}`)
         if (attempt === maxRetries - 1) {
           this.logDelivery(projectId, notificationId, payload.event, 'failed', errorDetail)
         }

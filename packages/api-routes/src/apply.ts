@@ -177,27 +177,32 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       }
     }
 
-    // Handle notifications from config — declarative replace (always delete then re-insert)
-    app.db.delete(notifications).where(eq(notifications.projectId, projectId)).run()
-    for (const notif of config.spec.notifications) {
-      app.db.insert(notifications).values({
-        id: crypto.randomUUID(),
-        projectId,
-        channel: notif.channel,
-        config: JSON.stringify({ url: notif.url, events: notif.events }),
-        enabled: 1,
-        createdAt: now,
-        updatedAt: now,
-      }).run()
-    }
+    // Handle notifications from config — declarative replace only when key is
+    // explicitly present (absent key leaves existing notifications untouched).
+    const rawSpec = (request.body as { spec?: Record<string, unknown> })?.spec ?? {}
+    if ('notifications' in rawSpec) {
+      app.db.delete(notifications).where(eq(notifications.projectId, projectId)).run()
+      for (const notif of config.spec.notifications) {
+        app.db.insert(notifications).values({
+          id: crypto.randomUUID(),
+          projectId,
+          channel: notif.channel,
+          config: JSON.stringify({ url: notif.url, events: notif.events }),
+          webhookSecret: crypto.randomBytes(32).toString('hex'),
+          enabled: 1,
+          createdAt: now,
+          updatedAt: now,
+        }).run()
+      }
 
-    writeAuditLog(app.db, {
-      projectId,
-      actor: 'api',
-      action: 'notifications.replaced',
-      entityType: 'notification',
-      diff: { notifications: config.spec.notifications },
-    })
+      writeAuditLog(app.db, {
+        projectId,
+        actor: 'api',
+        action: 'notifications.replaced',
+        entityType: 'notification',
+        diff: { notifications: config.spec.notifications },
+      })
+    }
 
     const project = app.db.select().from(projects).where(eq(projects.id, projectId)).get()!
     return reply.status(200).send({

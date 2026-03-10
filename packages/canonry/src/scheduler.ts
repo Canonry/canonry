@@ -116,6 +116,7 @@ export class Scheduler {
     const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
     if (!project) {
       console.error(`[Scheduler] Project ${projectId} not found, skipping scheduled run`)
+      this.db.update(schedules).set({ nextRunAt: null, updatedAt: now }).where(eq(schedules.id, schedule.id)).run()
       return
     }
 
@@ -133,6 +134,7 @@ export class Scheduler {
 
     if (activeRun) {
       console.log(`[Scheduler] Skipping scheduled run for ${project.name} — run ${activeRun.id} already active`)
+      this.db.update(schedules).set({ nextRunAt: null, updatedAt: now }).where(eq(schedules.id, schedule.id)).run()
       return
     }
 

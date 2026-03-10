@@ -133,6 +133,8 @@ CREATE INDEX IF NOT EXISTS idx_notifications_project ON notifications(project_id
 const MIGRATIONS = [
   // v2: Add providers column to projects for multi-provider support
   `ALTER TABLE projects ADD COLUMN providers TEXT NOT NULL DEFAULT '[]'`,
+  // v3: Add webhook_secret column to notifications for HMAC signing
+  `ALTER TABLE notifications ADD COLUMN webhook_secret TEXT`,
 ]
 
 export function migrate(db: DatabaseClient) {

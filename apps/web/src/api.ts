@@ -264,7 +264,7 @@ export function saveSchedule(project: string, body: {
 }
 
 export async function removeSchedule(project: string): Promise<void> {
-  await apiFetch(`/projects/${encodeURIComponent(project)}/schedule`, { method: 'DELETE' })
+  await apiFetch(`/projects/${encodeURIComponent(project)}/schedule`, { method: 'DELETE', body: '{}' })
 }
 
 export interface ApiNotification {
@@ -292,7 +292,7 @@ export function addNotification(project: string, body: {
 }
 
 export async function removeNotification(project: string, id: string): Promise<void> {
-  await apiFetch(`/projects/${encodeURIComponent(project)}/notifications/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  await apiFetch(`/projects/${encodeURIComponent(project)}/notifications/${encodeURIComponent(id)}`, { method: 'DELETE', body: '{}' })
 }
 
 export function sendTestNotification(project: string, id: string): Promise<{ status: number; ok: boolean }> {
