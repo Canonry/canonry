@@ -1,8 +1,12 @@
 # Canonry
 
-`canonry` is an open-source AEO (Answer Engine Optimization) monitoring tool. It tracks how AI answer engines cite or omit your domain for tracked keywords.
+[![npm version](https://img.shields.io/npm/v/@ainyc/canonry)](https://www.npmjs.com/package/@ainyc/canonry)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![Node.js >= 20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 
-Built on the published [`@ainyc/aeo-audit`](https://www.npmjs.com/package/@ainyc/aeo-audit) package for technical audits.
+**Open-source AEO monitoring for your domain.** Canonry tracks how AI answer engines (ChatGPT, Gemini, Claude, and others) cite or omit your website for the keywords you care about.
+
+AEO (Answer Engine Optimization) is the practice of ensuring your content is accurately represented in AI-generated answers. As search shifts from links to synthesized responses, monitoring your visibility across answer engines is essential.
 
 ## Quick Start
 
@@ -12,93 +16,194 @@ canonry init
 canonry serve
 ```
 
-This starts a local server with a web dashboard at `http://localhost:4100`.
+Open [http://localhost:4100](http://localhost:4100) to access the web dashboard.
 
-## CLI Usage
+## Features
+
+- **Multi-provider monitoring** -- query Gemini, OpenAI, Claude, and local LLMs (Ollama, LM Studio, or any OpenAI-compatible endpoint) from a single tool.
+- **Three equal surfaces** -- CLI, REST API, and web dashboard all backed by the same API. No surface is privileged.
+- **Config-as-code** -- manage projects with Kubernetes-style YAML files. Version control your monitoring setup.
+- **Self-hosted** -- runs locally with SQLite. No cloud account, no external dependencies beyond the LLM API keys you choose to configure.
+- **Scheduled monitoring** -- set up cron-based recurring runs to track citation changes over time.
+- **Webhook notifications** -- get alerted when your citation status changes.
+- **Audit logging** -- full history of every action taken through any surface.
+
+## CLI Reference
+
+### Setup
 
 ```bash
-# Create a project and add keywords
-canonry project create mysite --domain mysite.com --country US --language en
-canonry keyword add mysite "emergency dentist brooklyn" "best dentist nyc"
-canonry competitor add mysite competitor1.com competitor2.com
-
-# Run a visibility sweep
-canonry run mysite
-
-# View results
-canonry status mysite
-canonry evidence mysite
-
-# Config-as-code
-canonry export mysite              # Export as canonry.yaml
-canonry apply canonry.yaml         # Declarative apply
+canonry init                        # Initialize config and database
+canonry serve                       # Start server (API + web dashboard)
+canonry settings                    # View/edit configuration
 ```
 
-## What Lives Here
+### Projects
 
-```text
-apps/api/                 Cloud API entry point
-apps/worker/              Cloud worker entry point
-apps/web/                 Vite SPA source
-packages/canonry/         Publishable npm package (CLI + server + bundled SPA)
-packages/api-routes/      Shared Fastify route plugins
-packages/contracts/       DTOs, enums, config-schema, error codes
-packages/config/          Typed environment parsing
-packages/db/              Drizzle ORM schema and migrations
-packages/provider-gemini/ Gemini adapter
-docs/                     Architecture, product plan, testing, ADRs
+```bash
+canonry project create <name> --domain <domain> --country US --language en
+canonry project list
+canonry project show <name>
+canonry project delete <name>
 ```
+
+### Keywords and Competitors
+
+```bash
+canonry keyword add <project> "keyword one" "keyword two"
+canonry keyword list <project>
+canonry keyword import <project> <file.csv>
+
+canonry competitor add <project> competitor1.com competitor2.com
+canonry competitor list <project>
+```
+
+### Visibility Runs
+
+```bash
+canonry run <project>                    # Run all configured providers
+canonry run <project> --provider gemini  # Run a single provider
+canonry runs <project>                   # List past runs
+canonry status <project>                 # Current visibility summary
+canonry evidence <project>               # View citation evidence
+canonry history <project>                # Per-keyword citation timeline
+canonry export <project>                 # Export project as YAML
+```
+
+### Config-as-Code
+
+```bash
+canonry apply canonry.yaml          # Declarative project apply
+```
+
+### Scheduling and Notifications
+
+```bash
+canonry schedule set <project> --cron "0 8 * * *"
+canonry schedule show <project>
+canonry schedule enable <project>
+canonry schedule disable <project>
+canonry schedule remove <project>
+
+canonry notify add <project> --url https://hooks.slack.com/...
+canonry notify list <project>
+canonry notify remove <project> <id>
+canonry notify test <project> <id>
+```
+
+## Config-as-Code
+
+Define your monitoring projects in version-controlled YAML files:
+
+```yaml
+apiVersion: canonry/v1
+kind: Project
+metadata:
+  name: my-project
+spec:
+  displayName: My Project
+  canonicalDomain: example.com
+  country: US
+  language: en
+  keywords:
+    - best dental implants near me
+    - emergency dentist open now
+  competitors:
+    - competitor.com
+  providers:
+    - gemini
+    - openai
+    - claude
+    - local
+```
+
+Apply with the CLI or the API:
+
+```bash
+canonry apply canonry.yaml
+```
+
+```bash
+curl -X POST http://localhost:4100/api/v1/apply \
+  -H "Authorization: Bearer cnry_..." \
+  -H "Content-Type: application/yaml" \
+  --data-binary @canonry.yaml
+```
+
+The database is authoritative. Config files are input, not state.
+
+## Provider Setup
+
+Canonry queries multiple AI answer engines. Configure the providers you want during `canonry init`, or add them later via the settings page or API.
+
+### Gemini
+
+Get an API key from [Google AI Studio](https://aistudio.google.com/apikey).
+
+### OpenAI
+
+Get an API key from [platform.openai.com](https://platform.openai.com/api-keys).
+
+### Claude
+
+Get an API key from [console.anthropic.com](https://console.anthropic.com/settings/keys).
+
+### Local LLMs
+
+Any OpenAI-compatible endpoint works -- Ollama, LM Studio, llama.cpp, vLLM, and similar tools. Point Canonry at your local server's base URL (e.g. `http://localhost:11434/v1`). No API key required for most local setups.
+
+## API
+
+All endpoints are served under `/api/v1/`. Authenticate with a bearer token:
+
+```
+Authorization: Bearer cnry_...
+```
+
+Key endpoints:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `PUT` | `/api/v1/projects/{name}` | Create or update a project |
+| `POST` | `/api/v1/projects/{name}/runs` | Trigger a visibility sweep |
+| `GET` | `/api/v1/projects/{name}/timeline` | Per-keyword citation history |
+| `GET` | `/api/v1/projects/{name}/snapshots/diff` | Compare two runs |
+| `POST` | `/api/v1/apply` | Config-as-code apply |
+| `GET` | `/api/v1/openapi.json` | OpenAPI spec (no auth required) |
+
+## Web Dashboard
+
+The bundled web dashboard provides five views:
+
+- **Overview** -- portfolio-level visibility scores across all projects with sparkline trends.
+- **Project** -- command center with score gauges, keyword evidence tables, and competitor analysis.
+- **Runs** -- history of all visibility sweeps with per-provider breakdowns.
+- **Settings** -- provider configuration, scheduling, and notification management.
+- **Setup** -- guided wizard for first-time onboarding.
+
+Access it at [http://localhost:4100](http://localhost:4100) after running `canonry serve`.
+
+## Requirements
+
+- Node.js >= 20
+- At least one provider API key (or a local LLM endpoint)
 
 ## Development
 
 ```bash
+git clone https://github.com/ainyc/canonry.git
+cd canonry
 pnpm install
 pnpm run typecheck
 pnpm run test
 pnpm run lint
+pnpm run dev:web          # Run SPA in dev mode
 ```
 
-Run the SPA in dev mode:
+## Contributing
 
-```bash
-pnpm run dev:web
-```
+Contributions are welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup instructions.
 
-## Architecture
+## License
 
-```mermaid
-flowchart LR
-  User["Analyst"]
-  Target["AI answer engines"]
-
-  subgraph Process["canonry serve"]
-    direction LR
-    SPA["Static SPA\n/"] --> API["Fastify API\n/api/v1/*"]
-    API --> JobRunner["In-process\njob runner"]
-    API --> SQLite["SQLite"]
-    JobRunner --> Gemini["provider-gemini"]
-    JobRunner --> SQLite
-  end
-
-  User --> SPA
-  User -. CLI .-> API
-  Gemini --> Target
-```
-
-Locally: single Node.js process with SQLite. Cloud: separate API + Worker + Postgres. Same codebase, same API surface.
-
-See [docs/architecture.md](./docs/architecture.md) for the full system view.
-
-## Docs
-
-- [Architecture](./docs/architecture.md)
-- [Phase 2 design](./docs/phase-2-design.md)
-- [Product plan](./docs/product-plan.md)
-- [Testing guide](./docs/testing.md)
-- [Workspace structure](./docs/workspace-packaging.md)
-- [Site audit design](./docs/site-audit.md) (Phase 3)
-- [Gemini provider design](./docs/providers/gemini.md)
-
-## Relationship to `@ainyc/aeo-audit`
-
-This repo consumes the published package as an external dependency. Technical audit logic is imported through explicit adapters in the worker. Do not vendor code from the audit package.
+[AGPL-3.0-only](./LICENSE)

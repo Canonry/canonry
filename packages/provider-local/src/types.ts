@@ -2,36 +2,37 @@ import type { ProviderQuotaPolicy, GroundingSource } from '@ainyc/canonry-contra
 
 export type { GroundingSource }
 
-export interface GeminiConfig {
-  apiKey: string
+export interface LocalConfig {
+  baseUrl: string
+  apiKey?: string
   quotaPolicy: ProviderQuotaPolicy
   model?: string
 }
 
-export interface GeminiHealthcheckResult {
+export interface LocalHealthcheckResult {
   ok: boolean
-  provider: 'gemini'
+  provider: 'local'
   message: string
   model?: string
 }
 
-export interface GeminiTrackedQueryInput {
+export interface LocalTrackedQueryInput {
   keyword: string
   canonicalDomains: string[]
   competitorDomains: string[]
-  config: GeminiConfig
+  config: LocalConfig
 }
 
-export interface GeminiRawResult {
-  provider: 'gemini'
+export interface LocalRawResult {
+  provider: 'local'
   rawResponse: Record<string, unknown>
   model: string
   groundingSources: GroundingSource[]
   searchQueries: string[]
 }
 
-export interface GeminiNormalizedResult {
-  provider: 'gemini'
+export interface LocalNormalizedResult {
+  provider: 'local'
   answerText: string
   citedDomains: string[]
   groundingSources: GroundingSource[]

@@ -1,8 +1,8 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { notifications } from '@ainyc/aeo-platform-db'
-import type { NotificationEvent, NotificationDto } from '@ainyc/aeo-platform-contracts'
+import { notifications } from '@ainyc/canonry-db'
+import type { NotificationEvent, NotificationDto } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { deliverWebhook, resolveWebhookTarget } from './webhooks.js'
 

@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import Fastify from 'fastify'
-import { createClient, migrate } from '@ainyc/aeo-platform-db'
+import { createClient, migrate } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 function buildApp(opts?: { onProjectDeleted?: (projectId: string) => void }) {

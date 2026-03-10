@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, schedules } from '@ainyc/aeo-platform-db'
+import { createClient, migrate, projects, schedules } from '@ainyc/canonry-db'
 import { Scheduler } from '../src/scheduler.js'
 
 function createTempDb() {

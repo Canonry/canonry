@@ -1,4 +1,4 @@
-import { providerQuotaPolicySchema, type ProviderQuotaPolicy } from '@ainyc/aeo-platform-contracts'
+import { providerQuotaPolicySchema, type ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
 import { z } from 'zod'
 
 const envSchema = z.object({

@@ -2,14 +2,14 @@
 
 ## Project Overview
 
-`canonry` is an open-source AEO monitoring tool that tracks how AI answer engines cite a domain for tracked keywords. Built on the published `@ainyc/aeo-audit` npm package.
+`canonry` is an open-source AEO monitoring tool that tracks how AI answer engines cite a domain for tracked keywords. Published as `@ainyc/canonry` on npm.
 
 ## Current Phase
 
-**Phase 2** — building the publishable `@ainyc/canonry` npm package with CLI, local server, SQLite, and multi-provider visibility runs (Gemini, OpenAI, Claude). See `docs/phase-2-design.md` for the full architecture plan.
+**Phase 2 complete** — `@ainyc/canonry` npm package with CLI, local server, SQLite, and multi-provider visibility runs (Gemini, OpenAI, Claude, local LLM). See `docs/phase-2-design.md` for the full architecture plan.
 
-**In scope:** Visibility runs, CLI, config-as-code, API, bundled SPA, SQLite, auth, audit log, usage counters.
-**Deferred:** Site audit (Phase 3), scheduling (Phase 3), cloud/Postgres (Phase 4).
+**Complete:** Visibility runs, CLI, config-as-code, API, bundled SPA, SQLite, auth, audit log, usage counters, scheduling, webhooks.
+**Deferred:** Site audit (Phase 3), cloud/Postgres (Phase 4).
 
 ## Workspace Map
 
@@ -25,6 +25,7 @@ packages/db/              Drizzle ORM schema, migrations, client (SQLite/Postgre
 packages/provider-gemini/ Gemini adapter
 packages/provider-openai/ OpenAI adapter
 packages/provider-claude/ Claude/Anthropic adapter
+packages/provider-local/  Local LLM adapter (OpenAI-compatible API)
 docs/                     Architecture, product plan, testing, ADRs
 ```
 
@@ -51,11 +52,9 @@ canonry export <project>
 
 ## Dependency Boundary
 
-- Use `@ainyc/aeo-audit` as an external dependency.
-- Do not copy source files out of the audit package repo into this repo.
-- Any use of the audit engine should go through explicit adapters in `apps/worker`.
 - `packages/api-routes/` must not import from `apps/*`.
-- `packages/canonry/` is the only publishable artifact.
+- `packages/canonry/` is the only publishable artifact. Internal packages are bundled via tsup.
+- All internal packages use `@ainyc/canonry-*` naming convention.
 
 ## Surface Parity
 

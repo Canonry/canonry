@@ -1,9 +1,9 @@
 import cron from 'node-cron'
 import { eq } from 'drizzle-orm'
-import { queueRunIfProjectIdle } from '@ainyc/aeo-platform-api-routes'
-import type { DatabaseClient } from '@ainyc/aeo-platform-db'
-import { schedules, projects } from '@ainyc/aeo-platform-db'
-import type { ProviderName } from '@ainyc/aeo-platform-contracts'
+import { queueRunIfProjectIdle } from '@ainyc/canonry-api-routes'
+import type { DatabaseClient } from '@ainyc/canonry-db'
+import { schedules, projects } from '@ainyc/canonry-db'
+import type { ProviderName } from '@ainyc/canonry-contracts'
 
 export interface SchedulerCallbacks {
   onRunCreated: (runId: string, projectId: string, providers?: ProviderName[]) => void

@@ -1,8 +1,9 @@
 {
-  "name": "@ainyc/aeo-platform-web",
+  "name": "@ainyc/canonry-web",
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "license": "AGPL-3.0-only",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 4173",
     "build": "vite build",
@@ -11,7 +12,7 @@
     "lint": "eslint src/ test/ vite.config.ts"
   },
   "dependencies": {
-    "@ainyc/aeo-platform-contracts": "workspace:*",
+    "@ainyc/canonry-contracts": "workspace:*",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-slot": "^1.2.3",
     "class-variance-authority": "^0.7.1",

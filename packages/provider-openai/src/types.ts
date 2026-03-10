@@ -1,4 +1,4 @@
-import type { ProviderQuotaPolicy, GroundingSource } from '@ainyc/aeo-platform-contracts'
+import type { ProviderQuotaPolicy, GroundingSource } from '@ainyc/canonry-contracts'
 
 export type { GroundingSource }
 

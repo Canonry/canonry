@@ -1,4 +1,4 @@
-import type { ProjectDto } from '@ainyc/aeo-platform-contracts'
+import type { ProjectDto } from '@ainyc/canonry-contracts'
 import type {
   ApiCompetitor,
   ApiKeyword,

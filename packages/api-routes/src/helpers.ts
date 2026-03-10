@@ -1,8 +1,8 @@
 import crypto from 'node:crypto'
 import { eq, and } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/aeo-platform-db'
-import { projects, auditLog, usageCounters } from '@ainyc/aeo-platform-db'
-import { notFound } from '@ainyc/aeo-platform-contracts'
+import type { DatabaseClient } from '@ainyc/canonry-db'
+import { projects, auditLog, usageCounters } from '@ainyc/canonry-db'
+import { notFound } from '@ainyc/canonry-contracts'
 
 export function resolveProject(db: DatabaseClient, name: string) {
   const project = db.select().from(projects).where(eq(projects.name, name)).get()

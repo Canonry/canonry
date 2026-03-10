@@ -95,7 +95,7 @@ apps/web/                    # SPA source (built and bundled into packages/canon
 }
 ```
 
-`build-web.ts` runs `pnpm --filter @ainyc/aeo-platform-web build` and copies the output to `packages/canonry/assets/`. The server uses `@fastify/static` to serve from this directory.
+`build-web.ts` runs `pnpm --filter @ainyc/canonry-web build` and copies the output to `packages/canonry/assets/`. The server uses `@fastify/static` to serve from this directory.
 
 ---
 

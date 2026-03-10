@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:net'
 import test from 'node:test'
 
-import { getPlatformEnv } from '@ainyc/aeo-platform-config'
+import { getPlatformEnv } from '@ainyc/canonry-config'
 
 import { startHealthServer } from '../src/health-server.js'
 import { createHeartbeatLog } from '../src/jobs/healthcheck.js'

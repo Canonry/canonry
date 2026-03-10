@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { and, eq, or } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/aeo-platform-db'
-import { runs } from '@ainyc/aeo-platform-db'
+import type { DatabaseClient } from '@ainyc/canonry-db'
+import { runs } from '@ainyc/canonry-db'
 
 export interface QueueRunParams {
   projectId: string

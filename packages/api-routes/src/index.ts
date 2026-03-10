@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import type { DatabaseClient } from '@ainyc/aeo-platform-db'
+import type { DatabaseClient } from '@ainyc/canonry-db'
 import { authPlugin } from './auth.js'
 import { projectRoutes } from './projects.js'
 import type { ProjectRoutesOptions } from './projects.js'
@@ -69,7 +69,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
   }, { prefix: '/api/v1' })
 }
 
-export type { DatabaseClient } from '@ainyc/aeo-platform-db'
+export type { DatabaseClient } from '@ainyc/canonry-db'
 export { queueRunIfProjectIdle } from './run-queue.js'
 export { deliverWebhook, resolveWebhookTarget } from './webhooks.js'
 export type { SafeWebhookTarget } from './webhooks.js'

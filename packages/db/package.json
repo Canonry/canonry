@@ -1,8 +1,9 @@
 {
-  "name": "@ainyc/aeo-platform-db",
+  "name": "@ainyc/canonry-db",
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "license": "AGPL-3.0-only",
   "exports": {
     ".": {
       "types": "./src/index.ts",

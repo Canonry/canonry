@@ -1,4 +1,4 @@
-import type { ProjectDto, RunDto, RunStatus, GroundingSource } from '@ainyc/aeo-platform-contracts'
+import type { ProjectDto, RunDto, RunStatus, GroundingSource } from '@ainyc/canonry-contracts'
 
 export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
 export type HealthState = 'checking' | 'ok' | 'error'

@@ -1,8 +1,8 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { apiKeys } from '@ainyc/aeo-platform-db'
-import { authRequired, authInvalid } from '@ainyc/aeo-platform-contracts'
+import { apiKeys } from '@ainyc/canonry-db'
+import { authRequired, authInvalid } from '@ainyc/canonry-contracts'
 
 function hashKey(key: string): string {
   return crypto.createHash('sha256').update(key).digest('hex')

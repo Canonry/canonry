@@ -8,9 +8,9 @@
     "typecheck": "pnpm -r run typecheck",
     "test": "pnpm -r run test",
     "lint": "pnpm -r run lint",
-    "dev:api": "pnpm --filter @ainyc/aeo-platform-api run dev",
-    "dev:worker": "pnpm --filter @ainyc/aeo-platform-worker run dev",
-    "dev:web": "pnpm --filter @ainyc/aeo-platform-web run dev"
+    "dev:api": "pnpm --filter @ainyc/canonry-api run dev",
+    "dev:worker": "pnpm --filter @ainyc/canonry-worker run dev",
+    "dev:web": "pnpm --filter @ainyc/canonry-web run dev"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

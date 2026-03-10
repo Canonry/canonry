@@ -5,7 +5,7 @@ import type {
   TrackedQueryInput,
   RawQueryResult,
   NormalizedQueryResult,
-} from '@ainyc/aeo-platform-contracts'
+} from '@ainyc/canonry-contracts'
 import {
   validateConfig as geminiValidateConfig,
   healthcheck as geminiHealthcheck,
@@ -16,7 +16,7 @@ import type { GeminiConfig } from './types.js'
 
 function toGeminiConfig(config: ProviderConfig): GeminiConfig {
   return {
-    apiKey: config.apiKey,
+    apiKey: config.apiKey ?? '',
     model: config.model,
     quotaPolicy: config.quotaPolicy,
   }

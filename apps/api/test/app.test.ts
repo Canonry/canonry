@@ -4,8 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
-import { getPlatformEnv } from '@ainyc/aeo-platform-config'
-import { createClient, migrate } from '@ainyc/aeo-platform-db'
+import { getPlatformEnv } from '@ainyc/canonry-config'
+import { createClient, migrate } from '@ainyc/canonry-db'
 
 import { buildApp } from '../src/app.js'
 import { loadApiEnv } from '../src/plugins/env.js'

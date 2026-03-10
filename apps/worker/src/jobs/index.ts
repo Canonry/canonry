@@ -1,4 +1,4 @@
-import type { PlatformEnv } from '@ainyc/aeo-platform-config'
+import type { PlatformEnv } from '@ainyc/canonry-config'
 
 import { createHeartbeatLog } from './healthcheck.js'
 

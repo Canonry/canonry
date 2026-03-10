@@ -5,7 +5,7 @@ import type {
   TrackedQueryInput,
   RawQueryResult,
   NormalizedQueryResult,
-} from '@ainyc/aeo-platform-contracts'
+} from '@ainyc/canonry-contracts'
 import {
   validateConfig as claudeValidateConfig,
   healthcheck as claudeHealthcheck,
@@ -16,7 +16,7 @@ import type { ClaudeConfig } from './types.js'
 
 function toClaudeConfig(config: ProviderConfig): ClaudeConfig {
   return {
-    apiKey: config.apiKey,
+    apiKey: config.apiKey ?? '',
     model: config.model,
     quotaPolicy: config.quotaPolicy,
   }

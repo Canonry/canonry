@@ -1,5 +1,5 @@
 import { loadConfig } from '../config.js'
-import { createClient, migrate } from '@ainyc/aeo-platform-db'
+import { createClient, migrate } from '@ainyc/canonry-db'
 import { createServer } from '../server.js'
 
 export async function serveCommand(): Promise<void> {

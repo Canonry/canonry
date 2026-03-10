@@ -1,6 +1,6 @@
 import { eq, desc, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { auditLog, querySnapshots, runs, keywords } from '@ainyc/aeo-platform-db'
+import { auditLog, querySnapshots, runs, keywords } from '@ainyc/canonry-db'
 import { resolveProject } from './helpers.js'
 
 export async function historyRoutes(app: FastifyInstance) {

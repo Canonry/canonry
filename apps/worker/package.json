@@ -1,8 +1,9 @@
 {
-  "name": "@ainyc/aeo-platform-worker",
+  "name": "@ainyc/canonry-worker",
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "license": "AGPL-3.0-only",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
@@ -11,9 +12,9 @@
   },
   "dependencies": {
     "@ainyc/aeo-audit": "1.2.0",
-    "@ainyc/aeo-platform-config": "workspace:*",
-    "@ainyc/aeo-platform-contracts": "workspace:*",
-    "@ainyc/aeo-platform-db": "workspace:*",
-    "@ainyc/aeo-platform-provider-gemini": "workspace:*"
+    "@ainyc/canonry-config": "workspace:*",
+    "@ainyc/canonry-contracts": "workspace:*",
+    "@ainyc/canonry-db": "workspace:*",
+    "@ainyc/canonry-provider-gemini": "workspace:*"
   }
 }

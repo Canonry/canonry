@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
-import { createClient, migrate } from '@ainyc/aeo-platform-db'
+import { createClient, migrate } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 function buildApp() {

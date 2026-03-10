@@ -1,8 +1,8 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/aeo-platform-db'
-import { runs, keywords, competitors, projects, querySnapshots, usageCounters } from '@ainyc/aeo-platform-db'
-import type { ProviderName, NormalizedQueryResult } from '@ainyc/aeo-platform-contracts'
+import type { DatabaseClient } from '@ainyc/canonry-db'
+import { runs, keywords, competitors, projects, querySnapshots, usageCounters } from '@ainyc/canonry-db'
+import type { ProviderName, NormalizedQueryResult } from '@ainyc/canonry-contracts'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 
 export class JobRunner {

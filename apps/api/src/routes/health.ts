@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 
-import type { PlatformEnv } from '@ainyc/aeo-platform-config'
+import type { PlatformEnv } from '@ainyc/canonry-config'
 
 interface HealthResponse {
   service: 'aeo-platform-api'

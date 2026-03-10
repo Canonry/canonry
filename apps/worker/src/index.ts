@@ -1,4 +1,4 @@
-import { getPlatformEnv } from '@ainyc/aeo-platform-config'
+import { getPlatformEnv } from '@ainyc/canonry-config'
 
 import { describeAuditClient } from './audit-client.js'
 import { startHealthServer } from './health-server.js'

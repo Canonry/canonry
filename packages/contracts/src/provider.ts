@@ -9,12 +9,13 @@ export const providerQuotaPolicySchema = z.object({
 
 export type ProviderQuotaPolicy = z.infer<typeof providerQuotaPolicySchema>
 
-export const providerNameSchema = z.enum(['gemini', 'openai', 'claude'])
+export const providerNameSchema = z.enum(['gemini', 'openai', 'claude', 'local'])
 export type ProviderName = z.infer<typeof providerNameSchema>
 
 export interface ProviderConfig {
   provider: ProviderName
-  apiKey: string
+  apiKey?: string
+  baseUrl?: string
   model?: string
   quotaPolicy: ProviderQuotaPolicy
 }

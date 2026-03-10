@@ -1,8 +1,9 @@
 {
-  "name": "@ainyc/aeo-platform-provider-openai",
+  "name": "@ainyc/canonry-provider-openai",
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "license": "AGPL-3.0-only",
   "exports": {
     ".": {
       "types": "./src/index.ts",
@@ -16,7 +17,7 @@
     "lint": "eslint src/ test/"
   },
   "dependencies": {
-    "@ainyc/aeo-platform-contracts": "workspace:*",
+    "@ainyc/canonry-contracts": "workspace:*",
     "openai": "^4.85.0"
   }
 }

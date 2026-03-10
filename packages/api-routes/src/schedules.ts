@@ -1,8 +1,8 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { schedules } from '@ainyc/aeo-platform-db'
-import type { ScheduleDto, ProviderName } from '@ainyc/aeo-platform-contracts'
+import { schedules } from '@ainyc/canonry-db'
+import type { ScheduleDto, ProviderName } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
 

@@ -1,4 +1,4 @@
-import type { GroundingSource, ScheduleDto, NotificationDto } from '@ainyc/aeo-platform-contracts'
+import type { GroundingSource, ScheduleDto, NotificationDto } from '@ainyc/canonry-contracts'
 
 export type { GroundingSource }
 

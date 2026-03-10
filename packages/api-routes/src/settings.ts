@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import type { ProviderQuotaPolicy } from '@ainyc/aeo-platform-contracts'
+import type { ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
 
 export interface ProviderSummaryEntry {
   name: string
@@ -20,18 +20,25 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
 
   app.put<{
     Params: { name: string }
-    Body: { apiKey: string; model?: string }
+    Body: { apiKey?: string; baseUrl?: string; model?: string }
   }>('/settings/providers/:name', async (request, reply) => {
     const { name } = request.params
-    const { apiKey, model } = request.body ?? {}
+    const { apiKey, baseUrl, model } = request.body ?? {}
 
-    if (!apiKey || typeof apiKey !== 'string') {
-      return reply.status(400).send({ error: 'apiKey is required' })
-    }
-
-    const validProviders = ['gemini', 'openai', 'claude']
+    const validProviders = ['gemini', 'openai', 'claude', 'local']
     if (!validProviders.includes(name)) {
       return reply.status(400).send({ error: `Invalid provider: ${name}. Must be one of: ${validProviders.join(', ')}` })
+    }
+
+    // Local provider requires baseUrl; others require apiKey
+    if (name === 'local') {
+      if (!baseUrl || typeof baseUrl !== 'string') {
+        return reply.status(400).send({ error: 'baseUrl is required for local provider' })
+      }
+    } else {
+      if (!apiKey || typeof apiKey !== 'string') {
+        return reply.status(400).send({ error: 'apiKey is required' })
+      }
     }
 
     if (model !== undefined) {
@@ -56,7 +63,7 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
       return reply.status(501).send({ error: 'Provider configuration updates are not supported in this deployment' })
     }
 
-    const result = opts.onProviderUpdate(name, apiKey, model)
+    const result = opts.onProviderUpdate(name, apiKey ?? '', model)
     if (!result) {
       return reply.status(500).send({ error: 'Failed to update provider configuration' })
     }

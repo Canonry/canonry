@@ -4,7 +4,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { createClient, migrate, apiKeys } from '@ainyc/aeo-platform-db'
+import { createClient, migrate, apiKeys } from '@ainyc/canonry-db'
 import { loadConfig } from '../src/config.js'
 import { createServer } from '../src/server.js'
 

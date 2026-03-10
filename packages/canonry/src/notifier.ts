@@ -1,8 +1,8 @@
 import { eq, desc, and, or } from 'drizzle-orm'
-import { deliverWebhook, resolveWebhookTarget } from '@ainyc/aeo-platform-api-routes'
-import type { DatabaseClient } from '@ainyc/aeo-platform-db'
-import { notifications, runs, querySnapshots, keywords, projects, auditLog } from '@ainyc/aeo-platform-db'
-import type { NotificationEvent, WebhookPayload } from '@ainyc/aeo-platform-contracts'
+import { deliverWebhook, resolveWebhookTarget } from '@ainyc/canonry-api-routes'
+import type { DatabaseClient } from '@ainyc/canonry-db'
+import { notifications, runs, querySnapshots, keywords, projects, auditLog } from '@ainyc/canonry-db'
+import type { NotificationEvent, WebhookPayload } from '@ainyc/canonry-contracts'
 import crypto from 'node:crypto'
 
 export class Notifier {

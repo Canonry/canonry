@@ -19,7 +19,7 @@ const webDistDir = path.join(repoRoot, 'apps/web/dist')
 const assetsDir = path.join(dirname, 'assets')
 
 console.log('Building web SPA...')
-execSync('pnpm --filter @ainyc/aeo-platform-web build', {
+execSync('pnpm --filter @ainyc/canonry-web build', {
   cwd: repoRoot,
   stdio: 'inherit',
 })

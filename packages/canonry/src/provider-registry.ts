@@ -1,4 +1,4 @@
-import type { ProviderAdapter, ProviderConfig, ProviderName, ProviderHealthcheckResult } from '@ainyc/aeo-platform-contracts'
+import type { ProviderAdapter, ProviderConfig, ProviderName, ProviderHealthcheckResult } from '@ainyc/canonry-contracts'
 
 export interface RegisteredProvider {
   adapter: ProviderAdapter

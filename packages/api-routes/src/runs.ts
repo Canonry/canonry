@@ -1,7 +1,7 @@
 import { eq, asc } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { runs, querySnapshots, keywords } from '@ainyc/aeo-platform-db'
-import { unsupportedKind, runInProgress } from '@ainyc/aeo-platform-contracts'
+import { runs, querySnapshots, keywords } from '@ainyc/canonry-db'
+import { unsupportedKind, runInProgress } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { queueRunIfProjectIdle } from './run-queue.js'
 
@@ -27,7 +27,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     const now = new Date().toISOString()
     const trigger = request.body?.trigger ?? 'manual'
     const rawProviders = request.body?.providers
-    const validProviders = ['gemini', 'openai', 'claude'] as const
+    const validProviders = ['gemini', 'openai', 'claude', 'local'] as const
     if (rawProviders?.length) {
       const invalid = rawProviders.filter(p => !(validProviders as readonly string[]).includes(p))
       if (invalid.length) {

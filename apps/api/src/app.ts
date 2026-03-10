@@ -1,8 +1,8 @@
 import Fastify from 'fastify'
 
-import type { PlatformEnv } from '@ainyc/aeo-platform-config'
-import { createClient } from '@ainyc/aeo-platform-db'
-import { apiRoutes } from '@ainyc/aeo-platform-api-routes'
+import type { PlatformEnv } from '@ainyc/canonry-config'
+import { createClient } from '@ainyc/canonry-db'
+import { apiRoutes } from '@ainyc/canonry-api-routes'
 
 import { registerHealthRoutes } from './routes/health.js'
 

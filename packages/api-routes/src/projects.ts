@@ -1,8 +1,8 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { projects, keywords, competitors, schedules, notifications } from '@ainyc/aeo-platform-db'
-import { validationError } from '@ainyc/aeo-platform-contracts'
+import { projects, keywords, competitors, schedules, notifications } from '@ainyc/canonry-db'
+import { validationError } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 
 export interface ProjectRoutesOptions {

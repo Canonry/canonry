@@ -1,8 +1,8 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { keywords } from '@ainyc/aeo-platform-db'
-import { validationError } from '@ainyc/aeo-platform-contracts'
+import { keywords } from '@ainyc/canonry-db'
+import { validationError } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 
 export async function keywordRoutes(app: FastifyInstance) {

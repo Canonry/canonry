@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { createClient, migrate, projects, runs } from '@ainyc/aeo-platform-db'
+import { createClient, migrate, projects, runs } from '@ainyc/canonry-db'
 import { eq } from 'drizzle-orm'
 import { queueRunIfProjectIdle } from '../src/run-queue.js'
 

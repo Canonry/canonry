@@ -1,8 +1,9 @@
 {
-  "name": "@ainyc/aeo-platform-api-routes",
+  "name": "@ainyc/canonry-api-routes",
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "license": "AGPL-3.0-only",
   "exports": {
     ".": {
       "types": "./src/index.ts",
@@ -16,8 +17,8 @@
     "lint": "eslint src/ test/"
   },
   "dependencies": {
-    "@ainyc/aeo-platform-contracts": "workspace:*",
-    "@ainyc/aeo-platform-db": "workspace:*",
+    "@ainyc/canonry-contracts": "workspace:*",
+    "@ainyc/canonry-db": "workspace:*",
     "drizzle-orm": "^0.45.1",
     "fastify": "^5.4.0"
   }

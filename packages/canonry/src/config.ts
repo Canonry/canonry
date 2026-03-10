@@ -2,10 +2,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { parse, stringify } from 'yaml'
-import type { ProviderQuotaPolicy } from '@ainyc/aeo-platform-contracts'
+import type { ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
 
 export interface ProviderConfigEntry {
-  apiKey: string
+  apiKey?: string
+  baseUrl?: string
   model?: string
   quota?: ProviderQuotaPolicy
 }
@@ -24,6 +25,7 @@ export interface CanonryConfig {
     gemini?: ProviderConfigEntry
     openai?: ProviderConfigEntry
     claude?: ProviderConfigEntry
+    local?: ProviderConfigEntry
   }
 }
 
@@ -64,10 +66,10 @@ export function loadConfig(): CanonryConfig {
 
   // Must have at least one provider configured
   const hasProvider = parsed.providers &&
-    (parsed.providers.gemini?.apiKey || parsed.providers.openai?.apiKey || parsed.providers.claude?.apiKey)
+    (parsed.providers.gemini?.apiKey || parsed.providers.openai?.apiKey || parsed.providers.claude?.apiKey || parsed.providers.local?.baseUrl)
   if (!hasProvider) {
     throw new Error(
-      `No provider API keys configured at ${configPath}. At least one provider is required.`,
+      `No providers configured at ${configPath}. At least one provider is required.`,
     )
   }
 

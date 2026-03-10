@@ -7,53 +7,54 @@ import type {
   NormalizedQueryResult,
 } from '@ainyc/canonry-contracts'
 import {
-  validateConfig as openaiValidateConfig,
-  healthcheck as openaiHealthcheck,
-  executeTrackedQuery as openaiExecuteTrackedQuery,
-  normalizeResult as openaiNormalizeResult,
+  validateConfig as localValidateConfig,
+  healthcheck as localHealthcheck,
+  executeTrackedQuery as localExecuteTrackedQuery,
+  normalizeResult as localNormalizeResult,
 } from './normalize.js'
-import type { OpenAIConfig } from './types.js'
+import type { LocalConfig } from './types.js'
 
-function toOpenAIConfig(config: ProviderConfig): OpenAIConfig {
+function toLocalConfig(config: ProviderConfig): LocalConfig {
   return {
-    apiKey: config.apiKey ?? '',
+    baseUrl: config.baseUrl ?? '',
+    apiKey: config.apiKey,
     model: config.model,
     quotaPolicy: config.quotaPolicy,
   }
 }
 
-export const openaiAdapter: ProviderAdapter = {
-  name: 'openai',
+export const localAdapter: ProviderAdapter = {
+  name: 'local',
 
   validateConfig(config: ProviderConfig): ProviderHealthcheckResult {
-    const result = openaiValidateConfig(toOpenAIConfig(config))
+    const result = localValidateConfig(toLocalConfig(config))
     return {
       ok: result.ok,
-      provider: 'openai',
+      provider: 'local',
       message: result.message,
       model: result.model,
     }
   },
 
   async healthcheck(config: ProviderConfig): Promise<ProviderHealthcheckResult> {
-    const result = await openaiHealthcheck(toOpenAIConfig(config))
+    const result = await localHealthcheck(toLocalConfig(config))
     return {
       ok: result.ok,
-      provider: 'openai',
+      provider: 'local',
       message: result.message,
       model: result.model,
     }
   },
 
   async executeTrackedQuery(input: TrackedQueryInput, config: ProviderConfig): Promise<RawQueryResult> {
-    const raw = await openaiExecuteTrackedQuery({
+    const raw = await localExecuteTrackedQuery({
       keyword: input.keyword,
       canonicalDomains: input.canonicalDomains,
       competitorDomains: input.competitorDomains,
-      config: toOpenAIConfig(config),
+      config: toLocalConfig(config),
     })
     return {
-      provider: 'openai',
+      provider: 'local',
       rawResponse: raw.rawResponse,
       model: raw.model,
       groundingSources: raw.groundingSources,
@@ -62,16 +63,16 @@ export const openaiAdapter: ProviderAdapter = {
   },
 
   normalizeResult(raw: RawQueryResult): NormalizedQueryResult {
-    const openaiRaw = {
-      provider: 'openai' as const,
+    const localRaw = {
+      provider: 'local' as const,
       rawResponse: raw.rawResponse,
       model: raw.model,
       groundingSources: raw.groundingSources,
       searchQueries: raw.searchQueries,
     }
-    const normalized = openaiNormalizeResult(openaiRaw)
+    const normalized = localNormalizeResult(localRaw)
     return {
-      provider: 'openai',
+      provider: 'local',
       answerText: normalized.answerText,
       citedDomains: normalized.citedDomains,
       groundingSources: normalized.groundingSources,

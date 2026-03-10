@@ -1,4 +1,4 @@
-import type { PlatformEnv } from '@ainyc/aeo-platform-config'
+import type { PlatformEnv } from '@ainyc/canonry-config'
 
 export function createHeartbeatLog(env: PlatformEnv): string {
   const providerCount = Object.keys(env.providers).length

@@ -3,8 +3,8 @@ import fs from 'node:fs'
 import readline from 'node:readline'
 import { getConfigDir, getConfigPath, configExists, saveConfig } from '../config.js'
 import type { CanonryConfig, ProviderConfigEntry } from '../config.js'
-import { createClient, migrate } from '@ainyc/aeo-platform-db'
-import { apiKeys } from '@ainyc/aeo-platform-db'
+import { createClient, migrate } from '@ainyc/canonry-db'
+import { apiKeys } from '@ainyc/canonry-db'
 import path from 'node:path'
 
 function prompt(question: string): Promise<string> {
@@ -67,10 +67,19 @@ export async function initCommand(): Promise<void> {
     providers.claude = { apiKey: claudeApiKey, model: claudeModel, quota: DEFAULT_QUOTA }
   }
 
+  // Local LLM
+  console.log('\nLocal LLM (Ollama, LM Studio, llama.cpp, vLLM — any OpenAI-compatible API):')
+  const localBaseUrl = await prompt('Local LLM base URL (press Enter to skip, e.g. http://localhost:11434/v1): ')
+  if (localBaseUrl) {
+    const localModel = await prompt('  Model name [llama3]: ') || 'llama3'
+    const localApiKey = await prompt('  API key (press Enter if not needed): ') || undefined
+    providers.local = { baseUrl: localBaseUrl, apiKey: localApiKey, model: localModel, quota: DEFAULT_QUOTA }
+  }
+
   // Validate at least one provider
-  const hasProvider = providers.gemini || providers.openai || providers.claude
+  const hasProvider = providers.gemini || providers.openai || providers.claude || providers.local
   if (!hasProvider) {
-    console.error('\nAt least one provider API key is required.')
+    console.error('\nAt least one provider is required.')
     process.exit(1)
   }
 
