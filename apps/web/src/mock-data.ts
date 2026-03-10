@@ -727,7 +727,7 @@ const baseDashboard: DashboardVm = {
       },
       {
         name: 'Claude',
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         state: 'needs-config',
         detail: 'API key is missing.',
       },

@@ -63,7 +63,7 @@ export async function initCommand(): Promise<void> {
   // Claude
   const claudeApiKey = await prompt('Anthropic API key (press Enter to skip): ')
   if (claudeApiKey) {
-    const claudeModel = await prompt('  Claude model [claude-sonnet-4-20250514]: ') || 'claude-sonnet-4-20250514'
+    const claudeModel = await prompt('  Claude model [claude-sonnet-4-6]: ') || 'claude-sonnet-4-6'
     providers.claude = { apiKey: claudeApiKey, model: claudeModel, quota: DEFAULT_QUOTA }
   }
 

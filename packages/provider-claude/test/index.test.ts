@@ -18,7 +18,7 @@ test('validateConfig accepts a non-empty API key', () => {
   assert.equal(result.ok, true)
   assert.equal(result.provider, 'claude')
   assert.equal(result.message, 'config valid')
-  assert.equal(result.model, 'claude-sonnet-4-20250514')
+  assert.equal(result.model, 'claude-sonnet-4-6')
 })
 
 test('validateConfig rejects empty API key', () => {
@@ -35,7 +35,7 @@ test('validateConfig uses custom model when specified', () => {
 test('normalizeResult extracts answer text from content blocks', () => {
   const raw: ClaudeRawResult = {
     provider: 'claude',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     rawResponse: {
       content: [
         { type: 'text', text: 'Answer engine optimization is ' },
@@ -64,7 +64,7 @@ test('normalizeResult extracts answer text from content blocks', () => {
 test('normalizeResult strips www. from domains', () => {
   const raw: ClaudeRawResult = {
     provider: 'claude',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     rawResponse: { content: [] },
     groundingSources: [
       { uri: 'https://www.example.com/page', title: 'Example' },
@@ -79,7 +79,7 @@ test('normalizeResult strips www. from domains', () => {
 test('normalizeResult deduplicates domains', () => {
   const raw: ClaudeRawResult = {
     provider: 'claude',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     rawResponse: { content: [] },
     groundingSources: [
       { uri: 'https://example.com/page1', title: 'Page 1' },
@@ -96,7 +96,7 @@ test('normalizeResult deduplicates domains', () => {
 test('normalizeResult handles empty response gracefully', () => {
   const raw: ClaudeRawResult = {
     provider: 'claude',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     rawResponse: {},
     groundingSources: [],
     searchQueries: [],
@@ -111,7 +111,7 @@ test('normalizeResult handles empty response gracefully', () => {
 test('normalizeResult handles invalid grounding URIs', () => {
   const raw: ClaudeRawResult = {
     provider: 'claude',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     rawResponse: { content: [] },
     groundingSources: [
       { uri: 'not-a-url', title: 'Bad' },

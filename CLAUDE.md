@@ -173,6 +173,14 @@ The web dashboard follows a dark, professional analytics aesthetic designed to r
 4. Publishable package (`packages/canonry/`)
 5. Wire web dashboard to real API
 
+## API Stability
+
+**Never change existing API endpoint paths or HTTP methods during revisions.** The CLI, UI, and any external integrations are hard-coded to the published routes. Changing a path or method is a breaking change regardless of the reason.
+
+- Additive changes (new endpoints, new optional fields) are fine.
+- Renaming or restructuring existing routes requires a versioned migration plan and explicit user approval.
+- If a route is wrong, fix the underlying logic — not the URL.
+
 ## CI Guidance
 
 - Validation CI: `typecheck`, `test`, `lint` across the full workspace on PRs.

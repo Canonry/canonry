@@ -9,7 +9,7 @@ import type {
   GroundingSource,
 } from './types.js'
 
-const DEFAULT_MODEL = 'claude-sonnet-4-20250514'
+const DEFAULT_MODEL = 'claude-sonnet-4-6'
 
 export function validateConfig(config: ClaudeConfig): ClaudeHealthcheckResult {
   if (!config.apiKey || config.apiKey.length === 0) {

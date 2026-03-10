@@ -1342,7 +1342,7 @@ const PROVIDER_KEY_URLS: Record<string, string> = {
 const PROVIDER_MODEL_PLACEHOLDERS: Record<string, string> = {
   gemini: 'e.g. gemini-2.5-flash',
   openai: 'e.g. gpt-4o',
-  claude: 'e.g. claude-opus-4-6',
+  claude: 'e.g. claude-sonnet-4-6',
 }
 
 function ProviderConfigForm({ providerName, onSaved }: { providerName: string; onSaved: () => void }) {
