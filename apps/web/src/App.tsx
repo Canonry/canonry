@@ -37,11 +37,21 @@ import {
   deleteProject as apiDeleteProject,
   fetchSettings,
   updateProviderConfig,
+  fetchSchedule,
+  saveSchedule,
+  removeSchedule,
+  listNotifications,
+  addNotification,
+  removeNotification,
+  sendTestNotification,
+  type ApiSchedule,
+  type ApiNotification,
 } from './api.js'
 import { buildDashboard } from './build-dashboard.js'
 import type { ProjectData } from './build-dashboard.js'
 import type {
   CitationInsightVm,
+  CitationState,
   DashboardVm,
   HealthSnapshot,
   MetricTone,
@@ -1317,7 +1327,395 @@ function ProjectPage({
           ))}
         </div>
       </section>
+
+      <ScheduleSection projectName={model.project.name} />
+      <NotificationsSection projectName={model.project.name} />
     </div>
+  )
+}
+
+// --- Schedule presets ---
+const SCHEDULE_PRESETS = [
+  { value: 'daily', label: 'Daily at 6am UTC' },
+  { value: 'daily@12', label: 'Daily at noon UTC' },
+  { value: 'daily@18', label: 'Daily at 6pm UTC' },
+  { value: 'twice-daily', label: 'Twice daily (6am & 6pm UTC)' },
+  { value: 'weekly', label: 'Weekly (Monday 6am UTC)' },
+  { value: 'weekly@fri', label: 'Weekly (Friday 6am UTC)' },
+] as const
+
+function ScheduleSection({ projectName }: { projectName: string }) {
+  const [schedule, setSchedule] = useState<ApiSchedule | null | 'loading'>('loading')
+  const [editing, setEditing] = useState(false)
+  const [preset, setPreset] = useState('daily')
+  const [useCustom, setUseCustom] = useState(false)
+  const [customCron, setCustomCron] = useState('')
+  const [timezone, setTimezone] = useState('UTC')
+  const [saving, setSaving] = useState(false)
+  const [removing, setRemoving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetchSchedule(projectName).then(setSchedule).catch(() => setSchedule(null))
+  }, [projectName])
+
+  const startEditing = () => {
+    if (schedule && schedule !== 'loading') {
+      setPreset(schedule.preset ?? 'daily')
+      setUseCustom(!schedule.preset)
+      setCustomCron(schedule.preset ? '' : schedule.cronExpr)
+      setTimezone(schedule.timezone)
+    } else {
+      setPreset('daily')
+      setUseCustom(false)
+      setCustomCron('')
+      setTimezone('UTC')
+    }
+    setError(null)
+    setEditing(true)
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    setError(null)
+    try {
+      const body: Parameters<typeof saveSchedule>[1] = { timezone }
+      if (useCustom) body.cron = customCron.trim()
+      else body.preset = preset
+      const result = await saveSchedule(projectName, body)
+      setSchedule(result)
+      setEditing(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save schedule')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleToggleEnabled = async () => {
+    if (!schedule || schedule === 'loading') return
+    setSaving(true)
+    setError(null)
+    try {
+      const body: Parameters<typeof saveSchedule>[1] = {
+        timezone: schedule.timezone,
+        enabled: !schedule.enabled,
+      }
+      if (schedule.preset) body.preset = schedule.preset
+      else body.cron = schedule.cronExpr
+      setSchedule(await saveSchedule(projectName, body))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to update schedule')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleRemove = async () => {
+    setRemoving(true)
+    setError(null)
+    try {
+      await removeSchedule(projectName)
+      setSchedule(null)
+      setEditing(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to remove schedule')
+    } finally {
+      setRemoving(false)
+    }
+  }
+
+  return (
+    <section className="page-section-divider">
+      <div className="section-head section-head-inline">
+        <div>
+          <p className="eyebrow eyebrow-soft">Automation</p>
+          <h2>Scheduled runs</h2>
+        </div>
+        {schedule !== 'loading' && !editing && (
+          <Button type="button" variant="outline" size="sm" onClick={startEditing}>
+            {schedule ? 'Edit schedule' : '+ Set schedule'}
+          </Button>
+        )}
+      </div>
+
+      {schedule === 'loading' && <p className="supporting-copy">Loading...</p>}
+
+      {schedule !== 'loading' && !editing && schedule === null && (
+        <Card className="surface-card compact-card">
+          <p className="supporting-copy">No schedule configured. Set one to automatically trigger visibility sweeps.</p>
+        </Card>
+      )}
+
+      {schedule !== 'loading' && !editing && schedule !== null && (
+        <Card className="surface-card compact-card">
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-zinc-200">{schedule.preset ?? schedule.cronExpr}</p>
+              <p className="text-xs text-zinc-500">Cron: <span className="font-mono">{schedule.cronExpr}</span> · Timezone: {schedule.timezone}</p>
+              {schedule.nextRunAt && (
+                <p className="text-xs text-zinc-500">Next run: {new Date(schedule.nextRunAt).toLocaleString()}</p>
+              )}
+              {schedule.lastRunAt && (
+                <p className="text-xs text-zinc-500">Last run: {new Date(schedule.lastRunAt).toLocaleString()}</p>
+              )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <ToneBadge tone={schedule.enabled ? 'positive' : 'neutral'}>
+                {schedule.enabled ? 'Active' : 'Paused'}
+              </ToneBadge>
+              <Button type="button" variant="outline" size="sm" disabled={saving} onClick={handleToggleEnabled}>
+                {schedule.enabled ? 'Pause' : 'Resume'}
+              </Button>
+              <Button type="button" variant="ghost" size="sm" disabled={removing} onClick={handleRemove}>
+                {removing ? 'Removing...' : 'Remove'}
+              </Button>
+            </div>
+          </div>
+          {error && <p className="text-rose-400 text-sm mt-2">{error}</p>}
+        </Card>
+      )}
+
+      {editing && (
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 space-y-3">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-zinc-400">Schedule</label>
+            <select
+              className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200 focus:border-zinc-500 focus:outline-none"
+              value={useCustom ? '__custom__' : preset}
+              onChange={(e) => {
+                if (e.target.value === '__custom__') { setUseCustom(true) }
+                else { setUseCustom(false); setPreset(e.target.value) }
+              }}
+            >
+              {SCHEDULE_PRESETS.map(p => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+              <option value="__custom__">Custom cron expression</option>
+            </select>
+            {useCustom && (
+              <input
+                className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 font-mono focus:border-zinc-500 focus:outline-none"
+                type="text"
+                placeholder="0 9 * * 1-5"
+                value={customCron}
+                onChange={(e) => setCustomCron(e.target.value)}
+              />
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-zinc-400">Timezone</label>
+            <input
+              className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+              type="text"
+              placeholder="UTC"
+              value={timezone}
+              onChange={(e) => setTimezone(e.target.value)}
+            />
+            <p className="text-xs text-zinc-600">IANA timezone name — e.g. America/New_York, Europe/London</p>
+          </div>
+          {error && <p className="text-rose-400 text-sm">{error}</p>}
+          <div className="flex gap-2 justify-end">
+            <Button type="button" variant="outline" size="sm" onClick={() => { setEditing(false); setError(null) }}>Cancel</Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={saving || (useCustom && !customCron.trim())}
+              onClick={handleSave}
+            >
+              {saving ? 'Saving...' : 'Save schedule'}
+            </Button>
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+// --- Notification events ---
+const NOTIFICATION_EVENTS = [
+  { value: 'citation.lost', label: 'Citation lost' },
+  { value: 'citation.gained', label: 'Citation gained' },
+  { value: 'run.completed', label: 'Run completed' },
+  { value: 'run.failed', label: 'Run failed' },
+] as const
+
+function NotificationsSection({ projectName }: { projectName: string }) {
+  const [notifs, setNotifs] = useState<ApiNotification[] | 'loading'>('loading')
+  const [adding, setAdding] = useState(false)
+  const [webhookUrl, setWebhookUrl] = useState('')
+  const [selectedEvents, setSelectedEvents] = useState<string[]>(['citation.lost', 'citation.gained'])
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [testStates, setTestStates] = useState<Record<string, 'testing' | 'ok' | 'fail'>>({})
+
+  useEffect(() => {
+    listNotifications(projectName).then(setNotifs).catch(() => setNotifs([]))
+  }, [projectName])
+
+  const toggleEvent = (evt: string) => {
+    setSelectedEvents(prev => prev.includes(evt) ? prev.filter(e => e !== evt) : [...prev, evt])
+  }
+
+  const handleAdd = async () => {
+    if (!webhookUrl.trim() || selectedEvents.length === 0) return
+    setSaving(true)
+    setError(null)
+    try {
+      const result = await addNotification(projectName, {
+        channel: 'webhook',
+        url: webhookUrl.trim(),
+        events: selectedEvents,
+      })
+      setNotifs(prev => prev === 'loading' ? [result] : [...prev, result])
+      setWebhookUrl('')
+      setSelectedEvents(['citation.lost', 'citation.gained'])
+      setAdding(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to add webhook')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleRemove = async (id: string) => {
+    try {
+      await removeNotification(projectName, id)
+      setNotifs(prev => prev === 'loading' ? prev : prev.filter(n => n.id !== id))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to remove webhook')
+    }
+  }
+
+  const handleTest = async (id: string) => {
+    setTestStates(prev => ({ ...prev, [id]: 'testing' }))
+    try {
+      const result = await sendTestNotification(projectName, id)
+      setTestStates(prev => ({ ...prev, [id]: result.ok ? 'ok' : 'fail' }))
+    } catch {
+      setTestStates(prev => ({ ...prev, [id]: 'fail' }))
+    }
+  }
+
+  return (
+    <section className="page-section-divider">
+      <div className="section-head section-head-inline">
+        <div>
+          <p className="eyebrow eyebrow-soft">Automation</p>
+          <h2>Notifications</h2>
+        </div>
+        {notifs !== 'loading' && (
+          <Button type="button" variant="outline" size="sm" onClick={() => { setAdding(!adding); setError(null) }}>
+            {adding ? 'Cancel' : '+ Add webhook'}
+          </Button>
+        )}
+      </div>
+
+      {adding && (
+        <div className="mb-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 space-y-3">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-zinc-400">Webhook URL</label>
+            <input
+              className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+              type="url"
+              placeholder="https://hooks.example.com/canonry"
+              value={webhookUrl}
+              onChange={(e) => setWebhookUrl(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-zinc-400">Trigger on</label>
+            <div className="flex flex-wrap gap-3">
+              {NOTIFICATION_EVENTS.map(evt => (
+                <label key={evt.value} className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="rounded border-zinc-600 bg-zinc-800"
+                    checked={selectedEvents.includes(evt.value)}
+                    onChange={() => toggleEvent(evt.value)}
+                  />
+                  <span className="text-sm text-zinc-300">{evt.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          {error && <p className="text-rose-400 text-sm">{error}</p>}
+          <div className="flex gap-2 justify-end">
+            <Button type="button" variant="outline" size="sm" onClick={() => { setAdding(false); setError(null) }}>Cancel</Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={saving || !webhookUrl.trim() || selectedEvents.length === 0}
+              onClick={handleAdd}
+            >
+              {saving ? 'Adding...' : 'Add webhook'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {notifs === 'loading' && <p className="supporting-copy">Loading...</p>}
+
+      {notifs !== 'loading' && notifs.length === 0 && !adding && (
+        <Card className="surface-card compact-card">
+          <p className="supporting-copy">No webhooks configured. Add one to get alerted when citations change or runs complete.</p>
+        </Card>
+      )}
+
+      {notifs !== 'loading' && notifs.length > 0 && (
+        <div className="evidence-table-wrap">
+          <table className="evidence-table">
+            <thead>
+              <tr>
+                <th>URL</th>
+                <th>Events</th>
+                <th>Status</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {notifs.map(n => (
+                <tr key={n.id}>
+                  <td className="evidence-keyword-cell">
+                    <span className="font-mono text-xs text-zinc-300 break-all">{n.url}</span>
+                  </td>
+                  <td>
+                    <div className="flex flex-wrap gap-1">
+                      {n.events.map(evt => (
+                        <span key={evt} className="inline-flex items-center rounded-full border border-zinc-700 bg-zinc-800/60 px-2 py-0.5 text-[10px] font-medium text-zinc-400 uppercase tracking-wide">
+                          {evt.replace('.', ' ')}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td>
+                    <ToneBadge tone={n.enabled ? 'positive' : 'neutral'}>
+                      {n.enabled ? 'Active' : 'Paused'}
+                    </ToneBadge>
+                  </td>
+                  <td>
+                    <div className="flex items-center gap-1 justify-end">
+                      {testStates[n.id] && (
+                        <ToneBadge tone={testStates[n.id] === 'ok' ? 'positive' : testStates[n.id] === 'fail' ? 'negative' : 'neutral'}>
+                          {testStates[n.id] === 'testing' ? 'Sending…' : testStates[n.id] === 'ok' ? 'Delivered' : 'Failed'}
+                        </ToneBadge>
+                      )}
+                      <Button variant="ghost" size="sm" type="button" disabled={testStates[n.id] === 'testing'} onClick={() => handleTest(n.id)}>
+                        Test
+                      </Button>
+                      <Button variant="ghost" size="sm" type="button" onClick={() => handleRemove(n.id)}>
+                        Remove
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {error && <p className="text-rose-400 text-sm mt-2">{error}</p>}
+        </div>
+      )}
+    </section>
   )
 }
 

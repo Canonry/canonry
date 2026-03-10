@@ -228,3 +228,76 @@ export function updateProviderConfig(provider: string, body: {
     body: JSON.stringify(body),
   })
 }
+
+export interface ApiSchedule {
+  id: string
+  projectId: string
+  cronExpr: string
+  preset: string | null
+  timezone: string
+  enabled: boolean
+  providers: string[]
+  lastRunAt: string | null
+  nextRunAt: string | null
+}
+
+export async function fetchSchedule(project: string): Promise<ApiSchedule | null> {
+  try {
+    return await apiFetch<ApiSchedule>(`/projects/${encodeURIComponent(project)}/schedule`)
+  } catch (e) {
+    if (e instanceof Error && e.message.includes('404')) return null
+    throw e
+  }
+}
+
+export function saveSchedule(project: string, body: {
+  preset?: string
+  cron?: string
+  timezone?: string
+  providers?: string[]
+  enabled?: boolean
+}): Promise<ApiSchedule> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/schedule`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+}
+
+export async function removeSchedule(project: string): Promise<void> {
+  await apiFetch(`/projects/${encodeURIComponent(project)}/schedule`, { method: 'DELETE' })
+}
+
+export interface ApiNotification {
+  id: string
+  projectId: string
+  channel: string
+  url: string
+  events: string[]
+  enabled: boolean
+}
+
+export function listNotifications(project: string): Promise<ApiNotification[]> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/notifications`)
+}
+
+export function addNotification(project: string, body: {
+  channel: string
+  url: string
+  events: string[]
+}): Promise<ApiNotification> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/notifications`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export async function removeNotification(project: string, id: string): Promise<void> {
+  await apiFetch(`/projects/${encodeURIComponent(project)}/notifications/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+export function sendTestNotification(project: string, id: string): Promise<{ status: number; ok: boolean }> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/notifications/${encodeURIComponent(id)}/test`, {
+    method: 'POST',
+    body: '{}',
+  })
+}
