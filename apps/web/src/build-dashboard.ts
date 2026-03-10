@@ -308,7 +308,7 @@ function buildInsights(evidence: CitationInsightVm[]): ProjectInsightVm[] {
       id: 'insight_stable',
       tone: 'neutral',
       title: 'No significant changes',
-      detail: 'Citation state is stable across all tracked keywords.',
+      detail: 'Citation state is stable across all tracked key phrases.',
       actionLabel: 'Monitor',
     })
   }
@@ -397,12 +397,12 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
     visibilitySummary: {
       label: 'Answer Visibility',
       value: snapshots.length > 0 ? `${kwVis.score}` : 'No data',
-      delta: snapshots.length > 0 ? `${kwVis.citedCount} of ${kwVis.totalCount} keywords visible` : 'Run a sweep first',
+      delta: snapshots.length > 0 ? `${kwVis.citedCount} of ${kwVis.totalCount} key phrases visible` : 'Run a sweep first',
       tone: snapshots.length > 0 ? scoreTone(kwVis.score) : 'neutral',
       description: snapshots.length > 0
-        ? `${kwVis.citedCount} of ${kwVis.totalCount} tracked keywords found your domain in at least one AI answer engine.`
+        ? `${kwVis.citedCount} of ${kwVis.totalCount} tracked key phrases found your domain in at least one AI answer engine.`
         : 'No visibility data yet. Trigger a run to start tracking.',
-      tooltip: 'Percentage of tracked keywords where your domain is cited by at least one AI answer engine. A keyword is "visible" if any configured provider includes your site in its response.',
+      tooltip: 'Percentage of tracked key phrases where your domain is cited by at least one AI answer engine. A key phrase is "visible" if any configured provider includes your site in its response.',
       trend: [],
     },
     providerScores,
@@ -480,12 +480,12 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
   return {
     project: dto,
     visibilityScore: kwVis.score,
-    visibilityDelta: snapshots.length > 0 ? `${kwVis.citedCount} of ${kwVis.totalCount} keywords` : 'No data',
+    visibilityDelta: snapshots.length > 0 ? `${kwVis.citedCount} of ${kwVis.totalCount} key phrases` : 'No data',
     readinessScore: undefined,
     readinessDelta: undefined,
     lastRun: runItem,
     insight: snapshots.length > 0
-      ? `${kwVis.citedCount} of ${kwVis.totalCount} keywords visible across ${new Set(snapshots.map(s => s.provider)).size} provider${new Set(snapshots.map(s => s.provider)).size > 1 ? 's' : ''}.`
+      ? `${kwVis.citedCount} of ${kwVis.totalCount} key phrases visible across ${new Set(snapshots.map(s => s.provider)).size} provider${new Set(snapshots.map(s => s.provider)).size > 1 ? 's' : ''}.`
       : 'No runs completed yet.',
     trend: [],
     competitorPressureLabel: pressure.label,
