@@ -24,6 +24,7 @@ export interface ScoreSummaryVm {
   delta: string
   tone: MetricTone
   description: string
+  tooltip?: string
   trend: number[]
 }
 

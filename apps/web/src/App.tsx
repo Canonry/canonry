@@ -430,12 +430,25 @@ function Sparkline({ points, tone }: { points: number[]; tone: MetricTone }) {
   )
 }
 
+function InfoTooltip({ text }: { text: string }) {
+  return (
+    <span className="info-tooltip-wrapper">
+      <svg className="info-tooltip-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M8 7v4M8 5.5v0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+      <span className="info-tooltip-bubble" role="tooltip">{text}</span>
+    </span>
+  )
+}
+
 function ScoreGauge({
   value,
   label,
   delta,
   tone,
   description,
+  tooltip,
   isNumeric = true,
 }: {
   value: string
@@ -443,6 +456,7 @@ function ScoreGauge({
   delta: string
   tone: MetricTone
   description: string
+  tooltip?: string
   isNumeric?: boolean
 }) {
   const radius = 48
@@ -472,7 +486,10 @@ function ScoreGauge({
           <span className={isNumeric ? 'gauge-value' : 'gauge-value-text'}>{value.split(' / ')[0]}</span>
         </div>
       </div>
-      <p className="gauge-label">{label}</p>
+      <p className="gauge-label">
+        {label}
+        {tooltip && <InfoTooltip text={tooltip} />}
+      </p>
       <p className="gauge-delta">{delta}</p>
       <p className="gauge-description">{description}</p>
     </div>
@@ -804,45 +821,70 @@ function OverviewPage({
       <div className="page-header">
         <div className="page-header-left">
           <h1 className="page-title">Portfolio</h1>
-          <p className="page-subtitle">Answer visibility, technical readiness, and execution state across all projects.</p>
+          <p className="page-subtitle">Visibility and execution state across all projects</p>
+        </div>
+        <div className="page-header-right">
+          <p className="text-[11px] text-zinc-600">{model.lastUpdatedAt}</p>
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <Card className="surface-card">
-          <div className="section-head">
-            <div>
-              <p className="eyebrow eyebrow-soft">Needs attention</p>
-              <h2>What changed</h2>
-            </div>
-            <p className="supporting-copy">{model.lastUpdatedAt}</p>
-          </div>
-          <div className="attention-list">
-            {model.attentionItems.map((item) => (
-              <a
-                key={item.id}
-                className={`attention-item attention-item-${item.tone}`}
-                href={item.href}
-                onClick={createNavigationHandler(onNavigate, item.href)}
-              >
-                <div>
-                  <p className="attention-title">{item.title}</p>
-                  <p className="attention-detail">{item.detail}</p>
-                </div>
-                <span className="attention-action">{item.actionLabel}</span>
-              </a>
-            ))}
-          </div>
+      {model.projects.length > 0 ? (
+        <div className="project-list project-list-scrollable">
+          {model.projects.map((project) => (
+            <OverviewProjectCard key={project.project.id} project={project} onNavigate={onNavigate} />
+          ))}
+        </div>
+      ) : (
+        <Card className="surface-card empty-card">
+          <h3>{model.emptyState?.title ?? 'No projects yet'}</h3>
+          <p>{model.emptyState?.detail}</p>
+          <Button asChild>
+            <a
+              href={model.emptyState?.ctaHref ?? '/setup'}
+              onClick={createNavigationHandler(onNavigate, model.emptyState?.ctaHref ?? '/setup')}
+            >
+              {model.emptyState?.ctaLabel ?? 'Launch setup'}
+            </a>
+          </Button>
         </Card>
+      )}
 
-        <Card className="surface-card">
-          <div className="section-head">
+      <div className="overview-secondary-grid">
+        {model.attentionItems.length > 0 && (
+          <section className="overview-secondary-section">
+            <div className="section-head section-head-inline">
+              <div>
+                <p className="eyebrow eyebrow-soft">Needs attention</p>
+                <h2 className="section-title-sm">What changed</h2>
+              </div>
+            </div>
+            <div className="attention-list attention-list-scrollable">
+              {model.attentionItems.map((item) => (
+                <a
+                  key={item.id}
+                  className={`attention-item attention-item-${item.tone}`}
+                  href={item.href}
+                  onClick={createNavigationHandler(onNavigate, item.href)}
+                >
+                  <div>
+                    <p className="attention-title">{item.title}</p>
+                    <p className="attention-detail">{item.detail}</p>
+                  </div>
+                  <span className="attention-action">{item.actionLabel}</span>
+                </a>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <section className="overview-secondary-section">
+          <div className="section-head section-head-inline">
             <div>
               <p className="eyebrow eyebrow-soft">Recent runs</p>
-              <h2>Operational pulse</h2>
+              <h2 className="section-title-sm">Activity</h2>
             </div>
           </div>
-          <div className="compact-stack">
+          <div className="compact-stack compact-stack-scrollable">
             {model.recentRuns.length > 0 ? (
               model.recentRuns.map((run) => (
                 <button key={run.id} className="compact-run" type="button" onClick={() => onOpenRun(run.id)}>
@@ -857,44 +899,14 @@ function OverviewPage({
               <p className="supporting-copy">Run history appears here after the first launch.</p>
             )}
           </div>
-        </Card>
+        </section>
       </div>
 
       <section className="page-section">
         <div className="section-head section-head-inline">
           <div>
-            <p className="eyebrow eyebrow-soft">Projects</p>
-            <h2>Portfolio ranking</h2>
-          </div>
-        </div>
-
-        {model.projects.length > 0 ? (
-          <div className="project-list">
-            {model.projects.map((project) => (
-              <OverviewProjectCard key={project.project.id} project={project} onNavigate={onNavigate} />
-            ))}
-          </div>
-        ) : (
-          <Card className="surface-card empty-card">
-            <h3>{model.emptyState?.title ?? 'No projects yet'}</h3>
-            <p>{model.emptyState?.detail}</p>
-            <Button asChild>
-              <a
-                href={model.emptyState?.ctaHref ?? '/setup'}
-                onClick={createNavigationHandler(onNavigate, model.emptyState?.ctaHref ?? '/setup')}
-              >
-                {model.emptyState?.ctaLabel ?? 'Launch setup'}
-              </a>
-            </Button>
-          </Card>
-        )}
-      </section>
-
-      <section className="page-section">
-        <div className="section-head section-head-inline">
-          <div>
             <p className="eyebrow eyebrow-soft">System health</p>
-            <h2>Infrastructure</h2>
+            <h2 className="section-title-sm">Infrastructure</h2>
           </div>
         </div>
         <div className="health-grid">
@@ -1071,6 +1083,7 @@ function ProjectPage({
           delta={model.visibilitySummary.delta}
           tone={model.visibilitySummary.tone}
           description={model.visibilitySummary.description}
+          tooltip={model.visibilitySummary.tooltip}
           isNumeric={isNumericScore(model.visibilitySummary.value)}
         />
         {model.readinessSummary ? (
@@ -1080,6 +1093,7 @@ function ProjectPage({
             delta={model.readinessSummary.delta}
             tone={model.readinessSummary.tone}
             description={model.readinessSummary.description}
+            tooltip={model.readinessSummary.tooltip}
             isNumeric={isNumericScore(model.readinessSummary.value)}
           />
         ) : (
@@ -1089,6 +1103,7 @@ function ProjectPage({
             delta="Coming soon"
             tone="neutral"
             description="Enable with site audits in a future release."
+            tooltip="Site audit scores for technical SEO signals. Coming in a future release."
             isNumeric={false}
           />
         )}
@@ -1098,6 +1113,7 @@ function ProjectPage({
           delta={model.competitorPressure.delta}
           tone={model.competitorPressure.tone}
           description={model.competitorPressure.description}
+          tooltip={model.competitorPressure.tooltip}
           isNumeric={isNumericScore(model.competitorPressure.value)}
         />
         <ScoreGauge
@@ -1106,6 +1122,7 @@ function ProjectPage({
           delta={model.runStatus.delta}
           tone={model.runStatus.tone}
           description={model.runStatus.description}
+          tooltip={model.runStatus.tooltip}
           isNumeric={isNumericScore(model.runStatus.value)}
         />
       </section>
@@ -1116,7 +1133,7 @@ function ProjectPage({
           <div className="section-head section-head-inline">
             <div>
               <p className="eyebrow eyebrow-soft">Provider breakdown</p>
-              <h2>Visibility by provider</h2>
+              <h2>Visibility by provider <InfoTooltip text="Per-provider citation rate. Shows how often each AI engine cites your domain across all tracked keywords. Useful for identifying which engines favor your content." /></h2>
             </div>
           </div>
           <div className="grid grid-cols-3 gap-3">

@@ -52,7 +52,7 @@
   }
 
   .brand-mark {
-    @apply text-base font-bold tracking-tight text-zinc-50;
+    @apply text-[15px] font-semibold tracking-[-0.02em] text-zinc-100;
   }
 
   .brand-subtitle {
@@ -68,11 +68,11 @@
   }
 
   .sidebar-link {
-    @apply flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-200;
+    @apply flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-normal text-zinc-500 transition hover:bg-zinc-800/40 hover:text-zinc-300;
   }
 
   .sidebar-link-active {
-    @apply bg-zinc-800/60 text-zinc-100;
+    @apply bg-zinc-800/50 text-zinc-200 font-medium;
   }
 
   .sidebar-icon {
@@ -221,11 +221,11 @@
   }
 
   .page-title {
-    @apply text-xl font-bold tracking-tight text-zinc-50;
+    @apply text-lg font-semibold tracking-[-0.02em] text-zinc-100;
   }
 
   .page-subtitle {
-    @apply mt-1 text-sm text-zinc-500;
+    @apply mt-0.5 text-[13px] font-normal text-zinc-500;
   }
 
   .page-header-right {
@@ -343,10 +343,14 @@
     @apply min-h-28;
   }
 
+  .section-title-sm {
+    @apply text-sm font-semibold tracking-[-0.01em] text-zinc-200;
+  }
+
   .surface-card h2,
   .surface-card h3,
   .empty-card h1 {
-    @apply text-base font-semibold tracking-tight text-zinc-50;
+    @apply text-sm font-semibold tracking-[-0.01em] text-zinc-200;
   }
 
   .empty-card {
@@ -369,6 +373,16 @@
 
   .page-section-divider {
     @apply mt-8 border-t border-zinc-800/40 pt-6;
+  }
+
+  /* ── Overview secondary grid (attention + activity) ── */
+
+  .overview-secondary-grid {
+    @apply mt-6 grid gap-6 lg:grid-cols-2;
+  }
+
+  .overview-secondary-section {
+    @apply min-w-0;
   }
 
   /* ── Hero area (overview + simple pages) ── */
@@ -404,6 +418,59 @@
     @apply grid gap-3;
   }
 
+  /* Scrollable list containers — cap height, fade bottom edge */
+
+  .project-list-scrollable {
+    max-height: 32rem;
+    overflow-y: auto;
+    mask-image: linear-gradient(to bottom, black calc(100% - 2rem), transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 2rem), transparent 100%);
+    padding-bottom: 0.5rem;
+  }
+
+  .attention-list-scrollable {
+    max-height: 18rem;
+    overflow-y: auto;
+    mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
+    padding-bottom: 0.25rem;
+  }
+
+  .compact-stack-scrollable {
+    max-height: 18rem;
+    overflow-y: auto;
+    mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
+    padding-bottom: 0.25rem;
+  }
+
+  /* Thin scrollbar for scrollable containers */
+  .project-list-scrollable,
+  .attention-list-scrollable,
+  .compact-stack-scrollable {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(113, 113, 122, 0.3) transparent;
+  }
+
+  .project-list-scrollable::-webkit-scrollbar,
+  .attention-list-scrollable::-webkit-scrollbar,
+  .compact-stack-scrollable::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .project-list-scrollable::-webkit-scrollbar-track,
+  .attention-list-scrollable::-webkit-scrollbar-track,
+  .compact-stack-scrollable::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .project-list-scrollable::-webkit-scrollbar-thumb,
+  .attention-list-scrollable::-webkit-scrollbar-thumb,
+  .compact-stack-scrollable::-webkit-scrollbar-thumb {
+    background: rgba(113, 113, 122, 0.3);
+    border-radius: 2px;
+  }
+
   /* ── Attention items ── */
 
   .attention-list {
@@ -411,7 +478,7 @@
   }
 
   .attention-item {
-    @apply flex items-start justify-between gap-4 rounded-lg border border-zinc-800/60 bg-zinc-950/50 px-4 py-3 transition hover:border-zinc-700 hover:bg-zinc-900/60;
+    @apply flex items-start justify-between gap-4 rounded-lg border border-zinc-800/40 bg-zinc-900/20 px-3.5 py-2.5 transition hover:border-zinc-700 hover:bg-zinc-900/50;
   }
 
   .attention-item-negative {
@@ -427,7 +494,7 @@
   .run-row-title,
   .project-name,
   .evidence-keyword {
-    @apply text-sm font-semibold text-zinc-100;
+    @apply text-[13px] font-medium text-zinc-200;
   }
 
   .attention-detail,
@@ -436,21 +503,21 @@
   .run-row-detail,
   .evidence-summary,
   .drawer-copy {
-    @apply mt-1 text-sm leading-6 text-zinc-400;
+    @apply mt-0.5 text-[13px] leading-5 text-zinc-500;
   }
 
   .attention-action {
-    @apply pt-1 text-xs font-medium uppercase tracking-[0.14em] text-zinc-600;
+    @apply pt-1 text-[10px] font-medium uppercase tracking-[0.14em] text-zinc-600;
   }
 
   /* ── Compact run ── */
 
   .compact-run {
-    @apply flex items-center justify-between gap-4 rounded-lg border border-zinc-800/60 bg-zinc-950/50 px-4 py-3 text-left transition hover:bg-zinc-900/60;
+    @apply flex items-center justify-between gap-4 rounded-lg border border-zinc-800/40 bg-zinc-900/20 px-3.5 py-2.5 text-left transition hover:bg-zinc-900/50;
   }
 
   .compact-run-detail {
-    @apply mt-1 text-sm text-zinc-500;
+    @apply mt-0.5 text-[12px] text-zinc-600;
   }
 
   /* ── Metric card (kept for overview) ── */
@@ -755,7 +822,7 @@
   /* ── Project row (overview) ── */
 
   .project-row {
-    @apply grid gap-3 rounded-xl border border-zinc-800/60 bg-zinc-900/20 p-4 transition hover:bg-zinc-900/40 lg:grid-cols-[minmax(0,1.5fr)_9rem_9rem_10rem_9rem_auto] lg:items-center no-underline text-inherit;
+    @apply grid gap-3 rounded-xl border border-zinc-800/40 bg-zinc-900/15 px-4 py-3.5 transition hover:border-zinc-700/60 hover:bg-zinc-900/35 lg:grid-cols-[minmax(0,1.5fr)_9rem_9rem_10rem_9rem_auto] lg:items-center no-underline text-inherit;
   }
 
   .project-row-primary {
@@ -775,11 +842,11 @@
   }
 
   .project-insight {
-    @apply mt-2 text-sm leading-6 text-zinc-400;
+    @apply mt-1.5 text-[12px] leading-5 text-zinc-500;
   }
 
   .metric-inline-block {
-    @apply space-y-1;
+    @apply space-y-0.5;
   }
 
   .metric-inline-label {
@@ -787,11 +854,11 @@
   }
 
   .metric-inline-value {
-    @apply text-lg font-semibold tracking-tight text-zinc-50;
+    @apply text-base font-semibold tracking-[-0.02em] text-zinc-100;
   }
 
   .metric-inline-delta {
-    @apply text-sm text-zinc-500;
+    @apply text-[12px] text-zinc-600;
   }
 
   /* ── Run row ── */
@@ -913,6 +980,24 @@
 
   .stat-divider {
     @apply mx-1 self-center text-zinc-800;
+  }
+
+  /* ── Info tooltip ── */
+
+  .info-tooltip-wrapper {
+    @apply relative inline-flex items-center ml-1 align-middle;
+  }
+
+  .info-tooltip-icon {
+    @apply size-3 text-zinc-600 cursor-help transition hover:text-zinc-400;
+  }
+
+  .info-tooltip-bubble {
+    @apply pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-56 -translate-x-1/2 rounded-lg border border-zinc-700/60 bg-zinc-900 px-3 py-2 text-[11px] font-normal normal-case tracking-normal leading-4 text-zinc-300 opacity-0 shadow-lg transition-opacity;
+  }
+
+  .info-tooltip-wrapper:hover .info-tooltip-bubble {
+    @apply pointer-events-auto opacity-100;
   }
 
   /* ── Misc helpers ── */
