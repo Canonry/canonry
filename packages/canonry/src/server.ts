@@ -130,7 +130,7 @@ export async function createServer(opts: {
         app.log.error({ runId, err }, 'Job runner failed')
       })
     },
-    onProviderUpdate: (providerName: string, apiKey: string, model?: string) => {
+    onProviderUpdate: (providerName: string, apiKey: string, model?: string, baseUrl?: string) => {
       const name = providerName as keyof typeof adapterMap
       if (!(name in adapterMap)) return null
 
@@ -138,7 +138,8 @@ export async function createServer(opts: {
       if (!opts.config.providers) opts.config.providers = {}
       const existing = opts.config.providers[name]
       opts.config.providers[name] = {
-        apiKey,
+        apiKey: apiKey || existing?.apiKey,
+        baseUrl: baseUrl || existing?.baseUrl,
         model: model || existing?.model,
         quota: existing?.quota,
       }
@@ -154,7 +155,8 @@ export async function createServer(opts: {
       const quota = opts.config.providers[name]!.quota ?? DEFAULT_QUOTA
       registry.register(adapterMap[name], {
         provider: name,
-        apiKey,
+        apiKey: apiKey || existing?.apiKey,
+        baseUrl: baseUrl || existing?.baseUrl,
         model: model || existing?.model,
         quotaPolicy: quota,
       })

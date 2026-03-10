@@ -10,7 +10,7 @@ export interface ProviderSummaryEntry {
 
 export interface SettingsRoutesOptions {
   providerSummary?: ProviderSummaryEntry[]
-  onProviderUpdate?: (provider: string, apiKey: string, model?: string) => ProviderSummaryEntry | null
+  onProviderUpdate?: (provider: string, apiKey: string, model?: string, baseUrl?: string) => ProviderSummaryEntry | null
 }
 
 export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesOptions) {
@@ -63,7 +63,7 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
       return reply.status(501).send({ error: 'Provider configuration updates are not supported in this deployment' })
     }
 
-    const result = opts.onProviderUpdate(name, apiKey ?? '', model)
+    const result = opts.onProviderUpdate(name, apiKey ?? '', model, baseUrl)
     if (!result) {
       return reply.status(500).send({ error: 'Failed to update provider configuration' })
     }

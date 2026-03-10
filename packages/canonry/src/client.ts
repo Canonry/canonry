@@ -118,7 +118,7 @@ export class ApiClient {
     return this.request<object>('GET', '/settings')
   }
 
-  async updateProvider(name: string, body: { apiKey: string; model?: string }): Promise<object> {
+  async updateProvider(name: string, body: { apiKey?: string; baseUrl?: string; model?: string }): Promise<object> {
     return this.request<object>('PUT', `/settings/providers/${encodeURIComponent(name)}`, body)
   }
 

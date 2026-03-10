@@ -6,7 +6,7 @@ function getClient(): ApiClient {
   return new ApiClient(config.apiUrl, config.apiKey)
 }
 
-export async function setProvider(name: string, opts: { apiKey: string; model?: string }): Promise<void> {
+export async function setProvider(name: string, opts: { apiKey?: string; baseUrl?: string; model?: string }): Promise<void> {
   const client = getClient()
   const result = await client.updateProvider(name, opts) as {
     name: string

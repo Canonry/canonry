@@ -48,7 +48,7 @@ Usage:
   canonry notify remove <project> <id>  Remove notification
   canonry notify test <project> <id>  Send test webhook
   canonry settings                    Show active provider and quota settings
-  canonry settings provider <name>    Update a provider API key (--api-key, --model)
+  canonry settings provider <name>    Update a provider config (--api-key, --base-url, --model)
   canonry --help                      Show this help
   canonry --version                   Show version
 
@@ -422,22 +422,30 @@ async function main() {
         if (subcommand === 'provider') {
           const name = args[2]
           if (!name) {
-            console.error('Error: provider name is required (gemini, openai, claude)')
+            console.error('Error: provider name is required (gemini, openai, claude, local)')
             process.exit(1)
           }
           const { values } = parseArgs({
             args: args.slice(3),
             options: {
               'api-key': { type: 'string' },
+              'base-url': { type: 'string' },
               model: { type: 'string' },
             },
             allowPositionals: false,
           })
-          if (!values['api-key']) {
-            console.error('Error: --api-key is required')
-            process.exit(1)
+          if (name === 'local') {
+            if (!values['base-url']) {
+              console.error('Error: --base-url is required for the local provider')
+              process.exit(1)
+            }
+          } else {
+            if (!values['api-key']) {
+              console.error('Error: --api-key is required')
+              process.exit(1)
+            }
           }
-          await setProvider(name, { apiKey: values['api-key'], model: values.model })
+          await setProvider(name, { apiKey: values['api-key'], baseUrl: values['base-url'], model: values.model })
         } else {
           await showSettings()
         }
