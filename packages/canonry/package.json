@@ -1,8 +1,18 @@
 {
   "name": "@ainyc/canonry",
-  "version": "1.1.0",
+  "version": "1.0.2",
   "type": "module",
+  "description": "The ultimate open-source AEO monitoring tool - track how answer engines cite your domain",
   "license": "AGPL-3.0-only",
+  "homepage": "https://ainyc.ai",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AINYC/canonry.git",
+    "directory": "packages/canonry"
+  },
+  "bugs": {
+    "url": "https://github.com/AINYC/canonry/issues"
+  },
   "bin": {
     "canonry": "./bin/canonry.mjs"
   },
