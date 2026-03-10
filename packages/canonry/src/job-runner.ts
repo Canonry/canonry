@@ -62,24 +62,28 @@ export class JobRunner {
 
       const competitorDomains = projectCompetitors.map(c => c.domain)
 
-      // Enforce daily quota — each provider receives one query per keyword per run,
-      // so check keywords.length against the most restrictive provider's per-day limit
+      // Enforce daily quota per provider — each provider receives one query per keyword.
+      // Track and check usage per (projectId, providerName) so that a provider that has
+      // never been used isn't blocked by another provider's past usage.
       const queriesPerProvider = projectKeywords.length
       const todayPeriod = getCurrentPeriod()
-      const todayUsage = this.db
-        .select()
-        .from(usageCounters)
-        .where(eq(usageCounters.scope, projectId))
-        .all()
-        .filter(r => r.period === todayPeriod && r.metric === 'queries')
-        .reduce((sum, r) => sum + r.count, 0)
 
-      const minDailyQuota = Math.min(...activeProviders.map(p => p.config.quotaPolicy.maxRequestsPerDay))
-      if (todayUsage + queriesPerProvider > minDailyQuota) {
-        throw new Error(
-          `Daily quota exceeded: ${todayUsage} queries used today, limit is ${minDailyQuota}. ` +
-          `This run needs ${queriesPerProvider} more.`,
-        )
+      for (const p of activeProviders) {
+        const providerScope = `${projectId}:${p.adapter.name}`
+        const providerUsage = this.db
+          .select()
+          .from(usageCounters)
+          .where(eq(usageCounters.scope, providerScope))
+          .all()
+          .filter(r => r.period === todayPeriod && r.metric === 'queries')
+          .reduce((sum, r) => sum + r.count, 0)
+        const limit = p.config.quotaPolicy.maxRequestsPerDay
+        if (providerUsage + queriesPerProvider > limit) {
+          throw new Error(
+            `Daily quota exceeded for ${p.adapter.name}: ${providerUsage} queries used today, ` +
+            `limit is ${limit}. This run needs ${queriesPerProvider} more.`,
+          )
+        }
       }
 
       // Per-provider rate limiting: separate sliding windows
@@ -177,9 +181,10 @@ export class JobRunner {
           .run()
       }
 
-      // Increment usage counters — track queries-per-provider (not total snapshots) so
-      // that the per-provider daily quota check stays consistent with the counter value
-      this.incrementUsage(projectId, 'queries', queriesPerProvider)
+      // Increment per-provider usage counters to keep quota checks accurate
+      for (const p of activeProviders) {
+        this.incrementUsage(`${projectId}:${p.adapter.name}`, 'queries', queriesPerProvider)
+      }
       this.incrementUsage(projectId, 'runs', 1)
     } catch (err: unknown) {
       // Mark run as failed

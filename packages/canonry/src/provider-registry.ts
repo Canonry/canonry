@@ -26,7 +26,10 @@ export class ProviderRegistry {
       return this.getAll()
     }
     const result: RegisteredProvider[] = []
+    const seen = new Set<ProviderName>()
     for (const name of projectProviders) {
+      if (seen.has(name)) continue
+      seen.add(name)
       const provider = this.providers.get(name)
       if (provider) {
         result.push(provider)
