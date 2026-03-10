@@ -148,13 +148,6 @@ function computeKeywordVisibility(snapshots: ApiRunDetail['snapshots']): { score
   return { score, citedCount, totalCount }
 }
 
-/** Legacy per-snapshot score used for provider breakdown. */
-function computeVisibilityScore(snapshots: ApiRunDetail['snapshots']): number {
-  if (snapshots.length === 0) return 0
-  const cited = snapshots.filter(s => s.citationState === 'cited').length
-  return Math.round((cited / snapshots.length) * 100)
-}
-
 function scoreTone(score: number): MetricTone {
   if (score >= 70) return 'positive'
   if (score >= 40) return 'caution'
