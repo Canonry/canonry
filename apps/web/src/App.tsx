@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState } from 'react'
+import { Fragment, useCallback, useEffect, useId, useMemo, useState } from 'react'
 import type { MouseEvent, ReactNode } from 'react'
 
 import {
@@ -597,41 +597,33 @@ function EvidenceTable({
   evidence: CitationInsightVm[]
   onOpenEvidence: (evidenceId: string) => void
 }) {
-  const [providerFilter, setProviderFilter] = useState<string>('all')
-  const providers = [...new Set(evidence.map(e => e.provider))].sort()
-  const showProviderColumn = providers.length > 1
-  const filtered = providerFilter === 'all' ? evidence : evidence.filter(e => e.provider === providerFilter)
+  const [expandedPhrases, setExpandedPhrases] = useState<Set<string>>(new Set())
+
+  const groups = useMemo(() => {
+    const map = new Map<string, CitationInsightVm[]>()
+    for (const item of evidence) {
+      const existing = map.get(item.keyword) ?? []
+      map.set(item.keyword, [...existing, item])
+    }
+    return [...map.entries()].map(([phrase, items]) => ({ phrase, items }))
+  }, [evidence])
+
+  const togglePhrase = (phrase: string) => {
+    setExpandedPhrases(prev => {
+      const next = new Set(prev)
+      if (next.has(phrase)) next.delete(phrase)
+      else next.add(phrase)
+      return next
+    })
+  }
 
   return (
     <div className="evidence-table-wrap">
-      {showProviderColumn && (
-        <div className="filter-row mb-2" role="toolbar" aria-label="Provider filters">
-          <button
-            className={`filter-chip ${providerFilter === 'all' ? 'filter-chip-active' : ''}`}
-            type="button"
-            aria-pressed={providerFilter === 'all'}
-            onClick={() => setProviderFilter('all')}
-          >
-            All providers
-          </button>
-          {providers.map((p) => (
-            <button
-              key={p}
-              className={`filter-chip ${providerFilter === p ? 'filter-chip-active' : ''}`}
-              type="button"
-              aria-pressed={providerFilter === p}
-              onClick={() => setProviderFilter(p)}
-            >
-              {toTitleCase(p)}
-            </button>
-          ))}
-        </div>
-      )}
       <table className="evidence-table">
         <thead>
           <tr>
-            <th>Keyword</th>
-            {showProviderColumn && <th>Provider</th>}
+            <th style={{ width: '2rem' }} />
+            <th>Key Phrase</th>
             <th>Status</th>
             <th>Change</th>
             <th>Summary</th>
@@ -640,27 +632,67 @@ function EvidenceTable({
           </tr>
         </thead>
         <tbody>
-          {filtered.map((item) => (
-            <tr key={item.id}>
-              <td className="evidence-keyword-cell">{item.keyword}</td>
-              {showProviderColumn && (
-                <td><ProviderBadge provider={item.provider} /></td>
-              )}
-              <td>
-                <CitationBadge state={item.citationState} />
-              </td>
-              <td className="evidence-change-cell">{item.changeLabel}</td>
-              <td className="evidence-summary-cell">{item.summary}</td>
-              <td className="evidence-snippet-cell" title={item.answerSnippet}>
-                {item.answerSnippet}
-              </td>
-              <td>
-                <Button variant="ghost" size="sm" type="button" onClick={() => onOpenEvidence(item.id)}>
-                  View
-                </Button>
-              </td>
-            </tr>
-          ))}
+          {groups.map(({ phrase, items }) => {
+            const isExpanded = expandedPhrases.has(phrase)
+            const states = items.map(i => i.citationState)
+            const aggState: CitationState =
+              states.includes('cited') ? 'cited' :
+              states.includes('emerging') ? 'emerging' :
+              states.includes('lost') ? 'lost' : 'not-cited'
+
+            return (
+              <Fragment key={phrase}>
+                <tr
+                  className="evidence-phrase-row cursor-pointer hover:bg-zinc-800/40"
+                  onClick={() => togglePhrase(phrase)}
+                  aria-expanded={isExpanded}
+                >
+                  <td>
+                    <ChevronRight
+                      size={14}
+                      className={`transition-transform duration-150 text-zinc-500 ${isExpanded ? 'rotate-90' : ''}`}
+                    />
+                  </td>
+                  <td className="evidence-keyword-cell">
+                    <div>
+                      <span className="font-medium text-zinc-100">{phrase}</span>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {items.map(item => (
+                          <ProviderBadge key={item.id} provider={item.provider} />
+                        ))}
+                      </div>
+                    </div>
+                  </td>
+                  <td><CitationBadge state={aggState} /></td>
+                  <td colSpan={4} />
+                </tr>
+                {isExpanded && items.map(item => (
+                  <tr key={item.id} className="bg-zinc-900/30">
+                    <td />
+                    <td className="evidence-keyword-cell pl-5">
+                      <ProviderBadge provider={item.provider} />
+                    </td>
+                    <td><CitationBadge state={item.citationState} /></td>
+                    <td className="evidence-change-cell">{item.changeLabel}</td>
+                    <td className="evidence-summary-cell">{item.summary}</td>
+                    <td className="evidence-snippet-cell" title={item.answerSnippet}>
+                      {item.answerSnippet}
+                    </td>
+                    <td>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onOpenEvidence(item.id) }}
+                      >
+                        View
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </Fragment>
+            )
+          })}
         </tbody>
       </table>
     </div>
@@ -1002,7 +1034,7 @@ function ProjectPage({
           <h3 className="text-base font-semibold text-rose-400 mb-2">Delete project?</h3>
           <p className="text-sm text-zinc-400 mb-4">
             This will permanently delete <strong className="text-zinc-200">{model.project.displayName || model.project.name}</strong> and
-            all its keywords, competitors, runs, and snapshots. This cannot be undone.
+            all its key phrases, competitors, runs, and snapshots. This cannot be undone.
           </p>
           <div className="flex items-center gap-3">
             <Button
@@ -1133,7 +1165,7 @@ function ProjectPage({
           <div className="section-head section-head-inline">
             <div>
               <p className="eyebrow eyebrow-soft">Provider breakdown</p>
-              <h2>Visibility by provider <InfoTooltip text="Per-provider citation rate. Shows how often each AI engine cites your domain across all tracked keywords. Useful for identifying which engines favor your content." /></h2>
+              <h2>Visibility by provider <InfoTooltip text="Per-provider citation rate. Shows how often each AI engine cites your domain across all tracked key phrases. Useful for identifying which engines favor your content." /></h2>
             </div>
           </div>
           <div className="grid grid-cols-3 gap-3">
@@ -1145,7 +1177,7 @@ function ProjectPage({
                     {ps.score}%
                   </span>
                 </div>
-                <p className="mt-1 text-xs text-zinc-500">{ps.cited} of {ps.total} keywords cited</p>
+                <p className="mt-1 text-xs text-zinc-500">{ps.cited} of {ps.total} key phrases cited</p>
               </Card>
             ))}
           </div>
@@ -1183,12 +1215,12 @@ function ProjectPage({
         <div className="section-head section-head-inline">
           <div>
             <p className="eyebrow eyebrow-soft">Visibility evidence</p>
-            <h2>Keyword citation tracking</h2>
+            <h2>Key phrase citation tracking</h2>
           </div>
           <div className="flex items-center gap-3">
-            <p className="supporting-copy">{model.visibilityEvidence.length} keywords tracked</p>
+            <p className="supporting-copy">{new Set(model.visibilityEvidence.map(e => e.keyword)).size} key phrases tracked</p>
             <Button type="button" variant="outline" size="sm" onClick={() => setAddingKeywords(!addingKeywords)}>
-              {addingKeywords ? 'Cancel' : '+ Add keywords'}
+              {addingKeywords ? 'Cancel' : '+ Add key phrases'}
             </Button>
           </div>
         </div>
@@ -1197,14 +1229,14 @@ function ProjectPage({
             <textarea
               className="w-full resize-none rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
               rows={3}
-              placeholder="Enter keywords, one per line"
+              placeholder="Enter key phrases, one per line"
               value={newKeywordText}
               onChange={(e) => setNewKeywordText(e.target.value)}
             />
             <div className="mt-2 flex items-center justify-between">
-              <p className="text-xs text-zinc-500">{newKeywordText.split('\n').filter(k => k.trim()).length} keywords</p>
+              <p className="text-xs text-zinc-500">{newKeywordText.split('\n').filter(k => k.trim()).length} key phrases</p>
               <Button type="button" size="sm" disabled={!newKeywordText.trim() || keywordSaving} onClick={handleAddKeywords}>
-                {keywordSaving ? 'Adding...' : 'Add keywords'}
+                {keywordSaving ? 'Adding...' : 'Add key phrases'}
               </Button>
             </div>
           </div>
@@ -1547,7 +1579,7 @@ function SettingsPage({
 const SETUP_STEPS = [
   { label: 'System check', description: 'Verify your instance is ready' },
   { label: 'Create project', description: 'Name, domain, and locale' },
-  { label: 'Keywords', description: 'Add keywords to track' },
+  { label: 'Key phrases', description: 'Add key phrases to track' },
   { label: 'Competitors', description: 'Add competitor domains' },
   { label: 'Launch', description: 'Start your first visibility sweep' },
 ] as const
@@ -1644,7 +1676,7 @@ function SetupPage({
       onProjectCreated()
       setStep(3)
     } catch (err) {
-      setKeywordsError(err instanceof Error ? err.message : 'Failed to save keywords')
+      setKeywordsError(err instanceof Error ? err.message : 'Failed to save key phrases')
     } finally {
       setKeywordsSaving(false)
     }
@@ -1780,15 +1812,15 @@ function SetupPage({
             <div className="section-head">
               <div>
                 <p className="eyebrow eyebrow-soft">Step 3 of 5</p>
-                <h2>Add keywords</h2>
+                <h2>Add key phrases</h2>
               </div>
               {keywordsSaved ? (
                 <ToneBadge tone="positive">{parsedKeywords.length} saved</ToneBadge>
               ) : (
-                <ToneBadge tone="neutral">{parsedKeywords.length} keyword{parsedKeywords.length !== 1 ? 's' : ''}</ToneBadge>
+                <ToneBadge tone="neutral">{parsedKeywords.length} key phrase{parsedKeywords.length !== 1 ? 's' : ''}</ToneBadge>
               )}
             </div>
-            <p className="supporting-copy">Enter the search queries you want to track. One keyword per line.</p>
+            <p className="supporting-copy">Enter the search queries you want to track. One per line.</p>
             {keywordsSaved ? (
               <div className="compact-stack">
                 <ul className="detail-list">
@@ -1802,7 +1834,7 @@ function SetupPage({
             ) : (
               <div className="compact-stack">
                 <div className="setup-field">
-                  <label className="setup-label" htmlFor="keywords">Keywords (one per line)</label>
+                  <label className="setup-label" htmlFor="keywords">Key phrases (one per line)</label>
                   <textarea
                     id="keywords"
                     className="setup-textarea"
@@ -1816,7 +1848,7 @@ function SetupPage({
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={goBack}>Back</Button>
                   <Button type="button" disabled={parsedKeywords.length === 0 || keywordsSaving} onClick={handleSaveKeywords}>
-                    {keywordsSaving ? 'Saving...' : `Save ${parsedKeywords.length} keyword${parsedKeywords.length !== 1 ? 's' : ''}`}
+                    {keywordsSaving ? 'Saving...' : `Save ${parsedKeywords.length} key phrase${parsedKeywords.length !== 1 ? 's' : ''}`}
                   </Button>
                 </div>
               </div>
@@ -1834,7 +1866,7 @@ function SetupPage({
               </div>
               {competitorsSaved ? <ToneBadge tone="positive">Saved</ToneBadge> : null}
             </div>
-            <p className="supporting-copy">Domains that compete for the same keywords. One per line.</p>
+            <p className="supporting-copy">Domains that compete for the same key phrases. One per line.</p>
             {competitorsSaved ? (
               <div className="compact-stack">
                 <ul className="detail-list">
@@ -1917,7 +1949,7 @@ function SetupPage({
       <div className="page-header">
         <div className="page-header-left">
           <h1 className="page-title">Setup</h1>
-          <p className="page-subtitle">Create a project, import keywords, add competitors, and launch the first run.</p>
+          <p className="page-subtitle">Create a project, add key phrases, add competitors, and launch the first run.</p>
         </div>
       </div>
 
@@ -2671,7 +2703,7 @@ export function App({
                 {runDetail.snapshots.map((snap) => (
                   <div key={snap.id} className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 p-3">
                     <div className="flex items-center justify-between gap-2 mb-1">
-                      <p className="text-sm font-medium text-zinc-200 truncate">{snap.keyword ?? 'Unknown keyword'}</p>
+                      <p className="text-sm font-medium text-zinc-200 truncate">{snap.keyword ?? 'Unknown key phrase'}</p>
                       <div className="flex items-center gap-1.5">
                         <ProviderBadge provider={snap.provider} />
                         <Badge variant={snap.citationState === 'cited' ? 'success' : 'neutral'}>
@@ -2714,14 +2746,14 @@ export function App({
                 {runDetail.status === 'running' && (
                   <div className="flex items-center gap-2 p-3 text-sm text-zinc-500">
                     <span className="inline-block h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-                    Querying remaining keywords...
+                    Querying remaining key phrases...
                   </div>
                 )}
               </div>
             ) : runDetail && runDetail.status === 'running' ? (
               <div className="flex items-center gap-2 p-3 text-sm text-zinc-500">
                 <span className="inline-block h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-                Waiting for first keyword result...
+                Waiting for first key phrase result...
               </div>
             ) : runDetail && runDetail.status === 'queued' ? (
               <div className="flex items-center gap-2 p-3 text-sm text-zinc-500">

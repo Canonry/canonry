@@ -189,8 +189,9 @@ const allRuns: RunListItemVm[] = [
 ]
 
 const citypointEvidence: CitationInsightVm[] = [
+  // emergency dentist brooklyn — 3 providers
   {
-    id: 'evidence_citypoint_emergency',
+    id: 'evidence_citypoint_emergency_gemini',
     keyword: 'emergency dentist brooklyn',
     provider: 'gemini',
     citationState: 'lost',
@@ -212,7 +213,39 @@ const citypointEvidence: CitationInsightVm[] = [
     summary: 'AI answers now cite two competitors while your emergency page is no longer grounded.',
   },
   {
-    id: 'evidence_citypoint_invisalign',
+    id: 'evidence_citypoint_emergency_openai',
+    keyword: 'emergency dentist brooklyn',
+    provider: 'openai',
+    citationState: 'cited',
+    changeLabel: 'Cited for 6 runs',
+    answerSnippet:
+      'Citypoint Dental is listed as a top emergency dentist in Brooklyn for same-day appointments and walk-in availability.',
+    citedDomains: ['citypointdental.com', 'downtownsmiles.com'],
+    evidenceUrls: ['https://citypointdental.com/emergency-dentist-brooklyn'],
+    competitorDomains: ['downtownsmiles.com'],
+    groundingSources: [],
+    relatedTechnicalSignals: ['Emergency page indexed with structured data'],
+    summary: 'OpenAI cites your emergency page consistently alongside one competitor.',
+  },
+  {
+    id: 'evidence_citypoint_emergency_claude',
+    keyword: 'emergency dentist brooklyn',
+    provider: 'claude',
+    citationState: 'not-cited',
+    changeLabel: 'No citation across 12 runs',
+    answerSnippet:
+      'Based on the search results, top-rated emergency dental practices in Brooklyn include Downtown Smiles and Harbor Dental.',
+    citedDomains: ['downtownsmiles.com', 'harbordental.com'],
+    evidenceUrls: [],
+    competitorDomains: ['downtownsmiles.com', 'harbordental.com'],
+    groundingSources: [],
+    relatedTechnicalSignals: ['FAQ schema missing', 'llms.txt not found'],
+    summary: 'Claude does not cite your domain for this emergency query.',
+  },
+
+  // best invisalign dentist downtown brooklyn — 3 providers
+  {
+    id: 'evidence_citypoint_invisalign_openai',
     keyword: 'best invisalign dentist downtown brooklyn',
     provider: 'openai',
     citationState: 'emerging',
@@ -233,7 +266,39 @@ const citypointEvidence: CitationInsightVm[] = [
     summary: 'Fresh case-study content is starting to earn citations on Invisalign prompts.',
   },
   {
-    id: 'evidence_citypoint_children',
+    id: 'evidence_citypoint_invisalign_gemini',
+    keyword: 'best invisalign dentist downtown brooklyn',
+    provider: 'gemini',
+    citationState: 'cited',
+    changeLabel: 'Cited for 8 runs',
+    answerSnippet:
+      'Citypoint Dental in Downtown Brooklyn is highlighted for its Invisalign expertise and patient outcomes.',
+    citedDomains: ['citypointdental.com'],
+    evidenceUrls: ['https://citypointdental.com/invisalign-downtown-brooklyn'],
+    competitorDomains: [],
+    groundingSources: [],
+    relatedTechnicalSignals: ['Case study pages well-indexed'],
+    summary: 'Gemini consistently cites your Invisalign page with no competitor overlap.',
+  },
+  {
+    id: 'evidence_citypoint_invisalign_claude',
+    keyword: 'best invisalign dentist downtown brooklyn',
+    provider: 'claude',
+    citationState: 'not-cited',
+    changeLabel: 'No citation across 12 runs',
+    answerSnippet:
+      'For Invisalign in Downtown Brooklyn, Clear Line Ortho and Brooklyn Smiles are frequently recommended for their experienced orthodontists.',
+    citedDomains: ['clearlineortho.com', 'brooklynsmiles.com'],
+    evidenceUrls: [],
+    competitorDomains: ['clearlineortho.com'],
+    groundingSources: [],
+    relatedTechnicalSignals: ['No before/after schema on case study pages'],
+    summary: 'Claude does not surface your Invisalign content despite strong page quality.',
+  },
+
+  // pediatric dentist brooklyn heights — 3 providers
+  {
+    id: 'evidence_citypoint_children_claude',
     keyword: 'pediatric dentist brooklyn heights',
     provider: 'claude',
     citationState: 'not-cited',
@@ -252,6 +317,36 @@ const citypointEvidence: CitationInsightVm[] = [
       'Insurance content is buried three clicks deep',
     ],
     summary: 'Coverage gap is content-driven, not purely technical.',
+  },
+  {
+    id: 'evidence_citypoint_children_gemini',
+    keyword: 'pediatric dentist brooklyn heights',
+    provider: 'gemini',
+    citationState: 'not-cited',
+    changeLabel: 'No citation across 12 runs',
+    answerSnippet:
+      'For pediatric dentistry in Brooklyn Heights, Bright Kids Dental and Park Pediatric Dental are cited for family-friendly care.',
+    citedDomains: ['brightkidsdental.com', 'parkpediatricdental.com'],
+    evidenceUrls: [],
+    competitorDomains: ['brightkidsdental.com', 'parkpediatricdental.com'],
+    groundingSources: [],
+    relatedTechnicalSignals: ['No dedicated pediatric page for Brooklyn Heights'],
+    summary: 'Gemini does not surface your domain for pediatric queries in this area.',
+  },
+  {
+    id: 'evidence_citypoint_children_openai',
+    keyword: 'pediatric dentist brooklyn heights',
+    provider: 'openai',
+    citationState: 'cited',
+    changeLabel: 'First citation this month',
+    answerSnippet:
+      'Citypoint Dental is mentioned as offering pediatric services in Brooklyn, though specialized pediatric-only practices are also highlighted.',
+    citedDomains: ['citypointdental.com', 'brightkidsdental.com'],
+    evidenceUrls: ['https://citypointdental.com/family-dentistry'],
+    competitorDomains: ['brightkidsdental.com'],
+    groundingSources: [],
+    relatedTechnicalSignals: ['Family dentistry page recently updated'],
+    summary: 'OpenAI recently started citing your family dentistry page for this query.',
   },
 ]
 
