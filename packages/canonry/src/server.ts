@@ -8,6 +8,7 @@ import type { DatabaseClient } from '@ainyc/aeo-platform-db'
 import { geminiAdapter } from '@ainyc/aeo-platform-provider-gemini'
 import { openaiAdapter } from '@ainyc/aeo-platform-provider-openai'
 import { claudeAdapter } from '@ainyc/aeo-platform-provider-claude'
+import type { ProviderName } from '@ainyc/aeo-platform-contracts'
 import type { CanonryConfig } from './config.js'
 import { saveConfig } from './config.js'
 import { JobRunner } from './job-runner.js'
@@ -83,9 +84,9 @@ export async function createServer(opts: {
     db: opts.db,
     skipAuth: false,
     providerSummary,
-    onRunCreated: (runId: string, projectId: string) => {
+    onRunCreated: (runId: string, projectId: string, providers?: string[]) => {
       // Fire and forget — run executes in background
-      jobRunner.executeRun(runId, projectId).catch((err: unknown) => {
+      jobRunner.executeRun(runId, projectId, providers as ProviderName[] | undefined).catch((err: unknown) => {
         app.log.error({ runId, err }, 'Job runner failed')
       })
     },
@@ -109,12 +110,12 @@ export async function createServer(opts: {
         return null
       }
 
-      // Re-register in the live registry
+      // Re-register in the live registry (use preserved model if none was passed)
       const quota = opts.config.providers[name]!.quota ?? DEFAULT_QUOTA
       registry.register(adapterMap[name], {
         provider: name,
         apiKey,
-        model: model || undefined,
+        model: model || existing?.model,
         quotaPolicy: quota,
       })
 

@@ -22,7 +22,7 @@ export interface ApiRoutesOptions {
   /** Skip auth for testing */
   skipAuth?: boolean
   /** Callback when a run is created (wire up job runner) */
-  onRunCreated?: (runId: string, projectId: string) => void
+  onRunCreated?: (runId: string, projectId: string, providers?: string[]) => void
   /** Provider configuration summary for settings endpoint */
   providerSummary?: ProviderSummaryEntry[]
   /** Callback when a provider config is updated via API */

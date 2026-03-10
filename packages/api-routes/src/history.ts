@@ -125,9 +125,22 @@ export async function historyRoutes(app: FastifyInstance) {
       .where(inArray(querySnapshots.runId, [...runIds]))
       .all()
 
+    // Deduplicate to one entry per (runId, keywordId) before building transitions so that
+    // multi-provider runs don't produce spurious transition events within a single run.
+    // Prefer 'cited' when providers disagree within the same run.
+    const deduped = new Map<string, typeof allSnapshots[number]>()
+    for (const snap of allSnapshots) {
+      const key = `${snap.runId}:${snap.keywordId}`
+      const existing = deduped.get(key)
+      if (!existing || snap.citationState === 'cited') {
+        deduped.set(key, snap)
+      }
+    }
+    const dedupedSnapshots = [...deduped.values()]
+
     // Build per-keyword timeline
     const timeline = projectKeywords.map(kw => {
-      const kwSnapshots = allSnapshots
+      const kwSnapshots = dedupedSnapshots
         .filter(s => s.keywordId === kw.id)
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 

@@ -14,7 +14,7 @@ export class JobRunner {
     this.registry = registry
   }
 
-  async executeRun(runId: string, projectId: string): Promise<void> {
+  async executeRun(runId: string, projectId: string, providerOverride?: ProviderName[]): Promise<void> {
     const now = new Date().toISOString()
 
     try {
@@ -36,8 +36,8 @@ export class JobRunner {
         throw new Error(`Project ${projectId} not found`)
       }
 
-      // Resolve which providers to use for this project
-      const projectProviders = JSON.parse(project.providers || '[]') as ProviderName[]
+      // Resolve which providers to use — honour per-run override, then project config
+      const projectProviders = providerOverride ?? (JSON.parse(project.providers || '[]') as ProviderName[])
       const activeProviders = this.registry.getForProject(projectProviders)
 
       if (activeProviders.length === 0) {
@@ -62,8 +62,9 @@ export class JobRunner {
 
       const competitorDomains = projectCompetitors.map(c => c.domain)
 
-      // Enforce daily quota — check the most restrictive provider
-      const totalQueriesNeeded = projectKeywords.length * activeProviders.length
+      // Enforce daily quota — each provider receives one query per keyword per run,
+      // so check keywords.length against the most restrictive provider's per-day limit
+      const queriesPerProvider = projectKeywords.length
       const todayPeriod = getCurrentPeriod()
       const todayUsage = this.db
         .select()
@@ -74,10 +75,10 @@ export class JobRunner {
         .reduce((sum, r) => sum + r.count, 0)
 
       const minDailyQuota = Math.min(...activeProviders.map(p => p.config.quotaPolicy.maxRequestsPerDay))
-      if (todayUsage + totalQueriesNeeded > minDailyQuota) {
+      if (todayUsage + queriesPerProvider > minDailyQuota) {
         throw new Error(
           `Daily quota exceeded: ${todayUsage} queries used today, limit is ${minDailyQuota}. ` +
-          `This run needs ${totalQueriesNeeded} more.`,
+          `This run needs ${queriesPerProvider} more.`,
         )
       }
 

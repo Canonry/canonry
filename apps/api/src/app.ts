@@ -14,9 +14,17 @@ export function buildApp(env: PlatformEnv) {
   // Connect to database and register shared API routes
   const db = createClient(env.databaseUrl)
 
+  const providerSummary = (['gemini', 'openai', 'claude'] as const).map(name => ({
+    name,
+    model: env.providers[name]?.model,
+    configured: !!env.providers[name],
+    quota: env.providers[name]?.quota,
+  }))
+
   app.register(apiRoutes, {
     db,
     skipAuth: false,
+    providerSummary,
   })
 
   registerHealthRoutes(app, env)
