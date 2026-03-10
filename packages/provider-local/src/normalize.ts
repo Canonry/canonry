@@ -98,7 +98,7 @@ export function normalizeResult(raw: LocalRawResult): LocalNormalizedResult {
 // --- Internal helpers ---
 
 function buildPrompt(keyword: string): string {
-  return `Search the web for "${keyword}" and provide a comprehensive, factual answer. Include relevant sources and their website URLs when possible.`
+  return `Based on your training knowledge, what websites, services, or organizations are commonly associated with "${keyword}"? List the most relevant ones and include their domain names (e.g. example.com) where you know them.`
 }
 
 function extractAnswerText(rawResponse: Record<string, unknown>): string {
@@ -127,8 +127,8 @@ function extractDomainMentions(text: string): string[] {
     domains.add(match[1].replace(/^www\./, '').toLowerCase())
   }
 
-  // Match bare domain mentions like example.com (with common TLDs)
-  const domainPattern = /(?:^|[\s(])([a-zA-Z0-9][-a-zA-Z0-9]*\.(?:com|org|net|io|co|dev|ai|app|edu|gov|health|dental|legal|law|med)(?:\.[a-zA-Z]{2})?)(?:[\s).,;]|$)/g
+  // Match bare domain mentions like example.com — broad TLD coverage including ccTLDs
+  const domainPattern = /(?:^|[\s(["'])([a-zA-Z0-9][-a-zA-Z0-9]*\.(?:com|org|net|io|co|dev|ai|app|edu|gov|biz|info|tech|health|dental|legal|law|med|uk|us|ca|au|de|fr|es|it|nl|se|no|dk|fi|jp|cn|kr|br|mx|ru|in|sg|nz|za)(?:\.[a-zA-Z]{2})?)(?:[\s).,;/"']|$)/g
   while ((match = domainPattern.exec(text)) !== null) {
     domains.add(match[1].replace(/^www\./, '').toLowerCase())
   }

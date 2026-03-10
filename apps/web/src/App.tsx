@@ -1879,23 +1879,29 @@ const PROVIDER_MODEL_PLACEHOLDERS: Record<string, string> = {
 }
 
 function ProviderConfigForm({ providerName, onSaved }: { providerName: string; onSaved: () => void }) {
+  const isLocal = providerName.toLowerCase() === 'local'
   const [apiKey, setApiKey] = useState('')
+  const [baseUrl, setBaseUrl] = useState('')
   const [model, setModel] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
+  const canSave = isLocal ? baseUrl.trim().length > 0 : apiKey.trim().length > 0
+
   async function handleSave() {
-    if (!apiKey.trim()) return
+    if (!canSave) return
     setSaving(true)
     setError(null)
     setSuccess(false)
     try {
       await updateProviderConfig(providerName.toLowerCase(), {
-        apiKey: apiKey.trim(),
+        ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+        ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
         ...(model.trim() ? { model: model.trim() } : {}),
       })
       setApiKey('')
+      setBaseUrl('')
       setModel('')
       setSuccess(true)
       onSaved()
@@ -1911,9 +1917,25 @@ function ProviderConfigForm({ providerName, onSaved }: { providerName: string; o
 
   return (
     <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 space-y-2">
+      {isLocal && (
+        <div>
+          <label className="text-xs text-zinc-500" htmlFor={`base-url-${providerName}`}>Base URL</label>
+          <input
+            id={`base-url-${providerName}`}
+            type="text"
+            className="mt-0.5 w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+            placeholder="http://localhost:11434/v1"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+          />
+          <p className="mt-0.5 text-[10px] text-zinc-600">Any OpenAI-compatible endpoint — Ollama, LM Studio, llama.cpp, vLLM</p>
+        </div>
+      )}
       <div>
         <div className="flex items-center justify-between">
-          <label className="text-xs text-zinc-500" htmlFor={`api-key-${providerName}`}>API Key</label>
+          <label className="text-xs text-zinc-500" htmlFor={`api-key-${providerName}`}>
+            API Key{isLocal ? ' (optional)' : ''}
+          </label>
           {keyUrl && (
             <a
               href={keyUrl}
@@ -1929,7 +1951,7 @@ function ProviderConfigForm({ providerName, onSaved }: { providerName: string; o
           id={`api-key-${providerName}`}
           type="password"
           className="mt-0.5 w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-          placeholder={`Enter ${providerName} API key`}
+          placeholder={isLocal ? 'Optional — most local servers don\'t need one' : `Enter ${providerName} API key`}
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
         />
@@ -1947,7 +1969,7 @@ function ProviderConfigForm({ providerName, onSaved }: { providerName: string; o
       </div>
       {error && <p className="text-xs text-rose-400">{error}</p>}
       {success && <p className="text-xs text-emerald-400">Provider updated.</p>}
-      <Button type="button" size="sm" disabled={!apiKey.trim() || saving} onClick={handleSave}>
+      <Button type="button" size="sm" disabled={!canSave || saving} onClick={handleSave}>
         {saving ? 'Saving...' : 'Save'}
       </Button>
     </div>
@@ -2012,7 +2034,7 @@ function SettingsPage({
                 size="sm"
                 onClick={() => setConfiguringProvider(configuringProvider === provider.name ? null : provider.name)}
               >
-                {configuringProvider === provider.name ? 'Cancel' : provider.state === 'ready' ? 'Update key' : 'Configure'}
+                {configuringProvider === provider.name ? 'Cancel' : provider.state === 'ready' ? (provider.name.toLowerCase() === 'local' ? 'Update config' : 'Update key') : 'Configure'}
               </Button>
             </div>
             {configuringProvider === provider.name && (
