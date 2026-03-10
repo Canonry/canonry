@@ -1,8 +1,6 @@
 # Canonry
 
-[![npm version](https://img.shields.io/npm/v/@ainyc/canonry)](https://www.npmjs.com/package/@ainyc/canonry)
-[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![Node.js >= 20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
+[![npm version](https://img.shields.io/npm/v/@ainyc/canonry)](https://www.npmjs.com/package/@ainyc/canonry) [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0) [![Node.js >= 20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 
 **Open-source AEO monitoring for your domain.** Canonry tracks how AI answer engines (ChatGPT, Gemini, Claude, and others) cite or omit your website for the keywords you care about.
 
@@ -150,7 +148,19 @@ Get an API key from [console.anthropic.com](https://console.anthropic.com/settin
 
 ### Local LLMs
 
-Any OpenAI-compatible endpoint works -- Ollama, LM Studio, llama.cpp, vLLM, and similar tools. Point Canonry at your local server's base URL (e.g. `http://localhost:11434/v1`). No API key required for most local setups.
+Any OpenAI-compatible endpoint works -- Ollama, LM Studio, llama.cpp, vLLM, and similar tools. Configure via CLI or API:
+
+```bash
+canonry settings provider local --base-url http://localhost:11434/v1
+```
+
+The base URL is the only required field. API key is optional (most local servers don't need one). You can also set a specific model:
+
+```bash
+canonry settings provider local --base-url http://localhost:11434/v1 --model llama3
+```
+
+> **Note:** Unless your local model has web search capabilities, responses will be based solely on its training data. Cloud providers (Gemini, OpenAI, Claude) use live web search to ground their answers, which produces more accurate citation results. Local LLMs are best used for comparing how different models perceive your brand without real-time search context.
 
 ## API
 
@@ -207,3 +217,7 @@ Contributions are welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup in
 ## License
 
 [AGPL-3.0-only](./LICENSE)
+
+---
+
+Built by [AI NYC](https://ainyc.ai)
