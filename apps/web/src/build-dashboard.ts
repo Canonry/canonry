@@ -115,8 +115,8 @@ function statusDetailFromRun(run: ApiRun): string {
   switch (run.status) {
     case 'queued': return 'Waiting for execution slot.'
     case 'running': return 'Provider queries in progress.'
-    case 'completed': return 'All keywords checked.'
-    case 'partial': return 'Run completed with some keywords skipped.'
+    case 'completed': return 'All key phrases checked.'
+    case 'partial': return 'Run completed with some key phrases skipped.'
     case 'failed': return run.error ? formatErrorDetail(run.error) : 'Run failed.'
     default: return ''
   }
@@ -264,42 +264,66 @@ function evidenceSummary(state: CitationState, keyword: string): string {
   }
 }
 
+function aggregatePhraseState(items: CitationInsightVm[]): CitationInsightVm['citationState'] {
+  const states = items.map(i => i.citationState)
+  if (states.includes('cited')) return 'cited'
+  if (states.includes('emerging')) return 'emerging'
+  if (states.includes('lost')) return 'lost'
+  return 'not-cited'
+}
+
 function buildInsights(evidence: CitationInsightVm[]): ProjectInsightVm[] {
   const insights: ProjectInsightVm[] = []
-  const lost = evidence.filter(e => e.citationState === 'lost')
-  const emerging = evidence.filter(e => e.citationState === 'emerging')
-  const notCited = evidence.filter(e => e.citationState === 'not-cited')
 
-  if (lost.length > 0) {
+  // Group by key phrase and compute aggregate citation state per phrase
+  const phraseMap = new Map<string, CitationInsightVm[]>()
+  for (const e of evidence) {
+    const existing = phraseMap.get(e.keyword) ?? []
+    phraseMap.set(e.keyword, [...existing, e])
+  }
+
+  const lostPhrases: { phrase: string; id: string }[] = []
+  const emergingPhrases: { phrase: string; id: string }[] = []
+  const notCitedPhrases: { phrase: string; id: string }[] = []
+
+  for (const [phrase, items] of phraseMap) {
+    const agg = aggregatePhraseState(items)
+    const firstId = items[0]!.id
+    if (agg === 'lost') lostPhrases.push({ phrase, id: items.find(i => i.citationState === 'lost')?.id ?? firstId })
+    else if (agg === 'emerging') emergingPhrases.push({ phrase, id: items.find(i => i.citationState === 'emerging')?.id ?? firstId })
+    else if (agg === 'not-cited') notCitedPhrases.push({ phrase, id: firstId })
+  }
+
+  if (lostPhrases.length > 0) {
     insights.push({
       id: 'insight_lost',
       tone: 'negative',
-      title: `Lost citation on ${lost.length} keyword${lost.length > 1 ? 's' : ''}`,
-      detail: `Keywords: ${lost.map(e => e.keyword).join(', ')}`,
+      title: `Lost citation on ${lostPhrases.length} key phrase${lostPhrases.length > 1 ? 's' : ''}`,
+      detail: `Key phrases: ${lostPhrases.map(p => p.phrase).join(', ')}`,
       actionLabel: 'Open evidence',
-      evidenceId: lost[0]!.id,
+      evidenceId: lostPhrases[0]!.id,
     })
   }
 
-  if (emerging.length > 0) {
+  if (emergingPhrases.length > 0) {
     insights.push({
       id: 'insight_emerging',
       tone: 'positive',
-      title: `New citation on ${emerging.length} keyword${emerging.length > 1 ? 's' : ''}`,
-      detail: `Keywords: ${emerging.map(e => e.keyword).join(', ')}`,
+      title: `New citation on ${emergingPhrases.length} key phrase${emergingPhrases.length > 1 ? 's' : ''}`,
+      detail: `Key phrases: ${emergingPhrases.map(p => p.phrase).join(', ')}`,
       actionLabel: 'Review evidence',
-      evidenceId: emerging[0]!.id,
+      evidenceId: emergingPhrases[0]!.id,
     })
   }
 
-  if (notCited.length > 0) {
+  if (notCitedPhrases.length > 0) {
     insights.push({
       id: 'insight_gap',
       tone: 'caution',
-      title: `${notCited.length} keyword${notCited.length > 1 ? 's' : ''} still uncited`,
-      detail: 'These keywords have not been cited in any AI answer.',
+      title: `${notCitedPhrases.length} key phrase${notCitedPhrases.length > 1 ? 's' : ''} not cited by any provider`,
+      detail: 'These key phrases have not been cited in any AI answer across all providers.',
       actionLabel: 'Inspect gap',
-      evidenceId: notCited[0]!.id,
+      evidenceId: notCitedPhrases[0]!.id,
     })
   }
 
@@ -415,7 +439,7 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
       description: data.competitors.length > 0
         ? `${data.competitors.length} competitor${data.competitors.length > 1 ? 's' : ''} tracked.`
         : 'No competitors configured.',
-      tooltip: 'How often competitor domains appear alongside yours in AI answers. High pressure means competitors are frequently cited for the same keywords.',
+      tooltip: 'How often competitor domains appear alongside yours in AI answers. High pressure means competitors are frequently cited for the same key phrases.',
       trend: [],
     },
     runStatus: runStatusSummary(sortedRuns),
@@ -533,7 +557,7 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
       ...(!hasProjects ? {
         emptyState: {
           title: 'No projects yet',
-          detail: 'Canonry becomes useful after one project, a small keyword set, and one competitor list are in place.',
+          detail: 'Canonry becomes useful after one project, a small key phrase set, and one competitor list are in place.',
           ctaLabel: 'Launch setup',
           ctaHref: '/setup',
         },
@@ -583,7 +607,7 @@ function buildAttentionItems(projectCenters: ProjectCommandCenterVm[]) {
         id: `attention_${pc.project.id}_lost`,
         tone: 'negative',
         title: `${pc.project.displayName || pc.project.name} lost citations`,
-        detail: `${lostEvidence.length} keyword${lostEvidence.length > 1 ? 's' : ''} lost citation.`,
+        detail: `${lostEvidence.length} key phrase${lostEvidence.length > 1 ? 's' : ''} lost citation.`,
         actionLabel: 'Open project',
         href: `/projects/${pc.project.id}`,
       })
