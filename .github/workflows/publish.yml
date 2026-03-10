@@ -51,6 +51,10 @@ jobs:
       - run: pnpm run test
         if: steps.version-check.outputs.skip != 'true'
 
+      - name: Copy root README into package
+        if: steps.version-check.outputs.skip != 'true'
+        run: cp README.md packages/canonry/README.md
+
       - name: Build and publish
         if: steps.version-check.outputs.skip != 'true'
         run: pnpm --filter @ainyc/canonry publish --no-git-checks --access public
