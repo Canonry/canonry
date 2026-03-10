@@ -1189,7 +1189,7 @@ function ProjectPage({
         <div className="section-head section-head-inline">
           <div>
             <p className="eyebrow eyebrow-soft">What changed</p>
-            <h2>Interpretation before raw evidence</h2>
+            <h2>Citation signals</h2>
           </div>
         </div>
         <div className="insight-grid">
