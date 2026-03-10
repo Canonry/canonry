@@ -127,8 +127,8 @@ function extractDomainMentions(text: string): string[] {
     domains.add(match[1].replace(/^www\./, '').toLowerCase())
   }
 
-  // Match bare domain mentions like example.com — broad TLD coverage including ccTLDs
-  const domainPattern = /(?:^|[\s(["'])([a-zA-Z0-9][-a-zA-Z0-9]*\.(?:com|org|net|io|co|dev|ai|app|edu|gov|biz|info|tech|health|dental|legal|law|med|uk|us|ca|au|de|fr|es|it|nl|se|no|dk|fi|jp|cn|kr|br|mx|ru|in|sg|nz|za)(?:\.[a-zA-Z]{2})?)(?:[\s).,;/"']|$)/g
+  // Match bare domain mentions including subdomains (e.g. docs.example.com, foo.example.co.uk)
+  const domainPattern = /(?:^|[\s(["'])((?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+(?:com|org|net|io|co|dev|ai|app|edu|gov|biz|info|tech|health|dental|legal|law|med|uk|us|ca|au|de|fr|es|it|nl|se|no|dk|fi|jp|cn|kr|br|mx|ru|in|sg|nz|za)(?:\.[a-zA-Z]{2})?)(?:[\s).,;/"']|$)/g
   while ((match = domainPattern.exec(text)) !== null) {
     domains.add(match[1].replace(/^www\./, '').toLowerCase())
   }
