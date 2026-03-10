@@ -1,0 +1,84 @@
+import { loadConfig } from '../config.js'
+import { ApiClient } from '../client.js'
+
+function getClient(): ApiClient {
+  const config = loadConfig()
+  return new ApiClient(config.apiUrl, config.apiKey)
+}
+
+interface ScheduleResponse {
+  id: string
+  projectId: string
+  cronExpr: string
+  preset: string | null
+  timezone: string
+  enabled: boolean
+  providers: string[]
+  lastRunAt: string | null
+  nextRunAt: string | null
+}
+
+export async function setSchedule(project: string, opts: {
+  preset?: string
+  cron?: string
+  timezone?: string
+  providers?: string[]
+}): Promise<void> {
+  const client = getClient()
+  const body: Record<string, unknown> = {}
+  if (opts.preset) body.preset = opts.preset
+  if (opts.cron) body.cron = opts.cron
+  if (opts.timezone) body.timezone = opts.timezone
+  if (opts.providers?.length) body.providers = opts.providers
+
+  const result = await client.putSchedule(project, body) as ScheduleResponse
+  console.log(`Schedule set for "${project}":`)
+  printSchedule(result)
+}
+
+export async function showSchedule(project: string): Promise<void> {
+  const client = getClient()
+  const result = await client.getSchedule(project) as ScheduleResponse
+  printSchedule(result)
+}
+
+export async function enableSchedule(project: string): Promise<void> {
+  const client = getClient()
+  const current = await client.getSchedule(project) as ScheduleResponse
+  const body: Record<string, unknown> = { timezone: current.timezone }
+  if (current.preset) body.preset = current.preset
+  else body.cron = current.cronExpr
+  if (current.providers.length) body.providers = current.providers
+
+  await client.putSchedule(project, body)
+  console.log(`Schedule enabled for "${project}"`)
+}
+
+export async function disableSchedule(project: string): Promise<void> {
+  const client = getClient()
+  await client.deleteSchedule(project)
+  console.log(`Schedule disabled for "${project}"`)
+}
+
+export async function removeSchedule(project: string): Promise<void> {
+  const client = getClient()
+  await client.deleteSchedule(project)
+  console.log(`Schedule removed for "${project}"`)
+}
+
+function printSchedule(s: ScheduleResponse): void {
+  const label = s.preset ?? s.cronExpr
+  console.log(`  Schedule:  ${label}`)
+  console.log(`  Cron:      ${s.cronExpr}`)
+  console.log(`  Timezone:  ${s.timezone}`)
+  console.log(`  Enabled:   ${s.enabled ? 'yes' : 'no'}`)
+  if (s.providers.length) {
+    console.log(`  Providers: ${s.providers.join(', ')}`)
+  }
+  if (s.lastRunAt) {
+    console.log(`  Last run:  ${s.lastRunAt}`)
+  }
+  if (s.nextRunAt) {
+    console.log(`  Next run:  ${s.nextRunAt}`)
+  }
+}

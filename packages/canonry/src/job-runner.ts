@@ -8,6 +8,7 @@ import type { ProviderRegistry, RegisteredProvider } from './provider-registry.j
 export class JobRunner {
   private db: DatabaseClient
   private registry: ProviderRegistry
+  onRunCompleted?: (runId: string, projectId: string) => Promise<void>
 
   constructor(db: DatabaseClient, registry: ProviderRegistry) {
     this.db = db
@@ -186,6 +187,13 @@ export class JobRunner {
         this.incrementUsage(`${projectId}:${p.adapter.name}`, 'queries', queriesPerProvider)
       }
       this.incrementUsage(projectId, 'runs', 1)
+
+      // Notify after run completion
+      if (this.onRunCompleted) {
+        this.onRunCompleted(runId, projectId).catch((err: unknown) => {
+          console.error('[JobRunner] Notification callback failed:', err)
+        })
+      }
     } catch (err: unknown) {
       // Mark run as failed
       const errorMessage = err instanceof Error ? err.message : String(err)
@@ -198,6 +206,13 @@ export class JobRunner {
         })
         .where(eq(runs.id, runId))
         .run()
+
+      // Notify on failure too
+      if (this.onRunCompleted) {
+        this.onRunCompleted(runId, projectId).catch((notifErr: unknown) => {
+          console.error('[JobRunner] Notification callback failed:', notifErr)
+        })
+      }
     }
   }
 

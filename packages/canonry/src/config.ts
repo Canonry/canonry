@@ -14,6 +14,7 @@ export interface CanonryConfig {
   apiUrl: string
   database: string
   apiKey: string
+  port?: number
   // Legacy single-provider fields (backward compat)
   geminiApiKey?: string
   geminiModel?: string

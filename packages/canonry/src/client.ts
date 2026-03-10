@@ -121,4 +121,28 @@ export class ApiClient {
   async updateProvider(name: string, body: { apiKey: string; model?: string }): Promise<object> {
     return this.request<object>('PUT', `/settings/providers/${encodeURIComponent(name)}`, body)
   }
+
+  async putSchedule(project: string, body: object): Promise<object> {
+    return this.request<object>('PUT', `/projects/${encodeURIComponent(project)}/schedule`, body)
+  }
+
+  async getSchedule(project: string): Promise<object> {
+    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/schedule`)
+  }
+
+  async deleteSchedule(project: string): Promise<void> {
+    await this.request<void>('DELETE', `/projects/${encodeURIComponent(project)}/schedule`)
+  }
+
+  async createNotification(project: string, body: object): Promise<object> {
+    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/notifications`, body)
+  }
+
+  async listNotifications(project: string): Promise<object[]> {
+    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/notifications`)
+  }
+
+  async deleteNotification(project: string, id: string): Promise<void> {
+    await this.request<void>('DELETE', `/projects/${encodeURIComponent(project)}/notifications/${encodeURIComponent(id)}`)
+  }
 }

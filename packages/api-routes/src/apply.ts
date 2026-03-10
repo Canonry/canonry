@@ -1,11 +1,15 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { projects, keywords, competitors } from '@ainyc/aeo-platform-db'
-import { projectConfigSchema, validationError } from '@ainyc/aeo-platform-contracts'
+import { projects, keywords, competitors, schedules, notifications } from '@ainyc/aeo-platform-db'
+import { projectConfigSchema, validationError, resolvePreset, validateCron } from '@ainyc/aeo-platform-contracts'
 import { writeAuditLog } from './helpers.js'
 
-export async function applyRoutes(app: FastifyInstance) {
+export interface ApplyRoutesOptions {
+  onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string) => void
+}
+
+export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOptions) {
   // POST /apply — accept a canonry.yaml body (JSON-parsed version)
   app.post('/apply', async (request, reply) => {
     const parsed = projectConfigSchema.safeParse(request.body)
@@ -110,6 +114,79 @@ export async function applyRoutes(app: FastifyInstance) {
         diff: { competitors: config.spec.competitors },
       })
     })
+
+    // Handle schedule from config
+    if (config.spec.schedule) {
+      const schedSpec = config.spec.schedule
+      let cronExpr: string
+      let preset: string | null = null
+
+      if (schedSpec.preset) {
+        preset = schedSpec.preset
+        cronExpr = resolvePreset(schedSpec.preset)
+      } else if (schedSpec.cron) {
+        cronExpr = schedSpec.cron
+        if (!validateCron(cronExpr)) {
+          return reply.status(400).send({
+            error: { code: 'VALIDATION_ERROR', message: `Invalid cron expression in schedule: ${cronExpr}` },
+          })
+        }
+      } else {
+        return reply.status(400).send({
+          error: { code: 'VALIDATION_ERROR', message: 'Schedule requires either "preset" or "cron"' },
+        })
+      }
+
+      const existingSched = app.db.select().from(schedules).where(eq(schedules.projectId, projectId)).get()
+      if (existingSched) {
+        app.db.update(schedules).set({
+          cronExpr,
+          preset,
+          timezone: schedSpec.timezone ?? 'UTC',
+          providers: JSON.stringify(schedSpec.providers ?? []),
+          enabled: 1,
+          updatedAt: now,
+        }).where(eq(schedules.id, existingSched.id)).run()
+      } else {
+        app.db.insert(schedules).values({
+          id: crypto.randomUUID(),
+          projectId,
+          cronExpr,
+          preset,
+          timezone: schedSpec.timezone ?? 'UTC',
+          enabled: 1,
+          providers: JSON.stringify(schedSpec.providers ?? []),
+          createdAt: now,
+          updatedAt: now,
+        }).run()
+      }
+
+      opts?.onScheduleUpdated?.('upsert', projectId)
+    }
+
+    // Handle notifications from config (declarative replace)
+    if (config.spec.notifications.length > 0) {
+      app.db.delete(notifications).where(eq(notifications.projectId, projectId)).run()
+      for (const notif of config.spec.notifications) {
+        app.db.insert(notifications).values({
+          id: crypto.randomUUID(),
+          projectId,
+          channel: notif.channel,
+          config: JSON.stringify({ url: notif.url, events: notif.events }),
+          enabled: 1,
+          createdAt: now,
+          updatedAt: now,
+        }).run()
+      }
+
+      writeAuditLog(app.db, {
+        projectId,
+        actor: 'api',
+        action: 'notifications.replaced',
+        entityType: 'notification',
+        diff: { notifications: config.spec.notifications },
+      })
+    }
 
     const project = app.db.select().from(projects).where(eq(projects.id, projectId)).get()!
     return reply.status(200).send({

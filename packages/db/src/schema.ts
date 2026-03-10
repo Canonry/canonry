@@ -94,6 +94,34 @@ export const apiKeys = sqliteTable('api_keys', {
   index('idx_api_keys_prefix').on(table.keyPrefix),
 ])
 
+export const schedules = sqliteTable('schedules', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  cronExpr: text('cron_expr').notNull(),
+  preset: text('preset'),
+  timezone: text('timezone').notNull().default('UTC'),
+  enabled: integer('enabled').notNull().default(1),
+  providers: text('providers').notNull().default('[]'),
+  lastRunAt: text('last_run_at'),
+  nextRunAt: text('next_run_at'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_schedules_project').on(table.projectId),
+])
+
+export const notifications = sqliteTable('notifications', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  channel: text('channel').notNull(),
+  config: text('config').notNull(),
+  enabled: integer('enabled').notNull().default(1),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_notifications_project').on(table.projectId),
+])
+
 export const usageCounters = sqliteTable('usage_counters', {
   id: text('id').primaryKey(),
   scope: text('scope').notNull(),

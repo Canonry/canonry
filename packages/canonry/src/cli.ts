@@ -12,6 +12,8 @@ import { showHistory } from './commands/history.js'
 import { applyConfig } from './commands/apply.js'
 import { exportProject } from './commands/export-cmd.js'
 import { showSettings, setProvider } from './commands/settings.js'
+import { setSchedule, showSchedule, enableSchedule, disableSchedule, removeSchedule } from './commands/schedule.js'
+import { addNotification, listNotifications, removeNotification, testNotification } from './commands/notify.js'
 
 const USAGE = `
 canonry — AEO monitoring CLI
@@ -36,6 +38,15 @@ Usage:
   canonry history <project>           Show audit trail
   canonry export <project>            Export project as YAML
   canonry apply <file>                Apply declarative config
+  canonry schedule set <project>      Set schedule (--preset or --cron)
+  canonry schedule show <project>     Show schedule
+  canonry schedule enable <project>   Enable schedule
+  canonry schedule disable <project>  Disable schedule
+  canonry schedule remove <project>   Remove schedule
+  canonry notify add <project>        Add webhook notification
+  canonry notify list <project>       List notifications
+  canonry notify remove <project> <id>  Remove notification
+  canonry notify test <project> <id>  Send test webhook
   canonry settings                    Show active provider and quota settings
   canonry settings provider <name>    Update a provider API key (--api-key, --model)
   canonry --help                      Show this help
@@ -48,6 +59,11 @@ Options:
   --language <lang>    Language code (default: en)
   --provider <name>    Provider to use (gemini, openai, claude)
   --include-results    Include results in export
+  --preset <preset>    Schedule preset (daily, weekly, twice-daily, daily@HH, weekly@DAY)
+  --cron <expr>        Cron expression for schedule
+  --timezone <tz>      IANA timezone for schedule (default: UTC)
+  --webhook <url>      Webhook URL for notifications
+  --events <list>      Comma-separated notification events
 `.trim()
 
 const VERSION = '0.1.0'
@@ -287,6 +303,117 @@ async function main() {
           process.exit(1)
         }
         await applyConfig(filePath)
+        break
+      }
+
+      case 'schedule': {
+        const subcommand = args[1]
+        const schedProject = args[2]
+        if (!schedProject && subcommand !== undefined) {
+          console.error('Error: project name is required')
+          process.exit(1)
+        }
+        switch (subcommand) {
+          case 'set': {
+            const { values } = parseArgs({
+              args: args.slice(3),
+              options: {
+                preset: { type: 'string' },
+                cron: { type: 'string' },
+                timezone: { type: 'string' },
+                provider: { type: 'string', multiple: true },
+              },
+              allowPositionals: false,
+            })
+            if (!values.preset && !values.cron) {
+              console.error('Error: --preset or --cron is required')
+              process.exit(1)
+            }
+            await setSchedule(schedProject!, {
+              preset: values.preset,
+              cron: values.cron,
+              timezone: values.timezone,
+              providers: values.provider,
+            })
+            break
+          }
+          case 'show':
+            await showSchedule(schedProject!)
+            break
+          case 'enable':
+            await enableSchedule(schedProject!)
+            break
+          case 'disable':
+            await disableSchedule(schedProject!)
+            break
+          case 'remove':
+            await removeSchedule(schedProject!)
+            break
+          default:
+            console.error(`Unknown schedule subcommand: ${subcommand ?? '(none)'}`)
+            console.log('Available: set, show, enable, disable, remove')
+            process.exit(1)
+        }
+        break
+      }
+
+      case 'notify': {
+        const notifSubcommand = args[1]
+        const notifProject = args[2]
+        if (!notifProject && notifSubcommand !== undefined) {
+          console.error('Error: project name is required')
+          process.exit(1)
+        }
+        switch (notifSubcommand) {
+          case 'add': {
+            const { values } = parseArgs({
+              args: args.slice(3),
+              options: {
+                webhook: { type: 'string' },
+                events: { type: 'string' },
+              },
+              allowPositionals: false,
+            })
+            if (!values.webhook) {
+              console.error('Error: --webhook is required')
+              process.exit(1)
+            }
+            if (!values.events) {
+              console.error('Error: --events is required (comma-separated)')
+              process.exit(1)
+            }
+            await addNotification(notifProject!, {
+              webhook: values.webhook,
+              events: values.events.split(',').map(e => e.trim()),
+            })
+            break
+          }
+          case 'list':
+            await listNotifications(notifProject!)
+            break
+          case 'remove': {
+            const notifId = args[3]
+            if (!notifId) {
+              console.error('Error: notification ID is required')
+              process.exit(1)
+            }
+            await removeNotification(notifProject!, notifId)
+            break
+          }
+          case 'test': {
+            const testId = args[3]
+            if (!testId) {
+              console.error('Error: notification ID is required')
+              process.exit(1)
+            }
+            await testNotification(notifProject!, testId)
+            break
+          }
+          default:
+            console.error(`Unknown notify subcommand: ${notifSubcommand ?? '(none)'}`)
+            console.log('Available: add, list, remove, test')
+            process.exit(1)
+        }
         break
       }
 

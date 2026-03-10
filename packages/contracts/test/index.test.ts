@@ -14,6 +14,9 @@ import {
   computedTransitionSchema,
   querySnapshotDtoSchema,
   auditLogEntrySchema,
+  resolvePreset,
+  validateCron,
+  notificationEventSchema,
 } from '../src/index.js'
 
 test('projectDtoSchema applies defaults for tags, labels, configSource, configRevision', () => {
@@ -187,4 +190,107 @@ test('AppError is an instance of Error', () => {
   const err = new AppError('INTERNAL_ERROR', 'something broke', 500)
   assert.ok(err instanceof Error)
   assert.equal(err.name, 'AppError')
+})
+
+// --- Schedule preset tests ---
+
+test('resolvePreset maps daily to 6am UTC cron', () => {
+  assert.equal(resolvePreset('daily'), '0 6 * * *')
+})
+
+test('resolvePreset maps weekly to Monday 6am UTC', () => {
+  assert.equal(resolvePreset('weekly'), '0 6 * * 1')
+})
+
+test('resolvePreset maps twice-daily to 6am and 6pm', () => {
+  assert.equal(resolvePreset('twice-daily'), '0 6,18 * * *')
+})
+
+test('resolvePreset maps daily@14 to 2pm UTC', () => {
+  assert.equal(resolvePreset('daily@14'), '0 14 * * *')
+})
+
+test('resolvePreset maps weekly@fri to Friday 6am', () => {
+  assert.equal(resolvePreset('weekly@fri'), '0 6 * * 5')
+})
+
+test('resolvePreset maps weekly@fri@14 to Friday 2pm', () => {
+  assert.equal(resolvePreset('weekly@fri@14'), '0 14 * * 5')
+})
+
+test('resolvePreset throws for unknown preset', () => {
+  assert.throws(() => resolvePreset('hourly'), /Unknown schedule preset/)
+})
+
+test('resolvePreset throws for invalid hour', () => {
+  assert.throws(() => resolvePreset('daily@25'), /Invalid hour/)
+})
+
+test('resolvePreset throws for invalid day', () => {
+  assert.throws(() => resolvePreset('weekly@xyz'), /Invalid day/)
+})
+
+// --- Cron validation tests ---
+
+test('validateCron accepts standard 5-field cron', () => {
+  assert.equal(validateCron('0 6 * * *'), true)
+  assert.equal(validateCron('*/5 * * * *'), true)
+  assert.equal(validateCron('0 0 1 1 0'), true)
+  assert.equal(validateCron('0 6,18 * * *'), true)
+  assert.equal(validateCron('0 6 * * 1-5'), true)
+})
+
+test('validateCron rejects invalid cron expressions', () => {
+  assert.equal(validateCron('invalid'), false)
+  assert.equal(validateCron('* * *'), false)
+  assert.equal(validateCron('60 * * * *'), false)
+  assert.equal(validateCron('* 25 * * *'), false)
+})
+
+// --- Notification schema tests ---
+
+test('notificationEventSchema accepts valid events', () => {
+  for (const event of ['citation.lost', 'citation.gained', 'run.completed', 'run.failed']) {
+    assert.equal(notificationEventSchema.parse(event), event)
+  }
+})
+
+test('notificationEventSchema rejects invalid events', () => {
+  assert.throws(() => notificationEventSchema.parse('invalid.event'))
+})
+
+// --- Config schema with schedule ---
+
+test('projectConfigSchema accepts config with schedule preset', () => {
+  const config = projectConfigSchema.parse({
+    apiVersion: 'canonry/v1',
+    kind: 'Project',
+    metadata: { name: 'test-project' },
+    spec: {
+      displayName: 'Test',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+      schedule: { preset: 'daily', timezone: 'America/New_York' },
+      notifications: [{ channel: 'webhook', url: 'https://hooks.example.com/test', events: ['citation.lost'] }],
+    },
+  })
+
+  assert.ok(config.spec.schedule)
+  assert.equal(config.spec.notifications.length, 1)
+})
+
+test('projectConfigSchema rejects schedule with both preset and cron', () => {
+  assert.throws(() => projectConfigSchema.parse({
+    apiVersion: 'canonry/v1',
+    kind: 'Project',
+    metadata: { name: 'test-project' },
+    spec: {
+      displayName: 'Test',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+      schedule: { preset: 'daily', cron: '0 6 * * *' },
+    },
+  }))
 })

@@ -10,6 +10,9 @@ import { applyRoutes } from './apply.js'
 import { historyRoutes } from './history.js'
 import { settingsRoutes } from './settings.js'
 import type { SettingsRoutesOptions, ProviderSummaryEntry } from './settings.js'
+import { scheduleRoutes } from './schedules.js'
+import type { ScheduleRoutesOptions } from './schedules.js'
+import { notificationRoutes } from './notifications.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -27,6 +30,8 @@ export interface ApiRoutesOptions {
   providerSummary?: ProviderSummaryEntry[]
   /** Callback when a provider config is updated via API */
   onProviderUpdate?: (provider: string, apiKey: string, model?: string) => ProviderSummaryEntry | null
+  /** Callback when a schedule is created/updated/deleted */
+  onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string) => void
 }
 
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
@@ -44,12 +49,18 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(keywordRoutes)
     await api.register(competitorRoutes)
     await api.register(runRoutes, { onRunCreated: opts.onRunCreated } satisfies RunRoutesOptions)
-    await api.register(applyRoutes)
+    await api.register(applyRoutes, {
+      onScheduleUpdated: opts.onScheduleUpdated,
+    })
     await api.register(historyRoutes)
     await api.register(settingsRoutes, {
       providerSummary: opts.providerSummary,
       onProviderUpdate: opts.onProviderUpdate,
     } satisfies SettingsRoutesOptions)
+    await api.register(scheduleRoutes, {
+      onScheduleUpdated: opts.onScheduleUpdated,
+    } satisfies ScheduleRoutesOptions)
+    await api.register(notificationRoutes)
   }, { prefix: '/api/v1' })
 }
 

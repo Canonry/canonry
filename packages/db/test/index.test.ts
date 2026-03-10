@@ -5,7 +5,7 @@ import path from 'node:path'
 import test from 'node:test'
 
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, keywords, runs, querySnapshots, auditLog, apiKeys, usageCounters } from '../src/index.js'
+import { createClient, migrate, projects, keywords, runs, querySnapshots, auditLog, apiKeys, usageCounters, schedules, notifications } from '../src/index.js'
 
 function createTempDb() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-test-'))
@@ -49,6 +49,12 @@ test('migrate creates all tables', () => {
 
   const usageRows = db.select().from(usageCounters).all()
   assert.deepEqual(usageRows, [])
+
+  const scheduleRows = db.select().from(schedules).all()
+  assert.deepEqual(scheduleRows, [])
+
+  const notifRows = db.select().from(notifications).all()
+  assert.deepEqual(notifRows, [])
 
   cleanup(tmpDir)
 })
@@ -252,6 +258,152 @@ test('usage_counters unique constraint on (scope, period, metric)', () => {
       updatedAt: now,
     }).run()
   })
+
+  cleanup(tmpDir)
+})
+
+test('CRUD: insert and query a schedule', () => {
+  const { db, tmpDir } = createTempDb()
+  const now = new Date().toISOString()
+
+  db.insert(projects).values({
+    id: 'proj_1',
+    name: 'test-project',
+    displayName: 'Test',
+    canonicalDomain: 'example.com',
+    country: 'US',
+    language: 'en',
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+
+  db.insert(schedules).values({
+    id: 'sched_1',
+    projectId: 'proj_1',
+    cronExpr: '0 6 * * *',
+    preset: 'daily',
+    timezone: 'UTC',
+    enabled: 1,
+    providers: '[]',
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+
+  const [sched] = db.select().from(schedules).where(eq(schedules.projectId, 'proj_1')).all()
+  assert.equal(sched.cronExpr, '0 6 * * *')
+  assert.equal(sched.preset, 'daily')
+  assert.equal(sched.enabled, 1)
+
+  cleanup(tmpDir)
+})
+
+test('schedules unique constraint on project_id (one per project)', () => {
+  const { db, tmpDir } = createTempDb()
+  const now = new Date().toISOString()
+
+  db.insert(projects).values({
+    id: 'proj_1',
+    name: 'test-project',
+    displayName: 'Test',
+    canonicalDomain: 'example.com',
+    country: 'US',
+    language: 'en',
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+
+  db.insert(schedules).values({
+    id: 'sched_1',
+    projectId: 'proj_1',
+    cronExpr: '0 6 * * *',
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+
+  assert.throws(() => {
+    db.insert(schedules).values({
+      id: 'sched_2',
+      projectId: 'proj_1',
+      cronExpr: '0 12 * * *',
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+  })
+
+  cleanup(tmpDir)
+})
+
+test('CRUD: insert and query notifications', () => {
+  const { db, tmpDir } = createTempDb()
+  const now = new Date().toISOString()
+
+  db.insert(projects).values({
+    id: 'proj_1',
+    name: 'test-project',
+    displayName: 'Test',
+    canonicalDomain: 'example.com',
+    country: 'US',
+    language: 'en',
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+
+  db.insert(notifications).values({
+    id: 'notif_1',
+    projectId: 'proj_1',
+    channel: 'webhook',
+    config: JSON.stringify({ url: 'https://hooks.example.com/test', events: ['citation.lost'] }),
+    enabled: 1,
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+
+  const notifs = db.select().from(notifications).where(eq(notifications.projectId, 'proj_1')).all()
+  assert.equal(notifs.length, 1)
+  assert.equal(notifs[0].channel, 'webhook')
+  const config = JSON.parse(notifs[0].config) as { url: string; events: string[] }
+  assert.equal(config.url, 'https://hooks.example.com/test')
+  assert.deepEqual(config.events, ['citation.lost'])
+
+  cleanup(tmpDir)
+})
+
+test('cascade delete removes schedules and notifications when project deleted', () => {
+  const { db, tmpDir } = createTempDb()
+  const now = new Date().toISOString()
+
+  db.insert(projects).values({
+    id: 'proj_1',
+    name: 'test-project',
+    displayName: 'Test',
+    canonicalDomain: 'example.com',
+    country: 'US',
+    language: 'en',
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+
+  db.insert(schedules).values({
+    id: 'sched_1',
+    projectId: 'proj_1',
+    cronExpr: '0 6 * * *',
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+
+  db.insert(notifications).values({
+    id: 'notif_1',
+    projectId: 'proj_1',
+    channel: 'webhook',
+    config: '{}',
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+
+  db.delete(projects).where(eq(projects.id, 'proj_1')).run()
+
+  assert.equal(db.select().from(schedules).all().length, 0)
+  assert.equal(db.select().from(notifications).all().length, 0)
 
   cleanup(tmpDir)
 })

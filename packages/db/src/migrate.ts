@@ -99,8 +99,35 @@ CREATE INDEX IF NOT EXISTS idx_snapshots_run ON query_snapshots(run_id);
 CREATE INDEX IF NOT EXISTS idx_snapshots_keyword ON query_snapshots(keyword_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_project ON audit_log(project_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at);
+CREATE TABLE IF NOT EXISTS schedules (
+  id          TEXT PRIMARY KEY,
+  project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  cron_expr   TEXT NOT NULL,
+  preset      TEXT,
+  timezone    TEXT NOT NULL DEFAULT 'UTC',
+  enabled     INTEGER NOT NULL DEFAULT 1,
+  providers   TEXT NOT NULL DEFAULT '[]',
+  last_run_at TEXT,
+  next_run_at TEXT,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL,
+  UNIQUE(project_id)
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id          TEXT PRIMARY KEY,
+  project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  channel     TEXT NOT NULL,
+  config      TEXT NOT NULL,
+  enabled     INTEGER NOT NULL DEFAULT 1,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_api_keys_prefix ON api_keys(key_prefix);
 CREATE INDEX IF NOT EXISTS idx_usage_scope_period ON usage_counters(scope, period);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_schedules_project ON schedules(project_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_project ON notifications(project_id);
 `
 
 const MIGRATIONS = [
