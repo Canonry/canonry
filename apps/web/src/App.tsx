@@ -430,12 +430,25 @@ function Sparkline({ points, tone }: { points: number[]; tone: MetricTone }) {
   )
 }
 
+function InfoTooltip({ text }: { text: string }) {
+  return (
+    <span className="info-tooltip-wrapper">
+      <svg className="info-tooltip-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M8 7v4M8 5.5v0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+      <span className="info-tooltip-bubble" role="tooltip">{text}</span>
+    </span>
+  )
+}
+
 function ScoreGauge({
   value,
   label,
   delta,
   tone,
   description,
+  tooltip,
   isNumeric = true,
 }: {
   value: string
@@ -443,6 +456,7 @@ function ScoreGauge({
   delta: string
   tone: MetricTone
   description: string
+  tooltip?: string
   isNumeric?: boolean
 }) {
   const radius = 48
@@ -472,7 +486,10 @@ function ScoreGauge({
           <span className={isNumeric ? 'gauge-value' : 'gauge-value-text'}>{value.split(' / ')[0]}</span>
         </div>
       </div>
-      <p className="gauge-label">{label}</p>
+      <p className="gauge-label">
+        {label}
+        {tooltip && <InfoTooltip text={tooltip} />}
+      </p>
       <p className="gauge-delta">{delta}</p>
       <p className="gauge-description">{description}</p>
     </div>
@@ -1066,6 +1083,7 @@ function ProjectPage({
           delta={model.visibilitySummary.delta}
           tone={model.visibilitySummary.tone}
           description={model.visibilitySummary.description}
+          tooltip={model.visibilitySummary.tooltip}
           isNumeric={isNumericScore(model.visibilitySummary.value)}
         />
         {model.readinessSummary ? (
@@ -1075,6 +1093,7 @@ function ProjectPage({
             delta={model.readinessSummary.delta}
             tone={model.readinessSummary.tone}
             description={model.readinessSummary.description}
+            tooltip={model.readinessSummary.tooltip}
             isNumeric={isNumericScore(model.readinessSummary.value)}
           />
         ) : (
@@ -1084,6 +1103,7 @@ function ProjectPage({
             delta="Coming soon"
             tone="neutral"
             description="Enable with site audits in a future release."
+            tooltip="Site audit scores for technical SEO signals. Coming in a future release."
             isNumeric={false}
           />
         )}
@@ -1093,6 +1113,7 @@ function ProjectPage({
           delta={model.competitorPressure.delta}
           tone={model.competitorPressure.tone}
           description={model.competitorPressure.description}
+          tooltip={model.competitorPressure.tooltip}
           isNumeric={isNumericScore(model.competitorPressure.value)}
         />
         <ScoreGauge
@@ -1101,6 +1122,7 @@ function ProjectPage({
           delta={model.runStatus.delta}
           tone={model.runStatus.tone}
           description={model.runStatus.description}
+          tooltip={model.runStatus.tooltip}
           isNumeric={isNumericScore(model.runStatus.value)}
         />
       </section>
@@ -1111,7 +1133,7 @@ function ProjectPage({
           <div className="section-head section-head-inline">
             <div>
               <p className="eyebrow eyebrow-soft">Provider breakdown</p>
-              <h2>Visibility by provider</h2>
+              <h2>Visibility by provider <InfoTooltip text="Per-provider citation rate. Shows how often each AI engine cites your domain across all tracked keywords. Useful for identifying which engines favor your content." /></h2>
             </div>
           </div>
           <div className="grid grid-cols-3 gap-3">

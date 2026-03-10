@@ -133,6 +133,22 @@ function summaryFromRun(run: ApiRun): string {
   }
 }
 
+/** Count unique keywords that are cited by at least one provider. */
+function computeKeywordVisibility(snapshots: ApiRunDetail['snapshots']): { score: number; citedCount: number; totalCount: number } {
+  if (snapshots.length === 0) return { score: 0, citedCount: 0, totalCount: 0 }
+  const keywordCited = new Map<string, boolean>()
+  for (const snap of snapshots) {
+    const kw = snap.keyword ?? snap.id
+    if (!keywordCited.has(kw)) keywordCited.set(kw, false)
+    if (snap.citationState === 'cited') keywordCited.set(kw, true)
+  }
+  const totalCount = keywordCited.size
+  const citedCount = [...keywordCited.values()].filter(Boolean).length
+  const score = totalCount > 0 ? Math.round((citedCount / totalCount) * 100) : 0
+  return { score, citedCount, totalCount }
+}
+
+/** Legacy per-snapshot score used for provider breakdown. */
 function computeVisibilityScore(snapshots: ApiRunDetail['snapshots']): number {
   if (snapshots.length === 0) return 0
   const cited = snapshots.filter(s => s.citationState === 'cited').length
@@ -309,6 +325,7 @@ function runStatusSummary(projectRuns: ApiRun[]): ScoreSummaryVm {
       delta: 'No runs yet',
       tone: 'neutral',
       description: 'Trigger a visibility sweep to start tracking.',
+      tooltip: 'Current execution state of visibility sweeps. Shows the status of the most recent run and total run count.',
       trend: [],
     }
   }
@@ -330,6 +347,7 @@ function runStatusSummary(projectRuns: ApiRun[]): ScoreSummaryVm {
     delta: `${projectRuns.length} total runs`,
     tone,
     description: `Latest: ${kindLabel(latest.kind)} — ${latest.status}`,
+    tooltip: 'Current execution state of visibility sweeps. Shows the status of the most recent run and total run count.',
     trend: [],
   }
 }
@@ -347,7 +365,7 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
   const dto = toProjectDto(data.project)
   const evidence = buildEvidenceFromTimeline(data.timeline, data.latestRunDetail)
   const snapshots = data.latestRunDetail?.snapshots ?? []
-  const visScore = computeVisibilityScore(snapshots)
+  const kwVis = computeKeywordVisibility(snapshots)
   const pressure = computeCompetitorPressure(snapshots, data.competitors.map(c => c.domain))
   const insights = buildInsights(evidence)
 
@@ -378,12 +396,13 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
     contextLabel: `${dto.country} / ${dto.language.toUpperCase()}`,
     visibilitySummary: {
       label: 'Answer Visibility',
-      value: snapshots.length > 0 ? `${visScore} / 100` : 'No data',
-      delta: snapshots.length > 0 ? `${snapshots.filter(s => s.citationState === 'cited').length} of ${snapshots.length} cited` : 'Run a sweep first',
-      tone: snapshots.length > 0 ? scoreTone(visScore) : 'neutral',
+      value: snapshots.length > 0 ? `${kwVis.score}` : 'No data',
+      delta: snapshots.length > 0 ? `${kwVis.citedCount} of ${kwVis.totalCount} keywords visible` : 'Run a sweep first',
+      tone: snapshots.length > 0 ? scoreTone(kwVis.score) : 'neutral',
       description: snapshots.length > 0
-        ? `${visScore}% of tracked keywords cite your domain in AI answers.`
+        ? `${kwVis.citedCount} of ${kwVis.totalCount} tracked keywords found your domain in at least one AI answer engine.`
         : 'No visibility data yet. Trigger a run to start tracking.',
+      tooltip: 'Percentage of tracked keywords where your domain is cited by at least one AI answer engine. A keyword is "visible" if any configured provider includes your site in its response.',
       trend: [],
     },
     providerScores,
@@ -396,6 +415,7 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
       description: data.competitors.length > 0
         ? `${data.competitors.length} competitor${data.competitors.length > 1 ? 's' : ''} tracked.`
         : 'No competitors configured.',
+      tooltip: 'How often competitor domains appear alongside yours in AI answers. High pressure means competitors are frequently cited for the same keywords.',
       trend: [],
     },
     runStatus: runStatusSummary(sortedRuns),
@@ -434,7 +454,7 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
 export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
   const dto = toProjectDto(data.project)
   const snapshots = data.latestRunDetail?.snapshots ?? []
-  const visScore = computeVisibilityScore(snapshots)
+  const kwVis = computeKeywordVisibility(snapshots)
   const pressure = computeCompetitorPressure(snapshots, data.competitors.map(c => c.domain))
   const sortedRuns = [...data.runs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 
@@ -457,17 +477,15 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
         triggerLabel: '',
       }
 
-  const cited = snapshots.filter(s => s.citationState === 'cited').length
-
   return {
     project: dto,
-    visibilityScore: visScore,
-    visibilityDelta: snapshots.length > 0 ? `${cited} of ${snapshots.length} cited` : 'No data',
+    visibilityScore: kwVis.score,
+    visibilityDelta: snapshots.length > 0 ? `${kwVis.citedCount} of ${kwVis.totalCount} keywords` : 'No data',
     readinessScore: undefined,
     readinessDelta: undefined,
     lastRun: runItem,
     insight: snapshots.length > 0
-      ? `${visScore}% visibility across ${snapshots.length} keywords.`
+      ? `${kwVis.citedCount} of ${kwVis.totalCount} keywords visible across ${new Set(snapshots.map(s => s.provider)).size} provider${new Set(snapshots.map(s => s.provider)).size > 1 ? 's' : ''}.`
       : 'No runs completed yet.',
     trend: [],
     competitorPressureLabel: pressure.label,

@@ -982,6 +982,24 @@
     @apply mx-1 self-center text-zinc-800;
   }
 
+  /* ── Info tooltip ── */
+
+  .info-tooltip-wrapper {
+    @apply relative inline-flex items-center ml-1 align-middle;
+  }
+
+  .info-tooltip-icon {
+    @apply size-3 text-zinc-600 cursor-help transition hover:text-zinc-400;
+  }
+
+  .info-tooltip-bubble {
+    @apply pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-56 -translate-x-1/2 rounded-lg border border-zinc-700/60 bg-zinc-900 px-3 py-2 text-[11px] font-normal normal-case tracking-normal leading-4 text-zinc-300 opacity-0 shadow-lg transition-opacity;
+  }
+
+  .info-tooltip-wrapper:hover .info-tooltip-bubble {
+    @apply pointer-events-auto opacity-100;
+  }
+
   /* ── Misc helpers ── */
 
   .sr-only {
