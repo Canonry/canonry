@@ -1334,6 +1334,11 @@ function RunsPage({ runs, onOpenRun }: { runs: RunListItemVm[]; onOpenRun: (runI
   )
 }
 
+const PROVIDER_KEY_URLS: Record<string, string> = {
+  openai: 'https://platform.openai.com/api-keys',
+  claude: 'https://platform.claude.com/settings/keys',
+}
+
 function ProviderConfigForm({ providerName, onSaved }: { providerName: string; onSaved: () => void }) {
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState('')
@@ -1362,10 +1367,24 @@ function ProviderConfigForm({ providerName, onSaved }: { providerName: string; o
     }
   }
 
+  const keyUrl = PROVIDER_KEY_URLS[providerName.toLowerCase()]
+
   return (
     <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 space-y-2">
       <div>
-        <label className="text-xs text-zinc-500" htmlFor={`api-key-${providerName}`}>API Key</label>
+        <div className="flex items-center justify-between">
+          <label className="text-xs text-zinc-500" htmlFor={`api-key-${providerName}`}>API Key</label>
+          {keyUrl && (
+            <a
+              href={keyUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[10px] text-zinc-500 hover:text-zinc-300 underline underline-offset-2"
+            >
+              Get API key ↗
+            </a>
+          )}
+        </div>
         <input
           id={`api-key-${providerName}`}
           type="password"
