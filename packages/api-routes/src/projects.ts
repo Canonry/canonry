@@ -1,11 +1,15 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { projects, keywords, competitors } from '@ainyc/aeo-platform-db'
+import { projects, keywords, competitors, schedules, notifications } from '@ainyc/aeo-platform-db'
 import { validationError } from '@ainyc/aeo-platform-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 
-export async function projectRoutes(app: FastifyInstance) {
+export interface ProjectRoutesOptions {
+  onProjectDeleted?: (projectId: string) => void
+}
+
+export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOptions) {
   // PUT /projects/:name — upsert project
   app.put<{
     Params: { name: string }
@@ -127,6 +131,7 @@ export async function projectRoutes(app: FastifyInstance) {
     })
 
     app.db.delete(projects).where(eq(projects.id, project.id)).run()
+    opts.onProjectDeleted?.(project.id)
     return reply.status(204).send()
   })
 
@@ -145,6 +150,8 @@ export async function projectRoutes(app: FastifyInstance) {
 
     const kws = app.db.select().from(keywords).where(eq(keywords.projectId, project.id)).all()
     const comps = app.db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
+    const schedule = app.db.select().from(schedules).where(eq(schedules.projectId, project.id)).get()
+    const notificationRows = app.db.select().from(notifications).where(eq(notifications.projectId, project.id)).all()
 
     const config = {
       apiVersion: 'canonry/v1',
@@ -161,6 +168,21 @@ export async function projectRoutes(app: FastifyInstance) {
         keywords: kws.map(k => k.keyword),
         competitors: comps.map(c => c.domain),
         providers: JSON.parse(project.providers || '[]') as string[],
+        notifications: notificationRows.map((row) => {
+          const cfg = JSON.parse(row.config) as { url: string; events: string[] }
+          return {
+            channel: row.channel,
+            url: cfg.url,
+            events: cfg.events,
+          }
+        }),
+        ...(schedule ? {
+          schedule: {
+            ...(schedule.preset ? { preset: schedule.preset } : { cron: schedule.cronExpr }),
+            timezone: schedule.timezone,
+            providers: JSON.parse(schedule.providers || '[]') as string[],
+          },
+        } : {}),
       },
     }
 

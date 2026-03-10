@@ -1,9 +1,9 @@
-import crypto from 'node:crypto'
-import { eq, and, or, asc } from 'drizzle-orm'
+import { eq, asc } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { runs, querySnapshots, keywords } from '@ainyc/aeo-platform-db'
 import { unsupportedKind, runInProgress } from '@ainyc/aeo-platform-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
+import { queueRunIfProjectIdle } from './run-queue.js'
 
 export interface RunRoutesOptions {
   onRunCreated?: (runId: string, projectId: string, providers?: string[]) => void
@@ -25,7 +25,6 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     }
 
     const now = new Date().toISOString()
-    const runId = crypto.randomUUID()
     const trigger = request.body?.trigger ?? 'manual'
     const rawProviders = request.body?.providers
     const validProviders = ['gemini', 'openai', 'claude'] as const
@@ -37,39 +36,19 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     }
     const providers = rawProviders?.length ? rawProviders : undefined
 
-    // Check and insert atomically to prevent duplicate concurrent runs
-    const txResult = app.db.transaction((tx) => {
-      const activeRun = tx
-        .select()
-        .from(runs)
-        .where(
-          and(
-            eq(runs.projectId, project.id),
-            or(eq(runs.status, 'queued'), eq(runs.status, 'running')),
-          ),
-        )
-        .get()
-
-      if (activeRun) {
-        return { conflict: true } as const
-      }
-
-      tx.insert(runs).values({
-        id: runId,
-        projectId: project.id,
-        kind,
-        status: 'queued',
-        trigger,
-        createdAt: now,
-      }).run()
-
-      return { conflict: false } as const
+    const queueResult = queueRunIfProjectIdle(app.db, {
+      createdAt: now,
+      kind,
+      projectId: project.id,
+      trigger,
     })
 
-    if (txResult.conflict) {
+    if (queueResult.conflict) {
       const err = runInProgress(project.name)
       return reply.status(err.statusCode).send(err.toJSON())
     }
+
+    const runId = queueResult.runId
 
     writeAuditLog(app.db, {
       projectId: project.id,

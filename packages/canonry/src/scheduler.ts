@@ -1,8 +1,8 @@
-import crypto from 'node:crypto'
 import cron from 'node-cron'
-import { eq, and, or } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
+import { queueRunIfProjectIdle } from '@ainyc/aeo-platform-api-routes'
 import type { DatabaseClient } from '@ainyc/aeo-platform-db'
-import { schedules, runs, projects } from '@ainyc/aeo-platform-db'
+import { schedules, projects } from '@ainyc/aeo-platform-db'
 import type { ProviderName } from '@ainyc/aeo-platform-contracts'
 
 export interface SchedulerCallbacks {
@@ -37,7 +37,7 @@ export class Scheduler {
       // it was supposed to fire, trigger immediately.
       if (missedRunAt && new Date(missedRunAt) < new Date()) {
         console.log(`[Scheduler] Catch-up run for project ${schedule.projectId} (missed ${missedRunAt})`)
-        this.triggerRun(schedule)
+        this.triggerRun(schedule.id, schedule.projectId)
       }
     }
 
@@ -85,7 +85,7 @@ export class Scheduler {
   }
 
   private registerCronTask(schedule: typeof schedules.$inferSelect): void {
-    const { projectId, cronExpr, timezone } = schedule
+    const { id: scheduleId, projectId, cronExpr, timezone } = schedule
 
     if (!cron.validate(cronExpr)) {
       console.error(`[Scheduler] Invalid cron expression for project ${projectId}: ${cronExpr}`)
@@ -93,74 +93,66 @@ export class Scheduler {
     }
 
     const task = cron.schedule(cronExpr, () => {
-      this.triggerRun(schedule)
+      this.triggerRun(scheduleId, projectId)
     }, {
       timezone,
     })
 
     this.tasks.set(projectId, task)
+    this.db.update(schedules).set({
+      nextRunAt: task.getNextRun()?.toISOString() ?? null,
+      updatedAt: new Date().toISOString(),
+    }).where(eq(schedules.id, scheduleId)).run()
 
     const label = schedule.preset ?? cronExpr
     console.log(`[Scheduler] Registered "${label}" (${timezone}) for project ${projectId}`)
   }
 
-  private triggerRun(schedule: typeof schedules.$inferSelect): void {
-    const { projectId } = schedule
+  private triggerRun(scheduleId: string, projectId: string): void {
     const now = new Date().toISOString()
+    const currentSchedule = this.db.select().from(schedules).where(eq(schedules.id, scheduleId)).get()
+    if (!currentSchedule || currentSchedule.enabled !== 1) {
+      console.log(`[Scheduler] Schedule ${scheduleId} no longer exists or is disabled, removing task for project ${projectId}`)
+      this.remove(projectId)
+      return
+    }
+
+    const task = this.tasks.get(projectId)
+    const nextRunAt = task?.getNextRun()?.toISOString() ?? null
 
     // Check if project still exists
     const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
     if (!project) {
       console.error(`[Scheduler] Project ${projectId} not found, skipping scheduled run`)
-      this.db.update(schedules).set({ nextRunAt: null, updatedAt: now }).where(eq(schedules.id, schedule.id)).run()
+      this.remove(projectId)
       return
     }
 
-    // Check for active runs (prevent duplicates)
-    const activeRun = this.db
-      .select()
-      .from(runs)
-      .where(
-        and(
-          eq(runs.projectId, projectId),
-          or(eq(runs.status, 'queued'), eq(runs.status, 'running')),
-        ),
-      )
-      .get()
-
-    if (activeRun) {
-      console.log(`[Scheduler] Skipping scheduled run for ${project.name} — run ${activeRun.id} already active`)
-      this.db.update(schedules).set({ nextRunAt: null, updatedAt: now }).where(eq(schedules.id, schedule.id)).run()
-      return
-    }
-
-    // Mark this slot as in-progress so a crash before the insert is detected
-    // as a missed run on the next server start. Written here (after all early
-    // returns) so no stale marker is left when the run was skipped.
-    this.db.update(schedules).set({ nextRunAt: new Date().toISOString() })
-      .where(eq(schedules.id, schedule.id)).run()
-
-    // Create the run
-    const runId = crypto.randomUUID()
-    this.db.insert(runs).values({
-      id: runId,
-      projectId,
-      kind: 'answer-visibility',
-      status: 'queued',
-      trigger: 'scheduled',
+    const queueResult = queueRunIfProjectIdle(this.db, {
       createdAt: now,
-    }).run()
+      kind: 'answer-visibility',
+      projectId,
+      trigger: 'scheduled',
+    })
 
-    // Update schedule timestamps; clear nextRunAt so a clean restart does not
-    // mistake a completed slot for a missed run.
+    if (queueResult.conflict) {
+      console.log(`[Scheduler] Skipping scheduled run for ${project.name} — run ${queueResult.activeRunId} already active`)
+      this.db.update(schedules).set({
+        nextRunAt,
+        updatedAt: now,
+      }).where(eq(schedules.id, currentSchedule.id)).run()
+      return
+    }
+
+    const runId = queueResult.runId
     this.db.update(schedules).set({
       lastRunAt: now,
-      nextRunAt: null,
+      nextRunAt,
       updatedAt: now,
-    }).where(eq(schedules.id, schedule.id)).run()
+    }).where(eq(schedules.id, currentSchedule.id)).run()
 
     // Resolve providers
-    const scheduleProviders = JSON.parse(schedule.providers) as string[]
+    const scheduleProviders = JSON.parse(currentSchedule.providers) as string[]
     const providers = scheduleProviders.length > 0 ? scheduleProviders as ProviderName[] : undefined
 
     console.log(`[Scheduler] Triggered scheduled run ${runId} for project ${project.name}`)

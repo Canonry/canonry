@@ -5,7 +5,7 @@ import { projects, keywords, competitors, schedules, notifications } from '@ainy
 import { projectConfigSchema, validationError } from '@ainyc/aeo-platform-contracts'
 import { writeAuditLog } from './helpers.js'
 import { resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
-import { validateWebhookUrl } from './notifications.js'
+import { resolveWebhookTarget } from './webhooks.js'
 
 export interface ApplyRoutesOptions {
   onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string) => void
@@ -191,7 +191,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     if ('notifications' in rawSpec) {
       // Validate all URLs before any writes so the replace is atomic.
       for (const notif of config.spec.notifications) {
-        const urlCheck = validateWebhookUrl(notif.url ?? '')
+        const urlCheck = await resolveWebhookTarget(notif.url ?? '')
         if (!urlCheck.ok) {
           return reply.status(400).send({
             error: { code: 'VALIDATION_ERROR', message: `Notification URL invalid: ${urlCheck.message}` },

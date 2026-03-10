@@ -1,40 +1,9 @@
 import { eq, desc, and, or } from 'drizzle-orm'
+import { deliverWebhook, resolveWebhookTarget } from '@ainyc/aeo-platform-api-routes'
 import type { DatabaseClient } from '@ainyc/aeo-platform-db'
 import { notifications, runs, querySnapshots, keywords, projects, auditLog } from '@ainyc/aeo-platform-db'
 import type { NotificationEvent, WebhookPayload } from '@ainyc/aeo-platform-contracts'
 import crypto from 'node:crypto'
-
-/** Validate that a webhook URL does not point to a private or loopback address. */
-function isSafeWebhookUrl(raw: string): boolean {
-  let parsed: URL
-  try {
-    parsed = new URL(raw)
-  } catch {
-    return false
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
-  const h = parsed.hostname
-  if (
-    h === 'localhost' ||
-    h === '0.0.0.0' ||
-    /^127\./.test(h) ||
-    /^10\./.test(h) ||
-    /^192\.168\./.test(h) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(h) ||
-    /^169\.254\./.test(h) ||
-    h === '::1' ||
-    /^\[::1\]$/.test(h) ||
-    /^::ffff:/i.test(h) ||
-    /^\[::ffff:/i.test(h) ||
-    /^fe[89ab][0-9a-f]:/i.test(h) ||
-    /^\[fe[89ab][0-9a-f]:/i.test(h) ||
-    /^f[cd][0-9a-f]{2}:/i.test(h) ||
-    /^\[f[cd][0-9a-f]{2}:/i.test(h)
-  ) {
-    return false
-  }
-  return true
-}
 
 export class Notifier {
   private db: DatabaseClient
@@ -202,11 +171,10 @@ export class Notifier {
   }
 
   private async sendWebhook(url: string, payload: WebhookPayload, notificationId: string, projectId: string, webhookSecret: string | null): Promise<void> {
-    // Safety: re-validate the URL at delivery time to guard against DNS rebinding
-    // and any records that predate the SSRF check.
-    if (!isSafeWebhookUrl(url)) {
+    const targetCheck = await resolveWebhookTarget(url)
+    if (!targetCheck.ok) {
       console.error(`[Notifier] Webhook URL blocked by SSRF check: ${url}`)
-      this.logDelivery(projectId, notificationId, payload.event, 'failed', 'SSRF: URL resolved to a blocked address')
+      this.logDelivery(projectId, notificationId, payload.event, 'failed', `SSRF: ${targetCheck.message}`)
       return
     }
 
@@ -217,30 +185,15 @@ export class Notifier {
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        const body = JSON.stringify(payload)
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-          'User-Agent': 'Canonry/0.1.0',
-        }
-        if (webhookSecret) {
-          headers['X-Canonry-Signature'] = 'sha256=' + crypto.createHmac('sha256', webhookSecret).update(body).digest('hex')
-        }
+        const response = await deliverWebhook(targetCheck.target, payload, webhookSecret)
 
-        const response = await fetch(url, {
-          method: 'POST',
-          headers,
-          body,
-          redirect: 'manual',
-          signal: AbortSignal.timeout(10000),
-        })
-
-        if (response.ok) {
+        if (response.status >= 200 && response.status < 300) {
           console.log(`[Notifier] Webhook delivered: event="${payload.event}" status=${response.status}`)
           this.logDelivery(projectId, notificationId, payload.event, 'sent', null)
           return
         }
 
-        const errorDetail = `HTTP ${response.status}`
+        const errorDetail = response.error ?? `HTTP ${response.status}`
         console.warn(`[Notifier] Webhook attempt ${attempt + 1}/${maxRetries} failed: ${errorDetail}`)
         if (attempt === maxRetries - 1) {
           this.logDelivery(projectId, notificationId, payload.event, 'failed', errorDetail)

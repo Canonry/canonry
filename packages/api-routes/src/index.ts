@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import type { DatabaseClient } from '@ainyc/aeo-platform-db'
 import { authPlugin } from './auth.js'
 import { projectRoutes } from './projects.js'
+import type { ProjectRoutesOptions } from './projects.js'
 import { keywordRoutes } from './keywords.js'
 import { competitorRoutes } from './competitors.js'
 import { runRoutes } from './runs.js'
@@ -32,6 +33,8 @@ export interface ApiRoutesOptions {
   onProviderUpdate?: (provider: string, apiKey: string, model?: string) => ProviderSummaryEntry | null
   /** Callback when a schedule is created/updated/deleted */
   onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string) => void
+  /** Callback when a project is deleted */
+  onProjectDeleted?: (projectId: string) => void
 }
 
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
@@ -45,7 +48,9 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
 
   // Register route plugins under /api/v1
   await app.register(async (api) => {
-    await api.register(projectRoutes)
+    await api.register(projectRoutes, {
+      onProjectDeleted: opts.onProjectDeleted,
+    } satisfies ProjectRoutesOptions)
     await api.register(keywordRoutes)
     await api.register(competitorRoutes)
     await api.register(runRoutes, { onRunCreated: opts.onRunCreated } satisfies RunRoutesOptions)
@@ -65,4 +70,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
 }
 
 export type { DatabaseClient } from '@ainyc/aeo-platform-db'
+export { queueRunIfProjectIdle } from './run-queue.js'
+export { deliverWebhook, resolveWebhookTarget } from './webhooks.js'
+export type { SafeWebhookTarget } from './webhooks.js'
 export type { RunRoutesOptions } from './runs.js'

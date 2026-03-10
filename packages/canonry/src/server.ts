@@ -165,6 +165,9 @@ export async function createServer(opts: {
       if (action === 'upsert') scheduler.upsert(projectId)
       if (action === 'delete') scheduler.remove(projectId)
     },
+    onProjectDeleted: (projectId: string) => {
+      scheduler.remove(projectId)
+    },
   })
 
   // Try to serve static SPA assets
