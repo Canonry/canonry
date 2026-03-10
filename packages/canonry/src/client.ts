@@ -82,8 +82,8 @@ export class ApiClient {
     return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/competitors`)
   }
 
-  async triggerRun(project: string): Promise<object> {
-    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/runs`, {})
+  async triggerRun(project: string, body?: Record<string, unknown>): Promise<object> {
+    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/runs`, body ?? {})
   }
 
   async listRuns(project: string): Promise<object[]> {
@@ -116,5 +116,9 @@ export class ApiClient {
 
   async getSettings(): Promise<object> {
     return this.request<object>('GET', '/settings')
+  }
+
+  async updateProvider(name: string, body: { apiKey: string; model?: string }): Promise<object> {
+    return this.request<object>('PUT', `/settings/providers/${encodeURIComponent(name)}`, body)
   }
 }

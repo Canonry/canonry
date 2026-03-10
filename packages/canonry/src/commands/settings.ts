@@ -6,18 +6,40 @@ function getClient(): ApiClient {
   return new ApiClient(config.apiUrl, config.apiKey)
 }
 
+export async function setProvider(name: string, opts: { apiKey: string; model?: string }): Promise<void> {
+  const client = getClient()
+  const result = await client.updateProvider(name, opts) as {
+    name: string
+    model?: string
+    configured: boolean
+  }
+  console.log(`Provider ${result.name} updated successfully.`)
+  if (result.model) {
+    console.log(`  Model: ${result.model}`)
+  }
+}
+
 export async function showSettings(): Promise<void> {
   const client = getClient()
   const settings = await client.getSettings() as {
-    provider: { name: string; model: string }
-    quota: { maxConcurrency: number; maxRequestsPerMinute: number; maxRequestsPerDay: number }
+    providers: Array<{
+      name: string
+      model?: string
+      configured: boolean
+      quota?: { maxConcurrency: number; maxRequestsPerMinute: number; maxRequestsPerDay: number }
+    }>
   }
 
   console.log('Provider settings:\n')
-  console.log(`  Provider: ${settings.provider.name}`)
-  console.log(`  Model:    ${settings.provider.model}`)
-  console.log('\nQuota policy:\n')
-  console.log(`  Max concurrency:        ${settings.quota.maxConcurrency}`)
-  console.log(`  Max requests/minute:    ${settings.quota.maxRequestsPerMinute}`)
-  console.log(`  Max requests/day:       ${settings.quota.maxRequestsPerDay}`)
+
+  for (const provider of settings.providers) {
+    const status = provider.configured ? 'configured' : 'not configured'
+    console.log(`  ${provider.name.padEnd(10)} ${status}`)
+    if (provider.configured) {
+      console.log(`    Model:     ${provider.model ?? '(default)'}`)
+      if (provider.quota) {
+        console.log(`    Quota:     ${provider.quota.maxConcurrency} concurrent · ${provider.quota.maxRequestsPerMinute}/min · ${provider.quota.maxRequestsPerDay}/day`)
+      }
+    }
+  }
 }

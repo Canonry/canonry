@@ -2,28 +2,16 @@ import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/aeo-platform-db'
 import { runs, keywords, competitors, projects, querySnapshots, usageCounters } from '@ainyc/aeo-platform-db'
-import { executeTrackedQuery, normalizeResult, type GeminiConfig } from '@ainyc/aeo-platform-provider-gemini'
+import type { ProviderName, NormalizedQueryResult } from '@ainyc/aeo-platform-contracts'
+import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 
 export class JobRunner {
   private db: DatabaseClient
-  private geminiConfig: GeminiConfig
+  private registry: ProviderRegistry
 
-  constructor(
-    db: DatabaseClient,
-    geminiApiKey: string,
-    geminiModel?: string,
-    quotaPolicy?: { maxConcurrency: number; maxRequestsPerMinute: number; maxRequestsPerDay: number },
-  ) {
+  constructor(db: DatabaseClient, registry: ProviderRegistry) {
     this.db = db
-    this.geminiConfig = {
-      apiKey: geminiApiKey,
-      model: geminiModel,
-      quotaPolicy: quotaPolicy ?? {
-        maxConcurrency: 2,
-        maxRequestsPerMinute: 10,
-        maxRequestsPerDay: 1000,
-      },
-    }
+    this.registry = registry
   }
 
   async executeRun(runId: string, projectId: string): Promise<void> {
@@ -48,6 +36,16 @@ export class JobRunner {
         throw new Error(`Project ${projectId} not found`)
       }
 
+      // Resolve which providers to use for this project
+      const projectProviders = JSON.parse(project.providers || '[]') as ProviderName[]
+      const activeProviders = this.registry.getForProject(projectProviders)
+
+      if (activeProviders.length === 0) {
+        throw new Error('No providers configured. Add at least one provider API key.')
+      }
+
+      console.log(`[JobRunner] Run ${runId}: dispatching to ${activeProviders.length} providers: ${activeProviders.map(p => p.adapter.name).join(', ')}`)
+
       // Fetch keywords for the project
       const projectKeywords = this.db
         .select()
@@ -64,12 +62,9 @@ export class JobRunner {
 
       const competitorDomains = projectCompetitors.map(c => c.domain)
 
-      // Enforce daily quota before dispatching any requests
-      const quota = this.geminiConfig.quotaPolicy
-      const todayPeriod = (() => {
-        const d = new Date()
-        return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
-      })()
+      // Enforce daily quota — check the most restrictive provider
+      const totalQueriesNeeded = projectKeywords.length * activeProviders.length
+      const todayPeriod = getCurrentPeriod()
       const todayUsage = this.db
         .select()
         .from(usageCounters)
@@ -78,112 +73,111 @@ export class JobRunner {
         .filter(r => r.period === todayPeriod && r.metric === 'queries')
         .reduce((sum, r) => sum + r.count, 0)
 
-      if (todayUsage + projectKeywords.length > quota.maxRequestsPerDay) {
+      const minDailyQuota = Math.min(...activeProviders.map(p => p.config.quotaPolicy.maxRequestsPerDay))
+      if (todayUsage + totalQueriesNeeded > minDailyQuota) {
         throw new Error(
-          `Daily quota exceeded: ${todayUsage} queries used today, limit is ${quota.maxRequestsPerDay}. ` +
-          `This run needs ${projectKeywords.length} more.`,
+          `Daily quota exceeded: ${todayUsage} queries used today, limit is ${minDailyQuota}. ` +
+          `This run needs ${totalQueriesNeeded} more.`,
         )
       }
 
-      // Rate-limit: track request timestamps to stay within maxRequestsPerMinute
-      const minuteWindow: number[] = []
+      // Per-provider rate limiting: separate sliding windows
+      const minuteWindows = new Map<ProviderName, number[]>()
+      for (const p of activeProviders) {
+        minuteWindows.set(p.adapter.name, [])
+      }
 
-      // Process each keyword
+      // Track per-provider errors for partial completion
+      const providerErrors = new Map<ProviderName, string>()
+      let totalSnapshotsInserted = 0
+
+      // Process each keyword across all providers
       for (const kw of projectKeywords) {
-        // Enforce per-minute rate limit before each request
-        const now = Date.now()
-        const windowStart = now - 60_000
-        while (minuteWindow.length > 0 && minuteWindow[0]! < windowStart) {
-          minuteWindow.shift()
-        }
-        if (minuteWindow.length >= quota.maxRequestsPerMinute) {
-          const oldestInWindow = minuteWindow[0]!
-          const waitMs = oldestInWindow + 60_000 - now + 50
-          await new Promise(resolve => setTimeout(resolve, waitMs))
-          const nowAfterWait = Date.now()
-          const newWindowStart = nowAfterWait - 60_000
-          while (minuteWindow.length > 0 && minuteWindow[0]! < newWindowStart) {
-            minuteWindow.shift()
-          }
-        }
-        minuteWindow.push(Date.now())
+        // Fan out across providers for this keyword
+        const providerPromises = activeProviders.map(async (registeredProvider) => {
+          const { adapter, config } = registeredProvider
+          const providerName = adapter.name
 
-        const raw = await executeTrackedQuery({
-          keyword: kw.keyword,
-          canonicalDomains: [project.canonicalDomain],
-          competitorDomains,
-          config: this.geminiConfig,
+          try {
+            // Enforce per-minute rate limit
+            await this.waitForRateLimit(
+              minuteWindows.get(providerName)!,
+              config.quotaPolicy.maxRequestsPerMinute,
+            )
+
+            const raw = await adapter.executeTrackedQuery(
+              {
+                keyword: kw.keyword,
+                canonicalDomains: [project.canonicalDomain],
+                competitorDomains,
+              },
+              config,
+            )
+
+            const normalized = adapter.normalizeResult(raw)
+
+            console.log(`[JobRunner] ${providerName}: "${kw.keyword}" citedDomains=${JSON.stringify(normalized.citedDomains)}, groundingSources=${JSON.stringify(normalized.groundingSources.map(s => s.uri))}, canonical="${project.canonicalDomain}"`)
+            const citationState = determineCitationState(normalized, project.canonicalDomain)
+            const overlap = computeCompetitorOverlap(normalized, competitorDomains)
+
+            this.db.insert(querySnapshots).values({
+              id: crypto.randomUUID(),
+              runId,
+              keywordId: kw.id,
+              provider: providerName,
+              citationState,
+              answerText: normalized.answerText,
+              citedDomains: JSON.stringify(normalized.citedDomains),
+              competitorOverlap: JSON.stringify(overlap),
+              rawResponse: JSON.stringify({
+                model: raw.model,
+                groundingSources: normalized.groundingSources,
+                searchQueries: normalized.searchQueries,
+                apiResponse: raw.rawResponse,
+              }),
+              createdAt: new Date().toISOString(),
+            }).run()
+
+            totalSnapshotsInserted++
+            console.log(`[JobRunner] ${providerName}: keyword "${kw.keyword}" → ${citationState}`)
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err)
+            console.error(`[JobRunner] ${providerName}: keyword "${kw.keyword}" FAILED: ${msg}`)
+            providerErrors.set(providerName, msg)
+          }
         })
 
-        const normalized = normalizeResult(raw)
-
-        // Determine citation state
-        const citationState = normalized.citedDomains.some(
-          d => d === project.canonicalDomain || d.endsWith(`.${project.canonicalDomain}`),
-        )
-          ? 'cited'
-          : 'not-cited'
-
-        // Compute competitor overlap from grounding sources AND answer text
-        const overlapSet = new Set<string>()
-
-        // Check grounding source domains
-        for (const d of normalized.citedDomains) {
-          for (const cd of competitorDomains) {
-            if (d === cd || d.endsWith(`.${cd}`)) {
-              overlapSet.add(cd)
-            }
-          }
-        }
-
-        // Check answer text for competitor domain mentions
-        if (normalized.answerText) {
-          const lowerAnswer = normalized.answerText.toLowerCase()
-          for (const cd of competitorDomains) {
-            // Check for domain mention (e.g. "example.com")
-            if (lowerAnswer.includes(cd.toLowerCase())) {
-              overlapSet.add(cd)
-            }
-            // Check for whole-word brand name (domain without TLD, e.g. "example" from "example.com")
-            const brand = cd.split('.')[0]
-            if (brand.length >= 4 && new RegExp(`\\b${brand}\\b`, 'i').test(lowerAnswer)) {
-              overlapSet.add(cd)
-            }
-          }
-        }
-
-        const overlap = [...overlapSet]
-
-        // Insert query snapshot — rawResponse includes grounding sources
-        // and search queries for analyst review in the UI
-        this.db.insert(querySnapshots).values({
-          id: crypto.randomUUID(),
-          runId,
-          keywordId: kw.id,
-          provider: 'gemini',
-          citationState,
-          answerText: normalized.answerText,
-          citedDomains: JSON.stringify(normalized.citedDomains),
-          competitorOverlap: JSON.stringify(overlap),
-          rawResponse: JSON.stringify({
-            model: raw.model,
-            groundingSources: normalized.groundingSources,
-            searchQueries: normalized.searchQueries,
-            apiResponse: raw.rawResponse,
-          }),
-          createdAt: new Date().toISOString(),
-        }).run()
+        await Promise.all(providerPromises)
       }
 
-      // Mark run as completed
-      this.db
-        .update(runs)
-        .set({ status: 'completed', finishedAt: new Date().toISOString() })
-        .where(eq(runs.id, runId))
-        .run()
+      // Determine final run status
+      const allFailed = totalSnapshotsInserted === 0 && providerErrors.size > 0
+      const someFailed = providerErrors.size > 0
+
+      if (allFailed) {
+        const errorDetail = JSON.stringify(Object.fromEntries(providerErrors))
+        this.db
+          .update(runs)
+          .set({ status: 'failed', finishedAt: new Date().toISOString(), error: errorDetail })
+          .where(eq(runs.id, runId))
+          .run()
+      } else if (someFailed) {
+        const errorDetail = JSON.stringify(Object.fromEntries(providerErrors))
+        this.db
+          .update(runs)
+          .set({ status: 'partial', finishedAt: new Date().toISOString(), error: errorDetail })
+          .where(eq(runs.id, runId))
+          .run()
+      } else {
+        this.db
+          .update(runs)
+          .set({ status: 'completed', finishedAt: new Date().toISOString() })
+          .where(eq(runs.id, runId))
+          .run()
+      }
 
       // Increment usage counters
-      this.incrementUsage(projectId, 'queries', projectKeywords.length)
+      this.incrementUsage(projectId, 'queries', totalSnapshotsInserted)
       this.incrementUsage(projectId, 'runs', 1)
     } catch (err: unknown) {
       // Mark run as failed
@@ -200,12 +194,30 @@ export class JobRunner {
     }
   }
 
+  private async waitForRateLimit(window: number[], maxPerMinute: number): Promise<void> {
+    const now = Date.now()
+    const windowStart = now - 60_000
+    while (window.length > 0 && window[0]! < windowStart) {
+      window.shift()
+    }
+    if (window.length >= maxPerMinute) {
+      const oldestInWindow = window[0]!
+      const waitMs = oldestInWindow + 60_000 - now + 50
+      await new Promise(resolve => setTimeout(resolve, waitMs))
+      const nowAfterWait = Date.now()
+      const newWindowStart = nowAfterWait - 60_000
+      while (window.length > 0 && window[0]! < newWindowStart) {
+        window.shift()
+      }
+    }
+    window.push(Date.now())
+  }
+
   private incrementUsage(scope: string, metric: string, count: number): void {
     const now = new Date()
     const period = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
     const id = crypto.randomUUID()
 
-    // Try to find existing counter
     const existing = this.db
       .select()
       .from(usageCounters)
@@ -230,4 +242,105 @@ export class JobRunner {
       }).run()
     }
   }
+}
+
+function getCurrentPeriod(): string {
+  const d = new Date()
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+}
+
+/** Normalize a canonical domain that may be stored as a full URL (e.g. "https://www.ainyc.ai") to a bare domain ("ainyc.ai") */
+function normalizeDomain(input: string): string {
+  let domain = input
+  try {
+    if (domain.includes('://')) {
+      domain = new URL(domain).hostname
+    }
+  } catch {
+    // not a URL, use as-is
+  }
+  return domain.replace(/^www\./, '')
+}
+
+function domainMatches(domain: string, canonicalDomain: string): boolean {
+  const normalized = normalizeDomain(canonicalDomain)
+  const d = normalizeDomain(domain)
+  return d === normalized || d.endsWith(`.${normalized}`)
+}
+
+function determineCitationState(
+  normalized: NormalizedQueryResult,
+  canonicalDomain: string,
+): 'cited' | 'not-cited' {
+  const bareDomain = normalizeDomain(canonicalDomain)
+
+  // Check extracted cited domains
+  if (normalized.citedDomains.some(d => domainMatches(d, bareDomain))) {
+    return 'cited'
+  }
+
+  // Also check grounding source URIs and titles directly
+  const lowerDomain = bareDomain.toLowerCase()
+  for (const source of normalized.groundingSources) {
+    try {
+      const uri = source.uri.toLowerCase()
+      if (uri.includes(lowerDomain)) {
+        return 'cited'
+      }
+    } catch {
+      // ignore
+    }
+    // Gemini proxy URLs use base64 encoding, so the domain won't appear in the URI.
+    // The title field often contains the bare domain (e.g. "ainyc.ai").
+    if (source.title) {
+      const titleLower = source.title.toLowerCase().replace(/^www\./, '')
+      if (titleLower === lowerDomain || titleLower.endsWith(`.${lowerDomain}`)) {
+        return 'cited'
+      }
+    }
+  }
+
+  return 'not-cited'
+}
+
+function computeCompetitorOverlap(
+  normalized: NormalizedQueryResult,
+  competitorDomains: string[],
+): string[] {
+  const overlapSet = new Set<string>()
+
+  // Check extracted cited domains
+  for (const d of normalized.citedDomains) {
+    for (const cd of competitorDomains) {
+      if (domainMatches(d, cd)) {
+        overlapSet.add(cd)
+      }
+    }
+  }
+
+  // Check grounding source URIs (handles proxy URLs)
+  for (const source of normalized.groundingSources) {
+    const uri = source.uri.toLowerCase()
+    for (const cd of competitorDomains) {
+      if (uri.includes(cd.toLowerCase())) {
+        overlapSet.add(cd)
+      }
+    }
+  }
+
+  // Check answer text for competitor domain mentions
+  if (normalized.answerText) {
+    const lowerAnswer = normalized.answerText.toLowerCase()
+    for (const cd of competitorDomains) {
+      if (lowerAnswer.includes(cd.toLowerCase())) {
+        overlapSet.add(cd)
+      }
+      const brand = cd.split('.')[0]
+      if (brand && brand.length >= 4 && new RegExp(`\\b${brand}\\b`, 'i').test(lowerAnswer)) {
+        overlapSet.add(cd)
+      }
+    }
+  }
+
+  return [...overlapSet]
 }

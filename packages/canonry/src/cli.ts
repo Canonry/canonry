@@ -11,7 +11,7 @@ import { showEvidence } from './commands/evidence.js'
 import { showHistory } from './commands/history.js'
 import { applyConfig } from './commands/apply.js'
 import { exportProject } from './commands/export-cmd.js'
-import { showSettings } from './commands/settings.js'
+import { showSettings, setProvider } from './commands/settings.js'
 
 const USAGE = `
 canonry — AEO monitoring CLI
@@ -28,7 +28,8 @@ Usage:
   canonry keyword import <project> <file>  Import keywords from file
   canonry competitor add <project> <domain>  Add competitors
   canonry competitor list <project>   List competitors
-  canonry run <project>               Trigger a run
+  canonry run <project>               Trigger a run (all providers)
+  canonry run <project> --provider <name>  Trigger a run for a specific provider
   canonry runs <project>              List runs for a project
   canonry status <project>            Show project summary
   canonry evidence <project>          Show keyword-level results
@@ -36,6 +37,7 @@ Usage:
   canonry export <project>            Export project as YAML
   canonry apply <file>                Apply declarative config
   canonry settings                    Show active provider and quota settings
+  canonry settings provider <name>    Update a provider API key (--api-key, --model)
   canonry --help                      Show this help
   canonry --version                   Show version
 
@@ -44,6 +46,7 @@ Options:
   --domain <domain>    Canonical domain for project create
   --country <code>     Country code (default: US)
   --language <lang>    Language code (default: en)
+  --provider <name>    Provider to use (gemini, openai, claude)
   --include-results    Include results in export
 `.trim()
 
@@ -215,7 +218,14 @@ async function main() {
           console.error('Error: project name is required')
           process.exit(1)
         }
-        await triggerRun(project)
+        const runParsed = parseArgs({
+          args: args.slice(2),
+          options: {
+            provider: { type: 'string' },
+          },
+          allowPositionals: false,
+        })
+        await triggerRun(project, { provider: runParsed.values.provider })
         break
       }
 
@@ -280,9 +290,32 @@ async function main() {
         break
       }
 
-      case 'settings':
-        await showSettings()
+      case 'settings': {
+        const subcommand = args[1]
+        if (subcommand === 'provider') {
+          const name = args[2]
+          if (!name) {
+            console.error('Error: provider name is required (gemini, openai, claude)')
+            process.exit(1)
+          }
+          const { values } = parseArgs({
+            args: args.slice(3),
+            options: {
+              'api-key': { type: 'string' },
+              model: { type: 'string' },
+            },
+            allowPositionals: false,
+          })
+          if (!values['api-key']) {
+            console.error('Error: --api-key is required')
+            process.exit(1)
+          }
+          await setProvider(name, { apiKey: values['api-key'], model: values.model })
+        } else {
+          await showSettings()
+        }
         break
+      }
 
       default:
         console.error(`Unknown command: ${command}`)
