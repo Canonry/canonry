@@ -2,8 +2,8 @@ import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { schedules } from '@ainyc/aeo-platform-db'
-import { resolvePreset, validateCron } from '@ainyc/aeo-platform-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
+import { resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
 
 export interface ScheduleRoutesOptions {
   onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string) => void
@@ -13,16 +13,22 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
   // PUT /projects/:name/schedule — create or update schedule
   app.put<{
     Params: { name: string }
-    Body: { preset?: string; cron?: string; timezone?: string; providers?: string[] }
+    Body: { preset?: string; cron?: string; timezone?: string; providers?: string[]; enabled?: boolean }
   }>('/projects/:name/schedule', async (request, reply) => {
     const project = resolveProjectSafe(app, request.params.name, reply)
     if (!project) return
 
-    const { preset, cron, timezone = 'UTC', providers = [] } = request.body ?? {}
+    const { preset, cron, timezone = 'UTC', providers = [], enabled = true } = request.body ?? {}
 
     if ((!preset && !cron) || (preset && cron)) {
       return reply.status(400).send({
         error: { code: 'VALIDATION_ERROR', message: 'Exactly one of "preset" or "cron" must be provided' },
+      })
+    }
+
+    if (!isValidTimezone(timezone)) {
+      return reply.status(400).send({
+        error: { code: 'VALIDATION_ERROR', message: `Invalid timezone: ${timezone}` },
       })
     }
 
@@ -44,6 +50,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
     }
 
     const now = new Date().toISOString()
+    const enabledInt = enabled === false ? 0 : 1
     const existing = app.db.select().from(schedules).where(eq(schedules.projectId, project.id)).get()
 
     if (existing) {
@@ -52,7 +59,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
         preset: preset ?? null,
         timezone,
         providers: JSON.stringify(providers),
-        enabled: 1,
+        enabled: enabledInt,
         updatedAt: now,
       }).where(eq(schedules.id, existing.id)).run()
     } else {
@@ -62,7 +69,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
         cronExpr,
         preset: preset ?? null,
         timezone,
-        enabled: 1,
+        enabled: enabledInt,
         providers: JSON.stringify(providers),
         createdAt: now,
         updatedAt: now,

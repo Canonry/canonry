@@ -56,7 +56,13 @@ export async function enableSchedule(project: string): Promise<void> {
 
 export async function disableSchedule(project: string): Promise<void> {
   const client = getClient()
-  await client.deleteSchedule(project)
+  const current = await client.getSchedule(project) as ScheduleResponse
+  const body: Record<string, unknown> = { timezone: current.timezone, enabled: false }
+  if (current.preset) body.preset = current.preset
+  else body.cron = current.cronExpr
+  if (current.providers.length) body.providers = current.providers
+
+  await client.putSchedule(project, body)
   console.log(`Schedule disabled for "${project}"`)
 }
 

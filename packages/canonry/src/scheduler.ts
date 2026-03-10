@@ -28,15 +28,16 @@ export class Scheduler {
       .all()
 
     for (const schedule of allSchedules) {
+      // Capture nextRunAt before registration so the check uses the stored DB
+      // value, not a value that registerCronTask might have modified.
+      const missedRunAt = schedule.nextRunAt
       this.registerCronTask(schedule)
 
-      // Catch-up: if nextRunAt is in the past, trigger immediately
-      if (schedule.nextRunAt) {
-        const nextRun = new Date(schedule.nextRunAt)
-        if (nextRun < new Date()) {
-          console.log(`[Scheduler] Catch-up run for project ${schedule.projectId} (missed ${schedule.nextRunAt})`)
-          this.triggerRun(schedule)
-        }
+      // Catch-up: if the scheduled slot was set but the server was down when
+      // it was supposed to fire, trigger immediately.
+      if (missedRunAt && new Date(missedRunAt) < new Date()) {
+        console.log(`[Scheduler] Catch-up run for project ${schedule.projectId} (missed ${missedRunAt})`)
+        this.triggerRun(schedule)
       }
     }
 
@@ -92,20 +93,16 @@ export class Scheduler {
     }
 
     const task = cron.schedule(cronExpr, () => {
+      // Record when this slot fires so a crash before triggerRun completes can
+      // be detected as a missed run on the next server start.
+      this.db.update(schedules).set({ nextRunAt: new Date().toISOString() })
+        .where(eq(schedules.id, schedule.id)).run()
       this.triggerRun(schedule)
     }, {
       timezone,
     })
 
     this.tasks.set(projectId, task)
-
-    // Compute and store next run time
-    const nextRunAt = new Date()
-    nextRunAt.setMinutes(nextRunAt.getMinutes() + 1) // approximate — node-cron doesn't expose next tick
-    this.db.update(schedules).set({
-      nextRunAt: nextRunAt.toISOString(),
-      updatedAt: new Date().toISOString(),
-    }).where(eq(schedules.id, schedule.id)).run()
 
     const label = schedule.preset ?? cronExpr
     console.log(`[Scheduler] Registered "${label}" (${timezone}) for project ${projectId}`)
@@ -150,9 +147,11 @@ export class Scheduler {
       createdAt: now,
     }).run()
 
-    // Update schedule timestamps
+    // Update schedule timestamps; clear nextRunAt so a clean restart does not
+    // mistake a completed slot for a missed run.
     this.db.update(schedules).set({
       lastRunAt: now,
+      nextRunAt: null,
       updatedAt: now,
     }).where(eq(schedules.id, schedule.id)).run()
 

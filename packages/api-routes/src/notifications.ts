@@ -7,6 +7,33 @@ import { resolveProject, writeAuditLog } from './helpers.js'
 
 const VALID_EVENTS: NotificationEvent[] = ['citation.lost', 'citation.gained', 'run.completed', 'run.failed']
 
+/** Validate webhook URL: must be http/https and must not point to private/loopback addresses. */
+function validateWebhookUrl(raw: string): { ok: true; url: URL } | { ok: false; message: string } {
+  let parsed: URL
+  try {
+    parsed = new URL(raw)
+  } catch {
+    return { ok: false, message: '"url" must be a valid URL' }
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return { ok: false, message: '"url" must use http or https scheme' }
+  }
+  const h = parsed.hostname
+  if (
+    h === 'localhost' ||
+    h === '::1' ||
+    h === '0.0.0.0' ||
+    /^127\./.test(h) ||
+    /^10\./.test(h) ||
+    /^192\.168\./.test(h) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(h) ||
+    /^169\.254\./.test(h)
+  ) {
+    return { ok: false, message: '"url" must not point to a private or loopback address' }
+  }
+  return { ok: true, url: parsed }
+}
+
 export async function notificationRoutes(app: FastifyInstance) {
   // POST /projects/:name/notifications — create notification
   app.post<{
@@ -24,9 +51,10 @@ export async function notificationRoutes(app: FastifyInstance) {
       })
     }
 
-    if (!url) {
+    const urlCheck = validateWebhookUrl(url ?? '')
+    if (!urlCheck.ok) {
       return reply.status(400).send({
-        error: { code: 'VALIDATION_ERROR', message: '"url" is required' },
+        error: { code: 'VALIDATION_ERROR', message: urlCheck.message },
       })
     }
 
@@ -102,6 +130,58 @@ export async function notificationRoutes(app: FastifyInstance) {
     })
 
     return reply.status(204).send()
+  })
+
+  // POST /projects/:name/notifications/:id/test — send a test webhook from the server
+  app.post<{ Params: { name: string; id: string } }>('/projects/:name/notifications/:id/test', async (request, reply) => {
+    const project = resolveProjectSafe(app, request.params.name, reply)
+    if (!project) return
+
+    const notification = app.db.select().from(notifications).where(eq(notifications.id, request.params.id)).get()
+    if (!notification || notification.projectId !== project.id) {
+      return reply.status(404).send({
+        error: { code: 'NOT_FOUND', message: `Notification '${request.params.id}' not found` },
+      })
+    }
+
+    const config = JSON.parse(notification.config) as { url: string; events: string[] }
+    const payload = {
+      event: 'run.completed',
+      project: { name: project.name, canonicalDomain: project.canonicalDomain },
+      run: { id: 'test-run-id', status: 'completed', finishedAt: new Date().toISOString() },
+      transitions: [
+        { keyword: 'test keyword', from: 'not-cited', to: 'cited', provider: 'gemini' },
+      ],
+    }
+
+    let status: number
+    let error: string | null = null
+    try {
+      const res = await fetch(config.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'User-Agent': 'Canonry/0.1.0' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(10000),
+      })
+      status = res.status
+    } catch (err: unknown) {
+      status = 0
+      error = err instanceof Error ? err.message : String(err)
+    }
+
+    writeAuditLog(app.db, {
+      projectId: project.id,
+      actor: 'api',
+      action: 'notification.tested',
+      entityType: 'notification',
+      entityId: notification.id,
+      diff: { status, error },
+    })
+
+    if (error) {
+      return reply.status(502).send({ error: { code: 'DELIVERY_FAILED', message: error } })
+    }
+    return reply.send({ status, ok: status >= 200 && status < 300 })
   })
 }
 

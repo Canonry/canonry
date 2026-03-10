@@ -145,4 +145,8 @@ export class ApiClient {
   async deleteNotification(project: string, id: string): Promise<void> {
     await this.request<void>('DELETE', `/projects/${encodeURIComponent(project)}/notifications/${encodeURIComponent(id)}`)
   }
+
+  async testNotification(project: string, id: string): Promise<object> {
+    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/notifications/${encodeURIComponent(id)}/test`)
+  }
 }
