@@ -1,4 +1,4 @@
-import type { GroundingSource } from '@ainyc/aeo-platform-contracts'
+import type { GroundingSource, ScheduleDto, NotificationDto } from '@ainyc/aeo-platform-contracts'
 
 export type { GroundingSource }
 
@@ -229,17 +229,7 @@ export function updateProviderConfig(provider: string, body: {
   })
 }
 
-export interface ApiSchedule {
-  id: string
-  projectId: string
-  cronExpr: string
-  preset: string | null
-  timezone: string
-  enabled: boolean
-  providers: string[]
-  lastRunAt: string | null
-  nextRunAt: string | null
-}
+export type ApiSchedule = ScheduleDto
 
 export async function fetchSchedule(project: string): Promise<ApiSchedule | null> {
   try {
@@ -267,14 +257,7 @@ export async function removeSchedule(project: string): Promise<void> {
   await apiFetch(`/projects/${encodeURIComponent(project)}/schedule`, { method: 'DELETE', body: '{}' })
 }
 
-export interface ApiNotification {
-  id: string
-  projectId: string
-  channel: string
-  url: string
-  events: string[]
-  enabled: boolean
-}
+export type ApiNotification = Omit<NotificationDto, 'webhookSecret'>
 
 export function listNotifications(project: string): Promise<ApiNotification[]> {
   return apiFetch(`/projects/${encodeURIComponent(project)}/notifications`)

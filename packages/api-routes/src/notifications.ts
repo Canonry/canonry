@@ -2,13 +2,13 @@ import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { notifications } from '@ainyc/aeo-platform-db'
-import type { NotificationEvent } from '@ainyc/aeo-platform-contracts'
+import type { NotificationEvent, NotificationDto } from '@ainyc/aeo-platform-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 
 const VALID_EVENTS: NotificationEvent[] = ['citation.lost', 'citation.gained', 'run.completed', 'run.failed']
 
 /** Validate webhook URL: must be http/https and must not point to private/loopback addresses. */
-function validateWebhookUrl(raw: string): { ok: true; url: URL } | { ok: false; message: string } {
+export function validateWebhookUrl(raw: string): { ok: true; url: URL } | { ok: false; message: string } {
   let parsed: URL
   try {
     parsed = new URL(raw)
@@ -103,9 +103,11 @@ export async function notificationRoutes(app: FastifyInstance) {
       diff: { channel, url, events },
     })
 
-    return reply.status(201).send(formatNotification(
-      app.db.select().from(notifications).where(eq(notifications.id, id)).get()!,
-    ))
+    // Include webhookSecret only in the 201 response; it is never returned again.
+    return reply.status(201).send({
+      ...formatNotification(app.db.select().from(notifications).where(eq(notifications.id, id)).get()!),
+      webhookSecret,
+    })
   })
 
   // GET /projects/:name/notifications — list notifications
@@ -173,32 +175,9 @@ export async function notificationRoutes(app: FastifyInstance) {
       ],
     }
 
-    const body = JSON.stringify(payload)
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'User-Agent': 'Canonry/0.1.0',
-    }
-    if (notification.webhookSecret) {
-      headers['X-Canonry-Signature'] = 'sha256=' + crypto.createHmac('sha256', notification.webhookSecret).update(body).digest('hex')
-    }
-
-    let status: number
-    let error: string | null = null
     request.log.info(`[Notification test] POST ${config.url}`)
-    try {
-      const res = await fetch(config.url, {
-        method: 'POST',
-        headers,
-        body,
-        signal: AbortSignal.timeout(10000),
-      })
-      status = res.status
-      request.log.info(`[Notification test] Response: HTTP ${status} from ${config.url}`)
-    } catch (err: unknown) {
-      status = 0
-      error = err instanceof Error ? err.message : String(err)
-      request.log.warn(`[Notification test] Failed: ${error}`)
-    }
+    const { status, error } = await deliverWebhook(config.url, payload, notification.webhookSecret ?? null)
+    request.log.info(`[Notification test] Response: HTTP ${status} from ${config.url}`)
 
     writeAuditLog(app.db, {
       projectId: project.id,
@@ -216,16 +195,39 @@ export async function notificationRoutes(app: FastifyInstance) {
   })
 }
 
-function formatNotification(row: typeof notifications.$inferSelect) {
-  const config = JSON.parse(row.config) as { url: string; events: string[] }
+/** Sign and POST a webhook payload. Returns the HTTP status and any delivery error. */
+async function deliverWebhook(url: string, payload: unknown, webhookSecret: string | null): Promise<{ status: number; error: string | null }> {
+  const body = JSON.stringify(payload)
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'User-Agent': 'Canonry/0.1.0',
+  }
+  if (webhookSecret) {
+    headers['X-Canonry-Signature'] = 'sha256=' + crypto.createHmac('sha256', webhookSecret).update(body).digest('hex')
+  }
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body,
+      redirect: 'manual',
+      signal: AbortSignal.timeout(10000),
+    })
+    return { status: res.status, error: null }
+  } catch (err: unknown) {
+    return { status: 0, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+function formatNotification(row: typeof notifications.$inferSelect): Omit<NotificationDto, 'webhookSecret'> {
+  const config = JSON.parse(row.config) as { url: string; events: NotificationEvent[] }
   return {
     id: row.id,
     projectId: row.projectId,
-    channel: row.channel,
+    channel: 'webhook',
     url: config.url,
     events: config.events,
     enabled: row.enabled === 1,
-    webhookSecret: row.webhookSecret ?? undefined,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }

@@ -1,4 +1,4 @@
-import { eq, desc } from 'drizzle-orm'
+import { eq, desc, and, or } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/aeo-platform-db'
 import { notifications, runs, querySnapshots, keywords, projects, auditLog } from '@ainyc/aeo-platform-db'
 import type { NotificationEvent, WebhookPayload } from '@ainyc/aeo-platform-contracts'
@@ -131,15 +131,21 @@ export class Notifier {
   private computeTransitions(runId: string, projectId: string): Array<{
     keyword: string; from: string; to: string; provider: string
   }> {
-    // Get the two most recent completed/partial runs for this project
+    // Get the two most recent completed/partial runs for this project.
+    // Status filter is pushed into SQL (not applied in JS) so that a concurrent
+    // run completing after this one does not displace it from position [0].
     const recentRuns = this.db
       .select()
       .from(runs)
-      .where(eq(runs.projectId, projectId))
+      .where(
+        and(
+          eq(runs.projectId, projectId),
+          or(eq(runs.status, 'completed'), eq(runs.status, 'partial')),
+        ),
+      )
       .orderBy(desc(runs.createdAt))
+      .limit(2)
       .all()
-      .filter(r => r.status === 'completed' || r.status === 'partial')
-      .slice(0, 2)
 
     if (recentRuns.length < 2) return []
 
@@ -224,6 +230,7 @@ export class Notifier {
           method: 'POST',
           headers,
           body,
+          redirect: 'manual',
           signal: AbortSignal.timeout(10000),
         })
 

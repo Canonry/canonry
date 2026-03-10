@@ -4,7 +4,8 @@ import type { FastifyInstance } from 'fastify'
 import { projects, keywords, competitors, schedules, notifications } from '@ainyc/aeo-platform-db'
 import { projectConfigSchema, validationError } from '@ainyc/aeo-platform-contracts'
 import { writeAuditLog } from './helpers.js'
-import { resolvePreset, validateCron } from './schedule-utils.js'
+import { resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
+import { validateWebhookUrl } from './notifications.js'
 
 export interface ApplyRoutesOptions {
   onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string) => void
@@ -143,12 +144,19 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         })
       }
 
+      const timezone = schedSpec.timezone ?? 'UTC'
+      if (!isValidTimezone(timezone)) {
+        return reply.status(400).send({
+          error: { code: 'VALIDATION_ERROR', message: `Invalid timezone: ${timezone}` },
+        })
+      }
+
       const existingSched = app.db.select().from(schedules).where(eq(schedules.projectId, projectId)).get()
       if (existingSched) {
         app.db.update(schedules).set({
           cronExpr,
           preset,
-          timezone: schedSpec.timezone ?? 'UTC',
+          timezone,
           providers: JSON.stringify(schedSpec.providers ?? []),
           enabled: 1,
           updatedAt: now,
@@ -159,7 +167,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           projectId,
           cronExpr,
           preset,
-          timezone: schedSpec.timezone ?? 'UTC',
+          timezone,
           enabled: 1,
           providers: JSON.stringify(schedSpec.providers ?? []),
           createdAt: now,
@@ -181,6 +189,16 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     // explicitly present (absent key leaves existing notifications untouched).
     const rawSpec = (request.body as { spec?: Record<string, unknown> })?.spec ?? {}
     if ('notifications' in rawSpec) {
+      // Validate all URLs before any writes so the replace is atomic.
+      for (const notif of config.spec.notifications) {
+        const urlCheck = validateWebhookUrl(notif.url ?? '')
+        if (!urlCheck.ok) {
+          return reply.status(400).send({
+            error: { code: 'VALIDATION_ERROR', message: `Notification URL invalid: ${urlCheck.message}` },
+          })
+        }
+      }
+
       app.db.delete(notifications).where(eq(notifications.projectId, projectId)).run()
       for (const notif of config.spec.notifications) {
         app.db.insert(notifications).values({

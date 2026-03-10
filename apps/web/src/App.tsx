@@ -1421,7 +1421,7 @@ function ScheduleSection({ projectName }: { projectName: string }) {
 
   const startEditing = () => {
     if (schedule && schedule !== 'loading') {
-      const parsed = parsePreset(schedule.preset, schedule.cronExpr)
+      const parsed = parsePreset(schedule.preset ?? null, schedule.cronExpr)
       setFreq(parsed.freq)
       setHour(parsed.hour)
       setCustomCron(parsed.customCron)
@@ -1518,7 +1518,7 @@ function ScheduleSection({ projectName }: { projectName: string }) {
         <Card className="surface-card compact-card">
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-1">
-              <p className="text-sm font-medium text-zinc-200">{scheduleLabel(schedule.preset, schedule.cronExpr, schedule.timezone)}</p>
+              <p className="text-sm font-medium text-zinc-200">{scheduleLabel(schedule.preset ?? null, schedule.cronExpr, schedule.timezone)}</p>
               <p className="text-xs text-zinc-500">Cron: <span className="font-mono">{schedule.cronExpr}</span></p>
               {schedule.nextRunAt && (
                 <p className="text-xs text-zinc-500">Next run: {new Date(schedule.nextRunAt).toLocaleString()}</p>

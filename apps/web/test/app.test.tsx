@@ -37,8 +37,8 @@ test('project route renders a single command center with visibility and readines
   const html = renderApp('/projects/project_citypoint')
 
   assert.match(html, /Citypoint Dental NYC/)
-  assert.match(html, /Interpretation before raw evidence/)
-  assert.match(html, /Keyword citation tracking/)
+  assert.match(html, /Citation signals/)
+  assert.match(html, /Key phrase citation tracking/)
   assert.match(html, /Readiness signals/)
   assert.match(html, /Recent execution history/)
 })
@@ -91,7 +91,7 @@ test('setup route renders step indicator with all step labels', () => {
 
   assert.match(html, /System check/)
   assert.match(html, /Create project/)
-  assert.match(html, /Keywords/)
+  assert.match(html, /Key phrases/)
   assert.match(html, /Competitors/)
   assert.match(html, /Launch/)
 })

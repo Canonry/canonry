@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { schedules } from '@ainyc/aeo-platform-db'
+import type { ScheduleDto, ProviderName } from '@ainyc/aeo-platform-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
 
@@ -129,7 +130,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
   })
 }
 
-function formatSchedule(row: typeof schedules.$inferSelect) {
+function formatSchedule(row: typeof schedules.$inferSelect): ScheduleDto {
   return {
     id: row.id,
     projectId: row.projectId,
@@ -137,7 +138,7 @@ function formatSchedule(row: typeof schedules.$inferSelect) {
     preset: row.preset,
     timezone: row.timezone,
     enabled: row.enabled === 1,
-    providers: JSON.parse(row.providers) as string[],
+    providers: JSON.parse(row.providers) as ProviderName[],
     lastRunAt: row.lastRunAt,
     nextRunAt: row.nextRunAt,
     createdAt: row.createdAt,

@@ -93,10 +93,6 @@ export class Scheduler {
     }
 
     const task = cron.schedule(cronExpr, () => {
-      // Record when this slot fires so a crash before triggerRun completes can
-      // be detected as a missed run on the next server start.
-      this.db.update(schedules).set({ nextRunAt: new Date().toISOString() })
-        .where(eq(schedules.id, schedule.id)).run()
       this.triggerRun(schedule)
     }, {
       timezone,
@@ -137,6 +133,12 @@ export class Scheduler {
       this.db.update(schedules).set({ nextRunAt: null, updatedAt: now }).where(eq(schedules.id, schedule.id)).run()
       return
     }
+
+    // Mark this slot as in-progress so a crash before the insert is detected
+    // as a missed run on the next server start. Written here (after all early
+    // returns) so no stale marker is left when the run was skipped.
+    this.db.update(schedules).set({ nextRunAt: new Date().toISOString() })
+      .where(eq(schedules.id, schedule.id)).run()
 
     // Create the run
     const runId = crypto.randomUUID()
