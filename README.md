@@ -6,6 +6,8 @@
 
 AEO (Answer Engine Optimization) is the practice of ensuring your content is accurately represented in AI-generated answers. As search shifts from links to synthesized responses, monitoring your visibility across answer engines is essential.
 
+![Canonry Dashboard](docs/images/dashboard.png)
+
 ## Quick Start
 
 ```bash
