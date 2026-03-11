@@ -102,6 +102,7 @@ export async function createServer(opts: {
   const serverUrl = `http://localhost:${port}`
 
   const jobRunner = new JobRunner(opts.db, registry)
+  jobRunner.recoverStaleRuns()
   const notifier = new Notifier(opts.db, serverUrl)
   jobRunner.onRunCompleted = (runId, projectId) => notifier.onRunCompleted(runId, projectId)
 

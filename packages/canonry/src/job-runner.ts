@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { runs, keywords, competitors, projects, querySnapshots, usageCounters } from '@ainyc/canonry-db'
 import type { ProviderName, NormalizedQueryResult } from '@ainyc/canonry-contracts'
@@ -13,6 +13,26 @@ export class JobRunner {
   constructor(db: DatabaseClient, registry: ProviderRegistry) {
     this.db = db
     this.registry = registry
+  }
+
+  recoverStaleRuns(): void {
+    const stale = this.db
+      .select({ id: runs.id, status: runs.status })
+      .from(runs)
+      .where(inArray(runs.status, ['running', 'queued']))
+      .all()
+
+    if (stale.length === 0) return
+
+    const now = new Date().toISOString()
+    for (const run of stale) {
+      this.db
+        .update(runs)
+        .set({ status: 'failed', finishedAt: now, error: 'Server restarted while run was in progress' })
+        .where(eq(runs.id, run.id))
+        .run()
+      console.log(`[JobRunner] Recovered stale run ${run.id} (was ${run.status})`)
+    }
   }
 
   async executeRun(runId: string, projectId: string, providerOverride?: ProviderName[]): Promise<void> {
