@@ -13,8 +13,8 @@ export async function bootstrapCommand(_opts?: { force?: boolean }): Promise<voi
   const hasProvider = providers?.gemini || providers?.openai || providers?.claude || providers?.local
 
   if (!hasProvider) {
-    throw new Error(
-      'Bootstrap requires at least one provider env var. Set GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, or LOCAL_BASE_URL.',
+    console.warn(
+      'Warning: No provider env vars set (GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, or LOCAL_BASE_URL). You can configure providers later via the dashboard.',
     )
   }
 
