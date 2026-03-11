@@ -180,6 +180,14 @@ The web dashboard follows a dark, professional analytics aesthetic designed to r
 - Renaming or restructuring existing routes requires a versioned migration plan and explicit user approval.
 - If a route is wrong, fix the underlying logic — not the URL.
 
+## Versioning
+
+**Every non-documentation change must include a version bump.** The root `package.json` and `packages/canonry/package.json` versions must always be kept in sync with each other and with the latest published version on npm (`@ainyc/canonry`).
+
+- Documentation-only changes (README, docs/, CLAUDE.md) do not require a bump.
+- All other changes — features, bug fixes, refactors, dependency updates, test additions that accompany code changes — require a semver bump in both `package.json` files.
+- Use semver: patch for fixes, minor for features, major for breaking changes.
+
 ## CI Guidance
 
 - Validation CI: `typecheck`, `test`, `lint` across the full workspace on PRs.
