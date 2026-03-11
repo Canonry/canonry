@@ -130,6 +130,10 @@ export async function keywordRoutes(app: FastifyInstance, opts: KeywordRoutesOpt
       const err = validationError(`Unknown provider "${body.provider}". Valid providers: gemini, openai, claude, local`)
       return reply.status(err.statusCode).send(err.toJSON())
     }
+    if (body.count !== undefined && (typeof body.count !== 'number' || !Number.isFinite(body.count) || !Number.isInteger(body.count))) {
+      const err = validationError('"count" must be an integer')
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
     const count = Math.min(Math.max(body.count ?? 5, 1), 20)
 
     if (!opts.onGenerateKeywords) {
