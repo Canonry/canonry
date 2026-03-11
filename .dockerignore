@@ -1,0 +1,6 @@
+.context
+.git
+node_modules
+dist
+coverage
+*.log

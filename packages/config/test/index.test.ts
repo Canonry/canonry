@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { getPlatformEnv } from '../src/index.js'
+import { getBootstrapEnv, getPlatformEnv } from '../src/index.js'
 
 test('getPlatformEnv returns defaults when no env vars set', () => {
   const env = getPlatformEnv({})
@@ -64,4 +64,22 @@ test('getPlatformEnv omits providers without API keys', () => {
   assert.ok(env.providers.gemini)
   assert.equal(env.providers.openai, undefined)
   assert.equal(env.providers.claude, undefined)
+})
+
+test('getBootstrapEnv parses hosted Canonry env vars', () => {
+  const env = getBootstrapEnv({
+    CANONRY_API_KEY: 'cnry_test',
+    CANONRY_API_URL: 'https://canonry.example.com',
+    CANONRY_DATABASE_PATH: '/data/canonry/data.db',
+    GEMINI_API_KEY: 'gemini-key',
+    LOCAL_BASE_URL: 'http://localhost:11434/v1',
+  })
+
+  assert.equal(env.apiKey, 'cnry_test')
+  assert.equal(env.apiUrl, 'https://canonry.example.com')
+  assert.equal(env.databasePath, '/data/canonry/data.db')
+  assert.equal(env.providers.gemini?.apiKey, 'gemini-key')
+  assert.equal(env.providers.gemini?.model, 'gemini-2.5-flash')
+  assert.equal(env.providers.local?.baseUrl, 'http://localhost:11434/v1')
+  assert.equal(env.providers.local?.model, 'llama3')
 })

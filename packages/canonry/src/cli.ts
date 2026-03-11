@@ -1,5 +1,6 @@
 #!/usr/bin/env node --import tsx
 import { parseArgs } from 'node:util'
+import { bootstrapCommand } from './commands/bootstrap.js'
 import { initCommand } from './commands/init.js'
 import { serveCommand } from './commands/serve.js'
 import { createProject, listProjects, showProject, deleteProject } from './commands/project.js'
@@ -20,6 +21,7 @@ canonry — AEO monitoring CLI
 
 Usage:
   canonry init [--force]               Initialize config and database
+  canonry bootstrap [--force]          Bootstrap config/database from env vars
   canonry serve                       Start the local server
   canonry project create <name>       Create a project
   canonry project list                List all projects
@@ -91,6 +93,12 @@ async function main() {
       case 'init': {
         const initForce = args.includes('--force') || args.includes('-f')
         await initCommand({ force: initForce })
+        break
+      }
+
+      case 'bootstrap': {
+        const bootstrapForce = args.includes('--force') || args.includes('-f')
+        await bootstrapCommand({ force: bootstrapForce })
         break
       }
 

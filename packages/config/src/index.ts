@@ -33,6 +33,25 @@ export interface ProviderEnvConfig {
   quota: ProviderQuotaPolicy
 }
 
+export interface LocalBootstrapProviderConfig {
+  apiKey?: string
+  baseUrl: string
+  model?: string
+  quota: ProviderQuotaPolicy
+}
+
+export interface BootstrapEnv {
+  apiKey?: string
+  apiUrl?: string
+  databasePath?: string
+  providers: {
+    gemini?: ProviderEnvConfig
+    openai?: ProviderEnvConfig
+    claude?: ProviderEnvConfig
+    local?: LocalBootstrapProviderConfig
+  }
+}
+
 export interface PlatformEnv {
   databaseUrl: string
   apiPort: number
@@ -45,6 +64,21 @@ export interface PlatformEnv {
     claude?: ProviderEnvConfig
   }
 }
+
+const bootstrapEnvSchema = z.object({
+  CANONRY_API_KEY: z.string().optional(),
+  CANONRY_API_URL: z.string().optional(),
+  CANONRY_DATABASE_PATH: z.string().optional(),
+  GEMINI_API_KEY: z.string().optional(),
+  GEMINI_MODEL: z.string().optional(),
+  OPENAI_API_KEY: z.string().optional(),
+  OPENAI_MODEL: z.string().optional(),
+  ANTHROPIC_API_KEY: z.string().optional(),
+  ANTHROPIC_MODEL: z.string().optional(),
+  LOCAL_BASE_URL: z.string().optional(),
+  LOCAL_API_KEY: z.string().optional(),
+  LOCAL_MODEL: z.string().optional(),
+})
 
 export function getPlatformEnv(source: NodeJS.ProcessEnv): PlatformEnv {
   const parsed = envSchema.parse(source)
@@ -93,6 +127,67 @@ export function getPlatformEnv(source: NodeJS.ProcessEnv): PlatformEnv {
     workerPort: parsed.WORKER_PORT,
     webPort: parsed.WEB_PORT,
     bootstrapSecret: parsed.BOOTSTRAP_SECRET,
+    providers,
+  }
+}
+
+export function getBootstrapEnv(source: NodeJS.ProcessEnv): BootstrapEnv {
+  const parsed = bootstrapEnvSchema.parse(source)
+  const providers: BootstrapEnv['providers'] = {}
+
+  if (parsed.GEMINI_API_KEY) {
+    providers.gemini = {
+      apiKey: parsed.GEMINI_API_KEY,
+      model: parsed.GEMINI_MODEL || 'gemini-2.5-flash',
+      quota: providerQuotaPolicySchema.parse({
+        maxConcurrency: 2,
+        maxRequestsPerMinute: 10,
+        maxRequestsPerDay: 500,
+      }),
+    }
+  }
+
+  if (parsed.OPENAI_API_KEY) {
+    providers.openai = {
+      apiKey: parsed.OPENAI_API_KEY,
+      model: parsed.OPENAI_MODEL || 'gpt-4o',
+      quota: providerQuotaPolicySchema.parse({
+        maxConcurrency: 2,
+        maxRequestsPerMinute: 10,
+        maxRequestsPerDay: 500,
+      }),
+    }
+  }
+
+  if (parsed.ANTHROPIC_API_KEY) {
+    providers.claude = {
+      apiKey: parsed.ANTHROPIC_API_KEY,
+      model: parsed.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
+      quota: providerQuotaPolicySchema.parse({
+        maxConcurrency: 2,
+        maxRequestsPerMinute: 10,
+        maxRequestsPerDay: 500,
+      }),
+    }
+  }
+
+  if (parsed.LOCAL_BASE_URL) {
+    providers.local = {
+      baseUrl: parsed.LOCAL_BASE_URL,
+      apiKey: parsed.LOCAL_API_KEY,
+      model: parsed.LOCAL_MODEL || 'llama3',
+      quota: providerQuotaPolicySchema.parse({
+        maxConcurrency: 2,
+        maxRequestsPerMinute: 10,
+        maxRequestsPerDay: 500,
+      }),
+    }
+  }
+
+  return {
+    apiKey: parsed.CANONRY_API_KEY,
+    apiUrl: parsed.CANONRY_API_URL,
+    databasePath: parsed.CANONRY_DATABASE_PATH,
     providers,
   }
 }

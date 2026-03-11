@@ -5,8 +5,18 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { createClient, migrate, apiKeys } from '@ainyc/canonry-db'
-import { loadConfig } from '../src/config.js'
+import { bootstrapCommand } from '../src/commands/bootstrap.js'
+import { getConfigDir, loadConfig } from '../src/config.js'
 import { createServer } from '../src/server.js'
+
+function restoreEnvVar(name: string, originalValue: string | undefined) {
+  if (originalValue === undefined) {
+    delete process.env[name]
+    return
+  }
+
+  process.env[name] = originalValue
+}
 
 describe('canonry', () => {
   it('loadConfig throws when no config exists', () => {
@@ -22,6 +32,58 @@ describe('canonry', () => {
       })
     } finally {
       process.env.HOME = originalHome
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('getConfigDir honors CANONRY_CONFIG_DIR', () => {
+    const originalConfigDir = process.env.CANONRY_CONFIG_DIR
+    process.env.CANONRY_CONFIG_DIR = '/tmp/canonry-custom'
+
+    try {
+      assert.equal(getConfigDir(), '/tmp/canonry-custom')
+    } finally {
+      restoreEnvVar('CANONRY_CONFIG_DIR', originalConfigDir)
+    }
+  })
+
+  it('bootstrapCommand creates config and replaces the default API key on force', async () => {
+    const tmpDir = path.join(os.tmpdir(), `canonry-bootstrap-${crypto.randomUUID()}`)
+    const originalConfigDir = process.env.CANONRY_CONFIG_DIR
+    const originalGeminiApiKey = process.env.GEMINI_API_KEY
+    const originalCanonryApiKey = process.env.CANONRY_API_KEY
+
+    process.env.CANONRY_CONFIG_DIR = tmpDir
+    process.env.GEMINI_API_KEY = 'test-gemini-key'
+    process.env.CANONRY_API_KEY = 'cnry_bootstrap_key'
+
+    try {
+      await bootstrapCommand({ force: true })
+
+      let config = loadConfig()
+      assert.equal(config.database, path.join(tmpDir, 'data.db'))
+      assert.equal(config.apiKey, 'cnry_bootstrap_key')
+      assert.equal(config.providers?.gemini?.apiKey, 'test-gemini-key')
+
+      let db = createClient(config.database)
+      let keys = db.select().from(apiKeys).all()
+      assert.equal(keys.length, 1)
+      assert.equal(keys[0]?.keyPrefix, 'cnry_boot')
+
+      process.env.CANONRY_API_KEY = 'cnry_force_key'
+      await bootstrapCommand({ force: true })
+
+      config = loadConfig()
+      assert.equal(config.apiKey, 'cnry_force_key')
+
+      db = createClient(config.database)
+      keys = db.select().from(apiKeys).all()
+      assert.equal(keys.length, 1)
+      assert.equal(keys[0]?.keyPrefix, 'cnry_forc')
+    } finally {
+      restoreEnvVar('CANONRY_CONFIG_DIR', originalConfigDir)
+      restoreEnvVar('GEMINI_API_KEY', originalGeminiApiKey)
+      restoreEnvVar('CANONRY_API_KEY', originalCanonryApiKey)
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
   })

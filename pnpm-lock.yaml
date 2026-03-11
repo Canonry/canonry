@@ -169,6 +169,9 @@ importers:
       '@ainyc/canonry-api-routes':
         specifier: workspace:*
         version: link:../api-routes
+      '@ainyc/canonry-config':
+        specifier: workspace:*
+        version: link:../config
       '@ainyc/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts

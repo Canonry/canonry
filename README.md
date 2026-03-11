@@ -34,6 +34,7 @@ Open [http://localhost:4100](http://localhost:4100) to access the web dashboard.
 
 ```bash
 canonry init                        # Initialize config and database
+canonry bootstrap                   # Bootstrap hosted config/database from env vars
 canonry serve                       # Start server (API + web dashboard)
 canonry settings                    # View/edit configuration
 ```
@@ -238,6 +239,73 @@ pnpm run test
 pnpm run lint
 pnpm run dev:web          # Run SPA in dev mode
 ```
+
+## Docker Deployment
+
+Canonry currently deploys as a **single Node.js service with a SQLite file on persistent disk**.
+
+The repo includes a production `Dockerfile` and entry script. The default container entrypoint runs `canonry bootstrap` and then `canonry serve`.
+
+```bash
+docker build -t canonry .
+
+docker run --rm \
+  -p 4100:4100 \
+  -e PORT=4100 \
+  -e CANONRY_CONFIG_DIR=/data/canonry \
+  -e GEMINI_API_KEY=your-key \
+  -v canonry-data:/data \
+  canonry
+```
+
+Keep the container to a single replica and mount persistent storage at `/data` so SQLite and `config.yaml` survive restarts.
+
+No CORS configuration is required for this Docker setup. The dashboard and API are served by the same Canonry process on the same origin. CORS only becomes relevant if you split the frontend and API onto different domains.
+
+## Deploy on Railway or Render
+
+Use the **repo root** as the service root. `@ainyc/canonry` depends on shared workspace packages under `packages/*`, so deploying from a subdirectory will break the build.
+
+### Hosted environment variables
+
+Set at least one provider:
+
+- `GEMINI_API_KEY`
+- `OPENAI_API_KEY`
+- `ANTHROPIC_API_KEY`
+- `LOCAL_BASE_URL` (plus optional `LOCAL_API_KEY` and `LOCAL_MODEL`)
+
+Set these for hosted persistence/bootstrap:
+
+- `CANONRY_CONFIG_DIR=/data/canonry`
+- Optional `CANONRY_API_KEY=cnry_...` to pin the generated API key instead of letting bootstrap create one
+- Optional `CANONRY_DATABASE_PATH=/data/canonry/data.db`
+
+The hosted bootstrap command is idempotent. It creates `config.yaml`, creates or migrates the SQLite database, and inserts the API key row the server expects.
+
+### Railway
+
+Create one service from this repo using the checked-in `Dockerfile`, then attach a persistent volume mounted at `/data`.
+
+- Add the provider and Canonry env vars in the service's **Variables** tab. Railway can also bulk import them from `.env` files or the Raw Editor.
+- Leave the start command unset so Railway uses the image `ENTRYPOINT`.
+- Health check: `/health`
+- Recommended env: `CANONRY_CONFIG_DIR=/data/canonry`
+
+SQLite should live on the mounted volume, so keep the service to a single instance.
+
+### Render
+
+Create one **Web Service** from this repo with runtime **Docker**, then attach a persistent disk mounted at `/data`.
+
+- Add the provider and Canonry env vars in the service's **Environment** settings or an Environment Group.
+- Leave the start command unset so Render uses the image `ENTRYPOINT`.
+- Health check path: `/health`
+- Recommended env: `CANONRY_CONFIG_DIR=/data/canonry`
+
+Render makes Docker service env vars available at runtime and also exposes them to Docker builds as build args. This image does not use `ARG` for provider secrets, so those values are only consumed at runtime by the entry script and Canonry process.
+
+SQLite should live on the persistent disk, so keep the service to a single instance.
 
 ## Contributing
 

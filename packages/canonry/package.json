@@ -56,6 +56,7 @@
   },
   "devDependencies": {
     "@ainyc/canonry-api-routes": "workspace:*",
+    "@ainyc/canonry-config": "workspace:*",
     "@ainyc/canonry-contracts": "workspace:*",
     "@ainyc/canonry-db": "workspace:*",
     "@ainyc/canonry-provider-claude": "workspace:*",

@@ -30,6 +30,11 @@ export interface CanonryConfig {
 }
 
 export function getConfigDir(): string {
+  const override = process.env.CANONRY_CONFIG_DIR?.trim()
+  if (override) {
+    return override
+  }
+
   return path.join(os.homedir(), '.canonry')
 }
 

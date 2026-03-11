@@ -29,6 +29,7 @@ export default defineConfig({
   // Workspace packages — bundle into dist/
   noExternal: [
     '@ainyc/canonry-contracts',
+    '@ainyc/canonry-config',
     '@ainyc/canonry-db',
     '@ainyc/canonry-api-routes',
     '@ainyc/canonry-provider-gemini',
