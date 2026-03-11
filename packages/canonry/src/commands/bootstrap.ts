@@ -5,15 +5,9 @@ import { eq } from 'drizzle-orm'
 import { getBootstrapEnv } from '@ainyc/canonry-config'
 import { createClient, migrate, apiKeys } from '@ainyc/canonry-db'
 
-import { configExists, getConfigDir, getConfigPath, saveConfig } from '../config.js'
+import { configExists, getConfigDir, getConfigPath, loadConfig, saveConfig } from '../config.js'
 
 export async function bootstrapCommand(opts?: { force?: boolean }): Promise<void> {
-  if (configExists() && !opts?.force) {
-    console.log(`Config already exists at ${getConfigPath()}`)
-    console.log('Skipping bootstrap.')
-    return
-  }
-
   const env = getBootstrapEnv(process.env)
   const providers = env.providers
   const hasProvider = providers?.gemini || providers?.openai || providers?.claude || providers?.local
@@ -26,8 +20,20 @@ export async function bootstrapCommand(opts?: { force?: boolean }): Promise<void
 
   const configDir = getConfigDir()
   const databasePath = env.databasePath || path.join(configDir, 'data.db')
-  const generatedApiKey = !env.apiKey ? `cnry_${crypto.randomBytes(16).toString('hex')}` : undefined
-  const rawApiKey = env.apiKey || generatedApiKey!
+  const existing = configExists()
+
+  // Resolve API key: env var > existing config > generate new
+  let rawApiKey: string
+  let generatedApiKey: string | undefined
+  if (env.apiKey) {
+    rawApiKey = env.apiKey
+  } else if (existing) {
+    rawApiKey = loadConfig().apiKey
+  } else {
+    generatedApiKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
+    rawApiKey = generatedApiKey
+  }
+
   const keyHash = crypto.createHash('sha256').update(rawApiKey).digest('hex')
   const keyPrefix = rawApiKey.slice(0, 9)
 

@@ -51,6 +51,7 @@ describe('canonry', () => {
     const tmpDir = path.join(os.tmpdir(), `canonry-bootstrap-${crypto.randomUUID()}`)
     const originalConfigDir = process.env.CANONRY_CONFIG_DIR
     const originalGeminiApiKey = process.env.GEMINI_API_KEY
+    const originalOpenaiApiKey = process.env.OPENAI_API_KEY
     const originalCanonryApiKey = process.env.CANONRY_API_KEY
 
     process.env.CANONRY_CONFIG_DIR = tmpDir
@@ -80,9 +81,20 @@ describe('canonry', () => {
       keys = db.select().from(apiKeys).all()
       assert.equal(keys.length, 1)
       assert.equal(keys[0]?.keyPrefix, 'cnry_forc')
+
+      // Reconciles env changes on restart (no --force needed)
+      process.env.CANONRY_API_KEY = 'cnry_rotated_key'
+      process.env.OPENAI_API_KEY = 'test-openai-key'
+      await bootstrapCommand()
+
+      config = loadConfig()
+      assert.equal(config.apiKey, 'cnry_rotated_key')
+      assert.equal(config.providers?.openai?.apiKey, 'test-openai-key')
+      assert.equal(config.providers?.gemini?.apiKey, 'test-gemini-key')
     } finally {
       restoreEnvVar('CANONRY_CONFIG_DIR', originalConfigDir)
       restoreEnvVar('GEMINI_API_KEY', originalGeminiApiKey)
+      restoreEnvVar('OPENAI_API_KEY', originalOpenaiApiKey)
       restoreEnvVar('CANONRY_API_KEY', originalCanonryApiKey)
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
