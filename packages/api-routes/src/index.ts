@@ -4,6 +4,7 @@ import { authPlugin } from './auth.js'
 import { projectRoutes } from './projects.js'
 import type { ProjectRoutesOptions } from './projects.js'
 import { keywordRoutes } from './keywords.js'
+import type { KeywordRoutesOptions } from './keywords.js'
 import { competitorRoutes } from './competitors.js'
 import { runRoutes } from './runs.js'
 import type { RunRoutesOptions } from './runs.js'
@@ -35,6 +36,8 @@ export interface ApiRoutesOptions {
   onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string) => void
   /** Callback when a project is deleted */
   onProjectDeleted?: (projectId: string) => void
+  /** Callback to generate keyword suggestions using an LLM provider */
+  onGenerateKeywords?: KeywordRoutesOptions['onGenerateKeywords']
 }
 
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
@@ -51,7 +54,9 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(projectRoutes, {
       onProjectDeleted: opts.onProjectDeleted,
     } satisfies ProjectRoutesOptions)
-    await api.register(keywordRoutes)
+    await api.register(keywordRoutes, {
+      onGenerateKeywords: opts.onGenerateKeywords,
+    } satisfies KeywordRoutesOptions)
     await api.register(competitorRoutes)
     await api.register(runRoutes, { onRunCreated: opts.onRunCreated } satisfies RunRoutesOptions)
     await api.register(applyRoutes, {

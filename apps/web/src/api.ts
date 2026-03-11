@@ -285,3 +285,10 @@ export function sendTestNotification(project: string, id: string): Promise<{ sta
     body: '{}',
   })
 }
+
+export function generateKeywords(projectName: string, provider: string, count?: number): Promise<{ keywords: string[]; provider: string }> {
+  return apiFetch(`/projects/${encodeURIComponent(projectName)}/keywords/generate`, {
+    method: 'POST',
+    body: JSON.stringify({ provider, count }),
+  })
+}

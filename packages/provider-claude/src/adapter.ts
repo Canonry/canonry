@@ -11,6 +11,7 @@ import {
   healthcheck as claudeHealthcheck,
   executeTrackedQuery as claudeExecuteTrackedQuery,
   normalizeResult as claudeNormalizeResult,
+  generateText as claudeGenerateText,
 } from './normalize.js'
 import type { ClaudeConfig } from './types.js'
 
@@ -77,5 +78,9 @@ export const claudeAdapter: ProviderAdapter = {
       groundingSources: normalized.groundingSources,
       searchQueries: normalized.searchQueries,
     }
+  },
+
+  async generateText(prompt: string, config: ProviderConfig): Promise<string> {
+    return claudeGenerateText(prompt, toClaudeConfig(config))
   },
 }

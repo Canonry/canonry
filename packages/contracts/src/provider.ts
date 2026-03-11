@@ -9,8 +9,27 @@ export const providerQuotaPolicySchema = z.object({
 
 export type ProviderQuotaPolicy = z.infer<typeof providerQuotaPolicySchema>
 
-export const providerNameSchema = z.enum(['gemini', 'openai', 'claude', 'local'])
+export const PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'local'] as const
+export const providerNameSchema = z.enum(PROVIDER_NAMES)
 export type ProviderName = z.infer<typeof providerNameSchema>
+
+/** Canonical display labels for each provider */
+export const PROVIDER_DISPLAY_NAMES: Record<ProviderName, string> = {
+  gemini: 'Gemini',
+  openai: 'OpenAI',
+  claude: 'Claude',
+  local: 'Local',
+}
+
+/**
+ * Normalize a user-supplied string to a valid ProviderName.
+ * Accepts any casing (e.g. "Gemini", "OPENAI", "Claude").
+ * Returns undefined if the string doesn't match any known provider.
+ */
+export function parseProviderName(input: string): ProviderName | undefined {
+  const lower = input.trim().toLowerCase()
+  return PROVIDER_NAMES.includes(lower as ProviderName) ? (lower as ProviderName) : undefined
+}
 
 export interface ProviderConfig {
   provider: ProviderName
@@ -55,4 +74,5 @@ export interface ProviderAdapter {
   healthcheck(config: ProviderConfig): Promise<ProviderHealthcheckResult>
   executeTrackedQuery(input: TrackedQueryInput, config: ProviderConfig): Promise<RawQueryResult>
   normalizeResult(raw: RawQueryResult): NormalizedQueryResult
+  generateText(prompt: string, config: ProviderConfig): Promise<string>
 }

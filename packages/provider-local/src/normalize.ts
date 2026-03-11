@@ -113,6 +113,19 @@ function extractAnswerText(rawResponse: Record<string, unknown>): string {
   }
 }
 
+export async function generateText(prompt: string, config: LocalConfig): Promise<string> {
+  const model = config.model ?? DEFAULT_MODEL
+  const client = new OpenAI({
+    baseURL: config.baseUrl,
+    apiKey: config.apiKey || 'not-needed',
+  })
+  const response = await client.chat.completions.create({
+    model,
+    messages: [{ role: 'user', content: prompt }],
+  })
+  return response.choices[0]?.message?.content ?? ''
+}
+
 /**
  * Scan answer text for domain mentions — used as a citation heuristic
  * since local LLMs don't have structured grounding/search data.

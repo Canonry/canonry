@@ -175,7 +175,7 @@ export interface SetupWizardVm {
 
 export interface ProviderStatusVm {
   name: string
-  model: string
+  model?: string
   state: 'ready' | 'needs-config'
   detail: string
   quota?: {

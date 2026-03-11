@@ -11,6 +11,7 @@ import {
   healthcheck as localHealthcheck,
   executeTrackedQuery as localExecuteTrackedQuery,
   normalizeResult as localNormalizeResult,
+  generateText as localGenerateText,
 } from './normalize.js'
 import type { LocalConfig } from './types.js'
 
@@ -78,5 +79,9 @@ export const localAdapter: ProviderAdapter = {
       groundingSources: normalized.groundingSources,
       searchQueries: normalized.searchQueries,
     }
+  },
+
+  async generateText(prompt: string, config: ProviderConfig): Promise<string> {
+    return localGenerateText(prompt, toLocalConfig(config))
   },
 }

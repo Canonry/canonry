@@ -11,6 +11,7 @@ import {
   healthcheck as geminiHealthcheck,
   executeTrackedQuery as geminiExecuteTrackedQuery,
   normalizeResult as geminiNormalizeResult,
+  generateText as geminiGenerateText,
 } from './normalize.js'
 import type { GeminiConfig } from './types.js'
 
@@ -77,5 +78,9 @@ export const geminiAdapter: ProviderAdapter = {
       groundingSources: normalized.groundingSources,
       searchQueries: normalized.searchQueries,
     }
+  },
+
+  async generateText(prompt: string, config: ProviderConfig): Promise<string> {
+    return geminiGenerateText(prompt, toGeminiConfig(config))
   },
 }

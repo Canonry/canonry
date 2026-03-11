@@ -10,7 +10,7 @@ function getClient(): ApiClient {
 export async function addKeywords(project: string, keywords: string[]): Promise<void> {
   const client = getClient()
   await client.appendKeywords(project, keywords)
-  console.log(`Added ${keywords.length} keyword(s) to "${project}".`)
+  console.log(`Added ${keywords.length} key phrase(s) to "${project}".`)
 }
 
 export async function listKeywords(project: string): Promise<void> {
@@ -22,11 +22,11 @@ export async function listKeywords(project: string): Promise<void> {
   }>
 
   if (kws.length === 0) {
-    console.log(`No keywords found for "${project}".`)
+    console.log(`No key phrases found for "${project}".`)
     return
   }
 
-  console.log(`Keywords for "${project}" (${kws.length}):\n`)
+  console.log(`Key phrases for "${project}" (${kws.length}):\n`)
   for (const kw of kws) {
     console.log(`  ${kw.keyword}`)
   }
@@ -44,11 +44,28 @@ export async function importKeywords(project: string, filePath: string): Promise
     .filter(line => line.length > 0 && !line.startsWith('#'))
 
   if (keywords.length === 0) {
-    console.log('No keywords found in file.')
+    console.log('No key phrases found in file.')
     return
   }
 
   const client = getClient()
   await client.appendKeywords(project, keywords)
-  console.log(`Imported ${keywords.length} keyword(s) to "${project}".`)
+  console.log(`Imported ${keywords.length} key phrase(s) to "${project}".`)
+}
+
+export async function generateKeywords(project: string, provider: string, opts: { count?: number; save?: boolean }): Promise<void> {
+  const client = getClient()
+  const result = await client.generateKeywords(project, provider, opts.count)
+
+  console.log(`Generated ${result.keywords.length} key phrase(s) using ${result.provider}:\n`)
+  for (const kw of result.keywords) {
+    console.log(`  ${kw}`)
+  }
+
+  if (opts.save && result.keywords.length > 0) {
+    await client.appendKeywords(project, result.keywords)
+    console.log(`\nSaved ${result.keywords.length} key phrase(s) to "${project}".`)
+  } else if (result.keywords.length > 0) {
+    console.log(`\nTo add these, run: canonry keyword add ${project} <phrase>...`)
+  }
 }

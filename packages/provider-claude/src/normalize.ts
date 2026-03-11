@@ -189,6 +189,17 @@ function extractDomainFromUri(uri: string): string | null {
   }
 }
 
+export async function generateText(prompt: string, config: ClaudeConfig): Promise<string> {
+  const model = config.model ?? DEFAULT_MODEL
+  const client = new Anthropic({ apiKey: config.apiKey })
+  const response = await client.messages.create({
+    model,
+    max_tokens: 2048,
+    messages: [{ role: 'user', content: prompt }],
+  })
+  return extractTextFromResponse(response)
+}
+
 function responseToRecord(response: Anthropic.Message): Record<string, unknown> {
   try {
     return JSON.parse(JSON.stringify(response)) as Record<string, unknown>

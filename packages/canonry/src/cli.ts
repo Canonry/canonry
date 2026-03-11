@@ -4,7 +4,7 @@ import { bootstrapCommand } from './commands/bootstrap.js'
 import { initCommand } from './commands/init.js'
 import { serveCommand } from './commands/serve.js'
 import { createProject, listProjects, showProject, deleteProject } from './commands/project.js'
-import { addKeywords, listKeywords, importKeywords } from './commands/keyword.js'
+import { addKeywords, listKeywords, importKeywords, generateKeywords } from './commands/keyword.js'
 import { addCompetitors, listCompetitors } from './commands/competitor.js'
 import { triggerRun, listRuns } from './commands/run.js'
 import { showStatus } from './commands/status.js'
@@ -27,16 +27,17 @@ Usage:
   canonry project list                List all projects
   canonry project show <name>         Show project details
   canonry project delete <name>       Delete a project
-  canonry keyword add <project> <kw>  Add keywords to a project
-  canonry keyword list <project>      List keywords for a project
-  canonry keyword import <project> <file>  Import keywords from file
+  canonry keyword add <project> <kw>  Add key phrases to a project
+  canonry keyword list <project>      List key phrases for a project
+  canonry keyword import <project> <file>  Import key phrases from file
+  canonry keyword generate <project>  Auto-generate key phrases (--provider, --count, --save)
   canonry competitor add <project> <domain>  Add competitors
   canonry competitor list <project>   List competitors
   canonry run <project>               Trigger a run (all providers)
   canonry run <project> --provider <name>  Trigger a run for a specific provider
   canonry runs <project>              List runs for a project
   canonry status <project>            Show project summary
-  canonry evidence <project>          Show keyword-level results
+  canonry evidence <project>          Show per-phrase results
   canonry history <project>           Show audit trail
   canonry export <project>            Export project as YAML
   canonry apply <file>                Apply declarative config
@@ -180,7 +181,7 @@ async function main() {
             const project = args[2]
             const kws = args.slice(3)
             if (!project || kws.length === 0) {
-              console.error('Error: project name and at least one keyword required')
+              console.error('Error: project name and at least one key phrase required')
               process.exit(1)
             }
             await addKeywords(project, kws)
@@ -205,9 +206,34 @@ async function main() {
             await importKeywords(project, filePath)
             break
           }
+          case 'generate': {
+            const project = args[2]
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            const { values } = parseArgs({
+              args: args.slice(3),
+              options: {
+                provider: { type: 'string' },
+                count: { type: 'string' },
+                save: { type: 'boolean', default: false },
+              },
+              allowPositionals: false,
+            })
+            if (!values.provider) {
+              console.error('Error: --provider is required (gemini, openai, claude, local)')
+              process.exit(1)
+            }
+            await generateKeywords(project, values.provider, {
+              count: values.count ? parseInt(values.count, 10) : undefined,
+              save: values.save,
+            })
+            break
+          }
           default:
             console.error(`Unknown keyword subcommand: ${subcommand ?? '(none)'}`)
-            console.log('Available: add, list, import')
+            console.log('Available: add, list, import, generate')
             process.exit(1)
         }
         break

@@ -195,6 +195,16 @@ function extractDomainFromUri(uri: string): string | null {
   }
 }
 
+export async function generateText(prompt: string, config: OpenAIConfig): Promise<string> {
+  const model = config.model ?? DEFAULT_MODEL
+  const client = new OpenAI({ apiKey: config.apiKey })
+  const response = await client.chat.completions.create({
+    model,
+    messages: [{ role: 'user', content: prompt }],
+  })
+  return response.choices[0]?.message?.content ?? ''
+}
+
 function responseToRecord(response: OpenAI.Responses.Response): Record<string, unknown> {
   try {
     return JSON.parse(JSON.stringify(response)) as Record<string, unknown>

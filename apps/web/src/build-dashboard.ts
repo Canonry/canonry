@@ -581,8 +581,8 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
     },
     settings: {
       providerStatuses: (apiSettings?.providers ?? []).map(p => ({
-        name: p.name.charAt(0).toUpperCase() + p.name.slice(1),
-        model: p.model ?? '(default)',
+        name: p.name,
+        model: p.model,
         state: (p.configured ? 'ready' : 'needs-config') as 'ready' | 'needs-config',
         detail: p.configured ? 'Provider is configured.' : 'API key is missing.',
         quota: p.quota,

@@ -1,7 +1,7 @@
 import { eq, asc } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { runs, querySnapshots, keywords } from '@ainyc/canonry-db'
-import { unsupportedKind, runInProgress } from '@ainyc/canonry-contracts'
+import { unsupportedKind, runInProgress, parseProviderName } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { queueRunIfProjectIdle } from './run-queue.js'
 
@@ -27,12 +27,14 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     const now = new Date().toISOString()
     const trigger = request.body?.trigger ?? 'manual'
     const rawProviders = request.body?.providers
-    const validProviders = ['gemini', 'openai', 'claude', 'local'] as const
     if (rawProviders?.length) {
-      const invalid = rawProviders.filter(p => !(validProviders as readonly string[]).includes(p))
+      const parsed = rawProviders.map(p => parseProviderName(p))
+      const invalid = rawProviders.filter((_, i) => !parsed[i])
       if (invalid.length) {
-        return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: `Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validProviders.join(', ')}` } })
+        return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: `Invalid provider(s): ${invalid.join(', ')}. Must be one of: gemini, openai, claude, local` } })
       }
+      // Use normalized names
+      rawProviders.splice(0, rawProviders.length, ...parsed.filter(Boolean) as string[])
     }
     const providers = rawProviders?.length ? rawProviders : undefined
 
