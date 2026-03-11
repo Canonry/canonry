@@ -69,15 +69,6 @@ export function loadConfig(): CanonryConfig {
     }
   }
 
-  // Must have at least one provider configured
-  const hasProvider = parsed.providers &&
-    (parsed.providers.gemini?.apiKey || parsed.providers.openai?.apiKey || parsed.providers.claude?.apiKey || parsed.providers.local?.baseUrl)
-  if (!hasProvider) {
-    throw new Error(
-      `No providers configured at ${configPath}. At least one provider is required.`,
-    )
-  }
-
   return parsed
 }
 
