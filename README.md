@@ -199,7 +199,7 @@ Access it at [http://localhost:4100](http://localhost:4100) after running `canon
 ## Requirements
 
 - Node.js >= 20
-- At least one provider API key (or a local LLM endpoint)
+- At least one provider API key to run visibility sweeps (configurable after startup via the dashboard or CLI)
 - A C++ toolchain for building `better-sqlite3` native bindings (only needed if prebuilt binaries aren't available for your platform)
 
 ### Native dependency setup
@@ -266,44 +266,51 @@ No CORS configuration is required for this Docker setup. The dashboard and API a
 
 Use the **repo root** as the service root. `@ainyc/canonry` depends on shared workspace packages under `packages/*`, so deploying from a subdirectory will break the build.
 
-### Hosted environment variables
-
-Set at least one provider:
-
-- `GEMINI_API_KEY`
-- `OPENAI_API_KEY`
-- `ANTHROPIC_API_KEY`
-- `LOCAL_BASE_URL` (plus optional `LOCAL_API_KEY` and `LOCAL_MODEL`)
-
-Set these for hosted persistence/bootstrap:
-
-- `CANONRY_CONFIG_DIR=/data/canonry`
-- Optional `CANONRY_API_KEY=cnry_...` to pin the generated API key instead of letting bootstrap create one
-- Optional `CANONRY_DATABASE_PATH=/data/canonry/data.db`
-
-The hosted bootstrap command is idempotent. It creates `config.yaml`, creates or migrates the SQLite database, and inserts the API key row the server expects.
+Canonry runs as a **single service** -- the API, web dashboard, and job scheduler all run in one process. No provider API keys are required at startup; configure them later through the web dashboard.
 
 ### Railway
 
-Create one service from this repo using the checked-in `Dockerfile`, then attach a persistent volume mounted at `/data`.
+[![Deploy on Railway](https://railway.com/button.svg)](TEMPLATE_URL)
 
-- Add the provider and Canonry env vars in the service's **Variables** tab. Railway can also bulk import them from `.env` files or the Raw Editor.
-- Leave the start command unset so Railway uses the image `ENTRYPOINT`.
-- Health check: `/health`
-- Recommended env: `CANONRY_CONFIG_DIR=/data/canonry`
+**One-click deploy:**
 
-SQLite should live on the mounted volume, so keep the service to a single instance.
+1. Click the button above (or create a service from this repo manually)
+2. Railway builds the `Dockerfile` automatically -- no custom build or start commands needed
+3. Right-click the service and select **Create Volume**, set the mount path to `/data`
+4. Generate a public domain under **Settings > Networking** (port `8080`)
+5. Open the dashboard and follow the setup wizard to configure providers and create your first project
+
+**Manual setup:**
+
+1. Create a new service from this GitHub repo
+2. **Dockerfile Path**: `Dockerfile` (the default)
+3. **Custom Build Command**: leave empty
+4. **Custom Start Command**: leave empty
+5. Add a **Volume** mounted at `/data` (right-click the service > Create Volume)
+6. Generate a public domain under **Settings > Networking**
+7. No environment variables are required to start -- the bootstrap creates a SQLite database and API key automatically
+
+**Optional environment variables:**
+
+| Variable | Description |
+|----------|-------------|
+| `GEMINI_API_KEY` | Google Gemini provider key |
+| `OPENAI_API_KEY` | OpenAI provider key |
+| `ANTHROPIC_API_KEY` | Anthropic/Claude provider key |
+| `LOCAL_BASE_URL` | Local LLM endpoint (Ollama, LM Studio, etc.) |
+| `CANONRY_API_KEY` | Pin a specific API key instead of auto-generating one |
+
+Provider keys can also be configured at any time via the Settings page in the dashboard.
+
+Keep the service to a **single replica** -- SQLite does not support concurrent writers.
 
 ### Render
 
 Create one **Web Service** from this repo with runtime **Docker**, then attach a persistent disk mounted at `/data`.
 
-- Add the provider and Canonry env vars in the service's **Environment** settings or an Environment Group.
-- Leave the start command unset so Render uses the image `ENTRYPOINT`.
+- Leave build and start commands unset so Render uses the image `ENTRYPOINT`.
 - Health check path: `/health`
-- Recommended env: `CANONRY_CONFIG_DIR=/data/canonry`
-
-Render makes Docker service env vars available at runtime and also exposes them to Docker builds as build args. This image does not use `ARG` for provider secrets, so those values are only consumed at runtime by the entry script and Canonry process.
+- No environment variables are required at startup. Configure providers via the dashboard.
 
 SQLite should live on the persistent disk, so keep the service to a single instance.
 
