@@ -2784,6 +2784,21 @@ export function App({
     void refreshData()
   }, [initialDashboard, refreshData])
 
+  // Poll for dashboard updates while any run is active (queued/running)
+  const hasActiveRun = dashboard?.runs.some(
+    r => r.status === 'running' || r.status === 'queued',
+  ) ?? false
+
+  useEffect(() => {
+    if (!hasActiveRun) return
+
+    const interval = setInterval(() => {
+      void refreshData()
+    }, 3000)
+
+    return () => clearInterval(interval)
+  }, [hasActiveRun, refreshData])
+
   useEffect(() => {
     if (typeof window === 'undefined') {
       return
