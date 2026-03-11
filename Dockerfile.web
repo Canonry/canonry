@@ -1,0 +1,22 @@
+FROM node:20-bookworm-slim AS build
+
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+
+RUN corepack enable
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json eslint.config.js ./
+COPY apps ./apps
+COPY packages ./packages
+
+RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @ainyc/canonry-web build
+
+FROM nginx:alpine
+
+COPY --from=build /app/apps/web/dist /usr/share/nginx/html
+COPY docker/nginx.conf.template /etc/nginx/templates/default.conf.template
+
+EXPOSE 80

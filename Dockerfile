@@ -29,8 +29,6 @@ COPY docker/entrypoint.sh /usr/local/bin/canonry-entrypoint
 
 RUN chmod +x /usr/local/bin/canonry-entrypoint
 
-VOLUME ["/data"]
-
 EXPOSE 4100
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD ["node", "-e", "const port = process.env.CANONRY_PORT || process.env.PORT || '4100'; fetch('http://127.0.0.1:' + port + '/health').then((res) => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))"]
