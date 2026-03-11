@@ -270,7 +270,7 @@ Canonry runs as a **single service** -- the API, web dashboard, and job schedule
 
 ### Railway
 
-[![Deploy on Railway](https://railway.com/button.svg)](TEMPLATE_URL)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/ENziH9?referralCode=0vODBs&utm_medium=integration&utm_source=template&utm_campaign=generic)
 
 **One-click deploy:**
 
