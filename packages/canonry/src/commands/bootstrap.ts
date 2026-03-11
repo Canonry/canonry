@@ -7,7 +7,7 @@ import { createClient, migrate, apiKeys } from '@ainyc/canonry-db'
 
 import { configExists, getConfigDir, getConfigPath, loadConfig, saveConfig } from '../config.js'
 
-export async function bootstrapCommand(opts?: { force?: boolean }): Promise<void> {
+export async function bootstrapCommand(_opts?: { force?: boolean }): Promise<void> {
   const env = getBootstrapEnv(process.env)
   const providers = env.providers
   const hasProvider = providers?.gemini || providers?.openai || providers?.claude || providers?.local
