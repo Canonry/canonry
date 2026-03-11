@@ -2425,9 +2425,14 @@ function SetupPage({
                 {competitorsError ? <p className="text-rose-400 text-sm">{competitorsError}</p> : null}
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={goBack}>Back</Button>
-                  <Button type="button" disabled={parsedCompetitors.length === 0 || competitorsSaving} onClick={handleSaveCompetitors}>
-                    {competitorsSaving ? 'Saving...' : `Save ${parsedCompetitors.length} competitor${parsedCompetitors.length !== 1 ? 's' : ''}`}
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button type="button" variant="outline" onClick={() => setStep(4)}>
+                      Skip
+                    </Button>
+                    <Button type="button" disabled={parsedCompetitors.length === 0 || competitorsSaving} onClick={handleSaveCompetitors}>
+                      {competitorsSaving ? 'Saving...' : `Save ${parsedCompetitors.length} competitor${parsedCompetitors.length !== 1 ? 's' : ''}`}
+                    </Button>
+                  </div>
                 </div>
               </div>
             )}
