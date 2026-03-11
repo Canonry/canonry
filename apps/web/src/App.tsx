@@ -2163,7 +2163,7 @@ function SetupPage({
   const parsedKeywords = keywordsText.split('\n').map(k => k.trim()).filter(Boolean)
   const parsedCompetitors = competitorsText.split('\n').map(c => c.trim()).filter(Boolean)
 
-  const allHealthy = model.healthChecks.every((c) => c.state === 'ready')
+  const apiReady = model.healthChecks.some((c) => c.id === 'api' && c.state === 'ready')
 
   const handleCreateProject = async () => {
     if (!slug || !domain) return
@@ -2258,6 +2258,15 @@ function SetupPage({
                   <div>
                     <p className="run-row-title">{check.label}</p>
                     <p className="supporting-copy">{check.detail}</p>
+                    {check.id === 'provider' && check.state !== 'ready' && (
+                      <button
+                        type="button"
+                        className="text-emerald-400 hover:text-emerald-300 text-sm mt-1 underline underline-offset-2 cursor-pointer bg-transparent border-none p-0"
+                        onClick={() => onNavigate('/settings')}
+                      >
+                        Configure providers
+                      </button>
+                    )}
                   </div>
                   <ToneBadge tone={check.state === 'ready' ? 'positive' : 'caution'}>
                     {check.state === 'ready' ? 'Ready' : 'Attention'}
@@ -2267,7 +2276,7 @@ function SetupPage({
             </div>
             <div className="setup-nav">
               <span />
-              <Button type="button" disabled={!allHealthy} onClick={() => setStep(1)}>
+              <Button type="button" disabled={!apiReady} onClick={() => setStep(1)}>
                 Continue
               </Button>
             </div>
