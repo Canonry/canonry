@@ -708,20 +708,21 @@ function CitationTimeline({ history, maxDots = 12 }: { history: RunHistoryPoint[
 
 /** Aggregate citation timeline from multiple provider histories into a single merged timeline. */
 function mergeProviderHistories(items: CitationInsightVm[]): RunHistoryPoint[] {
-  // Collect all unique timestamps across providers
-  const byDate = new Map<string, string[]>()
+  // Collect all states per run timestamp across providers.
+  // Each run shares the same createdAt, so using the full timestamp correctly
+  // groups providers within a run while keeping distinct runs separate.
+  const byRun = new Map<string, string[]>()
   for (const item of items) {
     for (const h of item.runHistory) {
-      const key = h.createdAt.slice(0, 10)
-      const existing = byDate.get(key)
+      const existing = byRun.get(h.createdAt)
       if (existing) existing.push(h.citationState)
-      else byDate.set(key, [h.citationState])
+      else byRun.set(h.createdAt, [h.citationState])
     }
   }
-  // For each date, pick the best state: cited > emerging > not-cited
-  const sorted = [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b))
-  return sorted.map(([date, states]) => ({
-    createdAt: date,
+  // For each run, pick the best state: cited > emerging > not-cited
+  const sorted = [...byRun.entries()].sort(([a], [b]) => a.localeCompare(b))
+  return sorted.map(([createdAt, states]) => ({
+    createdAt,
     citationState: states.includes('cited') ? 'cited'
       : states.includes('emerging') ? 'emerging'
       : 'not-cited',
@@ -775,7 +776,8 @@ function EvidenceTable({
             const aggState: CitationState =
               states.includes('cited') ? 'cited' :
               states.includes('emerging') ? 'emerging' :
-              states.includes('lost') ? 'lost' : 'not-cited'
+              states.includes('lost') ? 'lost' :
+              states.every(s => s === 'pending') ? 'pending' : 'not-cited'
 
             const mergedHistory = mergeProviderHistories(items)
             const citedCount = items.filter(i => i.citationState === 'cited' || i.citationState === 'emerging').length
