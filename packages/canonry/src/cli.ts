@@ -39,7 +39,7 @@ Usage:
   canonry evidence <project>          Show keyword-level results
   canonry history <project>           Show audit trail
   canonry export <project>            Export project as YAML
-  canonry apply <file>                Apply declarative config
+  canonry apply <file...>              Apply declarative config (multi-doc YAML supported)
   canonry schedule set <project>      Set schedule (--preset or --cron)
   canonry schedule show <project>     Show schedule
   canonry schedule enable <project>   Enable schedule
@@ -312,12 +312,14 @@ async function main() {
       }
 
       case 'apply': {
-        const filePath = args[1]
-        if (!filePath) {
-          console.error('Error: file path is required')
+        const filePaths = args.slice(1).filter(a => !a.startsWith('-'))
+        if (filePaths.length === 0) {
+          console.error('Error: at least one file path is required')
           process.exit(1)
         }
-        await applyConfig(filePath)
+        for (const fp of filePaths) {
+          await applyConfig(fp)
+        }
         break
       }
 

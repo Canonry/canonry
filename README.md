@@ -74,7 +74,9 @@ canonry export <project>                 # Export project as YAML
 ### Config-as-Code
 
 ```bash
-canonry apply canonry.yaml          # Declarative project apply
+canonry apply canonry.yaml                   # Single project
+canonry apply projects/*.yaml                # Multiple files
+canonry apply multi-projects.yaml            # Multi-doc YAML (---separated)
 ```
 
 ### Scheduling and Notifications
@@ -118,10 +120,11 @@ spec:
     - local
 ```
 
-Apply with the CLI or the API:
+Apply with the CLI or the API. Multiple projects can live in one file separated by `---`, or pass multiple files:
 
 ```bash
 canonry apply canonry.yaml
+canonry apply project-a.yaml project-b.yaml
 ```
 
 ```bash

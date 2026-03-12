@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   Menu,
   Play,
+  Plus,
   Rocket,
   Settings,
   Trash2,
@@ -87,6 +88,7 @@ const defaultHealthSnapshot: HealthSnapshot = {
 
 type AppRoute =
   | { kind: 'overview'; path: '/' }
+  | { kind: 'projects'; path: '/projects' }
   | { kind: 'project'; path: string; projectId: string }
   | { kind: 'runs'; path: '/runs' }
   | { kind: 'settings'; path: '/settings' }
@@ -180,10 +182,7 @@ function resolveRoute(pathname: string, dashboard: DashboardVm): AppRoute {
   }
 
   if (normalized === '/projects') {
-    const firstProject = dashboard.projects[0]
-    return firstProject
-      ? { kind: 'project', path: `/projects/${firstProject.project.id}`, projectId: firstProject.project.id }
-      : { kind: 'setup', path: '/setup' }
+    return { kind: 'projects', path: '/projects' }
   }
 
   if (normalized.startsWith('/projects/')) {
@@ -396,7 +395,11 @@ function createNavigationHandler(navigate: (to: string) => void, to: string) {
   }
 }
 
-function isNavActive(route: AppRoute, section: 'overview' | 'project' | 'runs' | 'settings'): boolean {
+function isNavActive(route: AppRoute, section: 'overview' | 'projects' | 'project' | 'runs' | 'settings'): boolean {
+  if (section === 'projects') {
+    return route.kind === 'projects' || route.kind === 'project'
+  }
+
   if (section === 'project') {
     return route.kind === 'project'
   }
@@ -967,6 +970,215 @@ function OverviewPage({
           ))}
         </div>
       </section>
+    </div>
+  )
+}
+
+function ProjectsPage({
+  projects,
+  onNavigate,
+  onProjectCreated,
+}: {
+  projects: ProjectCommandCenterVm[]
+  onNavigate: (to: string) => void
+  onProjectCreated: () => void
+}) {
+  const [showForm, setShowForm] = useState(false)
+  const [projectName, setProjectName] = useState('')
+  const [displayName, setDisplayName] = useState('')
+  const [domain, setDomain] = useState('')
+  const [country, setCountry] = useState('US')
+  const [language, setLanguage] = useState('en')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const slug = projectName.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+
+  const handleCreate = async () => {
+    if (!slug || !domain) return
+    setSaving(true)
+    setError(null)
+    try {
+      const project = await createProject(slug, {
+        displayName: displayName || projectName,
+        canonicalDomain: domain,
+        country,
+        language,
+      })
+      onProjectCreated()
+      setProjectName('')
+      setDisplayName('')
+      setDomain('')
+      setCountry('US')
+      setLanguage('en')
+      setShowForm(false)
+      onNavigate(`/projects/${project.id}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create project')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="page-container">
+      <div className="page-header">
+        <div className="page-header-left">
+          <h1 className="page-title">Projects</h1>
+          <p className="page-subtitle">{projects.length} project{projects.length !== 1 ? 's' : ''} tracked</p>
+        </div>
+        <div className="page-header-right">
+          <Button type="button" onClick={() => setShowForm((v) => !v)}>
+            <Plus className="size-4 mr-1.5" />
+            Add project
+          </Button>
+        </div>
+      </div>
+
+      {showForm ? (
+        <Card className="surface-card mb-6">
+          <div className="section-head">
+            <div>
+              <p className="eyebrow eyebrow-soft">New project</p>
+              <h2 className="text-sm font-medium text-zinc-200">Create a new monitoring project</h2>
+            </div>
+          </div>
+          <div className="compact-stack mt-4">
+            <div className="setup-field-row">
+              <div className="setup-field">
+                <label className="setup-label" htmlFor="new-project-name">Project name</label>
+                <input
+                  id="new-project-name"
+                  className="setup-input"
+                  type="text"
+                  placeholder="my-project"
+                  value={projectName}
+                  onChange={(e) => setProjectName(e.target.value)}
+                />
+                {slug && slug !== projectName ? (
+                  <p className="supporting-copy">Slug: {slug}</p>
+                ) : null}
+              </div>
+              <div className="setup-field">
+                <label className="setup-label" htmlFor="new-display-name">Display name</label>
+                <input
+                  id="new-display-name"
+                  className="setup-input"
+                  type="text"
+                  placeholder="My Project"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="setup-field">
+              <label className="setup-label" htmlFor="new-domain">Canonical domain</label>
+              <input
+                id="new-domain"
+                className="setup-input"
+                type="text"
+                placeholder="example.com"
+                value={domain}
+                onChange={(e) => setDomain(e.target.value)}
+              />
+            </div>
+            <div className="setup-field-row">
+              <div className="setup-field">
+                <label className="setup-label" htmlFor="new-country">Country</label>
+                <input
+                  id="new-country"
+                  className="setup-input"
+                  type="text"
+                  placeholder="US"
+                  maxLength={2}
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value.toUpperCase())}
+                />
+              </div>
+              <div className="setup-field">
+                <label className="setup-label" htmlFor="new-language">Language</label>
+                <input
+                  id="new-language"
+                  className="setup-input"
+                  type="text"
+                  placeholder="en"
+                  maxLength={5}
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value.toLowerCase())}
+                />
+              </div>
+            </div>
+          </div>
+          {error ? <p className="text-rose-400 text-sm mt-3">{error}</p> : null}
+          <div className="flex items-center gap-3 mt-4">
+            <Button type="button" disabled={!slug || !domain || saving} onClick={handleCreate}>
+              {saving ? 'Creating...' : 'Create project'}
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setShowForm(false)}>
+              Cancel
+            </Button>
+          </div>
+        </Card>
+      ) : null}
+
+      {projects.length > 0 ? (
+        <div className="data-table-wrapper">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Domain</th>
+                <th>Visibility</th>
+                <th>Last run</th>
+                <th className="text-right">Country</th>
+              </tr>
+            </thead>
+            <tbody>
+              {projects.map((p) => {
+                const href = `/projects/${p.project.id}`
+                const latestRun = p.recentRuns[0]
+                return (
+                  <tr key={p.project.id} className="cursor-pointer" onClick={() => onNavigate(href)}>
+                    <td>
+                      <a
+                        className="text-zinc-100 font-medium hover:underline"
+                        href={href}
+                        onClick={createNavigationHandler(onNavigate, href)}
+                      >
+                        {p.project.displayName || p.project.name}
+                      </a>
+                      <p className="text-[11px] text-zinc-500">{p.project.name}</p>
+                    </td>
+                    <td className="text-zinc-400">{p.project.canonicalDomain}</td>
+                    <td>
+                      <span className={`text-sm font-medium ${p.visibilitySummary.tone === 'positive' ? 'text-emerald-400' : p.visibilitySummary.tone === 'caution' ? 'text-amber-400' : p.visibilitySummary.tone === 'negative' ? 'text-rose-400' : 'text-zinc-400'}`}>
+                        {p.visibilitySummary.value}
+                      </span>
+                    </td>
+                    <td className="text-zinc-500 text-sm">
+                      {latestRun ? (
+                        <StatusBadge status={latestRun.status} />
+                      ) : (
+                        <span className="text-zinc-600">No runs</span>
+                      )}
+                    </td>
+                    <td className="text-right text-zinc-500">{p.project.country}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : !showForm ? (
+        <Card className="surface-card empty-card">
+          <h3>No projects yet</h3>
+          <p className="supporting-copy">Create your first monitoring project to start tracking AI visibility.</p>
+          <Button type="button" onClick={() => setShowForm(true)}>
+            <Plus className="size-4 mr-1.5" />
+            Add project
+          </Button>
+        </Card>
+      ) : null}
     </div>
   )
 }
@@ -2900,12 +3112,6 @@ export function App({
 
   const route = resolveRoute(pathname, safeDashboard)
   const activeProject = route.kind === 'project' ? findProjectVm(safeDashboard, route.projectId) : undefined
-  const projectPath = activeProject
-    ? `/projects/${activeProject.project.id}`
-    : safeDashboard.projects[0]
-      ? `/projects/${safeDashboard.projects[0].project.id}`
-      : '/setup'
-
   const navigate = (to: string) => {
     const nextPath = normalizePathname(to)
 
@@ -3009,7 +3215,7 @@ export function App({
 
   const mainNavItems = [
     { label: 'Overview', href: '/', icon: LayoutDashboard, active: isNavActive(route, 'overview') },
-    { label: 'Projects', href: projectPath, icon: Globe, active: isNavActive(route, 'project') },
+    { label: 'Projects', href: '/projects', icon: Globe, active: isNavActive(route, 'projects') },
     { label: 'Runs', href: '/runs', icon: Play, active: isNavActive(route, 'runs') },
     { label: 'Settings', href: '/settings', icon: Settings, active: isNavActive(route, 'settings') },
   ]
@@ -3017,15 +3223,17 @@ export function App({
   const breadcrumbLabel =
     route.kind === 'overview'
       ? 'Portfolio'
-      : route.kind === 'project' && activeProject
-        ? activeProject.project.name
-        : route.kind === 'runs'
-          ? 'Runs'
-          : route.kind === 'settings'
-            ? 'Settings'
-            : route.kind === 'setup'
-              ? 'Setup'
-              : 'Not found'
+      : route.kind === 'projects'
+        ? 'Projects'
+        : route.kind === 'project' && activeProject
+          ? activeProject.project.name
+          : route.kind === 'runs'
+            ? 'Runs'
+            : route.kind === 'settings'
+              ? 'Settings'
+              : route.kind === 'setup'
+                ? 'Setup'
+                : 'Not found'
 
   return (
     <div className="app-shell">
@@ -3200,6 +3408,13 @@ export function App({
                   systemHealth={systemHealthCards}
                   onNavigate={navigate}
                   onOpenRun={openRun}
+                />
+              ) : null}
+              {route.kind === 'projects' ? (
+                <ProjectsPage
+                  projects={safeDashboard.projects}
+                  onNavigate={navigate}
+                  onProjectCreated={refreshData}
                 />
               ) : null}
               {route.kind === 'project' && activeProject ? (

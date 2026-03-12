@@ -1000,6 +1000,36 @@
     @apply pointer-events-auto opacity-100;
   }
 
+  /* ── Data table (generic) ── */
+
+  .data-table-wrapper {
+    @apply overflow-x-auto rounded-xl border border-zinc-800/60;
+  }
+
+  .data-table {
+    @apply w-full text-sm;
+  }
+
+  .data-table thead {
+    @apply border-b border-zinc-800/60 bg-zinc-900/50;
+  }
+
+  .data-table th {
+    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500;
+  }
+
+  .data-table tbody tr {
+    @apply border-b border-zinc-800/30 transition hover:bg-zinc-900/30;
+  }
+
+  .data-table tbody tr:last-child {
+    @apply border-b-0;
+  }
+
+  .data-table td {
+    @apply px-4 py-3 text-zinc-300;
+  }
+
   /* ── Misc helpers ── */
 
   .sr-only {

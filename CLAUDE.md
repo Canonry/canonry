@@ -46,7 +46,7 @@ canonry keyword add <project> <keyword>...
 canonry run <project>
 canonry run <project> --provider gemini          # single-provider run
 canonry status <project>
-canonry apply <canonry.yaml>
+canonry apply <file...>                          # multi-doc YAML + multiple files
 canonry export <project>
 ```
 
@@ -99,7 +99,7 @@ spec:
     - openai
 ```
 
-Apply with `canonry apply <file>` or `POST /api/v1/apply`. DB is authoritative; config files are input.
+Multiple projects can be defined in one file using `---` document separators. Apply with `canonry apply <file...>` (accepts multiple files) or `POST /api/v1/apply`. DB is authoritative; config files are input.
 
 ## API Surface
 
