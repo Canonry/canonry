@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "license": "AGPL-3.0-only",
+  "license": "FSL-1.1-ALv2",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
