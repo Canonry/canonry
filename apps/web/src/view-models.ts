@@ -81,6 +81,11 @@ export interface PortfolioOverviewVm {
   }
 }
 
+export interface RunHistoryPoint {
+  citationState: string
+  createdAt: string
+}
+
 export interface CitationInsightVm {
   id: string
   keyword: string
@@ -94,6 +99,14 @@ export interface CitationInsightVm {
   relatedTechnicalSignals: string[]
   groundingSources: GroundingSource[]
   summary: string
+  runHistory: RunHistoryPoint[]
+}
+
+export interface AffectedPhrase {
+  keyword: string
+  evidenceId: string
+  providers: string[]
+  citationState: CitationState
 }
 
 export interface ProjectInsightVm {
@@ -103,6 +116,7 @@ export interface ProjectInsightVm {
   detail: string
   actionLabel: string
   evidenceId?: string
+  affectedPhrases: AffectedPhrase[]
 }
 
 export interface TechnicalFindingVm {

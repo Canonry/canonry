@@ -63,6 +63,7 @@ import type {
   PortfolioProjectVm,
   ProjectCommandCenterVm,
   RunFilter,
+  RunHistoryPoint,
   RunListItemVm,
   ServiceStatus,
   SettingsVm,
@@ -610,6 +611,123 @@ function ProviderBadge({ provider }: { provider: string }) {
   )
 }
 
+function InsightSignals({
+  insights,
+  onOpenEvidence,
+}: {
+  insights: ProjectCommandCenterVm['insights']
+  onOpenEvidence: (evidenceId: string) => void
+}) {
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  return (
+    <div className="insight-list">
+      {insights.map((insight) => {
+        const isExpanded = expandedId === insight.id
+        const hasAffected = insight.affectedPhrases.length > 0
+
+        return (
+          <div key={insight.id}>
+            <div
+              className={`insight-row insight-row-${insight.tone} ${hasAffected ? 'cursor-pointer' : ''}`}
+              onClick={hasAffected ? () => setExpandedId(isExpanded ? null : insight.id) : undefined}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                {hasAffected && (
+                  <ChevronRight
+                    size={12}
+                    className={`shrink-0 text-zinc-500 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
+                  />
+                )}
+                <ToneBadge tone={insight.tone}>{insight.actionLabel}</ToneBadge>
+                <span className="text-sm font-medium text-zinc-100 truncate">{insight.title}</span>
+                <span className="hidden sm:inline text-xs text-zinc-500 truncate">{insight.detail}</span>
+              </div>
+              {hasAffected && (
+                <span className="text-[11px] text-zinc-600 whitespace-nowrap">
+                  {insight.affectedPhrases.length} phrase{insight.affectedPhrases.length > 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+            {isExpanded && (
+              <div className="divide-y divide-zinc-800/20">
+                {insight.affectedPhrases.map((ap) => (
+                  <div
+                    key={ap.evidenceId}
+                    className="flex items-center justify-between gap-3 px-4 py-2 pl-9 bg-zinc-900/40"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <CitationBadge state={ap.citationState} />
+                      <span className="text-sm text-zinc-200 truncate">{ap.keyword}</span>
+                      <div className="hidden sm:flex gap-1">
+                        {ap.providers.map(p => <ProviderBadge key={p} provider={p} />)}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="text-xs text-zinc-400 hover:text-zinc-200 whitespace-nowrap transition-colors"
+                      onClick={(e) => { e.stopPropagation(); onOpenEvidence(ap.evidenceId) }}
+                    >
+                      View &rarr;
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+/** Inline dot chart showing citation history over recent runs. */
+function CitationTimeline({ history, maxDots = 12 }: { history: RunHistoryPoint[]; maxDots?: number }) {
+  const dots = history.slice(-maxDots)
+  if (dots.length === 0) return <span className="text-[11px] text-zinc-600">No data</span>
+
+  const colorMap: Record<string, string> = {
+    cited: 'bg-emerald-400',
+    'not-cited': 'bg-zinc-600',
+    lost: 'bg-rose-400',
+    emerging: 'bg-emerald-400 ring-1 ring-emerald-300/60',
+  }
+
+  return (
+    <div className="flex items-center gap-[3px]" title={`${dots.length} runs`}>
+      {dots.map((d, i) => (
+        <div
+          key={i}
+          className={`h-2.5 w-2.5 rounded-sm ${colorMap[d.citationState] ?? 'bg-zinc-700'}`}
+          title={`${d.citationState} — ${new Date(d.createdAt).toLocaleDateString()}`}
+        />
+      ))}
+    </div>
+  )
+}
+
+/** Aggregate citation timeline from multiple provider histories into a single merged timeline. */
+function mergeProviderHistories(items: CitationInsightVm[]): RunHistoryPoint[] {
+  // Collect all unique timestamps across providers
+  const byDate = new Map<string, string[]>()
+  for (const item of items) {
+    for (const h of item.runHistory) {
+      const key = h.createdAt.slice(0, 10)
+      const existing = byDate.get(key)
+      if (existing) existing.push(h.citationState)
+      else byDate.set(key, [h.citationState])
+    }
+  }
+  // For each date, pick the best state: cited > emerging > not-cited
+  const sorted = [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b))
+  return sorted.map(([date, states]) => ({
+    createdAt: date,
+    citationState: states.includes('cited') ? 'cited'
+      : states.includes('emerging') ? 'emerging'
+      : 'not-cited',
+  }))
+}
+
 function EvidenceTable({
   evidence,
   onOpenEvidence,
@@ -645,9 +763,8 @@ function EvidenceTable({
             <th style={{ width: '2rem' }} />
             <th>Key Phrase</th>
             <th>Status</th>
+            <th>Citation History</th>
             <th>Change</th>
-            <th>Summary</th>
-            <th>Snippet</th>
             <th />
           </tr>
         </thead>
@@ -659,6 +776,27 @@ function EvidenceTable({
               states.includes('cited') ? 'cited' :
               states.includes('emerging') ? 'emerging' :
               states.includes('lost') ? 'lost' : 'not-cited'
+
+            const mergedHistory = mergeProviderHistories(items)
+            const citedCount = items.filter(i => i.citationState === 'cited' || i.citationState === 'emerging').length
+
+            // Compute phrase-level change label from merged history
+            const aggChangeLabel = (() => {
+              if (mergedHistory.length === 0) return 'Awaiting first run'
+              if (mergedHistory.length === 1) return 'First observation'
+              const latest = mergedHistory[mergedHistory.length - 1]!.citationState
+              const prev = mergedHistory[mergedHistory.length - 2]!.citationState
+              if (prev !== 'cited' && latest === 'cited') return 'Newly cited'
+              if (prev === 'cited' && latest !== 'cited') return 'Lost since last run'
+              // Count streak
+              let streak = 0
+              for (let i = mergedHistory.length - 1; i >= 0; i--) {
+                if (mergedHistory[i]!.citationState === latest) streak++
+                else break
+              }
+              if (latest === 'cited') return streak <= 1 ? 'Cited in latest run' : `Cited for ${streak} runs`
+              return streak <= 1 ? 'Not cited in latest run' : `Not cited across ${streak} runs`
+            })()
 
             return (
               <Fragment key={phrase}>
@@ -683,8 +821,19 @@ function EvidenceTable({
                       </div>
                     </div>
                   </td>
-                  <td><CitationBadge state={aggState} /></td>
-                  <td colSpan={4} />
+                  <td>
+                    <div className="flex items-center gap-2">
+                      <CitationBadge state={aggState} />
+                      <span className="text-[11px] text-zinc-500">{citedCount}/{items.length}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <CitationTimeline history={mergedHistory} />
+                  </td>
+                  <td className="evidence-change-cell">
+                    {aggChangeLabel}
+                  </td>
+                  <td />
                 </tr>
                 {isExpanded && items.map(item => (
                   <tr key={item.id} className="bg-zinc-900/30">
@@ -693,11 +842,10 @@ function EvidenceTable({
                       <ProviderBadge provider={item.provider} />
                     </td>
                     <td><CitationBadge state={item.citationState} /></td>
-                    <td className="evidence-change-cell">{item.changeLabel}</td>
-                    <td className="evidence-summary-cell">{item.summary}</td>
-                    <td className="evidence-snippet-cell" title={item.answerSnippet}>
-                      {item.answerSnippet}
+                    <td>
+                      <CitationTimeline history={item.runHistory} />
                     </td>
+                    <td className="evidence-change-cell">{item.changeLabel}</td>
                     <td>
                       <Button
                         variant="ghost"
@@ -1495,22 +1643,7 @@ function ProjectPage({
             <h2>Citation signals</h2>
           </div>
         </div>
-        <div className="insight-grid">
-          {model.insights.map((insight) => (
-            <Card key={insight.id} className={`surface-card insight-card insight-card-${insight.tone}`}>
-              <ToneBadge tone={insight.tone}>{insight.actionLabel}</ToneBadge>
-              <h3>{insight.title}</h3>
-              <p>{insight.detail}</p>
-              {insight.evidenceId ? (
-                <Button variant="outline" size="sm" type="button" onClick={() => onOpenEvidence(insight.evidenceId!)}>
-                  Open evidence
-                </Button>
-              ) : (
-                <span className="supporting-copy">Monitor in the next run.</span>
-              )}
-            </Card>
-          ))}
-        </div>
+        <InsightSignals insights={model.insights} onOpenEvidence={onOpenEvidence} />
       </section>
 
       {/* Evidence table */}

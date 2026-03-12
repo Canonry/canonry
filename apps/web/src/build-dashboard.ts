@@ -9,6 +9,7 @@ import type {
   ApiTimelineEntry,
 } from './api.js'
 import type {
+  AffectedPhrase,
   CitationInsightVm,
   CitationState,
   CompetitorVm,
@@ -235,6 +236,9 @@ function buildEvidenceFromTimeline(
           ? computeStreak(providerHistory)
           : computeStreak(entry.runs)
 
+        const runHistory = (hasProviderHistory ? providerHistory : entry.runs)
+          .map(r => ({ citationState: r.citationState, createdAt: r.createdAt }))
+
         results.push({
           id: `evidence_${projectName}_${idx++}`,
           keyword: entry.keyword,
@@ -248,6 +252,7 @@ function buildEvidenceFromTimeline(
           relatedTechnicalSignals: [],
           groundingSources: snap?.groundingSources ?? [],
           summary: evidenceSummary(snapState, entry.keyword),
+          runHistory,
         })
       }
     }
@@ -269,6 +274,7 @@ function buildEvidenceFromTimeline(
       relatedTechnicalSignals: [],
       groundingSources: [],
       summary: `"${kw.keyword}" has been added but no visibility run has been triggered yet.`,
+      runHistory: [],
     })
   }
 
@@ -327,16 +333,24 @@ function buildInsights(evidence: CitationInsightVm[]): ProjectInsightVm[] {
     phraseMap.set(e.keyword, [...existing, e])
   }
 
-  const lostPhrases: { phrase: string; id: string }[] = []
-  const emergingPhrases: { phrase: string; id: string }[] = []
-  const notCitedPhrases: { phrase: string; id: string }[] = []
+  function toAffected(items: CitationInsightVm[], state: CitationState): AffectedPhrase {
+    return {
+      keyword: items[0]!.keyword,
+      evidenceId: items.find(i => i.citationState === state)?.id ?? items[0]!.id,
+      providers: items.map(i => i.provider).filter(Boolean),
+      citationState: state,
+    }
+  }
 
-  for (const [phrase, items] of phraseMap) {
+  const lostPhrases: AffectedPhrase[] = []
+  const emergingPhrases: AffectedPhrase[] = []
+  const notCitedPhrases: AffectedPhrase[] = []
+
+  for (const [, items] of phraseMap) {
     const agg = aggregatePhraseState(items)
-    const firstId = items[0]!.id
-    if (agg === 'lost') lostPhrases.push({ phrase, id: items.find(i => i.citationState === 'lost')?.id ?? firstId })
-    else if (agg === 'emerging') emergingPhrases.push({ phrase, id: items.find(i => i.citationState === 'emerging')?.id ?? firstId })
-    else if (agg === 'not-cited') notCitedPhrases.push({ phrase, id: firstId })
+    if (agg === 'lost') lostPhrases.push(toAffected(items, 'lost'))
+    else if (agg === 'emerging') emergingPhrases.push(toAffected(items, 'emerging'))
+    else if (agg === 'not-cited') notCitedPhrases.push(toAffected(items, 'not-cited'))
   }
 
   if (lostPhrases.length > 0) {
@@ -344,9 +358,9 @@ function buildInsights(evidence: CitationInsightVm[]): ProjectInsightVm[] {
       id: 'insight_lost',
       tone: 'negative',
       title: `Lost citation on ${lostPhrases.length} key phrase${lostPhrases.length > 1 ? 's' : ''}`,
-      detail: `Key phrases: ${lostPhrases.map(p => p.phrase).join(', ')}`,
-      actionLabel: 'Open evidence',
-      evidenceId: lostPhrases[0]!.id,
+      detail: 'Citations dropped since the last run.',
+      actionLabel: 'Lost',
+      affectedPhrases: lostPhrases,
     })
   }
 
@@ -355,9 +369,9 @@ function buildInsights(evidence: CitationInsightVm[]): ProjectInsightVm[] {
       id: 'insight_emerging',
       tone: 'positive',
       title: `New citation on ${emergingPhrases.length} key phrase${emergingPhrases.length > 1 ? 's' : ''}`,
-      detail: `Key phrases: ${emergingPhrases.map(p => p.phrase).join(', ')}`,
-      actionLabel: 'Review evidence',
-      evidenceId: emergingPhrases[0]!.id,
+      detail: 'Your domain started appearing in AI answers.',
+      actionLabel: 'Emerging',
+      affectedPhrases: emergingPhrases,
     })
   }
 
@@ -366,9 +380,9 @@ function buildInsights(evidence: CitationInsightVm[]): ProjectInsightVm[] {
       id: 'insight_gap',
       tone: 'caution',
       title: `${notCitedPhrases.length} key phrase${notCitedPhrases.length > 1 ? 's' : ''} not cited by any provider`,
-      detail: 'These key phrases have not been cited in any AI answer across all providers.',
-      actionLabel: 'Inspect gap',
-      evidenceId: notCitedPhrases[0]!.id,
+      detail: 'No citations detected across all providers.',
+      actionLabel: 'Gap',
+      affectedPhrases: notCitedPhrases,
     })
   }
 
@@ -378,7 +392,8 @@ function buildInsights(evidence: CitationInsightVm[]): ProjectInsightVm[] {
       tone: 'neutral',
       title: 'No significant changes',
       detail: 'Citation state is stable across all tracked key phrases.',
-      actionLabel: 'Monitor',
+      actionLabel: 'Stable',
+      affectedPhrases: [],
     })
   }
 

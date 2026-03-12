@@ -682,8 +682,29 @@
     @apply opacity-50 cursor-not-allowed;
   }
 
-  /* ── Insight cards with left accent ── */
+  /* ── Insight rows (compact signal list) ── */
 
+  .insight-list {
+    @apply rounded-xl border border-zinc-800/60 divide-y divide-zinc-800/30 overflow-hidden;
+  }
+
+  .insight-row {
+    @apply flex items-center justify-between gap-4 px-4 py-2.5 border-l-2 border-l-zinc-700 bg-zinc-900/20 transition hover:bg-zinc-800/30;
+  }
+
+  .insight-row-positive {
+    @apply border-l-emerald-500/60;
+  }
+
+  .insight-row-caution {
+    @apply border-l-amber-500/60;
+  }
+
+  .insight-row-negative {
+    @apply border-l-rose-500/60;
+  }
+
+  /* Keep old card classes for backward compat if used elsewhere */
   .insight-card {
     @apply grid gap-3 border-l-2 border-l-zinc-700;
   }
@@ -748,15 +769,7 @@
   }
 
   .evidence-change-cell {
-    @apply text-zinc-500;
-  }
-
-  .evidence-summary-cell {
-    @apply max-w-sm text-zinc-400;
-  }
-
-  .evidence-snippet-cell {
-    @apply max-w-xs truncate text-zinc-500 italic;
+    @apply text-xs text-zinc-500;
   }
 
   /* ── Findings table ── */

@@ -5,8 +5,18 @@ import type {
   DashboardVm,
   HealthSnapshot,
   ProjectCommandCenterVm,
+  RunHistoryPoint,
   RunListItemVm,
 } from './view-models.js'
+
+/** Generate mock run history for a given pattern of citation states. */
+function mockHistory(states: string[]): RunHistoryPoint[] {
+  const base = new Date('2026-02-20')
+  return states.map((s, i) => ({
+    citationState: s,
+    createdAt: new Date(base.getTime() + i * 2 * 24 * 60 * 60 * 1000).toISOString(),
+  }))
+}
 
 export interface DashboardFixtureOptions {
   emptyPortfolio?: boolean
@@ -211,6 +221,7 @@ const citypointEvidence: CitationInsightVm[] = [
       'Location pages link weakly into the emergency care hub',
     ],
     summary: 'AI answers now cite two competitors while your emergency page is no longer grounded.',
+    runHistory: mockHistory(['cited', 'cited', 'cited', 'cited', 'cited', 'cited', 'cited', 'not-cited', 'not-cited']),
   },
   {
     id: 'evidence_citypoint_emergency_openai',
@@ -226,6 +237,7 @@ const citypointEvidence: CitationInsightVm[] = [
     groundingSources: [],
     relatedTechnicalSignals: ['Emergency page indexed with structured data'],
     summary: 'OpenAI cites your emergency page consistently alongside one competitor.',
+    runHistory: mockHistory(['not-cited', 'cited', 'cited', 'cited', 'cited', 'cited', 'cited']),
   },
   {
     id: 'evidence_citypoint_emergency_claude',
@@ -241,6 +253,7 @@ const citypointEvidence: CitationInsightVm[] = [
     groundingSources: [],
     relatedTechnicalSignals: ['FAQ schema missing', 'llms.txt not found'],
     summary: 'Claude does not cite your domain for this emergency query.',
+    runHistory: mockHistory(['not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited']),
   },
 
   // best invisalign dentist downtown brooklyn — 3 providers
@@ -264,6 +277,7 @@ const citypointEvidence: CitationInsightVm[] = [
       'Internal links from service pages to case studies improved crawl depth',
     ],
     summary: 'Fresh case-study content is starting to earn citations on Invisalign prompts.',
+    runHistory: mockHistory(['not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'cited']),
   },
   {
     id: 'evidence_citypoint_invisalign_gemini',
@@ -279,6 +293,7 @@ const citypointEvidence: CitationInsightVm[] = [
     groundingSources: [],
     relatedTechnicalSignals: ['Case study pages well-indexed'],
     summary: 'Gemini consistently cites your Invisalign page with no competitor overlap.',
+    runHistory: mockHistory(['cited', 'cited', 'cited', 'cited', 'cited', 'cited', 'cited', 'cited']),
   },
   {
     id: 'evidence_citypoint_invisalign_claude',
@@ -294,6 +309,7 @@ const citypointEvidence: CitationInsightVm[] = [
     groundingSources: [],
     relatedTechnicalSignals: ['No before/after schema on case study pages'],
     summary: 'Claude does not surface your Invisalign content despite strong page quality.',
+    runHistory: mockHistory(['not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited']),
   },
 
   // pediatric dentist brooklyn heights — 3 providers
@@ -317,6 +333,7 @@ const citypointEvidence: CitationInsightVm[] = [
       'Insurance content is buried three clicks deep',
     ],
     summary: 'Coverage gap is content-driven, not purely technical.',
+    runHistory: mockHistory(['not-cited', 'not-cited', 'not-cited', 'not-cited']),
   },
   {
     id: 'evidence_citypoint_children_gemini',
@@ -332,6 +349,7 @@ const citypointEvidence: CitationInsightVm[] = [
     groundingSources: [],
     relatedTechnicalSignals: ['No dedicated pediatric page for Brooklyn Heights'],
     summary: 'Gemini does not surface your domain for pediatric queries in this area.',
+    runHistory: mockHistory(['not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited']),
   },
   {
     id: 'evidence_citypoint_children_openai',
@@ -347,6 +365,7 @@ const citypointEvidence: CitationInsightVm[] = [
     groundingSources: [],
     relatedTechnicalSignals: ['Family dentistry page recently updated'],
     summary: 'OpenAI recently started citing your family dentistry page for this query.',
+    runHistory: mockHistory(['not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'cited']),
   },
 ]
 
@@ -396,26 +415,41 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       {
         id: 'insight_citypoint_lost_citations',
         tone: 'negative',
-        title: 'Lost citation on 3 money queries',
-        detail: 'Emergency-intent prompts stopped grounding Citypoint after competitors refreshed availability pages.',
-        actionLabel: 'Open evidence',
-        evidenceId: 'evidence_citypoint_emergency',
+        title: 'Lost citation on 1 key phrase',
+        detail: 'Emergency-intent prompts stopped grounding Citypoint after competitors refreshed.',
+        actionLabel: 'Lost',
+        affectedPhrases: [{
+          keyword: 'emergency dentist brooklyn',
+          evidenceId: 'evidence_citypoint_emergency_gemini',
+          providers: ['gemini'],
+          citationState: 'lost',
+        }],
       },
       {
         id: 'insight_citypoint_emerging',
         tone: 'positive',
-        title: 'Fresh case studies are starting to work',
-        detail: 'Invisalign prompts now cite Citypoint when case-study pages are mentioned in the answer rationale.',
-        actionLabel: 'Review example',
-        evidenceId: 'evidence_citypoint_invisalign',
+        title: 'New citation on 1 key phrase',
+        detail: 'Case-study content is earning citations on Invisalign prompts.',
+        actionLabel: 'Emerging',
+        affectedPhrases: [{
+          keyword: 'best invisalign dentist downtown brooklyn',
+          evidenceId: 'evidence_citypoint_invisalign_openai',
+          providers: ['openai'],
+          citationState: 'emerging',
+        }],
       },
       {
         id: 'insight_citypoint_content_gap',
         tone: 'caution',
-        title: 'Coverage gap is still content-led',
-        detail: 'Pediatric prompts remain uncited because there is no dedicated neighborhood page to support them.',
-        actionLabel: 'Inspect gap',
-        evidenceId: 'evidence_citypoint_children',
+        title: '1 key phrase not cited by any provider',
+        detail: 'No dedicated neighborhood page to support pediatric queries.',
+        actionLabel: 'Gap',
+        affectedPhrases: [{
+          keyword: 'pediatric dentist brooklyn heights',
+          evidenceId: 'evidence_citypoint_children_claude',
+          providers: ['claude', 'gemini'],
+          citationState: 'not-cited',
+        }],
       },
     ],
     visibilityEvidence: citypointEvidence,
@@ -521,15 +555,22 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         id: 'insight_harbor_cluster',
         tone: 'positive',
         title: 'Practice-area clustering is paying off',
-        detail: 'Merged legal service pages now ground broader informational prompts without hurting conversion intent.',
-        actionLabel: 'Review evidence',
+        detail: 'Merged legal service pages now ground broader informational prompts.',
+        actionLabel: 'Cited',
+        affectedPhrases: [{
+          keyword: 'brooklyn personal injury lawyer',
+          evidenceId: 'evidence_harbor_personal_injury',
+          providers: ['gemini'],
+          citationState: 'cited',
+        }],
       },
       {
         id: 'insight_harbor_local',
         tone: 'neutral',
-        title: 'Local pack competitors are steady',
+        title: 'No significant changes',
         detail: 'No new displacement on borough-specific injury prompts this week.',
-        actionLabel: 'Keep monitoring',
+        actionLabel: 'Stable',
+        affectedPhrases: [],
       },
     ],
     visibilityEvidence: [
@@ -547,6 +588,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         groundingSources: [],
     relatedTechnicalSignals: ['Practice-area schema intact', 'Case results link directly from service pages'],
         summary: 'Grounding remains durable after the service-page consolidation.',
+        runHistory: mockHistory(['cited', 'cited', 'cited', 'cited', 'cited']),
       },
     ],
     technicalFindings: [
@@ -616,8 +658,14 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         id: 'insight_northstar_location_depth',
         tone: 'caution',
         title: 'Location pages need stronger proof',
-        detail: 'The templates are clean, but answers still prefer competitors with physician-specific evidence.',
-        actionLabel: 'Track current run',
+        detail: 'Answers prefer competitors with physician-specific evidence.',
+        actionLabel: 'Gap',
+        affectedPhrases: [{
+          keyword: 'knee replacement surgeon westchester',
+          evidenceId: 'evidence_northstar_knee',
+          providers: ['openai'],
+          citationState: 'emerging',
+        }],
       },
     ],
     visibilityEvidence: [
@@ -637,6 +685,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         groundingSources: [],
     relatedTechnicalSignals: ['Physician bios now linked from treatment pages'],
         summary: 'Template cleanup is helping, but proof depth still matters.',
+        runHistory: mockHistory(['not-cited', 'not-cited', 'not-cited', 'cited']),
       },
     ],
     technicalFindings: [
@@ -938,8 +987,16 @@ export function createDashboardFixture(options: DashboardFixtureOptions = {}): D
         tone: 'negative',
         title: 'Sharp citation drop detected',
         detail: 'Answers that previously cited the domain now ground competitors on both local and service-intent prompts.',
-        actionLabel: 'Open evidence',
-        evidenceId: project.visibilityEvidence[0]?.id,
+        actionLabel: 'Lost',
+        affectedPhrases: project.visibilityEvidence
+          .filter(e => e.citationState === 'lost')
+          .slice(0, 5)
+          .map(e => ({
+            keyword: e.keyword,
+            evidenceId: e.id,
+            providers: [e.provider].filter(Boolean),
+            citationState: e.citationState,
+          })),
       })
       project.technicalFindings?.unshift({
         id: `${project.project.id}_drop_finding`,
