@@ -1,6 +1,6 @@
 # Canonry
 
-[![npm version](https://img.shields.io/npm/v/@ainyc/canonry)](https://www.npmjs.com/package/@ainyc/canonry) [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0) [![Node.js >= 20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
+[![npm version](https://img.shields.io/npm/v/@ainyc/canonry)](https://www.npmjs.com/package/@ainyc/canonry) [![License: FSL-1.1-ALv2](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue.svg)](https://fsl.software/) [![Node.js >= 20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 
 **Open-source AEO monitoring for your domain.** Canonry tracks how AI answer engines (ChatGPT, Gemini, Claude, and others) cite or omit your website for the keywords you care about.
 
@@ -323,7 +323,7 @@ Contributions are welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup in
 
 ## License
 
-[AGPL-3.0-only](./LICENSE)
+[FSL-1.1-ALv2](./LICENSE) — Free to use, modify, and self-host. Each version converts to Apache 2.0 after two years.
 
 ---
 
