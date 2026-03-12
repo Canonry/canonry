@@ -251,7 +251,7 @@ function buildEvidenceFromTimeline(
       id: `evidence_${idx++}`,
       keyword: kw.keyword,
       provider: '',
-      citationState: 'not-cited',
+      citationState: 'pending',
       changeLabel: 'Awaiting first run',
       answerSnippet: '',
       citedDomains: [],
@@ -283,6 +283,7 @@ function evidenceSummary(state: CitationState, keyword: string): string {
     case 'lost': return `Citation was lost for "${keyword}". Competitors may have gained ground.`
     case 'emerging': return `Your domain is starting to appear in answers for "${keyword}".`
     case 'not-cited': return `No citation detected for "${keyword}".`
+    case 'pending': return `"${keyword}" has been added but no visibility run has been triggered yet.`
   }
 }
 
@@ -291,6 +292,7 @@ function aggregatePhraseState(items: CitationInsightVm[]): CitationInsightVm['ci
   if (states.includes('cited')) return 'cited'
   if (states.includes('emerging')) return 'emerging'
   if (states.includes('lost')) return 'lost'
+  if (states.includes('pending')) return 'pending'
   return 'not-cited'
 }
 

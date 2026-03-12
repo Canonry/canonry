@@ -245,6 +245,8 @@ function toneFromCitationState(state: CitationInsightVm['citationState']): Metri
       return 'caution'
     case 'lost':
       return 'negative'
+    case 'pending':
+      return 'neutral'
   }
 }
 
