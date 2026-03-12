@@ -317,8 +317,18 @@ async function main() {
           console.error('Error: at least one file path is required')
           process.exit(1)
         }
+        const applyErrors: string[] = []
         for (const fp of filePaths) {
-          await applyConfig(fp)
+          try {
+            await applyConfig(fp)
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err)
+            applyErrors.push(msg)
+          }
+        }
+        if (applyErrors.length > 0) {
+          for (const e of applyErrors) console.error(e)
+          process.exit(1)
         }
         break
       }
