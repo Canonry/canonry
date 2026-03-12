@@ -180,6 +180,7 @@ function computeCompetitorPressure(snapshots: ApiRunDetail['snapshots'], competi
 }
 
 function buildEvidenceFromTimeline(
+  projectName: string,
   timeline: ApiTimelineEntry[],
   latestRunDetail: ApiRunDetail | null,
   savedKeywords: ApiKeyword[],
@@ -203,6 +204,7 @@ function buildEvidenceFromTimeline(
     if (providers.length === 0) providers.push('gemini')
 
     for (const entry of timeline) {
+      if (entry.runs.length === 0) continue // never run yet; pending fallback handles it
       seenKeywords.add(entry.keyword)
       const latestRun = entry.runs.at(-1)
       const transition = latestRun?.transition ?? 'not-cited'
@@ -227,7 +229,7 @@ function buildEvidenceFromTimeline(
           : transition
 
         results.push({
-          id: `evidence_${idx++}`,
+          id: `evidence_${projectName}_${idx++}`,
           keyword: entry.keyword,
           provider: snap?.provider ?? provider,
           citationState: snapState,
@@ -248,7 +250,7 @@ function buildEvidenceFromTimeline(
   for (const kw of savedKeywords) {
     if (seenKeywords.has(kw.keyword)) continue
     results.push({
-      id: `evidence_${idx++}`,
+      id: `evidence_${projectName}_${idx++}`,
       keyword: kw.keyword,
       provider: '',
       citationState: 'pending',
@@ -411,7 +413,7 @@ export interface ProjectData {
 
 export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCenterVm {
   const dto = toProjectDto(data.project)
-  const evidence = buildEvidenceFromTimeline(data.timeline, data.latestRunDetail, data.keywords)
+  const evidence = buildEvidenceFromTimeline(dto.name, data.timeline, data.latestRunDetail, data.keywords)
   const snapshots = data.latestRunDetail?.snapshots ?? []
   const kwVis = computeKeywordVisibility(snapshots)
   const pressure = computeCompetitorPressure(snapshots, data.competitors.map(c => c.domain))
