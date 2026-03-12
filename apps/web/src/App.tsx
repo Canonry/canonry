@@ -47,6 +47,7 @@ import {
   removeNotification,
   sendTestNotification,
   applyProjectConfig,
+  generateKeywords as apiGenerateKeywords,
   type ApiSchedule,
   type ApiNotification,
 } from './api.js'
@@ -245,6 +246,8 @@ function toneFromCitationState(state: CitationInsightVm['citationState']): Metri
       return 'caution'
     case 'lost':
       return 'negative'
+    case 'pending':
+      return 'neutral'
   }
 }
 
@@ -322,7 +325,7 @@ function buildSystemHealthCards(
     const configuredCount = settings.providerStatuses.filter(p => p.state === 'ready').length
     const totalCount = settings.providerStatuses.length
     const allReady = configuredCount > 0
-    const configuredNames = settings.providerStatuses.filter(p => p.state === 'ready').map(p => p.name).join(' · ')
+    const configuredNames = settings.providerStatuses.filter(p => p.state === 'ready').map(p => PROVIDER_DISPLAY_NAMES[p.name] ?? p.name).join(' · ')
     return {
       ...card,
       label: 'Providers',
@@ -765,7 +768,7 @@ function CompetitorTable({ competitors }: { competitors: ProjectCommandCenterVm[
             <th>Domain</th>
             <th>Pressure</th>
             <th>Citations</th>
-            <th>Keywords</th>
+            <th>Key Phrases</th>
           </tr>
         </thead>
         <tbody>
@@ -2160,6 +2163,13 @@ const PROVIDER_KEY_URLS: Record<string, string> = {
   claude: 'https://platform.claude.com/settings/keys',
 }
 
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  gemini: 'Gemini',
+  openai: 'OpenAI',
+  claude: 'Claude',
+  local: 'Local',
+}
+
 const PROVIDER_MODEL_PLACEHOLDERS: Record<string, string> = {
   gemini: 'e.g. gemini-2.5-flash',
   openai: 'e.g. gpt-4o',
@@ -2415,10 +2425,12 @@ function SetupStepIndicator({ current, labels }: { current: number; labels: read
 
 function SetupPage({
   model,
+  settings,
   onProjectCreated,
   onNavigate,
 }: {
   model: SetupWizardVm
+  settings: SettingsVm
   onProjectCreated: () => void
   onNavigate: (to: string) => void
 }) {
@@ -2438,6 +2450,12 @@ function SetupPage({
   const [keywordsSaved, setKeywordsSaved] = useState(false)
   const [keywordsError, setKeywordsError] = useState<string | null>(null)
   const [keywordsSaving, setKeywordsSaving] = useState(false)
+
+  const readyProviders = settings.providerStatuses.filter(p => p.state === 'ready')
+  const [selectedProvider, setSelectedProvider] = useState(readyProviders[0]?.name ?? '')
+  const [generateCount, setGenerateCount] = useState(5)
+  const [generatingKeywords, setGeneratingKeywords] = useState(false)
+  const [generateError, setGenerateError] = useState<string | null>(null)
 
   const [competitorsText, setCompetitorsText] = useState('')
   const [competitorsSaved, setCompetitorsSaved] = useState(false)
@@ -2491,6 +2509,25 @@ function SetupPage({
       setKeywordsError(err instanceof Error ? err.message : 'Failed to save key phrases')
     } finally {
       setKeywordsSaving(false)
+    }
+  }
+
+  const handleGenerateKeywords = async () => {
+    if (!createdProjectName || !selectedProvider) return
+    setGeneratingKeywords(true)
+    setGenerateError(null)
+    try {
+      const result = await apiGenerateKeywords(createdProjectName, selectedProvider, generateCount)
+      if (result.keywords.length > 0) {
+        const newText = keywordsText
+          ? keywordsText.trimEnd() + '\n' + result.keywords.join('\n')
+          : result.keywords.join('\n')
+        setKeywordsText(newText)
+      }
+    } catch (err) {
+      setGenerateError(err instanceof Error ? err.message : 'Failed to generate key phrases')
+    } finally {
+      setGeneratingKeywords(false)
     }
   }
 
@@ -2654,6 +2691,57 @@ function SetupPage({
               </div>
             ) : (
               <div className="compact-stack">
+                {readyProviders.length > 0 ? (
+                  <div className="compact-stack">
+                    <div className="flex items-center gap-2 text-zinc-500 text-xs uppercase tracking-wide">
+                      <span className="flex-1 border-t border-zinc-800" />
+                      auto-generate
+                      <span className="flex-1 border-t border-zinc-800" />
+                    </div>
+                    <div className="flex items-end gap-2">
+                      <div className="setup-field flex-1">
+                        <label className="setup-label" htmlFor="gen-provider">Provider</label>
+                        <select
+                          id="gen-provider"
+                          className="setup-input"
+                          value={selectedProvider}
+                          onChange={(e) => setSelectedProvider(e.target.value)}
+                        >
+                          {readyProviders.map((p) => (
+                            <option key={p.name} value={p.name}>{PROVIDER_DISPLAY_NAMES[p.name] ?? p.name}{p.model ? ` (${p.model})` : ''}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="setup-field">
+                        <label className="setup-label" htmlFor="gen-count">Count</label>
+                        <select
+                          id="gen-count"
+                          className="setup-input"
+                          value={generateCount}
+                          onChange={(e) => setGenerateCount(Number(e.target.value))}
+                        >
+                          {[3, 5, 10, 15, 20].map((n) => (
+                            <option key={n} value={n}>{n}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={generatingKeywords || !selectedProvider}
+                        onClick={handleGenerateKeywords}
+                      >
+                        {generatingKeywords ? 'Analyzing site...' : 'Generate'}
+                      </Button>
+                    </div>
+                    {generateError ? <p className="text-rose-400 text-sm">{generateError}</p> : null}
+                  </div>
+                ) : null}
+                <div className="flex items-center gap-2 text-zinc-500 text-xs uppercase tracking-wide">
+                  <span className="flex-1 border-t border-zinc-800" />
+                  or type manually
+                  <span className="flex-1 border-t border-zinc-800" />
+                </div>
                 <div className="setup-field">
                   <label className="setup-label" htmlFor="keywords">Key phrases (one per line)</label>
                   <textarea
@@ -3501,7 +3589,7 @@ export function App({
               {route.kind === 'settings' ? (
                 <SettingsPage settings={safeDashboard.settings} healthSnapshot={healthSnapshot} onSettingsChanged={refreshData} />
               ) : null}
-              {route.kind === 'setup' ? <SetupPage model={setupModel} onProjectCreated={refreshData} onNavigate={navigate} /> : null}
+              {route.kind === 'setup' ? <SetupPage model={setupModel} settings={safeDashboard.settings} onProjectCreated={refreshData} onNavigate={navigate} /> : null}
               {route.kind === 'not-found' ? <NotFoundPage onNavigate={navigate} /> : null}
             </>
           )}

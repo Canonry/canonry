@@ -182,63 +182,85 @@ function computeCompetitorPressure(snapshots: ApiRunDetail['snapshots'], competi
 function buildEvidenceFromTimeline(
   timeline: ApiTimelineEntry[],
   latestRunDetail: ApiRunDetail | null,
+  savedKeywords: ApiKeyword[],
 ): CitationInsightVm[] {
-  if (!latestRunDetail) return []
+  const results: CitationInsightVm[] = []
+  let idx = 0
+  const seenKeywords = new Set<string>()
 
-  // Group snapshots by keyword+provider for multi-provider support
-  const snapshotsByKey = new Map<string, ApiRunDetail['snapshots'][number]>()
-  for (const snap of latestRunDetail.snapshots) {
-    if (snap.keyword) {
-      const key = `${snap.keyword}::${snap.provider}`
-      snapshotsByKey.set(key, snap)
+  if (latestRunDetail) {
+    // Group snapshots by keyword+provider for multi-provider support
+    const snapshotsByKey = new Map<string, ApiRunDetail['snapshots'][number]>()
+    for (const snap of latestRunDetail.snapshots) {
+      if (snap.keyword) {
+        const key = `${snap.keyword}::${snap.provider}`
+        snapshotsByKey.set(key, snap)
+      }
+    }
+
+    // Collect unique providers from snapshots
+    const providers = [...new Set(latestRunDetail.snapshots.map(s => s.provider))].sort()
+    if (providers.length === 0) providers.push('gemini')
+
+    for (const entry of timeline) {
+      seenKeywords.add(entry.keyword)
+      const latestRun = entry.runs.at(-1)
+      const transition = latestRun?.transition ?? 'not-cited'
+      const citationState: CitationState = transition === 'lost' ? 'lost'
+        : transition === 'emerging' ? 'emerging'
+        : transition === 'cited' ? 'cited'
+        : 'not-cited'
+
+      for (const provider of providers) {
+        const snap = snapshotsByKey.get(`${entry.keyword}::${provider}`)
+        if (!snap && providers.length > 1) continue
+
+        const snapState: CitationState = snap
+          ? (snap.citationState === 'cited' ? 'cited' : 'not-cited')
+          : citationState
+
+        // For multi-provider runs, the aggregated timeline transition may contradict this
+        // provider's own citation state (e.g. "emerging" but snapState is 'not-cited').
+        // Use the provider's own state as the basis for the label when providers > 1.
+        const effectiveTransition = providers.length > 1
+          ? (snapState === 'cited' ? 'cited' : 'not-cited')
+          : transition
+
+        results.push({
+          id: `evidence_${idx++}`,
+          keyword: entry.keyword,
+          provider: snap?.provider ?? provider,
+          citationState: snapState,
+          changeLabel: changeLabel(effectiveTransition, entry.runs.length),
+          answerSnippet: snap?.answerText ?? '',
+          citedDomains: snap?.citedDomains ?? [],
+          evidenceUrls: [],
+          competitorDomains: snap?.competitorOverlap ?? [],
+          relatedTechnicalSignals: [],
+          groundingSources: snap?.groundingSources ?? [],
+          summary: evidenceSummary(snapState, entry.keyword),
+        })
+      }
     }
   }
 
-  // Collect unique providers from snapshots
-  const providers = [...new Set(latestRunDetail.snapshots.map(s => s.provider))].sort()
-  if (providers.length === 0) providers.push('gemini')
-
-  const results: CitationInsightVm[] = []
-  let idx = 0
-
-  for (const entry of timeline) {
-    const latestRun = entry.runs.at(-1)
-    const transition = latestRun?.transition ?? 'not-cited'
-    const citationState: CitationState = transition === 'lost' ? 'lost'
-      : transition === 'emerging' ? 'emerging'
-      : transition === 'cited' ? 'cited'
-      : 'not-cited'
-
-    for (const provider of providers) {
-      const snap = snapshotsByKey.get(`${entry.keyword}::${provider}`)
-      if (!snap && providers.length > 1) continue
-
-      const snapState: CitationState = snap
-        ? (snap.citationState === 'cited' ? 'cited' : 'not-cited')
-        : citationState
-
-      // For multi-provider runs, the aggregated timeline transition may contradict this
-      // provider's own citation state (e.g. "emerging" but snapState is 'not-cited').
-      // Use the provider's own state as the basis for the label when providers > 1.
-      const effectiveTransition = providers.length > 1
-        ? (snapState === 'cited' ? 'cited' : 'not-cited')
-        : transition
-
-      results.push({
-        id: `evidence_${idx++}`,
-        keyword: entry.keyword,
-        provider: snap?.provider ?? provider,
-        citationState: snapState,
-        changeLabel: changeLabel(effectiveTransition, entry.runs.length),
-        answerSnippet: snap?.answerText ?? '',
-        citedDomains: snap?.citedDomains ?? [],
-        evidenceUrls: [],
-        competitorDomains: snap?.competitorOverlap ?? [],
-        relatedTechnicalSignals: [],
-        groundingSources: snap?.groundingSources ?? [],
-        summary: evidenceSummary(snapState, entry.keyword),
-      })
-    }
+  // Show saved keywords that haven't been run yet
+  for (const kw of savedKeywords) {
+    if (seenKeywords.has(kw.keyword)) continue
+    results.push({
+      id: `evidence_${idx++}`,
+      keyword: kw.keyword,
+      provider: '',
+      citationState: 'pending',
+      changeLabel: 'Awaiting first run',
+      answerSnippet: '',
+      citedDomains: [],
+      evidenceUrls: [],
+      competitorDomains: [],
+      relatedTechnicalSignals: [],
+      groundingSources: [],
+      summary: `"${kw.keyword}" has been added but no visibility run has been triggered yet.`,
+    })
   }
 
   return results
@@ -261,6 +283,7 @@ function evidenceSummary(state: CitationState, keyword: string): string {
     case 'lost': return `Citation was lost for "${keyword}". Competitors may have gained ground.`
     case 'emerging': return `Your domain is starting to appear in answers for "${keyword}".`
     case 'not-cited': return `No citation detected for "${keyword}".`
+    case 'pending': return `"${keyword}" has been added but no visibility run has been triggered yet.`
   }
 }
 
@@ -269,6 +292,7 @@ function aggregatePhraseState(items: CitationInsightVm[]): CitationInsightVm['ci
   if (states.includes('cited')) return 'cited'
   if (states.includes('emerging')) return 'emerging'
   if (states.includes('lost')) return 'lost'
+  if (states.includes('pending')) return 'pending'
   return 'not-cited'
 }
 
@@ -387,7 +411,7 @@ export interface ProjectData {
 
 export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCenterVm {
   const dto = toProjectDto(data.project)
-  const evidence = buildEvidenceFromTimeline(data.timeline, data.latestRunDetail)
+  const evidence = buildEvidenceFromTimeline(data.timeline, data.latestRunDetail, data.keywords)
   const snapshots = data.latestRunDetail?.snapshots ?? []
   const kwVis = computeKeywordVisibility(snapshots)
   const pressure = computeCompetitorPressure(snapshots, data.competitors.map(c => c.domain))
@@ -581,8 +605,8 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
     },
     settings: {
       providerStatuses: (apiSettings?.providers ?? []).map(p => ({
-        name: p.name.charAt(0).toUpperCase() + p.name.slice(1),
-        model: p.model ?? '(default)',
+        name: p.name,
+        model: p.model,
         state: (p.configured ? 'ready' : 'needs-config') as 'ready' | 'needs-config',
         detail: p.configured ? 'Provider is configured.' : 'API key is missing.',
         quota: p.quota,

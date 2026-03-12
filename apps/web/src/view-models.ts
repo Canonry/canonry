@@ -2,7 +2,7 @@ import type { ProjectDto, RunDto, RunStatus, GroundingSource } from '@ainyc/cano
 
 export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
 export type HealthState = 'checking' | 'ok' | 'error'
-export type CitationState = 'cited' | 'lost' | 'emerging' | 'not-cited'
+export type CitationState = 'cited' | 'lost' | 'emerging' | 'not-cited' | 'pending'
 
 export interface ServiceStatus {
   label: string
@@ -175,7 +175,7 @@ export interface SetupWizardVm {
 
 export interface ProviderStatusVm {
   name: string
-  model: string
+  model?: string
   state: 'ready' | 'needs-config'
   detail: string
   quota?: {

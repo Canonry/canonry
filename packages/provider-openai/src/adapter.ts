@@ -11,6 +11,7 @@ import {
   healthcheck as openaiHealthcheck,
   executeTrackedQuery as openaiExecuteTrackedQuery,
   normalizeResult as openaiNormalizeResult,
+  generateText as openaiGenerateText,
 } from './normalize.js'
 import type { OpenAIConfig } from './types.js'
 
@@ -77,5 +78,9 @@ export const openaiAdapter: ProviderAdapter = {
       groundingSources: normalized.groundingSources,
       searchQueries: normalized.searchQueries,
     }
+  },
+
+  async generateText(prompt: string, config: ProviderConfig): Promise<string> {
+    return openaiGenerateText(prompt, toOpenAIConfig(config))
   },
 }

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import type { ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
+import { parseProviderName } from '@ainyc/canonry-contracts'
 
 export interface ProviderSummaryEntry {
   name: string
@@ -22,13 +23,13 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     Params: { name: string }
     Body: { apiKey?: string; baseUrl?: string; model?: string }
   }>('/settings/providers/:name', async (request, reply) => {
-    const { name } = request.params
+    const providerName = parseProviderName(request.params.name)
     const { apiKey, baseUrl, model } = request.body ?? {}
 
-    const validProviders = ['gemini', 'openai', 'claude', 'local']
-    if (!validProviders.includes(name)) {
-      return reply.status(400).send({ error: `Invalid provider: ${name}. Must be one of: ${validProviders.join(', ')}` })
+    if (!providerName) {
+      return reply.status(400).send({ error: `Invalid provider: ${request.params.name}. Must be one of: gemini, openai, claude, local` })
     }
+    const name = providerName
 
     // Local provider requires baseUrl; others require apiKey
     if (name === 'local') {

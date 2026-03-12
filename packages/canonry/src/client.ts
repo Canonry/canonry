@@ -149,4 +149,12 @@ export class ApiClient {
   async testNotification(project: string, id: string): Promise<object> {
     return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/notifications/${encodeURIComponent(id)}/test`)
   }
+
+  async generateKeywords(project: string, provider: string, count?: number): Promise<{ keywords: string[]; provider: string }> {
+    return this.request<{ keywords: string[]; provider: string }>(
+      'POST',
+      `/projects/${encodeURIComponent(project)}/keywords/generate`,
+      { provider, count },
+    )
+  }
 }

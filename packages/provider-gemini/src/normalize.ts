@@ -231,6 +231,14 @@ function extractDomainFromUri(uri: string): string | null {
   }
 }
 
+export async function generateText(prompt: string, config: GeminiConfig): Promise<string> {
+  const model = resolveModel(config)
+  const genAI = new GoogleGenerativeAI(config.apiKey)
+  const generativeModel = genAI.getGenerativeModel({ model })
+  const result = await generativeModel.generateContent(prompt)
+  return result.response.text()
+}
+
 function responseToRecord(response: EnhancedGenerateContentResponse): Record<string, unknown> {
   try {
     // Serialize the SDK response to a plain object for DB storage

@@ -20,6 +20,7 @@ import { JobRunner } from './job-runner.js'
 import { ProviderRegistry } from './provider-registry.js'
 import { Scheduler } from './scheduler.js'
 import { Notifier } from './notifier.js'
+import { fetchSiteText } from './site-fetch.js'
 
 const DEFAULT_QUOTA = {
   maxConcurrency: 2,
@@ -188,6 +189,25 @@ export async function createServer(opts: {
     onProjectDeleted: (projectId: string) => {
       scheduler.remove(projectId)
     },
+    onGenerateKeywords: async (providerName, count, project) => {
+      const provider = registry.get(providerName as ProviderName)
+      if (!provider) throw new Error(`Provider "${providerName}" is not configured`)
+
+      const siteText = await fetchSiteText(project.domain)
+
+      const prompt = buildKeywordGenerationPrompt({
+        domain: project.domain,
+        displayName: project.displayName,
+        country: project.country,
+        language: project.language,
+        existingKeywords: project.existingKeywords,
+        siteText,
+        count,
+      })
+
+      const raw = await provider.adapter.generateText(prompt, provider.config)
+      return parseKeywordResponse(raw, count)
+    },
   })
 
   // Try to serve static SPA assets
@@ -251,4 +271,72 @@ export async function createServer(opts: {
   })
 
   return app
+}
+
+function buildKeywordGenerationPrompt(ctx: {
+  domain: string
+  displayName?: string
+  country: string
+  language: string
+  existingKeywords: string[]
+  siteText: string
+  count: number
+}): string {
+  const lines: string[] = [
+    'You are an SEO and AEO (Answer Engine Optimization) expert. Given a website\'s content, generate search queries that potential users would type into AI answer engines (ChatGPT, Gemini, Claude) to find services, products, or information like what this site offers.',
+    '',
+    `Website: ${ctx.domain}`,
+  ]
+  if (ctx.displayName) lines.push(`Business: ${ctx.displayName}`)
+  lines.push(`Country: ${ctx.country}`)
+  lines.push(`Language: ${ctx.language}`)
+
+  if (ctx.siteText) {
+    lines.push('', '--- Site Content ---', ctx.siteText, '--- End Site Content ---')
+  }
+
+  if (ctx.existingKeywords.length > 0) {
+    lines.push('', `Already tracking (do NOT duplicate): ${ctx.existingKeywords.join(', ')}`)
+  }
+
+  lines.push(
+    '',
+    `Generate exactly ${ctx.count} key phrases that:`,
+    '- Are short and concise (2-5 words each, like "best dentist brooklyn" not "what is the best dentist office in the brooklyn area for families")',
+    '- Are natural phrases people would type into AI answer engines',
+    '- Cover different intents (informational, transactional, navigational)',
+    `- Are relevant to the ${ctx.country} market in ${ctx.language}`,
+    '- Reflect the actual services/products/content found on the site',
+    '',
+    'Return ONLY the key phrases, one per line, no numbering or bullets.',
+  )
+
+  return lines.join('\n')
+}
+
+function parseKeywordResponse(raw: string, count: number): string[] {
+  const seen = new Set<string>()
+  const results: string[] = []
+
+  for (const line of raw.split('\n')) {
+    // Strip leading numbering, bullets, dashes
+    let cleaned = line.replace(/^\s*(?:\d+[.)]\s*|[-*•]\s*)/, '').trim()
+    // Remove surrounding quotes
+    cleaned = cleaned.replace(/^["']|["']$/g, '').trim()
+
+    if (!cleaned) continue
+    // Skip meta-text lines
+    if (/^(here are|sure|certainly|of course|i've|these are|below are)/i.test(cleaned)) continue
+    // Enforce max 8 words
+    if (cleaned.split(/\s+/).length > 8) continue
+
+    const key = cleaned.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    results.push(cleaned)
+
+    if (results.length >= count) break
+  }
+
+  return results
 }
