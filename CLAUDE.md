@@ -6,10 +6,10 @@
 
 ## Current Phase
 
-**Phase 2 complete** — `@ainyc/canonry` npm package with CLI, local server, SQLite, and multi-provider visibility runs (Gemini, OpenAI, Claude, local LLM). See `docs/phase-2-design.md` for the full architecture plan.
+**Phase 2 complete** — `@ainyc/canonry` npm package with CLI, local server, SQLite, and multi-provider visibility runs (Gemini, OpenAI, Claude, local LLM).
 
-**Complete:** Visibility runs, CLI, config-as-code, API, bundled SPA, SQLite, auth, audit log, usage counters, scheduling, webhooks.
-**Deferred:** Site audit (Phase 3), cloud/Postgres (Phase 4).
+**Complete:** Visibility runs, CLI, config-as-code, API, bundled SPA, SQLite, auth, audit log, usage counters, scheduling, webhooks, auto-generate keywords, multi-project support.
+**Next:** Phase 2.5 (SOV, citation prominence, sentiment) then Phase 3 (site audit via `@ainyc/aeo-audit`, Perplexity provider, content optimization). See `docs/roadmap.md` for the full feature roadmap.
 
 ## Workspace Map
 
@@ -26,7 +26,7 @@ packages/provider-gemini/ Gemini adapter
 packages/provider-openai/ OpenAI adapter
 packages/provider-claude/ Claude/Anthropic adapter
 packages/provider-local/  Local LLM adapter (OpenAI-compatible API)
-docs/                     Architecture, product plan, testing, ADRs
+docs/                     Architecture, roadmap, testing, ADRs
 ```
 
 ## Commands
@@ -112,7 +112,7 @@ All endpoints under `/api/v1/`. Auth via `Authorization: Bearer cnry_...`. Key e
 - `POST /api/v1/apply` — config-as-code apply
 - `GET /api/v1/openapi.json` — OpenAPI spec (no auth)
 
-See `docs/phase-2-design.md` section 6 for the complete API table.
+See OpenAPI spec at `/api/v1/openapi.json` for the complete API surface.
 
 ## UI Design System
 
@@ -164,13 +164,9 @@ The web dashboard follows a dark, professional analytics aesthetic designed to r
 - Don't add decorative background gradients or glow effects.
 - Don't create new component files unless the component is reused across 3+ pages.
 
-## Improvement Order (Phase 2)
+## Roadmap
 
-1. Database schema and contracts foundation
-2. API route plugins (`packages/api-routes/`)
-3. Provider execution (Gemini, OpenAI, Claude) and job runner
-4. Publishable package (`packages/canonry/`)
-5. Wire web dashboard to real API
+See `docs/roadmap.md` for the full feature roadmap including competitive analysis, priority matrix, and phased implementation order.
 
 ## API Stability
 
