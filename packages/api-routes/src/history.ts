@@ -138,20 +138,24 @@ export async function historyRoutes(app: FastifyInstance) {
     }
     const dedupedSnapshots = [...deduped.values()]
 
-    // Build per-keyword timeline
-    const timeline = projectKeywords.map(kw => {
-      const kwSnapshots = dedupedSnapshots
-        .filter(s => s.keywordId === kw.id)
-        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    // Index raw (un-deduplicated) snapshots by keyword+provider for per-provider timelines
+    const rawByKwProvider = new Map<string, typeof allSnapshots[number][]>()
+    for (const snap of allSnapshots) {
+      const key = `${snap.keywordId}::${snap.provider}`
+      const arr = rawByKwProvider.get(key)
+      if (arr) arr.push(snap)
+      else rawByKwProvider.set(key, [snap])
+    }
 
-      const runEntries = kwSnapshots.map((snap, idx) => {
+    function computeTransitions(snaps: typeof allSnapshots) {
+      return snaps.map((snap, idx) => {
         const run = projectRuns.find(r => r.id === snap.runId)
         let transition: string = snap.citationState === 'cited' ? 'cited' : 'not-cited'
 
         if (idx === 0) {
           transition = 'new'
         } else {
-          const prev = kwSnapshots[idx - 1]!
+          const prev = snaps[idx - 1]!
           if (prev.citationState === 'not-cited' && snap.citationState === 'cited') {
             transition = 'emerging'
           } else if (prev.citationState === 'cited' && snap.citationState === 'not-cited') {
@@ -166,10 +170,30 @@ export async function historyRoutes(app: FastifyInstance) {
           transition,
         }
       })
+    }
+
+    // Build per-keyword timeline
+    const timeline = projectKeywords.map(kw => {
+      const kwSnapshots = dedupedSnapshots
+        .filter(s => s.keywordId === kw.id)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+
+      const runEntries = computeTransitions(kwSnapshots)
+
+      // Build per-provider run histories from raw snapshots
+      const providerRuns: Record<string, typeof runEntries> = {}
+      const providerKeys = [...rawByKwProvider.keys()].filter(k => k.startsWith(`${kw.id}::`))
+      for (const pk of providerKeys) {
+        const provider = pk.split('::')[1]!
+        const provSnaps = rawByKwProvider.get(pk)!
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        providerRuns[provider] = computeTransitions(provSnaps)
+      }
 
       return {
         keyword: kw.keyword,
         runs: runEntries,
+        providerRuns,
       }
     })
 

@@ -217,23 +217,30 @@ function buildEvidenceFromTimeline(
         const snap = snapshotsByKey.get(`${entry.keyword}::${provider}`)
         if (!snap && providers.length > 1) continue
 
-        const snapState: CitationState = snap
-          ? (snap.citationState === 'cited' ? 'cited' : 'not-cited')
-          : citationState
+        // Use per-provider timeline when available for accurate streaks and transitions
+        const providerHistory = entry.providerRuns?.[provider]
+        const hasProviderHistory = providerHistory && providerHistory.length > 0
 
-        // For multi-provider runs, the aggregated timeline transition may contradict this
-        // provider's own citation state (e.g. "emerging" but snapState is 'not-cited').
-        // Use the provider's own state as the basis for the label when providers > 1.
-        const effectiveTransition = providers.length > 1
-          ? (snapState === 'cited' ? 'cited' : 'not-cited')
+        const effectiveTransition = hasProviderHistory
+          ? providerHistory.at(-1)!.transition
           : transition
+
+        const snapState: CitationState = effectiveTransition === 'lost' ? 'lost'
+          : effectiveTransition === 'emerging' ? 'emerging'
+          : snap
+            ? (snap.citationState === 'cited' ? 'cited' : 'not-cited')
+            : citationState
+
+        const streak = hasProviderHistory
+          ? computeStreak(providerHistory)
+          : computeStreak(entry.runs)
 
         results.push({
           id: `evidence_${projectName}_${idx++}`,
           keyword: entry.keyword,
           provider: snap?.provider ?? provider,
           citationState: snapState,
-          changeLabel: changeLabel(effectiveTransition, entry.runs.length),
+          changeLabel: changeLabel(effectiveTransition, streak),
           answerSnippet: snap?.answerText ?? '',
           citedDomains: snap?.citedDomains ?? [],
           evidenceUrls: [],
@@ -268,13 +275,25 @@ function buildEvidenceFromTimeline(
   return results
 }
 
-function changeLabel(transition: string, runCount: number): string {
+/** Count consecutive runs from the end that share the same citationState as the latest run. */
+function computeStreak(runs: { citationState: string }[]): number {
+  if (runs.length === 0) return 0
+  const latest = runs[runs.length - 1]!.citationState
+  let streak = 0
+  for (let i = runs.length - 1; i >= 0; i--) {
+    if (runs[i]!.citationState === latest) streak++
+    else break
+  }
+  return streak
+}
+
+function changeLabel(transition: string, streak: number): string {
   switch (transition) {
     case 'new': return 'First observation'
-    case 'cited': return `Cited for ${runCount} runs`
+    case 'cited': return streak <= 1 ? 'Cited in latest run' : `Cited for ${streak} runs`
     case 'lost': return 'Lost since last run'
     case 'emerging': return 'First citation'
-    case 'not-cited': return `Not cited across ${runCount} runs`
+    case 'not-cited': return streak <= 1 ? 'Not cited in latest run' : `Not cited across ${streak} runs`
     default: return transition
   }
 }

@@ -104,6 +104,12 @@ export interface ApiTimelineEntry {
     citationState: string
     transition: string
   }[]
+  providerRuns?: Record<string, {
+    runId: string
+    createdAt: string
+    citationState: string
+    transition: string
+  }[]>
 }
 
 export interface ApiAuditEntry {
