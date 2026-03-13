@@ -1039,8 +1039,8 @@ function OverviewPage({
       ) : (
         <Card className="surface-card empty-card">
           <h3>{model.emptyState?.title ?? 'No projects yet'}</h3>
-          <p>{model.emptyState?.detail}</p>
-          <Button asChild>
+          <p className="supporting-copy">{model.emptyState?.detail}</p>
+          <Button size="sm" asChild>
             <a
               href={model.emptyState?.ctaHref ?? '/setup'}
               onClick={createNavigationHandler(onNavigate, model.emptyState?.ctaHref ?? '/setup')}
