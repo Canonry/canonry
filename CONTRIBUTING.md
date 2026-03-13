@@ -1,6 +1,6 @@
 # Contributing to Canonry
 
-Thanks for your interest in contributing! Canonry is AGPL-3.0 licensed and welcomes contributions.
+Thanks for your interest in contributing! Canonry is FSL-1.1-ALv2 licensed and welcomes contributions.
 
 ## Setup
 
