@@ -10,19 +10,24 @@
     "lint": "pnpm -r run lint",
     "dev:api": "pnpm --filter @ainyc/canonry-api run dev",
     "dev:worker": "pnpm --filter @ainyc/canonry-worker run dev",
-    "dev:web": "pnpm --filter @ainyc/canonry-web run dev"
+    "dev:web": "pnpm --filter @ainyc/canonry-web run dev",
+    "prepare": "husky"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
     "@types/node": "^24.5.1",
     "eslint": "^9.0.0",
     "globals": "^17.4.0",
+    "husky": "^9.1.7",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.43.0"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["better-sqlite3", "esbuild"]
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild"
+    ]
   },
   "engines": {
     "node": ">=20"
