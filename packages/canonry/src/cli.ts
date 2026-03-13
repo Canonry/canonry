@@ -3,10 +3,11 @@ import { parseArgs } from 'node:util'
 import { bootstrapCommand } from './commands/bootstrap.js'
 import { initCommand } from './commands/init.js'
 import { serveCommand } from './commands/serve.js'
+import { startDaemon, stopDaemon } from './commands/daemon.js'
 import { createProject, listProjects, showProject, deleteProject } from './commands/project.js'
 import { addKeywords, listKeywords, importKeywords, generateKeywords } from './commands/keyword.js'
 import { addCompetitors, listCompetitors } from './commands/competitor.js'
-import { triggerRun, listRuns } from './commands/run.js'
+import { triggerRun, triggerRunAll, showRun, listRuns } from './commands/run.js'
 import { showStatus } from './commands/status.js'
 import { showEvidence } from './commands/evidence.js'
 import { showHistory } from './commands/history.js'
@@ -14,7 +15,7 @@ import { applyConfig } from './commands/apply.js'
 import { exportProject } from './commands/export-cmd.js'
 import { showSettings, setProvider } from './commands/settings.js'
 import { setSchedule, showSchedule, enableSchedule, disableSchedule, removeSchedule } from './commands/schedule.js'
-import { addNotification, listNotifications, removeNotification, testNotification } from './commands/notify.js'
+import { addNotification, listNotifications, removeNotification, testNotification, listEvents } from './commands/notify.js'
 import { telemetryCommand } from './commands/telemetry.js'
 import { trackEvent, isTelemetryEnabled, isFirstRun, getOrCreateAnonymousId, showFirstRunNotice } from './telemetry.js'
 
@@ -24,7 +25,9 @@ canonry — AEO monitoring CLI
 Usage:
   canonry init [--force]               Initialize config and database
   canonry bootstrap [--force]          Bootstrap config/database from env vars
-  canonry serve                       Start the local server
+  canonry serve                       Start the local server (foreground)
+  canonry start                       Start the server as a background daemon
+  canonry stop                        Stop the background daemon
   canonry project create <name>       Create a project
   canonry project list                List all projects
   canonry project show <name>         Show project details
@@ -37,6 +40,9 @@ Usage:
   canonry competitor list <project>   List competitors
   canonry run <project>               Trigger a run (all providers)
   canonry run <project> --provider <name>  Trigger a run for a specific provider
+  canonry run <project> --wait        Trigger and wait for completion
+  canonry run --all                   Trigger runs for all projects
+  canonry run show <id>               Show run details and snapshots
   canonry runs <project>              List runs for a project
   canonry status <project>            Show project summary
   canonry evidence <project>          Show per-phrase results
@@ -52,8 +58,9 @@ Usage:
   canonry notify list <project>       List notifications
   canonry notify remove <project> <id>  Remove notification
   canonry notify test <project> <id>  Send test webhook
+  canonry notify events               List available notification event types
   canonry settings                    Show active provider and quota settings
-  canonry settings provider <name>    Update a provider config (--api-key, --base-url, --model)
+  canonry settings provider <name>    Update a provider config
   canonry telemetry status            Show telemetry status
   canonry telemetry enable            Enable anonymous telemetry
   canonry telemetry disable           Disable anonymous telemetry
@@ -66,18 +73,34 @@ Options:
   --domain <domain>    Canonical domain for project create
   --country <code>     Country code (default: US)
   --language <lang>    Language code (default: en)
-  --provider <name>    Provider to use (gemini, openai, claude)
+  --provider <name>    Provider to use (gemini, openai, claude, local)
+  --format <fmt>       Output format: text (default) or json
+  --wait               Wait for run to complete before returning
+  --all                Run all projects (with 'run' command)
   --include-results    Include results in export
   --preset <preset>    Schedule preset (daily, weekly, twice-daily, daily@HH, weekly@DAY)
   --cron <expr>        Cron expression for schedule
   --timezone <tz>      IANA timezone for schedule (default: UTC)
   --webhook <url>      Webhook URL for notifications
   --events <list>      Comma-separated notification events
+  --api-key <key>      Provider API key (settings provider)
+  --base-url <url>     Provider base URL (settings provider)
+  --model <name>       Provider model name (settings provider)
+  --max-concurrent <n> Max concurrent requests per provider
+  --max-per-minute <n> Max requests per minute per provider
+  --max-per-day <n>    Max requests per day per provider
 `.trim()
 
 import { createRequire } from 'node:module'
 const _require = createRequire(import.meta.url)
 const { version: VERSION } = _require('../package.json') as { version: string }
+
+/** Extract --format flag from args. Returns 'json' or 'text' (default). */
+function extractFormat(cmdArgs: string[]): 'text' | 'json' {
+  const idx = cmdArgs.indexOf('--format')
+  if (idx !== -1 && cmdArgs[idx + 1] === 'json') return 'json'
+  return 'text'
+}
 
 async function main() {
   const args = process.argv.slice(2)
@@ -93,6 +116,7 @@ async function main() {
   }
 
   const command = args[0]!
+  const format = extractFormat(args)
 
   // First-run telemetry notice (shown once, to stderr).
   // Skip for the `telemetry` command itself — the user may be about to disable it,
@@ -143,6 +167,24 @@ async function main() {
         break
       }
 
+      case 'start': {
+        const { values } = parseArgs({
+          args: args.slice(1),
+          options: {
+            port: { type: 'string', short: 'p', default: '4100' },
+            host: { type: 'string', short: 'H' },
+          },
+          allowPositionals: false,
+        })
+        startDaemon({ port: values.port, host: values.host })
+        break
+      }
+
+      case 'stop': {
+        stopDaemon()
+        break
+      }
+
       case 'project': {
         const subcommand = args[1]
         switch (subcommand) {
@@ -159,6 +201,7 @@ async function main() {
                 country: { type: 'string', default: 'US' },
                 language: { type: 'string', default: 'en' },
                 'display-name': { type: 'string' },
+                format: { type: 'string' },
               },
               allowPositionals: false,
             })
@@ -171,7 +214,7 @@ async function main() {
             break
           }
           case 'list':
-            await listProjects()
+            await listProjects(format)
             break
           case 'show': {
             const name = args[2]
@@ -179,7 +222,7 @@ async function main() {
               console.error('Error: project name is required')
               process.exit(1)
             }
-            await showProject(name)
+            await showProject(name, format)
             break
           }
           case 'delete': {
@@ -204,7 +247,7 @@ async function main() {
         switch (subcommand) {
           case 'add': {
             const project = args[2]
-            const kws = args.slice(3)
+            const kws = args.slice(3).filter(a => !a.startsWith('--'))
             if (!project || kws.length === 0) {
               console.error('Error: project name and at least one key phrase required')
               process.exit(1)
@@ -218,7 +261,7 @@ async function main() {
               console.error('Error: project name is required')
               process.exit(1)
             }
-            await listKeywords(project)
+            await listKeywords(project, format)
             break
           }
           case 'import': {
@@ -243,6 +286,7 @@ async function main() {
                 provider: { type: 'string' },
                 count: { type: 'string' },
                 save: { type: 'boolean', default: false },
+                format: { type: 'string' },
               },
               allowPositionals: false,
             })
@@ -269,7 +313,7 @@ async function main() {
         switch (subcommand) {
           case 'add': {
             const project = args[2]
-            const domains = args.slice(3)
+            const domains = args.slice(3).filter(a => !a.startsWith('--'))
             if (!project || domains.length === 0) {
               console.error('Error: project name and at least one domain required')
               process.exit(1)
@@ -283,7 +327,7 @@ async function main() {
               console.error('Error: project name is required')
               process.exit(1)
             }
-            await listCompetitors(project)
+            await listCompetitors(project, format)
             break
           }
           default:
@@ -295,19 +339,52 @@ async function main() {
       }
 
       case 'run': {
-        const project = args[1]
-        if (!project) {
-          console.error('Error: project name is required')
-          process.exit(1)
+        // Handle 'run show <id>'
+        if (args[1] === 'show') {
+          const id = args[2]
+          if (!id) {
+            console.error('Error: run ID is required')
+            process.exit(1)
+          }
+          await showRun(id, format)
+          break
         }
+
         const runParsed = parseArgs({
-          args: args.slice(2),
+          args: args.slice(1),
           options: {
             provider: { type: 'string' },
+            wait: { type: 'boolean', default: false },
+            all: { type: 'boolean', default: false },
+            format: { type: 'string' },
           },
-          allowPositionals: false,
+          allowPositionals: true,
         })
-        await triggerRun(project, { provider: runParsed.values.provider })
+
+        const runFormat = runParsed.values.format === 'json' ? 'json' : format
+
+        if (runParsed.values.all) {
+          if (runParsed.positionals.length > 0) {
+            console.error('Error: --all cannot be combined with a project name')
+            process.exit(1)
+          }
+          await triggerRunAll({
+            provider: runParsed.values.provider,
+            wait: runParsed.values.wait,
+            format: runFormat,
+          })
+        } else {
+          const project = runParsed.positionals[0]
+          if (!project) {
+            console.error('Error: project name is required (or use --all)')
+            process.exit(1)
+          }
+          await triggerRun(project, {
+            provider: runParsed.values.provider,
+            wait: runParsed.values.wait,
+            format: runFormat,
+          })
+        }
         break
       }
 
@@ -317,7 +394,7 @@ async function main() {
           console.error('Error: project name is required')
           process.exit(1)
         }
-        await listRuns(project)
+        await listRuns(project, format)
         break
       }
 
@@ -327,7 +404,7 @@ async function main() {
           console.error('Error: project name is required')
           process.exit(1)
         }
-        await showStatus(project)
+        await showStatus(project, format)
         break
       }
 
@@ -337,7 +414,7 @@ async function main() {
           console.error('Error: project name is required')
           process.exit(1)
         }
-        await showEvidence(project)
+        await showEvidence(project, format)
         break
       }
 
@@ -347,7 +424,7 @@ async function main() {
           console.error('Error: project name is required')
           process.exit(1)
         }
-        await showHistory(project)
+        await showHistory(project, format)
         break
       }
 
@@ -400,6 +477,7 @@ async function main() {
                 cron: { type: 'string' },
                 timezone: { type: 'string' },
                 provider: { type: 'string', multiple: true },
+                format: { type: 'string' },
               },
               allowPositionals: false,
             })
@@ -416,7 +494,7 @@ async function main() {
             break
           }
           case 'show':
-            await showSchedule(schedProject!)
+            await showSchedule(schedProject!, format)
             break
           case 'enable':
             await enableSchedule(schedProject!)
@@ -437,6 +515,13 @@ async function main() {
 
       case 'notify': {
         const notifSubcommand = args[1]
+
+        // 'events' subcommand does not require a project
+        if (notifSubcommand === 'events') {
+          listEvents(format)
+          break
+        }
+
         const notifProject = args[2]
         if (!notifProject && notifSubcommand !== undefined) {
           console.error('Error: project name is required')
@@ -449,6 +534,7 @@ async function main() {
               options: {
                 webhook: { type: 'string' },
                 events: { type: 'string' },
+                format: { type: 'string' },
               },
               allowPositionals: false,
             })
@@ -457,7 +543,7 @@ async function main() {
               process.exit(1)
             }
             if (!values.events) {
-              console.error('Error: --events is required (comma-separated)')
+              console.error('Error: --events is required (comma-separated). Use "canonry notify events" to see valid events.')
               process.exit(1)
             }
             await addNotification(notifProject!, {
@@ -467,7 +553,7 @@ async function main() {
             break
           }
           case 'list':
-            await listNotifications(notifProject!)
+            await listNotifications(notifProject!, format)
             break
           case 'remove': {
             const notifId = args[3]
@@ -489,7 +575,7 @@ async function main() {
           }
           default:
             console.error(`Unknown notify subcommand: ${notifSubcommand ?? '(none)'}`)
-            console.log('Available: add, list, remove, test')
+            console.log('Available: add, list, remove, test, events')
             process.exit(1)
         }
         break
@@ -509,6 +595,10 @@ async function main() {
               'api-key': { type: 'string' },
               'base-url': { type: 'string' },
               model: { type: 'string' },
+              'max-concurrent': { type: 'string' },
+              'max-per-minute': { type: 'string' },
+              'max-per-day': { type: 'string' },
+              format: { type: 'string' },
             },
             allowPositionals: false,
           })
@@ -523,9 +613,21 @@ async function main() {
               process.exit(1)
             }
           }
-          await setProvider(name, { apiKey: values['api-key'], baseUrl: values['base-url'], model: values.model })
+
+          // Build quota object from flags (only include provided values)
+          const quota: Record<string, number> = {}
+          if (values['max-concurrent']) quota.maxConcurrency = parseInt(values['max-concurrent'], 10)
+          if (values['max-per-minute']) quota.maxRequestsPerMinute = parseInt(values['max-per-minute'], 10)
+          if (values['max-per-day']) quota.maxRequestsPerDay = parseInt(values['max-per-day'], 10)
+
+          await setProvider(name, {
+            apiKey: values['api-key'],
+            baseUrl: values['base-url'],
+            model: values.model,
+            quota: Object.keys(quota).length > 0 ? quota : undefined,
+          })
         } else {
-          await showSettings()
+          await showSettings(format)
         }
         break
       }

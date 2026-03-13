@@ -16,13 +16,18 @@ export async function addCompetitors(project: string, domains: string[]): Promis
   console.log(`Added ${domains.length} competitor(s) to "${project}".`)
 }
 
-export async function listCompetitors(project: string): Promise<void> {
+export async function listCompetitors(project: string, format?: string): Promise<void> {
   const client = getClient()
   const comps = await client.listCompetitors(project) as Array<{
     id: string
     domain: string
     createdAt: string
   }>
+
+  if (format === 'json') {
+    console.log(JSON.stringify(comps, null, 2))
+    return
+  }
 
   if (comps.length === 0) {
     console.log(`No competitors found for "${project}".`)

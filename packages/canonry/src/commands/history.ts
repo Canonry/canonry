@@ -6,7 +6,7 @@ function getClient(): ApiClient {
   return new ApiClient(config.apiUrl, config.apiKey)
 }
 
-export async function showHistory(project: string): Promise<void> {
+export async function showHistory(project: string, format?: string): Promise<void> {
   const client = getClient()
 
   try {
@@ -18,6 +18,11 @@ export async function showHistory(project: string): Promise<void> {
       entityId: string | null
       createdAt: string
     }>
+
+    if (format === 'json') {
+      console.log(JSON.stringify(entries, null, 2))
+      return
+    }
 
     if (entries.length === 0) {
       console.log(`No audit history for "${project}".`)

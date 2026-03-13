@@ -20,7 +20,7 @@ export async function createProject(
   console.log(`Project created: ${result.name} (${result.id})`)
 }
 
-export async function listProjects(): Promise<void> {
+export async function listProjects(format?: string): Promise<void> {
   const client = getClient()
   const projects = await client.listProjects() as Array<{
     name: string
@@ -28,6 +28,11 @@ export async function listProjects(): Promise<void> {
     country: string
     language: string
   }>
+
+  if (format === 'json') {
+    console.log(JSON.stringify(projects, null, 2))
+    return
+  }
 
   if (projects.length === 0) {
     console.log('No projects found.')
@@ -50,7 +55,7 @@ export async function listProjects(): Promise<void> {
   }
 }
 
-export async function showProject(name: string): Promise<void> {
+export async function showProject(name: string, format?: string): Promise<void> {
   const client = getClient()
   const project = await client.getProject(name) as {
     id: string
@@ -65,6 +70,11 @@ export async function showProject(name: string): Promise<void> {
     configRevision: number
     createdAt: string
     updatedAt: string
+  }
+
+  if (format === 'json') {
+    console.log(JSON.stringify(project, null, 2))
+    return
   }
 
   console.log(`Project: ${project.displayName}\n`)

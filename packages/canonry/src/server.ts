@@ -137,18 +137,21 @@ export async function createServer(opts: {
         app.log.error({ runId, err }, 'Job runner failed')
       })
     },
-    onProviderUpdate: (providerName: string, apiKey: string, model?: string, baseUrl?: string) => {
+    onProviderUpdate: (providerName: string, apiKey: string, model?: string, baseUrl?: string, incomingQuota?: Partial<import('@ainyc/canonry-contracts').ProviderQuotaPolicy>) => {
       const name = providerName as keyof typeof adapterMap
       if (!(name in adapterMap)) return null
 
       // Update config and persist
       if (!opts.config.providers) opts.config.providers = {}
       const existing = opts.config.providers[name]
+      const mergedQuota = incomingQuota
+        ? { ...(existing?.quota ?? DEFAULT_QUOTA), ...incomingQuota }
+        : existing?.quota
       opts.config.providers[name] = {
         apiKey: apiKey || existing?.apiKey,
         baseUrl: baseUrl || existing?.baseUrl,
         model: model || existing?.model,
-        quota: existing?.quota,
+        quota: mergedQuota,
       }
 
       try {

@@ -1,6 +1,6 @@
 import { eq, asc } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { runs, querySnapshots, keywords } from '@ainyc/canonry-db'
+import { runs, querySnapshots, keywords, projects } from '@ainyc/canonry-db'
 import { unsupportedKind, runInProgress, parseProviderName } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { queueRunIfProjectIdle } from './run-queue.js'
@@ -81,6 +81,69 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   app.get('/runs', async (_request, reply) => {
     const rows = app.db.select().from(runs).all()
     return reply.send(rows.map(formatRun))
+  })
+
+  // POST /runs — trigger a run for all projects
+  app.post<{
+    Body: { kind?: string; providers?: string[] }
+  }>('/runs', async (request, reply) => {
+    const allProjects = app.db.select().from(projects).all()
+    if (allProjects.length === 0) {
+      return reply.status(207).send([])
+    }
+
+    const kind = request.body?.kind ?? 'answer-visibility'
+    if (kind !== 'answer-visibility') {
+      const err = unsupportedKind(kind)
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
+    const rawProviders = request.body?.providers
+    if (rawProviders?.length) {
+      const parsed = rawProviders.map(p => parseProviderName(p))
+      const invalid = rawProviders.filter((_, i) => !parsed[i])
+      if (invalid.length) {
+        return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: `Invalid provider(s): ${invalid.join(', ')}. Must be one of: gemini, openai, claude, local` } })
+      }
+      rawProviders.splice(0, rawProviders.length, ...parsed.filter(Boolean) as string[])
+    }
+    const providers = rawProviders?.length ? rawProviders : undefined
+
+    const now = new Date().toISOString()
+    const results = []
+
+    for (const project of allProjects) {
+      const queueResult = queueRunIfProjectIdle(app.db, {
+        createdAt: now,
+        kind,
+        projectId: project.id,
+        trigger: 'manual',
+      })
+
+      if (queueResult.conflict) {
+        results.push({ projectName: project.name, projectId: project.id, status: 'conflict', error: 'run_in_progress' })
+        continue
+      }
+
+      const runId = queueResult.runId
+
+      writeAuditLog(app.db, {
+        projectId: project.id,
+        actor: 'api',
+        action: 'run.created',
+        entityType: 'run',
+        entityId: runId,
+      })
+
+      const run = app.db.select().from(runs).where(eq(runs.id, runId)).get()!
+      if (opts.onRunCreated) {
+        opts.onRunCreated(runId, project.id, providers)
+      }
+
+      results.push({ ...formatRun(run), projectName: project.name })
+    }
+
+    return reply.status(207).send(results)
   })
 
   // GET /runs/:id — get single run with snapshots

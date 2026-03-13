@@ -16,9 +16,14 @@ function getClient(): ApiClient {
   return new ApiClient(config.apiUrl, config.apiKey)
 }
 
-export async function showEvidence(project: string): Promise<void> {
+export async function showEvidence(project: string, format?: string): Promise<void> {
   const client = getClient()
   const timeline = await client.getTimeline(project) as TimelineEntry[]
+
+  if (format === 'json') {
+    console.log(JSON.stringify(timeline, null, 2))
+    return
+  }
 
   if (timeline.length === 0) {
     console.log('No keyword evidence yet. Trigger a run first with "canonry run".')

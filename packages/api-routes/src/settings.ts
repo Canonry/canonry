@@ -11,7 +11,7 @@ export interface ProviderSummaryEntry {
 
 export interface SettingsRoutesOptions {
   providerSummary?: ProviderSummaryEntry[]
-  onProviderUpdate?: (provider: string, apiKey: string, model?: string, baseUrl?: string) => ProviderSummaryEntry | null
+  onProviderUpdate?: (provider: string, apiKey: string, model?: string, baseUrl?: string, quota?: Partial<ProviderQuotaPolicy>) => ProviderSummaryEntry | null
 }
 
 export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesOptions) {
@@ -21,10 +21,10 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
 
   app.put<{
     Params: { name: string }
-    Body: { apiKey?: string; baseUrl?: string; model?: string }
+    Body: { apiKey?: string; baseUrl?: string; model?: string; quota?: Partial<ProviderQuotaPolicy> }
   }>('/settings/providers/:name', async (request, reply) => {
     const providerName = parseProviderName(request.params.name)
-    const { apiKey, baseUrl, model } = request.body ?? {}
+    const { apiKey, baseUrl, model, quota } = request.body ?? {}
 
     if (!providerName) {
       return reply.status(400).send({ error: `Invalid provider: ${request.params.name}. Must be one of: gemini, openai, claude, local` })
@@ -64,7 +64,22 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
       return reply.status(501).send({ error: 'Provider configuration updates are not supported in this deployment' })
     }
 
-    const result = opts.onProviderUpdate(name, apiKey ?? '', model, baseUrl)
+    // Validate quota fields if provided
+    if (quota !== undefined) {
+      if (typeof quota !== 'object' || quota === null) {
+        return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'quota must be an object' } })
+      }
+      for (const [key, val] of Object.entries(quota)) {
+        if (!['maxConcurrency', 'maxRequestsPerMinute', 'maxRequestsPerDay'].includes(key)) {
+          return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: `Unknown quota field: ${key}` } })
+        }
+        if (typeof val !== 'number' || !Number.isInteger(val) || val <= 0) {
+          return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: `${key} must be a positive integer` } })
+        }
+      }
+    }
+
+    const result = opts.onProviderUpdate(name, apiKey ?? '', model, baseUrl, quota)
     if (!result) {
       return reply.status(500).send({ error: 'Failed to update provider configuration' })
     }

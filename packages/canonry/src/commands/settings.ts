@@ -6,20 +6,29 @@ function getClient(): ApiClient {
   return new ApiClient(config.apiUrl, config.apiKey)
 }
 
-export async function setProvider(name: string, opts: { apiKey?: string; baseUrl?: string; model?: string }): Promise<void> {
+export async function setProvider(name: string, opts: {
+  apiKey?: string
+  baseUrl?: string
+  model?: string
+  quota?: { maxConcurrency?: number; maxRequestsPerMinute?: number; maxRequestsPerDay?: number }
+}): Promise<void> {
   const client = getClient()
   const result = await client.updateProvider(name, opts) as {
     name: string
     model?: string
     configured: boolean
+    quota?: { maxConcurrency: number; maxRequestsPerMinute: number; maxRequestsPerDay: number }
   }
   console.log(`Provider ${result.name} updated successfully.`)
   if (result.model) {
     console.log(`  Model: ${result.model}`)
   }
+  if (result.quota) {
+    console.log(`  Quota: ${result.quota.maxConcurrency} concurrent · ${result.quota.maxRequestsPerMinute}/min · ${result.quota.maxRequestsPerDay}/day`)
+  }
 }
 
-export async function showSettings(): Promise<void> {
+export async function showSettings(format?: string): Promise<void> {
   const client = getClient()
   const settings = await client.getSettings() as {
     providers: Array<{
@@ -28,6 +37,11 @@ export async function showSettings(): Promise<void> {
       configured: boolean
       quota?: { maxConcurrency: number; maxRequestsPerMinute: number; maxRequestsPerDay: number }
     }>
+  }
+
+  if (format === 'json') {
+    console.log(JSON.stringify(settings, null, 2))
+    return
   }
 
   console.log('Provider settings:\n')

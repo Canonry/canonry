@@ -229,6 +229,7 @@ export function updateProviderConfig(provider: string, body: {
   apiKey?: string
   baseUrl?: string
   model?: string
+  quota?: { maxConcurrency?: number; maxRequestsPerMinute?: number; maxRequestsPerDay?: number }
 }): Promise<ApiProviderSummary> {
   return apiFetch(`/settings/providers/${encodeURIComponent(provider)}`, {
     method: 'PUT',
@@ -310,5 +311,16 @@ export function applyProjectConfig(config: object): Promise<ApiApplyResult> {
   return apiFetch('/apply', {
     method: 'POST',
     body: JSON.stringify(config),
+  })
+}
+
+export function fetchNotificationEvents(): Promise<string[]> {
+  return apiFetch('/notifications/events')
+}
+
+export function triggerAllRuns(body?: { providers?: string[] }): Promise<unknown[]> {
+  return apiFetch('/runs', {
+    method: 'POST',
+    body: JSON.stringify(body ?? {}),
   })
 }

@@ -13,13 +13,18 @@ export async function addKeywords(project: string, keywords: string[]): Promise<
   console.log(`Added ${keywords.length} key phrase(s) to "${project}".`)
 }
 
-export async function listKeywords(project: string): Promise<void> {
+export async function listKeywords(project: string, format?: string): Promise<void> {
   const client = getClient()
   const kws = await client.listKeywords(project) as Array<{
     id: string
     keyword: string
     createdAt: string
   }>
+
+  if (format === 'json') {
+    console.log(JSON.stringify(kws, null, 2))
+    return
+  }
 
   if (kws.length === 0) {
     console.log(`No key phrases found for "${project}".`)

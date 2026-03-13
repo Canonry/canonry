@@ -9,6 +9,11 @@ import { deliverWebhook, resolveWebhookTarget } from './webhooks.js'
 const VALID_EVENTS: NotificationEvent[] = ['citation.lost', 'citation.gained', 'run.completed', 'run.failed']
 
 export async function notificationRoutes(app: FastifyInstance) {
+  // GET /notifications/events — list valid notification event types
+  app.get('/notifications/events', async (_request, reply) => {
+    return reply.send(VALID_EVENTS)
+  })
+
   // POST /projects/:name/notifications — create notification
   app.post<{
     Params: { name: string }

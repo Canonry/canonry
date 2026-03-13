@@ -36,9 +36,15 @@ export async function setSchedule(project: string, opts: {
   printSchedule(result)
 }
 
-export async function showSchedule(project: string): Promise<void> {
+export async function showSchedule(project: string, format?: string): Promise<void> {
   const client = getClient()
   const result = await client.getSchedule(project) as ScheduleResponse
+
+  if (format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
   printSchedule(result)
 }
 

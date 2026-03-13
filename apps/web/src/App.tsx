@@ -28,6 +28,7 @@ import {
   appendKeywords,
   createProject,
   fetchAllRuns,
+  triggerAllRuns,
   fetchCompetitors,
   fetchExport,
   fetchKeywords,
@@ -2290,7 +2291,7 @@ function NotificationsSection({ projectName }: { projectName: string }) {
   )
 }
 
-function RunsPage({ runs, onOpenRun }: { runs: RunListItemVm[]; onOpenRun: (runId: string) => void }) {
+function RunsPage({ runs, onOpenRun, onTriggerAll }: { runs: RunListItemVm[]; onOpenRun: (runId: string) => void; onTriggerAll?: () => void }) {
   const [filter, setFilter] = useState<RunFilter>('all')
   const filteredRuns = filter === 'all' ? runs : runs.filter((run) => run.status === filter)
 
@@ -2303,6 +2304,11 @@ function RunsPage({ runs, onOpenRun }: { runs: RunListItemVm[]; onOpenRun: (runI
             Status, type, project, duration, and the shortest explanation that makes the outcome trustworthy.
           </p>
         </div>
+        {onTriggerAll && (
+          <Button type="button" variant="outline" size="sm" onClick={onTriggerAll}>
+            Run all projects
+          </Button>
+        )}
       </div>
 
       <section>
@@ -2359,6 +2365,9 @@ function ProviderConfigForm({ providerName, onSaved }: { providerName: string; o
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
   const [model, setModel] = useState('')
+  const [maxConcurrency, setMaxConcurrency] = useState('')
+  const [maxPerMinute, setMaxPerMinute] = useState('')
+  const [maxPerDay, setMaxPerDay] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
@@ -2371,14 +2380,22 @@ function ProviderConfigForm({ providerName, onSaved }: { providerName: string; o
     setError(null)
     setSuccess(false)
     try {
+      const quota: { maxConcurrency?: number; maxRequestsPerMinute?: number; maxRequestsPerDay?: number } = {}
+      if (maxConcurrency.trim()) quota.maxConcurrency = parseInt(maxConcurrency.trim(), 10)
+      if (maxPerMinute.trim()) quota.maxRequestsPerMinute = parseInt(maxPerMinute.trim(), 10)
+      if (maxPerDay.trim()) quota.maxRequestsPerDay = parseInt(maxPerDay.trim(), 10)
       await updateProviderConfig(providerName.toLowerCase(), {
         ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
         ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
         ...(model.trim() ? { model: model.trim() } : {}),
+        ...(Object.keys(quota).length > 0 ? { quota } : {}),
       })
       setApiKey('')
       setBaseUrl('')
       setModel('')
+      setMaxConcurrency('')
+      setMaxPerMinute('')
+      setMaxPerDay('')
       setSuccess(true)
       onSaved()
     } catch (err) {
@@ -2442,6 +2459,44 @@ function ProviderConfigForm({ providerName, onSaved }: { providerName: string; o
           value={model}
           onChange={(e) => setModel(e.target.value)}
         />
+      </div>
+      <div>
+        <label className="text-xs text-zinc-500">Quota (optional)</label>
+        <div className="mt-0.5 grid grid-cols-3 gap-1.5">
+          <div>
+            <input
+              type="number"
+              min="1"
+              className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+              placeholder="Concurrent"
+              value={maxConcurrency}
+              onChange={(e) => setMaxConcurrency(e.target.value)}
+            />
+            <p className="mt-0.5 text-[10px] text-zinc-600">Max concurrent</p>
+          </div>
+          <div>
+            <input
+              type="number"
+              min="1"
+              className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+              placeholder="/min"
+              value={maxPerMinute}
+              onChange={(e) => setMaxPerMinute(e.target.value)}
+            />
+            <p className="mt-0.5 text-[10px] text-zinc-600">Per minute</p>
+          </div>
+          <div>
+            <input
+              type="number"
+              min="1"
+              className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+              placeholder="/day"
+              value={maxPerDay}
+              onChange={(e) => setMaxPerDay(e.target.value)}
+            />
+            <p className="mt-0.5 text-[10px] text-zinc-600">Per day</p>
+          </div>
+        </div>
       </div>
       {error && <p className="text-xs text-rose-400">{error}</p>}
       {success && <p className="text-xs text-emerald-400">Provider updated.</p>}
@@ -3853,6 +3908,14 @@ export function App({
       .finally(() => setRunDetailLoading(false))
   }
 
+  const handleTriggerAllRuns = () => {
+    triggerAllRuns().catch((err: unknown) => {
+      console.error('Failed to trigger all runs', err)
+    }).finally(() => {
+      refreshData()
+    })
+  }
+
   // Poll for run detail updates when run is in progress
   useEffect(() => {
     if (drawerState?.kind !== 'run' || !runDetail) return
@@ -4117,7 +4180,7 @@ export function App({
               {route.kind === 'project' && activeProject ? (
                 <ProjectPage model={activeProject} onOpenEvidence={openEvidence} onOpenRun={openRun} onTriggerRun={handleTriggerRun} onDeleteProject={handleDeleteProject} onAddKeywords={handleAddKeywords} onAddCompetitors={handleAddCompetitors} />
               ) : null}
-              {route.kind === 'runs' ? <RunsPage runs={safeDashboard.runs} onOpenRun={openRun} /> : null}
+              {route.kind === 'runs' ? <RunsPage runs={safeDashboard.runs} onOpenRun={openRun} onTriggerAll={handleTriggerAllRuns} /> : null}
               {route.kind === 'settings' ? (
                 <SettingsPage settings={safeDashboard.settings} healthSnapshot={healthSnapshot} onSettingsChanged={refreshData} />
               ) : null}
