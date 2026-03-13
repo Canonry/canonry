@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useId, useMemo, useState } from 'reac
 import { parseAllDocuments } from 'yaml'
 import type { MouseEvent, ReactNode } from 'react'
 
+import * as Dialog from '@radix-ui/react-dialog'
 import {
   Activity,
   ChevronRight,
@@ -3239,7 +3240,7 @@ function highlightTermsInText(text: string, terms: string[]): ReactNode[] {
   }).filter(Boolean) as ReactNode[]
 }
 
-function EvidenceDrawer({
+function EvidenceDetailModal({
   evidence,
   project,
   onClose,
@@ -3249,6 +3250,7 @@ function EvidenceDrawer({
   onClose: () => void
 }) {
   const [showFullAnswer, setShowFullAnswer] = useState(false)
+  const [selectedRunIdx, setSelectedRunIdx] = useState(-1) // -1 = latest (current)
 
   const myDomain = project.project.canonicalDomain.toLowerCase().replace(/^www\./, '')
   const isCited = evidence.citationState === 'cited' || evidence.citationState === 'emerging'
@@ -3257,7 +3259,7 @@ function EvidenceDrawer({
   const positionIndex = evidence.citedDomains.findIndex(
     d => d.toLowerCase().replace(/^www\./, '') === myDomain,
   )
-  const position = positionIndex + 1 // 1-indexed; 0 = not found
+  const position = positionIndex + 1
   const totalCited = evidence.citedDomains.length
 
   // Terms to highlight in the AI answer
@@ -3268,13 +3270,13 @@ function EvidenceDrawer({
     projectDisplayName.split(' ').slice(0, 2).join(' '),
   ].filter(t => t.trim().length > 2)
 
-  // Determine state key for CSS variants (collapse cited/emerging → 'cited')
+  // State key for CSS variants
   const stateKey: 'cited' | 'not-cited' | 'lost' | 'pending' =
     isCited ? 'cited' :
     evidence.citationState === 'lost' ? 'lost' :
     evidence.citationState === 'pending' ? 'pending' : 'not-cited'
 
-  // Position hero text
+  // Hero copy
   const heroCopy = (() => {
     if (isCited && position > 0) {
       return {
@@ -3315,151 +3317,266 @@ function EvidenceDrawer({
     }
   })()
 
-  // Render AI answer with domain/name highlighted
+  // Render markdown-aware AI answer
   const renderHighlightedAnswer = () => {
     if (!evidence.answerSnippet) return null
-    const paragraphs = evidence.answerSnippet.split(/\n{2,}/)
-    return paragraphs.map((para, pi) => (
-      <p key={pi} className={pi > 0 ? 'mt-2' : ''}>
-        {highlightTermsInText(para.trim(), highlightTerms)}
-      </p>
-    ))
+    const lines = evidence.answerSnippet.split('\n')
+    const elements: ReactNode[] = []
+    let paraLines: string[] = []
+    let key = 0
+
+    const flushPara = () => {
+      if (paraLines.length === 0) return
+      const text = paraLines.join(' ').trim()
+      if (text) {
+        elements.push(
+          <p key={key++} className={elements.length > 0 ? 'mt-2.5' : ''}>
+            {highlightTermsInText(text, highlightTerms)}
+          </p>,
+        )
+      }
+      paraLines = []
+    }
+
+    for (const raw of lines) {
+      const line = raw.trim()
+      if (/^[-–—]{3,}$/.test(line)) {
+        flushPara()
+        elements.push(<hr key={key++} className="border-zinc-800/60 my-3" />)
+        continue
+      }
+      const headingMatch = line.match(/^(#{1,3})\s+(.+)$/)
+      if (headingMatch) {
+        flushPara()
+        const level = headingMatch[1].length
+        // Strip leading emoji sequences from heading text
+        const text = headingMatch[2].replace(/^[\p{Emoji}\p{Emoji_Component}\s#]+/u, '').trim() || headingMatch[2]
+        const cls = level === 1
+          ? 'text-[13px] font-semibold text-zinc-100 mt-4 mb-1'
+          : level === 2
+            ? 'text-xs font-semibold text-zinc-200 mt-3 mb-0.5'
+            : 'text-xs font-medium text-zinc-300 mt-2'
+        elements.push(
+          <p key={key++} className={cls}>
+            {highlightTermsInText(text, highlightTerms)}
+          </p>,
+        )
+        continue
+      }
+      if (line === '') {
+        flushPara()
+        continue
+      }
+      paraLines.push(line)
+    }
+    flushPara()
+    return elements
   }
 
+  // Run history for timeline
+  const history = evidence.runHistory
+  const hasHistory = history.length > 1
+
   return (
-    <Drawer
-      open
-      title={evidence.keyword}
-      subtitle={`${project.project.name} · ${evidence.provider}`}
-      onClose={onClose}
-    >
-      {/* ── Position hero ── */}
-      <div className={`evidence-position-hero evidence-position-hero--${stateKey}`}>
-        <p className={`evidence-position-label evidence-position-label--${stateKey}`}>
-          {heroCopy.label}
-        </p>
-        <p className={`evidence-position-title evidence-position-title--${stateKey}`}>
-          {heroCopy.title}
-        </p>
-        <p className="evidence-position-meta">{heroCopy.meta}</p>
-      </div>
-
-      {/* ── AI answer with highlights ── */}
-      {evidence.answerSnippet && (
-        <div>
-          <p className="drawer-section-label">What the AI said</p>
-          <div className={`answer-snippet-block ${showFullAnswer ? 'max-h-80 overflow-y-auto' : 'line-clamp-5'}`}>
-            {renderHighlightedAnswer()}
+    <Dialog.Root open onOpenChange={(open) => { if (!open) onClose() }}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm" />
+        <Dialog.Content
+          className="evidence-modal"
+          aria-describedby={undefined}
+        >
+          {/* ── Header ── */}
+          <div className="evidence-modal-header">
+            <div className="min-w-0 flex-1">
+              <p className="eyebrow eyebrow-soft">{project.project.name} · {evidence.provider || 'All providers'}</p>
+              <Dialog.Title className="text-lg font-semibold text-zinc-50 truncate">{evidence.keyword}</Dialog.Title>
+            </div>
+            <Dialog.Close className="inline-flex size-8 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-800 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 shrink-0">
+              <X className="size-4" />
+              <span className="sr-only">Close</span>
+            </Dialog.Close>
           </div>
-          {evidence.answerSnippet.length > 280 && (
-            <button
-              type="button"
-              className="mt-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-              onClick={() => setShowFullAnswer(!showFullAnswer)}
-            >
-              {showFullAnswer ? '↑ Collapse' : '↓ Show full answer'}
-            </button>
+
+          {/* ── Run history timeline ── */}
+          {hasHistory && (
+            <div className="evidence-modal-timeline">
+              <p className="drawer-section-label mb-1.5">Run history</p>
+              <div className="flex items-center gap-1 overflow-x-auto pb-1">
+                {history.map((run, i) => {
+                  const isSelected = (selectedRunIdx === -1 && i === history.length - 1) || selectedRunIdx === i
+                  const dotColor = run.citationState === 'cited' || run.citationState === 'emerging'
+                    ? 'bg-emerald-400' : run.citationState === 'lost'
+                      ? 'bg-rose-400' : 'bg-zinc-600'
+                  const date = new Date(run.createdAt)
+                  const label = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      className={`evidence-run-dot ${isSelected ? 'evidence-run-dot--selected' : ''}`}
+                      onClick={() => setSelectedRunIdx(i === history.length - 1 ? -1 : i)}
+                      title={`${run.citationState} — ${date.toLocaleString()}`}
+                    >
+                      <span className={`size-2 rounded-full ${dotColor}`} />
+                      <span className="text-[10px] text-zinc-500">{label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+              {selectedRunIdx >= 0 && selectedRunIdx < history.length && (
+                <p className="text-[11px] text-zinc-500 mt-1">
+                  Viewing run from {new Date(history[selectedRunIdx].createdAt).toLocaleString()} — <span className="capitalize">{history[selectedRunIdx].citationState}</span>
+                  <button type="button" className="text-zinc-400 hover:text-zinc-200 ml-2" onClick={() => setSelectedRunIdx(-1)}>← Back to latest</button>
+                </p>
+              )}
+            </div>
           )}
-        </div>
-      )}
 
-      {/* ── Citation leaderboard ── */}
-      {evidence.citedDomains.length > 0 && (
-        <div>
-          <p className="drawer-section-label">Who was cited — in order</p>
-          <div className="citation-leaderboard">
-            {evidence.citedDomains.map((domain, i) => {
-              const norm = domain.toLowerCase().replace(/^www\./, '')
-              const isYou = norm === myDomain
-              const isCompetitor = !isYou && evidence.competitorDomains.some(
-                c => c.toLowerCase().replace(/^www\./, '') === norm,
-              )
-              const variant = isYou ? 'you' : isCompetitor ? 'competitor' : 'other'
-              return (
-                <div key={domain} className={`citation-leaderboard-item citation-leaderboard-item--${variant}`}>
-                  <span className="citation-leaderboard-rank">#{i + 1}</span>
-                  <span className="citation-leaderboard-domain">{domain}</span>
-                  {isYou && <span className="citation-leaderboard-tag">You</span>}
-                  {isCompetitor && <span className="citation-leaderboard-tag">Competitor</span>}
+          {/* ── Two-column body ── */}
+          <div className="evidence-modal-body">
+            {/* Left: status + AI answer */}
+            <div className="evidence-modal-main">
+              {/* Position hero */}
+              <div className={`evidence-position-hero evidence-position-hero--${stateKey}`}>
+                <p className={`evidence-position-label evidence-position-label--${stateKey}`}>
+                  {heroCopy.label}
+                </p>
+                <p className={`evidence-position-title evidence-position-title--${stateKey}`}>
+                  {heroCopy.title}
+                </p>
+                <p className="evidence-position-meta">{heroCopy.meta}</p>
+              </div>
+
+              {/* AI answer */}
+              {evidence.answerSnippet && (
+                <div>
+                  <p className="drawer-section-label">What the AI said</p>
+                  <div className={`answer-snippet-block ${showFullAnswer ? 'evidence-answer-expanded' : 'evidence-answer-collapsed'}`}>
+                    {renderHighlightedAnswer()}
+                  </div>
+                  {evidence.answerSnippet.length > 280 && (
+                    <button
+                      type="button"
+                      className="mt-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                      onClick={() => setShowFullAnswer(!showFullAnswer)}
+                    >
+                      {showFullAnswer ? '↑ Collapse' : '↓ Show full answer'}
+                    </button>
+                  )}
                 </div>
-              )
-            })}
-            {!isCited && (
-              <div className="citation-leaderboard-item citation-leaderboard-item--not-cited border-dashed">
-                <span className="citation-leaderboard-rank text-zinc-600">—</span>
-                <span className="citation-leaderboard-domain text-zinc-600">{project.project.canonicalDomain}</span>
-                <span className="citation-leaderboard-tag text-zinc-600">Not cited</span>
-              </div>
-            )}
+              )}
+
+              {/* Action items */}
+              {evidence.relatedTechnicalSignals.length > 0 && (
+                <div>
+                  <p className="drawer-section-label">
+                    {isCited ? 'Why you\'re cited' : 'What to fix'}
+                  </p>
+                  <div className="action-items-list">
+                    {evidence.relatedTechnicalSignals.map((signal, i) => (
+                      <div key={i} className="action-item">
+                        <svg
+                          className={`action-item-icon ${isCited ? 'text-emerald-400' : 'text-amber-400'}`}
+                          viewBox="0 0 16 16" fill="none" aria-hidden="true"
+                        >
+                          {isCited
+                            ? <path d="M3 8l3.5 3.5L13 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                            : (
+                              <>
+                                <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" />
+                                <path d="M8 5v3.5M8 10.5v0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                              </>
+                            )
+                          }
+                        </svg>
+                        <span className="action-item-text">{signal}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Summary */}
+              <p className="text-xs text-zinc-600 border-t border-zinc-800/40 pt-3 mt-1">{evidence.summary}</p>
+            </div>
+
+            {/* Right: leaderboard + sources */}
+            <div className="evidence-modal-sidebar">
+              {/* Citation leaderboard */}
+              {evidence.citedDomains.length > 0 && (
+                <div>
+                  <p className="drawer-section-label">Who was cited — in order</p>
+                  <div className="citation-leaderboard">
+                    {evidence.citedDomains.map((domain, i) => {
+                      const norm = domain.toLowerCase().replace(/^www\./, '')
+                      const isYou = norm === myDomain
+                      const isCompetitor = !isYou && evidence.competitorDomains.some(
+                        c => c.toLowerCase().replace(/^www\./, '') === norm,
+                      )
+                      const variant = isYou ? 'you' : isCompetitor ? 'competitor' : 'other'
+                      return (
+                        <div key={domain} className={`citation-leaderboard-item citation-leaderboard-item--${variant}`}>
+                          <span className="citation-leaderboard-rank">#{i + 1}</span>
+                          <span className="citation-leaderboard-domain">{domain}</span>
+                          {isYou && <span className="citation-leaderboard-tag">You</span>}
+                          {isCompetitor && <span className="citation-leaderboard-tag">Competitor</span>}
+                        </div>
+                      )
+                    })}
+                    {!isCited && (
+                      <div className="citation-leaderboard-item citation-leaderboard-item--not-cited border-dashed">
+                        <span className="citation-leaderboard-rank text-zinc-600">—</span>
+                        <span className="citation-leaderboard-domain text-zinc-600">{project.project.canonicalDomain}</span>
+                        <span className="citation-leaderboard-tag text-zinc-600">Not cited</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Grounding sources */}
+              {evidence.groundingSources.length > 0 && (
+                <div>
+                  <p className="drawer-section-label">Grounding sources ({evidence.groundingSources.length})</p>
+                  <ul className="grid gap-0.5">
+                    {evidence.groundingSources.map((src, i) => (
+                      <li key={i} className="truncate text-sm">
+                        <a href={src.uri} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
+                          {src.title || src.uri}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Evidence URLs */}
+              {evidence.evidenceUrls.length > 0 && (
+                <div>
+                  <p className="drawer-section-label">Evidence URLs</p>
+                  <ul className="grid gap-1">
+                    {evidence.evidenceUrls.map((url) => (
+                      <li key={url} className="truncate text-sm">
+                        <a href={url} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
+                          {url}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* No data for pending */}
+              {evidence.citedDomains.length === 0 && evidence.groundingSources.length === 0 && evidence.evidenceUrls.length === 0 && (
+                <div className="flex items-center justify-center h-24 text-zinc-600 text-sm">
+                  No citation data yet
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
-
-      {/* ── Action items from technical signals ── */}
-      {evidence.relatedTechnicalSignals.length > 0 && (
-        <div>
-          <p className="drawer-section-label">
-            {isCited ? 'Why you\'re cited' : 'What to fix'}
-          </p>
-          <div className="action-items-list">
-            {evidence.relatedTechnicalSignals.map((signal, i) => (
-              <div key={i} className="action-item">
-                <svg
-                  className={`action-item-icon ${isCited ? 'text-emerald-400' : 'text-amber-400'}`}
-                  viewBox="0 0 16 16" fill="none" aria-hidden="true"
-                >
-                  {isCited
-                    ? <path d="M3 8l3.5 3.5L13 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                    : (
-                      <>
-                        <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" />
-                        <path d="M8 5v3.5M8 10.5v0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                      </>
-                    )
-                  }
-                </svg>
-                <span className="action-item-text">{signal}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Grounding sources ── */}
-      {evidence.groundingSources.length > 0 && (
-        <div>
-          <p className="drawer-section-label">Grounding sources ({evidence.groundingSources.length})</p>
-          <ul className="grid gap-0.5">
-            {evidence.groundingSources.map((src, i) => (
-              <li key={i} className="truncate text-sm">
-                <a href={src.uri} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
-                  {src.title || src.uri}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* ── Evidence URLs ── */}
-      {evidence.evidenceUrls.length > 0 && (
-        <div>
-          <p className="drawer-section-label">Evidence URLs</p>
-          <ul className="grid gap-1">
-            {evidence.evidenceUrls.map((url) => (
-              <li key={url} className="truncate text-sm">
-                <a href={url} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
-                  {url}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* ── Summary ── */}
-      <p className="text-xs text-zinc-600 border-t border-zinc-800/40 pt-3 mt-1">{evidence.summary}</p>
-    </Drawer>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   )
 }
 
@@ -4090,7 +4207,7 @@ export function App({
       ) : null}
 
       {selectedEvidenceContext ? (
-        <EvidenceDrawer evidence={selectedEvidenceContext.evidence} project={selectedEvidenceContext.project} onClose={() => setDrawerState(null)} />
+        <EvidenceDetailModal evidence={selectedEvidenceContext.evidence} project={selectedEvidenceContext.project} onClose={() => setDrawerState(null)} />
       ) : null}
     </div>
   )

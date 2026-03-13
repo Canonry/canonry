@@ -1263,6 +1263,57 @@
     @apply text-sm text-zinc-400 leading-snug;
   }
 
+  /* ── Evidence detail modal ── */
+
+  .evidence-modal {
+    @apply fixed z-50 flex flex-col bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl overflow-hidden;
+    @apply top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2;
+    @apply w-[min(95vw,1100px)] max-h-[min(90vh,800px)];
+  }
+
+  .evidence-modal-header {
+    @apply flex items-start gap-3 px-6 pt-5 pb-3 border-b border-zinc-800/60 shrink-0;
+  }
+
+  .evidence-modal-timeline {
+    @apply px-6 py-3 border-b border-zinc-800/40 shrink-0;
+  }
+
+  .evidence-modal-body {
+    @apply flex-1 overflow-y-auto grid gap-6 p-6;
+    @apply md:grid-cols-[1fr_320px];
+  }
+
+  .evidence-modal-main {
+    @apply grid gap-4 content-start;
+  }
+
+  .evidence-modal-sidebar {
+    @apply grid gap-4 content-start;
+    @apply md:border-l md:border-zinc-800/40 md:pl-6;
+  }
+
+  .evidence-answer-collapsed {
+    max-height: 200px;
+    overflow: hidden;
+    mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+  }
+
+  .evidence-answer-expanded {
+    max-height: 480px;
+    overflow-y: auto;
+  }
+
+  .evidence-run-dot {
+    @apply flex flex-col items-center gap-0.5 px-2 py-1 rounded-md transition-colors cursor-pointer;
+    @apply hover:bg-zinc-800/60;
+  }
+
+  .evidence-run-dot--selected {
+    @apply bg-zinc-800 ring-1 ring-zinc-600;
+  }
+
   /* ── Drawer section label ── */
 
   .drawer-section-label {
