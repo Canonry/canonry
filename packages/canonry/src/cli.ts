@@ -176,7 +176,7 @@ async function main() {
           },
           allowPositionals: false,
         })
-        startDaemon({ port: values.port, host: values.host })
+        await startDaemon({ port: values.port, host: values.host })
         break
       }
 
@@ -247,7 +247,7 @@ async function main() {
         switch (subcommand) {
           case 'add': {
             const project = args[2]
-            const kws = args.slice(3).filter(a => !a.startsWith('--'))
+            const kws = args.slice(3).filter((a, i, arr) => !a.startsWith('--') && !(i > 0 && arr[i - 1].startsWith('--')))
             if (!project || kws.length === 0) {
               console.error('Error: project name and at least one key phrase required')
               process.exit(1)
@@ -313,7 +313,7 @@ async function main() {
         switch (subcommand) {
           case 'add': {
             const project = args[2]
-            const domains = args.slice(3).filter(a => !a.startsWith('--'))
+            const domains = args.slice(3).filter((a, i, arr) => !a.startsWith('--') && !(i > 0 && arr[i - 1].startsWith('--')))
             if (!project || domains.length === 0) {
               console.error('Error: project name and at least one domain required')
               process.exit(1)

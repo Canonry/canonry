@@ -50,7 +50,11 @@ export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; 
   const projects = await client.listProjects() as Array<{ name: string }>
 
   if (projects.length === 0) {
-    console.log('No projects found.')
+    if (opts?.format === 'json') {
+      console.log('[]')
+    } else {
+      console.log('No projects found.')
+    }
     return
   }
 

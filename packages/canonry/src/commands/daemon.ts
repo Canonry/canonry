@@ -18,7 +18,22 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
-export function startDaemon(opts: { port?: string; host?: string }): void {
+async function waitForReady(host: string, port: string, maxMs = 10000): Promise<boolean> {
+  const url = `http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${port}/health`
+  const deadline = Date.now() + maxMs
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(url)
+      if (res.ok) return true
+    } catch {
+      // not up yet
+    }
+    await new Promise(r => setTimeout(r, 200))
+  }
+  return false
+}
+
+export async function startDaemon(opts: { port?: string; host?: string }): Promise<void> {
   const pidPath = getPidPath()
 
   // Check for existing process
@@ -61,6 +76,15 @@ export function startDaemon(opts: { port?: string; host?: string }): void {
 
   const port = opts.port ?? '4100'
   const host = opts.host ?? '127.0.0.1'
+  process.stderr.write('Waiting for server to start...')
+  const ready = await waitForReady(host, port)
+  if (!ready) {
+    // Server didn't come up — clean up the PID file to avoid leaving a stale one
+    try { fs.unlinkSync(pidPath) } catch { /* ignore */ }
+    console.error('\nFailed to start: server did not respond within 10s')
+    process.exit(1)
+  }
+  process.stderr.write('\n')
   console.log(`Canonry started (PID: ${child.pid}), listening on http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`)
 }
 
