@@ -114,25 +114,61 @@ These build on existing infrastructure with minimal schema/architecture changes.
 
 ---
 
+## Phase 2.7: Distributed Node Architecture
+
+See [ADR 0005](adr/0005-distributed-node-hub-architecture.md) for full rationale.
+
+Cloud SaaS AEO tools query from data centers, producing a single decontextualized perspective. As LLM search becomes hyper-localized and personalized, this gap becomes a structural blind spot. Canonry's local-first architecture enables a distributed sensing network where each installation captures the real, localized, audience-specific perspective — something no cloud-only tool can replicate.
+
+### Node Identity & Context Metadata
+**Gap**: Snapshots have no origin context. When multiple Canonry instances exist, there's no way to distinguish or aggregate their data.
+**Implementation**: Add `nodeId`, `nodeLocation`, `nodeContext` columns to `querySnapshots`. Node identity configured via env vars or `canonry.yaml`. Defaults to `'local'` for backward compatibility.
+**Impact**: Foundation for all multi-node features. Zero UX change for single-node users.
+
+### Persona-Framed Queries
+**Gap**: Analysts capture their own personalized perspective, not their target audience's. A 28-year-old SEO professional gets different LLM answers than a 35-year-old homeowner.
+**Implementation**: New `personas` table per project. Each persona defines a `systemInstruction` (passed as system message to Gemini/OpenAI/Claude APIs) with query text modification as fallback. Job runner fans out across personas: `keyword × provider × persona`. Add `personaId` to snapshots. Config-as-code support in `canonry.yaml`. Surface parity: CLI (`canonry persona add`), API (`POST /api/v1/projects/:name/personas`), and UI (persona management + filter).
+**Impact**: Enables audience-segmented AEO monitoring using existing API providers — no new infrastructure. "Homeowners see us cited, property managers don't" becomes a trackable metric.
+
+### Browser Provider (ChatGPT UI)
+**Gap**: API-based queries (`web_search_preview`) return different results than the real ChatGPT UI. The UI reflects logged-in user context, conversation history, and real personalization.
+**Implementation**: New `packages/provider-chatgpt-browser/` adapter. Chrome MCP integration first (leverages existing MCP ecosystem), CDP (Chrome DevTools Protocol) as fallback. Implements standard `ProviderAdapter` interface. Navigates to ChatGPT, submits query, extracts answer text + cited sources from DOM.
+**Impact**: Highest-signal provider. Captures what real users actually see. Combined with personas and node identity, creates a multi-dimensional observation matrix.
+
+### Hub Sync Protocol
+**Gap**: Multiple Canonry nodes have no way to share data or aggregate insights across locations.
+**Implementation**: Hub mode via `canonry serve --mode hub` (same binary). Nodes push snapshots to hub on run completion (auto-sync) or manually (`canonry sync`). Hub pushes config to nodes. Append-only, cursor-based sync. Nodes are authoritative for their snapshots; hub is authoritative for config. Configurable sync scope: normalized summary by default, opt-in to full raw responses.
+**Impact**: Enables cross-location analytics. Agency with nodes in Portland and Seattle can compare citation variance. Hub also runs API-based baseline queries as a non-personalized control group.
+
+### Cross-Node & Cross-Persona Analytics
+**Gap**: No tool offers geographic citation heatmaps or audience-segmented SOV.
+**Implementation**: New hub-side API endpoints: citation consistency, localization delta, geographic heatmap, audience SOV. Dashboard additions: heatmap view, consistency gauge, persona variance charts, per-node run breakdowns.
+**Impact**: Metrics that are structurally impossible for cloud SaaS tools: "Cited in 80% of local queries but 30% of generic queries" and "Strong with homeowners, invisible to property managers."
+
+---
+
 ## Phase 4: Long-Term Initiatives
 
 ### Google AI Overviews Provider
 Requires SerpAPI or similar to scrape Google search results with AI Overview snippets. "Bring your own SerpAPI key" approach.
 
-### ChatGPT UI Scraping Provider ("Bring Your Own Browser")
-Browser automation where the user logs into ChatGPT and Canonry reads the page via Playwright/Puppeteer. Most accurate ChatGPT visibility data possible.
+### Real User Panel
+Lightweight browser extension that real users opt into. Passively observes AI search interactions, anonymizes data, and reports citations back to the hub. The "Nielsen ratings for AI search" model — captures actual personalized results without simulation.
+
+### Synthetic Browser Profiles
+Multiple Chrome profiles with different ChatGPT custom instructions, browsing history, and cookies. Canonry rotates through them for deeper persona simulation beyond query framing.
 
 ### Historical Trend Analytics & Forecasting
 Time-series analytics over SOV, sentiment, and citation position. 7/30/90-day trends. Moving averages and linear regression for SOV projections.
 
 ### Multi-Tenant Cloud Mode
-Postgres mode, team workspaces, API key scoping per team, Stripe billing integration.
+Postgres mode, team workspaces, API key scoping per team, Stripe billing integration. Hub mode provides the foundation.
 
 ### Integrations Ecosystem
 Slack (alerts), Google Sheets (export), Looker Studio (data source), Zapier/n8n (webhook docs), Google Search Console (correlate organic vs. AI visibility).
 
 ### Agency/Multi-Brand Management
-Project grouping ("workspaces" or "organizations"), cross-project dashboards, templated configs for agency workflows.
+Project grouping ("workspaces" or "organizations"), cross-project dashboards, templated configs for agency workflows. Builds on hub + multi-node architecture.
 
 ---
 
@@ -147,6 +183,8 @@ Project grouping ("workspaces" or "organizations"), cross-project dashboards, te
 | Results CSV/JSON export | Low | Medium | **P1** |
 | Perplexity provider | Low | High | **P1** |
 | Answer diff viewer | Medium | High | **P1** |
+| Node identity & context metadata | Low | High | **P1** |
+| Persona-framed queries | Medium | Very High | **P1** |
 | Site audit / tech readiness | Low-Medium (uses `@ainyc/aeo-audit`) | High | **P2** |
 | Prompt-to-topic clustering | Medium | High | **P2** |
 | Content optimization recs | Medium | Very High | **P2** |
@@ -154,7 +192,11 @@ Project grouping ("workspaces" or "organizations"), cross-project dashboards, te
 | Claude Code skill | Low-Medium | High | **P2** |
 | Crawl health monitoring | Low (uses `@ainyc/aeo-audit`) | Medium | **P2** |
 | Google AI Overviews provider | Medium | High | **P2** |
-| ChatGPT UI scraping | High | High | **P3** |
+| Browser provider (Chrome MCP/CDP) | Medium | Very High | **P2** |
+| Hub sync protocol | Medium | High | **P2** |
+| Cross-node/persona analytics | Medium | High | **P2** |
+| Real user panel | High | Very High | **P3** |
+| Synthetic browser profiles | Medium | High | **P3** |
 | Trend analytics & forecasting | High | Medium | **P3** |
 | Cloud multi-tenant mode | High | High | **P3** |
 | Integrations ecosystem | High | Medium | **P3** |
