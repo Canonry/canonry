@@ -237,7 +237,7 @@ function buildEvidenceFromTimeline(
           : computeStreak(entry.runs)
 
         const runHistory = (hasProviderHistory ? providerHistory : entry.runs)
-          .map(r => ({ citationState: r.citationState, createdAt: r.createdAt }))
+          .map(r => ({ runId: r.runId, citationState: r.citationState, createdAt: r.createdAt }))
 
         results.push({
           id: `evidence_${projectName}_${idx++}`,

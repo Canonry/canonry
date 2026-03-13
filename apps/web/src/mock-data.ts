@@ -13,6 +13,7 @@ import type {
 function mockHistory(states: string[]): RunHistoryPoint[] {
   const base = new Date('2026-02-20')
   return states.map((s, i) => ({
+    runId: `run_mock_${i + 1}`,
     citationState: s,
     createdAt: new Date(base.getTime() + i * 2 * 24 * 60 * 60 * 1000).toISOString(),
   }))

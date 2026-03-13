@@ -51,6 +51,7 @@ import {
   generateKeywords as apiGenerateKeywords,
   type ApiSchedule,
   type ApiNotification,
+  type GroundingSource,
 } from './api.js'
 import { buildDashboard } from './build-dashboard.js'
 import type { ProjectData } from './build-dashboard.js'
@@ -709,20 +710,19 @@ function CitationTimeline({ history, maxDots = 12 }: { history: RunHistoryPoint[
 
 /** Aggregate citation timeline from multiple provider histories into a single merged timeline. */
 function mergeProviderHistories(items: CitationInsightVm[]): RunHistoryPoint[] {
-  // Collect all states per run timestamp across providers.
-  // Each run shares the same createdAt, so using the full timestamp correctly
-  // groups providers within a run while keeping distinct runs separate.
-  const byRun = new Map<string, string[]>()
+  // Collect all states + runId per run timestamp across providers.
+  const byRun = new Map<string, { states: string[]; runId: string }>()
   for (const item of items) {
     for (const h of item.runHistory) {
       const existing = byRun.get(h.createdAt)
-      if (existing) existing.push(h.citationState)
-      else byRun.set(h.createdAt, [h.citationState])
+      if (existing) existing.states.push(h.citationState)
+      else byRun.set(h.createdAt, { states: [h.citationState], runId: h.runId })
     }
   }
   // For each run, pick the best state: cited > emerging > not-cited
   const sorted = [...byRun.entries()].sort(([a], [b]) => a.localeCompare(b))
-  return sorted.map(([createdAt, states]) => ({
+  return sorted.map(([createdAt, { states, runId }]) => ({
+    runId,
     createdAt,
     citationState: states.includes('cited') ? 'cited'
       : states.includes('emerging') ? 'emerging'
@@ -3240,6 +3240,18 @@ function highlightTermsInText(text: string, terms: string[]): ReactNode[] {
   }).filter(Boolean) as ReactNode[]
 }
 
+/** Shape of snapshot data used for display — works for both current evidence and fetched historical snapshots. */
+interface EvidenceDisplayData {
+  citationState: string
+  provider: string
+  answerSnippet: string
+  citedDomains: string[]
+  competitorDomains: string[]
+  groundingSources: GroundingSource[]
+  changeLabel: string
+  summary: string
+}
+
 function EvidenceDetailModal({
   evidence,
   project,
@@ -3251,16 +3263,34 @@ function EvidenceDetailModal({
 }) {
   const [showFullAnswer, setShowFullAnswer] = useState(false)
   const [selectedRunIdx, setSelectedRunIdx] = useState(-1) // -1 = latest (current)
+  const [historicalSnapshot, setHistoricalSnapshot] = useState<EvidenceDisplayData | null>(null)
+  const [loadingHistory, setLoadingHistory] = useState(false)
+  // Cache fetched run details so re-clicking a dot is instant
+  const [runCache, setRunCache] = useState<Record<string, EvidenceDisplayData>>({})
 
   const myDomain = project.project.canonicalDomain.toLowerCase().replace(/^www\./, '')
-  const isCited = evidence.citationState === 'cited' || evidence.citationState === 'emerging'
+  const history = evidence.runHistory
+  const hasHistory = history.length > 1
 
-  // Position in cited list
-  const positionIndex = evidence.citedDomains.findIndex(
+  // Current display data — from historical snapshot when viewing past runs, otherwise from latest evidence
+  const isViewingHistory = selectedRunIdx >= 0 && historicalSnapshot !== null
+  const display: EvidenceDisplayData = isViewingHistory ? historicalSnapshot : {
+    citationState: evidence.citationState,
+    provider: evidence.provider,
+    answerSnippet: evidence.answerSnippet,
+    citedDomains: evidence.citedDomains,
+    competitorDomains: evidence.competitorDomains,
+    groundingSources: evidence.groundingSources,
+    changeLabel: evidence.changeLabel,
+    summary: evidence.summary,
+  }
+
+  const isCited = display.citationState === 'cited' || display.citationState === 'emerging'
+  const positionIndex = display.citedDomains.findIndex(
     d => d.toLowerCase().replace(/^www\./, '') === myDomain,
   )
   const position = positionIndex + 1
-  const totalCited = evidence.citedDomains.length
+  const totalCited = display.citedDomains.length
 
   // Terms to highlight in the AI answer
   const projectDisplayName = project.project.displayName || project.project.name
@@ -3273,8 +3303,75 @@ function EvidenceDetailModal({
   // State key for CSS variants
   const stateKey: 'cited' | 'not-cited' | 'lost' | 'pending' =
     isCited ? 'cited' :
-    evidence.citationState === 'lost' ? 'lost' :
-    evidence.citationState === 'pending' ? 'pending' : 'not-cited'
+    display.citationState === 'lost' ? 'lost' :
+    display.citationState === 'pending' ? 'pending' : 'not-cited'
+
+  // Fetch historical run data when a dot is clicked
+  const selectHistoricalRun = useCallback(async (idx: number) => {
+    if (idx === -1 || idx === history.length - 1) {
+      setSelectedRunIdx(-1)
+      setHistoricalSnapshot(null)
+      setShowFullAnswer(false)
+      return
+    }
+    setSelectedRunIdx(idx)
+    setShowFullAnswer(false)
+
+    const run = history[idx]
+    // Check cache first
+    const cacheKey = `${run.runId}::${evidence.keyword}::${evidence.provider}`
+    if (runCache[cacheKey]) {
+      setHistoricalSnapshot(runCache[cacheKey])
+      return
+    }
+
+    setLoadingHistory(true)
+    try {
+      const runDetail = await fetchRunDetail(run.runId)
+      // Find the snapshot matching this keyword + provider
+      const snap = runDetail.snapshots.find(
+        s => s.keyword === evidence.keyword && s.provider === evidence.provider,
+      ) ?? runDetail.snapshots.find(
+        s => s.keyword === evidence.keyword,
+      )
+
+      const data: EvidenceDisplayData = snap ? {
+        citationState: snap.citationState,
+        provider: snap.provider,
+        answerSnippet: snap.answerText ?? '',
+        citedDomains: snap.citedDomains,
+        competitorDomains: snap.competitorOverlap,
+        groundingSources: snap.groundingSources,
+        changeLabel: run.citationState,
+        summary: '',
+      } : {
+        citationState: run.citationState,
+        provider: evidence.provider,
+        answerSnippet: '',
+        citedDomains: [],
+        competitorDomains: [],
+        groundingSources: [],
+        changeLabel: run.citationState,
+        summary: 'Snapshot data not available for this run.',
+      }
+
+      setRunCache(prev => ({ ...prev, [cacheKey]: data }))
+      setHistoricalSnapshot(data)
+    } catch {
+      setHistoricalSnapshot({
+        citationState: run.citationState,
+        provider: evidence.provider,
+        answerSnippet: '',
+        citedDomains: [],
+        competitorDomains: [],
+        groundingSources: [],
+        changeLabel: run.citationState,
+        summary: 'Failed to load historical run data.',
+      })
+    } finally {
+      setLoadingHistory(false)
+    }
+  }, [history, evidence.keyword, evidence.provider, runCache])
 
   // Hero copy
   const heroCopy = (() => {
@@ -3282,26 +3379,26 @@ function EvidenceDetailModal({
       return {
         label: 'Citation confirmed',
         title: `Cited #${position} of ${totalCited} domain${totalCited !== 1 ? 's' : ''}`,
-        meta: `${evidence.provider} · ${evidence.changeLabel.toLowerCase()}`,
+        meta: `${display.provider} · ${display.changeLabel.toLowerCase()}`,
       }
     }
     if (isCited) {
       return {
         label: 'Citation confirmed',
         title: 'Cited in this answer',
-        meta: `${evidence.provider} · ${evidence.changeLabel.toLowerCase()}`,
+        meta: `${display.provider} · ${display.changeLabel.toLowerCase()}`,
       }
     }
-    if (evidence.citationState === 'lost') {
+    if (display.citationState === 'lost') {
       return {
         label: 'Citation lost',
         title: totalCited > 0
           ? `${totalCited} domain${totalCited !== 1 ? 's' : ''} cited instead`
           : 'No longer appearing in this answer',
-        meta: `${evidence.provider} · ${evidence.changeLabel.toLowerCase()}`,
+        meta: `${display.provider} · ${display.changeLabel.toLowerCase()}`,
       }
     }
-    if (evidence.citationState === 'pending') {
+    if (display.citationState === 'pending') {
       return {
         label: 'Pending',
         title: 'Awaiting first visibility run',
@@ -3313,14 +3410,14 @@ function EvidenceDetailModal({
       title: totalCited > 0
         ? `${totalCited} domain${totalCited !== 1 ? 's' : ''} cited instead`
         : 'No domains cited for this query',
-      meta: `${evidence.provider} · ${evidence.changeLabel.toLowerCase()}`,
+      meta: `${display.provider} · ${display.changeLabel.toLowerCase()}`,
     }
   })()
 
   // Render markdown-aware AI answer
   const renderHighlightedAnswer = () => {
-    if (!evidence.answerSnippet) return null
-    const lines = evidence.answerSnippet.split('\n')
+    if (!display.answerSnippet) return null
+    const lines = display.answerSnippet.split('\n')
     const elements: ReactNode[] = []
     let paraLines: string[] = []
     let key = 0
@@ -3349,7 +3446,6 @@ function EvidenceDetailModal({
       if (headingMatch) {
         flushPara()
         const level = headingMatch[1].length
-        // Strip leading emoji sequences from heading text
         const text = headingMatch[2].replace(/^[\p{Emoji}\p{Emoji_Component}\s#]+/u, '').trim() || headingMatch[2]
         const cls = level === 1
           ? 'text-[13px] font-semibold text-zinc-100 mt-4 mb-1'
@@ -3373,10 +3469,6 @@ function EvidenceDetailModal({
     return elements
   }
 
-  // Run history for timeline
-  const history = evidence.runHistory
-  const hasHistory = history.length > 1
-
   return (
     <Dialog.Root open onOpenChange={(open) => { if (!open) onClose() }}>
       <Dialog.Portal>
@@ -3388,7 +3480,7 @@ function EvidenceDetailModal({
           {/* ── Header ── */}
           <div className="evidence-modal-header">
             <div className="min-w-0 flex-1">
-              <p className="eyebrow eyebrow-soft">{project.project.name} · {evidence.provider || 'All providers'}</p>
+              <p className="eyebrow eyebrow-soft">{project.project.name} · {display.provider || 'All providers'}</p>
               <Dialog.Title className="text-lg font-semibold text-zinc-50 truncate">{evidence.keyword}</Dialog.Title>
             </div>
             <Dialog.Close className="inline-flex size-8 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-800 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 shrink-0">
@@ -3414,7 +3506,7 @@ function EvidenceDetailModal({
                       key={i}
                       type="button"
                       className={`evidence-run-dot ${isSelected ? 'evidence-run-dot--selected' : ''}`}
-                      onClick={() => setSelectedRunIdx(i === history.length - 1 ? -1 : i)}
+                      onClick={() => selectHistoricalRun(i === history.length - 1 ? -1 : i)}
                       title={`${run.citationState} — ${date.toLocaleString()}`}
                     >
                       <span className={`size-2 rounded-full ${dotColor}`} />
@@ -3426,7 +3518,7 @@ function EvidenceDetailModal({
               {selectedRunIdx >= 0 && selectedRunIdx < history.length && (
                 <p className="text-[11px] text-zinc-500 mt-1">
                   Viewing run from {new Date(history[selectedRunIdx].createdAt).toLocaleString()} — <span className="capitalize">{history[selectedRunIdx].citationState}</span>
-                  <button type="button" className="text-zinc-400 hover:text-zinc-200 ml-2" onClick={() => setSelectedRunIdx(-1)}>← Back to latest</button>
+                  <button type="button" className="text-zinc-400 hover:text-zinc-200 ml-2" onClick={() => selectHistoricalRun(-1)}>← Back to latest</button>
                 </p>
               )}
             </div>
@@ -3434,145 +3526,147 @@ function EvidenceDetailModal({
 
           {/* ── Two-column body ── */}
           <div className="evidence-modal-body">
-            {/* Left: status + AI answer */}
-            <div className="evidence-modal-main">
-              {/* Position hero */}
-              <div className={`evidence-position-hero evidence-position-hero--${stateKey}`}>
-                <p className={`evidence-position-label evidence-position-label--${stateKey}`}>
-                  {heroCopy.label}
-                </p>
-                <p className={`evidence-position-title evidence-position-title--${stateKey}`}>
-                  {heroCopy.title}
-                </p>
-                <p className="evidence-position-meta">{heroCopy.meta}</p>
+            {loadingHistory && (
+              <div className="md:col-span-2 flex items-center justify-center py-12 text-zinc-500 text-sm">
+                Loading historical run data…
               </div>
+            )}
 
-              {/* AI answer */}
-              {evidence.answerSnippet && (
-                <div>
-                  <p className="drawer-section-label">What the AI said</p>
-                  <div className={`answer-snippet-block ${showFullAnswer ? 'evidence-answer-expanded' : 'evidence-answer-collapsed'}`}>
-                    {renderHighlightedAnswer()}
+            {!loadingHistory && (
+              <>
+                {/* Left: status + AI answer */}
+                <div className="evidence-modal-main">
+                  {/* Position hero */}
+                  <div className={`evidence-position-hero evidence-position-hero--${stateKey}`}>
+                    <p className={`evidence-position-label evidence-position-label--${stateKey}`}>
+                      {heroCopy.label}
+                    </p>
+                    <p className={`evidence-position-title evidence-position-title--${stateKey}`}>
+                      {heroCopy.title}
+                    </p>
+                    <p className="evidence-position-meta">{heroCopy.meta}</p>
                   </div>
-                  {evidence.answerSnippet.length > 280 && (
-                    <button
-                      type="button"
-                      className="mt-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-                      onClick={() => setShowFullAnswer(!showFullAnswer)}
-                    >
-                      {showFullAnswer ? '↑ Collapse' : '↓ Show full answer'}
-                    </button>
+
+                  {/* AI answer */}
+                  {display.answerSnippet && (
+                    <div>
+                      <p className="drawer-section-label">What the AI said</p>
+                      <div className={`answer-snippet-block ${showFullAnswer ? 'evidence-answer-expanded' : 'evidence-answer-collapsed'}`}>
+                        {renderHighlightedAnswer()}
+                      </div>
+                      {display.answerSnippet.length > 280 && (
+                        <button
+                          type="button"
+                          className="mt-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                          onClick={() => setShowFullAnswer(!showFullAnswer)}
+                        >
+                          {showFullAnswer ? '↑ Collapse' : '↓ Show full answer'}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {!display.answerSnippet && !loadingHistory && (
+                    <div className="rounded-lg border border-zinc-800/40 bg-zinc-900/20 px-4 py-8 text-center text-zinc-600 text-sm">
+                      No answer text recorded for this run
+                    </div>
+                  )}
+
+                  {/* Action items — only for latest run */}
+                  {!isViewingHistory && evidence.relatedTechnicalSignals.length > 0 && (
+                    <div>
+                      <p className="drawer-section-label">
+                        {isCited ? 'Why you\'re cited' : 'What to fix'}
+                      </p>
+                      <div className="action-items-list">
+                        {evidence.relatedTechnicalSignals.map((signal, i) => (
+                          <div key={i} className="action-item">
+                            <svg
+                              className={`action-item-icon ${isCited ? 'text-emerald-400' : 'text-amber-400'}`}
+                              viewBox="0 0 16 16" fill="none" aria-hidden="true"
+                            >
+                              {isCited
+                                ? <path d="M3 8l3.5 3.5L13 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                                : (
+                                  <>
+                                    <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" />
+                                    <path d="M8 5v3.5M8 10.5v0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                                  </>
+                                )
+                              }
+                            </svg>
+                            <span className="action-item-text">{signal}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Summary */}
+                  {display.summary && (
+                    <p className="text-xs text-zinc-600 border-t border-zinc-800/40 pt-3 mt-1">{display.summary}</p>
                   )}
                 </div>
-              )}
 
-              {/* Action items */}
-              {evidence.relatedTechnicalSignals.length > 0 && (
-                <div>
-                  <p className="drawer-section-label">
-                    {isCited ? 'Why you\'re cited' : 'What to fix'}
-                  </p>
-                  <div className="action-items-list">
-                    {evidence.relatedTechnicalSignals.map((signal, i) => (
-                      <div key={i} className="action-item">
-                        <svg
-                          className={`action-item-icon ${isCited ? 'text-emerald-400' : 'text-amber-400'}`}
-                          viewBox="0 0 16 16" fill="none" aria-hidden="true"
-                        >
-                          {isCited
-                            ? <path d="M3 8l3.5 3.5L13 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                            : (
-                              <>
-                                <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" />
-                                <path d="M8 5v3.5M8 10.5v0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                              </>
-                            )
-                          }
-                        </svg>
-                        <span className="action-item-text">{signal}</span>
+                {/* Right: leaderboard + sources */}
+                <div className="evidence-modal-sidebar">
+                  {/* Citation leaderboard */}
+                  {display.citedDomains.length > 0 && (
+                    <div>
+                      <p className="drawer-section-label">Who was cited — in order</p>
+                      <div className="citation-leaderboard">
+                        {display.citedDomains.map((domain, i) => {
+                          const norm = domain.toLowerCase().replace(/^www\./, '')
+                          const isYou = norm === myDomain
+                          const isCompetitor = !isYou && display.competitorDomains.some(
+                            c => c.toLowerCase().replace(/^www\./, '') === norm,
+                          )
+                          const variant = isYou ? 'you' : isCompetitor ? 'competitor' : 'other'
+                          return (
+                            <div key={domain} className={`citation-leaderboard-item citation-leaderboard-item--${variant}`}>
+                              <span className="citation-leaderboard-rank">#{i + 1}</span>
+                              <span className="citation-leaderboard-domain">{domain}</span>
+                              {isYou && <span className="citation-leaderboard-tag">You</span>}
+                              {isCompetitor && <span className="citation-leaderboard-tag">Competitor</span>}
+                            </div>
+                          )
+                        })}
+                        {!isCited && (
+                          <div className="citation-leaderboard-item citation-leaderboard-item--not-cited border-dashed">
+                            <span className="citation-leaderboard-rank text-zinc-600">—</span>
+                            <span className="citation-leaderboard-domain text-zinc-600">{project.project.canonicalDomain}</span>
+                            <span className="citation-leaderboard-tag text-zinc-600">Not cited</span>
+                          </div>
+                        )}
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+                    </div>
+                  )}
 
-              {/* Summary */}
-              <p className="text-xs text-zinc-600 border-t border-zinc-800/40 pt-3 mt-1">{evidence.summary}</p>
-            </div>
+                  {/* Grounding sources */}
+                  {display.groundingSources.length > 0 && (
+                    <div>
+                      <p className="drawer-section-label">Grounding sources ({display.groundingSources.length})</p>
+                      <ul className="grid gap-0.5">
+                        {display.groundingSources.map((src, i) => (
+                          <li key={i} className="truncate text-sm">
+                            <a href={src.uri} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
+                              {src.title || src.uri}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
 
-            {/* Right: leaderboard + sources */}
-            <div className="evidence-modal-sidebar">
-              {/* Citation leaderboard */}
-              {evidence.citedDomains.length > 0 && (
-                <div>
-                  <p className="drawer-section-label">Who was cited — in order</p>
-                  <div className="citation-leaderboard">
-                    {evidence.citedDomains.map((domain, i) => {
-                      const norm = domain.toLowerCase().replace(/^www\./, '')
-                      const isYou = norm === myDomain
-                      const isCompetitor = !isYou && evidence.competitorDomains.some(
-                        c => c.toLowerCase().replace(/^www\./, '') === norm,
-                      )
-                      const variant = isYou ? 'you' : isCompetitor ? 'competitor' : 'other'
-                      return (
-                        <div key={domain} className={`citation-leaderboard-item citation-leaderboard-item--${variant}`}>
-                          <span className="citation-leaderboard-rank">#{i + 1}</span>
-                          <span className="citation-leaderboard-domain">{domain}</span>
-                          {isYou && <span className="citation-leaderboard-tag">You</span>}
-                          {isCompetitor && <span className="citation-leaderboard-tag">Competitor</span>}
-                        </div>
-                      )
-                    })}
-                    {!isCited && (
-                      <div className="citation-leaderboard-item citation-leaderboard-item--not-cited border-dashed">
-                        <span className="citation-leaderboard-rank text-zinc-600">—</span>
-                        <span className="citation-leaderboard-domain text-zinc-600">{project.project.canonicalDomain}</span>
-                        <span className="citation-leaderboard-tag text-zinc-600">Not cited</span>
-                      </div>
-                    )}
-                  </div>
+                  {/* No data state */}
+                  {display.citedDomains.length === 0 && display.groundingSources.length === 0 && (
+                    <div className="flex items-center justify-center h-24 text-zinc-600 text-sm">
+                      No citation data {isViewingHistory ? 'for this run' : 'yet'}
+                    </div>
+                  )}
                 </div>
-              )}
-
-              {/* Grounding sources */}
-              {evidence.groundingSources.length > 0 && (
-                <div>
-                  <p className="drawer-section-label">Grounding sources ({evidence.groundingSources.length})</p>
-                  <ul className="grid gap-0.5">
-                    {evidence.groundingSources.map((src, i) => (
-                      <li key={i} className="truncate text-sm">
-                        <a href={src.uri} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
-                          {src.title || src.uri}
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Evidence URLs */}
-              {evidence.evidenceUrls.length > 0 && (
-                <div>
-                  <p className="drawer-section-label">Evidence URLs</p>
-                  <ul className="grid gap-1">
-                    {evidence.evidenceUrls.map((url) => (
-                      <li key={url} className="truncate text-sm">
-                        <a href={url} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
-                          {url}
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* No data for pending */}
-              {evidence.citedDomains.length === 0 && evidence.groundingSources.length === 0 && evidence.evidenceUrls.length === 0 && (
-                <div className="flex items-center justify-center h-24 text-zinc-600 text-sm">
-                  No citation data yet
-                </div>
-              )}
-            </div>
+              </>
+            )}
           </div>
         </Dialog.Content>
       </Dialog.Portal>
