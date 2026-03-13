@@ -237,7 +237,7 @@ function buildEvidenceFromTimeline(
           : computeStreak(entry.runs)
 
         const runHistory = (hasProviderHistory ? providerHistory : entry.runs)
-          .map(r => ({ citationState: r.citationState, createdAt: r.createdAt }))
+          .map(r => ({ runId: r.runId, citationState: r.citationState, createdAt: r.createdAt }))
 
         results.push({
           id: `evidence_${projectName}_${idx++}`,
@@ -314,78 +314,188 @@ function evidenceSummary(state: CitationState, keyword: string): string {
   }
 }
 
-function aggregatePhraseState(items: CitationInsightVm[]): CitationInsightVm['citationState'] {
-  const states = items.map(i => i.citationState)
-  if (states.includes('cited')) return 'cited'
-  if (states.includes('emerging')) return 'emerging'
-  if (states.includes('lost')) return 'lost'
-  if (states.includes('pending')) return 'pending'
-  return 'not-cited'
+export interface InsightInput {
+  evidence: CitationInsightVm[]
+  timeline: ApiTimelineEntry[]
+  latestSnapshots: ApiRunDetail['snapshots']
+  previousSnapshots: ApiRunDetail['snapshots']
+  trackedCompetitors: string[]
 }
 
-function buildInsights(evidence: CitationInsightVm[]): ProjectInsightVm[] {
-  const insights: ProjectInsightVm[] = []
-
-  // Group by key phrase and compute aggregate citation state per phrase
-  const phraseMap = new Map<string, CitationInsightVm[]>()
-  for (const e of evidence) {
-    const existing = phraseMap.get(e.keyword) ?? []
-    phraseMap.set(e.keyword, [...existing, e])
-  }
-
-  function toAffected(items: CitationInsightVm[], state: CitationState): AffectedPhrase {
-    return {
-      keyword: items[0]!.keyword,
-      evidenceId: items.find(i => i.citationState === state)?.id ?? items[0]!.id,
-      providers: items.map(i => i.provider).filter(Boolean),
-      citationState: state,
+function buildCompetitorKeywordMap(
+  snapshots: ApiRunDetail['snapshots'],
+  trackedCompetitors: string[],
+): Map<string, Set<string>> {
+  const competitorSet = new Set(trackedCompetitors)
+  const result = new Map<string, Set<string>>()
+  for (const snap of snapshots) {
+    if (!snap.keyword) continue
+    for (const domain of snap.competitorOverlap) {
+      if (!competitorSet.has(domain)) continue
+      const existing = result.get(domain) ?? new Set()
+      existing.add(snap.keyword)
+      result.set(domain, existing)
     }
   }
+  return result
+}
 
+const GAP_THRESHOLD = 3
+
+export function buildInsights(input: InsightInput): ProjectInsightVm[] {
+  const { evidence, timeline, latestSnapshots, previousSnapshots, trackedCompetitors } = input
+  const insights: ProjectInsightVm[] = []
+
+  // --- 1. Lost citation (one entry per keyword, representative provider) ---
   const lostPhrases: AffectedPhrase[] = []
-  const emergingPhrases: AffectedPhrase[] = []
-  const notCitedPhrases: AffectedPhrase[] = []
-
-  for (const [, items] of phraseMap) {
-    const agg = aggregatePhraseState(items)
-    if (agg === 'lost') lostPhrases.push(toAffected(items, 'lost'))
-    else if (agg === 'emerging') emergingPhrases.push(toAffected(items, 'emerging'))
-    else if (agg === 'not-cited') notCitedPhrases.push(toAffected(items, 'not-cited'))
+  const seenLostKeywords = new Set<string>()
+  for (const e of evidence) {
+    if (e.citationState !== 'lost') continue
+    if (seenLostKeywords.has(e.keyword)) continue
+    seenLostKeywords.add(e.keyword)
+    lostPhrases.push({ keyword: e.keyword, evidenceId: e.id, provider: e.provider, citationState: 'lost' as CitationState })
   }
 
   if (lostPhrases.length > 0) {
     insights.push({
       id: 'insight_lost',
       tone: 'negative',
-      title: `Lost citation on ${lostPhrases.length} key phrase${lostPhrases.length > 1 ? 's' : ''}`,
+      title: `Lost citation on ${lostPhrases.length} keyword${lostPhrases.length > 1 ? 's' : ''}`,
       detail: 'Citations dropped since the last run.',
       actionLabel: 'Lost',
       affectedPhrases: lostPhrases,
     })
   }
 
-  if (emergingPhrases.length > 0) {
+  // --- 2. Competitor gained ---
+  const latestCompMap = buildCompetitorKeywordMap(latestSnapshots, trackedCompetitors)
+  const prevCompMap = buildCompetitorKeywordMap(previousSnapshots, trackedCompetitors)
+
+  for (const comp of trackedCompetitors) {
+    const latestKws = latestCompMap.get(comp) ?? new Set()
+    const prevKws = prevCompMap.get(comp) ?? new Set()
+    const gained = [...latestKws].filter(kw => !prevKws.has(kw))
+    if (gained.length > 0) {
+      insights.push({
+        id: `insight_comp_gained_${comp}`,
+        tone: 'negative',
+        title: `${comp} appeared on ${gained.length} keyword${gained.length > 1 ? 's' : ''}`,
+        detail: 'A tracked competitor gained new citations.',
+        actionLabel: 'Competitor',
+        affectedPhrases: gained.map(kw => {
+          const ev = evidence.find(e => e.keyword === kw)
+          return { keyword: kw, evidenceId: ev?.id ?? '', citationState: 'cited' as CitationState }
+        }),
+      })
+    }
+  }
+
+  // --- 3 & 4. New provider pickup vs First citation ---
+  // Use the deduped keyword timeline to decide: if the keyword itself just became cited
+  // (transition = 'emerging' or 'new' + cited), it's a "first citation" (keyword-level).
+  // If the keyword was already cited but a specific provider just started citing it
+  // (provider transition = 'emerging'), it's a "new provider pickup".
+  const keywordTransition = new Map<string, { transition: string; citationState: string }>()
+  for (const entry of timeline) {
+    const latest = entry.runs.at(-1)
+    if (latest) keywordTransition.set(entry.keyword, { transition: latest.transition, citationState: latest.citationState })
+  }
+
+  const firstCitationPhrases: AffectedPhrase[] = []
+  const newProviderPhrases: AffectedPhrase[] = []
+  const firstCitationKeywords = new Set<string>()
+
+  // First citation: keyword-level
+  for (const [keyword, { transition, citationState }] of keywordTransition) {
+    const isFirst = transition === 'emerging' || (transition === 'new' && citationState === 'cited')
+    if (!isFirst) continue
+    firstCitationKeywords.add(keyword)
+    const ev = evidence.find(e => e.keyword === keyword && (e.citationState === 'emerging' || e.citationState === 'cited'))
+    firstCitationPhrases.push({
+      keyword, evidenceId: ev?.id ?? '', provider: ev?.provider, citationState: 'emerging',
+    })
+  }
+
+  // New provider pickup: per-provider emerging where keyword was already cited
+  for (const e of evidence) {
+    if (e.citationState !== 'emerging') continue
+    if (firstCitationKeywords.has(e.keyword)) continue
+    newProviderPhrases.push({
+      keyword: e.keyword, evidenceId: e.id, provider: e.provider, citationState: 'emerging',
+    })
+  }
+
+  if (newProviderPhrases.length > 0) {
+    const kwCount = new Set(newProviderPhrases.map(p => p.keyword)).size
     insights.push({
-      id: 'insight_emerging',
+      id: 'insight_provider_pickup',
       tone: 'positive',
-      title: `New citation on ${emergingPhrases.length} key phrase${emergingPhrases.length > 1 ? 's' : ''}`,
-      detail: 'Your domain started appearing in AI answers.',
-      actionLabel: 'Emerging',
-      affectedPhrases: emergingPhrases,
+      title: `Picked up by new provider on ${kwCount} keyword${kwCount > 1 ? 's' : ''}`,
+      detail: 'Your domain started appearing on additional providers.',
+      actionLabel: 'Pickup',
+      affectedPhrases: newProviderPhrases,
     })
   }
 
-  if (notCitedPhrases.length > 0) {
+  if (firstCitationPhrases.length > 0) {
     insights.push({
-      id: 'insight_gap',
-      tone: 'caution',
-      title: `${notCitedPhrases.length} key phrase${notCitedPhrases.length > 1 ? 's' : ''} not cited by any provider`,
-      detail: 'No citations detected across all providers.',
-      actionLabel: 'Gap',
-      affectedPhrases: notCitedPhrases,
+      id: 'insight_first_citation',
+      tone: 'positive',
+      title: `First citation on ${firstCitationKeywords.size} keyword${firstCitationKeywords.size > 1 ? 's' : ''}`,
+      detail: 'Your domain appeared in AI answers for the first time.',
+      actionLabel: 'New',
+      affectedPhrases: firstCitationPhrases,
     })
   }
 
+  // --- 5. Persistent gap (keyword-level, deduped timeline) ---
+  const evidenceKeywords = new Set(evidence.map(e => e.keyword))
+  const gapPhrases: AffectedPhrase[] = []
+
+  for (const entry of timeline) {
+    if (!evidenceKeywords.has(entry.keyword)) continue
+    if (entry.runs.length < GAP_THRESHOLD) continue
+    const latestRun = entry.runs.at(-1)
+    if (latestRun?.citationState !== 'not-cited') continue
+    const streak = computeStreak(entry.runs)
+    if (streak >= GAP_THRESHOLD) {
+      const ev = evidence.find(e => e.keyword === entry.keyword)
+      gapPhrases.push({ keyword: entry.keyword, evidenceId: ev?.id ?? '', citationState: 'not-cited' })
+    }
+  }
+
+  if (gapPhrases.length > 0) {
+    insights.push({
+      id: 'insight_persistent_gap',
+      tone: 'caution',
+      title: `${gapPhrases.length} keyword${gapPhrases.length > 1 ? 's' : ''} uncited for ${GAP_THRESHOLD}+ runs`,
+      detail: 'These keywords have not been cited by any provider across multiple consecutive runs.',
+      actionLabel: 'Gap',
+      affectedPhrases: gapPhrases,
+    })
+  }
+
+  // --- 6. Competitor lost ---
+  for (const comp of trackedCompetitors) {
+    const latestKws = latestCompMap.get(comp) ?? new Set()
+    const prevKws = prevCompMap.get(comp) ?? new Set()
+    const lost = [...prevKws].filter(kw => !latestKws.has(kw))
+    if (lost.length > 0) {
+      insights.push({
+        id: `insight_comp_lost_${comp}`,
+        tone: 'neutral',
+        title: `${comp} dropped from ${lost.length} keyword${lost.length > 1 ? 's' : ''}`,
+        detail: 'A tracked competitor lost citations.',
+        actionLabel: 'Competitor',
+        affectedPhrases: lost.map(kw => {
+          const ev = evidence.find(e => e.keyword === kw)
+          return { keyword: kw, evidenceId: ev?.id ?? '', citationState: 'not-cited' as CitationState }
+        }),
+      })
+    }
+  }
+
+  // Stable fallback
   if (insights.length === 0) {
     insights.push({
       id: 'insight_stable',
@@ -443,6 +553,7 @@ export interface ProjectData {
   competitors: ApiCompetitor[]
   timeline: ApiTimelineEntry[]
   latestRunDetail: ApiRunDetail | null
+  previousRunDetail: ApiRunDetail | null
 }
 
 export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCenterVm {
@@ -451,7 +562,13 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
   const snapshots = data.latestRunDetail?.snapshots ?? []
   const kwVis = computeKeywordVisibility(snapshots)
   const pressure = computeCompetitorPressure(snapshots, data.competitors.map(c => c.domain))
-  const insights = buildInsights(evidence)
+  const insights = buildInsights({
+    evidence,
+    timeline: data.timeline,
+    latestSnapshots: data.latestRunDetail?.snapshots ?? [],
+    previousSnapshots: data.previousRunDetail?.snapshots ?? [],
+    trackedCompetitors: data.competitors.map(c => c.domain),
+  })
 
   const sortedRuns = [...data.runs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   const runItems = sortedRuns.map(r => toRunListItem(r, data.project.displayName || data.project.name))

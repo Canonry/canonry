@@ -1,7 +1,8 @@
-import { Fragment, useCallback, useEffect, useId, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { parseAllDocuments } from 'yaml'
 import type { MouseEvent, ReactNode } from 'react'
 
+import * as Dialog from '@radix-ui/react-dialog'
 import {
   Activity,
   ChevronRight,
@@ -50,6 +51,7 @@ import {
   generateKeywords as apiGenerateKeywords,
   type ApiSchedule,
   type ApiNotification,
+  type GroundingSource,
 } from './api.js'
 import { buildDashboard } from './build-dashboard.js'
 import type { ProjectData } from './build-dashboard.js'
@@ -660,7 +662,7 @@ function InsightSignals({
                       <CitationBadge state={ap.citationState} />
                       <span className="text-sm text-zinc-200 truncate">{ap.keyword}</span>
                       <div className="hidden sm:flex gap-1">
-                        {ap.providers.map(p => <ProviderBadge key={p} provider={p} />)}
+                        {ap.provider && <ProviderBadge provider={ap.provider} />}
                       </div>
                     </div>
                     <button
@@ -708,20 +710,19 @@ function CitationTimeline({ history, maxDots = 12 }: { history: RunHistoryPoint[
 
 /** Aggregate citation timeline from multiple provider histories into a single merged timeline. */
 function mergeProviderHistories(items: CitationInsightVm[]): RunHistoryPoint[] {
-  // Collect all states per run timestamp across providers.
-  // Each run shares the same createdAt, so using the full timestamp correctly
-  // groups providers within a run while keeping distinct runs separate.
-  const byRun = new Map<string, string[]>()
+  // Collect all states + runId per run timestamp across providers.
+  const byRun = new Map<string, { states: string[]; runId: string }>()
   for (const item of items) {
     for (const h of item.runHistory) {
       const existing = byRun.get(h.createdAt)
-      if (existing) existing.push(h.citationState)
-      else byRun.set(h.createdAt, [h.citationState])
+      if (existing) existing.states.push(h.citationState)
+      else byRun.set(h.createdAt, { states: [h.citationState], runId: h.runId })
     }
   }
   // For each run, pick the best state: cited > emerging > not-cited
   const sorted = [...byRun.entries()].sort(([a], [b]) => a.localeCompare(b))
-  return sorted.map(([createdAt, states]) => ({
+  return sorted.map(([createdAt, { states, runId }]) => ({
+    runId,
     createdAt,
     citationState: states.includes('cited') ? 'cited'
       : states.includes('emerging') ? 'emerging'
@@ -865,6 +866,143 @@ function EvidenceTable({
           })}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+/* ────────────────────────────────────────────
+   Evidence phrase cards (redesigned evidence tracking)
+   ──────────────────────────────────────────── */
+
+function EvidencePhraseCard({
+  phrase,
+  items,
+  onOpenEvidence,
+}: {
+  phrase: string
+  items: CitationInsightVm[]
+  onOpenEvidence: (evidenceId: string) => void
+}) {
+  const states = items.map(i => i.citationState)
+  const aggState: CitationState =
+    states.includes('cited') ? 'cited' :
+    states.includes('emerging') ? 'emerging' :
+    states.includes('lost') ? 'lost' :
+    states.every(s => s === 'pending') ? 'pending' : 'not-cited'
+
+  const mergedHistory = mergeProviderHistories(items)
+  const citedCount = items.filter(i => i.citationState === 'cited' || i.citationState === 'emerging').length
+
+  const trendDir: 'up' | 'down' | 'flat' = (() => {
+    if (mergedHistory.length < 4) return 'flat'
+    const recent = mergedHistory.slice(-3)
+    const older = mergedHistory.slice(-6, -3)
+    if (older.length === 0) return 'flat'
+    const recentCited = recent.filter(p => p.citationState === 'cited' || p.citationState === 'emerging').length
+    const olderCited = older.filter(p => p.citationState === 'cited' || p.citationState === 'emerging').length
+    if (recentCited > olderCited) return 'up'
+    if (recentCited < olderCited) return 'down'
+    return 'flat'
+  })()
+
+  const changeLabel = (() => {
+    if (mergedHistory.length === 0) return 'Awaiting first run'
+    if (mergedHistory.length === 1) return 'First observation'
+    const latest = mergedHistory[mergedHistory.length - 1]!.citationState
+    const prev = mergedHistory[mergedHistory.length - 2]!.citationState
+    const latestCited = latest === 'cited' || latest === 'emerging'
+    const prevCited = prev === 'cited' || prev === 'emerging'
+    if (!prevCited && latestCited) return 'Newly cited'
+    if (prevCited && !latestCited) return 'Lost citation'
+    let streak = 0
+    for (let i = mergedHistory.length - 1; i >= 0; i--) {
+      const s = mergedHistory[i]!.citationState
+      const isCited = s === 'cited' || s === 'emerging'
+      if (isCited === latestCited) streak++
+      else break
+    }
+    if (latestCited) return streak <= 1 ? 'Cited in latest run' : `Cited ${streak} runs in a row`
+    return streak <= 1 ? 'Missed in latest run' : `Missed for ${streak} runs`
+  })()
+
+  const trendIcon = trendDir === 'up' ? '↑' : trendDir === 'down' ? '↓' : '→'
+
+  return (
+    <div className={`evidence-phrase-card evidence-phrase-card--${aggState}`}>
+      <div className="evidence-card-header">
+        <div className="min-w-0 flex-1">
+          <p className="evidence-card-keyword">{phrase}</p>
+          <div className="evidence-card-status-row">
+            <CitationBadge state={aggState} />
+            <span className={`evidence-card-trend evidence-card-trend--${trendDir}`}>
+              <span aria-hidden="true">{trendIcon}</span>
+              <span>{changeLabel}</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="evidence-card-timeline-row">
+        <CitationTimeline history={mergedHistory} maxDots={14} />
+        <span className="evidence-card-ratio">
+          {citedCount}/{items.length} provider{items.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+
+      <div className="evidence-card-providers">
+        {items.filter(item => item.citationState !== 'pending').map(item => (
+          <button
+            key={item.id}
+            type="button"
+            className={`evidence-provider-btn evidence-provider-btn--${item.citationState}`}
+            onClick={() => onOpenEvidence(item.id)}
+            title={`View ${item.provider} evidence for "${phrase}"`}
+          >
+            <span className="capitalize">{item.provider}</span>
+            <span aria-hidden="true" className="font-bold">
+              {item.citationState === 'cited' || item.citationState === 'emerging' ? '✓' : item.citationState === 'lost' ? '✗' : '–'}
+            </span>
+            <span className="opacity-50 text-[10px]">View →</span>
+          </button>
+        ))}
+        {items.every(item => item.citationState === 'pending') && (
+          <span className="text-xs text-zinc-500 italic py-1">Awaiting first run</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function EvidencePhraseCards({
+  evidence,
+  onOpenEvidence,
+}: {
+  evidence: CitationInsightVm[]
+  onOpenEvidence: (evidenceId: string) => void
+}) {
+  const groups = useMemo(() => {
+    const map = new Map<string, CitationInsightVm[]>()
+    for (const item of evidence) {
+      const existing = map.get(item.keyword) ?? []
+      map.set(item.keyword, [...existing, item])
+    }
+    return [...map.entries()].map(([phrase, items]) => ({ phrase, items }))
+  }, [evidence])
+
+  if (groups.length === 0) {
+    return <p className="supporting-copy">No key phrases tracked yet.</p>
+  }
+
+  return (
+    <div className="evidence-card-grid">
+      {groups.map(({ phrase, items }) => (
+        <EvidencePhraseCard
+          key={phrase}
+          phrase={phrase}
+          items={items}
+          onOpenEvidence={onOpenEvidence}
+        />
+      ))}
     </div>
   )
 }
@@ -1679,7 +1817,7 @@ function ProjectPage({
             </div>
           </div>
         )}
-        <EvidenceTable evidence={model.visibilityEvidence} onOpenEvidence={onOpenEvidence} />
+        <EvidencePhraseCards evidence={model.visibilityEvidence} onOpenEvidence={onOpenEvidence} />
       </section>
 
       {/* Technical findings table — hidden when no site-audit data */}
@@ -3056,35 +3194,66 @@ function Drawer({
   )
 }
 
-/** Render text with **bold** markdown and paragraph breaks */
-function renderMarkdownText(text: string): ReactNode[] {
-  const paragraphs = text.split(/\n{2,}/)
-  const nodes: ReactNode[] = []
+/**
+ * Split text on highlight terms and return ReactNodes with <mark> spans for matches.
+ * Also handles **bold** markdown. Bold is parsed first so highlight splits don't
+ * break ** markers apart.
+ */
+function highlightTermsInText(text: string, terms: string[]): ReactNode[] {
+  const nonEmpty = terms.filter(t => t.trim().length > 1)
 
-  for (let pi = 0; pi < paragraphs.length; pi++) {
-    const para = paragraphs[pi].trim()
-    if (!para) continue
+  // Step 1: parse **bold** spans into typed segments
+  type Segment = { type: 'text' | 'bold'; value: string }
+  const segments: Segment[] = text.split(/(\*\*[^*]+\*\*)/).filter(Boolean).map(seg => {
+    if (seg.startsWith('**') && seg.endsWith('**')) {
+      return { type: 'bold' as const, value: seg.slice(2, -2) }
+    }
+    return { type: 'text' as const, value: seg }
+  })
 
-    // Split on **bold** markers
-    const parts = para.split(/(\*\*[^*]+\*\*)/)
-    const children: ReactNode[] = parts.map((part, i) => {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        return <strong key={i} className="text-zinc-200 font-semibold">{part.slice(2, -2)}</strong>
-      }
-      return part
-    })
-
-    nodes.push(
-      <p key={pi} className={pi > 0 ? 'mt-2' : ''}>
-        {children}
-      </p>,
-    )
+  if (nonEmpty.length === 0) {
+    return segments.map((seg, i) =>
+      seg.type === 'bold'
+        ? <strong key={`b-${i}`} className="text-zinc-200 font-semibold">{seg.value}</strong>
+        : seg.value,
+    ).filter(Boolean) as ReactNode[]
   }
 
-  return nodes
+  // Step 2: within each segment, split on highlight terms
+  const escaped = nonEmpty.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const regex = new RegExp(`(${escaped.join('|')})`, 'gi')
+
+  return segments.flatMap((seg, si) => {
+    const parts = seg.value.split(regex)
+    return parts.map((part, pi) => {
+      if (!part) return null
+      const isMatch = pi % 2 === 1
+      if (isMatch) {
+        return seg.type === 'bold'
+          ? <mark key={`hl-${si}-${pi}`} className="answer-highlight"><strong className="text-zinc-200 font-semibold">{part}</strong></mark>
+          : <mark key={`hl-${si}-${pi}`} className="answer-highlight">{part}</mark>
+      }
+      return seg.type === 'bold'
+        ? <strong key={`b-${si}-${pi}`} className="text-zinc-200 font-semibold">{part}</strong>
+        : part
+    })
+  }).filter(Boolean) as ReactNode[]
 }
 
-function EvidenceDrawer({
+/** Shape of snapshot data used for display — works for both current evidence and fetched historical snapshots. */
+interface EvidenceDisplayData {
+  citationState: string
+  provider: string
+  answerSnippet: string
+  citedDomains: string[]
+  competitorDomains: string[]
+  groundingSources: GroundingSource[]
+  evidenceUrls: string[]
+  changeLabel: string
+  summary: string
+}
+
+function EvidenceDetailModal({
   evidence,
   project,
   onClose,
@@ -3094,125 +3263,447 @@ function EvidenceDrawer({
   onClose: () => void
 }) {
   const [showFullAnswer, setShowFullAnswer] = useState(false)
+  const [selectedRunIdx, setSelectedRunIdx] = useState(-1) // -1 = latest (current)
+  const [historicalSnapshot, setHistoricalSnapshot] = useState<EvidenceDisplayData | null>(null)
+  const [loadingHistory, setLoadingHistory] = useState(false)
+  // Cache fetched run details so re-clicking a dot is instant
+  const [runCache, setRunCache] = useState<Record<string, EvidenceDisplayData>>({})
 
-  const latestRun = project.recentRuns[0]
+  const myDomain = project.project.canonicalDomain.toLowerCase().replace(/^www\./, '')
+  const history = evidence.runHistory
+  const hasHistory = history.length > 1
+
+  // Current display data — from historical snapshot when viewing past runs, otherwise from latest evidence
+  const isViewingHistory = selectedRunIdx >= 0 && historicalSnapshot !== null
+  const display: EvidenceDisplayData = isViewingHistory ? historicalSnapshot : {
+    citationState: evidence.citationState,
+    provider: evidence.provider,
+    answerSnippet: evidence.answerSnippet,
+    citedDomains: evidence.citedDomains,
+    competitorDomains: evidence.competitorDomains,
+    groundingSources: evidence.groundingSources,
+    evidenceUrls: evidence.evidenceUrls,
+    changeLabel: evidence.changeLabel,
+    summary: evidence.summary,
+  }
+
+  const isCited = display.citationState === 'cited' || display.citationState === 'emerging'
+  const positionIndex = display.citedDomains.findIndex(
+    d => d.toLowerCase().replace(/^www\./, '') === myDomain,
+  )
+  const position = positionIndex + 1
+  const totalCited = display.citedDomains.length
+
+  // Terms to highlight in the AI answer
+  const projectDisplayName = project.project.displayName || project.project.name
+  const highlightTerms = [
+    project.project.canonicalDomain.replace(/^www\./, ''),
+    projectDisplayName,
+    projectDisplayName.split(' ').slice(0, 2).join(' '),
+  ].filter(t => t.trim().length > 2)
+
+  // State key for CSS variants
+  const stateKey: 'cited' | 'not-cited' | 'lost' | 'pending' =
+    isCited ? 'cited' :
+    display.citationState === 'lost' ? 'lost' :
+    display.citationState === 'pending' ? 'pending' : 'not-cited'
+
+  // Guard against out-of-order async completions when clicking dots quickly
+  const activeRequestRef = useRef(0)
+
+  // Fetch historical run data when a dot is clicked
+  const selectHistoricalRun = useCallback(async (idx: number) => {
+    const requestId = ++activeRequestRef.current
+
+    if (idx === -1 || idx === history.length - 1) {
+      setSelectedRunIdx(-1)
+      setHistoricalSnapshot(null)
+      setShowFullAnswer(false)
+      return
+    }
+    setSelectedRunIdx(idx)
+    setShowFullAnswer(false)
+
+    const run = history[idx]
+    // Check cache first
+    const cacheKey = `${run.runId}::${evidence.keyword}::${evidence.provider}`
+    if (runCache[cacheKey]) {
+      setHistoricalSnapshot(runCache[cacheKey])
+      return
+    }
+
+    setLoadingHistory(true)
+    try {
+      const runDetail = await fetchRunDetail(run.runId)
+      // Discard result if a newer request was fired while we were fetching
+      if (requestId !== activeRequestRef.current) return
+
+      // Find the snapshot matching this keyword + provider
+      const snap = runDetail.snapshots.find(
+        s => s.keyword === evidence.keyword && s.provider === evidence.provider,
+      ) ?? runDetail.snapshots.find(
+        s => s.keyword === evidence.keyword,
+      )
+
+      const data: EvidenceDisplayData = snap ? {
+        citationState: snap.citationState,
+        provider: snap.provider,
+        answerSnippet: snap.answerText ?? '',
+        citedDomains: snap.citedDomains,
+        competitorDomains: snap.competitorOverlap,
+        groundingSources: snap.groundingSources,
+        evidenceUrls: [],
+        changeLabel: run.citationState,
+        summary: '',
+      } : {
+        citationState: run.citationState,
+        provider: evidence.provider,
+        answerSnippet: '',
+        citedDomains: [],
+        competitorDomains: [],
+        groundingSources: [],
+        evidenceUrls: [],
+        changeLabel: run.citationState,
+        summary: 'Snapshot data not available for this run.',
+      }
+
+      setRunCache(prev => ({ ...prev, [cacheKey]: data }))
+      setHistoricalSnapshot(data)
+    } catch {
+      if (requestId !== activeRequestRef.current) return
+      setHistoricalSnapshot({
+        citationState: run.citationState,
+        provider: evidence.provider,
+        answerSnippet: '',
+        citedDomains: [],
+        competitorDomains: [],
+        groundingSources: [],
+        evidenceUrls: [],
+        changeLabel: run.citationState,
+        summary: 'Failed to load historical run data.',
+      })
+    } finally {
+      if (requestId === activeRequestRef.current) {
+        setLoadingHistory(false)
+      }
+    }
+  }, [history, evidence.keyword, evidence.provider, runCache])
+
+  // Hero copy
+  const heroCopy = (() => {
+    if (isCited && position > 0) {
+      return {
+        label: 'Citation confirmed',
+        title: `Cited #${position} of ${totalCited} domain${totalCited !== 1 ? 's' : ''}`,
+        meta: `${display.provider} · ${display.changeLabel.toLowerCase()}`,
+      }
+    }
+    if (isCited) {
+      return {
+        label: 'Citation confirmed',
+        title: 'Cited in this answer',
+        meta: `${display.provider} · ${display.changeLabel.toLowerCase()}`,
+      }
+    }
+    if (display.citationState === 'lost') {
+      return {
+        label: 'Citation lost',
+        title: totalCited > 0
+          ? `${totalCited} domain${totalCited !== 1 ? 's' : ''} cited instead`
+          : 'No longer appearing in this answer',
+        meta: `${display.provider} · ${display.changeLabel.toLowerCase()}`,
+      }
+    }
+    if (display.citationState === 'pending') {
+      return {
+        label: 'Pending',
+        title: 'Awaiting first visibility run',
+        meta: 'No provider data yet',
+      }
+    }
+    return {
+      label: 'Not in this answer',
+      title: totalCited > 0
+        ? `${totalCited} domain${totalCited !== 1 ? 's' : ''} cited instead`
+        : 'No domains cited for this query',
+      meta: `${display.provider} · ${display.changeLabel.toLowerCase()}`,
+    }
+  })()
+
+  // Render markdown-aware AI answer
+  const renderHighlightedAnswer = () => {
+    if (!display.answerSnippet) return null
+    const lines = display.answerSnippet.split('\n')
+    const elements: ReactNode[] = []
+    let paraLines: string[] = []
+    let key = 0
+
+    const flushPara = () => {
+      if (paraLines.length === 0) return
+      const text = paraLines.join(' ').trim()
+      if (text) {
+        elements.push(
+          <p key={key++} className={elements.length > 0 ? 'mt-2.5' : ''}>
+            {highlightTermsInText(text, highlightTerms)}
+          </p>,
+        )
+      }
+      paraLines = []
+    }
+
+    for (const raw of lines) {
+      const line = raw.trim()
+      if (/^[-–—]{3,}$/.test(line)) {
+        flushPara()
+        elements.push(<hr key={key++} className="border-zinc-800/60 my-3" />)
+        continue
+      }
+      const headingMatch = line.match(/^(#{1,3})\s+(.+)$/)
+      if (headingMatch) {
+        flushPara()
+        const level = headingMatch[1].length
+        const text = headingMatch[2].replace(/^[\p{Emoji}\p{Emoji_Component}\s#]+/u, '').trim() || headingMatch[2]
+        const cls = level === 1
+          ? 'text-[13px] font-semibold text-zinc-100 mt-4 mb-1'
+          : level === 2
+            ? 'text-xs font-semibold text-zinc-200 mt-3 mb-0.5'
+            : 'text-xs font-medium text-zinc-300 mt-2'
+        elements.push(
+          <p key={key++} className={cls}>
+            {highlightTermsInText(text, highlightTerms)}
+          </p>,
+        )
+        continue
+      }
+      if (line === '') {
+        flushPara()
+        continue
+      }
+      paraLines.push(line)
+    }
+    flushPara()
+    return elements
+  }
 
   return (
-    <Drawer
-      open
-      title={evidence.keyword}
-      subtitle={`${project.project.name} · visibility evidence`}
-      onClose={onClose}
-    >
-      {/* Status + run context row */}
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <CitationBadge state={evidence.citationState} />
-          <ProviderBadge provider={evidence.provider} />
-          <span className="text-sm text-zinc-400">{evidence.changeLabel}</span>
-        </div>
-        {latestRun && (
-          <span className="shrink-0 text-[10px] uppercase tracking-wide text-zinc-600">
-            from latest run · {new Date(latestRun.createdAt).toLocaleDateString()}
-          </span>
-        )}
-      </div>
-
-      {/* AI answer */}
-      {evidence.answerSnippet && (
-        <div>
-          <p className="detail-label">AI answer</p>
-          <div className={`mt-1 rounded border border-zinc-800/60 bg-zinc-900/50 p-3 text-sm leading-relaxed text-zinc-400 ${showFullAnswer ? 'max-h-80 overflow-y-auto' : 'line-clamp-6'}`}>
-            {renderMarkdownText(evidence.answerSnippet)}
+    <Dialog.Root open onOpenChange={(open) => { if (!open) onClose() }}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm" />
+        <Dialog.Content
+          className="evidence-modal"
+          aria-describedby={undefined}
+        >
+          {/* ── Header ── */}
+          <div className="evidence-modal-header">
+            <div className="min-w-0 flex-1">
+              <p className="eyebrow eyebrow-soft">{project.project.name} · {display.provider || 'All providers'}</p>
+              <Dialog.Title className="text-lg font-semibold text-zinc-50 truncate">{evidence.keyword}</Dialog.Title>
+            </div>
+            <Dialog.Close className="inline-flex size-8 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-800 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 shrink-0">
+              <X className="size-4" />
+              <span className="sr-only">Close</span>
+            </Dialog.Close>
           </div>
-          {evidence.answerSnippet.length > 300 && (
-            <button
-              type="button"
-              className="mt-1.5 text-xs text-zinc-500 hover:text-zinc-300"
-              onClick={() => setShowFullAnswer(!showFullAnswer)}
-            >
-              {showFullAnswer ? 'Collapse' : 'Show full answer'}
-            </button>
-          )}
-        </div>
-      )}
 
-      {/* Cited domains + competitor overlap side by side */}
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <p className="detail-label">Cited domains</p>
-          {evidence.citedDomains.length > 0 ? (
-            <div className="mt-1 flex flex-wrap gap-1.5">
-              {evidence.citedDomains.map(domain => (
-                <span key={domain} className="inline-flex items-center rounded-full border border-zinc-700 bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300">
-                  {domain}
-                </span>
-              ))}
+          {/* ── Run history timeline ── */}
+          {hasHistory && (
+            <div className="evidence-modal-timeline">
+              <p className="drawer-section-label mb-1.5">Run history</p>
+              <div className="flex items-center gap-1 overflow-x-auto pb-1">
+                {history.map((run, i) => {
+                  const isSelected = (selectedRunIdx === -1 && i === history.length - 1) || selectedRunIdx === i
+                  const dotColor = run.citationState === 'cited' || run.citationState === 'emerging'
+                    ? 'bg-emerald-400' : run.citationState === 'lost'
+                      ? 'bg-rose-400' : 'bg-zinc-600'
+                  const date = new Date(run.createdAt)
+                  const label = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      className={`evidence-run-dot ${isSelected ? 'evidence-run-dot--selected' : ''}`}
+                      onClick={() => selectHistoricalRun(i === history.length - 1 ? -1 : i)}
+                      aria-label={`Run ${label}: ${run.citationState}`}
+                      aria-pressed={isSelected}
+                    >
+                      <span className={`size-2 rounded-full ${dotColor}`} aria-hidden="true" />
+                      <span className="text-[10px] text-zinc-500">{label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+              {selectedRunIdx >= 0 && selectedRunIdx < history.length && (
+                <p className="text-[11px] text-zinc-500 mt-1">
+                  Viewing run from {new Date(history[selectedRunIdx].createdAt).toLocaleString()} — <span className="capitalize">{history[selectedRunIdx].citationState}</span>
+                  <button type="button" className="text-zinc-400 hover:text-zinc-200 ml-2" onClick={() => selectHistoricalRun(-1)}>← Back to latest</button>
+                </p>
+              )}
             </div>
-          ) : (
-            <p className="mt-1 text-sm text-zinc-500">No domains cited</p>
           )}
-        </div>
 
-        <div>
-          <p className="detail-label">Competitor overlap</p>
-          {evidence.competitorDomains.length > 0 ? (
-            <div className="mt-1 flex flex-wrap gap-1.5">
-              {evidence.competitorDomains.map(domain => (
-                <span key={domain} className="inline-flex items-center rounded-full border border-rose-800/50 bg-rose-950/40 px-2 py-0.5 text-xs text-rose-300">
-                  {domain}
-                </span>
-              ))}
-            </div>
-          ) : (
-            <p className="mt-1 text-sm text-zinc-500">No competitors cited</p>
-          )}
-        </div>
-      </div>
+          {/* ── Two-column body ── */}
+          <div className="evidence-modal-body">
+            {loadingHistory && (
+              <div className="md:col-span-2 flex items-center justify-center py-12 text-zinc-500 text-sm">
+                Loading historical run data…
+              </div>
+            )}
 
-      {/* Grounding sources */}
-      {evidence.groundingSources.length > 0 && (
-        <div>
-          <p className="detail-label">Grounding sources ({evidence.groundingSources.length})</p>
-          <ul className="mt-1 space-y-0.5">
-            {evidence.groundingSources.map((src, i) => (
-              <li key={i} className="truncate text-sm">
-                <a href={src.uri} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-zinc-200">
-                  {src.title || src.uri}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+            {!loadingHistory && (
+              <>
+                {/* Left: status + AI answer */}
+                <div className="evidence-modal-main">
+                  {/* Position hero */}
+                  <div className={`evidence-position-hero evidence-position-hero--${stateKey}`}>
+                    <p className={`evidence-position-label evidence-position-label--${stateKey}`}>
+                      {heroCopy.label}
+                    </p>
+                    <p className={`evidence-position-title evidence-position-title--${stateKey}`}>
+                      {heroCopy.title}
+                    </p>
+                    <p className="evidence-position-meta">{heroCopy.meta}</p>
+                  </div>
 
-      {/* Evidence URLs — only if populated */}
-      {evidence.evidenceUrls.length > 0 && (
-        <div>
-          <p className="detail-label">Evidence URLs</p>
-          <ul className="detail-list">
-            {evidence.evidenceUrls.map((url) => (
-              <li key={url}>{url}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+                  {/* AI answer */}
+                  {display.answerSnippet && (
+                    <div>
+                      <p className="drawer-section-label">What the AI said</p>
+                      <div className={`answer-snippet-block ${showFullAnswer ? 'evidence-answer-expanded' : 'evidence-answer-collapsed'}`}>
+                        {renderHighlightedAnswer()}
+                      </div>
+                      {display.answerSnippet.length > 280 && (
+                        <button
+                          type="button"
+                          className="mt-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                          onClick={() => setShowFullAnswer(!showFullAnswer)}
+                        >
+                          {showFullAnswer ? '↑ Collapse' : '↓ Show full answer'}
+                        </button>
+                      )}
+                    </div>
+                  )}
 
-      {/* Technical signals — only if populated */}
-      {evidence.relatedTechnicalSignals.length > 0 && (
-        <div>
-          <p className="detail-label">Related technical signals</p>
-          <ul className="detail-list">
-            {evidence.relatedTechnicalSignals.map((signal) => (
-              <li key={signal}>{signal}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+                  {!display.answerSnippet && !loadingHistory && (
+                    <div className="rounded-lg border border-zinc-800/40 bg-zinc-900/20 px-4 py-8 text-center text-zinc-600 text-sm">
+                      No answer text recorded for this run
+                    </div>
+                  )}
 
-      {/* Summary */}
-      <p className="text-xs text-zinc-600">{evidence.summary}</p>
-    </Drawer>
+                  {/* Action items — only for latest run */}
+                  {!isViewingHistory && evidence.relatedTechnicalSignals.length > 0 && (
+                    <div>
+                      <p className="drawer-section-label">
+                        {isCited ? 'Why you\'re cited' : 'What to fix'}
+                      </p>
+                      <div className="action-items-list">
+                        {evidence.relatedTechnicalSignals.map((signal, i) => (
+                          <div key={i} className="action-item">
+                            <svg
+                              className={`action-item-icon ${isCited ? 'text-emerald-400' : 'text-amber-400'}`}
+                              viewBox="0 0 16 16" fill="none" aria-hidden="true"
+                            >
+                              {isCited
+                                ? <path d="M3 8l3.5 3.5L13 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                                : (
+                                  <>
+                                    <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" />
+                                    <path d="M8 5v3.5M8 10.5v0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                                  </>
+                                )
+                              }
+                            </svg>
+                            <span className="action-item-text">{signal}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Summary */}
+                  {display.summary && (
+                    <p className="text-xs text-zinc-600 border-t border-zinc-800/40 pt-3 mt-1">{display.summary}</p>
+                  )}
+                </div>
+
+                {/* Right: leaderboard + sources */}
+                <div className="evidence-modal-sidebar">
+                  {/* Citation leaderboard */}
+                  {display.citedDomains.length > 0 && (
+                    <div>
+                      <p className="drawer-section-label">Who was cited — in order</p>
+                      <div className="citation-leaderboard">
+                        {display.citedDomains.map((domain, i) => {
+                          const norm = domain.toLowerCase().replace(/^www\./, '')
+                          const isYou = norm === myDomain
+                          const isCompetitor = !isYou && display.competitorDomains.some(
+                            c => c.toLowerCase().replace(/^www\./, '') === norm,
+                          )
+                          const variant = isYou ? 'you' : isCompetitor ? 'competitor' : 'other'
+                          return (
+                            <div key={domain} className={`citation-leaderboard-item citation-leaderboard-item--${variant}`}>
+                              <span className="citation-leaderboard-rank">#{i + 1}</span>
+                              <span className="citation-leaderboard-domain">{domain}</span>
+                              {isYou && <span className="citation-leaderboard-tag">You</span>}
+                              {isCompetitor && <span className="citation-leaderboard-tag">Competitor</span>}
+                            </div>
+                          )
+                        })}
+                        {!isCited && (
+                          <div className="citation-leaderboard-item citation-leaderboard-item--not-cited border-dashed">
+                            <span className="citation-leaderboard-rank text-zinc-600">—</span>
+                            <span className="citation-leaderboard-domain text-zinc-600">{project.project.canonicalDomain}</span>
+                            <span className="citation-leaderboard-tag text-zinc-600">Not cited</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Grounding sources */}
+                  {display.groundingSources.length > 0 && (
+                    <div>
+                      <p className="drawer-section-label">Grounding sources ({display.groundingSources.length})</p>
+                      <ul className="grid gap-0.5">
+                        {display.groundingSources.map((src, i) => (
+                          <li key={i} className="truncate text-sm">
+                            <a href={src.uri} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
+                              {src.title || src.uri}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Evidence URLs */}
+                  {display.evidenceUrls.length > 0 && (
+                    <div>
+                      <p className="drawer-section-label">Evidence URLs</p>
+                      <ul className="grid gap-1">
+                        {display.evidenceUrls.map((url) => (
+                          <li key={url} className="truncate text-sm">
+                            <a href={url} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
+                              {url}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* No data state */}
+                  {display.citedDomains.length === 0 && display.groundingSources.length === 0 && display.evidenceUrls.length === 0 && (
+                    <div className="flex items-center justify-center h-24 text-zinc-600 text-sm">
+                      No citation data {isViewingHistory ? 'for this run' : 'yet'}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   )
 }
 
@@ -3235,11 +3726,12 @@ async function loadDashboardData(): Promise<DashboardVm | null> {
           .filter(r => r.status === 'completed' || r.status === 'partial')
           .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 
-        const [kws, comps, timeline, latestRunDetail] = await Promise.all([
+        const [kws, comps, timeline, latestRunDetail, previousRunDetail] = await Promise.all([
           fetchKeywords(project.name).catch(() => []),
           fetchCompetitors(project.name).catch(() => []),
           fetchTimeline(project.name).catch(() => []),
           completedRuns[0] ? fetchRunDetail(completedRuns[0].id).catch(() => null) : Promise.resolve(null),
+          completedRuns[1] ? fetchRunDetail(completedRuns[1].id).catch(() => null) : Promise.resolve(null),
         ])
 
         return {
@@ -3249,6 +3741,7 @@ async function loadDashboardData(): Promise<DashboardVm | null> {
           competitors: comps,
           timeline,
           latestRunDetail: latestRunDetail,
+          previousRunDetail: previousRunDetail,
         }
       }),
     )
@@ -3843,7 +4336,7 @@ export function App({
       ) : null}
 
       {selectedEvidenceContext ? (
-        <EvidenceDrawer evidence={selectedEvidenceContext.evidence} project={selectedEvidenceContext.project} onClose={() => setDrawerState(null)} />
+        <EvidenceDetailModal evidence={selectedEvidenceContext.evidence} project={selectedEvidenceContext.project} onClose={() => setDrawerState(null)} />
       ) : null}
     </div>
   )

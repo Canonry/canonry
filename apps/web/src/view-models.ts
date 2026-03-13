@@ -82,6 +82,7 @@ export interface PortfolioOverviewVm {
 }
 
 export interface RunHistoryPoint {
+  runId: string
   citationState: string
   createdAt: string
 }
@@ -105,7 +106,7 @@ export interface CitationInsightVm {
 export interface AffectedPhrase {
   keyword: string
   evidenceId: string
-  providers: string[]
+  provider?: string
   citationState: CitationState
 }
 
