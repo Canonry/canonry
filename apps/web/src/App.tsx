@@ -71,7 +71,6 @@ import type {
   SettingsVm,
   SetupWizardVm,
   SystemHealthCardVm,
-  TechnicalFindingVm,
 } from './view-models.js'
 
 const docs = [
@@ -250,17 +249,6 @@ function toneFromCitationState(state: CitationInsightVm['citationState']): Metri
     case 'lost':
       return 'negative'
     case 'pending':
-      return 'neutral'
-  }
-}
-
-function toneFromFindingSeverity(severity: TechnicalFindingVm['severity']): MetricTone {
-  switch (severity) {
-    case 'high':
-      return 'negative'
-    case 'medium':
-      return 'caution'
-    case 'low':
       return 'neutral'
   }
 }
@@ -1007,35 +995,6 @@ function EvidencePhraseCards({
   )
 }
 
-function FindingsTable({ findings }: { findings: TechnicalFindingVm[] }) {
-  return (
-    <div className="findings-table-wrap">
-      <table className="findings-table">
-        <thead>
-          <tr>
-            <th>Severity</th>
-            <th>Finding</th>
-            <th>Detail</th>
-            <th>Impact</th>
-          </tr>
-        </thead>
-        <tbody>
-          {findings.map((finding) => (
-            <tr key={finding.id}>
-              <td>
-                <ToneBadge tone={toneFromFindingSeverity(finding.severity)}>{toTitleCase(finding.severity)}</ToneBadge>
-              </td>
-              <td className="font-medium text-zinc-100">{finding.title}</td>
-              <td className="text-zinc-400">{finding.detail}</td>
-              <td className="text-zinc-500">{finding.impact}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
 function competitorTone(label: string): MetricTone {
   if (label === 'High') return 'negative'
   if (label === 'Moderate') return 'caution'
@@ -1117,13 +1076,6 @@ function OverviewProjectCard({
           <p className="metric-inline-label">Answer Visibility</p>
           <p className="metric-inline-value">{project.visibilityScore}</p>
           <p className="metric-inline-delta">{project.visibilityDelta}</p>
-        </div>
-      </div>
-      <div className="project-row-stat">
-        <div className="metric-inline-block">
-          <p className="metric-inline-label">Technical Readiness</p>
-          <p className="metric-inline-value text-zinc-500">{project.readinessScore ?? '—'}</p>
-          <p className="metric-inline-delta">{project.readinessDelta ?? 'Coming soon'}</p>
         </div>
       </div>
       <div className="project-row-stat">
@@ -1709,27 +1661,6 @@ function ProjectPage({
           tooltip={model.visibilitySummary.tooltip}
           isNumeric={isNumericScore(model.visibilitySummary.value)}
         />
-        {model.readinessSummary ? (
-          <ScoreGauge
-            value={model.readinessSummary.value}
-            label={model.readinessSummary.label}
-            delta={model.readinessSummary.delta}
-            tone={model.readinessSummary.tone}
-            description={model.readinessSummary.description}
-            tooltip={model.readinessSummary.tooltip}
-            isNumeric={isNumericScore(model.readinessSummary.value)}
-          />
-        ) : (
-          <ScoreGauge
-            value="N/A"
-            label="Technical Readiness"
-            delta="Coming soon"
-            tone="neutral"
-            description="Enable with site audits in a future release."
-            tooltip="Site audit scores for technical SEO signals. Coming in a future release."
-            isNumeric={false}
-          />
-        )}
         <ScoreGauge
           value={model.competitorPressure.value}
           label={model.competitorPressure.label}
@@ -1819,33 +1750,6 @@ function ProjectPage({
         )}
         <EvidencePhraseCards evidence={model.visibilityEvidence} onOpenEvidence={onOpenEvidence} />
       </section>
-
-      {/* Technical findings table — hidden when no site-audit data */}
-      {model.technicalFindings && model.technicalFindings.length > 0 ? (
-        <section className="page-section-divider">
-          <div className="section-head section-head-inline">
-            <div>
-              <p className="eyebrow eyebrow-soft">Technical findings</p>
-              <h2>Readiness signals</h2>
-            </div>
-            <p className="supporting-copy">{model.technicalFindings.length} findings</p>
-          </div>
-          <FindingsTable findings={model.technicalFindings} />
-        </section>
-      ) : (
-        <section className="page-section-divider">
-          <Card className="surface-card compact-card">
-            <div className="section-head">
-              <div>
-                <p className="eyebrow eyebrow-soft">Technical findings</p>
-                <h2 className="text-zinc-500">Unavailable</h2>
-              </div>
-              <ToneBadge tone="neutral">Coming soon</ToneBadge>
-            </div>
-            <p className="supporting-copy">Technical readiness findings require site audits, which are planned for a future release.</p>
-          </Card>
-        </section>
-      )}
 
       {/* Competitor table */}
       <section className="page-section-divider">

@@ -33,13 +33,12 @@ test('overview route renders the premium portfolio dashboard', () => {
   assert.match(html, /Harbor Legal Group/)
 })
 
-test('project route renders a single command center with visibility and readiness sections', () => {
+test('project route renders a single command center with visibility sections', () => {
   const html = renderApp('/projects/project_citypoint')
 
   assert.match(html, /Citypoint Dental NYC/)
   assert.match(html, /Citation signals/)
   assert.match(html, /Key phrase citation tracking/)
-  assert.match(html, /Readiness signals/)
   assert.match(html, /Recent execution history/)
 })
 
@@ -110,11 +109,10 @@ test('runs route renders failed runs clearly', () => {
   assert.match(html, /Worker could not reach the provider after repeated retry exhaustion/)
 })
 
-test('project route renders visibility drop insights linked to technical findings', () => {
+test('project route renders visibility drop insights', () => {
   const html = renderApp('/projects/project_citypoint', { visibilityDropProjectId: 'project_citypoint' })
 
   assert.match(html, /Sharp citation drop detected/)
-  assert.match(html, /Primary supporting page fell out of crawl emphasis/)
 })
 
 test('fetchServiceStatus reports ok details from a health payload', async (t) => {

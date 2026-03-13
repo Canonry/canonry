@@ -607,7 +607,6 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
       trend: [],
     },
     providerScores,
-    readinessSummary: undefined,
     competitorPressure: {
       label: 'Competitor Pressure',
       value: pressure.label,
@@ -622,7 +621,6 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
     runStatus: runStatusSummary(sortedRuns),
     insights,
     visibilityEvidence: evidence,
-    technicalFindings: undefined,
     competitors: data.competitors.map((c, i) => {
       const citedKeywordSet = new Set<string>()
       for (const snap of snapshots) {
@@ -682,8 +680,6 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
     project: dto,
     visibilityScore: kwVis.score,
     visibilityDelta: snapshots.length > 0 ? `${kwVis.citedCount} of ${kwVis.totalCount} key phrases` : 'No data',
-    readinessScore: undefined,
-    readinessDelta: undefined,
     lastRun: runItem,
     insight: snapshots.length > 0
       ? `${kwVis.citedCount} of ${kwVis.totalCount} key phrases visible across ${new Set(snapshots.map(s => s.provider)).size} provider${new Set(snapshots.map(s => s.provider)).size > 1 ? 's' : ''}.`

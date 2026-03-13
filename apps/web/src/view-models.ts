@@ -59,8 +59,6 @@ export interface PortfolioProjectVm {
   project: ProjectDto
   visibilityScore: number
   visibilityDelta: string
-  readinessScore?: number
-  readinessDelta?: string
   lastRun: RunListItemVm
   insight: string
   trend: number[]
@@ -120,14 +118,6 @@ export interface ProjectInsightVm {
   affectedPhrases: AffectedPhrase[]
 }
 
-export interface TechnicalFindingVm {
-  id: string
-  severity: 'high' | 'medium' | 'low'
-  title: string
-  detail: string
-  impact: string
-}
-
 export interface CompetitorVm {
   id: string
   domain: string
@@ -145,12 +135,10 @@ export interface ProjectCommandCenterVm {
   contextLabel: string
   visibilitySummary: ScoreSummaryVm
   providerScores: { provider: string; score: number; cited: number; total: number }[]
-  readinessSummary?: ScoreSummaryVm
   competitorPressure: ScoreSummaryVm
   runStatus: ScoreSummaryVm
   insights: ProjectInsightVm[]
   visibilityEvidence: CitationInsightVm[]
-  technicalFindings?: TechnicalFindingVm[]
   competitors: CompetitorVm[]
   recentRuns: RunListItemVm[]
 }

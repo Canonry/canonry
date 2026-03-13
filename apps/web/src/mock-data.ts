@@ -72,7 +72,7 @@ function createRun(input: {
   id: string
   projectId: string
   projectName: string
-  kind: 'answer-visibility' | 'site-audit'
+  kind: 'answer-visibility'
   kindLabel: string
   status: 'queued' | 'running' | 'completed' | 'partial' | 'failed'
   createdAt: string
@@ -115,21 +115,6 @@ const runCitypointVisibility = createRun({
   triggerLabel: 'Scheduled',
 })
 
-const runCitypointAudit = createRun({
-  id: 'run_citypoint_audit_20260308',
-  projectId: 'project_citypoint',
-  projectName: 'Citypoint Dental NYC',
-  kind: 'site-audit',
-  kindLabel: 'Technical readiness audit',
-  status: 'partial',
-  createdAt: '2026-03-08T09:20:00.000Z',
-  startedAt: 'Mar 8, 9:20 AM',
-  duration: '14m 41s',
-  statusDetail: 'Sitemap fallback engaged; 461 of 500 pages analyzed and llms.txt was not found.',
-  summary: 'Fallback crawl completed with missing llms.txt',
-  triggerLabel: 'Manual',
-})
-
 const runCitypointQueued = createRun({
   id: 'run_citypoint_queued_20260309',
   projectId: 'project_citypoint',
@@ -160,21 +145,6 @@ const runHarborVisibility = createRun({
   triggerLabel: 'Scheduled',
 })
 
-const runHarborAudit = createRun({
-  id: 'run_harbor_audit_20260307',
-  projectId: 'project_harbor',
-  projectName: 'Harbor Legal Group',
-  kind: 'site-audit',
-  kindLabel: 'Technical readiness audit',
-  status: 'completed',
-  createdAt: '2026-03-07T15:40:00.000Z',
-  startedAt: 'Mar 7, 3:40 PM',
-  duration: '11m 33s',
-  statusDetail: 'Sitemap-first crawl completed with 99% success and no blocking readiness regressions.',
-  summary: 'Audit clean after service-page consolidation',
-  triggerLabel: 'Scheduled',
-})
-
 const runNorthstarVisibility = createRun({
   id: 'run_northstar_visibility_20260308',
   projectId: 'project_northstar',
@@ -193,9 +163,7 @@ const runNorthstarVisibility = createRun({
 const allRuns: RunListItemVm[] = [
   runCitypointQueued,
   runCitypointVisibility,
-  runCitypointAudit,
   runHarborVisibility,
-  runHarborAudit,
   runNorthstarVisibility,
 ]
 
@@ -388,14 +356,6 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       { provider: 'openai', score: 67, cited: 6, total: 9 },
       { provider: 'claude', score: 44, cited: 4, total: 9 },
     ],
-    readinessSummary: {
-      label: 'Technical Readiness',
-      value: '78 / 100',
-      delta: '+4 after schema fixes',
-      tone: 'positive',
-      description: 'Schema fixes landed, but sitemap fallback and missing llms.txt still reduce confidence.',
-      trend: [71, 72, 73, 76, 78],
-    },
     competitorPressure: {
       label: 'Competitor Pressure',
       value: 'High',
@@ -409,7 +369,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       value: 'Partial',
       delta: '1 queued follow-up',
       tone: 'caution',
-      description: 'Latest technical audit completed in fallback mode; next visibility sweep is queued.',
+      description: 'Latest visibility sweep completed; next sweep is queued.',
       trend: [76, 74, 72, 68, 67],
     },
     insights: [
@@ -454,29 +414,6 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       },
     ],
     visibilityEvidence: citypointEvidence,
-    technicalFindings: [
-      {
-        id: 'finding_citypoint_schema',
-        severity: 'high',
-        title: 'Emergency service page lost FAQ schema',
-        detail: 'The page most closely tied to high-intent emergency prompts is no longer exposing FAQPage markup.',
-        impact: 'Removes a strong grounding signal from the page that previously earned citations.',
-      },
-      {
-        id: 'finding_citypoint_llms',
-        severity: 'medium',
-        title: 'llms.txt is still missing',
-        detail: 'The latest site audit could not fetch llms.txt or llms-full.txt.',
-        impact: 'Lowers crawler clarity and weakens the story when visibility drops.',
-      },
-      {
-        id: 'finding_citypoint_internal_links',
-        severity: 'low',
-        title: 'Insurance and pediatric content sit too deep',
-        detail: 'Supporting pages needed for family and insurance prompts sit three clicks from the homepage.',
-        impact: 'Limits discovery for lower-volume but high-trust prompt variants.',
-      },
-    ],
     competitors: [
       {
         id: 'competitor_citypoint_downtown',
@@ -509,7 +446,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         notes: 'Case-study content is aging, opening room for Citypoint.',
       },
     ],
-    recentRuns: [runCitypointQueued, runCitypointVisibility, runCitypointAudit],
+    recentRuns: [runCitypointQueued, runCitypointVisibility],
   },
   {
     project: projects[1],
@@ -527,14 +464,6 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       { provider: 'gemini', score: 75, cited: 3, total: 4 },
       { provider: 'openai', score: 50, cited: 2, total: 4 },
     ],
-    readinessSummary: {
-      label: 'Technical Readiness',
-      value: '83 / 100',
-      delta: '+1 this week',
-      tone: 'positive',
-      description: 'Service pages consolidated cleanly and structured data remains intact.',
-      trend: [80, 80, 81, 82, 83],
-    },
     competitorPressure: {
       label: 'Competitor Pressure',
       value: 'Moderate',
@@ -548,7 +477,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       value: 'Healthy',
       delta: 'No failures in 14 days',
       tone: 'positive',
-      description: 'Latest visibility and audit runs completed without fallback.',
+      description: 'Latest visibility runs completed without issues.',
       trend: [88, 89, 90, 90, 91],
     },
     insights: [
@@ -592,15 +521,6 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         runHistory: mockHistory(['cited', 'cited', 'cited', 'cited', 'cited']),
       },
     ],
-    technicalFindings: [
-      {
-        id: 'finding_harbor_faq',
-        severity: 'low',
-        title: 'FAQ answers could be more concise',
-        detail: 'Some FAQ answers are still long enough to reduce snippet clarity.',
-        impact: 'This is optimization, not a blocker.',
-      },
-    ],
     competitors: [
       {
         id: 'competitor_harbor_shoreline',
@@ -613,7 +533,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         notes: 'Strong case-result pages keep it in rotation.',
       },
     ],
-    recentRuns: [runHarborVisibility, runHarborAudit],
+    recentRuns: [runHarborVisibility],
   },
   {
     project: projects[2],
@@ -630,14 +550,6 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     providerScores: [
       { provider: 'openai', score: 58, cited: 4, total: 7 },
     ],
-    readinessSummary: {
-      label: 'Technical Readiness',
-      value: '76 / 100',
-      delta: '+3 after template cleanup',
-      tone: 'positive',
-      description: 'Location templates are cleaner, but location-specific proof still needs depth.',
-      trend: [69, 71, 72, 74, 76],
-    },
     competitorPressure: {
       label: 'Competitor Pressure',
       value: 'Moderate',
@@ -689,15 +601,6 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         runHistory: mockHistory(['not-cited', 'not-cited', 'not-cited', 'cited']),
       },
     ],
-    technicalFindings: [
-      {
-        id: 'finding_northstar_proof',
-        severity: 'medium',
-        title: 'Location pages lack physician-specific proof',
-        detail: 'Treatment pages are structurally sound but still too generic for highly specific prompts.',
-        impact: 'Limits how often the provider is cited for local treatment questions.',
-      },
-    ],
     competitors: [
       {
         id: 'competitor_northstar_regional',
@@ -721,9 +624,7 @@ const baseDashboard: DashboardVm = {
         project: projects[0],
         visibilityScore: 61,
         visibilityDelta: '-8 this week',
-        readinessScore: 78,
-        readinessDelta: '+4 after schema fixes',
-        lastRun: runCitypointAudit,
+        lastRun: runCitypointVisibility,
         insight: 'Lost emergency-intent citations after competitors refreshed availability pages.',
         trend: [73, 71, 69, 66, 61],
         competitorPressureLabel: 'High',
@@ -732,8 +633,6 @@ const baseDashboard: DashboardVm = {
         project: projects[1],
         visibilityScore: 74,
         visibilityDelta: '+2 this week',
-        readinessScore: 83,
-        readinessDelta: '+1 this week',
         lastRun: runHarborVisibility,
         insight: 'Practice-area consolidation is stabilizing branded and informational prompts.',
         trend: [68, 70, 71, 73, 74],
@@ -743,8 +642,6 @@ const baseDashboard: DashboardVm = {
         project: projects[2],
         visibilityScore: 58,
         visibilityDelta: 'Run in progress',
-        readinessScore: 76,
-        readinessDelta: '+3 after template cleanup',
         lastRun: runNorthstarVisibility,
         insight: 'Location pages are improving, but local treatment proof still trails competitors.',
         trend: [52, 54, 55, 57, 58],
@@ -777,7 +674,7 @@ const baseDashboard: DashboardVm = {
         href: '/runs',
       },
     ],
-    recentRuns: [runCitypointQueued, runNorthstarVisibility, runCitypointAudit],
+    recentRuns: [runCitypointQueued, runNorthstarVisibility, runCitypointVisibility],
     systemHealth: [
       {
         id: 'api',
@@ -819,7 +716,7 @@ const baseDashboard: DashboardVm = {
         label: 'Worker heartbeats received',
         detail: 'Background execution loop is alive.',
         state: 'ready',
-        guidance: 'Required before any answer-visibility or site-audit run can start.',
+        guidance: 'Required before any answer-visibility run can start.',
       },
       {
         id: 'provider',
@@ -998,13 +895,6 @@ export function createDashboardFixture(options: DashboardFixtureOptions = {}): D
             provider: e.provider || undefined,
             citationState: e.citationState,
           })),
-      })
-      project.technicalFindings?.unshift({
-        id: `${project.project.id}_drop_finding`,
-        severity: 'high',
-        title: 'Primary supporting page fell out of crawl emphasis',
-        detail: 'The drop correlates with weaker internal links and missing FAQ markup on the main conversion page.',
-        impact: 'Both citation share and trust signals deteriorated at the same time.',
       })
     }
 
