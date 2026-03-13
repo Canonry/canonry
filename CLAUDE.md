@@ -32,6 +32,9 @@ docs/                     Architecture, roadmap, testing, ADRs
 ## Commands
 
 ```bash
+# One-command dev setup: install deps, build all packages, install canonry globally
+./canonry-install.sh
+
 pnpm install
 pnpm run typecheck
 pnpm run test

@@ -22,7 +22,8 @@ const USAGE = `
 canonry — AEO monitoring CLI
 
 Usage:
-  canonry init [--force]               Initialize config and database
+  canonry init [--force]               Initialize config and database (interactive)
+  canonry init --gemini-key <key>     Initialize non-interactively (also reads env vars)
   canonry bootstrap [--force]          Bootstrap config/database from env vars
   canonry serve                       Start the local server
   canonry project create <name>       Create a project
@@ -61,6 +62,12 @@ Usage:
   canonry --version                   Show version
 
 Options:
+  --gemini-key <key>   Gemini API key (or GEMINI_API_KEY env var)
+  --openai-key <key>   OpenAI API key (or OPENAI_API_KEY env var)
+  --claude-key <key>   Anthropic API key (or ANTHROPIC_API_KEY env var)
+  --local-url <url>    Local LLM base URL (or LOCAL_BASE_URL env var)
+  --local-model <name> Local LLM model name (default: llama3)
+  --local-key <key>    Local LLM API key (or LOCAL_API_KEY env var)
   --port <port>        Server port (default: 4100)
   --host <host>        Server bind address (default: 127.0.0.1)
   --domain <domain>    Canonical domain for project create
@@ -117,8 +124,28 @@ async function main() {
   try {
     switch (command) {
       case 'init': {
-        const initForce = args.includes('--force') || args.includes('-f')
-        await initCommand({ force: initForce })
+        const { values: initValues } = parseArgs({
+          args: args.slice(1),
+          options: {
+            force: { type: 'boolean', short: 'f', default: false },
+            'gemini-key': { type: 'string' },
+            'openai-key': { type: 'string' },
+            'claude-key': { type: 'string' },
+            'local-url': { type: 'string' },
+            'local-model': { type: 'string' },
+            'local-key': { type: 'string' },
+          },
+          allowPositionals: false,
+        })
+        await initCommand({
+          force: initValues.force,
+          geminiKey: initValues['gemini-key'],
+          openaiKey: initValues['openai-key'],
+          claudeKey: initValues['claude-key'],
+          localUrl: initValues['local-url'],
+          localModel: initValues['local-model'],
+          localKey: initValues['local-key'],
+        })
         break
       }
 

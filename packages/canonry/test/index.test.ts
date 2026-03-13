@@ -6,8 +6,10 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { createClient, migrate, apiKeys } from '@ainyc/canonry-db'
 import { bootstrapCommand } from '../src/commands/bootstrap.js'
+import { initCommand } from '../src/commands/init.js'
 import { getConfigDir, loadConfig } from '../src/config.js'
 import { createServer } from '../src/server.js'
+import { ApiClient } from '../src/client.js'
 
 function restoreEnvVar(name: string, originalValue: string | undefined) {
   if (originalValue === undefined) {
@@ -204,6 +206,64 @@ describe('canonry', () => {
       await app.close()
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
+  })
+
+  it('initCommand non-interactive mode creates config from flags', async () => {
+    const tmpDir = path.join(os.tmpdir(), `canonry-init-${crypto.randomUUID()}`)
+    const originalConfigDir = process.env.CANONRY_CONFIG_DIR
+    process.env.CANONRY_CONFIG_DIR = tmpDir
+
+    try {
+      await initCommand({
+        force: true,
+        geminiKey: 'test-gemini-key',
+        openaiKey: 'test-openai-key',
+      })
+
+      const config = loadConfig()
+      assert.equal(config.database, path.join(tmpDir, 'data.db'))
+      assert.equal(config.providers?.gemini?.apiKey, 'test-gemini-key')
+      assert.equal(config.providers?.gemini?.model, 'gemini-2.5-flash')
+      assert.equal(config.providers?.openai?.apiKey, 'test-openai-key')
+      assert.equal(config.providers?.openai?.model, 'gpt-4o')
+      assert.equal(config.providers?.claude, undefined)
+      assert.ok(config.apiKey.startsWith('cnry_'))
+    } finally {
+      restoreEnvVar('CANONRY_CONFIG_DIR', originalConfigDir)
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('initCommand non-interactive mode reads env vars as fallback', async () => {
+    const tmpDir = path.join(os.tmpdir(), `canonry-init-env-${crypto.randomUUID()}`)
+    const originalConfigDir = process.env.CANONRY_CONFIG_DIR
+    const originalAnthropicKey = process.env.ANTHROPIC_API_KEY
+    process.env.CANONRY_CONFIG_DIR = tmpDir
+    process.env.ANTHROPIC_API_KEY = 'test-anthropic-env'
+
+    try {
+      await initCommand({ force: true })
+
+      const config = loadConfig()
+      assert.equal(config.providers?.claude?.apiKey, 'test-anthropic-env')
+      assert.equal(config.providers?.claude?.model, 'claude-sonnet-4-6')
+    } finally {
+      restoreEnvVar('CANONRY_CONFIG_DIR', originalConfigDir)
+      restoreEnvVar('ANTHROPIC_API_KEY', originalAnthropicKey)
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('ApiClient gives clear error when server is not running', async () => {
+    const client = new ApiClient('http://localhost:19999', 'cnry_fake_key')
+    await assert.rejects(
+      () => client.listProjects(),
+      (err: Error) => {
+        assert.ok(err.message.includes('Could not connect to canonry server'))
+        assert.ok(err.message.includes('canonry serve'))
+        return true
+      },
+    )
   })
 
   it('health endpoint returns ok', async () => {

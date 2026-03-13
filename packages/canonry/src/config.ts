@@ -49,14 +49,23 @@ export function loadConfig(): CanonryConfig {
   const configPath = getConfigPath()
   if (!fs.existsSync(configPath)) {
     throw new Error(
-      `Config not found at ${configPath}. Run "canonry init" to create one.`,
+      `Config not found at ${configPath}.\n` +
+      'Run "canonry init" to set up interactively, or "canonry init --gemini-key <key>" for non-interactive setup.\n' +
+      'For CI/Docker, use "canonry bootstrap" with env vars (GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY).',
     )
   }
   const raw = fs.readFileSync(configPath, 'utf-8')
   const parsed = parse(raw) as CanonryConfig
   if (!parsed.apiUrl || !parsed.database || !parsed.apiKey) {
+    const missing = [
+      !parsed.apiUrl && 'apiUrl',
+      !parsed.database && 'database',
+      !parsed.apiKey && 'apiKey',
+    ].filter(Boolean).join(', ')
     throw new Error(
-      `Invalid config at ${configPath}. Required fields: apiUrl, database, apiKey`,
+      `Invalid config at ${configPath} — missing: ${missing}.\n` +
+      'These fields are auto-generated. Run "canonry init" (or "canonry init --gemini-key <key>" for non-interactive setup) to create a valid config.\n' +
+      'Do not write config.yaml by hand; use "canonry init" or "canonry bootstrap" instead.',
     )
   }
 

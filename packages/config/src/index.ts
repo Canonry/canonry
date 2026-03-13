@@ -131,8 +131,14 @@ export function getPlatformEnv(source: NodeJS.ProcessEnv): PlatformEnv {
   }
 }
 
-export function getBootstrapEnv(source: NodeJS.ProcessEnv): BootstrapEnv {
-  const parsed = bootstrapEnvSchema.parse(source)
+export function getBootstrapEnv(
+  source: NodeJS.ProcessEnv,
+  overrides?: Partial<Record<string, string | undefined>>,
+): BootstrapEnv {
+  const filtered = overrides
+    ? Object.fromEntries(Object.entries(overrides).filter(([, v]) => v != null))
+    : {}
+  const parsed = bootstrapEnvSchema.parse({ ...source, ...filtered })
   const providers: BootstrapEnv['providers'] = {}
 
   if (parsed.GEMINI_API_KEY) {

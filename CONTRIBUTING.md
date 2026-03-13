@@ -12,19 +12,21 @@ pnpm install
 
 ## Development
 
+To build everything and install the `canonry` CLI globally in one step:
+
+```bash
+./canonry-install.sh
+```
+
+This runs `pnpm install`, builds all packages, and installs `canonry` globally via npm. After that, `canonry --version` should work from any directory.
+
+Individual commands:
+
 ```bash
 pnpm run typecheck          # Type-check all packages
 pnpm run test               # Run test suite
 pnpm run lint               # Lint all packages
 pnpm run dev:web            # Run web dashboard in dev mode
-```
-
-To test the full stack locally:
-
-```bash
-pnpm --filter @ainyc/canonry run build
-node packages/canonry/bin/canonry.mjs init
-node packages/canonry/bin/canonry.mjs serve
 ```
 
 ## Project Structure

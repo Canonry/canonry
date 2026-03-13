@@ -14,11 +14,23 @@ export class ApiClient {
       'Content-Type': 'application/json',
     }
 
-    const res = await fetch(url, {
-      method,
-      headers,
-      body: body != null ? JSON.stringify(body) : undefined,
-    })
+    let res: Response
+    try {
+      res = await fetch(url, {
+        method,
+        headers,
+        body: body != null ? JSON.stringify(body) : undefined,
+      })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes('fetch failed') || msg.includes('ECONNREFUSED') || msg.includes('connect ECONNREFUSED')) {
+        throw new Error(
+          `Could not connect to canonry server at ${this.baseUrl.replace('/api/v1', '')}. ` +
+          'Start it with "canonry serve" (or "canonry serve &" to run in background).',
+        )
+      }
+      throw err
+    }
 
     if (!res.ok) {
       let errorBody: unknown
