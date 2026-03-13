@@ -1308,6 +1308,7 @@
   .evidence-run-dot {
     @apply flex flex-col items-center gap-0.5 px-2 py-1 rounded-md transition-colors cursor-pointer;
     @apply hover:bg-zinc-800/60;
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400;
   }
 
   .evidence-run-dot--selected {

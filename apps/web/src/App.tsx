@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useId, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { parseAllDocuments } from 'yaml'
 import type { MouseEvent, ReactNode } from 'react'
 
@@ -3248,6 +3248,7 @@ interface EvidenceDisplayData {
   citedDomains: string[]
   competitorDomains: string[]
   groundingSources: GroundingSource[]
+  evidenceUrls: string[]
   changeLabel: string
   summary: string
 }
@@ -3281,6 +3282,7 @@ function EvidenceDetailModal({
     citedDomains: evidence.citedDomains,
     competitorDomains: evidence.competitorDomains,
     groundingSources: evidence.groundingSources,
+    evidenceUrls: evidence.evidenceUrls,
     changeLabel: evidence.changeLabel,
     summary: evidence.summary,
   }
@@ -3306,8 +3308,13 @@ function EvidenceDetailModal({
     display.citationState === 'lost' ? 'lost' :
     display.citationState === 'pending' ? 'pending' : 'not-cited'
 
+  // Guard against out-of-order async completions when clicking dots quickly
+  const activeRequestRef = useRef(0)
+
   // Fetch historical run data when a dot is clicked
   const selectHistoricalRun = useCallback(async (idx: number) => {
+    const requestId = ++activeRequestRef.current
+
     if (idx === -1 || idx === history.length - 1) {
       setSelectedRunIdx(-1)
       setHistoricalSnapshot(null)
@@ -3328,6 +3335,9 @@ function EvidenceDetailModal({
     setLoadingHistory(true)
     try {
       const runDetail = await fetchRunDetail(run.runId)
+      // Discard result if a newer request was fired while we were fetching
+      if (requestId !== activeRequestRef.current) return
+
       // Find the snapshot matching this keyword + provider
       const snap = runDetail.snapshots.find(
         s => s.keyword === evidence.keyword && s.provider === evidence.provider,
@@ -3342,6 +3352,7 @@ function EvidenceDetailModal({
         citedDomains: snap.citedDomains,
         competitorDomains: snap.competitorOverlap,
         groundingSources: snap.groundingSources,
+        evidenceUrls: [],
         changeLabel: run.citationState,
         summary: '',
       } : {
@@ -3351,6 +3362,7 @@ function EvidenceDetailModal({
         citedDomains: [],
         competitorDomains: [],
         groundingSources: [],
+        evidenceUrls: [],
         changeLabel: run.citationState,
         summary: 'Snapshot data not available for this run.',
       }
@@ -3358,6 +3370,7 @@ function EvidenceDetailModal({
       setRunCache(prev => ({ ...prev, [cacheKey]: data }))
       setHistoricalSnapshot(data)
     } catch {
+      if (requestId !== activeRequestRef.current) return
       setHistoricalSnapshot({
         citationState: run.citationState,
         provider: evidence.provider,
@@ -3365,11 +3378,14 @@ function EvidenceDetailModal({
         citedDomains: [],
         competitorDomains: [],
         groundingSources: [],
+        evidenceUrls: [],
         changeLabel: run.citationState,
         summary: 'Failed to load historical run data.',
       })
     } finally {
-      setLoadingHistory(false)
+      if (requestId === activeRequestRef.current) {
+        setLoadingHistory(false)
+      }
     }
   }, [history, evidence.keyword, evidence.provider, runCache])
 
@@ -3507,9 +3523,10 @@ function EvidenceDetailModal({
                       type="button"
                       className={`evidence-run-dot ${isSelected ? 'evidence-run-dot--selected' : ''}`}
                       onClick={() => selectHistoricalRun(i === history.length - 1 ? -1 : i)}
-                      title={`${run.citationState} — ${date.toLocaleString()}`}
+                      aria-label={`Run ${label}: ${run.citationState}`}
+                      aria-pressed={isSelected}
                     >
-                      <span className={`size-2 rounded-full ${dotColor}`} />
+                      <span className={`size-2 rounded-full ${dotColor}`} aria-hidden="true" />
                       <span className="text-[10px] text-zinc-500">{label}</span>
                     </button>
                   )
@@ -3658,8 +3675,24 @@ function EvidenceDetailModal({
                     </div>
                   )}
 
+                  {/* Evidence URLs */}
+                  {display.evidenceUrls.length > 0 && (
+                    <div>
+                      <p className="drawer-section-label">Evidence URLs</p>
+                      <ul className="grid gap-1">
+                        {display.evidenceUrls.map((url) => (
+                          <li key={url} className="truncate text-sm">
+                            <a href={url} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
+                              {url}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
                   {/* No data state */}
-                  {display.citedDomains.length === 0 && display.groundingSources.length === 0 && (
+                  {display.citedDomains.length === 0 && display.groundingSources.length === 0 && display.evidenceUrls.length === 0 && (
                     <div className="flex items-center justify-center h-24 text-zinc-600 text-sm">
                       No citation data {isViewingHistory ? 'for this run' : 'yet'}
                     </div>
