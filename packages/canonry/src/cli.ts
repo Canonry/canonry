@@ -94,19 +94,25 @@ async function main() {
 
   const command = args[0]!
 
-  // First-run telemetry notice (shown once, to stderr)
-  if (isTelemetryEnabled() && isFirstRun()) {
+  // First-run telemetry notice (shown once, to stderr).
+  // Skip for the `telemetry` command itself — the user may be about to disable it,
+  // and we should not create an anonymousId before they get the chance to opt out.
+  if (command !== 'telemetry' && command !== 'init' && isTelemetryEnabled() && isFirstRun()) {
     showFirstRunNotice()
     getOrCreateAnonymousId()
   }
 
-  // Track CLI command usage (fire-and-forget)
-  // Only append subcommand for commands that use named subcommands (not positional args like project names)
+  // Resolve command name for telemetry (e.g. "project.create", "run")
   const SUBCOMMAND_COMMANDS = new Set(['project', 'keyword', 'competitor', 'schedule', 'notify', 'settings', 'telemetry'])
   const resolvedCommand = SUBCOMMAND_COMMANDS.has(command) && args[1] && !args[1].startsWith('-')
     ? `${command}.${args[1]}`
     : command
-  trackEvent('cli.command', { command: resolvedCommand })
+
+  // Track CLI command usage (fire-and-forget).
+  // Skip for `telemetry` commands — don't track the opt-out flow itself.
+  if (command !== 'telemetry') {
+    trackEvent('cli.command', { command: resolvedCommand })
+  }
 
   try {
     switch (command) {

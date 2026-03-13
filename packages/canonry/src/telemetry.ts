@@ -109,6 +109,7 @@ export function trackEvent(
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS)
+  timeout.unref() // Don't keep the process alive waiting for telemetry
 
   fetch(TELEMETRY_ENDPOINT, {
     method: 'POST',

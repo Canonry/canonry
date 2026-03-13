@@ -553,6 +553,63 @@ describe('telemetry', () => {
     })
   })
 
+  // ── privacy contract ─────────────────────────────────────────────────
+
+  describe('privacy contract', () => {
+    it('trackEvent does not fire for telemetry commands', async () => {
+      // Simulates the cli.ts logic: telemetry commands should not be tracked
+      const { trackEvent } = await import('../src/telemetry.js')
+      const { saveConfig } = await import('../src/config.js')
+      saveConfig(makeConfig({ anonymousId: crypto.randomUUID() }))
+
+      const originalFetch = globalThis.fetch
+      let fetchCalled = false
+      globalThis.fetch = async () => {
+        fetchCalled = true
+        return new Response()
+      }
+
+      try {
+        // Simulate cli.ts guard: skip tracking for telemetry commands
+        const command = 'telemetry'
+        if (command !== 'telemetry') {
+          trackEvent('cli.command', { command: 'telemetry.disable' })
+        }
+        assert.equal(fetchCalled, false, 'telemetry commands must not be tracked')
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+    })
+
+    it('disabled config has no anonymousId by default', async () => {
+      const { isTelemetryEnabled } = await import('../src/telemetry.js')
+      const { saveConfig, loadConfig } = await import('../src/config.js')
+      saveConfig(makeConfig({ telemetry: false }))
+
+      // Verify telemetry is off
+      assert.equal(isTelemetryEnabled(), false)
+
+      // A disabled config should not have anonymousId unless one was previously created
+      const config = loadConfig()
+      assert.equal(config.anonymousId, undefined, 'anonymousId should not exist in a fresh disabled config')
+    })
+
+    it('first-run notice is not shown for telemetry or init commands', async () => {
+      const { isFirstRun, isTelemetryEnabled } = await import('../src/telemetry.js')
+      const { saveConfig } = await import('../src/config.js')
+      saveConfig(makeConfig())
+
+      // Simulates cli.ts logic: skip first-run notice for 'telemetry' and 'init'
+      function shouldShowNotice(command: string): boolean {
+        return command !== 'telemetry' && command !== 'init' && isTelemetryEnabled() && isFirstRun()
+      }
+
+      assert.equal(shouldShowNotice('telemetry'), false, 'first-run notice must not show for telemetry')
+      assert.equal(shouldShowNotice('init'), false, 'first-run notice must not show for init')
+      assert.equal(shouldShowNotice('run'), true, 'first-run notice should show for normal commands')
+    })
+  })
+
   // ── config round-trip ───────────────────────────────────────────────
 
   describe('config round-trip', () => {

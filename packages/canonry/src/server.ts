@@ -190,10 +190,15 @@ export async function createServer(opts: {
     onProjectDeleted: (projectId: string) => {
       scheduler.remove(projectId)
     },
-    getTelemetryStatus: () => ({
-      enabled: isTelemetryEnabled(),
-      anonymousId: getOrCreateAnonymousId(),
-    }),
+    getTelemetryStatus: () => {
+      const enabled = isTelemetryEnabled()
+      return {
+        enabled,
+        // Only read/create the anonymous ID if telemetry is enabled.
+        // Don't mutate config for opted-out users.
+        anonymousId: enabled ? getOrCreateAnonymousId() : undefined,
+      }
+    },
     setTelemetryEnabled: (enabled: boolean) => {
       const config = loadConfig()
       config.telemetry = enabled

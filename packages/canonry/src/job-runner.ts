@@ -239,6 +239,15 @@ export class JobRunner {
         .where(eq(runs.id, runId))
         .run()
 
+      // Track fatal run failures (missing project, quota exceeded, no providers, etc.)
+      trackEvent('run.completed', {
+        status: 'failed',
+        providerCount: 0,
+        providers: [],
+        keywordCount: 0,
+        durationMs: Date.now() - startTime,
+      })
+
       // Notify on failure too
       if (this.onRunCompleted) {
         this.onRunCompleted(runId, projectId).catch((notifErr: unknown) => {
