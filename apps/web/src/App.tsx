@@ -869,6 +869,140 @@ function EvidenceTable({
   )
 }
 
+/* ────────────────────────────────────────────
+   Evidence phrase cards (redesigned evidence tracking)
+   ──────────────────────────────────────────── */
+
+function EvidencePhraseCard({
+  phrase,
+  items,
+  onOpenEvidence,
+}: {
+  phrase: string
+  items: CitationInsightVm[]
+  onOpenEvidence: (evidenceId: string) => void
+}) {
+  const states = items.map(i => i.citationState)
+  const aggState: CitationState =
+    states.includes('cited') ? 'cited' :
+    states.includes('emerging') ? 'emerging' :
+    states.includes('lost') ? 'lost' :
+    states.every(s => s === 'pending') ? 'pending' : 'not-cited'
+
+  const mergedHistory = mergeProviderHistories(items)
+  const citedCount = items.filter(i => i.citationState === 'cited' || i.citationState === 'emerging').length
+
+  const trendDir: 'up' | 'down' | 'flat' = (() => {
+    if (mergedHistory.length < 4) return 'flat'
+    const recent = mergedHistory.slice(-3)
+    const older = mergedHistory.slice(-6, -3)
+    if (older.length === 0) return 'flat'
+    const recentCited = recent.filter(p => p.citationState === 'cited' || p.citationState === 'emerging').length
+    const olderCited = older.filter(p => p.citationState === 'cited' || p.citationState === 'emerging').length
+    if (recentCited > olderCited) return 'up'
+    if (recentCited < olderCited) return 'down'
+    return 'flat'
+  })()
+
+  const changeLabel = (() => {
+    if (mergedHistory.length === 0) return 'Awaiting first run'
+    if (mergedHistory.length === 1) return 'First observation'
+    const latest = mergedHistory[mergedHistory.length - 1]!.citationState
+    const prev = mergedHistory[mergedHistory.length - 2]!.citationState
+    const latestCited = latest === 'cited' || latest === 'emerging'
+    const prevCited = prev === 'cited' || prev === 'emerging'
+    if (!prevCited && latestCited) return 'Newly cited'
+    if (prevCited && !latestCited) return 'Lost citation'
+    let streak = 0
+    for (let i = mergedHistory.length - 1; i >= 0; i--) {
+      const s = mergedHistory[i]!.citationState
+      const isCited = s === 'cited' || s === 'emerging'
+      if (isCited === latestCited) streak++
+      else break
+    }
+    if (latestCited) return streak <= 1 ? 'Cited in latest run' : `Cited ${streak} runs in a row`
+    return streak <= 1 ? 'Missed in latest run' : `Missed for ${streak} runs`
+  })()
+
+  const trendIcon = trendDir === 'up' ? '↑' : trendDir === 'down' ? '↓' : '→'
+
+  return (
+    <div className={`evidence-phrase-card evidence-phrase-card--${aggState}`}>
+      <div className="evidence-card-header">
+        <div className="min-w-0 flex-1">
+          <p className="evidence-card-keyword">{phrase}</p>
+          <div className="evidence-card-status-row">
+            <CitationBadge state={aggState} />
+            <span className={`evidence-card-trend evidence-card-trend--${trendDir}`}>
+              <span aria-hidden="true">{trendIcon}</span>
+              <span>{changeLabel}</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="evidence-card-timeline-row">
+        <CitationTimeline history={mergedHistory} maxDots={14} />
+        <span className="evidence-card-ratio">
+          {citedCount}/{items.length} provider{items.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+
+      <div className="evidence-card-providers">
+        {items.map(item => (
+          <button
+            key={item.id}
+            type="button"
+            className={`evidence-provider-btn evidence-provider-btn--${item.citationState}`}
+            onClick={() => onOpenEvidence(item.id)}
+            title={`View ${item.provider} evidence for "${phrase}"`}
+          >
+            <span className="capitalize">{item.provider}</span>
+            <span aria-hidden="true" className="font-bold">
+              {item.citationState === 'cited' || item.citationState === 'emerging' ? '✓' : item.citationState === 'lost' ? '✗' : '–'}
+            </span>
+            <span className="opacity-50 text-[10px]">View →</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function EvidencePhraseCards({
+  evidence,
+  onOpenEvidence,
+}: {
+  evidence: CitationInsightVm[]
+  onOpenEvidence: (evidenceId: string) => void
+}) {
+  const groups = useMemo(() => {
+    const map = new Map<string, CitationInsightVm[]>()
+    for (const item of evidence) {
+      const existing = map.get(item.keyword) ?? []
+      map.set(item.keyword, [...existing, item])
+    }
+    return [...map.entries()].map(([phrase, items]) => ({ phrase, items }))
+  }, [evidence])
+
+  if (groups.length === 0) {
+    return <p className="supporting-copy">No key phrases tracked yet.</p>
+  }
+
+  return (
+    <div className="evidence-card-grid">
+      {groups.map(({ phrase, items }) => (
+        <EvidencePhraseCard
+          key={phrase}
+          phrase={phrase}
+          items={items}
+          onOpenEvidence={onOpenEvidence}
+        />
+      ))}
+    </div>
+  )
+}
+
 function FindingsTable({ findings }: { findings: TechnicalFindingVm[] }) {
   return (
     <div className="findings-table-wrap">
@@ -1679,7 +1813,7 @@ function ProjectPage({
             </div>
           </div>
         )}
-        <EvidenceTable evidence={model.visibilityEvidence} onOpenEvidence={onOpenEvidence} />
+        <EvidencePhraseCards evidence={model.visibilityEvidence} onOpenEvidence={onOpenEvidence} />
       </section>
 
       {/* Technical findings table — hidden when no site-audit data */}
@@ -3056,32 +3190,31 @@ function Drawer({
   )
 }
 
-/** Render text with **bold** markdown and paragraph breaks */
-function renderMarkdownText(text: string): ReactNode[] {
-  const paragraphs = text.split(/\n{2,}/)
-  const nodes: ReactNode[] = []
+/**
+ * Split text on highlight terms and return ReactNodes with <mark> spans for matches.
+ * Also handles **bold** markdown in non-highlighted segments.
+ */
+function highlightTermsInText(text: string, terms: string[]): ReactNode[] {
+  const nonEmpty = terms.filter(t => t.trim().length > 1)
+  if (nonEmpty.length === 0) return [text]
 
-  for (let pi = 0; pi < paragraphs.length; pi++) {
-    const para = paragraphs[pi].trim()
-    if (!para) continue
+  const escaped = nonEmpty.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const regex = new RegExp(`(${escaped.join('|')})`, 'gi')
+  const parts = text.split(regex)
 
-    // Split on **bold** markers
-    const parts = para.split(/(\*\*[^*]+\*\*)/)
-    const children: ReactNode[] = parts.map((part, i) => {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        return <strong key={i} className="text-zinc-200 font-semibold">{part.slice(2, -2)}</strong>
+  return parts.flatMap((part, i) => {
+    // Odd indices are captured group matches — highlight them
+    if (i % 2 === 1) {
+      return [<mark key={`hl-${i}`} className="answer-highlight">{part}</mark>]
+    }
+    // Even indices are plain text — handle **bold** within them
+    return part.split(/(\*\*[^*]+\*\*)/).map((seg, si) => {
+      if (seg.startsWith('**') && seg.endsWith('**')) {
+        return <strong key={`b-${i}-${si}`} className="text-zinc-200 font-semibold">{seg.slice(2, -2)}</strong>
       }
-      return part
+      return seg || null
     })
-
-    nodes.push(
-      <p key={pi} className={pi > 0 ? 'mt-2' : ''}>
-        {children}
-      </p>,
-    )
-  }
-
-  return nodes
+  }).filter(Boolean) as ReactNode[]
 }
 
 function EvidenceDrawer({
@@ -3095,89 +3228,182 @@ function EvidenceDrawer({
 }) {
   const [showFullAnswer, setShowFullAnswer] = useState(false)
 
-  const latestRun = project.recentRuns[0]
+  const myDomain = project.project.canonicalDomain.toLowerCase().replace(/^www\./, '')
+  const isCited = evidence.citationState === 'cited' || evidence.citationState === 'emerging'
+
+  // Position in cited list
+  const positionIndex = evidence.citedDomains.findIndex(
+    d => d.toLowerCase().replace(/^www\./, '') === myDomain,
+  )
+  const position = positionIndex + 1 // 1-indexed; 0 = not found
+  const totalCited = evidence.citedDomains.length
+
+  // Terms to highlight in the AI answer
+  const projectDisplayName = project.project.displayName || project.project.name
+  const highlightTerms = [
+    project.project.canonicalDomain.replace(/^www\./, ''),
+    projectDisplayName,
+    projectDisplayName.split(' ').slice(0, 2).join(' '),
+  ].filter(t => t.trim().length > 2)
+
+  // Determine state key for CSS variants (collapse cited/emerging → 'cited')
+  const stateKey: 'cited' | 'not-cited' | 'lost' | 'pending' =
+    isCited ? 'cited' :
+    evidence.citationState === 'lost' ? 'lost' :
+    evidence.citationState === 'pending' ? 'pending' : 'not-cited'
+
+  // Position hero text
+  const heroCopy = (() => {
+    if (isCited && position > 0) {
+      return {
+        label: 'Citation confirmed',
+        title: `Cited #${position} of ${totalCited} domain${totalCited !== 1 ? 's' : ''}`,
+        meta: `${evidence.provider} · ${evidence.changeLabel.toLowerCase()}`,
+      }
+    }
+    if (isCited) {
+      return {
+        label: 'Citation confirmed',
+        title: 'Cited in this answer',
+        meta: `${evidence.provider} · ${evidence.changeLabel.toLowerCase()}`,
+      }
+    }
+    if (evidence.citationState === 'lost') {
+      return {
+        label: 'Citation lost',
+        title: totalCited > 0
+          ? `${totalCited} domain${totalCited !== 1 ? 's' : ''} cited instead`
+          : 'No longer appearing in this answer',
+        meta: `${evidence.provider} · ${evidence.changeLabel.toLowerCase()}`,
+      }
+    }
+    return {
+      label: 'Not in this answer',
+      title: totalCited > 0
+        ? `${totalCited} competitor${totalCited !== 1 ? 's' : ''} cited instead`
+        : 'No domains cited for this query',
+      meta: `${evidence.provider} · ${evidence.changeLabel.toLowerCase()}`,
+    }
+  })()
+
+  // Render AI answer with domain/name highlighted
+  const renderHighlightedAnswer = () => {
+    if (!evidence.answerSnippet) return null
+    const paragraphs = evidence.answerSnippet.split(/\n{2,}/)
+    return paragraphs.map((para, pi) => (
+      <p key={pi} className={pi > 0 ? 'mt-2' : ''}>
+        {highlightTermsInText(para.trim(), highlightTerms)}
+      </p>
+    ))
+  }
 
   return (
     <Drawer
       open
       title={evidence.keyword}
-      subtitle={`${project.project.name} · visibility evidence`}
+      subtitle={`${project.project.name} · ${evidence.provider}`}
       onClose={onClose}
     >
-      {/* Status + run context row */}
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <CitationBadge state={evidence.citationState} />
-          <ProviderBadge provider={evidence.provider} />
-          <span className="text-sm text-zinc-400">{evidence.changeLabel}</span>
-        </div>
-        {latestRun && (
-          <span className="shrink-0 text-[10px] uppercase tracking-wide text-zinc-600">
-            from latest run · {new Date(latestRun.createdAt).toLocaleDateString()}
-          </span>
-        )}
+      {/* ── Position hero ── */}
+      <div className={`evidence-position-hero evidence-position-hero--${stateKey}`}>
+        <p className={`evidence-position-label evidence-position-label--${stateKey}`}>
+          {heroCopy.label}
+        </p>
+        <p className={`evidence-position-title evidence-position-title--${stateKey}`}>
+          {heroCopy.title}
+        </p>
+        <p className="evidence-position-meta">{heroCopy.meta}</p>
       </div>
 
-      {/* AI answer */}
+      {/* ── AI answer with highlights ── */}
       {evidence.answerSnippet && (
         <div>
-          <p className="detail-label">AI answer</p>
-          <div className={`mt-1 rounded border border-zinc-800/60 bg-zinc-900/50 p-3 text-sm leading-relaxed text-zinc-400 ${showFullAnswer ? 'max-h-80 overflow-y-auto' : 'line-clamp-6'}`}>
-            {renderMarkdownText(evidence.answerSnippet)}
+          <p className="drawer-section-label">What the AI said</p>
+          <div className={`answer-snippet-block ${showFullAnswer ? 'max-h-80 overflow-y-auto' : 'line-clamp-5'}`}>
+            {renderHighlightedAnswer()}
           </div>
-          {evidence.answerSnippet.length > 300 && (
+          {evidence.answerSnippet.length > 280 && (
             <button
               type="button"
-              className="mt-1.5 text-xs text-zinc-500 hover:text-zinc-300"
+              className="mt-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
               onClick={() => setShowFullAnswer(!showFullAnswer)}
             >
-              {showFullAnswer ? 'Collapse' : 'Show full answer'}
+              {showFullAnswer ? '↑ Collapse' : '↓ Show full answer'}
             </button>
           )}
         </div>
       )}
 
-      {/* Cited domains + competitor overlap side by side */}
-      <div className="grid grid-cols-2 gap-4">
+      {/* ── Citation leaderboard ── */}
+      {evidence.citedDomains.length > 0 && (
         <div>
-          <p className="detail-label">Cited domains</p>
-          {evidence.citedDomains.length > 0 ? (
-            <div className="mt-1 flex flex-wrap gap-1.5">
-              {evidence.citedDomains.map(domain => (
-                <span key={domain} className="inline-flex items-center rounded-full border border-zinc-700 bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300">
-                  {domain}
-                </span>
-              ))}
-            </div>
-          ) : (
-            <p className="mt-1 text-sm text-zinc-500">No domains cited</p>
-          )}
+          <p className="drawer-section-label">Who was cited — in order</p>
+          <div className="citation-leaderboard">
+            {evidence.citedDomains.map((domain, i) => {
+              const norm = domain.toLowerCase().replace(/^www\./, '')
+              const isYou = norm === myDomain
+              const isCompetitor = !isYou && evidence.competitorDomains.some(
+                c => c.toLowerCase().replace(/^www\./, '') === norm,
+              )
+              const variant = isYou ? 'you' : isCompetitor ? 'competitor' : 'other'
+              return (
+                <div key={domain} className={`citation-leaderboard-item citation-leaderboard-item--${variant}`}>
+                  <span className="citation-leaderboard-rank">#{i + 1}</span>
+                  <span className="citation-leaderboard-domain">{domain}</span>
+                  {isYou && <span className="citation-leaderboard-tag">You</span>}
+                  {isCompetitor && <span className="citation-leaderboard-tag">Competitor</span>}
+                </div>
+              )
+            })}
+            {!isCited && (
+              <div className="citation-leaderboard-item citation-leaderboard-item--not-cited border-dashed">
+                <span className="citation-leaderboard-rank text-zinc-600">—</span>
+                <span className="citation-leaderboard-domain text-zinc-600">{project.project.canonicalDomain}</span>
+                <span className="citation-leaderboard-tag text-zinc-600">Not cited</span>
+              </div>
+            )}
+          </div>
         </div>
+      )}
 
+      {/* ── Action items from technical signals ── */}
+      {evidence.relatedTechnicalSignals.length > 0 && (
         <div>
-          <p className="detail-label">Competitor overlap</p>
-          {evidence.competitorDomains.length > 0 ? (
-            <div className="mt-1 flex flex-wrap gap-1.5">
-              {evidence.competitorDomains.map(domain => (
-                <span key={domain} className="inline-flex items-center rounded-full border border-rose-800/50 bg-rose-950/40 px-2 py-0.5 text-xs text-rose-300">
-                  {domain}
-                </span>
-              ))}
-            </div>
-          ) : (
-            <p className="mt-1 text-sm text-zinc-500">No competitors cited</p>
-          )}
+          <p className="drawer-section-label">
+            {isCited ? 'Why you\'re cited' : 'What to fix'}
+          </p>
+          <div className="action-items-list">
+            {evidence.relatedTechnicalSignals.map((signal, i) => (
+              <div key={i} className="action-item">
+                <svg
+                  className={`action-item-icon ${isCited ? 'text-emerald-400' : 'text-amber-400'}`}
+                  viewBox="0 0 16 16" fill="none" aria-hidden="true"
+                >
+                  {isCited
+                    ? <path d="M3 8l3.5 3.5L13 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    : (
+                      <>
+                        <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" />
+                        <path d="M8 5v3.5M8 10.5v0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                      </>
+                    )
+                  }
+                </svg>
+                <span className="action-item-text">{signal}</span>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Grounding sources */}
+      {/* ── Grounding sources ── */}
       {evidence.groundingSources.length > 0 && (
         <div>
-          <p className="detail-label">Grounding sources ({evidence.groundingSources.length})</p>
-          <ul className="mt-1 space-y-0.5">
+          <p className="drawer-section-label">Grounding sources ({evidence.groundingSources.length})</p>
+          <ul className="grid gap-0.5">
             {evidence.groundingSources.map((src, i) => (
               <li key={i} className="truncate text-sm">
-                <a href={src.uri} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-zinc-200">
+                <a href={src.uri} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
                   {src.title || src.uri}
                 </a>
               </li>
@@ -3186,32 +3412,24 @@ function EvidenceDrawer({
         </div>
       )}
 
-      {/* Evidence URLs — only if populated */}
+      {/* ── Evidence URLs ── */}
       {evidence.evidenceUrls.length > 0 && (
         <div>
-          <p className="detail-label">Evidence URLs</p>
-          <ul className="detail-list">
+          <p className="drawer-section-label">Evidence URLs</p>
+          <ul className="grid gap-1">
             {evidence.evidenceUrls.map((url) => (
-              <li key={url}>{url}</li>
+              <li key={url} className="truncate text-sm">
+                <a href={url} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
+                  {url}
+                </a>
+              </li>
             ))}
           </ul>
         </div>
       )}
 
-      {/* Technical signals — only if populated */}
-      {evidence.relatedTechnicalSignals.length > 0 && (
-        <div>
-          <p className="detail-label">Related technical signals</p>
-          <ul className="detail-list">
-            {evidence.relatedTechnicalSignals.map((signal) => (
-              <li key={signal}>{signal}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Summary */}
-      <p className="text-xs text-zinc-600">{evidence.summary}</p>
+      {/* ── Summary ── */}
+      <p className="text-xs text-zinc-600 border-t border-zinc-800/40 pt-3 mt-1">{evidence.summary}</p>
     </Drawer>
   )
 }
