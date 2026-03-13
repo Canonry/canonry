@@ -27,6 +27,9 @@ export interface CanonryConfig {
     claude?: ProviderConfigEntry
     local?: ProviderConfigEntry
   }
+  // Telemetry (opt-out: undefined/true = enabled, false = disabled)
+  telemetry?: boolean
+  anonymousId?: string
 }
 
 export function getConfigDir(): string {

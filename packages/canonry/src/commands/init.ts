@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import readline from 'node:readline'
 import { getConfigDir, getConfigPath, configExists, saveConfig } from '../config.js'
 import type { CanonryConfig, ProviderConfigEntry } from '../config.js'
+import { trackEvent } from '../telemetry.js'
 import { createClient, migrate } from '@ainyc/canonry-db'
 import { apiKeys } from '@ainyc/canonry-db'
 import path from 'node:path'
@@ -113,10 +114,15 @@ export async function initCommand(opts?: { force?: boolean }): Promise<void> {
     providers,
   })
 
-  const providerNames = Object.keys(providers).join(', ')
+  const providerNames = Object.keys(providers)
   console.log(`\nConfig saved to ${getConfigPath()}`)
   console.log(`Database created at ${databasePath}`)
   console.log(`API key: ${rawApiKey}`)
-  console.log(`Providers: ${providerNames}`)
+  console.log(`Providers: ${providerNames.join(', ')}`)
   console.log('\nRun "canonry serve" to start the server.')
+
+  trackEvent('cli.init', {
+    providerCount: providerNames.length,
+    providers: providerNames,
+  })
 }

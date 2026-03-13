@@ -12,6 +12,8 @@ import { applyRoutes } from './apply.js'
 import { historyRoutes } from './history.js'
 import { settingsRoutes } from './settings.js'
 import type { SettingsRoutesOptions, ProviderSummaryEntry } from './settings.js'
+import { telemetryRoutes } from './telemetry.js'
+import type { TelemetryRoutesOptions } from './telemetry.js'
 import { scheduleRoutes } from './schedules.js'
 import type { ScheduleRoutesOptions } from './schedules.js'
 import { notificationRoutes } from './notifications.js'
@@ -38,6 +40,9 @@ export interface ApiRoutesOptions {
   onProjectDeleted?: (projectId: string) => void
   /** Callback to generate keyword suggestions using an LLM provider */
   onGenerateKeywords?: KeywordRoutesOptions['onGenerateKeywords']
+  /** Telemetry status/toggle callbacks */
+  getTelemetryStatus?: TelemetryRoutesOptions['getTelemetryStatus']
+  setTelemetryEnabled?: TelemetryRoutesOptions['setTelemetryEnabled']
 }
 
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
@@ -71,6 +76,10 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onScheduleUpdated: opts.onScheduleUpdated,
     } satisfies ScheduleRoutesOptions)
     await api.register(notificationRoutes)
+    await api.register(telemetryRoutes, {
+      getTelemetryStatus: opts.getTelemetryStatus,
+      setTelemetryEnabled: opts.setTelemetryEnabled,
+    } satisfies TelemetryRoutesOptions)
   }, { prefix: '/api/v1' })
 }
 

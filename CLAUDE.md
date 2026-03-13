@@ -184,6 +184,18 @@ See `docs/roadmap.md` for the full feature roadmap including competitive analysi
 - All other changes — features, bug fixes, refactors, dependency updates, test additions that accompany code changes — require a semver bump in both `package.json` files.
 - Use semver: patch for fixes, minor for features, major for breaking changes.
 
+## Testing
+
+**Every non-trivial change must include tests.** If you are adding a feature, fixing a bug, or refactoring logic, ship tests alongside the code. Trivial changes (typo fixes, comment updates, config-only changes) are exempt.
+
+- Use Node's built-in test runner (`node:test`) — not Jest or Vitest.
+- Tests live in `test/` directories colocated with the package (e.g. `packages/canonry/test/`).
+- Test the public API of each module, not internal implementation details.
+- Cover both the happy path and meaningful edge cases (invalid input, env var overrides, error handling).
+- When testing CLI commands, capture stdout/stderr and assert on output rather than only checking side effects.
+- Use temp directories (`os.tmpdir()`) for file-system tests; clean up in `afterEach`.
+- Run `pnpm run test` to verify before committing.
+
 ## CI Guidance
 
 - Validation CI: `typecheck`, `test`, `lint` across the full workspace on PRs.

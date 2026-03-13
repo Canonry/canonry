@@ -4,6 +4,7 @@ import type { DatabaseClient } from '@ainyc/canonry-db'
 import { runs, keywords, competitors, projects, querySnapshots, usageCounters } from '@ainyc/canonry-db'
 import type { ProviderName, NormalizedQueryResult } from '@ainyc/canonry-contracts'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
+import { trackEvent } from './telemetry.js'
 
 export class JobRunner {
   private db: DatabaseClient
@@ -37,6 +38,7 @@ export class JobRunner {
 
   async executeRun(runId: string, projectId: string, providerOverride?: ProviderName[]): Promise<void> {
     const now = new Date().toISOString()
+    const startTime = Date.now()
 
     try {
       // Mark run as running
@@ -201,6 +203,16 @@ export class JobRunner {
           .where(eq(runs.id, runId))
           .run()
       }
+
+      // Track run completion telemetry
+      const finalStatus = allFailed ? 'failed' : someFailed ? 'partial' : 'completed'
+      trackEvent('run.completed', {
+        status: finalStatus,
+        providerCount: activeProviders.length,
+        providers: activeProviders.map(p => p.adapter.name),
+        keywordCount: projectKeywords.length,
+        durationMs: Date.now() - startTime,
+      })
 
       // Increment per-provider usage counters to keep quota checks accurate
       for (const p of activeProviders) {
