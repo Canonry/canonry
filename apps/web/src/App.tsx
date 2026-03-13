@@ -949,7 +949,7 @@ function EvidencePhraseCard({
       </div>
 
       <div className="evidence-card-providers">
-        {items.map(item => (
+        {items.filter(item => item.citationState !== 'pending').map(item => (
           <button
             key={item.id}
             type="button"
@@ -964,6 +964,9 @@ function EvidencePhraseCard({
             <span className="opacity-50 text-[10px]">View →</span>
           </button>
         ))}
+        {items.every(item => item.citationState === 'pending') && (
+          <span className="text-xs text-zinc-500 italic py-1">Awaiting first run</span>
+        )}
       </div>
     </div>
   )
@@ -3192,27 +3195,46 @@ function Drawer({
 
 /**
  * Split text on highlight terms and return ReactNodes with <mark> spans for matches.
- * Also handles **bold** markdown in non-highlighted segments.
+ * Also handles **bold** markdown. Bold is parsed first so highlight splits don't
+ * break ** markers apart.
  */
 function highlightTermsInText(text: string, terms: string[]): ReactNode[] {
   const nonEmpty = terms.filter(t => t.trim().length > 1)
-  if (nonEmpty.length === 0) return [text]
 
+  // Step 1: parse **bold** spans into typed segments
+  type Segment = { type: 'text' | 'bold'; value: string }
+  const segments: Segment[] = text.split(/(\*\*[^*]+\*\*)/).filter(Boolean).map(seg => {
+    if (seg.startsWith('**') && seg.endsWith('**')) {
+      return { type: 'bold' as const, value: seg.slice(2, -2) }
+    }
+    return { type: 'text' as const, value: seg }
+  })
+
+  if (nonEmpty.length === 0) {
+    return segments.map((seg, i) =>
+      seg.type === 'bold'
+        ? <strong key={`b-${i}`} className="text-zinc-200 font-semibold">{seg.value}</strong>
+        : seg.value,
+    ).filter(Boolean) as ReactNode[]
+  }
+
+  // Step 2: within each segment, split on highlight terms
   const escaped = nonEmpty.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
   const regex = new RegExp(`(${escaped.join('|')})`, 'gi')
-  const parts = text.split(regex)
 
-  return parts.flatMap((part, i) => {
-    // Odd indices are captured group matches — highlight them
-    if (i % 2 === 1) {
-      return [<mark key={`hl-${i}`} className="answer-highlight">{part}</mark>]
-    }
-    // Even indices are plain text — handle **bold** within them
-    return part.split(/(\*\*[^*]+\*\*)/).map((seg, si) => {
-      if (seg.startsWith('**') && seg.endsWith('**')) {
-        return <strong key={`b-${i}-${si}`} className="text-zinc-200 font-semibold">{seg.slice(2, -2)}</strong>
+  return segments.flatMap((seg, si) => {
+    const parts = seg.value.split(regex)
+    return parts.map((part, pi) => {
+      if (!part) return null
+      const isMatch = pi % 2 === 1
+      if (isMatch) {
+        return seg.type === 'bold'
+          ? <mark key={`hl-${si}-${pi}`} className="answer-highlight"><strong className="text-zinc-200 font-semibold">{part}</strong></mark>
+          : <mark key={`hl-${si}-${pi}`} className="answer-highlight">{part}</mark>
       }
-      return seg || null
+      return seg.type === 'bold'
+        ? <strong key={`b-${si}-${pi}`} className="text-zinc-200 font-semibold">{part}</strong>
+        : part
     })
   }).filter(Boolean) as ReactNode[]
 }
@@ -3277,10 +3299,17 @@ function EvidenceDrawer({
         meta: `${evidence.provider} · ${evidence.changeLabel.toLowerCase()}`,
       }
     }
+    if (evidence.citationState === 'pending') {
+      return {
+        label: 'Pending',
+        title: 'Awaiting first visibility run',
+        meta: 'No provider data yet',
+      }
+    }
     return {
       label: 'Not in this answer',
       title: totalCited > 0
-        ? `${totalCited} competitor${totalCited !== 1 ? 's' : ''} cited instead`
+        ? `${totalCited} domain${totalCited !== 1 ? 's' : ''} cited instead`
         : 'No domains cited for this query',
       meta: `${evidence.provider} · ${evidence.changeLabel.toLowerCase()}`,
     }
