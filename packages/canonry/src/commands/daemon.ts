@@ -47,7 +47,7 @@ export async function startDaemon(opts: { port?: string; host?: string }): Promi
     fs.unlinkSync(pidPath)
   }
 
-  const cliPath = path.resolve(new URL('../cli.js', import.meta.url).pathname)
+  const cliPath = path.resolve(new URL(import.meta.url).pathname)
   // Don't use --import tsx in production (compiled) installs — tsx is a dev dependency
   const inSourceMode = new URL(import.meta.url).pathname.endsWith('.ts')
   const args = inSourceMode ? ['--import', 'tsx', cliPath, 'serve'] : [cliPath, 'serve']

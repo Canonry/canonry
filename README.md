@@ -18,6 +18,14 @@ canonry serve
 
 Open [http://localhost:4100](http://localhost:4100) to access the web dashboard.
 
+For CI or agent workflows, initialize non-interactively:
+
+```bash
+canonry init --gemini-key <key> --openai-key <key>
+# or via environment variables:
+GEMINI_API_KEY=... OPENAI_API_KEY=... canonry init
+```
+
 ## Features
 
 - **Multi-provider monitoring** -- query Gemini, OpenAI, Claude, and local LLMs (Ollama, LM Studio, or any OpenAI-compatible endpoint) from a single tool.
@@ -30,14 +38,21 @@ Open [http://localhost:4100](http://localhost:4100) to access the web dashboard.
 
 ## CLI Reference
 
+All commands support `--format json` for machine-readable output.
+
 ### Setup
 
 ```bash
-canonry init                        # Initialize config and database
-canonry bootstrap                   # Bootstrap hosted config/database from env vars
-canonry serve                       # Start server (API + web dashboard)
-canonry settings                    # View/edit configuration
+canonry init [--force]               # Initialize config and database (interactive)
+canonry init --gemini-key <key>      # Initialize non-interactively (flags or env vars)
+canonry bootstrap [--force]          # Bootstrap config/database from env vars only
+canonry serve [--port 4100]          # Start server in foreground (API + web dashboard)
+canonry start [--port 4100]          # Start server as a background daemon
+canonry stop                         # Stop the background daemon
+canonry settings                     # View active provider and quota settings
 ```
+
+Non-interactive `init` flags: `--gemini-key`, `--openai-key`, `--claude-key`, `--local-url`, `--local-model`, `--local-key`. Falls back to `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `LOCAL_BASE_URL`, `LOCAL_MODEL`, `LOCAL_API_KEY` env vars.
 
 ### Projects
 
@@ -54,6 +69,7 @@ canonry project delete <name>
 canonry keyword add <project> "keyword one" "keyword two"
 canonry keyword list <project>
 canonry keyword import <project> <file.csv>
+canonry keyword generate <project> --provider gemini [--count 10] [--save]
 
 canonry competitor add <project> competitor1.com competitor2.com
 canonry competitor list <project>
@@ -64,6 +80,9 @@ canonry competitor list <project>
 ```bash
 canonry run <project>                    # Run all configured providers
 canonry run <project> --provider gemini  # Run a single provider
+canonry run <project> --wait             # Trigger and wait for completion
+canonry run --all                        # Trigger runs for all projects
+canonry run show <id>                    # Show run details and snapshots
 canonry runs <project>                   # List past runs
 canonry status <project>                 # Current visibility summary
 canonry evidence <project>               # View citation evidence
@@ -82,17 +101,43 @@ canonry apply multi-projects.yaml            # Multi-doc YAML (---separated)
 ### Scheduling and Notifications
 
 ```bash
-canonry schedule set <project> --cron "0 8 * * *"
+canonry schedule set <project> --preset daily        # Use a preset
+canonry schedule set <project> --cron "0 8 * * *"    # Use a cron expression
+canonry schedule set <project> --preset daily --provider gemini openai
 canonry schedule show <project>
 canonry schedule enable <project>
 canonry schedule disable <project>
 canonry schedule remove <project>
 
-canonry notify add <project> --url https://hooks.slack.com/...
+canonry notify add <project> --webhook https://hooks.slack.com/... --events run.completed,citation.changed
 canonry notify list <project>
 canonry notify remove <project> <id>
 canonry notify test <project> <id>
+canonry notify events                    # List available event types
 ```
+
+Schedule presets: `daily`, `weekly`, `twice-daily`, `daily@HH`, `weekly@DAY`.
+
+### Provider Settings
+
+```bash
+canonry settings                         # Show all providers and quotas
+canonry settings provider gemini --api-key <key>
+canonry settings provider local --base-url http://localhost:11434/v1 --model llama3
+canonry settings provider openai --api-key <key> --max-per-day 1000 --max-per-minute 20
+```
+
+Quota flags: `--max-concurrent`, `--max-per-minute`, `--max-per-day`.
+
+### Telemetry
+
+```bash
+canonry telemetry status                 # Show telemetry status
+canonry telemetry enable                 # Enable anonymous telemetry
+canonry telemetry disable                # Disable anonymous telemetry
+```
+
+Telemetry is automatically disabled when `CANONRY_TELEMETRY_DISABLED=1`, `DO_NOT_TRACK=1`, or a CI environment is detected.
 
 ## Config-as-Code
 
@@ -154,17 +199,14 @@ Get an API key from [console.anthropic.com](https://console.anthropic.com/settin
 
 ### Local LLMs
 
-Any OpenAI-compatible endpoint works -- Ollama, LM Studio, llama.cpp, vLLM, and similar tools. Configure via CLI or API:
+Any OpenAI-compatible endpoint works -- Ollama, LM Studio, llama.cpp, vLLM, and similar tools. Configure via `canonry init`, the settings page, or the CLI:
 
 ```bash
 canonry settings provider local --base-url http://localhost:11434/v1
-```
-
-The base URL is the only required field. API key is optional (most local servers don't need one). You can also set a specific model:
-
-```bash
 canonry settings provider local --base-url http://localhost:11434/v1 --model llama3
 ```
+
+The base URL is the only required field. API key is optional (most local servers don't need one).
 
 > **Note:** Unless your local model has web search capabilities, responses will be based solely on its training data. Cloud providers (Gemini, OpenAI, Claude) use live web search to ground their answers, which produces more accurate citation results. Local LLMs are best used for comparing how different models perceive your brand without real-time search context.
 
