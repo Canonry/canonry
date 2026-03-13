@@ -15,7 +15,8 @@ import { claudeAdapter } from '@ainyc/canonry-provider-claude'
 import { localAdapter } from '@ainyc/canonry-provider-local'
 import type { ProviderName } from '@ainyc/canonry-contracts'
 import type { CanonryConfig } from './config.js'
-import { saveConfig } from './config.js'
+import { saveConfig, loadConfig } from './config.js'
+import { isTelemetryEnabled, getOrCreateAnonymousId } from './telemetry.js'
 import { JobRunner } from './job-runner.js'
 import { ProviderRegistry } from './provider-registry.js'
 import { Scheduler } from './scheduler.js'
@@ -188,6 +189,22 @@ export async function createServer(opts: {
     },
     onProjectDeleted: (projectId: string) => {
       scheduler.remove(projectId)
+    },
+    getTelemetryStatus: () => {
+      const enabled = isTelemetryEnabled()
+      return {
+        enabled,
+        // Only read/create the anonymous ID if telemetry is enabled.
+        // Don't mutate config for opted-out users.
+        anonymousId: enabled ? getOrCreateAnonymousId() : undefined,
+      }
+    },
+    setTelemetryEnabled: (enabled: boolean) => {
+      const config = loadConfig()
+      config.telemetry = enabled
+      saveConfig(config)
+      // Keep in-memory config in sync
+      opts.config.telemetry = enabled
     },
     onGenerateKeywords: async (providerName, count, project) => {
       const provider = registry.get(providerName as ProviderName)

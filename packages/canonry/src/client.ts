@@ -150,6 +150,14 @@ export class ApiClient {
     return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/notifications/${encodeURIComponent(id)}/test`)
   }
 
+  async getTelemetry(): Promise<{ enabled: boolean; anonymousId?: string }> {
+    return this.request<{ enabled: boolean; anonymousId?: string }>('GET', '/telemetry')
+  }
+
+  async updateTelemetry(enabled: boolean): Promise<{ enabled: boolean; anonymousId?: string }> {
+    return this.request<{ enabled: boolean; anonymousId?: string }>('PUT', '/telemetry', { enabled })
+  }
+
   async generateKeywords(project: string, provider: string, count?: number): Promise<{ keywords: string[]; provider: string }> {
     return this.request<{ keywords: string[]; provider: string }>(
       'POST',

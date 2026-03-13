@@ -1,6 +1,7 @@
 import { loadConfig } from '../config.js'
 import { createClient, migrate } from '@ainyc/canonry-db'
 import { createServer } from '../server.js'
+import { trackEvent } from '../telemetry.js'
 
 export async function serveCommand(): Promise<void> {
   const config = loadConfig()
@@ -18,6 +19,14 @@ export async function serveCommand(): Promise<void> {
     await app.listen({ host, port })
     console.log(`\nCanonry server running at http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`)
     console.log('Press Ctrl+C to stop.\n')
+
+    const providerNames = Object.keys(config.providers ?? {}).filter(
+      k => config.providers?.[k as keyof typeof config.providers]?.apiKey || config.providers?.[k as keyof typeof config.providers]?.baseUrl,
+    )
+    trackEvent('serve.started', {
+      providerCount: providerNames.length,
+      providers: providerNames,
+    })
   } catch (err) {
     app.log.error(err)
     process.exit(1)

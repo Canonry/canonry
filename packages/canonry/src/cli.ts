@@ -15,6 +15,8 @@ import { exportProject } from './commands/export-cmd.js'
 import { showSettings, setProvider } from './commands/settings.js'
 import { setSchedule, showSchedule, enableSchedule, disableSchedule, removeSchedule } from './commands/schedule.js'
 import { addNotification, listNotifications, removeNotification, testNotification } from './commands/notify.js'
+import { telemetryCommand } from './commands/telemetry.js'
+import { trackEvent, isTelemetryEnabled, isFirstRun, getOrCreateAnonymousId, showFirstRunNotice } from './telemetry.js'
 
 const USAGE = `
 canonry — AEO monitoring CLI
@@ -52,6 +54,9 @@ Usage:
   canonry notify test <project> <id>  Send test webhook
   canonry settings                    Show active provider and quota settings
   canonry settings provider <name>    Update a provider config (--api-key, --base-url, --model)
+  canonry telemetry status            Show telemetry status
+  canonry telemetry enable            Enable anonymous telemetry
+  canonry telemetry disable           Disable anonymous telemetry
   canonry --help                      Show this help
   canonry --version                   Show version
 
@@ -88,6 +93,26 @@ async function main() {
   }
 
   const command = args[0]!
+
+  // First-run telemetry notice (shown once, to stderr).
+  // Skip for the `telemetry` command itself — the user may be about to disable it,
+  // and we should not create an anonymousId before they get the chance to opt out.
+  if (command !== 'telemetry' && command !== 'init' && isTelemetryEnabled() && isFirstRun()) {
+    showFirstRunNotice()
+    getOrCreateAnonymousId()
+  }
+
+  // Resolve command name for telemetry (e.g. "project.create", "run")
+  const SUBCOMMAND_COMMANDS = new Set(['project', 'keyword', 'competitor', 'schedule', 'notify', 'settings', 'telemetry'])
+  const resolvedCommand = SUBCOMMAND_COMMANDS.has(command) && args[1] && !args[1].startsWith('-')
+    ? `${command}.${args[1]}`
+    : command
+
+  // Track CLI command usage (fire-and-forget).
+  // Skip for `telemetry` commands — don't track the opt-out flow itself.
+  if (command !== 'telemetry') {
+    trackEvent('cli.command', { command: resolvedCommand })
+  }
 
   try {
     switch (command) {
@@ -502,6 +527,11 @@ async function main() {
         } else {
           await showSettings()
         }
+        break
+      }
+
+      case 'telemetry': {
+        telemetryCommand(args[1])
         break
       }
 
