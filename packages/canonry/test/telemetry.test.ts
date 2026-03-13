@@ -5,6 +5,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { parse } from 'yaml'
+import { createClient, migrate, projects, runs } from '@ainyc/canonry-db'
+import { JobRunner } from '../src/job-runner.js'
+import { ProviderRegistry } from '../src/provider-registry.js'
 
 const tmpDir = path.join(os.tmpdir(), `canonry-telemetry-test-${crypto.randomUUID()}`)
 
@@ -641,6 +644,147 @@ describe('telemetry', () => {
       const loaded = loadConfig()
       assert.equal(loaded.telemetry, undefined)
       assert.equal(loaded.anonymousId, undefined)
+    })
+  })
+
+  // ── JobRunner outer-catch telemetry ─────────────────────────────────
+
+  describe('JobRunner fatal failure telemetry', () => {
+    it('emits run.completed with status failed when no providers configured', async () => {
+      const { saveConfig } = await import('../src/config.js')
+      saveConfig(makeConfig({ anonymousId: crypto.randomUUID() }))
+
+      // Set up an in-memory SQLite DB
+      const dbPath = path.join(os.tmpdir(), `canonry-jr-test-${crypto.randomUUID()}`, 'test.db')
+      const db = createClient(dbPath)
+      migrate(db)
+
+      // Insert a project and a queued run
+      const projectId = crypto.randomUUID()
+      const runId = crypto.randomUUID()
+      const now = new Date().toISOString()
+
+      db.insert(projects).values({
+        id: projectId,
+        name: 'test-project',
+        displayName: 'Test Project',
+        canonicalDomain: 'example.com',
+        country: 'US',
+        language: 'en',
+        providers: '[]',
+        createdAt: now,
+        updatedAt: now,
+      }).run()
+
+      db.insert(runs).values({
+        id: runId,
+        projectId,
+        status: 'queued',
+        createdAt: now,
+      }).run()
+
+      // Empty registry → triggers "No providers configured" error
+      const registry = new ProviderRegistry()
+      const runner = new JobRunner(db, registry)
+
+      // Capture telemetry POST
+      const capturedPayloads: Array<Record<string, unknown>> = []
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+        if (init?.body) {
+          capturedPayloads.push(JSON.parse(init.body as string))
+        }
+        return new Response(JSON.stringify({ ok: true }))
+      }
+
+      try {
+        await runner.executeRun(runId, projectId)
+
+        // Give fire-and-forget fetch a tick
+        await new Promise(resolve => setTimeout(resolve, 50))
+
+        // Verify telemetry was emitted with failure status
+        assert.ok(capturedPayloads.length >= 1, 'expected at least one telemetry event')
+        const runEvent = capturedPayloads.find(p => p.event === 'run.completed')
+        assert.ok(runEvent, 'expected a run.completed telemetry event')
+        assert.deepEqual(runEvent!.properties, {
+          status: 'failed',
+          providerCount: 0,
+          providers: [],
+          keywordCount: 0,
+          durationMs: (runEvent!.properties as Record<string, unknown>).durationMs,
+        })
+        assert.equal((runEvent!.properties as Record<string, unknown>).status, 'failed')
+
+        // Verify the run was marked as failed in the DB
+        const failedRun = db.select().from(runs).all().find(r => r.id === runId)
+        assert.equal(failedRun?.status, 'failed')
+        assert.ok(failedRun?.error?.includes('No providers configured'))
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+    })
+
+    it('emits run.completed with status failed when project is missing', async () => {
+      const { saveConfig } = await import('../src/config.js')
+      saveConfig(makeConfig({ anonymousId: crypto.randomUUID() }))
+
+      const dbPath = path.join(os.tmpdir(), `canonry-jr-test-${crypto.randomUUID()}`, 'test.db')
+      const db = createClient(dbPath)
+      migrate(db)
+
+      // Insert a project first (for FK), then a run, then delete the project
+      // Actually, simpler: insert a run with a projectId that references a real project,
+      // but we need FK. Let's create the project, create the run, then use a different projectId for lookup.
+      const realProjectId = crypto.randomUUID()
+      const runId = crypto.randomUUID()
+      const fakeProjectId = crypto.randomUUID()
+      const now = new Date().toISOString()
+
+      db.insert(projects).values({
+        id: realProjectId,
+        name: 'real-project',
+        displayName: 'Real Project',
+        canonicalDomain: 'example.com',
+        country: 'US',
+        language: 'en',
+        providers: '[]',
+        createdAt: now,
+        updatedAt: now,
+      }).run()
+
+      // Insert run referencing the real project (satisfies FK)
+      db.insert(runs).values({
+        id: runId,
+        projectId: realProjectId,
+        status: 'queued',
+        createdAt: now,
+      }).run()
+
+      const registry = new ProviderRegistry()
+      const runner = new JobRunner(db, registry)
+
+      const capturedPayloads: Array<Record<string, unknown>> = []
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+        if (init?.body) {
+          capturedPayloads.push(JSON.parse(init.body as string))
+        }
+        return new Response(JSON.stringify({ ok: true }))
+      }
+
+      try {
+        // Pass fakeProjectId — project lookup will fail
+        await runner.executeRun(runId, fakeProjectId)
+        await new Promise(resolve => setTimeout(resolve, 50))
+
+        const runEvent = capturedPayloads.find(p => p.event === 'run.completed')
+        assert.ok(runEvent, 'expected a run.completed telemetry event for missing project')
+        assert.equal((runEvent!.properties as Record<string, unknown>).status, 'failed')
+        assert.equal((runEvent!.properties as Record<string, unknown>).providerCount, 0)
+      } finally {
+        globalThis.fetch = originalFetch
+      }
     })
   })
 })
