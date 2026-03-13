@@ -159,18 +159,3 @@ Project grouping ("workspaces" or "organizations"), cross-project dashboards, te
 | Cloud multi-tenant mode | High | High | **P3** |
 | Integrations ecosystem | High | Medium | **P3** |
 | Agency multi-brand mgmt | Medium | Medium | **P3** |
-
----
-
-## What Makes Canonry Uniquely Competitive
-
-Paid tools charge $29-$499+/month per seat and gate features behind tiers. Canonry's open-source positioning means:
-
-1. **No per-prompt pricing** — run as many queries as your API keys allow
-2. **Local-first privacy** — data never leaves your machine unless you choose cloud
-3. **Config-as-code** — version-controlled monitoring configs, CI/CD friendly
-4. **Extensible providers** — add any OpenAI-compatible LLM, no vendor approval needed
-5. **API-first** — every feature is automatable, not locked behind a UI
-6. **Full data ownership** — SQLite file you can query directly, export anywhere
-
-The strategy is: match paid tools on core metrics (SOV, sentiment, prominence), then differentiate on openness, extensibility, and developer experience.
