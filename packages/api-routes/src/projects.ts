@@ -31,6 +31,13 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       const err = validationError('Missing required fields: displayName, canonicalDomain, country, language')
       return reply.status(err.statusCode).send(err.toJSON())
     }
+    if (body.ownedDomains !== undefined && (
+      !Array.isArray(body.ownedDomains) ||
+      body.ownedDomains.some(d => typeof d !== 'string' || d.trim() === '')
+    )) {
+      const err = validationError('ownedDomains must be an array of non-empty strings')
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
 
     const now = new Date().toISOString()
     const existing = app.db.select().from(projects).where(eq(projects.name, name)).get()

@@ -340,8 +340,11 @@ function determineCitationState(
     const lowerDomain = bareDomain.toLowerCase()
     for (const source of normalized.groundingSources) {
       try {
+        // Only use substring fallback for domains that look like real FQDNs (contain a dot).
+        // Short or generic owned-domain entries (e.g. "ai", "app") would otherwise match
+        // the vast majority of URLs, producing false-positive citations.
         const uri = source.uri.toLowerCase()
-        if (uri.includes(lowerDomain)) {
+        if (lowerDomain.includes('.') && uri.includes(lowerDomain)) {
           return 'cited'
         }
       } catch {
