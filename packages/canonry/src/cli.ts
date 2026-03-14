@@ -4,7 +4,7 @@ import { bootstrapCommand } from './commands/bootstrap.js'
 import { initCommand } from './commands/init.js'
 import { serveCommand } from './commands/serve.js'
 import { startDaemon, stopDaemon } from './commands/daemon.js'
-import { createProject, listProjects, showProject, deleteProject } from './commands/project.js'
+import { createProject, listProjects, showProject, deleteProject, updateProjectSettings } from './commands/project.js'
 import { addKeywords, listKeywords, importKeywords, generateKeywords } from './commands/keyword.js'
 import { addCompetitors, listCompetitors } from './commands/competitor.js'
 import { triggerRun, triggerRunAll, showRun, listRuns } from './commands/run.js'
@@ -30,6 +30,7 @@ Usage:
   canonry start                       Start the server as a background daemon
   canonry stop                        Stop the background daemon
   canonry project create <name>       Create a project
+  canonry project update <name>       Update project settings
   canonry project list                List all projects
   canonry project show <name>         Show project details
   canonry project delete <name>       Delete a project
@@ -77,8 +78,11 @@ Options:
   --local-key <key>    Local LLM API key (or LOCAL_API_KEY env var)
   --port <port>        Server port (default: 4100)
   --host <host>        Server bind address (default: 127.0.0.1)
-  --domain <domain>    Canonical domain for project create
+  --domain <domain>    Canonical domain for project create/update
   --owned-domain <domain>  Additional owned domain for citation matching (repeatable)
+  --add-domain <domain>    Add an owned domain (project update, repeatable)
+  --remove-domain <domain> Remove an owned domain (project update, repeatable)
+  --display-name <name>    Display name for project create/update
   --country <code>     Country code (default: US)
   --language <lang>    Language code (default: en)
   --provider <name>    Provider to use (gemini, openai, claude, local)
@@ -243,6 +247,37 @@ async function main() {
             })
             break
           }
+          case 'update': {
+            const name = args[2]
+            if (!name) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            const { values } = parseArgs({
+              args: args.slice(3),
+              options: {
+                domain: { type: 'string', short: 'd' },
+                'owned-domain': { type: 'string', multiple: true },
+                'add-domain': { type: 'string', multiple: true },
+                'remove-domain': { type: 'string', multiple: true },
+                country: { type: 'string' },
+                language: { type: 'string' },
+                'display-name': { type: 'string' },
+                format: { type: 'string' },
+              },
+              allowPositionals: false,
+            })
+            await updateProjectSettings(name, {
+              displayName: values['display-name'],
+              domain: values.domain,
+              ownedDomains: values['owned-domain'],
+              addOwnedDomain: values['add-domain'],
+              removeOwnedDomain: values['remove-domain'],
+              country: values.country,
+              language: values.language,
+            })
+            break
+          }
           case 'list':
             await listProjects(format)
             break
@@ -266,7 +301,7 @@ async function main() {
           }
           default:
             console.error(`Unknown project subcommand: ${subcommand ?? '(none)'}`)
-            console.log('Available: create, list, show, delete')
+            console.log('Available: create, update, list, show, delete')
             process.exit(1)
         }
         break

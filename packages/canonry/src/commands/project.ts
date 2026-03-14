@@ -104,6 +104,47 @@ export async function showProject(name: string, format?: string): Promise<void> 
   console.log(`  Updated:          ${project.updatedAt}`)
 }
 
+export async function updateProjectSettings(
+  name: string,
+  opts: {
+    displayName?: string
+    domain?: string
+    ownedDomains?: string[]
+    addOwnedDomain?: string[]
+    removeOwnedDomain?: string[]
+    country?: string
+    language?: string
+  },
+): Promise<void> {
+  const client = getClient()
+  const project = await client.getProject(name) as {
+    displayName: string
+    canonicalDomain: string
+    ownedDomains?: string[]
+    country: string
+    language: string
+  }
+
+  let ownedDomains = opts.ownedDomains ?? project.ownedDomains ?? []
+  if (opts.addOwnedDomain) {
+    const toAdd = opts.addOwnedDomain.filter(d => !ownedDomains.includes(d))
+    ownedDomains = [...ownedDomains, ...toAdd]
+  }
+  if (opts.removeOwnedDomain) {
+    const toRemove = new Set(opts.removeOwnedDomain)
+    ownedDomains = ownedDomains.filter(d => !toRemove.has(d))
+  }
+
+  const result = await client.putProject(name, {
+    displayName: opts.displayName ?? project.displayName,
+    canonicalDomain: opts.domain ?? project.canonicalDomain,
+    ownedDomains,
+    country: opts.country ?? project.country,
+    language: opts.language ?? project.language,
+  }) as { name: string }
+  console.log(`Project updated: ${result.name}`)
+}
+
 export async function deleteProject(name: string): Promise<void> {
   const client = getClient()
   await client.deleteProject(name)

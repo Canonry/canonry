@@ -133,4 +133,69 @@ describe('api-routes', () => {
     assert(Array.isArray(body))
     assert(body.length > 0)
   })
+
+  it('PUT /api/v1/projects/:name updates project settings', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/my-site',
+      payload: {
+        displayName: 'Updated Site',
+        canonicalDomain: 'updated.com',
+        ownedDomains: ['docs.updated.com', 'blog.updated.com'],
+        country: 'GB',
+        language: 'en-gb',
+      },
+    })
+    assert.equal(res.statusCode, 200)
+    const body = JSON.parse(res.payload)
+    assert.equal(body.name, 'my-site')
+    assert.equal(body.displayName, 'Updated Site')
+    assert.equal(body.canonicalDomain, 'updated.com')
+    assert.deepEqual(body.ownedDomains, ['docs.updated.com', 'blog.updated.com'])
+    assert.equal(body.country, 'GB')
+    assert.equal(body.language, 'en-gb')
+
+    // Verify GET returns updated values
+    const getRes = await app.inject({ method: 'GET', url: '/api/v1/projects/my-site' })
+    assert.equal(getRes.statusCode, 200)
+    const getBody = JSON.parse(getRes.payload)
+    assert.equal(getBody.displayName, 'Updated Site')
+    assert.equal(getBody.canonicalDomain, 'updated.com')
+    assert.deepEqual(getBody.ownedDomains, ['docs.updated.com', 'blog.updated.com'])
+    assert.equal(getBody.country, 'GB')
+    assert.equal(getBody.language, 'en-gb')
+  })
+
+  it('PUT /api/v1/projects/:name with empty ownedDomains clears them', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/my-site',
+      payload: {
+        displayName: 'Updated Site',
+        canonicalDomain: 'updated.com',
+        ownedDomains: [],
+        country: 'GB',
+        language: 'en-gb',
+      },
+    })
+    assert.equal(res.statusCode, 200)
+    const body = JSON.parse(res.payload)
+    assert.deepEqual(body.ownedDomains, [])
+  })
+
+  it('PUT /api/v1/projects/:name without ownedDomains defaults to empty', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/my-site',
+      payload: {
+        displayName: 'Updated Site',
+        canonicalDomain: 'updated.com',
+        country: 'GB',
+        language: 'en-gb',
+      },
+    })
+    assert.equal(res.statusCode, 200)
+    const body = JSON.parse(res.payload)
+    assert.deepEqual(body.ownedDomains, [])
+  })
 })

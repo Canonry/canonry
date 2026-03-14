@@ -212,6 +212,99 @@ describe('canonry', () => {
     }
   })
 
+  it('API flow: update project settings via PUT', async () => {
+    const tmpDir = path.join(os.tmpdir(), `canonry-test-${crypto.randomUUID()}`)
+    fs.mkdirSync(tmpDir, { recursive: true })
+    const dbPath = path.join(tmpDir, 'test.db')
+
+    const db = createClient(dbPath)
+    migrate(db)
+
+    const rawKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
+    const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex')
+    db.insert(apiKeys).values({
+      id: crypto.randomUUID(),
+      name: 'test',
+      keyHash,
+      keyPrefix: rawKey.slice(0, 9),
+      scopes: '["*"]',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    const app = await createServer({
+      config: {
+        apiUrl: 'http://localhost:4100',
+        database: dbPath,
+        apiKey: rawKey,
+        geminiApiKey: 'test-key',
+      },
+      db,
+    })
+
+    try {
+      // Create project
+      const createRes = await app.inject({
+        method: 'PUT',
+        url: '/api/v1/projects/update-test',
+        headers: { authorization: `Bearer ${rawKey}` },
+        payload: {
+          displayName: 'Original',
+          canonicalDomain: 'original.com',
+          country: 'US',
+          language: 'en',
+        },
+      })
+      assert.equal(createRes.statusCode, 201)
+
+      // Update project with new settings including ownedDomains
+      const updateRes = await app.inject({
+        method: 'PUT',
+        url: '/api/v1/projects/update-test',
+        headers: { authorization: `Bearer ${rawKey}` },
+        payload: {
+          displayName: 'Updated Name',
+          canonicalDomain: 'updated.com',
+          ownedDomains: ['docs.updated.com', 'blog.updated.com'],
+          country: 'GB',
+          language: 'en-gb',
+        },
+      })
+      assert.equal(updateRes.statusCode, 200)
+      const updated = JSON.parse(updateRes.body) as {
+        displayName: string
+        canonicalDomain: string
+        ownedDomains: string[]
+        country: string
+        language: string
+      }
+      assert.equal(updated.displayName, 'Updated Name')
+      assert.equal(updated.canonicalDomain, 'updated.com')
+      assert.deepEqual(updated.ownedDomains, ['docs.updated.com', 'blog.updated.com'])
+      assert.equal(updated.country, 'GB')
+      assert.equal(updated.language, 'en-gb')
+
+      // Verify GET returns updated values
+      const getRes = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/update-test',
+        headers: { authorization: `Bearer ${rawKey}` },
+      })
+      const fetched = JSON.parse(getRes.body) as {
+        displayName: string
+        canonicalDomain: string
+        ownedDomains: string[]
+        country: string
+      }
+      assert.equal(fetched.displayName, 'Updated Name')
+      assert.equal(fetched.canonicalDomain, 'updated.com')
+      assert.deepEqual(fetched.ownedDomains, ['docs.updated.com', 'blog.updated.com'])
+      assert.equal(fetched.country, 'GB')
+    } finally {
+      await app.close()
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
   it('initCommand non-interactive mode creates config from flags', async () => {
     const tmpDir = path.join(os.tmpdir(), `canonry-init-${crypto.randomUUID()}`)
     const originalConfigDir = process.env.CANONRY_CONFIG_DIR

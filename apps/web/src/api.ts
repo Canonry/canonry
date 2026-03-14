@@ -205,6 +205,23 @@ export async function updateOwnedDomains(projectName: string, ownedDomains: stri
   })
 }
 
+export async function updateProject(projectName: string, updates: {
+  displayName?: string
+  canonicalDomain?: string
+  ownedDomains?: string[]
+  country?: string
+  language?: string
+}): Promise<ApiProject> {
+  const project = await fetchProject(projectName)
+  return createProject(projectName, {
+    displayName: updates.displayName ?? project.displayName,
+    canonicalDomain: updates.canonicalDomain ?? project.canonicalDomain,
+    ownedDomains: updates.ownedDomains ?? project.ownedDomains,
+    country: updates.country ?? project.country,
+    language: updates.language ?? project.language,
+  })
+}
+
 export function triggerRun(name: string): Promise<ApiRun> {
   return apiFetch(`/projects/${encodeURIComponent(name)}/runs`, { method: 'POST', body: '{}' })
 }

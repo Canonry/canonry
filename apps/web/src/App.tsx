@@ -52,6 +52,7 @@ import {
   applyProjectConfig,
   generateKeywords as apiGenerateKeywords,
   updateOwnedDomains,
+  updateProject,
   type ApiSchedule,
   type ApiNotification,
   type GroundingSource,
@@ -1515,6 +1516,7 @@ function ProjectPage({
   onAddKeywords,
   onAddCompetitors,
   onUpdateOwnedDomains,
+  onUpdateProject,
 }: {
   model: ProjectCommandCenterVm
   onOpenEvidence: (evidenceId: string) => void
@@ -1524,6 +1526,7 @@ function ProjectPage({
   onAddKeywords: (projectName: string, keywords: string[]) => Promise<void>
   onAddCompetitors: (projectName: string, domains: string[]) => Promise<void>
   onUpdateOwnedDomains: (projectName: string, ownedDomains: string[]) => Promise<void>
+  onUpdateProject: (projectName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; country?: string; language?: string }) => Promise<void>
 }) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -1878,9 +1881,209 @@ function ProjectPage({
         </div>
       </section>
 
+      <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name }} onUpdateProject={onUpdateProject} />
       <ScheduleSection projectName={model.project.name} />
       <NotificationsSection projectName={model.project.name} />
     </div>
+  )
+}
+
+function ProjectSettingsSection({
+  project,
+  onUpdateProject,
+}: {
+  project: { name: string; displayName: string; canonicalDomain: string; ownedDomains: string[]; country: string; language: string }
+  onUpdateProject: (projectName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; country?: string; language?: string }) => Promise<void>
+}) {
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [displayName, setDisplayName] = useState(project.displayName)
+  const [canonicalDomain, setCanonicalDomain] = useState(project.canonicalDomain)
+  const [country, setCountry] = useState(project.country)
+  const [language, setLanguage] = useState(project.language)
+  const [ownedDomains, setOwnedDomains] = useState<string[]>(project.ownedDomains ?? [])
+  const [newDomain, setNewDomain] = useState('')
+
+  // Sync local state when project prop changes (e.g. after save)
+  useEffect(() => {
+    if (!editing) {
+      setDisplayName(project.displayName)
+      setCanonicalDomain(project.canonicalDomain)
+      setCountry(project.country)
+      setLanguage(project.language)
+      setOwnedDomains(project.ownedDomains ?? [])
+    }
+  }, [project, editing])
+
+  function handleCancel() {
+    setEditing(false)
+    setError(null)
+    setDisplayName(project.displayName)
+    setCanonicalDomain(project.canonicalDomain)
+    setCountry(project.country)
+    setLanguage(project.language)
+    setOwnedDomains(project.ownedDomains ?? [])
+    setNewDomain('')
+  }
+
+  function handleAddDomain() {
+    const d = newDomain.trim()
+    if (!d) return
+    if (!ownedDomains.includes(d)) {
+      setOwnedDomains([...ownedDomains, d])
+    }
+    setNewDomain('')
+  }
+
+  function handleRemoveDomain(domain: string) {
+    setOwnedDomains(ownedDomains.filter(d => d !== domain))
+  }
+
+  async function handleSave() {
+    if (!displayName.trim() || !canonicalDomain.trim() || !country.trim() || !language.trim()) return
+    setSaving(true)
+    setError(null)
+    try {
+      await onUpdateProject(project.name, {
+        displayName: displayName.trim(),
+        canonicalDomain: canonicalDomain.trim(),
+        ownedDomains,
+        country: country.trim(),
+        language: language.trim(),
+      })
+      setEditing(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const hasChanges = displayName !== project.displayName ||
+    canonicalDomain !== project.canonicalDomain ||
+    country !== project.country ||
+    language !== project.language ||
+    JSON.stringify(ownedDomains) !== JSON.stringify(project.ownedDomains ?? [])
+
+  const inputClass = 'w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none'
+  const labelClass = 'block text-xs font-medium text-zinc-400 mb-1'
+
+  return (
+    <section className="page-section-divider">
+      <div className="section-head section-head-inline">
+        <div>
+          <p className="eyebrow eyebrow-soft">Configuration</p>
+          <h2>Project settings</h2>
+        </div>
+        {!editing && (
+          <Button type="button" variant="outline" size="sm" onClick={() => setEditing(true)}>
+            Edit settings
+          </Button>
+        )}
+      </div>
+
+      {error && (
+        <div className="mb-3 rounded-lg border border-rose-800/40 bg-rose-950/20 px-3 py-2 text-sm text-rose-300">
+          {error}
+          <button type="button" className="ml-2 text-rose-400 hover:text-rose-200" onClick={() => setError(null)}>×</button>
+        </div>
+      )}
+
+      {editing ? (
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className={labelClass}>Display name</label>
+              <input className={inputClass} type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="My Project" />
+            </div>
+            <div>
+              <label className={labelClass}>Canonical domain</label>
+              <input className={inputClass} type="text" value={canonicalDomain} onChange={(e) => setCanonicalDomain(e.target.value)} placeholder="example.com" />
+            </div>
+            <div>
+              <label className={labelClass}>Country</label>
+              <input className={inputClass} type="text" value={country} onChange={(e) => setCountry(e.target.value)} placeholder="US" maxLength={2} />
+            </div>
+            <div>
+              <label className={labelClass}>Language</label>
+              <input className={inputClass} type="text" value={language} onChange={(e) => setLanguage(e.target.value)} placeholder="en" />
+            </div>
+          </div>
+
+          <div>
+            <label className={labelClass}>Owned domains</label>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {ownedDomains.map((d) => (
+                <span key={d} className="inline-flex items-center gap-1 rounded-full border border-zinc-700/60 bg-zinc-800/40 px-2 py-0.5 text-xs text-zinc-300">
+                  {d}
+                  <button type="button" className="ml-0.5 text-zinc-500 hover:text-zinc-200 transition-colors" onClick={() => handleRemoveDomain(d)} aria-label={`Remove ${d}`}>×</button>
+                </span>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input
+                className={`${inputClass} flex-1`}
+                type="text"
+                placeholder="docs.example.com"
+                value={newDomain}
+                onChange={(e) => setNewDomain(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddDomain())}
+              />
+              <Button type="button" variant="outline" size="sm" disabled={!newDomain.trim()} onClick={handleAddDomain}>
+                Add
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 pt-2 border-t border-zinc-800/60">
+            <Button type="button" disabled={saving || !hasChanges || !displayName.trim() || !canonicalDomain.trim()} onClick={handleSave}>
+              {saving ? 'Saving...' : 'Save changes'}
+            </Button>
+            <Button type="button" variant="outline" disabled={saving} onClick={handleCancel}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 overflow-hidden">
+          <table className="w-full text-sm">
+            <tbody>
+              <tr className="border-b border-zinc-800/40">
+                <td className="px-4 py-2.5 text-zinc-500 font-medium w-40">Display name</td>
+                <td className="px-4 py-2.5 text-zinc-200">{project.displayName || '—'}</td>
+              </tr>
+              <tr className="border-b border-zinc-800/40">
+                <td className="px-4 py-2.5 text-zinc-500 font-medium">Canonical domain</td>
+                <td className="px-4 py-2.5 text-zinc-200">{project.canonicalDomain}</td>
+              </tr>
+              <tr className="border-b border-zinc-800/40">
+                <td className="px-4 py-2.5 text-zinc-500 font-medium">Owned domains</td>
+                <td className="px-4 py-2.5">
+                  {(project.ownedDomains ?? []).length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {project.ownedDomains.map((d) => (
+                        <span key={d} className="rounded-full border border-zinc-700/60 bg-zinc-800/40 px-2 py-0.5 text-xs text-zinc-300">{d}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-zinc-500">—</span>
+                  )}
+                </td>
+              </tr>
+              <tr className="border-b border-zinc-800/40">
+                <td className="px-4 py-2.5 text-zinc-500 font-medium">Country</td>
+                <td className="px-4 py-2.5 text-zinc-200">{project.country}</td>
+              </tr>
+              <tr>
+                <td className="px-4 py-2.5 text-zinc-500 font-medium">Language</td>
+                <td className="px-4 py-2.5 text-zinc-200">{project.language}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -4052,6 +4255,17 @@ export function App({
     await refreshData()
   }
 
+  const handleUpdateProject = async (projectName: string, updates: {
+    displayName?: string
+    canonicalDomain?: string
+    ownedDomains?: string[]
+    country?: string
+    language?: string
+  }) => {
+    await updateProject(projectName, updates)
+    await refreshData()
+  }
+
   const systemHealthCards = buildSystemHealthCards(safeDashboard.portfolioOverview.systemHealth, healthSnapshot, safeDashboard.settings)
   const setupModel = buildSetupModel(safeDashboard.setup, healthSnapshot, safeDashboard.settings)
   const selectedRun = drawerState?.kind === 'run' ? findRunById(safeDashboard, drawerState.runId) : undefined
@@ -4263,7 +4477,7 @@ export function App({
                 />
               ) : null}
               {route.kind === 'project' && activeProject ? (
-                <ProjectPage model={activeProject} onOpenEvidence={openEvidence} onOpenRun={openRun} onTriggerRun={handleTriggerRun} onDeleteProject={handleDeleteProject} onAddKeywords={handleAddKeywords} onAddCompetitors={handleAddCompetitors} onUpdateOwnedDomains={handleUpdateOwnedDomains} />
+                <ProjectPage model={activeProject} onOpenEvidence={openEvidence} onOpenRun={openRun} onTriggerRun={handleTriggerRun} onDeleteProject={handleDeleteProject} onAddKeywords={handleAddKeywords} onAddCompetitors={handleAddCompetitors} onUpdateOwnedDomains={handleUpdateOwnedDomains} onUpdateProject={handleUpdateProject} />
               ) : null}
               {route.kind === 'runs' ? <RunsPage runs={safeDashboard.runs} onOpenRun={openRun} onTriggerAll={handleTriggerAllRuns} /> : null}
               {route.kind === 'settings' ? (
