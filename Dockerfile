@@ -13,6 +13,7 @@ COPY packages ./packages
 
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @ainyc/canonry build
+RUN pnpm deploy --legacy --filter @ainyc/canonry --prod /prod/app
 
 FROM node:20-bookworm-slim
 
@@ -22,12 +23,12 @@ ENV PORT=4100
 
 WORKDIR /app
 
-COPY --from=build /app/package.json ./package.json
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/packages/canonry ./packages/canonry
+COPY --from=build /prod/app ./
 COPY docker/entrypoint.sh /usr/local/bin/canonry-entrypoint
 
-RUN chmod +x /usr/local/bin/canonry-entrypoint
+RUN chmod +x /usr/local/bin/canonry-entrypoint \
+  && rm -rf /usr/local/lib/node_modules/npm \
+  && rm -f /usr/local/bin/npm /usr/local/bin/npx
 
 EXPOSE 4100
 

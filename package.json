@@ -11,7 +11,7 @@
     "dev:api": "pnpm --filter @ainyc/canonry-api run dev",
     "dev:worker": "pnpm --filter @ainyc/canonry-worker run dev",
     "dev:web": "pnpm --filter @ainyc/canonry-web run dev",
-    "prepare": "husky"
+    "prepare": "husky || true"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
@@ -24,6 +24,10 @@
     "typescript-eslint": "^8.43.0"
   },
   "pnpm": {
+    "overrides": {
+      "@esbuild-kit/core-utils>esbuild": "^0.27.3",
+      "cheerio>undici": "^7.24.2"
+    },
     "onlyBuiltDependencies": [
       "better-sqlite3",
       "esbuild"

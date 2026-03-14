@@ -12,20 +12,20 @@ COPY apps ./apps
 COPY packages ./packages
 
 RUN pnpm install --frozen-lockfile
+RUN pnpm deploy --legacy --filter @ainyc/canonry-worker --prod /prod/app
 
 FROM node:20-bookworm-slim
 
-ENV PNPM_HOME="/pnpm"
-ENV PATH="$PNPM_HOME:$PATH"
 ENV NODE_ENV=production
-
-RUN corepack enable
 
 WORKDIR /app
 
-COPY --from=build /app ./
+COPY --from=build /prod/app ./
+
+RUN rm -rf /usr/local/lib/node_modules/npm \
+  && rm -f /usr/local/bin/npm /usr/local/bin/npx
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
   CMD ["node", "-e", "const port = process.env.HEALTH_PORT || '4101'; fetch('http://127.0.0.1:' + port + '/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
 
-CMD ["pnpm", "exec", "tsx", "apps/worker/src/index.ts"]
+CMD ["./node_modules/.bin/tsx", "src/index.ts"]

@@ -15,6 +15,7 @@
     "@ainyc/canonry-config": "workspace:*",
     "@ainyc/canonry-contracts": "workspace:*",
     "@ainyc/canonry-db": "workspace:*",
-    "fastify": "^5.6.1"
+    "fastify": "^5.6.1",
+    "tsx": "^4.20.5"
   }
 }

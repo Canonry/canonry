@@ -95,45 +95,76 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
 
       - uses: docker/setup-buildx-action@v3
 
+      - name: Resolve GHCR image
+        id: ghcr-image
+        env:
+          GHCR_REPOSITORY: ${{ vars.GHCR_REPOSITORY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          IMAGE="${GHCR_REPOSITORY:-ghcr.io/$GITHUB_REPOSITORY}"
+
+          case "$IMAGE" in
+            ghcr.io/*) ;;
+            *) IMAGE="ghcr.io/$IMAGE" ;;
+          esac
+
+          IMAGE=$(printf '%s' "$IMAGE" | tr '[:upper:]' '[:lower:]')
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
       - name: Resolve Docker Hub image
-        id: image
+        id: dockerhub-image
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
           DOCKERHUB_REPOSITORY: ${{ vars.DOCKERHUB_REPOSITORY }}
         shell: bash
         run: |
-          if [ -z "$DOCKERHUB_USERNAME" ]; then
-            echo "DOCKERHUB_USERNAME secret is required" >&2
-            exit 1
+          if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "image=" >> "$GITHUB_OUTPUT"
+            echo "Docker Hub credentials not configured, skipping Docker Hub publish"
+            exit 0
           fi
 
           IMAGE="${DOCKERHUB_REPOSITORY:-$DOCKERHUB_USERNAME/canonry}"
           IMAGE=$(printf '%s' "$IMAGE" | tr '[:upper:]' '[:lower:]')
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
 
       - name: Resolve Docker tags
         id: tags
         env:
-          IMAGE: ${{ steps.image.outputs.image }}
+          GHCR_IMAGE: ${{ steps.ghcr-image.outputs.image }}
+          DOCKERHUB_ENABLED: ${{ steps.dockerhub-image.outputs.enabled }}
+          DOCKERHUB_IMAGE: ${{ steps.dockerhub-image.outputs.image }}
           VERSION: ${{ needs.version.outputs.version }}
           VERSION_CHANGED: ${{ needs.version.outputs.version_changed }}
           EVENT_NAME: ${{ github.event_name }}
         shell: bash
         run: |
           SHORT_SHA="${GITHUB_SHA::7}"
+          IMAGES=("$GHCR_IMAGE")
+
+          if [ "$DOCKERHUB_ENABLED" = "true" ]; then
+            IMAGES+=("$DOCKERHUB_IMAGE")
+          fi
 
           {
             echo "tags<<EOF"
-            echo "$IMAGE:latest"
-            echo "$IMAGE:sha-$SHORT_SHA"
-            if [ "$EVENT_NAME" = "push" ] && [ "$VERSION_CHANGED" = "true" ]; then
-              echo "$IMAGE:$VERSION"
-            fi
+            for IMAGE in "${IMAGES[@]}"; do
+              echo "$IMAGE:latest"
+              echo "$IMAGE:sha-$SHORT_SHA"
+              if [ "$EVENT_NAME" = "push" ] && [ "$VERSION_CHANGED" = "true" ]; then
+                echo "$IMAGE:$VERSION"
+              fi
+            done
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
@@ -156,6 +187,13 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/login-action@v3
+        if: steps.dockerhub-image.outputs.enabled == 'true'
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
