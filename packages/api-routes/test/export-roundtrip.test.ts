@@ -30,6 +30,7 @@ test('project export includes schedule and notifications for round-tripping', as
       payload: {
         displayName: 'Exportable',
         canonicalDomain: 'example.com',
+        ownedDomains: ['docs.example.com'],
         country: 'US',
         language: 'en',
       },
@@ -63,11 +64,13 @@ test('project export includes schedule and notifications for round-tripping', as
     assert.equal(exportRes.statusCode, 200)
     const body = JSON.parse(exportRes.body) as {
       spec: {
+        ownedDomains: string[]
         schedule?: { preset?: string; cron?: string; timezone: string; providers: string[] }
         notifications: Array<{ channel: string; url: string; events: string[] }>
       }
     }
 
+    assert.deepEqual(body.spec.ownedDomains, ['docs.example.com'])
     assert.deepEqual(body.spec.schedule, {
       preset: 'daily',
       timezone: 'UTC',

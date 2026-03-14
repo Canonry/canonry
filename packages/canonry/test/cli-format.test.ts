@@ -113,6 +113,31 @@ describe('--format json output', { concurrency: 1 }, () => {
     assert.ok(parsed.length >= 1)
   })
 
+  it('listProjects text output deduplicates owned-domain variants in the count', async () => {
+    await client.putProject('proj-owned', {
+      displayName: 'Owned',
+      canonicalDomain: 'a.com',
+      ownedDomains: ['docs.a.com', 'https://www.docs.a.com/path'],
+      country: 'US',
+      language: 'en',
+    })
+
+    const { listProjects } = await import('../src/commands/project.js')
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await listProjects()
+    } finally {
+      console.log = origLog
+    }
+
+    const output = logs.join('\n')
+    assert.match(output, /proj-owned/)
+    assert.match(output, /a\.com \(\+1\)/)
+    assert.doesNotMatch(output, /a\.com \(\+2\)/)
+  })
+
   it('showSettings with format json outputs valid JSON', async () => {
     const { showSettings } = await import('../src/commands/settings.js')
     const logs: string[] = []

@@ -18,6 +18,7 @@ import {
   Users,
   X,
 } from 'lucide-react'
+import { effectiveDomains, normalizeProjectDomain } from '@ainyc/canonry-contracts'
 
 import { Badge } from './components/ui/badge.js'
 import { Button } from './components/ui/button.js'
@@ -3228,7 +3229,8 @@ function EvidenceDetailModal({
   // Cache fetched run details so re-clicking a dot is instant
   const [runCache, setRunCache] = useState<Record<string, EvidenceDisplayData>>({})
 
-  const myDomain = project.project.canonicalDomain.toLowerCase().replace(/^www\./, '')
+  const projectDomains = effectiveDomains(project.project)
+  const myDomains = new Set(projectDomains.map(normalizeProjectDomain))
   const history = evidence.runHistory
   const hasHistory = history.length > 1
 
@@ -3248,7 +3250,7 @@ function EvidenceDetailModal({
 
   const isCited = display.citationState === 'cited' || display.citationState === 'emerging'
   const positionIndex = display.citedDomains.findIndex(
-    d => d.toLowerCase().replace(/^www\./, '') === myDomain,
+    d => myDomains.has(d.toLowerCase().replace(/^www\./, '')),
   )
   const position = positionIndex + 1
   const totalCited = display.citedDomains.length
@@ -3256,7 +3258,7 @@ function EvidenceDetailModal({
   // Terms to highlight in the AI answer
   const projectDisplayName = project.project.displayName || project.project.name
   const highlightTerms = [
-    project.project.canonicalDomain.replace(/^www\./, ''),
+    ...projectDomains.map(normalizeProjectDomain),
     projectDisplayName,
     projectDisplayName.split(' ').slice(0, 2).join(' '),
   ].filter(t => t.trim().length > 2)
@@ -3593,7 +3595,7 @@ function EvidenceDetailModal({
                       <div className="citation-leaderboard">
                         {display.citedDomains.map((domain, i) => {
                           const norm = domain.toLowerCase().replace(/^www\./, '')
-                          const isYou = norm === myDomain
+                          const isYou = myDomains.has(norm)
                           const isCompetitor = !isYou && display.competitorDomains.some(
                             c => c.toLowerCase().replace(/^www\./, '') === norm,
                           )

@@ -78,6 +78,7 @@ Options:
   --port <port>        Server port (default: 4100)
   --host <host>        Server bind address (default: 127.0.0.1)
   --domain <domain>    Canonical domain for project create
+  --owned-domain <domain>  Additional owned domain for citation matching (repeatable)
   --country <code>     Country code (default: US)
   --language <lang>    Language code (default: en)
   --provider <name>    Provider to use (gemini, openai, claude, local)
@@ -225,6 +226,7 @@ async function main() {
               args: args.slice(3),
               options: {
                 domain: { type: 'string', short: 'd' },
+                'owned-domain': { type: 'string', multiple: true },
                 country: { type: 'string', default: 'US' },
                 language: { type: 'string', default: 'en' },
                 'display-name': { type: 'string' },
@@ -234,6 +236,7 @@ async function main() {
             })
             await createProject(name, {
               domain: values.domain ?? name,
+              ownedDomains: values['owned-domain'] ?? [],
               country: values.country ?? 'US',
               language: values.language ?? 'en',
               displayName: values['display-name'] ?? name,

@@ -15,6 +15,8 @@ import {
   querySnapshotDtoSchema,
   auditLogEntrySchema,
   notificationEventSchema,
+  effectiveDomains,
+  normalizeProjectDomain,
 } from '../src/index.js'
 
 test('projectDtoSchema applies defaults for tags, labels, configSource, configRevision', () => {
@@ -28,8 +30,23 @@ test('projectDtoSchema applies defaults for tags, labels, configSource, configRe
 
   assert.deepEqual(project.tags, [])
   assert.deepEqual(project.labels, {})
+  assert.deepEqual(project.ownedDomains, [])
   assert.equal(project.configSource, 'cli')
   assert.equal(project.configRevision, 1)
+})
+
+test('normalizeProjectDomain strips scheme and www prefix', () => {
+  assert.equal(normalizeProjectDomain('https://www.Docs.Example.com/path'), 'docs.example.com')
+  assert.equal(normalizeProjectDomain('WWW.example.com'), 'example.com')
+})
+
+test('effectiveDomains deduplicates canonical and owned domain variants', () => {
+  const domains = effectiveDomains({
+    canonicalDomain: 'https://www.example.com',
+    ownedDomains: ['example.com', 'docs.example.com', 'https://www.docs.example.com/path', ''],
+  })
+
+  assert.deepEqual(domains, ['https://www.example.com', 'docs.example.com'])
 })
 
 test('run schemas accept expected values and reject invalid statuses', () => {

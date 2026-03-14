@@ -42,6 +42,7 @@ describe('api-routes', () => {
       payload: {
         displayName: 'My Site',
         canonicalDomain: 'example.com',
+        ownedDomains: ['docs.example.com'],
         country: 'US',
         language: 'en',
       },
@@ -51,6 +52,7 @@ describe('api-routes', () => {
     assert.equal(body.name, 'my-site')
     assert.equal(body.displayName, 'My Site')
     assert.equal(body.canonicalDomain, 'example.com')
+    assert.deepEqual(body.ownedDomains, ['docs.example.com'])
   })
 
   it('GET /api/v1/projects lists projects', async () => {
@@ -60,6 +62,7 @@ describe('api-routes', () => {
     assert(Array.isArray(body))
     assert.equal(body.length, 1)
     assert.equal(body[0].name, 'my-site')
+    assert.deepEqual(body[0].ownedDomains, ['docs.example.com'])
   })
 
   it('GET /api/v1/openapi.json returns the API spec', async () => {
@@ -83,6 +86,7 @@ describe('api-routes', () => {
     assert.equal(res.statusCode, 200)
     const body = JSON.parse(res.payload)
     assert.equal(body.name, 'my-site')
+    assert.deepEqual(body.ownedDomains, ['docs.example.com'])
   })
 
   it('GET /api/v1/projects/:name returns 404 for unknown', async () => {
