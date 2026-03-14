@@ -128,6 +128,10 @@ export function fetchProjects(): Promise<ApiProject[]> {
   return apiFetch('/projects')
 }
 
+export function fetchProject(name: string): Promise<ApiProject> {
+  return apiFetch(`/projects/${encodeURIComponent(name)}`)
+}
+
 export function fetchAllRuns(): Promise<ApiRun[]> {
   return apiFetch('/runs')
 }
@@ -187,6 +191,17 @@ export function setCompetitors(projectName: string, competitors: string[]): Prom
   return apiFetch(`/projects/${encodeURIComponent(projectName)}/competitors`, {
     method: 'PUT',
     body: JSON.stringify({ competitors }),
+  })
+}
+
+export async function updateOwnedDomains(projectName: string, ownedDomains: string[]): Promise<ApiProject> {
+  const project = await fetchProject(projectName)
+  return createProject(projectName, {
+    displayName: project.displayName,
+    canonicalDomain: project.canonicalDomain,
+    ownedDomains,
+    country: project.country,
+    language: project.language,
   })
 }
 

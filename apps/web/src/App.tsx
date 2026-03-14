@@ -51,6 +51,7 @@ import {
   sendTestNotification,
   applyProjectConfig,
   generateKeywords as apiGenerateKeywords,
+  updateOwnedDomains,
   type ApiSchedule,
   type ApiNotification,
   type GroundingSource,
@@ -1513,6 +1514,7 @@ function ProjectPage({
   onDeleteProject,
   onAddKeywords,
   onAddCompetitors,
+  onUpdateOwnedDomains,
 }: {
   model: ProjectCommandCenterVm
   onOpenEvidence: (evidenceId: string) => void
@@ -1521,6 +1523,7 @@ function ProjectPage({
   onDeleteProject: (projectName: string) => void
   onAddKeywords: (projectName: string, keywords: string[]) => Promise<void>
   onAddCompetitors: (projectName: string, domains: string[]) => Promise<void>
+  onUpdateOwnedDomains: (projectName: string, ownedDomains: string[]) => Promise<void>
 }) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -1532,6 +1535,9 @@ function ProjectPage({
   const [addingCompetitor, setAddingCompetitor] = useState(false)
   const [newCompetitorDomain, setNewCompetitorDomain] = useState('')
   const [competitorSaving, setCompetitorSaving] = useState(false)
+  const [addingOwnedDomain, setAddingOwnedDomain] = useState(false)
+  const [newOwnedDomain, setNewOwnedDomain] = useState('')
+  const [ownedDomainSaving, setOwnedDomainSaving] = useState(false)
 
   async function handleExport() {
     const data = await fetchExport(model.project.name)
@@ -1570,6 +1576,30 @@ function ProjectPage({
     }
   }
 
+  async function handleAddOwnedDomain() {
+    const domain = newOwnedDomain.trim()
+    if (!domain) return
+    setOwnedDomainSaving(true)
+    try {
+      const current = model.project.ownedDomains ?? []
+      await onUpdateOwnedDomains(model.project.name, [...current, domain])
+      setNewOwnedDomain('')
+      setAddingOwnedDomain(false)
+    } finally {
+      setOwnedDomainSaving(false)
+    }
+  }
+
+  async function handleRemoveOwnedDomain(domain: string) {
+    setOwnedDomainSaving(true)
+    try {
+      const current = model.project.ownedDomains ?? []
+      await onUpdateOwnedDomains(model.project.name, current.filter(d => d !== domain))
+    } finally {
+      setOwnedDomainSaving(false)
+    }
+  }
+
   const isNumericScore = (value: string) => !Number.isNaN(Number.parseInt(value, 10))
 
   return (
@@ -1603,7 +1633,15 @@ function ProjectPage({
         <div className="page-header-left">
           <h1 className="page-title">{model.project.displayName || model.project.name}</h1>
           <p className="page-subtitle">
-            {model.project.canonicalDomain} · {model.contextLabel}
+            {model.project.canonicalDomain}
+            {(model.project.ownedDomains ?? []).length === 0 && !addingOwnedDomain && (
+              <button
+                type="button"
+                className="ml-2 text-[10px] uppercase tracking-wide text-zinc-600 hover:text-zinc-400 transition-colors"
+                onClick={() => setAddingOwnedDomain(true)}
+              >+ add domain</button>
+            )}
+            {' '} · {model.contextLabel}
           </p>
           <div className="tag-row">
             <span className="tag">{model.project.country}</span>
@@ -1614,6 +1652,46 @@ function ProjectPage({
               </span>
             ))}
           </div>
+          {((model.project.ownedDomains ?? []).length > 0 || addingOwnedDomain) && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <span className="text-[10px] uppercase tracking-wide text-zinc-500 mr-1">Also tracking</span>
+              {(model.project.ownedDomains ?? []).map((d) => (
+                <span key={d} className="inline-flex items-center gap-1 rounded-full border border-zinc-700/60 bg-zinc-800/40 px-2 py-0.5 text-xs text-zinc-300">
+                  {d}
+                  <button
+                    type="button"
+                    className="ml-0.5 text-zinc-500 hover:text-zinc-200 transition-colors"
+                    disabled={ownedDomainSaving}
+                    onClick={() => handleRemoveOwnedDomain(d)}
+                    aria-label={`Remove ${d}`}
+                  >×</button>
+                </span>
+              ))}
+              {addingOwnedDomain ? (
+                <span className="inline-flex items-center gap-1">
+                  <input
+                    className="rounded border border-zinc-700 bg-transparent px-1.5 py-0.5 text-xs text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none w-40"
+                    type="text"
+                    placeholder="docs.example.com"
+                    value={newOwnedDomain}
+                    onChange={(e) => setNewOwnedDomain(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddOwnedDomain()}
+                    autoFocus
+                  />
+                  <Button type="button" size="sm" disabled={!newOwnedDomain.trim() || ownedDomainSaving} onClick={handleAddOwnedDomain}>
+                    {ownedDomainSaving ? '...' : 'Add'}
+                  </Button>
+                  <button type="button" className="text-xs text-zinc-500 hover:text-zinc-300" onClick={() => { setAddingOwnedDomain(false); setNewOwnedDomain('') }}>Cancel</button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="rounded-full border border-dashed border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-500 hover:text-zinc-300 hover:border-zinc-500 transition-colors"
+                  onClick={() => setAddingOwnedDomain(true)}
+                >+ domain</button>
+              )}
+            </div>
+          )}
         </div>
         <div className="page-header-right">
           <p className="text-sm text-zinc-500">{model.dateRangeLabel}</p>
@@ -3969,6 +4047,11 @@ export function App({
     await refreshData()
   }
 
+  const handleUpdateOwnedDomains = async (projectName: string, ownedDomains: string[]) => {
+    await updateOwnedDomains(projectName, ownedDomains)
+    await refreshData()
+  }
+
   const systemHealthCards = buildSystemHealthCards(safeDashboard.portfolioOverview.systemHealth, healthSnapshot, safeDashboard.settings)
   const setupModel = buildSetupModel(safeDashboard.setup, healthSnapshot, safeDashboard.settings)
   const selectedRun = drawerState?.kind === 'run' ? findRunById(safeDashboard, drawerState.runId) : undefined
@@ -4180,7 +4263,7 @@ export function App({
                 />
               ) : null}
               {route.kind === 'project' && activeProject ? (
-                <ProjectPage model={activeProject} onOpenEvidence={openEvidence} onOpenRun={openRun} onTriggerRun={handleTriggerRun} onDeleteProject={handleDeleteProject} onAddKeywords={handleAddKeywords} onAddCompetitors={handleAddCompetitors} />
+                <ProjectPage model={activeProject} onOpenEvidence={openEvidence} onOpenRun={openRun} onTriggerRun={handleTriggerRun} onDeleteProject={handleDeleteProject} onAddKeywords={handleAddKeywords} onAddCompetitors={handleAddCompetitors} onUpdateOwnedDomains={handleUpdateOwnedDomains} />
               ) : null}
               {route.kind === 'runs' ? <RunsPage runs={safeDashboard.runs} onOpenRun={openRun} onTriggerAll={handleTriggerAllRuns} /> : null}
               {route.kind === 'settings' ? (

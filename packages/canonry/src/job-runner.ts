@@ -3,7 +3,7 @@ import { eq, inArray } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { runs, keywords, competitors, projects, querySnapshots, usageCounters } from '@ainyc/canonry-db'
 import type { ProviderName, NormalizedQueryResult } from '@ainyc/canonry-contracts'
-import { effectiveDomains } from '@ainyc/canonry-contracts'
+import { effectiveDomains, normalizeProjectDomain } from '@ainyc/canonry-contracts'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
 
@@ -318,22 +318,9 @@ function getCurrentPeriod(): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
 }
 
-/** Normalize a canonical domain that may be stored as a full URL (e.g. "https://www.ainyc.ai") to a bare domain ("ainyc.ai") */
-function normalizeDomain(input: string): string {
-  let domain = input
-  try {
-    if (domain.includes('://')) {
-      domain = new URL(domain).hostname
-    }
-  } catch {
-    // not a URL, use as-is
-  }
-  return domain.replace(/^www\./, '')
-}
-
 function domainMatches(domain: string, canonicalDomain: string): boolean {
-  const normalized = normalizeDomain(canonicalDomain)
-  const d = normalizeDomain(domain)
+  const normalized = normalizeProjectDomain(canonicalDomain)
+  const d = normalizeProjectDomain(domain)
   return d === normalized || d.endsWith(`.${normalized}`)
 }
 
@@ -342,7 +329,7 @@ function determineCitationState(
   domains: string[],
 ): 'cited' | 'not-cited' {
   for (const canonicalDomain of domains) {
-    const bareDomain = normalizeDomain(canonicalDomain)
+    const bareDomain = normalizeProjectDomain(canonicalDomain)
 
     // Check extracted cited domains
     if (normalized.citedDomains.some(d => domainMatches(d, bareDomain))) {
