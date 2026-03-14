@@ -312,6 +312,12 @@ Published container images are available on Docker Hub:
 docker pull arberx/canonry:latest
 ```
 
+The same image is also published to GitHub Container Registry:
+
+```bash
+docker pull ghcr.io/ainyc/canonry:latest
+```
+
 Keep the container to a single replica and mount persistent storage at `/data` so SQLite and `config.yaml` survive restarts.
 
 No CORS configuration is required for this Docker setup. The dashboard and API are served by the same Canonry process on the same origin. CORS only becomes relevant if you split the frontend and API onto different domains.
