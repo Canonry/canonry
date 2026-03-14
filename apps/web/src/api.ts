@@ -166,6 +166,9 @@ export function createProject(name: string, body: {
   ownedDomains?: string[]
   country: string
   language: string
+  tags?: string[]
+  labels?: Record<string, string>
+  providers?: string[]
 }): Promise<ApiProject> {
   return apiFetch(`/projects/${encodeURIComponent(name)}`, {
     method: 'PUT',
@@ -202,6 +205,9 @@ export async function updateOwnedDomains(projectName: string, ownedDomains: stri
     ownedDomains,
     country: project.country,
     language: project.language,
+    tags: project.tags,
+    labels: project.labels,
+    providers: project.providers,
   })
 }
 
@@ -219,6 +225,9 @@ export async function updateProject(projectName: string, updates: {
     ownedDomains: updates.ownedDomains ?? project.ownedDomains,
     country: updates.country ?? project.country,
     language: updates.language ?? project.language,
+    tags: project.tags,
+    labels: project.labels,
+    providers: project.providers,
   })
 }
 

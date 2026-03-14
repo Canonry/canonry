@@ -198,4 +198,56 @@ describe('api-routes', () => {
     const body = JSON.parse(res.payload)
     assert.deepEqual(body.ownedDomains, [])
   })
+
+  it('PUT /api/v1/projects/:name rejects ownedDomains with empty string elements', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/my-site',
+      payload: {
+        displayName: 'My Site',
+        canonicalDomain: 'example.com',
+        ownedDomains: ['docs.example.com', ''],
+        country: 'US',
+        language: 'en',
+      },
+    })
+    assert.equal(res.statusCode, 400)
+  })
+
+  it('PUT /api/v1/projects/:name preserves tags and providers when included', async () => {
+    // Seed a project with tags and providers
+    const createRes = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/metadata-test',
+      payload: {
+        displayName: 'Metadata Test',
+        canonicalDomain: 'meta.example.com',
+        country: 'US',
+        language: 'en',
+        tags: ['seo', 'ai'],
+        providers: ['gemini', 'openai'],
+      },
+    })
+    assert.equal(createRes.statusCode, 201)
+
+    // Update only ownedDomains, passing tags and providers through (as the client now does)
+    const updateRes = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/metadata-test',
+      payload: {
+        displayName: 'Metadata Test',
+        canonicalDomain: 'meta.example.com',
+        ownedDomains: ['docs.meta.example.com'],
+        country: 'US',
+        language: 'en',
+        tags: ['seo', 'ai'],
+        providers: ['gemini', 'openai'],
+      },
+    })
+    assert.equal(updateRes.statusCode, 200)
+    const body = JSON.parse(updateRes.payload)
+    assert.deepEqual(body.ownedDomains, ['docs.meta.example.com'])
+    assert.deepEqual(body.tags, ['seo', 'ai'])
+    assert.deepEqual(body.providers, ['gemini', 'openai'])
+  })
 })
