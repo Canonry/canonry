@@ -303,22 +303,14 @@ docker run --rm \
   canonry
 ```
 
-GitHub Actions can publish the same root image to GitHub Container Registry (GHCR) and optionally mirror it to Docker Hub. Configure these repository settings first:
+Published container images are available on Docker Hub:
 
-- No extra secret is required for GHCR. `.github/workflows/publish.yml` uses the repository `GITHUB_TOKEN` with `packages: write`.
-- Optional repository variable `GHCR_REPOSITORY` if you want something other than the default `ghcr.io/<owner>/<repo>`.
-- Optional secret `DOCKERHUB_USERNAME` and secret `DOCKERHUB_TOKEN` if you also want a Docker Hub mirror.
-- Optional repository variable `DOCKERHUB_REPOSITORY` if you want something other than `<DOCKERHUB_USERNAME>/canonry` on Docker Hub.
-
-By default, the publish workflow pushes `ghcr.io/<owner>/<repo>:latest` plus `ghcr.io/<owner>/<repo>:sha-<commit>` on `main`. If Docker Hub credentials are configured, it pushes the same tags there too. When `packages/canonry/package.json` changes version, the workflow also pushes that semver tag to both registries and publishes the npm package.
-
-If you want anonymous pulls from GHCR, set the package visibility to public in the package settings. A default pull looks like:
+- [Repository overview](https://hub.docker.com/repository/docker/arberx/canonry/general)
+- [Available tags](https://hub.docker.com/repository/docker/arberx/canonry/tags)
 
 ```bash
-docker pull ghcr.io/<owner>/<repo>:latest
+docker pull arberx/canonry:latest
 ```
-
-`.github/workflows/ci.yml` still builds and boots the container on pushes and PRs before anything is published.
 
 Keep the container to a single replica and mount persistent storage at `/data` so SQLite and `config.yaml` survive restarts.
 
