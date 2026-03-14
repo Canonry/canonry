@@ -219,12 +219,16 @@ function buildEvidenceFromTimeline(
         const snap = snapshotsByKey.get(`${entry.keyword}::${provider}`)
         if (!snap && providers.length > 1) continue
 
-        // Use per-provider timeline when available for accurate streaks and transitions
+        // Prefer model-scoped history for accurate streaks; fall back to provider-level then keyword-level
+        const model = snap?.model ?? null
+        const modelKey = model ? `${provider}:${model}` : null
+        const modelHistory = modelKey ? entry.modelRuns?.[modelKey] : undefined
         const providerHistory = entry.providerRuns?.[provider]
-        const hasProviderHistory = providerHistory && providerHistory.length > 0
+        const effectiveHistory = (modelHistory?.length ? modelHistory : null)
+          ?? (providerHistory?.length ? providerHistory : null)
 
-        const effectiveTransition = hasProviderHistory
-          ? providerHistory.at(-1)!.transition
+        const effectiveTransition = effectiveHistory
+          ? effectiveHistory.at(-1)!.transition
           : transition
 
         const snapState: CitationState = effectiveTransition === 'lost' ? 'lost'
@@ -233,11 +237,11 @@ function buildEvidenceFromTimeline(
             ? (snap.citationState === 'cited' ? 'cited' : 'not-cited')
             : citationState
 
-        const streak = hasProviderHistory
-          ? computeStreak(providerHistory)
+        const streak = effectiveHistory
+          ? computeStreak(effectiveHistory)
           : computeStreak(entry.runs)
 
-        const runHistory = (hasProviderHistory ? providerHistory : entry.runs)
+        const runHistory = (effectiveHistory ?? entry.runs)
           .map(r => ({ runId: r.runId, citationState: r.citationState, createdAt: r.createdAt }))
 
         results.push({

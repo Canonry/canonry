@@ -320,7 +320,7 @@ describe('canonry', () => {
       const config = loadConfig()
       assert.equal(config.database, path.join(tmpDir, 'data.db'))
       assert.equal(config.providers?.gemini?.apiKey, 'test-gemini-key')
-      assert.equal(config.providers?.gemini?.model, 'gemini-3-flash')
+      assert.equal(config.providers?.gemini?.model, 'gemini-2.5-flash')
       assert.equal(config.providers?.openai?.apiKey, 'test-openai-key')
       assert.equal(config.providers?.openai?.model, 'gpt-5.4')
       assert.equal(config.providers?.claude, undefined)
