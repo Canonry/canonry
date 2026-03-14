@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { validateConfig, normalizeResult } from '../src/index.js'
+import { validateConfig, normalizeResult, buildPrompt } from '../src/index.js'
 import type { OpenAIRawResult } from '../src/index.js'
 
 const validConfig = {
@@ -127,4 +127,9 @@ test('normalizeResult handles invalid grounding URIs', () => {
 
   const result = normalizeResult(raw)
   assert.deepEqual(result.citedDomains, ['valid.com'])
+})
+
+test('buildPrompt returns the keyword verbatim', () => {
+  assert.equal(buildPrompt('best crm software'), 'best crm software')
+  assert.equal(buildPrompt(''), '')
 })

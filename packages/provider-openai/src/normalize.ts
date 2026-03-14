@@ -87,8 +87,8 @@ export function normalizeResult(raw: OpenAIRawResult): OpenAINormalizedResult {
 
 // --- Internal helpers ---
 
-function buildPrompt(keyword: string): string {
-  return `Search the web for "${keyword}" and provide a comprehensive, factual answer. Include relevant sources.`
+export function buildPrompt(keyword: string): string {
+  return keyword
 }
 
 function extractResponseText(response: OpenAI.Responses.Response): string {
