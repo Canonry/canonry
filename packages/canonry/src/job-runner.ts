@@ -159,6 +159,7 @@ export class JobRunner {
               runId,
               keywordId: kw.id,
               provider: providerName,
+              model: raw.model,
               citationState,
               answerText: normalized.answerText,
               citedDomains: JSON.stringify(normalized.citedDomains),

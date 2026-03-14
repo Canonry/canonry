@@ -178,7 +178,8 @@ function printRunDetail(run: Record<string, unknown>): void {
     console.log(`\n  Snapshots: ${snapshots.length}`)
     for (const s of snapshots) {
       const state = s.citationState === 'cited' ? '  cited    ' : '  not-cited'
-      console.log(`    ${state}  ${s.provider}  ${s.keyword}`)
+      const modelLabel = s.model ? ` (${s.model})` : ''
+      console.log(`    ${state}  ${s.provider}${modelLabel}  ${s.keyword}`)
     }
   }
 }

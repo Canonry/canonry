@@ -176,6 +176,7 @@ const citypointEvidence: CitationInsightVm[] = [
     id: 'evidence_citypoint_emergency_gemini',
     keyword: 'emergency dentist brooklyn',
     provider: 'gemini',
+    model: 'gemini-3-flash',
     citationState: 'lost',
     changeLabel: 'Lost since Mar 5',
     answerSnippet:
@@ -199,6 +200,7 @@ const citypointEvidence: CitationInsightVm[] = [
     id: 'evidence_citypoint_emergency_openai',
     keyword: 'emergency dentist brooklyn',
     provider: 'openai',
+    model: 'gpt-5.4',
     citationState: 'cited',
     changeLabel: 'Cited for 6 runs',
     answerSnippet:
@@ -215,6 +217,7 @@ const citypointEvidence: CitationInsightVm[] = [
     id: 'evidence_citypoint_emergency_claude',
     keyword: 'emergency dentist brooklyn',
     provider: 'claude',
+    model: 'claude-sonnet-4-6',
     citationState: 'not-cited',
     changeLabel: 'No citation across 12 runs',
     answerSnippet:
@@ -233,6 +236,7 @@ const citypointEvidence: CitationInsightVm[] = [
     id: 'evidence_citypoint_invisalign_openai',
     keyword: 'best invisalign dentist downtown brooklyn',
     provider: 'openai',
+    model: 'gpt-5.4',
     citationState: 'emerging',
     changeLabel: 'First citation in 7 days',
     answerSnippet:
@@ -255,6 +259,7 @@ const citypointEvidence: CitationInsightVm[] = [
     id: 'evidence_citypoint_invisalign_gemini',
     keyword: 'best invisalign dentist downtown brooklyn',
     provider: 'gemini',
+    model: 'gemini-3-flash',
     citationState: 'cited',
     changeLabel: 'Cited for 8 runs',
     answerSnippet:
@@ -271,6 +276,7 @@ const citypointEvidence: CitationInsightVm[] = [
     id: 'evidence_citypoint_invisalign_claude',
     keyword: 'best invisalign dentist downtown brooklyn',
     provider: 'claude',
+    model: 'claude-sonnet-4-6',
     citationState: 'not-cited',
     changeLabel: 'No citation across 12 runs',
     answerSnippet:
@@ -289,6 +295,7 @@ const citypointEvidence: CitationInsightVm[] = [
     id: 'evidence_citypoint_children_claude',
     keyword: 'pediatric dentist brooklyn heights',
     provider: 'claude',
+    model: 'claude-sonnet-4-6',
     citationState: 'not-cited',
     changeLabel: 'No citation across 4 runs',
     answerSnippet:
@@ -311,6 +318,7 @@ const citypointEvidence: CitationInsightVm[] = [
     id: 'evidence_citypoint_children_gemini',
     keyword: 'pediatric dentist brooklyn heights',
     provider: 'gemini',
+    model: 'gemini-3-flash',
     citationState: 'not-cited',
     changeLabel: 'No citation across 12 runs',
     answerSnippet:
@@ -327,6 +335,7 @@ const citypointEvidence: CitationInsightVm[] = [
     id: 'evidence_citypoint_children_openai',
     keyword: 'pediatric dentist brooklyn heights',
     provider: 'openai',
+    model: 'gpt-5.4',
     citationState: 'cited',
     changeLabel: 'First citation this month',
     answerSnippet:
@@ -355,9 +364,9 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       trend: [73, 71, 69, 66, 61],
     },
     providerScores: [
-      { provider: 'gemini', score: 55, cited: 5, total: 9 },
-      { provider: 'openai', score: 67, cited: 6, total: 9 },
-      { provider: 'claude', score: 44, cited: 4, total: 9 },
+      { provider: 'gemini', model: 'gemini-3-flash', score: 55, cited: 5, total: 9 },
+      { provider: 'openai', model: 'gpt-5.4', score: 67, cited: 6, total: 9 },
+      { provider: 'claude', model: 'claude-sonnet-4-6', score: 44, cited: 4, total: 9 },
     ],
     competitorPressure: {
       label: 'Competitor Pressure',
@@ -464,8 +473,8 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       trend: [68, 70, 71, 73, 74],
     },
     providerScores: [
-      { provider: 'gemini', score: 75, cited: 3, total: 4 },
-      { provider: 'openai', score: 50, cited: 2, total: 4 },
+      { provider: 'gemini', model: 'gemini-3-flash', score: 75, cited: 3, total: 4 },
+      { provider: 'openai', model: 'gpt-5.4', score: 50, cited: 2, total: 4 },
     ],
     competitorPressure: {
       label: 'Competitor Pressure',
@@ -511,6 +520,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         id: 'evidence_harbor_personal_injury',
         keyword: 'brooklyn personal injury lawyer',
         provider: 'gemini',
+        model: 'gemini-3-flash',
         citationState: 'cited',
         changeLabel: 'Held for 5 runs',
         answerSnippet:
@@ -551,7 +561,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       trend: [52, 54, 55, 57, 58],
     },
     providerScores: [
-      { provider: 'openai', score: 58, cited: 4, total: 7 },
+      { provider: 'openai', model: 'gpt-5.4', score: 58, cited: 4, total: 7 },
     ],
     competitorPressure: {
       label: 'Competitor Pressure',
@@ -589,6 +599,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         id: 'evidence_northstar_knee',
         keyword: 'knee replacement surgeon westchester',
         provider: 'openai',
+        model: 'gpt-5.4',
         citationState: 'emerging',
         changeLabel: 'Improving',
         answerSnippet:
@@ -758,14 +769,14 @@ const baseDashboard: DashboardVm = {
     providerStatuses: [
       {
         name: 'Gemini',
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3-flash',
         state: 'ready',
         detail: 'API key detected and conservative quota defaults are active.',
         quota: { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 },
       },
       {
         name: 'OpenAI',
-        model: 'gpt-4o',
+        model: 'gpt-5.4',
         state: 'ready',
         detail: 'API key configured.',
         quota: { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 },

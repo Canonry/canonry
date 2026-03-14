@@ -60,6 +60,7 @@ export async function historyRoutes(app: FastifyInstance) {
         keywordId: querySnapshots.keywordId,
         keyword: keywords.keyword,
         provider: querySnapshots.provider,
+        model: querySnapshots.model,
         citationState: querySnapshots.citationState,
         answerText: querySnapshots.answerText,
         citedDomains: querySnapshots.citedDomains,
@@ -82,6 +83,7 @@ export async function historyRoutes(app: FastifyInstance) {
         keywordId: s.keywordId,
         keyword: s.keyword,
         provider: s.provider,
+        model: s.model,
         citationState: s.citationState,
         answerText: s.answerText,
         citedDomains: tryParseJson(s.citedDomains, [] as string[]),
@@ -147,6 +149,15 @@ export async function historyRoutes(app: FastifyInstance) {
       else rawByKwProvider.set(key, [snap])
     }
 
+    // Index raw snapshots by keyword+provider+model for per-model timelines
+    const rawByKwModel = new Map<string, typeof allSnapshots[number][]>()
+    for (const snap of allSnapshots) {
+      const key = `${snap.keywordId}::${snap.provider}:${snap.model ?? 'unknown'}`
+      const arr = rawByKwModel.get(key)
+      if (arr) arr.push(snap)
+      else rawByKwModel.set(key, [snap])
+    }
+
     function computeTransitions(snaps: typeof allSnapshots) {
       return snaps.map((snap, idx) => {
         const run = projectRuns.find(r => r.id === snap.runId)
@@ -190,10 +201,21 @@ export async function historyRoutes(app: FastifyInstance) {
         providerRuns[provider] = computeTransitions(provSnaps)
       }
 
+      // Build per-model run histories (keyed by "provider:model")
+      const modelRuns: Record<string, typeof runEntries> = {}
+      const modelKeys = [...rawByKwModel.keys()].filter(k => k.startsWith(`${kw.id}::`))
+      for (const mk of modelKeys) {
+        const modelKey = mk.split('::')[1]! // "provider:model"
+        const modelSnaps = rawByKwModel.get(mk)!
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        modelRuns[modelKey] = computeTransitions(modelSnaps)
+      }
+
       return {
         keyword: kw.keyword,
         runs: runEntries,
         providerRuns,
+        modelRuns,
       }
     })
 

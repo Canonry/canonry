@@ -57,6 +57,7 @@ export const querySnapshots = sqliteTable('query_snapshots', {
   runId: text('run_id').notNull().references(() => runs.id, { onDelete: 'cascade' }),
   keywordId: text('keyword_id').notNull().references(() => keywords.id, { onDelete: 'cascade' }),
   provider: text('provider').notNull().default('gemini'),
+  model: text('model'),
   citationState: text('citation_state').notNull(),
   answerText: text('answer_text'),
   citedDomains: text('cited_domains').notNull().default('[]'),

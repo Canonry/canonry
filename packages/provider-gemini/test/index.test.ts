@@ -18,7 +18,7 @@ test('validateConfig accepts a non-empty API key', () => {
   assert.equal(result.ok, true)
   assert.equal(result.provider, 'gemini')
   assert.equal(result.message, 'config valid')
-  assert.equal(result.model, 'gemini-2.5-flash')
+  assert.equal(result.model, 'gemini-3-flash')
 })
 
 test('validateConfig rejects empty API key', () => {

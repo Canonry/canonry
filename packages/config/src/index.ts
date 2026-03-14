@@ -1,4 +1,4 @@
-import { providerQuotaPolicySchema, type ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
+import { providerQuotaPolicySchema, getDefaultModel, type ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
 import { z } from 'zod'
 
 const envSchema = z.object({
@@ -144,7 +144,7 @@ export function getBootstrapEnv(
   if (parsed.GEMINI_API_KEY) {
     providers.gemini = {
       apiKey: parsed.GEMINI_API_KEY,
-      model: parsed.GEMINI_MODEL || 'gemini-2.5-flash',
+      model: parsed.GEMINI_MODEL || getDefaultModel('gemini'),
       quota: providerQuotaPolicySchema.parse({
         maxConcurrency: 2,
         maxRequestsPerMinute: 10,
@@ -156,7 +156,7 @@ export function getBootstrapEnv(
   if (parsed.OPENAI_API_KEY) {
     providers.openai = {
       apiKey: parsed.OPENAI_API_KEY,
-      model: parsed.OPENAI_MODEL || 'gpt-4o',
+      model: parsed.OPENAI_MODEL || getDefaultModel('openai'),
       quota: providerQuotaPolicySchema.parse({
         maxConcurrency: 2,
         maxRequestsPerMinute: 10,
@@ -168,7 +168,7 @@ export function getBootstrapEnv(
   if (parsed.ANTHROPIC_API_KEY) {
     providers.claude = {
       apiKey: parsed.ANTHROPIC_API_KEY,
-      model: parsed.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
+      model: parsed.ANTHROPIC_MODEL || getDefaultModel('claude'),
       quota: providerQuotaPolicySchema.parse({
         maxConcurrency: 2,
         maxRequestsPerMinute: 10,
@@ -181,7 +181,7 @@ export function getBootstrapEnv(
     providers.local = {
       baseUrl: parsed.LOCAL_BASE_URL,
       apiKey: parsed.LOCAL_API_KEY,
-      model: parsed.LOCAL_MODEL || 'llama3',
+      model: parsed.LOCAL_MODEL || getDefaultModel('local'),
       quota: providerQuotaPolicySchema.parse({
         maxConcurrency: 2,
         maxRequestsPerMinute: 10,

@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import { getDefaultModel } from '@ainyc/canonry-contracts'
 import type {
   OpenAIConfig,
   OpenAIHealthcheckResult,
@@ -8,7 +9,7 @@ import type {
   GroundingSource,
 } from './types.js'
 
-const DEFAULT_MODEL = 'gpt-4o'
+const DEFAULT_MODEL = getDefaultModel('openai')
 
 export function validateConfig(config: OpenAIConfig): OpenAIHealthcheckResult {
   if (!config.apiKey || config.apiKey.length === 0) {

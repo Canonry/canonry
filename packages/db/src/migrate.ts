@@ -138,6 +138,10 @@ const MIGRATIONS = [
   `ALTER TABLE notifications ADD COLUMN webhook_secret TEXT`,
   // v4: Add owned_domains column to projects for multi-domain citation matching
   `ALTER TABLE projects ADD COLUMN owned_domains TEXT NOT NULL DEFAULT '[]'`,
+  // v5: Add model column to query_snapshots for per-model scoring
+  `ALTER TABLE query_snapshots ADD COLUMN model TEXT`,
+  // v5b: Backfill model from rawResponse JSON for existing snapshots
+  `UPDATE query_snapshots SET model = json_extract(raw_response, '$.model') WHERE model IS NULL AND raw_response IS NOT NULL AND json_extract(raw_response, '$.model') IS NOT NULL`,
 ]
 
 export function migrate(db: DatabaseClient) {

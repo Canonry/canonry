@@ -160,6 +160,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
         keywordId: querySnapshots.keywordId,
         keyword: keywords.keyword,
         provider: querySnapshots.provider,
+        model: querySnapshots.model,
         citationState: querySnapshots.citationState,
         answerText: querySnapshots.answerText,
         citedDomains: querySnapshots.citedDomains,
@@ -174,19 +175,24 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
 
     return reply.send({
       ...formatRun(run),
-      snapshots: snapshots.map(s => ({
-        id: s.id,
-        runId: s.runId,
-        keywordId: s.keywordId,
-        keyword: s.keyword,
-        provider: s.provider,
-        citationState: s.citationState,
-        answerText: s.answerText,
-        citedDomains: tryParseJson(s.citedDomains, []),
-        competitorOverlap: tryParseJson(s.competitorOverlap, []),
-        ...parseSnapshotRawResponse(s.rawResponse),
-        createdAt: s.createdAt,
-      })),
+      snapshots: snapshots.map(s => {
+        const rawParsed = parseSnapshotRawResponse(s.rawResponse)
+        return {
+          id: s.id,
+          runId: s.runId,
+          keywordId: s.keywordId,
+          keyword: s.keyword,
+          provider: s.provider,
+          citationState: s.citationState,
+          answerText: s.answerText,
+          citedDomains: tryParseJson(s.citedDomains, []),
+          competitorOverlap: tryParseJson(s.competitorOverlap, []),
+          model: s.model ?? rawParsed.model,
+          groundingSources: rawParsed.groundingSources,
+          searchQueries: rawParsed.searchQueries,
+          createdAt: s.createdAt,
+        }
+      }),
     })
   })
 }

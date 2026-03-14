@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import type { ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
-import { parseProviderName } from '@ainyc/canonry-contracts'
+import { parseProviderName, MODEL_REGISTRY } from '@ainyc/canonry-contracts'
 
 export interface ProviderSummaryEntry {
   name: string
@@ -43,19 +43,10 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     }
 
     if (model !== undefined) {
-      if (name === 'gemini' && !model.startsWith('gemini-')) {
+      const registry = MODEL_REGISTRY[name]
+      if (!registry.validationPattern.test(model)) {
         return reply.status(400).send({
-          error: { code: 'VALIDATION_ERROR', message: `Invalid model "${model}" for provider "gemini" — model name must start with "gemini-" (e.g. gemini-2.5-flash)` },
-        })
-      }
-      if (name === 'openai' && !/^(gpt-|o\d)/.test(model)) {
-        return reply.status(400).send({
-          error: { code: 'VALIDATION_ERROR', message: `Invalid model "${model}" for provider "openai" — expected a GPT or o-series model name (e.g. gpt-4o, o3)` },
-        })
-      }
-      if (name === 'claude' && !model.startsWith('claude-')) {
-        return reply.status(400).send({
-          error: { code: 'VALIDATION_ERROR', message: `Invalid model "${model}" for provider "claude" — model name must start with "claude-" (e.g. claude-sonnet-4-6)` },
+          error: { code: 'VALIDATION_ERROR', message: `Invalid model "${model}" for provider "${name}" — ${registry.validationHint}` },
         })
       }
     }

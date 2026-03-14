@@ -18,7 +18,7 @@ test('validateConfig accepts a non-empty API key', () => {
   assert.equal(result.ok, true)
   assert.equal(result.provider, 'openai')
   assert.equal(result.message, 'config valid')
-  assert.equal(result.model, 'gpt-4o')
+  assert.equal(result.model, 'gpt-5.4')
 })
 
 test('validateConfig rejects empty API key', () => {

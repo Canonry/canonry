@@ -89,6 +89,7 @@ export interface CitationInsightVm {
   id: string
   keyword: string
   provider: string
+  model: string | null
   citationState: CitationState
   changeLabel: string
   answerSnippet: string
@@ -134,7 +135,7 @@ export interface ProjectCommandCenterVm {
   dateRangeLabel: string
   contextLabel: string
   visibilitySummary: ScoreSummaryVm
-  providerScores: { provider: string; score: number; cited: number; total: number }[]
+  providerScores: { provider: string; model: string | null; score: number; cited: number; total: number }[]
   competitorPressure: ScoreSummaryVm
   runStatus: ScoreSummaryVm
   insights: ProjectInsightVm[]

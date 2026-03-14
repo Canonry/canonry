@@ -79,7 +79,7 @@ test('getBootstrapEnv parses hosted Canonry env vars', () => {
   assert.equal(env.apiUrl, 'https://canonry.example.com')
   assert.equal(env.databasePath, '/data/canonry/data.db')
   assert.equal(env.providers.gemini?.apiKey, 'gemini-key')
-  assert.equal(env.providers.gemini?.model, 'gemini-2.5-flash')
+  assert.equal(env.providers.gemini?.model, 'gemini-3-flash')
   assert.equal(env.providers.local?.baseUrl, 'http://localhost:11434/v1')
   assert.equal(env.providers.local?.model, 'llama3')
 })

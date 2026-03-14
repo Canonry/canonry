@@ -1,4 +1,5 @@
 export * from './config-schema.js'
+export * from './models.js'
 export * from './errors.js'
 export * from './notification.js'
 export * from './project.js'

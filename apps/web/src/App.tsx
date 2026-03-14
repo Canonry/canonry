@@ -1769,19 +1769,20 @@ function ProjectPage({
         <section className="page-section-divider">
           <div className="section-head section-head-inline">
             <div>
-              <p className="eyebrow eyebrow-soft">Provider breakdown</p>
-              <h2>Visibility by provider <InfoTooltip text="Per-provider citation rate. Shows how often each AI engine cites your domain across all tracked key phrases. Useful for identifying which engines favor your content." /></h2>
+              <p className="eyebrow eyebrow-soft">Model breakdown</p>
+              <h2>Visibility by model <InfoTooltip text="Per-model citation rate. Shows how often each AI model cites your domain across all tracked key phrases. Switching models can significantly affect citation rates." /></h2>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
             {model.providerScores.map((ps) => (
-              <Card key={ps.provider} className="surface-card compact-card">
+              <Card key={`${ps.provider}::${ps.model ?? 'unknown'}`} className="surface-card compact-card">
                 <div className="flex items-center justify-between">
                   <ProviderBadge provider={ps.provider} />
                   <span className={`text-lg font-semibold ${ps.score >= 70 ? 'text-emerald-400' : ps.score >= 40 ? 'text-amber-400' : 'text-rose-400'}`}>
                     {ps.score}%
                   </span>
                 </div>
+                {ps.model && <p className="mt-0.5 text-[11px] font-mono text-zinc-500 truncate">{ps.model}</p>}
                 <p className="mt-1 text-xs text-zinc-500">{ps.cited} of {ps.total} key phrases cited</p>
               </Card>
             ))}
@@ -2636,8 +2637,8 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
 }
 
 const PROVIDER_MODEL_PLACEHOLDERS: Record<string, string> = {
-  gemini: 'e.g. gemini-2.5-flash',
-  openai: 'e.g. gpt-4o',
+  gemini: 'e.g. gemini-3-flash',
+  openai: 'e.g. gpt-5.4',
   claude: 'e.g. claude-sonnet-4-6',
   local: 'e.g. llama3, mistral',
 }
@@ -3485,6 +3486,7 @@ function highlightTermsInText(text: string, terms: string[]): ReactNode[] {
 interface EvidenceDisplayData {
   citationState: string
   provider: string
+  model: string | null
   answerSnippet: string
   citedDomains: string[]
   competitorDomains: string[]
@@ -3520,6 +3522,7 @@ function EvidenceDetailModal({
   const display: EvidenceDisplayData = isViewingHistory ? historicalSnapshot : {
     citationState: evidence.citationState,
     provider: evidence.provider,
+    model: evidence.model,
     answerSnippet: evidence.answerSnippet,
     citedDomains: evidence.citedDomains,
     competitorDomains: evidence.competitorDomains,
@@ -3590,6 +3593,7 @@ function EvidenceDetailModal({
       const data: EvidenceDisplayData = snap ? {
         citationState: snap.citationState,
         provider: snap.provider,
+        model: snap.model ?? null,
         answerSnippet: snap.answerText ?? '',
         citedDomains: snap.citedDomains,
         competitorDomains: snap.competitorOverlap,
@@ -3600,6 +3604,7 @@ function EvidenceDetailModal({
       } : {
         citationState: run.citationState,
         provider: evidence.provider,
+        model: null,
         answerSnippet: '',
         citedDomains: [],
         competitorDomains: [],
@@ -3616,6 +3621,7 @@ function EvidenceDetailModal({
       setHistoricalSnapshot({
         citationState: run.citationState,
         provider: evidence.provider,
+        model: null,
         answerSnippet: '',
         citedDomains: [],
         competitorDomains: [],
@@ -3632,19 +3638,22 @@ function EvidenceDetailModal({
   }, [history, evidence.keyword, evidence.provider, runCache])
 
   // Hero copy
+  const providerMeta = display.model
+    ? `${display.provider} (${display.model}) · ${display.changeLabel.toLowerCase()}`
+    : `${display.provider} · ${display.changeLabel.toLowerCase()}`
   const heroCopy = (() => {
     if (isCited && position > 0) {
       return {
         label: 'Citation confirmed',
         title: `Cited #${position} of ${totalCited} domain${totalCited !== 1 ? 's' : ''}`,
-        meta: `${display.provider} · ${display.changeLabel.toLowerCase()}`,
+        meta: providerMeta,
       }
     }
     if (isCited) {
       return {
         label: 'Citation confirmed',
         title: 'Cited in this answer',
-        meta: `${display.provider} · ${display.changeLabel.toLowerCase()}`,
+        meta: providerMeta,
       }
     }
     if (display.citationState === 'lost') {
@@ -3653,7 +3662,7 @@ function EvidenceDetailModal({
         title: totalCited > 0
           ? `${totalCited} domain${totalCited !== 1 ? 's' : ''} cited instead`
           : 'No longer appearing in this answer',
-        meta: `${display.provider} · ${display.changeLabel.toLowerCase()}`,
+        meta: providerMeta,
       }
     }
     if (display.citationState === 'pending') {
@@ -3668,7 +3677,7 @@ function EvidenceDetailModal({
       title: totalCited > 0
         ? `${totalCited} domain${totalCited !== 1 ? 's' : ''} cited instead`
         : 'No domains cited for this query',
-      meta: `${display.provider} · ${display.changeLabel.toLowerCase()}`,
+      meta: providerMeta,
     }
   })()
 
@@ -4066,6 +4075,28 @@ export function App({
     setDrawerState(null)
   }, [pathname])
 
+  // Smart redirect: skip setup when projects already exist, go to setup when none
+  useEffect(() => {
+    if (loading || !dashboard) return
+    const hasProjects = dashboard.projects.length > 0
+
+    if (pathname === '/setup' && hasProjects) {
+      // User already has projects — no need for setup wizard
+      const nextPath = '/'
+      if (typeof window !== 'undefined' && normalizePathname(window.location.pathname) !== nextPath) {
+        window.history.replaceState({}, '', nextPath)
+      }
+      setPathname(nextPath)
+    } else if (pathname === '/' && !hasProjects) {
+      // No projects yet — guide user to setup
+      const nextPath = '/setup'
+      if (typeof window !== 'undefined' && normalizePathname(window.location.pathname) !== nextPath) {
+        window.history.replaceState({}, '', nextPath)
+      }
+      setPathname(nextPath)
+    }
+  }, [loading, dashboard, pathname])
+
   useEffect(() => {
     if (typeof window === 'undefined' || drawerState === null) {
       return
@@ -4344,16 +4375,20 @@ export function App({
             </>
           ) : null}
 
-          <p className="sidebar-section-title">Resources</p>
-          <a
-            className="sidebar-link"
-            href="/setup"
-            aria-current={route.kind === 'setup' ? 'page' : undefined}
-            onClick={createNavigationHandler(navigate, '/setup')}
-          >
-            <Rocket className="sidebar-icon" />
-            <span>Setup</span>
-          </a>
+          {safeDashboard.projects.length === 0 ? (
+            <>
+              <p className="sidebar-section-title">Resources</p>
+              <a
+                className="sidebar-link"
+                href="/setup"
+                aria-current={route.kind === 'setup' ? 'page' : undefined}
+                onClick={createNavigationHandler(navigate, '/setup')}
+              >
+                <Rocket className="sidebar-icon" />
+                <span>Setup</span>
+              </a>
+            </>
+          ) : null}
         </nav>
 
         <div className="sidebar-footer">
@@ -4537,6 +4572,9 @@ export function App({
                         </Badge>
                       </div>
                     </div>
+                    {snap.model && (
+                      <p className="text-[11px] text-zinc-500 font-mono">{snap.model}</p>
+                    )}
                     {snap.citedDomains.length > 0 && (
                       <p className="text-xs text-zinc-500 mt-1">
                         <span className="text-zinc-400">Sources:</span> {snap.citedDomains.join(', ')}
@@ -4593,9 +4631,6 @@ export function App({
               </div>
             ) : (
               <p className="text-sm text-zinc-500">No snapshot data available.</p>
-            )}
-            {runDetail?.snapshots?.[0]?.model && (
-              <p className="mt-3 text-[10px] text-zinc-600">Model: {runDetail.snapshots[0].model}</p>
             )}
           </div>
         </Drawer>
