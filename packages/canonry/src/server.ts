@@ -130,6 +130,10 @@ export async function createServer(opts: {
   await app.register(apiRoutes, {
     db: opts.db,
     skipAuth: false,
+    openApiInfo: {
+      title: 'Canonry API',
+      version: PKG_VERSION,
+    },
     providerSummary,
     onRunCreated: (runId: string, projectId: string, providers?: string[]) => {
       // Fire and forget — run executes in background

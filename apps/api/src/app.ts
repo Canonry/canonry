@@ -24,6 +24,10 @@ export function buildApp(env: PlatformEnv) {
   app.register(apiRoutes, {
     db,
     skipAuth: false,
+    openApiInfo: {
+      title: 'Canonry API',
+      version: '0.1.0',
+    },
     providerSummary,
   })
 

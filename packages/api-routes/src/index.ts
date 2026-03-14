@@ -10,6 +10,8 @@ import { runRoutes } from './runs.js'
 import type { RunRoutesOptions } from './runs.js'
 import { applyRoutes } from './apply.js'
 import { historyRoutes } from './history.js'
+import { openApiRoutes } from './openapi.js'
+import type { OpenApiInfo } from './openapi.js'
 import { settingsRoutes } from './settings.js'
 import type { SettingsRoutesOptions, ProviderSummaryEntry } from './settings.js'
 import { telemetryRoutes } from './telemetry.js'
@@ -26,6 +28,7 @@ declare module 'fastify' {
 
 export interface ApiRoutesOptions {
   db: DatabaseClient
+  openApiInfo?: OpenApiInfo
   /** Skip auth for testing */
   skipAuth?: boolean
   /** Callback when a run is created (wire up job runner) */
@@ -56,6 +59,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
 
   // Register route plugins under /api/v1
   await app.register(async (api) => {
+    await api.register(openApiRoutes, opts.openApiInfo ?? {})
     await api.register(projectRoutes, {
       onProjectDeleted: opts.onProjectDeleted,
     } satisfies ProjectRoutesOptions)

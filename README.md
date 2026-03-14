@@ -303,6 +303,14 @@ docker run --rm \
   canonry
 ```
 
+GitHub Actions can publish the same root image to Docker Hub. Configure these repository settings first:
+
+- Secret `DOCKERHUB_USERNAME`
+- Secret `DOCKERHUB_TOKEN`
+- Optional repository variable `DOCKERHUB_REPOSITORY` if you want something other than `<DOCKERHUB_USERNAME>/canonry`
+
+`.github/workflows/ci.yml` now builds and boots the container on pushes and PRs, and `.github/workflows/publish.yml` pushes `latest` plus `sha-<commit>` tags on `main`. When `packages/canonry/package.json` changes version, the publish workflow also pushes that semver tag and publishes the npm package.
+
 Keep the container to a single replica and mount persistent storage at `/data` so SQLite and `config.yaml` survive restarts.
 
 No CORS configuration is required for this Docker setup. The dashboard and API are served by the same Canonry process on the same origin. CORS only becomes relevant if you split the frontend and API onto different domains.

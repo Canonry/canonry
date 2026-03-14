@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/ci.yml'
+      - '.dockerignore'
+      - 'Dockerfile'
+      - 'docker/**'
       - 'apps/**'
       - 'packages/**'
       - 'package.json'
@@ -16,6 +19,9 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/ci.yml'
+      - '.dockerignore'
+      - 'Dockerfile'
+      - 'docker/**'
       - 'apps/**'
       - 'packages/**'
       - 'package.json'
@@ -42,3 +48,38 @@ jobs:
       - run: pnpm run typecheck
       - run: pnpm run test
       - run: pnpm run lint
+
+  docker-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          load: true
+          tags: canonry:ci
+
+      - name: Smoke test container
+        shell: bash
+        run: |
+          docker run -d --rm --name canonry-ci -p 4100:4100 -e CANONRY_API_KEY=test canonry:ci
+
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4100/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          docker logs canonry-ci
+          exit 1
+
+      - name: Cleanup smoke container
+        if: always()
+        run: docker rm -f canonry-ci || true

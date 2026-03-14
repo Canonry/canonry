@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
 import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -10,6 +11,9 @@ import { initCommand } from '../src/commands/init.js'
 import { getConfigDir, loadConfig } from '../src/config.js'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
+
+const _require = createRequire(import.meta.url)
+const { version: PKG_VERSION } = _require('../package.json') as { version: string }
 
 function restoreEnvVar(name: string, originalValue: string | undefined) {
   if (originalValue === undefined) {
@@ -303,6 +307,56 @@ describe('canonry', () => {
       assert.equal(res.statusCode, 200)
       const body = JSON.parse(res.body) as { status: string }
       assert.equal(body.status, 'ok')
+    } finally {
+      await app.close()
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('openapi endpoint is public and reports the Canonry version', async () => {
+    const tmpDir = path.join(os.tmpdir(), `canonry-test-${crypto.randomUUID()}`)
+    fs.mkdirSync(tmpDir, { recursive: true })
+    const dbPath = path.join(tmpDir, 'test.db')
+
+    const db = createClient(dbPath)
+    migrate(db)
+
+    const rawKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
+    const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex')
+    db.insert(apiKeys).values({
+      id: crypto.randomUUID(),
+      name: 'test',
+      keyHash,
+      keyPrefix: rawKey.slice(0, 9),
+      scopes: '["*"]',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    const app = await createServer({
+      config: {
+        apiUrl: 'http://localhost:4100',
+        database: dbPath,
+        apiKey: rawKey,
+        geminiApiKey: 'test-key',
+      },
+      db,
+    })
+
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/openapi.json',
+      })
+
+      assert.equal(res.statusCode, 200)
+      const body = JSON.parse(res.body) as {
+        info: { version: string }
+        paths: Record<string, Record<string, { security?: unknown[] }>>
+      }
+
+      assert.equal(body.info.version, PKG_VERSION)
+      assert.ok(body.paths['/api/v1/projects/{name}'])
+      assert.deepEqual(body.paths['/api/v1/openapi.json']?.get?.security, [])
     } finally {
       await app.close()
       fs.rmSync(tmpDir, { recursive: true, force: true })

@@ -56,6 +56,13 @@ test('buildApp registers health and API routes', async (t) => {
     [200, 401].includes(projectsResponse.statusCode),
     `Expected 200 or 401 but got ${projectsResponse.statusCode}`,
   )
+
+  const openApiResponse = await app.inject({
+    method: 'GET',
+    url: '/api/v1/openapi.json',
+  })
+  assert.equal(openApiResponse.statusCode, 200)
+  assert.equal(openApiResponse.json().info.version, '0.1.0')
 })
 
 test('loadApiEnv delegates to shared platform config', () => {

@@ -62,6 +62,22 @@ describe('api-routes', () => {
     assert.equal(body[0].name, 'my-site')
   })
 
+  it('GET /api/v1/openapi.json returns the API spec', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/openapi.json' })
+    assert.equal(res.statusCode, 200)
+    assert.match(res.headers['content-type'] ?? '', /application\/json/)
+
+    const body = JSON.parse(res.payload) as {
+      openapi: string
+      paths: Record<string, Record<string, { security?: unknown[] }>>
+    }
+
+    assert.equal(body.openapi, '3.1.0')
+    assert.ok(body.paths['/api/v1/openapi.json'])
+    assert.ok(body.paths['/api/v1/projects'])
+    assert.deepEqual(body.paths['/api/v1/openapi.json']?.get?.security, [])
+  })
+
   it('GET /api/v1/projects/:name gets a single project', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/projects/my-site' })
     assert.equal(res.statusCode, 200)

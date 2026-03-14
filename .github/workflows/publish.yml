@@ -1,62 +1,171 @@
-name: Publish to npm
+name: Publish
 
 on:
   push:
     branches: [main]
     paths:
-      - 'packages/canonry/package.json'
+      - '.github/workflows/publish.yml'
+      - '.dockerignore'
+      - 'Dockerfile'
+      - 'docker/**'
+      - 'apps/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig.base.json'
+      - 'eslint.config.js'
+  workflow_dispatch:
 
 jobs:
-  publish:
+  version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+      version_changed: ${{ steps.package.outputs.version_changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Read Canonry package version
+        id: package
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./packages/canonry/package.json').version")
+          PREVIOUS=""
+
+          if git rev-parse HEAD~1 >/dev/null 2>&1; then
+            PREVIOUS=$(git show HEAD~1:packages/canonry/package.json 2>/dev/null | node -e "let json=''; process.stdin.on('data', (chunk) => json += chunk); process.stdin.on('end', () => { try { console.log(JSON.parse(json).version ?? '') } catch { process.exit(1) } });" 2>/dev/null || true)
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          if [ -n "$PREVIOUS" ] && [ "$VERSION" != "$PREVIOUS" ]; then
+            echo "version_changed=true" >> "$GITHUB_OUTPUT"
+            echo "Version changed: $PREVIOUS -> $VERSION"
+          else
+            echo "version_changed=false" >> "$GITHUB_OUTPUT"
+            if [ -n "$PREVIOUS" ]; then
+              echo "Version unchanged ($VERSION), skipping npm publish"
+            else
+              echo "No previous package version available, skipping npm publish"
+            fi
+          fi
+
+  publish-npm:
+    needs: version
+    if: github.ref_name == github.event.repository.default_branch && github.event_name == 'push' && needs.version.outputs.version_changed == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-
-      - name: Check if version changed
-        id: version-check
-        run: |
-          CURRENT=$(node -p "require('./packages/canonry/package.json').version")
-          PREVIOUS=$(git show HEAD~1:packages/canonry/package.json 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).version" 2>/dev/null || echo "")
-          if [ "$CURRENT" = "$PREVIOUS" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Version unchanged ($CURRENT), skipping publish"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "Version changed: $PREVIOUS -> $CURRENT"
-          fi
 
       - uses: pnpm/action-setup@v4
-        if: steps.version-check.outputs.skip != 'true'
         with:
           version: 10.28.2
 
       - uses: actions/setup-node@v4
-        if: steps.version-check.outputs.skip != 'true'
         with:
           node-version: 22
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
       - run: pnpm install --frozen-lockfile
-        if: steps.version-check.outputs.skip != 'true'
 
       - run: pnpm run typecheck
-        if: steps.version-check.outputs.skip != 'true'
 
       - run: pnpm run test
-        if: steps.version-check.outputs.skip != 'true'
 
       - name: Copy root README into package
-        if: steps.version-check.outputs.skip != 'true'
         run: cp README.md packages/canonry/README.md
 
       - name: Build and publish
-        if: steps.version-check.outputs.skip != 'true'
         run: pnpm --filter @ainyc/canonry publish --no-git-checks --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-docker:
+    needs: version
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Resolve Docker Hub image
+        id: image
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_REPOSITORY: ${{ vars.DOCKERHUB_REPOSITORY }}
+        shell: bash
+        run: |
+          if [ -z "$DOCKERHUB_USERNAME" ]; then
+            echo "DOCKERHUB_USERNAME secret is required" >&2
+            exit 1
+          fi
+
+          IMAGE="${DOCKERHUB_REPOSITORY:-$DOCKERHUB_USERNAME/canonry}"
+          IMAGE=$(printf '%s' "$IMAGE" | tr '[:upper:]' '[:lower:]')
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve Docker tags
+        id: tags
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          VERSION: ${{ needs.version.outputs.version }}
+          VERSION_CHANGED: ${{ needs.version.outputs.version_changed }}
+          EVENT_NAME: ${{ github.event_name }}
+        shell: bash
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+
+          {
+            echo "tags<<EOF"
+            echo "$IMAGE:latest"
+            echo "$IMAGE:sha-$SHORT_SHA"
+            if [ "$EVENT_NAME" = "push" ] && [ "$VERSION_CHANGED" = "true" ]; then
+              echo "$IMAGE:$VERSION"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Resolve OCI labels
+        id: labels
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        shell: bash
+        run: |
+          {
+            echo "labels<<EOF"
+            echo "org.opencontainers.image.title=canonry"
+            echo "org.opencontainers.image.description=Open-source AEO monitoring for your domain."
+            echo "org.opencontainers.image.source=https://github.com/AINYC/canonry"
+            echo "org.opencontainers.image.url=https://github.com/AINYC/canonry"
+            echo "org.opencontainers.image.revision=$GITHUB_SHA"
+            echo "org.opencontainers.image.version=$VERSION"
+            echo "org.opencontainers.image.licenses=FSL-1.1-ALv2"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: ${{ steps.labels.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
