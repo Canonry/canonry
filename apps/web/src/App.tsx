@@ -2637,7 +2637,7 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
 }
 
 const PROVIDER_MODEL_PLACEHOLDERS: Record<string, string> = {
-  gemini: 'e.g. gemini-2.5-flash',
+  gemini: 'e.g. gemini-3-flash',
   openai: 'e.g. gpt-5.4',
   claude: 'e.g. claude-sonnet-4-6',
   local: 'e.g. llama3, mistral',

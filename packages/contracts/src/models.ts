@@ -1,7 +1,7 @@
 import type { ProviderName } from './provider.js'
 
 export interface ModelDefinition {
-  /** API model ID (e.g. "gemini-2.5-flash") */
+  /** API model ID (e.g. "gemini-3-flash") */
   id: string
   /** Human-readable display name */
   displayName: string
@@ -30,9 +30,9 @@ export interface ProviderModelRegistry {
  */
 export const MODEL_REGISTRY: Record<ProviderName, ProviderModelRegistry> = {
   gemini: {
-    defaultModel: 'gemini-2.5-flash',
+    defaultModel: 'gemini-3-flash',
     validationPattern: /^gemini-/,
-    validationHint: 'model name must start with "gemini-" (e.g. gemini-2.5-flash)',
+    validationHint: 'model name must start with "gemini-" (e.g. gemini-3-flash)',
     knownModels: [
       { id: 'gemini-3.1-pro-preview', displayName: 'Gemini 3.1 Pro (Preview)', tier: 'flagship' },
       { id: 'gemini-3-flash-preview', displayName: 'Gemini 3 Flash (Preview)', tier: 'standard' },
