@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS projects (
   name              TEXT NOT NULL UNIQUE,
   display_name      TEXT NOT NULL,
   canonical_domain  TEXT NOT NULL,
+  owned_domains     TEXT NOT NULL DEFAULT '[]',
   country           TEXT NOT NULL,
   language          TEXT NOT NULL,
   tags              TEXT NOT NULL DEFAULT '[]',
@@ -135,6 +136,8 @@ const MIGRATIONS = [
   `ALTER TABLE projects ADD COLUMN providers TEXT NOT NULL DEFAULT '[]'`,
   // v3: Add webhook_secret column to notifications for HMAC signing
   `ALTER TABLE notifications ADD COLUMN webhook_secret TEXT`,
+  // v4: Add owned_domains column to projects for multi-domain citation matching
+  `ALTER TABLE projects ADD COLUMN owned_domains TEXT NOT NULL DEFAULT '[]'`,
 ]
 
 export function migrate(db: DatabaseClient) {

@@ -4,7 +4,10 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
+import Database from 'better-sqlite3'
 import { eq } from 'drizzle-orm'
+import { drizzle } from 'drizzle-orm/better-sqlite3'
+import * as schema from '../src/schema.js'
 import { createClient, migrate, projects, keywords, runs, querySnapshots, auditLog, apiKeys, usageCounters, schedules, notifications } from '../src/index.js'
 
 function createTempDb() {
@@ -404,6 +407,49 @@ test('cascade delete removes schedules and notifications when project deleted', 
 
   assert.equal(db.select().from(schedules).all().length, 0)
   assert.equal(db.select().from(notifications).all().length, 0)
+
+  cleanup(tmpDir)
+})
+
+test('v4 migration adds owned_domains column to existing DB', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-test-'))
+  const dbPath = path.join(tmpDir, 'test.db')
+
+  // Create a pre-v4 database without owned_domains column
+  const sqlite = new Database(dbPath)
+  sqlite.pragma('journal_mode = WAL')
+  sqlite.pragma('foreign_keys = ON')
+  sqlite.exec(`
+    CREATE TABLE projects (
+      id                TEXT PRIMARY KEY,
+      name              TEXT NOT NULL UNIQUE,
+      display_name      TEXT NOT NULL,
+      canonical_domain  TEXT NOT NULL,
+      country           TEXT NOT NULL,
+      language          TEXT NOT NULL,
+      tags              TEXT NOT NULL DEFAULT '[]',
+      labels            TEXT NOT NULL DEFAULT '{}',
+      providers         TEXT NOT NULL DEFAULT '[]',
+      config_source     TEXT NOT NULL DEFAULT 'cli',
+      config_revision   INTEGER NOT NULL DEFAULT 1,
+      created_at        TEXT NOT NULL,
+      updated_at        TEXT NOT NULL
+    )
+  `)
+  const now = new Date().toISOString()
+  sqlite.exec(`
+    INSERT INTO projects (id, name, display_name, canonical_domain, country, language, created_at, updated_at)
+    VALUES ('proj_1', 'test-project', 'Test', 'example.com', 'US', 'en', '${now}', '${now}')
+  `)
+  sqlite.close()
+
+  // Now open with Drizzle and run migrate
+  const db = drizzle(new Database(dbPath), { schema })
+  migrate(db)
+
+  const [project] = db.select().from(projects).where(eq(projects.name, 'test-project')).all()
+  assert.equal(project.canonicalDomain, 'example.com')
+  assert.equal(project.ownedDomains, '[]')
 
   cleanup(tmpDir)
 })

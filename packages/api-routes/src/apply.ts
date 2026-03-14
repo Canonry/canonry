@@ -35,6 +35,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       app.db.update(projects).set({
         displayName: config.spec.displayName,
         canonicalDomain: config.spec.canonicalDomain,
+        ownedDomains: JSON.stringify(config.spec.ownedDomains ?? []),
         country: config.spec.country,
         language: config.spec.language,
         labels: JSON.stringify(config.metadata.labels),
@@ -58,6 +59,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         name,
         displayName: config.spec.displayName,
         canonicalDomain: config.spec.canonicalDomain,
+        ownedDomains: JSON.stringify(config.spec.ownedDomains ?? []),
         country: config.spec.country,
         language: config.spec.language,
         tags: '[]',
@@ -228,6 +230,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       name: project.name,
       displayName: project.displayName,
       canonicalDomain: project.canonicalDomain,
+      ownedDomains: JSON.parse(project.ownedDomains || '[]') as string[],
       country: project.country,
       language: project.language,
       tags: JSON.parse(project.tags) as string[],

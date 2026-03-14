@@ -28,6 +28,7 @@ function toProjectDto(p: ApiProject): ProjectDto {
     name: p.name,
     displayName: p.displayName,
     canonicalDomain: p.canonicalDomain,
+    ownedDomains: p.ownedDomains ?? [],
     country: p.country,
     language: p.language,
     tags: p.tags,

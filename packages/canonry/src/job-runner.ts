@@ -3,6 +3,7 @@ import { eq, inArray } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { runs, keywords, competitors, projects, querySnapshots, usageCounters } from '@ainyc/canonry-db'
 import type { ProviderName, NormalizedQueryResult } from '@ainyc/canonry-contracts'
+import { effectiveDomains } from '@ainyc/canonry-contracts'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
 
@@ -133,10 +134,15 @@ export class JobRunner {
               config.quotaPolicy.maxRequestsPerMinute,
             )
 
+            const allDomains = effectiveDomains({
+              canonicalDomain: project.canonicalDomain,
+              ownedDomains: JSON.parse(project.ownedDomains || '[]') as string[],
+            })
+
             const raw = await adapter.executeTrackedQuery(
               {
                 keyword: kw.keyword,
-                canonicalDomains: [project.canonicalDomain],
+                canonicalDomains: allDomains,
                 competitorDomains,
               },
               config,
@@ -144,8 +150,8 @@ export class JobRunner {
 
             const normalized = adapter.normalizeResult(raw)
 
-            console.log(`[JobRunner] ${providerName}: "${kw.keyword}" citedDomains=${JSON.stringify(normalized.citedDomains)}, groundingSources=${JSON.stringify(normalized.groundingSources.map(s => s.uri))}, canonical="${project.canonicalDomain}"`)
-            const citationState = determineCitationState(normalized, project.canonicalDomain)
+            console.log(`[JobRunner] ${providerName}: "${kw.keyword}" citedDomains=${JSON.stringify(normalized.citedDomains)}, groundingSources=${JSON.stringify(normalized.groundingSources.map(s => s.uri))}, domains=${JSON.stringify(allDomains)}`)
+            const citationState = determineCitationState(normalized, allDomains)
             const overlap = computeCompetitorOverlap(normalized, competitorDomains)
 
             this.db.insert(querySnapshots).values({
@@ -333,32 +339,34 @@ function domainMatches(domain: string, canonicalDomain: string): boolean {
 
 function determineCitationState(
   normalized: NormalizedQueryResult,
-  canonicalDomain: string,
+  domains: string[],
 ): 'cited' | 'not-cited' {
-  const bareDomain = normalizeDomain(canonicalDomain)
+  for (const canonicalDomain of domains) {
+    const bareDomain = normalizeDomain(canonicalDomain)
 
-  // Check extracted cited domains
-  if (normalized.citedDomains.some(d => domainMatches(d, bareDomain))) {
-    return 'cited'
-  }
-
-  // Also check grounding source URIs and titles directly
-  const lowerDomain = bareDomain.toLowerCase()
-  for (const source of normalized.groundingSources) {
-    try {
-      const uri = source.uri.toLowerCase()
-      if (uri.includes(lowerDomain)) {
-        return 'cited'
-      }
-    } catch {
-      // ignore
+    // Check extracted cited domains
+    if (normalized.citedDomains.some(d => domainMatches(d, bareDomain))) {
+      return 'cited'
     }
-    // Gemini proxy URLs use base64 encoding, so the domain won't appear in the URI.
-    // The title field often contains the bare domain (e.g. "ainyc.ai").
-    if (source.title) {
-      const titleLower = source.title.toLowerCase().replace(/^www\./, '')
-      if (titleLower === lowerDomain || titleLower.endsWith(`.${lowerDomain}`)) {
-        return 'cited'
+
+    // Also check grounding source URIs and titles directly
+    const lowerDomain = bareDomain.toLowerCase()
+    for (const source of normalized.groundingSources) {
+      try {
+        const uri = source.uri.toLowerCase()
+        if (uri.includes(lowerDomain)) {
+          return 'cited'
+        }
+      } catch {
+        // ignore
+      }
+      // Gemini proxy URLs use base64 encoding, so the domain won't appear in the URI.
+      // The title field often contains the bare domain (e.g. "ainyc.ai").
+      if (source.title) {
+        const titleLower = source.title.toLowerCase().replace(/^www\./, '')
+        if (titleLower === lowerDomain || titleLower.endsWith(`.${lowerDomain}`)) {
+          return 'cited'
+        }
       }
     }
   }

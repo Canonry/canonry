@@ -28,6 +28,7 @@ export const configNotificationSchema = z.object({
 export const configSpecSchema = z.object({
   displayName: z.string().min(1),
   canonicalDomain: z.string().min(1),
+  ownedDomains: z.array(z.string().min(1)).optional().default([]),
   country: z.string().length(2),
   language: z.string().min(2),
   keywords: z.array(z.string().min(1)).optional().default([]),

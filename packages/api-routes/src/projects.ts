@@ -16,6 +16,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     Body: {
       displayName: string
       canonicalDomain: string
+      ownedDomains?: string[]
       country: string
       language: string
       tags?: string[]
@@ -38,6 +39,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       app.db.update(projects).set({
         displayName: body.displayName,
         canonicalDomain: body.canonicalDomain,
+        ownedDomains: JSON.stringify(body.ownedDomains ?? []),
         country: body.country,
         language: body.language,
         tags: JSON.stringify(body.tags ?? []),
@@ -66,6 +68,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       name,
       displayName: body.displayName,
       canonicalDomain: body.canonicalDomain,
+      ownedDomains: JSON.stringify(body.ownedDomains ?? []),
       country: body.country,
       language: body.language,
       tags: JSON.stringify(body.tags ?? []),
@@ -163,6 +166,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       spec: {
         displayName: project.displayName,
         canonicalDomain: project.canonicalDomain,
+        ownedDomains: JSON.parse(project.ownedDomains || '[]') as string[],
         country: project.country,
         language: project.language,
         keywords: kws.map(k => k.keyword),
@@ -195,6 +199,7 @@ function formatProject(row: {
   name: string
   displayName: string
   canonicalDomain: string
+  ownedDomains: string
   country: string
   language: string
   tags: string
@@ -210,6 +215,7 @@ function formatProject(row: {
     name: row.name,
     displayName: row.displayName,
     canonicalDomain: row.canonicalDomain,
+    ownedDomains: JSON.parse(row.ownedDomains || '[]') as string[],
     country: row.country,
     language: row.language,
     tags: JSON.parse(row.tags) as string[],

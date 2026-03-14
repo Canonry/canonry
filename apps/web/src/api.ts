@@ -41,6 +41,7 @@ export interface ApiProject {
   name: string
   displayName: string
   canonicalDomain: string
+  ownedDomains: string[]
   country: string
   language: string
   tags: string[]
@@ -158,6 +159,7 @@ export function fetchHistory(name: string): Promise<ApiAuditEntry[]> {
 export function createProject(name: string, body: {
   displayName: string
   canonicalDomain: string
+  ownedDomains?: string[]
   country: string
   language: string
 }): Promise<ApiProject> {
