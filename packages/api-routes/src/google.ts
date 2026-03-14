@@ -152,7 +152,8 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
 
     const { code, state, error } = request.query
     if (error) {
-      return reply.type('text/html').send(`<html><body><h2>Authorization failed</h2><p>${error}</p><p>You can close this tab.</p></body></html>`)
+      const safeError = String(error).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
+      return reply.type('text/html').send(`<html><body><h2>Authorization failed</h2><p>${safeError}</p><p>You can close this tab.</p></body></html>`)
     }
 
     if (!code || !state) {

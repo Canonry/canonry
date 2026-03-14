@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { eq, and } from 'drizzle-orm'
+import { eq, and, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { runs, projects, googleConnections, gscSearchData, gscUrlInspections } from '@ainyc/canonry-db'
 import {
@@ -89,6 +89,17 @@ export async function executeGscSync(
     })
 
     console.log(`[GSC Sync] Received ${rows.length} rows`)
+
+    // Delete existing rows for this project in the same date range to avoid duplicates on re-sync
+    db.delete(gscSearchData)
+      .where(
+        and(
+          eq(gscSearchData.projectId, projectId),
+          sql`${gscSearchData.date} >= ${startDate}`,
+          sql`${gscSearchData.date} <= ${endDate}`,
+        )
+      )
+      .run()
 
     // Store rows in batches
     const batchSize = 500
