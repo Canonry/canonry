@@ -17,6 +17,11 @@ import { showSettings, setProvider } from './commands/settings.js'
 import { setSchedule, showSchedule, enableSchedule, disableSchedule, removeSchedule } from './commands/schedule.js'
 import { addNotification, listNotifications, removeNotification, testNotification, listEvents } from './commands/notify.js'
 import { telemetryCommand } from './commands/telemetry.js'
+import {
+  googleConnect, googleDisconnect, googleStatus, googleProperties,
+  googleSetProperty, googleSync, googlePerformance, googleInspect,
+  googleInspections, googleDeindexed,
+} from './commands/google.js'
 import { trackEvent, isTelemetryEnabled, isFirstRun, getOrCreateAnonymousId, showFirstRunNotice } from './telemetry.js'
 
 const USAGE = `
@@ -61,6 +66,16 @@ Usage:
   canonry notify remove <project> <id>  Remove notification
   canonry notify test <project> <id>  Send test webhook
   canonry notify events               List available notification event types
+  canonry google connect <project>     Connect Google Search Console (--type gsc|ga4)
+  canonry google disconnect <project> Disconnect Google integration
+  canonry google status <project>     Show Google connection status
+  canonry google properties <project> List available GSC properties
+  canonry google set-property <project> <url>  Set GSC property URL
+  canonry google sync <project>       Sync GSC data (--days 30, --full, --wait)
+  canonry google performance <project>  Show GSC search performance data
+  canonry google inspect <project> <url>  Inspect a URL via GSC
+  canonry google inspections <project>  Show URL inspection history (--url <url>)
+  canonry google deindexed <project>  Show pages that lost indexing
   canonry settings                    Show active provider and quota settings
   canonry settings provider <name>    Update a provider config
   canonry telemetry status            Show telemetry status
@@ -139,7 +154,7 @@ async function main() {
   }
 
   // Resolve command name for telemetry (e.g. "project.create", "run")
-  const SUBCOMMAND_COMMANDS = new Set(['project', 'keyword', 'competitor', 'schedule', 'notify', 'settings', 'telemetry'])
+  const SUBCOMMAND_COMMANDS = new Set(['project', 'keyword', 'competitor', 'schedule', 'notify', 'settings', 'telemetry', 'google'])
   const resolvedCommand = SUBCOMMAND_COMMANDS.has(command) && args[1] && !args[1].startsWith('-')
     ? `${command}.${args[1]}`
     : command
@@ -699,6 +714,166 @@ async function main() {
 
       case 'telemetry': {
         telemetryCommand(args[1])
+        break
+      }
+
+      case 'google': {
+        const subcommand = args[1]
+        switch (subcommand) {
+          case 'connect': {
+            const project = args[2]
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            const { values: connectValues } = parseArgs({
+              args: args.slice(3),
+              options: {
+                type: { type: 'string', default: 'gsc' },
+              },
+              allowPositionals: false,
+            })
+            await googleConnect(project, { type: connectValues.type ?? 'gsc' })
+            break
+          }
+          case 'disconnect': {
+            const project = args[2]
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            const { values: disconnectValues } = parseArgs({
+              args: args.slice(3),
+              options: {
+                type: { type: 'string', default: 'gsc' },
+              },
+              allowPositionals: false,
+            })
+            await googleDisconnect(project, { type: disconnectValues.type ?? 'gsc' })
+            break
+          }
+          case 'status': {
+            const project = args[2]
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            await googleStatus(project, format)
+            break
+          }
+          case 'properties': {
+            const project = args[2]
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            await googleProperties(project, format)
+            break
+          }
+          case 'set-property': {
+            const project = args[2]
+            const propertyUrl = args[3]
+            if (!project || !propertyUrl) {
+              console.error('Error: project name and property URL are required')
+              process.exit(1)
+            }
+            await googleSetProperty(project, propertyUrl)
+            break
+          }
+          case 'sync': {
+            const project = args[2]
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            const { values: syncValues } = parseArgs({
+              args: args.slice(3),
+              options: {
+                type: { type: 'string', default: 'gsc' },
+                days: { type: 'string' },
+                full: { type: 'boolean', default: false },
+                wait: { type: 'boolean', default: false },
+                format: { type: 'string' },
+              },
+              allowPositionals: false,
+            })
+            await googleSync(project, {
+              type: syncValues.type,
+              days: syncValues.days ? parseInt(syncValues.days, 10) : undefined,
+              full: syncValues.full,
+              wait: syncValues.wait,
+              format: syncValues.format === 'json' ? 'json' : format,
+            })
+            break
+          }
+          case 'performance': {
+            const project = args[2]
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            const { values: perfValues } = parseArgs({
+              args: args.slice(3),
+              options: {
+                days: { type: 'string' },
+                keyword: { type: 'string' },
+                page: { type: 'string' },
+                format: { type: 'string' },
+              },
+              allowPositionals: false,
+            })
+            await googlePerformance(project, {
+              days: perfValues.days ? parseInt(perfValues.days, 10) : undefined,
+              keyword: perfValues.keyword,
+              page: perfValues.page,
+              format: perfValues.format === 'json' ? 'json' : format,
+            })
+            break
+          }
+          case 'inspect': {
+            const project = args[2]
+            const url = args[3]
+            if (!project || !url) {
+              console.error('Error: project name and URL are required')
+              process.exit(1)
+            }
+            await googleInspect(project, url, format)
+            break
+          }
+          case 'inspections': {
+            const project = args[2]
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            const { values: inspValues } = parseArgs({
+              args: args.slice(3),
+              options: {
+                url: { type: 'string' },
+                format: { type: 'string' },
+              },
+              allowPositionals: false,
+            })
+            await googleInspections(project, {
+              url: inspValues.url,
+              format: inspValues.format === 'json' ? 'json' : format,
+            })
+            break
+          }
+          case 'deindexed': {
+            const project = args[2]
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            await googleDeindexed(project, format)
+            break
+          }
+          default:
+            console.error(`Unknown google subcommand: ${subcommand ?? '(none)'}`)
+            console.log('Available: connect, disconnect, status, properties, set-property, sync, performance, inspect, inspections, deindexed')
+            process.exit(1)
+        }
         break
       }
 

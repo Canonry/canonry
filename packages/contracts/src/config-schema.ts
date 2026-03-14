@@ -25,6 +25,16 @@ export const configNotificationSchema = z.object({
   events: z.array(notificationEventSchema).min(1),
 })
 
+export const configGoogleSchema = z.object({
+  gsc: z.object({
+    propertyUrl: z.string(),
+  }).optional(),
+  syncSchedule: z.object({
+    preset: z.string().optional(),
+    cron: z.string().optional(),
+  }).optional(),
+}).optional()
+
 export const configSpecSchema = z.object({
   displayName: z.string().min(1),
   canonicalDomain: z.string().min(1),
@@ -36,6 +46,7 @@ export const configSpecSchema = z.object({
   providers: z.array(providerNameSchema).optional().default([]),
   schedule: configScheduleSchema,
   notifications: z.array(configNotificationSchema).optional().default([]),
+  google: configGoogleSchema,
 })
 
 export const projectConfigSchema = z.object({

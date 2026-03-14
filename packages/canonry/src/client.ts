@@ -177,4 +177,48 @@ export class ApiClient {
       { provider, count },
     )
   }
+
+  // Google connection management
+  async googleConnect(project: string, body: { type: string; propertyId?: string }): Promise<{ authUrl: string }> {
+    return this.request<{ authUrl: string }>('POST', `/projects/${encodeURIComponent(project)}/google/connect`, body)
+  }
+
+  async googleConnections(project: string): Promise<object[]> {
+    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/google/connections`)
+  }
+
+  async googleDisconnect(project: string, type: string): Promise<void> {
+    await this.request<void>('DELETE', `/projects/${encodeURIComponent(project)}/google/connections/${encodeURIComponent(type)}`)
+  }
+
+  async googleProperties(project: string): Promise<{ sites: Array<{ siteUrl: string; permissionLevel: string }> }> {
+    return this.request<{ sites: Array<{ siteUrl: string; permissionLevel: string }> }>('GET', `/projects/${encodeURIComponent(project)}/google/properties`)
+  }
+
+  async googleSetProperty(project: string, type: string, propertyId: string): Promise<object> {
+    return this.request<object>('PUT', `/projects/${encodeURIComponent(project)}/google/connections/${encodeURIComponent(type)}/property`, { propertyId })
+  }
+
+  // GSC data
+  async gscSync(project: string, body?: { days?: number; full?: boolean }): Promise<object> {
+    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/google/gsc/sync`, body ?? {})
+  }
+
+  async gscPerformance(project: string, params?: Record<string, string>): Promise<object[]> {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/performance${qs}`)
+  }
+
+  async gscInspect(project: string, url: string): Promise<object> {
+    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/google/gsc/inspect`, { url })
+  }
+
+  async gscInspections(project: string, params?: Record<string, string>): Promise<object[]> {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/inspections${qs}`)
+  }
+
+  async gscDeindexed(project: string): Promise<object[]> {
+    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/deindexed`)
+  }
 }

@@ -373,3 +373,64 @@ export function triggerAllRuns(body?: { providers?: string[] }): Promise<unknown
     body: JSON.stringify(body ?? {}),
   })
 }
+
+export interface ApiGoogleConnection {
+  id: string
+  domain: string
+  connectionType: string
+  propertyId: string | null
+  scopes: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ApiGscPerformanceRow {
+  date: string
+  query: string
+  page: string
+  country: string | null
+  device: string | null
+  clicks: number
+  impressions: number
+  ctr: number
+  position: number
+}
+
+export function fetchGoogleConnections(project: string): Promise<ApiGoogleConnection[]> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/google/connections`)
+}
+
+export function googleConnect(project: string, type: 'gsc' | 'ga4'): Promise<{ authUrl: string }> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/google/connect`, {
+    method: 'POST',
+    body: JSON.stringify({ type }),
+  })
+}
+
+export function googleDisconnect(project: string, type: string): Promise<void> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/google/connections/${encodeURIComponent(type)}`, {
+    method: 'DELETE',
+    body: '{}',
+  })
+}
+
+export function triggerGscSync(project: string, opts?: { days?: number; full?: boolean }): Promise<ApiRun> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/sync`, {
+    method: 'POST',
+    body: JSON.stringify(opts ?? {}),
+  })
+}
+
+export function fetchGscPerformance(
+  project: string,
+  params?: { startDate?: string; endDate?: string; query?: string; page?: string; limit?: number },
+): Promise<ApiGscPerformanceRow[]> {
+  const qs = new URLSearchParams()
+  if (params?.startDate) qs.set('startDate', params.startDate)
+  if (params?.endDate) qs.set('endDate', params.endDate)
+  if (params?.query) qs.set('query', params.query)
+  if (params?.page) qs.set('page', params.page)
+  if (params?.limit !== undefined) qs.set('limit', String(params.limit))
+  const query = qs.toString() ? `?${qs.toString()}` : ''
+  return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/performance${query}`)
+}

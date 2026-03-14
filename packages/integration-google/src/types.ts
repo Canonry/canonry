@@ -1,0 +1,83 @@
+export interface GoogleTokenResponse {
+  access_token: string
+  refresh_token?: string
+  expires_in: number
+  token_type: string
+  scope?: string
+}
+
+export interface GscSite {
+  siteUrl: string
+  permissionLevel: string
+}
+
+export interface GscSearchAnalyticsRequest {
+  startDate: string
+  endDate: string
+  dimensions: string[]
+  rowLimit?: number
+  startRow?: number
+  dimensionFilterGroups?: Array<{
+    groupType?: string
+    filters: Array<{
+      dimension: string
+      operator: string
+      expression: string
+    }>
+  }>
+}
+
+export interface GscSearchAnalyticsRow {
+  keys: string[]
+  clicks: number
+  impressions: number
+  ctr: number
+  position: number
+}
+
+export interface GscSearchAnalyticsResponse {
+  rows?: GscSearchAnalyticsRow[]
+  responseAggregationType?: string
+}
+
+export interface GscUrlInspectionResult {
+  inspectionResult: {
+    inspectionResultLink?: string
+    indexStatusResult?: {
+      verdict?: string
+      coverageState?: string
+      robotsTxtState?: string
+      indexingState?: string
+      lastCrawlTime?: string
+      pageFetchState?: string
+      googleCanonical?: string
+      userCanonical?: string
+      referringUrls?: string[]
+      crawlResult?: string
+    }
+    mobileUsabilityResult?: {
+      verdict?: string
+      issues?: Array<{ issueType: string; severity: string; message: string }>
+    }
+    richResultsResult?: {
+      verdict?: string
+      detectedItems?: Array<{ richResultType: string; items: unknown[] }>
+    }
+  }
+}
+
+export class GoogleAuthError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'GoogleAuthError'
+  }
+}
+
+export class GoogleApiError extends Error {
+  public status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'GoogleApiError'
+    this.status = status
+  }
+}

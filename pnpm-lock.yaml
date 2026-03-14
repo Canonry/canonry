@@ -139,6 +139,9 @@ importers:
       '@ainyc/canonry-db':
         specifier: workspace:*
         version: link:../db
+      '@ainyc/canonry-integration-google':
+        specifier: workspace:*
+        version: link:../integration-google
       drizzle-orm:
         specifier: ^0.45.1
         version: 0.45.1(@types/better-sqlite3@7.6.13)(better-sqlite3@12.6.2)
@@ -194,6 +197,9 @@ importers:
       '@ainyc/canonry-db':
         specifier: workspace:*
         version: link:../db
+      '@ainyc/canonry-integration-google':
+        specifier: workspace:*
+        version: link:../integration-google
       '@ainyc/canonry-provider-claude':
         specifier: workspace:*
         version: link:../provider-claude
@@ -249,6 +255,12 @@ importers:
       drizzle-kit:
         specifier: ^0.31.9
         version: 0.31.9
+
+  packages/integration-google:
+    dependencies:
+      '@ainyc/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
   packages/provider-claude:
     dependencies:

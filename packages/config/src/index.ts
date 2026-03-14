@@ -44,6 +44,8 @@ export interface BootstrapEnv {
   apiKey?: string
   apiUrl?: string
   databasePath?: string
+  googleClientId?: string
+  googleClientSecret?: string
   providers: {
     gemini?: ProviderEnvConfig
     openai?: ProviderEnvConfig
@@ -78,6 +80,8 @@ const bootstrapEnvSchema = z.object({
   LOCAL_BASE_URL: z.string().optional(),
   LOCAL_API_KEY: z.string().optional(),
   LOCAL_MODEL: z.string().optional(),
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
 })
 
 export function getPlatformEnv(source: NodeJS.ProcessEnv): PlatformEnv {
@@ -194,6 +198,8 @@ export function getBootstrapEnv(
     apiKey: parsed.CANONRY_API_KEY,
     apiUrl: parsed.CANONRY_API_URL,
     databasePath: parsed.CANONRY_DATABASE_PATH,
+    googleClientId: parsed.GOOGLE_CLIENT_ID,
+    googleClientSecret: parsed.GOOGLE_CLIENT_SECRET,
     providers,
   }
 }

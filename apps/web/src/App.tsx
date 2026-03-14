@@ -53,8 +53,15 @@ import {
   generateKeywords as apiGenerateKeywords,
   updateOwnedDomains,
   updateProject,
+  fetchGoogleConnections,
+  googleConnect,
+  googleDisconnect,
+  triggerGscSync,
+  fetchGscPerformance,
   type ApiSchedule,
   type ApiNotification,
+  type ApiGoogleConnection,
+  type ApiGscPerformanceRow,
   type GroundingSource,
 } from './api.js'
 import { buildDashboard } from './build-dashboard.js'
@@ -1885,7 +1892,150 @@ function ProjectPage({
       <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name }} onUpdateProject={onUpdateProject} />
       <ScheduleSection projectName={model.project.name} />
       <NotificationsSection projectName={model.project.name} />
+      <GscSection projectName={model.project.name} />
     </div>
+  )
+}
+
+function GscSection({ projectName }: { projectName: string }) {
+  const [connections, setConnections] = useState<ApiGoogleConnection[]>([])
+  const [performance, setPerformance] = useState<ApiGscPerformanceRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
+  const [connecting, setConnecting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setLoading(true)
+    fetchGoogleConnections(projectName)
+      .then((conns) => {
+        setConnections(conns)
+        const gsc = conns.find((c) => c.connectionType === 'gsc')
+        if (gsc) {
+          return fetchGscPerformance(projectName, { limit: 20 })
+        }
+        return []
+      })
+      .then((rows) => setPerformance(rows))
+      .catch(() => setPerformance([]))
+      .finally(() => setLoading(false))
+  }, [projectName])
+
+  const gscConn = connections.find((c) => c.connectionType === 'gsc')
+
+  async function handleConnect() {
+    setConnecting(true)
+    setError(null)
+    try {
+      const { authUrl } = await googleConnect(projectName, 'gsc')
+      window.open(authUrl, '_blank', 'width=600,height=700')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start OAuth flow')
+    } finally {
+      setConnecting(false)
+    }
+  }
+
+  async function handleDisconnect() {
+    setError(null)
+    try {
+      await googleDisconnect(projectName, 'gsc')
+      setConnections((prev) => prev.filter((c) => c.connectionType !== 'gsc'))
+      setPerformance([])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to disconnect')
+    }
+  }
+
+  async function handleSync() {
+    setSyncing(true)
+    setError(null)
+    try {
+      await triggerGscSync(projectName)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to trigger sync')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  return (
+    <section className="page-section-divider">
+      <div className="section-head section-head-inline">
+        <div>
+          <p className="eyebrow eyebrow-soft">Search Console</p>
+          <h2>Google Search Console</h2>
+        </div>
+        {gscConn && (
+          <Button type="button" variant="outline" size="sm" disabled={syncing} onClick={handleSync}>
+            {syncing ? 'Syncing...' : 'Sync data'}
+          </Button>
+        )}
+      </div>
+
+      {error && (
+        <div className="mb-3 rounded-lg border border-rose-800/40 bg-rose-950/20 px-3 py-2 text-sm text-rose-300">
+          {error}
+          <button type="button" className="ml-2 text-rose-400 hover:text-rose-200" onClick={() => setError(null)}>×</button>
+        </div>
+      )}
+
+      {loading ? (
+        <p className="text-sm text-zinc-500">Loading…</p>
+      ) : gscConn ? (
+        <>
+          <div className="mb-4 flex items-center gap-3 rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            <span className="text-sm text-zinc-300">Connected</span>
+            {gscConn.propertyId && (
+              <span className="text-xs text-zinc-500">{gscConn.propertyId}</span>
+            )}
+            <button
+              type="button"
+              className="ml-auto text-xs text-zinc-500 hover:text-rose-400 transition-colors"
+              onClick={handleDisconnect}
+            >
+              Disconnect
+            </button>
+          </div>
+          {performance.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="data-table w-full text-sm">
+                <thead>
+                  <tr>
+                    <th className="text-left">Query</th>
+                    <th className="text-right">Clicks</th>
+                    <th className="text-right">Impressions</th>
+                    <th className="text-right">CTR</th>
+                    <th className="text-right">Position</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {performance.map((row, i) => (
+                    <tr key={i}>
+                      <td className="truncate max-w-xs text-zinc-200">{row.query}</td>
+                      <td className="text-right tabular-nums text-zinc-300">{row.clicks.toLocaleString()}</td>
+                      <td className="text-right tabular-nums text-zinc-400">{row.impressions.toLocaleString()}</td>
+                      <td className="text-right tabular-nums text-zinc-400">{(row.ctr * 100).toFixed(1)}%</td>
+                      <td className="text-right tabular-nums text-zinc-400">{row.position.toFixed(1)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-zinc-500">No performance data yet. Run a GSC sync to import data.</p>
+          )}
+        </>
+      ) : (
+        <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-6 text-center">
+          <p className="text-sm text-zinc-400 mb-3">Connect Google Search Console to import search performance data for this project.</p>
+          <Button type="button" variant="outline" size="sm" disabled={connecting} onClick={handleConnect}>
+            {connecting ? 'Opening…' : 'Connect Google Search Console'}
+          </Button>
+        </div>
+      )}
+    </section>
   )
 }
 

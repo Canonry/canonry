@@ -125,6 +125,64 @@ export const notifications = sqliteTable('notifications', {
   index('idx_notifications_project').on(table.projectId),
 ])
 
+export const googleConnections = sqliteTable('google_connections', {
+  id: text('id').primaryKey(),
+  domain: text('domain').notNull(),
+  connectionType: text('connection_type').notNull(),
+  propertyId: text('property_id'),
+  accessToken: text('access_token'),
+  refreshToken: text('refresh_token'),
+  tokenExpiresAt: text('token_expires_at'),
+  scopes: text('scopes').notNull().default('[]'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_google_conn_domain_type').on(table.domain, table.connectionType),
+])
+
+export const gscSearchData = sqliteTable('gsc_search_data', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  syncRunId: text('sync_run_id').notNull().references(() => runs.id, { onDelete: 'cascade' }),
+  date: text('date').notNull(),
+  query: text('query').notNull(),
+  page: text('page').notNull(),
+  country: text('country'),
+  device: text('device'),
+  clicks: integer('clicks').notNull().default(0),
+  impressions: integer('impressions').notNull().default(0),
+  ctr: text('ctr').notNull().default('0'),
+  position: text('position').notNull().default('0'),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_gsc_search_project_date').on(table.projectId, table.date),
+  index('idx_gsc_search_query').on(table.query),
+  index('idx_gsc_search_run').on(table.syncRunId),
+])
+
+export const gscUrlInspections = sqliteTable('gsc_url_inspections', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'cascade' }),
+  url: text('url').notNull(),
+  indexingState: text('indexing_state'),
+  verdict: text('verdict'),
+  coverageState: text('coverage_state'),
+  pageFetchState: text('page_fetch_state'),
+  robotsTxtState: text('robots_txt_state'),
+  crawlTime: text('crawl_time'),
+  lastCrawlResult: text('last_crawl_result'),
+  isMobileFriendly: integer('is_mobile_friendly'),
+  richResults: text('rich_results').notNull().default('[]'),
+  referringUrls: text('referring_urls').notNull().default('[]'),
+  inspectedAt: text('inspected_at').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_gsc_inspect_project_url').on(table.projectId, table.url),
+  index('idx_gsc_inspect_run').on(table.syncRunId),
+  index('idx_gsc_inspect_url_time').on(table.url, table.inspectedAt),
+])
+
 export const usageCounters = sqliteTable('usage_counters', {
   id: text('id').primaryKey(),
   scope: text('scope').notNull(),

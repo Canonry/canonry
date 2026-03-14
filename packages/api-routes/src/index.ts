@@ -19,6 +19,8 @@ import type { TelemetryRoutesOptions } from './telemetry.js'
 import { scheduleRoutes } from './schedules.js'
 import type { ScheduleRoutesOptions } from './schedules.js'
 import { notificationRoutes } from './notifications.js'
+import { googleRoutes } from './google.js'
+import type { GoogleRoutesOptions } from './google.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -46,6 +48,12 @@ export interface ApiRoutesOptions {
   /** Telemetry status/toggle callbacks */
   getTelemetryStatus?: TelemetryRoutesOptions['getTelemetryStatus']
   setTelemetryEnabled?: TelemetryRoutesOptions['setTelemetryEnabled']
+  /** Google OAuth config + sync callback */
+  googleClientId?: string
+  googleClientSecret?: string
+  /** Secret for signing OAuth state parameters */
+  googleStateSecret?: string
+  onGscSyncRequested?: GoogleRoutesOptions['onGscSyncRequested']
 }
 
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
@@ -84,6 +92,12 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getTelemetryStatus: opts.getTelemetryStatus,
       setTelemetryEnabled: opts.setTelemetryEnabled,
     } satisfies TelemetryRoutesOptions)
+    await api.register(googleRoutes, {
+      googleClientId: opts.googleClientId,
+      googleClientSecret: opts.googleClientSecret,
+      googleStateSecret: opts.googleStateSecret,
+      onGscSyncRequested: opts.onGscSyncRequested,
+    } satisfies GoogleRoutesOptions)
   }, { prefix: '/api/v1' })
 }
 

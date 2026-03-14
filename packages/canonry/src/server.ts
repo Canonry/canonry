@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -18,6 +19,7 @@ import type { CanonryConfig } from './config.js'
 import { saveConfig, loadConfig } from './config.js'
 import { isTelemetryEnabled, getOrCreateAnonymousId } from './telemetry.js'
 import { JobRunner } from './job-runner.js'
+import { executeGscSync } from './gsc-sync.js'
 import { ProviderRegistry } from './provider-registry.js'
 import { Scheduler } from './scheduler.js'
 import { Notifier } from './notifier.js'
@@ -126,10 +128,31 @@ export async function createServer(opts: {
 
   const adapterMap = { gemini: geminiAdapter, openai: openaiAdapter, claude: claudeAdapter, local: localAdapter } as const
 
+  // Google OAuth config from env
+  const googleClientId = process.env.GOOGLE_CLIENT_ID
+  const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET
+  const googleStateSecret = process.env.GOOGLE_STATE_SECRET ?? crypto.randomBytes(32).toString('hex')
+
   // Register API routes
   await app.register(apiRoutes, {
     db: opts.db,
     skipAuth: false,
+    googleClientId,
+    googleClientSecret,
+    googleStateSecret,
+    onGscSyncRequested: (runId: string, projectId: string, syncOpts?: { days?: number; full?: boolean }) => {
+      if (!googleClientId || !googleClientSecret) {
+        app.log.error('GSC sync requested but GOOGLE_CLIENT_ID/SECRET not configured')
+        return
+      }
+      executeGscSync(opts.db, runId, projectId, {
+        ...syncOpts,
+        googleClientId,
+        googleClientSecret,
+      }).catch((err: unknown) => {
+        app.log.error({ runId, err }, 'GSC sync failed')
+      })
+    },
     openApiInfo: {
       title: 'Canonry API',
       version: PKG_VERSION,

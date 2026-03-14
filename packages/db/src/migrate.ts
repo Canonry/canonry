@@ -142,6 +142,61 @@ const MIGRATIONS = [
   `ALTER TABLE query_snapshots ADD COLUMN model TEXT`,
   // v5b: Backfill model from rawResponse JSON for existing snapshots
   `UPDATE query_snapshots SET model = json_extract(raw_response, '$.model') WHERE model IS NULL AND raw_response IS NOT NULL AND json_extract(raw_response, '$.model') IS NOT NULL`,
+  // v6: Google Search Console integration — google_connections table (domain-scoped)
+  `CREATE TABLE IF NOT EXISTS google_connections (
+    id              TEXT PRIMARY KEY,
+    domain          TEXT NOT NULL,
+    connection_type TEXT NOT NULL,
+    property_id     TEXT,
+    access_token    TEXT,
+    refresh_token   TEXT,
+    token_expires_at TEXT,
+    scopes          TEXT NOT NULL DEFAULT '[]',
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_google_conn_domain_type ON google_connections(domain, connection_type)`,
+  // v6: Google Search Console integration — gsc_search_data table
+  `CREATE TABLE IF NOT EXISTS gsc_search_data (
+    id            TEXT PRIMARY KEY,
+    project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    sync_run_id   TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    date          TEXT NOT NULL,
+    query         TEXT NOT NULL,
+    page          TEXT NOT NULL,
+    country       TEXT,
+    device        TEXT,
+    clicks        INTEGER NOT NULL DEFAULT 0,
+    impressions   INTEGER NOT NULL DEFAULT 0,
+    ctr           TEXT NOT NULL DEFAULT '0',
+    position      TEXT NOT NULL DEFAULT '0',
+    created_at    TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_gsc_search_project_date ON gsc_search_data(project_id, date)`,
+  `CREATE INDEX IF NOT EXISTS idx_gsc_search_query ON gsc_search_data(query)`,
+  `CREATE INDEX IF NOT EXISTS idx_gsc_search_run ON gsc_search_data(sync_run_id)`,
+  // v6: Google Search Console integration — gsc_url_inspections table
+  `CREATE TABLE IF NOT EXISTS gsc_url_inspections (
+    id                TEXT PRIMARY KEY,
+    project_id        TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    sync_run_id       TEXT REFERENCES runs(id) ON DELETE CASCADE,
+    url               TEXT NOT NULL,
+    indexing_state    TEXT,
+    verdict           TEXT,
+    coverage_state    TEXT,
+    page_fetch_state  TEXT,
+    robots_txt_state  TEXT,
+    crawl_time        TEXT,
+    last_crawl_result TEXT,
+    is_mobile_friendly INTEGER,
+    rich_results      TEXT NOT NULL DEFAULT '[]',
+    referring_urls    TEXT NOT NULL DEFAULT '[]',
+    inspected_at      TEXT NOT NULL,
+    created_at        TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_gsc_inspect_project_url ON gsc_url_inspections(project_id, url)`,
+  `CREATE INDEX IF NOT EXISTS idx_gsc_inspect_run ON gsc_url_inspections(sync_run_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_gsc_inspect_url_time ON gsc_url_inspections(url, inspected_at)`,
 ]
 
 export function migrate(db: DatabaseClient) {

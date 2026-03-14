@@ -13,6 +13,7 @@ const SKIP_PATHS = ['/health']
 function shouldSkipAuth(url: string): boolean {
   if (SKIP_PATHS.includes(url)) return true
   if (url.endsWith('/openapi.json')) return true
+  if (url.includes('/google/callback')) return true
   return false
 }
 
