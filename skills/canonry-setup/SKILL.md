@@ -1,211 +1,196 @@
-# Canonry Setup Skill
-
-You are helping a non-technical user install, configure, and run their first AEO visibility sweep using **canonry** — a CLI-native AEO monitoring tool. No web browser or dashboard is required at any point.
-
-Work conversationally. Ask one question at a time. Run commands on their behalf and explain what each one does in plain language. Never show raw stack traces — translate errors into plain-English fixes.
-
+---
+name: canonry-setup
+description: Install, configure, and operate canonry — an open-source AEO monitoring CLI. Use when setting up canonry from scratch, running visibility sweeps, interpreting citation results, managing projects/keywords/competitors, troubleshooting errors, or performing competitive analysis. Triggers on phrases like "set up canonry", "run a sweep", "check citations", "AEO monitoring", "canonry install", "canonry status", "track AI visibility".
 ---
 
-## Phase 1 — Installation
+# Canonry
 
-### 1.1 Check Node.js
+Open-source AEO monitoring CLI. Tracks how AI answer engines (ChatGPT, Gemini, Claude) cite or omit a domain for target keywords.
 
-```bash
-node --version
-```
+**Repo:** github.com/AINYC/canonry | **npm:** `@ainyc/canonry`
 
-- **≥ 18**: proceed.
-- **Not found / < 18**: tell the user to install Node.js from https://nodejs.org (LTS version) and come back. Do not proceed until Node ≥ 18 is available.
+## Install
 
-### 1.2 Check if canonry is already installed
-
-```bash
-canonry --version
-```
-
-- **Already installed**: confirm the version and skip to Phase 2.
-- **Not found**: install it.
+### From npm (users)
 
 ```bash
 npm install -g @ainyc/canonry
+canonry --version
 ```
 
-Explain: *"This installs the canonry command-line tool globally on your machine — takes about 30 seconds."*
+### From source (contributors/agents)
 
-Verify with `canonry --version` before continuing.
+```bash
+cd <canonry-repo>
+pnpm install
+pnpm -r run build    # required — dist/ doesn't exist until built
+npm install -g ./packages/canonry
+canonry --version
+```
 
-### 1.3 Initialize canonry
+If global install fails with EACCES, set a user prefix:
+```bash
+mkdir -p ~/.npm-global && npm config set prefix ~/.npm-global
+export PATH="$HOME/.npm-global/bin:$PATH"  # add to ~/.bashrc
+```
+
+Before committing changes: `pnpm typecheck && pnpm lint && pnpm test` — all three must pass.
+
+## Configure
+
+### Non-interactive (preferred for agents/CI)
+
+```bash
+canonry init --gemini-key <KEY> --openai-key <KEY> --claude-key <KEY>
+```
+
+Or via environment variables:
+```bash
+GEMINI_API_KEY=... OPENAI_API_KEY=... ANTHROPIC_API_KEY=... canonry init
+```
+
+### Interactive (humans)
 
 ```bash
 canonry init
 ```
 
-Explain: *"This creates a local config file and database where canonry stores your projects and results."*
+Prompts for each provider key. Press Enter to skip a provider.
 
----
-
-## Phase 2 — Configure a Provider
-
-Tell the user: *"Canonry needs at least one AI provider key to query — Gemini, OpenAI, or Claude. You only need one to get started."*
-
-Ask: **"Which one do you have a key for?"**
-
-| Answer | Where to get a key (if they don't have one) |
-|--------|---------------------------------------------|
-| Gemini | https://aistudio.google.com/app/apikey |
-| OpenAI | https://platform.openai.com/api-keys |
-| Claude | https://console.anthropic.com/settings/keys |
-
-Once they provide the key, configure it — do not echo the key back in your response:
+### Verify
 
 ```bash
-# Gemini
-canonry settings provider gemini --api-key <KEY>
-
-# OpenAI
-canonry settings provider openai --api-key <KEY>
-
-# Claude
-canonry settings provider claude --api-key <KEY>
+canonry settings
+canonry settings --format json
 ```
 
-Confirm with `canonry settings` and show them which providers are ready.
+At least one provider must be configured.
 
----
+## Server
 
-## Phase 3 — Create a Project
-
-Ask: **"What website do you want to monitor? Give me the domain (e.g. acmedental.com)."**
-
-Then ask: **"What's the name of this project?"** (default: their domain)
+The server must be running for most commands.
 
 ```bash
-canonry project create "<name>" --domain <domain>
+canonry start              # background daemon
+canonry stop               # stop daemon
+canonry serve              # foreground (for debugging)
+canonry serve --host 0.0.0.0 --port 4100  # expose on network
 ```
 
----
+If commands fail with "fetch failed" → the server isn't running.
 
-## Phase 4 — Add Keywords
+## Core Workflow
 
-Ask: **"Do you want me to automatically generate key phrases to track based on your domain, or would you like to add them manually?"**
-
-### Option A — Auto-generate (recommended)
+### 1. Create a project
 
 ```bash
-canonry keyword generate "<project>" --provider <configured-provider> --count 10 --save
+canonry project create <name> --domain <domain>
+canonry project list
+canonry project show <name>
 ```
 
-Show the generated phrases and ask: *"These are the phrases canonry will track. Want to keep all of them, or remove any before we run?"*
-
-If they want to add more manually, use:
+### 2. Add keywords
 
 ```bash
-canonry keyword add "<project>" "phrase one" "phrase two"
+canonry keyword add <project> "phrase one" "phrase two"
+canonry keyword generate <project> --provider gemini --count 10 --save
+canonry keyword list <project>
+canonry keyword import <project> keywords.txt
 ```
 
-### Option B — Manual entry
+Choose keywords that match how real users query AI — natural language questions and short phrases. Include variations (word order matters: "NYC AEO Agency" ≠ "AEO Agency NYC").
 
-Ask them to list the phrases they want to track, then add them:
+### 3. Add competitors
 
 ```bash
-canonry keyword add "<project>" "phrase one" "phrase two" "phrase three"
+canonry competitor add <project> competitor1.com competitor2.com
+canonry competitor list <project>
 ```
 
----
-
-## Phase 5 — Add Competitors (Optional)
-
-Ask: **"Do you know which competitors you want to track? I can note which domains the AI cites instead of you."**
-
-- **Yes**: collect domains and add them:
+### 4. Run a sweep
 
 ```bash
-canonry competitor add "<project>" competitor1.com competitor2.com
+canonry run <project> --wait          # all providers, block until done
+canonry run <project> --provider gemini --wait  # single provider
+canonry run --all --wait              # all projects
 ```
 
-- **No / skip**: proceed — competitors can always be added later.
+Without `--wait`, returns a run ID immediately. Check with `canonry run show <id>`.
 
----
+Sweeps send each keyword to each provider's web search API and record whether the canonical domain appears in citations/grounding sources. Typical runtime: 1-3 minutes for 5 keywords × 3 providers.
 
-## Phase 6 — Run the First Sweep
-
-Tell the user: *"Everything is set up. I'm now going to ask Gemini/OpenAI/Claude each of your key phrases and check whether your site is cited in the answers. This usually takes 1–3 minutes."*
+### 5. View results
 
 ```bash
-canonry run "<project>"
+canonry status <project>              # summary
+canonry evidence <project>            # per-keyword breakdown
+canonry runs <project>                # run history
+canonry run show <id>                 # single run detail with snapshots
 ```
 
-While it runs, explain: *"Canonry is sending each of your key phrases to the AI provider and recording whether your domain appears in the answer, which other domains were cited, and what the AI actually said."*
+All commands support `--format json` for machine-readable output.
 
----
+### 6. Interpret results
 
-## Phase 7 — Show Results
+Each snapshot has a `citationState`:
+- **cited** — the domain appeared in the provider's grounding sources or answer citations
+- **not-cited** — the provider answered but didn't cite the domain
 
-Once the run completes, show the status summary first:
+Key fields in JSON output:
+- `citedDomains` — all domains the provider cited
+- `competitorOverlap` — which tracked competitors appeared
+- `answerText` — the full AI-generated answer
+
+**Patterns to look for:**
+- Provider variance: cited on Claude but not Gemini = different knowledge bases
+- Keyword sensitivity: longer/more specific phrases often cite more readily
+- Competitor dominance: if a competitor appears in most snapshots, they have stronger signals
+- Run-to-run variance: AI answers are non-deterministic — single sweeps aren't conclusive, track trends over multiple runs
+
+## Scheduling & Notifications
 
 ```bash
-canonry status "<project>"
+canonry schedule set <project> --preset daily     # or: weekly, twice-daily, daily@09
+canonry schedule set <project> --cron "0 9 * * *" --timezone America/New_York
+canonry schedule show <project>
+canonry schedule enable <project>
+canonry schedule disable <project>
+
+canonry notify add <project> --webhook <url> --events citation.lost,citation.gained
+canonry notify events          # list all available event types
+canonry notify list <project>
+canonry notify test <project> <id>
 ```
 
-Then show the full evidence breakdown:
+Available events: `citation.lost`, `citation.gained`, `run.completed`, `run.failed`
+
+## Provider Settings & Quotas
 
 ```bash
-canonry evidence "<project>"
+canonry settings provider gemini --api-key <KEY> --model gemini-2.5-flash
+canonry settings provider openai --max-per-day 1000 --max-per-minute 20
 ```
 
-Walk the user through what they're seeing:
-- **Cited** — the AI mentioned their domain for that phrase ✓
-- **Not-Cited** — the AI answered but their domain wasn't in it
-- **Competitor domains** — who the AI cited instead
+Quota flags: `--max-concurrent`, `--max-per-minute`, `--max-per-day`
 
----
+If a provider hits rate limits (429 errors), the run completes as `partial`. Reduce concurrency or increase time between sweeps.
 
-## Phase 8 — Optional Next Steps
-
-After showing results, offer these as natural follow-ups:
-
-### Set a recurring schedule
-*"Want canonry to automatically re-run this sweep every day so you can track changes over time?"*
+## Config as Code
 
 ```bash
-canonry schedule set "<project>" --preset daily
+canonry export <project> --include-results > project.yaml
+canonry apply project.yaml
 ```
 
-Options: `daily`, `twice-daily`, `weekly`, `daily@09` (specific hour)
+## Troubleshooting
 
-### Export the config
-*"Want a YAML file you can version-control or share?"*
-
-```bash
-canonry export "<project>"
-```
-
-### Add a webhook notification
-*"Want a Slack or webhook alert when your citation status changes?"*
-
-```bash
-canonry notify add "<project>" --webhook <url> --events citation-lost,citation-gained
-```
-
----
-
-## Error Handling
-
-| Symptom | What to say |
-|---------|-------------|
-| `Error: API key invalid` | *"That key didn't work — double-check it was copied in full with no extra spaces."* |
-| `Error: project not found` | Re-run `canonry project list` to confirm the project name, then retry. |
-| `canonry: command not found` (after install) | *"Try opening a new terminal window — your system needs to reload its PATH."* |
-| `npm: command not found` | Node.js isn't installed or isn't in PATH. Guide back to step 1.1. |
-| Provider quota error | *"That provider hit its rate limit. Try `--provider <other-provider>` if you have another key configured."* |
-| Run completes but 0 results | *"The run finished but returned no results — this usually means the provider key has no quota remaining. Check your API dashboard."* |
-
----
-
-## Tone
-
-- Never use jargon without explaining it.
-- Keep each message short — one action or question at a time.
-- Celebrate small wins ("✓ Gemini is configured and ready").
-- If a step fails, fix it before moving forward.
-- Do not ask the user to run commands themselves — you run them. Only ask for input you genuinely need (domain name, API key, keyword list).
+| Error | Fix |
+|-------|-----|
+| `fetch failed` | Server not running. Run `canonry start` |
+| `Config not found` | Run `canonry init` |
+| `canonry: command not found` | Check PATH includes npm global bin dir |
+| `429 rate_limit_error` | Provider quota hit. Wait or reduce sweep frequency |
+| `No providers configured` | Run `canonry settings` — add at least one API key |
+| `Daily quota exceeded` | Wait for next UTC day or increase `--max-per-day` |
+| Run status `partial` | Some providers failed (usually rate limits). Successful snapshots are still saved |
+| `ERR_MODULE_NOT_FOUND dist/cli.js` | Source install without build. Run `pnpm -r run build` |
