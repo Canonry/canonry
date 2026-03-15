@@ -142,6 +142,7 @@ describe('canonry', () => {
         geminiApiKey: 'test-key',
       },
       db,
+      logger: false,
     })
 
     try {
@@ -182,6 +183,7 @@ describe('canonry', () => {
         geminiApiKey: 'test-key',
       },
       db,
+      logger: false,
     })
 
     try {
@@ -247,6 +249,7 @@ describe('canonry', () => {
         geminiApiKey: 'test-key',
       },
       db,
+      logger: false,
     })
 
     try {
@@ -400,6 +403,7 @@ describe('canonry', () => {
         apiKey: rawKey,
       },
       db,
+      logger: false,
     })
 
     try {
@@ -453,6 +457,7 @@ describe('canonry', () => {
         geminiApiKey: 'test-key',
       },
       db,
+      logger: false,
     })
 
     try {
@@ -496,6 +501,7 @@ describe('canonry', () => {
         geminiApiKey: 'test-key',
       },
       db,
+      logger: false,
     })
 
     try {

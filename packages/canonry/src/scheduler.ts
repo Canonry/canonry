@@ -47,8 +47,7 @@ export class Scheduler {
   /** Stop all cron tasks for graceful shutdown. */
   stop(): void {
     for (const [projectId, task] of this.tasks) {
-      task.stop()
-      console.log(`[Scheduler] Stopped task for project ${projectId}`)
+      this.stopTask(projectId, task, 'Stopped')
     }
     this.tasks.clear()
   }
@@ -58,7 +57,7 @@ export class Scheduler {
     // Remove existing task if any
     const existing = this.tasks.get(projectId)
     if (existing) {
-      existing.stop()
+      this.stopTask(projectId, existing, 'Stopped')
       this.tasks.delete(projectId)
     }
 
@@ -78,10 +77,15 @@ export class Scheduler {
   remove(projectId: string): void {
     const existing = this.tasks.get(projectId)
     if (existing) {
-      existing.stop()
+      this.stopTask(projectId, existing, 'Removed')
       this.tasks.delete(projectId)
-      console.log(`[Scheduler] Removed task for project ${projectId}`)
     }
+  }
+
+  private stopTask(projectId: string, task: cron.ScheduledTask, verb: 'Stopped' | 'Removed'): void {
+    task.stop()
+    task.destroy()
+    console.log(`[Scheduler] ${verb} task for project ${projectId}`)
   }
 
   private registerCronTask(schedule: typeof schedules.$inferSelect): void {

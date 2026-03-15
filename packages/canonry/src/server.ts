@@ -44,19 +44,26 @@ export async function createServer(opts: {
   config: CanonryConfig
   db: DatabaseClient
   open?: boolean
+  logger?: boolean
 }): Promise<FastifyInstance> {
+  const logger = opts.logger === false
+    ? false
+    : process.stdout.isTTY
+      ? {
+          transport: {
+            target: 'pino-pretty',
+            options: {
+              colorize: true,
+              translateTime: 'HH:MM:ss',
+              ignore: 'pid,hostname,reqId',
+              messageFormat: '{msg} {req.method} {req.url}',
+            },
+          },
+        }
+      : true
+
   const app = Fastify({
-    logger: {
-      transport: {
-        target: 'pino-pretty',
-        options: {
-          colorize: true,
-          translateTime: 'HH:MM:ss',
-          ignore: 'pid,hostname,reqId',
-          messageFormat: '{msg} {req.method} {req.url}',
-        },
-      },
-    },
+    logger,
   })
 
   // Build provider registry from config (with legacy field migration)

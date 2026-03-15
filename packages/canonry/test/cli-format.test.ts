@@ -41,7 +41,7 @@ describe('--format json output', { concurrency: 1 }, () => {
 
     fs.writeFileSync(configPath, JSON.stringify(config), 'utf-8')
 
-    const app = await createServer({ config: config as Parameters<typeof createServer>[0]['config'], db })
+    const app = await createServer({ config: config as Parameters<typeof createServer>[0]['config'], db, logger: false })
     await app.listen({ host: '127.0.0.1', port: 0 })
 
     const addr = app.server.address()
