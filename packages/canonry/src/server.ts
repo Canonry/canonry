@@ -410,46 +410,25 @@ export async function createServer(opts: {
 
 // ── Agent handler ──────────────────────────────────────────
 
+class AgentUnavailableError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'AgentUnavailableError'
+  }
+}
+
 function buildAgentHandler(
   opts: { config: CanonryConfig },
   registry: ProviderRegistry,
   db: DatabaseClient,
-): ((projectId: string, threadId: string, message: string) => Promise<string>) | undefined {
-  // Determine which provider to use for the agent
-  const agentConf = opts.config.agent ?? {}
-  if (agentConf.enabled === false) return undefined
-
-  // Pick provider: explicit config > first available (claude > openai > gemini)
-  const providerPriority: Array<'claude' | 'openai' | 'gemini'> = ['claude', 'openai', 'gemini']
-  let llmProvider: 'claude' | 'openai' | 'gemini' | undefined = agentConf.provider
-
-  if (!llmProvider) {
-    for (const p of providerPriority) {
-      if (registry.get(p as ProviderName)) {
-        llmProvider = p
-        break
-      }
-    }
-  }
-
-  if (!llmProvider) return undefined
-
-  const registeredProvider = registry.get(llmProvider as ProviderName)
-  if (!registeredProvider) return undefined
-
-  const llmConfig: LlmConfig = {
-    provider: llmProvider,
-    apiKey: registeredProvider.config.apiKey ?? '',
-    model: agentConf.model ?? registeredProvider.config.model,
-  }
-
+): (projectId: string, threadId: string, message: string) => Promise<string> {
   const store = new AgentStore(db)
-  const apiClient = new ApiClient(
-    opts.config.apiUrl,
-    opts.config.apiKey,
-  )
 
   return async (projectId: string, threadId: string, message: string) => {
+    const agentConf = opts.config.agent ?? {}
+    const llmConfig = resolveAgentLlmConfig(opts.config, registry)
+    const apiClient = new ApiClient(opts.config.apiUrl, opts.config.apiKey)
+
     // Resolve project details for the system prompt
     const { projects: projectsTable } = await import('@ainyc/canonry-db')
     const { eq } = await import('drizzle-orm')
@@ -474,6 +453,39 @@ function buildAgentHandler(
       maxHistoryMessages: agentConf.maxHistory ?? 30,
     })
   }
+}
+
+function resolveAgentLlmConfig(
+  config: CanonryConfig,
+  registry: ProviderRegistry,
+): LlmConfig {
+  const agentConf = config.agent ?? {}
+  if (agentConf.enabled === false) {
+    throw new AgentUnavailableError('Agent is disabled in config.')
+  }
+
+  // Pick provider: explicit config > first available (claude > openai > gemini)
+  const providerPriority: Array<'claude' | 'openai' | 'gemini'> = ['claude', 'openai', 'gemini']
+  const preferredProviders = agentConf.provider
+    ? [agentConf.provider]
+    : providerPriority
+
+  for (const providerName of preferredProviders) {
+    const registeredProvider = registry.get(providerName as ProviderName)
+    if (!registeredProvider) continue
+
+    return {
+      provider: providerName,
+      apiKey: registeredProvider.config.apiKey ?? '',
+      model: agentConf.model ?? registeredProvider.config.model,
+    }
+  }
+
+  if (agentConf.provider) {
+    throw new AgentUnavailableError(`Agent provider "${agentConf.provider}" is not configured. Add an API key or choose another provider.`)
+  }
+
+  throw new AgentUnavailableError('Agent is not configured. Add a provider with an API key.')
 }
 
 function buildKeywordGenerationPrompt(ctx: {

@@ -252,6 +252,55 @@ describe('api-routes', () => {
     assert.deepEqual(body.providers, ['gemini', 'openai'])
   })
 
+  it('agent thread routes stay scoped to the project in the URL', async () => {
+    for (const project of ['agent-a', 'agent-b']) {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/api/v1/projects/${project}`,
+        payload: {
+          displayName: project,
+          canonicalDomain: `${project}.example.com`,
+          country: 'US',
+          language: 'en',
+        },
+      })
+      assert.equal(res.statusCode, 201)
+    }
+
+    const threadRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/agent-a/agent/threads',
+      payload: { title: 'Thread A' },
+    })
+    assert.equal(threadRes.statusCode, 201)
+    const thread = JSON.parse(threadRes.payload) as { id: string }
+
+    const getWrongProjectRes = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/agent-b/agent/threads/${thread.id}`,
+    })
+    assert.equal(getWrongProjectRes.statusCode, 404)
+
+    const postWrongProjectRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/agent-b/agent/threads/${thread.id}/messages`,
+      payload: { message: 'hello' },
+    })
+    assert.equal(postWrongProjectRes.statusCode, 404)
+
+    const deleteWrongProjectRes = await app.inject({
+      method: 'DELETE',
+      url: `/api/v1/projects/agent-b/agent/threads/${thread.id}`,
+    })
+    assert.equal(deleteWrongProjectRes.statusCode, 404)
+
+    const getCorrectProjectRes = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/agent-a/agent/threads/${thread.id}`,
+    })
+    assert.equal(getCorrectProjectRes.statusCode, 200)
+  })
+
   it('GET /api/v1/settings returns provider and google summaries', async () => {
     const settingsCtx = buildApp({
       providerSummary: [{ name: 'gemini', configured: true }],

@@ -1001,60 +1001,6 @@ async function main() {
         break
       }
 
-      case 'agent': {
-        const subcommand = args[1]
-        switch (subcommand) {
-          case 'ask': {
-            const project = args[2]
-            const message = args[3]
-            if (!project || !message) {
-              console.error('Error: project name and message are required')
-              console.error('Usage: canonry agent ask <project> "message"')
-              process.exit(1)
-            }
-            const { values: askValues } = parseArgs({
-              args: args.slice(4),
-              options: {
-                thread: { type: 'string' },
-                format: { type: 'string' },
-              },
-              allowPositionals: false,
-            })
-            await agentAsk(project, message, {
-              threadId: askValues.thread,
-              format: askValues.format === 'json' ? 'json' : format,
-            })
-            break
-          }
-          case 'threads': {
-            const project = args[2]
-            if (!project) {
-              console.error('Error: project name is required')
-              console.error('Usage: canonry agent threads <project>')
-              process.exit(1)
-            }
-            await agentThreads(project, format)
-            break
-          }
-          case 'thread': {
-            const project = args[2]
-            const threadId = args[3]
-            if (!project || !threadId) {
-              console.error('Error: project name and thread ID are required')
-              console.error('Usage: canonry agent thread <project> <threadId>')
-              process.exit(1)
-            }
-            await agentThread(project, threadId, format)
-            break
-          }
-          default:
-            console.error(`Unknown agent subcommand: ${subcommand ?? '(none)'}`)
-            console.log('Available: ask, threads, thread')
-            process.exit(1)
-        }
-        break
-      }
-
       default:
         console.error(`Unknown command: ${command}`)
         console.log('Run "canonry --help" for usage.')
