@@ -68,8 +68,19 @@ export function buildTools(client: ApiClient, projectName: string): AgentTool[] 
         required: [],
       },
       execute: async () => {
-        const history = await client.getHistory(projectName)
-        return JSON.stringify(history, null, 2)
+        const runs = await client.listRuns(projectName) as Array<{ id: string }>
+        const latestRun = runs.at(-1)
+
+        if (!latestRun) {
+          return JSON.stringify({
+            project: projectName,
+            latestRun: null,
+            snapshots: [],
+          }, null, 2)
+        }
+
+        const run = await client.getRun(latestRun.id)
+        return JSON.stringify(run, null, 2)
       },
     },
     {

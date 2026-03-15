@@ -3,7 +3,7 @@
  */
 
 import crypto from 'node:crypto'
-import { eq, desc, asc } from 'drizzle-orm'
+import { eq, desc } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { agentThreads, agentMessages } from '@ainyc/canonry-db'
 import type { AgentThread, AgentMessage } from './types.js'
@@ -85,12 +85,14 @@ export class AgentStore {
   }
 
   async getMessages(threadId: string, limit = 50): Promise<AgentMessage[]> {
-    return this.db
+    const rows = this.db
       .select()
       .from(agentMessages)
       .where(eq(agentMessages.threadId, threadId))
-      .orderBy(asc(agentMessages.createdAt))
+      .orderBy(desc(agentMessages.createdAt))
       .limit(limit)
       .all() as AgentMessage[]
+
+    return rows.reverse()
   }
 }

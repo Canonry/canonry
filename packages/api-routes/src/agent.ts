@@ -9,7 +9,7 @@
  */
 
 import crypto from 'node:crypto'
-import { eq, desc, asc } from 'drizzle-orm'
+import { and, eq, desc, asc } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { agentThreads, agentMessages } from '@ainyc/canonry-db'
 import { resolveProject } from './helpers.js'
@@ -113,12 +113,17 @@ export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions
       },
     },
   }, async (request, reply) => {
-    const { id } = request.params
+    const { project, id } = request.params
+
+    const projectRow = resolveProject(app.db, project)
 
     const thread = app.db
       .select()
       .from(agentThreads)
-      .where(eq(agentThreads.id, id))
+      .where(and(
+        eq(agentThreads.id, id),
+        eq(agentThreads.projectId, projectRow.id),
+      ))
       .get()
 
     if (!thread) {
@@ -162,13 +167,15 @@ export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions
     const { project, id: threadId } = request.params
     const { message } = request.body
 
-    resolveProject(app.db, project)
+    const projectRow = resolveProject(app.db, project)
 
-    // Verify thread exists
     const thread = app.db
       .select()
       .from(agentThreads)
-      .where(eq(agentThreads.id, threadId))
+      .where(and(
+        eq(agentThreads.id, threadId),
+        eq(agentThreads.projectId, projectRow.id),
+      ))
       .get()
 
     if (!thread) {
@@ -184,7 +191,20 @@ export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions
       })
     }
 
-    const response = await opts.onAgentMessage(thread.projectId, threadId, message)
+    let response: string
+    try {
+      response = await opts.onAgentMessage(thread.projectId, threadId, message)
+    } catch (err) {
+      if (isAgentUnavailableError(err)) {
+        return reply.status(503).send({
+          error: {
+            code: 'AGENT_UNAVAILABLE',
+            message: err.message,
+          },
+        })
+      }
+      throw err
+    }
 
     return reply.send({ threadId, response })
   })
@@ -205,10 +225,32 @@ export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions
       },
     },
   }, async (request, reply) => {
-    const { id } = request.params
+    const { project, id } = request.params
 
-    app.db.delete(agentThreads).where(eq(agentThreads.id, id)).run()
+    const projectRow = resolveProject(app.db, project)
+    const deleted = app.db
+      .delete(agentThreads)
+      .where(and(
+        eq(agentThreads.id, id),
+        eq(agentThreads.projectId, projectRow.id),
+      ))
+      .run()
+
+    if (!deleted.changes) {
+      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Thread not found' } })
+    }
 
     return reply.status(204).send()
   })
+}
+
+function isAgentUnavailableError(err: unknown): err is { code: string; message: string } {
+  return Boolean(
+    err &&
+    typeof err === 'object' &&
+    'code' in err &&
+    (err as { code?: unknown }).code === 'AGENT_UNAVAILABLE' &&
+    'message' in err &&
+    typeof (err as { message?: unknown }).message === 'string',
+  )
 }
