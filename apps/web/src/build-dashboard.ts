@@ -219,13 +219,13 @@ function buildEvidenceFromTimeline(
         const snap = snapshotsByKey.get(`${entry.keyword}::${provider}`)
         if (!snap && providers.length > 1) continue
 
-        // Prefer model-scoped history for accurate streaks; fall back to provider-level then keyword-level
+        // Prefer provider-level history for continuity across model changes; fall back to model-scoped then keyword-level
         const model = snap?.model ?? null
         const modelKey = model ? `${provider}:${model}` : null
         const modelHistory = modelKey ? entry.modelRuns?.[modelKey] : undefined
         const providerHistory = entry.providerRuns?.[provider]
-        const effectiveHistory = (modelHistory?.length ? modelHistory : null)
-          ?? (providerHistory?.length ? providerHistory : null)
+        const effectiveHistory = (providerHistory?.length ? providerHistory : null)
+          ?? (modelHistory?.length ? modelHistory : null)
 
         const effectiveTransition = effectiveHistory
           ? effectiveHistory.at(-1)!.transition
