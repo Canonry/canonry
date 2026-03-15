@@ -34,6 +34,9 @@ import { ProviderRegistry } from './provider-registry.js'
 import { Scheduler } from './scheduler.js'
 import { Notifier } from './notifier.js'
 import { fetchSiteText } from './site-fetch.js'
+import { AgentStore, agentChat, buildTools } from './agent/index.js'
+import type { LlmConfig } from './agent/index.js'
+import { ApiClient } from './client.js'
 
 const DEFAULT_QUOTA = {
   maxConcurrency: 2,
@@ -339,6 +342,7 @@ export async function createServer(opts: {
       const raw = await provider.adapter.generateText(prompt, provider.config)
       return parseKeywordResponse(raw, count)
     },
+    onAgentMessage: buildAgentHandler(opts, registry, opts.db),
   })
 
   // Try to serve static SPA assets
@@ -402,6 +406,74 @@ export async function createServer(opts: {
   })
 
   return app
+}
+
+// ── Agent handler ──────────────────────────────────────────
+
+function buildAgentHandler(
+  opts: { config: CanonryConfig },
+  registry: ProviderRegistry,
+  db: DatabaseClient,
+): ((projectId: string, threadId: string, message: string) => Promise<string>) | undefined {
+  // Determine which provider to use for the agent
+  const agentConf = opts.config.agent ?? {}
+  if (agentConf.enabled === false) return undefined
+
+  // Pick provider: explicit config > first available (claude > openai > gemini)
+  const providerPriority: Array<'claude' | 'openai' | 'gemini'> = ['claude', 'openai', 'gemini']
+  let llmProvider: 'claude' | 'openai' | 'gemini' | undefined = agentConf.provider
+
+  if (!llmProvider) {
+    for (const p of providerPriority) {
+      if (registry.get(p as ProviderName)) {
+        llmProvider = p
+        break
+      }
+    }
+  }
+
+  if (!llmProvider) return undefined
+
+  const registeredProvider = registry.get(llmProvider as ProviderName)
+  if (!registeredProvider) return undefined
+
+  const llmConfig: LlmConfig = {
+    provider: llmProvider,
+    apiKey: registeredProvider.config.apiKey ?? '',
+    model: agentConf.model ?? registeredProvider.config.model,
+  }
+
+  const store = new AgentStore(db)
+  const apiClient = new ApiClient(
+    opts.config.apiUrl,
+    opts.config.apiKey,
+  )
+
+  return async (projectId: string, threadId: string, message: string) => {
+    // Resolve project details for the system prompt
+    const { projects: projectsTable } = await import('@ainyc/canonry-db')
+    const { eq } = await import('drizzle-orm')
+
+    const project = db.select().from(projectsTable).where(eq(projectsTable.id, projectId)).get()
+    if (!project) throw new Error(`Project ${projectId} not found`)
+
+    const tools = buildTools(apiClient, project.name)
+
+    return agentChat(threadId, message, {
+      store,
+      tools,
+      llmConfig,
+      project: {
+        name: project.name,
+        displayName: project.displayName,
+        domain: project.canonicalDomain,
+        country: project.country,
+        language: project.language,
+      },
+      maxSteps: agentConf.maxSteps ?? 10,
+      maxHistoryMessages: agentConf.maxHistory ?? 30,
+    })
+  }
 }
 
 function buildKeywordGenerationPrompt(ctx: {

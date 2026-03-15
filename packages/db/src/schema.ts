@@ -183,6 +183,31 @@ export const gscUrlInspections = sqliteTable('gsc_url_inspections', {
   index('idx_gsc_inspect_url_time').on(table.url, table.inspectedAt),
 ])
 
+export const agentThreads = sqliteTable('agent_threads', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  title: text('title'),
+  channel: text('channel').notNull().default('chat'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_agent_threads_project').on(table.projectId),
+  index('idx_agent_threads_updated').on(table.updatedAt),
+])
+
+export const agentMessages = sqliteTable('agent_messages', {
+  id: text('id').primaryKey(),
+  threadId: text('thread_id').notNull().references(() => agentThreads.id, { onDelete: 'cascade' }),
+  role: text('role').notNull(),
+  content: text('content').notNull(),
+  toolName: text('tool_name'),
+  toolArgs: text('tool_args'),
+  toolCallId: text('tool_call_id'),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_agent_messages_thread').on(table.threadId, table.createdAt),
+])
+
 export const usageCounters = sqliteTable('usage_counters', {
   id: text('id').primaryKey(),
   scope: text('scope').notNull(),

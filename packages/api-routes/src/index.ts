@@ -22,6 +22,8 @@ import type { ScheduleRoutesOptions } from './schedules.js'
 import { notificationRoutes } from './notifications.js'
 import { googleRoutes } from './google.js'
 import type { GoogleRoutesOptions } from './google.js'
+import { agentRoutes } from './agent.js'
+import type { AgentRoutesOptions } from './agent.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -61,6 +63,8 @@ export interface ApiRoutesOptions {
   publicUrl?: string
   onGscSyncRequested?: GoogleRoutesOptions['onGscSyncRequested']
   onInspectSitemapRequested?: GoogleRoutesOptions['onInspectSitemapRequested']
+  /** Callback when a user sends a message to the built-in agent */
+  onAgentMessage?: AgentRoutesOptions['onAgentMessage']
 }
 
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
@@ -115,6 +119,9 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onGscSyncRequested: opts.onGscSyncRequested,
       onInspectSitemapRequested: opts.onInspectSitemapRequested,
     } satisfies GoogleRoutesOptions)
+    await api.register(agentRoutes, {
+      onAgentMessage: opts.onAgentMessage,
+    } satisfies AgentRoutesOptions)
   }, { prefix: '/api/v1' })
 }
 
