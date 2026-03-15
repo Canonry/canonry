@@ -60,6 +60,14 @@ test('settings route renders provider state, quota summary, and service health',
   assert.match(html, /Gemini/)
 })
 
+test('settings route renders the Google Search Console OAuth configuration card', () => {
+  const html = renderApp('/settings')
+
+  assert.match(html, /Search Console OAuth/)
+  assert.match(html, /~\/\.canonry\/config\.yaml/)
+  assert.match(html, /Configure Google OAuth|Update OAuth app/)
+})
+
 test('setup route renders the step wizard with system check first', () => {
   const html = renderApp('/setup')
 
@@ -113,6 +121,13 @@ test('project route renders visibility drop insights', () => {
   const html = renderApp('/projects/project_citypoint', { visibilityDropProjectId: 'project_citypoint' })
 
   assert.match(html, /Sharp citation drop detected/)
+})
+
+test('project route renders the Google Search Console section shell', () => {
+  const html = renderApp('/projects/project_citypoint')
+
+  assert.match(html, /Google Search Console/)
+  assert.match(html, /Loading…|Loading\.\.\./)
 })
 
 test('fetchServiceStatus reports ok details from a health payload', async (t) => {

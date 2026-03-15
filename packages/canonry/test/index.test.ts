@@ -371,6 +371,61 @@ describe('canonry', () => {
     )
   })
 
+  it('settings/google persists Google OAuth credentials to local config', async () => {
+    const tmpDir = path.join(os.tmpdir(), `canonry-google-settings-${crypto.randomUUID()}`)
+    fs.mkdirSync(tmpDir, { recursive: true })
+
+    const originalConfigDir = process.env.CANONRY_CONFIG_DIR
+    process.env.CANONRY_CONFIG_DIR = tmpDir
+
+    const dbPath = path.join(tmpDir, 'test.db')
+    const db = createClient(dbPath)
+    migrate(db)
+
+    const rawKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
+    const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex')
+    db.insert(apiKeys).values({
+      id: crypto.randomUUID(),
+      name: 'test',
+      keyHash,
+      keyPrefix: rawKey.slice(0, 9),
+      scopes: '["*"]',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    const app = await createServer({
+      config: {
+        apiUrl: 'http://localhost:4100',
+        database: dbPath,
+        apiKey: rawKey,
+      },
+      db,
+    })
+
+    try {
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/api/v1/settings/google',
+        headers: { authorization: `Bearer ${rawKey}` },
+        payload: {
+          clientId: 'google-client-id',
+          clientSecret: 'google-client-secret',
+        },
+      })
+
+      assert.equal(res.statusCode, 200)
+      assert.deepEqual(JSON.parse(res.body), { configured: true })
+
+      const config = loadConfig()
+      assert.equal(config.google?.clientId, 'google-client-id')
+      assert.equal(config.google?.clientSecret, 'google-client-secret')
+    } finally {
+      await app.close()
+      restoreEnvVar('CANONRY_CONFIG_DIR', originalConfigDir)
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
   it('health endpoint returns ok', async () => {
     const tmpDir = path.join(os.tmpdir(), `canonry-test-${crypto.randomUUID()}`)
     fs.mkdirSync(tmpDir, { recursive: true })
