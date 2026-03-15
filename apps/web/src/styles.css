@@ -64,12 +64,12 @@
   }
 
   .brand-icon {
-    @apply size-10 shrink-0;
+    @apply h-10 w-auto shrink-0;
     filter: drop-shadow(0 10px 18px rgba(8, 11, 15, 0.34));
   }
 
   .brand-lockup-compact .brand-icon {
-    @apply size-7;
+    @apply h-7;
   }
 
   .brand-mark {

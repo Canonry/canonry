@@ -31,7 +31,7 @@ test('overview route renders the premium portfolio dashboard', () => {
   assert.match(html, /Infrastructure/)
   assert.match(html, /Citypoint Dental NYC/)
   assert.match(html, /Harbor Legal Group/)
-  assert.match(html, /src="\/favicon\.svg"/)
+  assert.match(html, /src="\/logo\.svg"/)
 })
 
 test('project route renders a single command center with visibility sections', () => {
