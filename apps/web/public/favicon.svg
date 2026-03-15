@@ -1,24 +1,46 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
   <title id="title">Canonry canary</title>
-  <desc id="desc">A cute red canary mascot for the Canonry logo and favicon.</desc>
-  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <g fill="#D93F45" stroke="#8A171E" stroke-width="2.6">
-      <circle cx="25" cy="16" r="5.5" />
-      <circle cx="32" cy="12.5" r="6" />
-      <circle cx="39" cy="16" r="5.5" />
-      <ellipse cx="21.5" cy="34" rx="6.5" ry="10.5" transform="rotate(-18 21.5 34)" fill="#B82931" />
-      <ellipse cx="42.5" cy="34" rx="6.5" ry="10.5" transform="rotate(18 42.5 34)" fill="#B82931" />
-      <ellipse cx="32" cy="34" rx="16.5" ry="18.5" />
-    </g>
-    <ellipse cx="27.5" cy="26.5" rx="4.6" ry="6.2" fill="#FFB0AE" opacity=".2" />
-    <ellipse cx="32" cy="39.5" rx="11.5" ry="12.5" fill="#FF8E8B" opacity=".24" />
-    <circle cx="23.2" cy="35.5" r="2" fill="#FFB8B2" opacity=".7" />
-    <circle cx="40.8" cy="35.5" r="2" fill="#FFB8B2" opacity=".7" />
-    <path d="M32 30.5 27.8 33.9 32 37.1 36.2 33.9Z" fill="#F39A31" stroke="#8A171E" stroke-width="2" />
-    <circle cx="27.2" cy="28.6" r="2.8" fill="#2C2412" />
-    <circle cx="36.8" cy="28.6" r="2.8" fill="#2C2412" />
-    <circle cx="26.4" cy="27.7" r="0.9" fill="#FFF8E2" />
-    <circle cx="36" cy="27.7" r="0.9" fill="#FFF8E2" />
-    <path d="M26 53.5v3.5m0 0-2 2m2-2 2 2m10-5.5v3.5m0 0-2 2m2-2 2 2" stroke="#DB8B2B" stroke-width="2.4" />
+  <desc id="desc">A refined red canary mark for the Canonry logo and favicon.</desc>
+  <defs>
+    <linearGradient id="canonry-body" x1="22" y1="12" x2="44" y2="54" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#E14B4F" />
+      <stop offset="1" stop-color="#B8202A" />
+    </linearGradient>
+    <linearGradient id="canonry-crest" x1="24" y1="7" x2="40" y2="22" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F15C60" />
+      <stop offset="1" stop-color="#C72631" />
+    </linearGradient>
+    <linearGradient id="canonry-beak" x1="28" y1="29" x2="36" y2="37" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFC15C" />
+      <stop offset="1" stop-color="#F28E21" />
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke="#7E141C" stroke-linecap="round" stroke-linejoin="round">
+    <ellipse cx="24.5" cy="16.5" rx="4" ry="6" transform="rotate(-34 24.5 16.5)" fill="url(#canonry-crest)" stroke-width="2.3" />
+    <ellipse cx="32" cy="12.5" rx="5" ry="7" fill="url(#canonry-crest)" stroke-width="2.3" />
+    <ellipse cx="39.5" cy="16.5" rx="4" ry="6" transform="rotate(34 39.5 16.5)" fill="url(#canonry-crest)" stroke-width="2.3" />
+    <path
+      d="M32 13.5c-9.6 0-16.3 8.3-16.3 19.8C15.7 45 22.5 54 32 54s16.3-9 16.3-20.7C48.3 21.8 41.6 13.5 32 13.5Z"
+      fill="url(#canonry-body)"
+      stroke-width="2.5"
+    />
+    <path
+      d="M36.5 26.8c4.9 1.1 8.1 5 8.1 9.9 0 4.7-2.7 8.5-7 10-4.9-1.1-7.7-4.6-7.7-9.6 0-4.6 2.3-8.1 6.6-10.3Z"
+      fill="#8F1420"
+      fill-opacity=".88"
+      stroke="none"
+    />
+    <path
+      d="M24.4 24.2c2.6-2.1 4.8-3.1 7.4-3.1 3.4 0 6.2 1.2 8.7 3.7"
+      stroke="#FF9B97"
+      stroke-opacity=".34"
+      stroke-width="2.2"
+    />
+    <ellipse cx="30.5" cy="40" rx="9.5" ry="10.8" fill="#FF9A95" fill-opacity=".14" stroke="none" />
+    <circle cx="27.3" cy="28.8" r="2.45" fill="#2D2118" stroke="none" />
+    <circle cx="36.7" cy="28.8" r="2.45" fill="#2D2118" stroke="none" />
+    <circle cx="26.5" cy="28" r="0.8" fill="#FFF7E4" stroke="none" />
+    <circle cx="35.9" cy="28" r="0.8" fill="#FFF7E4" stroke="none" />
+    <path d="M32 30.3 27.9 33.7 32 36.9 36.1 33.7Z" fill="url(#canonry-beak)" stroke-width="2" />
   </g>
 </svg>
