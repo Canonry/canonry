@@ -33,6 +33,7 @@ export interface GoogleConfigEntry {
 
 export interface CanonryConfig {
   apiUrl: string
+  publicUrl?: string
   database: string
   apiKey: string
   port?: number

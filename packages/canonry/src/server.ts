@@ -197,6 +197,7 @@ export async function createServer(opts: {
     getGoogleAuthConfig: () => getGoogleAuthConfig(opts.config),
     googleConnectionStore,
     googleStateSecret,
+    publicUrl: opts.config.publicUrl,
     onGscSyncRequested: (runId: string, projectId: string, syncOpts?: { days?: number; full?: boolean }) => {
       const { clientId: googleClientId, clientSecret: googleClientSecret } = getGoogleAuthConfig(opts.config)
       if (!googleClientId || !googleClientSecret) {

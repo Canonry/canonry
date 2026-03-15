@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
-import { createClient, migrate } from '@ainyc/canonry-db'
+import { createClient, migrate, projects } from '@ainyc/canonry-db'
 import { googleRoutes } from '../src/google.js'
 
 // Reproduce state signing functions from google.ts to verify behavior
@@ -222,6 +222,147 @@ describe('googleRoutes: GET /projects/:name/google/callback', () => {
       url: '/projects/my-project/google/callback',
     })
     assert.equal(res.statusCode, 400)
+  })
+})
+
+describe('googleRoutes: GET /google/callback (shared)', () => {
+  let app: ReturnType<typeof Fastify>
+  let tmpDir: string
+
+  before(async () => {
+    const ctx = buildApp({
+      googleClientId: 'test-client-id',
+      googleClientSecret: 'test-client-secret',
+      googleStateSecret: 'test-secret',
+    })
+    app = ctx.app
+    tmpDir = ctx.tmpDir
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('rejects callback with invalid state on shared route', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/google/callback?code=abc&state=invalid-garbage',
+    })
+    assert.equal(res.statusCode, 400)
+    assert.ok(
+      res.body.includes('tampered') || res.body.includes('Invalid'),
+      `Expected tampered/Invalid in body: ${res.body}`,
+    )
+  })
+
+  it('returns error page when OAuth error is present on shared route', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/google/callback?error=access_denied',
+    })
+    assert.equal(res.statusCode, 200)
+    assert.ok(res.body.includes('Authorization failed'))
+  })
+
+  it('returns redirect_uri_mismatch help page with instructions', async () => {
+    const state = buildSignedState(
+      { domain: 'example.com', type: 'gsc', redirectUri: 'http://localhost:4100/api/v1/google/callback' },
+      'test-secret',
+    )
+    const res = await app.inject({
+      method: 'GET',
+      url: `/google/callback?error=redirect_uri_mismatch&state=${encodeURIComponent(state)}`,
+    })
+    assert.equal(res.statusCode, 200)
+    assert.ok(res.body.includes('Redirect URI mismatch'))
+    assert.ok(res.body.includes('Google Cloud Console'))
+    assert.ok(res.body.includes('http://localhost:4100/api/v1/google/callback'))
+  })
+
+  it('returns 400 when code or state is missing on shared route', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/google/callback',
+    })
+    assert.equal(res.statusCode, 400)
+  })
+})
+
+describe('googleRoutes: connect uses publicUrl', () => {
+  let app: ReturnType<typeof Fastify>
+  let tmpDir: string
+
+  before(async () => {
+    const tmpDirPath = fs.mkdtempSync(path.join(os.tmpdir(), 'google-routes-publicurl-'))
+    const dbPath = path.join(tmpDirPath, 'test.db')
+    const db = createClient(dbPath)
+    migrate(db)
+
+    // Seed a project
+    const now = new Date().toISOString()
+    db.insert(projects).values({
+      id: 'p1',
+      name: 'testproj',
+      displayName: 'Test Project',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+
+    const fastify = Fastify()
+    fastify.decorate('db', db)
+    fastify.register(googleRoutes, {
+      getGoogleAuthConfig: () => ({
+        clientId: 'test-client-id',
+        clientSecret: 'test-client-secret',
+      }),
+      googleConnectionStore: {
+        listConnections: () => [],
+        getConnection: () => undefined,
+        upsertConnection: (c) => c,
+        updateConnection: () => undefined,
+        deleteConnection: () => false,
+      },
+      googleStateSecret: 'test-secret-32-bytes-long-enough!',
+      publicUrl: 'https://canonry.example.com',
+    })
+
+    app = fastify
+    tmpDir = tmpDirPath
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('uses publicUrl for redirect URI when set', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects/testproj/google/connect',
+      payload: { type: 'gsc' },
+    })
+    assert.equal(res.statusCode, 200)
+    const body = res.json() as { authUrl: string; redirectUri: string }
+    assert.ok(body.authUrl.includes('accounts.google.com'))
+    assert.equal(body.redirectUri, 'https://canonry.example.com/api/v1/google/callback')
+    assert.ok(body.authUrl.includes(encodeURIComponent('https://canonry.example.com/api/v1/google/callback')))
+  })
+
+  it('callbackUrl in body overrides publicUrl', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects/testproj/google/connect',
+      payload: { type: 'gsc', callbackUrl: 'https://override.example.com' },
+    })
+    assert.equal(res.statusCode, 200)
+    const body = res.json() as { authUrl: string; redirectUri: string }
+    assert.equal(body.redirectUri, 'https://override.example.com/api/v1/google/callback')
   })
 })
 

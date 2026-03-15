@@ -6,12 +6,20 @@ function getClient(): ApiClient {
   return new ApiClient(config.apiUrl, config.apiKey)
 }
 
-export async function googleConnect(project: string, opts: { type: string }): Promise<void> {
+export async function googleConnect(project: string, opts: { type: string; callbackUrl?: string }): Promise<void> {
   const client = getClient()
-  const { authUrl } = await client.googleConnect(project, { type: opts.type })
+  const { authUrl, redirectUri } = await client.googleConnect(project, {
+    type: opts.type,
+    callbackUrl: opts.callbackUrl,
+  })
 
   console.log(`\nOpen this URL in your browser to authorize Google ${opts.type.toUpperCase()} access:\n`)
   console.log(`  ${authUrl}\n`)
+
+  if (redirectUri) {
+    console.log(`Redirect URI: ${redirectUri}`)
+    console.log('(Ensure this URI is listed in your Google Cloud Console OAuth client\'s authorized redirect URIs)\n')
+  }
 
   // Try to open browser automatically
   try {

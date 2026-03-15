@@ -57,6 +57,8 @@ export interface ApiRoutesOptions {
   googleConnectionStore?: GoogleRoutesOptions['googleConnectionStore']
   /** Secret for signing OAuth state parameters */
   googleStateSecret?: string
+  /** Public URL for OAuth redirect URIs (overrides auto-detect from request headers) */
+  publicUrl?: string
   onGscSyncRequested?: GoogleRoutesOptions['onGscSyncRequested']
 }
 
@@ -108,6 +110,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
       googleConnectionStore: opts.googleConnectionStore,
       googleStateSecret: opts.googleStateSecret,
+      publicUrl: opts.publicUrl,
       onGscSyncRequested: opts.onGscSyncRequested,
     } satisfies GoogleRoutesOptions)
   }, { prefix: '/api/v1' })

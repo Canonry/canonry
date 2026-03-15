@@ -66,7 +66,7 @@ Usage:
   canonry notify remove <project> <id>  Remove notification
   canonry notify test <project> <id>  Send test webhook
   canonry notify events               List available notification event types
-  canonry google connect <project>     Connect Google Search Console (--type gsc|ga4)
+  canonry google connect <project>     Connect Google Search Console (--type gsc|ga4, --callback-url <url>)
   canonry google disconnect <project> Disconnect Google integration
   canonry google status <project>     Show Google connection status
   canonry google properties <project> List available GSC properties
@@ -756,10 +756,14 @@ async function main() {
               args: args.slice(3),
               options: {
                 type: { type: 'string', default: 'gsc' },
+                'callback-url': { type: 'string' },
               },
               allowPositionals: false,
             })
-            await googleConnect(project, { type: connectValues.type ?? 'gsc' })
+            await googleConnect(project, {
+              type: connectValues.type ?? 'gsc',
+              callbackUrl: connectValues['callback-url'],
+            })
             break
           }
           case 'disconnect': {

@@ -41,6 +41,7 @@ export interface GoogleRoutesOptions {
   getGoogleAuthConfig?: () => { clientId?: string; clientSecret?: string }
   googleConnectionStore?: GoogleConnectionStore
   googleStateSecret?: string
+  publicUrl?: string
   onGscSyncRequested?: (runId: string, projectId: string, opts?: { days?: number; full?: boolean }) => void
 }
 
@@ -138,7 +139,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   // POST /projects/:name/google/connect
   app.post<{
     Params: { name: string }
-    Body: { type: string; propertyId?: string }
+    Body: { type: string; propertyId?: string; callbackUrl?: string }
   }>('/projects/:name/google/connect', async (request, reply) => {
     const { clientId: googleClientId, clientSecret: googleClientSecret } = getAuthConfig()
     if (!googleClientId || !googleClientSecret) {
@@ -146,7 +147,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       return reply.status(err.statusCode).send(err.toJSON())
     }
 
-    const { type, propertyId } = request.body ?? {}
+    const { type, propertyId, callbackUrl } = request.body ?? {}
     if (!type || (type !== 'gsc' && type !== 'ga4')) {
       const err = validationError('type must be "gsc" or "ga4"')
       return reply.status(err.statusCode).send(err.toJSON())
@@ -154,9 +155,19 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
 
     const project = resolveProject(app.db, request.params.name)
 
-    const proto = request.headers['x-forwarded-proto'] ?? 'http'
-    const host = request.headers.host ?? 'localhost:4100'
-    const redirectUri = `${proto}://${host}/api/v1/projects/${encodeURIComponent(request.params.name)}/google/callback`
+    let redirectUri: string
+    if (callbackUrl) {
+      // CLI override — use the provided public URL as the base
+      redirectUri = callbackUrl.replace(/\/$/, '') + '/api/v1/google/callback'
+    } else if (opts.publicUrl) {
+      // Config-level publicUrl — use for all OAuth redirects
+      redirectUri = opts.publicUrl.replace(/\/$/, '') + '/api/v1/google/callback'
+    } else {
+      // Auto-detect from request headers (local dev default)
+      const proto = request.headers['x-forwarded-proto'] ?? 'http'
+      const host = request.headers.host ?? 'localhost:4100'
+      redirectUri = `${proto}://${host}/api/v1/google/callback`
+    }
 
     const scopes = type === 'gsc' ? [GSC_SCOPE] : []
     const stateEncoded = buildSignedState(
@@ -165,14 +176,14 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     )
 
     const authUrl = getAuthUrl(googleClientId, redirectUri, scopes, stateEncoded)
-    return { authUrl }
+    return { authUrl, redirectUri }
   })
 
-  // GET /projects/:name/google/callback — OAuth redirect target (excluded from auth middleware)
-  app.get<{
-    Params: { name: string }
-    Querystring: { code?: string; state?: string; error?: string }
-  }>('/projects/:name/google/callback', async (request, reply) => {
+  // Shared OAuth callback handler — used by both legacy per-project and new shared routes
+  async function handleOAuthCallback(
+    request: { query: { code?: string; state?: string; error?: string } },
+    reply: { status: (code: number) => { send: (body: unknown) => unknown }; type: (t: string) => { send: (body: string) => unknown } },
+  ) {
     const { clientId: googleClientId, clientSecret: googleClientSecret } = getAuthConfig()
     if (!googleClientId || !googleClientSecret) {
       return reply.status(500).send('Google OAuth not configured')
@@ -184,7 +195,23 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     const { code, state, error } = request.query
     if (error) {
       const safeError = String(error).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
-      return reply.type('text/html').send(`<html><body><h2>Authorization failed</h2><p>${safeError}</p><p>You can close this tab.</p></body></html>`)
+      const errorHtml = error === 'redirect_uri_mismatch'
+        ? `<html><body style="font-family:system-ui;padding:40px;max-width:600px;margin:0 auto">
+            <h2 style="color:#ef4444">Redirect URI mismatch</h2>
+            <p>Google rejected the OAuth callback because the redirect URI is not registered.</p>
+            <p><strong>To fix this:</strong></p>
+            <ol>
+              <li>Go to the <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Console → Credentials</a></li>
+              <li>Click your OAuth 2.0 Client ID</li>
+              <li>Under "Authorized redirect URIs", add:<br><code style="background:#1e1e1e;color:#e0e0e0;padding:4px 8px;border-radius:4px;display:inline-block;margin-top:4px">${request.query.state ? (() => { try { const s = verifySignedState(request.query.state, stateSecret); return s?.redirectUri ?? 'Could not determine URI' } catch { return 'Could not determine URI' } })() : 'Could not determine URI'}</code></li>
+              <li>Click Save, then retry the connection</li>
+            </ol>
+            <p style="color:#888">You can close this tab.</p>
+          </body></html>`
+        : `<html><body style="font-family:system-ui;text-align:center;padding:60px">
+            <h2>Authorization failed</h2><p>${safeError}</p><p style="color:#888">You can close this tab.</p>
+          </body></html>`
+      return reply.type('text/html').send(errorHtml)
     }
 
     if (!code || !state) {
@@ -203,7 +230,24 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       redirectUri: string
     }
 
-    const tokens = await exchangeCode(googleClientId, googleClientSecret, code, redirectUri)
+    let tokens
+    try {
+      tokens = await exchangeCode(googleClientId, googleClientSecret, code, redirectUri)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return reply.type('text/html').send(
+        `<html><body style="font-family:system-ui;padding:40px;max-width:600px;margin:0 auto">
+          <h2 style="color:#ef4444">Token exchange failed</h2>
+          <p>${msg.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))}</p>
+          <p><strong>Redirect URI used:</strong><br>
+            <code style="background:#1e1e1e;color:#e0e0e0;padding:4px 8px;border-radius:4px">${redirectUri}</code>
+          </p>
+          <p>Ensure this URI is listed in your <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Console</a> OAuth client's authorized redirect URIs.</p>
+          <p style="color:#888">You can close this tab.</p>
+        </body></html>`,
+      )
+    }
+
     const now = new Date().toISOString()
     const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString()
     const existing = store.getConnection(domain, type as 'gsc' | 'ga4')
@@ -235,6 +279,21 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         <p style="color:#888">You can close this tab.</p>
       </body></html>`,
     )
+  }
+
+  // GET /google/callback — shared OAuth redirect target (excluded from auth middleware)
+  app.get<{
+    Querystring: { code?: string; state?: string; error?: string }
+  }>('/google/callback', async (request, reply) => {
+    return handleOAuthCallback(request, reply)
+  })
+
+  // GET /projects/:name/google/callback — legacy per-project OAuth redirect (kept for backward compat)
+  app.get<{
+    Params: { name: string }
+    Querystring: { code?: string; state?: string; error?: string }
+  }>('/projects/:name/google/callback', async (request, reply) => {
+    return handleOAuthCallback(request, reply)
   })
 
   // DELETE /projects/:name/google/connections/:type
