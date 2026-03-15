@@ -1,46 +1,71 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
   <title id="title">Canonry canary</title>
-  <desc id="desc">A refined red canary mark for the Canonry logo and favicon.</desc>
+  <desc id="desc">A fierce red canary mark for the Canonry logo and favicon.</desc>
   <defs>
-    <linearGradient id="canonry-body" x1="22" y1="12" x2="44" y2="54" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#E14B4F" />
-      <stop offset="1" stop-color="#B8202A" />
+    <linearGradient id="canonry-body" x1="18" y1="10" x2="46" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F25153" />
+      <stop offset=".55" stop-color="#D42A31" />
+      <stop offset="1" stop-color="#991018" />
     </linearGradient>
-    <linearGradient id="canonry-crest" x1="24" y1="7" x2="40" y2="22" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#F15C60" />
-      <stop offset="1" stop-color="#C72631" />
+    <linearGradient id="canonry-crest" x1="22" y1="5" x2="40" y2="20" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FF6B69" />
+      <stop offset="1" stop-color="#B51A25" />
     </linearGradient>
-    <linearGradient id="canonry-beak" x1="28" y1="29" x2="36" y2="37" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#FFC15C" />
-      <stop offset="1" stop-color="#F28E21" />
+    <linearGradient id="canonry-beak" x1="27" y1="31" x2="37" y2="38" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFC763" />
+      <stop offset="1" stop-color="#EC861E" />
     </linearGradient>
   </defs>
-  <g fill="none" stroke="#7E141C" stroke-linecap="round" stroke-linejoin="round">
-    <ellipse cx="24.5" cy="16.5" rx="4" ry="6" transform="rotate(-34 24.5 16.5)" fill="url(#canonry-crest)" stroke-width="2.3" />
-    <ellipse cx="32" cy="12.5" rx="5" ry="7" fill="url(#canonry-crest)" stroke-width="2.3" />
-    <ellipse cx="39.5" cy="16.5" rx="4" ry="6" transform="rotate(34 39.5 16.5)" fill="url(#canonry-crest)" stroke-width="2.3" />
+  <g fill="none" stroke="#6C0E16" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M23.8 17.4c-2-4-.7-8.1 3.1-10.4 1.1 4.3-.1 7.8-3.1 10.4Z" fill="url(#canonry-crest)" stroke-width="2.2" />
+    <path d="M32 15.6c-2.9-3.7-2.6-8.3 0-11.6 2.6 3.3 2.9 7.9 0 11.6Z" fill="url(#canonry-crest)" stroke-width="2.2" />
+    <path d="M40.2 17.4c2-4 .7-8.1-3.1-10.4-1.1 4.3.1 7.8 3.1 10.4Z" fill="url(#canonry-crest)" stroke-width="2.2" />
     <path
-      d="M32 13.5c-9.6 0-16.3 8.3-16.3 19.8C15.7 45 22.5 54 32 54s16.3-9 16.3-20.7C48.3 21.8 41.6 13.5 32 13.5Z"
+      d="M32 8.8 40.1 13.7 46.5 20.6C50.2 24.8 52 29.9 52 35.9 52 48.2 43.7 57.4 32 57.4S12 48.2 12 35.9c0-6 1.8-11.1 5.5-15.3l6.4-6.9Z"
       fill="url(#canonry-body)"
       stroke-width="2.5"
     />
     <path
-      d="M36.5 26.8c4.9 1.1 8.1 5 8.1 9.9 0 4.7-2.7 8.5-7 10-4.9-1.1-7.7-4.6-7.7-9.6 0-4.6 2.3-8.1 6.6-10.3Z"
-      fill="#8F1420"
-      fill-opacity=".88"
+      d="M16.6 34c2.9-5 6.9-7.9 12-8.8-1 8.9 1.2 16.5 6.6 22.7-8.2-.9-15.2-6.5-18.6-13.9Z"
+      fill="#A81821"
+      fill-opacity=".8"
       stroke="none"
     />
     <path
-      d="M24.4 24.2c2.6-2.1 4.8-3.1 7.4-3.1 3.4 0 6.2 1.2 8.7 3.7"
-      stroke="#FF9B97"
-      stroke-opacity=".34"
-      stroke-width="2.2"
+      d="M47.4 34c-2.9-5-6.9-7.9-12-8.8 1 8.9-1.2 16.5-6.6 22.7 8.2-.9 15.2-6.5 18.6-13.9Z"
+      fill="#780D18"
+      fill-opacity=".9"
+      stroke="none"
     />
-    <ellipse cx="30.5" cy="40" rx="9.5" ry="10.8" fill="#FF9A95" fill-opacity=".14" stroke="none" />
-    <circle cx="27.3" cy="28.8" r="2.45" fill="#2D2118" stroke="none" />
-    <circle cx="36.7" cy="28.8" r="2.45" fill="#2D2118" stroke="none" />
-    <circle cx="26.5" cy="28" r="0.8" fill="#FFF7E4" stroke="none" />
-    <circle cx="35.9" cy="28" r="0.8" fill="#FFF7E4" stroke="none" />
-    <path d="M32 30.3 27.9 33.7 32 36.9 36.1 33.7Z" fill="url(#canonry-beak)" stroke-width="2" />
+    <path
+      d="M19.2 24.3c3.3-3.9 7.5-5.9 12.6-5.9l-2.3 5.8c-2.7.2-5.1 1-7.1 2.6Z"
+      fill="#651018"
+      stroke="none"
+    />
+    <path
+      d="M44.8 24.3c-3.3-3.9-7.5-5.9-12.6-5.9l2.3 5.8c2.7.2 5.1 1 7.1 2.6Z"
+      fill="#651018"
+      stroke="none"
+    />
+    <path
+      d="M24.6 22.5c2.2-1.1 4.6-1.7 7.4-1.7 2.8 0 5.2.6 7.4 1.7"
+      stroke="#FF9D99"
+      stroke-opacity=".24"
+      stroke-width="2"
+    />
+    <path
+      d="M23.9 27.7c1.7-1.7 3.7-2.5 6.1-2.5.9 0 1.8.1 2.6.4-1.2 1.7-3 2.6-5.4 2.6-1.2 0-2.3-.2-3.3-.5Z"
+      fill="#FFF4DE"
+      stroke="none"
+    />
+    <path
+      d="M40.1 27.7c-1.7-1.7-3.7-2.5-6.1-2.5-.9 0-1.8.1-2.6.4 1.2 1.7 3 2.6 5.4 2.6 1.2 0 2.3-.2 3.3-.5Z"
+      fill="#FFF4DE"
+      stroke="none"
+    />
+    <circle cx="28.5" cy="26.6" r="1" fill="#2A2019" stroke="none" />
+    <circle cx="35.5" cy="26.6" r="1" fill="#2A2019" stroke="none" />
+    <path d="M32 29.8 26.9 34.1 32 38.2 37.1 34.1Z" fill="url(#canonry-beak)" stroke-width="2.1" />
+    <path d="M23.2 40.8c2.5 4.7 5.4 7.5 8.8 8.7 3.4-1.2 6.3-4 8.8-8.7-2.7 1-5.6 1.5-8.8 1.5s-6.1-.5-8.8-1.5Z" fill="#FF8A85" fill-opacity=".14" stroke="none" />
   </g>
 </svg>
