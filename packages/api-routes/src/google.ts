@@ -192,9 +192,11 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     const store = requireConnectionStore(reply)
     if (!store) return
 
+    const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
+
     const { code, state, error } = request.query
     if (error) {
-      const safeError = String(error).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
+      const safeError = escapeHtml(String(error))
       const errorHtml = error === 'redirect_uri_mismatch'
         ? `<html><body style="font-family:system-ui;padding:40px;max-width:600px;margin:0 auto">
             <h2 style="color:#ef4444">Redirect URI mismatch</h2>
@@ -203,7 +205,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
             <ol>
               <li>Go to the <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Console → Credentials</a></li>
               <li>Click your OAuth 2.0 Client ID</li>
-              <li>Under "Authorized redirect URIs", add:<br><code style="background:#1e1e1e;color:#e0e0e0;padding:4px 8px;border-radius:4px;display:inline-block;margin-top:4px">${request.query.state ? (() => { try { const s = verifySignedState(request.query.state, stateSecret); return s?.redirectUri ?? 'Could not determine URI' } catch { return 'Could not determine URI' } })() : 'Could not determine URI'}</code></li>
+              <li>Under "Authorized redirect URIs", add:<br><code style="background:#1e1e1e;color:#e0e0e0;padding:4px 8px;border-radius:4px;display:inline-block;margin-top:4px">${request.query.state ? (() => { try { const s = verifySignedState(request.query.state, stateSecret); return escapeHtml(String(s?.redirectUri ?? 'Could not determine URI')) } catch { return 'Could not determine URI' } })() : 'Could not determine URI'}</code></li>
               <li>Click Save, then retry the connection</li>
             </ol>
             <p style="color:#888">You can close this tab.</p>
@@ -238,9 +240,9 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       return reply.type('text/html').send(
         `<html><body style="font-family:system-ui;padding:40px;max-width:600px;margin:0 auto">
           <h2 style="color:#ef4444">Token exchange failed</h2>
-          <p>${msg.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))}</p>
+          <p>${escapeHtml(msg)}</p>
           <p><strong>Redirect URI used:</strong><br>
-            <code style="background:#1e1e1e;color:#e0e0e0;padding:4px 8px;border-radius:4px">${redirectUri}</code>
+            <code style="background:#1e1e1e;color:#e0e0e0;padding:4px 8px;border-radius:4px">${escapeHtml(redirectUri)}</code>
           </p>
           <p>Ensure this URI is listed in your <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Console</a> OAuth client's authorized redirect URIs.</p>
           <p style="color:#888">You can close this tab.</p>
