@@ -10,6 +10,7 @@ import {
   Globe,
   LayoutDashboard,
   Menu,
+  MessageSquare,
   Play,
   Plus,
   Rocket,
@@ -24,6 +25,7 @@ import { Badge } from './components/ui/badge.js'
 import { Button } from './components/ui/button.js'
 import { Card } from './components/ui/card.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './components/ui/sheet.js'
+import { AgentChat } from './components/AgentChat.js'
 import { createDashboardFixture, findEvidenceById, findProjectVm, findRunById } from './mock-data.js'
 import {
   appendKeywords,
@@ -1599,6 +1601,7 @@ function ProjectPage({
   const [addingOwnedDomain, setAddingOwnedDomain] = useState(false)
   const [newOwnedDomain, setNewOwnedDomain] = useState('')
   const [ownedDomainSaving, setOwnedDomainSaving] = useState(false)
+  const [showAgentChat, setShowAgentChat] = useState(false)
 
   async function handleExport() {
     const data = await fetchExport(model.project.name)
@@ -1966,6 +1969,28 @@ function ProjectPage({
         </>
       ) : (
         <GscSection projectName={model.project.name} onOpenSettings={() => onNavigate('/settings')} />
+      )}
+
+      {/* Floating Agent Chat Button */}
+      <button
+        type="button"
+        className="fixed bottom-6 right-6 w-14 h-14 bg-emerald-600 hover:bg-emerald-500 text-white rounded-full shadow-lg flex items-center justify-center transition-all z-50"
+        onClick={() => setShowAgentChat(true)}
+        aria-label="Open AEO analyst chat"
+      >
+        <MessageSquare className="w-6 h-6" />
+      </button>
+
+      {/* Agent Chat Dialog */}
+      {showAgentChat && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="w-full max-w-2xl">
+            <AgentChat
+              projectName={model.project.name}
+              onClose={() => setShowAgentChat(false)}
+            />
+          </div>
+        </div>
       )}
     </div>
   )

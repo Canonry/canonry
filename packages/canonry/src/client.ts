@@ -230,8 +230,7 @@ export class ApiClient {
     return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/google/gsc/inspect-sitemap`, body ?? {})
   }
 
-  // ── Agent ───────────────────────────────────────────────
-
+  // Agent methods
   async createAgentThread(project: string, body?: { title?: string; channel?: string }): Promise<object> {
     return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/agent/threads`, body ?? {})
   }
