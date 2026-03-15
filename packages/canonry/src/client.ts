@@ -238,4 +238,30 @@ export class ApiClient {
   async gscInspectSitemap(project: string, body?: { sitemapUrl?: string }): Promise<object> {
     return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/google/gsc/inspect-sitemap`, body ?? {})
   }
+
+  // ── Agent ───────────────────────────────────────────────
+
+  async createAgentThread(project: string, body?: { title?: string; channel?: string }): Promise<object> {
+    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/agent/threads`, body ?? {})
+  }
+
+  async listAgentThreads(project: string): Promise<object[]> {
+    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/agent/threads`)
+  }
+
+  async getAgentThread(project: string, threadId: string): Promise<object> {
+    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/agent/threads/${encodeURIComponent(threadId)}`)
+  }
+
+  async sendAgentMessage(project: string, threadId: string, message: string): Promise<{ threadId: string; response: string }> {
+    return this.request<{ threadId: string; response: string }>(
+      'POST',
+      `/projects/${encodeURIComponent(project)}/agent/threads/${encodeURIComponent(threadId)}/messages`,
+      { message },
+    )
+  }
+
+  async deleteAgentThread(project: string, threadId: string): Promise<void> {
+    await this.request<void>('DELETE', `/projects/${encodeURIComponent(project)}/agent/threads/${encodeURIComponent(threadId)}`)
+  }
 }

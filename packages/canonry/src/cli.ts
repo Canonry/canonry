@@ -22,6 +22,7 @@ import {
   googleSetProperty, googleSync, googlePerformance, googleInspect,
   googleInspections, googleDeindexed, googleCoverage, googleCoverageHistory, googleInspectSitemap,
 } from './commands/google.js'
+import { agentAsk, agentThreads, agentThread } from './commands/agent.js'
 import { trackEvent, isTelemetryEnabled, isFirstRun, getOrCreateAnonymousId, showFirstRunNotice } from './telemetry.js'
 
 const USAGE = `
@@ -79,6 +80,10 @@ Usage:
   canonry google coverage <project>  Show index coverage summary
   canonry google inspections <project>  Show URL inspection history (--url <url>)
   canonry google deindexed <project>  Show pages that lost indexing
+  canonry agent ask <project> "msg"   Ask the built-in AEO analyst a question
+  canonry agent ask <project> "msg" --thread <id>  Continue a conversation
+  canonry agent threads <project>     List agent threads
+  canonry agent thread <project> <id> Show thread with messages
   canonry settings                    Show active provider and quota settings
   canonry settings provider <name>    Update a provider config
   canonry settings google             Update Google OAuth credentials
@@ -162,7 +167,7 @@ async function main() {
   }
 
   // Resolve command name for telemetry (e.g. "project.create", "run")
-  const SUBCOMMAND_COMMANDS = new Set(['project', 'keyword', 'competitor', 'schedule', 'notify', 'settings', 'telemetry', 'google'])
+  const SUBCOMMAND_COMMANDS = new Set(['project', 'keyword', 'competitor', 'schedule', 'notify', 'settings', 'telemetry', 'google', 'agent'])
   const resolvedCommand = SUBCOMMAND_COMMANDS.has(command) && args[1] && !args[1].startsWith('-')
     ? `${command}.${args[1]}`
     : command
@@ -679,6 +684,62 @@ async function main() {
           default:
             console.error(`Unknown notify subcommand: ${notifSubcommand ?? '(none)'}`)
             console.log('Available: add, list, remove, test, events')
+            process.exit(1)
+        }
+        break
+      }
+
+      case 'agent': {
+        const subcommand = args[1]
+        switch (subcommand) {
+          case 'ask': {
+            const project = args[2]
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            // Collect message from remaining positional args (skip flags)
+            const agentParsed = parseArgs({
+              args: args.slice(3),
+              options: {
+                thread: { type: 'string' },
+                format: { type: 'string' },
+              },
+              allowPositionals: true,
+            })
+            const message = agentParsed.positionals.join(' ')
+            if (!message) {
+              console.error('Error: message is required')
+              process.exit(1)
+            }
+            await agentAsk(project, message, {
+              threadId: agentParsed.values.thread,
+              format: agentParsed.values.format ?? format,
+            })
+            break
+          }
+          case 'threads': {
+            const project = args[2]
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            await agentThreads(project, format)
+            break
+          }
+          case 'thread': {
+            const project = args[2]
+            const threadId = args[3]
+            if (!project || !threadId) {
+              console.error('Error: project name and thread ID are required')
+              process.exit(1)
+            }
+            await agentThread(project, threadId, format)
+            break
+          }
+          default:
+            console.error(`Unknown agent subcommand: ${subcommand ?? '(none)'}`)
+            console.log('Available: ask, threads, thread')
             process.exit(1)
         }
         break

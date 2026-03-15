@@ -52,6 +52,19 @@ export interface CanonryConfig {
   // Telemetry (opt-out: undefined/true = enabled, false = disabled)
   telemetry?: boolean
   anonymousId?: string
+  // Built-in agent config
+  agent?: {
+    /** Which configured provider to use for the agent (defaults to first available: claude > openai > gemini) */
+    provider?: 'openai' | 'claude' | 'gemini'
+    /** Override the model for agent conversations (uses provider default if omitted) */
+    model?: string
+    /** Max tool-calling steps per message (default: 10) */
+    maxSteps?: number
+    /** Max history messages to include in context (default: 30) */
+    maxHistory?: number
+    /** Whether the agent is enabled (default: true if any provider is configured) */
+    enabled?: boolean
+  }
 }
 
 function normalizeGoogleConfig(config: CanonryConfig): void {
