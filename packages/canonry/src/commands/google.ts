@@ -264,6 +264,110 @@ export async function googleInspections(project: string, opts: { url?: string; f
   }
 }
 
+export async function googleCoverage(project: string, format?: string): Promise<void> {
+  const client = getClient()
+  const result = await client.gscCoverage(project) as {
+    summary: { total: number; indexed: number; notIndexed: number; deindexed: number; percentage: number }
+    lastInspectedAt: string | null
+    indexed: Array<{ url: string; indexingState: string | null; crawlTime: string | null }>
+    notIndexed: Array<{ url: string; indexingState: string | null; coverageState: string | null }>
+    deindexed: Array<{ url: string; previousState: string | null; currentState: string | null; transitionDate: string }>
+  }
+
+  if (format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  const { summary } = result
+  if (summary.total === 0) {
+    console.log('No URL inspections found. Run "canonry google inspect-sitemap <project>" first.')
+    return
+  }
+
+  const pctColor = summary.percentage >= 80 ? '\x1b[32m' : summary.percentage >= 50 ? '\x1b[33m' : '\x1b[31m'
+  const reset = '\x1b[0m'
+
+  console.log(`\nIndex Coverage for "${project}"\n`)
+  console.log(`  SUMMARY: ${pctColor}${summary.indexed} / ${summary.total} pages indexed (${summary.percentage}%)${reset}\n`)
+
+  if (result.indexed.length > 0) {
+    console.log(`  INDEXED (${result.indexed.length}):`)
+    for (const page of result.indexed) {
+      const crawl = page.crawlTime ? ` (crawled: ${page.crawlTime.split('T')[0]})` : ''
+      console.log(`    ${page.url}${crawl}`)
+    }
+    console.log()
+  }
+
+  if (result.notIndexed.length > 0) {
+    console.log(`  NOT INDEXED (${result.notIndexed.length}):`)
+    for (const page of result.notIndexed) {
+      const reason = page.coverageState ? ` — ${page.coverageState}` : ''
+      console.log(`    ${page.url}${reason}`)
+    }
+    console.log()
+  }
+
+  if (result.deindexed.length > 0) {
+    console.log(`  DEINDEXED (${result.deindexed.length}):`)
+    for (const page of result.deindexed) {
+      console.log(`    ${page.url}  (${page.previousState} -> ${page.currentState})`)
+    }
+    console.log()
+  }
+
+  if (result.lastInspectedAt) {
+    console.log(`  Last inspected: ${result.lastInspectedAt}`)
+  }
+}
+
+export async function googleInspectSitemap(project: string, opts: {
+  sitemapUrl?: string
+  wait?: boolean
+  format?: string
+}): Promise<void> {
+  const client = getClient()
+  const run = await client.gscInspectSitemap(project, {
+    sitemapUrl: opts.sitemapUrl,
+  }) as { id: string; status: string; kind: string }
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(run, null, 2))
+    return
+  }
+
+  console.log(`Sitemap inspection started (run ${run.id})`)
+
+  if (opts.wait) {
+    const timeout = 30 * 60 * 1000 // 30 minutes for potentially large sitemaps
+    const start = Date.now()
+    process.stderr.write('Waiting for sitemap inspection to complete')
+
+    while (Date.now() - start < timeout) {
+      await new Promise((r) => setTimeout(r, 3000))
+      const current = await client.getRun(run.id) as { status: string }
+      process.stderr.write('.')
+
+      if (current.status === 'completed' || current.status === 'partial' || current.status === 'failed') {
+        process.stderr.write('\n')
+        if (current.status === 'completed') {
+          console.log('Sitemap inspection completed successfully.')
+        } else if (current.status === 'partial') {
+          console.log('Sitemap inspection completed with some errors.')
+        } else {
+          console.error('Sitemap inspection failed.')
+        }
+        return
+      }
+    }
+
+    process.stderr.write('\n')
+    console.error('Timed out waiting for sitemap inspection to complete.')
+    process.exit(1)
+  }
+}
+
 export async function googleDeindexed(project: string, format?: string): Promise<void> {
   const client = getClient()
   const rows = await client.gscDeindexed(project) as Array<{

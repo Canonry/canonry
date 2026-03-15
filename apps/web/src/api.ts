@@ -527,3 +527,28 @@ export function fetchGscInspections(
 export function fetchGscDeindexed(project: string): Promise<ApiGscDeindexedRow[]> {
   return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/deindexed`)
 }
+
+export interface ApiGscCoverageSummary {
+  summary: {
+    total: number
+    indexed: number
+    notIndexed: number
+    deindexed: number
+    percentage: number
+  }
+  lastInspectedAt: string | null
+  indexed: ApiGscInspection[]
+  notIndexed: ApiGscInspection[]
+  deindexed: ApiGscDeindexedRow[]
+}
+
+export function fetchGscCoverage(project: string): Promise<ApiGscCoverageSummary> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/coverage`)
+}
+
+export function triggerInspectSitemap(project: string, opts?: { sitemapUrl?: string }): Promise<ApiRun> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/inspect-sitemap`, {
+    method: 'POST',
+    body: JSON.stringify(opts ?? {}),
+  })
+}

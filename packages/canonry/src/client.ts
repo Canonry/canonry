@@ -221,4 +221,12 @@ export class ApiClient {
   async gscDeindexed(project: string): Promise<object[]> {
     return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/deindexed`)
   }
+
+  async gscCoverage(project: string): Promise<object> {
+    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/coverage`)
+  }
+
+  async gscInspectSitemap(project: string, body?: { sitemapUrl?: string }): Promise<object> {
+    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/google/gsc/inspect-sitemap`, body ?? {})
+  }
 }

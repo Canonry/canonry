@@ -58,6 +58,7 @@ export interface ApiRoutesOptions {
   /** Secret for signing OAuth state parameters */
   googleStateSecret?: string
   onGscSyncRequested?: GoogleRoutesOptions['onGscSyncRequested']
+  onInspectSitemapRequested?: GoogleRoutesOptions['onInspectSitemapRequested']
 }
 
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
@@ -109,6 +110,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       googleConnectionStore: opts.googleConnectionStore,
       googleStateSecret: opts.googleStateSecret,
       onGscSyncRequested: opts.onGscSyncRequested,
+      onInspectSitemapRequested: opts.onInspectSitemapRequested,
     } satisfies GoogleRoutesOptions)
   }, { prefix: '/api/v1' })
 }

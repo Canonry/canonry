@@ -64,6 +64,9 @@ import {
   inspectGscUrl,
   fetchGscInspections,
   fetchGscDeindexed,
+  fetchGscCoverage,
+  triggerInspectSitemap,
+  type ApiGscCoverageSummary,
   type ApiSchedule,
   type ApiNotification,
   type ApiGoogleConnection,
@@ -2016,6 +2019,11 @@ function GscSection({
   const [loadingPerformance, setLoadingPerformance] = useState(false)
   const [loadingInspections, setLoadingInspections] = useState(false)
   const [inspecting, setInspecting] = useState(false)
+  const [coverage, setCoverage] = useState<ApiGscCoverageSummary | null>(null)
+  const [loadingCoverage, setLoadingCoverage] = useState(false)
+  const [inspectingSitemap, setInspectingSitemap] = useState(false)
+  const [sitemapUrlInput, setSitemapUrlInput] = useState('')
+  const [coverageTab, setCoverageTab] = useState<'indexed' | 'notIndexed' | 'deindexed'>('indexed')
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -2082,6 +2090,35 @@ function GscSection({
     }
   }
 
+  async function loadCoverage() {
+    setLoadingCoverage(true)
+    try {
+      const data = await fetchGscCoverage(projectName)
+      setCoverage(data)
+    } catch {
+      setCoverage(null)
+    } finally {
+      setLoadingCoverage(false)
+    }
+  }
+
+  async function handleInspectSitemap() {
+    setInspectingSitemap(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const run = await triggerInspectSitemap(projectName, {
+        sitemapUrl: sitemapUrlInput.trim() || undefined,
+      })
+      setNotice(`Sitemap inspection queued (run ${run.id}). Refresh coverage after the run completes.`)
+      setSitemapUrlInput('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to queue sitemap inspection')
+    } finally {
+      setInspectingSitemap(false)
+    }
+  }
+
   async function loadSection() {
     setLoading(true)
     setError(null)
@@ -2098,6 +2135,7 @@ function GscSection({
         loadProperties(currentConn),
         loadPerformanceRows(),
         loadInspectionHistory(),
+        loadCoverage(),
       ])
     } finally {
       setLoading(false)
@@ -2428,6 +2466,170 @@ function GscSection({
                     </div>
                   </div>
                 )}
+              </Card>
+
+              <Card className="surface-card">
+                <div className="section-head section-head-inline">
+                  <div>
+                    <p className="eyebrow eyebrow-soft">Coverage</p>
+                    <h3>Index Coverage</h3>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button type="button" variant="outline" size="sm" disabled={loadingCoverage} onClick={() => void loadCoverage()}>
+                      {loadingCoverage ? 'Loading…' : 'Refresh coverage'}
+                    </Button>
+                  </div>
+                </div>
+
+                {coverage && coverage.summary.total > 0 ? (
+                  <>
+                    <div className="mt-3 grid gap-3 md:grid-cols-4">
+                      <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+                        <p className="text-xs uppercase tracking-wide text-zinc-500">Total URLs</p>
+                        <p className="mt-1 text-lg font-semibold tabular-nums text-zinc-200">{coverage.summary.total}</p>
+                      </div>
+                      <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+                        <p className="text-xs uppercase tracking-wide text-zinc-500">Indexed</p>
+                        <p className="mt-1 text-lg font-semibold tabular-nums text-emerald-400">{coverage.summary.indexed}</p>
+                      </div>
+                      <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+                        <p className="text-xs uppercase tracking-wide text-zinc-500">Not Indexed</p>
+                        <p className="mt-1 text-lg font-semibold tabular-nums text-amber-400">{coverage.summary.notIndexed}</p>
+                      </div>
+                      <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+                        <p className="text-xs uppercase tracking-wide text-zinc-500">Coverage</p>
+                        <p className={`mt-1 text-lg font-semibold tabular-nums ${
+                          coverage.summary.percentage >= 80 ? 'text-emerald-400' : coverage.summary.percentage >= 50 ? 'text-amber-400' : 'text-rose-400'
+                        }`}>
+                          {coverage.summary.percentage}%
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex gap-1">
+                      {(['indexed', 'notIndexed', 'deindexed'] as const).map((tab) => {
+                        const count = tab === 'indexed' ? coverage.indexed.length
+                          : tab === 'notIndexed' ? coverage.notIndexed.length
+                          : coverage.deindexed.length
+                        const label = tab === 'indexed' ? 'Indexed' : tab === 'notIndexed' ? 'Not Indexed' : 'Deindexed'
+                        return (
+                          <button
+                            key={tab}
+                            type="button"
+                            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                              coverageTab === tab
+                                ? 'bg-zinc-700 text-zinc-100'
+                                : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+                            }`}
+                            onClick={() => setCoverageTab(tab)}
+                          >
+                            {label} ({count})
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    <div className="mt-3 overflow-x-auto">
+                      {coverageTab === 'indexed' && coverage.indexed.length > 0 && (
+                        <table className="data-table w-full text-sm">
+                          <thead>
+                            <tr>
+                              <th className="text-left">URL</th>
+                              <th className="text-left">Verdict</th>
+                              <th className="text-left">Last Crawl</th>
+                              <th className="text-left">Mobile</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {coverage.indexed.map((row) => (
+                              <tr key={row.id}>
+                                <td className="max-w-sm truncate text-zinc-200">{row.url}</td>
+                                <td className="text-zinc-400">{row.verdict ?? 'Unknown'}</td>
+                                <td className="text-zinc-400">{row.crawlTime ? row.crawlTime.split('T')[0] : '—'}</td>
+                                <td className="text-zinc-400">{row.isMobileFriendly === true ? 'Yes' : row.isMobileFriendly === false ? 'No' : '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                      {coverageTab === 'notIndexed' && coverage.notIndexed.length > 0 && (
+                        <table className="data-table w-full text-sm">
+                          <thead>
+                            <tr>
+                              <th className="text-left">URL</th>
+                              <th className="text-left">Indexing State</th>
+                              <th className="text-left">Coverage</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {coverage.notIndexed.map((row) => (
+                              <tr key={row.id}>
+                                <td className="max-w-sm truncate text-zinc-200">{row.url}</td>
+                                <td className="text-zinc-400">{row.indexingState ?? 'Unknown'}</td>
+                                <td className="text-zinc-400">{row.coverageState ?? 'Unknown'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                      {coverageTab === 'deindexed' && coverage.deindexed.length > 0 && (
+                        <table className="data-table w-full text-sm">
+                          <thead>
+                            <tr>
+                              <th className="text-left">URL</th>
+                              <th className="text-left">Previous</th>
+                              <th className="text-left">Current</th>
+                              <th className="text-left">Detected</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {coverage.deindexed.map((row, i) => (
+                              <tr key={`${row.url}-${i}`}>
+                                <td className="max-w-sm truncate text-zinc-200">{row.url}</td>
+                                <td className="text-zinc-400">{row.previousState}</td>
+                                <td className="text-zinc-400">{row.currentState}</td>
+                                <td className="text-zinc-400">{row.transitionDate.split('T')[0]}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                      {((coverageTab === 'indexed' && coverage.indexed.length === 0) ||
+                        (coverageTab === 'notIndexed' && coverage.notIndexed.length === 0) ||
+                        (coverageTab === 'deindexed' && coverage.deindexed.length === 0)) && (
+                        <p className="text-sm text-zinc-500">No URLs in this category.</p>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <p className="mt-3 text-sm text-zinc-500">
+                    {loadingCoverage ? 'Loading coverage data…' : 'No coverage data yet. Inspect your sitemap to populate this view.'}
+                  </p>
+                )}
+
+                <div className="mt-4 border-t border-zinc-800/60 pt-3">
+                  <p className="text-xs uppercase tracking-wide text-zinc-500 mb-2">Inspect from sitemap</p>
+                  <div className="flex flex-col gap-2 lg:flex-row">
+                    <input
+                      className="flex-1 rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                      type="url"
+                      placeholder="https://example.com/sitemap.xml (leave empty for default)"
+                      value={sitemapUrlInput}
+                      onChange={(e) => setSitemapUrlInput(e.target.value)}
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={inspectingSitemap || !gscConn.propertyId}
+                      onClick={handleInspectSitemap}
+                    >
+                      {inspectingSitemap ? 'Queueing…' : 'Inspect Sitemap'}
+                    </Button>
+                  </div>
+                  {!gscConn.propertyId && (
+                    <p className="mt-1 text-xs text-amber-400">Select a Search Console property first.</p>
+                  )}
+                </div>
               </Card>
             </>
           )}

@@ -29,6 +29,7 @@ import {
 import { isTelemetryEnabled, getOrCreateAnonymousId } from './telemetry.js'
 import { JobRunner } from './job-runner.js'
 import { executeGscSync } from './gsc-sync.js'
+import { executeInspectSitemap } from './gsc-inspect-sitemap.js'
 import { ProviderRegistry } from './provider-registry.js'
 import { Scheduler } from './scheduler.js'
 import { Notifier } from './notifier.js'
@@ -208,6 +209,19 @@ export async function createServer(opts: {
         config: opts.config,
       }).catch((err: unknown) => {
         app.log.error({ runId, err }, 'GSC sync failed')
+      })
+    },
+    onInspectSitemapRequested: (runId: string, projectId: string, inspectOpts?: { sitemapUrl?: string }) => {
+      const { clientId: googleClientId, clientSecret: googleClientSecret } = getGoogleAuthConfig(opts.config)
+      if (!googleClientId || !googleClientSecret) {
+        app.log.error('Inspect sitemap requested but Google OAuth credentials are not configured')
+        return
+      }
+      executeInspectSitemap(opts.db, runId, projectId, {
+        ...inspectOpts,
+        config: opts.config,
+      }).catch((err: unknown) => {
+        app.log.error({ runId, err }, 'Inspect sitemap failed')
       })
     },
     openApiInfo: {

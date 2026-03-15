@@ -20,7 +20,7 @@ import { telemetryCommand } from './commands/telemetry.js'
 import {
   googleConnect, googleDisconnect, googleStatus, googleProperties,
   googleSetProperty, googleSync, googlePerformance, googleInspect,
-  googleInspections, googleDeindexed,
+  googleInspections, googleDeindexed, googleCoverage, googleInspectSitemap,
 } from './commands/google.js'
 import { trackEvent, isTelemetryEnabled, isFirstRun, getOrCreateAnonymousId, showFirstRunNotice } from './telemetry.js'
 
@@ -74,6 +74,8 @@ Usage:
   canonry google sync <project>       Sync GSC data (--days 30, --full, --wait)
   canonry google performance <project>  Show GSC search performance data
   canonry google inspect <project> <url>  Inspect a URL via GSC
+  canonry google inspect-sitemap <project>  Bulk inspect all URLs from sitemap (--sitemap-url, --wait)
+  canonry google coverage <project>  Show index coverage summary
   canonry google inspections <project>  Show URL inspection history (--url <url>)
   canonry google deindexed <project>  Show pages that lost indexing
   canonry settings                    Show active provider and quota settings
@@ -886,6 +888,37 @@ async function main() {
             })
             break
           }
+          case 'inspect-sitemap': {
+            const project = args[2]
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            const { values: inspSitemapValues } = parseArgs({
+              args: args.slice(3),
+              options: {
+                'sitemap-url': { type: 'string' },
+                wait: { type: 'boolean', default: false },
+                format: { type: 'string' },
+              },
+              allowPositionals: false,
+            })
+            await googleInspectSitemap(project, {
+              sitemapUrl: inspSitemapValues['sitemap-url'],
+              wait: inspSitemapValues.wait ?? false,
+              format: inspSitemapValues.format === 'json' ? 'json' : format,
+            })
+            break
+          }
+          case 'coverage': {
+            const project = args[2]
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            await googleCoverage(project, format)
+            break
+          }
           case 'deindexed': {
             const project = args[2]
             if (!project) {
@@ -897,7 +930,7 @@ async function main() {
           }
           default:
             console.error(`Unknown google subcommand: ${subcommand ?? '(none)'}`)
-            console.log('Available: connect, disconnect, status, properties, set-property, sync, performance, inspect, inspections, deindexed')
+            console.log('Available: connect, disconnect, status, properties, set-property, sync, performance, inspect, inspect-sitemap, coverage, inspections, deindexed')
             process.exit(1)
         }
         break

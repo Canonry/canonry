@@ -42,6 +42,7 @@ export interface GoogleRoutesOptions {
   googleConnectionStore?: GoogleConnectionStore
   googleStateSecret?: string
   onGscSyncRequested?: (runId: string, projectId: string, opts?: { days?: number; full?: boolean }) => void
+  onInspectSitemapRequested?: (runId: string, projectId: string, opts?: { sitemapUrl?: string }) => void
 }
 
 function signState(payload: string, secret: string): string {
@@ -502,6 +503,145 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     }
 
     return deindexed
+  })
+
+  // GET /projects/:name/google/gsc/coverage
+  app.get<{ Params: { name: string } }>('/projects/:name/google/gsc/coverage', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+
+    // Get the latest inspection per URL
+    const allInspections = app.db
+      .select()
+      .from(gscUrlInspections)
+      .where(eq(gscUrlInspections.projectId, project.id))
+      .orderBy(desc(gscUrlInspections.inspectedAt))
+      .all()
+
+    const latestByUrl = new Map<string, typeof allInspections[number]>()
+    const historyByUrl = new Map<string, typeof allInspections>()
+    for (const row of allInspections) {
+      if (!latestByUrl.has(row.url)) {
+        latestByUrl.set(row.url, row)
+      }
+      const history = historyByUrl.get(row.url)
+      if (history) {
+        history.push(row)
+      } else {
+        historyByUrl.set(row.url, [row])
+      }
+    }
+
+    const indexedUrls: typeof allInspections = []
+    const notIndexedUrls: typeof allInspections = []
+    let lastInspectedAt: string | null = null
+
+    for (const [, row] of latestByUrl) {
+      if (row.indexingState === 'INDEXING_ALLOWED') {
+        indexedUrls.push(row)
+      } else {
+        notIndexedUrls.push(row)
+      }
+      if (!lastInspectedAt || row.inspectedAt > lastInspectedAt) {
+        lastInspectedAt = row.inspectedAt
+      }
+    }
+
+    // Compute deindexed
+    const deindexedUrls: Array<{
+      url: string
+      previousState: string | null
+      currentState: string | null
+      transitionDate: string
+    }> = []
+    for (const [url, history] of historyByUrl) {
+      if (history.length < 2) continue
+      const latest = history[0]!
+      const previous = history[1]!
+      if (
+        previous.indexingState?.toUpperCase() === 'INDEXED' &&
+        latest.indexingState?.toUpperCase() !== 'INDEXED'
+      ) {
+        deindexedUrls.push({
+          url,
+          previousState: previous.indexingState,
+          currentState: latest.indexingState,
+          transitionDate: latest.inspectedAt,
+        })
+      }
+    }
+
+    const total = latestByUrl.size
+    const indexed = indexedUrls.length
+    const notIndexed = notIndexedUrls.length
+
+    const formatRow = (r: typeof allInspections[number]) => ({
+      id: r.id,
+      url: r.url,
+      indexingState: r.indexingState,
+      verdict: r.verdict,
+      coverageState: r.coverageState,
+      pageFetchState: r.pageFetchState,
+      robotsTxtState: r.robotsTxtState,
+      crawlTime: r.crawlTime,
+      lastCrawlResult: r.lastCrawlResult,
+      isMobileFriendly: r.isMobileFriendly === 1 ? true : r.isMobileFriendly === 0 ? false : null,
+      richResults: JSON.parse(r.richResults),
+      inspectedAt: r.inspectedAt,
+    })
+
+    return {
+      summary: {
+        total,
+        indexed,
+        notIndexed,
+        deindexed: deindexedUrls.length,
+        percentage: total > 0 ? Math.round((indexed / total) * 1000) / 10 : 0,
+      },
+      lastInspectedAt,
+      indexed: indexedUrls.map(formatRow),
+      notIndexed: notIndexedUrls.map(formatRow),
+      deindexed: deindexedUrls,
+    }
+  })
+
+  // POST /projects/:name/google/gsc/inspect-sitemap
+  app.post<{
+    Params: { name: string }
+    Body: { sitemapUrl?: string }
+  }>('/projects/:name/google/gsc/inspect-sitemap', async (request, reply) => {
+    const store = requireConnectionStore(reply)
+    if (!store) return
+
+    const project = resolveProject(app.db, request.params.name)
+    const conn = store.getConnection(project.canonicalDomain, 'gsc')
+    if (!conn) {
+      const err = validationError('No GSC connection found for this domain. Run "canonry google connect" first.')
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
+    if (!conn.propertyId) {
+      const err = validationError('No GSC property configured for this connection')
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
+    const now = new Date().toISOString()
+    const runId = crypto.randomUUID()
+    app.db.insert(runs).values({
+      id: runId,
+      projectId: project.id,
+      kind: 'inspect-sitemap',
+      status: 'queued',
+      trigger: 'manual',
+      createdAt: now,
+    }).run()
+
+    const { sitemapUrl } = request.body ?? {}
+    if (opts.onInspectSitemapRequested) {
+      opts.onInspectSitemapRequested(runId, project.id, { sitemapUrl: sitemapUrl ?? undefined })
+    }
+
+    const run = app.db.select().from(runs).where(eq(runs.id, runId)).get()
+    return run
   })
 
   // PUT /projects/:name/google/connections/:type/property

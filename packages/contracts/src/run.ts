@@ -4,7 +4,7 @@ import { providerNameSchema } from './provider.js'
 export const runStatusSchema = z.enum(['queued', 'running', 'completed', 'partial', 'failed'])
 export type RunStatus = z.infer<typeof runStatusSchema>
 
-export const runKindSchema = z.enum(['answer-visibility', 'site-audit', 'gsc-sync'])
+export const runKindSchema = z.enum(['answer-visibility', 'site-audit', 'gsc-sync', 'inspect-sitemap'])
 export type RunKind = z.infer<typeof runKindSchema>
 
 export const runTriggerSchema = z.enum(['manual', 'scheduled', 'config-apply'])
