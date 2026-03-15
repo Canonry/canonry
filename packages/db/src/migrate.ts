@@ -218,6 +218,28 @@ const MIGRATIONS = [
   `ALTER TABLE runs ADD COLUMN location TEXT`,
   // v10: Add sitemapUrl to google_connections for persistent sitemap storage
   `ALTER TABLE google_connections ADD COLUMN sitemap_url TEXT`,
+  // v11: Built-in agent — threads and messages tables
+  `CREATE TABLE IF NOT EXISTS agent_threads (
+    id          TEXT PRIMARY KEY,
+    project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    title       TEXT,
+    channel     TEXT NOT NULL DEFAULT 'chat',
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_threads_project ON agent_threads(project_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_threads_updated ON agent_threads(updated_at)`,
+  `CREATE TABLE IF NOT EXISTS agent_messages (
+    id            TEXT PRIMARY KEY,
+    thread_id     TEXT NOT NULL REFERENCES agent_threads(id) ON DELETE CASCADE,
+    role          TEXT NOT NULL,
+    content       TEXT NOT NULL,
+    tool_name     TEXT,
+    tool_args     TEXT,
+    tool_call_id  TEXT,
+    created_at    TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_messages_thread ON agent_messages(thread_id, created_at)`,
 ]
 
 export function migrate(db: DatabaseClient) {
