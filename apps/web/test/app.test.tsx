@@ -31,15 +31,19 @@ test('overview route renders the premium portfolio dashboard', () => {
   assert.match(html, /Infrastructure/)
   assert.match(html, /Citypoint Dental NYC/)
   assert.match(html, /Harbor Legal Group/)
+  assert.match(html, /src="\/favicon\.svg"/)
 })
 
 test('project route renders a single command center with visibility sections', () => {
   const html = renderApp('/projects/project_citypoint')
 
   assert.match(html, /Citypoint Dental NYC/)
+  assert.match(html, /Overview/)
+  assert.match(html, /Search Console/)
   assert.match(html, /Citation signals/)
   assert.match(html, /Key phrase citation tracking/)
   assert.match(html, /Recent execution history/)
+  assert.doesNotMatch(html, /Google Search Console/)
 })
 
 test('runs route renders the operational timeline and filters', () => {
@@ -123,11 +127,12 @@ test('project route renders visibility drop insights', () => {
   assert.match(html, /Sharp citation drop detected/)
 })
 
-test('project route renders the Google Search Console section shell', () => {
-  const html = renderApp('/projects/project_citypoint')
+test('project search console route renders the Google Search Console section shell', () => {
+  const html = renderApp('/projects/project_citypoint/search-console')
 
   assert.match(html, /Google Search Console/)
   assert.match(html, /Loading…|Loading\.\.\./)
+  assert.doesNotMatch(html, /Citation signals/)
 })
 
 test('fetchServiceStatus reports ok details from a health payload', async (t) => {

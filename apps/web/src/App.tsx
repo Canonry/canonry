@@ -114,7 +114,7 @@ const defaultHealthSnapshot: HealthSnapshot = {
 type AppRoute =
   | { kind: 'overview'; path: '/' }
   | { kind: 'projects'; path: '/projects' }
-  | { kind: 'project'; path: string; projectId: string }
+  | { kind: 'project'; path: string; projectId: string; tab: ProjectPageTab }
   | { kind: 'runs'; path: '/runs' }
   | { kind: 'settings'; path: '/settings' }
   | { kind: 'setup'; path: '/setup' }
@@ -124,6 +124,8 @@ type DrawerState =
   | { kind: 'run'; runId: string }
   | { kind: 'evidence'; evidenceId: string }
   | null
+
+type ProjectPageTab = 'overview' | 'search-console'
 
 export interface AppProps {
   initialPathname?: string
@@ -211,9 +213,25 @@ function resolveRoute(pathname: string, dashboard: DashboardVm): AppRoute {
   }
 
   if (normalized.startsWith('/projects/')) {
-    const projectId = normalized.slice('/projects/'.length)
+    const segments = normalized.split('/').filter(Boolean)
+    if (segments.length < 2 || segments.length > 3) {
+      return { kind: 'not-found', path: normalized }
+    }
+
+    const [, projectId, rawTab] = segments
+    const tab: ProjectPageTab | null =
+      rawTab === undefined
+        ? 'overview'
+        : rawTab === 'search-console'
+          ? 'search-console'
+          : null
+
+    if (!tab) {
+      return { kind: 'not-found', path: normalized }
+    }
+
     return findProjectVm(dashboard, projectId)
-      ? { kind: 'project', path: normalized, projectId }
+      ? { kind: 'project', path: normalized, projectId, tab }
       : { kind: 'not-found', path: normalized }
   }
 
@@ -427,6 +445,23 @@ function isNavActive(route: AppRoute, section: 'overview' | 'projects' | 'projec
 /* ────────────────────────────────────────────
    Presentational components
    ──────────────────────────────────────────── */
+
+function BrandLockup({ compact = false, navigate }: { compact?: boolean; navigate: (to: string) => void }) {
+  return (
+    <a
+      className={`brand-lockup ${compact ? 'brand-lockup-compact' : ''}`}
+      href="/"
+      aria-label="Canonry home"
+      onClick={createNavigationHandler(navigate, '/')}
+    >
+      <img className="brand-icon" src="/favicon.svg" alt="" aria-hidden="true" />
+      <span className="brand-copy">
+        <span className="brand-mark">Canonry</span>
+        {compact ? null : <span className="brand-subtitle">AEO Monitor</span>}
+      </span>
+    </a>
+  )
+}
 
 function Sparkline({ points, tone }: { points: number[]; tone: MetricTone }) {
   const clipId = useId()
@@ -1525,6 +1560,7 @@ function YamlApplyPanel({ onApplied }: { onApplied: () => void }) {
 
 function ProjectPage({
   model,
+  tab,
   onOpenEvidence,
   onOpenRun,
   onTriggerRun,
@@ -1536,6 +1572,7 @@ function ProjectPage({
   onNavigate,
 }: {
   model: ProjectCommandCenterVm
+  tab: ProjectPageTab
   onOpenEvidence: (evidenceId: string) => void
   onOpenRun: (runId?: string) => void
   onTriggerRun: (projectName: string) => Promise<void>
@@ -1622,6 +1659,10 @@ function ProjectPage({
   }
 
   const isNumericScore = (value: string) => !Number.isNaN(Number.parseInt(value, 10))
+  const projectTabItems: Array<{ key: ProjectPageTab; label: string; href: string }> = [
+    { key: 'overview', label: 'Overview', href: `/projects/${model.project.id}` },
+    { key: 'search-console', label: 'Search Console', href: `/projects/${model.project.id}/search-console` },
+  ]
 
   return (
     <div className="page-container">
@@ -1751,159 +1792,178 @@ function ProjectPage({
         </div>
       )}
 
-      {/* Score gauges */}
-      <section className="gauge-row">
-        <ScoreGauge
-          value={model.visibilitySummary.value}
-          label={model.visibilitySummary.label}
-          delta={model.visibilitySummary.delta}
-          tone={model.visibilitySummary.tone}
-          description={model.visibilitySummary.description}
-          tooltip={model.visibilitySummary.tooltip}
-          isNumeric={isNumericScore(model.visibilitySummary.value)}
-        />
-        <ScoreGauge
-          value={model.competitorPressure.value}
-          label={model.competitorPressure.label}
-          delta={model.competitorPressure.delta}
-          tone={model.competitorPressure.tone}
-          description={model.competitorPressure.description}
-          tooltip={model.competitorPressure.tooltip}
-          isNumeric={isNumericScore(model.competitorPressure.value)}
-        />
-        <ScoreGauge
-          value={model.runStatus.value}
-          label={model.runStatus.label}
-          delta={model.runStatus.delta}
-          tone={model.runStatus.tone}
-          description={model.runStatus.description}
-          tooltip={model.runStatus.tooltip}
-          isNumeric={isNumericScore(model.runStatus.value)}
-        />
-      </section>
+      <nav className="project-subnav" aria-label="Project sections">
+        {projectTabItems.map((item) => (
+          <a
+            key={item.key}
+            className={`project-subnav-link ${item.key === tab ? 'project-subnav-link-active' : ''}`}
+            href={item.href}
+            aria-current={item.key === tab ? 'page' : undefined}
+            onClick={createNavigationHandler(onNavigate, item.href)}
+          >
+            {item.label}
+          </a>
+        ))}
+      </nav>
 
-      {/* Per-provider visibility breakdown */}
-      {model.providerScores.length > 1 && (
-        <section className="page-section-divider">
-          <div className="section-head section-head-inline">
-            <div>
-              <p className="eyebrow eyebrow-soft">Model breakdown</p>
-              <h2>Visibility by model <InfoTooltip text="Per-model citation rate. Shows how often each AI model cites your domain across all tracked key phrases. Switching models can significantly affect citation rates." /></h2>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {model.providerScores.map((ps) => (
-              <Card key={`${ps.provider}::${ps.model ?? 'unknown'}`} className="surface-card compact-card">
-                <div className="flex items-center justify-between">
-                  <ProviderBadge provider={ps.provider} />
-                  <span className={`text-lg font-semibold ${ps.score >= 70 ? 'text-emerald-400' : ps.score >= 40 ? 'text-amber-400' : 'text-rose-400'}`}>
-                    {ps.score}%
-                  </span>
+      {tab === 'overview' ? (
+        <>
+          {/* Score gauges */}
+          <section className="gauge-row">
+            <ScoreGauge
+              value={model.visibilitySummary.value}
+              label={model.visibilitySummary.label}
+              delta={model.visibilitySummary.delta}
+              tone={model.visibilitySummary.tone}
+              description={model.visibilitySummary.description}
+              tooltip={model.visibilitySummary.tooltip}
+              isNumeric={isNumericScore(model.visibilitySummary.value)}
+            />
+            <ScoreGauge
+              value={model.competitorPressure.value}
+              label={model.competitorPressure.label}
+              delta={model.competitorPressure.delta}
+              tone={model.competitorPressure.tone}
+              description={model.competitorPressure.description}
+              tooltip={model.competitorPressure.tooltip}
+              isNumeric={isNumericScore(model.competitorPressure.value)}
+            />
+            <ScoreGauge
+              value={model.runStatus.value}
+              label={model.runStatus.label}
+              delta={model.runStatus.delta}
+              tone={model.runStatus.tone}
+              description={model.runStatus.description}
+              tooltip={model.runStatus.tooltip}
+              isNumeric={isNumericScore(model.runStatus.value)}
+            />
+          </section>
+
+          {/* Per-provider visibility breakdown */}
+          {model.providerScores.length > 1 && (
+            <section className="page-section-divider">
+              <div className="section-head section-head-inline">
+                <div>
+                  <p className="eyebrow eyebrow-soft">Model breakdown</p>
+                  <h2>Visibility by model <InfoTooltip text="Per-model citation rate. Shows how often each AI model cites your domain across all tracked key phrases. Switching models can significantly affect citation rates." /></h2>
                 </div>
-                {ps.model && <p className="mt-0.5 text-[11px] font-mono text-zinc-500 truncate">{ps.model}</p>}
-                <p className="mt-1 text-xs text-zinc-500">{ps.cited} of {ps.total} key phrases cited</p>
-              </Card>
-            ))}
-          </div>
-        </section>
-      )}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                {model.providerScores.map((ps) => (
+                  <Card key={`${ps.provider}::${ps.model ?? 'unknown'}`} className="surface-card compact-card">
+                    <div className="flex items-center justify-between">
+                      <ProviderBadge provider={ps.provider} />
+                      <span className={`text-lg font-semibold ${ps.score >= 70 ? 'text-emerald-400' : ps.score >= 40 ? 'text-amber-400' : 'text-rose-400'}`}>
+                        {ps.score}%
+                      </span>
+                    </div>
+                    {ps.model && <p className="mt-0.5 text-[11px] font-mono text-zinc-500 truncate">{ps.model}</p>}
+                    <p className="mt-1 text-xs text-zinc-500">{ps.cited} of {ps.total} key phrases cited</p>
+                  </Card>
+                ))}
+              </div>
+            </section>
+          )}
 
-      {/* Insights */}
-      <section className="page-section-divider">
-        <div className="section-head section-head-inline">
-          <div>
-            <p className="eyebrow eyebrow-soft">What changed</p>
-            <h2>Citation signals</h2>
-          </div>
-        </div>
-        <InsightSignals insights={model.insights} onOpenEvidence={onOpenEvidence} />
-      </section>
-
-      {/* Evidence table */}
-      <section className="page-section-divider">
-        <div className="section-head section-head-inline">
-          <div>
-            <p className="eyebrow eyebrow-soft">Visibility evidence</p>
-            <h2>Key phrase citation tracking</h2>
-          </div>
-          <div className="flex items-center gap-3">
-            <p className="supporting-copy">{new Set(model.visibilityEvidence.map(e => e.keyword)).size} key phrases tracked</p>
-            <Button type="button" variant="outline" size="sm" onClick={() => setAddingKeywords(!addingKeywords)}>
-              {addingKeywords ? 'Cancel' : '+ Add key phrases'}
-            </Button>
-          </div>
-        </div>
-        {addingKeywords && (
-          <div className="mb-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-            <textarea
-              className="w-full resize-none rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-              rows={3}
-              placeholder="Enter key phrases, one per line"
-              value={newKeywordText}
-              onChange={(e) => setNewKeywordText(e.target.value)}
-            />
-            <div className="mt-2 flex items-center justify-between">
-              <p className="text-xs text-zinc-500">{newKeywordText.split('\n').filter(k => k.trim()).length} key phrases</p>
-              <Button type="button" size="sm" disabled={!newKeywordText.trim() || keywordSaving} onClick={handleAddKeywords}>
-                {keywordSaving ? 'Adding...' : 'Add key phrases'}
-              </Button>
+          {/* Insights */}
+          <section className="page-section-divider">
+            <div className="section-head section-head-inline">
+              <div>
+                <p className="eyebrow eyebrow-soft">What changed</p>
+                <h2>Citation signals</h2>
+              </div>
             </div>
-          </div>
-        )}
-        <EvidencePhraseCards evidence={model.visibilityEvidence} onOpenEvidence={onOpenEvidence} />
-      </section>
+            <InsightSignals insights={model.insights} onOpenEvidence={onOpenEvidence} />
+          </section>
 
-      {/* Competitor table */}
-      <section className="page-section-divider">
-        <div className="section-head section-head-inline">
-          <div>
-            <p className="eyebrow eyebrow-soft">Competitors</p>
-            <h2>Competitive landscape</h2>
-          </div>
-          <div className="flex items-center gap-3">
-            <p className="supporting-copy">{model.competitors.length} tracked</p>
-            <Button type="button" variant="outline" size="sm" onClick={() => setAddingCompetitor(!addingCompetitor)}>
-              {addingCompetitor ? 'Cancel' : '+ Add competitor'}
-            </Button>
-          </div>
-        </div>
-        {addingCompetitor && (
-          <div className="mb-3 flex gap-2 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-            <input
-              className="flex-1 rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-              type="text"
-              placeholder="competitor.com"
-              value={newCompetitorDomain}
-              onChange={(e) => setNewCompetitorDomain(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAddCompetitor()}
-            />
-            <Button type="button" size="sm" disabled={!newCompetitorDomain.trim() || competitorSaving} onClick={handleAddCompetitor}>
-              {competitorSaving ? 'Adding...' : 'Add'}
-            </Button>
-          </div>
-        )}
-        <CompetitorTable competitors={model.competitors} />
-      </section>
+          {/* Evidence table */}
+          <section className="page-section-divider">
+            <div className="section-head section-head-inline">
+              <div>
+                <p className="eyebrow eyebrow-soft">Visibility evidence</p>
+                <h2>Key phrase citation tracking</h2>
+              </div>
+              <div className="flex items-center gap-3">
+                <p className="supporting-copy">{new Set(model.visibilityEvidence.map(e => e.keyword)).size} key phrases tracked</p>
+                <Button type="button" variant="outline" size="sm" onClick={() => setAddingKeywords(!addingKeywords)}>
+                  {addingKeywords ? 'Cancel' : '+ Add key phrases'}
+                </Button>
+              </div>
+            </div>
+            {addingKeywords && (
+              <div className="mb-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+                <textarea
+                  className="w-full resize-none rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                  rows={3}
+                  placeholder="Enter key phrases, one per line"
+                  value={newKeywordText}
+                  onChange={(e) => setNewKeywordText(e.target.value)}
+                />
+                <div className="mt-2 flex items-center justify-between">
+                  <p className="text-xs text-zinc-500">{newKeywordText.split('\n').filter(k => k.trim()).length} key phrases</p>
+                  <Button type="button" size="sm" disabled={!newKeywordText.trim() || keywordSaving} onClick={handleAddKeywords}>
+                    {keywordSaving ? 'Adding...' : 'Add key phrases'}
+                  </Button>
+                </div>
+              </div>
+            )}
+            <EvidencePhraseCards evidence={model.visibilityEvidence} onOpenEvidence={onOpenEvidence} />
+          </section>
 
-      {/* Run timeline */}
-      <section className="page-section-divider">
-        <div className="section-head section-head-inline">
-          <div>
-            <p className="eyebrow eyebrow-soft">Run timeline</p>
-            <h2>Recent execution history</h2>
-          </div>
-        </div>
-        <div className="run-list">
-          {model.recentRuns.map((run) => (
-            <RunRow key={run.id} run={run} onOpen={onOpenRun} />
-          ))}
-        </div>
-      </section>
+          {/* Competitor table */}
+          <section className="page-section-divider">
+            <div className="section-head section-head-inline">
+              <div>
+                <p className="eyebrow eyebrow-soft">Competitors</p>
+                <h2>Competitive landscape</h2>
+              </div>
+              <div className="flex items-center gap-3">
+                <p className="supporting-copy">{model.competitors.length} tracked</p>
+                <Button type="button" variant="outline" size="sm" onClick={() => setAddingCompetitor(!addingCompetitor)}>
+                  {addingCompetitor ? 'Cancel' : '+ Add competitor'}
+                </Button>
+              </div>
+            </div>
+            {addingCompetitor && (
+              <div className="mb-3 flex gap-2 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+                <input
+                  className="flex-1 rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                  type="text"
+                  placeholder="competitor.com"
+                  value={newCompetitorDomain}
+                  onChange={(e) => setNewCompetitorDomain(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddCompetitor()}
+                />
+                <Button type="button" size="sm" disabled={!newCompetitorDomain.trim() || competitorSaving} onClick={handleAddCompetitor}>
+                  {competitorSaving ? 'Adding...' : 'Add'}
+                </Button>
+              </div>
+            )}
+            <CompetitorTable competitors={model.competitors} />
+          </section>
 
-      <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name }} onUpdateProject={onUpdateProject} />
-      <ScheduleSection projectName={model.project.name} />
-      <NotificationsSection projectName={model.project.name} />
-      <GscSection projectName={model.project.name} onOpenSettings={() => onNavigate('/settings')} />
+          {/* Run timeline */}
+          <section className="page-section-divider">
+            <div className="section-head section-head-inline">
+              <div>
+                <p className="eyebrow eyebrow-soft">Run timeline</p>
+                <h2>Recent execution history</h2>
+              </div>
+            </div>
+            <div className="run-list">
+              {model.recentRuns.map((run) => (
+                <RunRow key={run.id} run={run} onOpen={onOpenRun} />
+              ))}
+            </div>
+          </section>
+
+          <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name }} onUpdateProject={onUpdateProject} />
+          <ScheduleSection projectName={model.project.name} />
+          <NotificationsSection projectName={model.project.name} />
+        </>
+      ) : (
+        <GscSection projectName={model.project.name} onOpenSettings={() => onNavigate('/settings')} />
+      )}
     </div>
   )
 }
@@ -5113,10 +5173,7 @@ export function App({
       {/* ── Sidebar (desktop) ── */}
       <aside className="sidebar" aria-label="Primary navigation">
         <div className="sidebar-brand">
-          <a href="/" onClick={createNavigationHandler(navigate, '/')}>
-            <span className="brand-mark">Canonry</span>
-            <p className="brand-subtitle">AEO Monitor</p>
-          </a>
+          <BrandLockup navigate={navigate} />
         </div>
 
         <nav className="sidebar-nav">
@@ -5185,9 +5242,7 @@ export function App({
         <header className="topbar">
           <div className="topbar-left">
             <div className="topbar-brand-mobile">
-              <a className="brand-mark" href="/" onClick={createNavigationHandler(navigate, '/')}>
-                Canonry
-              </a>
+              <BrandLockup compact navigate={navigate} />
             </div>
             <nav className="breadcrumb" aria-label="Breadcrumb">
               <a href="/" onClick={createNavigationHandler(navigate, '/')}>
@@ -5291,7 +5346,7 @@ export function App({
                 />
               ) : null}
               {route.kind === 'project' && activeProject ? (
-                <ProjectPage model={activeProject} onOpenEvidence={openEvidence} onOpenRun={openRun} onTriggerRun={handleTriggerRun} onDeleteProject={handleDeleteProject} onAddKeywords={handleAddKeywords} onAddCompetitors={handleAddCompetitors} onUpdateOwnedDomains={handleUpdateOwnedDomains} onUpdateProject={handleUpdateProject} onNavigate={navigate} />
+                <ProjectPage model={activeProject} tab={route.tab} onOpenEvidence={openEvidence} onOpenRun={openRun} onTriggerRun={handleTriggerRun} onDeleteProject={handleDeleteProject} onAddKeywords={handleAddKeywords} onAddCompetitors={handleAddCompetitors} onUpdateOwnedDomains={handleUpdateOwnedDomains} onUpdateProject={handleUpdateProject} onNavigate={navigate} />
               ) : null}
               {route.kind === 'runs' ? <RunsPage runs={safeDashboard.runs} onOpenRun={openRun} onTriggerAll={handleTriggerAllRuns} /> : null}
               {route.kind === 'settings' ? (
