@@ -2483,28 +2483,26 @@ function GscSection({
 
                 {coverage && coverage.summary.total > 0 ? (
                   <>
-                    <div className="mt-3 grid gap-3 md:grid-cols-4">
-                      <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
-                        <p className="text-xs uppercase tracking-wide text-zinc-500">Total URLs</p>
-                        <p className="mt-1 text-lg font-semibold tabular-nums text-zinc-200">{coverage.summary.total}</p>
-                      </div>
-                      <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
-                        <p className="text-xs uppercase tracking-wide text-zinc-500">Indexed</p>
-                        <p className="mt-1 text-lg font-semibold tabular-nums text-emerald-400">{coverage.summary.indexed}</p>
-                      </div>
-                      <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
-                        <p className="text-xs uppercase tracking-wide text-zinc-500">Not Indexed</p>
-                        <p className="mt-1 text-lg font-semibold tabular-nums text-amber-400">{coverage.summary.notIndexed}</p>
-                      </div>
-                      <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
-                        <p className="text-xs uppercase tracking-wide text-zinc-500">Coverage</p>
-                        <p className={`mt-1 text-lg font-semibold tabular-nums ${
-                          coverage.summary.percentage >= 80 ? 'text-emerald-400' : coverage.summary.percentage >= 50 ? 'text-amber-400' : 'text-rose-400'
-                        }`}>
-                          {coverage.summary.percentage}%
-                        </p>
-                      </div>
-                    </div>
+                    <table className="data-table mt-3 w-full text-sm">
+                      <thead>
+                        <tr>
+                          <th className="text-left">Total URLs</th>
+                          <th className="text-left">Indexed</th>
+                          <th className="text-left">Not Indexed</th>
+                          <th className="text-left">Coverage</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td className="tabular-nums text-zinc-200">{coverage.summary.total}</td>
+                          <td className="tabular-nums text-emerald-400">{coverage.summary.indexed}</td>
+                          <td className="tabular-nums text-amber-400">{coverage.summary.notIndexed}</td>
+                          <td className={`tabular-nums ${
+                            coverage.summary.percentage >= 80 ? 'text-emerald-400' : coverage.summary.percentage >= 50 ? 'text-amber-400' : 'text-rose-400'
+                          }`}>{coverage.summary.percentage}%</td>
+                        </tr>
+                      </tbody>
+                    </table>
 
                     <div className="mt-3 flex gap-1">
                       {(['indexed', 'notIndexed', 'deindexed'] as const).map((tab) => {

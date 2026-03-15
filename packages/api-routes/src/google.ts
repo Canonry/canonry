@@ -490,8 +490,8 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       const previous = inspections[1]!
 
       if (
-        previous.indexingState?.toUpperCase() === 'INDEXED' &&
-        latest.indexingState?.toUpperCase() !== 'INDEXED'
+        previous.indexingState === 'INDEXING_ALLOWED' &&
+        latest.indexingState !== 'INDEXING_ALLOWED'
       ) {
         deindexed.push({
           url,
@@ -558,8 +558,8 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       const latest = history[0]!
       const previous = history[1]!
       if (
-        previous.indexingState?.toUpperCase() === 'INDEXED' &&
-        latest.indexingState?.toUpperCase() !== 'INDEXED'
+        previous.indexingState === 'INDEXING_ALLOWED' &&
+        latest.indexingState !== 'INDEXING_ALLOWED'
       ) {
         deindexedUrls.push({
           url,
