@@ -48,11 +48,36 @@
   }
 
   .sidebar-brand {
-    @apply flex items-center gap-3 px-5 pt-5 pb-4;
+    @apply px-5 pt-5 pb-4;
+  }
+
+  .brand-lockup {
+    @apply inline-flex items-center gap-3;
+  }
+
+  .brand-lockup-compact {
+    @apply gap-2.5;
+  }
+
+  .brand-copy {
+    @apply flex min-w-0 flex-col;
+  }
+
+  .brand-icon {
+    @apply size-10 shrink-0;
+    filter: drop-shadow(0 10px 18px rgba(8, 11, 15, 0.34));
+  }
+
+  .brand-lockup-compact .brand-icon {
+    @apply size-7;
   }
 
   .brand-mark {
-    @apply text-[15px] font-semibold tracking-[-0.02em] text-zinc-100;
+    @apply text-[15px] font-semibold leading-none tracking-[-0.02em] text-zinc-100;
+  }
+
+  .brand-lockup-compact .brand-mark {
+    @apply text-[14px];
   }
 
   .brand-subtitle {

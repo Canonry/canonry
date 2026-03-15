@@ -428,6 +428,23 @@ function isNavActive(route: AppRoute, section: 'overview' | 'projects' | 'projec
    Presentational components
    ──────────────────────────────────────────── */
 
+function BrandLockup({ compact = false, navigate }: { compact?: boolean; navigate: (to: string) => void }) {
+  return (
+    <a
+      className={`brand-lockup ${compact ? 'brand-lockup-compact' : ''}`}
+      href="/"
+      aria-label="Canonry home"
+      onClick={createNavigationHandler(navigate, '/')}
+    >
+      <img className="brand-icon" src="/favicon.svg" alt="" aria-hidden="true" />
+      <span className="brand-copy">
+        <span className="brand-mark">Canonry</span>
+        {compact ? null : <span className="brand-subtitle">AEO Monitor</span>}
+      </span>
+    </a>
+  )
+}
+
 function Sparkline({ points, tone }: { points: number[]; tone: MetricTone }) {
   const clipId = useId()
   if (points.length === 0) return null
@@ -5113,10 +5130,7 @@ export function App({
       {/* ── Sidebar (desktop) ── */}
       <aside className="sidebar" aria-label="Primary navigation">
         <div className="sidebar-brand">
-          <a href="/" onClick={createNavigationHandler(navigate, '/')}>
-            <span className="brand-mark">Canonry</span>
-            <p className="brand-subtitle">AEO Monitor</p>
-          </a>
+          <BrandLockup navigate={navigate} />
         </div>
 
         <nav className="sidebar-nav">
@@ -5185,9 +5199,7 @@ export function App({
         <header className="topbar">
           <div className="topbar-left">
             <div className="topbar-brand-mobile">
-              <a className="brand-mark" href="/" onClick={createNavigationHandler(navigate, '/')}>
-                Canonry
-              </a>
+              <BrandLockup compact navigate={navigate} />
             </div>
             <nav className="breadcrumb" aria-label="Breadcrumb">
               <a href="/" onClick={createNavigationHandler(navigate, '/')}>
