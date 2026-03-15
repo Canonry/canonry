@@ -179,7 +179,7 @@ export class ApiClient {
   }
 
   // Google connection management
-  async googleConnect(project: string, body: { type: string; propertyId?: string; callbackUrl?: string }): Promise<{ authUrl: string; redirectUri?: string }> {
+  async googleConnect(project: string, body: { type: string; propertyId?: string; publicUrl?: string }): Promise<{ authUrl: string; redirectUri?: string }> {
     return this.request<{ authUrl: string; redirectUri?: string }>('POST', `/projects/${encodeURIComponent(project)}/google/connect`, body)
   }
 

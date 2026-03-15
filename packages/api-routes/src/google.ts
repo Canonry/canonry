@@ -139,7 +139,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   // POST /projects/:name/google/connect
   app.post<{
     Params: { name: string }
-    Body: { type: string; propertyId?: string; callbackUrl?: string }
+    Body: { type: string; propertyId?: string; publicUrl?: string }
   }>('/projects/:name/google/connect', async (request, reply) => {
     const { clientId: googleClientId, clientSecret: googleClientSecret } = getAuthConfig()
     if (!googleClientId || !googleClientSecret) {
@@ -147,7 +147,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       return reply.status(err.statusCode).send(err.toJSON())
     }
 
-    const { type, propertyId, callbackUrl } = request.body ?? {}
+    const { type, propertyId, publicUrl } = request.body ?? {}
     if (!type || (type !== 'gsc' && type !== 'ga4')) {
       const err = validationError('type must be "gsc" or "ga4"')
       return reply.status(err.statusCode).send(err.toJSON())
@@ -156,17 +156,17 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     const project = resolveProject(app.db, request.params.name)
 
     let redirectUri: string
-    if (callbackUrl) {
+    if (publicUrl) {
       // CLI override — use the provided public URL as the base
-      redirectUri = callbackUrl.replace(/\/$/, '') + '/api/v1/google/callback'
+      redirectUri = publicUrl.replace(/\/$/, '') + '/api/v1/google/callback'
     } else if (opts.publicUrl) {
       // Config-level publicUrl — use for all OAuth redirects
       redirectUri = opts.publicUrl.replace(/\/$/, '') + '/api/v1/google/callback'
     } else {
-      // Auto-detect from request headers (local dev default)
+      // Auto-detect from request headers — use legacy per-project URI for backward compat
       const proto = request.headers['x-forwarded-proto'] ?? 'http'
       const host = request.headers.host ?? 'localhost:4100'
-      redirectUri = `${proto}://${host}/api/v1/google/callback`
+      redirectUri = `${proto}://${host}/api/v1/projects/${encodeURIComponent(request.params.name)}/google/callback`
     }
 
     const scopes = type === 'gsc' ? [GSC_SCOPE] : []

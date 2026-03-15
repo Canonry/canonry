@@ -6,11 +6,11 @@ function getClient(): ApiClient {
   return new ApiClient(config.apiUrl, config.apiKey)
 }
 
-export async function googleConnect(project: string, opts: { type: string; callbackUrl?: string }): Promise<void> {
+export async function googleConnect(project: string, opts: { type: string; publicUrl?: string }): Promise<void> {
   const client = getClient()
   const { authUrl, redirectUri } = await client.googleConnect(project, {
     type: opts.type,
-    callbackUrl: opts.callbackUrl,
+    publicUrl: opts.publicUrl,
   })
 
   console.log(`\nOpen this URL in your browser to authorize Google ${opts.type.toUpperCase()} access:\n`)

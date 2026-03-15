@@ -354,15 +354,78 @@ describe('googleRoutes: connect uses publicUrl', () => {
     assert.ok(body.authUrl.includes(encodeURIComponent('https://canonry.example.com/api/v1/google/callback')))
   })
 
-  it('callbackUrl in body overrides publicUrl', async () => {
+  it('publicUrl in body overrides config publicUrl', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/projects/testproj/google/connect',
-      payload: { type: 'gsc', callbackUrl: 'https://override.example.com' },
+      payload: { type: 'gsc', publicUrl: 'https://override.example.com' },
     })
     assert.equal(res.statusCode, 200)
     const body = res.json() as { authUrl: string; redirectUri: string }
     assert.equal(body.redirectUri, 'https://override.example.com/api/v1/google/callback')
+  })
+})
+
+describe('googleRoutes: connect auto-detect uses per-project URI', () => {
+  let app: ReturnType<typeof Fastify>
+  let tmpDir: string
+
+  before(async () => {
+    const tmpDirPath = fs.mkdtempSync(path.join(os.tmpdir(), 'google-routes-autodetect-'))
+    const dbPath = path.join(tmpDirPath, 'test.db')
+    const db = createClient(dbPath)
+    migrate(db)
+
+    const now = new Date().toISOString()
+    db.insert(projects).values({
+      id: 'p1',
+      name: 'testproj',
+      displayName: 'Test Project',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+
+    const fastify = Fastify()
+    fastify.decorate('db', db)
+    fastify.register(googleRoutes, {
+      getGoogleAuthConfig: () => ({
+        clientId: 'test-client-id',
+        clientSecret: 'test-client-secret',
+      }),
+      googleConnectionStore: {
+        listConnections: () => [],
+        getConnection: () => undefined,
+        upsertConnection: (c) => c,
+        updateConnection: () => undefined,
+        deleteConnection: () => false,
+      },
+      googleStateSecret: 'test-secret-32-bytes-long-enough!',
+      // No publicUrl — auto-detect mode
+    })
+
+    app = fastify
+    tmpDir = tmpDirPath
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('auto-detect generates per-project redirect URI for backward compat', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects/testproj/google/connect',
+      headers: { host: 'localhost:4100' },
+      payload: { type: 'gsc' },
+    })
+    assert.equal(res.statusCode, 200)
+    const body = res.json() as { authUrl: string; redirectUri: string }
+    assert.equal(body.redirectUri, 'http://localhost:4100/api/v1/projects/testproj/google/callback')
   })
 })
 
