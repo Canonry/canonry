@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
-import { eq, and } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { projects, keywords, competitors, schedules, notifications, googleConnections } from '@ainyc/canonry-db'
+import { projects, keywords, competitors, schedules, notifications } from '@ainyc/canonry-db'
 import { projectConfigSchema, validationError } from '@ainyc/canonry-contracts'
 import { writeAuditLog } from './helpers.js'
 import { resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
@@ -9,6 +9,7 @@ import { resolveWebhookTarget } from './webhooks.js'
 
 export interface ApplyRoutesOptions {
   onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string) => void
+  onGoogleConnectionPropertyUpdated?: (domain: string, connectionType: 'gsc' | 'ga4', propertyId: string) => void
 }
 
 export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOptions) {
@@ -227,19 +228,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     // Handle google config — if spec.google.gsc.propertyUrl is set and a GSC connection
     // exists for this project's domain, update the property.
     if ('google' in rawSpec && config.spec.google?.gsc?.propertyUrl) {
-      const domain = config.spec.canonicalDomain
-      const conn = app.db
-        .select()
-        .from(googleConnections)
-        .where(and(eq(googleConnections.domain, domain), eq(googleConnections.connectionType, 'gsc')))
-        .get()
-      if (conn) {
-        app.db
-          .update(googleConnections)
-          .set({ propertyId: config.spec.google.gsc.propertyUrl, updatedAt: now })
-          .where(eq(googleConnections.id, conn.id))
-          .run()
-      }
+      opts?.onGoogleConnectionPropertyUpdated?.(config.spec.canonicalDomain, 'gsc', config.spec.google.gsc.propertyUrl)
     }
 
     const project = app.db.select().from(projects).where(eq(projects.id, projectId)).get()!

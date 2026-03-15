@@ -59,10 +59,14 @@ describe('canonry', () => {
     const originalGeminiApiKey = process.env.GEMINI_API_KEY
     const originalOpenaiApiKey = process.env.OPENAI_API_KEY
     const originalCanonryApiKey = process.env.CANONRY_API_KEY
+    const originalGoogleClientId = process.env.GOOGLE_CLIENT_ID
+    const originalGoogleClientSecret = process.env.GOOGLE_CLIENT_SECRET
 
     process.env.CANONRY_CONFIG_DIR = tmpDir
     process.env.GEMINI_API_KEY = 'test-gemini-key'
     process.env.CANONRY_API_KEY = 'cnry_bootstrap_key'
+    process.env.GOOGLE_CLIENT_ID = 'google-client-id'
+    process.env.GOOGLE_CLIENT_SECRET = 'google-client-secret'
 
     try {
       await bootstrapCommand({ force: true })
@@ -71,6 +75,8 @@ describe('canonry', () => {
       assert.equal(config.database, path.join(tmpDir, 'data.db'))
       assert.equal(config.apiKey, 'cnry_bootstrap_key')
       assert.equal(config.providers?.gemini?.apiKey, 'test-gemini-key')
+      assert.equal(config.google?.clientId, 'google-client-id')
+      assert.equal(config.google?.clientSecret, 'google-client-secret')
 
       let db = createClient(config.database)
       let keys = db.select().from(apiKeys).all()
@@ -102,6 +108,8 @@ describe('canonry', () => {
       restoreEnvVar('GEMINI_API_KEY', originalGeminiApiKey)
       restoreEnvVar('OPENAI_API_KEY', originalOpenaiApiKey)
       restoreEnvVar('CANONRY_API_KEY', originalCanonryApiKey)
+      restoreEnvVar('GOOGLE_CLIENT_ID', originalGoogleClientId)
+      restoreEnvVar('GOOGLE_CLIENT_SECRET', originalGoogleClientSecret)
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
   })

@@ -189,8 +189,14 @@ export interface ProviderStatusVm {
   }
 }
 
+export interface GoogleSettingsVm {
+  state: 'ready' | 'needs-config'
+  detail: string
+}
+
 export interface SettingsVm {
   providerStatuses: ProviderStatusVm[]
+  google: GoogleSettingsVm
   selfHostNotes: string[]
   bootstrapNote: string
 }

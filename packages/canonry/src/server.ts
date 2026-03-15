@@ -17,6 +17,15 @@ import { localAdapter } from '@ainyc/canonry-provider-local'
 import type { ProviderName } from '@ainyc/canonry-contracts'
 import type { CanonryConfig } from './config.js'
 import { saveConfig, loadConfig } from './config.js'
+import {
+  getGoogleAuthConfig,
+  getGoogleConnection,
+  listGoogleConnections,
+  patchGoogleConnection,
+  removeGoogleConnection,
+  setGoogleAuthConfig,
+  upsertGoogleConnection,
+} from './google-config.js'
 import { isTelemetryEnabled, getOrCreateAnonymousId } from './telemetry.js'
 import { JobRunner } from './job-runner.js'
 import { executeGscSync } from './gsc-sync.js'
@@ -125,30 +134,71 @@ export async function createServer(opts: {
     configured: !!registry.get(name),
     quota: registry.get(name)?.config.quotaPolicy,
   }))
+  const googleSettingsSummary = {
+    configured: Boolean(opts.config.google?.clientId && opts.config.google?.clientSecret),
+  }
 
   const adapterMap = { gemini: geminiAdapter, openai: openaiAdapter, claude: claudeAdapter, local: localAdapter } as const
 
-  // Google OAuth config from env
-  const googleClientId = process.env.GOOGLE_CLIENT_ID
-  const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET
   const googleStateSecret = process.env.GOOGLE_STATE_SECRET ?? crypto.randomBytes(32).toString('hex')
+
+  const googleConnectionStore = {
+    listConnections: (domain: string) => listGoogleConnections(opts.config, domain),
+    getConnection: (domain: string, connectionType: 'gsc' | 'ga4') => getGoogleConnection(opts.config, domain, connectionType),
+    upsertConnection: (connection: {
+      domain: string
+      connectionType: 'gsc' | 'ga4'
+      propertyId?: string | null
+      accessToken?: string
+      refreshToken?: string | null
+      tokenExpiresAt?: string | null
+      scopes?: string[]
+      createdAt: string
+      updatedAt: string
+    }) => {
+      const updated = upsertGoogleConnection(opts.config, connection)
+      saveConfig(opts.config)
+      return updated
+    },
+    updateConnection: (
+      domain: string,
+      connectionType: 'gsc' | 'ga4',
+      patch: Partial<{
+        propertyId?: string | null
+        accessToken?: string
+        refreshToken?: string | null
+        tokenExpiresAt?: string | null
+        scopes?: string[]
+        updatedAt: string
+      }>,
+    ) => {
+      const updated = patchGoogleConnection(opts.config, domain, connectionType, patch)
+      if (updated) saveConfig(opts.config)
+      return updated
+    },
+    deleteConnection: (domain: string, connectionType: 'gsc' | 'ga4') => {
+      const removed = removeGoogleConnection(opts.config, domain, connectionType)
+      if (removed) saveConfig(opts.config)
+      return removed
+    },
+  } as const
 
   // Register API routes
   await app.register(apiRoutes, {
     db: opts.db,
     skipAuth: false,
-    googleClientId,
-    googleClientSecret,
+    getGoogleAuthConfig: () => getGoogleAuthConfig(opts.config),
+    googleConnectionStore,
     googleStateSecret,
     onGscSyncRequested: (runId: string, projectId: string, syncOpts?: { days?: number; full?: boolean }) => {
+      const { clientId: googleClientId, clientSecret: googleClientSecret } = getGoogleAuthConfig(opts.config)
       if (!googleClientId || !googleClientSecret) {
-        app.log.error('GSC sync requested but GOOGLE_CLIENT_ID/SECRET not configured')
+        app.log.error('GSC sync requested but Google OAuth credentials are not configured in the local config')
         return
       }
       executeGscSync(opts.db, runId, projectId, {
         ...syncOpts,
-        googleClientId,
-        googleClientSecret,
+        config: opts.config,
       }).catch((err: unknown) => {
         app.log.error({ runId, err }, 'GSC sync failed')
       })
@@ -158,6 +208,7 @@ export async function createServer(opts: {
       version: PKG_VERSION,
     },
     providerSummary,
+    googleSettingsSummary,
     onRunCreated: (runId: string, projectId: string, providers?: string[]) => {
       // Fire and forget — run executes in background
       jobRunner.executeRun(runId, projectId, providers as ProviderName[] | undefined).catch((err: unknown) => {
@@ -211,6 +262,17 @@ export async function createServer(opts: {
         model: entry?.model,
         configured: true,
         quota,
+      }
+    },
+    onGoogleSettingsUpdate: (clientId: string, clientSecret: string) => {
+      try {
+        setGoogleAuthConfig(opts.config, { clientId, clientSecret })
+        saveConfig(opts.config)
+        googleSettingsSummary.configured = true
+        return { ...googleSettingsSummary }
+      } catch (err) {
+        app.log.error({ err }, 'Failed to save Google OAuth config')
+        return null
       }
     },
     onScheduleUpdated: (action: 'upsert' | 'delete', projectId: string) => {

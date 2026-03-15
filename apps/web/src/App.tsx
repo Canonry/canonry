@@ -42,6 +42,7 @@ import {
   deleteProject as apiDeleteProject,
   fetchSettings,
   updateProviderConfig,
+  updateGoogleAuthConfig,
   fetchSchedule,
   saveSchedule,
   removeSchedule,
@@ -54,14 +55,22 @@ import {
   updateOwnedDomains,
   updateProject,
   fetchGoogleConnections,
+  fetchGoogleProperties,
   googleConnect,
   googleDisconnect,
+  saveGoogleProperty,
   triggerGscSync,
   fetchGscPerformance,
+  inspectGscUrl,
+  fetchGscInspections,
+  fetchGscDeindexed,
   type ApiSchedule,
   type ApiNotification,
   type ApiGoogleConnection,
+  type ApiGoogleProperty,
   type ApiGscPerformanceRow,
+  type ApiGscInspection,
+  type ApiGscDeindexedRow,
   type GroundingSource,
 } from './api.js'
 import { buildDashboard } from './build-dashboard.js'
@@ -1524,6 +1533,7 @@ function ProjectPage({
   onAddCompetitors,
   onUpdateOwnedDomains,
   onUpdateProject,
+  onNavigate,
 }: {
   model: ProjectCommandCenterVm
   onOpenEvidence: (evidenceId: string) => void
@@ -1534,6 +1544,7 @@ function ProjectPage({
   onAddCompetitors: (projectName: string, domains: string[]) => Promise<void>
   onUpdateOwnedDomains: (projectName: string, ownedDomains: string[]) => Promise<void>
   onUpdateProject: (projectName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; country?: string; language?: string }) => Promise<void>
+  onNavigate: (to: string) => void
 }) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -1892,43 +1903,175 @@ function ProjectPage({
       <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name }} onUpdateProject={onUpdateProject} />
       <ScheduleSection projectName={model.project.name} />
       <NotificationsSection projectName={model.project.name} />
-      <GscSection projectName={model.project.name} />
+      <GscSection projectName={model.project.name} onOpenSettings={() => onNavigate('/settings')} />
     </div>
   )
 }
 
-function GscSection({ projectName }: { projectName: string }) {
-  const [connections, setConnections] = useState<ApiGoogleConnection[]>([])
-  const [performance, setPerformance] = useState<ApiGscPerformanceRow[]>([])
-  const [loading, setLoading] = useState(true)
-  const [syncing, setSyncing] = useState(false)
-  const [connecting, setConnecting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+function formatTimestamp(value: string | null | undefined): string {
+  if (!value) return '—'
+  try {
+    return new Date(value).toLocaleString()
+  } catch {
+    return value
+  }
+}
 
-  useEffect(() => {
-    setLoading(true)
-    fetchGoogleConnections(projectName)
-      .then((conns) => {
-        setConnections(conns)
-        const gsc = conns.find((c) => c.connectionType === 'gsc')
-        if (gsc) {
-          return fetchGscPerformance(projectName, { limit: 20 })
-        }
-        return []
-      })
-      .then((rows) => setPerformance(rows))
-      .catch(() => setPerformance([]))
-      .finally(() => setLoading(false))
-  }, [projectName])
+function formatBooleanState(value: boolean | null): string {
+  if (value === null) return 'Unknown'
+  return value ? 'Pass' : 'Fail'
+}
+
+function GscSection({
+  projectName,
+  onOpenSettings,
+}: {
+  projectName: string
+  onOpenSettings?: () => void
+}) {
+  const [googleConfigured, setGoogleConfigured] = useState(false)
+  const [connections, setConnections] = useState<ApiGoogleConnection[]>([])
+  const [properties, setProperties] = useState<ApiGoogleProperty[]>([])
+  const [performance, setPerformance] = useState<ApiGscPerformanceRow[]>([])
+  const [inspections, setInspections] = useState<ApiGscInspection[]>([])
+  const [deindexed, setDeindexed] = useState<ApiGscDeindexedRow[]>([])
+  const [inspectionResult, setInspectionResult] = useState<ApiGscInspection | null>(null)
+  const [selectedProperty, setSelectedProperty] = useState('')
+  const [inspectionUrl, setInspectionUrl] = useState('')
+  const [syncDays, setSyncDays] = useState('30')
+  const [fullSync, setFullSync] = useState(false)
+  const [performanceFilters, setPerformanceFilters] = useState({
+    startDate: '',
+    endDate: '',
+    query: '',
+    page: '',
+    limit: '20',
+  })
+  const [inspectionFilterUrl, setInspectionFilterUrl] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [connecting, setConnecting] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [propertiesLoading, setPropertiesLoading] = useState(false)
+  const [savingProperty, setSavingProperty] = useState(false)
+  const [loadingPerformance, setLoadingPerformance] = useState(false)
+  const [loadingInspections, setLoadingInspections] = useState(false)
+  const [inspecting, setInspecting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
 
   const gscConn = connections.find((c) => c.connectionType === 'gsc')
+  const hasHistoricalData = performance.length > 0 || inspections.length > 0 || deindexed.length > 0
 
-  async function handleConnect() {
-    setConnecting(true)
+  async function loadProperties(currentConn: ApiGoogleConnection | undefined) {
+    if (!currentConn) {
+      setProperties([])
+      setSelectedProperty('')
+      return
+    }
+
+    setPropertiesLoading(true)
+    try {
+      const { sites } = await fetchGoogleProperties(projectName)
+      setProperties(sites)
+      setSelectedProperty(currentConn.propertyId ?? sites[0]?.siteUrl ?? '')
+    } catch (err) {
+      setProperties([])
+      setError(err instanceof Error ? err.message : 'Failed to load Search Console properties')
+    } finally {
+      setPropertiesLoading(false)
+    }
+  }
+
+  async function loadPerformanceRows() {
+    setLoadingPerformance(true)
+    try {
+      const rows = await fetchGscPerformance(projectName, {
+        startDate: performanceFilters.startDate || undefined,
+        endDate: performanceFilters.endDate || undefined,
+        query: performanceFilters.query || undefined,
+        page: performanceFilters.page || undefined,
+        limit: parseInt(performanceFilters.limit, 10) || 20,
+      })
+      setPerformance(rows)
+    } catch (err) {
+      setPerformance([])
+      setError(err instanceof Error ? err.message : 'Failed to load GSC performance data')
+    } finally {
+      setLoadingPerformance(false)
+    }
+  }
+
+  async function loadInspectionHistory() {
+    setLoadingInspections(true)
+    try {
+      const [history, deindexedRows] = await Promise.all([
+        fetchGscInspections(projectName, {
+          url: inspectionFilterUrl.trim() || undefined,
+          limit: 20,
+        }),
+        fetchGscDeindexed(projectName),
+      ])
+      setInspections(history)
+      setDeindexed(deindexedRows)
+    } catch (err) {
+      setInspections([])
+      setDeindexed([])
+      setError(err instanceof Error ? err.message : 'Failed to load GSC inspection history')
+    } finally {
+      setLoadingInspections(false)
+    }
+  }
+
+  async function loadSection() {
+    setLoading(true)
     setError(null)
     try {
+      const [settings, conns] = await Promise.all([
+        fetchSettings().catch(() => null),
+        fetchGoogleConnections(projectName).catch(() => [] as ApiGoogleConnection[]),
+      ])
+      setGoogleConfigured(Boolean(settings?.google?.configured))
+      setConnections(conns)
+
+      const currentConn = conns.find((c) => c.connectionType === 'gsc')
+      await Promise.all([
+        loadProperties(currentConn),
+        loadPerformanceRows(),
+        loadInspectionHistory(),
+      ])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadSection()
+  }, [projectName])
+
+  async function handleConnect() {
+    if (!googleConfigured) {
+      setError('Google OAuth app credentials are not configured yet. Set them on the Settings page first.')
+      return
+    }
+
+    setConnecting(true)
+    setError(null)
+    setNotice(null)
+    try {
       const { authUrl } = await googleConnect(projectName, 'gsc')
-      window.open(authUrl, '_blank', 'width=600,height=700')
+      const popup = window.open(authUrl, '_blank', 'width=600,height=700')
+      if (!popup) {
+        window.location.assign(authUrl)
+        return
+      }
+      setNotice('Finish the Google consent flow in the popup, then close it to refresh this project.')
+      const timer = window.setInterval(() => {
+        if (popup.closed) {
+          window.clearInterval(timer)
+          setNotice(null)
+          void loadSection()
+        }
+      }, 1000)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start OAuth flow')
     } finally {
@@ -1938,24 +2081,67 @@ function GscSection({ projectName }: { projectName: string }) {
 
   async function handleDisconnect() {
     setError(null)
+    setNotice(null)
     try {
       await googleDisconnect(projectName, 'gsc')
       setConnections((prev) => prev.filter((c) => c.connectionType !== 'gsc'))
-      setPerformance([])
+      setProperties([])
+      setSelectedProperty('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to disconnect')
+    }
+  }
+
+  async function handleSaveProperty() {
+    if (!selectedProperty) return
+    setSavingProperty(true)
+    setError(null)
+    try {
+      await saveGoogleProperty(projectName, 'gsc', selectedProperty)
+      setConnections((prev) => prev.map((connection) => (
+        connection.connectionType === 'gsc'
+          ? { ...connection, propertyId: selectedProperty }
+          : connection
+      )))
+      setNotice('GSC property updated.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save GSC property')
+    } finally {
+      setSavingProperty(false)
     }
   }
 
   async function handleSync() {
     setSyncing(true)
     setError(null)
+    setNotice(null)
     try {
-      await triggerGscSync(projectName)
+      await triggerGscSync(projectName, {
+        days: parseInt(syncDays, 10) || undefined,
+        full: fullSync || undefined,
+      })
+      setNotice('GSC sync queued. Refresh after the run completes to see imported data.')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to trigger sync')
     } finally {
       setSyncing(false)
+    }
+  }
+
+  async function handleInspect() {
+    if (!inspectionUrl.trim()) return
+    setInspecting(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const result = await inspectGscUrl(projectName, inspectionUrl.trim())
+      setInspectionResult(result)
+      setInspectionUrl('')
+      await loadInspectionHistory()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to inspect URL')
+    } finally {
+      setInspecting(false)
     }
   }
 
@@ -1966,11 +2152,13 @@ function GscSection({ projectName }: { projectName: string }) {
           <p className="eyebrow eyebrow-soft">Search Console</p>
           <h2>Google Search Console</h2>
         </div>
-        {gscConn && (
-          <Button type="button" variant="outline" size="sm" disabled={syncing} onClick={handleSync}>
-            {syncing ? 'Syncing...' : 'Sync data'}
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {gscConn && (
+            <Button type="button" variant="outline" size="sm" disabled={loadingPerformance} onClick={() => void loadPerformanceRows()}>
+              {loadingPerformance ? 'Refreshing…' : 'Refresh data'}
+            </Button>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -1979,60 +2167,383 @@ function GscSection({ projectName }: { projectName: string }) {
           <button type="button" className="ml-2 text-rose-400 hover:text-rose-200" onClick={() => setError(null)}>×</button>
         </div>
       )}
+      {notice && (
+        <div className="mb-3 rounded-lg border border-emerald-800/40 bg-emerald-950/20 px-3 py-2 text-sm text-emerald-300">
+          {notice}
+          <button type="button" className="ml-2 text-emerald-400 hover:text-emerald-200" onClick={() => setNotice(null)}>×</button>
+        </div>
+      )}
 
       {loading ? (
         <p className="text-sm text-zinc-500">Loading…</p>
-      ) : gscConn ? (
-        <>
-          <div className="mb-4 flex items-center gap-3 rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            <span className="text-sm text-zinc-300">Connected</span>
-            {gscConn.propertyId && (
-              <span className="text-xs text-zinc-500">{gscConn.propertyId}</span>
-            )}
-            <button
-              type="button"
-              className="ml-auto text-xs text-zinc-500 hover:text-rose-400 transition-colors"
-              onClick={handleDisconnect}
-            >
-              Disconnect
-            </button>
-          </div>
-          {performance.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="data-table w-full text-sm">
-                <thead>
-                  <tr>
-                    <th className="text-left">Query</th>
-                    <th className="text-right">Clicks</th>
-                    <th className="text-right">Impressions</th>
-                    <th className="text-right">CTR</th>
-                    <th className="text-right">Position</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {performance.map((row, i) => (
-                    <tr key={i}>
-                      <td className="truncate max-w-xs text-zinc-200">{row.query}</td>
-                      <td className="text-right tabular-nums text-zinc-300">{row.clicks.toLocaleString()}</td>
-                      <td className="text-right tabular-nums text-zinc-400">{row.impressions.toLocaleString()}</td>
-                      <td className="text-right tabular-nums text-zinc-400">{(row.ctr * 100).toFixed(1)}%</td>
-                      <td className="text-right tabular-nums text-zinc-400">{row.position.toFixed(1)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="text-sm text-zinc-500">No performance data yet. Run a GSC sync to import data.</p>
-          )}
-        </>
       ) : (
-        <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-6 text-center">
-          <p className="text-sm text-zinc-400 mb-3">Connect Google Search Console to import search performance data for this project.</p>
-          <Button type="button" variant="outline" size="sm" disabled={connecting} onClick={handleConnect}>
-            {connecting ? 'Opening…' : 'Connect Google Search Console'}
-          </Button>
+        <div className="space-y-3">
+          <Card className="surface-card">
+            <div className="section-head section-head-inline">
+              <div>
+                <p className="eyebrow eyebrow-soft">Connection</p>
+                <h3>Domain authorization</h3>
+              </div>
+              <ToneBadge tone={gscConn ? 'positive' : googleConfigured ? 'caution' : 'negative'}>
+                {gscConn ? 'Connected' : googleConfigured ? 'Ready to connect' : 'App credentials missing'}
+              </ToneBadge>
+            </div>
+            {gscConn ? (
+              <div className="mt-3 space-y-3">
+                <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                    <span className="text-sm text-zinc-200">Authorized for this project domain</span>
+                    <span className="text-xs text-zinc-500">{gscConn.domain}</span>
+                    <button
+                      type="button"
+                      className="ml-auto text-xs text-zinc-500 hover:text-rose-400 transition-colors"
+                      onClick={handleDisconnect}
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-zinc-500">
+                    Canonry stores OAuth tokens per canonical domain. This project currently maps to <code>{gscConn.domain}</code>.
+                  </p>
+                </div>
+                <div className="grid gap-3 lg:grid-cols-2">
+                  <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+                    <p className="text-xs uppercase tracking-wide text-zinc-500">Selected property</p>
+                    <p className="mt-1 text-sm text-zinc-200">{gscConn.propertyId ?? 'No property selected yet'}</p>
+                  </div>
+                  <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+                    <p className="text-xs uppercase tracking-wide text-zinc-500">Last auth update</p>
+                    <p className="mt-1 text-sm text-zinc-200">{formatTimestamp(gscConn.updatedAt)}</p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-3 rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-5">
+                <p className="text-sm text-zinc-300">
+                  {googleConfigured
+                    ? 'Generate a Google OAuth link for this project and have the client sign in with a Google account that already has access to the correct Search Console property.'
+                    : 'Set Google OAuth client credentials first. Once configured, you can generate a consent link for this project domain.'}
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {googleConfigured ? (
+                    <Button type="button" variant="outline" size="sm" disabled={connecting} onClick={handleConnect}>
+                      {connecting ? 'Opening…' : 'Connect Google Search Console'}
+                    </Button>
+                  ) : (
+                    <Button type="button" variant="outline" size="sm" disabled={!onOpenSettings} onClick={onOpenSettings}>
+                      Open Settings
+                    </Button>
+                  )}
+                  {!googleConfigured && (
+                    <p className="text-xs text-zinc-500">The same Google OAuth app credentials are shared across all projects.</p>
+                  )}
+                </div>
+              </div>
+            )}
+          </Card>
+
+          {gscConn && (
+            <>
+              <div className="grid gap-3 xl:grid-cols-2">
+                <Card className="surface-card">
+                  <div className="section-head">
+                    <div>
+                      <p className="eyebrow eyebrow-soft">Property</p>
+                      <h3>Pick the Search Console property</h3>
+                    </div>
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    <label className="text-xs text-zinc-500" htmlFor={`gsc-property-${projectName}`}>Property URL</label>
+                    <select
+                      id={`gsc-property-${projectName}`}
+                      className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 focus:border-zinc-500 focus:outline-none"
+                      value={selectedProperty}
+                      disabled={propertiesLoading || properties.length === 0}
+                      onChange={(e) => setSelectedProperty(e.target.value)}
+                    >
+                      {properties.length === 0 ? (
+                        <option value="">{propertiesLoading ? 'Loading properties…' : 'No properties available'}</option>
+                      ) : (
+                        properties.map((site) => (
+                          <option key={site.siteUrl} value={site.siteUrl}>
+                            {site.siteUrl} · {site.permissionLevel}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button type="button" size="sm" variant="outline" disabled={propertiesLoading} onClick={() => void loadProperties(gscConn)}>
+                        {propertiesLoading ? 'Refreshing…' : 'Refresh properties'}
+                      </Button>
+                      <Button type="button" size="sm" disabled={!selectedProperty || savingProperty} onClick={handleSaveProperty}>
+                        {savingProperty ? 'Saving…' : 'Save property'}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-zinc-500">The selected property is used for future syncs and URL inspections for this project.</p>
+                  </div>
+                </Card>
+
+                <Card className="surface-card">
+                  <div className="section-head">
+                    <div>
+                      <p className="eyebrow eyebrow-soft">Sync</p>
+                      <h3>Import GSC performance data</h3>
+                    </div>
+                  </div>
+                  <div className="mt-3 space-y-3">
+                    <div className="grid gap-3 sm:grid-cols-[160px_1fr]">
+                      <div>
+                        <label className="text-xs text-zinc-500" htmlFor={`gsc-sync-days-${projectName}`}>Days</label>
+                        <input
+                          id={`gsc-sync-days-${projectName}`}
+                          type="number"
+                          min="1"
+                          className="mt-0.5 w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                          value={syncDays}
+                          onChange={(e) => setSyncDays(e.target.value)}
+                        />
+                      </div>
+                      <label className="flex items-center gap-2 rounded border border-zinc-800/60 bg-zinc-900/20 px-3 py-2 text-sm text-zinc-300">
+                        <input
+                          type="checkbox"
+                          checked={fullSync}
+                          onChange={(e) => setFullSync(e.target.checked)}
+                        />
+                        Replace existing imported rows for the requested range
+                      </label>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={syncing || !gscConn.propertyId}
+                      onClick={handleSync}
+                    >
+                      {syncing ? 'Queueing…' : 'Queue sync'}
+                    </Button>
+                    {!gscConn.propertyId && (
+                      <p className="text-xs text-amber-400">Select a Search Console property before queueing a sync.</p>
+                    )}
+                  </div>
+                </Card>
+              </div>
+
+              <Card className="surface-card">
+                <div className="section-head">
+                  <div>
+                    <p className="eyebrow eyebrow-soft">Inspection</p>
+                    <h3>Inspect a URL</h3>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-col gap-2 lg:flex-row">
+                  <input
+                    className="flex-1 rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    type="url"
+                    placeholder="https://example.com/page"
+                    value={inspectionUrl}
+                    onChange={(e) => setInspectionUrl(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && void handleInspect()}
+                  />
+                  <Button type="button" size="sm" disabled={inspecting || !gscConn.propertyId || !inspectionUrl.trim()} onClick={handleInspect}>
+                    {inspecting ? 'Inspecting…' : 'Inspect URL'}
+                  </Button>
+                </div>
+                {inspectionResult && (
+                  <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+                      <p className="text-xs uppercase tracking-wide text-zinc-500">Indexing state</p>
+                      <p className="mt-1 text-sm text-zinc-200">{inspectionResult.indexingState ?? 'Unknown'}</p>
+                    </div>
+                    <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+                      <p className="text-xs uppercase tracking-wide text-zinc-500">Verdict</p>
+                      <p className="mt-1 text-sm text-zinc-200">{inspectionResult.verdict ?? 'Unknown'}</p>
+                    </div>
+                    <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+                      <p className="text-xs uppercase tracking-wide text-zinc-500">Mobile friendly</p>
+                      <p className="mt-1 text-sm text-zinc-200">{formatBooleanState(inspectionResult.isMobileFriendly)}</p>
+                    </div>
+                    <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+                      <p className="text-xs uppercase tracking-wide text-zinc-500">Last crawl</p>
+                      <p className="mt-1 text-sm text-zinc-200">{formatTimestamp(inspectionResult.crawlTime)}</p>
+                    </div>
+                  </div>
+                )}
+              </Card>
+            </>
+          )}
+
+          {(gscConn || hasHistoricalData) && (
+            <>
+              <Card className="surface-card">
+                <div className="section-head section-head-inline">
+                  <div>
+                    <p className="eyebrow eyebrow-soft">Performance</p>
+                    <h3>Imported search queries</h3>
+                  </div>
+                  <Button type="button" variant="outline" size="sm" disabled={loadingPerformance} onClick={() => void loadPerformanceRows()}>
+                    {loadingPerformance ? 'Loading…' : 'Apply filters'}
+                  </Button>
+                </div>
+                <div className="mt-3 grid gap-2 lg:grid-cols-5">
+                  <input
+                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    type="date"
+                    value={performanceFilters.startDate}
+                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, startDate: e.target.value }))}
+                  />
+                  <input
+                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    type="date"
+                    value={performanceFilters.endDate}
+                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, endDate: e.target.value }))}
+                  />
+                  <input
+                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    type="text"
+                    placeholder="Filter query"
+                    value={performanceFilters.query}
+                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, query: e.target.value }))}
+                  />
+                  <input
+                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    type="text"
+                    placeholder="Filter page"
+                    value={performanceFilters.page}
+                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, page: e.target.value }))}
+                  />
+                  <input
+                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    type="number"
+                    min="1"
+                    placeholder="Limit"
+                    value={performanceFilters.limit}
+                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, limit: e.target.value }))}
+                  />
+                </div>
+                {performance.length > 0 ? (
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="data-table w-full text-sm">
+                      <thead>
+                        <tr>
+                          <th className="text-left">Date</th>
+                          <th className="text-left">Query</th>
+                          <th className="text-left">Page</th>
+                          <th className="text-right">Clicks</th>
+                          <th className="text-right">Impressions</th>
+                          <th className="text-right">CTR</th>
+                          <th className="text-right">Position</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {performance.map((row, i) => (
+                          <tr key={`${row.date}:${row.query}:${row.page}:${i}`}>
+                            <td className="text-zinc-400">{row.date}</td>
+                            <td className="max-w-xs truncate text-zinc-200">{row.query}</td>
+                            <td className="max-w-xs truncate text-zinc-400">{row.page}</td>
+                            <td className="text-right tabular-nums text-zinc-300">{row.clicks.toLocaleString()}</td>
+                            <td className="text-right tabular-nums text-zinc-400">{row.impressions.toLocaleString()}</td>
+                            <td className="text-right tabular-nums text-zinc-400">{(row.ctr * 100).toFixed(1)}%</td>
+                            <td className="text-right tabular-nums text-zinc-400">{row.position.toFixed(1)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm text-zinc-500">No performance rows match the current filters yet.</p>
+                )}
+              </Card>
+
+              <Card className="surface-card">
+                <div className="section-head section-head-inline">
+                  <div>
+                    <p className="eyebrow eyebrow-soft">History</p>
+                    <h3>Inspection log</h3>
+                  </div>
+                  <Button type="button" variant="outline" size="sm" disabled={loadingInspections} onClick={() => void loadInspectionHistory()}>
+                    {loadingInspections ? 'Loading…' : 'Refresh history'}
+                  </Button>
+                </div>
+                <div className="mt-3 flex flex-col gap-2 lg:flex-row">
+                  <input
+                    className="flex-1 rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    type="text"
+                    placeholder="Filter exact URL"
+                    value={inspectionFilterUrl}
+                    onChange={(e) => setInspectionFilterUrl(e.target.value)}
+                  />
+                  <Button type="button" size="sm" variant="outline" disabled={loadingInspections} onClick={() => void loadInspectionHistory()}>
+                    Apply filter
+                  </Button>
+                </div>
+                {inspections.length > 0 ? (
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="data-table w-full text-sm">
+                      <thead>
+                        <tr>
+                          <th className="text-left">URL</th>
+                          <th className="text-left">Indexing</th>
+                          <th className="text-left">Verdict</th>
+                          <th className="text-left">Coverage</th>
+                          <th className="text-left">Mobile</th>
+                          <th className="text-left">Inspected</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {inspections.map((row) => (
+                          <tr key={row.id}>
+                            <td className="max-w-sm truncate text-zinc-200">{row.url}</td>
+                            <td className="text-zinc-300">{row.indexingState ?? 'Unknown'}</td>
+                            <td className="text-zinc-400">{row.verdict ?? 'Unknown'}</td>
+                            <td className="text-zinc-400">{row.coverageState ?? 'Unknown'}</td>
+                            <td className="text-zinc-400">{formatBooleanState(row.isMobileFriendly)}</td>
+                            <td className="text-zinc-400">{formatTimestamp(row.inspectedAt)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm text-zinc-500">No inspection history yet.</p>
+                )}
+              </Card>
+
+              <Card className="surface-card">
+                <div className="section-head">
+                  <div>
+                    <p className="eyebrow eyebrow-soft">Deindexed</p>
+                    <h3>Recent indexing losses</h3>
+                  </div>
+                </div>
+                {deindexed.length > 0 ? (
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="data-table w-full text-sm">
+                      <thead>
+                        <tr>
+                          <th className="text-left">URL</th>
+                          <th className="text-left">Previous</th>
+                          <th className="text-left">Current</th>
+                          <th className="text-left">Changed at</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {deindexed.map((row) => (
+                          <tr key={`${row.url}:${row.transitionDate}`}>
+                            <td className="max-w-sm truncate text-zinc-200">{row.url}</td>
+                            <td className="text-zinc-400">{row.previousState ?? 'Unknown'}</td>
+                            <td className="text-zinc-300">{row.currentState ?? 'Unknown'}</td>
+                            <td className="text-zinc-400">{formatTimestamp(row.transitionDate)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm text-zinc-500">No deindexed transitions recorded.</p>
+                )}
+              </Card>
+            </>
+          )}
         </div>
       )}
     </section>
@@ -2940,6 +3451,82 @@ function ProviderConfigForm({ providerName, onSaved }: { providerName: string; o
   )
 }
 
+function GoogleOAuthConfigForm({ onSaved }: { onSaved: () => void }) {
+  const [clientId, setClientId] = useState('')
+  const [clientSecret, setClientSecret] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState(false)
+
+  const canSave = clientId.trim().length > 0 && clientSecret.trim().length > 0
+
+  async function handleSave() {
+    if (!canSave) return
+    setSaving(true)
+    setError(null)
+    setSuccess(false)
+    try {
+      await updateGoogleAuthConfig({
+        clientId: clientId.trim(),
+        clientSecret: clientSecret.trim(),
+      })
+      setClientId('')
+      setClientSecret('')
+      setSuccess(true)
+      onSaved()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update Google OAuth credentials')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 space-y-2">
+      <div>
+        <div className="flex items-center justify-between">
+          <label className="text-xs text-zinc-500" htmlFor="google-client-id">Client ID</label>
+          <a
+            href="https://console.cloud.google.com/apis/credentials"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] text-zinc-500 hover:text-zinc-300 underline underline-offset-2"
+          >
+            Google Cloud ↗
+          </a>
+        </div>
+        <input
+          id="google-client-id"
+          type="text"
+          className="mt-0.5 w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          placeholder="Google OAuth client ID"
+          value={clientId}
+          onChange={(e) => setClientId(e.target.value)}
+        />
+      </div>
+      <div>
+        <label className="text-xs text-zinc-500" htmlFor="google-client-secret">Client secret</label>
+        <input
+          id="google-client-secret"
+          type="password"
+          className="mt-0.5 w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          placeholder="Google OAuth client secret"
+          value={clientSecret}
+          onChange={(e) => setClientSecret(e.target.value)}
+        />
+      </div>
+      <p className="text-[11px] text-zinc-500">
+        These credentials are stored in <code>~/.canonry/config.yaml</code>. Project-level Search Console connections are created separately per canonical domain.
+      </p>
+      {error && <p className="text-xs text-rose-400">{error}</p>}
+      {success && <p className="text-xs text-emerald-400">Google OAuth credentials updated.</p>}
+      <Button type="button" size="sm" disabled={!canSave || saving} onClick={handleSave}>
+        {saving ? 'Saving...' : 'Save Google OAuth app'}
+      </Button>
+    </div>
+  )
+}
+
 function SettingsPage({
   settings,
   healthSnapshot,
@@ -2950,13 +3537,14 @@ function SettingsPage({
   onSettingsChanged?: () => void
 }) {
   const [configuringProvider, setConfiguringProvider] = useState<string | null>(null)
+  const [configuringGoogle, setConfiguringGoogle] = useState(false)
 
   return (
     <div className="page-container">
       <div className="page-header">
         <div className="page-header-left">
           <h1 className="page-title">Settings</h1>
-          <p className="page-subtitle">Provider state, quotas, and service health.</p>
+          <p className="page-subtitle">Provider state, Google OAuth setup, and service health.</p>
         </div>
       </div>
 
@@ -3012,6 +3600,47 @@ function SettingsPage({
             )}
           </Card>
         ))}
+
+        <Card className="surface-card">
+          <div className="section-head">
+            <div>
+              <p className="eyebrow eyebrow-soft">Google</p>
+              <h2>Search Console OAuth</h2>
+            </div>
+            <ToneBadge tone={settings.google.state === 'ready' ? 'positive' : 'caution'}>
+              {settings.google.state === 'ready' ? 'Ready' : 'Needs config'}
+            </ToneBadge>
+          </div>
+          <dl className="definition-list mt-3">
+            <div>
+              <dt>Auth model</dt>
+              <dd>One app credential set, then one OAuth connection per project domain</dd>
+            </div>
+            <div>
+              <dt>Storage</dt>
+              <dd className="font-mono text-xs">~/.canonry/config.yaml</dd>
+            </div>
+          </dl>
+          <p className="mt-2 text-sm text-zinc-500">{settings.google.detail}</p>
+          <div className="mt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setConfiguringGoogle(!configuringGoogle)}
+            >
+              {configuringGoogle ? 'Cancel' : settings.google.state === 'ready' ? 'Update OAuth app' : 'Configure Google OAuth'}
+            </Button>
+          </div>
+          {configuringGoogle && (
+            <GoogleOAuthConfigForm
+              onSaved={() => {
+                setConfiguringGoogle(false)
+                onSettingsChanged?.()
+              }}
+            />
+          )}
+        </Card>
 
         <Card className="surface-card">
           <div className="section-head">
@@ -4662,7 +5291,7 @@ export function App({
                 />
               ) : null}
               {route.kind === 'project' && activeProject ? (
-                <ProjectPage model={activeProject} onOpenEvidence={openEvidence} onOpenRun={openRun} onTriggerRun={handleTriggerRun} onDeleteProject={handleDeleteProject} onAddKeywords={handleAddKeywords} onAddCompetitors={handleAddCompetitors} onUpdateOwnedDomains={handleUpdateOwnedDomains} onUpdateProject={handleUpdateProject} />
+                <ProjectPage model={activeProject} onOpenEvidence={openEvidence} onOpenRun={openRun} onTriggerRun={handleTriggerRun} onDeleteProject={handleDeleteProject} onAddKeywords={handleAddKeywords} onAddCompetitors={handleAddCompetitors} onUpdateOwnedDomains={handleUpdateOwnedDomains} onUpdateProject={handleUpdateProject} onNavigate={navigate} />
               ) : null}
               {route.kind === 'runs' ? <RunsPage runs={safeDashboard.runs} onOpenRun={openRun} onTriggerAll={handleTriggerAllRuns} /> : null}
               {route.kind === 'settings' ? (

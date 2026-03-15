@@ -36,6 +36,8 @@ export interface InitOptions {
   localUrl?: string
   localModel?: string
   localKey?: string
+  googleClientId?: string
+  googleClientSecret?: string
 }
 
 export async function initCommand(opts?: InitOptions): Promise<void> {
@@ -54,27 +56,50 @@ export async function initCommand(opts?: InitOptions): Promise<void> {
   }
 
   // Check for non-interactive mode: CLI flags take priority, env vars are fallback
-  const envProviders = getBootstrapEnv(process.env, {
+  const bootstrapEnv = getBootstrapEnv(process.env, {
     GEMINI_API_KEY: opts?.geminiKey,
     OPENAI_API_KEY: opts?.openaiKey,
     ANTHROPIC_API_KEY: opts?.claudeKey,
     LOCAL_BASE_URL: opts?.localUrl,
     LOCAL_MODEL: opts?.localModel,
     LOCAL_API_KEY: opts?.localKey,
-  }).providers
-  const nonInteractive = !!(envProviders.gemini || envProviders.openai || envProviders.claude || envProviders.local)
+    GOOGLE_CLIENT_ID: opts?.googleClientId,
+    GOOGLE_CLIENT_SECRET: opts?.googleClientSecret,
+  })
+  if ((bootstrapEnv.googleClientId && !bootstrapEnv.googleClientSecret) || (!bootstrapEnv.googleClientId && bootstrapEnv.googleClientSecret)) {
+    console.error('Google OAuth requires both a client ID and client secret when configured non-interactively.')
+    process.exit(1)
+  }
+  const envProviders = bootstrapEnv.providers
+  const envGoogleConfigured = !!(bootstrapEnv.googleClientId && bootstrapEnv.googleClientSecret)
+  const nonInteractive = !!(
+    envProviders.gemini ||
+    envProviders.openai ||
+    envProviders.claude ||
+    envProviders.local ||
+    envGoogleConfigured
+  )
 
   const providers: CanonryConfig['providers'] = {}
+  let google: CanonryConfig['google'] | undefined
 
   if (nonInteractive) {
     // Non-interactive mode — providers fully resolved by getBootstrapEnv
     Object.assign(providers, envProviders)
+    if (envGoogleConfigured) {
+      google = {
+        clientId: bootstrapEnv.googleClientId,
+        clientSecret: bootstrapEnv.googleClientSecret,
+        connections: [],
+      }
+    }
   } else {
     // Interactive mode — prompt for each provider
     console.log('Configure AI providers (at least one required):\n')
-    console.log('Tip: For non-interactive setup, pass --gemini-key, --openai-key,')
-    console.log('--claude-key flags or set GEMINI_API_KEY, OPENAI_API_KEY,')
-    console.log('ANTHROPIC_API_KEY env vars. Or use "canonry bootstrap".\n')
+    console.log('Tip: For non-interactive setup, pass provider flags or set')
+    console.log('GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY,')
+    console.log('GOOGLE_CLIENT_ID, and GOOGLE_CLIENT_SECRET env vars.')
+    console.log('Or use "canonry bootstrap".\n')
 
     // Gemini
     const geminiApiKey = await prompt('Gemini API key (press Enter to skip): ')
@@ -104,6 +129,21 @@ export async function initCommand(opts?: InitOptions): Promise<void> {
       const localModel = await prompt('  Model name [llama3]: ') || 'llama3'
       const localApiKey = await prompt('  API key (press Enter if not needed): ') || undefined
       providers.local = { baseUrl: localBaseUrl, apiKey: localApiKey, model: localModel, quota: DEFAULT_QUOTA }
+    }
+
+    console.log('\nGoogle Search Console OAuth (optional):')
+    const googleClientId = await prompt('Google OAuth client ID (press Enter to skip): ')
+    if (googleClientId) {
+      const googleClientSecret = await prompt('  Google OAuth client secret: ')
+      if (!googleClientSecret) {
+        console.error('\nGoogle OAuth client secret is required when a client ID is provided.')
+        process.exit(1)
+      }
+      google = {
+        clientId: googleClientId,
+        clientSecret: googleClientSecret,
+        connections: [],
+      }
     }
   }
 
@@ -142,6 +182,7 @@ export async function initCommand(opts?: InitOptions): Promise<void> {
     database: databasePath,
     apiKey: rawApiKey,
     providers,
+    google,
   })
 
   const providerNames = Object.keys(providers)

@@ -1,13 +1,16 @@
 import crypto from 'node:crypto'
 import { eq, and, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { runs, projects, googleConnections, gscSearchData, gscUrlInspections } from '@ainyc/canonry-db'
+import { runs, projects, gscSearchData, gscUrlInspections } from '@ainyc/canonry-db'
 import {
   fetchSearchAnalytics,
   inspectUrl,
   refreshAccessToken,
   GSC_DATA_LAG_DAYS,
 } from '@ainyc/canonry-integration-google'
+import type { CanonryConfig } from './config.js'
+import { saveConfig } from './config.js'
+import { getGoogleAuthConfig, getGoogleConnection, patchGoogleConnection } from './google-config.js'
 
 function formatDate(d: Date): string {
   return d.toISOString().split('T')[0]!
@@ -22,8 +25,7 @@ function daysAgo(n: number): Date {
 interface GscSyncOptions {
   days?: number
   full?: boolean
-  googleClientId: string
-  googleClientSecret: string
+  config: CanonryConfig
 }
 
 export async function executeGscSync(
@@ -38,19 +40,18 @@ export async function executeGscSync(
   db.update(runs).set({ status: 'running', startedAt: now }).where(eq(runs.id, runId)).run()
 
   try {
+    const { clientId: googleClientId, clientSecret: googleClientSecret } = getGoogleAuthConfig(opts.config)
+    if (!googleClientId || !googleClientSecret) {
+      throw new Error('Google OAuth is not configured in the local Canonry config')
+    }
+
     // Load the project to get canonicalDomain for domain-scoped connection lookup
     const project = db.select().from(projects).where(eq(projects.id, projectId)).get()
     if (!project) {
       throw new Error(`Project not found: ${projectId}`)
     }
 
-    // Load GSC connection — keyed by domain, not project
-    const conn = db
-      .select()
-      .from(googleConnections)
-      .where(and(eq(googleConnections.domain, project.canonicalDomain), eq(googleConnections.connectionType, 'gsc')))
-      .get()
-
+    const conn = getGoogleConnection(opts.config, project.canonicalDomain, 'gsc')
     if (!conn || !conn.refreshToken) {
       throw new Error('No GSC connection found or connection is incomplete')
     }
@@ -63,16 +64,14 @@ export async function executeGscSync(
     let accessToken = conn.accessToken!
     const expiresAt = conn.tokenExpiresAt ? new Date(conn.tokenExpiresAt).getTime() : 0
     if (Date.now() > expiresAt - 5 * 60 * 1000) {
-      const tokens = await refreshAccessToken(opts.googleClientId, opts.googleClientSecret, conn.refreshToken)
+      const tokens = await refreshAccessToken(googleClientId, googleClientSecret, conn.refreshToken)
       accessToken = tokens.access_token
-      db.update(googleConnections)
-        .set({
-          accessToken: tokens.access_token,
-          tokenExpiresAt: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(googleConnections.id, conn.id))
-        .run()
+      patchGoogleConnection(opts.config, project.canonicalDomain, 'gsc', {
+        accessToken: tokens.access_token,
+        tokenExpiresAt: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
+        updatedAt: new Date().toISOString(),
+      })
+      saveConfig(opts.config)
     }
 
     // Determine date range

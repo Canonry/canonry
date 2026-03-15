@@ -788,12 +788,18 @@ const baseDashboard: DashboardVm = {
         detail: 'API key is missing.',
       },
     ],
+    google: {
+      state: 'ready',
+      detail: 'Google OAuth app credentials are configured. Project-level GSC connections can be created from the dashboard.',
+    },
     selfHostNotes: [
-      'Run behind a reverse proxy before exposing the dashboard outside a trusted network.',
-      'Keep bootstrap and provider secrets out of source control.',
-      'Use persistent Postgres storage before treating run history as durable.',
+      'Configuration is stored in ~/.canonry/config.yaml.',
+      'The local config file is the source of truth for authentication credentials.',
+      'Google OAuth app credentials and per-domain Google tokens are stored in local config, not the database.',
+      'Database is SQLite at ~/.canonry/data.db.',
+      'API key was auto-generated during canonry init.',
     ],
-    bootstrapNote: 'Bootstrap/admin secrets stay in the environment; they do not belong in the UI.',
+    bootstrapNote: 'Use the UI, CLI, or ~/.canonry/config.yaml to manage settings. Authentication credentials persist to local config.',
   },
 }
 

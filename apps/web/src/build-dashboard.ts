@@ -770,12 +770,20 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
         detail: p.configured ? 'Provider is configured.' : 'API key is missing.',
         quota: p.quota,
       })),
+      google: {
+        state: apiSettings?.google?.configured ? 'ready' : 'needs-config',
+        detail: apiSettings?.google?.configured
+          ? 'Google OAuth app credentials are configured. Project-level GSC connections can be created from the dashboard.'
+          : 'Google OAuth client ID and client secret are not configured yet.',
+      },
       selfHostNotes: [
         'Configuration is stored in ~/.canonry/config.yaml.',
+        'The local config file is the source of truth for authentication credentials.',
+        'Google OAuth app credentials and per-domain Google tokens are stored in local config, not the database.',
         'Database is SQLite at ~/.canonry/data.db.',
         'API key was auto-generated during canonry init.',
       ],
-      bootstrapNote: 'Manage settings via ~/.canonry/config.yaml and restart the server.',
+      bootstrapNote: 'Use the UI, CLI, or ~/.canonry/config.yaml to manage settings. Authentication credentials persist to local config.',
     },
   }
 }

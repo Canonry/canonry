@@ -1,5 +1,6 @@
-import { loadConfig } from '../config.js'
+import { loadConfig, saveConfig, getConfigPath } from '../config.js'
 import { ApiClient } from '../client.js'
+import { setGoogleAuthConfig } from '../google-config.js'
 
 function getClient(): ApiClient {
   const config = loadConfig()
@@ -30,6 +31,7 @@ export async function setProvider(name: string, opts: {
 
 export async function showSettings(format?: string): Promise<void> {
   const client = getClient()
+  const config = loadConfig()
   const settings = await client.getSettings() as {
     providers: Array<{
       name: string
@@ -40,7 +42,12 @@ export async function showSettings(format?: string): Promise<void> {
   }
 
   if (format === 'json') {
-    console.log(JSON.stringify(settings, null, 2))
+    console.log(JSON.stringify({
+      ...settings,
+      google: {
+        configured: Boolean(config.google?.clientId && config.google?.clientSecret),
+      },
+    }, null, 2))
     return
   }
 
@@ -56,4 +63,19 @@ export async function showSettings(format?: string): Promise<void> {
       }
     }
   }
+
+  console.log('\nGoogle OAuth:\n')
+  console.log(`  ${config.google?.clientId && config.google?.clientSecret ? 'configured' : 'not configured'}`)
+}
+
+export function setGoogleAuth(opts: { clientId: string; clientSecret: string }): void {
+  const config = loadConfig()
+  setGoogleAuthConfig(config, {
+    clientId: opts.clientId,
+    clientSecret: opts.clientSecret,
+  })
+  saveConfig(config)
+
+  console.log(`Google OAuth credentials saved to ${getConfigPath()}.`)
+  console.log('Restart the local server if it is already running.')
 }

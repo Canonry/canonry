@@ -4,11 +4,31 @@ import os from 'node:os'
 import { parse, stringify } from 'yaml'
 import type { ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
 
+export type GoogleConnectionType = 'gsc' | 'ga4'
+
 export interface ProviderConfigEntry {
   apiKey?: string
   baseUrl?: string
   model?: string
   quota?: ProviderQuotaPolicy
+}
+
+export interface GoogleConnectionConfigEntry {
+  domain: string
+  connectionType: GoogleConnectionType
+  propertyId?: string | null
+  accessToken?: string
+  refreshToken?: string | null
+  tokenExpiresAt?: string | null
+  scopes?: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface GoogleConfigEntry {
+  clientId?: string
+  clientSecret?: string
+  connections?: GoogleConnectionConfigEntry[]
 }
 
 export interface CanonryConfig {
@@ -27,9 +47,21 @@ export interface CanonryConfig {
     claude?: ProviderConfigEntry
     local?: ProviderConfigEntry
   }
+  google?: GoogleConfigEntry
   // Telemetry (opt-out: undefined/true = enabled, false = disabled)
   telemetry?: boolean
   anonymousId?: string
+}
+
+function normalizeGoogleConfig(config: CanonryConfig): void {
+  if (!config.google) return
+  config.google.connections = (config.google.connections ?? []).map((connection) => ({
+    ...connection,
+    propertyId: connection.propertyId ?? null,
+    refreshToken: connection.refreshToken ?? null,
+    tokenExpiresAt: connection.tokenExpiresAt ?? null,
+    scopes: connection.scopes ?? [],
+  }))
 }
 
 export function getConfigDir(): string {
@@ -51,7 +83,7 @@ export function loadConfig(): CanonryConfig {
     throw new Error(
       `Config not found at ${configPath}.\n` +
       'Run "canonry init" to set up interactively, or "canonry init --gemini-key <key>" for non-interactive setup.\n' +
-      'For CI/Docker, use "canonry bootstrap" with env vars (GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY).',
+      'For CI/Docker, use "canonry bootstrap" with env vars (GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET).',
     )
   }
   const raw = fs.readFileSync(configPath, 'utf-8')
@@ -65,7 +97,7 @@ export function loadConfig(): CanonryConfig {
     throw new Error(
       `Invalid config at ${configPath} — missing: ${missing}.\n` +
       'These fields are auto-generated. Run "canonry init" (or "canonry init --gemini-key <key>" for non-interactive setup) to create a valid config.\n' +
-      'Do not write config.yaml by hand; use "canonry init" or "canonry bootstrap" instead.',
+      'Do not write config.yaml by hand; use "canonry init", "canonry settings", or "canonry bootstrap" instead.',
     )
   }
 
@@ -80,6 +112,8 @@ export function loadConfig(): CanonryConfig {
       },
     }
   }
+
+  normalizeGoogleConfig(parsed)
 
   return parsed
 }

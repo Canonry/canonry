@@ -6,15 +6,16 @@ import os from 'node:os'
 import Fastify from 'fastify'
 import { createClient, migrate } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
+import type { ApiRoutesOptions } from '../src/index.js'
 
-function buildApp() {
+function buildApp(opts: Partial<Omit<ApiRoutesOptions, 'db'>> = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'api-routes-test-'))
   const dbPath = path.join(tmpDir, 'test.db')
   const db = createClient(dbPath)
   migrate(db)
 
   const app = Fastify()
-  app.register(apiRoutes, { db, skipAuth: true })
+  app.register(apiRoutes, { db, skipAuth: true, ...opts })
 
   return { app, db, tmpDir, dbPath }
 }
@@ -249,5 +250,61 @@ describe('api-routes', () => {
     assert.deepEqual(body.ownedDomains, ['docs.meta.example.com'])
     assert.deepEqual(body.tags, ['seo', 'ai'])
     assert.deepEqual(body.providers, ['gemini', 'openai'])
+  })
+
+  it('GET /api/v1/settings returns provider and google summaries', async () => {
+    const settingsCtx = buildApp({
+      providerSummary: [{ name: 'gemini', configured: true }],
+      googleSettingsSummary: { configured: false },
+    })
+    const settingsApp = settingsCtx.app
+    await settingsApp.ready()
+
+    try {
+      const res = await settingsApp.inject({ method: 'GET', url: '/api/v1/settings' })
+      assert.equal(res.statusCode, 200)
+      const body = JSON.parse(res.payload) as {
+        providers: Array<{ name: string; configured: boolean }>
+        google: { configured: boolean }
+      }
+      assert.deepEqual(body.providers, [{ name: 'gemini', configured: true }])
+      assert.deepEqual(body.google, { configured: false })
+    } finally {
+      await settingsApp.close()
+      fs.rmSync(settingsCtx.tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('PUT /api/v1/settings/google updates Google OAuth config', async () => {
+    let lastUpdate: { clientId: string; clientSecret: string } | null = null
+    const settingsCtx = buildApp({
+      googleSettingsSummary: { configured: false },
+      onGoogleSettingsUpdate: (clientId, clientSecret) => {
+        lastUpdate = { clientId, clientSecret }
+        return { configured: true }
+      },
+    })
+    const settingsApp = settingsCtx.app
+    await settingsApp.ready()
+
+    try {
+      const res = await settingsApp.inject({
+        method: 'PUT',
+        url: '/api/v1/settings/google',
+        payload: {
+          clientId: 'google-client-id',
+          clientSecret: 'google-client-secret',
+        },
+      })
+      assert.equal(res.statusCode, 200)
+      assert.deepEqual(lastUpdate, {
+        clientId: 'google-client-id',
+        clientSecret: 'google-client-secret',
+      })
+      assert.deepEqual(JSON.parse(res.payload), { configured: true })
+    } finally {
+      await settingsApp.close()
+      fs.rmSync(settingsCtx.tmpDir, { recursive: true, force: true })
+    }
   })
 })

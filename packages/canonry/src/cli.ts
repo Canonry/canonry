@@ -13,7 +13,7 @@ import { showEvidence } from './commands/evidence.js'
 import { showHistory } from './commands/history.js'
 import { applyConfig } from './commands/apply.js'
 import { exportProject } from './commands/export-cmd.js'
-import { showSettings, setProvider } from './commands/settings.js'
+import { showSettings, setProvider, setGoogleAuth } from './commands/settings.js'
 import { setSchedule, showSchedule, enableSchedule, disableSchedule, removeSchedule } from './commands/schedule.js'
 import { addNotification, listNotifications, removeNotification, testNotification, listEvents } from './commands/notify.js'
 import { telemetryCommand } from './commands/telemetry.js'
@@ -78,6 +78,7 @@ Usage:
   canonry google deindexed <project>  Show pages that lost indexing
   canonry settings                    Show active provider and quota settings
   canonry settings provider <name>    Update a provider config
+  canonry settings google             Update Google OAuth credentials
   canonry telemetry status            Show telemetry status
   canonry telemetry enable            Enable anonymous telemetry
   canonry telemetry disable           Disable anonymous telemetry
@@ -91,6 +92,8 @@ Options:
   --local-url <url>    Local LLM base URL (or LOCAL_BASE_URL env var)
   --local-model <name> Local LLM model name (default: llama3)
   --local-key <key>    Local LLM API key (or LOCAL_API_KEY env var)
+  --google-client-id <id>      Google OAuth client ID (or GOOGLE_CLIENT_ID env var)
+  --google-client-secret <key> Google OAuth client secret (or GOOGLE_CLIENT_SECRET env var)
   --port <port>        Server port (default: 4100)
   --host <host>        Server bind address (default: 127.0.0.1)
   --domain <domain>    Canonical domain for project create/update
@@ -113,6 +116,8 @@ Options:
   --api-key <key>      Provider API key (settings provider)
   --base-url <url>     Provider base URL (settings provider)
   --model <name>       Provider model name (settings provider)
+  --client-id <id>     Google OAuth client ID (settings google)
+  --client-secret <key> Google OAuth client secret (settings google)
   --max-concurrent <n> Max concurrent requests per provider
   --max-per-minute <n> Max requests per minute per provider
   --max-per-day <n>    Max requests per day per provider
@@ -178,6 +183,8 @@ async function main() {
             'local-url': { type: 'string' },
             'local-model': { type: 'string' },
             'local-key': { type: 'string' },
+            'google-client-id': { type: 'string' },
+            'google-client-secret': { type: 'string' },
           },
           allowPositionals: false,
         })
@@ -189,6 +196,8 @@ async function main() {
           localUrl: initValues['local-url'],
           localModel: initValues['local-model'],
           localKey: initValues['local-key'],
+          googleClientId: initValues['google-client-id'],
+          googleClientSecret: initValues['google-client-secret'],
         })
         break
       }
@@ -705,6 +714,23 @@ async function main() {
             baseUrl: values['base-url'],
             model: values.model,
             quota: Object.keys(quota).length > 0 ? quota : undefined,
+          })
+        } else if (subcommand === 'google') {
+          const { values } = parseArgs({
+            args: args.slice(2),
+            options: {
+              'client-id': { type: 'string' },
+              'client-secret': { type: 'string' },
+            },
+            allowPositionals: false,
+          })
+          if (!values['client-id'] || !values['client-secret']) {
+            console.error('Error: --client-id and --client-secret are both required')
+            process.exit(1)
+          }
+          setGoogleAuth({
+            clientId: values['client-id'],
+            clientSecret: values['client-secret'],
           })
         } else {
           await showSettings(format)

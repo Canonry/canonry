@@ -9,14 +9,21 @@ export interface ProviderSummaryEntry {
   quota?: ProviderQuotaPolicy
 }
 
+export interface GoogleSettingsSummary {
+  configured: boolean
+}
+
 export interface SettingsRoutesOptions {
   providerSummary?: ProviderSummaryEntry[]
   onProviderUpdate?: (provider: string, apiKey: string, model?: string, baseUrl?: string, quota?: Partial<ProviderQuotaPolicy>) => ProviderSummaryEntry | null
+  google?: GoogleSettingsSummary
+  onGoogleUpdate?: (clientId: string, clientSecret: string) => GoogleSettingsSummary | null
 }
 
 export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesOptions) {
   app.get('/settings', async () => ({
     providers: opts.providerSummary ?? [],
+    google: opts.google ?? { configured: false },
   }))
 
   app.put<{
@@ -73,6 +80,29 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     const result = opts.onProviderUpdate(name, apiKey ?? '', model, baseUrl, quota)
     if (!result) {
       return reply.status(500).send({ error: 'Failed to update provider configuration' })
+    }
+
+    return result
+  })
+
+  app.put<{
+    Body: { clientId?: string; clientSecret?: string }
+  }>('/settings/google', async (request, reply) => {
+    const { clientId, clientSecret } = request.body ?? {}
+
+    if (!clientId || typeof clientId !== 'string' || !clientSecret || typeof clientSecret !== 'string') {
+      return reply.status(400).send({
+        error: { code: 'VALIDATION_ERROR', message: 'clientId and clientSecret are required' },
+      })
+    }
+
+    if (!opts.onGoogleUpdate) {
+      return reply.status(501).send({ error: 'Google OAuth configuration updates are not supported in this deployment' })
+    }
+
+    const result = opts.onGoogleUpdate(clientId, clientSecret)
+    if (!result) {
+      return reply.status(500).send({ error: 'Failed to update Google OAuth configuration' })
     }
 
     return result

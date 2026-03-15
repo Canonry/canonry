@@ -28,7 +28,26 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     },
   })
   if (!res.ok) {
-    throw new Error(`API ${res.status}: ${res.statusText}`)
+    const bodyText = await res.text()
+    let message = `API ${res.status}: ${res.statusText}`
+    if (bodyText) {
+      try {
+        const parsed = JSON.parse(bodyText) as {
+          error?: string | { message?: string; code?: string }
+          message?: string
+        }
+        if (typeof parsed.error === 'string') {
+          message = parsed.error
+        } else if (parsed.error?.message) {
+          message = parsed.error.message
+        } else if (parsed.message) {
+          message = parsed.message
+        }
+      } catch {
+        message = bodyText
+      }
+    }
+    throw new Error(message)
   }
   if (res.status === 204) {
     return undefined as T
@@ -262,6 +281,9 @@ export interface ApiProviderSummary {
 
 export interface ApiSettings {
   providers: ApiProviderSummary[]
+  google: {
+    configured: boolean
+  }
 }
 
 export function fetchSettings(): Promise<ApiSettings> {
@@ -281,6 +303,16 @@ export function updateProviderConfig(provider: string, body: {
   quota?: { maxConcurrency?: number; maxRequestsPerMinute?: number; maxRequestsPerDay?: number }
 }): Promise<ApiProviderSummary> {
   return apiFetch(`/settings/providers/${encodeURIComponent(provider)}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+}
+
+export function updateGoogleAuthConfig(body: {
+  clientId: string
+  clientSecret: string
+}): Promise<{ configured: boolean }> {
+  return apiFetch('/settings/google', {
     method: 'PUT',
     body: JSON.stringify(body),
   })
@@ -377,11 +409,16 @@ export function triggerAllRuns(body?: { providers?: string[] }): Promise<unknown
 export interface ApiGoogleConnection {
   id: string
   domain: string
-  connectionType: string
+  connectionType: 'gsc' | 'ga4'
   propertyId: string | null
   scopes: string[]
   createdAt: string
   updatedAt: string
+}
+
+export interface ApiGoogleProperty {
+  siteUrl: string
+  permissionLevel: string
 }
 
 export interface ApiGscPerformanceRow {
@@ -394,6 +431,29 @@ export interface ApiGscPerformanceRow {
   impressions: number
   ctr: number
   position: number
+}
+
+export interface ApiGscInspection {
+  id: string
+  url: string
+  indexingState: string | null
+  verdict: string | null
+  coverageState: string | null
+  pageFetchState: string | null
+  robotsTxtState: string | null
+  crawlTime: string | null
+  lastCrawlResult: string | null
+  isMobileFriendly: boolean | null
+  richResults: string[]
+  referringUrls: string[]
+  inspectedAt: string
+}
+
+export interface ApiGscDeindexedRow {
+  url: string
+  previousState: string | null
+  currentState: string | null
+  transitionDate: string
 }
 
 export function fetchGoogleConnections(project: string): Promise<ApiGoogleConnection[]> {
@@ -411,6 +471,17 @@ export function googleDisconnect(project: string, type: string): Promise<void> {
   return apiFetch(`/projects/${encodeURIComponent(project)}/google/connections/${encodeURIComponent(type)}`, {
     method: 'DELETE',
     body: '{}',
+  })
+}
+
+export function fetchGoogleProperties(project: string): Promise<{ sites: ApiGoogleProperty[] }> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/google/properties`)
+}
+
+export function saveGoogleProperty(project: string, type: 'gsc' | 'ga4', propertyId: string): Promise<{ propertyId: string }> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/google/connections/${encodeURIComponent(type)}/property`, {
+    method: 'PUT',
+    body: JSON.stringify({ propertyId }),
   })
 }
 
@@ -433,4 +504,26 @@ export function fetchGscPerformance(
   if (params?.limit !== undefined) qs.set('limit', String(params.limit))
   const query = qs.toString() ? `?${qs.toString()}` : ''
   return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/performance${query}`)
+}
+
+export function inspectGscUrl(project: string, url: string): Promise<ApiGscInspection> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/inspect`, {
+    method: 'POST',
+    body: JSON.stringify({ url }),
+  })
+}
+
+export function fetchGscInspections(
+  project: string,
+  params?: { url?: string; limit?: number },
+): Promise<ApiGscInspection[]> {
+  const qs = new URLSearchParams()
+  if (params?.url) qs.set('url', params.url)
+  if (params?.limit !== undefined) qs.set('limit', String(params.limit))
+  const query = qs.toString() ? `?${qs.toString()}` : ''
+  return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/inspections${query}`)
+}
+
+export function fetchGscDeindexed(project: string): Promise<ApiGscDeindexedRow[]> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/deindexed`)
 }

@@ -73,6 +73,8 @@ test('getBootstrapEnv parses hosted Canonry env vars', () => {
     CANONRY_DATABASE_PATH: '/data/canonry/data.db',
     GEMINI_API_KEY: 'gemini-key',
     LOCAL_BASE_URL: 'http://localhost:11434/v1',
+    GOOGLE_CLIENT_ID: 'google-client-id',
+    GOOGLE_CLIENT_SECRET: 'google-client-secret',
   })
 
   assert.equal(env.apiKey, 'cnry_test')
@@ -82,4 +84,6 @@ test('getBootstrapEnv parses hosted Canonry env vars', () => {
   assert.equal(env.providers.gemini?.model, 'gemini-3-flash')
   assert.equal(env.providers.local?.baseUrl, 'http://localhost:11434/v1')
   assert.equal(env.providers.local?.model, 'llama3')
+  assert.equal(env.googleClientId, 'google-client-id')
+  assert.equal(env.googleClientSecret, 'google-client-secret')
 })

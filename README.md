@@ -52,7 +52,7 @@ canonry stop                         # Stop the background daemon
 canonry settings                     # View active provider and quota settings
 ```
 
-Non-interactive `init` flags: `--gemini-key`, `--openai-key`, `--claude-key`, `--local-url`, `--local-model`, `--local-key`. Falls back to `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `LOCAL_BASE_URL`, `LOCAL_MODEL`, `LOCAL_API_KEY` env vars.
+Non-interactive `init` flags: `--gemini-key`, `--openai-key`, `--claude-key`, `--local-url`, `--local-model`, `--local-key`, `--google-client-id`, `--google-client-secret`. Falls back to `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `LOCAL_BASE_URL`, `LOCAL_MODEL`, `LOCAL_API_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` env vars.
 
 ### Projects
 
@@ -123,6 +123,7 @@ Schedule presets: `daily`, `weekly`, `twice-daily`, `daily@HH`, `weekly@DAY`.
 ```bash
 canonry settings                         # Show all providers and quotas
 canonry settings provider gemini --api-key <key>
+canonry settings google --client-id <id> --client-secret <secret>
 canonry settings provider local --base-url http://localhost:11434/v1 --model llama3
 canonry settings provider openai --api-key <key> --max-per-day 1000 --max-per-minute 20
 ```
@@ -179,15 +180,38 @@ curl -X POST http://localhost:4100/api/v1/apply \
   --data-binary @canonry.yaml
 ```
 
-The database is authoritative. Config files are input, not state.
+Applied project YAML is declarative input. Runtime project/run data lives in the database, while local authentication and provider credentials live in `~/.canonry/config.yaml`.
 
 ## Provider Setup
 
 Canonry queries multiple AI answer engines. Configure the providers you want during `canonry init`, or add them later via the settings page or API.
 
+For authentication material, the local config file at `~/.canonry/config.yaml` is the source of truth. Provider API keys, Google OAuth client credentials, and Google OAuth tokens are stored there with file mode `0600`.
+
 ### Gemini
 
 Get an API key from [Google AI Studio](https://aistudio.google.com/apikey).
+
+### Google Search Console
+
+Create OAuth client credentials in Google Cloud, then store them locally:
+
+```bash
+canonry settings google --client-id <id> --client-secret <secret>
+```
+
+After that, connect a project with:
+
+```bash
+canonry google connect <project> --type gsc
+```
+
+The web dashboard now supports the same flow:
+
+- Configure Google OAuth once on the Settings page.
+- Open a project and generate the Google consent link for that canonical domain.
+- Select the matching Search Console property in the project dashboard.
+- Queue syncs, inspect URLs, review inspection history, and review deindexed pages from the same project view.
 
 ### OpenAI
 

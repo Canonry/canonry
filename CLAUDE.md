@@ -79,6 +79,12 @@ When adding a new feature:
 - Keep the monitoring app independent from the audit package repo except for the published npm dependency.
 - Raw observation snapshots only (`cited`/`not-cited`); transitions computed at query time.
 
+## Authentication Storage
+
+- The local config file at `~/.canonry/config.yaml` is the source of truth for authentication credentials.
+- Store provider API keys, Google OAuth client credentials, and Google OAuth access/refresh tokens in the local config file.
+- Do not treat the SQLite database as the authoritative store for authentication material.
+
 ## Config-as-Code
 
 Projects are managed via `canonry.yaml` files with Kubernetes-style structure:
@@ -102,7 +108,7 @@ spec:
     - openai
 ```
 
-Multiple projects can be defined in one file using `---` document separators. Apply with `canonry apply <file...>` (accepts multiple files) or `POST /api/v1/apply`. DB is authoritative; config files are input.
+Multiple projects can be defined in one file using `---` document separators. Apply with `canonry apply <file...>` (accepts multiple files) or `POST /api/v1/apply`. Applied project YAML is declarative input; runtime project/run data lives in the DB, while local authentication credentials live in `~/.canonry/config.yaml`.
 
 ## API Surface
 

@@ -35,12 +35,58 @@ function buildApp(opts: { googleClientId?: string; googleClientSecret?: string; 
   const dbPath = path.join(tmpDir, 'test.db')
   const db = createClient(dbPath)
   migrate(db)
+  const connections: Array<{
+    domain: string
+    connectionType: 'gsc' | 'ga4'
+    propertyId?: string | null
+    accessToken?: string
+    refreshToken?: string | null
+    tokenExpiresAt?: string | null
+    scopes?: string[]
+    createdAt: string
+    updatedAt: string
+  }> = []
 
   const app = Fastify()
   app.decorate('db', db)
   app.register(googleRoutes, {
-    googleClientId: opts.googleClientId,
-    googleClientSecret: opts.googleClientSecret,
+    getGoogleAuthConfig: () => ({
+      clientId: opts.googleClientId,
+      clientSecret: opts.googleClientSecret,
+    }),
+    googleConnectionStore: {
+      listConnections: (domain) => connections.filter((connection) => connection.domain === domain),
+      getConnection: (domain, connectionType) => connections.find((connection) => (
+        connection.domain === domain && connection.connectionType === connectionType
+      )),
+      upsertConnection: (connection) => {
+        const index = connections.findIndex((entry) => (
+          entry.domain === connection.domain && entry.connectionType === connection.connectionType
+        ))
+        if (index === -1) {
+          connections.push(connection)
+        } else {
+          connections[index] = connection
+        }
+        return connection
+      },
+      updateConnection: (domain, connectionType, patch) => {
+        const existing = connections.find((connection) => (
+          connection.domain === domain && connection.connectionType === connectionType
+        ))
+        if (!existing) return undefined
+        Object.assign(existing, patch)
+        return existing
+      },
+      deleteConnection: (domain, connectionType) => {
+        const index = connections.findIndex((connection) => (
+          connection.domain === domain && connection.connectionType === connectionType
+        ))
+        if (index === -1) return false
+        connections.splice(index, 1)
+        return true
+      },
+    },
     googleStateSecret: opts.googleStateSecret ?? 'test-secret-32-bytes-long-enough!',
   })
 

@@ -9,6 +9,7 @@ import { competitorRoutes } from './competitors.js'
 import { runRoutes } from './runs.js'
 import type { RunRoutesOptions } from './runs.js'
 import { applyRoutes } from './apply.js'
+import type { ApplyRoutesOptions } from './apply.js'
 import { historyRoutes } from './history.js'
 import { openApiRoutes } from './openapi.js'
 import type { OpenApiInfo } from './openapi.js'
@@ -38,7 +39,10 @@ export interface ApiRoutesOptions {
   /** Provider configuration summary for settings endpoint */
   providerSummary?: ProviderSummaryEntry[]
   /** Callback when a provider config is updated via API */
-  onProviderUpdate?: (provider: string, apiKey: string, model?: string) => ProviderSummaryEntry | null
+  onProviderUpdate?: SettingsRoutesOptions['onProviderUpdate']
+  /** Google OAuth configuration summary + update callback */
+  googleSettingsSummary?: SettingsRoutesOptions['google']
+  onGoogleSettingsUpdate?: SettingsRoutesOptions['onGoogleUpdate']
   /** Callback when a schedule is created/updated/deleted */
   onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string) => void
   /** Callback when a project is deleted */
@@ -48,9 +52,9 @@ export interface ApiRoutesOptions {
   /** Telemetry status/toggle callbacks */
   getTelemetryStatus?: TelemetryRoutesOptions['getTelemetryStatus']
   setTelemetryEnabled?: TelemetryRoutesOptions['setTelemetryEnabled']
-  /** Google OAuth config + sync callback */
-  googleClientId?: string
-  googleClientSecret?: string
+  /** Google auth config and storage */
+  getGoogleAuthConfig?: GoogleRoutesOptions['getGoogleAuthConfig']
+  googleConnectionStore?: GoogleRoutesOptions['googleConnectionStore']
   /** Secret for signing OAuth state parameters */
   googleStateSecret?: string
   onGscSyncRequested?: GoogleRoutesOptions['onGscSyncRequested']
@@ -78,11 +82,19 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(runRoutes, { onRunCreated: opts.onRunCreated } satisfies RunRoutesOptions)
     await api.register(applyRoutes, {
       onScheduleUpdated: opts.onScheduleUpdated,
-    })
+      onGoogleConnectionPropertyUpdated: (domain, connectionType, propertyId) => {
+        opts.googleConnectionStore?.updateConnection(domain, connectionType, {
+          propertyId,
+          updatedAt: new Date().toISOString(),
+        })
+      },
+    } satisfies ApplyRoutesOptions)
     await api.register(historyRoutes)
     await api.register(settingsRoutes, {
       providerSummary: opts.providerSummary,
       onProviderUpdate: opts.onProviderUpdate,
+      google: opts.googleSettingsSummary,
+      onGoogleUpdate: opts.onGoogleSettingsUpdate,
     } satisfies SettingsRoutesOptions)
     await api.register(scheduleRoutes, {
       onScheduleUpdated: opts.onScheduleUpdated,
@@ -93,8 +105,8 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       setTelemetryEnabled: opts.setTelemetryEnabled,
     } satisfies TelemetryRoutesOptions)
     await api.register(googleRoutes, {
-      googleClientId: opts.googleClientId,
-      googleClientSecret: opts.googleClientSecret,
+      getGoogleAuthConfig: opts.getGoogleAuthConfig,
+      googleConnectionStore: opts.googleConnectionStore,
       googleStateSecret: opts.googleStateSecret,
       onGscSyncRequested: opts.onGscSyncRequested,
     } satisfies GoogleRoutesOptions)

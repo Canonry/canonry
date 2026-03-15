@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, and, desc, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { googleConnections, gscSearchData, gscUrlInspections, runs } from '@ainyc/canonry-db'
+import { gscSearchData, gscUrlInspections, runs } from '@ainyc/canonry-db'
 import { validationError, notFound } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import {
@@ -13,9 +13,33 @@ import {
   GSC_SCOPE,
 } from '@ainyc/canonry-integration-google'
 
+export interface GoogleConnectionRecord {
+  domain: string
+  connectionType: 'gsc' | 'ga4'
+  propertyId?: string | null
+  accessToken?: string
+  refreshToken?: string | null
+  tokenExpiresAt?: string | null
+  scopes?: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface GoogleConnectionStore {
+  listConnections: (domain: string) => GoogleConnectionRecord[]
+  getConnection: (domain: string, connectionType: 'gsc' | 'ga4') => GoogleConnectionRecord | undefined
+  upsertConnection: (connection: GoogleConnectionRecord) => GoogleConnectionRecord
+  updateConnection: (
+    domain: string,
+    connectionType: 'gsc' | 'ga4',
+    patch: Partial<Omit<GoogleConnectionRecord, 'domain' | 'connectionType' | 'createdAt'>>,
+  ) => GoogleConnectionRecord | undefined
+  deleteConnection: (domain: string, connectionType: 'gsc' | 'ga4') => boolean
+}
+
 export interface GoogleRoutesOptions {
-  googleClientId?: string
-  googleClientSecret?: string
+  getGoogleAuthConfig?: () => { clientId?: string; clientSecret?: string }
+  googleConnectionStore?: GoogleConnectionStore
   googleStateSecret?: string
   onGscSyncRequested?: (runId: string, projectId: string, opts?: { days?: number; full?: boolean }) => void
 }
@@ -42,17 +66,13 @@ function verifySignedState(encoded: string, secret: string): Record<string, unkn
 }
 
 async function getValidToken(
-  app: FastifyInstance,
+  store: GoogleConnectionStore,
   domain: string,
-  connectionType: string,
+  connectionType: 'gsc' | 'ga4',
   clientId: string,
   clientSecret: string,
 ): Promise<{ accessToken: string; connectionId: string; propertyId: string | null }> {
-  const conn = app.db
-    .select()
-    .from(googleConnections)
-    .where(and(eq(googleConnections.domain, domain), eq(googleConnections.connectionType, connectionType)))
-    .get()
+  const conn = store.getConnection(domain, connectionType)
 
   if (!conn) {
     throw notFound('Google connection', connectionType)
@@ -67,45 +87,51 @@ async function getValidToken(
   if (Date.now() > expiresAt - fiveMinutes) {
     const tokens = await refreshAccessToken(clientId, clientSecret, conn.refreshToken)
     const newExpiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString()
-    app.db
-      .update(googleConnections)
-      .set({
-        accessToken: tokens.access_token,
-        tokenExpiresAt: newExpiresAt,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(googleConnections.id, conn.id))
-      .run()
-    return { accessToken: tokens.access_token, connectionId: conn.id, propertyId: conn.propertyId }
+    const updated = store.updateConnection(domain, connectionType, {
+      accessToken: tokens.access_token,
+      tokenExpiresAt: newExpiresAt,
+      updatedAt: new Date().toISOString(),
+    })
+    return {
+      accessToken: tokens.access_token,
+      connectionId: `${domain}:${connectionType}`,
+      propertyId: updated?.propertyId ?? conn.propertyId ?? null,
+    }
   }
 
-  return { accessToken: conn.accessToken, connectionId: conn.id, propertyId: conn.propertyId }
+  return {
+    accessToken: conn.accessToken,
+    connectionId: `${domain}:${connectionType}`,
+    propertyId: conn.propertyId ?? null,
+  }
 }
 
 export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptions) {
-  const { googleClientId, googleClientSecret } = opts
   const stateSecret = opts.googleStateSecret ?? 'insecure-default-secret'
+
+  function getAuthConfig() {
+    return opts.getGoogleAuthConfig?.() ?? {}
+  }
+
+  function requireConnectionStore(reply: { status: (code: number) => { send: (body: unknown) => unknown } }) {
+    if (opts.googleConnectionStore) return opts.googleConnectionStore
+    const err = validationError('Google auth storage is not configured for this deployment')
+    reply.status(err.statusCode).send(err.toJSON())
+    return null
+  }
 
   // GET /projects/:name/google/connections
   app.get<{ Params: { name: string } }>('/projects/:name/google/connections', async (request) => {
     const project = resolveProject(app.db, request.params.name)
-    const conns = app.db
-      .select({
-        id: googleConnections.id,
-        domain: googleConnections.domain,
-        connectionType: googleConnections.connectionType,
-        propertyId: googleConnections.propertyId,
-        scopes: googleConnections.scopes,
-        createdAt: googleConnections.createdAt,
-        updatedAt: googleConnections.updatedAt,
-      })
-      .from(googleConnections)
-      .where(eq(googleConnections.domain, project.canonicalDomain))
-      .all()
-
-    return conns.map((c) => ({
-      ...c,
-      scopes: JSON.parse(c.scopes),
+    const conns = opts.googleConnectionStore?.listConnections(project.canonicalDomain) ?? []
+    return conns.map((connection) => ({
+      id: `${connection.domain}:${connection.connectionType}`,
+      domain: connection.domain,
+      connectionType: connection.connectionType,
+      propertyId: connection.propertyId ?? null,
+      scopes: connection.scopes ?? [],
+      createdAt: connection.createdAt,
+      updatedAt: connection.updatedAt,
     }))
   })
 
@@ -114,8 +140,9 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     Params: { name: string }
     Body: { type: string; propertyId?: string }
   }>('/projects/:name/google/connect', async (request, reply) => {
+    const { clientId: googleClientId, clientSecret: googleClientSecret } = getAuthConfig()
     if (!googleClientId || !googleClientSecret) {
-      const err = validationError('Google OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables.')
+      const err = validationError('Google OAuth is not configured. Set Google OAuth credentials in the local Canonry config.')
       return reply.status(err.statusCode).send(err.toJSON())
     }
 
@@ -146,9 +173,13 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     Params: { name: string }
     Querystring: { code?: string; state?: string; error?: string }
   }>('/projects/:name/google/callback', async (request, reply) => {
+    const { clientId: googleClientId, clientSecret: googleClientSecret } = getAuthConfig()
     if (!googleClientId || !googleClientSecret) {
       return reply.status(500).send('Google OAuth not configured')
     }
+
+    const store = requireConnectionStore(reply)
+    if (!store) return
 
     const { code, state, error } = request.query
     if (error) {
@@ -175,40 +206,18 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     const tokens = await exchangeCode(googleClientId, googleClientSecret, code, redirectUri)
     const now = new Date().toISOString()
     const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString()
-
-    const existing = app.db
-      .select()
-      .from(googleConnections)
-      .where(and(eq(googleConnections.domain, domain), eq(googleConnections.connectionType, type)))
-      .get()
-
-    if (existing) {
-      app.db
-        .update(googleConnections)
-        .set({
-          accessToken: tokens.access_token,
-          refreshToken: tokens.refresh_token ?? existing.refreshToken,
-          tokenExpiresAt: expiresAt,
-          propertyId: propertyId ?? existing.propertyId,
-          scopes: JSON.stringify(tokens.scope?.split(' ') ?? []),
-          updatedAt: now,
-        })
-        .where(eq(googleConnections.id, existing.id))
-        .run()
-    } else {
-      app.db.insert(googleConnections).values({
-        id: crypto.randomUUID(),
-        domain,
-        connectionType: type,
-        propertyId: propertyId ?? null,
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token ?? null,
-        tokenExpiresAt: expiresAt,
-        scopes: JSON.stringify(tokens.scope?.split(' ') ?? []),
-        createdAt: now,
-        updatedAt: now,
-      }).run()
-    }
+    const existing = store.getConnection(domain, type as 'gsc' | 'ga4')
+    store.upsertConnection({
+      domain,
+      connectionType: type as 'gsc' | 'ga4',
+      propertyId: propertyId ?? existing?.propertyId ?? null,
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token ?? existing?.refreshToken ?? null,
+      tokenExpiresAt: expiresAt,
+      scopes: tokens.scope?.split(' ') ?? [],
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    })
 
     writeAuditLog(app.db, {
       projectId: null,
@@ -230,13 +239,12 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
 
   // DELETE /projects/:name/google/connections/:type
   app.delete<{ Params: { name: string; type: string } }>('/projects/:name/google/connections/:type', async (request, reply) => {
-    const project = resolveProject(app.db, request.params.name)
-    const deleted = app.db
-      .delete(googleConnections)
-      .where(and(eq(googleConnections.domain, project.canonicalDomain), eq(googleConnections.connectionType, request.params.type)))
-      .run()
+    const store = requireConnectionStore(reply)
+    if (!store) return
 
-    if (deleted.changes === 0) {
+    const project = resolveProject(app.db, request.params.name)
+    const deleted = store.deleteConnection(project.canonicalDomain, request.params.type as 'gsc' | 'ga4')
+    if (!deleted) {
       const err = notFound('Google connection', request.params.type)
       return reply.status(err.statusCode).send(err.toJSON())
     }
@@ -254,13 +262,17 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
 
   // GET /projects/:name/google/properties
   app.get<{ Params: { name: string } }>('/projects/:name/google/properties', async (request, reply) => {
+    const { clientId: googleClientId, clientSecret: googleClientSecret } = getAuthConfig()
     if (!googleClientId || !googleClientSecret) {
       const err = validationError('Google OAuth is not configured')
       return reply.status(err.statusCode).send(err.toJSON())
     }
 
+    const store = requireConnectionStore(reply)
+    if (!store) return
+
     const project = resolveProject(app.db, request.params.name)
-    const { accessToken } = await getValidToken(app, project.canonicalDomain, 'gsc', googleClientId, googleClientSecret)
+    const { accessToken } = await getValidToken(store, project.canonicalDomain, 'gsc', googleClientId, googleClientSecret)
     const sites = await listSites(accessToken)
     return { sites }
   })
@@ -270,13 +282,11 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     Params: { name: string }
     Body: { days?: number; full?: boolean }
   }>('/projects/:name/google/gsc/sync', async (request, reply) => {
-    const project = resolveProject(app.db, request.params.name)
+    const store = requireConnectionStore(reply)
+    if (!store) return
 
-    const conn = app.db
-      .select()
-      .from(googleConnections)
-      .where(and(eq(googleConnections.domain, project.canonicalDomain), eq(googleConnections.connectionType, 'gsc')))
-      .get()
+    const project = resolveProject(app.db, request.params.name)
+    const conn = store.getConnection(project.canonicalDomain, 'gsc')
     if (!conn) {
       const err = validationError('No GSC connection found for this domain. Run "canonry google connect" first.')
       return reply.status(err.statusCode).send(err.toJSON())
@@ -342,10 +352,14 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     Params: { name: string }
     Body: { url: string }
   }>('/projects/:name/google/gsc/inspect', async (request, reply) => {
+    const { clientId: googleClientId, clientSecret: googleClientSecret } = getAuthConfig()
     if (!googleClientId || !googleClientSecret) {
       const err = validationError('Google OAuth is not configured')
       return reply.status(err.statusCode).send(err.toJSON())
     }
+
+    const store = requireConnectionStore(reply)
+    if (!store) return
 
     const project = resolveProject(app.db, request.params.name)
     const { url } = request.body ?? {}
@@ -354,7 +368,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       return reply.status(err.statusCode).send(err.toJSON())
     }
 
-    const { accessToken, propertyId } = await getValidToken(app, project.canonicalDomain, 'gsc', googleClientId, googleClientSecret)
+    const { accessToken, propertyId } = await getValidToken(store, project.canonicalDomain, 'gsc', googleClientId, googleClientSecret)
     if (!propertyId) {
       const err = validationError('No GSC property configured for this connection')
       return reply.status(err.statusCode).send(err.toJSON())
@@ -382,7 +396,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       crawlTime: idx?.lastCrawlTime ?? null,
       lastCrawlResult: idx?.crawlResult ?? null,
       isMobileFriendly: mob?.verdict === 'PASS' ? 1 : mob?.verdict === 'FAIL' ? 0 : null,
-      richResults: JSON.stringify(rich?.detectedItems?.map((d) => d.richResultType) ?? []),
+      richResults: JSON.stringify(rich?.detectedItems?.map((d: { richResultType: string }) => d.richResultType) ?? []),
       referringUrls: JSON.stringify(idx?.referringUrls ?? []),
       inspectedAt: now,
       createdAt: now,
@@ -399,7 +413,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       crawlTime: idx?.lastCrawlTime,
       lastCrawlResult: idx?.crawlResult,
       isMobileFriendly: mob?.verdict === 'PASS',
-      richResults: rich?.detectedItems?.map((d) => d.richResultType) ?? [],
+      richResults: rich?.detectedItems?.map((d: { richResultType: string }) => d.richResultType) ?? [],
       referringUrls: idx?.referringUrls ?? [],
       inspectedAt: now,
     }
@@ -495,6 +509,9 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     Params: { name: string; type: string }
     Body: { propertyId: string }
   }>('/projects/:name/google/connections/:type/property', async (request, reply) => {
+    const store = requireConnectionStore(reply)
+    if (!store) return
+
     const project = resolveProject(app.db, request.params.name)
     const { propertyId } = request.body ?? {}
     if (!propertyId) {
@@ -502,22 +519,15 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       return reply.status(err.statusCode).send(err.toJSON())
     }
 
-    const conn = app.db
-      .select()
-      .from(googleConnections)
-      .where(and(eq(googleConnections.domain, project.canonicalDomain), eq(googleConnections.connectionType, request.params.type)))
-      .get()
-
+    const conn = store.updateConnection(
+      project.canonicalDomain,
+      request.params.type as 'gsc' | 'ga4',
+      { propertyId, updatedAt: new Date().toISOString() },
+    )
     if (!conn) {
       const err = notFound('Google connection', request.params.type)
       return reply.status(err.statusCode).send(err.toJSON())
     }
-
-    app.db
-      .update(googleConnections)
-      .set({ propertyId, updatedAt: new Date().toISOString() })
-      .where(eq(googleConnections.id, conn.id))
-      .run()
 
     return { propertyId }
   })

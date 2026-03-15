@@ -43,6 +43,18 @@ export async function bootstrapCommand(_opts?: { force?: boolean }): Promise<voi
   if (providers?.claude) mergedProviders.claude = providers.claude
   if (providers?.local) mergedProviders.local = providers.local
 
+  if ((env.googleClientId && !env.googleClientSecret) || (!env.googleClientId && env.googleClientSecret)) {
+    console.warn('Warning: GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must both be set to configure Google OAuth. Skipping Google auth config.')
+  }
+
+  const mergedGoogle = env.googleClientId && env.googleClientSecret
+    ? {
+        clientId: env.googleClientId,
+        clientSecret: env.googleClientSecret,
+        connections: existingConfig?.google?.connections ?? [],
+      }
+    : existingConfig?.google
+
   const keyHash = crypto.createHash('sha256').update(rawApiKey).digest('hex')
   const keyPrefix = rawApiKey.slice(0, 9)
 
@@ -63,6 +75,7 @@ export async function bootstrapCommand(_opts?: { force?: boolean }): Promise<voi
     database: databasePath,
     apiKey: rawApiKey,
     providers: mergedProviders,
+    google: mergedGoogle,
   })
 
   console.log(`Bootstrap complete. Config saved to ${getConfigPath()}`)
