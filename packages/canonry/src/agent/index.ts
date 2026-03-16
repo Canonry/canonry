@@ -1,4 +1,5 @@
 export { AgentStore } from './store.js'
+export { AgentServices } from './services.js'
 export { agentChat } from './loop.js'
 export { buildTools } from './tools.js'
 export { buildSystemPrompt } from './prompt.js'
