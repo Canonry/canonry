@@ -746,8 +746,17 @@ function CitationTimeline({ history, maxDots = 12 }: { history: RunHistoryPoint[
       {dots.map((d, i) => (
         <div
           key={i}
-          className={`h-2.5 w-2.5 rounded-sm ${colorMap[d.citationState] ?? 'bg-zinc-700'}`}
-          title={`${d.citationState} — ${new Date(d.createdAt).toLocaleDateString()}`}
+          className={`h-2.5 w-2.5 rounded-sm ${colorMap[d.citationState] ?? 'bg-zinc-700'} ${
+            d.model && i > 0 && dots[i - 1]?.model && dots[i - 1]!.model !== d.model
+              ? 'ring-1 ring-amber-300/80 ring-offset-1 ring-offset-zinc-950'
+              : ''
+          }`}
+          title={[
+            d.citationState,
+            new Date(d.createdAt).toLocaleDateString(),
+            d.model ? `model ${d.model}` : null,
+            d.model && i > 0 && dots[i - 1]?.model && dots[i - 1]!.model !== d.model ? 'model changed' : null,
+          ].filter(Boolean).join(' — ')}
         />
       ))}
     </div>
@@ -4643,7 +4652,7 @@ function EvidenceDetailModal({
       } : {
         citationState: run.citationState,
         provider: evidence.provider,
-        model: null,
+        model: run.model ?? null,
         answerSnippet: '',
         citedDomains: [],
         competitorDomains: [],
@@ -4660,7 +4669,7 @@ function EvidenceDetailModal({
       setHistoricalSnapshot({
         citationState: run.citationState,
         provider: evidence.provider,
-        model: null,
+        model: run.model ?? null,
         answerSnippet: '',
         citedDomains: [],
         competitorDomains: [],
@@ -4677,9 +4686,16 @@ function EvidenceDetailModal({
   }, [history, evidence.keyword, evidence.provider, runCache])
 
   // Hero copy
-  const providerMeta = display.model
+  const showModelInHeadline = isViewingHistory || evidence.historyScope !== 'provider'
+  const providerMeta = showModelInHeadline && display.model
     ? `${display.provider} (${display.model}) · ${display.changeLabel.toLowerCase()}`
     : `${display.provider} · ${display.changeLabel.toLowerCase()}`
+  const providerMetaNote = !isViewingHistory && evidence.historyScope === 'provider'
+    ? [
+        evidence.model ? `Current model: ${evidence.model}` : null,
+        evidence.modelsSeen && evidence.modelsSeen.length > 1 ? `History spans ${evidence.modelsSeen.length} models` : null,
+      ].filter(Boolean).join(' · ')
+    : ''
   const heroCopy = (() => {
     if (isCited && position > 0) {
       return {
@@ -4807,16 +4823,24 @@ function EvidenceDetailModal({
                       ? 'bg-rose-400' : 'bg-zinc-600'
                   const date = new Date(run.createdAt)
                   const label = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                  const modelChanged = Boolean(run.model && i > 0 && history[i - 1]?.model && history[i - 1]!.model !== run.model)
                   return (
                     <button
                       key={i}
                       type="button"
                       className={`evidence-run-dot ${isSelected ? 'evidence-run-dot--selected' : ''}`}
                       onClick={() => selectHistoricalRun(i === history.length - 1 ? -1 : i)}
-                      aria-label={`Run ${label}: ${run.citationState}`}
+                      aria-label={[
+                        `Run ${label}: ${run.citationState}`,
+                        run.model ? `model ${run.model}` : null,
+                        modelChanged ? 'model changed' : null,
+                      ].filter(Boolean).join(' — ')}
                       aria-pressed={isSelected}
                     >
-                      <span className={`size-2 rounded-full ${dotColor}`} aria-hidden="true" />
+                      <span
+                        className={`size-2 rounded-full ${dotColor} ${modelChanged ? 'ring-1 ring-amber-300/80 ring-offset-2 ring-offset-zinc-950' : ''}`}
+                        aria-hidden="true"
+                      />
                       <span className="text-[10px] text-zinc-500">{label}</span>
                     </button>
                   )
@@ -4827,6 +4851,18 @@ function EvidenceDetailModal({
                   Viewing run from {new Date(history[selectedRunIdx].createdAt).toLocaleString()} — <span className="capitalize">{history[selectedRunIdx].citationState}</span>
                   <button type="button" className="text-zinc-400 hover:text-zinc-200 ml-2" onClick={() => selectHistoricalRun(-1)}>← Back to latest</button>
                 </p>
+              )}
+              {!isViewingHistory && (evidence.modelTransitions?.length ?? 0) > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {evidence.modelTransitions!.map((transition) => (
+                    <span
+                      key={`${transition.runId}:${transition.toModel ?? 'unknown'}`}
+                      className="inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-1 text-[10px] text-amber-100"
+                    >
+                      {`${transition.fromModel ?? 'unknown'} -> ${transition.toModel ?? 'unknown'} on ${new Date(transition.createdAt).toLocaleDateString()}`}
+                    </span>
+                  ))}
+                </div>
               )}
             </div>
           )}
@@ -4852,6 +4888,9 @@ function EvidenceDetailModal({
                       {heroCopy.title}
                     </p>
                     <p className="evidence-position-meta">{heroCopy.meta}</p>
+                    {providerMetaNote && (
+                      <p className="mt-1 text-[11px] text-zinc-500">{providerMetaNote}</p>
+                    )}
                   </div>
 
                   {/* AI answer */}

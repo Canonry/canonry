@@ -5,7 +5,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { createClient, migrate, apiKeys } from '@ainyc/canonry-db'
+import { createClient, migrate, apiKeys, auditLog } from '@ainyc/canonry-db'
 import { bootstrapCommand } from '../src/commands/bootstrap.js'
 import { initCommand } from '../src/commands/init.js'
 import { getConfigDir, loadConfig } from '../src/config.js'
@@ -423,6 +423,110 @@ describe('canonry', () => {
       const config = loadConfig()
       assert.equal(config.google?.clientId, 'google-client-id')
       assert.equal(config.google?.clientSecret, 'google-client-secret')
+    } finally {
+      await app.close()
+      restoreEnvVar('CANONRY_CONFIG_DIR', originalConfigDir)
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('settings/providers persists provider model changes to config and audit history', async () => {
+    const tmpDir = path.join(os.tmpdir(), `canonry-provider-settings-${crypto.randomUUID()}`)
+    fs.mkdirSync(tmpDir, { recursive: true })
+
+    const originalConfigDir = process.env.CANONRY_CONFIG_DIR
+    process.env.CANONRY_CONFIG_DIR = tmpDir
+
+    const dbPath = path.join(tmpDir, 'test.db')
+    const db = createClient(dbPath)
+    migrate(db)
+
+    const rawKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
+    const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex')
+    db.insert(apiKeys).values({
+      id: crypto.randomUUID(),
+      name: 'test',
+      keyHash,
+      keyPrefix: rawKey.slice(0, 9),
+      scopes: '["*"]',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    const app = await createServer({
+      config: {
+        apiUrl: 'http://localhost:4100',
+        database: dbPath,
+        apiKey: rawKey,
+        providers: {
+          openai: {
+            apiKey: 'sk-old',
+            model: 'gpt-4o',
+            quota: { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 },
+          },
+        },
+      },
+      db,
+      logger: false,
+    })
+
+    try {
+      const createProjectRes = await app.inject({
+        method: 'PUT',
+        url: '/api/v1/projects/test-project',
+        headers: { authorization: `Bearer ${rawKey}` },
+        payload: {
+          displayName: 'Test Project',
+          canonicalDomain: 'example.com',
+          country: 'US',
+          language: 'en',
+          providers: ['openai'],
+        },
+      })
+      assert.equal(createProjectRes.statusCode, 201)
+
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/api/v1/settings/providers/openai',
+        headers: { authorization: `Bearer ${rawKey}` },
+        payload: {
+          apiKey: 'sk-new',
+          model: 'gpt-4.1',
+        },
+      })
+
+      assert.equal(res.statusCode, 200)
+
+      const config = loadConfig()
+      assert.equal(config.providers?.openai?.model, 'gpt-4.1')
+
+      const historyRes = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/history',
+        headers: { authorization: `Bearer ${rawKey}` },
+      })
+      assert.equal(historyRes.statusCode, 200)
+      const historyEntries = JSON.parse(historyRes.body) as Array<{
+        action: string
+        entityType: string
+        entityId: string | null
+        diff: { before: { model: string | null } | null; after: { model: string | null } }
+      }>
+      const providerHistory = historyEntries.find(entry => entry.action === 'provider.updated' && entry.entityType === 'provider')
+      assert.ok(providerHistory)
+      assert.equal(providerHistory!.entityId, 'openai')
+      assert.equal(providerHistory!.diff.before?.model, 'gpt-4o')
+      assert.equal(providerHistory!.diff.after.model, 'gpt-4.1')
+
+      const entries = db.select().from(auditLog).all().filter(entry => entry.entityType === 'provider' && entry.projectId !== null)
+      assert.equal(entries.length, 1)
+      assert.equal(entries[0]!.action, 'provider.updated')
+
+      const diff = JSON.parse(entries[0]!.diff ?? 'null') as {
+        before: { model: string | null }
+        after: { model: string | null }
+      }
+      assert.equal(diff.before.model, 'gpt-4o')
+      assert.equal(diff.after.model, 'gpt-4.1')
     } finally {
       await app.close()
       restoreEnvVar('CANONRY_CONFIG_DIR', originalConfigDir)

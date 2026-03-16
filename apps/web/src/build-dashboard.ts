@@ -12,12 +12,15 @@ import type {
   AffectedPhrase,
   CitationInsightVm,
   CitationState,
+  EvidenceHistoryScope,
+  ModelTransitionVm,
   CompetitorVm,
   DashboardVm,
   MetricTone,
   PortfolioProjectVm,
   ProjectCommandCenterVm,
   ProjectInsightVm,
+  RunHistoryPoint,
   RunListItemVm,
   ScoreSummaryVm,
 } from './view-models.js'
@@ -226,6 +229,11 @@ function buildEvidenceFromTimeline(
         const providerHistory = entry.providerRuns?.[provider]
         const effectiveHistory = (providerHistory?.length ? providerHistory : null)
           ?? (modelHistory?.length ? modelHistory : null)
+        const baseHistoryScope: EvidenceHistoryScope = providerHistory?.length
+          ? 'provider'
+          : modelHistory?.length
+            ? 'model'
+            : 'keyword'
 
         const effectiveTransition = effectiveHistory
           ? effectiveHistory.at(-1)!.transition
@@ -241,8 +249,19 @@ function buildEvidenceFromTimeline(
           ? computeStreak(effectiveHistory)
           : computeStreak(entry.runs)
 
+        const runModels = buildRunModelMap(entry, provider)
         const runHistory = (effectiveHistory ?? entry.runs)
-          .map(r => ({ runId: r.runId, citationState: r.citationState, createdAt: r.createdAt }))
+          .map(r => ({
+            runId: r.runId,
+            citationState: r.citationState,
+            createdAt: r.createdAt,
+            model: runModels.get(r.runId) ?? null,
+          }))
+        const modelsSeen = collectModels(runHistory)
+        const historyScope: EvidenceHistoryScope = baseHistoryScope === 'provider' && modelsSeen.length <= 1
+          ? 'model'
+          : baseHistoryScope
+        const modelTransitions = computeModelTransitions(runHistory)
 
         results.push({
           id: `evidence_${projectName}_${idx++}`,
@@ -259,6 +278,9 @@ function buildEvidenceFromTimeline(
           groundingSources: snap?.groundingSources ?? [],
           summary: evidenceSummary(snapState, entry.keyword),
           runHistory,
+          historyScope,
+          modelsSeen,
+          modelTransitions,
         })
       }
     }
@@ -282,10 +304,57 @@ function buildEvidenceFromTimeline(
       groundingSources: [],
       summary: `"${kw.keyword}" has been added but no visibility run has been triggered yet.`,
       runHistory: [],
+      historyScope: 'keyword',
+      modelsSeen: [],
+      modelTransitions: [],
     })
   }
 
   return results
+}
+
+function buildRunModelMap(entry: ApiTimelineEntry, provider: string): Map<string, string | null> {
+  const modelsByRunId = new Map<string, string | null>()
+  const prefix = `${provider}:`
+
+  for (const [modelKey, runs] of Object.entries(entry.modelRuns ?? {})) {
+    if (!modelKey.startsWith(prefix)) continue
+    const modelName = modelKey.slice(prefix.length)
+    const normalizedModel = modelName === 'unknown' ? null : modelName
+    for (const run of runs) {
+      modelsByRunId.set(run.runId, normalizedModel)
+    }
+  }
+
+  return modelsByRunId
+}
+
+function collectModels(history: RunHistoryPoint[]): string[] {
+  const models = new Set<string>()
+  for (const point of history) {
+    if (point.model) models.add(point.model)
+  }
+  return [...models]
+}
+
+function computeModelTransitions(history: RunHistoryPoint[]): ModelTransitionVm[] {
+  const transitions: ModelTransitionVm[] = []
+  let previousModel: string | null = null
+
+  for (const point of history) {
+    const currentModel = point.model ?? null
+    if (currentModel !== previousModel && previousModel !== null) {
+      transitions.push({
+        runId: point.runId,
+        createdAt: point.createdAt,
+        fromModel: previousModel,
+        toModel: currentModel,
+      })
+    }
+    previousModel = currentModel
+  }
+
+  return transitions
 }
 
 /** Count consecutive runs from the end that share the same citationState as the latest run. */

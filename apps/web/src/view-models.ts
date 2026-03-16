@@ -83,6 +83,16 @@ export interface RunHistoryPoint {
   runId: string
   citationState: string
   createdAt: string
+  model?: string | null
+}
+
+export type EvidenceHistoryScope = 'keyword' | 'model' | 'provider'
+
+export interface ModelTransitionVm {
+  runId: string
+  createdAt: string
+  fromModel: string | null
+  toModel: string | null
 }
 
 export interface CitationInsightVm {
@@ -100,6 +110,9 @@ export interface CitationInsightVm {
   groundingSources: GroundingSource[]
   summary: string
   runHistory: RunHistoryPoint[]
+  historyScope?: EvidenceHistoryScope
+  modelsSeen?: string[]
+  modelTransitions?: ModelTransitionVm[]
 }
 
 export interface AffectedPhrase {

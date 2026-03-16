@@ -9,13 +9,13 @@ const { version: PKG_VERSION } = _require('../package.json') as { version: strin
 import Fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import { apiRoutes } from '@ainyc/canonry-api-routes'
-import type { DatabaseClient } from '@ainyc/canonry-db'
+import { auditLog, projects, type DatabaseClient } from '@ainyc/canonry-db'
 import { geminiAdapter } from '@ainyc/canonry-provider-gemini'
 import { openaiAdapter } from '@ainyc/canonry-provider-openai'
 import { claudeAdapter } from '@ainyc/canonry-provider-claude'
 import { localAdapter } from '@ainyc/canonry-provider-local'
 import type { ProviderName } from '@ainyc/canonry-contracts'
-import type { CanonryConfig } from './config.js'
+import type { CanonryConfig, ProviderConfigEntry } from './config.js'
 import { saveConfig, loadConfig } from './config.js'
 import {
   getGoogleAuthConfig,
@@ -39,6 +39,18 @@ const DEFAULT_QUOTA = {
   maxConcurrency: 2,
   maxRequestsPerMinute: 10,
   maxRequestsPerDay: 1000,
+}
+
+function summarizeProviderConfig(
+  provider: ProviderName,
+  config: ProviderConfigEntry | undefined,
+) {
+  return {
+    configured: Boolean(config?.apiKey || config?.baseUrl),
+    model: config?.model ?? null,
+    baseUrl: provider === 'local' ? config?.baseUrl ?? null : null,
+    quota: { ...(config?.quota ?? DEFAULT_QUOTA) },
+  }
 }
 
 export async function createServer(opts: {
@@ -244,6 +256,7 @@ export async function createServer(opts: {
       // Update config and persist
       if (!opts.config.providers) opts.config.providers = {}
       const existing = opts.config.providers[name]
+      const beforeConfig = summarizeProviderConfig(name, existing)
       const mergedQuota = incomingQuota
         ? { ...(existing?.quota ?? DEFAULT_QUOTA), ...incomingQuota }
         : existing?.quota
@@ -277,6 +290,40 @@ export async function createServer(opts: {
         entry.configured = true
         entry.model = model || registry.get(name)?.config.model
         entry.quota = quota
+      }
+
+      const afterConfig = summarizeProviderConfig(name, opts.config.providers[name])
+      if (JSON.stringify(beforeConfig) !== JSON.stringify(afterConfig)) {
+        const diff = JSON.stringify({
+          before: existing ? beforeConfig : null,
+          after: afterConfig,
+        })
+        const affectedProjectIds = opts.db
+          .select({ id: projects.id, providers: projects.providers })
+          .from(projects)
+          .all()
+          .filter((project) => {
+            try {
+              const configuredProviders = JSON.parse(project.providers || '[]') as string[]
+              return configuredProviders.length === 0 || configuredProviders.includes(name)
+            } catch {
+              return false
+            }
+          })
+          .map((project) => project.id)
+        const targetProjectIds = affectedProjectIds.length > 0 ? affectedProjectIds : [null]
+        const createdAt = new Date().toISOString()
+
+        opts.db.insert(auditLog).values(targetProjectIds.map((projectId) => ({
+          id: crypto.randomUUID(),
+          projectId,
+          actor: 'api',
+          action: existing ? 'provider.updated' : 'provider.created',
+          entityType: 'provider',
+          entityId: name,
+          diff,
+          createdAt,
+        }))).run()
       }
 
       return {
