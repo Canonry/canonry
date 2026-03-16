@@ -19,7 +19,7 @@ import { addNotification, listNotifications, removeNotification, testNotificatio
 import { telemetryCommand } from './commands/telemetry.js'
 import {
   googleConnect, googleDisconnect, googleStatus, googleProperties,
-  googleSetProperty, googleSync, googlePerformance, googleInspect,
+  googleSetProperty, googleSetSitemap, googleSync, googlePerformance, googleInspect,
   googleInspections, googleDeindexed, googleCoverage, googleCoverageHistory, googleInspectSitemap,
 } from './commands/google.js'
 import { trackEvent, isTelemetryEnabled, isFirstRun, getOrCreateAnonymousId, showFirstRunNotice } from './telemetry.js'
@@ -72,6 +72,7 @@ Usage:
   canonry google status <project>     Show Google connection status
   canonry google properties <project> List available GSC properties
   canonry google set-property <project> <url>  Set GSC property URL
+  canonry google set-sitemap <project> <url>   Set GSC sitemap URL
   canonry google sync <project>       Sync GSC data (--days 30, --full, --wait)
   canonry google performance <project>  Show GSC search performance data
   canonry google inspect <project> <url>  Inspect a URL via GSC
@@ -824,6 +825,16 @@ async function main() {
             await googleSetProperty(project, propertyUrl)
             break
           }
+          case 'set-sitemap': {
+            const project = args[2]
+            const sitemapUrl = args[3]
+            if (!project || !sitemapUrl) {
+              console.error('Error: project name and sitemap URL are required')
+              process.exit(1)
+            }
+            await googleSetSitemap(project, sitemapUrl)
+            break
+          }
           case 'sync': {
             const project = args[2]
             if (!project) {
@@ -967,7 +978,7 @@ async function main() {
           }
           default:
             console.error(`Unknown google subcommand: ${subcommand ?? '(none)'}`)
-            console.log('Available: connect, disconnect, status, properties, set-property, sync, performance, inspect, inspect-sitemap, coverage, coverage-history, inspections, deindexed')
+            console.log('Available: connect, disconnect, status, properties, set-property, set-sitemap, sync, performance, inspect, inspect-sitemap, coverage, coverage-history, inspections, deindexed')
             process.exit(1)
         }
         break

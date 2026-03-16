@@ -17,6 +17,7 @@ export interface GoogleConnectionConfigEntry {
   domain: string
   connectionType: GoogleConnectionType
   propertyId?: string | null
+  sitemapUrl?: string | null
   accessToken?: string
   refreshToken?: string | null
   tokenExpiresAt?: string | null

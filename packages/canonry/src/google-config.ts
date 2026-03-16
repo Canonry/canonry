@@ -64,6 +64,7 @@ export function upsertGoogleConnection(
   const normalized: GoogleConnectionConfigEntry = {
     ...connection,
     propertyId: connection.propertyId ?? null,
+    sitemapUrl: connection.sitemapUrl ?? null,
     refreshToken: connection.refreshToken ?? null,
     tokenExpiresAt: connection.tokenExpiresAt ?? null,
     scopes: connection.scopes ?? [],
@@ -93,6 +94,9 @@ export function patchGoogleConnection(
     propertyId: Object.prototype.hasOwnProperty.call(patch, 'propertyId')
       ? patch.propertyId ?? null
       : existing.propertyId ?? null,
+    sitemapUrl: Object.prototype.hasOwnProperty.call(patch, 'sitemapUrl')
+      ? patch.sitemapUrl ?? null
+      : existing.sitemapUrl ?? null,
     refreshToken: Object.prototype.hasOwnProperty.call(patch, 'refreshToken')
       ? patch.refreshToken ?? null
       : existing.refreshToken ?? null,

@@ -130,6 +130,7 @@ export const googleConnections = sqliteTable('google_connections', {
   domain: text('domain').notNull(),
   connectionType: text('connection_type').notNull(),
   propertyId: text('property_id'),
+  sitemapUrl: text('sitemap_url'),
   accessToken: text('access_token'),
   refreshToken: text('refresh_token'),
   tokenExpiresAt: text('token_expires_at'),

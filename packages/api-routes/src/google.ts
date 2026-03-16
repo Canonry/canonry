@@ -17,6 +17,7 @@ export interface GoogleConnectionRecord {
   domain: string
   connectionType: 'gsc' | 'ga4'
   propertyId?: string | null
+  sitemapUrl?: string | null
   accessToken?: string
   refreshToken?: string | null
   tokenExpiresAt?: string | null
@@ -131,6 +132,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       domain: connection.domain,
       connectionType: connection.connectionType,
       propertyId: connection.propertyId ?? null,
+      sitemapUrl: connection.sitemapUrl ?? null,
       scopes: connection.scopes ?? [],
       createdAt: connection.createdAt,
       updatedAt: connection.updatedAt,
@@ -750,6 +752,34 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
 
     const run = app.db.select().from(runs).where(eq(runs.id, runId)).get()
     return run
+  })
+
+  // PUT /projects/:name/google/connections/:type/sitemap
+  app.put<{
+    Params: { name: string; type: string }
+    Body: { sitemapUrl: string }
+  }>('/projects/:name/google/connections/:type/sitemap', async (request, reply) => {
+    const store = requireConnectionStore(reply)
+    if (!store) return
+
+    const project = resolveProject(app.db, request.params.name)
+    const { sitemapUrl } = request.body ?? {}
+    if (!sitemapUrl || !sitemapUrl.trim()) {
+      const err = validationError('sitemapUrl is required')
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
+    const conn = store.updateConnection(
+      project.canonicalDomain,
+      request.params.type as 'gsc' | 'ga4',
+      { sitemapUrl: sitemapUrl.trim(), updatedAt: new Date().toISOString() },
+    )
+    if (!conn) {
+      const err = notFound('Google connection', request.params.type)
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
+    return { sitemapUrl: sitemapUrl.trim() }
   })
 
   // PUT /projects/:name/google/connections/:type/property

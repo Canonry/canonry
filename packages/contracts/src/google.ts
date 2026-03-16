@@ -8,6 +8,7 @@ export const googleConnectionDtoSchema = z.object({
   domain: z.string(),
   connectionType: googleConnectionTypeSchema,
   propertyId: z.string().nullable().optional(),
+  sitemapUrl: z.string().nullable().optional(),
   scopes: z.array(z.string()).default([]),
   createdAt: z.string(),
   updatedAt: z.string(),

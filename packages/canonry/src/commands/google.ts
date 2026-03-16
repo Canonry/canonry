@@ -330,6 +330,12 @@ export async function googleCoverage(project: string, format?: string): Promise<
   }
 }
 
+export async function googleSetSitemap(project: string, sitemapUrl: string): Promise<void> {
+  const client = getClient()
+  await client.googleSetSitemap(project, 'gsc', sitemapUrl)
+  console.log(`GSC sitemap URL set to "${sitemapUrl}" for project "${project}".`)
+}
+
 export async function googleInspectSitemap(project: string, opts: {
   sitemapUrl?: string
   wait?: boolean

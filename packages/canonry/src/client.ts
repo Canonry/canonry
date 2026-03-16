@@ -203,6 +203,10 @@ export class ApiClient {
     return this.request<object>('PUT', `/projects/${encodeURIComponent(project)}/google/connections/${encodeURIComponent(type)}/property`, { propertyId })
   }
 
+  async googleSetSitemap(project: string, type: string, sitemapUrl: string): Promise<object> {
+    return this.request<object>('PUT', `/projects/${encodeURIComponent(project)}/google/connections/${encodeURIComponent(type)}/sitemap`, { sitemapUrl })
+  }
+
   // GSC data
   async gscSync(project: string, body?: { days?: number; full?: boolean }): Promise<object> {
     return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/google/gsc/sync`, body ?? {})

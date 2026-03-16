@@ -68,6 +68,7 @@ import {
   fetchGscCoverage,
   fetchGscCoverageHistory,
   triggerInspectSitemap,
+  saveSitemapUrl,
   type ApiGscCoverageSummary,
   type ApiSchedule,
   type ApiNotification,
@@ -2062,6 +2063,8 @@ function GscSection({
   const [loadingCoverage, setLoadingCoverage] = useState(false)
   const [inspectingSitemap, setInspectingSitemap] = useState(false)
   const [sitemapUrlInput, setSitemapUrlInput] = useState('')
+  const [savingSitemap, setSavingSitemap] = useState(false)
+  const [setupExpanded, setSetupExpanded] = useState(false)
   const [coverageTab, setCoverageTab] = useState<'indexed' | 'notIndexed' | 'deindexed'>('indexed')
   const [coverageHistory, setCoverageHistory] = useState<Array<{ date: string; indexed: number; notIndexed: number; reasonBreakdown: Record<string, number> }>>([])
   const [selectedReason, setSelectedReason] = useState<string | null>(null)
@@ -2148,20 +2151,21 @@ function GscSection({
     }
   }
 
-  async function handleInspectSitemap() {
-    setInspectingSitemap(true)
+  async function handleSaveSitemap() {
+    if (!sitemapUrlInput.trim()) return
+    setSavingSitemap(true)
     setError(null)
-    setNotice(null)
     try {
-      const run = await triggerInspectSitemap(projectName, {
-        sitemapUrl: sitemapUrlInput.trim() || undefined,
-      })
-      setNotice(`Sitemap inspection queued (run ${run.id}). Refresh coverage after the run completes.`)
+      await saveSitemapUrl(projectName, 'gsc', sitemapUrlInput.trim())
+      setConnections((prev) => prev.map((c) => (
+        c.connectionType === 'gsc' ? { ...c, sitemapUrl: sitemapUrlInput.trim() } : c
+      )))
+      setNotice('Sitemap URL saved.')
       setSitemapUrlInput('')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to queue sitemap inspection')
+      setError(err instanceof Error ? err.message : 'Failed to save sitemap URL')
     } finally {
-      setInspectingSitemap(false)
+      setSavingSitemap(false)
     }
   }
 
@@ -2387,138 +2391,241 @@ function GscSection({
             )}
           </Card>
 
-          {gscConn && (
-            <>
-              <div className="grid gap-3 xl:grid-cols-2">
-                <Card className="surface-card">
-                  <div className="section-head">
-                    <div>
-                      <p className="eyebrow eyebrow-soft">Property</p>
-                      <h3>Pick the Search Console property</h3>
-                    </div>
-                  </div>
-                  <div className="mt-3 space-y-2">
-                    <label className="text-xs text-zinc-500" htmlFor={`gsc-property-${projectName}`}>Property URL</label>
-                    <select
-                      id={`gsc-property-${projectName}`}
-                      className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 focus:border-zinc-500 focus:outline-none"
-                      value={selectedProperty}
-                      disabled={propertiesLoading || properties.length === 0}
-                      onChange={(e) => setSelectedProperty(e.target.value)}
-                    >
-                      {properties.length === 0 ? (
-                        <option value="">{propertiesLoading ? 'Loading properties…' : 'No properties available'}</option>
-                      ) : (
-                        properties.map((site) => (
-                          <option key={site.siteUrl} value={site.siteUrl}>
-                            {site.siteUrl} · {site.permissionLevel}
-                          </option>
-                        ))
-                      )}
-                    </select>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button type="button" size="sm" variant="outline" disabled={propertiesLoading} onClick={() => void loadProperties(gscConn)}>
-                        {propertiesLoading ? 'Refreshing…' : 'Refresh properties'}
-                      </Button>
-                      <Button type="button" size="sm" disabled={!selectedProperty || savingProperty} onClick={handleSaveProperty}>
-                        {savingProperty ? 'Saving…' : 'Save property'}
-                      </Button>
-                    </div>
-                    <p className="text-xs text-zinc-500">The selected property is used for future syncs and URL inspections for this project.</p>
-                  </div>
-                </Card>
-
-                <Card className="surface-card">
-                  <div className="section-head">
-                    <div>
-                      <p className="eyebrow eyebrow-soft">Sync</p>
-                      <h3>Import GSC performance data</h3>
-                    </div>
-                  </div>
-                  <div className="mt-3 space-y-3">
-                    <div className="grid gap-3 sm:grid-cols-[160px_1fr]">
-                      <div>
-                        <label className="text-xs text-zinc-500" htmlFor={`gsc-sync-days-${projectName}`}>Days</label>
-                        <input
-                          id={`gsc-sync-days-${projectName}`}
-                          type="number"
-                          min="1"
-                          className="mt-0.5 w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-                          value={syncDays}
-                          onChange={(e) => setSyncDays(e.target.value)}
-                        />
-                      </div>
-                      <label className="flex items-center gap-2 rounded border border-zinc-800/60 bg-zinc-900/20 px-3 py-2 text-sm text-zinc-300">
-                        <input
-                          type="checkbox"
-                          checked={fullSync}
-                          onChange={(e) => setFullSync(e.target.checked)}
-                        />
-                        Replace existing imported rows for the requested range
-                      </label>
-                    </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={syncing || !gscConn.propertyId}
-                      onClick={handleSync}
-                    >
-                      {syncing ? 'Queueing…' : 'Queue sync'}
+          {/* One-time sitemap prompt — shown when connected but no sitemap URL stored */}
+          {gscConn && !gscConn.sitemapUrl && (
+            <div className="rounded-lg border border-amber-800/40 bg-amber-950/20 px-4 py-3">
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 text-amber-400">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5" aria-hidden="true">
+                    <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                  </svg>
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-amber-300">Set your sitemap URL</p>
+                  <p className="mt-1 text-xs text-amber-400/70">Canonry uses your sitemap to discover URLs for index coverage inspection. This is saved once per project.</p>
+                  <div className="mt-2 flex flex-col gap-2 lg:flex-row">
+                    <input
+                      className="flex-1 rounded border border-amber-800/40 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-500 focus:border-amber-600 focus:outline-none"
+                      type="url"
+                      placeholder="https://example.com/sitemap.xml"
+                      value={sitemapUrlInput}
+                      onChange={(e) => setSitemapUrlInput(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && void handleSaveSitemap()}
+                    />
+                    <Button type="button" size="sm" disabled={savingSitemap || !sitemapUrlInput.trim()} onClick={handleSaveSitemap}>
+                      {savingSitemap ? 'Saving…' : 'Save sitemap URL'}
                     </Button>
-                    {!gscConn.propertyId && (
-                      <p className="text-xs text-amber-400">Select a Search Console property before queueing a sync.</p>
-                    )}
-                  </div>
-                </Card>
-              </div>
-
-              <Card className="surface-card">
-                <div className="section-head">
-                  <div>
-                    <p className="eyebrow eyebrow-soft">Inspection</p>
-                    <h3>Inspect a URL</h3>
                   </div>
                 </div>
-                <div className="mt-3 flex flex-col gap-2 lg:flex-row">
-                  <input
-                    className="flex-1 rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-                    type="url"
-                    placeholder="https://example.com/page"
-                    value={inspectionUrl}
-                    onChange={(e) => setInspectionUrl(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && void handleInspect()}
-                  />
-                  <Button type="button" size="sm" disabled={inspecting || !gscConn.propertyId || !inspectionUrl.trim()} onClick={handleInspect}>
-                    {inspecting ? 'Inspecting…' : 'Inspect URL'}
+              </div>
+            </div>
+          )}
+
+          {/* ── DATA SECTIONS (shown first for connected projects) ── */}
+
+          {(gscConn || hasHistoricalData) && (
+            <>
+              {/* Performance summary + charts */}
+              <Card className="surface-card">
+                <div className="section-head section-head-inline">
+                  <div>
+                    <p className="eyebrow eyebrow-soft">Performance</p>
+                    <h3>Search performance</h3>
+                  </div>
+                  <Button type="button" variant="outline" size="sm" disabled={loadingPerformance} onClick={() => void loadPerformanceRows()}>
+                    {loadingPerformance ? 'Loading…' : 'Apply filters'}
                   </Button>
                 </div>
-                {inspectionResult && (
-                  <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
-                      <p className="text-xs uppercase tracking-wide text-zinc-500">Indexing state</p>
-                      <p className="mt-1 text-sm text-zinc-200">{inspectionResult.indexingState ?? 'Unknown'}</p>
+
+                {/* Clicks + Impressions over time line chart */}
+                {performance.length > 1 && (() => {
+                  const byDate = new Map<string, { clicks: number; impressions: number }>()
+                  for (const row of performance) {
+                    const existing = byDate.get(row.date)
+                    if (existing) {
+                      existing.clicks += row.clicks
+                      existing.impressions += row.impressions
+                    } else {
+                      byDate.set(row.date, { clicks: row.clicks, impressions: row.impressions })
+                    }
+                  }
+                  const sorted = [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b))
+                  if (sorted.length < 2) return null
+                  const maxClicks = Math.max(...sorted.map(([, d]) => d.clicks), 1)
+                  const maxImpressions = Math.max(...sorted.map(([, d]) => d.impressions), 1)
+                  const w = 600
+                  const h = 160
+                  const pad = { top: 10, bottom: 20, left: 0, right: 0 }
+                  const plotW = w - pad.left - pad.right
+                  const plotH = h - pad.top - pad.bottom
+                  const clicksPoints = sorted.map(([, d], i) => {
+                    const x = pad.left + (i / (sorted.length - 1)) * plotW
+                    const y = pad.top + plotH - (d.clicks / maxClicks) * plotH
+                    return `${x},${y}`
+                  }).join(' ')
+                  const impressionPoints = sorted.map(([, d], i) => {
+                    const x = pad.left + (i / (sorted.length - 1)) * plotW
+                    const y = pad.top + plotH - (d.impressions / maxImpressions) * plotH
+                    return `${x},${y}`
+                  }).join(' ')
+                  const totalClicks = sorted.reduce((sum, [, d]) => sum + d.clicks, 0)
+                  const totalImpressions = sorted.reduce((sum, [, d]) => sum + d.impressions, 0)
+
+                  return (
+                    <div className="mt-3">
+                      <div className="flex items-center gap-4 mb-2">
+                        <div className="flex items-center gap-1.5">
+                          <span className="inline-block h-0.5 w-4 rounded bg-emerald-500" />
+                          <span className="text-xs text-zinc-400">Clicks <span className="text-zinc-200 tabular-nums font-medium">{totalClicks.toLocaleString()}</span></span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="inline-block h-0.5 w-4 rounded bg-blue-500" />
+                          <span className="text-xs text-zinc-400">Impressions <span className="text-zinc-200 tabular-nums font-medium">{totalImpressions.toLocaleString()}</span></span>
+                        </div>
+                      </div>
+                      <div className="relative h-44 w-full">
+                        <svg viewBox={`0 0 ${w} ${h}`} className="h-full w-full" preserveAspectRatio="none" aria-hidden="true">
+                          <line x1={pad.left} y1={pad.top + plotH} x2={w - pad.right} y2={pad.top + plotH} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
+                          <line x1={pad.left} y1={pad.top + plotH / 2} x2={w - pad.right} y2={pad.top + plotH / 2} stroke="rgba(255,255,255,0.04)" strokeWidth="1" />
+                          <polyline points={impressionPoints} fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          <polyline points={clicksPoints} fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        <div className="flex justify-between text-[10px] text-zinc-600 mt-0.5 px-0.5">
+                          <span>{sorted[0]?.[0]}</span>
+                          <span>{sorted[sorted.length - 1]?.[0]}</span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
-                      <p className="text-xs uppercase tracking-wide text-zinc-500">Verdict</p>
-                      <p className="mt-1 text-sm text-zinc-200">{inspectionResult.verdict ?? 'Unknown'}</p>
+                  )
+                })()}
+
+                {/* CTR over time line chart */}
+                {performance.length > 1 && (() => {
+                  const byDate = new Map<string, { clicks: number; impressions: number }>()
+                  for (const row of performance) {
+                    const existing = byDate.get(row.date)
+                    if (existing) {
+                      existing.clicks += row.clicks
+                      existing.impressions += row.impressions
+                    } else {
+                      byDate.set(row.date, { clicks: row.clicks, impressions: row.impressions })
+                    }
+                  }
+                  const sorted = [...byDate.entries()]
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([date, d]) => ({ date, ctr: d.impressions > 0 ? d.clicks / d.impressions : 0 }))
+                  if (sorted.length < 2) return null
+                  const maxCtr = Math.max(...sorted.map((d) => d.ctr), 0.01)
+                  const w = 600
+                  const h = 100
+                  const pad = { top: 8, bottom: 20, left: 0, right: 0 }
+                  const plotW = w - pad.left - pad.right
+                  const plotH = h - pad.top - pad.bottom
+                  const points = sorted.map((d, i) => {
+                    const x = pad.left + (i / (sorted.length - 1)) * plotW
+                    const y = pad.top + plotH - (d.ctr / maxCtr) * plotH
+                    return `${x},${y}`
+                  }).join(' ')
+                  const avgCtr = sorted.reduce((sum, d) => sum + d.ctr, 0) / sorted.length
+
+                  return (
+                    <div className="mt-4">
+                      <div className="flex items-center gap-4 mb-2">
+                        <div className="flex items-center gap-1.5">
+                          <span className="inline-block h-0.5 w-4 rounded bg-amber-500" />
+                          <span className="text-xs text-zinc-400">CTR <span className="text-zinc-200 tabular-nums font-medium">{(avgCtr * 100).toFixed(1)}% avg</span></span>
+                        </div>
+                      </div>
+                      <div className="relative h-28 w-full">
+                        <svg viewBox={`0 0 ${w} ${h}`} className="h-full w-full" preserveAspectRatio="none" aria-hidden="true">
+                          <line x1={pad.left} y1={pad.top + plotH} x2={w - pad.right} y2={pad.top + plotH} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
+                          <polyline points={points} fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        <div className="flex justify-between text-[10px] text-zinc-600 mt-0.5 px-0.5">
+                          <span>{sorted[0]?.date}</span>
+                          <span>{sorted[sorted.length - 1]?.date}</span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
-                      <p className="text-xs uppercase tracking-wide text-zinc-500">Mobile friendly</p>
-                      <p className="mt-1 text-sm text-zinc-200">{formatBooleanState(inspectionResult.isMobileFriendly)}</p>
-                    </div>
-                    <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
-                      <p className="text-xs uppercase tracking-wide text-zinc-500">Last crawl</p>
-                      <p className="mt-1 text-sm text-zinc-200">{formatTimestamp(inspectionResult.crawlTime)}</p>
-                    </div>
+                  )
+                })()}
+
+                <div className="mt-3 grid gap-2 lg:grid-cols-5">
+                  <input
+                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    type="date"
+                    value={performanceFilters.startDate}
+                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, startDate: e.target.value }))}
+                  />
+                  <input
+                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    type="date"
+                    value={performanceFilters.endDate}
+                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, endDate: e.target.value }))}
+                  />
+                  <input
+                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    type="text"
+                    placeholder="Filter query"
+                    value={performanceFilters.query}
+                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, query: e.target.value }))}
+                  />
+                  <input
+                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    type="text"
+                    placeholder="Filter page"
+                    value={performanceFilters.page}
+                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, page: e.target.value }))}
+                  />
+                  <input
+                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    type="number"
+                    min="1"
+                    placeholder="Limit"
+                    value={performanceFilters.limit}
+                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, limit: e.target.value }))}
+                  />
+                </div>
+                {performance.length > 0 ? (
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="data-table w-full text-sm">
+                      <thead>
+                        <tr>
+                          <th className="text-left">Date</th>
+                          <th className="text-left">Query</th>
+                          <th className="text-left">Page</th>
+                          <th className="text-right">Clicks</th>
+                          <th className="text-right">Impressions</th>
+                          <th className="text-right">CTR</th>
+                          <th className="text-right">Position</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {performance.map((row, i) => (
+                          <tr key={`${row.date}:${row.query}:${row.page}:${i}`}>
+                            <td className="text-zinc-400">{row.date}</td>
+                            <td className="max-w-xs truncate text-zinc-200">{row.query}</td>
+                            <td className="max-w-xs truncate text-zinc-400">{row.page}</td>
+                            <td className="text-right tabular-nums text-zinc-300">{row.clicks.toLocaleString()}</td>
+                            <td className="text-right tabular-nums text-zinc-400">{row.impressions.toLocaleString()}</td>
+                            <td className="text-right tabular-nums text-zinc-400">{(row.ctr * 100).toFixed(1)}%</td>
+                            <td className="text-right tabular-nums text-zinc-400">{row.position.toFixed(1)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
+                ) : (
+                  <p className="mt-3 text-sm text-zinc-500">No performance rows match the current filters yet.</p>
                 )}
               </Card>
 
+              {/* Coverage overview + donut + history chart */}
               <Card className="surface-card">
                 <div className="section-head section-head-inline">
                   <div>
                     <p className="eyebrow eyebrow-soft">Coverage</p>
-                    <h3>Index Coverage</h3>
+                    <h3>Index coverage</h3>
                   </div>
                   <div className="flex items-center gap-2">
                     <Button type="button" variant="outline" size="sm" disabled={loadingCoverage} onClick={() => void loadCoverage()}>
@@ -2529,46 +2636,79 @@ function GscSection({
 
                 {coverage && coverage.summary.total > 0 ? (
                   <>
-                    {/* Split header bar — Indexed vs Not Indexed */}
-                    <div className="mt-3">
-                      <div className="flex items-stretch overflow-hidden rounded-lg border border-zinc-800/60">
-                        {coverage.summary.indexed > 0 && (
-                          <div
-                            className="flex items-center gap-2 bg-emerald-950/40 border-r border-zinc-800/60 px-4 py-3"
-                            style={{ flexBasis: `${(coverage.summary.indexed / coverage.summary.total) * 100}%` }}
-                          >
-                            <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500 shrink-0" />
-                            <div className="min-w-0">
-                              <p className="text-xs uppercase tracking-wide text-emerald-400/70">Indexed</p>
-                              <p className="text-lg font-semibold tabular-nums text-emerald-400">{coverage.summary.indexed.toLocaleString()}</p>
+                    {/* Donut + split header */}
+                    <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-start">
+                      {/* Donut chart */}
+                      <div className="shrink-0 flex flex-col items-center">
+                        {(() => {
+                          const total = coverage.summary.indexed + coverage.summary.notIndexed
+                          const pct = total > 0 ? coverage.summary.indexed / total : 0
+                          const r = 54
+                          const circ = 2 * Math.PI * r
+                          const offset = circ * (1 - pct)
+                          return (
+                            <div className="relative h-36 w-36">
+                              <svg viewBox="0 0 128 128" className="h-full w-full" aria-hidden="true">
+                                <circle cx="64" cy="64" r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="12" />
+                                <circle
+                                  cx="64" cy="64" r={r} fill="none"
+                                  stroke="#10b981" strokeWidth="12"
+                                  strokeDasharray={circ} strokeDashoffset={offset}
+                                  strokeLinecap="round"
+                                  transform="rotate(-90 64 64)"
+                                  style={{ transition: 'stroke-dashoffset 0.6s ease' }}
+                                />
+                              </svg>
+                              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                <span className="text-xl font-bold tabular-nums text-zinc-100">{(pct * 100).toFixed(0)}%</span>
+                                <span className="text-[10px] uppercase tracking-wide text-zinc-500">Indexed</span>
+                              </div>
                             </div>
-                          </div>
-                        )}
-                        {coverage.summary.notIndexed > 0 && (
-                          <div
-                            className="flex items-center gap-2 bg-zinc-900/40 px-4 py-3"
-                            style={{ flexBasis: `${(coverage.summary.notIndexed / coverage.summary.total) * 100}%` }}
-                          >
-                            <span className="inline-block h-2.5 w-2.5 rounded-full bg-zinc-500 shrink-0" />
-                            <div className="min-w-0">
-                              <p className="text-xs uppercase tracking-wide text-zinc-500">Not indexed</p>
-                              <p className="text-lg font-semibold tabular-nums text-zinc-300">
-                                {coverage.summary.notIndexed.toLocaleString()}
-                                {(coverage.reasonGroups ?? []).length > 0 && (
-                                  <span className="ml-1 text-xs font-normal text-zinc-500">
-                                    · {(coverage.reasonGroups ?? []).length} {(coverage.reasonGroups ?? []).length === 1 ? 'reason' : 'reasons'}
-                                  </span>
-                                )}
-                              </p>
+                          )
+                        })()}
+                      </div>
+
+                      {/* Split header bar — Indexed vs Not Indexed */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-stretch overflow-hidden rounded-lg border border-zinc-800/60">
+                          {coverage.summary.indexed > 0 && (
+                            <div
+                              className="flex items-center gap-2 bg-emerald-950/40 border-r border-zinc-800/60 px-4 py-3"
+                              style={{ flexBasis: `${(coverage.summary.indexed / coverage.summary.total) * 100}%` }}
+                            >
+                              <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500 shrink-0" />
+                              <div className="min-w-0">
+                                <p className="text-xs uppercase tracking-wide text-emerald-400/70">Indexed</p>
+                                <p className="text-lg font-semibold tabular-nums text-emerald-400">{coverage.summary.indexed.toLocaleString()}</p>
+                              </div>
                             </div>
-                          </div>
+                          )}
+                          {coverage.summary.notIndexed > 0 && (
+                            <div
+                              className="flex items-center gap-2 bg-zinc-900/40 px-4 py-3"
+                              style={{ flexBasis: `${(coverage.summary.notIndexed / coverage.summary.total) * 100}%` }}
+                            >
+                              <span className="inline-block h-2.5 w-2.5 rounded-full bg-zinc-500 shrink-0" />
+                              <div className="min-w-0">
+                                <p className="text-xs uppercase tracking-wide text-zinc-500">Not indexed</p>
+                                <p className="text-lg font-semibold tabular-nums text-zinc-300">
+                                  {coverage.summary.notIndexed.toLocaleString()}
+                                  {(coverage.reasonGroups ?? []).length > 0 && (
+                                    <span className="ml-1 text-xs font-normal text-zinc-500">
+                                      · {(coverage.reasonGroups ?? []).length} {(coverage.reasonGroups ?? []).length === 1 ? 'reason' : 'reasons'}
+                                    </span>
+                                  )}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        {coverage.summary.deindexed > 0 && (
+                          <p className="mt-1.5 text-xs text-rose-400">
+                            {coverage.summary.deindexed} page{coverage.summary.deindexed !== 1 ? 's' : ''} recently lost indexing
+                          </p>
                         )}
                       </div>
-                      {coverage.summary.deindexed > 0 && (
-                        <p className="mt-1.5 text-xs text-rose-400">
-                          {coverage.summary.deindexed} page{coverage.summary.deindexed !== 1 ? 's' : ''} recently lost indexing
-                        </p>
-                      )}
                     </div>
 
                     {/* Stacked bar chart — pages over time */}
@@ -2577,22 +2717,22 @@ function GscSection({
                         <p className="text-xs uppercase tracking-wide text-zinc-500 mb-2">Pages over time</p>
                         <div className="relative h-36 w-full">
                           {(() => {
-                            const maxTotal = Math.max(...coverageHistory.map((h) => h.indexed + h.notIndexed), 1)
+                            const maxTotal = Math.max(...coverageHistory.map((ch) => ch.indexed + ch.notIndexed), 1)
                             const barCount = coverageHistory.length
                             const gap = 2
                             return (
                               <svg viewBox={`0 0 ${barCount * 12 + gap} 140`} className="h-full w-full" preserveAspectRatio="none">
                                 {coverageHistory.map((snap, i) => {
                                   const total = snap.indexed + snap.notIndexed
-                                  const h = (total / maxTotal) * 128
-                                  const indexedH = total > 0 ? (snap.indexed / total) * h : 0
-                                  const notIndexedH = h - indexedH
+                                  const ch = (total / maxTotal) * 128
+                                  const indexedH = total > 0 ? (snap.indexed / total) * ch : 0
+                                  const notIndexedH = ch - indexedH
                                   const x = i * 12 + gap
                                   return (
                                     <g key={snap.date}>
                                       <title>{`${snap.date}\nIndexed: ${snap.indexed}\nNot indexed: ${snap.notIndexed}`}</title>
-                                      <rect x={x} y={128 - h} width={10} height={notIndexedH} rx={1} fill="#3f3f46" />
-                                      <rect x={x} y={128 - h + notIndexedH} width={10} height={indexedH} rx={1} fill="#10b981" />
+                                      <rect x={x} y={128 - ch} width={10} height={notIndexedH} rx={1} fill="#3f3f46" />
+                                      <rect x={x} y={128 - ch + notIndexedH} width={10} height={indexedH} rx={1} fill="#10b981" />
                                     </g>
                                   )
                                 })}
@@ -2735,11 +2875,11 @@ function GscSection({
                                   <div className="h-20 w-full">
                                     <svg viewBox={`0 0 ${reasonTrend.length * 12 + 2} 80`} className="h-full w-full" preserveAspectRatio="none">
                                       {reasonTrend.map((pt, i) => {
-                                        const h = (pt.count / maxCount) * 68
+                                        const rh = (pt.count / maxCount) * 68
                                         return (
                                           <g key={pt.date}>
                                             <title>{`${pt.date}: ${pt.count} pages`}</title>
-                                            <rect x={i * 12 + 2} y={68 - h} width={10} height={h} rx={1} fill="#f59e0b" />
+                                            <rect x={i * 12 + 2} y={68 - rh} width={10} height={rh} rx={1} fill="#f59e0b" />
                                           </g>
                                         )
                                       })}
@@ -2804,116 +2944,52 @@ function GscSection({
                     {loadingCoverage ? 'Loading coverage data…' : 'No coverage data yet. Inspect your sitemap to populate this view.'}
                   </p>
                 )}
-
-                <div className="mt-4 border-t border-zinc-800/60 pt-3">
-                  <p className="text-xs uppercase tracking-wide text-zinc-500 mb-2">Inspect from sitemap</p>
-                  <div className="flex flex-col gap-2 lg:flex-row">
-                    <input
-                      className="flex-1 rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-                      type="url"
-                      placeholder="https://example.com/sitemap.xml (leave empty for default)"
-                      value={sitemapUrlInput}
-                      onChange={(e) => setSitemapUrlInput(e.target.value)}
-                    />
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={inspectingSitemap || !gscConn.propertyId}
-                      onClick={handleInspectSitemap}
-                    >
-                      {inspectingSitemap ? 'Queueing…' : 'Inspect Sitemap'}
-                    </Button>
-                  </div>
-                  {!gscConn.propertyId && (
-                    <p className="mt-1 text-xs text-amber-400">Select a Search Console property first.</p>
-                  )}
-                </div>
               </Card>
-            </>
-          )}
 
-          {(gscConn || hasHistoricalData) && (
-            <>
+              {/* URL Inspection */}
               <Card className="surface-card">
-                <div className="section-head section-head-inline">
+                <div className="section-head">
                   <div>
-                    <p className="eyebrow eyebrow-soft">Performance</p>
-                    <h3>Imported search queries</h3>
+                    <p className="eyebrow eyebrow-soft">Inspection</p>
+                    <h3>Inspect a URL</h3>
                   </div>
-                  <Button type="button" variant="outline" size="sm" disabled={loadingPerformance} onClick={() => void loadPerformanceRows()}>
-                    {loadingPerformance ? 'Loading…' : 'Apply filters'}
+                </div>
+                <div className="mt-3 flex flex-col gap-2 lg:flex-row">
+                  <input
+                    className="flex-1 rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    type="url"
+                    placeholder="https://example.com/page"
+                    value={inspectionUrl}
+                    onChange={(e) => setInspectionUrl(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && void handleInspect()}
+                  />
+                  <Button type="button" size="sm" disabled={inspecting || !gscConn?.propertyId || !inspectionUrl.trim()} onClick={handleInspect}>
+                    {inspecting ? 'Inspecting…' : 'Inspect URL'}
                   </Button>
                 </div>
-                <div className="mt-3 grid gap-2 lg:grid-cols-5">
-                  <input
-                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-                    type="date"
-                    value={performanceFilters.startDate}
-                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, startDate: e.target.value }))}
-                  />
-                  <input
-                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-                    type="date"
-                    value={performanceFilters.endDate}
-                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, endDate: e.target.value }))}
-                  />
-                  <input
-                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-                    type="text"
-                    placeholder="Filter query"
-                    value={performanceFilters.query}
-                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, query: e.target.value }))}
-                  />
-                  <input
-                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-                    type="text"
-                    placeholder="Filter page"
-                    value={performanceFilters.page}
-                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, page: e.target.value }))}
-                  />
-                  <input
-                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-                    type="number"
-                    min="1"
-                    placeholder="Limit"
-                    value={performanceFilters.limit}
-                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, limit: e.target.value }))}
-                  />
-                </div>
-                {performance.length > 0 ? (
-                  <div className="mt-3 overflow-x-auto">
-                    <table className="data-table w-full text-sm">
-                      <thead>
-                        <tr>
-                          <th className="text-left">Date</th>
-                          <th className="text-left">Query</th>
-                          <th className="text-left">Page</th>
-                          <th className="text-right">Clicks</th>
-                          <th className="text-right">Impressions</th>
-                          <th className="text-right">CTR</th>
-                          <th className="text-right">Position</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {performance.map((row, i) => (
-                          <tr key={`${row.date}:${row.query}:${row.page}:${i}`}>
-                            <td className="text-zinc-400">{row.date}</td>
-                            <td className="max-w-xs truncate text-zinc-200">{row.query}</td>
-                            <td className="max-w-xs truncate text-zinc-400">{row.page}</td>
-                            <td className="text-right tabular-nums text-zinc-300">{row.clicks.toLocaleString()}</td>
-                            <td className="text-right tabular-nums text-zinc-400">{row.impressions.toLocaleString()}</td>
-                            <td className="text-right tabular-nums text-zinc-400">{(row.ctr * 100).toFixed(1)}%</td>
-                            <td className="text-right tabular-nums text-zinc-400">{row.position.toFixed(1)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                {inspectionResult && (
+                  <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+                      <p className="text-xs uppercase tracking-wide text-zinc-500">Indexing state</p>
+                      <p className="mt-1 text-sm text-zinc-200">{inspectionResult.indexingState ?? 'Unknown'}</p>
+                    </div>
+                    <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+                      <p className="text-xs uppercase tracking-wide text-zinc-500">Verdict</p>
+                      <p className="mt-1 text-sm text-zinc-200">{inspectionResult.verdict ?? 'Unknown'}</p>
+                    </div>
+                    <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+                      <p className="text-xs uppercase tracking-wide text-zinc-500">Mobile friendly</p>
+                      <p className="mt-1 text-sm text-zinc-200">{formatBooleanState(inspectionResult.isMobileFriendly)}</p>
+                    </div>
+                    <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+                      <p className="text-xs uppercase tracking-wide text-zinc-500">Last crawl</p>
+                      <p className="mt-1 text-sm text-zinc-200">{formatTimestamp(inspectionResult.crawlTime)}</p>
+                    </div>
                   </div>
-                ) : (
-                  <p className="mt-3 text-sm text-zinc-500">No performance rows match the current filters yet.</p>
                 )}
               </Card>
 
+              {/* Inspection log */}
               <Card className="surface-card">
                 <div className="section-head section-head-inline">
                   <div>
@@ -2968,6 +3044,7 @@ function GscSection({
                 )}
               </Card>
 
+              {/* Recent indexing losses */}
               <Card className="surface-card">
                 <div className="section-head">
                   <div>
@@ -3002,6 +3079,175 @@ function GscSection({
                   <p className="mt-3 text-sm text-zinc-500">No deindexed transitions recorded.</p>
                 )}
               </Card>
+            </>
+          )}
+
+          {/* ── SETUP SECTION (at bottom, collapsible for connected projects) ── */}
+          {gscConn && (
+            <>
+              <div className="border-t border-zinc-800/60 pt-3">
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 text-left"
+                  onClick={() => setSetupExpanded((prev) => !prev)}
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"
+                    className={`h-4 w-4 text-zinc-500 transition-transform ${setupExpanded ? 'rotate-90' : ''}`}
+                    aria-hidden="true"
+                  >
+                    <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+                  </svg>
+                  <span className="text-xs uppercase tracking-wide text-zinc-500">Setup &amp; Configuration</span>
+                </button>
+              </div>
+
+              {setupExpanded && (
+                <div className="space-y-3">
+                  <div className="grid gap-3 xl:grid-cols-2">
+                    <Card className="surface-card">
+                      <div className="section-head">
+                        <div>
+                          <p className="eyebrow eyebrow-soft">Property</p>
+                          <h3>Pick the Search Console property</h3>
+                        </div>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        <label className="text-xs text-zinc-500" htmlFor={`gsc-property-${projectName}`}>Property URL</label>
+                        <select
+                          id={`gsc-property-${projectName}`}
+                          className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 focus:border-zinc-500 focus:outline-none"
+                          value={selectedProperty}
+                          disabled={propertiesLoading || properties.length === 0}
+                          onChange={(e) => setSelectedProperty(e.target.value)}
+                        >
+                          {properties.length === 0 ? (
+                            <option value="">{propertiesLoading ? 'Loading properties…' : 'No properties available'}</option>
+                          ) : (
+                            properties.map((site) => (
+                              <option key={site.siteUrl} value={site.siteUrl}>
+                                {site.siteUrl} · {site.permissionLevel}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button type="button" size="sm" variant="outline" disabled={propertiesLoading} onClick={() => void loadProperties(gscConn)}>
+                            {propertiesLoading ? 'Refreshing…' : 'Refresh properties'}
+                          </Button>
+                          <Button type="button" size="sm" disabled={!selectedProperty || savingProperty} onClick={handleSaveProperty}>
+                            {savingProperty ? 'Saving…' : 'Save property'}
+                          </Button>
+                        </div>
+                        <p className="text-xs text-zinc-500">The selected property is used for future syncs and URL inspections for this project.</p>
+                      </div>
+                    </Card>
+
+                    <Card className="surface-card">
+                      <div className="section-head">
+                        <div>
+                          <p className="eyebrow eyebrow-soft">Sync</p>
+                          <h3>Import GSC performance data</h3>
+                        </div>
+                      </div>
+                      <div className="mt-3 space-y-3">
+                        <div className="grid gap-3 sm:grid-cols-[160px_1fr]">
+                          <div>
+                            <label className="text-xs text-zinc-500" htmlFor={`gsc-sync-days-${projectName}`}>Days</label>
+                            <input
+                              id={`gsc-sync-days-${projectName}`}
+                              type="number"
+                              min="1"
+                              className="mt-0.5 w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                              value={syncDays}
+                              onChange={(e) => setSyncDays(e.target.value)}
+                            />
+                          </div>
+                          <label className="flex items-center gap-2 rounded border border-zinc-800/60 bg-zinc-900/20 px-3 py-2 text-sm text-zinc-300">
+                            <input
+                              type="checkbox"
+                              checked={fullSync}
+                              onChange={(e) => setFullSync(e.target.checked)}
+                            />
+                            Replace existing imported rows for the requested range
+                          </label>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={syncing || !gscConn.propertyId}
+                          onClick={handleSync}
+                        >
+                          {syncing ? 'Queueing…' : 'Queue sync'}
+                        </Button>
+                        {!gscConn.propertyId && (
+                          <p className="text-xs text-amber-400">Select a Search Console property before queueing a sync.</p>
+                        )}
+                      </div>
+                    </Card>
+                  </div>
+
+                  {/* Sitemap configuration */}
+                  <Card className="surface-card">
+                    <div className="section-head">
+                      <div>
+                        <p className="eyebrow eyebrow-soft">Sitemap</p>
+                        <h3>Sitemap configuration</h3>
+                      </div>
+                    </div>
+                    <div className="mt-3 space-y-3">
+                      {gscConn.sitemapUrl && (
+                        <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+                          <p className="text-xs uppercase tracking-wide text-zinc-500">Current sitemap URL</p>
+                          <p className="mt-1 text-sm text-zinc-200 break-all">{gscConn.sitemapUrl}</p>
+                        </div>
+                      )}
+                      <div className="flex flex-col gap-2 lg:flex-row">
+                        <input
+                          className="flex-1 rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                          type="url"
+                          placeholder={gscConn.sitemapUrl ? 'Update sitemap URL…' : 'https://example.com/sitemap.xml'}
+                          value={sitemapUrlInput}
+                          onChange={(e) => setSitemapUrlInput(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && sitemapUrlInput.trim() && void handleSaveSitemap()}
+                        />
+                        <Button type="button" size="sm" disabled={savingSitemap || !sitemapUrlInput.trim()} onClick={handleSaveSitemap}>
+                          {savingSitemap ? 'Saving…' : gscConn.sitemapUrl ? 'Update' : 'Save'}
+                        </Button>
+                      </div>
+                      <div className="flex flex-col gap-2 lg:flex-row">
+                        <input
+                          className="flex-1 rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                          type="url"
+                          placeholder="Sitemap URL for inspection (leave empty for saved default)"
+                          id={`gsc-sitemap-inspect-${projectName}`}
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={inspectingSitemap || !gscConn.propertyId}
+                          onClick={() => {
+                            const el = document.getElementById(`gsc-sitemap-inspect-${projectName}`) as HTMLInputElement | null
+                            const url = el?.value?.trim() || gscConn.sitemapUrl || undefined
+                            setInspectingSitemap(true)
+                            void triggerInspectSitemap(projectName, { sitemapUrl: url }).then((run) => {
+                              setNotice(`Sitemap inspection queued (run ${run.id}). Refresh coverage after the run completes.`)
+                            }).catch((err) => {
+                              setError(err instanceof Error ? err.message : 'Failed to queue sitemap inspection')
+                            }).finally(() => setInspectingSitemap(false))
+                          }}
+                        >
+                          {inspectingSitemap ? 'Queueing…' : 'Inspect sitemap'}
+                        </Button>
+                      </div>
+                      {!gscConn.propertyId && (
+                        <p className="text-xs text-amber-400">Select a Search Console property first.</p>
+                      )}
+                    </div>
+                  </Card>
+                </div>
+              )}
             </>
           )}
         </div>

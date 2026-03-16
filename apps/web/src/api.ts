@@ -418,6 +418,7 @@ export interface ApiGoogleConnection {
   domain: string
   connectionType: 'gsc' | 'ga4'
   propertyId: string | null
+  sitemapUrl: string | null
   scopes: string[]
   createdAt: string
   updatedAt: string
@@ -489,6 +490,13 @@ export function saveGoogleProperty(project: string, type: 'gsc' | 'ga4', propert
   return apiFetch(`/projects/${encodeURIComponent(project)}/google/connections/${encodeURIComponent(type)}/property`, {
     method: 'PUT',
     body: JSON.stringify({ propertyId }),
+  })
+}
+
+export function saveSitemapUrl(project: string, type: 'gsc' | 'ga4', sitemapUrl: string): Promise<{ sitemapUrl: string }> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/google/connections/${encodeURIComponent(type)}/sitemap`, {
+    method: 'PUT',
+    body: JSON.stringify({ sitemapUrl }),
   })
 }
 

@@ -210,6 +210,8 @@ const MIGRATIONS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_gsc_coverage_snap_project_date ON gsc_coverage_snapshots(project_id, date)`,
   `CREATE INDEX IF NOT EXISTS idx_gsc_coverage_snap_run ON gsc_coverage_snapshots(sync_run_id)`,
+  // v8: Add sitemapUrl to google_connections for persistent sitemap storage
+  `ALTER TABLE google_connections ADD COLUMN sitemap_url TEXT`,
 ]
 
 export function migrate(db: DatabaseClient) {

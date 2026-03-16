@@ -169,6 +169,7 @@ export async function createServer(opts: {
       domain: string
       connectionType: 'gsc' | 'ga4'
       propertyId?: string | null
+      sitemapUrl?: string | null
       accessToken?: string
       refreshToken?: string | null
       tokenExpiresAt?: string | null
@@ -185,6 +186,7 @@ export async function createServer(opts: {
       connectionType: 'gsc' | 'ga4',
       patch: Partial<{
         propertyId?: string | null
+        sitemapUrl?: string | null
         accessToken?: string
         refreshToken?: string | null
         tokenExpiresAt?: string | null
