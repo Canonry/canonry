@@ -113,7 +113,9 @@ export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions
       },
     },
   }, async (request, reply) => {
-    const { id } = request.params
+    const { project, id } = request.params
+
+    const projectRow = resolveProject(app.db, project)
 
     const thread = app.db
       .select()
@@ -121,7 +123,7 @@ export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions
       .where(eq(agentThreads.id, id))
       .get()
 
-    if (!thread) {
+    if (!thread || thread.projectId !== projectRow.id) {
       return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Thread not found' } })
     }
 
@@ -162,16 +164,16 @@ export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions
     const { project, id: threadId } = request.params
     const { message } = request.body
 
-    resolveProject(app.db, project)
+    const projectRow = resolveProject(app.db, project)
 
-    // Verify thread exists
+    // Verify thread exists and belongs to this project
     const thread = app.db
       .select()
       .from(agentThreads)
       .where(eq(agentThreads.id, threadId))
       .get()
 
-    if (!thread) {
+    if (!thread || thread.projectId !== projectRow.id) {
       return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Thread not found' } })
     }
 
@@ -205,7 +207,20 @@ export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions
       },
     },
   }, async (request, reply) => {
-    const { id } = request.params
+    const { project, id } = request.params
+
+    const projectRow = resolveProject(app.db, project)
+
+    // Verify thread exists and belongs to this project
+    const thread = app.db
+      .select()
+      .from(agentThreads)
+      .where(eq(agentThreads.id, id))
+      .get()
+
+    if (!thread || thread.projectId !== projectRow.id) {
+      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Thread not found' } })
+    }
 
     app.db.delete(agentThreads).where(eq(agentThreads.id, id)).run()
 
