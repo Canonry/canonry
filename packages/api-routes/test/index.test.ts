@@ -106,6 +106,50 @@ describe('api-routes', () => {
     assert.equal(body.length, 2)
   })
 
+  it('DELETE /api/v1/projects/:name/keywords removes specific keywords', async () => {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/api/v1/projects/my-site/keywords',
+      payload: { keywords: ['aeo tools'] },
+    })
+    assert.equal(res.statusCode, 200)
+    const body = JSON.parse(res.payload)
+    assert.equal(body.length, 1)
+    assert.equal(body[0].keyword, 'answer engine')
+  })
+
+  it('DELETE /api/v1/projects/:name/keywords ignores non-existent keywords', async () => {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/api/v1/projects/my-site/keywords',
+      payload: { keywords: ['does not exist'] },
+    })
+    assert.equal(res.statusCode, 200)
+    const body = JSON.parse(res.payload)
+    assert.equal(body.length, 1)
+  })
+
+  it('DELETE /api/v1/projects/:name/keywords rejects empty array', async () => {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/api/v1/projects/my-site/keywords',
+      payload: { keywords: [] },
+    })
+    assert.equal(res.statusCode, 400)
+  })
+
+  // Re-add keywords for subsequent tests
+  it('POST /api/v1/projects/:name/keywords re-adds keywords', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/my-site/keywords',
+      payload: { keywords: ['aeo tools'] },
+    })
+    assert.equal(res.statusCode, 200)
+    const body = JSON.parse(res.payload)
+    assert.equal(body.length, 2)
+  })
+
   it('POST /api/v1/projects/:name/runs triggers a run', async () => {
     const res = await app.inject({
       method: 'POST',

@@ -82,6 +82,10 @@ export class ApiClient {
     return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/keywords`)
   }
 
+  async deleteKeywords(project: string, keywords: string[]): Promise<void> {
+    await this.request<unknown>('DELETE', `/projects/${encodeURIComponent(project)}/keywords`, { keywords })
+  }
+
   async appendKeywords(project: string, keywords: string[]): Promise<void> {
     await this.request<unknown>('POST', `/projects/${encodeURIComponent(project)}/keywords`, { keywords })
   }

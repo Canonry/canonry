@@ -5,7 +5,7 @@ import { initCommand } from './commands/init.js'
 import { serveCommand } from './commands/serve.js'
 import { startDaemon, stopDaemon } from './commands/daemon.js'
 import { createProject, listProjects, showProject, deleteProject, updateProjectSettings } from './commands/project.js'
-import { addKeywords, listKeywords, importKeywords, generateKeywords } from './commands/keyword.js'
+import { addKeywords, removeKeywords, listKeywords, importKeywords, generateKeywords } from './commands/keyword.js'
 import { addCompetitors, listCompetitors } from './commands/competitor.js'
 import { triggerRun, triggerRunAll, showRun, listRuns } from './commands/run.js'
 import { showStatus } from './commands/status.js'
@@ -40,6 +40,7 @@ Usage:
   canonry project show <name>         Show project details
   canonry project delete <name>       Delete a project
   canonry keyword add <project> <kw>  Add key phrases to a project
+  canonry keyword remove <project> <kw>  Remove key phrases from a project
   canonry keyword list <project>      List key phrases for a project
   canonry keyword import <project> <file>  Import key phrases from file
   canonry keyword generate <project>  Auto-generate key phrases (--provider, --count, --save)
@@ -346,6 +347,17 @@ async function main() {
             await addKeywords(project, kws)
             break
           }
+          case 'remove':
+          case 'delete': {
+            const project = args[2]
+            const kws = args.slice(3).filter((a, i, arr) => !a.startsWith('--') && !(i > 0 && arr[i - 1].startsWith('--')))
+            if (!project || kws.length === 0) {
+              console.error('Error: project name and at least one key phrase required')
+              process.exit(1)
+            }
+            await removeKeywords(project, kws)
+            break
+          }
           case 'list': {
             const project = args[2]
             if (!project) {
@@ -393,7 +405,7 @@ async function main() {
           }
           default:
             console.error(`Unknown keyword subcommand: ${subcommand ?? '(none)'}`)
-            console.log('Available: add, list, import, generate')
+            console.log('Available: add, remove, list, import, generate')
             process.exit(1)
         }
         break

@@ -208,6 +208,13 @@ export function setKeywords(projectName: string, keywords: string[]): Promise<Ap
   })
 }
 
+export function deleteKeywords(projectName: string, keywords: string[]): Promise<ApiKeyword[]> {
+  return apiFetch(`/projects/${encodeURIComponent(projectName)}/keywords`, {
+    method: 'DELETE',
+    body: JSON.stringify({ keywords }),
+  })
+}
+
 export function appendKeywords(projectName: string, keywords: string[]): Promise<ApiKeyword[]> {
   return apiFetch(`/projects/${encodeURIComponent(projectName)}/keywords`, {
     method: 'POST',
