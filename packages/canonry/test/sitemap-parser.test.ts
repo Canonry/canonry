@@ -43,7 +43,7 @@ describe('fetchAndParseSitemap', () => {
     const s = await createServer({ '/sitemap.xml': xml })
     server = s.server
 
-    const urls = await fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`)
+    const urls = await fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`, { dangerouslyAllowPrivate: true })
     expect(urls.length).toBe(3)
     expect(urls.includes('https://example.com/')).toBeTruthy()
     expect(urls.includes('https://example.com/about')).toBeTruthy()
@@ -61,7 +61,7 @@ describe('fetchAndParseSitemap', () => {
     const s = await createServer({ '/sitemap.xml': xml })
     server = s.server
 
-    const urls = await fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`)
+    const urls = await fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`, { dangerouslyAllowPrivate: true })
     expect(urls.length).toBe(2)
   })
 
@@ -100,7 +100,7 @@ describe('fetchAndParseSitemap', () => {
     })
     server = s.server
 
-    const urls = await fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`)
+    const urls = await fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`, { dangerouslyAllowPrivate: true })
     expect(urls.length).toBe(2)
     expect(urls.includes('https://example.com/page1')).toBeTruthy()
     expect(urls.includes('https://example.com/page2')).toBeTruthy()
@@ -110,7 +110,7 @@ describe('fetchAndParseSitemap', () => {
     const s = await createServer({})
     server = s.server
 
-    await expect(() => fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`)).rejects.toThrow('404')
+    await expect(() => fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`, { dangerouslyAllowPrivate: true })).rejects.toThrow('404')
   })
 
   it('returns empty array for sitemap with no URLs', async () => {
@@ -121,7 +121,24 @@ describe('fetchAndParseSitemap', () => {
     const s = await createServer({ '/sitemap.xml': xml })
     server = s.server
 
-    const urls = await fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`)
+    const urls = await fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`, { dangerouslyAllowPrivate: true })
     expect(urls.length).toBe(0)
+  })
+
+  it('blocks localhost by default (SSRF)', async () => {
+    const s = await createServer({ '/sitemap.xml': '<urlset></urlset>' })
+    server = s.server
+
+    await expect(() => fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`)).rejects.toThrow(/localhost/)
+  })
+
+  it('blocks private IPv4 addresses (SSRF)', async () => {
+    await expect(() => fetchAndParseSitemap('http://10.0.0.1/sitemap.xml')).rejects.toThrow(/private/)
+    await expect(() => fetchAndParseSitemap('http://192.168.1.1/sitemap.xml')).rejects.toThrow(/private/)
+    await expect(() => fetchAndParseSitemap('http://127.0.0.1/sitemap.xml')).rejects.toThrow(/private/)
+  })
+
+  it('blocks IPv6 loopback (SSRF)', async () => {
+    await expect(() => fetchAndParseSitemap('http://[::1]/sitemap.xml')).rejects.toThrow(/private/)
   })
 })
