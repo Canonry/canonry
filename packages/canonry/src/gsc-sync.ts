@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, and, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { runs, projects, gscSearchData, gscUrlInspections } from '@ainyc/canonry-db'
+import { runs, projects, gscSearchData, gscUrlInspections, gscCoverageSnapshots } from '@ainyc/canonry-db'
 import {
   fetchSearchAnalytics,
   inspectUrl,
@@ -177,13 +177,56 @@ export async function executeGscSync(
       }
     }
 
+    // Record coverage snapshot from all inspections for this project (latest per URL)
+    const allInspections = db
+      .select()
+      .from(gscUrlInspections)
+      .where(eq(gscUrlInspections.projectId, projectId))
+      .all()
+
+    const latestByUrl = new Map<string, typeof allInspections[number]>()
+    for (const row of allInspections) {
+      const existing = latestByUrl.get(row.url)
+      if (!existing || row.inspectedAt > existing.inspectedAt) {
+        latestByUrl.set(row.url, row)
+      }
+    }
+
+    let snapIndexed = 0
+    let snapNotIndexed = 0
+    const reasonCounts: Record<string, number> = {}
+    for (const [, row] of latestByUrl) {
+      if (row.indexingState === 'INDEXING_ALLOWED') {
+        snapIndexed++
+      } else {
+        snapNotIndexed++
+        const reason = row.coverageState ?? 'Unknown'
+        reasonCounts[reason] = (reasonCounts[reason] ?? 0) + 1
+      }
+    }
+
+    const snapshotDate = formatDate(new Date())
+    db.delete(gscCoverageSnapshots)
+      .where(and(eq(gscCoverageSnapshots.projectId, projectId), eq(gscCoverageSnapshots.date, snapshotDate)))
+      .run()
+    db.insert(gscCoverageSnapshots).values({
+      id: crypto.randomUUID(),
+      projectId,
+      syncRunId: runId,
+      date: snapshotDate,
+      indexed: snapIndexed,
+      notIndexed: snapNotIndexed,
+      reasonBreakdown: JSON.stringify(reasonCounts),
+      createdAt: new Date().toISOString(),
+    }).run()
+
     // Mark run as completed
     db.update(runs)
       .set({ status: 'completed', finishedAt: new Date().toISOString() })
       .where(eq(runs.id, runId))
       .run()
 
-    console.log(`[GSC Sync] Completed. ${rows.length} search data rows, ${topPages.length} URL inspections.`)
+    console.log(`[GSC Sync] Completed. ${rows.length} search data rows, ${topPages.length} URL inspections, coverage snapshot: ${snapIndexed} indexed / ${snapNotIndexed} not-indexed.`)
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err)
     db.update(runs)

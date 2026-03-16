@@ -62,6 +62,49 @@ export async function keywordRoutes(app: FastifyInstance, opts: KeywordRoutesOpt
     return reply.send(rows.map(r => ({ id: r.id, keyword: r.keyword, createdAt: r.createdAt })))
   })
 
+  // DELETE /projects/:name/keywords — remove specific keywords
+  app.delete<{
+    Params: { name: string }
+    Body: { keywords: string[] }
+  }>('/projects/:name/keywords', async (request, reply) => {
+    const project = resolveProjectSafe(app, request.params.name, reply)
+    if (!project) return
+
+    const body = request.body
+    if (!body || !Array.isArray(body.keywords) || body.keywords.length === 0) {
+      const err = validationError('Body must contain a non-empty "keywords" array')
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
+    const existing = app.db
+      .select()
+      .from(keywords)
+      .where(eq(keywords.projectId, project.id))
+      .all()
+
+    const toDelete = new Set(body.keywords)
+    const idsToDelete = existing.filter(k => toDelete.has(k.keyword)).map(k => k.id)
+
+    if (idsToDelete.length > 0) {
+      app.db.transaction((tx) => {
+        for (const id of idsToDelete) {
+          tx.delete(keywords).where(eq(keywords.id, id)).run()
+        }
+
+        writeAuditLog(tx, {
+          projectId: project.id,
+          actor: 'api',
+          action: 'keywords.deleted',
+          entityType: 'keyword',
+          diff: { deleted: body.keywords.filter(kw => existing.some(e => e.keyword === kw)) },
+        })
+      })
+    }
+
+    const rows = app.db.select().from(keywords).where(eq(keywords.projectId, project.id)).all()
+    return reply.send(rows.map(r => ({ id: r.id, keyword: r.keyword, createdAt: r.createdAt })))
+  })
+
   // POST /projects/:name/keywords — append (skip duplicates)
   app.post<{
     Params: { name: string }

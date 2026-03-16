@@ -178,7 +178,7 @@ export async function initCommand(opts?: InitOptions): Promise<void> {
 
   // Save config
   saveConfig({
-    apiUrl: 'http://localhost:4100',
+    apiUrl: `http://localhost:${process.env.CANONRY_PORT || '4100'}`,
     database: databasePath,
     apiKey: rawApiKey,
     providers,

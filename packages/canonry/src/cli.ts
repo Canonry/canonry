@@ -5,7 +5,7 @@ import { initCommand } from './commands/init.js'
 import { serveCommand } from './commands/serve.js'
 import { startDaemon, stopDaemon } from './commands/daemon.js'
 import { createProject, listProjects, showProject, deleteProject, updateProjectSettings, addLocation, listLocations, removeLocation, setDefaultLocation } from './commands/project.js'
-import { addKeywords, listKeywords, importKeywords, generateKeywords } from './commands/keyword.js'
+import { addKeywords, removeKeywords, listKeywords, importKeywords, generateKeywords } from './commands/keyword.js'
 import { addCompetitors, listCompetitors } from './commands/competitor.js'
 import { triggerRun, triggerRunAll, showRun, listRuns } from './commands/run.js'
 import { showStatus } from './commands/status.js'
@@ -20,7 +20,7 @@ import { telemetryCommand } from './commands/telemetry.js'
 import {
   googleConnect, googleDisconnect, googleStatus, googleProperties,
   googleSetProperty, googleSync, googlePerformance, googleInspect,
-  googleInspections, googleDeindexed, googleCoverage, googleInspectSitemap,
+  googleInspections, googleDeindexed, googleCoverage, googleCoverageHistory, googleInspectSitemap,
 } from './commands/google.js'
 import { trackEvent, isTelemetryEnabled, isFirstRun, getOrCreateAnonymousId, showFirstRunNotice } from './telemetry.js'
 
@@ -44,6 +44,7 @@ Usage:
   canonry project remove-location <name> <label>  Remove a location
   canonry project set-default-location <name> <label>  Set default location
   canonry keyword add <project> <kw>  Add key phrases to a project
+  canonry keyword remove <project> <kw>  Remove key phrases from a project
   canonry keyword list <project>      List key phrases for a project
   canonry keyword import <project> <file>  Import key phrases from file
   canonry keyword generate <project>  Auto-generate key phrases (--provider, --count, --save)
@@ -415,6 +416,17 @@ async function main() {
             await addKeywords(project, kws)
             break
           }
+          case 'remove':
+          case 'delete': {
+            const project = args[2]
+            const kws = args.slice(3).filter((a, i, arr) => !a.startsWith('--') && !(i > 0 && arr[i - 1].startsWith('--')))
+            if (!project || kws.length === 0) {
+              console.error('Error: project name and at least one key phrase required')
+              process.exit(1)
+            }
+            await removeKeywords(project, kws)
+            break
+          }
           case 'list': {
             const project = args[2]
             if (!project) {
@@ -462,7 +474,7 @@ async function main() {
           }
           default:
             console.error(`Unknown keyword subcommand: ${subcommand ?? '(none)'}`)
-            console.log('Available: add, list, import, generate')
+            console.log('Available: add, remove, list, import, generate')
             process.exit(1)
         }
         break
@@ -998,6 +1010,27 @@ async function main() {
             await googleCoverage(project, format)
             break
           }
+          case 'coverage-history': {
+            const project = args[2]
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            const { values: histValues } = parseArgs({
+              args: args.slice(3),
+              options: {
+                limit: { type: 'string' },
+                format: { type: 'string' },
+              },
+              allowPositionals: false,
+            })
+            const limitNum = histValues.limit ? parseInt(histValues.limit, 10) : undefined
+            await googleCoverageHistory(project, {
+              limit: limitNum != null && !Number.isNaN(limitNum) ? limitNum : undefined,
+              format: histValues.format === 'json' ? 'json' : format,
+            })
+            break
+          }
           case 'deindexed': {
             const project = args[2]
             if (!project) {
@@ -1009,7 +1042,7 @@ async function main() {
           }
           default:
             console.error(`Unknown google subcommand: ${subcommand ?? '(none)'}`)
-            console.log('Available: connect, disconnect, status, properties, set-property, sync, performance, inspect, inspect-sitemap, coverage, inspections, deindexed')
+            console.log('Available: connect, disconnect, status, properties, set-property, sync, performance, inspect, inspect-sitemap, coverage, coverage-history, inspections, deindexed')
             process.exit(1)
         }
         break

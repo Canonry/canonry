@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { eq, and } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { runs, projects, gscUrlInspections } from '@ainyc/canonry-db'
+import { runs, projects, gscUrlInspections, gscCoverageSnapshots } from '@ainyc/canonry-db'
 import {
   inspectUrl,
   refreshAccessToken,
@@ -116,6 +116,49 @@ export async function executeInspectSitemap(
       }
     }
 
+    // Record coverage snapshot
+    const allInspections = db
+      .select()
+      .from(gscUrlInspections)
+      .where(eq(gscUrlInspections.projectId, projectId))
+      .all()
+
+    const latestByUrl = new Map<string, typeof allInspections[number]>()
+    for (const row of allInspections) {
+      const existing = latestByUrl.get(row.url)
+      if (!existing || row.inspectedAt > existing.inspectedAt) {
+        latestByUrl.set(row.url, row)
+      }
+    }
+
+    let snapIndexed = 0
+    let snapNotIndexed = 0
+    const reasonCounts: Record<string, number> = {}
+    for (const [, row] of latestByUrl) {
+      if (row.indexingState === 'INDEXING_ALLOWED') {
+        snapIndexed++
+      } else {
+        snapNotIndexed++
+        const reason = row.coverageState ?? 'Unknown'
+        reasonCounts[reason] = (reasonCounts[reason] ?? 0) + 1
+      }
+    }
+
+    const snapshotDate = new Date().toISOString().split('T')[0]!
+    db.delete(gscCoverageSnapshots)
+      .where(and(eq(gscCoverageSnapshots.projectId, projectId), eq(gscCoverageSnapshots.date, snapshotDate)))
+      .run()
+    db.insert(gscCoverageSnapshots).values({
+      id: crypto.randomUUID(),
+      projectId,
+      syncRunId: runId,
+      date: snapshotDate,
+      indexed: snapIndexed,
+      notIndexed: snapNotIndexed,
+      reasonBreakdown: JSON.stringify(reasonCounts),
+      createdAt: new Date().toISOString(),
+    }).run()
+
     // Mark run as completed (or partial if some failed)
     const status = errors > 0 && inspected > 0 ? 'partial' : errors === urls.length ? 'failed' : 'completed'
     db.update(runs)
@@ -123,7 +166,7 @@ export async function executeInspectSitemap(
       .where(eq(runs.id, runId))
       .run()
 
-    console.log(`[Inspect Sitemap] Done. ${inspected} inspected, ${errors} errors out of ${urls.length} URLs.`)
+    console.log(`[Inspect Sitemap] Done. ${inspected} inspected, ${errors} errors out of ${urls.length} URLs. Coverage: ${snapIndexed} indexed / ${snapNotIndexed} not-indexed.`)
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err)
     db.update(runs)

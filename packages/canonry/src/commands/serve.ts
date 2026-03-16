@@ -7,6 +7,7 @@ export async function serveCommand(): Promise<void> {
   const config = loadConfig()
   const port = parseInt(process.env.CANONRY_PORT ?? '4100', 10)
   const host = process.env.CANONRY_HOST ?? '127.0.0.1'
+  config.port = port
 
   // Create DB client and run migrations
   const db = createClient(config.database)

@@ -53,6 +53,89 @@ describe('canonry', () => {
     }
   })
 
+  it('loadConfig rewrites apiUrl port when CANONRY_PORT is set', () => {
+    const tmpDir = path.join(os.tmpdir(), `canonry-port-${crypto.randomUUID()}`)
+    fs.mkdirSync(tmpDir, { recursive: true })
+    const originalConfigDir = process.env.CANONRY_CONFIG_DIR
+    const originalPort = process.env.CANONRY_PORT
+    process.env.CANONRY_CONFIG_DIR = tmpDir
+    process.env.CANONRY_PORT = '5000'
+
+    const yaml = `apiUrl: 'http://localhost:4100'\ndatabase: /tmp/test.db\napiKey: cnry_testkey\n`
+    fs.writeFileSync(path.join(tmpDir, 'config.yaml'), yaml)
+
+    try {
+      const config = loadConfig()
+      assert.equal(config.apiUrl, 'http://localhost:5000')
+    } finally {
+      restoreEnvVar('CANONRY_CONFIG_DIR', originalConfigDir)
+      restoreEnvVar('CANONRY_PORT', originalPort)
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('loadConfig leaves apiUrl unchanged when CANONRY_PORT is not set', () => {
+    const tmpDir = path.join(os.tmpdir(), `canonry-port-${crypto.randomUUID()}`)
+    fs.mkdirSync(tmpDir, { recursive: true })
+    const originalConfigDir = process.env.CANONRY_CONFIG_DIR
+    const originalPort = process.env.CANONRY_PORT
+    process.env.CANONRY_CONFIG_DIR = tmpDir
+    delete process.env.CANONRY_PORT
+
+    const yaml = `apiUrl: 'http://localhost:4100'\ndatabase: /tmp/test.db\napiKey: cnry_testkey\n`
+    fs.writeFileSync(path.join(tmpDir, 'config.yaml'), yaml)
+
+    try {
+      const config = loadConfig()
+      assert.equal(config.apiUrl, 'http://localhost:4100')
+    } finally {
+      restoreEnvVar('CANONRY_CONFIG_DIR', originalConfigDir)
+      restoreEnvVar('CANONRY_PORT', originalPort)
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('loadConfig leaves apiUrl unchanged when apiUrl is malformed and CANONRY_PORT is set', () => {
+    const tmpDir = path.join(os.tmpdir(), `canonry-port-${crypto.randomUUID()}`)
+    fs.mkdirSync(tmpDir, { recursive: true })
+    const originalConfigDir = process.env.CANONRY_CONFIG_DIR
+    const originalPort = process.env.CANONRY_PORT
+    process.env.CANONRY_CONFIG_DIR = tmpDir
+    process.env.CANONRY_PORT = '5000'
+
+    const yaml = `apiUrl: 'not-a-valid-url'\ndatabase: /tmp/test.db\napiKey: cnry_testkey\n`
+    fs.writeFileSync(path.join(tmpDir, 'config.yaml'), yaml)
+
+    try {
+      const config = loadConfig()
+      assert.equal(config.apiUrl, 'not-a-valid-url')
+    } finally {
+      restoreEnvVar('CANONRY_CONFIG_DIR', originalConfigDir)
+      restoreEnvVar('CANONRY_PORT', originalPort)
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('initCommand embeds CANONRY_PORT into saved apiUrl', async () => {
+    const tmpDir = path.join(os.tmpdir(), `canonry-init-port-${crypto.randomUUID()}`)
+    const originalConfigDir = process.env.CANONRY_CONFIG_DIR
+    const originalPort = process.env.CANONRY_PORT
+    process.env.CANONRY_CONFIG_DIR = tmpDir
+    process.env.CANONRY_PORT = '5555'
+
+    try {
+      await initCommand({ force: true, geminiKey: 'test-gemini-key' })
+
+      delete process.env.CANONRY_PORT
+      const config = loadConfig()
+      assert.equal(config.apiUrl, 'http://localhost:5555')
+    } finally {
+      restoreEnvVar('CANONRY_CONFIG_DIR', originalConfigDir)
+      restoreEnvVar('CANONRY_PORT', originalPort)
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
   it('bootstrapCommand creates config and replaces the default API key on force', async () => {
     const tmpDir = path.join(os.tmpdir(), `canonry-bootstrap-${crypto.randomUUID()}`)
     const originalConfigDir = process.env.CANONRY_CONFIG_DIR

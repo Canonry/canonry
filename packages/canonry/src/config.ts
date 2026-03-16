@@ -116,6 +116,19 @@ export function loadConfig(): CanonryConfig {
 
   normalizeGoogleConfig(parsed)
 
+  // Honor CANONRY_PORT env var — overrides apiUrl port so that CLI client
+  // commands (status, run, etc.) connect to the same port as `canonry serve --port`.
+  const portOverride = process.env.CANONRY_PORT?.trim()
+  if (portOverride) {
+    try {
+      const url = new URL(parsed.apiUrl)
+      url.port = portOverride
+      parsed.apiUrl = url.origin
+    } catch {
+      // invalid URL in config, leave as-is
+    }
+  }
+
   return parsed
 }
 

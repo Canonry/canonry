@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, and, desc, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { gscSearchData, gscUrlInspections, runs } from '@ainyc/canonry-db'
+import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, runs } from '@ainyc/canonry-db'
 import { validationError, notFound } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import {
@@ -650,6 +650,25 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       inspectedAt: r.inspectedAt,
     })
 
+    // Group not-indexed by coverageState reason
+    const reasonMap = new Map<string, typeof allInspections>()
+    for (const row of notIndexedUrls) {
+      const reason = row.coverageState ?? 'Unknown'
+      const existing = reasonMap.get(reason)
+      if (existing) {
+        existing.push(row)
+      } else {
+        reasonMap.set(reason, [row])
+      }
+    }
+    const reasonGroups = Array.from(reasonMap.entries())
+      .map(([reason, urls]) => ({
+        reason,
+        count: urls.length,
+        urls: urls.map(formatRow),
+      }))
+      .sort((a, b) => b.count - a.count)
+
     return {
       summary: {
         total,
@@ -662,7 +681,35 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       indexed: indexedUrls.map(formatRow),
       notIndexed: notIndexedUrls.map(formatRow),
       deindexed: deindexedUrls,
+      reasonGroups,
     }
+  })
+
+  // GET /projects/:name/google/gsc/coverage/history
+  app.get<{
+    Params: { name: string }
+    Querystring: { limit?: string }
+  }>('/projects/:name/google/gsc/coverage/history', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const parsed = parseInt(request.query.limit ?? '90', 10)
+    const limit = Number.isNaN(parsed) || parsed <= 0 ? 90 : parsed
+
+    const rows = app.db
+      .select()
+      .from(gscCoverageSnapshots)
+      .where(eq(gscCoverageSnapshots.projectId, project.id))
+      .orderBy(desc(gscCoverageSnapshots.date))
+      .limit(limit)
+      .all()
+
+    return rows
+      .map((r) => ({
+        date: r.date,
+        indexed: r.indexed,
+        notIndexed: r.notIndexed,
+        reasonBreakdown: JSON.parse(r.reasonBreakdown) as Record<string, number>,
+      }))
+      .reverse()
   })
 
   // POST /projects/:name/google/gsc/inspect-sitemap

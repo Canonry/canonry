@@ -53,6 +53,13 @@ export const gscDeindexedRowSchema = z.object({
   transitionDate: z.string(),
 })
 
+export const gscReasonGroupSchema = z.object({
+  reason: z.string(),
+  count: z.number(),
+  urls: z.array(gscUrlInspectionDtoSchema).default([]),
+})
+export type GscReasonGroup = z.infer<typeof gscReasonGroupSchema>
+
 export const gscCoverageSummaryDtoSchema = z.object({
   summary: z.object({
     total: z.number(),
@@ -65,5 +72,14 @@ export const gscCoverageSummaryDtoSchema = z.object({
   indexed: z.array(gscUrlInspectionDtoSchema).default([]),
   notIndexed: z.array(gscUrlInspectionDtoSchema).default([]),
   deindexed: z.array(gscDeindexedRowSchema).default([]),
+  reasonGroups: z.array(gscReasonGroupSchema).default([]),
 })
 export type GscCoverageSummaryDto = z.infer<typeof gscCoverageSummaryDtoSchema>
+
+export const gscCoverageSnapshotDtoSchema = z.object({
+  date: z.string(),
+  indexed: z.number(),
+  notIndexed: z.number(),
+  reasonBreakdown: z.record(z.string(), z.number()).default({}),
+})
+export type GscCoverageSnapshotDto = z.infer<typeof gscCoverageSnapshotDtoSchema>

@@ -27,6 +27,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { createDashboardFixture, findEvidenceById, findProjectVm, findRunById } from './mock-data.js'
 import {
   appendKeywords,
+  deleteKeywords,
   createProject,
   fetchAllRuns,
   triggerAllRuns,
@@ -65,6 +66,7 @@ import {
   fetchGscInspections,
   fetchGscDeindexed,
   fetchGscCoverage,
+  fetchGscCoverageHistory,
   triggerInspectSitemap,
   addLocation,
   removeLocation,
@@ -945,11 +947,13 @@ function EvidencePhraseCard({
   items,
   onOpenEvidence,
   showLocationLabels = true,
+  onDeleteKeyword,
 }: {
   phrase: string
   items: CitationInsightVm[]
   onOpenEvidence: (evidenceId: string) => void
   showLocationLabels?: boolean
+  onDeleteKeyword?: () => void
 }) {
   const states = items.map(i => i.citationState)
   const aggState: CitationState =
@@ -1008,6 +1012,17 @@ function EvidencePhraseCard({
             </span>
           </div>
         </div>
+        {onDeleteKeyword && (
+          <button
+            type="button"
+            className="ml-2 shrink-0 text-zinc-600 hover:text-rose-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-rose-500"
+            onClick={onDeleteKeyword}
+            title={`Remove "${phrase}"`}
+            aria-label={`Remove key phrase "${phrase}"`}
+          >
+            ×
+          </button>
+        )}
       </div>
 
       <div className="evidence-card-timeline-row">
@@ -1046,10 +1061,12 @@ function EvidencePhraseCards({
   evidence,
   onOpenEvidence,
   showLocationLabels = true,
+  onDeleteKeyword,
 }: {
   evidence: CitationInsightVm[]
   onOpenEvidence: (evidenceId: string) => void
   showLocationLabels?: boolean
+  onDeleteKeyword?: (phrase: string) => void
 }) {
   const groups = useMemo(() => {
     const map = new Map<string, CitationInsightVm[]>()
@@ -1073,6 +1090,7 @@ function EvidencePhraseCards({
           items={items}
           onOpenEvidence={onOpenEvidence}
           showLocationLabels={showLocationLabels}
+          onDeleteKeyword={onDeleteKeyword ? () => onDeleteKeyword(phrase) : undefined}
         />
       ))}
     </div>
@@ -1595,6 +1613,7 @@ function ProjectPage({
   onTriggerRun,
   onDeleteProject,
   onAddKeywords,
+  onDeleteKeywords,
   onAddCompetitors,
   onUpdateOwnedDomains,
   onUpdateProject,
@@ -1607,6 +1626,7 @@ function ProjectPage({
   onTriggerRun: (projectName: string) => Promise<void>
   onDeleteProject: (projectName: string) => void
   onAddKeywords: (projectName: string, keywords: string[]) => Promise<void>
+  onDeleteKeywords: (projectName: string, keywords: string[]) => Promise<void>
   onAddCompetitors: (projectName: string, domains: string[]) => Promise<void>
   onUpdateOwnedDomains: (projectName: string, ownedDomains: string[]) => Promise<void>
   onUpdateProject: (projectName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null }) => Promise<void>
@@ -1619,6 +1639,7 @@ function ProjectPage({
   const [addingKeywords, setAddingKeywords] = useState(false)
   const [newKeywordText, setNewKeywordText] = useState('')
   const [keywordSaving, setKeywordSaving] = useState(false)
+  const [keywordDeleting, setKeywordDeleting] = useState<string | null>(null)
   const [addingCompetitor, setAddingCompetitor] = useState(false)
   const [newCompetitorDomain, setNewCompetitorDomain] = useState('')
   const [competitorSaving, setCompetitorSaving] = useState(false)
@@ -1638,6 +1659,15 @@ function ProjectPage({
     a.click()
     URL.revokeObjectURL(url)
   }
+  async function handleDeleteKeyword(phrase: string) {
+    setKeywordDeleting(phrase)
+    try {
+      await onDeleteKeywords(model.project.name, [phrase])
+    } finally {
+      setKeywordDeleting(null)
+    }
+  }
+
   async function handleAddKeywords() {
     const keywords = newKeywordText.split('\n').map(k => k.trim()).filter(Boolean)
     if (keywords.length === 0) return
@@ -1975,6 +2005,7 @@ function ProjectPage({
               }
               onOpenEvidence={onOpenEvidence}
               showLocationLabels={locationFilter === undefined}
+              onDeleteKeyword={keywordDeleting ? undefined : handleDeleteKeyword}
             />
           </section>
 
@@ -2089,6 +2120,8 @@ function GscSection({
   const [inspectingSitemap, setInspectingSitemap] = useState(false)
   const [sitemapUrlInput, setSitemapUrlInput] = useState('')
   const [coverageTab, setCoverageTab] = useState<'indexed' | 'notIndexed' | 'deindexed'>('indexed')
+  const [coverageHistory, setCoverageHistory] = useState<Array<{ date: string; indexed: number; notIndexed: number; reasonBreakdown: Record<string, number> }>>([])
+  const [selectedReason, setSelectedReason] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -2158,10 +2191,15 @@ function GscSection({
   async function loadCoverage() {
     setLoadingCoverage(true)
     try {
-      const data = await fetchGscCoverage(projectName)
+      const [data, history] = await Promise.all([
+        fetchGscCoverage(projectName),
+        fetchGscCoverageHistory(projectName).catch(() => []),
+      ])
       setCoverage(data)
+      setCoverageHistory(history)
     } catch {
       setCoverage(null)
+      setCoverageHistory([])
     } finally {
       setLoadingCoverage(false)
     }
@@ -2548,27 +2586,85 @@ function GscSection({
 
                 {coverage && coverage.summary.total > 0 ? (
                   <>
-                    <table className="data-table mt-3 w-full text-sm">
-                      <thead>
-                        <tr>
-                          <th className="text-left">Total URLs</th>
-                          <th className="text-left">Indexed</th>
-                          <th className="text-left">Not Indexed</th>
-                          <th className="text-left">Coverage</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td className="tabular-nums text-zinc-200">{coverage.summary.total}</td>
-                          <td className="tabular-nums text-emerald-400">{coverage.summary.indexed}</td>
-                          <td className="tabular-nums text-amber-400">{coverage.summary.notIndexed}</td>
-                          <td className={`tabular-nums ${
-                            coverage.summary.percentage >= 80 ? 'text-emerald-400' : coverage.summary.percentage >= 50 ? 'text-amber-400' : 'text-rose-400'
-                          }`}>{coverage.summary.percentage}%</td>
-                        </tr>
-                      </tbody>
-                    </table>
+                    {/* Split header bar — Indexed vs Not Indexed */}
+                    <div className="mt-3">
+                      <div className="flex items-stretch overflow-hidden rounded-lg border border-zinc-800/60">
+                        {coverage.summary.indexed > 0 && (
+                          <div
+                            className="flex items-center gap-2 bg-emerald-950/40 border-r border-zinc-800/60 px-4 py-3"
+                            style={{ flexBasis: `${(coverage.summary.indexed / coverage.summary.total) * 100}%` }}
+                          >
+                            <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500 shrink-0" />
+                            <div className="min-w-0">
+                              <p className="text-xs uppercase tracking-wide text-emerald-400/70">Indexed</p>
+                              <p className="text-lg font-semibold tabular-nums text-emerald-400">{coverage.summary.indexed.toLocaleString()}</p>
+                            </div>
+                          </div>
+                        )}
+                        {coverage.summary.notIndexed > 0 && (
+                          <div
+                            className="flex items-center gap-2 bg-zinc-900/40 px-4 py-3"
+                            style={{ flexBasis: `${(coverage.summary.notIndexed / coverage.summary.total) * 100}%` }}
+                          >
+                            <span className="inline-block h-2.5 w-2.5 rounded-full bg-zinc-500 shrink-0" />
+                            <div className="min-w-0">
+                              <p className="text-xs uppercase tracking-wide text-zinc-500">Not indexed</p>
+                              <p className="text-lg font-semibold tabular-nums text-zinc-300">
+                                {coverage.summary.notIndexed.toLocaleString()}
+                                {(coverage.reasonGroups ?? []).length > 0 && (
+                                  <span className="ml-1 text-xs font-normal text-zinc-500">
+                                    · {(coverage.reasonGroups ?? []).length} {(coverage.reasonGroups ?? []).length === 1 ? 'reason' : 'reasons'}
+                                  </span>
+                                )}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      {coverage.summary.deindexed > 0 && (
+                        <p className="mt-1.5 text-xs text-rose-400">
+                          {coverage.summary.deindexed} page{coverage.summary.deindexed !== 1 ? 's' : ''} recently lost indexing
+                        </p>
+                      )}
+                    </div>
 
+                    {/* Stacked bar chart — pages over time */}
+                    {coverageHistory.length > 1 && (
+                      <div className="mt-4">
+                        <p className="text-xs uppercase tracking-wide text-zinc-500 mb-2">Pages over time</p>
+                        <div className="relative h-36 w-full">
+                          {(() => {
+                            const maxTotal = Math.max(...coverageHistory.map((h) => h.indexed + h.notIndexed), 1)
+                            const barCount = coverageHistory.length
+                            const gap = 2
+                            return (
+                              <svg viewBox={`0 0 ${barCount * 12 + gap} 140`} className="h-full w-full" preserveAspectRatio="none">
+                                {coverageHistory.map((snap, i) => {
+                                  const total = snap.indexed + snap.notIndexed
+                                  const h = (total / maxTotal) * 128
+                                  const indexedH = total > 0 ? (snap.indexed / total) * h : 0
+                                  const notIndexedH = h - indexedH
+                                  const x = i * 12 + gap
+                                  return (
+                                    <g key={snap.date}>
+                                      <title>{`${snap.date}\nIndexed: ${snap.indexed}\nNot indexed: ${snap.notIndexed}`}</title>
+                                      <rect x={x} y={128 - h} width={10} height={notIndexedH} rx={1} fill="#3f3f46" />
+                                      <rect x={x} y={128 - h + notIndexedH} width={10} height={indexedH} rx={1} fill="#10b981" />
+                                    </g>
+                                  )
+                                })}
+                              </svg>
+                            )
+                          })()}
+                          <div className="flex justify-between text-[10px] text-zinc-600 mt-0.5 px-0.5">
+                            <span>{coverageHistory[0]?.date}</span>
+                            <span>{coverageHistory[coverageHistory.length - 1]?.date}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Tab pills */}
                     <div className="mt-3 flex gap-1">
                       {(['indexed', 'notIndexed', 'deindexed'] as const).map((tab) => {
                         const count = tab === 'indexed' ? coverage.indexed.length
@@ -2584,7 +2680,7 @@ function GscSection({
                                 ? 'bg-zinc-700 text-zinc-100'
                                 : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
                             }`}
-                            onClick={() => setCoverageTab(tab)}
+                            onClick={() => { setCoverageTab(tab); setSelectedReason(null) }}
                           >
                             {label} ({count})
                           </button>
@@ -2593,6 +2689,7 @@ function GscSection({
                     </div>
 
                     <div className="mt-3 overflow-x-auto">
+                      {/* Indexed URL table */}
                       {coverageTab === 'indexed' && coverage.indexed.length > 0 && (
                         <table className="data-table w-full text-sm">
                           <thead>
@@ -2615,7 +2712,33 @@ function GscSection({
                           </tbody>
                         </table>
                       )}
-                      {coverageTab === 'notIndexed' && coverage.notIndexed.length > 0 && (
+
+                      {/* Not Indexed — reason groups + detail drill-down */}
+                      {coverageTab === 'notIndexed' && !selectedReason && (coverage.reasonGroups ?? []).length > 0 && (
+                        <table className="data-table w-full text-sm">
+                          <thead>
+                            <tr>
+                              <th className="text-left">Reason</th>
+                              <th className="text-right">Pages</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(coverage.reasonGroups ?? []).map((group) => (
+                              <tr
+                                key={group.reason}
+                                className="cursor-pointer hover:bg-zinc-800/40"
+                                onClick={() => setSelectedReason(group.reason)}
+                              >
+                                <td className="text-zinc-200">{group.reason}</td>
+                                <td className="text-right tabular-nums text-zinc-400">{group.count}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+
+                      {/* Not Indexed — no reason groups, show flat list */}
+                      {coverageTab === 'notIndexed' && !selectedReason && (coverage.reasonGroups ?? []).length === 0 && coverage.notIndexed.length > 0 && (
                         <table className="data-table w-full text-sm">
                           <thead>
                             <tr>
@@ -2635,6 +2758,75 @@ function GscSection({
                           </tbody>
                         </table>
                       )}
+
+                      {/* Reason detail view — drill-down for a specific reason */}
+                      {coverageTab === 'notIndexed' && selectedReason && (() => {
+                        const group = (coverage.reasonGroups ?? []).find((g) => g.reason === selectedReason)
+                        if (!group) return null
+                        return (
+                          <div>
+                            <div className="flex items-center gap-2 mb-3">
+                              <button
+                                type="button"
+                                className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+                                onClick={() => setSelectedReason(null)}
+                              >
+                                ← Back to reasons
+                              </button>
+                            </div>
+                            <div className="mb-3 rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+                              <p className="text-sm font-medium text-zinc-200">{group.reason}</p>
+                              <p className="mt-1 text-xs text-zinc-500">{group.count} affected page{group.count !== 1 ? 's' : ''}</p>
+                            </div>
+
+                            {/* Reason trend from historical snapshots */}
+                            {coverageHistory.length > 1 && (() => {
+                              const reasonTrend = coverageHistory
+                                .map((snap) => ({ date: snap.date, count: snap.reasonBreakdown[selectedReason] ?? 0 }))
+                                .filter((_, i, arr) => i === 0 || i === arr.length - 1 || arr[i]!.count > 0)
+                              const maxCount = Math.max(...reasonTrend.map((r) => r.count), 1)
+                              if (reasonTrend.length < 2) return null
+                              return (
+                                <div className="mb-3">
+                                  <p className="text-xs uppercase tracking-wide text-zinc-500 mb-1">Affected pages over time</p>
+                                  <div className="h-20 w-full">
+                                    <svg viewBox={`0 0 ${reasonTrend.length * 12 + 2} 80`} className="h-full w-full" preserveAspectRatio="none">
+                                      {reasonTrend.map((pt, i) => {
+                                        const h = (pt.count / maxCount) * 68
+                                        return (
+                                          <g key={pt.date}>
+                                            <title>{`${pt.date}: ${pt.count} pages`}</title>
+                                            <rect x={i * 12 + 2} y={68 - h} width={10} height={h} rx={1} fill="#f59e0b" />
+                                          </g>
+                                        )
+                                      })}
+                                    </svg>
+                                  </div>
+                                </div>
+                              )
+                            })()}
+
+                            <table className="data-table w-full text-sm">
+                              <thead>
+                                <tr>
+                                  <th className="text-left">URL</th>
+                                  <th className="text-left">Last Crawl</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {group.urls.map((row) => (
+                                  <tr key={row.id}>
+                                    <td className="max-w-sm truncate text-zinc-200">{row.url}</td>
+                                    <td className="text-zinc-400">{row.crawlTime ? row.crawlTime.split('T')[0] : '—'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )
+                      })()}
+
+                      {/* Deindexed table */}
                       {coverageTab === 'deindexed' && coverage.deindexed.length > 0 && (
                         <table className="data-table w-full text-sm">
                           <thead>
@@ -2658,7 +2850,7 @@ function GscSection({
                         </table>
                       )}
                       {((coverageTab === 'indexed' && coverage.indexed.length === 0) ||
-                        (coverageTab === 'notIndexed' && coverage.notIndexed.length === 0) ||
+                        (coverageTab === 'notIndexed' && !selectedReason && coverage.notIndexed.length === 0) ||
                         (coverageTab === 'deindexed' && coverage.deindexed.length === 0)) && (
                         <p className="text-sm text-zinc-500">No URLs in this category.</p>
                       )}
@@ -5576,6 +5768,11 @@ export function App({
     await refreshData()
   }
 
+  const handleDeleteKeywords = async (projectName: string, keywords: string[]) => {
+    await deleteKeywords(projectName, keywords)
+    await refreshData()
+  }
+
   const handleAddCompetitors = async (projectName: string, domains: string[]) => {
     const existing = await fetchCompetitors(projectName)
     const existingDomains = existing.map(c => c.domain)
@@ -5810,7 +6007,7 @@ export function App({
                 />
               ) : null}
               {route.kind === 'project' && activeProject ? (
-                <ProjectPage model={activeProject} tab={route.tab} onOpenEvidence={openEvidence} onOpenRun={openRun} onTriggerRun={handleTriggerRun} onDeleteProject={handleDeleteProject} onAddKeywords={handleAddKeywords} onAddCompetitors={handleAddCompetitors} onUpdateOwnedDomains={handleUpdateOwnedDomains} onUpdateProject={handleUpdateProject} onNavigate={navigate} />
+                <ProjectPage model={activeProject} tab={route.tab} onOpenEvidence={openEvidence} onOpenRun={openRun} onTriggerRun={handleTriggerRun} onDeleteProject={handleDeleteProject} onAddKeywords={handleAddKeywords} onDeleteKeywords={handleDeleteKeywords} onAddCompetitors={handleAddCompetitors} onUpdateOwnedDomains={handleUpdateOwnedDomains} onUpdateProject={handleUpdateProject} onNavigate={navigate} />
               ) : null}
               {route.kind === 'runs' ? <RunsPage runs={safeDashboard.runs} onOpenRun={openRun} onTriggerAll={handleTriggerAllRuns} /> : null}
               {route.kind === 'settings' ? (

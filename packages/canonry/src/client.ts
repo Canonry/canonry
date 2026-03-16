@@ -83,6 +83,10 @@ export class ApiClient {
     return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/keywords`)
   }
 
+  async deleteKeywords(project: string, keywords: string[]): Promise<void> {
+    await this.request<unknown>('DELETE', `/projects/${encodeURIComponent(project)}/keywords`, { keywords })
+  }
+
   async appendKeywords(project: string, keywords: string[]): Promise<void> {
     await this.request<unknown>('POST', `/projects/${encodeURIComponent(project)}/keywords`, { keywords })
   }
@@ -241,6 +245,11 @@ export class ApiClient {
 
   async gscCoverage(project: string): Promise<object> {
     return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/coverage`)
+  }
+
+  async gscCoverageHistory(project: string, params?: { limit?: number }): Promise<object[]> {
+    const qs = params?.limit != null ? `?limit=${params.limit}` : ''
+    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/coverage/history${qs}`)
   }
 
   async gscInspectSitemap(project: string, body?: { sitemapUrl?: string }): Promise<object> {
