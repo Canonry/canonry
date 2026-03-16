@@ -22,6 +22,7 @@ export const runDtoSchema = z.object({
   kind: runKindSchema,
   status: runStatusSchema,
   trigger: runTriggerSchema.default('manual'),
+  location: z.string().nullable().optional(),
   startedAt: z.string().nullable().optional(),
   finishedAt: z.string().nullable().optional(),
   error: z.string().nullable().optional(),

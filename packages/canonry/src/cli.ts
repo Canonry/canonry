@@ -52,7 +52,7 @@ Usage:
   canonry run <project>               Trigger a run (all providers)
   canonry run <project> --provider <name>  Trigger a run for a specific provider
   canonry run <project> --location <label> Run with a specific location
-  canonry run <project> --all-locations    Run for every configured location
+  canonry run <project> --all-locations    Run for every configured location (N× API calls)
   canonry run <project> --no-location      Explicitly skip location context
   canonry run <project> --wait        Trigger and wait for completion
   canonry run --all                   Trigger runs for all projects

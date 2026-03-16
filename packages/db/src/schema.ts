@@ -45,6 +45,7 @@ export const runs = sqliteTable('runs', {
   kind: text('kind').notNull().default('answer-visibility'),
   status: text('status').notNull().default('queued'),
   trigger: text('trigger').notNull().default('manual'),
+  location: text('location'),
   startedAt: text('started_at'),
   finishedAt: text('finished_at'),
   error: text('error'),

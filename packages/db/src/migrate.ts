@@ -201,6 +201,8 @@ const MIGRATIONS = [
   `ALTER TABLE projects ADD COLUMN locations TEXT NOT NULL DEFAULT '[]'`,
   `ALTER TABLE projects ADD COLUMN default_location TEXT`,
   `ALTER TABLE query_snapshots ADD COLUMN location TEXT`,
+  // v8: Add location column to runs for per-location run tracking
+  `ALTER TABLE runs ADD COLUMN location TEXT`,
 ]
 
 export function migrate(db: DatabaseClient) {

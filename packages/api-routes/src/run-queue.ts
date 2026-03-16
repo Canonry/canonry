@@ -8,6 +8,7 @@ export interface QueueRunParams {
   kind?: string
   trigger?: string
   createdAt?: string
+  location?: string | null
 }
 
 export type QueueRunResult =
@@ -42,6 +43,7 @@ export function queueRunIfProjectIdle(db: DatabaseClient, params: QueueRunParams
       kind,
       status: 'queued',
       trigger,
+      location: params.location ?? null,
       createdAt,
     }).run()
 

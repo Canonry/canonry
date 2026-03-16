@@ -288,7 +288,7 @@ function toneFromCitationState(state: CitationInsightVm['citationState']): Metri
     case 'cited':
       return 'positive'
     case 'emerging':
-      return 'positive'
+      return 'caution'
     case 'not-cited':
       return 'caution'
     case 'lost':
@@ -621,7 +621,7 @@ function RunRow({
           <div>
             <p className="run-row-title">{run.summary}</p>
             <p className="run-row-subtitle">
-              {run.projectName} · {run.kindLabel}
+              {run.projectName}{run.location ? ` · ${run.location}` : ''} · {run.kindLabel}
             </p>
           </div>
           <StatusBadge status={run.status} />
@@ -742,27 +742,34 @@ function CitationTimeline({ history, maxDots = 12 }: { history: RunHistoryPoint[
     cited: 'bg-emerald-400',
     'not-cited': 'bg-zinc-600',
     lost: 'bg-rose-400',
-    emerging: 'bg-emerald-400 ring-1 ring-emerald-300/60',
+    emerging: 'bg-amber-400 ring-1 ring-amber-300/60',
   }
 
+  const firstDate = new Date(dots[0].createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  const lastDate = new Date(dots[dots.length - 1].createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+
   return (
-    <div className="flex items-center gap-[3px]" title={`${dots.length} runs`}>
-      {dots.map((d, i) => (
-        <div
-          key={i}
-          className={`h-2.5 w-2.5 rounded-sm ${colorMap[d.citationState] ?? 'bg-zinc-700'} ${
-            d.model && i > 0 && dots[i - 1]?.model && dots[i - 1]!.model !== d.model
-              ? 'ring-1 ring-amber-300/80 ring-offset-1 ring-offset-zinc-950'
-              : ''
-          }`}
-          title={[
-            d.citationState,
-            new Date(d.createdAt).toLocaleDateString(),
-            d.model ? `model ${d.model}` : null,
-            d.model && i > 0 && dots[i - 1]?.model && dots[i - 1]!.model !== d.model ? 'model changed' : null,
-          ].filter(Boolean).join(' — ')}
-        />
-      ))}
+    <div className="flex items-center gap-1">
+      <span className="text-[9px] text-zinc-600 shrink-0">{firstDate}</span>
+      <div className="flex items-center gap-[3px]" title={`${dots.length} runs`}>
+        {dots.map((d, i) => (
+          <div
+            key={i}
+            className={`h-2.5 w-2.5 rounded-sm ${colorMap[d.citationState] ?? 'bg-zinc-700'} ${
+              d.model && i > 0 && dots[i - 1]?.model && dots[i - 1]!.model !== d.model
+                ? 'ring-1 ring-amber-300/80 ring-offset-1 ring-offset-zinc-950'
+                : ''
+            }`}
+            title={[
+              d.citationState,
+              new Date(d.createdAt).toLocaleDateString(),
+              d.model ? `model ${d.model}` : null,
+              d.model && i > 0 && dots[i - 1]?.model && dots[i - 1]!.model !== d.model ? 'model changed' : null,
+            ].filter(Boolean).join(' — ')}
+          />
+        ))}
+      </div>
+      <span className="text-[9px] text-zinc-600 shrink-0">{lastDate}</span>
     </div>
   )
 }
@@ -937,10 +944,12 @@ function EvidencePhraseCard({
   phrase,
   items,
   onOpenEvidence,
+  showLocationLabels = true,
 }: {
   phrase: string
   items: CitationInsightVm[]
   onOpenEvidence: (evidenceId: string) => void
+  showLocationLabels?: boolean
 }) {
   const states = items.map(i => i.citationState)
   const aggState: CitationState =
@@ -1018,7 +1027,7 @@ function EvidencePhraseCard({
             title={`View ${item.provider} evidence for "${phrase}"`}
           >
             <span className="capitalize">{item.provider}</span>
-            {item.location && <span className="text-[9px] opacity-60">{item.location}</span>}
+            {item.location && showLocationLabels && <span className="text-[9px] opacity-60">{item.location}</span>}
             <span aria-hidden="true" className="font-bold">
               {item.citationState === 'cited' || item.citationState === 'emerging' ? '✓' : item.citationState === 'lost' ? '✗' : '–'}
             </span>
@@ -1036,9 +1045,11 @@ function EvidencePhraseCard({
 function EvidencePhraseCards({
   evidence,
   onOpenEvidence,
+  showLocationLabels = true,
 }: {
   evidence: CitationInsightVm[]
   onOpenEvidence: (evidenceId: string) => void
+  showLocationLabels?: boolean
 }) {
   const groups = useMemo(() => {
     const map = new Map<string, CitationInsightVm[]>()
@@ -1061,6 +1072,7 @@ function EvidencePhraseCards({
           phrase={phrase}
           items={items}
           onOpenEvidence={onOpenEvidence}
+          showLocationLabels={showLocationLabels}
         />
       ))}
     </div>
@@ -1962,6 +1974,7 @@ function ProjectPage({
                 : model.visibilityEvidence
               }
               onOpenEvidence={onOpenEvidence}
+              showLocationLabels={locationFilter === undefined}
             />
           </section>
 
@@ -5029,9 +5042,10 @@ function EvidenceDetailModal({
               <div className="flex items-center gap-1 overflow-x-auto pb-1">
                 {history.map((run, i) => {
                   const isSelected = (selectedRunIdx === -1 && i === history.length - 1) || selectedRunIdx === i
-                  const dotColor = run.citationState === 'cited' || run.citationState === 'emerging'
-                    ? 'bg-emerald-400' : run.citationState === 'lost'
-                      ? 'bg-rose-400' : 'bg-zinc-600'
+                  const dotColor = run.citationState === 'cited'
+                    ? 'bg-emerald-400' : run.citationState === 'emerging'
+                      ? 'bg-amber-400' : run.citationState === 'lost'
+                        ? 'bg-rose-400' : 'bg-zinc-600'
                   const date = new Date(run.createdAt)
                   const label = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
                   const modelChanged = Boolean(run.model && i > 0 && history[i - 1]?.model && history[i - 1]!.model !== run.model)

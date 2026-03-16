@@ -88,6 +88,7 @@ export interface ApiRun {
   kind: string
   status: string
   trigger: string
+  location: string | null
   startedAt: string | null
   finishedAt: string | null
   error: string | null

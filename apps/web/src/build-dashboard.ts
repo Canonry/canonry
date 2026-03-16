@@ -83,6 +83,7 @@ function toRunListItem(run: ApiRun, projectName: string): RunListItemVm {
     kindLabel: kindLabel(run.kind),
     status: run.status as RunListItemVm['status'],
     trigger: (run.trigger ?? 'manual') as RunListItemVm['trigger'],
+    location: run.location ?? null,
     createdAt: run.createdAt,
     startedAt: run.startedAt ? formatDate(run.startedAt) : formatDate(run.createdAt),
     duration: formatDuration(run.startedAt, run.finishedAt),

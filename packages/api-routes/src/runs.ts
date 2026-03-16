@@ -75,6 +75,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
           kind,
           status: 'queued',
           trigger,
+          location: loc.label,
           createdAt: now,
         }).run()
         newRuns.push({ runId, loc })
@@ -98,11 +99,13 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       return reply.status(207).send(results)
     }
 
+    const locationLabel = resolvedLocation?.label ?? null
     const queueResult = queueRunIfProjectIdle(app.db, {
       createdAt: now,
       kind,
       projectId: project.id,
       trigger,
+      location: locationLabel,
     })
 
     if (queueResult.conflict) {
@@ -265,6 +268,7 @@ function formatRun(row: {
   kind: string
   status: string
   trigger: string
+  location: string | null
   startedAt: string | null
   finishedAt: string | null
   error: string | null
@@ -276,6 +280,7 @@ function formatRun(row: {
     kind: row.kind,
     status: row.status,
     trigger: row.trigger,
+    location: row.location,
     startedAt: row.startedAt,
     finishedAt: row.finishedAt,
     error: row.error,

@@ -19,6 +19,7 @@ export async function triggerRun(project: string, opts?: { provider?: string; wa
   }
   if (opts?.allLocations) {
     body.allLocations = true
+    process.stderr.write('Note: --all-locations runs a full sweep per location, multiplying API calls.\n')
   }
   if (opts?.noLocation) {
     body.noLocation = true
