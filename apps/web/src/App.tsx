@@ -27,6 +27,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { createDashboardFixture, findEvidenceById, findProjectVm, findRunById } from './mock-data.js'
 import {
   appendKeywords,
+  deleteKeywords,
   createProject,
   fetchAllRuns,
   triggerAllRuns,
@@ -933,10 +934,12 @@ function EvidencePhraseCard({
   phrase,
   items,
   onOpenEvidence,
+  onDeleteKeyword,
 }: {
   phrase: string
   items: CitationInsightVm[]
   onOpenEvidence: (evidenceId: string) => void
+  onDeleteKeyword?: () => void
 }) {
   const states = items.map(i => i.citationState)
   const aggState: CitationState =
@@ -995,6 +998,17 @@ function EvidencePhraseCard({
             </span>
           </div>
         </div>
+        {onDeleteKeyword && (
+          <button
+            type="button"
+            className="ml-2 shrink-0 text-zinc-600 hover:text-rose-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-rose-500"
+            onClick={onDeleteKeyword}
+            title={`Remove "${phrase}"`}
+            aria-label={`Remove key phrase "${phrase}"`}
+          >
+            ×
+          </button>
+        )}
       </div>
 
       <div className="evidence-card-timeline-row">
@@ -1031,9 +1045,11 @@ function EvidencePhraseCard({
 function EvidencePhraseCards({
   evidence,
   onOpenEvidence,
+  onDeleteKeyword,
 }: {
   evidence: CitationInsightVm[]
   onOpenEvidence: (evidenceId: string) => void
+  onDeleteKeyword?: (phrase: string) => void
 }) {
   const groups = useMemo(() => {
     const map = new Map<string, CitationInsightVm[]>()
@@ -1056,6 +1072,7 @@ function EvidencePhraseCards({
           phrase={phrase}
           items={items}
           onOpenEvidence={onOpenEvidence}
+          onDeleteKeyword={onDeleteKeyword ? () => onDeleteKeyword(phrase) : undefined}
         />
       ))}
     </div>
@@ -1578,6 +1595,7 @@ function ProjectPage({
   onTriggerRun,
   onDeleteProject,
   onAddKeywords,
+  onDeleteKeywords,
   onAddCompetitors,
   onUpdateOwnedDomains,
   onUpdateProject,
@@ -1590,6 +1608,7 @@ function ProjectPage({
   onTriggerRun: (projectName: string) => Promise<void>
   onDeleteProject: (projectName: string) => void
   onAddKeywords: (projectName: string, keywords: string[]) => Promise<void>
+  onDeleteKeywords: (projectName: string, keywords: string[]) => Promise<void>
   onAddCompetitors: (projectName: string, domains: string[]) => Promise<void>
   onUpdateOwnedDomains: (projectName: string, ownedDomains: string[]) => Promise<void>
   onUpdateProject: (projectName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; country?: string; language?: string }) => Promise<void>
@@ -1602,6 +1621,7 @@ function ProjectPage({
   const [addingKeywords, setAddingKeywords] = useState(false)
   const [newKeywordText, setNewKeywordText] = useState('')
   const [keywordSaving, setKeywordSaving] = useState(false)
+  const [keywordDeleting, setKeywordDeleting] = useState<string | null>(null)
   const [addingCompetitor, setAddingCompetitor] = useState(false)
   const [newCompetitorDomain, setNewCompetitorDomain] = useState('')
   const [competitorSaving, setCompetitorSaving] = useState(false)
@@ -1620,6 +1640,15 @@ function ProjectPage({
     a.click()
     URL.revokeObjectURL(url)
   }
+  async function handleDeleteKeyword(phrase: string) {
+    setKeywordDeleting(phrase)
+    try {
+      await onDeleteKeywords(model.project.name, [phrase])
+    } finally {
+      setKeywordDeleting(null)
+    }
+  }
+
   async function handleAddKeywords() {
     const keywords = newKeywordText.split('\n').map(k => k.trim()).filter(Boolean)
     if (keywords.length === 0) return
@@ -1919,7 +1948,7 @@ function ProjectPage({
                 </div>
               </div>
             )}
-            <EvidencePhraseCards evidence={model.visibilityEvidence} onOpenEvidence={onOpenEvidence} />
+            <EvidencePhraseCards evidence={model.visibilityEvidence} onOpenEvidence={onOpenEvidence} onDeleteKeyword={keywordDeleting ? undefined : handleDeleteKeyword} />
           </section>
 
           {/* Competitor table */}
@@ -5351,6 +5380,11 @@ export function App({
     await refreshData()
   }
 
+  const handleDeleteKeywords = async (projectName: string, keywords: string[]) => {
+    await deleteKeywords(projectName, keywords)
+    await refreshData()
+  }
+
   const handleAddCompetitors = async (projectName: string, domains: string[]) => {
     const existing = await fetchCompetitors(projectName)
     const existingDomains = existing.map(c => c.domain)
@@ -5585,7 +5619,7 @@ export function App({
                 />
               ) : null}
               {route.kind === 'project' && activeProject ? (
-                <ProjectPage model={activeProject} tab={route.tab} onOpenEvidence={openEvidence} onOpenRun={openRun} onTriggerRun={handleTriggerRun} onDeleteProject={handleDeleteProject} onAddKeywords={handleAddKeywords} onAddCompetitors={handleAddCompetitors} onUpdateOwnedDomains={handleUpdateOwnedDomains} onUpdateProject={handleUpdateProject} onNavigate={navigate} />
+                <ProjectPage model={activeProject} tab={route.tab} onOpenEvidence={openEvidence} onOpenRun={openRun} onTriggerRun={handleTriggerRun} onDeleteProject={handleDeleteProject} onAddKeywords={handleAddKeywords} onDeleteKeywords={handleDeleteKeywords} onAddCompetitors={handleAddCompetitors} onUpdateOwnedDomains={handleUpdateOwnedDomains} onUpdateProject={handleUpdateProject} onNavigate={navigate} />
               ) : null}
               {route.kind === 'runs' ? <RunsPage runs={safeDashboard.runs} onOpenRun={openRun} onTriggerAll={handleTriggerAllRuns} /> : null}
               {route.kind === 'settings' ? (

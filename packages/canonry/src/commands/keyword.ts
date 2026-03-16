@@ -15,8 +15,11 @@ export async function addKeywords(project: string, keywords: string[]): Promise<
 
 export async function removeKeywords(project: string, keywords: string[]): Promise<void> {
   const client = getClient()
+  const existing = await client.listKeywords(project) as Array<{ keyword: string }>
+  const existingSet = new Set(existing.map(k => k.keyword))
+  const actuallyDeleted = keywords.filter(k => existingSet.has(k)).length
   await client.deleteKeywords(project, keywords)
-  console.log(`Removed ${keywords.length} key phrase(s) from "${project}".`)
+  console.log(`Removed ${actuallyDeleted} key phrase(s) from "${project}".`)
 }
 
 export async function listKeywords(project: string, format?: string): Promise<void> {
