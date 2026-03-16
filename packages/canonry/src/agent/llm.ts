@@ -72,12 +72,7 @@ export async function chatCompletion(
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-  }
-
-  if (config.provider === 'gemini') {
-    headers['Authorization'] = `Bearer ${config.apiKey}`
-  } else {
-    headers['Authorization'] = `Bearer ${config.apiKey}`
+    'Authorization': `Bearer ${config.apiKey}`,
   }
 
   const body = {

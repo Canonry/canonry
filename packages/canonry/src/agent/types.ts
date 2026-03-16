@@ -22,13 +22,6 @@ export interface AgentMessage {
   createdAt: string
 }
 
-export interface ToolDefinition {
-  name: string
-  description: string
-  parameters: Record<string, unknown>
-  execute: (args: Record<string, unknown>) => Promise<string>
-}
-
 export interface AgentConfig {
   provider: 'openai' | 'claude' | 'gemini'
   apiKey: string
