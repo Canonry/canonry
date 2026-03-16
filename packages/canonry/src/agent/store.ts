@@ -3,7 +3,7 @@
  */
 
 import crypto from 'node:crypto'
-import { eq, desc, asc } from 'drizzle-orm'
+import { eq, desc, asc, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { agentThreads, agentMessages } from '@ainyc/canonry-db'
 import type { AgentThread, AgentMessage } from './types.js'
@@ -85,12 +85,21 @@ export class AgentStore {
   }
 
   async getMessages(threadId: string, limit = 50): Promise<AgentMessage[]> {
+    // Use a subquery to get the newest N messages, then re-sort ascending
+    // so the LLM sees them in chronological order. Without this, long threads
+    // would return the oldest N messages and drop the user's latest prompt.
     return this.db
       .select()
       .from(agentMessages)
-      .where(eq(agentMessages.threadId, threadId))
+      .where(
+        sql`${agentMessages.id} IN (
+          SELECT ${agentMessages.id} FROM ${agentMessages}
+          WHERE ${agentMessages.threadId} = ${threadId}
+          ORDER BY ${agentMessages.createdAt} DESC
+          LIMIT ${limit}
+        )`,
+      )
       .orderBy(asc(agentMessages.createdAt))
-      .limit(limit)
       .all() as AgentMessage[]
   }
 }

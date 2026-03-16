@@ -210,11 +210,19 @@ function convertToClaudeMessages(
           content.push({ type: 'text', text: msg.content })
         }
         for (const tc of msg.tool_calls) {
+          let input: Record<string, unknown>
+          try {
+            input = JSON.parse(tc.function.arguments) as Record<string, unknown>
+          } catch {
+            // Malformed JSON from a previous turn — send an empty object so the
+            // thread can recover instead of crashing all subsequent turns.
+            input = {}
+          }
           content.push({
             type: 'tool_use',
             id: tc.id,
             name: tc.function.name,
-            input: JSON.parse(tc.function.arguments),
+            input,
           })
         }
         result.push({ role: 'assistant', content })

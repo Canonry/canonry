@@ -128,7 +128,7 @@ export function buildTools(services: AgentServices, client: ApiClient, projectNa
         required: ['runId'],
       },
       execute: async (args) => {
-        const run = await services.getRun(args.runId as string)
+        const run = await services.getRun(args.runId as string, projectName)
         return JSON.stringify(run, null, 2)
       },
     },

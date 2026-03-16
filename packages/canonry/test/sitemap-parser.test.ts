@@ -44,7 +44,7 @@ describe('fetchAndParseSitemap', () => {
     const s = await createServer({ '/sitemap.xml': xml })
     server = s.server
 
-    const urls = await fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`)
+    const urls = await fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`, { dangerouslyAllowPrivate: true })
     assert.equal(urls.length, 3)
     assert.ok(urls.includes('https://example.com/'))
     assert.ok(urls.includes('https://example.com/about'))
@@ -62,7 +62,7 @@ describe('fetchAndParseSitemap', () => {
     const s = await createServer({ '/sitemap.xml': xml })
     server = s.server
 
-    const urls = await fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`)
+    const urls = await fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`, { dangerouslyAllowPrivate: true })
     assert.equal(urls.length, 2)
   })
 
@@ -101,7 +101,7 @@ describe('fetchAndParseSitemap', () => {
     })
     server = s.server
 
-    const urls = await fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`)
+    const urls = await fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`, { dangerouslyAllowPrivate: true })
     assert.equal(urls.length, 2)
     assert.ok(urls.includes('https://example.com/page1'))
     assert.ok(urls.includes('https://example.com/page2'))
@@ -112,8 +112,8 @@ describe('fetchAndParseSitemap', () => {
     server = s.server
 
     await assert.rejects(
-      () => fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`),
-      (err: Error) => err.message.includes('404'),
+      () => fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`, { dangerouslyAllowPrivate: true }),
+      (err: Error) => err.message.includes('404') || err.message.includes('localhost'),
     )
   })
 
@@ -125,7 +125,39 @@ describe('fetchAndParseSitemap', () => {
     const s = await createServer({ '/sitemap.xml': xml })
     server = s.server
 
-    const urls = await fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`)
+    const urls = await fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`, { dangerouslyAllowPrivate: true })
     assert.equal(urls.length, 0)
+  })
+
+  it('blocks localhost by default (SSRF)', async () => {
+    const s = await createServer({ '/sitemap.xml': '<urlset></urlset>' })
+    server = s.server
+
+    await assert.rejects(
+      () => fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`),
+      (err: Error) => err.message.includes('localhost'),
+    )
+  })
+
+  it('blocks private IPv4 addresses (SSRF)', async () => {
+    await assert.rejects(
+      () => fetchAndParseSitemap('http://10.0.0.1/sitemap.xml'),
+      (err: Error) => err.message.includes('private'),
+    )
+    await assert.rejects(
+      () => fetchAndParseSitemap('http://192.168.1.1/sitemap.xml'),
+      (err: Error) => err.message.includes('private'),
+    )
+    await assert.rejects(
+      () => fetchAndParseSitemap('http://127.0.0.1/sitemap.xml'),
+      (err: Error) => err.message.includes('private'),
+    )
+  })
+
+  it('blocks IPv6 loopback (SSRF)', async () => {
+    await assert.rejects(
+      () => fetchAndParseSitemap('http://[::1]/sitemap.xml'),
+      (err: Error) => err.message.includes('private'),
+    )
   })
 })
