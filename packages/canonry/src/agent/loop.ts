@@ -137,6 +137,18 @@ export async function agentChat(
         tool_calls: response.toolCalls,
       })
 
+      // Persist one assistant message per tool call (mirrors the LLM response)
+      for (const toolCall of response.toolCalls) {
+        await store.addMessage({
+          threadId,
+          role: 'assistant',
+          content: '',
+          toolName: toolCall.function.name,
+          toolArgs: toolCall.function.arguments,
+          toolCallId: toolCall.id,
+        })
+      }
+
       for (const toolCall of response.toolCalls) {
         const toolName = toolCall.function.name
         const toolArgs = JSON.parse(toolCall.function.arguments) as Record<string, unknown>
@@ -157,16 +169,7 @@ export async function agentChat(
           result = `Unknown tool: ${toolName}`
         }
 
-        // Persist tool call and result
-        await store.addMessage({
-          threadId,
-          role: 'assistant',
-          content: `Calling ${toolName}`,
-          toolName,
-          toolArgs: JSON.stringify(toolArgs),
-          toolCallId: toolCall.id,
-        })
-
+        // Persist tool result
         await store.addMessage({
           threadId,
           role: 'tool',

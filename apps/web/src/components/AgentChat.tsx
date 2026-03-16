@@ -142,7 +142,7 @@ export function AgentChat({ projectName, onClose }: AgentChatProps) {
     }
   }
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
@@ -217,7 +217,7 @@ export function AgentChat({ projectName, onClose }: AgentChatProps) {
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyPress={handleKeyPress}
+          onKeyDown={handleKeyDown}
           placeholder="Ask a question..."
           disabled={loading}
           className="agent-input-field"

@@ -10,6 +10,8 @@ import Fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import { apiRoutes } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
+import { projects as projectsTable } from '@ainyc/canonry-db'
+import { eq } from 'drizzle-orm'
 import { geminiAdapter } from '@ainyc/canonry-provider-gemini'
 import { openaiAdapter } from '@ainyc/canonry-provider-openai'
 import { claudeAdapter } from '@ainyc/canonry-provider-claude'
@@ -428,10 +430,6 @@ function buildAgentHandler(
     const agentConf = opts.config.agent ?? {}
     const llmConfig = resolveAgentLlmConfig(opts.config, registry)
     const apiClient = new ApiClient(opts.config.apiUrl, opts.config.apiKey)
-
-    // Resolve project details for the system prompt
-    const { projects: projectsTable } = await import('@ainyc/canonry-db')
-    const { eq } = await import('drizzle-orm')
 
     const project = db.select().from(projectsTable).where(eq(projectsTable.id, projectId)).get()
     if (!project) throw new Error(`Project ${projectId} not found`)
