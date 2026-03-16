@@ -1,19 +1,21 @@
+import crypto from 'node:crypto'
 import { eq, asc } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { runs, querySnapshots, keywords, projects } from '@ainyc/canonry-db'
+import type { LocationContext } from '@ainyc/canonry-contracts'
 import { unsupportedKind, runInProgress, parseProviderName } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { queueRunIfProjectIdle } from './run-queue.js'
 
 export interface RunRoutesOptions {
-  onRunCreated?: (runId: string, projectId: string, providers?: string[]) => void
+  onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: LocationContext | null) => void
 }
 
 export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   // POST /projects/:name/runs — trigger a run
   app.post<{
     Params: { name: string }
-    Body: { kind?: string; trigger?: string; providers?: string[] }
+    Body: { kind?: string; trigger?: string; providers?: string[]; location?: string; allLocations?: boolean; noLocation?: boolean }
   }>('/projects/:name/runs', async (request, reply) => {
     const project = resolveProjectSafe(app, request.params.name, reply)
     if (!project) return
@@ -37,6 +39,64 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       rawProviders.splice(0, rawProviders.length, ...parsed.filter(Boolean) as string[])
     }
     const providers = rawProviders?.length ? rawProviders : undefined
+
+    // Resolve location for this run
+    let resolvedLocation: LocationContext | null | undefined
+    const projectLocations = JSON.parse(project.locations || '[]') as LocationContext[]
+
+    if (request.body?.noLocation) {
+      resolvedLocation = null // explicitly no location
+    } else if (request.body?.allLocations) {
+      // allLocations triggers one run per location — handled below
+    } else if (request.body?.location) {
+      const loc = projectLocations.find(l => l.label === request.body.location)
+      if (!loc) {
+        return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: `Location "${request.body.location}" not found. Configure it first.` } })
+      }
+      resolvedLocation = loc
+    }
+    // else resolvedLocation = undefined → use project default
+
+    // Handle --all-locations: create one run per configured location
+    // Skip the idle-check here — each location gets its own run regardless of other active runs.
+    if (request.body?.allLocations) {
+      if (projectLocations.length === 0) {
+        return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'No locations configured for this project' } })
+      }
+
+      // Insert all run records first, then dispatch — bypassing queueRunIfProjectIdle
+      // which would block after the first run is inserted.
+      const newRuns: Array<{ runId: string; loc: LocationContext }> = []
+      for (const loc of projectLocations) {
+        const runId = crypto.randomUUID()
+        app.db.insert(runs).values({
+          id: runId,
+          projectId: project.id,
+          kind,
+          status: 'queued',
+          trigger,
+          createdAt: now,
+        }).run()
+        newRuns.push({ runId, loc })
+      }
+
+      const results = []
+      for (const { runId, loc } of newRuns) {
+        writeAuditLog(app.db, {
+          projectId: project.id,
+          actor: 'api',
+          action: 'run.created',
+          entityType: 'run',
+          entityId: runId,
+        })
+        const r = app.db.select().from(runs).where(eq(runs.id, runId)).get()!
+        if (opts.onRunCreated) {
+          opts.onRunCreated(runId, project.id, providers, loc)
+        }
+        results.push({ ...formatRun(r), location: loc.label })
+      }
+      return reply.status(207).send(results)
+    }
 
     const queueResult = queueRunIfProjectIdle(app.db, {
       createdAt: now,
@@ -63,7 +123,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     const run = app.db.select().from(runs).where(eq(runs.id, runId)).get()!
 
     if (opts.onRunCreated) {
-      opts.onRunCreated(runId, project.id, providers)
+      opts.onRunCreated(runId, project.id, providers, resolvedLocation)
     }
 
     return reply.status(201).send(formatRun(run))
@@ -165,6 +225,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
         answerText: querySnapshots.answerText,
         citedDomains: querySnapshots.citedDomains,
         competitorOverlap: querySnapshots.competitorOverlap,
+        location: querySnapshots.location,
         rawResponse: querySnapshots.rawResponse,
         createdAt: querySnapshots.createdAt,
       })
@@ -188,6 +249,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
           citedDomains: tryParseJson(s.citedDomains, []),
           competitorOverlap: tryParseJson(s.competitorOverlap, []),
           model: s.model ?? rawParsed.model,
+          location: s.location,
           groundingSources: rawParsed.groundingSources,
           searchQueries: rawParsed.searchQueries,
           createdAt: s.createdAt,

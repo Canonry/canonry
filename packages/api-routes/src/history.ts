@@ -33,7 +33,7 @@ export async function historyRoutes(app: FastifyInstance) {
   // GET /projects/:name/snapshots — query snapshots for project (paginated)
   app.get<{
     Params: { name: string }
-    Querystring: { limit?: string; offset?: string }
+    Querystring: { limit?: string; offset?: string; location?: string }
   }>('/projects/:name/snapshots', async (request, reply) => {
     const project = resolveProjectSafe(app, request.params.name, reply)
     if (!project) return
@@ -65,6 +65,7 @@ export async function historyRoutes(app: FastifyInstance) {
         answerText: querySnapshots.answerText,
         citedDomains: querySnapshots.citedDomains,
         competitorOverlap: querySnapshots.competitorOverlap,
+        location: querySnapshots.location,
         createdAt: querySnapshots.createdAt,
       })
       .from(querySnapshots)
@@ -73,8 +74,14 @@ export async function historyRoutes(app: FastifyInstance) {
       .orderBy(desc(querySnapshots.createdAt))
       .all()
 
-    const total = allSnapshots.length
-    const paged = allSnapshots.slice(offset, offset + limit)
+    // Filter by location if requested
+    const locationFilter = request.query.location
+    const filtered = locationFilter !== undefined
+      ? allSnapshots.filter(s => s.location === (locationFilter || null))
+      : allSnapshots
+
+    const total = filtered.length
+    const paged = filtered.slice(offset, offset + limit)
 
     return reply.send({
       snapshots: paged.map(s => ({
@@ -88,6 +95,7 @@ export async function historyRoutes(app: FastifyInstance) {
         answerText: s.answerText,
         citedDomains: tryParseJson(s.citedDomains, [] as string[]),
         competitorOverlap: tryParseJson(s.competitorOverlap, [] as string[]),
+        location: s.location,
         createdAt: s.createdAt,
       })),
       total,
@@ -95,7 +103,7 @@ export async function historyRoutes(app: FastifyInstance) {
   })
 
   // GET /projects/:name/timeline — per-keyword citation state over time
-  app.get<{ Params: { name: string } }>('/projects/:name/timeline', async (request, reply) => {
+  app.get<{ Params: { name: string }; Querystring: { location?: string } }>('/projects/:name/timeline', async (request, reply) => {
     const project = resolveProjectSafe(app, request.params.name, reply)
     if (!project) return
 
@@ -121,11 +129,17 @@ export async function historyRoutes(app: FastifyInstance) {
     const runIds = new Set(projectRuns.map(r => r.id))
 
     // Get snapshots for these runs
-    const allSnapshots = app.db
+    const rawSnapshots = app.db
       .select()
       .from(querySnapshots)
       .where(inArray(querySnapshots.runId, [...runIds]))
       .all()
+
+    // Filter by location if requested
+    const timelineLocationFilter = request.query.location
+    const allSnapshots = timelineLocationFilter !== undefined
+      ? rawSnapshots.filter(s => s.location === (timelineLocationFilter || null))
+      : rawSnapshots
 
     // Deduplicate to one entry per (runId, keywordId) before building transitions so that
     // multi-provider runs don't produce spurious transition events within a single run.

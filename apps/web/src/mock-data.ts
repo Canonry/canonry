@@ -42,6 +42,8 @@ const projects: ProjectDto[] = [
     language: 'en',
     tags: ['local intent', 'priority'],
     labels: {},
+    locations: [],
+    defaultLocation: null,
     configSource: 'cli',
     configRevision: 1,
   },
@@ -54,6 +56,8 @@ const projects: ProjectDto[] = [
     language: 'en',
     tags: ['lead gen'],
     labels: {},
+    locations: [],
+    defaultLocation: null,
     configSource: 'cli',
     configRevision: 1,
   },
@@ -66,6 +70,8 @@ const projects: ProjectDto[] = [
     language: 'en',
     tags: ['multi-location'],
     labels: {},
+    locations: [],
+    defaultLocation: null,
     configSource: 'cli',
     configRevision: 1,
   },
@@ -177,6 +183,7 @@ const citypointEvidence: CitationInsightVm[] = [
     keyword: 'emergency dentist brooklyn',
     provider: 'gemini',
     model: 'gemini-3-flash',
+    location: null,
     citationState: 'lost',
     changeLabel: 'Lost since Mar 5',
     answerSnippet:
@@ -201,6 +208,7 @@ const citypointEvidence: CitationInsightVm[] = [
     keyword: 'emergency dentist brooklyn',
     provider: 'openai',
     model: 'gpt-5.4',
+    location: null,
     citationState: 'cited',
     changeLabel: 'Cited for 6 runs',
     answerSnippet:
@@ -218,6 +226,7 @@ const citypointEvidence: CitationInsightVm[] = [
     keyword: 'emergency dentist brooklyn',
     provider: 'claude',
     model: 'claude-sonnet-4-6',
+    location: null,
     citationState: 'not-cited',
     changeLabel: 'No citation across 12 runs',
     answerSnippet:
@@ -237,6 +246,7 @@ const citypointEvidence: CitationInsightVm[] = [
     keyword: 'best invisalign dentist downtown brooklyn',
     provider: 'openai',
     model: 'gpt-5.4',
+    location: null,
     citationState: 'emerging',
     changeLabel: 'First citation in 7 days',
     answerSnippet:
@@ -260,6 +270,7 @@ const citypointEvidence: CitationInsightVm[] = [
     keyword: 'best invisalign dentist downtown brooklyn',
     provider: 'gemini',
     model: 'gemini-3-flash',
+    location: null,
     citationState: 'cited',
     changeLabel: 'Cited for 8 runs',
     answerSnippet:
@@ -277,6 +288,7 @@ const citypointEvidence: CitationInsightVm[] = [
     keyword: 'best invisalign dentist downtown brooklyn',
     provider: 'claude',
     model: 'claude-sonnet-4-6',
+    location: null,
     citationState: 'not-cited',
     changeLabel: 'No citation across 12 runs',
     answerSnippet:
@@ -296,6 +308,7 @@ const citypointEvidence: CitationInsightVm[] = [
     keyword: 'pediatric dentist brooklyn heights',
     provider: 'claude',
     model: 'claude-sonnet-4-6',
+    location: null,
     citationState: 'not-cited',
     changeLabel: 'No citation across 4 runs',
     answerSnippet:
@@ -319,6 +332,7 @@ const citypointEvidence: CitationInsightVm[] = [
     keyword: 'pediatric dentist brooklyn heights',
     provider: 'gemini',
     model: 'gemini-3-flash',
+    location: null,
     citationState: 'not-cited',
     changeLabel: 'No citation across 12 runs',
     answerSnippet:
@@ -336,6 +350,7 @@ const citypointEvidence: CitationInsightVm[] = [
     keyword: 'pediatric dentist brooklyn heights',
     provider: 'openai',
     model: 'gpt-5.4',
+    location: null,
     citationState: 'cited',
     changeLabel: 'First citation this month',
     answerSnippet:
@@ -521,6 +536,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         keyword: 'brooklyn personal injury lawyer',
         provider: 'gemini',
         model: 'gemini-3-flash',
+        location: null,
         citationState: 'cited',
         changeLabel: 'Held for 5 runs',
         answerSnippet:
@@ -600,6 +616,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         keyword: 'knee replacement surgeon westchester',
         provider: 'openai',
         model: 'gpt-5.4',
+        location: null,
         citationState: 'emerging',
         changeLabel: 'Improving',
         answerSnippet:

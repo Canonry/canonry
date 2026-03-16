@@ -2,7 +2,8 @@ import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { projects, keywords, competitors, schedules, notifications } from '@ainyc/canonry-db'
-import { validationError } from '@ainyc/canonry-contracts'
+import { validationError, locationContextSchema } from '@ainyc/canonry-contracts'
+import type { LocationContext } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 
 export interface ProjectRoutesOptions {
@@ -22,6 +23,8 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       tags?: string[]
       labels?: Record<string, string>
       providers?: string[]
+      locations?: LocationContext[]
+      defaultLocation?: string | null
       configSource?: string
     }
   }>('/projects/:name', async (request, reply) => {
@@ -52,6 +55,8 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         tags: JSON.stringify(body.tags ?? []),
         labels: JSON.stringify(body.labels ?? {}),
         providers: JSON.stringify(body.providers ?? []),
+        locations: JSON.stringify(body.locations ?? JSON.parse(existing.locations || '[]')),
+        defaultLocation: body.defaultLocation !== undefined ? (body.defaultLocation ?? null) : existing.defaultLocation,
         configSource: body.configSource ?? 'api',
         configRevision: existing.configRevision + 1,
         updatedAt: now,
@@ -81,6 +86,8 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       tags: JSON.stringify(body.tags ?? []),
       labels: JSON.stringify(body.labels ?? {}),
       providers: JSON.stringify(body.providers ?? []),
+      locations: JSON.stringify(body.locations ?? []),
+      defaultLocation: body.defaultLocation ?? null,
       configSource: body.configSource ?? 'api',
       configRevision: 1,
       createdAt: now,
@@ -145,6 +152,163 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     return reply.status(204).send()
   })
 
+  // POST /projects/:name/locations — add location
+  app.post<{
+    Params: { name: string }
+    Body: LocationContext
+  }>('/projects/:name/locations', async (request, reply) => {
+    let project: ReturnType<typeof resolveProject>
+    try {
+      project = resolveProject(app.db, request.params.name)
+    } catch (e: unknown) {
+      if (e && typeof e === 'object' && 'statusCode' in e && 'toJSON' in e) {
+        const err = e as { statusCode: number; toJSON(): unknown }
+        return reply.status(err.statusCode).send(err.toJSON())
+      }
+      throw e
+    }
+
+    const parsed = locationContextSchema.safeParse(request.body)
+    if (!parsed.success) {
+      const err = validationError(parsed.error.issues.map(i => i.message).join(', '))
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
+    const location = parsed.data
+    const existing = JSON.parse(project.locations || '[]') as LocationContext[]
+    if (existing.some(l => l.label === location.label)) {
+      const err = validationError(`Location "${location.label}" already exists`)
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
+    existing.push(location)
+    const now = new Date().toISOString()
+    app.db.update(projects).set({
+      locations: JSON.stringify(existing),
+      updatedAt: now,
+    }).where(eq(projects.id, project.id)).run()
+
+    writeAuditLog(app.db, {
+      projectId: project.id,
+      actor: 'api',
+      action: 'location.added',
+      entityType: 'location',
+      entityId: location.label,
+    })
+
+    return reply.status(201).send(location)
+  })
+
+  // GET /projects/:name/locations — list locations
+  app.get<{ Params: { name: string } }>('/projects/:name/locations', async (request, reply) => {
+    let project: ReturnType<typeof resolveProject>
+    try {
+      project = resolveProject(app.db, request.params.name)
+    } catch (e: unknown) {
+      if (e && typeof e === 'object' && 'statusCode' in e && 'toJSON' in e) {
+        const err = e as { statusCode: number; toJSON(): unknown }
+        return reply.status(err.statusCode).send(err.toJSON())
+      }
+      throw e
+    }
+
+    const locations = JSON.parse(project.locations || '[]') as LocationContext[]
+    return reply.send({
+      locations,
+      defaultLocation: project.defaultLocation,
+    })
+  })
+
+  // DELETE /projects/:name/locations/:label — remove location
+  app.delete<{
+    Params: { name: string; label: string }
+  }>('/projects/:name/locations/:label', async (request, reply) => {
+    let project: ReturnType<typeof resolveProject>
+    try {
+      project = resolveProject(app.db, request.params.name)
+    } catch (e: unknown) {
+      if (e && typeof e === 'object' && 'statusCode' in e && 'toJSON' in e) {
+        const err = e as { statusCode: number; toJSON(): unknown }
+        return reply.status(err.statusCode).send(err.toJSON())
+      }
+      throw e
+    }
+
+    const label = decodeURIComponent(request.params.label)
+    const existing = JSON.parse(project.locations || '[]') as LocationContext[]
+    const filtered = existing.filter(l => l.label !== label)
+    if (filtered.length === existing.length) {
+      const err = validationError(`Location "${label}" not found`)
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
+    const now = new Date().toISOString()
+    const updates: Record<string, unknown> = {
+      locations: JSON.stringify(filtered),
+      updatedAt: now,
+    }
+    // Clear default if the removed location was the default
+    if (project.defaultLocation === label) {
+      updates.defaultLocation = null
+    }
+    app.db.update(projects).set(updates).where(eq(projects.id, project.id)).run()
+
+    writeAuditLog(app.db, {
+      projectId: project.id,
+      actor: 'api',
+      action: 'location.removed',
+      entityType: 'location',
+      entityId: label,
+    })
+
+    return reply.status(204).send()
+  })
+
+  // PUT /projects/:name/locations/default — set default location
+  app.put<{
+    Params: { name: string }
+    Body: { label: string }
+  }>('/projects/:name/locations/default', async (request, reply) => {
+    let project: ReturnType<typeof resolveProject>
+    try {
+      project = resolveProject(app.db, request.params.name)
+    } catch (e: unknown) {
+      if (e && typeof e === 'object' && 'statusCode' in e && 'toJSON' in e) {
+        const err = e as { statusCode: number; toJSON(): unknown }
+        return reply.status(err.statusCode).send(err.toJSON())
+      }
+      throw e
+    }
+
+    const label = request.body?.label
+    if (!label) {
+      const err = validationError('label is required')
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
+    const existing = JSON.parse(project.locations || '[]') as LocationContext[]
+    if (!existing.some(l => l.label === label)) {
+      const err = validationError(`Location "${label}" not found. Add it first.`)
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
+    const now = new Date().toISOString()
+    app.db.update(projects).set({
+      defaultLocation: label,
+      updatedAt: now,
+    }).where(eq(projects.id, project.id)).run()
+
+    writeAuditLog(app.db, {
+      projectId: project.id,
+      actor: 'api',
+      action: 'location.default-set',
+      entityType: 'location',
+      entityId: label,
+    })
+
+    return reply.send({ defaultLocation: label })
+  })
+
   // GET /projects/:name/export — export as canonry.yaml format
   app.get<{ Params: { name: string } }>('/projects/:name/export', async (request, reply) => {
     let project: ReturnType<typeof resolveProject>
@@ -179,6 +343,8 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         keywords: kws.map(k => k.keyword),
         competitors: comps.map(c => c.domain),
         providers: JSON.parse(project.providers || '[]') as string[],
+        locations: JSON.parse(project.locations || '[]') as LocationContext[],
+        ...(project.defaultLocation ? { defaultLocation: project.defaultLocation } : {}),
         notifications: notificationRows.map((row) => {
           const cfg = JSON.parse(row.config) as { url: string; events: string[] }
           return {
@@ -212,6 +378,8 @@ function formatProject(row: {
   tags: string
   labels: string
   providers: string
+  locations: string
+  defaultLocation: string | null
   configSource: string
   configRevision: number
   createdAt: string
@@ -228,6 +396,8 @@ function formatProject(row: {
     tags: JSON.parse(row.tags) as string[],
     labels: JSON.parse(row.labels) as Record<string, string>,
     providers: JSON.parse(row.providers || '[]') as string[],
+    locations: JSON.parse(row.locations || '[]') as LocationContext[],
+    defaultLocation: row.defaultLocation,
     configSource: row.configSource,
     configRevision: row.configRevision,
     createdAt: row.createdAt,

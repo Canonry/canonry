@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { locationContextSchema } from './provider.js'
 
 export const configSourceSchema = z.enum(['cli', 'api', 'config-file'])
 export type ConfigSource = z.infer<typeof configSourceSchema>
@@ -13,6 +14,8 @@ export const projectDtoSchema = z.object({
   language: z.string().min(2),
   tags: z.array(z.string()).default([]),
   labels: z.record(z.string(), z.string()).default({}),
+  locations: z.array(locationContextSchema).default([]),
+  defaultLocation: z.string().nullable().optional(),
   configSource: configSourceSchema.default('cli'),
   configRevision: z.number().int().positive().default(1),
   createdAt: z.string().optional(),
