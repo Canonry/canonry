@@ -69,7 +69,7 @@ export async function executeTrackedQuery(input: LocalTrackedQueryInput): Promis
       },
       {
         role: 'user',
-        content: buildPrompt(input.keyword),
+        content: buildPrompt(input.keyword, input.location),
       },
     ],
   })
@@ -98,8 +98,9 @@ export function normalizeResult(raw: LocalRawResult): LocalNormalizedResult {
 
 // --- Internal helpers ---
 
-function buildPrompt(keyword: string): string {
-  return `Based on your training knowledge, what websites, services, or organizations are commonly associated with "${keyword}"? List the most relevant ones and include their domain names (e.g. example.com) where you know them.`
+function buildPrompt(keyword: string, location?: import('./types.js').LocalTrackedQueryInput['location']): string {
+  const locationContext = location ? ` The user is searching from ${location.city}, ${location.region}, ${location.country}.` : ''
+  return `Based on your training knowledge, what websites, services, or organizations are commonly associated with "${keyword}"?${locationContext} List the most relevant ones and include their domain names (e.g. example.com) where you know them.`
 }
 
 function extractAnswerText(rawResponse: Record<string, unknown>): string {

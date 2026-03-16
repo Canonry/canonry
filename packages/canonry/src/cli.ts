@@ -4,7 +4,7 @@ import { bootstrapCommand } from './commands/bootstrap.js'
 import { initCommand } from './commands/init.js'
 import { serveCommand } from './commands/serve.js'
 import { startDaemon, stopDaemon } from './commands/daemon.js'
-import { createProject, listProjects, showProject, deleteProject, updateProjectSettings } from './commands/project.js'
+import { createProject, listProjects, showProject, deleteProject, updateProjectSettings, addLocation, listLocations, removeLocation, setDefaultLocation } from './commands/project.js'
 import { addKeywords, listKeywords, importKeywords, generateKeywords } from './commands/keyword.js'
 import { addCompetitors, listCompetitors } from './commands/competitor.js'
 import { triggerRun, triggerRunAll, showRun, listRuns } from './commands/run.js'
@@ -39,6 +39,10 @@ Usage:
   canonry project list                List all projects
   canonry project show <name>         Show project details
   canonry project delete <name>       Delete a project
+  canonry project add-location <name> Add a location (--label, --city, --region, --country)
+  canonry project locations <name>    List locations for a project
+  canonry project remove-location <name> <label>  Remove a location
+  canonry project set-default-location <name> <label>  Set default location
   canonry keyword add <project> <kw>  Add key phrases to a project
   canonry keyword list <project>      List key phrases for a project
   canonry keyword import <project> <file>  Import key phrases from file
@@ -47,6 +51,9 @@ Usage:
   canonry competitor list <project>   List competitors
   canonry run <project>               Trigger a run (all providers)
   canonry run <project> --provider <name>  Trigger a run for a specific provider
+  canonry run <project> --location <label> Run with a specific location
+  canonry run <project> --all-locations    Run for every configured location (N× API calls)
+  canonry run <project> --no-location      Explicitly skip location context
   canonry run <project> --wait        Trigger and wait for completion
   canonry run --all                   Trigger runs for all projects
   canonry run show <id>               Show run details and snapshots
@@ -107,6 +114,9 @@ Options:
   --language <lang>    Language code (default: en)
   --provider <name>    Provider to use (gemini, openai, claude, local)
   --format <fmt>       Output format: text (default) or json
+  --location <label>   Run with a specific configured location
+  --all-locations      Run for every configured location
+  --no-location        Explicitly skip location context
   --wait               Wait for run to complete before returning
   --all                Run all projects (with 'run' command)
   --include-results    Include results in export
@@ -325,9 +335,68 @@ async function main() {
             await deleteProject(name)
             break
           }
+          case 'add-location': {
+            const name = args[2]
+            if (!name) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            const { values: locValues } = parseArgs({
+              args: args.slice(3),
+              options: {
+                label: { type: 'string' },
+                city: { type: 'string' },
+                region: { type: 'string' },
+                country: { type: 'string' },
+                timezone: { type: 'string' },
+              },
+              allowPositionals: false,
+            })
+            if (!locValues.label || !locValues.city || !locValues.region || !locValues.country) {
+              console.error('Error: --label, --city, --region, and --country are all required')
+              process.exit(1)
+            }
+            await addLocation(name, {
+              label: locValues.label,
+              city: locValues.city,
+              region: locValues.region,
+              country: locValues.country,
+              timezone: locValues.timezone,
+            })
+            break
+          }
+          case 'locations': {
+            const name = args[2]
+            if (!name) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            await listLocations(name, format)
+            break
+          }
+          case 'remove-location': {
+            const name = args[2]
+            const label = args[3]
+            if (!name || !label) {
+              console.error('Error: project name and location label are required')
+              process.exit(1)
+            }
+            await removeLocation(name, label)
+            break
+          }
+          case 'set-default-location': {
+            const name = args[2]
+            const label = args[3]
+            if (!name || !label) {
+              console.error('Error: project name and location label are required')
+              process.exit(1)
+            }
+            await setDefaultLocation(name, label)
+            break
+          }
           default:
             console.error(`Unknown project subcommand: ${subcommand ?? '(none)'}`)
-            console.log('Available: create, update, list, show, delete')
+            console.log('Available: create, update, list, show, delete, add-location, locations, remove-location, set-default-location')
             process.exit(1)
         }
         break
@@ -447,6 +516,9 @@ async function main() {
             provider: { type: 'string' },
             wait: { type: 'boolean', default: false },
             all: { type: 'boolean', default: false },
+            location: { type: 'string' },
+            'all-locations': { type: 'boolean', default: false },
+            'no-location': { type: 'boolean', default: false },
             format: { type: 'string' },
           },
           allowPositionals: true,
@@ -473,6 +545,9 @@ async function main() {
           await triggerRun(project, {
             provider: runParsed.values.provider,
             wait: runParsed.values.wait,
+            location: runParsed.values.location,
+            allLocations: runParsed.values['all-locations'],
+            noLocation: runParsed.values['no-location'],
             format: runFormat,
           })
         }

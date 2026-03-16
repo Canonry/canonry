@@ -39,10 +39,27 @@ export interface ProviderConfig {
   quotaPolicy: ProviderQuotaPolicy
 }
 
+export interface LocationContext {
+  label: string
+  city: string
+  region: string
+  country: string
+  timezone?: string
+}
+
+export const locationContextSchema = z.object({
+  label: z.string().min(1),
+  city: z.string().min(1),
+  region: z.string().min(1),
+  country: z.string().length(2),
+  timezone: z.string().optional(),
+})
+
 export interface TrackedQueryInput {
   keyword: string
   canonicalDomains: string[]
   competitorDomains: string[]
+  location?: LocationContext
 }
 
 export interface RawQueryResult {

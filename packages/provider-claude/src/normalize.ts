@@ -56,16 +56,25 @@ export async function executeTrackedQuery(input: ClaudeTrackedQueryInput): Promi
   const model = input.config.model ?? DEFAULT_MODEL
   const client = new Anthropic({ apiKey: input.config.apiKey })
 
+  const webSearchTool: Record<string, unknown> = {
+    type: 'web_search_20250305',
+    name: 'web_search',
+    max_uses: 5,
+  }
+  if (input.location) {
+    webSearchTool.user_location = {
+      type: 'approximate',
+      city: input.location.city,
+      region: input.location.region,
+      country: input.location.country,
+      ...(input.location.timezone ? { timezone: input.location.timezone } : {}),
+    }
+  }
+
   const response = await client.messages.create({
     model,
     max_tokens: 4096,
-    tools: [
-      {
-        type: 'web_search_20250305',
-        name: 'web_search',
-        max_uses: 5,
-      } satisfies WebSearchTool20250305,
-    ],
+    tools: [webSearchTool as unknown as WebSearchTool20250305],
     messages: [{ role: 'user', content: input.keyword }],
   })
 

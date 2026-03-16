@@ -254,3 +254,153 @@ test('projectConfigSchema rejects schedule with both preset and cron', () => {
     },
   }))
 })
+
+// --- Location context schema tests ---
+
+import { locationContextSchema } from '../src/index.js'
+
+test('locationContextSchema accepts valid location with all fields', () => {
+  const loc = locationContextSchema.parse({
+    label: 'nyc',
+    city: 'New York',
+    region: 'New York',
+    country: 'US',
+    timezone: 'America/New_York',
+  })
+  assert.equal(loc.label, 'nyc')
+  assert.equal(loc.city, 'New York')
+  assert.equal(loc.region, 'New York')
+  assert.equal(loc.country, 'US')
+  assert.equal(loc.timezone, 'America/New_York')
+})
+
+test('locationContextSchema accepts location without optional timezone', () => {
+  const loc = locationContextSchema.parse({
+    label: 'london',
+    city: 'London',
+    region: 'England',
+    country: 'GB',
+  })
+  assert.equal(loc.timezone, undefined)
+})
+
+test('locationContextSchema rejects country code that is not exactly 2 chars', () => {
+  assert.throws(() => locationContextSchema.parse({
+    label: 'bad',
+    city: 'Berlin',
+    region: 'Berlin',
+    country: 'DEU',
+  }))
+  assert.throws(() => locationContextSchema.parse({
+    label: 'bad',
+    city: 'Berlin',
+    region: 'Berlin',
+    country: 'D',
+  }))
+})
+
+test('locationContextSchema rejects empty required strings', () => {
+  assert.throws(() => locationContextSchema.parse({
+    label: '',
+    city: 'Paris',
+    region: 'Ile-de-France',
+    country: 'FR',
+  }))
+  assert.throws(() => locationContextSchema.parse({
+    label: 'paris',
+    city: '',
+    region: 'Ile-de-France',
+    country: 'FR',
+  }))
+  assert.throws(() => locationContextSchema.parse({
+    label: 'paris',
+    city: 'Paris',
+    region: '',
+    country: 'FR',
+  }))
+})
+
+// --- Project DTO location fields ---
+
+test('projectDtoSchema defaults locations to empty array', () => {
+  const project = projectDtoSchema.parse({
+    id: 'project_1',
+    name: 'test',
+    canonicalDomain: 'example.com',
+    country: 'US',
+    language: 'en',
+  })
+  assert.deepEqual(project.locations, [])
+  assert.equal(project.defaultLocation, undefined)
+})
+
+test('projectDtoSchema accepts locations array and defaultLocation', () => {
+  const project = projectDtoSchema.parse({
+    id: 'project_1',
+    name: 'test',
+    canonicalDomain: 'example.com',
+    country: 'US',
+    language: 'en',
+    locations: [
+      { label: 'nyc', city: 'New York', region: 'New York', country: 'US' },
+      { label: 'london', city: 'London', region: 'England', country: 'GB', timezone: 'Europe/London' },
+    ],
+    defaultLocation: 'nyc',
+  })
+  assert.equal(project.locations.length, 2)
+  assert.equal(project.locations[0].label, 'nyc')
+  assert.equal(project.locations[1].timezone, 'Europe/London')
+  assert.equal(project.defaultLocation, 'nyc')
+})
+
+test('projectDtoSchema accepts null defaultLocation', () => {
+  const project = projectDtoSchema.parse({
+    id: 'project_1',
+    name: 'test',
+    canonicalDomain: 'example.com',
+    country: 'US',
+    language: 'en',
+    defaultLocation: null,
+  })
+  assert.equal(project.defaultLocation, null)
+})
+
+// --- Query snapshot location field ---
+
+test('querySnapshotDtoSchema accepts location string', () => {
+  const snapshot = querySnapshotDtoSchema.parse({
+    id: 'snap_1',
+    runId: 'run_1',
+    keywordId: 'kw_1',
+    provider: 'gemini',
+    citationState: 'cited',
+    location: 'nyc',
+    createdAt: '2026-03-09T00:00:00.000Z',
+  })
+  assert.equal(snapshot.location, 'nyc')
+})
+
+test('querySnapshotDtoSchema defaults location to undefined', () => {
+  const snapshot = querySnapshotDtoSchema.parse({
+    id: 'snap_1',
+    runId: 'run_1',
+    keywordId: 'kw_1',
+    provider: 'openai',
+    citationState: 'not-cited',
+    createdAt: '2026-03-09T00:00:00.000Z',
+  })
+  assert.equal(snapshot.location, undefined)
+})
+
+test('querySnapshotDtoSchema accepts null location', () => {
+  const snapshot = querySnapshotDtoSchema.parse({
+    id: 'snap_1',
+    runId: 'run_1',
+    keywordId: 'kw_1',
+    provider: 'claude',
+    citationState: 'cited',
+    location: null,
+    createdAt: '2026-03-09T00:00:00.000Z',
+  })
+  assert.equal(snapshot.location, null)
+})

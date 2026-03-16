@@ -1,19 +1,20 @@
 import { eq, asc } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { runs, querySnapshots, keywords, projects } from '@ainyc/canonry-db'
+import type { LocationContext } from '@ainyc/canonry-contracts'
 import { unsupportedKind, runInProgress, parseProviderName } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { queueRunIfProjectIdle } from './run-queue.js'
 
 export interface RunRoutesOptions {
-  onRunCreated?: (runId: string, projectId: string, providers?: string[]) => void
+  onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: LocationContext | null) => void
 }
 
 export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   // POST /projects/:name/runs — trigger a run
   app.post<{
     Params: { name: string }
-    Body: { kind?: string; trigger?: string; providers?: string[] }
+    Body: { kind?: string; trigger?: string; providers?: string[]; location?: string; allLocations?: boolean; noLocation?: boolean }
   }>('/projects/:name/runs', async (request, reply) => {
     const project = resolveProjectSafe(app, request.params.name, reply)
     if (!project) return
@@ -38,11 +39,65 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     }
     const providers = rawProviders?.length ? rawProviders : undefined
 
+    // Resolve location for this run
+    let resolvedLocation: LocationContext | null | undefined
+    const projectLocations = JSON.parse(project.locations || '[]') as LocationContext[]
+
+    if (request.body?.noLocation) {
+      resolvedLocation = null // explicitly no location
+    } else if (request.body?.allLocations) {
+      // allLocations triggers one run per location — handled below
+    } else if (request.body?.location) {
+      const loc = projectLocations.find(l => l.label === request.body.location)
+      if (!loc) {
+        return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: `Location "${request.body.location}" not found. Configure it first.` } })
+      }
+      resolvedLocation = loc
+    }
+    // else resolvedLocation = undefined → use project default
+
+    // Handle --all-locations: create one run per configured location
+    if (request.body?.allLocations) {
+      if (projectLocations.length === 0) {
+        return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'No locations configured for this project' } })
+      }
+
+      const results = []
+      for (const loc of projectLocations) {
+        const qr = queueRunIfProjectIdle(app.db, {
+          createdAt: now,
+          kind,
+          projectId: project.id,
+          trigger,
+          location: loc.label,
+        })
+        if (qr.conflict) {
+          results.push({ location: loc.label, status: 'conflict', error: 'run_in_progress' })
+          continue
+        }
+        writeAuditLog(app.db, {
+          projectId: project.id,
+          actor: 'api',
+          action: 'run.created',
+          entityType: 'run',
+          entityId: qr.runId,
+        })
+        const r = app.db.select().from(runs).where(eq(runs.id, qr.runId)).get()!
+        if (opts.onRunCreated) {
+          opts.onRunCreated(qr.runId, project.id, providers, loc)
+        }
+        results.push({ ...formatRun(r), location: loc.label })
+      }
+      return reply.status(207).send(results)
+    }
+
+    const locationLabel = resolvedLocation?.label ?? null
     const queueResult = queueRunIfProjectIdle(app.db, {
       createdAt: now,
       kind,
       projectId: project.id,
       trigger,
+      location: locationLabel,
     })
 
     if (queueResult.conflict) {
@@ -63,7 +118,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     const run = app.db.select().from(runs).where(eq(runs.id, runId)).get()!
 
     if (opts.onRunCreated) {
-      opts.onRunCreated(runId, project.id, providers)
+      opts.onRunCreated(runId, project.id, providers, resolvedLocation)
     }
 
     return reply.status(201).send(formatRun(run))
@@ -165,6 +220,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
         answerText: querySnapshots.answerText,
         citedDomains: querySnapshots.citedDomains,
         competitorOverlap: querySnapshots.competitorOverlap,
+        location: querySnapshots.location,
         rawResponse: querySnapshots.rawResponse,
         createdAt: querySnapshots.createdAt,
       })
@@ -188,6 +244,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
           citedDomains: tryParseJson(s.citedDomains, []),
           competitorOverlap: tryParseJson(s.competitorOverlap, []),
           model: s.model ?? rawParsed.model,
+          location: s.location,
           groundingSources: rawParsed.groundingSources,
           searchQueries: rawParsed.searchQueries,
           createdAt: s.createdAt,
@@ -203,6 +260,7 @@ function formatRun(row: {
   kind: string
   status: string
   trigger: string
+  location: string | null
   startedAt: string | null
   finishedAt: string | null
   error: string | null
@@ -214,6 +272,7 @@ function formatRun(row: {
     kind: row.kind,
     status: row.status,
     trigger: row.trigger,
+    location: row.location,
     startedAt: row.startedAt,
     finishedAt: row.finishedAt,
     error: row.error,

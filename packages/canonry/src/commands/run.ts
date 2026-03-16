@@ -8,11 +8,21 @@ function getClient(): ApiClient {
 
 const TERMINAL_STATUSES = new Set(['completed', 'partial', 'failed'])
 
-export async function triggerRun(project: string, opts?: { provider?: string; wait?: boolean; format?: string }): Promise<void> {
+export async function triggerRun(project: string, opts?: { provider?: string; wait?: boolean; format?: string; location?: string; allLocations?: boolean; noLocation?: boolean }): Promise<void> {
   const client = getClient()
   const body: Record<string, unknown> = {}
   if (opts?.provider) {
     body.providers = [opts.provider]
+  }
+  if (opts?.location) {
+    body.location = opts.location
+  }
+  if (opts?.allLocations) {
+    body.allLocations = true
+    process.stderr.write('Note: --all-locations runs a full sweep per location, multiplying API calls.\n')
+  }
+  if (opts?.noLocation) {
+    body.noLocation = true
   }
   const run = await client.triggerRun(project, body) as {
     id: string

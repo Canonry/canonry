@@ -243,9 +243,9 @@ export async function createServer(opts: {
     },
     providerSummary,
     googleSettingsSummary,
-    onRunCreated: (runId: string, projectId: string, providers?: string[]) => {
+    onRunCreated: (runId: string, projectId: string, providers?: string[], location?: import('@ainyc/canonry-contracts').LocationContext | null) => {
       // Fire and forget — run executes in background
-      jobRunner.executeRun(runId, projectId, providers as ProviderName[] | undefined).catch((err: unknown) => {
+      jobRunner.executeRun(runId, projectId, providers as ProviderName[] | undefined, location).catch((err: unknown) => {
         app.log.error({ runId, err }, 'Job runner failed')
       })
     },

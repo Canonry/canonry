@@ -162,6 +162,22 @@ export class ApiClient {
     return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/notifications/${encodeURIComponent(id)}/test`)
   }
 
+  async addLocation(project: string, body: { label: string; city: string; region: string; country: string; timezone?: string }): Promise<object> {
+    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/locations`, body)
+  }
+
+  async listLocations(project: string): Promise<{ locations: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation: string | null }> {
+    return this.request<{ locations: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation: string | null }>('GET', `/projects/${encodeURIComponent(project)}/locations`)
+  }
+
+  async removeLocation(project: string, label: string): Promise<void> {
+    await this.request<void>('DELETE', `/projects/${encodeURIComponent(project)}/locations/${encodeURIComponent(label)}`)
+  }
+
+  async setDefaultLocation(project: string, label: string): Promise<object> {
+    return this.request<object>('PUT', `/projects/${encodeURIComponent(project)}/locations/default`, { label })
+  }
+
   async getTelemetry(): Promise<{ enabled: boolean; anonymousId?: string }> {
     return this.request<{ enabled: boolean; anonymousId?: string }>('GET', '/telemetry')
   }

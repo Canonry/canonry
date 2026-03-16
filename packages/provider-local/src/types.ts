@@ -1,4 +1,4 @@
-import type { ProviderQuotaPolicy, GroundingSource } from '@ainyc/canonry-contracts'
+import type { ProviderQuotaPolicy, GroundingSource, LocationContext } from '@ainyc/canonry-contracts'
 
 export type { GroundingSource }
 
@@ -21,6 +21,7 @@ export interface LocalTrackedQueryInput {
   canonicalDomains: string[]
   competitorDomains: string[]
   config: LocalConfig
+  location?: LocationContext
 }
 
 export interface LocalRawResult {

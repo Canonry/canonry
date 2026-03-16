@@ -52,6 +52,7 @@ export const claudeAdapter: ProviderAdapter = {
       canonicalDomains: input.canonicalDomains,
       competitorDomains: input.competitorDomains,
       config: toClaudeConfig(config),
+      location: input.location,
     })
     return {
       provider: 'claude',

@@ -197,6 +197,12 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_gsc_inspect_project_url ON gsc_url_inspections(project_id, url)`,
   `CREATE INDEX IF NOT EXISTS idx_gsc_inspect_run ON gsc_url_inspections(sync_run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_gsc_inspect_url_time ON gsc_url_inspections(url, inspected_at)`,
+  // v7: Location-aware sweeps — project locations + snapshot location tag
+  `ALTER TABLE projects ADD COLUMN locations TEXT NOT NULL DEFAULT '[]'`,
+  `ALTER TABLE projects ADD COLUMN default_location TEXT`,
+  `ALTER TABLE query_snapshots ADD COLUMN location TEXT`,
+  // v8: Add location column to runs for per-location run tracking
+  `ALTER TABLE runs ADD COLUMN location TEXT`,
 ]
 
 export function migrate(db: DatabaseClient) {

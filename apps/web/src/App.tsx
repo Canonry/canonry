@@ -284,7 +284,7 @@ function toneFromCitationState(state: CitationInsightVm['citationState']): Metri
     case 'cited':
       return 'positive'
     case 'emerging':
-      return 'positive'
+      return 'caution'
     case 'not-cited':
       return 'caution'
     case 'lost':
@@ -617,7 +617,7 @@ function RunRow({
           <div>
             <p className="run-row-title">{run.summary}</p>
             <p className="run-row-subtitle">
-              {run.projectName} · {run.kindLabel}
+              {run.projectName}{run.location ? ` · ${run.location}` : ''} · {run.kindLabel}
             </p>
           </div>
           <StatusBadge status={run.status} />
@@ -738,27 +738,34 @@ function CitationTimeline({ history, maxDots = 12 }: { history: RunHistoryPoint[
     cited: 'bg-emerald-400',
     'not-cited': 'bg-zinc-600',
     lost: 'bg-rose-400',
-    emerging: 'bg-emerald-400 ring-1 ring-emerald-300/60',
+    emerging: 'bg-amber-400 ring-1 ring-amber-300/60',
   }
 
+  const firstDate = new Date(dots[0].createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  const lastDate = new Date(dots[dots.length - 1].createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+
   return (
-    <div className="flex items-center gap-[3px]" title={`${dots.length} runs`}>
-      {dots.map((d, i) => (
-        <div
-          key={i}
-          className={`h-2.5 w-2.5 rounded-sm ${colorMap[d.citationState] ?? 'bg-zinc-700'} ${
-            d.model && i > 0 && dots[i - 1]?.model && dots[i - 1]!.model !== d.model
-              ? 'ring-1 ring-amber-300/80 ring-offset-1 ring-offset-zinc-950'
-              : ''
-          }`}
-          title={[
-            d.citationState,
-            new Date(d.createdAt).toLocaleDateString(),
-            d.model ? `model ${d.model}` : null,
-            d.model && i > 0 && dots[i - 1]?.model && dots[i - 1]!.model !== d.model ? 'model changed' : null,
-          ].filter(Boolean).join(' — ')}
-        />
-      ))}
+    <div className="flex items-center gap-1">
+      <span className="text-[9px] text-zinc-600 shrink-0">{firstDate}</span>
+      <div className="flex items-center gap-[3px]" title={`${dots.length} runs`}>
+        {dots.map((d, i) => (
+          <div
+            key={i}
+            className={`h-2.5 w-2.5 rounded-sm ${colorMap[d.citationState] ?? 'bg-zinc-700'} ${
+              d.model && i > 0 && dots[i - 1]?.model && dots[i - 1]!.model !== d.model
+                ? 'ring-1 ring-amber-300/80 ring-offset-1 ring-offset-zinc-950'
+                : ''
+            }`}
+            title={[
+              d.citationState,
+              new Date(d.createdAt).toLocaleDateString(),
+              d.model ? `model ${d.model}` : null,
+              d.model && i > 0 && dots[i - 1]?.model && dots[i - 1]!.model !== d.model ? 'model changed' : null,
+            ].filter(Boolean).join(' — ')}
+          />
+        ))}
+      </div>
+      <span className="text-[9px] text-zinc-600 shrink-0">{lastDate}</span>
     </div>
   )
 }
@@ -933,10 +940,12 @@ function EvidencePhraseCard({
   phrase,
   items,
   onOpenEvidence,
+  showLocationLabels = true,
 }: {
   phrase: string
   items: CitationInsightVm[]
   onOpenEvidence: (evidenceId: string) => void
+  showLocationLabels?: boolean
 }) {
   const states = items.map(i => i.citationState)
   const aggState: CitationState =
@@ -1014,6 +1023,7 @@ function EvidencePhraseCard({
             title={`View ${item.provider} evidence for "${phrase}"`}
           >
             <span className="capitalize">{item.provider}</span>
+            {item.location && showLocationLabels && <span className="text-[9px] opacity-60">{item.location}</span>}
             <span aria-hidden="true" className="font-bold">
               {item.citationState === 'cited' || item.citationState === 'emerging' ? '✓' : item.citationState === 'lost' ? '✗' : '–'}
             </span>
@@ -1031,9 +1041,11 @@ function EvidencePhraseCard({
 function EvidencePhraseCards({
   evidence,
   onOpenEvidence,
+  showLocationLabels = true,
 }: {
   evidence: CitationInsightVm[]
   onOpenEvidence: (evidenceId: string) => void
+  showLocationLabels?: boolean
 }) {
   const groups = useMemo(() => {
     const map = new Map<string, CitationInsightVm[]>()
@@ -1056,6 +1068,7 @@ function EvidencePhraseCards({
           phrase={phrase}
           items={items}
           onOpenEvidence={onOpenEvidence}
+          showLocationLabels={showLocationLabels}
         />
       ))}
     </div>
@@ -1592,7 +1605,7 @@ function ProjectPage({
   onAddKeywords: (projectName: string, keywords: string[]) => Promise<void>
   onAddCompetitors: (projectName: string, domains: string[]) => Promise<void>
   onUpdateOwnedDomains: (projectName: string, ownedDomains: string[]) => Promise<void>
-  onUpdateProject: (projectName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; country?: string; language?: string }) => Promise<void>
+  onUpdateProject: (projectName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null }) => Promise<void>
   onNavigate: (to: string) => void
 }) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -1608,6 +1621,7 @@ function ProjectPage({
   const [addingOwnedDomain, setAddingOwnedDomain] = useState(false)
   const [newOwnedDomain, setNewOwnedDomain] = useState('')
   const [ownedDomainSaving, setOwnedDomainSaving] = useState(false)
+  const [locationFilter, setLocationFilter] = useState<string | undefined>(undefined)
 
   async function handleExport() {
     const data = await fetchExport(model.project.name)
@@ -1919,7 +1933,45 @@ function ProjectPage({
                 </div>
               </div>
             )}
-            <EvidencePhraseCards evidence={model.visibilityEvidence} onOpenEvidence={onOpenEvidence} />
+            {model.project.locations && model.project.locations.length > 0 && (
+              <div className="filter-row mb-3" role="toolbar" aria-label="Location filters">
+                <button
+                  className={`filter-chip ${locationFilter === undefined ? 'filter-chip-active' : ''}`}
+                  type="button"
+                  aria-pressed={locationFilter === undefined}
+                  onClick={() => setLocationFilter(undefined)}
+                >
+                  All locations
+                </button>
+                {model.project.locations.map((loc: { label: string }) => (
+                  <button
+                    key={loc.label}
+                    className={`filter-chip ${locationFilter === loc.label ? 'filter-chip-active' : ''}`}
+                    type="button"
+                    aria-pressed={locationFilter === loc.label}
+                    onClick={() => setLocationFilter(loc.label)}
+                  >
+                    {loc.label}
+                  </button>
+                ))}
+                <button
+                  className={`filter-chip ${locationFilter === '' ? 'filter-chip-active' : ''}`}
+                  type="button"
+                  aria-pressed={locationFilter === ''}
+                  onClick={() => setLocationFilter('')}
+                >
+                  No location
+                </button>
+              </div>
+            )}
+            <EvidencePhraseCards
+              evidence={locationFilter !== undefined
+                ? model.visibilityEvidence.filter(e => locationFilter === '' ? !e.location : e.location === locationFilter)
+                : model.visibilityEvidence
+              }
+              onOpenEvidence={onOpenEvidence}
+              showLocationLabels={locationFilter === undefined}
+            />
           </section>
 
           {/* Competitor table */}
@@ -1969,7 +2021,7 @@ function ProjectPage({
             </div>
           </section>
 
-          <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name }} onUpdateProject={onUpdateProject} />
+          <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={onUpdateProject} />
           <ScheduleSection projectName={model.project.name} />
           <NotificationsSection projectName={model.project.name} />
         </>
@@ -2823,8 +2875,8 @@ function ProjectSettingsSection({
   project,
   onUpdateProject,
 }: {
-  project: { name: string; displayName: string; canonicalDomain: string; ownedDomains: string[]; country: string; language: string }
-  onUpdateProject: (projectName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; country?: string; language?: string }) => Promise<void>
+  project: { name: string; displayName: string; canonicalDomain: string; ownedDomains: string[]; country: string; language: string; locations: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation: string | null }
+  onUpdateProject: (projectName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null }) => Promise<void>
 }) {
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -3006,9 +3058,25 @@ function ProjectSettingsSection({
                 <td className="px-4 py-2.5 text-zinc-500 font-medium">Country</td>
                 <td className="px-4 py-2.5 text-zinc-200">{project.country}</td>
               </tr>
-              <tr>
+              <tr className="border-b border-zinc-800/40">
                 <td className="px-4 py-2.5 text-zinc-500 font-medium">Language</td>
                 <td className="px-4 py-2.5 text-zinc-200">{project.language}</td>
+              </tr>
+              <tr>
+                <td className="px-4 py-2.5 text-zinc-500 font-medium">Locations</td>
+                <td className="px-4 py-2.5">
+                  {(project.locations ?? []).length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {project.locations.map((loc) => (
+                        <span key={loc.label} className={`rounded-full border px-2 py-0.5 text-xs ${loc.label === project.defaultLocation ? 'border-emerald-700/60 bg-emerald-950/30 text-emerald-300' : 'border-zinc-700/60 bg-zinc-800/40 text-zinc-300'}`}>
+                          {loc.label}{loc.label === project.defaultLocation ? ' (default)' : ''}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-zinc-500">No locations configured</span>
+                  )}
+                </td>
               </tr>
             </tbody>
           </table>
@@ -4818,9 +4886,10 @@ function EvidenceDetailModal({
               <div className="flex items-center gap-1 overflow-x-auto pb-1">
                 {history.map((run, i) => {
                   const isSelected = (selectedRunIdx === -1 && i === history.length - 1) || selectedRunIdx === i
-                  const dotColor = run.citationState === 'cited' || run.citationState === 'emerging'
-                    ? 'bg-emerald-400' : run.citationState === 'lost'
-                      ? 'bg-rose-400' : 'bg-zinc-600'
+                  const dotColor = run.citationState === 'cited'
+                    ? 'bg-emerald-400' : run.citationState === 'emerging'
+                      ? 'bg-amber-400' : run.citationState === 'lost'
+                        ? 'bg-rose-400' : 'bg-zinc-600'
                   const date = new Date(run.createdAt)
                   const label = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
                   const modelChanged = Boolean(run.model && i > 0 && history[i - 1]?.model && history[i - 1]!.model !== run.model)

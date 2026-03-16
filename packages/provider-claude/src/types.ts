@@ -1,4 +1,4 @@
-import type { ProviderQuotaPolicy, GroundingSource } from '@ainyc/canonry-contracts'
+import type { ProviderQuotaPolicy, GroundingSource, LocationContext } from '@ainyc/canonry-contracts'
 
 export type { GroundingSource }
 
@@ -20,6 +20,7 @@ export interface ClaudeTrackedQueryInput {
   canonicalDomains: string[]
   competitorDomains: string[]
   config: ClaudeConfig
+  location?: LocationContext
 }
 
 export interface ClaudeRawResult {
