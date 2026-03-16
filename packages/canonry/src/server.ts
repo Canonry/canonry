@@ -9,7 +9,8 @@ const { version: PKG_VERSION } = _require('../package.json') as { version: strin
 import Fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import { apiRoutes } from '@ainyc/canonry-api-routes'
-import { auditLog, projects, type DatabaseClient } from '@ainyc/canonry-db'
+import { auditLog, projects, projects as projectsTable, type DatabaseClient } from '@ainyc/canonry-db'
+import { eq } from 'drizzle-orm'
 import { geminiAdapter } from '@ainyc/canonry-provider-gemini'
 import { openaiAdapter } from '@ainyc/canonry-provider-openai'
 import { claudeAdapter } from '@ainyc/canonry-provider-claude'
@@ -34,7 +35,7 @@ import { ProviderRegistry } from './provider-registry.js'
 import { Scheduler } from './scheduler.js'
 import { Notifier } from './notifier.js'
 import { fetchSiteText } from './site-fetch.js'
-import { AgentStore, agentChat, buildTools } from './agent/index.js'
+import { AgentStore, AgentServices, agentChat, buildTools } from './agent/index.js'
 import type { LlmConfig } from './agent/index.js'
 import { ApiClient } from './client.js'
 
@@ -506,6 +507,7 @@ function buildAgentHandler(
   }
 
   const store = new AgentStore(db)
+  const services = new AgentServices(db)
   const apiClient = new ApiClient(
     opts.config.apiUrl,
     opts.config.apiKey,
@@ -513,13 +515,10 @@ function buildAgentHandler(
 
   return async (projectId: string, threadId: string, message: string) => {
     // Resolve project details for the system prompt
-    const { projects: projectsTable } = await import('@ainyc/canonry-db')
-    const { eq } = await import('drizzle-orm')
-
     const project = db.select().from(projectsTable).where(eq(projectsTable.id, projectId)).get()
     if (!project) throw new Error(`Project ${projectId} not found`)
 
-    const tools = buildTools(apiClient, project.name)
+    const tools = buildTools(services, apiClient, project.name)
 
     return agentChat(threadId, message, {
       store,
