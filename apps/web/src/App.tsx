@@ -5052,7 +5052,7 @@ async function loadDashboardData(): Promise<DashboardVm | null> {
       projects.map(async (project) => {
         const projectRuns = allRuns.filter(r => r.projectId === project.id)
         const completedRuns = projectRuns
-          .filter(r => r.status === 'completed' || r.status === 'partial')
+          .filter(r => (r.status === 'completed' || r.status === 'partial') && r.kind === 'answer-visibility')
           .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 
         const [kws, comps, timeline, latestRunDetail, previousRunDetail] = await Promise.all([
