@@ -13,7 +13,7 @@ import {
   runs as runsTable,
   querySnapshots,
 } from '@ainyc/canonry-db'
-import { eq, desc } from 'drizzle-orm'
+import { eq, desc, and, inArray } from 'drizzle-orm'
 
 export class AgentServices {
   constructor(private db: DatabaseClient) {}
@@ -43,23 +43,25 @@ export class AgentServices {
       .all()
   }
 
-  async getRun(runId: string) {
+  async getRun(runId: string, projectName: string) {
+    const project = await this.getProject(projectName)
+
     const run = this.db
       .select()
       .from(runsTable)
-      .where(eq(runsTable.id, runId))
+      .where(and(eq(runsTable.id, runId), eq(runsTable.projectId, project.id)))
       .get()
-    
+
     if (!run) {
-      throw new Error(`Run ${runId} not found`)
+      throw new Error(`Run ${runId} not found in project ${projectName}`)
     }
-    
+
     const snapshots = this.db
       .select()
       .from(querySnapshots)
       .where(eq(querySnapshots.runId, runId))
       .all()
-    
+
     return { ...run, snapshots }
   }
 
@@ -104,9 +106,9 @@ export class AgentServices {
     const snapshots = this.db
       .select()
       .from(querySnapshots)
-      .where(eq(querySnapshots.runId, runIds[0])) // Simplified - in real app would handle multiple runs
+      .where(inArray(querySnapshots.runId, runIds))
       .all()
-    
+
     return {
       project,
       runs,
