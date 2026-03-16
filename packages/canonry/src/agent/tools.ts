@@ -1,10 +1,12 @@
 /**
  * Agent tools — canonry operations exposed as LLM-callable functions.
  *
- * Each tool wraps the ApiClient so the agent uses the same HTTP API
- * that CLI commands and the UI use. No direct DB access from tools.
+ * Most tools use direct service layer calls to avoid circular HTTP dependency.
+ * Write operations (run_sweep) and external integrations (GSC) still use HTTP
+ * for proper job orchestration and auth handling.
  */
 
+import type { AgentServices } from './services.js'
 import type { ApiClient } from '../client.js'
 
 export interface AgentTool {
@@ -18,7 +20,7 @@ export interface AgentTool {
   execute: (args: Record<string, unknown>) => Promise<string>
 }
 
-export function buildTools(client: ApiClient, projectName: string): AgentTool[] {
+export function buildTools(services: AgentServices, client: ApiClient, projectName: string): AgentTool[] {
   return [
     {
       name: 'get_status',
@@ -30,9 +32,9 @@ export function buildTools(client: ApiClient, projectName: string): AgentTool[] 
         required: [],
       },
       execute: async () => {
-        const project = await client.getProject(projectName)
-        const runs = await client.listRuns(projectName)
-        return JSON.stringify({ project, latestRuns: (runs as unknown[]).slice(-3) }, null, 2)
+        const project = await services.getProject(projectName)
+        const runs = await services.listRuns(projectName)
+        return JSON.stringify({ project, latestRuns: runs.slice(-3) }, null, 2)
       },
     },
     {
@@ -68,7 +70,7 @@ export function buildTools(client: ApiClient, projectName: string): AgentTool[] 
         required: [],
       },
       execute: async () => {
-        const history = await client.getHistory(projectName)
+        const history = await services.getHistory(projectName)
         return JSON.stringify(history, null, 2)
       },
     },
@@ -82,7 +84,7 @@ export function buildTools(client: ApiClient, projectName: string): AgentTool[] 
         required: [],
       },
       execute: async () => {
-        const timeline = await client.getTimeline(projectName)
+        const timeline = await services.getTimeline(projectName)
         return JSON.stringify(timeline, null, 2)
       },
     },
@@ -95,7 +97,7 @@ export function buildTools(client: ApiClient, projectName: string): AgentTool[] 
         required: [],
       },
       execute: async () => {
-        const keywords = await client.listKeywords(projectName)
+        const keywords = await services.listKeywords(projectName)
         return JSON.stringify(keywords, null, 2)
       },
     },
@@ -108,7 +110,7 @@ export function buildTools(client: ApiClient, projectName: string): AgentTool[] 
         required: [],
       },
       execute: async () => {
-        const competitors = await client.listCompetitors(projectName)
+        const competitors = await services.listCompetitors(projectName)
         return JSON.stringify(competitors, null, 2)
       },
     },
@@ -126,7 +128,7 @@ export function buildTools(client: ApiClient, projectName: string): AgentTool[] 
         required: ['runId'],
       },
       execute: async (args) => {
-        const run = await client.getRun(args.runId as string)
+        const run = await services.getRun(args.runId as string)
         return JSON.stringify(run, null, 2)
       },
     },
