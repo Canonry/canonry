@@ -139,7 +139,41 @@ export async function agentChat(
 
       for (const toolCall of response.toolCalls) {
         const toolName = toolCall.function.name
-        const toolArgs = JSON.parse(toolCall.function.arguments) as Record<string, unknown>
+        
+        // Parse tool arguments with error handling (LLMs sometimes return malformed JSON)
+        let toolArgs: Record<string, unknown>
+        try {
+          toolArgs = JSON.parse(toolCall.function.arguments) as Record<string, unknown>
+        } catch {
+          const result = `Invalid arguments for ${toolName}: ${toolCall.function.arguments}`
+          
+          // Persist error and continue
+          await store.addMessage({
+            threadId,
+            role: 'assistant',
+            content: `Calling ${toolName}`,
+            toolName,
+            toolArgs: toolCall.function.arguments,
+            toolCallId: toolCall.id,
+          })
+
+          await store.addMessage({
+            threadId,
+            role: 'tool',
+            content: result,
+            toolName,
+            toolArgs: null,
+            toolCallId: toolCall.id,
+          })
+
+          messages.push({
+            role: 'tool',
+            content: result,
+            tool_call_id: toolCall.id,
+          })
+
+          continue
+        }
 
         opts.onToolCall?.(toolName, toolArgs)
 
