@@ -1,4 +1,4 @@
-import type { GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto } from '@ainyc/canonry-contracts'
+import type { GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto } from '@ainyc/canonry-contracts'
 
 export type { GroundingSource }
 
@@ -532,6 +532,16 @@ export type { GscCoverageSummaryDto as ApiGscCoverageSummary }
 
 export function fetchGscCoverage(project: string): Promise<GscCoverageSummaryDto> {
   return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/coverage`)
+}
+
+export function fetchGscCoverageHistory(
+  project: string,
+  params?: { limit?: number },
+): Promise<GscCoverageSnapshotDto[]> {
+  const qs = new URLSearchParams()
+  if (params?.limit !== undefined) qs.set('limit', String(params.limit))
+  const query = qs.toString() ? `?${qs.toString()}` : ''
+  return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/coverage/history${query}`)
 }
 
 export function triggerInspectSitemap(project: string, opts?: { sitemapUrl?: string }): Promise<ApiRun> {

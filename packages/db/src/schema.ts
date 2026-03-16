@@ -183,6 +183,20 @@ export const gscUrlInspections = sqliteTable('gsc_url_inspections', {
   index('idx_gsc_inspect_url_time').on(table.url, table.inspectedAt),
 ])
 
+export const gscCoverageSnapshots = sqliteTable('gsc_coverage_snapshots', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'cascade' }),
+  date: text('date').notNull(),
+  indexed: integer('indexed').notNull().default(0),
+  notIndexed: integer('not_indexed').notNull().default(0),
+  reasonBreakdown: text('reason_breakdown').notNull().default('{}'),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_gsc_coverage_snap_project_date').on(table.projectId, table.date),
+  index('idx_gsc_coverage_snap_run').on(table.syncRunId),
+])
+
 export const usageCounters = sqliteTable('usage_counters', {
   id: text('id').primaryKey(),
   scope: text('scope').notNull(),

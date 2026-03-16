@@ -20,7 +20,7 @@ import { telemetryCommand } from './commands/telemetry.js'
 import {
   googleConnect, googleDisconnect, googleStatus, googleProperties,
   googleSetProperty, googleSync, googlePerformance, googleInspect,
-  googleInspections, googleDeindexed, googleCoverage, googleInspectSitemap,
+  googleInspections, googleDeindexed, googleCoverage, googleCoverageHistory, googleInspectSitemap,
 } from './commands/google.js'
 import { trackEvent, isTelemetryEnabled, isFirstRun, getOrCreateAnonymousId, showFirstRunNotice } from './telemetry.js'
 
@@ -923,6 +923,27 @@ async function main() {
             await googleCoverage(project, format)
             break
           }
+          case 'coverage-history': {
+            const project = args[2]
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            const { values: histValues } = parseArgs({
+              args: args.slice(3),
+              options: {
+                limit: { type: 'string' },
+                format: { type: 'string' },
+              },
+              allowPositionals: false,
+            })
+            const limitNum = histValues.limit ? parseInt(histValues.limit, 10) : undefined
+            await googleCoverageHistory(project, {
+              limit: limitNum != null && !Number.isNaN(limitNum) ? limitNum : undefined,
+              format: histValues.format === 'json' ? 'json' : format,
+            })
+            break
+          }
           case 'deindexed': {
             const project = args[2]
             if (!project) {
@@ -934,7 +955,7 @@ async function main() {
           }
           default:
             console.error(`Unknown google subcommand: ${subcommand ?? '(none)'}`)
-            console.log('Available: connect, disconnect, status, properties, set-property, sync, performance, inspect, inspect-sitemap, coverage, inspections, deindexed')
+            console.log('Available: connect, disconnect, status, properties, set-property, sync, performance, inspect, inspect-sitemap, coverage, coverage-history, inspections, deindexed')
             process.exit(1)
         }
         break

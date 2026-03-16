@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
-import { createClient, migrate, projects } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs, gscCoverageSnapshots } from '@ainyc/canonry-db'
 import { googleRoutes } from '../src/google.js'
 
 // Reproduce state signing functions from google.ts to verify behavior
@@ -426,6 +426,248 @@ describe('googleRoutes: connect auto-detect uses per-project URI', () => {
     assert.equal(res.statusCode, 200)
     const body = res.json() as { authUrl: string; redirectUri: string }
     assert.equal(body.redirectUri, 'http://localhost:4100/api/v1/projects/testproj/google/callback')
+  })
+})
+
+describe('googleRoutes: GET /projects/:name/google/gsc/coverage/history', () => {
+  let app: ReturnType<typeof Fastify>
+  let tmpDir: string
+  let db: ReturnType<typeof createClient>
+
+  before(async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'google-coverage-history-'))
+    const dbPath = path.join(tmpDir, 'test.db')
+    db = createClient(dbPath)
+    migrate(db)
+
+    const now = new Date().toISOString()
+    db.insert(projects).values({
+      id: 'p1',
+      name: 'testproj',
+      displayName: 'Test Project',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+
+    db.insert(runs).values({
+      id: 'r1',
+      projectId: 'p1',
+      kind: 'gsc-inspect-sitemap',
+      status: 'completed',
+      createdAt: now,
+    }).run()
+
+    // Seed two snapshots on different days
+    db.insert(gscCoverageSnapshots).values({
+      id: 's1',
+      projectId: 'p1',
+      syncRunId: 'r1',
+      date: '2025-01-01',
+      indexed: 80,
+      notIndexed: 20,
+      reasonBreakdown: JSON.stringify({ 'Crawled - currently not indexed': 15, 'Duplicate without user-selected canonical': 5 }),
+      createdAt: now,
+    }).run()
+
+    db.insert(gscCoverageSnapshots).values({
+      id: 's2',
+      projectId: 'p1',
+      syncRunId: 'r1',
+      date: '2025-01-02',
+      indexed: 85,
+      notIndexed: 15,
+      reasonBreakdown: JSON.stringify({ 'Crawled - currently not indexed': 10, 'Duplicate without user-selected canonical': 5 }),
+      createdAt: now,
+    }).run()
+
+    const fastify = Fastify()
+    fastify.decorate('db', db)
+    fastify.register(googleRoutes, {
+      getGoogleAuthConfig: () => ({ clientId: undefined, clientSecret: undefined }),
+      googleConnectionStore: {
+        listConnections: () => [],
+        getConnection: () => undefined,
+        upsertConnection: (c) => c,
+        updateConnection: () => undefined,
+        deleteConnection: () => false,
+      },
+      googleStateSecret: 'test-secret-32-bytes-long-enough!',
+    })
+
+    app = fastify
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('returns snapshots in chronological order', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/projects/testproj/google/gsc/coverage/history',
+    })
+    assert.equal(res.statusCode, 200)
+    const body = res.json() as Array<{ date: string; indexed: number; notIndexed: number; reasonBreakdown: Record<string, number> }>
+    assert.equal(body.length, 2)
+    assert.equal(body[0]!.date, '2025-01-01')
+    assert.equal(body[1]!.date, '2025-01-02')
+    assert.equal(body[0]!.indexed, 80)
+    assert.equal(body[1]!.indexed, 85)
+  })
+
+  it('respects the limit parameter', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/projects/testproj/google/gsc/coverage/history?limit=1',
+    })
+    assert.equal(res.statusCode, 200)
+    const body = res.json() as Array<{ date: string }>
+    assert.equal(body.length, 1)
+    // limit=1 takes the most-recent snapshot (desc order then reversed)
+    assert.equal(body[0]!.date, '2025-01-02')
+  })
+
+  it('uses default limit when limit param is not a number', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/projects/testproj/google/gsc/coverage/history?limit=abc',
+    })
+    assert.equal(res.statusCode, 200)
+    // Should return all 2 rows (default 90 > 2 available)
+    const body = res.json() as Array<unknown>
+    assert.equal(body.length, 2)
+  })
+
+  it('returns 404 for unknown project', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/projects/nonexistent/google/gsc/coverage/history',
+    })
+    assert.equal(res.statusCode, 404)
+  })
+
+  it('returns empty array when no snapshots exist', async () => {
+    // Create a project with no snapshots
+    const now = new Date().toISOString()
+    db.insert(projects).values({
+      id: 'p2',
+      name: 'emptyproj',
+      displayName: 'Empty Project',
+      canonicalDomain: 'empty.com',
+      country: 'US',
+      language: 'en',
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/projects/emptyproj/google/gsc/coverage/history',
+    })
+    assert.equal(res.statusCode, 200)
+    const body = res.json() as Array<unknown>
+    assert.equal(body.length, 0)
+  })
+})
+
+describe('googleRoutes: coverage snapshot deduplication', () => {
+  let app: ReturnType<typeof Fastify>
+  let tmpDir: string
+  let db: ReturnType<typeof createClient>
+
+  before(async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'google-coverage-dedup-'))
+    const dbPath = path.join(tmpDir, 'test.db')
+    db = createClient(dbPath)
+    migrate(db)
+
+    const now = new Date().toISOString()
+    db.insert(projects).values({
+      id: 'p1',
+      name: 'dedupproj',
+      displayName: 'Dedup Project',
+      canonicalDomain: 'dedup.com',
+      country: 'US',
+      language: 'en',
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+
+    db.insert(runs).values({
+      id: 'r1',
+      projectId: 'p1',
+      kind: 'gsc-inspect-sitemap',
+      status: 'completed',
+      createdAt: now,
+    }).run()
+
+    // Simulate two runs on same day by inserting duplicate then replacing it
+    db.insert(gscCoverageSnapshots).values({
+      id: 's1',
+      projectId: 'p1',
+      syncRunId: 'r1',
+      date: '2025-03-01',
+      indexed: 50,
+      notIndexed: 50,
+      reasonBreakdown: '{}',
+      createdAt: now,
+    }).run()
+
+    const fastify = Fastify()
+    fastify.decorate('db', db)
+    fastify.register(googleRoutes, {
+      getGoogleAuthConfig: () => ({ clientId: undefined, clientSecret: undefined }),
+      googleConnectionStore: {
+        listConnections: () => [],
+        getConnection: () => undefined,
+        upsertConnection: (c) => c,
+        updateConnection: () => undefined,
+        deleteConnection: () => false,
+      },
+      googleStateSecret: 'test-secret-32-bytes-long-enough!',
+    })
+
+    app = fastify
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('only one snapshot per (project, date) after delete+insert', async () => {
+    const { eq, and } = await import('drizzle-orm')
+
+    // Delete-before-insert pattern (same as gsc-sync/inspect-sitemap)
+    db.delete(gscCoverageSnapshots)
+      .where(and(eq(gscCoverageSnapshots.projectId, 'p1'), eq(gscCoverageSnapshots.date, '2025-03-01')))
+      .run()
+    db.insert(gscCoverageSnapshots).values({
+      id: 's2',
+      projectId: 'p1',
+      syncRunId: 'r1',
+      date: '2025-03-01',
+      indexed: 90,
+      notIndexed: 10,
+      reasonBreakdown: '{}',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/projects/dedupproj/google/gsc/coverage/history',
+    })
+    assert.equal(res.statusCode, 200)
+    const body = res.json() as Array<{ date: string; indexed: number }>
+    // Should be exactly one row for 2025-03-01 with updated values
+    assert.equal(body.length, 1)
+    assert.equal(body[0]!.indexed, 90)
   })
 })
 

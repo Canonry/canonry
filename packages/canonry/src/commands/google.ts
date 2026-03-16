@@ -376,6 +376,35 @@ export async function googleInspectSitemap(project: string, opts: {
   }
 }
 
+export async function googleCoverageHistory(project: string, opts: { limit?: number; format?: string }): Promise<void> {
+  const client = getClient()
+  const rows = await client.gscCoverageHistory(project, { limit: opts.limit }) as Array<{
+    date: string
+    indexed: number
+    notIndexed: number
+    reasonBreakdown: Record<string, number>
+  }>
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(rows, null, 2))
+    return
+  }
+
+  if (rows.length === 0) {
+    console.log('No coverage history found. Run a GSC sync or sitemap inspection first.')
+    return
+  }
+
+  console.log(`\nGSC Coverage History for "${project}" (${rows.length} snapshots):\n`)
+  console.log(`  ${'DATE'.padEnd(12)}${'INDEXED'.padEnd(10)}${'NOT INDEXED'.padEnd(14)}TOP REASON`)
+  console.log(`  ${'─'.repeat(12)}${'─'.repeat(10)}${'─'.repeat(14)}${'─'.repeat(30)}`)
+  for (const row of rows) {
+    const topReason = Object.entries(row.reasonBreakdown).sort((a, b) => b[1] - a[1])[0]
+    const reasonStr = topReason ? `${topReason[0]} (${topReason[1]})` : '-'
+    console.log(`  ${row.date.padEnd(12)}${String(row.indexed).padEnd(10)}${String(row.notIndexed).padEnd(14)}${reasonStr}`)
+  }
+}
+
 export async function googleDeindexed(project: string, format?: string): Promise<void> {
   const client = getClient()
   const rows = await client.gscDeindexed(project) as Array<{
