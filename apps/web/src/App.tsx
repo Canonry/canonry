@@ -948,6 +948,7 @@ function EvidencePhraseCard({
   onOpenEvidence,
   showLocationLabels = true,
   compareLocations = false,
+  timelineLoading = false,
   onDeleteKeyword,
 }: {
   phrase: string
@@ -955,6 +956,7 @@ function EvidencePhraseCard({
   onOpenEvidence: (evidenceId: string) => void
   showLocationLabels?: boolean
   compareLocations?: boolean
+  timelineLoading?: boolean
   onDeleteKeyword?: () => void
 }) {
   const states = items.map(i => i.citationState)
@@ -1027,8 +1029,11 @@ function EvidencePhraseCard({
         )}
       </div>
 
-      <div className="evidence-card-timeline-row">
-        <CitationTimeline history={mergedHistory} maxDots={14} />
+      <div className={`evidence-card-timeline-row${timelineLoading ? ' opacity-40 pointer-events-none' : ''}`}>
+        {timelineLoading
+          ? <span className="text-[10px] text-zinc-500 italic animate-pulse">Loading…</span>
+          : <CitationTimeline history={mergedHistory} maxDots={14} />
+        }
         <span className="evidence-card-ratio">
           {citedCount}/{items.length} provider{items.length !== 1 ? 's' : ''}
         </span>
@@ -1108,12 +1113,14 @@ function EvidencePhraseCards({
   onOpenEvidence,
   showLocationLabels = true,
   compareLocations = false,
+  timelineLoading = false,
   onDeleteKeyword,
 }: {
   evidence: CitationInsightVm[]
   onOpenEvidence: (evidenceId: string) => void
   showLocationLabels?: boolean
   compareLocations?: boolean
+  timelineLoading?: boolean
   onDeleteKeyword?: (phrase: string) => void
 }) {
   const groups = useMemo(() => {
@@ -1139,6 +1146,7 @@ function EvidencePhraseCards({
           onOpenEvidence={onOpenEvidence}
           showLocationLabels={showLocationLabels}
           compareLocations={compareLocations}
+          timelineLoading={timelineLoading}
           onDeleteKeyword={onDeleteKeyword ? () => onDeleteKeyword(phrase) : undefined}
         />
       ))}
@@ -1698,15 +1706,18 @@ function ProjectPage({
   const [locationFilter, setLocationFilter] = useState<string | undefined>(undefined)
   const [compareLocations, setCompareLocations] = useState(false)
   const [locationTimeline, setLocationTimeline] = useState<import('./api.js').ApiTimelineEntry[] | null>(null)
+  const [locationTimelineLoading, setLocationTimelineLoading] = useState(false)
 
   useEffect(() => {
     if (locationFilter === undefined || locationFilter === '') {
       setLocationTimeline(null)
+      setLocationTimelineLoading(false)
       return
     }
+    setLocationTimelineLoading(true)
     fetchTimeline(model.project.name, locationFilter)
-      .then(setLocationTimeline)
-      .catch(() => setLocationTimeline(null))
+      .then(tl => { setLocationTimeline(tl); setLocationTimelineLoading(false) })
+      .catch(() => { setLocationTimeline(null); setLocationTimelineLoading(false) })
   }, [locationFilter, model.project.name])
 
   // Build a runHistory override map keyed by keyword::provider from the location-scoped timeline
@@ -2119,6 +2130,7 @@ function ProjectPage({
               onOpenEvidence={onOpenEvidence}
               showLocationLabels={locationFilter === undefined}
               compareLocations={locationFilter === undefined && compareLocations}
+              timelineLoading={locationTimelineLoading}
               onDeleteKeyword={keywordDeleting ? undefined : handleDeleteKeyword}
             />
           </section>
