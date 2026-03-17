@@ -477,27 +477,27 @@ function buildAgentHandler(
   opts: { config: CanonryConfig },
   registry: ProviderRegistry,
   db: DatabaseClient,
-): ((projectId: string, threadId: string, message: string) => Promise<string>) | undefined {
+): ((projectId: string, threadId: string, message: string, opts?: { provider?: string }) => Promise<string>) | undefined {
   // Determine which provider to use for the agent
   const agentConf = opts.config.agent ?? {}
   if (agentConf.enabled === false) return undefined
 
-  // Pick provider: explicit config > first available (claude > openai > gemini)
+  // Pick default provider: explicit config > first available (claude > openai > gemini)
   const providerPriority: Array<'claude' | 'openai' | 'gemini'> = ['claude', 'openai', 'gemini']
-  let llmProvider: 'claude' | 'openai' | 'gemini' | undefined = agentConf.provider
+  let defaultProvider: 'claude' | 'openai' | 'gemini' | undefined = agentConf.provider
 
-  if (!llmProvider) {
+  if (!defaultProvider) {
     for (const p of providerPriority) {
       if (registry.get(p as ProviderName)) {
-        llmProvider = p
+        defaultProvider = p
         break
       }
     }
   }
 
-  if (!llmProvider) return undefined
+  if (!defaultProvider) return undefined
 
-  const registeredProvider = registry.get(llmProvider as ProviderName)
+  const registeredProvider = registry.get(defaultProvider as ProviderName)
   if (!registeredProvider) return undefined
 
   if (!registeredProvider.config.apiKey) return undefined
@@ -513,15 +513,18 @@ function buildAgentHandler(
     opts.config.apiKey ?? '',
   )
 
-  return async (projectId: string, threadId: string, message: string) => {
+  return async (projectId: string, threadId: string, message: string, callOpts?: { provider?: string }) => {
+    // Per-request provider override or fall back to default
+    const llmProvider = (callOpts?.provider as 'claude' | 'openai' | 'gemini' | undefined) ?? defaultProvider!
+
     // Resolve LLM config from registry at call time so provider key
     // updates (via PUT /settings/providers) are picked up immediately.
-    const currentProvider = registry.get(llmProvider! as ProviderName)
+    const currentProvider = registry.get(llmProvider as ProviderName)
     if (!currentProvider?.config.apiKey) {
-      throw new Error('Agent provider is no longer configured. Update your provider API key.')
+      throw new Error(`Provider "${llmProvider}" is not configured. Add an API key for it first.`)
     }
     const llmConfig: LlmConfig = {
-      provider: llmProvider!,
+      provider: llmProvider,
       apiKey: currentProvider.config.apiKey,
       model: agentConf.model ?? currentProvider.config.model,
     }

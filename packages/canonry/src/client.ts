@@ -282,11 +282,13 @@ export class ApiClient {
     return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/agent/threads/${encodeURIComponent(threadId)}`)
   }
 
-  async sendAgentMessage(project: string, threadId: string, message: string): Promise<{ threadId: string; response: string }> {
+  async sendAgentMessage(project: string, threadId: string, message: string, provider?: string): Promise<{ threadId: string; response: string }> {
+    const body: Record<string, unknown> = { message }
+    if (provider) body.provider = provider
     return this.request<{ threadId: string; response: string }>(
       'POST',
       `/projects/${encodeURIComponent(project)}/agent/threads/${encodeURIComponent(threadId)}/messages`,
-      { message },
+      body,
     )
   }
 

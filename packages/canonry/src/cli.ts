@@ -91,9 +91,10 @@ Usage:
   canonry google coverage <project>  Show index coverage summary
   canonry google inspections <project>  Show URL inspection history (--url <url>)
   canonry google deindexed <project>  Show pages that lost indexing
-  canonry agent ask <project> "msg"   Ask the built-in AEO analyst a question
+  canonry agent ask <project> "msg"   Ask Aero (built-in AEO analyst) a question
+  canonry agent ask <project> "msg" --provider claude  Use a specific LLM provider
   canonry agent ask <project> "msg" --thread <id>  Continue a conversation
-  canonry agent threads <project>     List agent threads
+  canonry agent threads <project>     List Aero threads
   canonry agent thread <project> <id> Show thread with messages
   canonry settings                    Show active provider and quota settings
   canonry settings provider <name>    Update a provider config
@@ -786,6 +787,7 @@ async function main() {
               options: {
                 thread: { type: 'string' },
                 format: { type: 'string' },
+                provider: { type: 'string' },
               },
               allowPositionals: true,
             })
@@ -797,6 +799,7 @@ async function main() {
             await agentAsk(project, message, {
               threadId: agentParsed.values.thread,
               format: agentParsed.values.format ?? format,
+              provider: agentParsed.values.provider,
             })
             break
           }

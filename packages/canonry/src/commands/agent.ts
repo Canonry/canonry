@@ -35,6 +35,7 @@ interface AgentMessage {
 export async function agentAsk(project: string, message: string, opts?: {
   threadId?: string
   format?: string
+  provider?: string
 }): Promise<void> {
   const client = getClient()
   let threadId = opts?.threadId
@@ -54,7 +55,7 @@ export async function agentAsk(project: string, message: string, opts?: {
     console.log('Aero is thinking...\n')
   }
 
-  const result = await client.sendAgentMessage(project, threadId, message)
+  const result = await client.sendAgentMessage(project, threadId, message, opts?.provider)
 
   if (opts?.format === 'json') {
     console.log(JSON.stringify({ threadId, response: result.response }, null, 2))

@@ -20,6 +20,7 @@ export interface AgentRoutesOptions {
     projectId: string,
     threadId: string,
     message: string,
+    opts?: { provider?: string },
   ) => Promise<string>
 }
 
@@ -144,7 +145,7 @@ export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions
 
   app.post<{
     Params: { project: string; id: string }
-    Body: { message: string }
+    Body: { message: string; provider?: string }
   }>(`${prefix}/threads/:id/messages`, {
     schema: {
       params: {
@@ -159,13 +160,14 @@ export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions
         type: 'object',
         properties: {
           message: { type: 'string', maxLength: 8000 },
+          provider: { type: 'string', enum: ['openai', 'claude', 'gemini'] },
         },
         required: ['message'],
       },
     },
   }, async (request, reply) => {
     const { project, id: threadId } = request.params
-    const { message } = request.body
+    const { message, provider } = request.body
 
     const projectRow = resolveProject(app.db, project)
 
@@ -200,7 +202,7 @@ export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions
 
     activeThreads.add(threadId)
     try {
-      const response = await opts.onAgentMessage(thread.projectId, threadId, message)
+      const response = await opts.onAgentMessage(thread.projectId, threadId, message, { provider })
       return reply.send({ threadId, response })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
