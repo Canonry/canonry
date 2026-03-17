@@ -2255,7 +2255,7 @@ function GscSection({
   const [savingSitemap, setSavingSitemap] = useState(false)
   const [setupExpanded, setSetupExpanded] = useState(false)
   const [coverageTab, setCoverageTab] = useState<'indexed' | 'notIndexed' | 'deindexed'>('indexed')
-  const [coverageHistory, setCoverageHistory] = useState<Array<{ date: string; indexed: number; notIndexed: number; reasonBreakdown: Record<string, number> }>>([])
+  const [_coverageHistory, setCoverageHistory] = useState<Array<{ date: string; indexed: number; notIndexed: number; reasonBreakdown: Record<string, number> }>>([])
   const [selectedReason, setSelectedReason] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -2676,79 +2676,90 @@ function GscSection({
 
                 {coverage && coverage.summary.total > 0 ? (
                   <>
-                    {/* Donut + split header */}
-                    <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-start">
-                      {/* Donut chart */}
-                      <div className="shrink-0 flex flex-col items-center">
-                        {(() => {
-                          const total = coverage.summary.indexed + coverage.summary.notIndexed
-                          const pct = total > 0 ? coverage.summary.indexed / total : 0
-                          const r = 54
-                          const circ = 2 * Math.PI * r
-                          const offset = circ * (1 - pct)
-                          return (
-                            <div className="relative h-36 w-36">
+                    {/* Hero donut — centered, front and center */}
+                    <div className="mt-6 flex flex-col items-center">
+                      {(() => {
+                        const total = coverage.summary.indexed + coverage.summary.notIndexed
+                        const pct = total > 0 ? coverage.summary.indexed / total : 0
+                        const notPct = total > 0 ? coverage.summary.notIndexed / total : 0
+                        const r = 54
+                        const circ = 2 * Math.PI * r
+                        const indexedOffset = circ * (1 - pct)
+                        const notIndexedArc = circ * notPct
+                        const notIndexedStart = circ * pct
+                        return (
+                          <>
+                            <div className="relative h-48 w-48">
                               <svg viewBox="0 0 128 128" className="h-full w-full" aria-hidden="true">
-                                <circle cx="64" cy="64" r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="12" />
+                                {/* Background track */}
+                                <circle cx="64" cy="64" r={r} fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="14" />
+                                {/* Indexed arc — emerald */}
                                 <circle
                                   cx="64" cy="64" r={r} fill="none"
-                                  stroke="#10b981" strokeWidth="12"
-                                  strokeDasharray={circ} strokeDashoffset={offset}
+                                  stroke="#10b981" strokeWidth="14"
+                                  strokeDasharray={circ} strokeDashoffset={indexedOffset}
                                   strokeLinecap="round"
                                   transform="rotate(-90 64 64)"
                                   style={{ transition: 'stroke-dashoffset 0.6s ease' }}
                                 />
+                                {/* Not-indexed arc — zinc */}
+                                {coverage.summary.notIndexed > 0 && (
+                                  <circle
+                                    cx="64" cy="64" r={r} fill="none"
+                                    stroke="#52525b" strokeWidth="14"
+                                    strokeDasharray={`${notIndexedArc} ${circ - notIndexedArc}`}
+                                    strokeDashoffset={-notIndexedStart}
+                                    transform="rotate(-90 64 64)"
+                                    style={{ transition: 'stroke-dasharray 0.6s ease, stroke-dashoffset 0.6s ease' }}
+                                  />
+                                )}
                               </svg>
                               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                                <span className="text-xl font-bold tabular-nums text-zinc-100">{(pct * 100).toFixed(0)}%</span>
-                                <span className="text-[10px] uppercase tracking-wide text-zinc-500">Indexed</span>
+                                <span className="text-3xl font-bold tabular-nums text-zinc-50">{(pct * 100).toFixed(0)}%</span>
+                                <span className="text-xs uppercase tracking-widest text-zinc-500 mt-0.5">Indexed</span>
                               </div>
                             </div>
-                          )
-                        })()}
-                      </div>
 
-                      {/* Split header bar — Indexed vs Not Indexed */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-stretch overflow-hidden rounded-lg border border-zinc-800/60">
-                          {coverage.summary.indexed > 0 && (
-                            <div
-                              className="flex items-center gap-2 bg-emerald-950/40 border-r border-zinc-800/60 px-4 py-3"
-                              style={{ flexBasis: `${(coverage.summary.indexed / coverage.summary.total) * 100}%` }}
-                            >
-                              <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500 shrink-0" />
-                              <div className="min-w-0">
-                                <p className="text-xs uppercase tracking-wide text-emerald-400/70">Indexed</p>
-                                <p className="text-lg font-semibold tabular-nums text-emerald-400">{coverage.summary.indexed.toLocaleString()}</p>
+                            {/* Counts row beneath donut */}
+                            <div className="mt-4 flex items-center justify-center gap-8">
+                              <div className="flex items-center gap-2">
+                                <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                                <div>
+                                  <p className="text-2xl font-semibold tabular-nums text-zinc-50">{coverage.summary.indexed.toLocaleString()}</p>
+                                  <p className="text-[11px] uppercase tracking-wide text-zinc-500">Indexed</p>
+                                </div>
                               </div>
-                            </div>
-                          )}
-                          {coverage.summary.notIndexed > 0 && (
-                            <div
-                              className="flex items-center gap-2 bg-zinc-900/40 px-4 py-3"
-                              style={{ flexBasis: `${(coverage.summary.notIndexed / coverage.summary.total) * 100}%` }}
-                            >
-                              <span className="inline-block h-2.5 w-2.5 rounded-full bg-zinc-500 shrink-0" />
-                              <div className="min-w-0">
-                                <p className="text-xs uppercase tracking-wide text-zinc-500">Not indexed</p>
-                                <p className="text-lg font-semibold tabular-nums text-zinc-300">
-                                  {coverage.summary.notIndexed.toLocaleString()}
-                                  {(coverage.reasonGroups ?? []).length > 0 && (
-                                    <span className="ml-1 text-xs font-normal text-zinc-500">
-                                      · {(coverage.reasonGroups ?? []).length} {(coverage.reasonGroups ?? []).length === 1 ? 'reason' : 'reasons'}
-                                    </span>
-                                  )}
-                                </p>
+                              <div className="h-8 w-px bg-zinc-800" />
+                              <div className="flex items-center gap-2">
+                                <span className="inline-block h-2.5 w-2.5 rounded-full bg-zinc-500" />
+                                <div>
+                                  <p className="text-2xl font-semibold tabular-nums text-zinc-50">{coverage.summary.notIndexed.toLocaleString()}</p>
+                                  <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                                    Not indexed
+                                    {(coverage.reasonGroups ?? []).length > 0 && (
+                                      <span className="ml-1 text-zinc-600">
+                                        · {(coverage.reasonGroups ?? []).length} {(coverage.reasonGroups ?? []).length === 1 ? 'reason' : 'reasons'}
+                                      </span>
+                                    )}
+                                  </p>
+                                </div>
                               </div>
+                              {coverage.summary.deindexed > 0 && (
+                                <>
+                                  <div className="h-8 w-px bg-zinc-800" />
+                                  <div className="flex items-center gap-2">
+                                    <span className="inline-block h-2.5 w-2.5 rounded-full bg-rose-500" />
+                                    <div>
+                                      <p className="text-2xl font-semibold tabular-nums text-zinc-50">{coverage.summary.deindexed.toLocaleString()}</p>
+                                      <p className="text-[11px] uppercase tracking-wide text-zinc-500">Deindexed</p>
+                                    </div>
+                                  </div>
+                                </>
+                              )}
                             </div>
-                          )}
-                        </div>
-                        {coverage.summary.deindexed > 0 && (
-                          <p className="mt-1.5 text-xs text-rose-400">
-                            {coverage.summary.deindexed} page{coverage.summary.deindexed !== 1 ? 's' : ''} recently lost indexing
-                          </p>
-                        )}
-                      </div>
+                          </>
+                        )
+                      })()}
                     </div>
 
 
@@ -2866,33 +2877,6 @@ function GscSection({
                               <p className="text-sm font-medium text-zinc-200">{group.reason}</p>
                               <p className="mt-1 text-xs text-zinc-500">{group.count} affected page{group.count !== 1 ? 's' : ''}</p>
                             </div>
-
-                            {/* Reason trend from historical snapshots */}
-                            {coverageHistory.length > 1 && (() => {
-                              const reasonTrend = coverageHistory
-                                .map((snap) => ({ date: snap.date, count: snap.reasonBreakdown[selectedReason] ?? 0 }))
-                                .filter((_, i, arr) => i === 0 || i === arr.length - 1 || arr[i]!.count > 0)
-                              const maxCount = Math.max(...reasonTrend.map((r) => r.count), 1)
-                              if (reasonTrend.length < 2) return null
-                              return (
-                                <div className="mb-3">
-                                  <p className="text-xs uppercase tracking-wide text-zinc-500 mb-1">Affected pages over time</p>
-                                  <div className="h-20 w-full">
-                                    <svg viewBox={`0 0 ${reasonTrend.length * 12 + 2} 80`} className="h-full w-full" preserveAspectRatio="none">
-                                      {reasonTrend.map((pt, i) => {
-                                        const rh = (pt.count / maxCount) * 68
-                                        return (
-                                          <g key={pt.date}>
-                                            <title>{`${pt.date}: ${pt.count} pages`}</title>
-                                            <rect x={i * 12 + 2} y={68 - rh} width={10} height={rh} rx={1} fill="#f59e0b" />
-                                          </g>
-                                        )
-                                      })}
-                                    </svg>
-                                  </div>
-                                </div>
-                              )
-                            })()}
 
                             <table className="data-table w-full text-sm">
                               <thead>

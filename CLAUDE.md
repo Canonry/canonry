@@ -2,14 +2,7 @@
 
 ## Project Overview
 
-`canonry` is an open-source AEO monitoring tool that tracks how AI answer engines cite a domain for tracked keywords. Published as `@ainyc/canonry` on npm.
-
-## Current Phase
-
-**Phase 2 complete** — `@ainyc/canonry` npm package with CLI, local server, SQLite, and multi-provider visibility runs (Gemini, OpenAI, Claude, local LLM).
-
-**Complete:** Visibility runs, CLI, config-as-code, API, bundled SPA, SQLite, auth, audit log, usage counters, scheduling, webhooks, auto-generate keywords, multi-project support.
-**Next:** Phase 2.5 (SOV, citation prominence, sentiment) then Phase 3 (site audit via `@ainyc/aeo-audit`, Perplexity provider, content optimization). See `docs/roadmap.md` for the full feature roadmap.
+`canonry` is an open-source agent first AEO monitoring platform that tracks how AI answer engines cite a domain for tracked keywords. Published as `@ainyc/canonry` on npm.
 
 ## Workspace Map
 
@@ -60,6 +53,8 @@ canonry export <project>
 - All internal packages use `@ainyc/canonry-*` naming convention.
 
 ## Surface Parity
+
+THIS IS A AI AGENT FIRST PLATFORM. 
 
 **Every feature must be equally accessible through CLI, API, and UI.** No surface is privileged — if a user can do something from the terminal, they must be able to do the same from the web dashboard and vice versa. The API is the shared backbone; both CLI and UI are clients of it.
 
@@ -125,7 +120,7 @@ See OpenAPI spec at `/api/v1/openapi.json` for the complete API surface.
 
 ## UI Design System
 
-The web dashboard follows a dark, professional analytics aesthetic designed to rival tools like Semrush, Ahrefs, and Profound. Follow these conventions for all UI work:
+The web dashboard follows a dark, professional analytics aesthetic inspired by **Vercel's design system** — clean, minimal, high-contrast, and information-dense. Rival tools like Semrush, Ahrefs, and Profound for data richness, but match Vercel for polish: generous whitespace, sharp typography, subtle borders, no visual noise. Follow these conventions for all UI work:
 
 ### Layout
 - **Sidebar navigation** (persistent left, `w-56`, hidden on mobile with full-screen overlay fallback).
