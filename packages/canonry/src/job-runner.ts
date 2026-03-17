@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { eq, inArray } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { runs, keywords, competitors, projects, querySnapshots, usageCounters } from '@ainyc/canonry-db'
-import type { ProviderName, NormalizedQueryResult } from '@ainyc/canonry-contracts'
+import type { ProviderName, NormalizedQueryResult, LocationContext } from '@ainyc/canonry-contracts'
 import { effectiveDomains, normalizeProjectDomain } from '@ainyc/canonry-contracts'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
@@ -37,7 +37,7 @@ export class JobRunner {
     }
   }
 
-  async executeRun(runId: string, projectId: string, providerOverride?: ProviderName[]): Promise<void> {
+  async executeRun(runId: string, projectId: string, providerOverride?: ProviderName[], locationOverride?: LocationContext | null): Promise<void> {
     const now = new Date().toISOString()
     const startTime = Date.now()
 
@@ -58,6 +58,21 @@ export class JobRunner {
 
       if (!project) {
         throw new Error(`Project ${projectId} not found`)
+      }
+
+      // Resolve location: explicit override > project default > none
+      // locationOverride === null means explicitly no location (--no-location)
+      // locationOverride === undefined means use project default
+      let runLocation: LocationContext | undefined
+      if (locationOverride === null) {
+        runLocation = undefined
+      } else if (locationOverride) {
+        runLocation = locationOverride
+      } else {
+        const projectLocations = JSON.parse(project.locations || '[]') as LocationContext[]
+        if (project.defaultLocation && projectLocations.length > 0) {
+          runLocation = projectLocations.find(l => l.label === project.defaultLocation)
+        }
       }
 
       // Resolve which providers to use — honour per-run override, then project config
@@ -144,6 +159,7 @@ export class JobRunner {
                 keyword: kw.keyword,
                 canonicalDomains: allDomains,
                 competitorDomains,
+                location: runLocation,
               },
               config,
             )
@@ -164,6 +180,7 @@ export class JobRunner {
               answerText: normalized.answerText,
               citedDomains: JSON.stringify(normalized.citedDomains),
               competitorOverlap: JSON.stringify(overlap),
+              location: runLocation?.label ?? null,
               rawResponse: JSON.stringify({
                 model: raw.model,
                 groundingSources: normalized.groundingSources,
@@ -219,6 +236,7 @@ export class JobRunner {
         providers: activeProviders.map(p => p.adapter.name),
         keywordCount: projectKeywords.length,
         durationMs: Date.now() - startTime,
+        ...(runLocation ? { location: runLocation.label } : {}),
       })
 
       // Increment per-provider usage counters to keep quota checks accurate

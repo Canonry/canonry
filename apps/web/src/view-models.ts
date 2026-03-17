@@ -100,6 +100,7 @@ export interface CitationInsightVm {
   keyword: string
   provider: string
   model: string | null
+  location: string | null
   citationState: CitationState
   changeLabel: string
   answerSnippet: string

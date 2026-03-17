@@ -53,6 +53,7 @@ export const localAdapter: ProviderAdapter = {
       canonicalDomains: input.canonicalDomains,
       competitorDomains: input.competitorDomains,
       config: toLocalConfig(config),
+      location: input.location,
     })
     return {
       provider: 'local',

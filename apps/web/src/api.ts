@@ -55,6 +55,14 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
+export interface ApiLocation {
+  label: string
+  city: string
+  region: string
+  country: string
+  timezone?: string
+}
+
 export interface ApiProject {
   id: string
   name: string
@@ -66,6 +74,8 @@ export interface ApiProject {
   tags: string[]
   labels: Record<string, string>
   providers: string[]
+  locations: ApiLocation[]
+  defaultLocation: string | null
   configSource: string
   configRevision: number
   createdAt: string
@@ -78,6 +88,7 @@ export interface ApiRun {
   kind: string
   status: string
   trigger: string
+  location: string | null
   startedAt: string | null
   finishedAt: string | null
   error: string | null
@@ -97,6 +108,7 @@ export interface ApiSnapshot {
   groundingSources: GroundingSource[]
   searchQueries: string[]
   model: string | null
+  location: string | null
   createdAt: string
 }
 
@@ -177,8 +189,11 @@ export function fetchCompetitors(name: string): Promise<ApiCompetitor[]> {
   return apiFetch(`/projects/${encodeURIComponent(name)}/competitors`)
 }
 
-export function fetchTimeline(name: string): Promise<ApiTimelineEntry[]> {
-  return apiFetch(`/projects/${encodeURIComponent(name)}/timeline`)
+export function fetchTimeline(name: string, location?: string): Promise<ApiTimelineEntry[]> {
+  const params = new URLSearchParams()
+  if (location !== undefined) params.set('location', location)
+  const qs = params.toString()
+  return apiFetch(`/projects/${encodeURIComponent(name)}/timeline${qs ? `?${qs}` : ''}`)
 }
 
 export function fetchHistory(name: string): Promise<ApiAuditEntry[]> {
@@ -194,6 +209,8 @@ export function createProject(name: string, body: {
   tags?: string[]
   labels?: Record<string, string>
   providers?: string[]
+  locations?: ApiLocation[]
+  defaultLocation?: string | null
 }): Promise<ApiProject> {
   return apiFetch(`/projects/${encodeURIComponent(name)}`, {
     method: 'PUT',
@@ -240,6 +257,8 @@ export async function updateOwnedDomains(projectName: string, ownedDomains: stri
     tags: project.tags,
     labels: project.labels,
     providers: project.providers,
+    locations: project.locations,
+    defaultLocation: project.defaultLocation,
   })
 }
 
@@ -249,6 +268,8 @@ export async function updateProject(projectName: string, updates: {
   ownedDomains?: string[]
   country?: string
   language?: string
+  locations?: ApiLocation[]
+  defaultLocation?: string | null
 }): Promise<ApiProject> {
   const project = await fetchProject(projectName)
   return createProject(projectName, {
@@ -260,11 +281,39 @@ export async function updateProject(projectName: string, updates: {
     tags: project.tags,
     labels: project.labels,
     providers: project.providers,
+    locations: updates.locations ?? project.locations,
+    defaultLocation: updates.defaultLocation !== undefined ? updates.defaultLocation : project.defaultLocation,
   })
 }
 
-export function triggerRun(name: string): Promise<ApiRun> {
-  return apiFetch(`/projects/${encodeURIComponent(name)}/runs`, { method: 'POST', body: '{}' })
+export function triggerRun(name: string, opts?: { location?: string; allLocations?: boolean; noLocation?: boolean }): Promise<ApiRun> {
+  const body: Record<string, unknown> = {}
+  if (opts?.location) body.location = opts.location
+  if (opts?.allLocations) body.allLocations = true
+  if (opts?.noLocation) body.noLocation = true
+  return apiFetch(`/projects/${encodeURIComponent(name)}/runs`, { method: 'POST', body: JSON.stringify(body) })
+}
+
+export function addLocation(project: string, location: ApiLocation): Promise<ApiLocation> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/locations`, {
+    method: 'POST',
+    body: JSON.stringify(location),
+  })
+}
+
+export function fetchLocations(project: string): Promise<{ locations: ApiLocation[]; defaultLocation: string | null }> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/locations`)
+}
+
+export async function removeLocation(project: string, label: string): Promise<void> {
+  await apiFetch(`/projects/${encodeURIComponent(project)}/locations/${encodeURIComponent(label)}`, { method: 'DELETE' })
+}
+
+export function setDefaultLocation(project: string, label: string): Promise<{ defaultLocation: string }> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/locations/default`, {
+    method: 'PUT',
+    body: JSON.stringify({ label }),
+  })
 }
 
 export async function deleteProject(name: string): Promise<void> {

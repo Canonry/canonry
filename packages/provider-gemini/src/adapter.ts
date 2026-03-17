@@ -52,6 +52,7 @@ export const geminiAdapter: ProviderAdapter = {
       canonicalDomains: input.canonicalDomains,
       competitorDomains: input.competitorDomains,
       config: toGeminiConfig(config),
+      location: input.location,
     })
     return {
       provider: 'gemini',

@@ -150,3 +150,54 @@ export async function deleteProject(name: string): Promise<void> {
   await client.deleteProject(name)
   console.log(`Project deleted: ${name}`)
 }
+
+export async function addLocation(
+  project: string,
+  opts: { label: string; city: string; region: string; country: string; timezone?: string },
+): Promise<void> {
+  const client = getClient()
+  await client.addLocation(project, opts)
+  console.log(`Location added: ${opts.label} (${opts.city}, ${opts.region}, ${opts.country})`)
+}
+
+export async function listLocations(project: string, format?: string): Promise<void> {
+  const client = getClient()
+  const result = await client.listLocations(project)
+
+  if (format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  if (result.locations.length === 0) {
+    console.log(`No locations configured for "${project}".`)
+    return
+  }
+
+  console.log(`Locations for "${project}" (${result.locations.length}):\n`)
+  console.log('  LABEL            CITY                 REGION               COUNTRY  DEFAULT')
+  console.log('  ───────────────  ───────────────────  ───────────────────  ───────  ───────')
+
+  for (const loc of result.locations) {
+    const isDefault = loc.label === result.defaultLocation ? '  *' : ''
+    console.log(
+      `  ${loc.label.padEnd(15)}  ${loc.city.padEnd(19)}  ${loc.region.padEnd(19)}  ${loc.country.padEnd(7)}${isDefault}`,
+    )
+  }
+
+  if (result.defaultLocation) {
+    console.log(`\n  Default: ${result.defaultLocation}`)
+  }
+}
+
+export async function removeLocation(project: string, label: string): Promise<void> {
+  const client = getClient()
+  await client.removeLocation(project, label)
+  console.log(`Location removed: ${label}`)
+}
+
+export async function setDefaultLocation(project: string, label: string): Promise<void> {
+  const client = getClient()
+  await client.setDefaultLocation(project, label)
+  console.log(`Default location set to: ${label}`)
+}

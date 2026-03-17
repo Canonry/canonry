@@ -81,7 +81,7 @@ export async function executeTrackedQuery(input: GeminiTrackedQueryInput): Promi
     tools: [{ googleSearch: {} } as unknown as Record<string, unknown>],
   })
 
-  const prompt = buildPrompt(input.keyword)
+  const prompt = buildPrompt(input.keyword, input.location)
 
   const result = await generativeModel.generateContent(prompt)
   const response = result.response
@@ -114,7 +114,10 @@ export function normalizeResult(raw: GeminiRawResult): GeminiNormalizedResult {
 
 // --- Internal helpers ---
 
-function buildPrompt(keyword: string): string {
+function buildPrompt(keyword: string, location?: import('./types.js').GeminiTrackedQueryInput['location']): string {
+  if (location) {
+    return `${keyword} (searching from ${location.city}, ${location.region}, ${location.country})`
+  }
   return keyword
 }
 

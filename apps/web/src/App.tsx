@@ -72,6 +72,10 @@ import {
   saveSitemapUrl,
   fetchGscSitemaps,
   type ApiGscSitemap,
+  addLocation,
+  removeLocation,
+  setDefaultLocation,
+  type ApiLocation,
   type ApiGscCoverageSummary,
   type ApiSchedule,
   type ApiNotification,
@@ -290,7 +294,7 @@ function toneFromCitationState(state: CitationInsightVm['citationState']): Metri
     case 'cited':
       return 'positive'
     case 'emerging':
-      return 'positive'
+      return 'caution'
     case 'not-cited':
       return 'caution'
     case 'lost':
@@ -623,7 +627,7 @@ function RunRow({
           <div>
             <p className="run-row-title">{run.summary}</p>
             <p className="run-row-subtitle">
-              {run.projectName} · {run.kindLabel}
+              {run.projectName}{run.location ? ` · ${run.location}` : ''} · {run.kindLabel}
             </p>
           </div>
           <StatusBadge status={run.status} />
@@ -744,27 +748,34 @@ function CitationTimeline({ history, maxDots = 12 }: { history: RunHistoryPoint[
     cited: 'bg-emerald-400',
     'not-cited': 'bg-zinc-600',
     lost: 'bg-rose-400',
-    emerging: 'bg-emerald-400 ring-1 ring-emerald-300/60',
+    emerging: 'bg-amber-400 ring-1 ring-amber-300/60',
   }
 
+  const firstDate = new Date(dots[0].createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  const lastDate = new Date(dots[dots.length - 1].createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+
   return (
-    <div className="flex items-center gap-[3px]" title={`${dots.length} runs`}>
-      {dots.map((d, i) => (
-        <div
-          key={i}
-          className={`h-2.5 w-2.5 rounded-sm ${colorMap[d.citationState] ?? 'bg-zinc-700'} ${
-            d.model && i > 0 && dots[i - 1]?.model && dots[i - 1]!.model !== d.model
-              ? 'ring-1 ring-amber-300/80 ring-offset-1 ring-offset-zinc-950'
-              : ''
-          }`}
-          title={[
-            d.citationState,
-            new Date(d.createdAt).toLocaleDateString(),
-            d.model ? `model ${d.model}` : null,
-            d.model && i > 0 && dots[i - 1]?.model && dots[i - 1]!.model !== d.model ? 'model changed' : null,
-          ].filter(Boolean).join(' — ')}
-        />
-      ))}
+    <div className="flex items-center gap-1">
+      <span className="text-[9px] text-zinc-600 shrink-0">{firstDate}</span>
+      <div className="flex items-center gap-[3px]" title={`${dots.length} runs`}>
+        {dots.map((d, i) => (
+          <div
+            key={i}
+            className={`h-2.5 w-2.5 rounded-sm ${colorMap[d.citationState] ?? 'bg-zinc-700'} ${
+              d.model && i > 0 && dots[i - 1]?.model && dots[i - 1]!.model !== d.model
+                ? 'ring-1 ring-amber-300/80 ring-offset-1 ring-offset-zinc-950'
+                : ''
+            }`}
+            title={[
+              d.citationState,
+              new Date(d.createdAt).toLocaleDateString(),
+              d.model ? `model ${d.model}` : null,
+              d.model && i > 0 && dots[i - 1]?.model && dots[i - 1]!.model !== d.model ? 'model changed' : null,
+            ].filter(Boolean).join(' — ')}
+          />
+        ))}
+      </div>
+      <span className="text-[9px] text-zinc-600 shrink-0">{lastDate}</span>
     </div>
   )
 }
@@ -939,11 +950,17 @@ function EvidencePhraseCard({
   phrase,
   items,
   onOpenEvidence,
+  showLocationLabels = true,
+  compareLocations = false,
+  timelineLoading = false,
   onDeleteKeyword,
 }: {
   phrase: string
   items: CitationInsightVm[]
   onOpenEvidence: (evidenceId: string) => void
+  showLocationLabels?: boolean
+  compareLocations?: boolean
+  timelineLoading?: boolean
   onDeleteKeyword?: () => void
 }) {
   const states = items.map(i => i.citationState)
@@ -1016,33 +1033,81 @@ function EvidencePhraseCard({
         )}
       </div>
 
-      <div className="evidence-card-timeline-row">
-        <CitationTimeline history={mergedHistory} maxDots={14} />
+      <div className={`evidence-card-timeline-row${timelineLoading ? ' opacity-40 pointer-events-none' : ''}`}>
+        {timelineLoading
+          ? <span className="text-[10px] text-zinc-500 italic animate-pulse">Loading…</span>
+          : <CitationTimeline history={mergedHistory} maxDots={14} />
+        }
         <span className="evidence-card-ratio">
           {citedCount}/{items.length} provider{items.length !== 1 ? 's' : ''}
         </span>
       </div>
 
-      <div className="evidence-card-providers">
-        {items.filter(item => item.citationState !== 'pending').map(item => (
-          <button
-            key={item.id}
-            type="button"
-            className={`evidence-provider-btn evidence-provider-btn--${item.citationState}`}
-            onClick={() => onOpenEvidence(item.id)}
-            title={`View ${item.provider} evidence for "${phrase}"`}
-          >
-            <span className="capitalize">{item.provider}</span>
-            <span aria-hidden="true" className="font-bold">
-              {item.citationState === 'cited' || item.citationState === 'emerging' ? '✓' : item.citationState === 'lost' ? '✗' : '–'}
-            </span>
-            <span className="opacity-50 text-[10px]">View →</span>
-          </button>
-        ))}
-        {items.every(item => item.citationState === 'pending') && (
-          <span className="text-xs text-zinc-500 italic py-1">Awaiting first run</span>
-        )}
-      </div>
+      {compareLocations ? (() => {
+        // Group items by location for side-by-side comparison
+        const locationGroups = Array.from(
+          items.reduce((map, item) => {
+            const key = item.location ?? ''
+            const existing = map.get(key) ?? []
+            map.set(key, [...existing, item])
+            return map
+          }, new Map<string, CitationInsightVm[]>()),
+        ).map(([loc, locItems]) => ({ loc: loc || 'No location', locItems }))
+        return (
+          <div className="evidence-card-location-compare">
+            {locationGroups.map(({ loc, locItems }) => {
+              const locCited = locItems.filter(i => i.citationState === 'cited' || i.citationState === 'emerging').length
+              return (
+                <div key={loc} className="evidence-card-location-row">
+                  <span className="evidence-card-location-label">{loc}</span>
+                  <div className="evidence-card-location-providers">
+                    {locItems.filter(i => i.citationState !== 'pending').map(item => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={`evidence-provider-btn evidence-provider-btn--${item.citationState} evidence-provider-btn--compact`}
+                        onClick={() => onOpenEvidence(item.id)}
+                        title={`View ${item.provider} evidence for "${phrase}" in ${loc}`}
+                      >
+                        <span className="capitalize">{item.provider}</span>
+                        <span aria-hidden="true" className="font-bold">
+                          {item.citationState === 'cited' || item.citationState === 'emerging' ? '✓' : item.citationState === 'lost' ? '✗' : '–'}
+                        </span>
+                      </button>
+                    ))}
+                    {locItems.every(i => i.citationState === 'pending') && (
+                      <span className="text-xs text-zinc-500 italic">Pending</span>
+                    )}
+                  </div>
+                  <span className="evidence-card-location-score">{locCited}/{locItems.length}</span>
+                </div>
+              )
+            })}
+          </div>
+        )
+      })() : (
+        <div className="evidence-card-providers">
+          {items.filter(item => item.citationState !== 'pending').map(item => (
+            <button
+              key={item.id}
+              type="button"
+              className={`evidence-provider-btn evidence-provider-btn--${item.citationState}`}
+              onClick={() => onOpenEvidence(item.id)}
+              title={`View ${item.provider} evidence for "${phrase}"`}
+            >
+              <span className="capitalize">{item.provider}</span>
+              {item.location && showLocationLabels && <span className="text-[9px] opacity-60">{item.location}</span>}
+              <span aria-hidden="true" className="font-bold">
+                {item.citationState === 'cited' || item.citationState === 'emerging' ? '✓' : item.citationState === 'lost' ? '✗' : '–'}
+              </span>
+              <span className="opacity-50 text-[10px]">View →</span>
+            </button>
+          ))}
+          {items.every(item => item.citationState === 'pending') && (
+            <span className="text-xs text-zinc-500 italic py-1">Awaiting first run</span>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -1050,10 +1115,16 @@ function EvidencePhraseCard({
 function EvidencePhraseCards({
   evidence,
   onOpenEvidence,
+  showLocationLabels = true,
+  compareLocations = false,
+  timelineLoading = false,
   onDeleteKeyword,
 }: {
   evidence: CitationInsightVm[]
   onOpenEvidence: (evidenceId: string) => void
+  showLocationLabels?: boolean
+  compareLocations?: boolean
+  timelineLoading?: boolean
   onDeleteKeyword?: (phrase: string) => void
 }) {
   const groups = useMemo(() => {
@@ -1077,6 +1148,9 @@ function EvidencePhraseCards({
           phrase={phrase}
           items={items}
           onOpenEvidence={onOpenEvidence}
+          showLocationLabels={showLocationLabels}
+          compareLocations={compareLocations}
+          timelineLoading={timelineLoading}
           onDeleteKeyword={onDeleteKeyword ? () => onDeleteKeyword(phrase) : undefined}
         />
       ))}
@@ -1616,7 +1690,7 @@ function ProjectPage({
   onDeleteKeywords: (projectName: string, keywords: string[]) => Promise<void>
   onAddCompetitors: (projectName: string, domains: string[]) => Promise<void>
   onUpdateOwnedDomains: (projectName: string, ownedDomains: string[]) => Promise<void>
-  onUpdateProject: (projectName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; country?: string; language?: string }) => Promise<void>
+  onUpdateProject: (projectName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null }) => Promise<void>
   onNavigate: (to: string) => void
 }) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -1633,6 +1707,62 @@ function ProjectPage({
   const [addingOwnedDomain, setAddingOwnedDomain] = useState(false)
   const [newOwnedDomain, setNewOwnedDomain] = useState('')
   const [ownedDomainSaving, setOwnedDomainSaving] = useState(false)
+  const [locationFilter, setLocationFilter] = useState<string | undefined>(undefined)
+  const [compareLocations, setCompareLocations] = useState(false)
+  const [locationTimeline, setLocationTimeline] = useState<import('./api.js').ApiTimelineEntry[] | null>(null)
+  const [locationTimelineLoading, setLocationTimelineLoading] = useState(false)
+
+  const locationLabelsInEvidence = useMemo(() => new Set(model.visibilityEvidence.map(e => e.location ?? '')), [model.visibilityEvidence])
+  const hasNullLocationEvidence = locationLabelsInEvidence.has('')
+  const distinctLocationsWithEvidence = useMemo(() => [...locationLabelsInEvidence].filter(Boolean), [locationLabelsInEvidence])
+
+  useEffect(() => {
+    if (locationFilter === undefined || locationFilter === '') {
+      setLocationTimeline(null)
+      setLocationTimelineLoading(false)
+      return
+    }
+    setLocationTimelineLoading(true)
+    fetchTimeline(model.project.name, locationFilter)
+      .then(tl => { setLocationTimeline(tl); setLocationTimelineLoading(false) })
+      .catch(() => { setLocationTimeline(null); setLocationTimelineLoading(false) })
+  }, [locationFilter, model.project.name])
+
+  // Build a runHistory override map keyed by keyword::provider from the location-scoped timeline
+  const locationRunHistoryMap = useMemo<Map<string, RunHistoryPoint[]> | null>(() => {
+    if (!locationTimeline) return null
+    const map = new Map<string, RunHistoryPoint[]>()
+    for (const entry of locationTimeline) {
+      for (const [provider, runs] of Object.entries(entry.providerRuns ?? {})) {
+        map.set(`${entry.keyword}::${provider}`, runs.map(r => ({
+          runId: r.runId,
+          citationState: r.citationState,
+          createdAt: r.createdAt,
+        })))
+      }
+      // Fallback: keyword-level history when no per-provider data
+      if (!entry.providerRuns || Object.keys(entry.providerRuns).length === 0) {
+        map.set(`${entry.keyword}::`, entry.runs.map(r => ({
+          runId: r.runId,
+          citationState: r.citationState,
+          createdAt: r.createdAt,
+        })))
+      }
+    }
+    return map
+  }, [locationTimeline])
+
+  const filteredEvidence = useMemo(() => {
+    const filtered = locationFilter !== undefined
+      ? model.visibilityEvidence.filter(e => locationFilter === '' ? !e.location : e.location === locationFilter)
+      : model.visibilityEvidence
+    if (!locationRunHistoryMap) return filtered
+    return filtered.map(item => {
+      const history = locationRunHistoryMap.get(`${item.keyword}::${item.provider}`)
+        ?? locationRunHistoryMap.get(`${item.keyword}::`)
+      return history ? { ...item, runHistory: history } : item
+    })
+  }, [model.visibilityEvidence, locationFilter, locationRunHistoryMap])
 
   async function handleExport() {
     const data = await fetchExport(model.project.name)
@@ -1953,7 +2083,60 @@ function ProjectPage({
                 </div>
               </div>
             )}
-            <EvidencePhraseCards evidence={model.visibilityEvidence} onOpenEvidence={onOpenEvidence} onDeleteKeyword={keywordDeleting ? undefined : handleDeleteKeyword} />
+            {model.project.locations && model.project.locations.length > 0 && (
+              <div className="filter-row mb-3" role="toolbar" aria-label="Location filters">
+                <button
+                  className={`filter-chip ${locationFilter === undefined ? 'filter-chip-active' : ''}`}
+                  type="button"
+                  aria-pressed={locationFilter === undefined}
+                  onClick={() => { setLocationFilter(undefined) }}
+                >
+                  All locations
+                </button>
+                {model.project.locations.map((loc: { label: string }) => (
+                  locationLabelsInEvidence.has(loc.label) && (
+                    <button
+                      key={loc.label}
+                      className={`filter-chip ${locationFilter === loc.label ? 'filter-chip-active' : ''}`}
+                      type="button"
+                      aria-pressed={locationFilter === loc.label}
+                      onClick={() => { setLocationFilter(loc.label); setCompareLocations(false) }}
+                    >
+                      {loc.label}
+                    </button>
+                  )
+                ))}
+                {hasNullLocationEvidence && (
+                  <button
+                    className={`filter-chip ${locationFilter === '' ? 'filter-chip-active' : ''}`}
+                    type="button"
+                    aria-pressed={locationFilter === ''}
+                    onClick={() => { setLocationFilter(''); setCompareLocations(false) }}
+                  >
+                    No location
+                  </button>
+                )}
+                {distinctLocationsWithEvidence.length > 1 && locationFilter === undefined && (
+                  <button
+                    className={`filter-chip filter-chip-compare ${compareLocations ? 'filter-chip-active' : ''}`}
+                    type="button"
+                    aria-pressed={compareLocations}
+                    onClick={() => setCompareLocations(v => !v)}
+                    title="Side-by-side location comparison"
+                  >
+                    Compare
+                  </button>
+                )}
+              </div>
+            )}
+            <EvidencePhraseCards
+              evidence={filteredEvidence}
+              onOpenEvidence={onOpenEvidence}
+              showLocationLabels={locationFilter === undefined}
+              compareLocations={locationFilter === undefined && compareLocations}
+              timelineLoading={locationTimelineLoading}
+              onDeleteKeyword={keywordDeleting ? undefined : handleDeleteKeyword}
+            />
           </section>
 
           {/* Competitor table */}
@@ -2003,7 +2186,7 @@ function ProjectPage({
             </div>
           </section>
 
-          <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name }} onUpdateProject={onUpdateProject} />
+          <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={onUpdateProject} />
           <ScheduleSection projectName={model.project.name} />
           <NotificationsSection projectName={model.project.name} />
         </>
@@ -3367,8 +3550,8 @@ function ProjectSettingsSection({
   project,
   onUpdateProject,
 }: {
-  project: { name: string; displayName: string; canonicalDomain: string; ownedDomains: string[]; country: string; language: string }
-  onUpdateProject: (projectName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; country?: string; language?: string }) => Promise<void>
+  project: { name: string; displayName: string; canonicalDomain: string; ownedDomains: string[]; country: string; language: string; locations: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation: string | null }
+  onUpdateProject: (projectName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null }) => Promise<void>
 }) {
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -3379,6 +3562,16 @@ function ProjectSettingsSection({
   const [language, setLanguage] = useState(project.language)
   const [ownedDomains, setOwnedDomains] = useState<string[]>(project.ownedDomains ?? [])
   const [newDomain, setNewDomain] = useState('')
+
+  // Location management state
+  const [locationError, setLocationError] = useState<string | null>(null)
+  const [locationWorking, setLocationWorking] = useState(false)
+  const [showAddLocation, setShowAddLocation] = useState(false)
+  const [newLocLabel, setNewLocLabel] = useState('')
+  const [newLocCity, setNewLocCity] = useState('')
+  const [newLocRegion, setNewLocRegion] = useState('')
+  const [newLocCountry, setNewLocCountry] = useState('')
+  const [newLocTimezone, setNewLocTimezone] = useState('')
 
   // Sync local state when project prop changes (e.g. after save)
   useEffect(() => {
@@ -3435,6 +3628,58 @@ function ProjectSettingsSection({
     }
   }
 
+  async function handleAddLocation() {
+    const label = newLocLabel.trim()
+    const city = newLocCity.trim()
+    const region = newLocRegion.trim()
+    const locCountry = newLocCountry.trim()
+    if (!label || !city || !region || !locCountry) return
+    setLocationWorking(true)
+    setLocationError(null)
+    try {
+      const loc: ApiLocation = { label, city, region, country: locCountry }
+      if (newLocTimezone.trim()) loc.timezone = newLocTimezone.trim()
+      await addLocation(project.name, loc)
+      await onUpdateProject(project.name, {})
+      setNewLocLabel('')
+      setNewLocCity('')
+      setNewLocRegion('')
+      setNewLocCountry('')
+      setNewLocTimezone('')
+      setShowAddLocation(false)
+    } catch (err) {
+      setLocationError(err instanceof Error ? err.message : 'Failed to add location')
+    } finally {
+      setLocationWorking(false)
+    }
+  }
+
+  async function handleRemoveLocation(label: string) {
+    setLocationWorking(true)
+    setLocationError(null)
+    try {
+      await removeLocation(project.name, label)
+      await onUpdateProject(project.name, {})
+    } catch (err) {
+      setLocationError(err instanceof Error ? err.message : 'Failed to remove location')
+    } finally {
+      setLocationWorking(false)
+    }
+  }
+
+  async function handleSetDefaultLocation(label: string) {
+    setLocationWorking(true)
+    setLocationError(null)
+    try {
+      await setDefaultLocation(project.name, label)
+      await onUpdateProject(project.name, {})
+    } catch (err) {
+      setLocationError(err instanceof Error ? err.message : 'Failed to set default location')
+    } finally {
+      setLocationWorking(false)
+    }
+  }
+
   const hasChanges = displayName !== project.displayName ||
     canonicalDomain !== project.canonicalDomain ||
     country !== project.country ||
@@ -3443,6 +3688,7 @@ function ProjectSettingsSection({
 
   const inputClass = 'w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none'
   const labelClass = 'block text-xs font-medium text-zinc-400 mb-1'
+  const newLocValid = newLocLabel.trim() && newLocCity.trim() && newLocRegion.trim() && newLocCountry.trim()
 
   return (
     <section className="page-section-divider">
@@ -3550,9 +3796,114 @@ function ProjectSettingsSection({
                 <td className="px-4 py-2.5 text-zinc-500 font-medium">Country</td>
                 <td className="px-4 py-2.5 text-zinc-200">{project.country}</td>
               </tr>
-              <tr>
+              <tr className="border-b border-zinc-800/40">
                 <td className="px-4 py-2.5 text-zinc-500 font-medium">Language</td>
                 <td className="px-4 py-2.5 text-zinc-200">{project.language}</td>
+              </tr>
+              <tr>
+                <td className="px-4 py-2.5 text-zinc-500 font-medium align-top pt-3">Locations</td>
+                <td className="px-4 py-2.5">
+                  {locationError && (
+                    <div className="mb-2 rounded border border-rose-800/40 bg-rose-950/20 px-2 py-1 text-xs text-rose-300">
+                      {locationError}
+                      <button type="button" className="ml-1 text-rose-400 hover:text-rose-200" onClick={() => setLocationError(null)}>×</button>
+                    </div>
+                  )}
+                  {(project.locations ?? []).length > 0 ? (
+                    <table className="w-full text-xs mb-2">
+                      <thead>
+                        <tr className="text-zinc-600">
+                          <th className="text-left pb-1 font-medium pr-3">Label</th>
+                          <th className="text-left pb-1 font-medium pr-3">City</th>
+                          <th className="text-left pb-1 font-medium pr-3">Region</th>
+                          <th className="text-left pb-1 font-medium pr-3">Country</th>
+                          <th className="text-left pb-1 font-medium pr-3">Timezone</th>
+                          <th className="pb-1"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {project.locations.map((loc) => (
+                          <tr key={loc.label} className="border-t border-zinc-800/30">
+                            <td className="py-1.5 pr-3">
+                              <span className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${loc.label === project.defaultLocation ? 'border-emerald-700/60 bg-emerald-950/30 text-emerald-300' : 'border-zinc-700/60 bg-zinc-800/40 text-zinc-300'}`}>
+                                {loc.label}{loc.label === project.defaultLocation ? ' ★' : ''}
+                              </span>
+                            </td>
+                            <td className="py-1.5 pr-3 text-zinc-300">{loc.city}</td>
+                            <td className="py-1.5 pr-3 text-zinc-300">{loc.region}</td>
+                            <td className="py-1.5 pr-3 text-zinc-300">{loc.country}</td>
+                            <td className="py-1.5 pr-3 text-zinc-500">{loc.timezone ?? '—'}</td>
+                            <td className="py-1.5">
+                              <div className="flex items-center gap-1.5">
+                                {loc.label !== project.defaultLocation && (
+                                  <button
+                                    type="button"
+                                    disabled={locationWorking}
+                                    onClick={() => handleSetDefaultLocation(loc.label)}
+                                    className="text-[10px] text-zinc-500 hover:text-emerald-400 transition-colors disabled:opacity-40"
+                                    aria-label={`Set ${loc.label} as default location`}
+                                  >
+                                    Set default
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  disabled={locationWorking}
+                                  onClick={() => handleRemoveLocation(loc.label)}
+                                  className="text-[10px] text-zinc-500 hover:text-rose-400 transition-colors disabled:opacity-40"
+                                  aria-label={`Remove location ${loc.label}`}
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <p className="text-zinc-500 text-xs mb-2">No locations configured</p>
+                  )}
+                  {showAddLocation ? (
+                    <div className="mt-2 rounded border border-zinc-800 bg-zinc-900/50 p-3 space-y-2">
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">Add location</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] text-zinc-500 mb-0.5">Label *</label>
+                          <input className={inputClass} type="text" value={newLocLabel} onChange={(e) => setNewLocLabel(e.target.value)} placeholder="nyc" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-zinc-500 mb-0.5">City *</label>
+                          <input className={inputClass} type="text" value={newLocCity} onChange={(e) => setNewLocCity(e.target.value)} placeholder="New York" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-zinc-500 mb-0.5">Region *</label>
+                          <input className={inputClass} type="text" value={newLocRegion} onChange={(e) => setNewLocRegion(e.target.value)} placeholder="NY" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-zinc-500 mb-0.5">Country *</label>
+                          <input className={inputClass} type="text" value={newLocCountry} onChange={(e) => setNewLocCountry(e.target.value)} placeholder="US" maxLength={2} />
+                        </div>
+                        <div className="col-span-2">
+                          <label className="block text-[10px] text-zinc-500 mb-0.5">Timezone (optional)</label>
+                          <input className={inputClass} type="text" value={newLocTimezone} onChange={(e) => setNewLocTimezone(e.target.value)} placeholder="America/New_York" />
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 pt-1">
+                        <Button type="button" size="sm" disabled={locationWorking || !newLocValid} onClick={handleAddLocation}>
+                          {locationWorking ? 'Adding...' : 'Add location'}
+                        </Button>
+                        <Button type="button" size="sm" variant="outline" disabled={locationWorking} onClick={() => { setShowAddLocation(false); setLocationError(null) }}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <Button type="button" size="sm" variant="outline" onClick={() => setShowAddLocation(true)}>
+                      + Add location
+                    </Button>
+                  )}
+                </td>
               </tr>
             </tbody>
           </table>
@@ -5362,9 +5713,10 @@ function EvidenceDetailModal({
               <div className="flex items-center gap-1 overflow-x-auto pb-1">
                 {history.map((run, i) => {
                   const isSelected = (selectedRunIdx === -1 && i === history.length - 1) || selectedRunIdx === i
-                  const dotColor = run.citationState === 'cited' || run.citationState === 'emerging'
-                    ? 'bg-emerald-400' : run.citationState === 'lost'
-                      ? 'bg-rose-400' : 'bg-zinc-600'
+                  const dotColor = run.citationState === 'cited'
+                    ? 'bg-emerald-400' : run.citationState === 'emerging'
+                      ? 'bg-amber-400' : run.citationState === 'lost'
+                        ? 'bg-rose-400' : 'bg-zinc-600'
                   const date = new Date(run.createdAt)
                   const label = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
                   const modelChanged = Boolean(run.model && i > 0 && history[i - 1]?.model && history[i - 1]!.model !== run.model)

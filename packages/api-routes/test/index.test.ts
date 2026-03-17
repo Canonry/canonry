@@ -296,6 +296,188 @@ describe('api-routes', () => {
     assert.deepEqual(body.providers, ['gemini', 'openai'])
   })
 
+  // --- Location CRUD tests ---
+
+  it('POST /api/v1/projects/:name/locations adds a location', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/my-site/locations',
+      payload: {
+        label: 'nyc',
+        city: 'New York',
+        region: 'New York',
+        country: 'US',
+        timezone: 'America/New_York',
+      },
+    })
+    assert.equal(res.statusCode, 201)
+    const body = JSON.parse(res.payload)
+    assert.equal(body.label, 'nyc')
+    assert.equal(body.city, 'New York')
+    assert.equal(body.timezone, 'America/New_York')
+  })
+
+  it('POST /api/v1/projects/:name/locations rejects duplicate label', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/my-site/locations',
+      payload: {
+        label: 'nyc',
+        city: 'New York',
+        region: 'New York',
+        country: 'US',
+      },
+    })
+    assert.equal(res.statusCode, 400)
+    const body = JSON.parse(res.payload)
+    assert.match(body.error.message, /already exists/)
+  })
+
+  it('POST /api/v1/projects/:name/locations rejects invalid location data', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/my-site/locations',
+      payload: {
+        label: 'bad',
+        city: 'Berlin',
+        region: 'Berlin',
+        country: 'DEU', // 3 chars, should be 2
+      },
+    })
+    assert.equal(res.statusCode, 400)
+  })
+
+  it('GET /api/v1/projects/:name/locations lists locations and default', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/my-site/locations',
+    })
+    assert.equal(res.statusCode, 200)
+    const body = JSON.parse(res.payload)
+    assert(Array.isArray(body.locations))
+    assert.equal(body.locations.length, 1)
+    assert.equal(body.locations[0].label, 'nyc')
+    assert.equal(body.defaultLocation, null)
+  })
+
+  it('PUT /api/v1/projects/:name/locations/default sets the default location', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/my-site/locations/default',
+      payload: { label: 'nyc' },
+    })
+    assert.equal(res.statusCode, 200)
+    const body = JSON.parse(res.payload)
+    assert.equal(body.defaultLocation, 'nyc')
+
+    // Verify via GET locations
+    const getRes = await app.inject({ method: 'GET', url: '/api/v1/projects/my-site/locations' })
+    const getBody = JSON.parse(getRes.payload)
+    assert.equal(getBody.defaultLocation, 'nyc')
+  })
+
+  it('PUT /api/v1/projects/:name/locations/default rejects unknown label', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/my-site/locations/default',
+      payload: { label: 'nonexistent' },
+    })
+    assert.equal(res.statusCode, 400)
+    const body = JSON.parse(res.payload)
+    assert.match(body.error.message, /not found/)
+  })
+
+  it('PUT /api/v1/projects/:name/locations/default rejects missing label', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/my-site/locations/default',
+      payload: {},
+    })
+    assert.equal(res.statusCode, 400)
+  })
+
+  it('POST /api/v1/projects/:name/locations adds a second location', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/my-site/locations',
+      payload: {
+        label: 'london',
+        city: 'London',
+        region: 'England',
+        country: 'GB',
+      },
+    })
+    assert.equal(res.statusCode, 201)
+    assert.equal(JSON.parse(res.payload).label, 'london')
+
+    // Verify both exist
+    const listRes = await app.inject({ method: 'GET', url: '/api/v1/projects/my-site/locations' })
+    const listBody = JSON.parse(listRes.payload)
+    assert.equal(listBody.locations.length, 2)
+  })
+
+  it('DELETE /api/v1/projects/:name/locations/:label removes a location', async () => {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/api/v1/projects/my-site/locations/london',
+    })
+    assert.equal(res.statusCode, 204)
+
+    // Verify removed
+    const listRes = await app.inject({ method: 'GET', url: '/api/v1/projects/my-site/locations' })
+    const listBody = JSON.parse(listRes.payload)
+    assert.equal(listBody.locations.length, 1)
+    assert.equal(listBody.locations[0].label, 'nyc')
+  })
+
+  it('DELETE /api/v1/projects/:name/locations/:label returns 400 for unknown label', async () => {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/api/v1/projects/my-site/locations/nonexistent',
+    })
+    assert.equal(res.statusCode, 400)
+  })
+
+  it('DELETE /api/v1/projects/:name/locations/:label clears default when removing default location', async () => {
+    // Default is currently 'nyc' — remove it
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/api/v1/projects/my-site/locations/nyc',
+    })
+    assert.equal(res.statusCode, 204)
+
+    // Verify default is cleared
+    const listRes = await app.inject({ method: 'GET', url: '/api/v1/projects/my-site/locations' })
+    const listBody = JSON.parse(listRes.payload)
+    assert.equal(listBody.locations.length, 0)
+    assert.equal(listBody.defaultLocation, null)
+  })
+
+  it('GET /api/v1/projects/:name includes locations in project response', async () => {
+    // Add a location back for the project response test
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/my-site/locations',
+      payload: { label: 'sf', city: 'San Francisco', region: 'California', country: 'US' },
+    })
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/my-site' })
+    assert.equal(res.statusCode, 200)
+    const body = JSON.parse(res.payload)
+    assert(Array.isArray(body.locations))
+    assert.equal(body.locations.length, 1)
+    assert.equal(body.locations[0].label, 'sf')
+  })
+
+  it('POST /api/v1/projects/:name/locations returns 404 for unknown project', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/nonexistent/locations',
+      payload: { label: 'test', city: 'Test', region: 'Test', country: 'US' },
+    })
+    assert.equal(res.statusCode, 404)
+  })
+
   it('GET /api/v1/settings returns provider and google summaries', async () => {
     const settingsCtx = buildApp({
       providerSummary: [{ name: 'gemini', configured: true }],

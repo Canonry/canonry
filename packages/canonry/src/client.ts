@@ -9,9 +9,10 @@ export class ApiClient {
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const url = `${this.baseUrl}${path}`
+    const serializedBody = body != null ? JSON.stringify(body) : undefined
     const headers: Record<string, string> = {
       'Authorization': `Bearer ${this.apiKey}`,
-      'Content-Type': 'application/json',
+      ...(serializedBody != null ? { 'Content-Type': 'application/json' } : {}),
     }
 
     let res: Response
@@ -19,7 +20,7 @@ export class ApiClient {
       res = await fetch(url, {
         method,
         headers,
-        body: body != null ? JSON.stringify(body) : undefined,
+        body: serializedBody,
       })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -164,6 +165,22 @@ export class ApiClient {
 
   async testNotification(project: string, id: string): Promise<object> {
     return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/notifications/${encodeURIComponent(id)}/test`)
+  }
+
+  async addLocation(project: string, body: { label: string; city: string; region: string; country: string; timezone?: string }): Promise<object> {
+    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/locations`, body)
+  }
+
+  async listLocations(project: string): Promise<{ locations: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation: string | null }> {
+    return this.request<{ locations: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation: string | null }>('GET', `/projects/${encodeURIComponent(project)}/locations`)
+  }
+
+  async removeLocation(project: string, label: string): Promise<void> {
+    await this.request<void>('DELETE', `/projects/${encodeURIComponent(project)}/locations/${encodeURIComponent(label)}`)
+  }
+
+  async setDefaultLocation(project: string, label: string): Promise<object> {
+    return this.request<object>('PUT', `/projects/${encodeURIComponent(project)}/locations/default`, { label })
   }
 
   async getTelemetry(): Promise<{ enabled: boolean; anonymousId?: string }> {

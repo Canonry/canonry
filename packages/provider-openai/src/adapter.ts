@@ -52,6 +52,7 @@ export const openaiAdapter: ProviderAdapter = {
       canonicalDomains: input.canonicalDomains,
       competitorDomains: input.competitorDomains,
       config: toOpenAIConfig(config),
+      location: input.location,
     })
     return {
       provider: 'openai',

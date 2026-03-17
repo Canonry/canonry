@@ -22,6 +22,7 @@ export const runDtoSchema = z.object({
   kind: runKindSchema,
   status: runStatusSchema,
   trigger: runTriggerSchema.default('manual'),
+  location: z.string().nullable().optional(),
   startedAt: z.string().nullable().optional(),
   finishedAt: z.string().nullable().optional(),
   error: z.string().nullable().optional(),
@@ -51,6 +52,7 @@ export const querySnapshotDtoSchema = z.object({
   groundingSources: z.array(groundingSourceSchema).default([]),
   searchQueries: z.array(z.string()).default([]),
   model: z.string().nullable().optional(),
+  location: z.string().nullable().optional(),
   createdAt: z.string(),
 })
 

@@ -8,17 +8,73 @@ function getClient(): ApiClient {
 
 const TERMINAL_STATUSES = new Set(['completed', 'partial', 'failed'])
 
-export async function triggerRun(project: string, opts?: { provider?: string; wait?: boolean; format?: string }): Promise<void> {
+export async function triggerRun(project: string, opts?: { provider?: string; wait?: boolean; format?: string; location?: string; allLocations?: boolean; noLocation?: boolean }): Promise<void> {
   const client = getClient()
   const body: Record<string, unknown> = {}
   if (opts?.provider) {
     body.providers = [opts.provider]
   }
-  const run = await client.triggerRun(project, body) as {
-    id: string
-    status: string
-    kind: string
+  if (opts?.location) {
+    body.location = opts.location
   }
+  if (opts?.allLocations) {
+    body.allLocations = true
+  }
+  if (opts?.noLocation) {
+    body.noLocation = true
+  }
+  const response = await client.triggerRun(project, body)
+
+  // allLocations returns HTTP 207 with an array of per-location run objects
+  if (Array.isArray(response)) {
+    const locationRuns = response as Array<{ id: string; status: string; kind: string; location?: string; error?: string }>
+    if (opts?.format === 'json') {
+      if (opts?.wait) {
+        const settled = await Promise.all(
+          locationRuns.map(async (r) => {
+            if (!r.id || r.status === 'conflict') return r
+            const final = await pollRun(client, r.id)
+            return { ...r, ...(final as object) }
+          }),
+        )
+        console.log(JSON.stringify(settled, null, 2))
+      } else {
+        console.log(JSON.stringify(locationRuns, null, 2))
+      }
+      return
+    }
+
+    console.log(`Triggered ${locationRuns.length} location sweep(s) — ${locationRuns.length}× API calls:\n`)
+    console.log('  LOCATION         RUN ID                                STATUS')
+    console.log('  ───────────────  ────────────────────────────────────  ──────────')
+    for (const r of locationRuns) {
+      const loc = (r.location ?? '(unknown)').padEnd(15)
+      const id = (r.id ?? '(conflict)').padEnd(36)
+      console.log(`  ${loc}  ${id}  ${r.status}`)
+    }
+
+    if (opts?.wait) {
+      const pending = locationRuns.filter(r => r.id && r.status !== 'conflict')
+      if (pending.length > 0) {
+        process.stderr.write(`Waiting for ${pending.length} run(s)`)
+        await Promise.all(
+          pending.map(async (r) => {
+            const final = await pollRun(client, r.id)
+            r.status = (final as { status: string }).status
+          }),
+        )
+        process.stderr.write('\n')
+        console.log('\nFinal statuses:')
+        for (const r of locationRuns) {
+          const loc = (r.location ?? '(unknown)').padEnd(15)
+          console.log(`  ${loc}  ${r.status}`)
+        }
+      }
+    }
+    return
+  }
+
+  const run = response as { id: string; status: string; kind: string }
 
   if (opts?.wait) {
     process.stderr.write(`Run ${run.id} started`)
