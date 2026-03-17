@@ -2018,12 +2018,10 @@ function ProjectPage({
               </div>
             )}
             {model.project.locations && model.project.locations.length > 0 && (() => {
-              // Only show location filters when there's actually evidence split across locations
+              // Compute which locations actually have evidence to avoid showing empty filters
               const locationLabelsInEvidence = new Set(model.visibilityEvidence.map(e => e.location ?? ''))
               const hasNullLocationEvidence = locationLabelsInEvidence.has('')
               const distinctLocations = [...locationLabelsInEvidence].filter(Boolean)
-              // If all evidence is from a single location (or there's nothing), the filter row adds no value
-              if (distinctLocations.length <= 1 && !hasNullLocationEvidence) return null
               return (
                 <div className="filter-row mb-3" role="toolbar" aria-label="Location filters">
                   <button
