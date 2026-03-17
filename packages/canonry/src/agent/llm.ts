@@ -6,6 +6,7 @@
  * the Vercel AI SDK as a dependency — we only need fetch().
  */
 
+import { MODEL_REGISTRY } from '@ainyc/canonry-contracts'
 import type { AgentTool } from './tools.js'
 
 export interface LlmConfig {
@@ -43,9 +44,9 @@ const PROVIDER_ENDPOINTS: Record<string, string> = {
 }
 
 const DEFAULT_MODELS: Record<string, string> = {
-  openai: 'gpt-4o',
-  claude: 'claude-sonnet-4-5-20250514',
-  gemini: 'gemini-2.5-flash',
+  openai: MODEL_REGISTRY.openai.defaultModel,
+  claude: MODEL_REGISTRY.claude.defaultModel,
+  gemini: MODEL_REGISTRY.gemini.defaultModel,
 }
 
 /** Rough character count of a chat request (messages + tool defs). */

@@ -692,9 +692,10 @@ export function fetchAgentThread(project: string, threadId: string): Promise<Api
   return apiFetch(`/projects/${encodeURIComponent(project)}/agent/threads/${encodeURIComponent(threadId)}`)
 }
 
-export function sendAgentMessage(project: string, threadId: string, message: string, provider?: string): Promise<{ threadId: string; status: string }> {
+export function sendAgentMessage(project: string, threadId: string, message: string, provider?: string, model?: string): Promise<{ threadId: string; status: string }> {
   const body: Record<string, unknown> = { message }
   if (provider) body.provider = provider
+  if (model) body.model = model
   return apiFetch(`/projects/${encodeURIComponent(project)}/agent/threads/${encodeURIComponent(threadId)}/messages`, {
     method: 'POST',
     body: JSON.stringify(body),

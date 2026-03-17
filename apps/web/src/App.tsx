@@ -30,7 +30,7 @@ import {
   X,
   Zap,
 } from 'lucide-react'
-import { effectiveDomains, normalizeProjectDomain } from '@ainyc/canonry-contracts'
+import { effectiveDomains, normalizeProjectDomain, MODEL_REGISTRY } from '@ainyc/canonry-contracts'
 
 import { Badge } from './components/ui/badge.js'
 import { Button } from './components/ui/button.js'
@@ -5794,6 +5794,7 @@ function AeroPage({ projects, providers }: {
 }) {
   const [selectedProject, setSelectedProject] = useState(projects[0]?.name ?? '')
   const [selectedProvider, setSelectedProvider] = useState('')
+  const [selectedModel, setSelectedModel] = useState('')
   const [threads, setThreads] = useState<ApiAgentThread[]>([])
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ApiAgentMessage[]>([])
@@ -5909,6 +5910,7 @@ function AeroPage({ projects, providers }: {
         activeThreadId,
         msg,
         selectedProvider || undefined,
+        selectedModel || undefined,
       )
 
       // Start polling for the response
@@ -5969,7 +5971,7 @@ function AeroPage({ projects, providers }: {
       setMessages([optimisticUser])
       setProcessing(true)
       try {
-        await sendAgentMessage(selectedProject, thread.id, msg, selectedProvider || undefined)
+        await sendAgentMessage(selectedProject, thread.id, msg, selectedProvider || undefined, selectedModel || undefined)
         if (pollRef.current) clearInterval(pollRef.current)
         pollRef.current = setInterval(() => {
           fetchAgentThread(selectedProject, thread.id)
@@ -6019,7 +6021,7 @@ function AeroPage({ projects, providers }: {
           </select>
           <select
             value={selectedProvider}
-            onChange={e => setSelectedProvider(e.target.value)}
+            onChange={e => { setSelectedProvider(e.target.value); setSelectedModel('') }}
             className="aero-select"
           >
             <option value="">Auto (default)</option>
@@ -6027,6 +6029,18 @@ function AeroPage({ projects, providers }: {
               <option key={p.name} value={p.name}>{p.name}</option>
             ))}
           </select>
+          {selectedProvider && MODEL_REGISTRY[selectedProvider as keyof typeof MODEL_REGISTRY] && (
+            <select
+              value={selectedModel}
+              onChange={e => setSelectedModel(e.target.value)}
+              className="aero-select"
+            >
+              <option value="">Default model</option>
+              {MODEL_REGISTRY[selectedProvider as keyof typeof MODEL_REGISTRY].knownModels.map(m => (
+                <option key={m.id} value={m.id}>{m.displayName}</option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 

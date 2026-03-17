@@ -477,7 +477,7 @@ function buildAgentHandler(
   opts: { config: CanonryConfig },
   registry: ProviderRegistry,
   db: DatabaseClient,
-): ((projectId: string, threadId: string, message: string, opts?: { provider?: string }) => Promise<string>) | undefined {
+): ((projectId: string, threadId: string, message: string, opts?: { provider?: string; model?: string }) => Promise<string>) | undefined {
   // Determine which provider to use for the agent
   const agentConf = opts.config.agent ?? {}
   if (agentConf.enabled === false) return undefined
@@ -513,7 +513,7 @@ function buildAgentHandler(
     opts.config.apiKey ?? '',
   )
 
-  return async (projectId: string, threadId: string, message: string, callOpts?: { provider?: string }) => {
+  return async (projectId: string, threadId: string, message: string, callOpts?: { provider?: string; model?: string }) => {
     // Per-request provider override or fall back to default
     const llmProvider = (callOpts?.provider as 'claude' | 'openai' | 'gemini' | undefined) ?? defaultProvider!
 
@@ -526,7 +526,7 @@ function buildAgentHandler(
     const llmConfig: LlmConfig = {
       provider: llmProvider,
       apiKey: currentProvider.config.apiKey,
-      model: agentConf.model ?? currentProvider.config.model,
+      model: callOpts?.model ?? agentConf.model ?? currentProvider.config.model,
     }
 
     // Resolve project details for the system prompt

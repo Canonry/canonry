@@ -20,7 +20,7 @@ export interface AgentRoutesOptions {
     projectId: string,
     threadId: string,
     message: string,
-    opts?: { provider?: string },
+    opts?: { provider?: string; model?: string },
   ) => Promise<string>
 }
 
@@ -149,7 +149,7 @@ export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions
 
   app.post<{
     Params: { project: string; id: string }
-    Body: { message: string; provider?: string }
+    Body: { message: string; provider?: string; model?: string }
   }>(`${prefix}/threads/:id/messages`, {
     schema: {
       params: {
@@ -165,13 +165,14 @@ export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions
         properties: {
           message: { type: 'string', maxLength: 8000 },
           provider: { type: 'string', enum: ['openai', 'claude', 'gemini'] },
+          model: { type: 'string', maxLength: 100 },
         },
         required: ['message'],
       },
     },
   }, async (request, reply) => {
     const { project, id: threadId } = request.params
-    const { message, provider } = request.body
+    const { message, provider, model } = request.body
 
     const projectRow = resolveProject(app.db, project)
 
@@ -209,7 +210,7 @@ export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions
 
     // Fire-and-forget: the agent loop runs in the background so it
     // survives client disconnects and page navigations.
-    opts.onAgentMessage(thread.projectId, threadId, message, { provider })
+    opts.onAgentMessage(thread.projectId, threadId, message, { provider, model })
       .catch((err) => {
         const msg = err instanceof Error ? err.message : String(err)
         threadErrors.set(threadId, msg)
