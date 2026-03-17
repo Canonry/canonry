@@ -70,6 +70,7 @@ import {
   triggerInspectSitemap,
   triggerDiscoverSitemaps,
   saveSitemapUrl,
+  fetchGscSitemaps,
   type ApiGscSitemap,
   type ApiGscCoverageSummary,
   type ApiSchedule,
@@ -2065,6 +2066,7 @@ function GscSection({
   const [loadingCoverage, setLoadingCoverage] = useState(false)
   const [inspectingSitemap, setInspectingSitemap] = useState(false)
   const [discoveringSitemaps, setDiscoveringSitemaps] = useState(false)
+  const [listingSitemaps, setListingSitemaps] = useState(false)
   const [discoveredSitemaps, setDiscoveredSitemaps] = useState<ApiGscSitemap[] | null>(null)
   const [sitemapUrlInput, setSitemapUrlInput] = useState('')
   const [savingSitemap, setSavingSitemap] = useState(false)
@@ -2187,6 +2189,22 @@ function GscSection({
       setError(err instanceof Error ? err.message : 'Failed to discover sitemaps')
     } finally {
       setDiscoveringSitemaps(false)
+    }
+  }
+
+  async function handleListSitemaps() {
+    setListingSitemaps(true)
+    setError(null)
+    try {
+      const result = await fetchGscSitemaps(projectName)
+      setDiscoveredSitemaps(result.sitemaps)
+      if (result.sitemaps.length === 0) {
+        setNotice('No sitemaps found in this GSC property. Submit a sitemap in Google Search Console first.')
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to list sitemaps')
+    } finally {
+      setListingSitemaps(false)
     }
   }
 
@@ -3236,8 +3254,17 @@ function GscSection({
                           <p className="mt-1 text-sm text-zinc-200 break-all">{gscConn.sitemapUrl}</p>
                         </div>
                       )}
-                      {/* Auto-discover from GSC */}
-                      <div className="flex items-center gap-3">
+                      {/* Sitemap actions: list (no run) or auto-discover (saves + queues run) */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={listingSitemaps || !gscConn.propertyId}
+                          onClick={() => void handleListSitemaps()}
+                        >
+                          {listingSitemaps ? 'Loading…' : 'Browse sitemaps from GSC'}
+                        </Button>
                         <Button
                           type="button"
                           size="sm"
@@ -3245,13 +3272,13 @@ function GscSection({
                           disabled={discoveringSitemaps || !gscConn.propertyId}
                           onClick={handleDiscoverSitemaps}
                         >
-                          {discoveringSitemaps ? 'Discovering…' : 'Discover sitemaps from GSC'}
+                          {discoveringSitemaps ? 'Discovering…' : 'Auto-discover and queue inspection'}
                         </Button>
-                        <span className="text-xs text-zinc-500">Auto-discovers submitted sitemaps and queues inspection</span>
                       </div>
+                      <p className="text-xs text-zinc-500">Browse lists available sitemaps without queueing a run. Auto-discover saves the primary sitemap and queues an inspection.</p>
                       {discoveredSitemaps && discoveredSitemaps.length > 0 && (
                         <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3 space-y-2">
-                          <p className="text-xs uppercase tracking-wide text-zinc-500">Discovered sitemaps ({discoveredSitemaps.length})</p>
+                          <p className="text-xs uppercase tracking-wide text-zinc-500">Sitemaps ({discoveredSitemaps.length})</p>
                           {discoveredSitemaps.map((s) => {
                             const content = s.contents?.[0]
                             return (
@@ -3262,12 +3289,21 @@ function GscSection({
                                     <p className="text-zinc-500">Submitted: {s.lastSubmitted.split('T')[0]}</p>
                                   )}
                                 </div>
-                                {content && (
-                                  <div className="text-right shrink-0">
-                                    <p className="text-zinc-300">{content.indexed} / {content.submitted}</p>
-                                    <p className="text-zinc-500">indexed</p>
-                                  </div>
-                                )}
+                                <div className="flex items-center gap-3 shrink-0">
+                                  {content && (
+                                    <div className="text-right">
+                                      <p className="text-zinc-300">{content.indexed} / {content.submitted}</p>
+                                      <p className="text-zinc-500">indexed</p>
+                                    </div>
+                                  )}
+                                  <button
+                                    type="button"
+                                    className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+                                    onClick={() => setSitemapUrlInput(s.path)}
+                                  >
+                                    Use
+                                  </button>
+                                </div>
                               </div>
                             )
                           })}

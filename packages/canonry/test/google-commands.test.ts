@@ -156,4 +156,60 @@ describe('google CLI commands', { concurrency: 1 }, () => {
     const output = logs.join('\n')
     assert.match(output, /Sitemap inspection started/)
   })
+
+  it('googleSetSitemap prints confirmation after saving sitemap URL', async () => {
+    await client.putProject('test-proj', {
+      displayName: 'Test',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+    })
+
+    const { googleSetSitemap } = await import('../src/commands/google.js')
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await googleSetSitemap('test-proj', 'https://example.com/sitemap.xml')
+    } finally {
+      console.log = origLog
+    }
+
+    assert.match(logs.join('\n'), /GSC sitemap URL set to/)
+    assert.match(logs.join('\n'), /https:\/\/example\.com\/sitemap\.xml/)
+  })
+
+  it('googleListSitemaps rejects when the GSC access token is rejected by Google', async () => {
+    await client.putProject('test-proj', {
+      displayName: 'Test',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+    })
+
+    const { googleListSitemaps } = await import('../src/commands/google.js')
+    // The fake access token causes Google to return 401, which gscFetch propagates as
+    // a GoogleApiError(401) → Fastify returns HTTP 401 → ApiClient throws
+    await assert.rejects(
+      () => googleListSitemaps('test-proj', {}),
+      (err: Error) => err.message.includes('HTTP 401'),
+    )
+  })
+
+  it('googleDiscoverSitemaps rejects when the GSC access token is rejected by Google', async () => {
+    await client.putProject('test-proj', {
+      displayName: 'Test',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+    })
+
+    const { googleDiscoverSitemaps } = await import('../src/commands/google.js')
+    // The fake access token causes Google to return 401, which gscFetch propagates as
+    // a GoogleApiError(401) → Fastify returns HTTP 401 → ApiClient throws
+    await assert.rejects(
+      () => googleDiscoverSitemaps('test-proj', { wait: false }),
+      (err: Error) => err.message.includes('HTTP 401'),
+    )
+  })
 })

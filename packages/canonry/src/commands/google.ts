@@ -336,6 +336,39 @@ export async function googleSetSitemap(project: string, sitemapUrl: string): Pro
   console.log(`GSC sitemap URL set to "${sitemapUrl}" for project "${project}".`)
 }
 
+export async function googleListSitemaps(project: string, opts: { format?: string }): Promise<void> {
+  const client = getClient()
+  const result = await client.gscSitemaps(project) as {
+    sitemaps: Array<{
+      path: string
+      lastSubmitted?: string
+      isSitemapsIndex?: boolean
+      contents?: Array<{ type: string; submitted: string; indexed: string }>
+      warnings?: string
+      errors?: string
+    }>
+  }
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  if (result.sitemaps.length === 0) {
+    console.log(`No sitemaps found for project "${project}". Submit a sitemap in Google Search Console first.`)
+    return
+  }
+
+  console.log(`\nSitemaps for project "${project}":\n`)
+  for (const s of result.sitemaps) {
+    const indexed = s.contents?.[0]?.indexed ?? '?'
+    const submitted = s.contents?.[0]?.submitted ?? '?'
+    const isIndex = s.isSitemapsIndex ? ' [index]' : ''
+    console.log(`  ${s.path}${isIndex}`)
+    console.log(`    Indexed: ${indexed} / ${submitted} submitted  |  Last submitted: ${s.lastSubmitted ?? 'unknown'}`)
+  }
+}
+
 export async function googleInspectSitemap(project: string, opts: {
   sitemapUrl?: string
   wait?: boolean
