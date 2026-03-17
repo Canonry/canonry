@@ -1151,6 +1151,35 @@
     @apply flex flex-wrap gap-1.5 px-4 py-3 border-t border-zinc-800/40;
   }
 
+  /* Location comparison layout */
+  .evidence-card-location-compare {
+    @apply flex flex-col gap-0 border-t border-zinc-800/40;
+  }
+
+  .evidence-card-location-row {
+    @apply flex items-center gap-2 px-4 py-2 border-b border-zinc-800/20 last:border-b-0;
+  }
+
+  .evidence-card-location-label {
+    @apply text-[10px] font-semibold text-zinc-500 uppercase tracking-wide w-20 shrink-0;
+  }
+
+  .evidence-card-location-providers {
+    @apply flex flex-wrap gap-1 flex-1;
+  }
+
+  .evidence-card-location-score {
+    @apply text-[10px] text-zinc-600 shrink-0 tabular-nums;
+  }
+
+  .evidence-provider-btn--compact {
+    @apply px-2 py-1 gap-1;
+  }
+
+  .filter-chip-compare {
+    @apply ml-2 border-dashed;
+  }
+
   .evidence-provider-btn {
     @apply flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition cursor-pointer bg-transparent;
   }
