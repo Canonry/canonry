@@ -2017,48 +2017,60 @@ function ProjectPage({
                 </div>
               </div>
             )}
-            {model.project.locations && model.project.locations.length > 0 && (
-              <div className="filter-row mb-3" role="toolbar" aria-label="Location filters">
-                <button
-                  className={`filter-chip ${locationFilter === undefined ? 'filter-chip-active' : ''}`}
-                  type="button"
-                  aria-pressed={locationFilter === undefined}
-                  onClick={() => { setLocationFilter(undefined) }}
-                >
-                  All locations
-                </button>
-                {model.project.locations.map((loc: { label: string }) => (
+            {model.project.locations && model.project.locations.length > 0 && (() => {
+              // Only show location filters when there's actually evidence split across locations
+              const locationLabelsInEvidence = new Set(model.visibilityEvidence.map(e => e.location ?? ''))
+              const hasNullLocationEvidence = locationLabelsInEvidence.has('')
+              const distinctLocations = [...locationLabelsInEvidence].filter(Boolean)
+              // If all evidence is from a single location (or there's nothing), the filter row adds no value
+              if (distinctLocations.length <= 1 && !hasNullLocationEvidence) return null
+              return (
+                <div className="filter-row mb-3" role="toolbar" aria-label="Location filters">
                   <button
-                    key={loc.label}
-                    className={`filter-chip ${locationFilter === loc.label ? 'filter-chip-active' : ''}`}
+                    className={`filter-chip ${locationFilter === undefined ? 'filter-chip-active' : ''}`}
                     type="button"
-                    aria-pressed={locationFilter === loc.label}
-                    onClick={() => { setLocationFilter(loc.label); setCompareLocations(false) }}
+                    aria-pressed={locationFilter === undefined}
+                    onClick={() => { setLocationFilter(undefined) }}
                   >
-                    {loc.label}
+                    All locations
                   </button>
-                ))}
-                <button
-                  className={`filter-chip ${locationFilter === '' ? 'filter-chip-active' : ''}`}
-                  type="button"
-                  aria-pressed={locationFilter === ''}
-                  onClick={() => { setLocationFilter(''); setCompareLocations(false) }}
-                >
-                  No location
-                </button>
-                {model.project.locations.length > 1 && locationFilter === undefined && (
-                  <button
-                    className={`filter-chip filter-chip-compare ${compareLocations ? 'filter-chip-active' : ''}`}
-                    type="button"
-                    aria-pressed={compareLocations}
-                    onClick={() => setCompareLocations(v => !v)}
-                    title="Side-by-side location comparison"
-                  >
-                    Compare
-                  </button>
-                )}
-              </div>
-            )}
+                  {model.project.locations.map((loc: { label: string }) => (
+                    locationLabelsInEvidence.has(loc.label) && (
+                      <button
+                        key={loc.label}
+                        className={`filter-chip ${locationFilter === loc.label ? 'filter-chip-active' : ''}`}
+                        type="button"
+                        aria-pressed={locationFilter === loc.label}
+                        onClick={() => { setLocationFilter(loc.label); setCompareLocations(false) }}
+                      >
+                        {loc.label}
+                      </button>
+                    )
+                  ))}
+                  {hasNullLocationEvidence && (
+                    <button
+                      className={`filter-chip ${locationFilter === '' ? 'filter-chip-active' : ''}`}
+                      type="button"
+                      aria-pressed={locationFilter === ''}
+                      onClick={() => { setLocationFilter(''); setCompareLocations(false) }}
+                    >
+                      No location
+                    </button>
+                  )}
+                  {distinctLocations.length > 1 && locationFilter === undefined && (
+                    <button
+                      className={`filter-chip filter-chip-compare ${compareLocations ? 'filter-chip-active' : ''}`}
+                      type="button"
+                      aria-pressed={compareLocations}
+                      onClick={() => setCompareLocations(v => !v)}
+                      title="Side-by-side location comparison"
+                    >
+                      Compare
+                    </button>
+                  )}
+                </div>
+              )
+            })()}
             <EvidencePhraseCards
               evidence={locationFilter !== undefined
                 ? model.visibilityEvidence.filter(e => locationFilter === '' ? !e.location : e.location === locationFilter)
