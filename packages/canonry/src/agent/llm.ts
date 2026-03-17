@@ -209,138 +209,111 @@ async function claudeCompletion(
   return { type: 'text', text: textBlock?.text ?? '' }
 }
 
+/**
+ * Convert OpenAI-format messages to Claude Messages API format.
+ *
+ * Uses a state-machine approach that builds valid output by construction:
+ * - Tool call groups (assistant+tool_use → user+tool_result) are only emitted
+ *   when ALL tool_use blocks have matching tool_result blocks. Incomplete groups
+ *   (orphaned by history truncation or crashes) are dropped entirely.
+ * - Consecutive same-role messages are merged.
+ * - Orphaned tool result messages (no preceding assistant tool_use) are dropped.
+ * - Result always starts with a user message (Claude requirement).
+ */
 function convertToClaudeMessages(
   messages: ChatMessage[],
 ): Array<{ role: 'user' | 'assistant'; content: string | Array<Record<string, unknown>> }> {
-  const result: Array<{ role: 'user' | 'assistant'; content: string | Array<Record<string, unknown>> }> = []
+  type ClaudeMsg = { role: 'user' | 'assistant'; content: string | Array<Record<string, unknown>> }
+  const result: ClaudeMsg[] = []
 
-  for (const msg of messages) {
+  let i = 0
+  while (i < messages.length) {
+    const msg = messages[i]
+
     if (msg.role === 'user') {
       result.push({ role: 'user', content: msg.content ?? '' })
-    } else if (msg.role === 'assistant') {
-      if (msg.tool_calls && msg.tool_calls.length > 0) {
-        const blocks: Array<Record<string, unknown>> = []
-        for (const tc of msg.tool_calls) {
-          let input: Record<string, unknown>
-          try {
-            input = JSON.parse(tc.function.arguments) as Record<string, unknown>
-          } catch {
-            input = {}
-          }
-          blocks.push({
-            type: 'tool_use',
-            id: tc.id,
-            name: tc.function.name,
-            input,
+      i++
+    } else if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+      // ── Tool call group ──────────────────────────────────────────────────────
+      // Collect all consecutive assistant+tool_calls messages into one group.
+      // DB stores each tool call as a separate row; LLM sends them all at once.
+      const allToolCalls: ToolCall[] = [...msg.tool_calls]
+      let j = i + 1
+      while (j < messages.length && messages[j].role === 'assistant' && messages[j].tool_calls?.length) {
+        allToolCalls.push(...(messages[j].tool_calls ?? []))
+        j++
+      }
+
+      // Build a map from tool_call_id → tool_use block
+      const toolUseById = new Map<string, Record<string, unknown>>()
+      for (const tc of allToolCalls) {
+        let input: Record<string, unknown>
+        try { input = JSON.parse(tc.function.arguments) as Record<string, unknown> } catch { input = {} }
+        toolUseById.set(tc.id, { type: 'tool_use', id: tc.id, name: tc.function.name, input })
+      }
+
+      // Scan ahead and collect matching tool_result blocks (consume all consecutive 'tool' rows)
+      const toolResultBlocks: Array<Record<string, unknown>> = []
+      while (j < messages.length && messages[j].role === 'tool') {
+        const toolMsg = messages[j]
+        if (toolMsg.tool_call_id && toolUseById.has(toolMsg.tool_call_id)) {
+          toolResultBlocks.push({
+            type: 'tool_result',
+            tool_use_id: toolMsg.tool_call_id,
+            content: toolMsg.content ?? '',
           })
         }
-        // Merge consecutive assistant tool-call messages into one.
-        // The DB stores each tool call separately but Claude needs them grouped.
-        const prev = result[result.length - 1]
-        if (prev && prev.role === 'assistant' && Array.isArray(prev.content)) {
-          prev.content.push(...blocks)
-        } else {
-          result.push({ role: 'assistant', content: blocks })
-        }
-      } else {
-        result.push({ role: 'assistant', content: msg.content ?? '' })
+        j++
       }
-    } else if (msg.role === 'tool') {
-      // Claude expects tool results as user messages with tool_result content blocks.
-      // Merge consecutive tool results into one user message to avoid
-      // consecutive same-role messages (which Claude rejects).
-      const toolBlock = {
-        type: 'tool_result',
-        tool_use_id: msg.tool_call_id,
-        content: msg.content ?? '',
+
+      // Only emit the group if every tool_use has a matching tool_result.
+      // Incomplete groups (truncated history, server crash mid-execution) are dropped.
+      const allMatched = allToolCalls.every(tc =>
+        toolResultBlocks.some(r => r.tool_use_id === tc.id),
+      )
+
+      if (allMatched && allToolCalls.length > 0) {
+        result.push({ role: 'assistant', content: [...toolUseById.values()] })
+        result.push({ role: 'user', content: toolResultBlocks })
       }
-      const prev = result[result.length - 1]
-      if (prev && prev.role === 'user' && Array.isArray(prev.content)) {
-        prev.content.push(toolBlock)
-      } else {
-        result.push({
-          role: 'user',
-          content: [toolBlock],
-        })
-      }
+      // Whether emitted or dropped, advance past all consumed messages
+      i = j
+    } else if (msg.role === 'assistant') {
+      result.push({ role: 'assistant', content: msg.content ?? '' })
+      i++
+    } else {
+      // role === 'tool' with no preceding assistant handling — orphaned, skip
+      i++
     }
   }
 
-  // ── Validate tool_use ↔ tool_result pairing ──────────────
-  // Claude requires:
-  //   1. Every tool_use in an assistant message must have a tool_result in the NEXT user message
-  //   2. Every tool_result in a user message must reference a tool_use in the PREVIOUS assistant message
-  // We do multiple passes to clean up both directions.
-
-  // Pass 1: For each assistant message with tool_use blocks, ensure the next
-  // message is a user message containing matching tool_result blocks.
-  // If not, remove the orphaned tool_use blocks (or the whole assistant message).
-  for (let idx = 0; idx < result.length; idx++) {
-    const entry = result[idx]
-    if (entry.role !== 'assistant' || !Array.isArray(entry.content)) continue
-
-    const toolUseBlocks = (entry.content as Array<Record<string, unknown>>).filter(b => b.type === 'tool_use')
-    if (toolUseBlocks.length === 0) continue
-
-    // Collect tool_result IDs from the next message
-    const next = idx + 1 < result.length ? result[idx + 1] : null
-    const resultIds = new Set<string>()
-    if (next && next.role === 'user' && Array.isArray(next.content)) {
-      for (const b of next.content as Array<Record<string, unknown>>) {
-        if (b.type === 'tool_result' && typeof b.tool_use_id === 'string') {
-          resultIds.add(b.tool_use_id)
-        }
-      }
-    }
-
-    // Remove tool_use blocks without matching results
-    entry.content = (entry.content as Array<Record<string, unknown>>).filter(
-      b => b.type !== 'tool_use' || resultIds.has(b.id as string),
-    )
-
-    // If the assistant message is now empty, remove it
-    if ((entry.content as Array<Record<string, unknown>>).length === 0) {
-      result.splice(idx, 1)
-      idx--
+  // ── Merge consecutive same-role messages ─────────────────────────────────
+  // Can occur when incomplete tool groups are dropped (e.g. user[tool_result]
+  // followed by user[text], or consecutive assistant text messages).
+  const merged: ClaudeMsg[] = []
+  for (const entry of result) {
+    const prev = merged[merged.length - 1]
+    if (prev && prev.role === entry.role) {
+      // Merge by converting both to arrays if needed
+      const prevBlocks = Array.isArray(prev.content)
+        ? prev.content as Array<Record<string, unknown>>
+        : [{ type: 'text', text: prev.content as string }]
+      const curBlocks = Array.isArray(entry.content)
+        ? entry.content as Array<Record<string, unknown>>
+        : [{ type: 'text', text: entry.content as string }]
+      prev.content = [...prevBlocks, ...curBlocks]
+    } else {
+      merged.push({ role: entry.role, content: entry.content })
     }
   }
 
-  // Pass 2: For each user message with tool_result blocks, ensure the previous
-  // message is an assistant message containing matching tool_use blocks.
-  for (let idx = 0; idx < result.length; idx++) {
-    const entry = result[idx]
-    if (entry.role !== 'user' || !Array.isArray(entry.content)) continue
-
-    const hasToolResults = (entry.content as Array<Record<string, unknown>>).some(b => b.type === 'tool_result')
-    if (!hasToolResults) continue
-
-    const prev = idx > 0 ? result[idx - 1] : null
-    const toolUseIds = new Set<string>()
-    if (prev && prev.role === 'assistant' && Array.isArray(prev.content)) {
-      for (const b of prev.content as Array<Record<string, unknown>>) {
-        if (b.type === 'tool_use' && typeof b.id === 'string') {
-          toolUseIds.add(b.id)
-        }
-      }
-    }
-
-    entry.content = (entry.content as Array<Record<string, unknown>>).filter(
-      b => b.type !== 'tool_result' || toolUseIds.has(b.tool_use_id as string),
-    )
-
-    if ((entry.content as Array<Record<string, unknown>>).length === 0) {
-      result.splice(idx, 1)
-      idx--
-    }
+  // ── Ensure conversation starts with a user message ─────────────────────
+  while (merged.length > 0 && merged[0].role !== 'user') {
+    merged.shift()
+  }
+  if (merged.length === 0 || merged[0].role !== 'user') {
+    merged.unshift({ role: 'user', content: '(continuing conversation)' })
   }
 
-  // Ensure conversation starts with a user message (Claude requirement)
-  while (result.length > 0 && result[0].role !== 'user') {
-    result.shift()
-  }
-  if (result.length === 0 || result[0].role !== 'user') {
-    result.unshift({ role: 'user', content: '(continuing conversation)' })
-  }
-
-  return result
+  return merged
 }
