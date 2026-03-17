@@ -1697,6 +1697,41 @@ function ProjectPage({
   const [ownedDomainSaving, setOwnedDomainSaving] = useState(false)
   const [locationFilter, setLocationFilter] = useState<string | undefined>(undefined)
   const [compareLocations, setCompareLocations] = useState(false)
+  const [locationTimeline, setLocationTimeline] = useState<import('./api.js').ApiTimelineEntry[] | null>(null)
+
+  useEffect(() => {
+    if (locationFilter === undefined || locationFilter === '') {
+      setLocationTimeline(null)
+      return
+    }
+    fetchTimeline(model.project.name, locationFilter)
+      .then(setLocationTimeline)
+      .catch(() => setLocationTimeline(null))
+  }, [locationFilter, model.project.name])
+
+  // Build a runHistory override map keyed by keyword::provider from the location-scoped timeline
+  const locationRunHistoryMap = useMemo<Map<string, RunHistoryPoint[]> | null>(() => {
+    if (!locationTimeline) return null
+    const map = new Map<string, RunHistoryPoint[]>()
+    for (const entry of locationTimeline) {
+      for (const [provider, runs] of Object.entries(entry.providerRuns ?? {})) {
+        map.set(`${entry.keyword}::${provider}`, runs.map(r => ({
+          runId: r.runId,
+          citationState: r.citationState,
+          createdAt: r.createdAt,
+        })))
+      }
+      // Fallback: keyword-level history when no per-provider data
+      if (!entry.providerRuns || Object.keys(entry.providerRuns).length === 0) {
+        map.set(`${entry.keyword}::`, entry.runs.map(r => ({
+          runId: r.runId,
+          citationState: r.citationState,
+          createdAt: r.createdAt,
+        })))
+      }
+    }
+    return map
+  }, [locationTimeline])
 
   async function handleExport() {
     const data = await fetchExport(model.project.name)
@@ -2070,10 +2105,17 @@ function ProjectPage({
               )
             })()}
             <EvidencePhraseCards
-              evidence={locationFilter !== undefined
-                ? model.visibilityEvidence.filter(e => locationFilter === '' ? !e.location : e.location === locationFilter)
-                : model.visibilityEvidence
-              }
+              evidence={(() => {
+                const filtered = locationFilter !== undefined
+                  ? model.visibilityEvidence.filter(e => locationFilter === '' ? !e.location : e.location === locationFilter)
+                  : model.visibilityEvidence
+                if (!locationRunHistoryMap) return filtered
+                return filtered.map(item => {
+                  const history = locationRunHistoryMap.get(`${item.keyword}::${item.provider}`)
+                    ?? locationRunHistoryMap.get(`${item.keyword}::`)
+                  return history ? { ...item, runHistory: history } : item
+                })
+              })()}
               onOpenEvidence={onOpenEvidence}
               showLocationLabels={locationFilter === undefined}
               compareLocations={locationFilter === undefined && compareLocations}
