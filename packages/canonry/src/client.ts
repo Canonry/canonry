@@ -267,4 +267,12 @@ export class ApiClient {
   async gscDiscoverSitemaps(project: string): Promise<object> {
     return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/google/gsc/discover-sitemaps`, {})
   }
+
+  async gscRequestIndexing(project: string, url: string, opts?: { wait?: boolean }): Promise<object> {
+    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/google/gsc/request-indexing`, { url, wait: opts?.wait })
+  }
+
+  async gscRequestIndexingAll(project: string): Promise<object[]> {
+    return this.request<object[]>('POST', `/projects/${encodeURIComponent(project)}/google/gsc/request-indexing/all`, {})
+  }
 }

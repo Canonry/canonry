@@ -6,3 +6,6 @@ export const URL_INSPECTION_API = 'https://searchconsole.googleapis.com/v1/urlIn
 export const GSC_MAX_ROWS_PER_REQUEST = 25000
 export const GSC_DATA_LAG_DAYS = 3
 export const URL_INSPECTION_DAILY_LIMIT = 2000
+export const INDEXING_API_BASE = 'https://indexing.googleapis.com/v3'
+export const INDEXING_SCOPE = 'https://www.googleapis.com/auth/indexing'
+export const INDEXING_DAILY_LIMIT = 200

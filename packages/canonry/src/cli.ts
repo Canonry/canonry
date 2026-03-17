@@ -23,6 +23,7 @@ import {
   googleInspections, googleDeindexed, googleCoverage, googleCoverageHistory, googleInspectSitemap,
   googleDiscoverSitemaps,
 } from './commands/google.js'
+import { googleRequestIndexing } from './commands/google-request-indexing.js'
 import { trackEvent, isTelemetryEnabled, isFirstRun, getOrCreateAnonymousId, showFirstRunNotice } from './telemetry.js'
 
 const USAGE = `
@@ -90,6 +91,7 @@ Usage:
   canonry google coverage <project>  Show index coverage summary
   canonry google inspections <project>  Show URL inspection history (--url <url>)
   canonry google deindexed <project>  Show pages that lost indexing
+  canonry google request-indexing <project> <url> [--all-unindexed] [--wait]  Request indexing for a URL or all unindexed URLs
   canonry settings                    Show active provider and quota settings
   canonry settings provider <name>    Update a provider config
   canonry settings google             Update Google OAuth credentials
@@ -1066,6 +1068,36 @@ async function main() {
             await googleDeindexed(project, format)
             break
           }
+          case 'request-indexing': {
+            const project = args[2]
+            const url = args[3]
+            const { values: requestIndexingValues } = parseArgs({
+              args: args.slice(4),
+              options: {
+                'all-unindexed': { type: 'boolean', default: false },
+                wait: { type: 'boolean', default: false },
+                format: { type: 'string' },
+              },
+              allowPositionals: false,
+            })
+
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+
+            if (!url && !requestIndexingValues['all-unindexed']) {
+              console.error('Error: URL or --all-unindexed is required')
+              process.exit(1)
+            }
+
+            await googleRequestIndexing(project, url, {
+              allUnindexed: requestIndexingValues['all-unindexed'],
+              wait: requestIndexingValues.wait,
+              format: requestIndexingValues.format === 'json' ? 'json' : format,
+            })
+            break
+          }
           case 'discover-sitemaps': {
             const project = args[2]
             if (!project) {
@@ -1088,7 +1120,7 @@ async function main() {
           }
           default:
             console.error(`Unknown google subcommand: ${subcommand ?? '(none)'}`)
-            console.log('Available: connect, disconnect, status, properties, set-property, set-sitemap, list-sitemaps, discover-sitemaps, sync, performance, inspect, inspect-sitemap, coverage, coverage-history, inspections, deindexed')
+            console.log('Available: connect, disconnect, status, properties, set-property, set-sitemap, list-sitemaps, discover-sitemaps, sync, performance, inspect, inspect-sitemap, coverage, coverage-history, inspections, deindexed, request-indexing')
             process.exit(1)
         }
         break

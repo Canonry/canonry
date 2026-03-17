@@ -1,5 +1,7 @@
 export { getAuthUrl, exchangeCode, refreshAccessToken } from './oauth.js'
 export { listSites, listSitemaps, fetchSearchAnalytics, inspectUrl } from './gsc-client.js'
 export type { FetchSearchAnalyticsOptions } from './gsc-client.js'
+export { requestIndexing } from './indexing-client.js'
+export type { UrlNotificationResult } from './indexing-client.js'
 export * from './constants.js'
 export * from './types.js'

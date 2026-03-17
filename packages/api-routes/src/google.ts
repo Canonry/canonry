@@ -11,7 +11,9 @@ import {
   listSites,
   listSitemaps,
   inspectUrl as gscInspectUrl,
+  requestIndexing,
   GSC_SCOPE,
+  INDEXING_DAILY_LIMIT,
 } from '@ainyc/canonry-integration-google'
 
 export interface GoogleConnectionRecord {
@@ -892,5 +894,93 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     }
 
     return { propertyId }
+  })
+
+  // POST /projects/:name/google/gsc/request-indexing
+  app.post<{
+    Params: { name: string }
+    Body: { url: string; wait?: boolean }
+  }>('/projects/:name/google/gsc/request-indexing', async (request, reply) => {
+    const { clientId: googleClientId, clientSecret: googleClientSecret } = getAuthConfig()
+    if (!googleClientId || !googleClientSecret) {
+      const err = validationError('Google OAuth is not configured')
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
+    const store = requireConnectionStore(reply)
+    if (!store) return
+
+    const project = resolveProject(app.db, request.params.name)
+    const { url } = request.body ?? {}
+    if (!url) {
+      const err = validationError('url is required')
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
+    const { accessToken } = await getValidToken(store, project.canonicalDomain, 'gsc', googleClientId, googleClientSecret)
+    const result = await requestIndexing(accessToken, url, 'URL_UPDATED')
+    const notifyTime = result.urlNotificationMetadata?.latestUpdate?.notifyTime ?? new Date().toISOString()
+
+    return {
+      url,
+      notifiedAt: notifyTime,
+      type: 'URL_UPDATED',
+    }
+  })
+
+  // POST /projects/:name/google/gsc/request-indexing/all
+  app.post<{ Params: { name: string } }>('/projects/:name/google/gsc/request-indexing/all', async (request, reply) => {
+    const { clientId: googleClientId, clientSecret: googleClientSecret } = getAuthConfig()
+    if (!googleClientId || !googleClientSecret) {
+      const err = validationError('Google OAuth is not configured')
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
+    const store = requireConnectionStore(reply)
+    if (!store) return
+
+    const project = resolveProject(app.db, request.params.name)
+
+    // Fetch URLs with non-indexed state from latest inspection data
+    const unindexed = app.db
+      .select({ url: gscUrlInspections.url })
+      .from(gscUrlInspections)
+      .where(
+        and(
+          eq(gscUrlInspections.projectId, project.id),
+          sql`${gscUrlInspections.indexingState} IN ('URL_IS_UNKNOWN_TO_GOOGLE', 'EXCLUDED', 'ERROR')`,
+        ),
+      )
+      .orderBy(desc(gscUrlInspections.inspectedAt))
+      .all()
+
+    // Deduplicate — latest inspection per URL
+    const seen = new Set<string>()
+    const urls: string[] = []
+    for (const row of unindexed) {
+      if (!seen.has(row.url)) {
+        seen.add(row.url)
+        urls.push(row.url)
+      }
+    }
+
+    if (urls.length > INDEXING_DAILY_LIMIT) {
+      const err = validationError(`${urls.length} unindexed URLs exceeds the daily Indexing API limit of ${INDEXING_DAILY_LIMIT}. Run with a specific URL or reduce the scope.`)
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
+    const { accessToken } = await getValidToken(store, project.canonicalDomain, 'gsc', googleClientId, googleClientSecret)
+
+    const results = []
+    for (const url of urls) {
+      const result = await requestIndexing(accessToken, url, 'URL_UPDATED')
+      results.push({
+        url,
+        notifiedAt: result.urlNotificationMetadata?.latestUpdate?.notifyTime ?? new Date().toISOString(),
+        type: 'URL_UPDATED',
+      })
+    }
+
+    return results
   })
 }
