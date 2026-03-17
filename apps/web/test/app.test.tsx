@@ -30,7 +30,7 @@ test('overview route renders the premium portfolio dashboard', () => {
   expect(html).toMatch(/Infrastructure/)
   expect(html).toMatch(/Citypoint Dental NYC/)
   expect(html).toMatch(/Harbor Legal Group/)
-  expect(html).toMatch(/src="\/favicon\.svg"/)
+  expect(html).toMatch(/src="\.\/favicon\.svg"/)
 })
 
 test('project route renders a single command center with visibility sections', () => {
