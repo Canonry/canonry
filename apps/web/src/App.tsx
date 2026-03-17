@@ -947,12 +947,14 @@ function EvidencePhraseCard({
   items,
   onOpenEvidence,
   showLocationLabels = true,
+  compareLocations = false,
   onDeleteKeyword,
 }: {
   phrase: string
   items: CitationInsightVm[]
   onOpenEvidence: (evidenceId: string) => void
   showLocationLabels?: boolean
+  compareLocations?: boolean
   onDeleteKeyword?: () => void
 }) {
   const states = items.map(i => i.citationState)
@@ -1032,27 +1034,71 @@ function EvidencePhraseCard({
         </span>
       </div>
 
-      <div className="evidence-card-providers">
-        {items.filter(item => item.citationState !== 'pending').map(item => (
-          <button
-            key={item.id}
-            type="button"
-            className={`evidence-provider-btn evidence-provider-btn--${item.citationState}`}
-            onClick={() => onOpenEvidence(item.id)}
-            title={`View ${item.provider} evidence for "${phrase}"`}
-          >
-            <span className="capitalize">{item.provider}</span>
-            {item.location && showLocationLabels && <span className="text-[9px] opacity-60">{item.location}</span>}
-            <span aria-hidden="true" className="font-bold">
-              {item.citationState === 'cited' || item.citationState === 'emerging' ? '✓' : item.citationState === 'lost' ? '✗' : '–'}
-            </span>
-            <span className="opacity-50 text-[10px]">View →</span>
-          </button>
-        ))}
-        {items.every(item => item.citationState === 'pending') && (
-          <span className="text-xs text-zinc-500 italic py-1">Awaiting first run</span>
-        )}
-      </div>
+      {compareLocations ? (() => {
+        // Group items by location for side-by-side comparison
+        const locationGroups = Array.from(
+          items.reduce((map, item) => {
+            const key = item.location ?? ''
+            const existing = map.get(key) ?? []
+            map.set(key, [...existing, item])
+            return map
+          }, new Map<string, CitationInsightVm[]>()),
+        ).map(([loc, locItems]) => ({ loc: loc || 'No location', locItems }))
+        return (
+          <div className="evidence-card-location-compare">
+            {locationGroups.map(({ loc, locItems }) => {
+              const locCited = locItems.filter(i => i.citationState === 'cited' || i.citationState === 'emerging').length
+              return (
+                <div key={loc} className="evidence-card-location-row">
+                  <span className="evidence-card-location-label">{loc}</span>
+                  <div className="evidence-card-location-providers">
+                    {locItems.filter(i => i.citationState !== 'pending').map(item => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={`evidence-provider-btn evidence-provider-btn--${item.citationState} evidence-provider-btn--compact`}
+                        onClick={() => onOpenEvidence(item.id)}
+                        title={`View ${item.provider} evidence for "${phrase}" in ${loc}`}
+                      >
+                        <span className="capitalize">{item.provider}</span>
+                        <span aria-hidden="true" className="font-bold">
+                          {item.citationState === 'cited' || item.citationState === 'emerging' ? '✓' : item.citationState === 'lost' ? '✗' : '–'}
+                        </span>
+                      </button>
+                    ))}
+                    {locItems.every(i => i.citationState === 'pending') && (
+                      <span className="text-xs text-zinc-500 italic">Pending</span>
+                    )}
+                  </div>
+                  <span className="evidence-card-location-score">{locCited}/{locItems.length}</span>
+                </div>
+              )
+            })}
+          </div>
+        )
+      })() : (
+        <div className="evidence-card-providers">
+          {items.filter(item => item.citationState !== 'pending').map(item => (
+            <button
+              key={item.id}
+              type="button"
+              className={`evidence-provider-btn evidence-provider-btn--${item.citationState}`}
+              onClick={() => onOpenEvidence(item.id)}
+              title={`View ${item.provider} evidence for "${phrase}"`}
+            >
+              <span className="capitalize">{item.provider}</span>
+              {item.location && showLocationLabels && <span className="text-[9px] opacity-60">{item.location}</span>}
+              <span aria-hidden="true" className="font-bold">
+                {item.citationState === 'cited' || item.citationState === 'emerging' ? '✓' : item.citationState === 'lost' ? '✗' : '–'}
+              </span>
+              <span className="opacity-50 text-[10px]">View →</span>
+            </button>
+          ))}
+          {items.every(item => item.citationState === 'pending') && (
+            <span className="text-xs text-zinc-500 italic py-1">Awaiting first run</span>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -1061,11 +1107,13 @@ function EvidencePhraseCards({
   evidence,
   onOpenEvidence,
   showLocationLabels = true,
+  compareLocations = false,
   onDeleteKeyword,
 }: {
   evidence: CitationInsightVm[]
   onOpenEvidence: (evidenceId: string) => void
   showLocationLabels?: boolean
+  compareLocations?: boolean
   onDeleteKeyword?: (phrase: string) => void
 }) {
   const groups = useMemo(() => {
@@ -1090,6 +1138,7 @@ function EvidencePhraseCards({
           items={items}
           onOpenEvidence={onOpenEvidence}
           showLocationLabels={showLocationLabels}
+          compareLocations={compareLocations}
           onDeleteKeyword={onDeleteKeyword ? () => onDeleteKeyword(phrase) : undefined}
         />
       ))}
@@ -1647,6 +1696,7 @@ function ProjectPage({
   const [newOwnedDomain, setNewOwnedDomain] = useState('')
   const [ownedDomainSaving, setOwnedDomainSaving] = useState(false)
   const [locationFilter, setLocationFilter] = useState<string | undefined>(undefined)
+  const [compareLocations, setCompareLocations] = useState(false)
 
   async function handleExport() {
     const data = await fetchExport(model.project.name)
@@ -1973,7 +2023,7 @@ function ProjectPage({
                   className={`filter-chip ${locationFilter === undefined ? 'filter-chip-active' : ''}`}
                   type="button"
                   aria-pressed={locationFilter === undefined}
-                  onClick={() => setLocationFilter(undefined)}
+                  onClick={() => { setLocationFilter(undefined) }}
                 >
                   All locations
                 </button>
@@ -1983,7 +2033,7 @@ function ProjectPage({
                     className={`filter-chip ${locationFilter === loc.label ? 'filter-chip-active' : ''}`}
                     type="button"
                     aria-pressed={locationFilter === loc.label}
-                    onClick={() => setLocationFilter(loc.label)}
+                    onClick={() => { setLocationFilter(loc.label); setCompareLocations(false) }}
                   >
                     {loc.label}
                   </button>
@@ -1992,10 +2042,21 @@ function ProjectPage({
                   className={`filter-chip ${locationFilter === '' ? 'filter-chip-active' : ''}`}
                   type="button"
                   aria-pressed={locationFilter === ''}
-                  onClick={() => setLocationFilter('')}
+                  onClick={() => { setLocationFilter(''); setCompareLocations(false) }}
                 >
                   No location
                 </button>
+                {model.project.locations.length > 1 && locationFilter === undefined && (
+                  <button
+                    className={`filter-chip filter-chip-compare ${compareLocations ? 'filter-chip-active' : ''}`}
+                    type="button"
+                    aria-pressed={compareLocations}
+                    onClick={() => setCompareLocations(v => !v)}
+                    title="Side-by-side location comparison"
+                  >
+                    Compare
+                  </button>
+                )}
               </div>
             )}
             <EvidencePhraseCards
@@ -2005,6 +2066,7 @@ function ProjectPage({
               }
               onOpenEvidence={onOpenEvidence}
               showLocationLabels={locationFilter === undefined}
+              compareLocations={locationFilter === undefined && compareLocations}
               onDeleteKeyword={keywordDeleting ? undefined : handleDeleteKeyword}
             />
           </section>

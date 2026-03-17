@@ -19,7 +19,6 @@ export async function triggerRun(project: string, opts?: { provider?: string; wa
   }
   if (opts?.allLocations) {
     body.allLocations = true
-    process.stderr.write('Note: --all-locations runs a full sweep per location, multiplying API calls.\n')
   }
   if (opts?.noLocation) {
     body.noLocation = true
@@ -45,7 +44,7 @@ export async function triggerRun(project: string, opts?: { provider?: string; wa
       return
     }
 
-    console.log(`Triggered ${locationRuns.length} location run(s):\n`)
+    console.log(`Triggered ${locationRuns.length} location sweep(s) — ${locationRuns.length}× API calls:\n`)
     console.log('  LOCATION         RUN ID                                STATUS')
     console.log('  ───────────────  ────────────────────────────────────  ──────────')
     for (const r of locationRuns) {

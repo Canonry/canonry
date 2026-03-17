@@ -218,8 +218,8 @@ describe('location CLI commands', { concurrency: 1 }, () => {
     }
 
     const output = logs.join('\n')
-    // Should show 2 location runs in the output
-    assert.match(output, /2 location run/)
+    // Should show 2 location sweeps with multiplier in the output
+    assert.match(output, /2 location sweep/)
     assert.match(output, /nyc/)
     assert.match(output, /lax/)
   })
