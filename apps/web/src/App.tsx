@@ -483,7 +483,7 @@ function BrandLockup({ compact = false, navigate }: { compact?: boolean; navigat
       aria-label="Canonry home"
       onClick={createNavigationHandler(navigate, '/')}
     >
-      <img className="brand-icon" src="/favicon.svg" alt="" aria-hidden="true" />
+      <img className="brand-icon" src="./favicon.svg" alt="" aria-hidden="true" />
       <span className="brand-copy">
         <span className="brand-mark">Canonry</span>
         {compact ? null : <span className="brand-subtitle">AEO Monitor</span>}
