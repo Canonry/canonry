@@ -27,6 +27,8 @@ interface LoopOptions {
   }
   maxSteps?: number
   maxHistoryMessages?: number
+  /** Whether system tools (shell, file I/O) are enabled */
+  systemTools?: boolean
   /** Called when the agent produces a text chunk (for streaming) */
   onText?: (text: string) => void
   /** Called when a tool is about to execute */
@@ -64,41 +66,85 @@ export async function agentChat(
   // Load conversation history
   const history = await store.getMessages(threadId, maxHistoryMessages)
 
+  // Detect new thread — only the user's message exists (first message in thread).
+  // This triggers the startup sequence instruction in the system prompt.
+  const isNewThread = history.length === 1 && history[0].role === 'user'
+
+  // Auto-title new threads from the user's first message
+  if (isNewThread) {
+    const title = userMessage.length > 80 ? userMessage.slice(0, 77) + '...' : userMessage
+    await store.updateThreadTitle(threadId, title)
+  }
+
   // Build message array for LLM
-  const systemPrompt = buildSystemPrompt(project)
+  const systemPrompt = buildSystemPrompt(project, { isNewThread, systemTools: opts.systemTools })
   const messages: ChatMessage[] = [
     { role: 'system', content: systemPrompt },
   ]
 
-  // Convert stored messages to LLM format
-  for (const msg of history) {
+  // Convert stored messages to LLM format.
+  // The DB stores each tool call as a separate assistant row followed by its
+  // tool result row. We need to group consecutive tool-call/result pairs into
+  // a single assistant message + tool results block, because Claude requires
+  // tool_result blocks to reference tool_use blocks in the immediately
+  // preceding assistant message.
+  let i = 0
+  while (i < history.length) {
+    const msg = history[i]
+
     if (msg.role === 'user') {
       messages.push({ role: 'user', content: msg.content })
-    } else if (msg.role === 'assistant') {
-      // Check if this was a tool-calling message (has linked tool results after it)
-      if (msg.toolName) {
-        // This was stored as a tool-call assistant message
-        messages.push({
-          role: 'assistant',
-          content: null,
-          tool_calls: [{
-            id: msg.toolCallId ?? msg.id,
-            type: 'function',
-            function: {
-              name: msg.toolName,
-              arguments: msg.toolArgs ?? '{}',
-            },
-          }],
+      i++
+    } else if (msg.role === 'assistant' && msg.toolName) {
+      // Collect all consecutive (assistant tool-call, tool result) pairs
+      // into one assistant message + one batch of tool results.
+      const toolCalls: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> = []
+      const toolResults: ChatMessage[] = []
+
+      while (i < history.length && history[i].role === 'assistant' && history[i].toolName) {
+        const tc = history[i]
+        const callId = tc.toolCallId ?? tc.id
+        toolCalls.push({
+          id: callId,
+          type: 'function',
+          function: { name: tc.toolName!, arguments: tc.toolArgs ?? '{}' },
         })
-      } else {
-        messages.push({ role: 'assistant', content: msg.content })
+        // Look for the matching tool result (should be next or nearby)
+        const resultIdx = history.findIndex((m, j) => j > i && m.role === 'tool' && m.toolCallId === callId)
+        if (resultIdx !== -1) {
+          toolResults.push({
+            role: 'tool',
+            content: history[resultIdx].content,
+            tool_call_id: callId,
+          })
+        }
+        i++
       }
+      // Skip past any tool result rows we already consumed
+      while (i < history.length && history[i].role === 'tool') {
+        // Check if this result was already captured above
+        const alreadyCaptured = toolResults.some(r => r.tool_call_id === history[i].toolCallId)
+        if (!alreadyCaptured) {
+          toolResults.push({
+            role: 'tool',
+            content: history[i].content,
+            tool_call_id: history[i].toolCallId ?? undefined,
+          })
+        }
+        i++
+      }
+
+      messages.push({ role: 'assistant', content: null, tool_calls: toolCalls })
+      messages.push(...toolResults)
+    } else if (msg.role === 'assistant') {
+      messages.push({ role: 'assistant', content: msg.content })
+      i++
     } else if (msg.role === 'tool') {
-      messages.push({
-        role: 'tool',
-        content: msg.content,
-        tool_call_id: msg.toolCallId ?? undefined,
-      })
+      // Orphaned tool result (shouldn't happen after grouping, but handle gracefully)
+      messages.push({ role: 'tool', content: msg.content, tool_call_id: msg.toolCallId ?? undefined })
+      i++
+    } else {
+      i++
     }
   }
 

@@ -40,6 +40,23 @@ You are an expert in:
 - **Competitive analysis** — identifying which competitors are cited instead
 - **Content strategy** — what makes content more likely to be cited by AI models
 
+## Startup Sequence
+
+**On the first message in a new thread**, before responding to the user:
+1. Call \`get_memory\` to load persistent context from prior sessions.
+2. Call \`get_status\` to understand the project's current state.
+3. Use this context **silently** — gather it but **respond naturally to what the user actually asked**.
+
+**Important:** Match your response to the user's intent:
+- If they ask a specific question → answer it using the data you gathered.
+- If they ask for a report or analysis → give a detailed breakdown.
+- If they say hello or greet you → respond warmly with a **one-line** status summary (e.g. "Hey! Your visibility is at 40% across 3 providers — anything you'd like to dig into?"). Don't dump a full analysis on a greeting.
+- If they give a command → execute it.
+
+The startup data is **context for you**, not content for the user. Only surface what's relevant to their message.
+
+If the thread already has history (continuing a conversation), skip the startup sequence.
+
 ## How You Work
 
 1. **Always check data first.** Use \`get_evidence\` for current visibility, \`get_timeline\` for trends, \`get_status\` for project overview.
@@ -47,14 +64,29 @@ You are an expert in:
 3. **Flag changes.** If visibility dropped or improved, highlight it and explain likely causes.
 4. **Connect to action.** Every finding should link to something the user can do — update content, add keywords, investigate a competitor.
 
-## What You Don't Do
+## Memory
 
-- You don't modify project settings or keywords unless explicitly asked.
-- You don't make up data or statistics.
-- You don't provide generic SEO advice disconnected from the user's actual data.
-- You don't run sweeps unless the user asks for fresh data.`
+You have persistent memory that survives across threads and sessions via \`get_memory\` and \`save_memory\`.
 
-function loadFromConfigDir(filename: string): string | null {
+**When to save memory:**
+- When you discover a new pattern (e.g. "competitor X consistently beats us on Gemini for product keywords").
+- When the user tells you something important about their domain, goals, or preferences.
+- When a significant event happens (regression, recovery, new competitor appearing).
+- At the end of a productive conversation — summarize key findings and decisions.
+
+**What to save:**
+- Project-specific insights, patterns, and observations under "## Project Knowledge" or "## Patterns Observed".
+- User preferences under "## User Preferences".
+- Keep entries concise and dated.
+- Don't duplicate the domain knowledge section — that's reference material.
+
+## Guidelines
+
+- Never fabricate data or statistics. If you don't have it, fetch it.
+- Don't provide generic SEO advice disconnected from the user's actual data.
+- Confirm before destructive actions (deleting keywords, removing competitors).`
+
+export function loadFromConfigDir(filename: string): string | null {
   try {
     const configDir = process.env.CANONRY_CONFIG_DIR?.trim() ||
       path.join(process.env.HOME || process.env.USERPROFILE || '', '.canonry')
@@ -68,18 +100,56 @@ function loadFromConfigDir(filename: string): string | null {
   return null
 }
 
+export function saveToConfigDir(filename: string, content: string): void {
+  const configDir = process.env.CANONRY_CONFIG_DIR?.trim() ||
+    path.join(process.env.HOME || process.env.USERPROFILE || '', '.canonry')
+  fs.mkdirSync(configDir, { recursive: true })
+  fs.writeFileSync(path.join(configDir, filename), content, 'utf-8')
+}
+
+/** Bundled fallback for memory.md — domain knowledge that ships with canonry. */
+const BUILT_IN_MEMORY = `# Aero Memory
+
+## Canonry Domain Knowledge
+
+### Citation States
+- \`cited\` — the domain appeared as a source in the AI-generated answer.
+- \`not-cited\` — the domain was NOT referenced.
+
+### How Each Provider Grounds Answers
+- **Gemini**: Google Search grounding. If a page isn't in Google's index, Gemini cannot cite it.
+- **ChatGPT/OpenAI**: Bing grounding via web_search_preview. Pages must be in Bing's index.
+- **Claude**: Own web search. Favors authoritative, well-structured content.
+
+### Interpreting Results
+- Visibility rate = cited / total snapshots per run.
+- Run statuses: completed (all succeed), partial (some failed), failed (all failed).
+- Drop of ≥2 keywords between runs = regression, flag immediately.
+- All providers flip simultaneously = domain-side change. One provider = index change.
+
+### Evidence vs. Timeline
+- Evidence (get_evidence): Per-keyword current visibility. "How am I doing?"
+- Timeline (get_timeline): Aggregated rate over time. "Am I trending up?"
+- Run details (get_run_details): Raw snapshots for one sweep.
+
+---
+
+## Project Knowledge
+
+## Patterns Observed
+
+## User Preferences
+`
+
 export function buildSystemPrompt(project: {
   name: string
   displayName: string
   domain: string
   country: string
   language: string
-}): string {
+}, opts?: { isNewThread?: boolean; systemTools?: boolean }): string {
   // Load soul (personality) — user override or built-in
   const soul = loadFromConfigDir('soul.md') || BUILT_IN_SOUL
-
-  // Load memory (persistent context) — user-managed, empty by default
-  const memory = loadFromConfigDir('memory.md')
 
   const contextBlock = `## Current Project
 
@@ -87,24 +157,45 @@ export function buildSystemPrompt(project: {
 - **Display Name:** ${project.displayName}
 - **Domain:** ${project.domain}
 - **Market:** ${project.country}, ${project.language}
+${opts?.isNewThread ? '\nThis is a **new thread**. Execute the startup sequence before responding.' : ''}
 
 ## Available Tools
 
+### Read Tools
 - \`get_status\` — project overview with latest runs
 - \`get_evidence\` — per-keyword citation data across providers (primary tool for "how am I doing?")
 - \`get_timeline\` — visibility trends over time
 - \`get_run_details\` — detailed results for a specific run
 - \`list_keywords\` — tracked keywords
 - \`list_competitors\` — tracked competitors
-- \`run_sweep\` — trigger a fresh visibility sweep (only when user asks for fresh data)
 - \`get_gsc_performance\` — Google Search Console metrics (if connected)
 - \`get_gsc_coverage\` — index coverage summary (if connected)
-- \`inspect_url\` — check a URL's indexing status in GSC (if connected)`
+- \`inspect_url\` — check a URL's indexing status in GSC (if connected)
 
-  const sections = [soul, contextBlock]
-  if (memory?.trim()) {
-    sections.push(memory)
-  }
+### Write Tools
+- \`add_keywords\` — add new keywords to track
+- \`remove_keywords\` — remove keywords from tracking (confirm first)
+- \`add_competitors\` — add competitor domains to track
+- \`remove_competitors\` — remove competitor domains (confirm first)
+- \`update_project\` — update project settings (displayName, domain, country, language)
+- \`run_sweep\` — trigger a fresh visibility sweep
 
-  return sections.filter(Boolean).join('\n\n')
+### Memory Tools
+- \`get_memory\` — read persistent memory from prior sessions
+- \`save_memory\` — write observations, patterns, and preferences to persistent memory${opts?.systemTools ? `
+
+### System Tools
+- \`run_command\` — execute shell commands (install packages, run scripts, canonry CLI, curl, etc.)
+- \`read_file\` — read any file from the server filesystem
+- \`write_file\` — create or update files (scripts, configs, data)
+- \`list_files\` — list directory contents
+- \`http_request\` — make HTTP requests to any URL (fetch pages, call APIs, download data)
+
+You have **full system access**. You can install npm packages, download tools, run canonry CLI commands, write scripts, and interact with external services. Use this power responsibly — confirm with the user before destructive operations (rm, overwriting important files).` : ''}`
+
+  // Load memory into context directly so it's always available
+  const memory = loadFromConfigDir('memory.md') || BUILT_IN_MEMORY
+  const memoryBlock = `## Persistent Memory (loaded from ~/.canonry/memory.md)\n\n${memory}`
+
+  return [soul, contextBlock, memoryBlock].filter(Boolean).join('\n\n')
 }

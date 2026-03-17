@@ -688,16 +688,23 @@ export function fetchAgentThreads(project: string): Promise<ApiAgentThread[]> {
   return apiFetch(`/projects/${encodeURIComponent(project)}/agent/threads`)
 }
 
-export function fetchAgentThread(project: string, threadId: string): Promise<ApiAgentThread & { messages: ApiAgentMessage[] }> {
+export function fetchAgentThread(project: string, threadId: string): Promise<ApiAgentThread & { messages: ApiAgentMessage[]; status: 'processing' | 'idle'; error: string | null }> {
   return apiFetch(`/projects/${encodeURIComponent(project)}/agent/threads/${encodeURIComponent(threadId)}`)
 }
 
-export function sendAgentMessage(project: string, threadId: string, message: string, provider?: string): Promise<{ threadId: string; response: string }> {
+export function sendAgentMessage(project: string, threadId: string, message: string, provider?: string): Promise<{ threadId: string; status: string }> {
   const body: Record<string, unknown> = { message }
   if (provider) body.provider = provider
   return apiFetch(`/projects/${encodeURIComponent(project)}/agent/threads/${encodeURIComponent(threadId)}/messages`, {
     method: 'POST',
     body: JSON.stringify(body),
+  })
+}
+
+export function renameAgentThread(project: string, threadId: string, title: string): Promise<ApiAgentThread> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/agent/threads/${encodeURIComponent(threadId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ title }),
   })
 }
 

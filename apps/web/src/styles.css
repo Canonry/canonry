@@ -1396,6 +1396,10 @@
 
   /* ── Aero (Agent Chat) ── */
 
+  .aero-page {
+    @apply h-full overflow-hidden flex flex-col;
+  }
+
   .aero-select {
     @apply bg-zinc-900/50 border border-zinc-800/60 rounded-lg px-3 py-1.5
            text-[13px] text-zinc-300 outline-none
@@ -1404,35 +1408,23 @@
   }
 
   .aero-layout {
-    @apply flex gap-4 mt-4;
-    height: calc(100vh - 200px);
-    min-height: 400px;
+    @apply flex gap-4 mt-4 flex-1 min-h-0 overflow-hidden;
   }
 
   .aero-threads {
-    @apply w-56 shrink-0 bg-zinc-900/30 border border-zinc-800/60 rounded-xl p-3 overflow-y-auto;
+    @apply w-60 shrink-0 bg-zinc-900/20 border border-zinc-800/50 rounded-xl p-3 overflow-y-auto;
   }
 
   .aero-thread-item {
-    @apply flex items-center gap-1 rounded-lg transition-colors;
-  }
-
-  .aero-thread-item.active {
-    @apply bg-zinc-800/60;
+    @apply flex items-start gap-2 px-2.5 py-2 rounded-lg cursor-pointer transition-colors;
   }
 
   .aero-thread-item:hover {
     @apply bg-zinc-800/40;
   }
 
-  .aero-thread-btn {
-    @apply flex-1 flex items-center justify-between gap-2 text-left
-           px-2.5 py-2 text-[13px] text-zinc-300 truncate rounded-lg
-           min-w-0;
-  }
-
-  .aero-thread-delete {
-    @apply p-1.5 text-zinc-600 hover:text-rose-400 transition-colors shrink-0 rounded;
+  .aero-thread-item.active {
+    @apply bg-zinc-800/60;
   }
 
   .aero-chat {
@@ -1468,15 +1460,42 @@
   }
 
   .aero-msg-content {
-    @apply text-[13px] leading-relaxed rounded-xl px-4 py-3 whitespace-pre-wrap;
+    @apply text-[13px] leading-relaxed rounded-xl px-4 py-3;
   }
 
   .aero-msg.user .aero-msg-content {
-    @apply bg-zinc-800/60 text-zinc-200;
+    @apply bg-zinc-800/60 text-zinc-200 whitespace-pre-wrap;
   }
 
   .aero-msg.assistant .aero-msg-content {
     @apply bg-zinc-900/60 text-zinc-300 border border-zinc-800/40;
+  }
+
+  /* Markdown prose inside assistant messages */
+  .aero-md p {
+    @apply mb-2;
+  }
+  .aero-md p:last-child {
+    @apply mb-0;
+  }
+
+  .aero-md-list {
+    @apply pl-5 my-1.5 space-y-0.5 list-disc;
+  }
+  .aero-md-ol {
+    @apply list-decimal;
+  }
+  .aero-md-list li {
+    @apply text-zinc-300;
+  }
+
+  .aero-inline-code {
+    @apply bg-zinc-800 text-emerald-400 px-1.5 py-0.5 rounded text-[12px] font-mono;
+  }
+
+  .aero-code-block {
+    @apply bg-zinc-950 border border-zinc-800/60 rounded-lg px-4 py-3 my-2
+           text-[12px] leading-relaxed font-mono text-zinc-300 overflow-x-auto;
   }
 
   .aero-error {
@@ -1491,8 +1510,11 @@
   .aero-input {
     @apply flex-1 bg-zinc-900/50 border border-zinc-800/60 rounded-xl px-4 py-2.5
            text-[13px] text-zinc-200 placeholder-zinc-600 outline-none
-           resize-none min-h-[40px] max-h-[120px]
+           resize-none
            focus:border-zinc-600 transition-colors;
+    min-height: 40px;
+    max-height: 200px;
+    overflow-y: auto;
   }
 
   .aero-send {

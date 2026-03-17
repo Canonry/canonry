@@ -207,27 +207,29 @@ function convertToClaudeMessages(
       result.push({ role: 'user', content: msg.content ?? '' })
     } else if (msg.role === 'assistant') {
       if (msg.tool_calls && msg.tool_calls.length > 0) {
-        const content: Array<Record<string, unknown>> = []
-        if (msg.content) {
-          content.push({ type: 'text', text: msg.content })
-        }
+        const blocks: Array<Record<string, unknown>> = []
         for (const tc of msg.tool_calls) {
           let input: Record<string, unknown>
           try {
             input = JSON.parse(tc.function.arguments) as Record<string, unknown>
           } catch {
-            // Malformed JSON from a previous turn — send an empty object so the
-            // thread can recover instead of crashing all subsequent turns.
             input = {}
           }
-          content.push({
+          blocks.push({
             type: 'tool_use',
             id: tc.id,
             name: tc.function.name,
             input,
           })
         }
-        result.push({ role: 'assistant', content })
+        // Merge consecutive assistant tool-call messages into one.
+        // The DB stores each tool call separately but Claude needs them grouped.
+        const prev = result[result.length - 1]
+        if (prev && prev.role === 'assistant' && Array.isArray(prev.content)) {
+          prev.content.push(...blocks)
+        } else {
+          result.push({ role: 'assistant', content: blocks })
+        }
       } else {
         result.push({ role: 'assistant', content: msg.content ?? '' })
       }
@@ -250,6 +252,82 @@ function convertToClaudeMessages(
         })
       }
     }
+  }
+
+  // ── Validate tool_use ↔ tool_result pairing ──────────────
+  // Claude requires:
+  //   1. Every tool_use in an assistant message must have a tool_result in the NEXT user message
+  //   2. Every tool_result in a user message must reference a tool_use in the PREVIOUS assistant message
+  // We do multiple passes to clean up both directions.
+
+  // Pass 1: For each assistant message with tool_use blocks, ensure the next
+  // message is a user message containing matching tool_result blocks.
+  // If not, remove the orphaned tool_use blocks (or the whole assistant message).
+  for (let idx = 0; idx < result.length; idx++) {
+    const entry = result[idx]
+    if (entry.role !== 'assistant' || !Array.isArray(entry.content)) continue
+
+    const toolUseBlocks = (entry.content as Array<Record<string, unknown>>).filter(b => b.type === 'tool_use')
+    if (toolUseBlocks.length === 0) continue
+
+    // Collect tool_result IDs from the next message
+    const next = idx + 1 < result.length ? result[idx + 1] : null
+    const resultIds = new Set<string>()
+    if (next && next.role === 'user' && Array.isArray(next.content)) {
+      for (const b of next.content as Array<Record<string, unknown>>) {
+        if (b.type === 'tool_result' && typeof b.tool_use_id === 'string') {
+          resultIds.add(b.tool_use_id)
+        }
+      }
+    }
+
+    // Remove tool_use blocks without matching results
+    entry.content = (entry.content as Array<Record<string, unknown>>).filter(
+      b => b.type !== 'tool_use' || resultIds.has(b.id as string),
+    )
+
+    // If the assistant message is now empty, remove it
+    if ((entry.content as Array<Record<string, unknown>>).length === 0) {
+      result.splice(idx, 1)
+      idx--
+    }
+  }
+
+  // Pass 2: For each user message with tool_result blocks, ensure the previous
+  // message is an assistant message containing matching tool_use blocks.
+  for (let idx = 0; idx < result.length; idx++) {
+    const entry = result[idx]
+    if (entry.role !== 'user' || !Array.isArray(entry.content)) continue
+
+    const hasToolResults = (entry.content as Array<Record<string, unknown>>).some(b => b.type === 'tool_result')
+    if (!hasToolResults) continue
+
+    const prev = idx > 0 ? result[idx - 1] : null
+    const toolUseIds = new Set<string>()
+    if (prev && prev.role === 'assistant' && Array.isArray(prev.content)) {
+      for (const b of prev.content as Array<Record<string, unknown>>) {
+        if (b.type === 'tool_use' && typeof b.id === 'string') {
+          toolUseIds.add(b.id)
+        }
+      }
+    }
+
+    entry.content = (entry.content as Array<Record<string, unknown>>).filter(
+      b => b.type !== 'tool_result' || toolUseIds.has(b.tool_use_id as string),
+    )
+
+    if ((entry.content as Array<Record<string, unknown>>).length === 0) {
+      result.splice(idx, 1)
+      idx--
+    }
+  }
+
+  // Ensure conversation starts with a user message (Claude requirement)
+  while (result.length > 0 && result[0].role !== 'user') {
+    result.shift()
+  }
+  if (result.length === 0 || result[0].role !== 'user') {
+    result.unshift({ role: 'user', content: '(continuing conversation)' })
   }
 
   return result

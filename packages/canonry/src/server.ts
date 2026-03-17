@@ -533,7 +533,9 @@ function buildAgentHandler(
     const project = db.select().from(projects).where(eq(projects.id, projectId)).get()
     if (!project) throw new Error(`Project ${projectId} not found`)
 
-    const tools = buildTools(services, apiClient, project.name)
+    const tools = buildTools(services, apiClient, project.name, {
+      systemTools: agentConf.systemTools ?? false,
+    })
 
     return agentChat(threadId, message, {
       store,
@@ -546,7 +548,8 @@ function buildAgentHandler(
         country: project.country,
         language: project.language,
       },
-      maxSteps: agentConf.maxSteps ?? 10,
+      systemTools: agentConf.systemTools ?? false,
+      maxSteps: agentConf.maxSteps ?? 15,
       maxHistoryMessages: agentConf.maxHistory ?? 30,
     })
   }

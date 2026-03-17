@@ -6,7 +6,10 @@ import * as Dialog from '@radix-ui/react-dialog'
 import {
   Activity,
   Bot,
+  Check,
   ChevronRight,
+  MessageSquare,
+  Pencil,
   Download,
   Globe,
   LayoutDashboard,
@@ -91,6 +94,7 @@ import {
   fetchAgentThreads,
   fetchAgentThread,
   sendAgentMessage,
+  renameAgentThread,
   deleteAgentThread,
   type ApiAgentThread,
   type ApiAgentMessage,
@@ -5325,6 +5329,114 @@ function SetupPage({
 
 // ── Aero (Agent Chat) ─────────────────────────────────────────
 
+function formatRelativeDate(dateStr: string): string {
+  const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000)
+  if (seconds < 60) return 'just now'
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`
+  return new Date(dateStr).toLocaleDateString()
+}
+
+/** Lightweight markdown → React renderer for chat messages */
+function renderMarkdown(text: string): React.ReactNode {
+  const lines = text.split('\n')
+  const elements: React.ReactNode[] = []
+  let i = 0
+
+  function inlineFormat(s: string): React.ReactNode {
+    const parts: React.ReactNode[] = []
+    // Process inline: code, bold, italic, links
+    const rx = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\))/g
+    let last = 0
+    let m: RegExpExecArray | null
+    let ki = 0
+    while ((m = rx.exec(s)) !== null) {
+      if (m.index > last) parts.push(s.slice(last, m.index))
+      const token = m[0]
+      if (token.startsWith('`')) {
+        parts.push(<code key={ki++} className="aero-inline-code">{token.slice(1, -1)}</code>)
+      } else if (token.startsWith('**')) {
+        parts.push(<strong key={ki++} className="text-zinc-100 font-semibold">{token.slice(2, -2)}</strong>)
+      } else if (token.startsWith('*')) {
+        parts.push(<em key={ki++}>{token.slice(1, -1)}</em>)
+      } else if (token.startsWith('[')) {
+        const lm = token.match(/\[([^\]]+)\]\(([^)]+)\)/)
+        if (lm) parts.push(<a key={ki++} href={lm[2]} target="_blank" rel="noreferrer" className="text-emerald-400 underline underline-offset-2">{lm[1]}</a>)
+      }
+      last = m.index + token.length
+    }
+    if (last < s.length) parts.push(s.slice(last))
+    return parts.length === 1 ? parts[0] : parts
+  }
+
+  while (i < lines.length) {
+    const line = lines[i]
+
+    // Code block
+    if (line.trimStart().startsWith('```')) {
+      const codeLines: string[] = []
+      i++
+      while (i < lines.length && !lines[i].trimStart().startsWith('```')) {
+        codeLines.push(lines[i])
+        i++
+      }
+      i++ // skip closing ```
+      elements.push(<pre key={elements.length} className="aero-code-block"><code>{codeLines.join('\n')}</code></pre>)
+      continue
+    }
+
+    // Blank line
+    if (line.trim() === '') { i++; continue }
+
+    // Horizontal rule
+    if (/^---+$/.test(line.trim())) {
+      elements.push(<hr key={elements.length} className="border-zinc-700/50 my-3" />)
+      i++
+      continue
+    }
+
+    // Headings
+    const hm = line.match(/^(#{1,4})\s+(.+)/)
+    if (hm) {
+      const level = hm[1].length
+      const cls = level === 1 ? 'text-[15px] font-bold text-zinc-100 mt-4 mb-2'
+        : level === 2 ? 'text-[14px] font-bold text-zinc-100 mt-3 mb-1.5'
+        : 'text-[13px] font-semibold text-zinc-200 mt-2 mb-1'
+      elements.push(<div key={elements.length} className={cls}>{inlineFormat(hm[2])}</div>)
+      i++
+      continue
+    }
+
+    // List items (- or *)
+    if (/^\s*[-*]\s/.test(line)) {
+      const items: React.ReactNode[] = []
+      while (i < lines.length && /^\s*[-*]\s/.test(lines[i])) {
+        items.push(<li key={items.length}>{inlineFormat(lines[i].replace(/^\s*[-*]\s+/, ''))}</li>)
+        i++
+      }
+      elements.push(<ul key={elements.length} className="aero-md-list">{items}</ul>)
+      continue
+    }
+
+    // Numbered list
+    if (/^\s*\d+[.)]\s/.test(line)) {
+      const items: React.ReactNode[] = []
+      while (i < lines.length && /^\s*\d+[.)]\s/.test(lines[i])) {
+        items.push(<li key={items.length}>{inlineFormat(lines[i].replace(/^\s*\d+[.)]\s+/, ''))}</li>)
+        i++
+      }
+      elements.push(<ol key={elements.length} className="aero-md-list aero-md-ol">{items}</ol>)
+      continue
+    }
+
+    // Paragraph
+    elements.push(<p key={elements.length} className="mb-2 last:mb-0">{inlineFormat(line)}</p>)
+    i++
+  }
+  return <>{elements}</>
+}
+
 function AeroPage({ projects, providers }: {
   projects: Array<{ name: string; displayName?: string }>
   providers: Array<{ name: string; state: string }>
@@ -5335,11 +5447,19 @@ function AeroPage({ projects, providers }: {
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ApiAgentMessage[]>([])
   const [input, setInput] = useState('')
-  const [sending, setSending] = useState(false)
+  const [processing, setProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [editingThreadId, setEditingThreadId] = useState<string | null>(null)
+  const [editTitle, setEditTitle] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const configuredProviders = providers.filter(p => p.state === 'ready')
+
+  // Stop polling on unmount
+  useEffect(() => {
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+  }, [])
 
   // Load threads when project changes
   useEffect(() => {
@@ -5347,15 +5467,36 @@ function AeroPage({ projects, providers }: {
     fetchAgentThreads(selectedProject).then(setThreads).catch(() => setThreads([]))
   }, [selectedProject])
 
-  // Load messages when thread changes
+  // Load messages when thread changes; start polling if thread is processing
   useEffect(() => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
     if (!selectedProject || !activeThreadId) {
       setMessages([])
+      setProcessing(false)
       return
     }
-    fetchAgentThread(selectedProject, activeThreadId)
-      .then(data => setMessages(data.messages))
-      .catch(() => setMessages([]))
+
+    function loadThread() {
+      fetchAgentThread(selectedProject, activeThreadId!)
+        .then(data => {
+          setMessages(data.messages.filter(m => m.role !== 'tool' && !m.toolName))
+          if (data.status === 'processing') {
+            setProcessing(true)
+            // Start polling if not already
+            if (!pollRef.current) {
+              pollRef.current = setInterval(loadThread, 1500)
+            }
+          } else {
+            setProcessing(false)
+            if (data.error) setError(data.error)
+            if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+          }
+        })
+        .catch(() => setMessages([]))
+    }
+    loadThread()
+
+    return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null } }
   }, [selectedProject, activeThreadId])
 
   // Scroll to bottom on new messages
@@ -5363,9 +5504,18 @@ function AeroPage({ projects, providers }: {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  async function handleRenameThread(threadId: string) {
+    if (!selectedProject || !editTitle.trim()) return
+    try {
+      const updated = await renameAgentThread(selectedProject, threadId, editTitle.trim())
+      setThreads(prev => prev.map(t => t.id === threadId ? { ...t, title: updated.title } : t))
+    } catch { /* ignore */ }
+    setEditingThreadId(null)
+  }
+
   async function handleNewThread() {
     if (!selectedProject) return
-    const thread = await createAgentThread(selectedProject, { title: 'New conversation' })
+    const thread = await createAgentThread(selectedProject)
     setThreads(prev => [thread, ...prev])
     setActiveThreadId(thread.id)
     setMessages([])
@@ -5383,11 +5533,10 @@ function AeroPage({ projects, providers }: {
   }
 
   async function handleSend() {
-    if (!input.trim() || !selectedProject || !activeThreadId || sending) return
+    if (!input.trim() || !selectedProject || !activeThreadId || processing) return
     const msg = input.trim()
     setInput('')
     setError(null)
-    setSending(true)
 
     // Optimistically add user message
     const optimisticUser: ApiAgentMessage = {
@@ -5401,34 +5550,36 @@ function AeroPage({ projects, providers }: {
       createdAt: new Date().toISOString(),
     }
     setMessages(prev => [...prev, optimisticUser])
+    setProcessing(true)
 
     try {
-      const result = await sendAgentMessage(
+      await sendAgentMessage(
         selectedProject,
         activeThreadId,
         msg,
         selectedProvider || undefined,
       )
 
-      // Add assistant response
-      const assistantMsg: ApiAgentMessage = {
-        id: `resp-${Date.now()}`,
-        threadId: activeThreadId,
-        role: 'assistant',
-        content: result.response,
-        toolName: null,
-        toolArgs: null,
-        toolCallId: null,
-        createdAt: new Date().toISOString(),
-      }
-      setMessages(prev => [...prev, assistantMsg])
-
-      // Refresh threads to update titles
-      fetchAgentThreads(selectedProject).then(setThreads).catch(() => {})
+      // Start polling for the response
+      if (pollRef.current) clearInterval(pollRef.current)
+      const tid = activeThreadId
+      pollRef.current = setInterval(() => {
+        fetchAgentThread(selectedProject, tid)
+          .then(data => {
+            setMessages(data.messages.filter(m => m.role !== 'tool' && !m.toolName))
+            if (data.status !== 'processing') {
+              setProcessing(false)
+              if (data.error) setError(data.error)
+              if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+              // Refresh threads to update titles
+              fetchAgentThreads(selectedProject).then(setThreads).catch(() => {})
+            }
+          })
+          .catch(() => {})
+      }, 1500)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setSending(false)
+      setProcessing(false)
     }
   }
 
@@ -5439,10 +5590,10 @@ function AeroPage({ projects, providers }: {
     }
   }
 
-  const visibleMessages = messages.filter(m => m.role !== 'tool')
+  const visibleMessages = messages.filter(m => m.role !== 'tool' && !m.toolName)
 
   return (
-    <div className="page-container">
+    <div className="page-container aero-page">
       <div className="page-header">
         <div className="page-header-left">
           <h1 className="page-title">Aero</h1>
@@ -5468,42 +5619,78 @@ function AeroPage({ projects, providers }: {
               <option key={p.name} value={p.name}>{p.name}</option>
             ))}
           </select>
-          <Button onClick={handleNewThread} variant="secondary" className="gap-1.5">
-            <Plus className="h-3.5 w-3.5" />
-            New chat
-          </Button>
         </div>
       </div>
 
       <div className="aero-layout">
         {/* Thread list sidebar */}
         <div className="aero-threads">
-          <p className="eyebrow mb-2">Threads</p>
+          <div className="flex items-center justify-between mb-3">
+            <p className="eyebrow">Threads</p>
+            <button
+              onClick={handleNewThread}
+              className="p-1 rounded-md text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60 transition-colors"
+              aria-label="New thread"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          </div>
           {threads.length === 0 ? (
-            <p className="text-[13px] text-zinc-500">No threads yet. Start a new chat.</p>
+            <p className="text-[12px] text-zinc-600 px-2">No threads yet.</p>
           ) : (
             <div className="flex flex-col gap-0.5">
               {threads.map(t => (
                 <div
                   key={t.id}
-                  className={`aero-thread-item ${activeThreadId === t.id ? 'active' : ''}`}
+                  className={`aero-thread-item group ${activeThreadId === t.id ? 'active' : ''}`}
+                  onClick={() => { if (editingThreadId !== t.id) setActiveThreadId(t.id) }}
                 >
-                  <button
-                    className="aero-thread-btn"
-                    onClick={() => setActiveThreadId(t.id)}
-                  >
-                    <span className="truncate">{t.title ?? 'Untitled'}</span>
-                    <span className="text-[10px] text-zinc-600 shrink-0">
-                      {new Date(t.updatedAt).toLocaleDateString()}
+                  <MessageSquare className="h-3.5 w-3.5 text-zinc-600 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    {editingThreadId === t.id ? (
+                      <form
+                        className="flex items-center gap-1"
+                        onSubmit={e => { e.preventDefault(); handleRenameThread(t.id) }}
+                      >
+                        <input
+                          className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-[12px] text-zinc-200 outline-none min-w-0"
+                          value={editTitle}
+                          onChange={e => setEditTitle(e.target.value)}
+                          onBlur={() => handleRenameThread(t.id)}
+                          onKeyDown={e => { if (e.key === 'Escape') setEditingThreadId(null) }}
+                          autoFocus
+                        />
+                        <button type="submit" className="p-0.5 text-zinc-400 hover:text-emerald-400">
+                          <Check className="h-3 w-3" />
+                        </button>
+                      </form>
+                    ) : (
+                      <span className="block text-[12px] text-zinc-300 truncate leading-tight">
+                        {t.title ?? 'Untitled'}
+                      </span>
+                    )}
+                    <span className="text-[10px] text-zinc-600 leading-tight">
+                      {formatRelativeDate(t.updatedAt)}
                     </span>
-                  </button>
-                  <button
-                    className="aero-thread-delete"
-                    onClick={() => handleDeleteThread(t.id)}
-                    aria-label="Delete thread"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
+                  </div>
+                  {editingThreadId !== t.id && (
+                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                      <button
+                        className="p-1 text-zinc-600 hover:text-zinc-300 rounded transition-colors"
+                        onClick={e => { e.stopPropagation(); setEditingThreadId(t.id); setEditTitle(t.title ?? '') }}
+                        aria-label="Rename thread"
+                      >
+                        <Pencil className="h-2.5 w-2.5" />
+                      </button>
+                      <button
+                        className="p-1 text-zinc-600 hover:text-rose-400 rounded transition-colors"
+                        onClick={e => { e.stopPropagation(); handleDeleteThread(t.id) }}
+                        aria-label="Delete thread"
+                      >
+                        <Trash2 className="h-2.5 w-2.5" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -5529,7 +5716,7 @@ function AeroPage({ projects, providers }: {
             <>
               {/* Messages */}
               <div className="aero-messages">
-                {visibleMessages.length === 0 && !sending && (
+                {visibleMessages.length === 0 && !processing && (
                   <div className="aero-empty">
                     <Bot className="h-8 w-8 text-zinc-700" />
                     <p className="text-[13px] text-zinc-500 mt-2">Send a message to get started.</p>
@@ -5540,12 +5727,12 @@ function AeroPage({ projects, providers }: {
                     <div className="aero-msg-label">
                       {msg.role === 'user' ? 'You' : 'Aero'}
                     </div>
-                    <div className="aero-msg-content">
-                      {msg.content}
+                    <div className={`aero-msg-content ${msg.role === 'assistant' ? 'aero-md' : ''}`}>
+                      {msg.role === 'assistant' ? renderMarkdown(msg.content) : msg.content}
                     </div>
                   </div>
                 ))}
-                {sending && (
+                {processing && (
                   <div className="aero-msg assistant">
                     <div className="aero-msg-label">Aero</div>
                     <div className="aero-msg-content text-zinc-500">
@@ -5566,16 +5753,21 @@ function AeroPage({ projects, providers }: {
                 <textarea
                   className="aero-input"
                   value={input}
-                  onChange={e => setInput(e.target.value)}
+                  onChange={e => {
+                    setInput(e.target.value)
+                    // Auto-expand: reset height then set to scrollHeight
+                    e.target.style.height = 'auto'
+                    e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px'
+                  }}
                   onKeyDown={handleKeyDown}
                   placeholder="Ask about your visibility, trends, competitors..."
                   rows={1}
-                  disabled={sending}
+                  disabled={processing}
                 />
                 <button
                   className="aero-send"
                   onClick={handleSend}
-                  disabled={!input.trim() || sending}
+                  disabled={!input.trim() || processing}
                   aria-label="Send message"
                 >
                   <Send className="h-4 w-4" />
@@ -6759,16 +6951,6 @@ export function App({
           )}
         </main>
 
-        <footer className="footer">
-          <p className="supporting-copy">Technical readiness and answer visibility stay separate.</p>
-          <div className="footer-links">
-            {docs.map((doc) => (
-              <a key={doc.href} href={doc.href} target="_blank" rel="noreferrer">
-                {doc.label}
-              </a>
-            ))}
-          </div>
-        </footer>
       </div>
 
       {/* ── Drawers ── */}

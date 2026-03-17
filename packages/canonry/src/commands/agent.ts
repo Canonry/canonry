@@ -52,15 +52,40 @@ export async function agentAsk(project: string, message: string, opts?: {
   }
 
   if (opts?.format !== 'json') {
-    console.log('Aero is thinking...\n')
+    process.stdout.write('Aero is thinking...')
   }
 
-  const result = await client.sendAgentMessage(project, threadId, message, opts?.provider)
+  await client.sendAgentMessage(project, threadId, message, opts?.provider)
+
+  // Poll until the agent finishes processing
+  let response = ''
+  for (let i = 0; i < 120; i++) {
+    await new Promise(r => setTimeout(r, 1500))
+    const data = await client.getAgentThread(project, threadId) as AgentThread & {
+      messages: AgentMessage[]
+      status: string
+      error: string | null
+    }
+    if (data.status !== 'processing') {
+      // Find the last assistant text message (not a tool call)
+      const assistantMsgs = data.messages.filter(m => m.role === 'assistant' && !m.toolName)
+      response = assistantMsgs[assistantMsgs.length - 1]?.content ?? ''
+      if (data.error) {
+        console.error(`\nError: ${data.error}`)
+        process.exitCode = 1
+        return
+      }
+      break
+    }
+    if (opts?.format !== 'json') process.stdout.write('.')
+  }
+
+  if (opts?.format !== 'json') console.log('\n')
 
   if (opts?.format === 'json') {
-    console.log(JSON.stringify({ threadId, response: result.response }, null, 2))
+    console.log(JSON.stringify({ threadId, response }, null, 2))
   } else {
-    console.log(result.response)
+    console.log(response)
   }
 }
 

@@ -27,8 +27,10 @@ export interface AgentRoutesOptions {
 export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions) {
   const prefix = '/projects/:project/agent'
 
-  // Per-thread mutex — prevents concurrent agent loops from corrupting history
+  // Per-thread mutex — prevents concurrent agent loops from corrupting history.
+  // Also tracks pending work so it survives client disconnects.
   const activeThreads = new Set<string>()
+  const threadErrors = new Map<string, string>()
 
   // ── Create thread ─────────────────────────────────────────
 
@@ -138,7 +140,9 @@ export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions
       .orderBy(asc(agentMessages.createdAt))
       .all()
 
-    return reply.send({ ...thread, messages })
+    const processing = activeThreads.has(id)
+    const error = threadErrors.get(id) ?? null
+    return reply.send({ ...thread, messages, status: processing ? 'processing' : 'idle', error })
   })
 
   // ── Send message ──────────────────────────────────────────
@@ -201,21 +205,68 @@ export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions
     }
 
     activeThreads.add(threadId)
-    try {
-      const response = await opts.onAgentMessage(thread.projectId, threadId, message, { provider })
-      return reply.send({ threadId, response })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      const isLlmError = msg.includes('API error') || msg.includes('API key') || msg.includes('timeout')
-      return reply.status(isLlmError ? 502 : 500).send({
-        error: {
-          code: isLlmError ? 'LLM_ERROR' : 'AGENT_ERROR',
-          message: msg,
-        },
+    threadErrors.delete(threadId)
+
+    // Fire-and-forget: the agent loop runs in the background so it
+    // survives client disconnects and page navigations.
+    opts.onAgentMessage(thread.projectId, threadId, message, { provider })
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err)
+        threadErrors.set(threadId, msg)
+        app.log.error({ threadId, err: msg }, 'agent loop error')
       })
-    } finally {
-      activeThreads.delete(threadId)
+      .finally(() => {
+        activeThreads.delete(threadId)
+      })
+
+    return reply.status(202).send({ threadId, status: 'processing' })
+  })
+
+  // ── Update thread (rename) ───────────────────────────────
+
+  app.patch<{
+    Params: { project: string; id: string }
+    Body: { title?: string }
+  }>(`${prefix}/threads/:id`, {
+    schema: {
+      params: {
+        type: 'object',
+        properties: {
+          project: { type: 'string' },
+          id: { type: 'string' },
+        },
+        required: ['project', 'id'],
+      },
+      body: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', maxLength: 200 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { project, id } = request.params
+    const { title } = request.body ?? {}
+
+    const projectRow = resolveProject(app.db, project)
+
+    const thread = app.db
+      .select()
+      .from(agentThreads)
+      .where(eq(agentThreads.id, id))
+      .get()
+
+    if (!thread || thread.projectId !== projectRow.id) {
+      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Thread not found' } })
     }
+
+    const updates: Record<string, unknown> = { updatedAt: new Date().toISOString() }
+    if (title !== undefined) updates.title = title
+
+    app.db.update(agentThreads).set(updates).where(eq(agentThreads.id, id)).run()
+
+    const updated = app.db.select().from(agentThreads).where(eq(agentThreads.id, id)).get()
+    return reply.send(updated)
   })
 
   // ── Delete thread ─────────────────────────────────────────

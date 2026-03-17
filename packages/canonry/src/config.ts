@@ -67,6 +67,8 @@ export interface CanonryConfig {
     maxHistory?: number
     /** Whether the agent is enabled (default: true if any provider is configured) */
     enabled?: boolean
+    /** Enable system tools: shell execution, file I/O, HTTP requests (default: false) */
+    systemTools?: boolean
   }
 }
 
