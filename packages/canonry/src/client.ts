@@ -268,6 +268,11 @@ export class ApiClient {
     return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/google/gsc/discover-sitemaps`, {})
   }
 
+  // Google Indexing API
+  async googleRequestIndexing(project: string, body: { urls: string[]; allUnindexed?: boolean }): Promise<object> {
+    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/google/indexing/request`, body)
+  }
+
   // ── Agent ───────────────────────────────────────────────
 
   async createAgentThread(project: string, body?: { title?: string; channel?: string }): Promise<object> {
@@ -295,4 +300,5 @@ export class ApiClient {
   async deleteAgentThread(project: string, threadId: string): Promise<void> {
     await this.request<void>('DELETE', `/projects/${encodeURIComponent(project)}/agent/threads/${encodeURIComponent(threadId)}`)
   }
+
 }

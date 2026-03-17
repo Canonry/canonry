@@ -205,4 +205,117 @@ describe('google CLI commands', () => {
     // a GoogleApiError(401) → Fastify returns HTTP 401 → ApiClient throws
     await expect(() => googleDiscoverSitemaps('test-proj', { wait: false })).rejects.toThrow('HTTP 401')
   })
+
+  it('googleRequestIndexing prints success output for a single URL', async () => {
+    await client.putProject('test-proj', {
+      displayName: 'Test',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+    })
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      // Only intercept Google Indexing API calls
+      if (url.includes('indexing.googleapis.com')) {
+        return new Response(JSON.stringify({
+          urlNotificationMetadata: {
+            url: 'https://example.com/page',
+            latestUpdate: {
+              url: 'https://example.com/page',
+              type: 'URL_UPDATED',
+              notifyTime: '2026-03-17T12:00:00Z',
+            },
+          },
+        }), { status: 200 })
+      }
+      return originalFetch(input, init)
+    }
+
+    const { googleRequestIndexing } = await import('../src/commands/google.js')
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await googleRequestIndexing('test-proj', { url: 'https://example.com/page' })
+    } finally {
+      console.log = origLog
+      globalThis.fetch = originalFetch
+    }
+
+    const output = logs.join('\n')
+    expect(output).toMatch(/Indexing requested: https:\/\/example\.com\/page/)
+    expect(output).toMatch(/Notified at:/)
+    expect(output).toMatch(/Type: URL_UPDATED/)
+  })
+
+  it('googleRequestIndexing outputs JSON when format is json', async () => {
+    await client.putProject('test-proj', {
+      displayName: 'Test',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+    })
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('indexing.googleapis.com')) {
+        return new Response(JSON.stringify({
+          urlNotificationMetadata: {
+            url: 'https://example.com/page',
+            latestUpdate: {
+              url: 'https://example.com/page',
+              type: 'URL_UPDATED',
+              notifyTime: '2026-03-17T12:00:00Z',
+            },
+          },
+        }), { status: 200 })
+      }
+      return originalFetch(input, init)
+    }
+
+    const { googleRequestIndexing } = await import('../src/commands/google.js')
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await googleRequestIndexing('test-proj', { url: 'https://example.com/page', format: 'json' })
+    } finally {
+      console.log = origLog
+      globalThis.fetch = originalFetch
+    }
+
+    const parsed = JSON.parse(logs.join('\n')) as { summary: { total: number; succeeded: number }; results: Array<{ status: string }> }
+    expect(parsed.summary.total).toBe(1)
+    expect(parsed.summary.succeeded).toBe(1)
+    expect(parsed.results[0]!.status).toBe('success')
+  })
+
+  it('googleRequestIndexing exits with error when neither URL nor --all-unindexed is provided', async () => {
+    await client.putProject('test-proj', {
+      displayName: 'Test',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+    })
+
+    const { googleRequestIndexing } = await import('../src/commands/google.js')
+    const errors: string[] = []
+    const origError = console.error
+    const origExit = process.exit
+    console.error = (...args: unknown[]) => errors.push(args.join(' '))
+    process.exit = (() => { throw new Error('process.exit called') }) as never
+    try {
+      await googleRequestIndexing('test-proj', {})
+    } catch (err) {
+      expect((err as Error).message).toBe('process.exit called')
+    } finally {
+      console.error = origError
+      process.exit = origExit
+    }
+
+    expect(errors.join('\n')).toMatch(/provide a URL or use --all-unindexed/)
+  })
 })

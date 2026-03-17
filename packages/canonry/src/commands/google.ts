@@ -1,3 +1,4 @@
+import type { IndexingRequestResultDto } from '@ainyc/canonry-contracts'
 import { loadConfig } from '../config.js'
 import { ApiClient } from '../client.js'
 
@@ -502,6 +503,89 @@ export async function googleDiscoverSitemaps(project: string, opts: { wait?: boo
     process.stderr.write('\n')
     console.error('Timed out waiting for sitemap inspection to complete.')
     process.exit(1)
+  }
+}
+
+export async function googleRequestIndexing(project: string, opts: {
+  url?: string
+  allUnindexed?: boolean
+  wait?: boolean
+  format?: string
+}): Promise<void> {
+  const client = getClient()
+
+  const body: { urls: string[]; allUnindexed?: boolean } = { urls: [] }
+  if (opts.allUnindexed) {
+    body.allUnindexed = true
+  } else if (opts.url) {
+    body.urls = [opts.url]
+  } else {
+    console.error('Error: provide a URL or use --all-unindexed')
+    process.exit(1)
+  }
+
+  const result = await client.googleRequestIndexing(project, body) as {
+    summary: { total: number; succeeded: number; failed: number }
+    results: IndexingRequestResultDto[]
+  }
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  for (const r of result.results) {
+    if (r.status === 'success') {
+      console.log(`Indexing requested: ${r.url}`)
+      console.log(`  Notified at: ${r.notifiedAt}`)
+      console.log(`  Type: ${r.type}`)
+      console.log()
+    } else {
+      console.error(`Failed: ${r.url}`)
+      console.error(`  Error: ${r.error}`)
+      console.log()
+    }
+  }
+
+  if (result.results.length > 1) {
+    console.log(`Summary: ${result.summary.succeeded} succeeded, ${result.summary.failed} failed (${result.summary.total} total)`)
+  }
+
+  if (opts.wait && result.results.some((r) => r.status === 'success')) {
+    const successUrls = result.results.filter((r) => r.status === 'success').map((r) => r.url)
+    const timeout = 10 * 60 * 1000
+    const start = Date.now()
+    process.stderr.write('Waiting for indexing confirmation')
+
+    while (Date.now() - start < timeout) {
+      await new Promise((r) => setTimeout(r, 10000))
+      process.stderr.write('.')
+
+      let allIndexed = true
+      for (const url of successUrls) {
+        try {
+          const inspection = await client.gscInspect(project, url) as {
+            indexingState?: string
+          }
+          if (inspection.indexingState !== 'INDEXING_ALLOWED') {
+            allIndexed = false
+            break
+          }
+        } catch {
+          allIndexed = false
+          break
+        }
+      }
+
+      if (allIndexed) {
+        process.stderr.write('\n')
+        console.log('All requested URLs are now indexed.')
+        return
+      }
+    }
+
+    process.stderr.write('\n')
+    console.error('Timed out waiting for indexing confirmation. URLs may still be processing.')
   }
 }
 
