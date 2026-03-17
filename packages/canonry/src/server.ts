@@ -9,7 +9,7 @@ const { version: PKG_VERSION } = _require('../package.json') as { version: strin
 import Fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import { apiRoutes } from '@ainyc/canonry-api-routes'
-import { auditLog, projects, projects as projectsTable, type DatabaseClient } from '@ainyc/canonry-db'
+import { auditLog, projects, type DatabaseClient } from '@ainyc/canonry-db'
 import { eq } from 'drizzle-orm'
 import { geminiAdapter } from '@ainyc/canonry-provider-gemini'
 import { openaiAdapter } from '@ainyc/canonry-provider-openai'
@@ -500,22 +500,28 @@ function buildAgentHandler(
   const registeredProvider = registry.get(llmProvider as ProviderName)
   if (!registeredProvider) return undefined
 
+  if (!registeredProvider.config.apiKey) return undefined
+
   const llmConfig: LlmConfig = {
     provider: llmProvider,
-    apiKey: registeredProvider.config.apiKey ?? '',
+    apiKey: registeredProvider.config.apiKey,
     model: agentConf.model ?? registeredProvider.config.model,
   }
 
   const store = new AgentStore(db)
   const services = new AgentServices(db)
+
+  // ApiClient is only needed for HTTP-backed tools (run_sweep, GSC).
+  // If apiUrl/apiKey aren't set (self-hosted), those tools will gracefully error.
+  const serverPort = opts.config.port ?? 4100
   const apiClient = new ApiClient(
-    opts.config.apiUrl,
-    opts.config.apiKey,
+    opts.config.apiUrl ?? `http://localhost:${serverPort}`,
+    opts.config.apiKey ?? '',
   )
 
   return async (projectId: string, threadId: string, message: string) => {
     // Resolve project details for the system prompt
-    const project = db.select().from(projectsTable).where(eq(projectsTable.id, projectId)).get()
+    const project = db.select().from(projects).where(eq(projects.id, projectId)).get()
     if (!project) throw new Error(`Project ${projectId} not found`)
 
     const tools = buildTools(services, apiClient, project.name)

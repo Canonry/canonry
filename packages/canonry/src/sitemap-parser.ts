@@ -67,7 +67,12 @@ async function validateSitemapUrl(url: string): Promise<void> {
   let addresses: string[]
   try {
     const results = await dns.resolve(host)
-    const results6 = await dns.resolve6(host).catch(() => [] as string[])
+    const results6 = await dns.resolve6(host).catch((err: NodeJS.ErrnoException) => {
+      // No AAAA records is expected for IPv4-only hosts — treat as empty.
+      // Re-throw unexpected errors so they don't silently mask real failures.
+      if (err.code === 'ENODATA' || err.code === 'ENOTFOUND') return [] as string[]
+      throw err
+    })
     addresses = [...results, ...results6]
   } catch {
     throw new Error(`Cannot resolve sitemap hostname: ${host}`)

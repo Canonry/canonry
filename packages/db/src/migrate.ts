@@ -232,7 +232,7 @@ const MIGRATIONS = [
   `CREATE TABLE IF NOT EXISTS agent_messages (
     id            TEXT PRIMARY KEY,
     thread_id     TEXT NOT NULL REFERENCES agent_threads(id) ON DELETE CASCADE,
-    role          TEXT NOT NULL,
+    role          TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'tool')),
     content       TEXT NOT NULL,
     tool_name     TEXT,
     tool_args     TEXT,

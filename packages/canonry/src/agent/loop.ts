@@ -177,6 +177,17 @@ export async function agentChat(
 
         opts.onToolCall?.(toolName, toolArgs)
 
+        // Persist assistant tool-call row BEFORE execution so the DB
+        // always has a matching assistant row for the tool result.
+        await store.addMessage({
+          threadId,
+          role: 'assistant',
+          content: `Calling ${toolName}`,
+          toolName,
+          toolArgs: JSON.stringify(toolArgs),
+          toolCallId: toolCall.id,
+        })
+
         // Find and execute tool
         const tool = tools.find(t => t.name === toolName)
         let result: string
@@ -190,16 +201,6 @@ export async function agentChat(
         } else {
           result = `Unknown tool: ${toolName}`
         }
-
-        // Persist tool call and result
-        await store.addMessage({
-          threadId,
-          role: 'assistant',
-          content: `Calling ${toolName}`,
-          toolName,
-          toolArgs: JSON.stringify(toolArgs),
-          toolCallId: toolCall.id,
-        })
 
         await store.addMessage({
           threadId,

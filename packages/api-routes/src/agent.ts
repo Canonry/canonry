@@ -155,7 +155,7 @@ export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions
       body: {
         type: 'object',
         properties: {
-          message: { type: 'string' },
+          message: { type: 'string', maxLength: 8000 },
         },
         required: ['message'],
       },
@@ -222,6 +222,7 @@ export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions
       return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'Thread not found' } })
     }
 
+    app.db.delete(agentMessages).where(eq(agentMessages.threadId, id)).run()
     app.db.delete(agentThreads).where(eq(agentThreads.id, id)).run()
 
     return reply.status(204).send()

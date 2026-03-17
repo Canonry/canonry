@@ -36,9 +36,9 @@ interface CompletionResponse {
   toolCalls?: ToolCall[]
 }
 
+// Claude uses a dedicated code path (claudeCompletion) — not listed here.
 const PROVIDER_ENDPOINTS: Record<string, string> = {
   openai: 'https://api.openai.com/v1/chat/completions',
-  claude: 'https://api.anthropic.com/v1/messages',
   gemini: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
 }
 

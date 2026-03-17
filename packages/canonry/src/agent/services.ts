@@ -118,26 +118,32 @@ export class AgentServices {
 
   async getTimeline(projectName: string) {
     const project = await this.getProject(projectName)
-    
-    // Get all runs
+
     const runs = this.db
       .select()
       .from(runsTable)
       .where(eq(runsTable.projectId, project.id))
       .orderBy(desc(runsTable.createdAt))
       .all()
-    
-    // Aggregate citation data by run
+
+    // Bulk-fetch all snapshots to avoid N+1
+    const runIds = runs.map(r => r.id)
+    const allSnapshots = runIds.length > 0
+      ? this.db.select().from(querySnapshots).where(inArray(querySnapshots.runId, runIds)).all()
+      : []
+
+    const snapshotsByRun = new Map<string, typeof allSnapshots>()
+    for (const s of allSnapshots) {
+      const arr = snapshotsByRun.get(s.runId) ?? []
+      arr.push(s)
+      snapshotsByRun.set(s.runId, arr)
+    }
+
     const timeline = runs.map(run => {
-      const snapshots = this.db
-        .select()
-        .from(querySnapshots)
-        .where(eq(querySnapshots.runId, run.id))
-        .all()
-      
+      const snapshots = snapshotsByRun.get(run.id) ?? []
       const cited = snapshots.filter(s => s.citationState === 'cited').length
       const total = snapshots.length
-      
+
       return {
         runId: run.id,
         createdAt: run.createdAt,
@@ -147,7 +153,7 @@ export class AgentServices {
         rate: total > 0 ? cited / total : 0,
       }
     })
-    
+
     return { project, timeline }
   }
 }
