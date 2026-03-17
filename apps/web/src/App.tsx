@@ -2660,202 +2660,7 @@ function GscSection({
 
           {(gscConn || hasHistoricalData) && (
             <>
-              {/* Performance summary + charts */}
-              <Card className="surface-card">
-                <div className="section-head section-head-inline">
-                  <div>
-                    <p className="eyebrow eyebrow-soft">Performance</p>
-                    <h3>Search performance</h3>
-                  </div>
-                  <Button type="button" variant="outline" size="sm" disabled={loadingPerformance} onClick={() => void loadPerformanceRows()}>
-                    {loadingPerformance ? 'Loading…' : 'Apply filters'}
-                  </Button>
-                </div>
-
-                {/* Clicks + Impressions over time line chart */}
-                {performance.length > 1 && (() => {
-                  const byDate = new Map<string, { clicks: number; impressions: number }>()
-                  for (const row of performance) {
-                    const existing = byDate.get(row.date)
-                    if (existing) {
-                      existing.clicks += row.clicks
-                      existing.impressions += row.impressions
-                    } else {
-                      byDate.set(row.date, { clicks: row.clicks, impressions: row.impressions })
-                    }
-                  }
-                  const sorted = [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b))
-                  if (sorted.length < 2) return null
-                  const maxClicks = Math.max(...sorted.map(([, d]) => d.clicks), 1)
-                  const maxImpressions = Math.max(...sorted.map(([, d]) => d.impressions), 1)
-                  const w = 600
-                  const h = 160
-                  const pad = { top: 10, bottom: 20, left: 0, right: 0 }
-                  const plotW = w - pad.left - pad.right
-                  const plotH = h - pad.top - pad.bottom
-                  const clicksPoints = sorted.map(([, d], i) => {
-                    const x = pad.left + (i / (sorted.length - 1)) * plotW
-                    const y = pad.top + plotH - (d.clicks / maxClicks) * plotH
-                    return `${x},${y}`
-                  }).join(' ')
-                  const impressionPoints = sorted.map(([, d], i) => {
-                    const x = pad.left + (i / (sorted.length - 1)) * plotW
-                    const y = pad.top + plotH - (d.impressions / maxImpressions) * plotH
-                    return `${x},${y}`
-                  }).join(' ')
-                  const totalClicks = sorted.reduce((sum, [, d]) => sum + d.clicks, 0)
-                  const totalImpressions = sorted.reduce((sum, [, d]) => sum + d.impressions, 0)
-
-                  return (
-                    <div className="mt-3">
-                      <div className="flex items-center gap-4 mb-2">
-                        <div className="flex items-center gap-1.5">
-                          <span className="inline-block h-0.5 w-4 rounded bg-emerald-500" />
-                          <span className="text-xs text-zinc-400">Clicks <span className="text-zinc-200 tabular-nums font-medium">{totalClicks.toLocaleString()}</span></span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="inline-block h-0.5 w-4 rounded bg-blue-500" />
-                          <span className="text-xs text-zinc-400">Impressions <span className="text-zinc-200 tabular-nums font-medium">{totalImpressions.toLocaleString()}</span></span>
-                        </div>
-                      </div>
-                      <div className="relative h-44 w-full">
-                        <svg viewBox={`0 0 ${w} ${h}`} className="h-full w-full" preserveAspectRatio="none" aria-hidden="true">
-                          <line x1={pad.left} y1={pad.top + plotH} x2={w - pad.right} y2={pad.top + plotH} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
-                          <line x1={pad.left} y1={pad.top + plotH / 2} x2={w - pad.right} y2={pad.top + plotH / 2} stroke="rgba(255,255,255,0.04)" strokeWidth="1" />
-                          <polyline points={impressionPoints} fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                          <polyline points={clicksPoints} fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        <div className="flex justify-between text-[10px] text-zinc-600 mt-0.5 px-0.5">
-                          <span>{sorted[0]?.[0]}</span>
-                          <span>{sorted[sorted.length - 1]?.[0]}</span>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })()}
-
-                {/* CTR over time line chart */}
-                {performance.length > 1 && (() => {
-                  const byDate = new Map<string, { clicks: number; impressions: number }>()
-                  for (const row of performance) {
-                    const existing = byDate.get(row.date)
-                    if (existing) {
-                      existing.clicks += row.clicks
-                      existing.impressions += row.impressions
-                    } else {
-                      byDate.set(row.date, { clicks: row.clicks, impressions: row.impressions })
-                    }
-                  }
-                  const sorted = [...byDate.entries()]
-                    .sort(([a], [b]) => a.localeCompare(b))
-                    .map(([date, d]) => ({ date, ctr: d.impressions > 0 ? d.clicks / d.impressions : 0 }))
-                  if (sorted.length < 2) return null
-                  const maxCtr = Math.max(...sorted.map((d) => d.ctr), 0.01)
-                  const w = 600
-                  const h = 100
-                  const pad = { top: 8, bottom: 20, left: 0, right: 0 }
-                  const plotW = w - pad.left - pad.right
-                  const plotH = h - pad.top - pad.bottom
-                  const points = sorted.map((d, i) => {
-                    const x = pad.left + (i / (sorted.length - 1)) * plotW
-                    const y = pad.top + plotH - (d.ctr / maxCtr) * plotH
-                    return `${x},${y}`
-                  }).join(' ')
-                  const avgCtr = sorted.reduce((sum, d) => sum + d.ctr, 0) / sorted.length
-
-                  return (
-                    <div className="mt-4">
-                      <div className="flex items-center gap-4 mb-2">
-                        <div className="flex items-center gap-1.5">
-                          <span className="inline-block h-0.5 w-4 rounded bg-amber-500" />
-                          <span className="text-xs text-zinc-400">CTR <span className="text-zinc-200 tabular-nums font-medium">{(avgCtr * 100).toFixed(1)}% avg</span></span>
-                        </div>
-                      </div>
-                      <div className="relative h-28 w-full">
-                        <svg viewBox={`0 0 ${w} ${h}`} className="h-full w-full" preserveAspectRatio="none" aria-hidden="true">
-                          <line x1={pad.left} y1={pad.top + plotH} x2={w - pad.right} y2={pad.top + plotH} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
-                          <polyline points={points} fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        <div className="flex justify-between text-[10px] text-zinc-600 mt-0.5 px-0.5">
-                          <span>{sorted[0]?.date}</span>
-                          <span>{sorted[sorted.length - 1]?.date}</span>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })()}
-
-                <div className="mt-3 grid gap-2 lg:grid-cols-5">
-                  <input
-                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-                    type="date"
-                    value={performanceFilters.startDate}
-                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, startDate: e.target.value }))}
-                  />
-                  <input
-                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-                    type="date"
-                    value={performanceFilters.endDate}
-                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, endDate: e.target.value }))}
-                  />
-                  <input
-                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-                    type="text"
-                    placeholder="Filter query"
-                    value={performanceFilters.query}
-                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, query: e.target.value }))}
-                  />
-                  <input
-                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-                    type="text"
-                    placeholder="Filter page"
-                    value={performanceFilters.page}
-                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, page: e.target.value }))}
-                  />
-                  <input
-                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-                    type="number"
-                    min="1"
-                    placeholder="Limit"
-                    value={performanceFilters.limit}
-                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, limit: e.target.value }))}
-                  />
-                </div>
-                {performance.length > 0 ? (
-                  <div className="mt-3 overflow-x-auto">
-                    <table className="data-table w-full text-sm">
-                      <thead>
-                        <tr>
-                          <th className="text-left">Date</th>
-                          <th className="text-left">Query</th>
-                          <th className="text-left">Page</th>
-                          <th className="text-right">Clicks</th>
-                          <th className="text-right">Impressions</th>
-                          <th className="text-right">CTR</th>
-                          <th className="text-right">Position</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {performance.map((row, i) => (
-                          <tr key={`${row.date}:${row.query}:${row.page}:${i}`}>
-                            <td className="text-zinc-400">{row.date}</td>
-                            <td className="max-w-xs truncate text-zinc-200">{row.query}</td>
-                            <td className="max-w-xs truncate text-zinc-400">{row.page}</td>
-                            <td className="text-right tabular-nums text-zinc-300">{row.clicks.toLocaleString()}</td>
-                            <td className="text-right tabular-nums text-zinc-400">{row.impressions.toLocaleString()}</td>
-                            <td className="text-right tabular-nums text-zinc-400">{(row.ctr * 100).toFixed(1)}%</td>
-                            <td className="text-right tabular-nums text-zinc-400">{row.position.toFixed(1)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <p className="mt-3 text-sm text-zinc-500">No performance rows match the current filters yet.</p>
-                )}
-              </Card>
-
-              {/* Coverage overview + donut + history chart */}
+              {/* Coverage overview + donut + history chart — shown first for relevance */}
               <Card className="surface-card">
                 <div className="section-head section-head-inline">
                   <div>
@@ -3178,6 +2983,272 @@ function GscSection({
                   <p className="mt-3 text-sm text-zinc-500">
                     {loadingCoverage ? 'Loading coverage data…' : 'No coverage data yet. Inspect your sitemap to populate this view.'}
                   </p>
+                )}
+              </Card>
+
+              {/* Performance summary + charts */}
+              <Card className="surface-card">
+                <div className="section-head section-head-inline">
+                  <div>
+                    <p className="eyebrow eyebrow-soft">Performance</p>
+                    <h3>Search performance</h3>
+                  </div>
+                  <Button type="button" variant="outline" size="sm" disabled={loadingPerformance} onClick={() => void loadPerformanceRows()}>
+                    {loadingPerformance ? 'Loading…' : 'Apply filters'}
+                  </Button>
+                </div>
+
+                {/* Clicks + Impressions over time line chart */}
+                {performance.length > 1 && (() => {
+                  const byDate = new Map<string, { clicks: number; impressions: number }>()
+                  for (const row of performance) {
+                    const existing = byDate.get(row.date)
+                    if (existing) {
+                      existing.clicks += row.clicks
+                      existing.impressions += row.impressions
+                    } else {
+                      byDate.set(row.date, { clicks: row.clicks, impressions: row.impressions })
+                    }
+                  }
+                  const sorted = [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b))
+                  if (sorted.length < 2) return null
+                  const maxClicks = Math.max(...sorted.map(([, d]) => d.clicks), 1)
+                  const maxImpressions = Math.max(...sorted.map(([, d]) => d.impressions), 1)
+                  const totalClicks = sorted.reduce((sum, [, d]) => sum + d.clicks, 0)
+                  const totalImpressions = sorted.reduce((sum, [, d]) => sum + d.impressions, 0)
+
+                  // Nice axis ticks: 4 steps
+                  const niceMax = (v: number) => {
+                    if (v <= 0) return 1
+                    const mag = Math.pow(10, Math.floor(Math.log10(v)))
+                    const norm = v / mag
+                    const nice = norm <= 1.5 ? 1.5 : norm <= 3 ? 3 : norm <= 5 ? 5 : 10
+                    return Math.ceil(nice * mag)
+                  }
+                  const tickCount = 4
+                  const ceilClicks = Math.ceil(niceMax(maxClicks) / tickCount) * tickCount
+                  const ceilImpressions = Math.ceil(niceMax(maxImpressions) / tickCount) * tickCount
+                  const clicksTicks = Array.from({ length: tickCount + 1 }, (_, i) => (ceilClicks / tickCount) * i)
+                  const impressionsTicks = Array.from({ length: tickCount + 1 }, (_, i) => (ceilImpressions / tickCount) * i)
+                  const fmtNum = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n)
+
+                  const w = 700
+                  const h = 200
+                  const pad = { top: 12, bottom: 32, left: 48, right: 52 }
+                  const plotW = w - pad.left - pad.right
+                  const plotH = h - pad.top - pad.bottom
+                  const clicksPoints = sorted.map(([, d], i) => {
+                    const x = pad.left + (i / (sorted.length - 1)) * plotW
+                    const y = pad.top + plotH - (d.clicks / ceilClicks) * plotH
+                    return `${x},${y}`
+                  }).join(' ')
+                  const impressionPoints = sorted.map(([, d], i) => {
+                    const x = pad.left + (i / (sorted.length - 1)) * plotW
+                    const y = pad.top + plotH - (d.impressions / ceilImpressions) * plotH
+                    return `${x},${y}`
+                  }).join(' ')
+
+                  // Pick ~5 evenly spaced date labels
+                  const dateLabelCount = Math.min(sorted.length, 5)
+                  const dateLabels = Array.from({ length: dateLabelCount }, (_, i) => {
+                    const idx = Math.round((i / (dateLabelCount - 1)) * (sorted.length - 1))
+                    return { idx, label: sorted[idx]![0]!.slice(5) } // MM-DD
+                  })
+
+                  return (
+                    <div className="mt-3">
+                      <div className="flex items-center gap-5 mb-2">
+                        <div className="flex items-center gap-1.5">
+                          <span className="inline-block h-0.5 w-4 rounded bg-emerald-500" />
+                          <span className="text-xs text-zinc-400">Clicks <span className="text-zinc-200 tabular-nums font-medium">{totalClicks.toLocaleString()}</span></span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="inline-block h-0.5 w-4 rounded bg-blue-500" />
+                          <span className="text-xs text-zinc-400">Impressions <span className="text-zinc-200 tabular-nums font-medium">{totalImpressions.toLocaleString()}</span></span>
+                        </div>
+                      </div>
+                      <div className="relative w-full" style={{ aspectRatio: `${w} / ${h}` }}>
+                        <svg viewBox={`0 0 ${w} ${h}`} className="h-full w-full">
+                          {/* Grid lines + left Y-axis (Clicks) */}
+                          {clicksTicks.map((tick, i) => {
+                            const y = pad.top + plotH - (tick / ceilClicks) * plotH
+                            return (
+                              <g key={`cg-${i}`}>
+                                <line x1={pad.left} y1={y} x2={w - pad.right} y2={y} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
+                                <text x={pad.left - 6} y={y + 3.5} textAnchor="end" fill="#a1a1aa" fontSize="10" fontFamily="inherit">{fmtNum(tick)}</text>
+                              </g>
+                            )
+                          })}
+                          {/* Right Y-axis (Impressions) */}
+                          {impressionsTicks.map((tick, i) => {
+                            const y = pad.top + plotH - (tick / ceilImpressions) * plotH
+                            return (
+                              <text key={`ig-${i}`} x={w - pad.right + 6} y={y + 3.5} textAnchor="start" fill="#60a5fa" fontSize="10" fontFamily="inherit">{fmtNum(tick)}</text>
+                            )
+                          })}
+                          {/* X-axis date labels */}
+                          {dateLabels.map(({ idx, label }) => {
+                            const x = pad.left + (idx / (sorted.length - 1)) * plotW
+                            return (
+                              <text key={`d-${idx}`} x={x} y={h - 6} textAnchor="middle" fill="#71717a" fontSize="10" fontFamily="inherit">{label}</text>
+                            )
+                          })}
+                          {/* Lines */}
+                          <polyline points={impressionPoints} fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          <polyline points={clicksPoints} fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </div>
+                    </div>
+                  )
+                })()}
+
+                {/* CTR over time line chart */}
+                {performance.length > 1 && (() => {
+                  const byDate = new Map<string, { clicks: number; impressions: number }>()
+                  for (const row of performance) {
+                    const existing = byDate.get(row.date)
+                    if (existing) {
+                      existing.clicks += row.clicks
+                      existing.impressions += row.impressions
+                    } else {
+                      byDate.set(row.date, { clicks: row.clicks, impressions: row.impressions })
+                    }
+                  }
+                  const sorted = [...byDate.entries()]
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([date, d]) => ({ date, ctr: d.impressions > 0 ? d.clicks / d.impressions : 0 }))
+                  if (sorted.length < 2) return null
+                  const maxCtr = Math.max(...sorted.map((d) => d.ctr), 0.01)
+                  const ceilCtr = (() => {
+                    const pct = maxCtr * 100
+                    if (pct <= 1) return 0.01
+                    if (pct <= 5) return 0.05
+                    if (pct <= 10) return 0.1
+                    if (pct <= 25) return 0.25
+                    if (pct <= 50) return 0.5
+                    return 1
+                  })()
+                  const ctrTicks = Array.from({ length: 5 }, (_, i) => (ceilCtr / 4) * i)
+                  const avgCtr = sorted.reduce((sum, d) => sum + d.ctr, 0) / sorted.length
+
+                  const w = 700
+                  const h = 140
+                  const pad = { top: 10, bottom: 32, left: 48, right: 10 }
+                  const plotW = w - pad.left - pad.right
+                  const plotH = h - pad.top - pad.bottom
+                  const points = sorted.map((d, i) => {
+                    const x = pad.left + (i / (sorted.length - 1)) * plotW
+                    const y = pad.top + plotH - (d.ctr / ceilCtr) * plotH
+                    return `${x},${y}`
+                  }).join(' ')
+
+                  const dateLabelCount = Math.min(sorted.length, 5)
+                  const dateLabels = Array.from({ length: dateLabelCount }, (_, i) => {
+                    const idx = Math.round((i / (dateLabelCount - 1)) * (sorted.length - 1))
+                    return { idx, label: sorted[idx]!.date.slice(5) }
+                  })
+
+                  return (
+                    <div className="mt-4">
+                      <div className="flex items-center gap-4 mb-2">
+                        <div className="flex items-center gap-1.5">
+                          <span className="inline-block h-0.5 w-4 rounded bg-amber-500" />
+                          <span className="text-xs text-zinc-400">CTR <span className="text-zinc-200 tabular-nums font-medium">{(avgCtr * 100).toFixed(1)}% avg</span></span>
+                        </div>
+                      </div>
+                      <div className="relative w-full" style={{ aspectRatio: `${w} / ${h}` }}>
+                        <svg viewBox={`0 0 ${w} ${h}`} className="h-full w-full">
+                          {/* Grid lines + Y-axis labels */}
+                          {ctrTicks.map((tick, i) => {
+                            const y = pad.top + plotH - (tick / ceilCtr) * plotH
+                            return (
+                              <g key={`ctg-${i}`}>
+                                <line x1={pad.left} y1={y} x2={w - pad.right} y2={y} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
+                                <text x={pad.left - 6} y={y + 3.5} textAnchor="end" fill="#a1a1aa" fontSize="10" fontFamily="inherit">{(tick * 100).toFixed(tick > 0 && tick < 0.01 ? 1 : 0)}%</text>
+                              </g>
+                            )
+                          })}
+                          {/* X-axis date labels */}
+                          {dateLabels.map(({ idx, label }) => {
+                            const x = pad.left + (idx / (sorted.length - 1)) * plotW
+                            return (
+                              <text key={`cd-${idx}`} x={x} y={h - 6} textAnchor="middle" fill="#71717a" fontSize="10" fontFamily="inherit">{label}</text>
+                            )
+                          })}
+                          <polyline points={points} fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </div>
+                    </div>
+                  )
+                })()}
+
+                <div className="mt-3 grid gap-2 lg:grid-cols-5">
+                  <input
+                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    type="date"
+                    value={performanceFilters.startDate}
+                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, startDate: e.target.value }))}
+                  />
+                  <input
+                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    type="date"
+                    value={performanceFilters.endDate}
+                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, endDate: e.target.value }))}
+                  />
+                  <input
+                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    type="text"
+                    placeholder="Filter query"
+                    value={performanceFilters.query}
+                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, query: e.target.value }))}
+                  />
+                  <input
+                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    type="text"
+                    placeholder="Filter page"
+                    value={performanceFilters.page}
+                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, page: e.target.value }))}
+                  />
+                  <input
+                    className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                    type="number"
+                    min="1"
+                    placeholder="Limit"
+                    value={performanceFilters.limit}
+                    onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, limit: e.target.value }))}
+                  />
+                </div>
+                {performance.length > 0 ? (
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="data-table w-full text-sm">
+                      <thead>
+                        <tr>
+                          <th className="text-left">Date</th>
+                          <th className="text-left">Query</th>
+                          <th className="text-left">Page</th>
+                          <th className="text-right">Clicks</th>
+                          <th className="text-right">Impressions</th>
+                          <th className="text-right">CTR</th>
+                          <th className="text-right">Position</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {performance.map((row, i) => (
+                          <tr key={`${row.date}:${row.query}:${row.page}:${i}`}>
+                            <td className="text-zinc-400">{row.date}</td>
+                            <td className="max-w-xs truncate text-zinc-200">{row.query}</td>
+                            <td className="max-w-xs truncate text-zinc-400">{row.page}</td>
+                            <td className="text-right tabular-nums text-zinc-300">{row.clicks.toLocaleString()}</td>
+                            <td className="text-right tabular-nums text-zinc-400">{row.impressions.toLocaleString()}</td>
+                            <td className="text-right tabular-nums text-zinc-400">{(row.ctr * 100).toFixed(1)}%</td>
+                            <td className="text-right tabular-nums text-zinc-400">{row.position.toFixed(1)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm text-zinc-500">No performance rows match the current filters yet.</p>
                 )}
               </Card>
 
