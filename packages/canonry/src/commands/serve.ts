@@ -21,9 +21,11 @@ export async function serveCommand(): Promise<void> {
     console.log(`\nCanonry server running at http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`)
     console.log('Press Ctrl+C to stop.\n')
 
-    const providerNames = Object.keys(config.providers ?? {}).filter(
-      k => config.providers?.[k as keyof typeof config.providers]?.apiKey || config.providers?.[k as keyof typeof config.providers]?.baseUrl,
-    )
+    const providerNames = Object.keys(config.providers ?? {}).filter(k => {
+      if (k === 'webSearch') return Boolean(config.providers?.webSearch?.apiKey)
+      const p = config.providers?.[k as Exclude<keyof NonNullable<typeof config.providers>, 'webSearch'>]
+      return p?.apiKey || p?.baseUrl
+    })
     trackEvent('serve.started', {
       providerCount: providerNames.length,
       providers: providerNames,

@@ -238,4 +238,46 @@ export function migrate(db: DatabaseClient) {
       // Column already exists — ignore
     }
   }
+
+  // Run indexing sweep migrations
+  migrateSweeps(db)
+}
+
+// Appended by indexing sweep feature (issue #75)
+const SWEEP_MIGRATIONS = [
+  `CREATE TABLE IF NOT EXISTS indexing_sweeps (
+    id          TEXT PRIMARY KEY,
+    project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    status      TEXT NOT NULL DEFAULT 'queued',
+    trigger     TEXT NOT NULL DEFAULT 'manual',
+    started_at  TEXT,
+    finished_at TEXT,
+    error       TEXT,
+    created_at  TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_indexing_sweeps_project ON indexing_sweeps(project_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_indexing_sweeps_status ON indexing_sweeps(status)`,
+  `CREATE TABLE IF NOT EXISTS indexing_sweep_results (
+    id                  TEXT PRIMARY KEY,
+    sweep_id            TEXT NOT NULL REFERENCES indexing_sweeps(id) ON DELETE CASCADE,
+    keyword_id          TEXT NOT NULL REFERENCES keywords(id) ON DELETE CASCADE,
+    domain              TEXT NOT NULL,
+    domain_role         TEXT NOT NULL DEFAULT 'client',
+    indexed_page_count  INTEGER NOT NULL DEFAULT 0,
+    top_pages           TEXT NOT NULL DEFAULT '[]',
+    created_at          TEXT NOT NULL,
+    UNIQUE(sweep_id, keyword_id, domain)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_sweep_results_sweep ON indexing_sweep_results(sweep_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_sweep_results_keyword ON indexing_sweep_results(keyword_id)`,
+]
+
+export function migrateSweeps(db: DatabaseClient) {
+  for (const migration of SWEEP_MIGRATIONS) {
+    try {
+      db.run(sql.raw(migration))
+    } catch {
+      // Already exists — ignore
+    }
+  }
 }

@@ -34,6 +34,7 @@ import { ProviderRegistry } from './provider-registry.js'
 import { Scheduler } from './scheduler.js'
 import { Notifier } from './notifier.js'
 import { fetchSiteText } from './site-fetch.js'
+import { SweepRunner } from './sweep-runner.js'
 
 const DEFAULT_QUOTA = {
   maxConcurrency: 2,
@@ -93,7 +94,8 @@ export async function createServer(opts: {
   }
 
   console.log('[Server] Configured providers:', Object.keys(providers).filter(k => {
-    const p = providers[k as keyof typeof providers]
+    if (k === 'webSearch') return Boolean(providers.webSearch?.apiKey)
+    const p = providers[k as Exclude<keyof typeof providers, 'webSearch'>]
     return p?.apiKey || p?.baseUrl
   }))
 
@@ -139,6 +141,16 @@ export async function createServer(opts: {
   const notifier = new Notifier(opts.db, serverUrl)
   jobRunner.onRunCompleted = (runId, projectId) => notifier.onRunCompleted(runId, projectId)
 
+  // Build sweep runner (reads web-search settings lazily so it picks up live updates)
+  const sweepRunner = new SweepRunner(opts.db, () => {
+    const ws = opts.config.providers?.webSearch ?? null
+    const envKey = process.env.WEB_SEARCH_API_KEY
+    if (envKey) {
+      return { apiKey: envKey, backend: (process.env.WEB_SEARCH_BACKEND as 'serper' | 'google-cse' | undefined) ?? 'serper' }
+    }
+    return ws?.apiKey ? { apiKey: ws.apiKey, backend: ws.backend ?? 'serper', cx: ws.cx } : null
+  })
+
   const scheduler = new Scheduler(opts.db, {
     onRunCreated: (runId, projectId, providers) => {
       jobRunner.executeRun(runId, projectId, providers).catch((err: unknown) => {
@@ -148,12 +160,19 @@ export async function createServer(opts: {
   })
 
   // Build provider summary for API routes
+  const webSearchConfig = opts.config.providers?.webSearch
   const providerSummary = (['gemini', 'openai', 'claude', 'local'] as const).map(name => ({
     name,
     model: registry.get(name)?.config.model,
     configured: !!registry.get(name),
     quota: registry.get(name)?.config.quotaPolicy,
   }))
+
+  // Add web-search to provider summary
+  ;(providerSummary as Array<{ name: string; configured: boolean; model?: string; quota?: object }>).push({
+    name: 'web-search',
+    configured: Boolean(webSearchConfig?.apiKey || process.env.WEB_SEARCH_API_KEY),
+  })
   const googleSettingsSummary = {
     configured: Boolean(opts.config.google?.clientId && opts.config.google?.clientSecret),
   }
@@ -237,6 +256,11 @@ export async function createServer(opts: {
         config: opts.config,
       }).catch((err: unknown) => {
         app.log.error({ runId, err }, 'Inspect sitemap failed')
+      })
+    },
+    onSweepCreated: (sweepId: string, projectId: string, keyword?: string) => {
+      sweepRunner.executeSweep(sweepId, projectId, keyword).catch((err: unknown) => {
+        app.log.error({ sweepId, err }, 'Sweep runner failed')
       })
     },
     openApiInfo: {

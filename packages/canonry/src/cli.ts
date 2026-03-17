@@ -17,6 +17,7 @@ import { showSettings, setProvider, setGoogleAuth } from './commands/settings.js
 import { setSchedule, showSchedule, enableSchedule, disableSchedule, removeSchedule } from './commands/schedule.js'
 import { addNotification, listNotifications, removeNotification, testNotification, listEvents } from './commands/notify.js'
 import { telemetryCommand } from './commands/telemetry.js'
+import { triggerSweep, listSweeps, showSweep } from './commands/sweep.js'
 import {
   googleConnect, googleDisconnect, googleStatus, googleProperties,
   googleSetProperty, googleSetSitemap, googleListSitemaps, googleSync, googlePerformance, googleInspect,
@@ -90,8 +91,13 @@ Usage:
   canonry google coverage <project>  Show index coverage summary
   canonry google inspections <project>  Show URL inspection history (--url <url>)
   canonry google deindexed <project>  Show pages that lost indexing
+  canonry sweep <project>             Run indexing sweep (site: queries) for all keywords
+  canonry sweep <project> --keyword   Run sweep for a specific keyword
+  canonry sweep show <id>             Show sweep details and results
+  canonry sweeps <project>            List past indexing sweeps
   canonry settings                    Show active provider and quota settings
-  canonry settings provider <name>    Update a provider config
+  canonry settings provider <name>    Update a provider config (name: gemini, openai, claude, local, web-search)
+  canonry settings provider web-search --api-key <key> --backend serper|google-cse
   canonry settings google             Update Google OAuth credentials
   canonry telemetry status            Show telemetry status
   canonry telemetry enable            Enable anonymous telemetry
@@ -1088,6 +1094,55 @@ async function main() {
             console.log('Available: connect, disconnect, status, properties, set-property, set-sitemap, list-sitemaps, discover-sitemaps, sync, performance, inspect, inspect-sitemap, coverage, coverage-history, inspections, deindexed')
             process.exit(1)
         }
+        break
+      }
+
+      // ── canonry sweep / sweeps ────────────────────────────────────────────
+      case 'sweep': {
+        const subcommand = args[1]
+
+        if (subcommand === 'show') {
+          const id = args[2]
+          if (!id) {
+            console.error('Usage: canonry sweep show <id>')
+            process.exit(1)
+          }
+          await showSweep(id, format)
+          break
+        }
+
+        // `canonry sweep <project>` — trigger or default to list if no project
+        const sweepProject = subcommand
+        if (!sweepProject) {
+          console.error('Usage: canonry sweep <project> [--keyword "..."] [--wait] [--format json]')
+          process.exit(1)
+        }
+
+        const { values: sweepValues } = parseArgs({
+          args: args.slice(2),
+          options: {
+            keyword: { type: 'string' },
+            wait: { type: 'boolean', default: false },
+            format: { type: 'string' },
+          },
+          allowPositionals: true,
+        })
+
+        await triggerSweep(sweepProject, {
+          keyword: sweepValues.keyword,
+          wait: sweepValues.wait ?? false,
+          format: sweepValues.format === 'json' ? 'json' : format,
+        })
+        break
+      }
+
+      case 'sweeps': {
+        const sweepsProject = args[1]
+        if (!sweepsProject) {
+          console.error('Usage: canonry sweeps <project>')
+          process.exit(1)
+        }
+        await listSweeps(sweepsProject, format)
         break
       }
 

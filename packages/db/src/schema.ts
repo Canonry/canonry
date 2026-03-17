@@ -213,3 +213,36 @@ export const usageCounters = sqliteTable('usage_counters', {
   uniqueIndex('idx_usage_scope_period_metric').on(table.scope, table.period, table.metric),
   index('idx_usage_scope_period').on(table.scope, table.period),
 ])
+
+// ── Indexing sweep tables ──────────────────────────────────────────────────
+
+export const indexingSweeps = sqliteTable('indexing_sweeps', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  status: text('status').notNull().default('queued'),
+  trigger: text('trigger').notNull().default('manual'),
+  startedAt: text('started_at'),
+  finishedAt: text('finished_at'),
+  error: text('error'),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_indexing_sweeps_project').on(table.projectId),
+  index('idx_indexing_sweeps_status').on(table.status),
+])
+
+export const indexingSweepResults = sqliteTable('indexing_sweep_results', {
+  id: text('id').primaryKey(),
+  sweepId: text('sweep_id').notNull().references(() => indexingSweeps.id, { onDelete: 'cascade' }),
+  keywordId: text('keyword_id').notNull().references(() => keywords.id, { onDelete: 'cascade' }),
+  domain: text('domain').notNull(),
+  /** 'client' | 'competitor' */
+  domainRole: text('domain_role').notNull().default('client'),
+  indexedPageCount: integer('indexed_page_count').notNull().default(0),
+  /** JSON: Array<{ url: string; title: string }> */
+  topPages: text('top_pages').notNull().default('[]'),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_sweep_results_sweep').on(table.sweepId),
+  index('idx_sweep_results_keyword').on(table.keywordId),
+  uniqueIndex('idx_sweep_results_sweep_kw_domain').on(table.sweepId, table.keywordId, table.domain),
+])

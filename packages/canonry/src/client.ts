@@ -267,4 +267,22 @@ export class ApiClient {
   async gscDiscoverSitemaps(project: string): Promise<object> {
     return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/google/gsc/discover-sitemaps`, {})
   }
+
+  // ── Indexing sweeps ───────────────────────────────────────────────────────
+
+  async triggerSweep(project: string, body?: { keyword?: string }): Promise<object> {
+    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/sweeps`, body ?? {})
+  }
+
+  async listSweeps(project: string): Promise<object[]> {
+    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/sweeps`)
+  }
+
+  async getSweep(id: string): Promise<object> {
+    return this.request<object>('GET', `/sweeps/${encodeURIComponent(id)}`)
+  }
+
+  async setWebSearchProvider(opts: { apiKey: string; backend?: string; cx?: string }): Promise<object> {
+    return this.request<object>('PUT', '/settings/providers/web-search', opts)
+  }
 }

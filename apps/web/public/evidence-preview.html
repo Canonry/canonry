@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Evidence Redesign Preview — Canonry</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+  body { font-family: 'Manrope', sans-serif; background: #09090b; color: #fafafa; }
+
+  /* Evidence phrase cards */
+  .evidence-phrase-card { border-left-width: 3px; }
+  .evidence-phrase-card--cited { border-left-color: rgb(52 211 153); }
+  .evidence-phrase-card--emerging { border-left-color: rgb(110 231 183); }
+  .evidence-phrase-card--lost { border-left-color: rgb(251 113 133); }
+  .evidence-phrase-card--not-cited { border-left-color: rgb(63 63 70); }
+
+  /* Answer highlight */
+  .answer-highlight {
+    background: rgba(52, 211, 153, 0.15);
+    color: rgb(110 231 183);
+    border-radius: 2px;
+    padding: 0 2px;
+    font-weight: 500;
+  }
+
+  /* Citation leaderboard */
+  .leaderboard-you    { border-color: rgba(52,211,153,0.3); background: rgba(4,120,87,0.15); color: rgb(110 231 183); }
+  .leaderboard-comp   { border-color: rgba(251,113,133,0.25); background: rgba(136,19,55,0.15); color: rgb(251 182 206); }
+  .leaderboard-other  { border-color: rgba(63,63,70,0.5); background: rgba(24,24,27,0.5); color: rgb(161 161 170); }
+  .leaderboard-absent { border-color: rgba(63,63,70,0.3); background: rgba(24,24,27,0.3); border-style: dashed; color: rgb(82 82 91); }
+
+  /* Provider pills */
+  .pill-cited   { border-color: rgba(22,101,52,0.5); background: rgba(4,120,87,0.15); color: rgb(110 231 183); }
+  .pill-cited:hover { background: rgba(4,120,87,0.3); }
+  .pill-absent  { border-color: rgba(63,63,70,0.5); background: rgba(39,39,42,0.4); color: rgb(113 113 122); }
+  .pill-absent:hover { background: rgba(39,39,42,0.7); }
+  .pill-lost    { border-color: rgba(159,18,57,0.4); background: rgba(136,19,55,0.15); color: rgb(251 182 206); }
+
+  /* Timeline dots */
+  .dot-cited   { background: rgb(52 211 153); }
+  .dot-emerging{ background: rgb(110 231 183); box-shadow: 0 0 0 2px rgba(52,211,153,0.3); }
+  .dot-absent  { background: rgb(63 63 70); }
+  .dot-lost    { background: rgb(251 113 133); }
+
+  /* Position hero */
+  .hero-cited   { border-color: rgba(22,101,52,0.4); background: rgba(4,120,87,0.1); }
+  .hero-lost    { border-color: rgba(159,18,57,0.4); background: rgba(136,19,55,0.1); }
+  .hero-absent  { border-color: rgba(63,63,70,0.5); background: rgba(24,24,27,0.4); }
+
+  /* Action items */
+  .action-item { border-color: rgba(63,63,70,0.4); background: rgba(24,24,27,0.4); }
+
+  .drawer { background: #0f0f11; border-left: 1px solid rgba(63,63,70,0.5); }
+</style>
+</head>
+<body class="min-h-screen p-6">
+
+<div class="max-w-6xl mx-auto">
+
+  <!-- Header -->
+  <div class="mb-8 pb-5 border-b border-zinc-800">
+    <p class="text-[10px] uppercase tracking-[0.2em] text-zinc-500 mb-1">Canonry · Evidence Redesign Preview</p>
+    <h1 class="text-xl font-semibold text-zinc-100 tracking-tight">Citypoint Dental NYC</h1>
+    <p class="text-sm text-zinc-500 mt-0.5">citypointdental.com · US / English / Local-intent monitoring</p>
+  </div>
+
+  <div class="flex gap-6">
+
+    <!-- LEFT: Evidence Cards Grid -->
+    <div class="flex-1 min-w-0">
+
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600 mb-1">Visibility evidence</p>
+          <h2 class="text-sm font-semibold text-zinc-200">Key phrase citation tracking</h2>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="text-sm text-zinc-500">3 key phrases tracked</span>
+          <button class="rounded-lg border border-zinc-700/60 bg-zinc-800/30 px-3 py-1.5 text-[11px] font-medium text-zinc-400 hover:bg-zinc-800">+ Add key phrases</button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+
+        <!-- Card 1: emergency dentist brooklyn — LOST (Gemini) / CITED (OpenAI) / NOT CITED (Claude) -->
+        <div class="evidence-phrase-card evidence-phrase-card--lost rounded-xl border border-zinc-800/60 bg-zinc-900/20 overflow-hidden">
+          <div class="px-4 pt-3.5 pb-3">
+            <p class="text-[13px] font-semibold text-zinc-100">emergency dentist brooklyn</p>
+            <div class="flex items-center gap-2 mt-1.5 flex-wrap">
+              <span class="inline-flex items-center rounded-full border border-amber-800/40 bg-amber-950/30 px-2 py-0.5 text-[10px] font-medium text-amber-400">Lost</span>
+              <span class="flex items-center gap-1 text-[11px] font-medium text-rose-400">
+                <span>↓</span><span>Lost citation</span>
+              </span>
+            </div>
+          </div>
+          <div class="flex items-center justify-between gap-3 px-4 py-2.5 border-t border-zinc-800/40">
+            <div class="flex items-center gap-[3px]">
+              <div class="h-2.5 w-2.5 rounded-sm dot-cited" title="cited"></div>
+              <div class="h-2.5 w-2.5 rounded-sm dot-cited"></div>
+              <div class="h-2.5 w-2.5 rounded-sm dot-cited"></div>
+              <div class="h-2.5 w-2.5 rounded-sm dot-cited"></div>
+              <div class="h-2.5 w-2.5 rounded-sm dot-cited"></div>
+              <div class="h-2.5 w-2.5 rounded-sm dot-cited"></div>
+              <div class="h-2.5 w-2.5 rounded-sm dot-cited"></div>
+              <div class="h-2.5 w-2.5 rounded-sm dot-absent"></div>
+              <div class="h-2.5 w-2.5 rounded-sm dot-absent"></div>
+            </div>
+            <span class="text-[11px] text-zinc-500 whitespace-nowrap tabular-nums shrink-0">1/3 providers</span>
+          </div>
+          <div class="flex flex-wrap gap-1.5 px-4 py-3 border-t border-zinc-800/40">
+            <button class="pill-lost flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium cursor-pointer">
+              <span>gemini</span><span class="font-bold">✗</span><span class="opacity-50 text-[10px]">View →</span>
+            </button>
+            <button class="pill-cited flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium cursor-pointer">
+              <span>openai</span><span class="font-bold">✓</span><span class="opacity-50 text-[10px]">View →</span>
+            </button>
+            <button class="pill-absent flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium cursor-pointer">
+              <span>claude</span><span class="font-bold">–</span><span class="opacity-50 text-[10px]">View →</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Card 2: best invisalign — CITED/EMERGING -->
+        <div class="evidence-phrase-card evidence-phrase-card--emerging rounded-xl border border-zinc-800/60 bg-zinc-900/20 overflow-hidden">
+          <div class="px-4 pt-3.5 pb-3">
+            <p class="text-[13px] font-semibold text-zinc-100">best invisalign dentist downtown brooklyn</p>
+            <div class="flex items-center gap-2 mt-1.5 flex-wrap">
+              <span class="inline-flex items-center rounded-full border border-emerald-800/40 bg-emerald-950/30 px-2 py-0.5 text-[10px] font-medium text-emerald-400">Emerging</span>
+              <span class="flex items-center gap-1 text-[11px] font-medium text-emerald-400">
+                <span>↑</span><span>Newly cited</span>
+              </span>
+            </div>
+          </div>
+          <div class="flex items-center justify-between gap-3 px-4 py-2.5 border-t border-zinc-800/40">
+            <div class="flex items-center gap-[3px]">
+              <div class="h-2.5 w-2.5 rounded-sm dot-absent"></div>
+              <div class="h-2.5 w-2.5 rounded-sm dot-absent"></div>
+              <div class="h-2.5 w-2.5 rounded-sm dot-absent"></div>
+              <div class="h-2.5 w-2.5 rounded-sm dot-absent"></div>
+              <div class="h-2.5 w-2.5 rounded-sm dot-absent"></div>
+              <div class="h-2.5 w-2.5 rounded-sm dot-absent"></div>
+              <div class="h-2.5 w-2.5 rounded-sm dot-cited"></div>
+            </div>
+            <span class="text-[11px] text-zinc-500 whitespace-nowrap tabular-nums shrink-0">2/3 providers</span>
+          </div>
+          <div class="flex flex-wrap gap-1.5 px-4 py-3 border-t border-zinc-800/40">
+            <button class="pill-cited flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium cursor-pointer">
+              <span>openai</span><span class="font-bold">✓</span><span class="opacity-50 text-[10px]">View →</span>
+            </button>
+            <button class="pill-cited flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium cursor-pointer">
+              <span>gemini</span><span class="font-bold">✓</span><span class="opacity-50 text-[10px]">View →</span>
+            </button>
+            <button class="pill-absent flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium cursor-pointer">
+              <span>claude</span><span class="font-bold">–</span><span class="opacity-50 text-[10px]">View →</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Card 3: pediatric dentist — NOT CITED -->
+        <div class="evidence-phrase-card evidence-phrase-card--not-cited rounded-xl border border-zinc-800/60 bg-zinc-900/20 overflow-hidden">
+          <div class="px-4 pt-3.5 pb-3">
+            <p class="text-[13px] font-semibold text-zinc-100">pediatric dentist brooklyn heights</p>
+            <div class="flex items-center gap-2 mt-1.5 flex-wrap">
+              <span class="inline-flex items-center rounded-full border border-zinc-700/60 bg-zinc-800/40 px-2 py-0.5 text-[10px] font-medium text-zinc-400">Not-Cited</span>
+              <span class="flex items-center gap-1 text-[11px] font-medium text-zinc-500">
+                <span>→</span><span>Missed for 4 runs</span>
+              </span>
+            </div>
+          </div>
+          <div class="flex items-center justify-between gap-3 px-4 py-2.5 border-t border-zinc-800/40">
+            <div class="flex items-center gap-[3px]">
+              <div class="h-2.5 w-2.5 rounded-sm dot-absent"></div>
+              <div class="h-2.5 w-2.5 rounded-sm dot-absent"></div>
+              <div class="h-2.5 w-2.5 rounded-sm dot-absent"></div>
+              <div class="h-2.5 w-2.5 rounded-sm dot-absent"></div>
+            </div>
+            <span class="text-[11px] text-zinc-500 whitespace-nowrap tabular-nums shrink-0">0/3 providers</span>
+          </div>
+          <div class="flex flex-wrap gap-1.5 px-4 py-3 border-t border-zinc-800/40">
+            <button class="pill-absent flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium cursor-pointer">
+              <span>claude</span><span class="font-bold">–</span><span class="opacity-50 text-[10px]">View →</span>
+            </button>
+            <button class="pill-absent flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium cursor-pointer">
+              <span>gemini</span><span class="font-bold">–</span><span class="opacity-50 text-[10px]">View →</span>
+            </button>
+            <button class="pill-cited flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium cursor-pointer">
+              <span>openai</span><span class="font-bold">✓</span><span class="opacity-50 text-[10px]">View →</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- RIGHT: Evidence Drawer (simulated as side panel) -->
+    <div class="drawer w-80 shrink-0 rounded-xl p-5 flex flex-col gap-4 text-sm">
+
+      <div>
+        <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600 mb-0.5">Citypoint Dental NYC · gemini</p>
+        <h2 class="text-[15px] font-semibold text-zinc-100 leading-snug">emergency dentist brooklyn</h2>
+      </div>
+
+      <!-- Position hero: LOST -->
+      <div class="hero-lost rounded-xl border px-4 py-3.5">
+        <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-rose-500">Citation lost</p>
+        <p class="mt-1 text-base font-semibold tracking-tight text-rose-300">2 domains cited instead</p>
+        <p class="mt-0.5 text-xs text-zinc-500">gemini · lost since mar 5</p>
+      </div>
+
+      <!-- AI Answer with highlight -->
+      <div>
+        <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600 mb-2">What the AI said</p>
+        <div class="rounded-lg border border-zinc-800/60 bg-zinc-900/50 p-3 text-sm leading-relaxed text-zinc-400">
+          <p>For urgent dental care in Brooklyn, Downtown Smiles and Harbor Dental are now cited first for emergency availability and same-day booking. <span class="answer-highlight">Citypoint Dental</span> does not appear in this answer despite previously holding a citation for this query.</p>
+        </div>
+        <button class="mt-1.5 text-xs text-zinc-500 hover:text-zinc-300">↓ Show full answer</button>
+      </div>
+
+      <!-- Citation leaderboard -->
+      <div>
+        <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600 mb-2">Who was cited — in order</p>
+        <div class="grid gap-1.5">
+          <div class="leaderboard-comp flex items-center gap-3 rounded-lg px-3 py-2 border">
+            <span class="w-5 text-center text-[11px] font-semibold text-zinc-500">#1</span>
+            <span class="flex-1 text-sm font-medium truncate">downtownsmiles.com</span>
+            <span class="text-[10px] font-semibold uppercase tracking-[0.14em] shrink-0">Competitor</span>
+          </div>
+          <div class="leaderboard-comp flex items-center gap-3 rounded-lg px-3 py-2 border">
+            <span class="w-5 text-center text-[11px] font-semibold text-zinc-500">#2</span>
+            <span class="flex-1 text-sm font-medium truncate">harbordental.com</span>
+            <span class="text-[10px] font-semibold uppercase tracking-[0.14em] shrink-0">Competitor</span>
+          </div>
+          <div class="leaderboard-absent flex items-center gap-3 rounded-lg px-3 py-2 border">
+            <span class="w-5 text-center text-[11px] font-semibold">—</span>
+            <span class="flex-1 text-sm font-medium truncate">citypointdental.com</span>
+            <span class="text-[10px] font-semibold uppercase tracking-[0.14em] shrink-0">Not cited</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action items -->
+      <div>
+        <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600 mb-2">What to fix</p>
+        <div class="grid gap-2">
+          <div class="action-item flex items-start gap-2.5 rounded-lg border px-3 py-2.5">
+            <svg class="mt-0.5 shrink-0 size-3.5 text-amber-400" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M8 5v3.5M8 10.5v0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <span class="text-sm text-zinc-400 leading-snug">FAQ schema missing on the emergency service page</span>
+          </div>
+          <div class="action-item flex items-start gap-2.5 rounded-lg border px-3 py-2.5">
+            <svg class="mt-0.5 shrink-0 size-3.5 text-amber-400" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M8 5v3.5M8 10.5v0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <span class="text-sm text-zinc-400 leading-snug">llms.txt not found during latest site audit</span>
+          </div>
+          <div class="action-item flex items-start gap-2.5 rounded-lg border px-3 py-2.5">
+            <svg class="mt-0.5 shrink-0 size-3.5 text-amber-400" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M8 5v3.5M8 10.5v0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <span class="text-sm text-zinc-400 leading-snug">Location pages link weakly into the emergency care hub</span>
+          </div>
+        </div>
+      </div>
+
+      <p class="text-xs text-zinc-600 border-t border-zinc-800/40 pt-3 mt-1">AI answers now cite two competitors while your emergency page is no longer grounded.</p>
+    </div>
+
+  </div>
+
+  <!-- Second drawer example: CITED scenario -->
+  <div class="mt-10 pt-8 border-t border-zinc-800/40">
+    <p class="text-[10px] uppercase tracking-[0.2em] text-zinc-600 mb-4">Drawer — Cited scenario (when you click the Gemini ✓ pill on invisalign card)</p>
+    <div class="flex gap-6">
+      <div class="drawer w-80 shrink-0 rounded-xl p-5 flex flex-col gap-4 text-sm">
+
+        <div>
+          <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600 mb-0.5">Citypoint Dental NYC · gemini</p>
+          <h2 class="text-[15px] font-semibold text-zinc-100 leading-snug">best invisalign dentist downtown brooklyn</h2>
+        </div>
+
+        <!-- Position hero: CITED #1 -->
+        <div class="hero-cited rounded-xl border px-4 py-3.5">
+          <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-500">Citation confirmed</p>
+          <p class="mt-1 text-base font-semibold tracking-tight text-emerald-300">Cited #1 of 1 domain</p>
+          <p class="mt-0.5 text-xs text-zinc-500">gemini · cited for 8 runs</p>
+        </div>
+
+        <!-- AI Answer with highlight: cited -->
+        <div>
+          <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600 mb-2">What the AI said</p>
+          <div class="rounded-lg border border-zinc-800/60 bg-zinc-900/50 p-3 text-sm leading-relaxed text-zinc-400">
+            <p><span class="answer-highlight">Citypoint Dental</span> in Downtown Brooklyn is highlighted for its Invisalign expertise and patient outcomes. Their case study pages demonstrate consistent before-and-after results for complex alignment cases.</p>
+          </div>
+        </div>
+
+        <!-- Citation leaderboard: cited #1 -->
+        <div>
+          <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600 mb-2">Who was cited — in order</p>
+          <div class="grid gap-1.5">
+            <div class="leaderboard-you flex items-center gap-3 rounded-lg px-3 py-2 border">
+              <span class="w-5 text-center text-[11px] font-semibold text-zinc-500">#1</span>
+              <span class="flex-1 text-sm font-medium truncate">citypointdental.com</span>
+              <span class="text-[10px] font-semibold uppercase tracking-[0.14em] shrink-0">You</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Action items: why you're cited -->
+        <div>
+          <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600 mb-2">Why you're cited</p>
+          <div class="grid gap-2">
+            <div class="action-item flex items-start gap-2.5 rounded-lg border px-3 py-2.5">
+              <svg class="mt-0.5 shrink-0 size-3.5 text-emerald-400" viewBox="0 0 16 16" fill="none">
+                <path d="M3 8l3.5 3.5L13 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span class="text-sm text-zinc-400 leading-snug">Case study pages well-indexed with structured data</span>
+            </div>
+            <div class="action-item flex items-start gap-2.5 rounded-lg border px-3 py-2.5">
+              <svg class="mt-0.5 shrink-0 size-3.5 text-emerald-400" viewBox="0 0 16 16" fill="none">
+                <path d="M3 8l3.5 3.5L13 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span class="text-sm text-zinc-400 leading-snug">Internal links from service pages to case studies improved crawl depth</span>
+            </div>
+          </div>
+        </div>
+
+        <p class="text-xs text-zinc-600 border-t border-zinc-800/40 pt-3 mt-1">Gemini consistently cites your Invisalign page with no competitor overlap.</p>
+      </div>
+
+      <div class="flex-1 flex items-center justify-center text-zinc-600 text-sm">
+        <div class="text-center">
+          <p class="text-4xl mb-3">←</p>
+          <p>Clicking "gemini ✓" on the<br>Invisalign card opens this drawer</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

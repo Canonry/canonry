@@ -30,11 +30,25 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     Params: { name: string }
     Body: { apiKey?: string; baseUrl?: string; model?: string; quota?: Partial<ProviderQuotaPolicy> }
   }>('/settings/providers/:name', async (request, reply) => {
+    // web-search is a special non-LLM provider
+    if (request.params.name === 'web-search') {
+      const { apiKey, backend } = request.body as { apiKey?: string; backend?: string; cx?: string } ?? {}
+      if (!apiKey || typeof apiKey !== 'string') {
+        return reply.status(400).send({ error: 'apiKey is required for web-search provider' })
+      }
+      if (!opts.onProviderUpdate) {
+        return reply.status(501).send({ error: 'Provider configuration updates are not supported in this deployment' })
+      }
+      // Store web-search config via the generic provider update callback using name 'web-search'
+      const result = opts.onProviderUpdate('web-search' as never, apiKey, undefined, backend ?? 'serper', undefined)
+      return result ?? reply.status(500).send({ error: 'Failed to update web-search provider configuration' })
+    }
+
     const providerName = parseProviderName(request.params.name)
     const { apiKey, baseUrl, model, quota } = request.body ?? {}
 
     if (!providerName) {
-      return reply.status(400).send({ error: `Invalid provider: ${request.params.name}. Must be one of: gemini, openai, claude, local` })
+      return reply.status(400).send({ error: `Invalid provider: ${request.params.name}. Must be one of: gemini, openai, claude, local, web-search` })
     }
     const name = providerName
 

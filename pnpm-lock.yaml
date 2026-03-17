@@ -212,6 +212,9 @@ importers:
       '@ainyc/canonry-provider-openai':
         specifier: workspace:*
         version: link:../provider-openai
+      '@ainyc/canonry-provider-web-search':
+        specifier: workspace:*
+        version: link:../provider-web-search
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13
@@ -297,6 +300,12 @@ importers:
       openai:
         specifier: ^6.0.0
         version: 6.27.0(zod@4.3.6)
+
+  packages/provider-web-search:
+    dependencies:
+      '@ainyc/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
 packages:
 

@@ -48,6 +48,13 @@ export interface CanonryConfig {
     openai?: ProviderConfigEntry
     claude?: ProviderConfigEntry
     local?: ProviderConfigEntry
+    /** Web search provider for indexing sweeps */
+    webSearch?: {
+      apiKey: string
+      backend?: 'serper' | 'google-cse'
+      /** Google CSE search engine ID (cx parameter) */
+      cx?: string
+    }
   }
   google?: GoogleConfigEntry
   // Telemetry (opt-out: undefined/true = enabled, false = disabled)

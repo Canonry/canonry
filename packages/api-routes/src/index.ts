@@ -22,6 +22,8 @@ import type { ScheduleRoutesOptions } from './schedules.js'
 import { notificationRoutes } from './notifications.js'
 import { googleRoutes } from './google.js'
 import type { GoogleRoutesOptions } from './google.js'
+import { sweepRoutes } from './sweeps.js'
+import type { SweepRoutesOptions } from './sweeps.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -61,6 +63,8 @@ export interface ApiRoutesOptions {
   publicUrl?: string
   onGscSyncRequested?: GoogleRoutesOptions['onGscSyncRequested']
   onInspectSitemapRequested?: GoogleRoutesOptions['onInspectSitemapRequested']
+  /** Called when an indexing sweep is created */
+  onSweepCreated?: SweepRoutesOptions['onSweepCreated']
 }
 
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
@@ -115,6 +119,9 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onGscSyncRequested: opts.onGscSyncRequested,
       onInspectSitemapRequested: opts.onInspectSitemapRequested,
     } satisfies GoogleRoutesOptions)
+    await api.register(sweepRoutes, {
+      onSweepCreated: opts.onSweepCreated,
+    } satisfies SweepRoutesOptions)
   }, { prefix: '/api/v1' })
 }
 
