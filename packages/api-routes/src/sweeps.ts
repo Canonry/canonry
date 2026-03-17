@@ -1,8 +1,10 @@
 import crypto from 'node:crypto'
-import { eq, asc } from 'drizzle-orm'
+import { eq, asc, and, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { indexingSweeps, indexingSweepResults, keywords, projects } from '@ainyc/canonry-db'
 import { resolveProject, writeAuditLog } from './helpers.js'
+
+const ALLOWED_TRIGGERS = new Set(['manual', 'scheduled', 'api'])
 
 export interface SweepRoutesOptions {
   /** Called when a new indexing sweep is created */
@@ -19,8 +21,25 @@ export async function sweepRoutes(app: FastifyInstance, opts: SweepRoutesOptions
     if (!project) return
 
     const now = new Date().toISOString()
-    const trigger = request.body?.trigger ?? 'manual'
+    const trigger = ALLOWED_TRIGGERS.has(request.body?.trigger ?? '')
+      ? request.body!.trigger!
+      : 'manual'
     const keyword = request.body?.keyword
+
+    // Guard against concurrent sweeps for the same project
+    const activeSweep = app.db
+      .select()
+      .from(indexingSweeps)
+      .where(
+        and(
+          eq(indexingSweeps.projectId, project.id),
+          inArray(indexingSweeps.status, ['queued', 'running']),
+        ),
+      )
+      .get()
+    if (activeSweep) {
+      return reply.status(409).send({ error: `Sweep ${activeSweep.id} is already ${activeSweep.status}` })
+    }
 
     const sweepId = crypto.randomUUID()
     app.db.insert(indexingSweeps).values({
@@ -92,8 +111,10 @@ export async function sweepRoutes(app: FastifyInstance, opts: SweepRoutesOptions
     })
   })
 
-  // GET /sweeps — list all sweeps across all projects
-  app.get('/sweeps', async (_request, reply) => {
+  // GET /sweeps — list all sweeps across all projects (paginated)
+  app.get<{ Querystring: { limit?: string; offset?: string } }>('/sweeps', async (request, reply) => {
+    const limit = Math.min(Number(request.query.limit ?? 50), 200)
+    const offset = Number(request.query.offset ?? 0)
     const rows = app.db
       .select({
         id: indexingSweeps.id,
@@ -109,6 +130,8 @@ export async function sweepRoutes(app: FastifyInstance, opts: SweepRoutesOptions
       .from(indexingSweeps)
       .leftJoin(projects, eq(indexingSweeps.projectId, projects.id))
       .orderBy(asc(indexingSweeps.createdAt))
+      .limit(limit)
+      .offset(offset)
       .all()
     return reply.send(rows.map(r => ({ ...formatSweep(r), projectName: r.projectName })))
   })

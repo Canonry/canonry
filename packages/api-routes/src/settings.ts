@@ -32,7 +32,7 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
   }>('/settings/providers/:name', async (request, reply) => {
     // web-search is a special non-LLM provider
     if (request.params.name === 'web-search') {
-      const { apiKey, backend } = request.body as { apiKey?: string; backend?: string; cx?: string } ?? {}
+      const { apiKey, backend, cx } = request.body as { apiKey?: string; backend?: string; cx?: string } ?? {}
       if (!apiKey || typeof apiKey !== 'string') {
         return reply.status(400).send({ error: 'apiKey is required for web-search provider' })
       }
@@ -40,7 +40,8 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
         return reply.status(501).send({ error: 'Provider configuration updates are not supported in this deployment' })
       }
       // Store web-search config via the generic provider update callback using name 'web-search'
-      const result = opts.onProviderUpdate('web-search' as never, apiKey, undefined, backend ?? 'serper', undefined)
+      // cx is passed as the model arg (workaround) so it is persisted for google-cse backend
+      const result = opts.onProviderUpdate('web-search' as never, apiKey, cx, backend ?? 'serper', undefined)
       return result ?? reply.status(500).send({ error: 'Failed to update web-search provider configuration' })
     }
 

@@ -97,7 +97,9 @@ export class WebSearchAdapter {
     const res = await fetch(`${GOOGLE_CSE_ENDPOINT}?${params.toString()}`)
 
     if (!res.ok) {
-      throw new Error(`Google CSE API error: ${res.status} ${res.statusText}`)
+      // NOTE: Google CSE does not support bearer-token auth; the API key is in the query string.
+      // Redact the key from error messages to avoid leaking it in logs.
+      throw new Error(`Google CSE API error: ${res.status} ${res.statusText} (key redacted from URL)`)
     }
 
     const data = (await res.json()) as {
@@ -111,8 +113,11 @@ export class WebSearchAdapter {
       title: r.title ?? '',
     }))
 
+    // Google CSE returns formatted strings like "1,230" — strip commas before parsing
     const totalStr = data.searchInformation?.totalResults
-    const indexedPageCount = totalStr ? parseInt(totalStr, 10) || topPages.length : topPages.length
+    const indexedPageCount = totalStr
+      ? parseInt(totalStr.replace(/,/g, ''), 10) || topPages.length
+      : topPages.length
 
     return { domain, keyword, indexedPageCount, topPages }
   }

@@ -276,8 +276,12 @@ export function migrateSweeps(db: DatabaseClient) {
   for (const migration of SWEEP_MIGRATIONS) {
     try {
       db.run(sql.raw(migration))
-    } catch {
-      // Already exists — ignore
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (!msg.includes('already exists')) {
+        throw err // re-throw unexpected errors (disk full, permission error, etc.)
+      }
+      // Table already exists — safe to ignore
     }
   }
 }

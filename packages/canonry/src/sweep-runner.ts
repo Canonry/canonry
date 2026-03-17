@@ -66,14 +66,14 @@ export class SweepRunner {
 
       const adapter = createWebSearchAdapter(settings.apiKey, settings.backend ?? 'serper', settings.cx)
 
-      // Load keywords
-      let kws = this.db.select().from(keywords).where(eq(keywords.projectId, projectId)).all()
-      if (keywordFilter) {
-        kws = kws.filter(k => k.keyword === keywordFilter)
+      // Load keywords — differentiate "none configured" from "filter matched nothing"
+      const allKws = this.db.select().from(keywords).where(eq(keywords.projectId, projectId)).all()
+      if (allKws.length === 0) {
+        throw new Error('No keywords configured for this project')
       }
-
+      const kws = keywordFilter ? allKws.filter(k => k.keyword === keywordFilter) : allKws
       if (kws.length === 0) {
-        throw new Error('No keywords found for project')
+        throw new Error(`No keyword matching '${keywordFilter}' found in this project`)
       }
 
       // Load competitors
@@ -93,6 +93,8 @@ export class SweepRunner {
         ]
 
         for (const { domain, role } of domains) {
+          // Brief delay to avoid rate-limiting (Serper free tier: 2,500 req/month)
+          await new Promise(r => setTimeout(r, 300))
           try {
             const result = await adapter.siteQuery(domain, kw.keyword)
             const createdAt = new Date().toISOString()
