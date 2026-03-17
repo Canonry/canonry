@@ -48,11 +48,23 @@ const DEFAULT_MODELS: Record<string, string> = {
   gemini: 'gemini-2.5-flash',
 }
 
+/** Rough character count of a chat request (messages + tool defs). */
+function estimateRequestSize(messages: ChatMessage[], tools: AgentTool[]): number {
+  const msgSize = messages.reduce((sum, m) => sum + (m.content?.length ?? 0) + JSON.stringify(m.tool_calls ?? []).length, 0)
+  const toolSize = tools.reduce((sum, t) => sum + t.description.length + JSON.stringify(t.parameters).length, 0)
+  return msgSize + toolSize
+}
+
 export async function chatCompletion(
   config: LlmConfig,
   messages: ChatMessage[],
   tools: AgentTool[],
 ): Promise<CompletionResponse> {
+  const approxChars = estimateRequestSize(messages, tools)
+  // ~4 chars per token
+  const approxTokens = Math.round(approxChars / 4)
+  process.stderr.write(`[aero] ${config.provider} request: ~${approxTokens} tokens (${approxChars} chars, ${messages.length} messages)\n`)
+
   if (config.provider === 'claude') {
     return claudeCompletion(config, messages, tools)
   }

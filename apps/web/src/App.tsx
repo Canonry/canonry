@@ -6,8 +6,13 @@ import * as Dialog from '@radix-ui/react-dialog'
 import {
   Activity,
   Bot,
+  Brain,
   Check,
+  ChevronDown,
   ChevronRight,
+  ChevronUp,
+  FileText,
+  Loader2,
   MessageSquare,
   Pencil,
   Download,
@@ -19,9 +24,11 @@ import {
   Rocket,
   Send,
   Settings,
+  Terminal,
   Trash2,
   Users,
   X,
+  Zap,
 } from 'lucide-react'
 import { effectiveDomains, normalizeProjectDomain } from '@ainyc/canonry-contracts'
 
@@ -5437,6 +5444,350 @@ function renderMarkdown(text: string): React.ReactNode {
   return <>{elements}</>
 }
 
+// ── Aero tool call rendering helpers ────────────────────────────────
+
+type AeroTurn =
+  | { type: 'user'; message: ApiAgentMessage }
+  | { type: 'assistant'; toolCalls: Array<{ call: ApiAgentMessage; result: ApiAgentMessage | null }>; response: ApiAgentMessage | null }
+
+function groupMessagesIntoTurns(messages: ApiAgentMessage[]): AeroTurn[] {
+  const turns: AeroTurn[] = []
+  let i = 0
+  while (i < messages.length) {
+    const msg = messages[i]
+    if (msg.role === 'user') {
+      turns.push({ type: 'user', message: msg })
+      i++
+    } else if (msg.role === 'assistant' && msg.toolName) {
+      // Start collecting tool calls for this assistant turn
+      const toolCalls: Array<{ call: ApiAgentMessage; result: ApiAgentMessage | null }> = []
+      while (i < messages.length && messages[i].role === 'assistant' && messages[i].toolName) {
+        const call = messages[i]
+        // Look for matching tool result
+        const resultIdx = messages.findIndex((m, j) => j > i && m.role === 'tool' && m.toolCallId === call.toolCallId)
+        toolCalls.push({ call, result: resultIdx !== -1 ? messages[resultIdx] : null })
+        i++
+      }
+      // Skip past tool result messages we already consumed
+      while (i < messages.length && messages[i].role === 'tool') i++
+      // Check if next message is the final text response
+      let response: ApiAgentMessage | null = null
+      if (i < messages.length && messages[i].role === 'assistant' && !messages[i].toolName) {
+        response = messages[i]
+        i++
+      }
+      turns.push({ type: 'assistant', toolCalls, response })
+    } else if (msg.role === 'assistant') {
+      turns.push({ type: 'assistant', toolCalls: [], response: msg })
+      i++
+    } else {
+      i++ // skip orphaned tool results
+    }
+  }
+  return turns
+}
+
+function toolCategory(name: string): 'read' | 'write' | 'system' | 'memory' {
+  if (name === 'get_memory' || name === 'save_memory') return 'memory'
+  if (name === 'run_command' || name === 'read_file' || name === 'write_file' || name === 'list_files' || name === 'http_request') return 'system'
+  if (name.startsWith('get_') || name.startsWith('list_') || name === 'inspect_url') return 'read'
+  return 'write'
+}
+
+function toolDisplayLabel(name: string, args: string | null): string {
+  const labels: Record<string, string> = {
+    get_status: 'Checking project status',
+    get_evidence: 'Fetching citation evidence',
+    get_timeline: 'Loading visibility timeline',
+    get_run_details: 'Loading run details',
+    list_keywords: 'Listing keywords',
+    list_competitors: 'Listing competitors',
+    get_gsc_performance: 'Fetching GSC performance',
+    get_gsc_coverage: 'Checking index coverage',
+    inspect_url: 'Inspecting URL',
+    run_sweep: 'Running visibility sweep',
+    add_keywords: 'Adding keywords',
+    remove_keywords: 'Removing keywords',
+    add_competitors: 'Adding competitors',
+    remove_competitors: 'Removing competitors',
+    update_project: 'Updating project settings',
+    get_memory: 'Loading memory',
+    save_memory: 'Saving observations',
+    list_files: 'Listing files',
+  }
+  if (name === 'run_command' && args) {
+    try { const p = JSON.parse(args); if (p.command) return `$ ${String(p.command).slice(0, 60)}${String(p.command).length > 60 ? '...' : ''}` } catch { /* */ }
+    return 'Executing command'
+  }
+  if (name === 'read_file' && args) {
+    try { const p = JSON.parse(args); if (p.path) return `Reading ${String(p.path).split('/').pop()}` } catch { /* */ }
+    return 'Reading file'
+  }
+  if (name === 'write_file' && args) {
+    try { const p = JSON.parse(args); if (p.path) return `Writing ${String(p.path).split('/').pop()}` } catch { /* */ }
+    return 'Writing file'
+  }
+  if (name === 'http_request' && args) {
+    try { const p = JSON.parse(args); return `${String(p.method || 'GET')} ${String(p.url).slice(0, 50)}${String(p.url).length > 50 ? '...' : ''}` } catch { /* */ }
+    return 'HTTP request'
+  }
+  return labels[name] || name
+}
+
+function toolIcon(name: string): React.ReactNode {
+  const cat = toolCategory(name)
+  const cls = 'h-3.5 w-3.5 shrink-0'
+  if (name === 'run_command') return <Terminal className={cls} />
+  if (name === 'read_file' || name === 'write_file' || name === 'list_files') return <FileText className={cls} />
+  if (name === 'http_request') return <Globe className={cls} />
+  if (cat === 'memory') return <Brain className={cls} />
+  if (name === 'run_sweep') return <Play className={cls} />
+  if (name.includes('keyword')) return <Zap className={cls} />
+  if (name.includes('competitor')) return <Users className={cls} />
+  return <Activity className={cls} />
+}
+
+function renderToolResult(name: string, content: string): React.ReactNode {
+  const cat = toolCategory(name)
+
+  // System tools: terminal-style rendering
+  if (name === 'run_command') {
+    return (
+      <pre className="aero-terminal-body">{content}</pre>
+    )
+  }
+
+  if (name === 'read_file') {
+    return <pre className="aero-terminal-body">{content}</pre>
+  }
+
+  if (name === 'http_request') {
+    const firstLine = content.split('\n')[0] || ''
+    const statusMatch = firstLine.match(/^HTTP (\d+)/)
+    const status = statusMatch ? parseInt(statusMatch[1], 10) : 0
+    const statusCls = status >= 200 && status < 300 ? 'text-emerald-400' : status >= 400 ? 'text-rose-400' : 'text-amber-400'
+    return (
+      <div>
+        {status > 0 && <span className={`text-[11px] font-mono font-medium ${statusCls}`}>{firstLine}</span>}
+        <pre className="aero-terminal-body mt-1">{content.split('\n').slice(status > 0 ? 2 : 0).join('\n')}</pre>
+      </div>
+    )
+  }
+
+  // Memory tools: minimal
+  if (name === 'get_memory' || name === 'save_memory') {
+    if (name === 'save_memory') {
+      try { const d = JSON.parse(content); return <span className="text-[11px] text-zinc-500">Saved {d.bytes} bytes</span> } catch { /* */ }
+    }
+    return <span className="text-[11px] text-zinc-500">{content.length > 100 ? 'Memory loaded' : content}</span>
+  }
+
+  // Write tool results: compact
+  if (name === 'write_file') {
+    try { const d = JSON.parse(content); return <span className="text-[11px] text-zinc-400">Wrote {d.bytes} bytes to <code className="aero-inline-code">{d.written}</code></span> } catch { /* */ }
+  }
+
+  // Try to parse JSON for structured rendering
+  try {
+    const data = JSON.parse(content)
+
+    // list_keywords / list_competitors: pill chips
+    if ((name === 'list_keywords' || name === 'list_competitors') && Array.isArray(data)) {
+      const items = data.map((item: unknown) => {
+        if (typeof item === 'string') return item
+        if (typeof item === 'object' && item !== null) return (item as Record<string, unknown>).keyword || (item as Record<string, unknown>).phrase || (item as Record<string, unknown>).domain || (item as Record<string, unknown>).name || JSON.stringify(item)
+        return String(item)
+      })
+      return (
+        <div className="flex flex-wrap gap-1.5">
+          {items.map((item, idx) => (
+            <span key={idx} className="aero-result-pill">{String(item)}</span>
+          ))}
+        </div>
+      )
+    }
+
+    // add/remove keywords/competitors: action result
+    if (name === 'add_keywords' || name === 'remove_keywords') {
+      const action = name === 'add_keywords' ? 'Added' : 'Removed'
+      const kws = data.added || data.removed || []
+      return <span className="text-[11px] text-zinc-400">{action} {kws.length} keyword{kws.length !== 1 ? 's' : ''}: {kws.join(', ')}</span>
+    }
+    if (name === 'add_competitors' || name === 'remove_competitors') {
+      const action = name === 'add_competitors' ? 'Added' : 'Removed'
+      const domains = data.added || data.removed || []
+      return <span className="text-[11px] text-zinc-400">{action} {domains.length} competitor{domains.length !== 1 ? 's' : ''}</span>
+    }
+
+    // run_sweep: status card
+    if (name === 'run_sweep') {
+      return (
+        <div className="flex items-center gap-2">
+          <span className="aero-result-pill bg-emerald-950/40 border-emerald-800/40 text-emerald-400">Started</span>
+          {data.id && <span className="text-[11px] text-zinc-500 font-mono">Run {String(data.id).slice(0, 8)}</span>}
+        </div>
+      )
+    }
+
+    // get_status: project summary
+    if (name === 'get_status' && data.project) {
+      const p = data.project
+      const runs = data.latestRuns || []
+      return (
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2 text-[12px]">
+            <span className="text-zinc-300 font-medium">{p.displayName || p.name}</span>
+            <span className="text-zinc-600">·</span>
+            <span className="text-zinc-500">{p.canonicalDomain || p.domain}</span>
+            <span className="text-zinc-600">·</span>
+            <span className="text-zinc-500">{p.country}, {p.language}</span>
+          </div>
+          {runs.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {runs.map((r: Record<string, unknown>, idx: number) => {
+                const st = String(r.status || 'unknown')
+                const cls = st === 'completed' ? 'bg-emerald-950/40 border-emerald-800/40 text-emerald-400'
+                  : st === 'partial' ? 'bg-amber-950/40 border-amber-800/40 text-amber-400'
+                  : st === 'failed' ? 'bg-rose-950/40 border-rose-800/40 text-rose-400'
+                  : 'bg-zinc-800/40 border-zinc-700/40 text-zinc-400'
+                return <span key={idx} className={`aero-result-pill ${cls}`}>{st} {r.id ? `#${String(r.id).slice(0, 6)}` : ''}</span>
+              })}
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    // get_evidence: citation table
+    if (name === 'get_evidence' && Array.isArray(data)) {
+      const rows = data.slice(0, 15) // limit rows
+      return (
+        <div className="aero-result-table-wrap">
+          <table className="aero-result-table">
+            <thead>
+              <tr>
+                <th>Keyword</th>
+                <th>Provider</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row: Record<string, unknown>, idx: number) => {
+                const state = String(row.citationState || row.state || row.cited || 'unknown')
+                const stateCls = state === 'cited' ? 'text-emerald-400' : state === 'not-cited' ? 'text-zinc-500' : state === 'lost' ? 'text-rose-400' : state === 'emerging' ? 'text-amber-400' : 'text-zinc-500'
+                return (
+                  <tr key={idx}>
+                    <td className="text-zinc-300">{String(row.keyword || row.phrase || '')}</td>
+                    <td className="text-zinc-500">{String(row.provider || row.model || '')}</td>
+                    <td className={stateCls}>{state}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          {data.length > 15 && <span className="text-[10px] text-zinc-600 mt-1">+{data.length - 15} more rows</span>}
+        </div>
+      )
+    }
+
+    // get_timeline: text summary
+    if (name === 'get_timeline') {
+      if (Array.isArray(data) && data.length > 0) {
+        const latest = data[data.length - 1]
+        const earliest = data[0]
+        return (
+          <span className="text-[11px] text-zinc-400">
+            {data.length} data points · Latest visibility: {latest?.rate != null ? `${Math.round(Number(latest.rate) * 100)}%` : 'N/A'}
+            {earliest?.rate != null && latest?.rate != null ? ` (from ${Math.round(Number(earliest.rate) * 100)}%)` : ''}
+          </span>
+        )
+      }
+    }
+
+    // get_gsc_performance: compact metrics
+    if (name === 'get_gsc_performance') {
+      if (data.rows && Array.isArray(data.rows)) {
+        return (
+          <div className="aero-result-table-wrap">
+            <table className="aero-result-table">
+              <thead><tr><th>Query</th><th>Clicks</th><th>Impressions</th><th>CTR</th><th>Position</th></tr></thead>
+              <tbody>
+                {data.rows.slice(0, 10).map((r: Record<string, unknown>, idx: number) => (
+                  <tr key={idx}>
+                    <td className="text-zinc-300">{String((r.keys as string[])?.[0] || '')}</td>
+                    <td>{String(r.clicks || 0)}</td>
+                    <td>{String(r.impressions || 0)}</td>
+                    <td>{r.ctr != null ? `${(Number(r.ctr) * 100).toFixed(1)}%` : '-'}</td>
+                    <td>{r.position != null ? Number(r.position).toFixed(1) : '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      }
+    }
+
+    // Fallback: formatted JSON
+    return <pre className="aero-terminal-body">{JSON.stringify(data, null, 2)}</pre>
+
+  } catch {
+    // Not JSON — render as text
+    if (cat === 'system') {
+      return <pre className="aero-terminal-body">{content}</pre>
+    }
+    return <span className="text-[11px] text-zinc-400 whitespace-pre-wrap">{content.length > 300 ? content.slice(0, 300) + '...' : content}</span>
+  }
+}
+
+function ToolCallCard({ call, result, isActive }: { call: ApiAgentMessage; result: ApiAgentMessage | null; isActive: boolean }) {
+  const [expanded, setExpanded] = useState(false)
+  const cat = toolCategory(call.toolName!)
+  const borderCls = cat === 'system' ? 'aero-tool-card-system'
+    : cat === 'memory' ? 'aero-tool-card-memory'
+    : cat === 'write' ? 'aero-tool-card-write'
+    : 'aero-tool-card-read'
+
+  return (
+    <div className={`aero-tool-card ${borderCls} ${isActive ? 'aero-tool-active' : ''}`}>
+      <button
+        className="aero-tool-header"
+        onClick={() => result && setExpanded(!expanded)}
+        disabled={!result}
+      >
+        <span className="flex items-center gap-2 min-w-0">
+          {isActive ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-zinc-400" /> : toolIcon(call.toolName!)}
+          <span className="text-[12px] text-zinc-400 truncate">{toolDisplayLabel(call.toolName!, call.toolArgs)}</span>
+        </span>
+        {result && (
+          expanded
+            ? <ChevronUp className="h-3 w-3 text-zinc-600 shrink-0" />
+            : <ChevronDown className="h-3 w-3 text-zinc-600 shrink-0" />
+        )}
+      </button>
+      {expanded && result && (
+        <div className="aero-tool-result">
+          {renderToolResult(call.toolName!, result.content)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const AERO_QUICK_ACTIONS = [
+  { label: "How's my visibility across providers?", icon: Activity },
+  { label: 'Run a fresh visibility sweep', icon: Play },
+  { label: 'Which keywords am I losing?', icon: Zap },
+  { label: 'Show my competitor landscape', icon: Users },
+  { label: 'What changed since my last run?', icon: Activity },
+]
+
+const AERO_INPUT_CHIPS = [
+  { label: 'Run sweep', msg: 'Run a fresh visibility sweep across all providers' },
+  { label: 'Check visibility', msg: "How's my visibility looking?" },
+  { label: 'Add keyword', msg: 'Add keywords: ' },
+]
+
 function AeroPage({ projects, providers }: {
   projects: Array<{ name: string; displayName?: string }>
   providers: Array<{ name: string; state: string }>
@@ -5479,7 +5830,7 @@ function AeroPage({ projects, providers }: {
     function loadThread() {
       fetchAgentThread(selectedProject, activeThreadId!)
         .then(data => {
-          setMessages(data.messages.filter(m => m.role !== 'tool' && !m.toolName))
+          setMessages(data.messages)
           if (data.status === 'processing') {
             setProcessing(true)
             // Start polling if not already
@@ -5566,7 +5917,7 @@ function AeroPage({ projects, providers }: {
       pollRef.current = setInterval(() => {
         fetchAgentThread(selectedProject, tid)
           .then(data => {
-            setMessages(data.messages.filter(m => m.role !== 'tool' && !m.toolName))
+            setMessages(data.messages)
             if (data.status !== 'processing') {
               setProcessing(false)
               if (data.error) setError(data.error)
@@ -5590,13 +5941,70 @@ function AeroPage({ projects, providers }: {
     }
   }
 
-  const visibleMessages = messages.filter(m => m.role !== 'tool' && !m.toolName)
+  const turns = useMemo(() => groupMessagesIntoTurns(messages), [messages])
+
+  // Check if the last assistant turn has tool calls without a final response yet (still working)
+  const lastTurn = turns[turns.length - 1]
+  const hasActiveToolCalls = processing && lastTurn?.type === 'assistant' && lastTurn.toolCalls.length > 0 && !lastTurn.response
+
+  async function handleQuickAction(msg: string) {
+    if (!selectedProject) return
+    const thread = await createAgentThread(selectedProject)
+    setThreads(prev => [thread, ...prev])
+    setActiveThreadId(thread.id)
+    setMessages([])
+    setError(null)
+    // Small delay to let state settle, then send the message
+    setTimeout(async () => {
+      const optimisticUser: ApiAgentMessage = {
+        id: `temp-${Date.now()}`,
+        threadId: thread.id,
+        role: 'user',
+        content: msg,
+        toolName: null,
+        toolArgs: null,
+        toolCallId: null,
+        createdAt: new Date().toISOString(),
+      }
+      setMessages([optimisticUser])
+      setProcessing(true)
+      try {
+        await sendAgentMessage(selectedProject, thread.id, msg, selectedProvider || undefined)
+        if (pollRef.current) clearInterval(pollRef.current)
+        pollRef.current = setInterval(() => {
+          fetchAgentThread(selectedProject, thread.id)
+            .then(data => {
+              setMessages(data.messages)
+              if (data.status !== 'processing') {
+                setProcessing(false)
+                if (data.error) setError(data.error)
+                if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+                fetchAgentThreads(selectedProject).then(setThreads).catch(() => {})
+              }
+            })
+            .catch(() => {})
+        }, 1500)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err))
+        setProcessing(false)
+      }
+    }, 100)
+  }
+
+  function handleChipClick(msg: string) {
+    setInput(msg)
+  }
+
+  // Count visible (non-tool) messages for empty state check
+  const hasVisibleContent = turns.some(t => t.type === 'user' || (t.type === 'assistant' && (t.response || t.toolCalls.length > 0)))
 
   return (
     <div className="page-container aero-page">
       <div className="page-header">
         <div className="page-header-left">
-          <h1 className="page-title">Aero</h1>
+          <h1 className="page-title flex items-center gap-2">
+            Aero
+          </h1>
           <p className="page-subtitle">AI-powered AEO analyst</p>
         </div>
         <div className="page-header-right flex items-center gap-3">
@@ -5700,39 +6108,95 @@ function AeroPage({ projects, providers }: {
         {/* Chat area */}
         <div className="aero-chat">
           {!activeThreadId ? (
+            /* ── Enhanced empty state: capability showcase ── */
             <div className="aero-empty">
-              <Bot className="h-10 w-10 text-zinc-700" />
-              <h2 className="text-base font-medium text-zinc-300 mt-3">Ask Aero anything</h2>
-              <p className="text-[13px] text-zinc-500 mt-1 max-w-md text-center">
-                Select a project and start a new chat to analyze your AI citation visibility,
-                compare providers, spot trends, and get actionable recommendations.
-              </p>
-              <Button onClick={handleNewThread} variant="secondary" className="mt-4 gap-1.5">
-                <Plus className="h-3.5 w-3.5" />
-                Start a conversation
-              </Button>
+              <Bot className="h-10 w-10 text-zinc-600" />
+              <h2 className="text-base font-medium text-zinc-200 mt-3">Aero</h2>
+              <p className="text-[12px] text-zinc-500 mt-0.5">AEO analyst with full system access</p>
+
+              {/* Capability pills */}
+              <div className="flex flex-wrap gap-2 mt-4 justify-center">
+                <span className="aero-capability-pill"><Activity className="h-3 w-3" /> Citation Analysis</span>
+                <span className="aero-capability-pill"><Play className="h-3 w-3" /> Run Sweeps</span>
+                <span className="aero-capability-pill"><Brain className="h-3 w-3" /> Persistent Memory</span>
+                <span className="aero-capability-pill"><Terminal className="h-3 w-3" /> System Access</span>
+              </div>
+
+              {/* Quick actions */}
+              <div className="mt-6 w-full max-w-md">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-600 mb-2 px-1">Quick actions</p>
+                <div className="flex flex-col gap-1">
+                  {AERO_QUICK_ACTIONS.map((action, idx) => (
+                    <button
+                      key={idx}
+                      className="aero-quick-action"
+                      onClick={() => handleQuickAction(action.label)}
+                    >
+                      <action.icon className="h-3.5 w-3.5 text-zinc-600 shrink-0" />
+                      <span className="flex-1 text-left text-[13px] text-zinc-400">{action.label}</span>
+                      <ChevronRight className="h-3 w-3 text-zinc-700" />
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           ) : (
             <>
-              {/* Messages */}
+              {/* Messages — rendered as turns */}
               <div className="aero-messages">
-                {visibleMessages.length === 0 && !processing && (
+                {!hasVisibleContent && !processing && (
                   <div className="aero-empty">
                     <Bot className="h-8 w-8 text-zinc-700" />
                     <p className="text-[13px] text-zinc-500 mt-2">Send a message to get started.</p>
+                    {/* Suggested prompts for empty thread */}
+                    <div className="flex flex-wrap gap-1.5 mt-4 justify-center max-w-sm">
+                      {AERO_QUICK_ACTIONS.slice(0, 3).map((action, idx) => (
+                        <button key={idx} className="aero-chip" onClick={() => { setInput(action.label) }}>
+                          {action.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
-                {visibleMessages.map(msg => (
-                  <div key={msg.id} className={`aero-msg ${msg.role}`}>
-                    <div className="aero-msg-label">
-                      {msg.role === 'user' ? 'You' : 'Aero'}
+                {turns.map((turn, tidx) => {
+                  if (turn.type === 'user') {
+                    return (
+                      <div key={turn.message.id} className="aero-msg user">
+                        <div className="aero-msg-label">You</div>
+                        <div className="aero-msg-content">{turn.message.content}</div>
+                      </div>
+                    )
+                  }
+
+                  // Assistant turn
+                  const isLastTurn = tidx === turns.length - 1
+                  return (
+                    <div key={`turn-${tidx}`} className="aero-msg assistant">
+                      <div className="aero-msg-label">Aero</div>
+                      {/* Tool call cards */}
+                      {turn.toolCalls.length > 0 && (
+                        <div className="flex flex-col gap-1.5 mb-2">
+                          {turn.toolCalls.map((tc, tcIdx) => (
+                            <ToolCallCard
+                              key={tc.call.id}
+                              call={tc.call}
+                              result={tc.result}
+                              isActive={isLastTurn && processing && !tc.result && tcIdx === turn.toolCalls.length - 1}
+                            />
+                          ))}
+                        </div>
+                      )}
+                      {/* Final text response */}
+                      {turn.response && (
+                        <div className="aero-msg-content aero-md">
+                          {renderMarkdown(turn.response.content)}
+                        </div>
+                      )}
                     </div>
-                    <div className={`aero-msg-content ${msg.role === 'assistant' ? 'aero-md' : ''}`}>
-                      {msg.role === 'assistant' ? renderMarkdown(msg.content) : msg.content}
-                    </div>
-                  </div>
-                ))}
-                {processing && (
+                  )
+                })}
+                {/* Show thinking indicator only when processing and no tool calls visible yet */}
+                {processing && !hasActiveToolCalls && turns[turns.length - 1]?.type !== 'assistant' && (
                   <div className="aero-msg assistant">
                     <div className="aero-msg-label">Aero</div>
                     <div className="aero-msg-content text-zinc-500">
@@ -5748,30 +6212,40 @@ function AeroPage({ projects, providers }: {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Input */}
-              <div className="aero-input-area">
-                <textarea
-                  className="aero-input"
-                  value={input}
-                  onChange={e => {
-                    setInput(e.target.value)
-                    // Auto-expand: reset height then set to scrollHeight
-                    e.target.style.height = 'auto'
-                    e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px'
-                  }}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Ask about your visibility, trends, competitors..."
-                  rows={1}
-                  disabled={processing}
-                />
-                <button
-                  className="aero-send"
-                  onClick={handleSend}
-                  disabled={!input.trim() || processing}
-                  aria-label="Send message"
-                >
-                  <Send className="h-4 w-4" />
-                </button>
+              {/* Quick chips + Input */}
+              <div className="aero-input-wrap">
+                {!processing && messages.length === 0 && (
+                  <div className="aero-quick-chips">
+                    {AERO_INPUT_CHIPS.map((chip, idx) => (
+                      <button key={idx} className="aero-chip" onClick={() => handleChipClick(chip.msg)}>
+                        {chip.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="aero-input-area">
+                  <textarea
+                    className="aero-input"
+                    value={input}
+                    onChange={e => {
+                      setInput(e.target.value)
+                      e.target.style.height = 'auto'
+                      e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px'
+                    }}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Ask about your visibility, trends, competitors..."
+                    rows={1}
+                    disabled={processing}
+                  />
+                  <button
+                    className="aero-send"
+                    onClick={handleSend}
+                    disabled={!input.trim() || processing}
+                    aria-label="Send message"
+                  >
+                    <Send className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             </>
           )}

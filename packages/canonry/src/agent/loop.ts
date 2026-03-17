@@ -51,7 +51,7 @@ export async function agentChat(
   userMessage: string,
   opts: LoopOptions,
 ): Promise<string> {
-  const { store, tools, llmConfig, project, maxSteps = 10, maxHistoryMessages = 30 } = opts
+  const { store, tools, llmConfig, project, maxSteps = 10, maxHistoryMessages = 20 } = opts
 
   // Persist user message
   await store.addMessage({
@@ -82,6 +82,21 @@ export async function agentChat(
     { role: 'system', content: systemPrompt },
   ]
 
+  // Compress tool results from older turns to keep token counts manageable.
+  // Tool results from recent turns (last 8 rows) are kept full; older ones are
+  // capped at 500 chars to prevent large results (get_evidence, etc.) from
+  // inflating every subsequent request.
+  const COMPRESS_AFTER = Math.max(0, history.length - 8)
+  const compressedHistory = history.map((msg, idx) => {
+    if (idx < COMPRESS_AFTER && msg.role === 'tool' && msg.content.length > 500) {
+      return {
+        ...msg,
+        content: msg.content.slice(0, 500) + `\n... (${msg.content.length - 500} chars compressed from history)`,
+      }
+    }
+    return msg
+  })
+
   // Convert stored messages to LLM format.
   // The DB stores each tool call as a separate assistant row followed by its
   // tool result row. We need to group consecutive tool-call/result pairs into
@@ -89,8 +104,8 @@ export async function agentChat(
   // tool_result blocks to reference tool_use blocks in the immediately
   // preceding assistant message.
   let i = 0
-  while (i < history.length) {
-    const msg = history[i]
+  while (i < compressedHistory.length) {
+    const msg = compressedHistory[i]
 
     if (msg.role === 'user') {
       messages.push({ role: 'user', content: msg.content })
@@ -101,8 +116,8 @@ export async function agentChat(
       const toolCalls: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> = []
       const toolResults: ChatMessage[] = []
 
-      while (i < history.length && history[i].role === 'assistant' && history[i].toolName) {
-        const tc = history[i]
+      while (i < compressedHistory.length && compressedHistory[i].role === 'assistant' && compressedHistory[i].toolName) {
+        const tc = compressedHistory[i]
         const callId = tc.toolCallId ?? tc.id
         toolCalls.push({
           id: callId,
@@ -110,25 +125,25 @@ export async function agentChat(
           function: { name: tc.toolName!, arguments: tc.toolArgs ?? '{}' },
         })
         // Look for the matching tool result (should be next or nearby)
-        const resultIdx = history.findIndex((m, j) => j > i && m.role === 'tool' && m.toolCallId === callId)
+        const resultIdx = compressedHistory.findIndex((m, j) => j > i && m.role === 'tool' && m.toolCallId === callId)
         if (resultIdx !== -1) {
           toolResults.push({
             role: 'tool',
-            content: history[resultIdx].content,
+            content: compressedHistory[resultIdx].content,
             tool_call_id: callId,
           })
         }
         i++
       }
       // Skip past any tool result rows we already consumed
-      while (i < history.length && history[i].role === 'tool') {
+      while (i < compressedHistory.length && compressedHistory[i].role === 'tool') {
         // Check if this result was already captured above
-        const alreadyCaptured = toolResults.some(r => r.tool_call_id === history[i].toolCallId)
+        const alreadyCaptured = toolResults.some(r => r.tool_call_id === compressedHistory[i].toolCallId)
         if (!alreadyCaptured) {
           toolResults.push({
             role: 'tool',
-            content: history[i].content,
-            tool_call_id: history[i].toolCallId ?? undefined,
+            content: compressedHistory[i].content,
+            tool_call_id: compressedHistory[i].toolCallId ?? undefined,
           })
         }
         i++

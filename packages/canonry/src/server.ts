@@ -550,7 +550,7 @@ function buildAgentHandler(
       },
       systemTools: agentConf.systemTools ?? false,
       maxSteps: agentConf.maxSteps ?? 15,
-      maxHistoryMessages: agentConf.maxHistory ?? 30,
+      maxHistoryMessages: agentConf.maxHistory ?? 20,
     })
   }
 }

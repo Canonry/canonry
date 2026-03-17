@@ -1503,8 +1503,12 @@
            rounded-lg px-4 py-2.5 mr-auto max-w-[85%];
   }
 
+  .aero-input-wrap {
+    @apply border-t border-zinc-800/60;
+  }
+
   .aero-input-area {
-    @apply flex items-end gap-2 border-t border-zinc-800/60 p-3;
+    @apply flex items-end gap-2 p-3;
   }
 
   .aero-input {
@@ -1533,5 +1537,108 @@
   .aero-thinking::after {
     content: '...';
     animation: aero-dots 1.2s steps(1) infinite;
+  }
+
+  /* ── Tool call cards ── */
+
+  .aero-tool-card {
+    @apply bg-zinc-900/40 border border-zinc-800/40 rounded-lg overflow-hidden;
+    border-left-width: 2px;
+  }
+
+  .aero-tool-card-read {
+    @apply border-l-zinc-600;
+  }
+
+  .aero-tool-card-write {
+    @apply border-l-amber-500;
+  }
+
+  .aero-tool-card-system {
+    @apply border-l-emerald-500;
+  }
+
+  .aero-tool-card-memory {
+    @apply border-l-blue-500;
+  }
+
+  .aero-tool-active {
+    animation: aero-tool-pulse 1.5s ease-in-out infinite;
+  }
+
+  @keyframes aero-tool-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
+
+  .aero-tool-header {
+    @apply flex items-center justify-between w-full px-3 py-2
+           text-left cursor-pointer
+           hover:bg-zinc-800/20 transition-colors;
+  }
+
+  .aero-tool-header:disabled {
+    @apply cursor-default;
+  }
+
+  .aero-tool-result {
+    @apply px-3 pb-2.5 pt-0.5
+           border-t border-zinc-800/30
+           max-h-64 overflow-y-auto;
+  }
+
+  .aero-terminal-body {
+    @apply bg-zinc-950 border border-zinc-800/50 rounded px-3 py-2
+           text-[11px] leading-relaxed font-mono text-zinc-400
+           overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap;
+  }
+
+  .aero-result-pill {
+    @apply inline-flex items-center gap-1
+           rounded-full bg-zinc-800/60 border border-zinc-700/40
+           px-2.5 py-0.5 text-[11px] text-zinc-400;
+  }
+
+  .aero-result-table-wrap {
+    @apply overflow-x-auto;
+  }
+
+  .aero-result-table {
+    @apply w-full text-[11px];
+  }
+
+  .aero-result-table th {
+    @apply text-left text-[10px] uppercase tracking-wider text-zinc-600 pb-1 pr-3 font-medium;
+  }
+
+  .aero-result-table td {
+    @apply py-0.5 pr-3 text-zinc-500;
+  }
+
+  /* ── Capability pills & quick actions ── */
+
+  .aero-capability-pill {
+    @apply inline-flex items-center gap-1.5
+           rounded-full bg-zinc-900/60 border border-zinc-800/50
+           px-3 py-1 text-[11px] text-zinc-500;
+  }
+
+  .aero-quick-action {
+    @apply flex items-center gap-3 px-3 py-2.5
+           rounded-lg border border-zinc-800/30
+           bg-zinc-900/20
+           hover:bg-zinc-800/30 hover:border-zinc-700/40
+           transition-colors cursor-pointer;
+  }
+
+  .aero-quick-chips {
+    @apply flex flex-wrap gap-1.5 px-3 pt-2;
+  }
+
+  .aero-chip {
+    @apply rounded-full bg-zinc-800/40 border border-zinc-700/40
+           px-2.5 py-1 text-[11px] text-zinc-500
+           hover:text-zinc-300 hover:bg-zinc-800/60
+           cursor-pointer transition-colors;
   }
 }
