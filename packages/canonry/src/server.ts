@@ -502,12 +502,6 @@ function buildAgentHandler(
 
   if (!registeredProvider.config.apiKey) return undefined
 
-  const llmConfig: LlmConfig = {
-    provider: llmProvider,
-    apiKey: registeredProvider.config.apiKey,
-    model: agentConf.model ?? registeredProvider.config.model,
-  }
-
   const store = new AgentStore(db)
   const services = new AgentServices(db)
 
@@ -520,6 +514,18 @@ function buildAgentHandler(
   )
 
   return async (projectId: string, threadId: string, message: string) => {
+    // Resolve LLM config from registry at call time so provider key
+    // updates (via PUT /settings/providers) are picked up immediately.
+    const currentProvider = registry.get(llmProvider! as ProviderName)
+    if (!currentProvider?.config.apiKey) {
+      throw new Error('Agent provider is no longer configured. Update your provider API key.')
+    }
+    const llmConfig: LlmConfig = {
+      provider: llmProvider!,
+      apiKey: currentProvider.config.apiKey,
+      model: agentConf.model ?? currentProvider.config.model,
+    }
+
     // Resolve project details for the system prompt
     const project = db.select().from(projects).where(eq(projects.id, projectId)).get()
     if (!project) throw new Error(`Project ${projectId} not found`)

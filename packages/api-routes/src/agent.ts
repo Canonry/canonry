@@ -26,6 +26,9 @@ export interface AgentRoutesOptions {
 export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions) {
   const prefix = '/projects/:project/agent'
 
+  // Per-thread mutex — prevents concurrent agent loops from corrupting history
+  const activeThreads = new Set<string>()
+
   // ── Create thread ─────────────────────────────────────────
 
   app.post<{
@@ -41,8 +44,8 @@ export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions
       body: {
         type: 'object',
         properties: {
-          title: { type: 'string' },
-          channel: { type: 'string' },
+          title: { type: 'string', maxLength: 200 },
+          channel: { type: 'string', enum: ['chat', 'cli', 'api'] },
         },
       },
     },
@@ -186,9 +189,31 @@ export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions
       })
     }
 
-    const response = await opts.onAgentMessage(thread.projectId, threadId, message)
+    if (activeThreads.has(threadId)) {
+      return reply.status(409).send({
+        error: {
+          code: 'THREAD_BUSY',
+          message: 'This thread is already processing a message. Please wait.',
+        },
+      })
+    }
 
-    return reply.send({ threadId, response })
+    activeThreads.add(threadId)
+    try {
+      const response = await opts.onAgentMessage(thread.projectId, threadId, message)
+      return reply.send({ threadId, response })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      const isLlmError = msg.includes('API error') || msg.includes('API key') || msg.includes('timeout')
+      return reply.status(isLlmError ? 502 : 500).send({
+        error: {
+          code: isLlmError ? 'LLM_ERROR' : 'AGENT_ERROR',
+          message: msg,
+        },
+      })
+    } finally {
+      activeThreads.delete(threadId)
+    }
   })
 
   // ── Delete thread ─────────────────────────────────────────

@@ -20,6 +20,13 @@ export interface AgentTool {
   execute: (args: Record<string, unknown>) => Promise<string>
 }
 
+const MAX_TOOL_RESULT_LENGTH = 20_000
+
+function truncateResult(json: string): string {
+  if (json.length <= MAX_TOOL_RESULT_LENGTH) return json
+  return json.slice(0, MAX_TOOL_RESULT_LENGTH) + '\n... (truncated — result too large)'
+}
+
 export function buildTools(services: AgentServices, client: ApiClient, projectName: string): AgentTool[] {
   return [
     {
@@ -34,7 +41,7 @@ export function buildTools(services: AgentServices, client: ApiClient, projectNa
       execute: async () => {
         const project = await services.getProject(projectName)
         const runs = await services.listRuns(projectName)
-        return JSON.stringify({ project, latestRuns: runs.slice(-3) }, null, 2)
+        return truncateResult(JSON.stringify({ project, latestRuns: runs.slice(0, 3) }, null, 2))
       },
     },
     {
@@ -57,7 +64,7 @@ export function buildTools(services: AgentServices, client: ApiClient, projectNa
           body.providers = (args.providers as string).split(',').map(s => s.trim())
         }
         const run = await client.triggerRun(projectName, body)
-        return JSON.stringify(run, null, 2)
+        return truncateResult(JSON.stringify(run, null, 2))
       },
     },
     {
@@ -71,7 +78,7 @@ export function buildTools(services: AgentServices, client: ApiClient, projectNa
       },
       execute: async () => {
         const history = await services.getHistory(projectName)
-        return JSON.stringify(history, null, 2)
+        return truncateResult(JSON.stringify(history, null, 2))
       },
     },
     {
@@ -85,7 +92,7 @@ export function buildTools(services: AgentServices, client: ApiClient, projectNa
       },
       execute: async () => {
         const timeline = await services.getTimeline(projectName)
-        return JSON.stringify(timeline, null, 2)
+        return truncateResult(JSON.stringify(timeline, null, 2))
       },
     },
     {
@@ -98,7 +105,7 @@ export function buildTools(services: AgentServices, client: ApiClient, projectNa
       },
       execute: async () => {
         const keywords = await services.listKeywords(projectName)
-        return JSON.stringify(keywords, null, 2)
+        return truncateResult(JSON.stringify(keywords, null, 2))
       },
     },
     {
@@ -111,7 +118,7 @@ export function buildTools(services: AgentServices, client: ApiClient, projectNa
       },
       execute: async () => {
         const competitors = await services.listCompetitors(projectName)
-        return JSON.stringify(competitors, null, 2)
+        return truncateResult(JSON.stringify(competitors, null, 2))
       },
     },
     {
@@ -129,7 +136,7 @@ export function buildTools(services: AgentServices, client: ApiClient, projectNa
       },
       execute: async (args) => {
         const run = await services.getRun(args.runId as string, projectName)
-        return JSON.stringify(run, null, 2)
+        return truncateResult(JSON.stringify(run, null, 2))
       },
     },
     {
@@ -151,7 +158,7 @@ export function buildTools(services: AgentServices, client: ApiClient, projectNa
           const params: Record<string, string> = {}
           if (args.days) params.days = args.days as string
           const perf = await client.gscPerformance(projectName, params)
-          return JSON.stringify(perf, null, 2)
+          return truncateResult(JSON.stringify(perf, null, 2))
         } catch (err) {
           return `GSC not available: ${err instanceof Error ? err.message : String(err)}`
         }
@@ -169,7 +176,7 @@ export function buildTools(services: AgentServices, client: ApiClient, projectNa
       execute: async () => {
         try {
           const coverage = await client.gscCoverage(projectName)
-          return JSON.stringify(coverage, null, 2)
+          return truncateResult(JSON.stringify(coverage, null, 2))
         } catch (err) {
           return `GSC not available: ${err instanceof Error ? err.message : String(err)}`
         }
@@ -192,7 +199,7 @@ export function buildTools(services: AgentServices, client: ApiClient, projectNa
       execute: async (args) => {
         try {
           const result = await client.gscInspect(projectName, args.url as string)
-          return JSON.stringify(result, null, 2)
+          return truncateResult(JSON.stringify(result, null, 2))
         } catch (err) {
           return `GSC inspect failed: ${err instanceof Error ? err.message : String(err)}`
         }

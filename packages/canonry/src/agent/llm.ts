@@ -87,6 +87,7 @@ export async function chatCompletion(
     method: 'POST',
     headers,
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(90_000),
   })
 
   if (!res.ok) {
@@ -160,6 +161,7 @@ async function claudeCompletion(
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(90_000),
   })
 
   if (!res.ok) {
@@ -230,17 +232,23 @@ function convertToClaudeMessages(
         result.push({ role: 'assistant', content: msg.content ?? '' })
       }
     } else if (msg.role === 'tool') {
-      // Claude expects tool results as user messages with tool_result content blocks
-      result.push({
-        role: 'user',
-        content: [
-          {
-            type: 'tool_result',
-            tool_use_id: msg.tool_call_id,
-            content: msg.content ?? '',
-          },
-        ],
-      })
+      // Claude expects tool results as user messages with tool_result content blocks.
+      // Merge consecutive tool results into one user message to avoid
+      // consecutive same-role messages (which Claude rejects).
+      const toolBlock = {
+        type: 'tool_result',
+        tool_use_id: msg.tool_call_id,
+        content: msg.content ?? '',
+      }
+      const prev = result[result.length - 1]
+      if (prev && prev.role === 'user' && Array.isArray(prev.content)) {
+        prev.content.push(toolBlock)
+      } else {
+        result.push({
+          role: 'user',
+          content: [toolBlock],
+        })
+      }
     }
   }
 

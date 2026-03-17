@@ -129,7 +129,7 @@ export async function agentChat(
     }
 
     // Tool calls
-    if (response.toolCalls) {
+    if (response.toolCalls && response.toolCalls.length > 0) {
       // Add assistant tool-call message to conversation
       messages.push({
         role: 'assistant',

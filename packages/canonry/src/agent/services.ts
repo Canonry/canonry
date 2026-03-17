@@ -98,7 +98,7 @@ export class AgentServices {
       .all()
     
     if (runs.length === 0) {
-      return { project, runs: [], evidence: {} }
+      return { project, runs: [], snapshots: [] }
     }
     
     // Get all snapshots for these runs

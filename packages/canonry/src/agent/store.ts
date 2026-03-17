@@ -88,7 +88,7 @@ export class AgentStore {
     // Use a subquery to get the newest N messages, then re-sort ascending
     // so the LLM sees them in chronological order. Without this, long threads
     // would return the oldest N messages and drop the user's latest prompt.
-    return this.db
+    const messages = this.db
       .select()
       .from(agentMessages)
       .where(
@@ -101,5 +101,30 @@ export class AgentStore {
       )
       .orderBy(asc(agentMessages.createdAt))
       .all() as AgentMessage[]
+
+    // Trim orphaned tool-call messages at the start of the window.
+    // The limit boundary may split an (assistant tool-call + tool result) pair,
+    // leaving the LLM with an invalid message sequence.
+    while (messages.length > 0) {
+      const first = messages[0]
+      // Orphaned tool result without its preceding assistant tool-call
+      if (first.role === 'tool') {
+        messages.shift()
+        continue
+      }
+      // Orphaned assistant tool-call whose tool result was truncated
+      if (first.role === 'assistant' && first.toolName) {
+        const hasResult = messages.some(
+          m => m.role === 'tool' && m.toolCallId === first.toolCallId,
+        )
+        if (!hasResult) {
+          messages.shift()
+          continue
+        }
+      }
+      break
+    }
+
+    return messages
   }
 }
