@@ -2751,41 +2751,6 @@ function GscSection({
                       </div>
                     </div>
 
-                    {/* Stacked bar chart — pages over time */}
-                    {coverageHistory.length > 1 && (
-                      <div className="mt-4">
-                        <p className="text-xs uppercase tracking-wide text-zinc-500 mb-2">Pages over time</p>
-                        <div className="relative h-36 w-full">
-                          {(() => {
-                            const maxTotal = Math.max(...coverageHistory.map((ch) => ch.indexed + ch.notIndexed), 1)
-                            const barCount = coverageHistory.length
-                            const gap = 2
-                            return (
-                              <svg viewBox={`0 0 ${barCount * 12 + gap} 140`} className="h-full w-full" preserveAspectRatio="none">
-                                {coverageHistory.map((snap, i) => {
-                                  const total = snap.indexed + snap.notIndexed
-                                  const ch = (total / maxTotal) * 128
-                                  const indexedH = total > 0 ? (snap.indexed / total) * ch : 0
-                                  const notIndexedH = ch - indexedH
-                                  const x = i * 12 + gap
-                                  return (
-                                    <g key={snap.date}>
-                                      <title>{`${snap.date}\nIndexed: ${snap.indexed}\nNot indexed: ${snap.notIndexed}`}</title>
-                                      <rect x={x} y={128 - ch} width={10} height={notIndexedH} rx={1} fill="#3f3f46" />
-                                      <rect x={x} y={128 - ch + notIndexedH} width={10} height={indexedH} rx={1} fill="#10b981" />
-                                    </g>
-                                  )
-                                })}
-                              </svg>
-                            )
-                          })()}
-                          <div className="flex justify-between text-[10px] text-zinc-600 mt-0.5 px-0.5">
-                            <span>{coverageHistory[0]?.date}</span>
-                            <span>{coverageHistory[coverageHistory.length - 1]?.date}</span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
 
                     {/* Tab pills */}
                     <div className="mt-3 flex gap-1">
@@ -2998,8 +2963,8 @@ function GscSection({
                   </Button>
                 </div>
 
-                {/* Clicks + Impressions over time line chart */}
-                {performance.length > 1 && (() => {
+                {/* Clicks + Impressions bar chart */}
+                {performance.length > 0 && (() => {
                   const byDate = new Map<string, { clicks: number; impressions: number }>()
                   for (const row of performance) {
                     const existing = byDate.get(row.date)
@@ -3011,13 +2976,22 @@ function GscSection({
                     }
                   }
                   const sorted = [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b))
-                  if (sorted.length < 2) return null
-                  const maxClicks = Math.max(...sorted.map(([, d]) => d.clicks), 1)
+                  if (sorted.length === 0) return null
                   const maxImpressions = Math.max(...sorted.map(([, d]) => d.impressions), 1)
                   const totalClicks = sorted.reduce((sum, [, d]) => sum + d.clicks, 0)
                   const totalImpressions = sorted.reduce((sum, [, d]) => sum + d.impressions, 0)
+                  const avgCtr = totalImpressions > 0 ? ((totalClicks / totalImpressions) * 100).toFixed(1) : '0.0'
 
-                  // Nice axis ticks: 4 steps
+                  const w = 700
+                  const h = 220
+                  const pad = { top: 12, bottom: 36, left: 48, right: 12 }
+                  const plotW = w - pad.left - pad.right
+                  const plotH = h - pad.top - pad.bottom
+                  const barGroupW = plotW / sorted.length
+                  const barW = Math.max(Math.min(barGroupW * 0.35, 24), 4)
+                  const barGap = Math.max(barW * 0.15, 1)
+
+                  // Y-axis ticks
                   const niceMax = (v: number) => {
                     if (v <= 0) return 1
                     const mag = Math.pow(10, Math.floor(Math.log10(v)))
@@ -3026,156 +3000,77 @@ function GscSection({
                     return Math.ceil(nice * mag)
                   }
                   const tickCount = 4
-                  const ceilClicks = Math.ceil(niceMax(maxClicks) / tickCount) * tickCount
-                  const ceilImpressions = Math.ceil(niceMax(maxImpressions) / tickCount) * tickCount
-                  const clicksTicks = Array.from({ length: tickCount + 1 }, (_, i) => (ceilClicks / tickCount) * i)
-                  const impressionsTicks = Array.from({ length: tickCount + 1 }, (_, i) => (ceilImpressions / tickCount) * i)
+                  const ceilVal = Math.ceil(niceMax(maxImpressions) / tickCount) * tickCount
+                  const ticks = Array.from({ length: tickCount + 1 }, (_, i) => (ceilVal / tickCount) * i)
                   const fmtNum = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n)
-
-                  const w = 700
-                  const h = 200
-                  const pad = { top: 12, bottom: 32, left: 48, right: 52 }
-                  const plotW = w - pad.left - pad.right
-                  const plotH = h - pad.top - pad.bottom
-                  const clicksPoints = sorted.map(([, d], i) => {
-                    const x = pad.left + (i / (sorted.length - 1)) * plotW
-                    const y = pad.top + plotH - (d.clicks / ceilClicks) * plotH
-                    return `${x},${y}`
-                  }).join(' ')
-                  const impressionPoints = sorted.map(([, d], i) => {
-                    const x = pad.left + (i / (sorted.length - 1)) * plotW
-                    const y = pad.top + plotH - (d.impressions / ceilImpressions) * plotH
-                    return `${x},${y}`
-                  }).join(' ')
-
-                  // Pick ~5 evenly spaced date labels
-                  const dateLabelCount = Math.min(sorted.length, 5)
-                  const dateLabels = Array.from({ length: dateLabelCount }, (_, i) => {
-                    const idx = Math.round((i / (dateLabelCount - 1)) * (sorted.length - 1))
-                    return { idx, label: sorted[idx]![0]!.slice(5) } // MM-DD
-                  })
 
                   return (
                     <div className="mt-3">
                       <div className="flex items-center gap-5 mb-2">
                         <div className="flex items-center gap-1.5">
-                          <span className="inline-block h-0.5 w-4 rounded bg-emerald-500" />
+                          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-500" />
                           <span className="text-xs text-zinc-400">Clicks <span className="text-zinc-200 tabular-nums font-medium">{totalClicks.toLocaleString()}</span></span>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <span className="inline-block h-0.5 w-4 rounded bg-blue-500" />
+                          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-blue-500" />
                           <span className="text-xs text-zinc-400">Impressions <span className="text-zinc-200 tabular-nums font-medium">{totalImpressions.toLocaleString()}</span></span>
                         </div>
+                        <span className="text-xs text-zinc-500">CTR <span className="text-amber-400 tabular-nums font-medium">{avgCtr}%</span></span>
                       </div>
                       <div className="relative w-full" style={{ aspectRatio: `${w} / ${h}` }}>
                         <svg viewBox={`0 0 ${w} ${h}`} className="h-full w-full">
-                          {/* Grid lines + left Y-axis (Clicks) */}
-                          {clicksTicks.map((tick, i) => {
-                            const y = pad.top + plotH - (tick / ceilClicks) * plotH
+                          {/* Grid lines + Y-axis */}
+                          {ticks.map((tick, i) => {
+                            const y = pad.top + plotH - (tick / ceilVal) * plotH
                             return (
-                              <g key={`cg-${i}`}>
+                              <g key={`t-${i}`}>
                                 <line x1={pad.left} y1={y} x2={w - pad.right} y2={y} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
                                 <text x={pad.left - 6} y={y + 3.5} textAnchor="end" fill="#a1a1aa" fontSize="10" fontFamily="inherit">{fmtNum(tick)}</text>
                               </g>
                             )
                           })}
-                          {/* Right Y-axis (Impressions) */}
-                          {impressionsTicks.map((tick, i) => {
-                            const y = pad.top + plotH - (tick / ceilImpressions) * plotH
+                          {/* Bars */}
+                          {sorted.map(([date, d], i) => {
+                            const cx = pad.left + barGroupW * i + barGroupW / 2
+                            const impressionH = (d.impressions / ceilVal) * plotH
+                            const clickH = (d.clicks / ceilVal) * plotH
                             return (
-                              <text key={`ig-${i}`} x={w - pad.right + 6} y={y + 3.5} textAnchor="start" fill="#60a5fa" fontSize="10" fontFamily="inherit">{fmtNum(tick)}</text>
-                            )
-                          })}
-                          {/* X-axis date labels */}
-                          {dateLabels.map(({ idx, label }) => {
-                            const x = pad.left + (idx / (sorted.length - 1)) * plotW
-                            return (
-                              <text key={`d-${idx}`} x={x} y={h - 6} textAnchor="middle" fill="#71717a" fontSize="10" fontFamily="inherit">{label}</text>
-                            )
-                          })}
-                          {/* Lines */}
-                          <polyline points={impressionPoints} fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                          <polyline points={clicksPoints} fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      </div>
-                    </div>
-                  )
-                })()}
-
-                {/* CTR over time line chart */}
-                {performance.length > 1 && (() => {
-                  const byDate = new Map<string, { clicks: number; impressions: number }>()
-                  for (const row of performance) {
-                    const existing = byDate.get(row.date)
-                    if (existing) {
-                      existing.clicks += row.clicks
-                      existing.impressions += row.impressions
-                    } else {
-                      byDate.set(row.date, { clicks: row.clicks, impressions: row.impressions })
-                    }
-                  }
-                  const sorted = [...byDate.entries()]
-                    .sort(([a], [b]) => a.localeCompare(b))
-                    .map(([date, d]) => ({ date, ctr: d.impressions > 0 ? d.clicks / d.impressions : 0 }))
-                  if (sorted.length < 2) return null
-                  const maxCtr = Math.max(...sorted.map((d) => d.ctr), 0.01)
-                  const ceilCtr = (() => {
-                    const pct = maxCtr * 100
-                    if (pct <= 1) return 0.01
-                    if (pct <= 5) return 0.05
-                    if (pct <= 10) return 0.1
-                    if (pct <= 25) return 0.25
-                    if (pct <= 50) return 0.5
-                    return 1
-                  })()
-                  const ctrTicks = Array.from({ length: 5 }, (_, i) => (ceilCtr / 4) * i)
-                  const avgCtr = sorted.reduce((sum, d) => sum + d.ctr, 0) / sorted.length
-
-                  const w = 700
-                  const h = 140
-                  const pad = { top: 10, bottom: 32, left: 48, right: 10 }
-                  const plotW = w - pad.left - pad.right
-                  const plotH = h - pad.top - pad.bottom
-                  const points = sorted.map((d, i) => {
-                    const x = pad.left + (i / (sorted.length - 1)) * plotW
-                    const y = pad.top + plotH - (d.ctr / ceilCtr) * plotH
-                    return `${x},${y}`
-                  }).join(' ')
-
-                  const dateLabelCount = Math.min(sorted.length, 5)
-                  const dateLabels = Array.from({ length: dateLabelCount }, (_, i) => {
-                    const idx = Math.round((i / (dateLabelCount - 1)) * (sorted.length - 1))
-                    return { idx, label: sorted[idx]!.date.slice(5) }
-                  })
-
-                  return (
-                    <div className="mt-4">
-                      <div className="flex items-center gap-4 mb-2">
-                        <div className="flex items-center gap-1.5">
-                          <span className="inline-block h-0.5 w-4 rounded bg-amber-500" />
-                          <span className="text-xs text-zinc-400">CTR <span className="text-zinc-200 tabular-nums font-medium">{(avgCtr * 100).toFixed(1)}% avg</span></span>
-                        </div>
-                      </div>
-                      <div className="relative w-full" style={{ aspectRatio: `${w} / ${h}` }}>
-                        <svg viewBox={`0 0 ${w} ${h}`} className="h-full w-full">
-                          {/* Grid lines + Y-axis labels */}
-                          {ctrTicks.map((tick, i) => {
-                            const y = pad.top + plotH - (tick / ceilCtr) * plotH
-                            return (
-                              <g key={`ctg-${i}`}>
-                                <line x1={pad.left} y1={y} x2={w - pad.right} y2={y} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
-                                <text x={pad.left - 6} y={y + 3.5} textAnchor="end" fill="#a1a1aa" fontSize="10" fontFamily="inherit">{(tick * 100).toFixed(tick > 0 && tick < 0.01 ? 1 : 0)}%</text>
+                              <g key={date}>
+                                <title>{`${date}\nClicks: ${d.clicks}\nImpressions: ${d.impressions}\nCTR: ${d.impressions > 0 ? ((d.clicks / d.impressions) * 100).toFixed(1) : 0}%`}</title>
+                                <rect
+                                  x={cx - barW - barGap / 2}
+                                  y={pad.top + plotH - impressionH}
+                                  width={barW}
+                                  height={Math.max(impressionH, 1)}
+                                  rx={2}
+                                  fill="#3b82f6"
+                                  opacity={0.85}
+                                />
+                                <rect
+                                  x={cx + barGap / 2}
+                                  y={pad.top + plotH - clickH}
+                                  width={barW}
+                                  height={Math.max(clickH, 1)}
+                                  rx={2}
+                                  fill="#10b981"
+                                  opacity={0.85}
+                                />
                               </g>
                             )
                           })}
-                          {/* X-axis date labels */}
-                          {dateLabels.map(({ idx, label }) => {
-                            const x = pad.left + (idx / (sorted.length - 1)) * plotW
-                            return (
-                              <text key={`cd-${idx}`} x={x} y={h - 6} textAnchor="middle" fill="#71717a" fontSize="10" fontFamily="inherit">{label}</text>
-                            )
-                          })}
-                          <polyline points={points} fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          {/* X-axis date labels — pick up to 7 evenly spaced */}
+                          {(() => {
+                            const labelCount = Math.min(sorted.length, 7)
+                            return Array.from({ length: labelCount }, (_, i) => {
+                              const idx = sorted.length === 1 ? 0 : Math.round((i / (labelCount - 1)) * (sorted.length - 1))
+                              const cx = pad.left + barGroupW * idx + barGroupW / 2
+                              return (
+                                <text key={`xl-${idx}`} x={cx} y={h - 8} textAnchor="middle" fill="#71717a" fontSize="10" fontFamily="inherit">
+                                  {sorted[idx]![0].slice(5)}
+                                </text>
+                              )
+                            })
+                          })()}
                         </svg>
                       </div>
                     </div>
