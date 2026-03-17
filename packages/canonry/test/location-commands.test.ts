@@ -224,6 +224,32 @@ describe('location CLI commands', { concurrency: 1 }, () => {
     assert.match(output, /lax/)
   })
 
+  it('run --all-locations output includes API call multiplier', async () => {
+    await client.putProject('test-proj', {
+      displayName: 'Test',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+    })
+    await client.addLocation('test-proj', { label: 'nyc', city: 'New York', region: 'NY', country: 'US' })
+    await client.addLocation('test-proj', { label: 'lax', city: 'Los Angeles', region: 'CA', country: 'US' })
+    await client.addLocation('test-proj', { label: 'chi', city: 'Chicago', region: 'IL', country: 'US' })
+
+    const { triggerRun } = await import('../src/commands/run.js')
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await triggerRun('test-proj', { allLocations: true })
+    } finally {
+      console.log = origLog
+    }
+
+    const output = logs.join('\n')
+    assert.match(output, /3 location sweep/)
+    assert.match(output, /3× API calls/)
+  })
+
   it('run --all-locations with format json outputs an array', async () => {
     await client.putProject('test-proj', {
       displayName: 'Test',

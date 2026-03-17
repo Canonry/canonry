@@ -1708,6 +1708,10 @@ function ProjectPage({
   const [locationTimeline, setLocationTimeline] = useState<import('./api.js').ApiTimelineEntry[] | null>(null)
   const [locationTimelineLoading, setLocationTimelineLoading] = useState(false)
 
+  const locationLabelsInEvidence = useMemo(() => new Set(model.visibilityEvidence.map(e => e.location ?? '')), [model.visibilityEvidence])
+  const hasNullLocationEvidence = locationLabelsInEvidence.has('')
+  const distinctLocationsWithEvidence = useMemo(() => [...locationLabelsInEvidence].filter(Boolean), [locationLabelsInEvidence])
+
   useEffect(() => {
     if (locationFilter === undefined || locationFilter === '') {
       setLocationTimeline(null)
@@ -1743,6 +1747,18 @@ function ProjectPage({
     }
     return map
   }, [locationTimeline])
+
+  const filteredEvidence = useMemo(() => {
+    const filtered = locationFilter !== undefined
+      ? model.visibilityEvidence.filter(e => locationFilter === '' ? !e.location : e.location === locationFilter)
+      : model.visibilityEvidence
+    if (!locationRunHistoryMap) return filtered
+    return filtered.map(item => {
+      const history = locationRunHistoryMap.get(`${item.keyword}::${item.provider}`)
+        ?? locationRunHistoryMap.get(`${item.keyword}::`)
+      return history ? { ...item, runHistory: history } : item
+    })
+  }, [model.visibilityEvidence, locationFilter, locationRunHistoryMap])
 
   async function handleExport() {
     const data = await fetchExport(model.project.name)
@@ -2063,70 +2079,54 @@ function ProjectPage({
                 </div>
               </div>
             )}
-            {model.project.locations && model.project.locations.length > 0 && (() => {
-              // Compute which locations actually have evidence to avoid showing empty filters
-              const locationLabelsInEvidence = new Set(model.visibilityEvidence.map(e => e.location ?? ''))
-              const hasNullLocationEvidence = locationLabelsInEvidence.has('')
-              const distinctLocations = [...locationLabelsInEvidence].filter(Boolean)
-              return (
-                <div className="filter-row mb-3" role="toolbar" aria-label="Location filters">
+            {model.project.locations && model.project.locations.length > 0 && (
+              <div className="filter-row mb-3" role="toolbar" aria-label="Location filters">
+                <button
+                  className={`filter-chip ${locationFilter === undefined ? 'filter-chip-active' : ''}`}
+                  type="button"
+                  aria-pressed={locationFilter === undefined}
+                  onClick={() => { setLocationFilter(undefined) }}
+                >
+                  All locations
+                </button>
+                {model.project.locations.map((loc: { label: string }) => (
+                  locationLabelsInEvidence.has(loc.label) && (
+                    <button
+                      key={loc.label}
+                      className={`filter-chip ${locationFilter === loc.label ? 'filter-chip-active' : ''}`}
+                      type="button"
+                      aria-pressed={locationFilter === loc.label}
+                      onClick={() => { setLocationFilter(loc.label); setCompareLocations(false) }}
+                    >
+                      {loc.label}
+                    </button>
+                  )
+                ))}
+                {hasNullLocationEvidence && (
                   <button
-                    className={`filter-chip ${locationFilter === undefined ? 'filter-chip-active' : ''}`}
+                    className={`filter-chip ${locationFilter === '' ? 'filter-chip-active' : ''}`}
                     type="button"
-                    aria-pressed={locationFilter === undefined}
-                    onClick={() => { setLocationFilter(undefined) }}
+                    aria-pressed={locationFilter === ''}
+                    onClick={() => { setLocationFilter(''); setCompareLocations(false) }}
                   >
-                    All locations
+                    No location
                   </button>
-                  {model.project.locations.map((loc: { label: string }) => (
-                    locationLabelsInEvidence.has(loc.label) && (
-                      <button
-                        key={loc.label}
-                        className={`filter-chip ${locationFilter === loc.label ? 'filter-chip-active' : ''}`}
-                        type="button"
-                        aria-pressed={locationFilter === loc.label}
-                        onClick={() => { setLocationFilter(loc.label); setCompareLocations(false) }}
-                      >
-                        {loc.label}
-                      </button>
-                    )
-                  ))}
-                  {hasNullLocationEvidence && (
-                    <button
-                      className={`filter-chip ${locationFilter === '' ? 'filter-chip-active' : ''}`}
-                      type="button"
-                      aria-pressed={locationFilter === ''}
-                      onClick={() => { setLocationFilter(''); setCompareLocations(false) }}
-                    >
-                      No location
-                    </button>
-                  )}
-                  {distinctLocations.length > 1 && locationFilter === undefined && (
-                    <button
-                      className={`filter-chip filter-chip-compare ${compareLocations ? 'filter-chip-active' : ''}`}
-                      type="button"
-                      aria-pressed={compareLocations}
-                      onClick={() => setCompareLocations(v => !v)}
-                      title="Side-by-side location comparison"
-                    >
-                      Compare
-                    </button>
-                  )}
-                </div>
-              )
-            })()}
+                )}
+                {distinctLocationsWithEvidence.length > 1 && locationFilter === undefined && (
+                  <button
+                    className={`filter-chip filter-chip-compare ${compareLocations ? 'filter-chip-active' : ''}`}
+                    type="button"
+                    aria-pressed={compareLocations}
+                    onClick={() => setCompareLocations(v => !v)}
+                    title="Side-by-side location comparison"
+                  >
+                    Compare
+                  </button>
+                )}
+              </div>
+            )}
             <EvidencePhraseCards
-              evidence={(() => {
-                const filtered = locationFilter !== undefined
-                  ? model.visibilityEvidence.filter(e => locationFilter === '' ? !e.location : e.location === locationFilter)
-                  : model.visibilityEvidence
-                if (!locationRunHistoryMap) return filtered
-                return filtered.map(item => {
-                  const history = locationRunHistoryMap.get(`${item.keyword}::${item.provider}`)
-                    ?? locationRunHistoryMap.get(`${item.keyword}::`)
-                  return history ? { ...item, runHistory: history } : item
-                })
-              })()}
+              evidence={filteredEvidence}
               onOpenEvidence={onOpenEvidence}
               showLocationLabels={locationFilter === undefined}
               compareLocations={locationFilter === undefined && compareLocations}
