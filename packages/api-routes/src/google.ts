@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { eq, and, desc, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, runs } from '@ainyc/canonry-db'
-import { validationError, notFound } from '@ainyc/canonry-contracts'
+import { validationError, notFound, normalizeProjectDomain } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import {
   getAuthUrl,
@@ -11,7 +11,10 @@ import {
   listSites,
   listSitemaps,
   inspectUrl as gscInspectUrl,
+  publishUrlNotification,
   GSC_SCOPE,
+  INDEXING_SCOPE,
+  INDEXING_API_DAILY_LIMIT,
 } from '@ainyc/canonry-integration-google'
 
 export interface GoogleConnectionRecord {
@@ -173,7 +176,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       redirectUri = `${proto}://${host}/api/v1/projects/${encodeURIComponent(request.params.name)}/google/callback`
     }
 
-    const scopes = type === 'gsc' ? [GSC_SCOPE] : []
+    const scopes = type === 'gsc' ? [GSC_SCOPE, INDEXING_SCOPE] : []
     const stateEncoded = buildSignedState(
       { domain: project.canonicalDomain, type, propertyId, redirectUri },
       stateSecret,
@@ -893,4 +896,121 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
 
     return { propertyId }
   })
+
+  // POST /projects/:name/google/indexing/request
+  app.post<{
+    Params: { name: string }
+    Body: { urls: string[]; allUnindexed?: boolean }
+  }>('/projects/:name/google/indexing/request', async (request, reply) => {
+    const { clientId: googleClientId, clientSecret: googleClientSecret } = getAuthConfig()
+    if (!googleClientId || !googleClientSecret) {
+      const err = validationError('Google OAuth is not configured')
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
+    const store = requireConnectionStore(reply)
+    if (!store) return
+
+    const project = resolveProject(app.db, request.params.name)
+    const { accessToken } = await getValidToken(store, project.canonicalDomain, 'gsc', googleClientId, googleClientSecret)
+
+    let urlsToNotify: string[] = request.body?.urls ?? []
+
+    if (request.body?.allUnindexed) {
+      // Gather all not-indexed URLs from latest inspections
+      const allInspections = app.db
+        .select()
+        .from(gscUrlInspections)
+        .where(eq(gscUrlInspections.projectId, project.id))
+        .orderBy(desc(gscUrlInspections.inspectedAt))
+        .all()
+
+      const latestByUrl = new Map<string, typeof allInspections[number]>()
+      for (const row of allInspections) {
+        if (!latestByUrl.has(row.url)) {
+          latestByUrl.set(row.url, row)
+        }
+      }
+
+      const unindexedUrls: string[] = []
+      for (const [url, row] of latestByUrl) {
+        if (row.indexingState !== 'INDEXING_ALLOWED') {
+          unindexedUrls.push(url)
+        }
+      }
+
+      if (unindexedUrls.length === 0) {
+        const err = validationError('No unindexed URLs found. Run "canonry google inspect-sitemap" first.')
+        return reply.status(err.statusCode).send(err.toJSON())
+      }
+
+      urlsToNotify = unindexedUrls
+    }
+
+    if (urlsToNotify.length === 0) {
+      const err = validationError('At least one URL is required (or use allUnindexed: true)')
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
+    if (urlsToNotify.length > INDEXING_API_DAILY_LIMIT) {
+      const err = validationError(`Cannot request indexing for more than ${INDEXING_API_DAILY_LIMIT} URLs per request (got ${urlsToNotify.length})`)
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
+    // Validate that all URLs belong to the project's canonical domain
+    const projectDomain = normalizeProjectDomain(project.canonicalDomain)
+    const invalidUrls = urlsToNotify.filter((url) => {
+      try {
+        const hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, '')
+        return hostname !== projectDomain
+      } catch {
+        return true
+      }
+    })
+    if (invalidUrls.length > 0) {
+      const err = validationError(
+        `URLs must belong to project domain "${project.canonicalDomain}". Invalid: ${invalidUrls.slice(0, 5).join(', ')}`,
+      )
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
+    const results: Array<{
+      url: string
+      type: string
+      notifiedAt: string
+      status: 'success' | 'error'
+      error?: string
+    }> = []
+
+    for (const url of urlsToNotify) {
+      try {
+        const response = await publishUrlNotification(accessToken, url, 'URL_UPDATED')
+        const notifyTime = response.urlNotificationMetadata?.latestUpdate?.notifyTime ?? new Date().toISOString()
+        results.push({
+          url,
+          type: 'URL_UPDATED',
+          notifiedAt: notifyTime,
+          status: 'success',
+        })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        results.push({
+          url,
+          type: 'URL_UPDATED',
+          notifiedAt: new Date().toISOString(),
+          status: 'error',
+          error: msg,
+        })
+      }
+    }
+
+    const succeeded = results.filter((r) => r.status === 'success').length
+    const failed = results.filter((r) => r.status === 'error').length
+
+    return {
+      summary: { total: results.length, succeeded, failed },
+      results,
+    }
+  })
+
 }

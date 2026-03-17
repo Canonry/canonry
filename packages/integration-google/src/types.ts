@@ -84,6 +84,27 @@ export interface GscSitemap {
   contents?: GscSitemapContent[]
 }
 
+export interface IndexingApiNotification {
+  url: string
+  type: 'URL_UPDATED' | 'URL_DELETED'
+}
+
+export interface IndexingApiResponse {
+  urlNotificationMetadata: {
+    url: string
+    latestUpdate?: {
+      url: string
+      type: string
+      notifyTime: string
+    }
+    latestRemove?: {
+      url: string
+      type: string
+      notifyTime: string
+    }
+  }
+}
+
 export class GoogleAuthError extends Error {
   constructor(message: string) {
     super(message)

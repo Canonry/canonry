@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { listSites, fetchSearchAnalytics, inspectUrl } from '../src/gsc-client.js'
-import { GSC_API_BASE, URL_INSPECTION_API } from '../src/constants.js'
+import { listSites, fetchSearchAnalytics, inspectUrl, publishUrlNotification, getUrlNotificationStatus } from '../src/gsc-client.js'
+import { GSC_API_BASE, URL_INSPECTION_API, INDEXING_API_BASE } from '../src/constants.js'
 
 describe('listSites', () => {
   let originalFetch: typeof globalThis.fetch
@@ -172,5 +172,102 @@ describe('inspectUrl', () => {
     expect(result.inspectionResult.indexStatusResult?.verdict).toBe('PASS')
     expect(result.inspectionResult.indexStatusResult?.indexingState).toBe('INDEXING_ALLOWED')
     expect(result.inspectionResult.richResultsResult?.detectedItems?.[0]?.richResultType).toBe('FAQ')
+  })
+})
+
+describe('publishUrlNotification', () => {
+  let originalFetch: typeof globalThis.fetch
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  it('sends URL_UPDATED notification and returns metadata', async () => {
+    const mockResponse = {
+      urlNotificationMetadata: {
+        url: 'https://example.com/page',
+        latestUpdate: {
+          url: 'https://example.com/page',
+          type: 'URL_UPDATED',
+          notifyTime: '2026-03-17T17:40:00Z',
+        },
+      },
+    }
+
+    let capturedUrl = ''
+    let capturedBody: unknown
+    globalThis.fetch = async (url: string | URL | Request, init?: RequestInit) => {
+      capturedUrl = String(url)
+      capturedBody = JSON.parse(String(init?.body ?? '{}'))
+      return new Response(JSON.stringify(mockResponse), { status: 200 })
+    }
+
+    const result = await publishUrlNotification('token', 'https://example.com/page')
+
+    expect(capturedUrl).toBe(`${INDEXING_API_BASE}/urlNotifications:publish`)
+    const body = capturedBody as { url: string; type: string }
+    expect(body.url).toBe('https://example.com/page')
+    expect(body.type).toBe('URL_UPDATED')
+    expect(result.urlNotificationMetadata.latestUpdate?.notifyTime).toBe('2026-03-17T17:40:00Z')
+  })
+
+  it('sends URL_DELETED notification when type is specified', async () => {
+    let capturedBody: unknown
+    globalThis.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+      capturedBody = JSON.parse(String(init?.body ?? '{}'))
+      return new Response(JSON.stringify({ urlNotificationMetadata: { url: 'https://example.com/page' } }), { status: 200 })
+    }
+
+    await publishUrlNotification('token', 'https://example.com/page', 'URL_DELETED')
+    const body = capturedBody as { url: string; type: string }
+    expect(body.type).toBe('URL_DELETED')
+  })
+
+  it('throws on 429 rate limit', async () => {
+    globalThis.fetch = async () => new Response('Rate limited', { status: 429 })
+
+    await expect(
+      () => publishUrlNotification('token', 'https://example.com/page'),
+    ).rejects.toThrow(/rate limit/)
+  })
+})
+
+describe('getUrlNotificationStatus', () => {
+  let originalFetch: typeof globalThis.fetch
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  it('fetches notification status for a URL', async () => {
+    const mockResponse = {
+      urlNotificationMetadata: {
+        url: 'https://example.com/page',
+        latestUpdate: {
+          url: 'https://example.com/page',
+          type: 'URL_UPDATED',
+          notifyTime: '2026-03-17T17:40:00Z',
+        },
+      },
+    }
+
+    let capturedUrl = ''
+    globalThis.fetch = async (url: string | URL | Request) => {
+      capturedUrl = String(url)
+      return new Response(JSON.stringify(mockResponse), { status: 200 })
+    }
+
+    const result = await getUrlNotificationStatus('token', 'https://example.com/page')
+
+    expect(capturedUrl).toBe(`${INDEXING_API_BASE}/urlNotifications/metadata?url=${encodeURIComponent('https://example.com/page')}`)
+    expect(result.urlNotificationMetadata.url).toBe('https://example.com/page')
   })
 })

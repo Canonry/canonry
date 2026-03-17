@@ -21,7 +21,7 @@ import {
   googleConnect, googleDisconnect, googleStatus, googleProperties,
   googleSetProperty, googleSetSitemap, googleListSitemaps, googleSync, googlePerformance, googleInspect,
   googleInspections, googleDeindexed, googleCoverage, googleCoverageHistory, googleInspectSitemap,
-  googleDiscoverSitemaps,
+  googleDiscoverSitemaps, googleRequestIndexing,
 } from './commands/google.js'
 import { trackEvent, isTelemetryEnabled, isFirstRun, getOrCreateAnonymousId, showFirstRunNotice } from './telemetry.js'
 
@@ -87,6 +87,8 @@ Usage:
   canonry google performance <project>  Show GSC search performance data
   canonry google inspect <project> <url>  Inspect a URL via GSC
   canonry google inspect-sitemap <project>  Bulk inspect all URLs from sitemap (--sitemap-url, --wait)
+  canonry google request-indexing <project> <url>  Request Google indexing for a URL
+  canonry google request-indexing <project> --all-unindexed  Request indexing for all unindexed URLs
   canonry google coverage <project>  Show index coverage summary
   canonry google inspections <project>  Show URL inspection history (--url <url>)
   canonry google deindexed <project>  Show pages that lost indexing
@@ -1086,9 +1088,37 @@ async function main() {
             })
             break
           }
+          case 'request-indexing': {
+            const project = args[2]
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            const { values: reqIdxValues, positionals: reqIdxPos } = parseArgs({
+              args: args.slice(3),
+              options: {
+                'all-unindexed': { type: 'boolean', default: false },
+                wait: { type: 'boolean', default: false },
+                format: { type: 'string' },
+              },
+              allowPositionals: true,
+            })
+            const reqIdxUrl = reqIdxPos[0]
+            if (!reqIdxUrl && !reqIdxValues['all-unindexed']) {
+              console.error('Error: provide a URL or use --all-unindexed')
+              process.exit(1)
+            }
+            await googleRequestIndexing(project, {
+              url: reqIdxUrl,
+              allUnindexed: reqIdxValues['all-unindexed'] ?? false,
+              wait: reqIdxValues.wait ?? false,
+              format: reqIdxValues.format === 'json' ? 'json' : format,
+            })
+            break
+          }
           default:
             console.error(`Unknown google subcommand: ${subcommand ?? '(none)'}`)
-            console.log('Available: connect, disconnect, status, properties, set-property, set-sitemap, list-sitemaps, discover-sitemaps, sync, performance, inspect, inspect-sitemap, coverage, coverage-history, inspections, deindexed')
+            console.log('Available: connect, disconnect, status, properties, set-property, set-sitemap, list-sitemaps, discover-sitemaps, sync, performance, inspect, inspect-sitemap, coverage, coverage-history, inspections, deindexed, request-indexing')
             process.exit(1)
         }
         break

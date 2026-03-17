@@ -1,4 +1,4 @@
-import type { GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto } from '@ainyc/canonry-contracts'
+import type { GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto } from '@ainyc/canonry-contracts'
 
 export type { GroundingSource }
 
@@ -652,5 +652,22 @@ export function triggerDiscoverSitemaps(project: string): Promise<{ sitemaps: Ap
   return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/discover-sitemaps`, {
     method: 'POST',
     body: '{}',
+  })
+}
+
+export type ApiIndexingRequestResult = IndexingRequestResultDto
+
+export interface ApiIndexingRequestResponse {
+  summary: { total: number; succeeded: number; failed: number }
+  results: IndexingRequestResultDto[]
+}
+
+export function requestIndexing(
+  project: string,
+  body: { urls: string[]; allUnindexed?: boolean },
+): Promise<ApiIndexingRequestResponse> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/google/indexing/request`, {
+    method: 'POST',
+    body: JSON.stringify(body),
   })
 }

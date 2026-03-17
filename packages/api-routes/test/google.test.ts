@@ -1,10 +1,10 @@
 import crypto from 'node:crypto'
-import { describe, it, beforeAll, afterAll, expect } from 'vitest'
+import { describe, it, beforeAll, afterAll, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
-import { createClient, migrate, projects, runs, gscCoverageSnapshots } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs, gscCoverageSnapshots, gscUrlInspections } from '@ainyc/canonry-db'
 import { googleRoutes } from '../src/google.js'
 
 // Reproduce state signing functions from google.ts to verify behavior
@@ -658,6 +658,268 @@ describe('googleRoutes: coverage snapshot deduplication', () => {
     // Should be exactly one row for 2025-03-01 with updated values
     expect(body).toHaveLength(1)
     expect(body[0]!.indexed).toBe(90)
+  })
+})
+
+describe('googleRoutes: POST /projects/:name/google/indexing/request', () => {
+  let app: ReturnType<typeof Fastify>
+  let tmpDir: string
+  let db: ReturnType<typeof createClient>
+  let originalFetch: typeof globalThis.fetch
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  beforeAll(async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'google-indexing-request-'))
+    const dbPath = path.join(tmpDir, 'test.db')
+    db = createClient(dbPath)
+    migrate(db)
+
+    const now = new Date().toISOString()
+    db.insert(projects).values({
+      id: 'p1',
+      name: 'testproj',
+      displayName: 'Test Project',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+
+    // Seed URL inspections: one indexed, two not indexed
+    db.insert(gscUrlInspections).values({
+      id: 'i1',
+      projectId: 'p1',
+      syncRunId: null,
+      url: 'https://example.com/indexed',
+      indexingState: 'INDEXING_ALLOWED',
+      verdict: 'PASS',
+      coverageState: 'Submitted and indexed',
+      pageFetchState: 'SUCCESSFUL',
+      robotsTxtState: 'ALLOWED',
+      crawlTime: now,
+      lastCrawlResult: null,
+      isMobileFriendly: 1,
+      richResults: '[]',
+      referringUrls: '[]',
+      inspectedAt: now,
+      createdAt: now,
+    }).run()
+
+    db.insert(gscUrlInspections).values({
+      id: 'i2',
+      projectId: 'p1',
+      syncRunId: null,
+      url: 'https://example.com/not-indexed-1',
+      indexingState: 'INDEXING_NOT_ALLOWED',
+      verdict: 'NEUTRAL',
+      coverageState: 'Crawled - currently not indexed',
+      pageFetchState: 'SUCCESSFUL',
+      robotsTxtState: 'ALLOWED',
+      crawlTime: now,
+      lastCrawlResult: null,
+      isMobileFriendly: 1,
+      richResults: '[]',
+      referringUrls: '[]',
+      inspectedAt: now,
+      createdAt: now,
+    }).run()
+
+    db.insert(gscUrlInspections).values({
+      id: 'i3',
+      projectId: 'p1',
+      syncRunId: null,
+      url: 'https://example.com/not-indexed-2',
+      indexingState: 'INDEXING_NOT_ALLOWED',
+      verdict: 'NEUTRAL',
+      coverageState: 'URL is unknown to Google',
+      pageFetchState: null,
+      robotsTxtState: null,
+      crawlTime: null,
+      lastCrawlResult: null,
+      isMobileFriendly: null,
+      richResults: '[]',
+      referringUrls: '[]',
+      inspectedAt: now,
+      createdAt: now,
+    }).run()
+
+    const tokenExpires = new Date(Date.now() + 3600 * 1000).toISOString()
+
+    const fastify = Fastify()
+    fastify.decorate('db', db)
+    fastify.register(googleRoutes, {
+      getGoogleAuthConfig: () => ({
+        clientId: 'test-client-id',
+        clientSecret: 'test-client-secret',
+      }),
+      googleConnectionStore: {
+        listConnections: () => [{
+          domain: 'example.com',
+          connectionType: 'gsc' as const,
+          propertyId: 'sc-domain:example.com',
+          accessToken: 'test-access-token',
+          refreshToken: 'test-refresh-token',
+          tokenExpiresAt: tokenExpires,
+          scopes: ['https://www.googleapis.com/auth/webmasters.readonly'],
+          createdAt: now,
+          updatedAt: now,
+        }],
+        getConnection: (domain: string, connectionType: 'gsc' | 'ga4') => {
+          if (domain === 'example.com' && connectionType === 'gsc') {
+            return {
+              domain: 'example.com',
+              connectionType: 'gsc' as const,
+              propertyId: 'sc-domain:example.com',
+              accessToken: 'test-access-token',
+              refreshToken: 'test-refresh-token',
+              tokenExpiresAt: tokenExpires,
+              scopes: ['https://www.googleapis.com/auth/webmasters.readonly'],
+              createdAt: now,
+              updatedAt: now,
+            }
+          }
+          return undefined
+        },
+        upsertConnection: (c) => c,
+        updateConnection: () => undefined,
+        deleteConnection: () => false,
+      },
+      googleStateSecret: 'test-secret-32-bytes-long-enough!',
+    })
+
+    app = fastify
+    await app.ready()
+  })
+
+  afterAll(async () => {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('requests indexing for explicit URLs', async () => {
+    globalThis.fetch = async () => {
+      return new Response(JSON.stringify({
+        urlNotificationMetadata: {
+          url: 'https://example.com/page',
+          latestUpdate: {
+            url: 'https://example.com/page',
+            type: 'URL_UPDATED',
+            notifyTime: '2026-03-17T17:40:00Z',
+          },
+        },
+      }), { status: 200 })
+    }
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects/testproj/google/indexing/request',
+      payload: { urls: ['https://example.com/page'] },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { summary: { total: number; succeeded: number; failed: number }; results: Array<{ url: string; status: string }> }
+    expect(body.summary.total).toBe(1)
+    expect(body.summary.succeeded).toBe(1)
+    expect(body.results[0]!.status).toBe('success')
+  })
+
+  it('requests indexing for all unindexed URLs', async () => {
+    const notifiedUrls: string[] = []
+    globalThis.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+      const reqBody = JSON.parse(String(init?.body ?? '{}')) as { url: string }
+      notifiedUrls.push(reqBody.url)
+      return new Response(JSON.stringify({
+        urlNotificationMetadata: {
+          url: reqBody.url,
+          latestUpdate: {
+            url: reqBody.url,
+            type: 'URL_UPDATED',
+            notifyTime: '2026-03-17T17:40:00Z',
+          },
+        },
+      }), { status: 200 })
+    }
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects/testproj/google/indexing/request',
+      payload: { urls: [], allUnindexed: true },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { summary: { total: number; succeeded: number } }
+    expect(body.summary.total).toBe(2)
+    expect(body.summary.succeeded).toBe(2)
+    expect(notifiedUrls).toContain('https://example.com/not-indexed-1')
+    expect(notifiedUrls).toContain('https://example.com/not-indexed-2')
+    expect(notifiedUrls).not.toContain('https://example.com/indexed')
+  })
+
+  it('returns 400 when no URLs and allUnindexed is false', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects/testproj/google/indexing/request',
+      payload: { urls: [] },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('reports per-URL errors without failing the entire request', async () => {
+    let callCount = 0
+    globalThis.fetch = async () => {
+      callCount++
+      if (callCount === 1) {
+        return new Response(JSON.stringify({
+          urlNotificationMetadata: { url: 'https://example.com/a', latestUpdate: { notifyTime: new Date().toISOString() } },
+        }), { status: 200 })
+      }
+      return new Response('Rate limited', { status: 429 })
+    }
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects/testproj/google/indexing/request',
+      payload: { urls: ['https://example.com/a', 'https://example.com/b'] },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { summary: { succeeded: number; failed: number }; results: Array<{ status: string }> }
+    expect(body.summary.succeeded).toBe(1)
+    expect(body.summary.failed).toBe(1)
+  })
+
+  it('rejects URLs that do not belong to the project domain', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects/testproj/google/indexing/request',
+      payload: { urls: ['https://attacker.com/evil-page'] },
+    })
+
+    expect(res.statusCode).toBe(400)
+    const body = res.json() as { error: { message: string } }
+    expect(body.error.message).toMatch(/must belong to project domain/)
+    expect(body.error.message).toMatch(/attacker\.com/)
+  })
+
+  it('rejects mixed valid and invalid domain URLs', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects/testproj/google/indexing/request',
+      payload: { urls: ['https://example.com/ok', 'https://evil.com/bad'] },
+    })
+
+    expect(res.statusCode).toBe(400)
+    const body = res.json() as { error: { message: string } }
+    expect(body.error.message).toMatch(/evil\.com/)
   })
 })
 

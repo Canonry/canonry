@@ -72,6 +72,7 @@ import {
   saveSitemapUrl,
   fetchGscSitemaps,
   type ApiGscSitemap,
+  requestIndexing,
   addLocation,
   removeLocation,
   setDefaultLocation,
@@ -2282,6 +2283,7 @@ function GscSection({
   const [coverageTab, setCoverageTab] = useState<'indexed' | 'notIndexed' | 'deindexed'>('indexed')
   const [_coverageHistory, setCoverageHistory] = useState<Array<{ date: string; indexed: number; notIndexed: number; reasonBreakdown: Record<string, number> }>>([])
   const [selectedReason, setSelectedReason] = useState<string | null>(null)
+  const [requestingIndexing, setRequestingIndexing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -2362,6 +2364,42 @@ function GscSection({
       setCoverageHistory([])
     } finally {
       setLoadingCoverage(false)
+    }
+  }
+
+  async function handleRequestIndexing(urls: string[]) {
+    setRequestingIndexing(true)
+    setError(null)
+    try {
+      const result = await requestIndexing(projectName, { urls })
+      const { succeeded, failed, total } = result.summary
+      if (failed === 0) {
+        setNotice(`Indexing requested for ${succeeded} URL${succeeded !== 1 ? 's' : ''}.`)
+      } else {
+        setNotice(`Indexing requested: ${succeeded}/${total} succeeded, ${failed} failed.`)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to request indexing')
+    } finally {
+      setRequestingIndexing(false)
+    }
+  }
+
+  async function handleRequestIndexingAllUnindexed() {
+    setRequestingIndexing(true)
+    setError(null)
+    try {
+      const result = await requestIndexing(projectName, { urls: [], allUnindexed: true })
+      const { succeeded, failed, total } = result.summary
+      if (failed === 0) {
+        setNotice(`Indexing requested for ${succeeded} unindexed URL${succeeded !== 1 ? 's' : ''}.`)
+      } else {
+        setNotice(`Indexing requested: ${succeeded}/${total} succeeded, ${failed} failed.`)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to request indexing')
+    } finally {
+      setRequestingIndexing(false)
     }
   }
 
@@ -2693,6 +2731,17 @@ function GscSection({
                     <h3>Index coverage</h3>
                   </div>
                   <div className="flex items-center gap-2">
+                    {coverage && coverage.notIndexed.length > 0 && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={requestingIndexing}
+                        onClick={() => void handleRequestIndexingAllUnindexed()}
+                      >
+                        {requestingIndexing ? 'Requesting…' : `Request indexing (${coverage.notIndexed.length})`}
+                      </Button>
+                    )}
                     <Button type="button" variant="outline" size="sm" disabled={loadingCoverage} onClick={() => void loadCoverage()}>
                       {loadingCoverage ? 'Loading…' : 'Refresh coverage'}
                     </Button>
@@ -2898,9 +2947,20 @@ function GscSection({
                                 ← Back to reasons
                               </button>
                             </div>
-                            <div className="mb-3 rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
-                              <p className="text-sm font-medium text-zinc-200">{group.reason}</p>
-                              <p className="mt-1 text-xs text-zinc-500">{group.count} affected page{group.count !== 1 ? 's' : ''}</p>
+                            <div className="mb-3 flex items-center justify-between rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+                              <div>
+                                <p className="text-sm font-medium text-zinc-200">{group.reason}</p>
+                                <p className="mt-1 text-xs text-zinc-500">{group.count} affected page{group.count !== 1 ? 's' : ''}</p>
+                              </div>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={requestingIndexing}
+                                onClick={() => void handleRequestIndexing(group.urls.map((u) => u.url))}
+                              >
+                                {requestingIndexing ? 'Requesting…' : `Request indexing (${group.count})`}
+                              </Button>
                             </div>
 
                             <table className="data-table w-full text-sm">
@@ -2908,6 +2968,7 @@ function GscSection({
                                 <tr>
                                   <th className="text-left">URL</th>
                                   <th className="text-left">Last Crawl</th>
+                                  <th className="w-8"></th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -2915,6 +2976,17 @@ function GscSection({
                                   <tr key={row.id}>
                                     <td className="max-w-sm truncate text-zinc-200">{row.url}</td>
                                     <td className="text-zinc-400">{row.crawlTime ? row.crawlTime.split('T')[0] : '—'}</td>
+                                    <td>
+                                      <button
+                                        type="button"
+                                        className="text-xs text-zinc-500 hover:text-zinc-200 transition-colors"
+                                        disabled={requestingIndexing}
+                                        onClick={() => void handleRequestIndexing([row.url])}
+                                        title="Request indexing"
+                                      >
+                                        Index
+                                      </button>
+                                    </td>
                                   </tr>
                                 ))}
                               </tbody>

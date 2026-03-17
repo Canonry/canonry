@@ -77,6 +77,22 @@ export const gscCoverageSummaryDtoSchema = z.object({
 })
 export type GscCoverageSummaryDto = z.infer<typeof gscCoverageSummaryDtoSchema>
 
+export const indexingNotificationDtoSchema = z.object({
+  url: z.string(),
+  type: z.enum(['URL_UPDATED', 'URL_DELETED']),
+  notifiedAt: z.string(),
+})
+export type IndexingNotificationDto = z.infer<typeof indexingNotificationDtoSchema>
+
+export const indexingRequestResultDtoSchema = z.object({
+  url: z.string(),
+  type: z.enum(['URL_UPDATED', 'URL_DELETED']),
+  notifiedAt: z.string(),
+  status: z.enum(['success', 'error']),
+  error: z.string().optional(),
+})
+export type IndexingRequestResultDto = z.infer<typeof indexingRequestResultDtoSchema>
+
 export const gscCoverageSnapshotDtoSchema = z.object({
   date: z.string(),
   indexed: z.number(),

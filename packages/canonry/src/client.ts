@@ -267,4 +267,10 @@ export class ApiClient {
   async gscDiscoverSitemaps(project: string): Promise<object> {
     return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/google/gsc/discover-sitemaps`, {})
   }
+
+  // Google Indexing API
+  async googleRequestIndexing(project: string, body: { urls: string[]; allUnindexed?: boolean }): Promise<object> {
+    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/google/indexing/request`, body)
+  }
+
 }

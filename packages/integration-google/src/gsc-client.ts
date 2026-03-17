@@ -1,4 +1,4 @@
-import { GSC_API_BASE, URL_INSPECTION_API, GSC_MAX_ROWS_PER_REQUEST } from './constants.js'
+import { GSC_API_BASE, URL_INSPECTION_API, GSC_MAX_ROWS_PER_REQUEST, INDEXING_API_BASE } from './constants.js'
 import type {
   GscSite,
   GscSitemap,
@@ -6,6 +6,7 @@ import type {
   GscSearchAnalyticsRow,
   GscSearchAnalyticsResponse,
   GscUrlInspectionResult,
+  IndexingApiResponse,
 } from './types.js'
 import { GoogleApiError } from './types.js'
 
@@ -107,6 +108,32 @@ export async function fetchSearchAnalytics(
   }
 
   return allRows
+}
+
+export async function publishUrlNotification(
+  accessToken: string,
+  url: string,
+  type: 'URL_UPDATED' | 'URL_DELETED' = 'URL_UPDATED',
+): Promise<IndexingApiResponse> {
+  return gscFetch<IndexingApiResponse>(
+    accessToken,
+    `${INDEXING_API_BASE}/urlNotifications:publish`,
+    {
+      method: 'POST',
+      body: { url, type },
+    },
+  )
+}
+
+export async function getUrlNotificationStatus(
+  accessToken: string,
+  url: string,
+): Promise<IndexingApiResponse> {
+  const encodedUrl = encodeURIComponent(url)
+  return gscFetch<IndexingApiResponse>(
+    accessToken,
+    `${INDEXING_API_BASE}/urlNotifications/metadata?url=${encodedUrl}`,
+  )
 }
 
 export async function inspectUrl(
