@@ -68,7 +68,9 @@ import {
   fetchGscCoverage,
   fetchGscCoverageHistory,
   triggerInspectSitemap,
+  triggerDiscoverSitemaps,
   saveSitemapUrl,
+  type ApiGscSitemap,
   type ApiGscCoverageSummary,
   type ApiSchedule,
   type ApiNotification,
@@ -2062,6 +2064,8 @@ function GscSection({
   const [coverage, setCoverage] = useState<ApiGscCoverageSummary | null>(null)
   const [loadingCoverage, setLoadingCoverage] = useState(false)
   const [inspectingSitemap, setInspectingSitemap] = useState(false)
+  const [discoveringSitemaps, setDiscoveringSitemaps] = useState(false)
+  const [discoveredSitemaps, setDiscoveredSitemaps] = useState<ApiGscSitemap[] | null>(null)
   const [sitemapUrlInput, setSitemapUrlInput] = useState('')
   const [savingSitemap, setSavingSitemap] = useState(false)
   const [setupExpanded, setSetupExpanded] = useState(false)
@@ -2166,6 +2170,23 @@ function GscSection({
       setError(err instanceof Error ? err.message : 'Failed to save sitemap URL')
     } finally {
       setSavingSitemap(false)
+    }
+  }
+
+  async function handleDiscoverSitemaps() {
+    setDiscoveringSitemaps(true)
+    setError(null)
+    try {
+      const result = await triggerDiscoverSitemaps(projectName)
+      setDiscoveredSitemaps(result.sitemaps)
+      setConnections((prev) => prev.map((c) => (
+        c.connectionType === 'gsc' ? { ...c, sitemapUrl: result.primarySitemapUrl } : c
+      )))
+      setNotice(`Discovered ${result.sitemaps.length} sitemap(s). Primary sitemap saved and inspection queued (run ${result.run.id}).`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to discover sitemaps')
+    } finally {
+      setDiscoveringSitemaps(false)
     }
   }
 
@@ -2402,19 +2423,32 @@ function GscSection({
                 </span>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-amber-300">Set your sitemap URL</p>
-                  <p className="mt-1 text-xs text-amber-400/70">Canonry uses your sitemap to discover URLs for index coverage inspection. This is saved once per project.</p>
-                  <div className="mt-2 flex flex-col gap-2 lg:flex-row">
-                    <input
-                      className="flex-1 rounded border border-amber-800/40 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-500 focus:border-amber-600 focus:outline-none"
-                      type="url"
-                      placeholder="https://example.com/sitemap.xml"
-                      value={sitemapUrlInput}
-                      onChange={(e) => setSitemapUrlInput(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && void handleSaveSitemap()}
-                    />
-                    <Button type="button" size="sm" disabled={savingSitemap || !sitemapUrlInput.trim()} onClick={handleSaveSitemap}>
-                      {savingSitemap ? 'Saving…' : 'Save sitemap URL'}
-                    </Button>
+                  <p className="mt-1 text-xs text-amber-400/70">Canonry uses your sitemap to discover URLs for index coverage inspection. Auto-discover from GSC or enter it manually.</p>
+                  <div className="mt-2 flex flex-col gap-2">
+                    <div className="flex flex-col gap-2 lg:flex-row">
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={discoveringSitemaps || !gscConn.propertyId}
+                        onClick={handleDiscoverSitemaps}
+                      >
+                        {discoveringSitemaps ? 'Discovering…' : 'Auto-discover from GSC'}
+                      </Button>
+                      <span className="self-center text-xs text-amber-400/60">or enter manually:</span>
+                    </div>
+                    <div className="flex flex-col gap-2 lg:flex-row">
+                      <input
+                        className="flex-1 rounded border border-amber-800/40 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-500 focus:border-amber-600 focus:outline-none"
+                        type="url"
+                        placeholder="https://example.com/sitemap.xml"
+                        value={sitemapUrlInput}
+                        onChange={(e) => setSitemapUrlInput(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && void handleSaveSitemap()}
+                      />
+                      <Button type="button" size="sm" variant="outline" disabled={savingSitemap || !sitemapUrlInput.trim()} onClick={handleSaveSitemap}>
+                        {savingSitemap ? 'Saving…' : 'Save sitemap URL'}
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -3200,6 +3234,43 @@ function GscSection({
                         <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
                           <p className="text-xs uppercase tracking-wide text-zinc-500">Current sitemap URL</p>
                           <p className="mt-1 text-sm text-zinc-200 break-all">{gscConn.sitemapUrl}</p>
+                        </div>
+                      )}
+                      {/* Auto-discover from GSC */}
+                      <div className="flex items-center gap-3">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={discoveringSitemaps || !gscConn.propertyId}
+                          onClick={handleDiscoverSitemaps}
+                        >
+                          {discoveringSitemaps ? 'Discovering…' : 'Discover sitemaps from GSC'}
+                        </Button>
+                        <span className="text-xs text-zinc-500">Auto-discovers submitted sitemaps and queues inspection</span>
+                      </div>
+                      {discoveredSitemaps && discoveredSitemaps.length > 0 && (
+                        <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3 space-y-2">
+                          <p className="text-xs uppercase tracking-wide text-zinc-500">Discovered sitemaps ({discoveredSitemaps.length})</p>
+                          {discoveredSitemaps.map((s) => {
+                            const content = s.contents?.[0]
+                            return (
+                              <div key={s.path} className="flex items-start justify-between gap-2 text-xs">
+                                <div>
+                                  <p className="text-zinc-200 break-all">{s.path}</p>
+                                  {s.lastSubmitted && (
+                                    <p className="text-zinc-500">Submitted: {s.lastSubmitted.split('T')[0]}</p>
+                                  )}
+                                </div>
+                                {content && (
+                                  <div className="text-right shrink-0">
+                                    <p className="text-zinc-300">{content.indexed} / {content.submitted}</p>
+                                    <p className="text-zinc-500">indexed</p>
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
                         </div>
                       )}
                       <div className="flex flex-col gap-2 lg:flex-row">

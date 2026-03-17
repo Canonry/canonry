@@ -411,6 +411,67 @@ export async function googleCoverageHistory(project: string, opts: { limit?: num
   }
 }
 
+export async function googleDiscoverSitemaps(project: string, opts: { wait?: boolean; format?: string }): Promise<void> {
+  const client = getClient()
+  const result = await client.gscDiscoverSitemaps(project) as {
+    sitemaps: Array<{
+      path: string
+      lastSubmitted?: string
+      isSitemapsIndex?: boolean
+      contents?: Array<{ type: string; submitted: string; indexed: string }>
+      warnings?: string
+      errors?: string
+    }>
+    primarySitemapUrl: string
+    run: { id: string; status: string }
+  }
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  console.log(`\nDiscovered ${result.sitemaps.length} sitemap(s) for project "${project}":\n`)
+  for (const s of result.sitemaps) {
+    const primary = s.path === result.primarySitemapUrl ? ' (primary)' : ''
+    const indexed = s.contents?.[0]?.indexed ?? '?'
+    const submitted = s.contents?.[0]?.submitted ?? '?'
+    console.log(`  ${s.path}${primary}`)
+    console.log(`    Indexed: ${indexed} / ${submitted} submitted  |  Last submitted: ${s.lastSubmitted ?? 'unknown'}`)
+  }
+
+  console.log(`\nPrimary sitemap: ${result.primarySitemapUrl}`)
+  console.log(`Sitemap URL saved. Inspection run queued (run ${result.run.id}).`)
+
+  if (opts.wait) {
+    const timeout = 30 * 60 * 1000
+    const start = Date.now()
+    process.stderr.write('Waiting for sitemap inspection to complete')
+
+    while (Date.now() - start < timeout) {
+      await new Promise((r) => setTimeout(r, 3000))
+      const current = await client.getRun(result.run.id) as { status: string }
+      process.stderr.write('.')
+
+      if (current.status === 'completed' || current.status === 'partial' || current.status === 'failed') {
+        process.stderr.write('\n')
+        if (current.status === 'completed') {
+          console.log('Sitemap inspection completed successfully.')
+        } else if (current.status === 'partial') {
+          console.log('Sitemap inspection completed with some errors.')
+        } else {
+          console.error('Sitemap inspection failed.')
+        }
+        return
+      }
+    }
+
+    process.stderr.write('\n')
+    console.error('Timed out waiting for sitemap inspection to complete.')
+    process.exit(1)
+  }
+}
+
 export async function googleDeindexed(project: string, format?: string): Promise<void> {
   const client = getClient()
   const rows = await client.gscDeindexed(project) as Array<{

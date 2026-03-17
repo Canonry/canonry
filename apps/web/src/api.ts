@@ -565,3 +565,26 @@ export function triggerInspectSitemap(project: string, opts?: { sitemapUrl?: str
     body: JSON.stringify(opts ?? {}),
   })
 }
+
+export interface ApiGscSitemap {
+  path: string
+  lastSubmitted?: string
+  isPending?: boolean
+  isSitemapsIndex?: boolean
+  type?: string
+  lastDownloaded?: string
+  warnings?: string
+  errors?: string
+  contents?: Array<{ type: string; submitted: string; indexed: string }>
+}
+
+export function fetchGscSitemaps(project: string): Promise<{ sitemaps: ApiGscSitemap[] }> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/sitemaps`)
+}
+
+export function triggerDiscoverSitemaps(project: string): Promise<{ sitemaps: ApiGscSitemap[]; primarySitemapUrl: string; run: ApiRun }> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/discover-sitemaps`, {
+    method: 'POST',
+    body: '{}',
+  })
+}

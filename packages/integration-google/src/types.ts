@@ -66,6 +66,24 @@ export interface GscUrlInspectionResult {
   }
 }
 
+export interface GscSitemapContent {
+  type: string
+  submitted: string
+  indexed: string
+}
+
+export interface GscSitemap {
+  path: string
+  lastSubmitted?: string
+  isPending?: boolean
+  isSitemapsIndex?: boolean
+  type?: string
+  lastDownloaded?: string
+  warnings?: string
+  errors?: string
+  contents?: GscSitemapContent[]
+}
+
 export class GoogleAuthError extends Error {
   constructor(message: string) {
     super(message)

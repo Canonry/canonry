@@ -242,4 +242,12 @@ export class ApiClient {
   async gscInspectSitemap(project: string, body?: { sitemapUrl?: string }): Promise<object> {
     return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/google/gsc/inspect-sitemap`, body ?? {})
   }
+
+  async gscSitemaps(project: string): Promise<object> {
+    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/sitemaps`)
+  }
+
+  async gscDiscoverSitemaps(project: string): Promise<object> {
+    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/google/gsc/discover-sitemaps`, {})
+  }
 }

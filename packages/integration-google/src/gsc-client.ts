@@ -1,6 +1,7 @@
 import { GSC_API_BASE, URL_INSPECTION_API, GSC_MAX_ROWS_PER_REQUEST } from './constants.js'
 import type {
   GscSite,
+  GscSitemap,
   GscSearchAnalyticsRequest,
   GscSearchAnalyticsRow,
   GscSearchAnalyticsResponse,
@@ -43,6 +44,15 @@ export async function listSites(accessToken: string): Promise<GscSite[]> {
     `${GSC_API_BASE}/sites`,
   )
   return data.siteEntry ?? []
+}
+
+export async function listSitemaps(accessToken: string, siteUrl: string): Promise<GscSitemap[]> {
+  const encodedSiteUrl = encodeURIComponent(siteUrl)
+  const data = await gscFetch<{ sitemap?: GscSitemap[] }>(
+    accessToken,
+    `${GSC_API_BASE}/sites/${encodedSiteUrl}/sitemaps`,
+  )
+  return data.sitemap ?? []
 }
 
 export interface FetchSearchAnalyticsOptions {
