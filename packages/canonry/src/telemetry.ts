@@ -28,13 +28,13 @@ export function isTelemetryEnabled(): boolean {
   if (process.env.DO_NOT_TRACK === '1') return false
   if (process.env.CI) return false
 
-  if (!configExists()) return true
+  if (!configExists()) return false
 
   try {
     const config = loadConfig()
-    return config.telemetry !== false
+    return config.telemetry === true
   } catch {
-    return true
+    return false
   }
 }
 
