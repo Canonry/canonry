@@ -46,8 +46,8 @@ All commands support `--format json` for machine-readable output.
 canonry init [--force]               # Initialize config and database (interactive)
 canonry init --gemini-key <key>      # Initialize non-interactively (flags or env vars)
 canonry bootstrap [--force]          # Bootstrap config/database from env vars only
-canonry serve [--port 4100]          # Start server in foreground (API + web dashboard)
-canonry start [--port 4100]          # Start server as a background daemon
+canonry serve [--port 4100] [--base-path /prefix/]   # Start server (foreground)
+canonry start [--port 4100] [--base-path /prefix/]   # Start server (background daemon)
 canonry stop                         # Stop the background daemon
 canonry settings                     # View active provider and quota settings
 ```
@@ -309,7 +309,21 @@ pnpm run lint
 pnpm run dev:web          # Run SPA in dev mode
 ```
 
-## Docker Deployment
+## Deployment
+
+See **[docs/deployment.md](docs/deployment.md)** for the full guide — local, reverse proxy (Caddy/nginx), sub-path, Tailscale, systemd, and Docker.
+
+### Sub-path deployments
+
+Serve canonry under a URL prefix without rebuilding:
+
+```bash
+canonry serve --base-path /canonry/
+```
+
+The server injects the base path at runtime — no build-time config needed.
+
+### Docker Deployment
 
 Canonry currently deploys as a **single Node.js service with a SQLite file on persistent disk**.
 
