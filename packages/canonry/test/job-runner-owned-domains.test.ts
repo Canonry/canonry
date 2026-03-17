@@ -1,9 +1,8 @@
-import assert from 'node:assert/strict'
+import { test, expect, onTestFinished } from 'vitest'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import test from 'node:test'
 import { eq } from 'drizzle-orm'
 import type {
   ProviderAdapter,
@@ -19,6 +18,7 @@ import { ProviderRegistry } from '../src/provider-registry.js'
 
 test('JobRunner marks citations on owned domains as cited', async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-owned-domains-'))
+  onTestFinished(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
   const dbPath = path.join(tmpDir, 'test.db')
   const db = createClient(dbPath)
   migrate(db)
@@ -99,16 +99,12 @@ test('JobRunner marks citations on owned domains as cited', async () => {
     createdAt: now,
   }).run()
 
-  try {
-    const runner = new JobRunner(db, registry)
-    await runner.executeRun(runId, projectId)
+  const runner = new JobRunner(db, registry)
+  await runner.executeRun(runId, projectId)
 
-    assert.deepEqual(receivedDomains, ['example.com', 'https://www.docs.example.com/path'])
+  expect(receivedDomains).toEqual(['example.com', 'https://www.docs.example.com/path'])
 
-    const [snapshot] = db.select().from(querySnapshots).where(eq(querySnapshots.runId, runId)).all()
-    assert.equal(snapshot?.citationState, 'cited')
-    assert.deepEqual(JSON.parse(snapshot.citedDomains), ['docs.example.com'])
-  } finally {
-    fs.rmSync(tmpDir, { recursive: true, force: true })
-  }
+  const [snapshot] = db.select().from(querySnapshots).where(eq(querySnapshots.runId, runId)).all()
+  expect(snapshot?.citationState).toBe('cited')
+  expect(JSON.parse(snapshot.citedDomains)).toEqual(['docs.example.com'])
 })

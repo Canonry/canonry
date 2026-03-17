@@ -1,5 +1,4 @@
-import { describe, it } from 'node:test'
-import assert from 'node:assert/strict'
+import { describe, it, expect } from 'vitest'
 import { validateConfig } from '../src/normalize.js'
 
 describe('provider-local validateConfig', () => {
@@ -8,8 +7,8 @@ describe('provider-local validateConfig', () => {
       baseUrl: '',
       quotaPolicy: { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 },
     })
-    assert.equal(result.ok, false)
-    assert.match(result.message, /missing base URL/)
+    expect(result.ok).toBe(false)
+    expect(result.message).toMatch(/missing base URL/)
   })
 
   it('accepts valid config without apiKey', () => {
@@ -17,6 +16,6 @@ describe('provider-local validateConfig', () => {
       baseUrl: 'http://localhost:11434/v1',
       quotaPolicy: { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 },
     })
-    assert.equal(result.ok, true)
+    expect(result.ok).toBe(true)
   })
 })

@@ -1,5 +1,4 @@
-import { describe, it, beforeEach, afterEach } from 'node:test'
-import assert from 'node:assert/strict'
+import { describe, it, beforeEach, afterEach, expect } from 'vitest'
 import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -61,59 +60,59 @@ describe('telemetry', () => {
   describe('isTelemetryEnabled', () => {
     it('returns true by default (no config, no env vars)', async () => {
       const { isTelemetryEnabled } = await import('../src/telemetry.js')
-      assert.equal(isTelemetryEnabled(), true)
+      expect(isTelemetryEnabled()).toBe(true)
     })
 
     it('returns false when CANONRY_TELEMETRY_DISABLED=1', async () => {
       process.env.CANONRY_TELEMETRY_DISABLED = '1'
       const { isTelemetryEnabled } = await import('../src/telemetry.js')
-      assert.equal(isTelemetryEnabled(), false)
+      expect(isTelemetryEnabled()).toBe(false)
     })
 
     it('returns false when DO_NOT_TRACK=1', async () => {
       process.env.DO_NOT_TRACK = '1'
       const { isTelemetryEnabled } = await import('../src/telemetry.js')
-      assert.equal(isTelemetryEnabled(), false)
+      expect(isTelemetryEnabled()).toBe(false)
     })
 
     it('returns false when CI=true', async () => {
       process.env.CI = 'true'
       const { isTelemetryEnabled } = await import('../src/telemetry.js')
-      assert.equal(isTelemetryEnabled(), false)
+      expect(isTelemetryEnabled()).toBe(false)
     })
 
     it('returns false when CI=1', async () => {
       process.env.CI = '1'
       const { isTelemetryEnabled } = await import('../src/telemetry.js')
-      assert.equal(isTelemetryEnabled(), false)
+      expect(isTelemetryEnabled()).toBe(false)
     })
 
     it('returns false for any truthy CI value', async () => {
       process.env.CI = 'false'
       const { isTelemetryEnabled } = await import('../src/telemetry.js')
       // Any truthy CI value disables telemetry (the string "false" is truthy)
-      assert.equal(isTelemetryEnabled(), false)
+      expect(isTelemetryEnabled()).toBe(false)
     })
 
     it('returns false when config has telemetry: false', async () => {
       const { isTelemetryEnabled } = await import('../src/telemetry.js')
       const { saveConfig } = await import('../src/config.js')
       saveConfig(makeConfig({ telemetry: false }))
-      assert.equal(isTelemetryEnabled(), false)
+      expect(isTelemetryEnabled()).toBe(false)
     })
 
     it('returns true when config has telemetry: true', async () => {
       const { isTelemetryEnabled } = await import('../src/telemetry.js')
       const { saveConfig } = await import('../src/config.js')
       saveConfig(makeConfig({ telemetry: true }))
-      assert.equal(isTelemetryEnabled(), true)
+      expect(isTelemetryEnabled()).toBe(true)
     })
 
     it('returns true when config exists but telemetry field is absent', async () => {
       const { isTelemetryEnabled } = await import('../src/telemetry.js')
       const { saveConfig } = await import('../src/config.js')
       saveConfig(makeConfig())
-      assert.equal(isTelemetryEnabled(), true)
+      expect(isTelemetryEnabled()).toBe(true)
     })
 
     it('env var CANONRY_TELEMETRY_DISABLED takes precedence over config telemetry: true', async () => {
@@ -121,7 +120,7 @@ describe('telemetry', () => {
       const { saveConfig } = await import('../src/config.js')
       saveConfig(makeConfig({ telemetry: true }))
       process.env.CANONRY_TELEMETRY_DISABLED = '1'
-      assert.equal(isTelemetryEnabled(), false)
+      expect(isTelemetryEnabled()).toBe(false)
     })
 
     it('DO_NOT_TRACK takes precedence over config telemetry: true', async () => {
@@ -129,7 +128,7 @@ describe('telemetry', () => {
       const { saveConfig } = await import('../src/config.js')
       saveConfig(makeConfig({ telemetry: true }))
       process.env.DO_NOT_TRACK = '1'
-      assert.equal(isTelemetryEnabled(), false)
+      expect(isTelemetryEnabled()).toBe(false)
     })
   })
 
@@ -142,11 +141,11 @@ describe('telemetry', () => {
       saveConfig(makeConfig())
 
       const id = getOrCreateAnonymousId()
-      assert.ok(id)
-      assert.match(id!, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+      expect(id).toBeTruthy()
+      expect(id!).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
 
       const config = loadConfig()
-      assert.equal(config.anonymousId, id)
+      expect(config.anonymousId).toBe(id)
     })
 
     it('returns the same ID on subsequent calls (idempotent)', async () => {
@@ -156,12 +155,12 @@ describe('telemetry', () => {
 
       const id1 = getOrCreateAnonymousId()
       const id2 = getOrCreateAnonymousId()
-      assert.equal(id1, id2)
+      expect(id1).toBe(id2)
     })
 
     it('returns undefined when no config exists', async () => {
       const { getOrCreateAnonymousId } = await import('../src/telemetry.js')
-      assert.equal(getOrCreateAnonymousId(), undefined)
+      expect(getOrCreateAnonymousId()).toBe(undefined)
     })
 
     it('returns existing anonymousId from config without generating a new one', async () => {
@@ -171,7 +170,7 @@ describe('telemetry', () => {
       saveConfig(makeConfig({ anonymousId: existingId }))
 
       const id = getOrCreateAnonymousId()
-      assert.equal(id, existingId)
+      expect(id).toBe(existingId)
     })
 
     it('preserves all existing config fields when saving the new ID', async () => {
@@ -185,10 +184,10 @@ describe('telemetry', () => {
       getOrCreateAnonymousId()
 
       const config = loadConfig()
-      assert.equal(config.port, 5000)
-      assert.equal(config.providers?.gemini?.apiKey, 'test-key')
-      assert.equal(config.apiKey, 'cnry_test')
-      assert.ok(config.anonymousId)
+      expect(config.port).toBe(5000)
+      expect(config.providers?.gemini?.apiKey).toBe('test-key')
+      expect(config.apiKey).toBe('cnry_test')
+      expect(config.anonymousId).toBeTruthy()
     })
   })
 
@@ -197,21 +196,21 @@ describe('telemetry', () => {
   describe('isFirstRun', () => {
     it('returns false when no config exists (pre-init)', async () => {
       const { isFirstRun } = await import('../src/telemetry.js')
-      assert.equal(isFirstRun(), false)
+      expect(isFirstRun()).toBe(false)
     })
 
     it('returns true when config exists without anonymousId', async () => {
       const { isFirstRun } = await import('../src/telemetry.js')
       const { saveConfig } = await import('../src/config.js')
       saveConfig(makeConfig())
-      assert.equal(isFirstRun(), true)
+      expect(isFirstRun()).toBe(true)
     })
 
     it('returns false when config exists with anonymousId', async () => {
       const { isFirstRun } = await import('../src/telemetry.js')
       const { saveConfig } = await import('../src/config.js')
       saveConfig(makeConfig({ anonymousId: crypto.randomUUID() }))
-      assert.equal(isFirstRun(), false)
+      expect(isFirstRun()).toBe(false)
     })
   })
 
@@ -230,9 +229,9 @@ describe('telemetry', () => {
       try {
         showFirstRunNotice()
         const output = Buffer.concat(chunks).toString()
-        assert.ok(output.includes('anonymous telemetry'))
-        assert.ok(output.includes('canonry telemetry disable'))
-        assert.ok(output.includes('ainyc.ai/telemetry'))
+        expect(output.includes('anonymous telemetry')).toBeTruthy()
+        expect(output.includes('canonry telemetry disable')).toBeTruthy()
+        expect(output.includes('ainyc.ai/telemetry')).toBeTruthy()
       } finally {
         process.stderr.write = originalWrite
       }
@@ -255,7 +254,7 @@ describe('telemetry', () => {
 
       try {
         trackEvent('test.event', { foo: 'bar' })
-        assert.equal(fetchCalled, false, 'fetch should not be called when telemetry is disabled')
+        expect(fetchCalled, 'fetch should not be called when telemetry is disabled').toBe(false)
       } finally {
         globalThis.fetch = originalFetch
       }
@@ -273,7 +272,7 @@ describe('telemetry', () => {
 
       try {
         trackEvent('test.event')
-        assert.equal(fetchCalled, false, 'fetch should not be called when no config exists')
+        expect(fetchCalled, 'fetch should not be called when no config exists').toBe(false)
       } finally {
         globalThis.fetch = originalFetch
       }
@@ -304,19 +303,19 @@ describe('telemetry', () => {
         // Give the fire-and-forget fetch a tick to execute
         await new Promise(resolve => setTimeout(resolve, 10))
 
-        assert.equal(capturedMethod, 'POST')
-        assert.equal(capturedHeaders['content-type'], 'application/json')
+        expect(capturedMethod, 'fetch body should be set').toBe('POST')
+        expect(capturedHeaders['content-type']).toBe('application/json')
 
-        assert.ok(capturedBody, 'fetch body should be set')
+        expect(capturedBody).toBeTruthy()
         const payload = JSON.parse(capturedBody!)
-        assert.equal(payload.anonymousId, anonId)
-        assert.equal(payload.event, 'cli.command')
-        assert.equal(payload.os, process.platform)
-        assert.equal(payload.arch, process.arch)
-        assert.equal(payload.nodeVersion, process.versions.node)
-        assert.ok(payload.version, 'version should be set')
-        assert.ok(payload.timestamp, 'timestamp should be set')
-        assert.deepEqual(payload.properties, { command: 'run' })
+        expect(payload.anonymousId, 'version should be set').toBe(anonId)
+        expect(payload.event).toBe('cli.command')
+        expect(payload.os).toBe(process.platform)
+        expect(payload.arch).toBe(process.arch)
+        expect(payload.nodeVersion).toBe(process.versions.node)
+        expect(payload.version).toBeTruthy()
+        expect(payload.timestamp, 'timestamp should be set').toBeTruthy()
+        expect(payload.properties).toEqual({ command: 'run' })
       } finally {
         globalThis.fetch = originalFetch
       }
@@ -337,7 +336,7 @@ describe('telemetry', () => {
       try {
         trackEvent('test.event')
         await new Promise(resolve => setTimeout(resolve, 10))
-        assert.equal(capturedUrl, 'https://ainyc.ai/api/telemetry')
+        expect(capturedUrl).toBe('https://ainyc.ai/api/telemetry')
       } finally {
         globalThis.fetch = originalFetch
       }
@@ -379,7 +378,7 @@ describe('telemetry', () => {
         trackEvent('test.event')
         await new Promise(resolve => setTimeout(resolve, 10))
         const payload = JSON.parse(capturedBody!)
-        assert.equal(payload.properties, undefined)
+        expect(payload.properties).toBe(undefined)
       } finally {
         globalThis.fetch = originalFetch
       }
@@ -397,12 +396,12 @@ describe('telemetry', () => {
       telemetryCommand('disable')
 
       const config = loadConfig()
-      assert.equal(config.telemetry, false)
+      expect(config.telemetry).toBe(false)
 
       // Also verify the YAML on disk
       const raw = fs.readFileSync(getConfigPath(), 'utf-8')
       const parsed = parse(raw)
-      assert.equal(parsed.telemetry, false)
+      expect(parsed.telemetry).toBe(false)
     })
 
     it('enable sets telemetry: true in config file', async () => {
@@ -413,7 +412,7 @@ describe('telemetry', () => {
       telemetryCommand('enable')
 
       const config = loadConfig()
-      assert.equal(config.telemetry, true)
+      expect(config.telemetry).toBe(true)
     })
 
     it('disable then enable round-trips correctly', async () => {
@@ -423,13 +422,13 @@ describe('telemetry', () => {
       saveConfig(makeConfig())
 
       telemetryCommand('disable')
-      assert.equal(isTelemetryEnabled(), false)
+      expect(isTelemetryEnabled()).toBe(false)
 
       telemetryCommand('enable')
-      assert.equal(isTelemetryEnabled(), true)
+      expect(isTelemetryEnabled()).toBe(true)
 
       const config = loadConfig()
-      assert.equal(config.telemetry, true)
+      expect(config.telemetry).toBe(true)
     })
 
     it('status outputs "enabled" when telemetry is on', async () => {
@@ -443,7 +442,7 @@ describe('telemetry', () => {
 
       try {
         telemetryCommand('status')
-        assert.ok(logs.some(l => l.includes('enabled')))
+        expect(logs.some(l => l.includes('enabled'))).toBeTruthy()
       } finally {
         console.log = originalLog
       }
@@ -460,7 +459,7 @@ describe('telemetry', () => {
 
       try {
         telemetryCommand('status')
-        assert.ok(logs.some(l => l.includes('disabled')))
+        expect(logs.some(l => l.includes('disabled'))).toBeTruthy()
       } finally {
         console.log = originalLog
       }
@@ -479,11 +478,11 @@ describe('telemetry', () => {
       try {
         telemetryCommand('status')
         const idLine = logs.find(l => l.includes('Anonymous ID'))
-        assert.ok(idLine)
+        expect(idLine).toBeTruthy()
         // Should show first 8 chars + "..."
-        assert.ok(idLine!.includes(anonId.slice(0, 8) + '...'))
+        expect(idLine!.includes(anonId.slice(0, 8) + '...')).toBeTruthy()
         // Should NOT expose the full ID
-        assert.ok(!idLine!.includes(anonId))
+        expect(!idLine!.includes(anonId)).toBeTruthy()
       } finally {
         console.log = originalLog
       }
@@ -499,7 +498,7 @@ describe('telemetry', () => {
 
       try {
         telemetryCommand('status')
-        assert.ok(logs.some(l => l.includes('CANONRY_TELEMETRY_DISABLED')))
+        expect(logs.some(l => l.includes('CANONRY_TELEMETRY_DISABLED'))).toBeTruthy()
       } finally {
         console.log = originalLog
       }
@@ -515,7 +514,7 @@ describe('telemetry', () => {
 
       try {
         telemetryCommand('status')
-        assert.ok(logs.some(l => l.includes('DO_NOT_TRACK')))
+        expect(logs.some(l => l.includes('DO_NOT_TRACK'))).toBeTruthy()
       } finally {
         console.log = originalLog
       }
@@ -531,7 +530,7 @@ describe('telemetry', () => {
 
       try {
         telemetryCommand('status')
-        assert.ok(logs.some(l => l.includes('CI')))
+        expect(logs.some(l => l.includes('CI'))).toBeTruthy()
       } finally {
         console.log = originalLog
       }
@@ -549,10 +548,10 @@ describe('telemetry', () => {
       telemetryCommand('disable')
 
       const config = loadConfig()
-      assert.equal(config.telemetry, false)
-      assert.equal(config.port, 5000)
-      assert.equal(config.providers?.openai?.apiKey, 'sk-test')
-      assert.ok(config.anonymousId)
+      expect(config.telemetry).toBe(false)
+      expect(config.port).toBe(5000)
+      expect(config.providers?.openai?.apiKey).toBe('sk-test')
+      expect(config.anonymousId).toBeTruthy()
     })
   })
 
@@ -578,7 +577,7 @@ describe('telemetry', () => {
         if (command !== 'telemetry') {
           trackEvent('cli.command', { command: 'telemetry.disable' })
         }
-        assert.equal(fetchCalled, false, 'telemetry commands must not be tracked')
+        expect(fetchCalled, 'telemetry commands must not be tracked').toBe(false)
       } finally {
         globalThis.fetch = originalFetch
       }
@@ -590,11 +589,11 @@ describe('telemetry', () => {
       saveConfig(makeConfig({ telemetry: false }))
 
       // Verify telemetry is off
-      assert.equal(isTelemetryEnabled(), false)
+      expect(isTelemetryEnabled()).toBe(false)
 
       // A disabled config should not have anonymousId unless one was previously created
       const config = loadConfig()
-      assert.equal(config.anonymousId, undefined, 'anonymousId should not exist in a fresh disabled config')
+      expect(config.anonymousId, 'anonymousId should not exist in a fresh disabled config').toBe(undefined)
     })
 
     it('first-run notice is not shown for telemetry or init commands', async () => {
@@ -607,9 +606,9 @@ describe('telemetry', () => {
         return command !== 'telemetry' && command !== 'init' && isTelemetryEnabled() && isFirstRun()
       }
 
-      assert.equal(shouldShowNotice('telemetry'), false, 'first-run notice must not show for telemetry')
-      assert.equal(shouldShowNotice('init'), false, 'first-run notice must not show for init')
-      assert.equal(shouldShowNotice('run'), true, 'first-run notice should show for normal commands')
+      expect(shouldShowNotice('telemetry'), 'first-run notice must not show for telemetry').toBe(false)
+      expect(shouldShowNotice('init'), 'first-run notice must not show for init').toBe(false)
+      expect(shouldShowNotice('run'), 'first-run notice should show for normal commands').toBe(true)
     })
   })
 
@@ -620,14 +619,14 @@ describe('telemetry', () => {
       const { saveConfig, loadConfig } = await import('../src/config.js')
       saveConfig(makeConfig({ telemetry: false }))
       const loaded = loadConfig()
-      assert.equal(loaded.telemetry, false)
+      expect(loaded.telemetry).toBe(false)
     })
 
     it('telemetry: true persists through save/load cycle', async () => {
       const { saveConfig, loadConfig } = await import('../src/config.js')
       saveConfig(makeConfig({ telemetry: true }))
       const loaded = loadConfig()
-      assert.equal(loaded.telemetry, true)
+      expect(loaded.telemetry).toBe(true)
     })
 
     it('anonymousId persists through save/load cycle', async () => {
@@ -635,15 +634,15 @@ describe('telemetry', () => {
       const id = crypto.randomUUID()
       saveConfig(makeConfig({ anonymousId: id }))
       const loaded = loadConfig()
-      assert.equal(loaded.anonymousId, id)
+      expect(loaded.anonymousId).toBe(id)
     })
 
     it('config without telemetry fields loads with undefined', async () => {
       const { saveConfig, loadConfig } = await import('../src/config.js')
       saveConfig(makeConfig())
       const loaded = loadConfig()
-      assert.equal(loaded.telemetry, undefined)
-      assert.equal(loaded.anonymousId, undefined)
+      expect(loaded.telemetry).toBe(undefined)
+      expect(loaded.anonymousId).toBe(undefined)
     })
   })
 
@@ -704,22 +703,22 @@ describe('telemetry', () => {
         await new Promise(resolve => setTimeout(resolve, 50))
 
         // Verify telemetry was emitted with failure status
-        assert.ok(capturedPayloads.length >= 1, 'expected at least one telemetry event')
+        expect(capturedPayloads.length >= 1, 'expected at least one telemetry event').toBeTruthy()
         const runEvent = capturedPayloads.find(p => p.event === 'run.completed')
-        assert.ok(runEvent, 'expected a run.completed telemetry event')
-        assert.deepEqual(runEvent!.properties, {
+        expect(runEvent, 'expected a run.completed telemetry event').toBeTruthy()
+        expect(runEvent!.properties).toEqual({
           status: 'failed',
           providerCount: 0,
           providers: [],
           keywordCount: 0,
           durationMs: (runEvent!.properties as Record<string, unknown>).durationMs,
         })
-        assert.equal((runEvent!.properties as Record<string, unknown>).status, 'failed')
+        expect((runEvent!.properties as Record<string, unknown>).status).toBe('failed')
 
         // Verify the run was marked as failed in the DB
         const failedRun = db.select().from(runs).all().find(r => r.id === runId)
-        assert.equal(failedRun?.status, 'failed')
-        assert.ok(failedRun?.error?.includes('No providers configured'))
+        expect(failedRun?.status).toBe('failed')
+        expect(failedRun?.error?.includes('No providers configured')).toBeTruthy()
       } finally {
         globalThis.fetch = originalFetch
       }
@@ -779,9 +778,9 @@ describe('telemetry', () => {
         await new Promise(resolve => setTimeout(resolve, 50))
 
         const runEvent = capturedPayloads.find(p => p.event === 'run.completed')
-        assert.ok(runEvent, 'expected a run.completed telemetry event for missing project')
-        assert.equal((runEvent!.properties as Record<string, unknown>).status, 'failed')
-        assert.equal((runEvent!.properties as Record<string, unknown>).providerCount, 0)
+        expect(runEvent, 'expected a run.completed telemetry event for missing project').toBeTruthy()
+        expect((runEvent!.properties as Record<string, unknown>).status).toBe('failed')
+        expect((runEvent!.properties as Record<string, unknown>).providerCount).toBe(0)
       } finally {
         globalThis.fetch = originalFetch
       }

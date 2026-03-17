@@ -1,5 +1,4 @@
-import { describe, it, beforeEach, afterEach } from 'node:test'
-import assert from 'node:assert/strict'
+import { describe, it, beforeEach, afterEach, expect } from 'vitest'
 import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -8,7 +7,7 @@ import { createClient, migrate, apiKeys } from '@ainyc/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 
-describe('location CLI commands', { concurrency: 1 }, () => {
+describe('location CLI commands', () => {
   let tmpDir: string
   let origConfigDir: string | undefined
   let client: ApiClient
@@ -92,8 +91,8 @@ describe('location CLI commands', { concurrency: 1 }, () => {
     }
 
     const output = logs.join('\n')
-    assert.match(output, /nyc/)
-    assert.match(output, /New York/)
+    expect(output).toMatch(/nyc/)
+    expect(output).toMatch(/New York/)
   })
 
   it('project locations lists configured locations', async () => {
@@ -116,8 +115,8 @@ describe('location CLI commands', { concurrency: 1 }, () => {
     }
 
     const output = logs.join('\n')
-    assert.match(output, /nyc/)
-    assert.match(output, /New York/)
+    expect(output).toMatch(/nyc/)
+    expect(output).toMatch(/New York/)
   })
 
   it('project locations prints "No locations configured" when empty', async () => {
@@ -139,7 +138,7 @@ describe('location CLI commands', { concurrency: 1 }, () => {
     }
 
     const output = logs.join('\n')
-    assert.match(output, /No locations configured/)
+    expect(output).toMatch(/No locations configured/)
   })
 
   it('project remove-location removes a location and prints confirmation', async () => {
@@ -162,11 +161,11 @@ describe('location CLI commands', { concurrency: 1 }, () => {
     }
 
     const output = logs.join('\n')
-    assert.match(output, /nyc/)
+    expect(output).toMatch(/nyc/)
 
     // Verify it was actually removed
     const result = await client.listLocations('test-proj')
-    assert.equal(result.locations.length, 0)
+    expect(result.locations).toHaveLength(0)
   })
 
   it('project set-default-location sets the default location', async () => {
@@ -190,11 +189,11 @@ describe('location CLI commands', { concurrency: 1 }, () => {
     }
 
     const output = logs.join('\n')
-    assert.match(output, /nyc/)
+    expect(output).toMatch(/nyc/)
 
     // Verify default was actually set
     const result = await client.listLocations('test-proj')
-    assert.equal(result.defaultLocation, 'nyc')
+    expect(result.defaultLocation).toBe('nyc')
   })
 
   it('run --all-locations triggers one run per configured location', async () => {
@@ -219,9 +218,9 @@ describe('location CLI commands', { concurrency: 1 }, () => {
 
     const output = logs.join('\n')
     // Should show 2 location sweeps with multiplier in the output
-    assert.match(output, /2 location sweep/)
-    assert.match(output, /nyc/)
-    assert.match(output, /lax/)
+    expect(output).toMatch(/2 location sweep/)
+    expect(output).toMatch(/nyc/)
+    expect(output).toMatch(/lax/)
   })
 
   it('run --all-locations output includes API call multiplier', async () => {
@@ -246,8 +245,8 @@ describe('location CLI commands', { concurrency: 1 }, () => {
     }
 
     const output = logs.join('\n')
-    assert.match(output, /3 location sweep/)
-    assert.match(output, /3× API calls/)
+    expect(output).toMatch(/3 location sweep/)
+    expect(output).toMatch(/3× API calls/)
   })
 
   it('run --all-locations with format json outputs an array', async () => {
@@ -274,16 +273,16 @@ describe('location CLI commands', { concurrency: 1 }, () => {
     const jsonLine = logs.find(l => {
       try { JSON.parse(l); return true } catch { return false }
     })
-    assert.ok(jsonLine, 'should have a JSON log line')
+    expect(jsonLine, 'should have a JSON log line').toBeDefined()
     const parsed = JSON.parse(jsonLine) as Array<{ id: string; location: string; status: string }>
-    assert.ok(Array.isArray(parsed), 'response should be an array')
-    assert.equal(parsed.length, 2)
+    expect(parsed, 'response should be an array').toBeInstanceOf(Array)
+    expect(parsed).toHaveLength(2)
     const labels = parsed.map(r => r.location).sort()
-    assert.deepEqual(labels, ['lax', 'nyc'])
+    expect(labels).toEqual(['lax', 'nyc'])
     // Each run should have a valid id and status
     for (const r of parsed) {
-      assert.ok(r.id, 'each run should have an id')
-      assert.ok(r.status, 'each run should have a status')
+      expect(r.id, 'each run should have an id').toBeDefined()
+      expect(r.status, 'each run should have a status').toBeDefined()
     }
   })
 
@@ -296,9 +295,6 @@ describe('location CLI commands', { concurrency: 1 }, () => {
     })
 
     const { triggerRun } = await import('../src/commands/run.js')
-    await assert.rejects(
-      () => triggerRun('test-proj', { allLocations: true }),
-      /No locations configured/,
-    )
+    await expect(() => triggerRun('test-proj', { allLocations: true })).rejects.toThrow(/No locations configured/)
   })
 })

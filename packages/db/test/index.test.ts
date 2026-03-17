@@ -1,8 +1,7 @@
-import assert from 'node:assert/strict'
+import { test, expect, onTestFinished } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import test from 'node:test'
 
 import Database from 'better-sqlite3'
 import { eq } from 'drizzle-orm'
@@ -24,54 +23,54 @@ function cleanup(tmpDir: string) {
 
 test('createClient returns a drizzle instance with WAL mode', () => {
   const { db, tmpDir } = createTempDb()
-  assert.ok(db)
-  cleanup(tmpDir)
+  onTestFinished(() => cleanup(tmpDir))
+  expect(db).toBeDefined()
 })
 
 test('migrate creates all tables', () => {
   const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
 
   // Verify tables exist by querying them (would throw if missing)
   const projectRows = db.select().from(projects).all()
-  assert.deepEqual(projectRows, [])
+  expect(projectRows).toEqual([])
 
   const keywordRows = db.select().from(keywords).all()
-  assert.deepEqual(keywordRows, [])
+  expect(keywordRows).toEqual([])
 
   const runRows = db.select().from(runs).all()
-  assert.deepEqual(runRows, [])
+  expect(runRows).toEqual([])
 
   const snapshotRows = db.select().from(querySnapshots).all()
-  assert.deepEqual(snapshotRows, [])
+  expect(snapshotRows).toEqual([])
 
   const logRows = db.select().from(auditLog).all()
-  assert.deepEqual(logRows, [])
+  expect(logRows).toEqual([])
 
   const keyRows = db.select().from(apiKeys).all()
-  assert.deepEqual(keyRows, [])
+  expect(keyRows).toEqual([])
 
   const usageRows = db.select().from(usageCounters).all()
-  assert.deepEqual(usageRows, [])
+  expect(usageRows).toEqual([])
 
   const scheduleRows = db.select().from(schedules).all()
-  assert.deepEqual(scheduleRows, [])
+  expect(scheduleRows).toEqual([])
 
   const notifRows = db.select().from(notifications).all()
-  assert.deepEqual(notifRows, [])
-
-  cleanup(tmpDir)
+  expect(notifRows).toEqual([])
 })
 
 test('migrate is idempotent', () => {
   const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
   // Running migrate again should not throw
   migrate(db)
   migrate(db)
-  cleanup(tmpDir)
 })
 
 test('CRUD: insert and query a project', () => {
   const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
   const now = new Date().toISOString()
 
   db.insert(projects).values({
@@ -86,18 +85,17 @@ test('CRUD: insert and query a project', () => {
   }).run()
 
   const [project] = db.select().from(projects).where(eq(projects.name, 'test-project')).all()
-  assert.equal(project.id, 'proj_1')
-  assert.equal(project.displayName, 'Test Project')
-  assert.equal(project.configSource, 'cli')
-  assert.equal(project.configRevision, 1)
-  assert.deepEqual(JSON.parse(project.tags), [])
-  assert.deepEqual(JSON.parse(project.labels), {})
-
-  cleanup(tmpDir)
+  expect(project.id).toBe('proj_1')
+  expect(project.displayName).toBe('Test Project')
+  expect(project.configSource).toBe('cli')
+  expect(project.configRevision).toBe(1)
+  expect(JSON.parse(project.tags)).toEqual([])
+  expect(JSON.parse(project.labels)).toEqual({})
 })
 
 test('CRUD: insert keywords with project FK', () => {
   const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
   const now = new Date().toISOString()
 
   db.insert(projects).values({
@@ -119,14 +117,13 @@ test('CRUD: insert keywords with project FK', () => {
   }).run()
 
   const kws = db.select().from(keywords).where(eq(keywords.projectId, 'proj_1')).all()
-  assert.equal(kws.length, 1)
-  assert.equal(kws[0].keyword, 'emergency dentist brooklyn')
-
-  cleanup(tmpDir)
+  expect(kws).toHaveLength(1)
+  expect(kws[0].keyword).toBe('emergency dentist brooklyn')
 })
 
 test('CRUD: cascade delete removes keywords when project deleted', () => {
   const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
   const now = new Date().toISOString()
 
   db.insert(projects).values({
@@ -149,13 +146,12 @@ test('CRUD: cascade delete removes keywords when project deleted', () => {
 
   db.delete(projects).where(eq(projects.id, 'proj_1')).run()
   const kws = db.select().from(keywords).all()
-  assert.equal(kws.length, 0)
-
-  cleanup(tmpDir)
+  expect(kws).toHaveLength(0)
 })
 
 test('CRUD: insert run and query snapshot', () => {
   const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
   const now = new Date().toISOString()
 
   db.insert(projects).values({
@@ -198,14 +194,13 @@ test('CRUD: insert run and query snapshot', () => {
   }).run()
 
   const [snap] = db.select().from(querySnapshots).where(eq(querySnapshots.runId, 'run_1')).all()
-  assert.equal(snap.citationState, 'cited')
-  assert.deepEqual(JSON.parse(snap.citedDomains), ['example.com'])
-
-  cleanup(tmpDir)
+  expect(snap.citationState).toBe('cited')
+  expect(JSON.parse(snap.citedDomains)).toEqual(['example.com'])
 })
 
 test('unique constraint on keywords(project_id, keyword)', () => {
   const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
   const now = new Date().toISOString()
 
   db.insert(projects).values({
@@ -226,20 +221,19 @@ test('unique constraint on keywords(project_id, keyword)', () => {
     createdAt: now,
   }).run()
 
-  assert.throws(() => {
+  expect(() => {
     db.insert(keywords).values({
       id: 'kw_2',
       projectId: 'proj_1',
       keyword: 'duplicate',
       createdAt: now,
     }).run()
-  })
-
-  cleanup(tmpDir)
+  }).toThrow()
 })
 
 test('usage_counters unique constraint on (scope, period, metric)', () => {
   const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
   const now = new Date().toISOString()
 
   db.insert(usageCounters).values({
@@ -251,7 +245,7 @@ test('usage_counters unique constraint on (scope, period, metric)', () => {
     updatedAt: now,
   }).run()
 
-  assert.throws(() => {
+  expect(() => {
     db.insert(usageCounters).values({
       id: 'uc_2',
       scope: 'proj_1',
@@ -260,13 +254,12 @@ test('usage_counters unique constraint on (scope, period, metric)', () => {
       count: 2,
       updatedAt: now,
     }).run()
-  })
-
-  cleanup(tmpDir)
+  }).toThrow()
 })
 
 test('CRUD: insert and query a schedule', () => {
   const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
   const now = new Date().toISOString()
 
   db.insert(projects).values({
@@ -293,15 +286,14 @@ test('CRUD: insert and query a schedule', () => {
   }).run()
 
   const [sched] = db.select().from(schedules).where(eq(schedules.projectId, 'proj_1')).all()
-  assert.equal(sched.cronExpr, '0 6 * * *')
-  assert.equal(sched.preset, 'daily')
-  assert.equal(sched.enabled, 1)
-
-  cleanup(tmpDir)
+  expect(sched.cronExpr).toBe('0 6 * * *')
+  expect(sched.preset).toBe('daily')
+  expect(sched.enabled).toBe(1)
 })
 
 test('schedules unique constraint on project_id (one per project)', () => {
   const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
   const now = new Date().toISOString()
 
   db.insert(projects).values({
@@ -323,7 +315,7 @@ test('schedules unique constraint on project_id (one per project)', () => {
     updatedAt: now,
   }).run()
 
-  assert.throws(() => {
+  expect(() => {
     db.insert(schedules).values({
       id: 'sched_2',
       projectId: 'proj_1',
@@ -331,13 +323,12 @@ test('schedules unique constraint on project_id (one per project)', () => {
       createdAt: now,
       updatedAt: now,
     }).run()
-  })
-
-  cleanup(tmpDir)
+  }).toThrow()
 })
 
 test('CRUD: insert and query notifications', () => {
   const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
   const now = new Date().toISOString()
 
   db.insert(projects).values({
@@ -362,17 +353,16 @@ test('CRUD: insert and query notifications', () => {
   }).run()
 
   const notifs = db.select().from(notifications).where(eq(notifications.projectId, 'proj_1')).all()
-  assert.equal(notifs.length, 1)
-  assert.equal(notifs[0].channel, 'webhook')
+  expect(notifs).toHaveLength(1)
+  expect(notifs[0].channel).toBe('webhook')
   const config = JSON.parse(notifs[0].config) as { url: string; events: string[] }
-  assert.equal(config.url, 'https://hooks.example.com/test')
-  assert.deepEqual(config.events, ['citation.lost'])
-
-  cleanup(tmpDir)
+  expect(config.url).toBe('https://hooks.example.com/test')
+  expect(config.events).toEqual(['citation.lost'])
 })
 
 test('cascade delete removes schedules and notifications when project deleted', () => {
   const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
   const now = new Date().toISOString()
 
   db.insert(projects).values({
@@ -405,14 +395,13 @@ test('cascade delete removes schedules and notifications when project deleted', 
 
   db.delete(projects).where(eq(projects.id, 'proj_1')).run()
 
-  assert.equal(db.select().from(schedules).all().length, 0)
-  assert.equal(db.select().from(notifications).all().length, 0)
-
-  cleanup(tmpDir)
+  expect(db.select().from(schedules).all()).toHaveLength(0)
+  expect(db.select().from(notifications).all()).toHaveLength(0)
 })
 
 test('v4 migration adds owned_domains column to existing DB', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-test-'))
+  onTestFinished(() => cleanup(tmpDir))
   const dbPath = path.join(tmpDir, 'test.db')
 
   // Create a pre-v4 database without owned_domains column
@@ -448,8 +437,6 @@ test('v4 migration adds owned_domains column to existing DB', () => {
   migrate(db)
 
   const [project] = db.select().from(projects).where(eq(projects.name, 'test-project')).all()
-  assert.equal(project.canonicalDomain, 'example.com')
-  assert.equal(project.ownedDomains, '[]')
-
-  cleanup(tmpDir)
+  expect(project.canonicalDomain).toBe('example.com')
+  expect(project.ownedDomains).toBe('[]')
 })

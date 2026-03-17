@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "tsx --test test/*.test.ts",
+    "test": "vitest run",
     "lint": "eslint src/ test/"
   },
   "dependencies": {

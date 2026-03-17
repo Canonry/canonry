@@ -1,5 +1,4 @@
-import { describe, it, afterEach } from 'node:test'
-import assert from 'node:assert/strict'
+import { describe, it, afterEach, expect } from 'vitest'
 import http from 'node:http'
 import { fetchAndParseSitemap } from '../src/sitemap-parser.js'
 
@@ -45,10 +44,10 @@ describe('fetchAndParseSitemap', () => {
     server = s.server
 
     const urls = await fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`)
-    assert.equal(urls.length, 3)
-    assert.ok(urls.includes('https://example.com/'))
-    assert.ok(urls.includes('https://example.com/about'))
-    assert.ok(urls.includes('https://example.com/blog'))
+    expect(urls.length).toBe(3)
+    expect(urls.includes('https://example.com/')).toBeTruthy()
+    expect(urls.includes('https://example.com/about')).toBeTruthy()
+    expect(urls.includes('https://example.com/blog')).toBeTruthy()
   })
 
   it('deduplicates URLs', async () => {
@@ -63,7 +62,7 @@ describe('fetchAndParseSitemap', () => {
     server = s.server
 
     const urls = await fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`)
-    assert.equal(urls.length, 2)
+    expect(urls.length).toBe(2)
   })
 
   it('handles sitemap index files', async () => {
@@ -102,19 +101,16 @@ describe('fetchAndParseSitemap', () => {
     server = s.server
 
     const urls = await fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`)
-    assert.equal(urls.length, 2)
-    assert.ok(urls.includes('https://example.com/page1'))
-    assert.ok(urls.includes('https://example.com/page2'))
+    expect(urls.length).toBe(2)
+    expect(urls.includes('https://example.com/page1')).toBeTruthy()
+    expect(urls.includes('https://example.com/page2')).toBeTruthy()
   })
 
   it('throws when sitemap returns 404', async () => {
     const s = await createServer({})
     server = s.server
 
-    await assert.rejects(
-      () => fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`),
-      (err: Error) => err.message.includes('404'),
-    )
+    await expect(() => fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`)).rejects.toThrow('404')
   })
 
   it('returns empty array for sitemap with no URLs', async () => {
@@ -126,6 +122,6 @@ describe('fetchAndParseSitemap', () => {
     server = s.server
 
     const urls = await fetchAndParseSitemap(`${s.baseUrl}/sitemap.xml`)
-    assert.equal(urls.length, 0)
+    expect(urls.length).toBe(0)
   })
 })

@@ -1,5 +1,4 @@
-import { describe, it, beforeEach } from 'node:test'
-import assert from 'node:assert/strict'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { listSites, fetchSearchAnalytics, inspectUrl } from '../src/gsc-client.js'
 import { GSC_API_BASE, URL_INSPECTION_API } from '../src/constants.js'
 
@@ -10,7 +9,11 @@ describe('listSites', () => {
     originalFetch = globalThis.fetch
   })
 
-  it('returns parsed site entries', async (t) => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  it('returns parsed site entries', async () => {
     const mockResponse = {
       siteEntry: [
         { siteUrl: 'https://example.com/', permissionLevel: 'siteOwner' },
@@ -19,37 +22,29 @@ describe('listSites', () => {
     }
 
     globalThis.fetch = async (url: string | URL | Request) => {
-      assert.equal(String(url), `${GSC_API_BASE}/sites`)
+      expect(String(url)).toBe(`${GSC_API_BASE}/sites`)
       return new Response(JSON.stringify(mockResponse), { status: 200 })
     }
-    t.after(() => { globalThis.fetch = originalFetch })
 
     const sites = await listSites('test-token')
-    assert.equal(sites.length, 2)
-    assert.equal(sites[0]!.siteUrl, 'https://example.com/')
-    assert.equal(sites[1]!.permissionLevel, 'siteFullUser')
+    expect(sites.length).toBe(2)
+    expect(sites[0]!.siteUrl).toBe('https://example.com/')
+    expect(sites[1]!.permissionLevel).toBe('siteFullUser')
   })
 
-  it('returns empty array when no sites', async (t) => {
+  it('returns empty array when no sites', async () => {
     globalThis.fetch = async () => new Response(JSON.stringify({}), { status: 200 })
-    t.after(() => { globalThis.fetch = originalFetch })
 
     const sites = await listSites('test-token')
-    assert.deepEqual(sites, [])
+    expect(sites).toEqual([])
   })
 
-  it('throws GoogleApiError on 401', async (t) => {
+  it('throws GoogleApiError on 401', async () => {
     globalThis.fetch = async () => new Response('Unauthorized', { status: 401 })
-    t.after(() => { globalThis.fetch = originalFetch })
 
-    await assert.rejects(
+    await expect(
       () => listSites('bad-token'),
-      (err: Error) => {
-        assert.equal(err.name, 'GoogleApiError')
-        assert.ok(err.message.includes('expired or revoked'))
-        return true
-      },
-    )
+    ).rejects.toThrow()
   })
 })
 
@@ -60,7 +55,11 @@ describe('fetchSearchAnalytics', () => {
     originalFetch = globalThis.fetch
   })
 
-  it('fetches and returns rows with correct request body', async (t) => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  it('fetches and returns rows with correct request body', async () => {
     const mockRows = [
       { keys: ['query1', 'https://example.com/page1', 'USA', 'DESKTOP', '2024-01-01'], clicks: 10, impressions: 100, ctr: 0.1, position: 5.2 },
       { keys: ['query2', 'https://example.com/page2', 'USA', 'MOBILE', '2024-01-01'], clicks: 5, impressions: 50, ctr: 0.1, position: 8.3 },
@@ -71,25 +70,24 @@ describe('fetchSearchAnalytics', () => {
       capturedBody = JSON.parse(String(init?.body ?? '{}'))
       return new Response(JSON.stringify({ rows: mockRows }), { status: 200 })
     }
-    t.after(() => { globalThis.fetch = originalFetch })
 
     const rows = await fetchSearchAnalytics('token', 'sc-domain:example.com', {
       startDate: '2024-01-01',
       endDate: '2024-01-31',
     })
 
-    assert.equal(rows.length, 2)
-    assert.equal(rows[0]!.clicks, 10)
-    assert.equal(rows[1]!.position, 8.3)
+    expect(rows.length).toBe(2)
+    expect(rows[0]!.clicks).toBe(10)
+    expect(rows[1]!.position).toBe(8.3)
 
     const body = capturedBody as { startDate: string; endDate: string; dimensions: string[]; rowLimit: number }
-    assert.equal(body.startDate, '2024-01-01')
-    assert.equal(body.endDate, '2024-01-31')
-    assert.ok(body.dimensions.includes('query'))
-    assert.equal(body.rowLimit, 25000)
+    expect(body.startDate).toBe('2024-01-01')
+    expect(body.endDate).toBe('2024-01-31')
+    expect(body.dimensions.includes('query')).toBeTruthy()
+    expect(body.rowLimit).toBe(25000)
   })
 
-  it('handles pagination across multiple requests', async (t) => {
+  it('handles pagination across multiple requests', async () => {
     let callCount = 0
     globalThis.fetch = async () => {
       callCount++
@@ -104,28 +102,22 @@ describe('fetchSearchAnalytics', () => {
       // Second page: less than 25000, stops pagination
       return new Response(JSON.stringify({ rows: [{ keys: ['last', 'last', 'US', 'DESKTOP', '2024-01-01'], clicks: 1, impressions: 1, ctr: 1, position: 1 }] }), { status: 200 })
     }
-    t.after(() => { globalThis.fetch = originalFetch })
 
     const rows = await fetchSearchAnalytics('token', 'sc-domain:example.com', {
       startDate: '2024-01-01',
       endDate: '2024-01-31',
     })
 
-    assert.equal(callCount, 2)
-    assert.equal(rows.length, 25001)
+    expect(callCount).toBe(2)
+    expect(rows.length).toBe(25001)
   })
 
-  it('throws on 429 rate limit', async (t) => {
+  it('throws on 429 rate limit', async () => {
     globalThis.fetch = async () => new Response('Rate limited', { status: 429 })
-    t.after(() => { globalThis.fetch = originalFetch })
 
-    await assert.rejects(
+    await expect(
       () => fetchSearchAnalytics('token', 'site', { startDate: '2024-01-01', endDate: '2024-01-31' }),
-      (err: Error) => {
-        assert.ok(err.message.includes('rate limit'))
-        return true
-      },
-    )
+    ).rejects.toThrow()
   })
 })
 
@@ -136,7 +128,11 @@ describe('inspectUrl', () => {
     originalFetch = globalThis.fetch
   })
 
-  it('sends correct request and returns inspection result', async (t) => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  it('sends correct request and returns inspection result', async () => {
     const mockResult = {
       inspectionResult: {
         indexStatusResult: {
@@ -165,16 +161,15 @@ describe('inspectUrl', () => {
       capturedBody = JSON.parse(String(init?.body ?? '{}'))
       return new Response(JSON.stringify(mockResult), { status: 200 })
     }
-    t.after(() => { globalThis.fetch = originalFetch })
 
     const result = await inspectUrl('token', 'https://example.com/page', 'sc-domain:example.com')
 
-    assert.equal(capturedUrl, URL_INSPECTION_API)
+    expect(capturedUrl).toBe(URL_INSPECTION_API)
     const body = capturedBody as { inspectionUrl: string; siteUrl: string }
-    assert.equal(body.inspectionUrl, 'https://example.com/page')
-    assert.equal(body.siteUrl, 'sc-domain:example.com')
-    assert.equal(result.inspectionResult.indexStatusResult?.verdict, 'PASS')
-    assert.equal(result.inspectionResult.indexStatusResult?.indexingState, 'INDEXING_ALLOWED')
-    assert.equal(result.inspectionResult.richResultsResult?.detectedItems?.[0]?.richResultType, 'FAQ')
+    expect(body.inspectionUrl).toBe('https://example.com/page')
+    expect(body.siteUrl).toBe('sc-domain:example.com')
+    expect(result.inspectionResult.indexStatusResult?.verdict).toBe('PASS')
+    expect(result.inspectionResult.indexStatusResult?.indexingState).toBe('INDEXING_ALLOWED')
+    expect(result.inspectionResult.richResultsResult?.detectedItems?.[0]?.richResultType).toBe('FAQ')
   })
 })

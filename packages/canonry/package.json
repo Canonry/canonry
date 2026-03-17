@@ -38,7 +38,7 @@
     "build:web": "tsx build-web.ts",
     "prepublishOnly": "cp ../../README.md ./README.md && pnpm run build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "tsx --test test/*.test.ts",
+    "test": "vitest run",
     "lint": "eslint src/ test/"
   },
   "dependencies": {

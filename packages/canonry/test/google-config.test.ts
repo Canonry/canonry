@@ -1,5 +1,4 @@
-import test from 'node:test'
-import assert from 'node:assert/strict'
+import { test, expect } from 'vitest'
 
 import type { CanonryConfig } from '../src/config.js'
 import {
@@ -40,18 +39,18 @@ test('google config helpers store auth credentials and domain-scoped connections
   })
 
   const conn = getGoogleConnection(config, 'example.com', 'gsc')
-  assert.ok(conn)
-  assert.equal(conn.propertyId, 'sc-domain:example.com')
-  assert.equal(conn.refreshToken, 'refresh-token')
-  assert.deepEqual(listGoogleConnections(config, 'example.com').map((entry) => entry.connectionType), ['gsc'])
+  expect(conn).toBeTruthy()
+  expect(conn.propertyId).toBe('sc-domain:example.com')
+  expect(conn.refreshToken).toBe('refresh-token')
+  expect(listGoogleConnections(config, 'example.com').map((entry) => entry.connectionType)).toEqual(['gsc'])
 
   const updated = patchGoogleConnection(config, 'example.com', 'gsc', {
     accessToken: 'new-access-token',
     updatedAt: new Date().toISOString(),
   })
-  assert.ok(updated)
-  assert.equal(updated.accessToken, 'new-access-token')
+  expect(updated).toBeTruthy()
+  expect(updated.accessToken).toBe('new-access-token')
 
-  assert.equal(removeGoogleConnection(config, 'example.com', 'gsc'), true)
-  assert.equal(getGoogleConnection(config, 'example.com', 'gsc'), undefined)
+  expect(removeGoogleConnection(config, 'example.com', 'gsc')).toBe(true)
+  expect(getGoogleConnection(config, 'example.com', 'gsc')).toBe(undefined)
 })

@@ -1,5 +1,4 @@
-import assert from 'node:assert/strict'
-import test from 'node:test'
+import { test, expect } from 'vitest'
 import { resolveWebhookTarget } from '../src/webhooks.js'
 
 test('resolveWebhookTarget rejects loopback and private literal addresses', async () => {
@@ -11,14 +10,14 @@ test('resolveWebhookTarget rejects loopback and private literal addresses', asyn
     'http://[fc00::1]/hook',
   ]) {
     const result = await resolveWebhookTarget(url)
-    assert.equal(result.ok, false)
+    expect(result.ok).toBe(false)
   }
 })
 
 test('resolveWebhookTarget accepts public literal addresses', async () => {
   const result = await resolveWebhookTarget('https://8.8.8.8/hook')
-  assert.equal(result.ok, true)
+  expect(result.ok).toBe(true)
   if (result.ok) {
-    assert.equal(result.target.address, '8.8.8.8')
+    expect(result.target.address).toBe('8.8.8.8')
   }
 })

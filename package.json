@@ -6,7 +6,7 @@
   "packageManager": "pnpm@10.28.2",
   "scripts": {
     "typecheck": "pnpm -r run typecheck",
-    "test": "pnpm -r run test",
+    "test": "vitest run",
     "lint": "pnpm -r run lint",
     "dev:api": "pnpm --filter @ainyc/canonry-api run dev",
     "dev:worker": "pnpm --filter @ainyc/canonry-worker run dev",
@@ -21,7 +21,8 @@
     "husky": "^9.1.7",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
-    "typescript-eslint": "^8.43.0"
+    "typescript-eslint": "^8.43.0",
+    "vitest": "^4.1.0"
   },
   "pnpm": {
     "overrides": {

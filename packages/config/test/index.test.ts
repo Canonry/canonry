@@ -1,17 +1,16 @@
-import assert from 'node:assert/strict'
-import test from 'node:test'
+import { test, expect } from 'vitest'
 
 import { getBootstrapEnv, getPlatformEnv } from '../src/index.js'
 
 test('getPlatformEnv returns defaults when no env vars set', () => {
   const env = getPlatformEnv({})
 
-  assert.equal(env.apiPort, 3000)
-  assert.equal(env.workerPort, 3001)
-  assert.equal(env.webPort, 4173)
-  assert.equal(env.bootstrapSecret, 'change-me')
+  expect(env.apiPort).toBe(3000)
+  expect(env.workerPort).toBe(3001)
+  expect(env.webPort).toBe(4173)
+  expect(env.bootstrapSecret).toBe('change-me')
   // No providers configured by default
-  assert.deepEqual(env.providers, {})
+  expect(env.providers).toEqual({})
 })
 
 test('getPlatformEnv configures Gemini provider from env vars', () => {
@@ -28,13 +27,13 @@ test('getPlatformEnv configures Gemini provider from env vars', () => {
     GEMINI_MAX_REQUESTS_PER_DAY: '1500',
   })
 
-  assert.equal(env.databaseUrl, 'postgresql://custom')
-  assert.equal(env.apiPort, 4100)
-  assert.equal(env.bootstrapSecret, 'secret')
-  assert.ok(env.providers.gemini)
-  assert.equal(env.providers.gemini!.apiKey, 'gemini-key')
-  assert.equal(env.providers.gemini!.model, 'gemini-2.5-flash')
-  assert.deepEqual(env.providers.gemini!.quota, {
+  expect(env.databaseUrl).toBe('postgresql://custom')
+  expect(env.apiPort).toBe(4100)
+  expect(env.bootstrapSecret).toBe('secret')
+  expect(env.providers.gemini).toBeTruthy()
+  expect(env.providers.gemini!.apiKey).toBe('gemini-key')
+  expect(env.providers.gemini!.model).toBe('gemini-2.5-flash')
+  expect(env.providers.gemini!.quota).toEqual({
     maxConcurrency: 5,
     maxRequestsPerMinute: 15,
     maxRequestsPerDay: 1500,
@@ -48,12 +47,12 @@ test('getPlatformEnv configures multiple providers', () => {
     ANTHROPIC_API_KEY: 'claude-key',
   })
 
-  assert.ok(env.providers.gemini)
-  assert.ok(env.providers.openai)
-  assert.ok(env.providers.claude)
-  assert.equal(env.providers.gemini!.apiKey, 'gemini-key')
-  assert.equal(env.providers.openai!.apiKey, 'openai-key')
-  assert.equal(env.providers.claude!.apiKey, 'claude-key')
+  expect(env.providers.gemini).toBeTruthy()
+  expect(env.providers.openai).toBeTruthy()
+  expect(env.providers.claude).toBeTruthy()
+  expect(env.providers.gemini!.apiKey).toBe('gemini-key')
+  expect(env.providers.openai!.apiKey).toBe('openai-key')
+  expect(env.providers.claude!.apiKey).toBe('claude-key')
 })
 
 test('getPlatformEnv omits providers without API keys', () => {
@@ -61,9 +60,9 @@ test('getPlatformEnv omits providers without API keys', () => {
     GEMINI_API_KEY: 'gemini-key',
   })
 
-  assert.ok(env.providers.gemini)
-  assert.equal(env.providers.openai, undefined)
-  assert.equal(env.providers.claude, undefined)
+  expect(env.providers.gemini).toBeTruthy()
+  expect(env.providers.openai).toBe(undefined)
+  expect(env.providers.claude).toBe(undefined)
 })
 
 test('getBootstrapEnv parses hosted Canonry env vars', () => {
@@ -77,13 +76,13 @@ test('getBootstrapEnv parses hosted Canonry env vars', () => {
     GOOGLE_CLIENT_SECRET: 'google-client-secret',
   })
 
-  assert.equal(env.apiKey, 'cnry_test')
-  assert.equal(env.apiUrl, 'https://canonry.example.com')
-  assert.equal(env.databasePath, '/data/canonry/data.db')
-  assert.equal(env.providers.gemini?.apiKey, 'gemini-key')
-  assert.equal(env.providers.gemini?.model, 'gemini-3-flash')
-  assert.equal(env.providers.local?.baseUrl, 'http://localhost:11434/v1')
-  assert.equal(env.providers.local?.model, 'llama3')
-  assert.equal(env.googleClientId, 'google-client-id')
-  assert.equal(env.googleClientSecret, 'google-client-secret')
+  expect(env.apiKey).toBe('cnry_test')
+  expect(env.apiUrl).toBe('https://canonry.example.com')
+  expect(env.databasePath).toBe('/data/canonry/data.db')
+  expect(env.providers.gemini?.apiKey).toBe('gemini-key')
+  expect(env.providers.gemini?.model).toBe('gemini-3-flash')
+  expect(env.providers.local?.baseUrl).toBe('http://localhost:11434/v1')
+  expect(env.providers.local?.model).toBe('llama3')
+  expect(env.googleClientId).toBe('google-client-id')
+  expect(env.googleClientSecret).toBe('google-client-secret')
 })

@@ -1,5 +1,4 @@
-import { describe, it, beforeEach, afterEach } from 'node:test'
-import assert from 'node:assert/strict'
+import { describe, it, beforeEach, afterEach, expect } from 'vitest'
 import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -8,7 +7,7 @@ import { createClient, migrate, apiKeys } from '@ainyc/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 
-describe('google CLI commands', { concurrency: 1 }, () => {
+describe('google CLI commands', () => {
   let tmpDir: string
   let origConfigDir: string | undefined
   let client: ApiClient
@@ -109,7 +108,7 @@ describe('google CLI commands', { concurrency: 1 }, () => {
       console.log = origLog
     }
 
-    assert.match(logs.join('\n'), /No URL inspections found/)
+    expect(logs.join('\n')).toMatch(/No URL inspections found/)
   })
 
   it('googleCoverage outputs valid JSON with summary when format is json', async () => {
@@ -131,8 +130,8 @@ describe('google CLI commands', { concurrency: 1 }, () => {
     }
 
     const parsed = JSON.parse(logs.join('\n')) as { summary: { total: number } }
-    assert.ok('summary' in parsed, 'JSON output should contain a summary field')
-    assert.equal(parsed.summary.total, 0)
+    expect('summary' in parsed, 'JSON output should contain a summary field').toBeTruthy()
+    expect(parsed.summary.total).toBe(0)
   })
 
   it('googleInspectSitemap prints run ID after queuing', async () => {
@@ -154,7 +153,7 @@ describe('google CLI commands', { concurrency: 1 }, () => {
     }
 
     const output = logs.join('\n')
-    assert.match(output, /Sitemap inspection started/)
+    expect(output).toMatch(/Sitemap inspection started/)
   })
 
   it('googleSetSitemap prints confirmation after saving sitemap URL', async () => {
@@ -175,8 +174,8 @@ describe('google CLI commands', { concurrency: 1 }, () => {
       console.log = origLog
     }
 
-    assert.match(logs.join('\n'), /GSC sitemap URL set to/)
-    assert.match(logs.join('\n'), /https:\/\/example\.com\/sitemap\.xml/)
+    expect(logs.join('\n')).toMatch(/GSC sitemap URL set to/)
+    expect(logs.join('\n')).toMatch(/https:\/\/example\.com\/sitemap\.xml/)
   })
 
   it('googleListSitemaps rejects when the GSC access token is rejected by Google', async () => {
@@ -190,10 +189,7 @@ describe('google CLI commands', { concurrency: 1 }, () => {
     const { googleListSitemaps } = await import('../src/commands/google.js')
     // The fake access token causes Google to return 401, which gscFetch propagates as
     // a GoogleApiError(401) → Fastify returns HTTP 401 → ApiClient throws
-    await assert.rejects(
-      () => googleListSitemaps('test-proj', {}),
-      (err: Error) => err.message.includes('HTTP 401'),
-    )
+    await expect(() => googleListSitemaps('test-proj', {})).rejects.toThrow('HTTP 401')
   })
 
   it('googleDiscoverSitemaps rejects when the GSC access token is rejected by Google', async () => {
@@ -207,9 +203,6 @@ describe('google CLI commands', { concurrency: 1 }, () => {
     const { googleDiscoverSitemaps } = await import('../src/commands/google.js')
     // The fake access token causes Google to return 401, which gscFetch propagates as
     // a GoogleApiError(401) → Fastify returns HTTP 401 → ApiClient throws
-    await assert.rejects(
-      () => googleDiscoverSitemaps('test-proj', { wait: false }),
-      (err: Error) => err.message.includes('HTTP 401'),
-    )
+    await expect(() => googleDiscoverSitemaps('test-proj', { wait: false })).rejects.toThrow('HTTP 401')
   })
 })

@@ -13,7 +13,7 @@
   "types": "./src/index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "tsx --test test/*.test.ts",
+    "test": "vitest run",
     "lint": "eslint src/ test/"
   },
   "dependencies": {

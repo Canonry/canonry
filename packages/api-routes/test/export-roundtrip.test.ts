@@ -1,8 +1,7 @@
-import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import test from 'node:test'
+import { test, expect } from 'vitest'
 import Fastify from 'fastify'
 import { createClient, migrate } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
@@ -61,7 +60,7 @@ test('project export includes schedule and notifications for round-tripping', as
       url: '/api/v1/projects/exportable/export',
     })
 
-    assert.equal(exportRes.statusCode, 200)
+    expect(exportRes.statusCode).toBe(200)
     const body = JSON.parse(exportRes.body) as {
       spec: {
         ownedDomains: string[]
@@ -70,13 +69,13 @@ test('project export includes schedule and notifications for round-tripping', as
       }
     }
 
-    assert.deepEqual(body.spec.ownedDomains, ['docs.example.com'])
-    assert.deepEqual(body.spec.schedule, {
+    expect(body.spec.ownedDomains).toEqual(['docs.example.com'])
+    expect(body.spec.schedule).toEqual({
       preset: 'daily',
       timezone: 'UTC',
       providers: ['gemini'],
     })
-    assert.deepEqual(body.spec.notifications, [{
+    expect(body.spec.notifications).toEqual([{
       channel: 'webhook',
       url: 'https://8.8.8.8/hook',
       events: ['run.completed'],
@@ -112,8 +111,8 @@ test('project delete invokes onProjectDeleted callback', async () => {
       url: '/api/v1/projects/to-delete',
     })
 
-    assert.equal(deleteRes.statusCode, 204)
-    assert.deepEqual(deletedProjectIds, [created.id])
+    expect(deleteRes.statusCode).toBe(204)
+    expect(deletedProjectIds).toEqual([created.id])
   } finally {
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })

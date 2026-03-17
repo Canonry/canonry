@@ -1,20 +1,19 @@
-import assert from 'node:assert/strict'
+import { test, expect, onTestFinished } from 'vitest'
 import dns from 'node:dns/promises'
-import test from 'node:test'
 
 import { auditClientDescriptor, describeAuditClient, runTechnicalAudit } from '../src/audit-client.js'
 
 const EXAMPLE_IP = '93.184.216.34'
 
 test('audit client descriptor identifies the published npm package boundary', () => {
-  assert.deepEqual(auditClientDescriptor, {
+  expect(auditClientDescriptor).toEqual({
     packageName: '@ainyc/aeo-audit',
     source: 'npm',
   })
-  assert.equal(describeAuditClient(), '@ainyc/aeo-audit via npm')
+  expect(describeAuditClient()).toBe('@ainyc/aeo-audit via npm')
 })
 
-test('runTechnicalAudit delegates to the published audit package', async (t) => {
+test('runTechnicalAudit delegates to the published audit package', async () => {
   const realFetch = globalThis.fetch
   const dnsStub = dns as typeof dns & {
     resolve4: typeof dns.resolve4
@@ -98,7 +97,7 @@ test('runTechnicalAudit delegates to the published audit package', async (t) => 
     })
   }) as typeof fetch
 
-  t.after(() => {
+  onTestFinished(() => {
     globalThis.fetch = realFetch
     dnsStub.resolve4 = realResolve4
     dnsStub.resolve6 = realResolve6
@@ -106,13 +105,13 @@ test('runTechnicalAudit delegates to the published audit package', async (t) => 
 
   const report = await runTechnicalAudit('https://example.com')
 
-  assert.equal(report.url, 'https://example.com/')
-  assert.equal(report.finalUrl, 'https://example.com/')
-  assert.equal(report.metadata.pageTitle, 'Example AEO Page')
-  assert.equal(report.metadata.auxiliary.llmsTxt, 'ok')
-  assert.equal(report.metadata.auxiliary.robotsTxt, 'ok')
-  assert.equal(report.metadata.auxiliary.sitemapXml, 'ok')
-  assert.equal(typeof report.overallScore, 'number')
-  assert.ok(report.factors.length > 0)
-  assert.match(report.summary, /Overall grade/)
+  expect(report.url).toBe('https://example.com/')
+  expect(report.finalUrl).toBe('https://example.com/')
+  expect(report.metadata.pageTitle).toBe('Example AEO Page')
+  expect(report.metadata.auxiliary.llmsTxt).toBe('ok')
+  expect(report.metadata.auxiliary.robotsTxt).toBe('ok')
+  expect(report.metadata.auxiliary.sitemapXml).toBe('ok')
+  expect(typeof report.overallScore).toBe('number')
+  expect(report.factors.length > 0).toBeTruthy()
+  expect(report.summary).toMatch(/Overall grade/)
 })

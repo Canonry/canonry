@@ -1,8 +1,7 @@
-import assert from 'node:assert/strict'
+import { test, expect, onTestFinished } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import test from 'node:test'
 
 import { getPlatformEnv } from '@ainyc/canonry-config'
 import { createClient, migrate } from '@ainyc/canonry-db'
@@ -10,11 +9,11 @@ import { createClient, migrate } from '@ainyc/canonry-db'
 import { buildApp } from '../src/app.js'
 import { loadApiEnv } from '../src/plugins/env.js'
 
-test('buildApp registers health and API routes', async (t) => {
+test('buildApp registers health and API routes', async () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'api-test-'))
   const dbPath = path.join(tmpDir, 'test.db')
 
-  t.after(() => {
+  onTestFinished(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
@@ -29,7 +28,7 @@ test('buildApp registers health and API routes', async (t) => {
   })
   const app = buildApp(env)
 
-  t.after(async () => {
+  onTestFinished(async () => {
     await app.close()
   })
 
@@ -37,8 +36,8 @@ test('buildApp registers health and API routes', async (t) => {
     method: 'GET',
     url: '/health',
   })
-  assert.equal(healthResponse.statusCode, 200)
-  assert.deepEqual(healthResponse.json(), {
+  expect(healthResponse.statusCode).toBe(200)
+  expect(healthResponse.json()).toEqual({
     service: 'aeo-platform-api',
     status: 'ok',
     version: '0.1.0',
@@ -52,17 +51,16 @@ test('buildApp registers health and API routes', async (t) => {
     url: '/api/v1/projects',
   })
   // Auth or success — either way, the route exists (not 404)
-  assert.ok(
+  expect(
     [200, 401].includes(projectsResponse.statusCode),
-    `Expected 200 or 401 but got ${projectsResponse.statusCode}`,
-  )
+  ).toBeTruthy()
 
   const openApiResponse = await app.inject({
     method: 'GET',
     url: '/api/v1/openapi.json',
   })
-  assert.equal(openApiResponse.statusCode, 200)
-  assert.equal(openApiResponse.json().info.version, '0.1.0')
+  expect(openApiResponse.statusCode).toBe(200)
+  expect(openApiResponse.json().info.version).toBe('0.1.0')
 })
 
 test('loadApiEnv delegates to shared platform config', () => {
@@ -78,11 +76,11 @@ test('loadApiEnv delegates to shared platform config', () => {
     GEMINI_MAX_REQUESTS_PER_DAY: '500',
   })
 
-  assert.equal(env.apiPort, 4100)
-  assert.equal(env.workerPort, 4101)
-  assert.equal(env.bootstrapSecret, 'secret')
-  assert.ok(env.providers.gemini)
-  assert.deepEqual(env.providers.gemini!.quota, {
+  expect(env.apiPort).toBe(4100)
+  expect(env.workerPort).toBe(4101)
+  expect(env.bootstrapSecret).toBe('secret')
+  expect(env.providers.gemini).toBeTruthy()
+  expect(env.providers.gemini!.quota).toEqual({
     maxConcurrency: 4,
     maxRequestsPerMinute: 15,
     maxRequestsPerDay: 500,

@@ -1,5 +1,4 @@
-import assert from 'node:assert/strict'
-import test from 'node:test'
+import { describe, test, expect } from 'vitest'
 
 import {
   AppError,
@@ -17,6 +16,7 @@ import {
   notificationEventSchema,
   effectiveDomains,
   normalizeProjectDomain,
+  locationContextSchema,
 } from '../src/index.js'
 
 test('projectDtoSchema applies defaults for tags, labels, configSource, configRevision', () => {
@@ -28,16 +28,16 @@ test('projectDtoSchema applies defaults for tags, labels, configSource, configRe
     language: 'en',
   })
 
-  assert.deepEqual(project.tags, [])
-  assert.deepEqual(project.labels, {})
-  assert.deepEqual(project.ownedDomains, [])
-  assert.equal(project.configSource, 'cli')
-  assert.equal(project.configRevision, 1)
+  expect(project.tags).toEqual([])
+  expect(project.labels).toEqual({})
+  expect(project.ownedDomains).toEqual([])
+  expect(project.configSource).toBe('cli')
+  expect(project.configRevision).toBe(1)
 })
 
 test('normalizeProjectDomain strips scheme and www prefix', () => {
-  assert.equal(normalizeProjectDomain('https://www.Docs.Example.com/path'), 'docs.example.com')
-  assert.equal(normalizeProjectDomain('WWW.example.com'), 'example.com')
+  expect(normalizeProjectDomain('https://www.Docs.Example.com/path')).toBe('docs.example.com')
+  expect(normalizeProjectDomain('WWW.example.com')).toBe('example.com')
 })
 
 test('effectiveDomains deduplicates canonical and owned domain variants', () => {
@@ -46,7 +46,7 @@ test('effectiveDomains deduplicates canonical and owned domain variants', () => 
     ownedDomains: ['example.com', 'docs.example.com', 'https://www.docs.example.com/path', ''],
   })
 
-  assert.deepEqual(domains, ['https://www.example.com', 'docs.example.com'])
+  expect(domains).toEqual(['https://www.example.com', 'docs.example.com'])
 })
 
 test('run schemas accept expected values and reject invalid statuses', () => {
@@ -58,10 +58,10 @@ test('run schemas accept expected values and reject invalid statuses', () => {
     createdAt: '2026-03-09T00:00:00.000Z',
   })
 
-  assert.equal(run.status, 'queued')
-  assert.equal(run.trigger, 'manual')
-  assert.equal(run.startedAt, undefined)
-  assert.throws(() => runStatusSchema.parse('bogus'))
+  expect(run.status).toBe('queued')
+  expect(run.trigger).toBe('manual')
+  expect(run.startedAt).toBeUndefined()
+  expect(() => runStatusSchema.parse('bogus')).toThrow()
 })
 
 test('providerQuotaPolicySchema enforces positive integer limits', () => {
@@ -71,16 +71,16 @@ test('providerQuotaPolicySchema enforces positive integer limits', () => {
     maxRequestsPerDay: 1000,
   })
 
-  assert.deepEqual(quota, {
+  expect(quota).toEqual({
     maxConcurrency: 2,
     maxRequestsPerMinute: 10,
     maxRequestsPerDay: 1000,
   })
-  assert.throws(() => providerQuotaPolicySchema.parse({
+  expect(() => providerQuotaPolicySchema.parse({
     maxConcurrency: 0,
     maxRequestsPerMinute: 10,
     maxRequestsPerDay: 1000,
-  }))
+  })).toThrow()
 })
 
 test('projectConfigSchema validates canonry.yaml structure', () => {
@@ -96,14 +96,14 @@ test('projectConfigSchema validates canonry.yaml structure', () => {
     },
   })
 
-  assert.equal(config.metadata.name, 'my-project')
-  assert.deepEqual(config.metadata.labels, {})
-  assert.deepEqual(config.spec.keywords, [])
-  assert.deepEqual(config.spec.competitors, [])
+  expect(config.metadata.name).toBe('my-project')
+  expect(config.metadata.labels).toEqual({})
+  expect(config.spec.keywords).toEqual([])
+  expect(config.spec.competitors).toEqual([])
 })
 
 test('projectConfigSchema rejects invalid project names', () => {
-  assert.throws(() => projectConfigSchema.parse({
+  expect(() => projectConfigSchema.parse({
     apiVersion: 'canonry/v1',
     kind: 'Project',
     metadata: { name: 'UPPERCASE' },
@@ -113,9 +113,9 @@ test('projectConfigSchema rejects invalid project names', () => {
       country: 'US',
       language: 'en',
     },
-  }))
+  })).toThrow()
 
-  assert.throws(() => projectConfigSchema.parse({
+  expect(() => projectConfigSchema.parse({
     apiVersion: 'canonry/v1',
     kind: 'Project',
     metadata: { name: '-leading-hyphen' },
@@ -125,19 +125,19 @@ test('projectConfigSchema rejects invalid project names', () => {
       country: 'US',
       language: 'en',
     },
-  }))
+  })).toThrow()
 })
 
 test('citationStateSchema accepts only raw observation values', () => {
-  assert.equal(citationStateSchema.parse('cited'), 'cited')
-  assert.equal(citationStateSchema.parse('not-cited'), 'not-cited')
-  assert.throws(() => citationStateSchema.parse('lost'))
-  assert.throws(() => citationStateSchema.parse('emerging'))
+  expect(citationStateSchema.parse('cited')).toBe('cited')
+  expect(citationStateSchema.parse('not-cited')).toBe('not-cited')
+  expect(() => citationStateSchema.parse('lost')).toThrow()
+  expect(() => citationStateSchema.parse('emerging')).toThrow()
 })
 
 test('computedTransitionSchema accepts all transition values', () => {
   for (const value of ['new', 'cited', 'lost', 'emerging', 'not-cited']) {
-    assert.equal(computedTransitionSchema.parse(value), value)
+    expect(computedTransitionSchema.parse(value)).toBe(value)
   }
 })
 
@@ -151,9 +151,9 @@ test('querySnapshotDtoSchema applies defaults', () => {
     createdAt: '2026-03-09T00:00:00.000Z',
   })
 
-  assert.equal(snapshot.provider, 'gemini')
-  assert.deepEqual(snapshot.citedDomains, [])
-  assert.deepEqual(snapshot.competitorOverlap, [])
+  expect(snapshot.provider).toBe('gemini')
+  expect(snapshot.citedDomains).toEqual([])
+  expect(snapshot.competitorOverlap).toEqual([])
 })
 
 test('querySnapshotDtoSchema accepts all provider names', () => {
@@ -166,7 +166,7 @@ test('querySnapshotDtoSchema accepts all provider names', () => {
       citationState: 'cited',
       createdAt: '2026-03-09T00:00:00.000Z',
     })
-    assert.equal(snapshot.provider, provider)
+    expect(snapshot.provider).toBe(provider)
   }
 })
 
@@ -180,46 +180,48 @@ test('auditLogEntrySchema validates log entries', () => {
     createdAt: '2026-03-09T00:00:00.000Z',
   })
 
-  assert.equal(entry.action, 'project.created')
-  assert.equal(entry.projectId, undefined)
+  expect(entry.action).toBe('project.created')
+  expect(entry.projectId).toBeUndefined()
 })
 
 test('AppError serializes to JSON with code and message', () => {
   const err = notFound('Project', 'my-project')
-  assert.equal(err.code, 'NOT_FOUND')
-  assert.equal(err.statusCode, 404)
-  assert.deepEqual(err.toJSON(), {
+  expect(err.code).toBe('NOT_FOUND')
+  expect(err.statusCode).toBe(404)
+  expect(err.toJSON()).toEqual({
     error: { code: 'NOT_FOUND', message: "Project 'my-project' not found" },
   })
 })
 
 test('validationError includes details in JSON output', () => {
   const err = validationError('Invalid config', { field: 'name' })
-  assert.equal(err.statusCode, 400)
-  assert.deepEqual(err.toJSON(), {
+  expect(err.statusCode).toBe(400)
+  expect(err.toJSON()).toEqual({
     error: { code: 'VALIDATION_ERROR', message: 'Invalid config', details: { field: 'name' } },
   })
 })
 
 test('AppError is an instance of Error', () => {
   const err = new AppError('INTERNAL_ERROR', 'something broke', 500)
-  assert.ok(err instanceof Error)
-  assert.equal(err.name, 'AppError')
+  expect(err).toBeInstanceOf(Error)
+  expect(err.name).toBe('AppError')
 })
 
-// --- Notification schema tests ---
+describe('notificationEventSchema', () => {
 
 test('notificationEventSchema accepts valid events', () => {
   for (const event of ['citation.lost', 'citation.gained', 'run.completed', 'run.failed']) {
-    assert.equal(notificationEventSchema.parse(event), event)
+    expect(notificationEventSchema.parse(event)).toBe(event)
   }
 })
 
 test('notificationEventSchema rejects invalid events', () => {
-  assert.throws(() => notificationEventSchema.parse('invalid.event'))
+  expect(() => notificationEventSchema.parse('invalid.event')).toThrow()
 })
 
-// --- Config schema with schedule ---
+}) // end notificationEventSchema
+
+describe('projectConfigSchema schedule', () => {
 
 test('projectConfigSchema accepts config with schedule preset', () => {
   const config = projectConfigSchema.parse({
@@ -236,12 +238,12 @@ test('projectConfigSchema accepts config with schedule preset', () => {
     },
   })
 
-  assert.ok(config.spec.schedule)
-  assert.equal(config.spec.notifications.length, 1)
+  expect(config.spec.schedule).toBeTruthy()
+  expect(config.spec.notifications).toHaveLength(1)
 })
 
 test('projectConfigSchema rejects schedule with both preset and cron', () => {
-  assert.throws(() => projectConfigSchema.parse({
+  expect(() => projectConfigSchema.parse({
     apiVersion: 'canonry/v1',
     kind: 'Project',
     metadata: { name: 'test-project' },
@@ -252,12 +254,12 @@ test('projectConfigSchema rejects schedule with both preset and cron', () => {
       language: 'en',
       schedule: { preset: 'daily', cron: '0 6 * * *' },
     },
-  }))
+  })).toThrow()
 })
 
-// --- Location context schema tests ---
+}) // end projectConfigSchema schedule
 
-import { locationContextSchema } from '../src/index.js'
+describe('locationContextSchema', () => {
 
 test('locationContextSchema accepts valid location with all fields', () => {
   const loc = locationContextSchema.parse({
@@ -267,11 +269,11 @@ test('locationContextSchema accepts valid location with all fields', () => {
     country: 'US',
     timezone: 'America/New_York',
   })
-  assert.equal(loc.label, 'nyc')
-  assert.equal(loc.city, 'New York')
-  assert.equal(loc.region, 'New York')
-  assert.equal(loc.country, 'US')
-  assert.equal(loc.timezone, 'America/New_York')
+  expect(loc.label).toBe('nyc')
+  expect(loc.city).toBe('New York')
+  expect(loc.region).toBe('New York')
+  expect(loc.country).toBe('US')
+  expect(loc.timezone).toBe('America/New_York')
 })
 
 test('locationContextSchema accepts location without optional timezone', () => {
@@ -281,46 +283,48 @@ test('locationContextSchema accepts location without optional timezone', () => {
     region: 'England',
     country: 'GB',
   })
-  assert.equal(loc.timezone, undefined)
+  expect(loc.timezone).toBeUndefined()
 })
 
 test('locationContextSchema rejects country code that is not exactly 2 chars', () => {
-  assert.throws(() => locationContextSchema.parse({
+  expect(() => locationContextSchema.parse({
     label: 'bad',
     city: 'Berlin',
     region: 'Berlin',
     country: 'DEU',
-  }))
-  assert.throws(() => locationContextSchema.parse({
+  })).toThrow()
+  expect(() => locationContextSchema.parse({
     label: 'bad',
     city: 'Berlin',
     region: 'Berlin',
     country: 'D',
-  }))
+  })).toThrow()
 })
 
 test('locationContextSchema rejects empty required strings', () => {
-  assert.throws(() => locationContextSchema.parse({
+  expect(() => locationContextSchema.parse({
     label: '',
     city: 'Paris',
     region: 'Ile-de-France',
     country: 'FR',
-  }))
-  assert.throws(() => locationContextSchema.parse({
+  })).toThrow()
+  expect(() => locationContextSchema.parse({
     label: 'paris',
     city: '',
     region: 'Ile-de-France',
     country: 'FR',
-  }))
-  assert.throws(() => locationContextSchema.parse({
+  })).toThrow()
+  expect(() => locationContextSchema.parse({
     label: 'paris',
     city: 'Paris',
     region: '',
     country: 'FR',
-  }))
+  })).toThrow()
 })
 
-// --- Project DTO location fields ---
+}) // end locationContextSchema
+
+describe('projectDtoSchema locations', () => {
 
 test('projectDtoSchema defaults locations to empty array', () => {
   const project = projectDtoSchema.parse({
@@ -330,8 +334,8 @@ test('projectDtoSchema defaults locations to empty array', () => {
     country: 'US',
     language: 'en',
   })
-  assert.deepEqual(project.locations, [])
-  assert.equal(project.defaultLocation, undefined)
+  expect(project.locations).toEqual([])
+  expect(project.defaultLocation).toBeUndefined()
 })
 
 test('projectDtoSchema accepts locations array and defaultLocation', () => {
@@ -347,10 +351,10 @@ test('projectDtoSchema accepts locations array and defaultLocation', () => {
     ],
     defaultLocation: 'nyc',
   })
-  assert.equal(project.locations.length, 2)
-  assert.equal(project.locations[0].label, 'nyc')
-  assert.equal(project.locations[1].timezone, 'Europe/London')
-  assert.equal(project.defaultLocation, 'nyc')
+  expect(project.locations).toHaveLength(2)
+  expect(project.locations[0].label).toBe('nyc')
+  expect(project.locations[1].timezone).toBe('Europe/London')
+  expect(project.defaultLocation).toBe('nyc')
 })
 
 test('projectDtoSchema accepts null defaultLocation', () => {
@@ -362,10 +366,12 @@ test('projectDtoSchema accepts null defaultLocation', () => {
     language: 'en',
     defaultLocation: null,
   })
-  assert.equal(project.defaultLocation, null)
+  expect(project.defaultLocation).toBeNull()
 })
 
-// --- Query snapshot location field ---
+}) // end projectDtoSchema locations
+
+describe('querySnapshotDtoSchema location', () => {
 
 test('querySnapshotDtoSchema accepts location string', () => {
   const snapshot = querySnapshotDtoSchema.parse({
@@ -377,7 +383,7 @@ test('querySnapshotDtoSchema accepts location string', () => {
     location: 'nyc',
     createdAt: '2026-03-09T00:00:00.000Z',
   })
-  assert.equal(snapshot.location, 'nyc')
+  expect(snapshot.location).toBe('nyc')
 })
 
 test('querySnapshotDtoSchema defaults location to undefined', () => {
@@ -389,7 +395,7 @@ test('querySnapshotDtoSchema defaults location to undefined', () => {
     citationState: 'not-cited',
     createdAt: '2026-03-09T00:00:00.000Z',
   })
-  assert.equal(snapshot.location, undefined)
+  expect(snapshot.location).toBeUndefined()
 })
 
 test('querySnapshotDtoSchema accepts null location', () => {
@@ -402,5 +408,7 @@ test('querySnapshotDtoSchema accepts null location', () => {
     location: null,
     createdAt: '2026-03-09T00:00:00.000Z',
   })
-  assert.equal(snapshot.location, null)
+  expect(snapshot.location).toBeNull()
 })
+
+}) // end querySnapshotDtoSchema location

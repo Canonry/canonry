@@ -197,7 +197,9 @@ See `docs/roadmap.md` for the full feature roadmap including competitive analysi
 
 **Every non-trivial change must include tests.** If you are adding a feature, fixing a bug, or refactoring logic, ship tests alongside the code. Trivial changes (typo fixes, comment updates, config-only changes) are exempt.
 
-- Use Node's built-in test runner (`node:test`) — not Jest or Vitest.
+- Use **Vitest** as the test runner. Configured via `vitest.workspace.ts` at the root with per-package `vitest.config.ts` files.
+- Import test utilities from `vitest`: `import { test, expect, describe, it, beforeEach, afterEach, beforeAll, afterAll } from 'vitest'`.
+- Use `expect()` for assertions (e.g. `expect(value).toBe(expected)`, `expect(obj).toEqual(expected)`, `expect(fn).toThrow()`).
 - Tests live in `test/` directories colocated with the package (e.g. `packages/canonry/test/`).
 - Test the public API of each module, not internal implementation details.
 - Cover both the happy path and meaningful edge cases (invalid input, env var overrides, error handling).

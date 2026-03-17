@@ -1,5 +1,4 @@
-import { describe, it, afterEach } from 'node:test'
-import assert from 'node:assert/strict'
+import { describe, it, afterEach, expect } from 'vitest'
 import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -13,16 +12,16 @@ describe('daemon cliPath resolution', () => {
     const cliPath = path.resolve(new URL(daemonUrl).pathname)
 
     // The resolved path must point to an existing file
-    assert.ok(fs.existsSync(cliPath), `cliPath should exist: ${cliPath}`)
+    expect(fs.existsSync(cliPath), `cliPath should exist: ${cliPath}`).toBeTruthy()
 
     // The old buggy path '../cli.js' relative to daemon.ts would resolve outside src/
     const buggyPath = path.resolve(path.dirname(cliPath), '..', 'cli.js')
     // In the source tree, ../cli.js from commands/ lands in src/cli.ts not src/cli.js,
     // so this verifies the two paths are different
-    assert.notEqual(
+    expect(
       path.dirname(cliPath),
+    ).not.toBe(
       path.dirname(buggyPath),
-      'cliPath should not resolve to a parent directory',
     )
   })
 })
@@ -62,7 +61,7 @@ describe('daemon', () => {
       console.log = origLog
     }
 
-    assert.ok(logs.some(l => l.includes('not running')))
+    expect(logs.some(l => l.includes('not running'))).toBeTruthy()
   })
 
   it('stopDaemon cleans up stale PID file', async () => {
@@ -82,7 +81,7 @@ describe('daemon', () => {
       console.log = origLog
     }
 
-    assert.ok(logs.some(l => l.includes('stale PID') || l.includes('not running')))
-    assert.ok(!fs.existsSync(pidPath), 'PID file should be cleaned up')
+    expect(logs.some(l => l.includes('stale PID') || l.includes('not running'))).toBeTruthy()
+    expect(!fs.existsSync(pidPath), 'PID file should be cleaned up').toBeTruthy()
   })
 })

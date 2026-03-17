@@ -1,6 +1,5 @@
 import crypto from 'node:crypto'
-import { describe, it, before, after } from 'node:test'
-import assert from 'node:assert/strict'
+import { describe, it, beforeAll, afterAll, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -99,9 +98,9 @@ describe('state signing', () => {
     const data = { domain: 'example.com', type: 'gsc', redirectUri: 'http://localhost/callback' }
     const encoded = buildSignedState(data, secret)
     const decoded = verifySignedState(encoded, secret)
-    assert.ok(decoded !== null)
-    assert.equal((decoded as { domain: string }).domain, 'example.com')
-    assert.equal((decoded as { type: string }).type, 'gsc')
+    expect(decoded).not.toBeNull()
+    expect((decoded as { domain: string }).domain).toBe('example.com')
+    expect((decoded as { type: string }).type).toBe('gsc')
   })
 
   it('rejects tampered payload', () => {
@@ -115,19 +114,19 @@ describe('state signing', () => {
     const tampered = Buffer.from(JSON.stringify({ payload: tamperedPayload, sig: inner.sig })).toString('base64url')
 
     const result = verifySignedState(tampered, secret)
-    assert.equal(result, null)
+    expect(result).toBeNull()
   })
 
   it('rejects state signed with different secret', () => {
     const data = { domain: 'example.com', type: 'gsc' }
     const encoded = buildSignedState(data, 'original-secret')
     const result = verifySignedState(encoded, 'different-secret')
-    assert.equal(result, null)
+    expect(result).toBeNull()
   })
 
   it('rejects garbage input', () => {
     const result = verifySignedState('not-valid-base64url!!!', 'secret')
-    assert.equal(result, null)
+    expect(result).toBeNull()
   })
 })
 
@@ -135,14 +134,14 @@ describe('googleRoutes: POST /projects/:name/google/connect', () => {
   let app: ReturnType<typeof Fastify>
   let tmpDir: string
 
-  before(async () => {
+  beforeAll(async () => {
     const ctx = buildApp({ googleClientId: undefined, googleClientSecret: undefined })
     app = ctx.app
     tmpDir = ctx.tmpDir
     await app.ready()
   })
 
-  after(async () => {
+  afterAll(async () => {
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
@@ -153,9 +152,9 @@ describe('googleRoutes: POST /projects/:name/google/connect', () => {
       url: '/projects/my-project/google/connect',
       payload: { type: 'gsc' },
     })
-    assert.equal(res.statusCode, 400)
+    expect(res.statusCode).toBe(400)
     const body = res.json() as { error: { code: string } }
-    assert.equal(body.error.code, 'VALIDATION_ERROR')
+    expect(body.error.code).toBe('VALIDATION_ERROR')
   })
 })
 
@@ -163,7 +162,7 @@ describe('googleRoutes: GET /projects/:name/google/callback', () => {
   let app: ReturnType<typeof Fastify>
   let tmpDir: string
 
-  before(async () => {
+  beforeAll(async () => {
     const ctx = buildApp({
       googleClientId: 'test-client-id',
       googleClientSecret: 'test-client-secret',
@@ -174,7 +173,7 @@ describe('googleRoutes: GET /projects/:name/google/callback', () => {
     await app.ready()
   })
 
-  after(async () => {
+  afterAll(async () => {
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
@@ -184,11 +183,8 @@ describe('googleRoutes: GET /projects/:name/google/callback', () => {
       method: 'GET',
       url: '/projects/my-project/google/callback?code=abc&state=invalid-garbage',
     })
-    assert.equal(res.statusCode, 400)
-    assert.ok(
-      res.body.includes('tampered') || res.body.includes('Invalid'),
-      `Expected tampered/Invalid in body: ${res.body}`,
-    )
+    expect(res.statusCode).toBe(400)
+    expect(res.body).toMatch(/tampered|Invalid/)
   })
 
   it('rejects callback with state signed by wrong secret', async () => {
@@ -200,11 +196,8 @@ describe('googleRoutes: GET /projects/:name/google/callback', () => {
       method: 'GET',
       url: `/projects/my-project/google/callback?code=abc&state=${encodeURIComponent(wrongSecretState)}`,
     })
-    assert.equal(res.statusCode, 400)
-    assert.ok(
-      res.body.includes('tampered') || res.body.includes('Invalid'),
-      `Expected tampered/Invalid in body: ${res.body}`,
-    )
+    expect(res.statusCode).toBe(400)
+    expect(res.body).toMatch(/tampered|Invalid/)
   })
 
   it('returns error page when OAuth error is present', async () => {
@@ -212,8 +205,8 @@ describe('googleRoutes: GET /projects/:name/google/callback', () => {
       method: 'GET',
       url: '/projects/my-project/google/callback?error=access_denied',
     })
-    assert.equal(res.statusCode, 200)
-    assert.ok(res.body.includes('Authorization failed'))
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toContain('Authorization failed')
   })
 
   it('returns 400 when code or state is missing', async () => {
@@ -221,7 +214,7 @@ describe('googleRoutes: GET /projects/:name/google/callback', () => {
       method: 'GET',
       url: '/projects/my-project/google/callback',
     })
-    assert.equal(res.statusCode, 400)
+    expect(res.statusCode).toBe(400)
   })
 })
 
@@ -229,7 +222,7 @@ describe('googleRoutes: GET /google/callback (shared)', () => {
   let app: ReturnType<typeof Fastify>
   let tmpDir: string
 
-  before(async () => {
+  beforeAll(async () => {
     const ctx = buildApp({
       googleClientId: 'test-client-id',
       googleClientSecret: 'test-client-secret',
@@ -240,7 +233,7 @@ describe('googleRoutes: GET /google/callback (shared)', () => {
     await app.ready()
   })
 
-  after(async () => {
+  afterAll(async () => {
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
@@ -250,11 +243,8 @@ describe('googleRoutes: GET /google/callback (shared)', () => {
       method: 'GET',
       url: '/google/callback?code=abc&state=invalid-garbage',
     })
-    assert.equal(res.statusCode, 400)
-    assert.ok(
-      res.body.includes('tampered') || res.body.includes('Invalid'),
-      `Expected tampered/Invalid in body: ${res.body}`,
-    )
+    expect(res.statusCode).toBe(400)
+    expect(res.body).toMatch(/tampered|Invalid/)
   })
 
   it('returns error page when OAuth error is present on shared route', async () => {
@@ -262,8 +252,8 @@ describe('googleRoutes: GET /google/callback (shared)', () => {
       method: 'GET',
       url: '/google/callback?error=access_denied',
     })
-    assert.equal(res.statusCode, 200)
-    assert.ok(res.body.includes('Authorization failed'))
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toContain('Authorization failed')
   })
 
   it('returns redirect_uri_mismatch help page with instructions', async () => {
@@ -275,10 +265,10 @@ describe('googleRoutes: GET /google/callback (shared)', () => {
       method: 'GET',
       url: `/google/callback?error=redirect_uri_mismatch&state=${encodeURIComponent(state)}`,
     })
-    assert.equal(res.statusCode, 200)
-    assert.ok(res.body.includes('Redirect URI mismatch'))
-    assert.ok(res.body.includes('Google Cloud Console'))
-    assert.ok(res.body.includes('http://localhost:4100/api/v1/google/callback'))
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toContain('Redirect URI mismatch')
+    expect(res.body).toContain('Google Cloud Console')
+    expect(res.body).toContain('http://localhost:4100/api/v1/google/callback')
   })
 
   it('returns 400 when code or state is missing on shared route', async () => {
@@ -286,7 +276,7 @@ describe('googleRoutes: GET /google/callback (shared)', () => {
       method: 'GET',
       url: '/google/callback',
     })
-    assert.equal(res.statusCode, 400)
+    expect(res.statusCode).toBe(400)
   })
 })
 
@@ -294,7 +284,7 @@ describe('googleRoutes: connect uses publicUrl', () => {
   let app: ReturnType<typeof Fastify>
   let tmpDir: string
 
-  before(async () => {
+  beforeAll(async () => {
     const tmpDirPath = fs.mkdtempSync(path.join(os.tmpdir(), 'google-routes-publicurl-'))
     const dbPath = path.join(tmpDirPath, 'test.db')
     const db = createClient(dbPath)
@@ -336,7 +326,7 @@ describe('googleRoutes: connect uses publicUrl', () => {
     await app.ready()
   })
 
-  after(async () => {
+  afterAll(async () => {
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
@@ -347,11 +337,11 @@ describe('googleRoutes: connect uses publicUrl', () => {
       url: '/projects/testproj/google/connect',
       payload: { type: 'gsc' },
     })
-    assert.equal(res.statusCode, 200)
+    expect(res.statusCode).toBe(200)
     const body = res.json() as { authUrl: string; redirectUri: string }
-    assert.ok(body.authUrl.includes('accounts.google.com'))
-    assert.equal(body.redirectUri, 'https://canonry.example.com/api/v1/google/callback')
-    assert.ok(body.authUrl.includes(encodeURIComponent('https://canonry.example.com/api/v1/google/callback')))
+    expect(body.authUrl).toContain('accounts.google.com')
+    expect(body.redirectUri).toBe('https://canonry.example.com/api/v1/google/callback')
+    expect(body.authUrl).toContain(encodeURIComponent('https://canonry.example.com/api/v1/google/callback'))
   })
 
   it('publicUrl in body overrides config publicUrl', async () => {
@@ -360,9 +350,9 @@ describe('googleRoutes: connect uses publicUrl', () => {
       url: '/projects/testproj/google/connect',
       payload: { type: 'gsc', publicUrl: 'https://override.example.com' },
     })
-    assert.equal(res.statusCode, 200)
+    expect(res.statusCode).toBe(200)
     const body = res.json() as { authUrl: string; redirectUri: string }
-    assert.equal(body.redirectUri, 'https://override.example.com/api/v1/google/callback')
+    expect(body.redirectUri).toBe('https://override.example.com/api/v1/google/callback')
   })
 })
 
@@ -370,7 +360,7 @@ describe('googleRoutes: connect auto-detect uses per-project URI', () => {
   let app: ReturnType<typeof Fastify>
   let tmpDir: string
 
-  before(async () => {
+  beforeAll(async () => {
     const tmpDirPath = fs.mkdtempSync(path.join(os.tmpdir(), 'google-routes-autodetect-'))
     const dbPath = path.join(tmpDirPath, 'test.db')
     const db = createClient(dbPath)
@@ -411,7 +401,7 @@ describe('googleRoutes: connect auto-detect uses per-project URI', () => {
     await app.ready()
   })
 
-  after(async () => {
+  afterAll(async () => {
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
@@ -423,9 +413,9 @@ describe('googleRoutes: connect auto-detect uses per-project URI', () => {
       headers: { host: 'localhost:4100' },
       payload: { type: 'gsc' },
     })
-    assert.equal(res.statusCode, 200)
+    expect(res.statusCode).toBe(200)
     const body = res.json() as { authUrl: string; redirectUri: string }
-    assert.equal(body.redirectUri, 'http://localhost:4100/api/v1/projects/testproj/google/callback')
+    expect(body.redirectUri).toBe('http://localhost:4100/api/v1/projects/testproj/google/callback')
   })
 })
 
@@ -434,7 +424,7 @@ describe('googleRoutes: GET /projects/:name/google/gsc/coverage/history', () => 
   let tmpDir: string
   let db: ReturnType<typeof createClient>
 
-  before(async () => {
+  beforeAll(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'google-coverage-history-'))
     const dbPath = path.join(tmpDir, 'test.db')
     db = createClient(dbPath)
@@ -501,7 +491,7 @@ describe('googleRoutes: GET /projects/:name/google/gsc/coverage/history', () => 
     await app.ready()
   })
 
-  after(async () => {
+  afterAll(async () => {
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
@@ -511,13 +501,13 @@ describe('googleRoutes: GET /projects/:name/google/gsc/coverage/history', () => 
       method: 'GET',
       url: '/projects/testproj/google/gsc/coverage/history',
     })
-    assert.equal(res.statusCode, 200)
+    expect(res.statusCode).toBe(200)
     const body = res.json() as Array<{ date: string; indexed: number; notIndexed: number; reasonBreakdown: Record<string, number> }>
-    assert.equal(body.length, 2)
-    assert.equal(body[0]!.date, '2025-01-01')
-    assert.equal(body[1]!.date, '2025-01-02')
-    assert.equal(body[0]!.indexed, 80)
-    assert.equal(body[1]!.indexed, 85)
+    expect(body).toHaveLength(2)
+    expect(body[0]!.date).toBe('2025-01-01')
+    expect(body[1]!.date).toBe('2025-01-02')
+    expect(body[0]!.indexed).toBe(80)
+    expect(body[1]!.indexed).toBe(85)
   })
 
   it('respects the limit parameter', async () => {
@@ -525,11 +515,11 @@ describe('googleRoutes: GET /projects/:name/google/gsc/coverage/history', () => 
       method: 'GET',
       url: '/projects/testproj/google/gsc/coverage/history?limit=1',
     })
-    assert.equal(res.statusCode, 200)
+    expect(res.statusCode).toBe(200)
     const body = res.json() as Array<{ date: string }>
-    assert.equal(body.length, 1)
+    expect(body).toHaveLength(1)
     // limit=1 takes the most-recent snapshot (desc order then reversed)
-    assert.equal(body[0]!.date, '2025-01-02')
+    expect(body[0]!.date).toBe('2025-01-02')
   })
 
   it('uses default limit when limit param is not a number', async () => {
@@ -537,10 +527,10 @@ describe('googleRoutes: GET /projects/:name/google/gsc/coverage/history', () => 
       method: 'GET',
       url: '/projects/testproj/google/gsc/coverage/history?limit=abc',
     })
-    assert.equal(res.statusCode, 200)
+    expect(res.statusCode).toBe(200)
     // Should return all 2 rows (default 90 > 2 available)
     const body = res.json() as Array<unknown>
-    assert.equal(body.length, 2)
+    expect(body).toHaveLength(2)
   })
 
   it('returns 404 for unknown project', async () => {
@@ -548,7 +538,7 @@ describe('googleRoutes: GET /projects/:name/google/gsc/coverage/history', () => 
       method: 'GET',
       url: '/projects/nonexistent/google/gsc/coverage/history',
     })
-    assert.equal(res.statusCode, 404)
+    expect(res.statusCode).toBe(404)
   })
 
   it('returns empty array when no snapshots exist', async () => {
@@ -569,9 +559,9 @@ describe('googleRoutes: GET /projects/:name/google/gsc/coverage/history', () => 
       method: 'GET',
       url: '/projects/emptyproj/google/gsc/coverage/history',
     })
-    assert.equal(res.statusCode, 200)
+    expect(res.statusCode).toBe(200)
     const body = res.json() as Array<unknown>
-    assert.equal(body.length, 0)
+    expect(body).toHaveLength(0)
   })
 })
 
@@ -580,7 +570,7 @@ describe('googleRoutes: coverage snapshot deduplication', () => {
   let tmpDir: string
   let db: ReturnType<typeof createClient>
 
-  before(async () => {
+  beforeAll(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'google-coverage-dedup-'))
     const dbPath = path.join(tmpDir, 'test.db')
     db = createClient(dbPath)
@@ -636,7 +626,7 @@ describe('googleRoutes: coverage snapshot deduplication', () => {
     await app.ready()
   })
 
-  after(async () => {
+  afterAll(async () => {
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
@@ -663,11 +653,11 @@ describe('googleRoutes: coverage snapshot deduplication', () => {
       method: 'GET',
       url: '/projects/dedupproj/google/gsc/coverage/history',
     })
-    assert.equal(res.statusCode, 200)
+    expect(res.statusCode).toBe(200)
     const body = res.json() as Array<{ date: string; indexed: number }>
     // Should be exactly one row for 2025-03-01 with updated values
-    assert.equal(body.length, 1)
-    assert.equal(body[0]!.indexed, 90)
+    expect(body).toHaveLength(1)
+    expect(body[0]!.indexed).toBe(90)
   })
 })
 
@@ -688,11 +678,11 @@ describe('googleRoutes: performance filter conditions', () => {
     if (page) conditions.push('page LIKE ?')
 
     // All 5 conditions must be present
-    assert.equal(conditions.length, 5)
-    assert.ok(conditions.includes('projectId = ?'))
-    assert.ok(conditions.includes('date >= ?'))
-    assert.ok(conditions.includes('date <= ?'))
-    assert.ok(conditions.includes('query LIKE ?'))
-    assert.ok(conditions.includes('page LIKE ?'))
+    expect(conditions).toHaveLength(5)
+    expect(conditions).toContain('projectId = ?')
+    expect(conditions).toContain('date >= ?')
+    expect(conditions).toContain('date <= ?')
+    expect(conditions).toContain('query LIKE ?')
+    expect(conditions).toContain('page LIKE ?')
   })
 })

@@ -1,5 +1,4 @@
-import { describe, it, beforeEach, afterEach } from 'node:test'
-import assert from 'node:assert/strict'
+import { describe, it, beforeEach, afterEach, expect } from 'vitest'
 import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -8,7 +7,7 @@ import { createClient, migrate, apiKeys } from '@ainyc/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 
-describe('keyword commands', { concurrency: 1 }, () => {
+describe('keyword commands', () => {
   let tmpDir: string
   let origConfigDir: string | undefined
   let client: ApiClient
@@ -82,7 +81,7 @@ describe('keyword commands', { concurrency: 1 }, () => {
     }
 
     const output = logs.join('\n')
-    assert.match(output, /Removed 1 key phrase\(s\) from "test-proj"/)
+    expect(output).toMatch(/Removed 1 key phrase\(s\) from "test-proj"/)
   })
 
   it('removeKeywords reports 0 when none of the requested phrases exist', async () => {
@@ -97,7 +96,7 @@ describe('keyword commands', { concurrency: 1 }, () => {
     }
 
     const output = logs.join('\n')
-    assert.match(output, /Removed 0 key phrase\(s\) from "test-proj"/)
+    expect(output).toMatch(/Removed 0 key phrase\(s\) from "test-proj"/)
   })
 
   it('removeKeywords counts only the phrases that actually existed', async () => {
@@ -114,6 +113,6 @@ describe('keyword commands', { concurrency: 1 }, () => {
     }
 
     const output = logs.join('\n')
-    assert.match(output, /Removed 1 key phrase\(s\) from "test-proj"/)
+    expect(output).toMatch(/Removed 1 key phrase\(s\) from "test-proj"/)
   })
 })

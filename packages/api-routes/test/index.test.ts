@@ -1,5 +1,4 @@
-import { describe, it, before, after } from 'node:test'
-import assert from 'node:assert/strict'
+import { describe, it, beforeAll, afterAll, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -24,14 +23,14 @@ describe('api-routes', () => {
   let app: ReturnType<typeof Fastify>
   let tmpDir: string
 
-  before(async () => {
+  beforeAll(async () => {
     const ctx = buildApp()
     app = ctx.app
     tmpDir = ctx.tmpDir
     await app.ready()
   })
 
-  after(async () => {
+  afterAll(async () => {
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
@@ -48,51 +47,51 @@ describe('api-routes', () => {
         language: 'en',
       },
     })
-    assert.equal(res.statusCode, 201)
+    expect(res.statusCode).toBe(201)
     const body = JSON.parse(res.payload)
-    assert.equal(body.name, 'my-site')
-    assert.equal(body.displayName, 'My Site')
-    assert.equal(body.canonicalDomain, 'example.com')
-    assert.deepEqual(body.ownedDomains, ['docs.example.com'])
+    expect(body.name).toBe('my-site')
+    expect(body.displayName).toBe('My Site')
+    expect(body.canonicalDomain).toBe('example.com')
+    expect(body.ownedDomains).toEqual(['docs.example.com'])
   })
 
   it('GET /api/v1/projects lists projects', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/projects' })
-    assert.equal(res.statusCode, 200)
+    expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload)
-    assert(Array.isArray(body))
-    assert.equal(body.length, 1)
-    assert.equal(body[0].name, 'my-site')
-    assert.deepEqual(body[0].ownedDomains, ['docs.example.com'])
+    expect(body).toBeInstanceOf(Array)
+    expect(body).toHaveLength(1)
+    expect(body[0].name).toBe('my-site')
+    expect(body[0].ownedDomains).toEqual(['docs.example.com'])
   })
 
   it('GET /api/v1/openapi.json returns the API spec', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/openapi.json' })
-    assert.equal(res.statusCode, 200)
-    assert.match(res.headers['content-type'] ?? '', /application\/json/)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type'] ?? '').toMatch(/application\/json/)
 
     const body = JSON.parse(res.payload) as {
       openapi: string
       paths: Record<string, Record<string, { security?: unknown[] }>>
     }
 
-    assert.equal(body.openapi, '3.1.0')
-    assert.ok(body.paths['/api/v1/openapi.json'])
-    assert.ok(body.paths['/api/v1/projects'])
-    assert.deepEqual(body.paths['/api/v1/openapi.json']?.get?.security, [])
+    expect(body.openapi).toBe('3.1.0')
+    expect(body.paths['/api/v1/openapi.json']).toBeDefined()
+    expect(body.paths['/api/v1/projects']).toBeDefined()
+    expect(body.paths['/api/v1/openapi.json']?.get?.security).toEqual([])
   })
 
   it('GET /api/v1/projects/:name gets a single project', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/projects/my-site' })
-    assert.equal(res.statusCode, 200)
+    expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload)
-    assert.equal(body.name, 'my-site')
-    assert.deepEqual(body.ownedDomains, ['docs.example.com'])
+    expect(body.name).toBe('my-site')
+    expect(body.ownedDomains).toEqual(['docs.example.com'])
   })
 
   it('GET /api/v1/projects/:name returns 404 for unknown', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/projects/nope' })
-    assert.equal(res.statusCode, 404)
+    expect(res.statusCode).toBe(404)
   })
 
   it('PUT /api/v1/projects/:name/keywords sets keywords', async () => {
@@ -101,9 +100,9 @@ describe('api-routes', () => {
       url: '/api/v1/projects/my-site/keywords',
       payload: { keywords: ['aeo tools', 'answer engine'] },
     })
-    assert.equal(res.statusCode, 200)
+    expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload)
-    assert.equal(body.length, 2)
+    expect(body).toHaveLength(2)
   })
 
   it('DELETE /api/v1/projects/:name/keywords removes specific keywords', async () => {
@@ -112,10 +111,10 @@ describe('api-routes', () => {
       url: '/api/v1/projects/my-site/keywords',
       payload: { keywords: ['aeo tools'] },
     })
-    assert.equal(res.statusCode, 200)
+    expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload)
-    assert.equal(body.length, 1)
-    assert.equal(body[0].keyword, 'answer engine')
+    expect(body).toHaveLength(1)
+    expect(body[0].keyword).toBe('answer engine')
   })
 
   it('DELETE /api/v1/projects/:name/keywords ignores non-existent keywords', async () => {
@@ -124,9 +123,9 @@ describe('api-routes', () => {
       url: '/api/v1/projects/my-site/keywords',
       payload: { keywords: ['does not exist'] },
     })
-    assert.equal(res.statusCode, 200)
+    expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload)
-    assert.equal(body.length, 1)
+    expect(body).toHaveLength(1)
   })
 
   it('DELETE /api/v1/projects/:name/keywords rejects empty array', async () => {
@@ -135,7 +134,7 @@ describe('api-routes', () => {
       url: '/api/v1/projects/my-site/keywords',
       payload: { keywords: [] },
     })
-    assert.equal(res.statusCode, 400)
+    expect(res.statusCode).toBe(400)
   })
 
   // Re-add keywords for subsequent tests
@@ -145,9 +144,9 @@ describe('api-routes', () => {
       url: '/api/v1/projects/my-site/keywords',
       payload: { keywords: ['aeo tools'] },
     })
-    assert.equal(res.statusCode, 200)
+    expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload)
-    assert.equal(body.length, 2)
+    expect(body).toHaveLength(2)
   })
 
   it('POST /api/v1/projects/:name/runs triggers a run', async () => {
@@ -156,10 +155,10 @@ describe('api-routes', () => {
       url: '/api/v1/projects/my-site/runs',
       payload: {},
     })
-    assert.equal(res.statusCode, 201)
+    expect(res.statusCode).toBe(201)
     const body = JSON.parse(res.payload)
-    assert.equal(body.status, 'queued')
-    assert.equal(body.kind, 'answer-visibility')
+    expect(body.status).toBe('queued')
+    expect(body.kind).toBe('answer-visibility')
   })
 
   it('POST /api/v1/projects/:name/runs rejects duplicate active run', async () => {
@@ -168,15 +167,15 @@ describe('api-routes', () => {
       url: '/api/v1/projects/my-site/runs',
       payload: {},
     })
-    assert.equal(res.statusCode, 409)
+    expect(res.statusCode).toBe(409)
   })
 
   it('GET /api/v1/projects/:name/history returns audit log', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/projects/my-site/history' })
-    assert.equal(res.statusCode, 200)
+    expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload)
-    assert(Array.isArray(body))
-    assert(body.length > 0)
+    expect(body).toBeInstanceOf(Array)
+    expect(body.length).toBeGreaterThan(0)
   })
 
   it('PUT /api/v1/projects/:name updates project settings', async () => {
@@ -191,24 +190,24 @@ describe('api-routes', () => {
         language: 'en-gb',
       },
     })
-    assert.equal(res.statusCode, 200)
+    expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload)
-    assert.equal(body.name, 'my-site')
-    assert.equal(body.displayName, 'Updated Site')
-    assert.equal(body.canonicalDomain, 'updated.com')
-    assert.deepEqual(body.ownedDomains, ['docs.updated.com', 'blog.updated.com'])
-    assert.equal(body.country, 'GB')
-    assert.equal(body.language, 'en-gb')
+    expect(body.name).toBe('my-site')
+    expect(body.displayName).toBe('Updated Site')
+    expect(body.canonicalDomain).toBe('updated.com')
+    expect(body.ownedDomains).toEqual(['docs.updated.com', 'blog.updated.com'])
+    expect(body.country).toBe('GB')
+    expect(body.language).toBe('en-gb')
 
     // Verify GET returns updated values
     const getRes = await app.inject({ method: 'GET', url: '/api/v1/projects/my-site' })
-    assert.equal(getRes.statusCode, 200)
+    expect(getRes.statusCode).toBe(200)
     const getBody = JSON.parse(getRes.payload)
-    assert.equal(getBody.displayName, 'Updated Site')
-    assert.equal(getBody.canonicalDomain, 'updated.com')
-    assert.deepEqual(getBody.ownedDomains, ['docs.updated.com', 'blog.updated.com'])
-    assert.equal(getBody.country, 'GB')
-    assert.equal(getBody.language, 'en-gb')
+    expect(getBody.displayName).toBe('Updated Site')
+    expect(getBody.canonicalDomain).toBe('updated.com')
+    expect(getBody.ownedDomains).toEqual(['docs.updated.com', 'blog.updated.com'])
+    expect(getBody.country).toBe('GB')
+    expect(getBody.language).toBe('en-gb')
   })
 
   it('PUT /api/v1/projects/:name with empty ownedDomains clears them', async () => {
@@ -223,9 +222,9 @@ describe('api-routes', () => {
         language: 'en-gb',
       },
     })
-    assert.equal(res.statusCode, 200)
+    expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload)
-    assert.deepEqual(body.ownedDomains, [])
+    expect(body.ownedDomains).toEqual([])
   })
 
   it('PUT /api/v1/projects/:name without ownedDomains defaults to empty', async () => {
@@ -239,9 +238,9 @@ describe('api-routes', () => {
         language: 'en-gb',
       },
     })
-    assert.equal(res.statusCode, 200)
+    expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload)
-    assert.deepEqual(body.ownedDomains, [])
+    expect(body.ownedDomains).toEqual([])
   })
 
   it('PUT /api/v1/projects/:name rejects ownedDomains with empty string elements', async () => {
@@ -256,7 +255,7 @@ describe('api-routes', () => {
         language: 'en',
       },
     })
-    assert.equal(res.statusCode, 400)
+    expect(res.statusCode).toBe(400)
   })
 
   it('PUT /api/v1/projects/:name preserves tags and providers when included', async () => {
@@ -273,7 +272,7 @@ describe('api-routes', () => {
         providers: ['gemini', 'openai'],
       },
     })
-    assert.equal(createRes.statusCode, 201)
+    expect(createRes.statusCode).toBe(201)
 
     // Update only ownedDomains, passing tags and providers through (as the client now does)
     const updateRes = await app.inject({
@@ -289,11 +288,11 @@ describe('api-routes', () => {
         providers: ['gemini', 'openai'],
       },
     })
-    assert.equal(updateRes.statusCode, 200)
+    expect(updateRes.statusCode).toBe(200)
     const body = JSON.parse(updateRes.payload)
-    assert.deepEqual(body.ownedDomains, ['docs.meta.example.com'])
-    assert.deepEqual(body.tags, ['seo', 'ai'])
-    assert.deepEqual(body.providers, ['gemini', 'openai'])
+    expect(body.ownedDomains).toEqual(['docs.meta.example.com'])
+    expect(body.tags).toEqual(['seo', 'ai'])
+    expect(body.providers).toEqual(['gemini', 'openai'])
   })
 
   // --- Location CRUD tests ---
@@ -310,11 +309,11 @@ describe('api-routes', () => {
         timezone: 'America/New_York',
       },
     })
-    assert.equal(res.statusCode, 201)
+    expect(res.statusCode).toBe(201)
     const body = JSON.parse(res.payload)
-    assert.equal(body.label, 'nyc')
-    assert.equal(body.city, 'New York')
-    assert.equal(body.timezone, 'America/New_York')
+    expect(body.label).toBe('nyc')
+    expect(body.city).toBe('New York')
+    expect(body.timezone).toBe('America/New_York')
   })
 
   it('POST /api/v1/projects/:name/locations rejects duplicate label', async () => {
@@ -328,9 +327,9 @@ describe('api-routes', () => {
         country: 'US',
       },
     })
-    assert.equal(res.statusCode, 400)
+    expect(res.statusCode).toBe(400)
     const body = JSON.parse(res.payload)
-    assert.match(body.error.message, /already exists/)
+    expect(body.error.message).toMatch(/already exists/)
   })
 
   it('POST /api/v1/projects/:name/locations rejects invalid location data', async () => {
@@ -344,7 +343,7 @@ describe('api-routes', () => {
         country: 'DEU', // 3 chars, should be 2
       },
     })
-    assert.equal(res.statusCode, 400)
+    expect(res.statusCode).toBe(400)
   })
 
   it('GET /api/v1/projects/:name/locations lists locations and default', async () => {
@@ -352,12 +351,12 @@ describe('api-routes', () => {
       method: 'GET',
       url: '/api/v1/projects/my-site/locations',
     })
-    assert.equal(res.statusCode, 200)
+    expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload)
-    assert(Array.isArray(body.locations))
-    assert.equal(body.locations.length, 1)
-    assert.equal(body.locations[0].label, 'nyc')
-    assert.equal(body.defaultLocation, null)
+    expect(body.locations).toBeInstanceOf(Array)
+    expect(body.locations).toHaveLength(1)
+    expect(body.locations[0].label).toBe('nyc')
+    expect(body.defaultLocation).toBeNull()
   })
 
   it('PUT /api/v1/projects/:name/locations/default sets the default location', async () => {
@@ -366,14 +365,14 @@ describe('api-routes', () => {
       url: '/api/v1/projects/my-site/locations/default',
       payload: { label: 'nyc' },
     })
-    assert.equal(res.statusCode, 200)
+    expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload)
-    assert.equal(body.defaultLocation, 'nyc')
+    expect(body.defaultLocation).toBe('nyc')
 
     // Verify via GET locations
     const getRes = await app.inject({ method: 'GET', url: '/api/v1/projects/my-site/locations' })
     const getBody = JSON.parse(getRes.payload)
-    assert.equal(getBody.defaultLocation, 'nyc')
+    expect(getBody.defaultLocation).toBe('nyc')
   })
 
   it('PUT /api/v1/projects/:name/locations/default rejects unknown label', async () => {
@@ -382,9 +381,9 @@ describe('api-routes', () => {
       url: '/api/v1/projects/my-site/locations/default',
       payload: { label: 'nonexistent' },
     })
-    assert.equal(res.statusCode, 400)
+    expect(res.statusCode).toBe(400)
     const body = JSON.parse(res.payload)
-    assert.match(body.error.message, /not found/)
+    expect(body.error.message).toMatch(/not found/)
   })
 
   it('PUT /api/v1/projects/:name/locations/default rejects missing label', async () => {
@@ -393,7 +392,7 @@ describe('api-routes', () => {
       url: '/api/v1/projects/my-site/locations/default',
       payload: {},
     })
-    assert.equal(res.statusCode, 400)
+    expect(res.statusCode).toBe(400)
   })
 
   it('POST /api/v1/projects/:name/locations adds a second location', async () => {
@@ -407,13 +406,13 @@ describe('api-routes', () => {
         country: 'GB',
       },
     })
-    assert.equal(res.statusCode, 201)
-    assert.equal(JSON.parse(res.payload).label, 'london')
+    expect(res.statusCode).toBe(201)
+    expect(JSON.parse(res.payload).label).toBe('london')
 
     // Verify both exist
     const listRes = await app.inject({ method: 'GET', url: '/api/v1/projects/my-site/locations' })
     const listBody = JSON.parse(listRes.payload)
-    assert.equal(listBody.locations.length, 2)
+    expect(listBody.locations).toHaveLength(2)
   })
 
   it('DELETE /api/v1/projects/:name/locations/:label removes a location', async () => {
@@ -421,13 +420,13 @@ describe('api-routes', () => {
       method: 'DELETE',
       url: '/api/v1/projects/my-site/locations/london',
     })
-    assert.equal(res.statusCode, 204)
+    expect(res.statusCode).toBe(204)
 
     // Verify removed
     const listRes = await app.inject({ method: 'GET', url: '/api/v1/projects/my-site/locations' })
     const listBody = JSON.parse(listRes.payload)
-    assert.equal(listBody.locations.length, 1)
-    assert.equal(listBody.locations[0].label, 'nyc')
+    expect(listBody.locations).toHaveLength(1)
+    expect(listBody.locations[0].label).toBe('nyc')
   })
 
   it('DELETE /api/v1/projects/:name/locations/:label returns 400 for unknown label', async () => {
@@ -435,7 +434,7 @@ describe('api-routes', () => {
       method: 'DELETE',
       url: '/api/v1/projects/my-site/locations/nonexistent',
     })
-    assert.equal(res.statusCode, 400)
+    expect(res.statusCode).toBe(400)
   })
 
   it('DELETE /api/v1/projects/:name/locations/:label clears default when removing default location', async () => {
@@ -444,13 +443,13 @@ describe('api-routes', () => {
       method: 'DELETE',
       url: '/api/v1/projects/my-site/locations/nyc',
     })
-    assert.equal(res.statusCode, 204)
+    expect(res.statusCode).toBe(204)
 
     // Verify default is cleared
     const listRes = await app.inject({ method: 'GET', url: '/api/v1/projects/my-site/locations' })
     const listBody = JSON.parse(listRes.payload)
-    assert.equal(listBody.locations.length, 0)
-    assert.equal(listBody.defaultLocation, null)
+    expect(listBody.locations).toHaveLength(0)
+    expect(listBody.defaultLocation).toBeNull()
   })
 
   it('GET /api/v1/projects/:name includes locations in project response', async () => {
@@ -462,11 +461,11 @@ describe('api-routes', () => {
     })
 
     const res = await app.inject({ method: 'GET', url: '/api/v1/projects/my-site' })
-    assert.equal(res.statusCode, 200)
+    expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload)
-    assert(Array.isArray(body.locations))
-    assert.equal(body.locations.length, 1)
-    assert.equal(body.locations[0].label, 'sf')
+    expect(body.locations).toBeInstanceOf(Array)
+    expect(body.locations).toHaveLength(1)
+    expect(body.locations[0].label).toBe('sf')
   })
 
   it('POST /api/v1/projects/:name/locations returns 404 for unknown project', async () => {
@@ -475,7 +474,7 @@ describe('api-routes', () => {
       url: '/api/v1/projects/nonexistent/locations',
       payload: { label: 'test', city: 'Test', region: 'Test', country: 'US' },
     })
-    assert.equal(res.statusCode, 404)
+    expect(res.statusCode).toBe(404)
   })
 
   it('GET /api/v1/settings returns provider and google summaries', async () => {
@@ -488,13 +487,13 @@ describe('api-routes', () => {
 
     try {
       const res = await settingsApp.inject({ method: 'GET', url: '/api/v1/settings' })
-      assert.equal(res.statusCode, 200)
+      expect(res.statusCode).toBe(200)
       const body = JSON.parse(res.payload) as {
         providers: Array<{ name: string; configured: boolean }>
         google: { configured: boolean }
       }
-      assert.deepEqual(body.providers, [{ name: 'gemini', configured: true }])
-      assert.deepEqual(body.google, { configured: false })
+      expect(body.providers).toEqual([{ name: 'gemini', configured: true }])
+      expect(body.google).toEqual({ configured: false })
     } finally {
       await settingsApp.close()
       fs.rmSync(settingsCtx.tmpDir, { recursive: true, force: true })
@@ -522,12 +521,12 @@ describe('api-routes', () => {
           clientSecret: 'google-client-secret',
         },
       })
-      assert.equal(res.statusCode, 200)
-      assert.deepEqual(lastUpdate, {
+      expect(res.statusCode).toBe(200)
+      expect(lastUpdate).toEqual({
         clientId: 'google-client-id',
         clientSecret: 'google-client-secret',
       })
-      assert.deepEqual(JSON.parse(res.payload), { configured: true })
+      expect(JSON.parse(res.payload)).toEqual({ configured: true })
     } finally {
       await settingsApp.close()
       fs.rmSync(settingsCtx.tmpDir, { recursive: true, force: true })

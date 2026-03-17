@@ -1,8 +1,7 @@
-import assert from 'node:assert/strict'
+import { test, expect } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import test from 'node:test'
 import { eq } from 'drizzle-orm'
 import { createClient, migrate, projects, schedules } from '@ainyc/canonry-db'
 import { Scheduler } from '../src/scheduler.js'
@@ -47,13 +46,13 @@ test('scheduler removes orphaned tasks after project deletion', () => {
   })
 
   scheduler.start()
-  assert.equal((scheduler as unknown as { tasks: Map<string, unknown> }).tasks.size, 1)
+  expect((scheduler as unknown as { tasks: Map<string, unknown> }).tasks.size).toBe(1)
 
   db.delete(projects).where(eq(projects.id, 'proj_1')).run()
   ;(scheduler as unknown as { triggerRun: (scheduleId: string, projectId: string) => void }).triggerRun('sched_1', 'proj_1')
 
-  assert.equal(createdRunIds.length, 0)
-  assert.equal((scheduler as unknown as { tasks: Map<string, unknown> }).tasks.size, 0)
+  expect(createdRunIds.length).toBe(0)
+  expect((scheduler as unknown as { tasks: Map<string, unknown> }).tasks.size).toBe(0)
 
   scheduler.stop()
   fs.rmSync(tmpDir, { recursive: true, force: true })

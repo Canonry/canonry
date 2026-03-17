@@ -1,5 +1,4 @@
-import { describe, it, beforeEach, afterEach } from 'node:test'
-import assert from 'node:assert/strict'
+import { describe, it, beforeEach, afterEach, expect } from 'vitest'
 import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -8,7 +7,7 @@ import { createClient, migrate, apiKeys } from '@ainyc/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 
-describe('--format json output', { concurrency: 1 }, () => {
+describe('--format json output', () => {
   let tmpDir: string
   let origConfigDir: string | undefined
   let client: ApiClient
@@ -85,9 +84,9 @@ describe('--format json output', { concurrency: 1 }, () => {
     }
 
     const parsed = JSON.parse(logs.join('\n'))
-    assert.ok(parsed.project)
-    assert.equal(parsed.project.name, 'test-proj')
-    assert.ok(Array.isArray(parsed.runs))
+    expect(parsed.project).toBeDefined()
+    expect(parsed.project.name).toBe('test-proj')
+    expect(parsed.runs).toBeInstanceOf(Array)
   })
 
   it('listProjects with format json outputs valid JSON array', async () => {
@@ -109,8 +108,8 @@ describe('--format json output', { concurrency: 1 }, () => {
     }
 
     const parsed = JSON.parse(logs.join('\n'))
-    assert.ok(Array.isArray(parsed))
-    assert.ok(parsed.length >= 1)
+    expect(parsed).toBeInstanceOf(Array)
+    expect(parsed.length).toBeGreaterThanOrEqual(1)
   })
 
   it('listProjects text output deduplicates owned-domain variants in the count', async () => {
@@ -133,9 +132,9 @@ describe('--format json output', { concurrency: 1 }, () => {
     }
 
     const output = logs.join('\n')
-    assert.match(output, /proj-owned/)
-    assert.match(output, /a\.com \(\+1\)/)
-    assert.doesNotMatch(output, /a\.com \(\+2\)/)
+    expect(output).toMatch(/proj-owned/)
+    expect(output).toMatch(/a\.com \(\+1\)/)
+    expect(output).not.toMatch(/a\.com \(\+2\)/)
   })
 
   it('showSettings with format json outputs valid JSON', async () => {
@@ -150,7 +149,7 @@ describe('--format json output', { concurrency: 1 }, () => {
     }
 
     const parsed = JSON.parse(logs.join('\n'))
-    assert.ok(parsed.providers)
-    assert.ok(Array.isArray(parsed.providers))
+    expect(parsed.providers).toBeDefined()
+    expect(parsed.providers).toBeInstanceOf(Array)
   })
 })

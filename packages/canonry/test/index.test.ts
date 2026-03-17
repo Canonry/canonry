@@ -1,5 +1,4 @@
-import { describe, it } from 'node:test'
-import assert from 'node:assert/strict'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { createRequire } from 'node:module'
 import os from 'node:os'
 import fs from 'node:fs'
@@ -15,61 +14,41 @@ import { ApiClient } from '../src/client.js'
 const _require = createRequire(import.meta.url)
 const { version: PKG_VERSION } = _require('../package.json') as { version: string }
 
-function restoreEnvVar(name: string, originalValue: string | undefined) {
-  if (originalValue === undefined) {
-    delete process.env[name]
-    return
-  }
-
-  process.env[name] = originalValue
-}
-
 describe('canonry', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   it('loadConfig throws when no config exists', () => {
-    // Override HOME to a temp dir so config won't be found
-    const originalHome = process.env.HOME
     const tmpDir = path.join(os.tmpdir(), `canonry-test-${crypto.randomUUID()}`)
     fs.mkdirSync(tmpDir, { recursive: true })
-    process.env.HOME = tmpDir
+    vi.stubEnv('HOME', tmpDir)
 
     try {
-      assert.throws(() => loadConfig(), {
-        message: /Config not found/,
-      })
+      expect(() => loadConfig()).toThrow(/Config not found/)
     } finally {
-      process.env.HOME = originalHome
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
   })
 
   it('getConfigDir honors CANONRY_CONFIG_DIR', () => {
-    const originalConfigDir = process.env.CANONRY_CONFIG_DIR
-    process.env.CANONRY_CONFIG_DIR = '/tmp/canonry-custom'
-
-    try {
-      assert.equal(getConfigDir(), '/tmp/canonry-custom')
-    } finally {
-      restoreEnvVar('CANONRY_CONFIG_DIR', originalConfigDir)
-    }
+    vi.stubEnv('CANONRY_CONFIG_DIR', '/tmp/canonry-custom')
+    expect(getConfigDir()).toBe('/tmp/canonry-custom')
   })
 
   it('loadConfig rewrites apiUrl port when CANONRY_PORT is set', () => {
     const tmpDir = path.join(os.tmpdir(), `canonry-port-${crypto.randomUUID()}`)
     fs.mkdirSync(tmpDir, { recursive: true })
-    const originalConfigDir = process.env.CANONRY_CONFIG_DIR
-    const originalPort = process.env.CANONRY_PORT
-    process.env.CANONRY_CONFIG_DIR = tmpDir
-    process.env.CANONRY_PORT = '5000'
+    vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
+    vi.stubEnv('CANONRY_PORT', '5000')
 
     const yaml = `apiUrl: 'http://localhost:4100'\ndatabase: /tmp/test.db\napiKey: cnry_testkey\n`
     fs.writeFileSync(path.join(tmpDir, 'config.yaml'), yaml)
 
     try {
       const config = loadConfig()
-      assert.equal(config.apiUrl, 'http://localhost:5000')
+      expect(config.apiUrl).toBe('http://localhost:5000')
     } finally {
-      restoreEnvVar('CANONRY_CONFIG_DIR', originalConfigDir)
-      restoreEnvVar('CANONRY_PORT', originalPort)
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
   })
@@ -77,9 +56,7 @@ describe('canonry', () => {
   it('loadConfig leaves apiUrl unchanged when CANONRY_PORT is not set', () => {
     const tmpDir = path.join(os.tmpdir(), `canonry-port-${crypto.randomUUID()}`)
     fs.mkdirSync(tmpDir, { recursive: true })
-    const originalConfigDir = process.env.CANONRY_CONFIG_DIR
-    const originalPort = process.env.CANONRY_PORT
-    process.env.CANONRY_CONFIG_DIR = tmpDir
+    vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
     delete process.env.CANONRY_PORT
 
     const yaml = `apiUrl: 'http://localhost:4100'\ndatabase: /tmp/test.db\napiKey: cnry_testkey\n`
@@ -87,10 +64,8 @@ describe('canonry', () => {
 
     try {
       const config = loadConfig()
-      assert.equal(config.apiUrl, 'http://localhost:4100')
+      expect(config.apiUrl).toBe('http://localhost:4100')
     } finally {
-      restoreEnvVar('CANONRY_CONFIG_DIR', originalConfigDir)
-      restoreEnvVar('CANONRY_PORT', originalPort)
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
   })
@@ -98,101 +73,80 @@ describe('canonry', () => {
   it('loadConfig leaves apiUrl unchanged when apiUrl is malformed and CANONRY_PORT is set', () => {
     const tmpDir = path.join(os.tmpdir(), `canonry-port-${crypto.randomUUID()}`)
     fs.mkdirSync(tmpDir, { recursive: true })
-    const originalConfigDir = process.env.CANONRY_CONFIG_DIR
-    const originalPort = process.env.CANONRY_PORT
-    process.env.CANONRY_CONFIG_DIR = tmpDir
-    process.env.CANONRY_PORT = '5000'
+    vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
+    vi.stubEnv('CANONRY_PORT', '5000')
 
     const yaml = `apiUrl: 'not-a-valid-url'\ndatabase: /tmp/test.db\napiKey: cnry_testkey\n`
     fs.writeFileSync(path.join(tmpDir, 'config.yaml'), yaml)
 
     try {
       const config = loadConfig()
-      assert.equal(config.apiUrl, 'not-a-valid-url')
+      expect(config.apiUrl).toBe('not-a-valid-url')
     } finally {
-      restoreEnvVar('CANONRY_CONFIG_DIR', originalConfigDir)
-      restoreEnvVar('CANONRY_PORT', originalPort)
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
   })
 
   it('initCommand embeds CANONRY_PORT into saved apiUrl', async () => {
     const tmpDir = path.join(os.tmpdir(), `canonry-init-port-${crypto.randomUUID()}`)
-    const originalConfigDir = process.env.CANONRY_CONFIG_DIR
-    const originalPort = process.env.CANONRY_PORT
-    process.env.CANONRY_CONFIG_DIR = tmpDir
-    process.env.CANONRY_PORT = '5555'
+    vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
+    vi.stubEnv('CANONRY_PORT', '5555')
 
     try {
       await initCommand({ force: true, geminiKey: 'test-gemini-key' })
 
       delete process.env.CANONRY_PORT
       const config = loadConfig()
-      assert.equal(config.apiUrl, 'http://localhost:5555')
+      expect(config.apiUrl).toBe('http://localhost:5555')
     } finally {
-      restoreEnvVar('CANONRY_CONFIG_DIR', originalConfigDir)
-      restoreEnvVar('CANONRY_PORT', originalPort)
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
   })
 
   it('bootstrapCommand creates config and replaces the default API key on force', async () => {
     const tmpDir = path.join(os.tmpdir(), `canonry-bootstrap-${crypto.randomUUID()}`)
-    const originalConfigDir = process.env.CANONRY_CONFIG_DIR
-    const originalGeminiApiKey = process.env.GEMINI_API_KEY
-    const originalOpenaiApiKey = process.env.OPENAI_API_KEY
-    const originalCanonryApiKey = process.env.CANONRY_API_KEY
-    const originalGoogleClientId = process.env.GOOGLE_CLIENT_ID
-    const originalGoogleClientSecret = process.env.GOOGLE_CLIENT_SECRET
-
-    process.env.CANONRY_CONFIG_DIR = tmpDir
-    process.env.GEMINI_API_KEY = 'test-gemini-key'
-    process.env.CANONRY_API_KEY = 'cnry_bootstrap_key'
-    process.env.GOOGLE_CLIENT_ID = 'google-client-id'
-    process.env.GOOGLE_CLIENT_SECRET = 'google-client-secret'
+    vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
+    vi.stubEnv('GEMINI_API_KEY', 'test-gemini-key')
+    vi.stubEnv('CANONRY_API_KEY', 'cnry_bootstrap_key')
+    vi.stubEnv('GOOGLE_CLIENT_ID', 'google-client-id')
+    vi.stubEnv('GOOGLE_CLIENT_SECRET', 'google-client-secret')
 
     try {
       await bootstrapCommand({ force: true })
 
       let config = loadConfig()
-      assert.equal(config.database, path.join(tmpDir, 'data.db'))
-      assert.equal(config.apiKey, 'cnry_bootstrap_key')
-      assert.equal(config.providers?.gemini?.apiKey, 'test-gemini-key')
-      assert.equal(config.google?.clientId, 'google-client-id')
-      assert.equal(config.google?.clientSecret, 'google-client-secret')
+      expect(config.database).toBe(path.join(tmpDir, 'data.db'))
+      expect(config.apiKey).toBe('cnry_bootstrap_key')
+      expect(config.providers?.gemini?.apiKey).toBe('test-gemini-key')
+      expect(config.google?.clientId).toBe('google-client-id')
+      expect(config.google?.clientSecret).toBe('google-client-secret')
 
       let db = createClient(config.database)
       let keys = db.select().from(apiKeys).all()
-      assert.equal(keys.length, 1)
-      assert.equal(keys[0]?.keyPrefix, 'cnry_boot')
+      expect(keys).toHaveLength(1)
+      expect(keys[0]?.keyPrefix).toBe('cnry_boot')
 
-      process.env.CANONRY_API_KEY = 'cnry_force_key'
+      vi.stubEnv('CANONRY_API_KEY', 'cnry_force_key')
       await bootstrapCommand({ force: true })
 
       config = loadConfig()
-      assert.equal(config.apiKey, 'cnry_force_key')
+      expect(config.apiKey).toBe('cnry_force_key')
 
       db = createClient(config.database)
       keys = db.select().from(apiKeys).all()
-      assert.equal(keys.length, 1)
-      assert.equal(keys[0]?.keyPrefix, 'cnry_forc')
+      expect(keys).toHaveLength(1)
+      expect(keys[0]?.keyPrefix).toBe('cnry_forc')
 
       // Reconciles env changes on restart (no --force needed)
-      process.env.CANONRY_API_KEY = 'cnry_rotated_key'
-      process.env.OPENAI_API_KEY = 'test-openai-key'
+      vi.stubEnv('CANONRY_API_KEY', 'cnry_rotated_key')
+      vi.stubEnv('OPENAI_API_KEY', 'test-openai-key')
       await bootstrapCommand()
 
       config = loadConfig()
-      assert.equal(config.apiKey, 'cnry_rotated_key')
-      assert.equal(config.providers?.openai?.apiKey, 'test-openai-key')
-      assert.equal(config.providers?.gemini?.apiKey, 'test-gemini-key')
+      expect(config.apiKey).toBe('cnry_rotated_key')
+      expect(config.providers?.openai?.apiKey).toBe('test-openai-key')
+      expect(config.providers?.gemini?.apiKey).toBe('test-gemini-key')
     } finally {
-      restoreEnvVar('CANONRY_CONFIG_DIR', originalConfigDir)
-      restoreEnvVar('GEMINI_API_KEY', originalGeminiApiKey)
-      restoreEnvVar('OPENAI_API_KEY', originalOpenaiApiKey)
-      restoreEnvVar('CANONRY_API_KEY', originalCanonryApiKey)
-      restoreEnvVar('GOOGLE_CLIENT_ID', originalGoogleClientId)
-      restoreEnvVar('GOOGLE_CLIENT_SECRET', originalGoogleClientSecret)
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
   })
@@ -229,9 +183,9 @@ describe('canonry', () => {
     })
 
     try {
-      assert.ok(app)
-      assert.ok(typeof app.listen === 'function')
-      assert.ok(typeof app.inject === 'function')
+      expect(app).toBeDefined()
+      expect(app.listen).toBeTypeOf('function')
+      expect(app.inject).toBeTypeOf('function')
     } finally {
       await app.close()
       fs.rmSync(tmpDir, { recursive: true, force: true })
@@ -283,10 +237,10 @@ describe('canonry', () => {
         },
       })
 
-      assert.equal(createRes.statusCode, 201)
+      expect(createRes.statusCode).toBe(201)
       const created = JSON.parse(createRes.body) as { name: string; canonicalDomain: string }
-      assert.equal(created.name, 'test-project')
-      assert.equal(created.canonicalDomain, 'example.com')
+      expect(created.name).toBe('test-project')
+      expect(created.canonicalDomain).toBe('example.com')
 
       // Get project
       const getRes = await app.inject({
@@ -295,10 +249,10 @@ describe('canonry', () => {
         headers: { authorization: `Bearer ${rawKey}` },
       })
 
-      assert.equal(getRes.statusCode, 200)
+      expect(getRes.statusCode).toBe(200)
       const fetched = JSON.parse(getRes.body) as { name: string; canonicalDomain: string }
-      assert.equal(fetched.name, 'test-project')
-      assert.equal(fetched.canonicalDomain, 'example.com')
+      expect(fetched.name).toBe('test-project')
+      expect(fetched.canonicalDomain).toBe('example.com')
     } finally {
       await app.close()
       fs.rmSync(tmpDir, { recursive: true, force: true })
@@ -348,7 +302,7 @@ describe('canonry', () => {
           language: 'en',
         },
       })
-      assert.equal(createRes.statusCode, 201)
+      expect(createRes.statusCode).toBe(201)
 
       // Update project with new settings including ownedDomains
       const updateRes = await app.inject({
@@ -363,7 +317,7 @@ describe('canonry', () => {
           language: 'en-gb',
         },
       })
-      assert.equal(updateRes.statusCode, 200)
+      expect(updateRes.statusCode).toBe(200)
       const updated = JSON.parse(updateRes.body) as {
         displayName: string
         canonicalDomain: string
@@ -371,11 +325,11 @@ describe('canonry', () => {
         country: string
         language: string
       }
-      assert.equal(updated.displayName, 'Updated Name')
-      assert.equal(updated.canonicalDomain, 'updated.com')
-      assert.deepEqual(updated.ownedDomains, ['docs.updated.com', 'blog.updated.com'])
-      assert.equal(updated.country, 'GB')
-      assert.equal(updated.language, 'en-gb')
+      expect(updated.displayName).toBe('Updated Name')
+      expect(updated.canonicalDomain).toBe('updated.com')
+      expect(updated.ownedDomains).toEqual(['docs.updated.com', 'blog.updated.com'])
+      expect(updated.country).toBe('GB')
+      expect(updated.language).toBe('en-gb')
 
       // Verify GET returns updated values
       const getRes = await app.inject({
@@ -389,10 +343,10 @@ describe('canonry', () => {
         ownedDomains: string[]
         country: string
       }
-      assert.equal(fetched.displayName, 'Updated Name')
-      assert.equal(fetched.canonicalDomain, 'updated.com')
-      assert.deepEqual(fetched.ownedDomains, ['docs.updated.com', 'blog.updated.com'])
-      assert.equal(fetched.country, 'GB')
+      expect(fetched.displayName).toBe('Updated Name')
+      expect(fetched.canonicalDomain).toBe('updated.com')
+      expect(fetched.ownedDomains).toEqual(['docs.updated.com', 'blog.updated.com'])
+      expect(fetched.country).toBe('GB')
     } finally {
       await app.close()
       fs.rmSync(tmpDir, { recursive: true, force: true })
@@ -401,8 +355,7 @@ describe('canonry', () => {
 
   it('initCommand non-interactive mode creates config from flags', async () => {
     const tmpDir = path.join(os.tmpdir(), `canonry-init-${crypto.randomUUID()}`)
-    const originalConfigDir = process.env.CANONRY_CONFIG_DIR
-    process.env.CANONRY_CONFIG_DIR = tmpDir
+    vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
 
     try {
       await initCommand({
@@ -412,57 +365,44 @@ describe('canonry', () => {
       })
 
       const config = loadConfig()
-      assert.equal(config.database, path.join(tmpDir, 'data.db'))
-      assert.equal(config.providers?.gemini?.apiKey, 'test-gemini-key')
-      assert.equal(config.providers?.gemini?.model, 'gemini-3-flash')
-      assert.equal(config.providers?.openai?.apiKey, 'test-openai-key')
-      assert.equal(config.providers?.openai?.model, 'gpt-5.4')
-      assert.equal(config.providers?.claude, undefined)
-      assert.ok(config.apiKey.startsWith('cnry_'))
+      expect(config.database).toBe(path.join(tmpDir, 'data.db'))
+      expect(config.providers?.gemini?.apiKey).toBe('test-gemini-key')
+      expect(config.providers?.gemini?.model).toBe('gemini-3-flash')
+      expect(config.providers?.openai?.apiKey).toBe('test-openai-key')
+      expect(config.providers?.openai?.model).toBe('gpt-5.4')
+      expect(config.providers?.claude).toBeUndefined()
+      expect(config.apiKey).toMatch(/^cnry_/)
     } finally {
-      restoreEnvVar('CANONRY_CONFIG_DIR', originalConfigDir)
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
   })
 
   it('initCommand non-interactive mode reads env vars as fallback', async () => {
     const tmpDir = path.join(os.tmpdir(), `canonry-init-env-${crypto.randomUUID()}`)
-    const originalConfigDir = process.env.CANONRY_CONFIG_DIR
-    const originalAnthropicKey = process.env.ANTHROPIC_API_KEY
-    process.env.CANONRY_CONFIG_DIR = tmpDir
-    process.env.ANTHROPIC_API_KEY = 'test-anthropic-env'
+    vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
+    vi.stubEnv('ANTHROPIC_API_KEY', 'test-anthropic-env')
 
     try {
       await initCommand({ force: true })
 
       const config = loadConfig()
-      assert.equal(config.providers?.claude?.apiKey, 'test-anthropic-env')
-      assert.equal(config.providers?.claude?.model, 'claude-sonnet-4-6')
+      expect(config.providers?.claude?.apiKey).toBe('test-anthropic-env')
+      expect(config.providers?.claude?.model).toBe('claude-sonnet-4-6')
     } finally {
-      restoreEnvVar('CANONRY_CONFIG_DIR', originalConfigDir)
-      restoreEnvVar('ANTHROPIC_API_KEY', originalAnthropicKey)
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
   })
 
   it('ApiClient gives clear error when server is not running', async () => {
     const client = new ApiClient('http://localhost:19999', 'cnry_fake_key')
-    await assert.rejects(
-      () => client.listProjects(),
-      (err: Error) => {
-        assert.ok(err.message.includes('Could not connect to canonry server'))
-        assert.ok(err.message.includes('canonry serve'))
-        return true
-      },
-    )
+    await expect(() => client.listProjects()).rejects.toThrow('Could not connect to canonry server')
   })
 
   it('settings/google persists Google OAuth credentials to local config', async () => {
     const tmpDir = path.join(os.tmpdir(), `canonry-google-settings-${crypto.randomUUID()}`)
     fs.mkdirSync(tmpDir, { recursive: true })
 
-    const originalConfigDir = process.env.CANONRY_CONFIG_DIR
-    process.env.CANONRY_CONFIG_DIR = tmpDir
+    vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
 
     const dbPath = path.join(tmpDir, 'test.db')
     const db = createClient(dbPath)
@@ -500,15 +440,14 @@ describe('canonry', () => {
         },
       })
 
-      assert.equal(res.statusCode, 200)
-      assert.deepEqual(JSON.parse(res.body), { configured: true })
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body)).toEqual({ configured: true })
 
       const config = loadConfig()
-      assert.equal(config.google?.clientId, 'google-client-id')
-      assert.equal(config.google?.clientSecret, 'google-client-secret')
+      expect(config.google?.clientId).toBe('google-client-id')
+      expect(config.google?.clientSecret).toBe('google-client-secret')
     } finally {
       await app.close()
-      restoreEnvVar('CANONRY_CONFIG_DIR', originalConfigDir)
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
   })
@@ -517,8 +456,7 @@ describe('canonry', () => {
     const tmpDir = path.join(os.tmpdir(), `canonry-provider-settings-${crypto.randomUUID()}`)
     fs.mkdirSync(tmpDir, { recursive: true })
 
-    const originalConfigDir = process.env.CANONRY_CONFIG_DIR
-    process.env.CANONRY_CONFIG_DIR = tmpDir
+    vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
 
     const dbPath = path.join(tmpDir, 'test.db')
     const db = createClient(dbPath)
@@ -565,7 +503,7 @@ describe('canonry', () => {
           providers: ['openai'],
         },
       })
-      assert.equal(createProjectRes.statusCode, 201)
+      expect(createProjectRes.statusCode).toBe(201)
 
       const res = await app.inject({
         method: 'PUT',
@@ -577,17 +515,17 @@ describe('canonry', () => {
         },
       })
 
-      assert.equal(res.statusCode, 200)
+      expect(res.statusCode).toBe(200)
 
       const config = loadConfig()
-      assert.equal(config.providers?.openai?.model, 'gpt-4.1')
+      expect(config.providers?.openai?.model).toBe('gpt-4.1')
 
       const historyRes = await app.inject({
         method: 'GET',
         url: '/api/v1/projects/test-project/history',
         headers: { authorization: `Bearer ${rawKey}` },
       })
-      assert.equal(historyRes.statusCode, 200)
+      expect(historyRes.statusCode).toBe(200)
       const historyEntries = JSON.parse(historyRes.body) as Array<{
         action: string
         entityType: string
@@ -595,24 +533,23 @@ describe('canonry', () => {
         diff: { before: { model: string | null } | null; after: { model: string | null } }
       }>
       const providerHistory = historyEntries.find(entry => entry.action === 'provider.updated' && entry.entityType === 'provider')
-      assert.ok(providerHistory)
-      assert.equal(providerHistory!.entityId, 'openai')
-      assert.equal(providerHistory!.diff.before?.model, 'gpt-4o')
-      assert.equal(providerHistory!.diff.after.model, 'gpt-4.1')
+      expect(providerHistory).toBeDefined()
+      expect(providerHistory!.entityId).toBe('openai')
+      expect(providerHistory!.diff.before?.model).toBe('gpt-4o')
+      expect(providerHistory!.diff.after.model).toBe('gpt-4.1')
 
       const entries = db.select().from(auditLog).all().filter(entry => entry.entityType === 'provider' && entry.projectId !== null)
-      assert.equal(entries.length, 1)
-      assert.equal(entries[0]!.action, 'provider.updated')
+      expect(entries).toHaveLength(1)
+      expect(entries[0]!.action).toBe('provider.updated')
 
       const diff = JSON.parse(entries[0]!.diff ?? 'null') as {
         before: { model: string | null }
         after: { model: string | null }
       }
-      assert.equal(diff.before.model, 'gpt-4o')
-      assert.equal(diff.after.model, 'gpt-4.1')
+      expect(diff.before.model).toBe('gpt-4o')
+      expect(diff.after.model).toBe('gpt-4.1')
     } finally {
       await app.close()
-      restoreEnvVar('CANONRY_CONFIG_DIR', originalConfigDir)
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
   })
@@ -652,9 +589,9 @@ describe('canonry', () => {
         method: 'GET',
         url: '/health',
       })
-      assert.equal(res.statusCode, 200)
+      expect(res.statusCode).toBe(200)
       const body = JSON.parse(res.body) as { status: string }
-      assert.equal(body.status, 'ok')
+      expect(body.status).toBe('ok')
     } finally {
       await app.close()
       fs.rmSync(tmpDir, { recursive: true, force: true })
@@ -697,15 +634,15 @@ describe('canonry', () => {
         url: '/api/v1/openapi.json',
       })
 
-      assert.equal(res.statusCode, 200)
+      expect(res.statusCode).toBe(200)
       const body = JSON.parse(res.body) as {
         info: { version: string }
         paths: Record<string, Record<string, { security?: unknown[] }>>
       }
 
-      assert.equal(body.info.version, PKG_VERSION)
-      assert.ok(body.paths['/api/v1/projects/{name}'])
-      assert.deepEqual(body.paths['/api/v1/openapi.json']?.get?.security, [])
+      expect(body.info.version).toBe(PKG_VERSION)
+      expect(body.paths['/api/v1/projects/{name}']).toBeDefined()
+      expect(body.paths['/api/v1/openapi.json']?.get?.security).toEqual([])
     } finally {
       await app.close()
       fs.rmSync(tmpDir, { recursive: true, force: true })

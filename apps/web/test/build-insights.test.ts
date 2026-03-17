@@ -1,5 +1,4 @@
-import assert from 'node:assert/strict'
-import test from 'node:test'
+import { test, expect } from 'vitest'
 
 import type { CitationInsightVm } from '../src/view-models.js'
 import type { ApiTimelineEntry, ApiSnapshot } from '../src/api.js'
@@ -73,9 +72,9 @@ function stableInput(): InsightInput {
 
 test('stable: no changes produces a single stable insight', () => {
   const insights = buildInsights(stableInput())
-  assert.equal(insights.length, 1)
-  assert.equal(insights[0]!.id, 'insight_stable')
-  assert.equal(insights[0]!.tone, 'neutral')
+  expect(insights.length).toBe(1)
+  expect(insights[0]!.id).toBe('insight_stable')
+  expect(insights[0]!.tone).toBe('neutral')
 })
 
 test('lost citation: per-provider lost surfaces with correct keyword count', () => {
@@ -95,13 +94,13 @@ test('lost citation: per-provider lost surfaces with correct keyword count', () 
   })
 
   const lost = insights.find(i => i.id === 'insight_lost')
-  assert.ok(lost, 'should have a lost insight')
-  assert.equal(lost.tone, 'negative')
+  expect(lost).toBeTruthy()
+  expect(lost!.tone).toBe('negative')
   // 2 affected phrases (kw1/gemini, kw2/gemini) across 2 keywords
-  assert.equal(lost.affectedPhrases.length, 2)
-  assert.match(lost.title, /2 keyword/)
+  expect(lost!.affectedPhrases.length).toBe(2)
+  expect(lost!.title).toMatch(/2 keyword/)
   // Each affected phrase has a single provider
-  assert.equal(lost.affectedPhrases[0]!.provider, 'gemini')
+  expect(lost!.affectedPhrases[0]!.provider).toBe('gemini')
 })
 
 test('lost citation: keyword cited by one provider but lost on another still flags the loss', () => {
@@ -117,9 +116,9 @@ test('lost citation: keyword cited by one provider but lost on another still fla
   })
 
   const lost = insights.find(i => i.id === 'insight_lost')
-  assert.ok(lost, 'should flag the per-provider loss even when another provider still cites')
-  assert.equal(lost.affectedPhrases.length, 1)
-  assert.equal(lost.affectedPhrases[0]!.provider, 'gemini')
+  expect(lost).toBeTruthy()
+  expect(lost!.affectedPhrases.length).toBe(1)
+  expect(lost!.affectedPhrases[0]!.provider).toBe('gemini')
 })
 
 test('first citation: keyword newly cited for the first time', () => {
@@ -137,11 +136,11 @@ test('first citation: keyword newly cited for the first time', () => {
   })
 
   const first = insights.find(i => i.id === 'insight_first_citation')
-  assert.ok(first, 'should have a first-citation insight')
-  assert.equal(first.tone, 'positive')
-  assert.equal(first.actionLabel, 'New')
-  assert.equal(first.affectedPhrases.length, 1)
-  assert.equal(first.affectedPhrases[0]!.keyword, 'kw1')
+  expect(first).toBeTruthy()
+  expect(first!.tone).toBe('positive')
+  expect(first!.actionLabel).toBe('New')
+  expect(first!.affectedPhrases.length).toBe(1)
+  expect(first!.affectedPhrases[0]!.keyword).toBe('kw1')
 })
 
 test('first citation: first observation that is cited (transition=new, state=cited)', () => {
@@ -156,7 +155,7 @@ test('first citation: first observation that is cited (transition=new, state=cit
   })
 
   const first = insights.find(i => i.id === 'insight_first_citation')
-  assert.ok(first, 'transition=new with cited state should be a first citation')
+  expect(first).toBeTruthy()
 })
 
 test('new provider pickup: keyword already cited by another provider gains a new one', () => {
@@ -175,14 +174,14 @@ test('new provider pickup: keyword already cited by another provider gains a new
   })
 
   const pickup = insights.find(i => i.id === 'insight_provider_pickup')
-  assert.ok(pickup, 'should have a provider-pickup insight')
-  assert.equal(pickup.tone, 'positive')
-  assert.equal(pickup.affectedPhrases.length, 1)
-  assert.equal(pickup.affectedPhrases[0]!.provider, 'openai')
+  expect(pickup).toBeTruthy()
+  expect(pickup!.tone).toBe('positive')
+  expect(pickup!.affectedPhrases.length).toBe(1)
+  expect(pickup!.affectedPhrases[0]!.provider).toBe('openai')
 
   // Should NOT appear as a first citation
   const first = insights.find(i => i.id === 'insight_first_citation')
-  assert.equal(first, undefined, 'should not have a first-citation for an already-cited keyword')
+  expect(first).toBe(undefined)
 })
 
 test('single-provider emerging is first citation, not provider pickup', () => {
@@ -199,8 +198,8 @@ test('single-provider emerging is first citation, not provider pickup', () => {
     trackedCompetitors: [],
   })
 
-  assert.ok(insights.find(i => i.id === 'insight_first_citation'), 'should be first citation')
-  assert.equal(insights.find(i => i.id === 'insight_provider_pickup'), undefined, 'should not be provider pickup')
+  expect(insights.find(i => i.id === 'insight_first_citation')).toBeTruthy()
+  expect(insights.find(i => i.id === 'insight_provider_pickup')).toBe(undefined)
 })
 
 test('competitor gained: competitor appears on keywords it was not cited on before', () => {
@@ -225,10 +224,10 @@ test('competitor gained: competitor appears on keywords it was not cited on befo
   })
 
   const gained = insights.find(i => i.id === 'insight_comp_gained_rival.com')
-  assert.ok(gained, 'should flag competitor gained')
-  assert.equal(gained.tone, 'negative')
-  assert.equal(gained.affectedPhrases.length, 2)
-  assert.match(gained.title, /rival\.com appeared on 2 keyword/)
+  expect(gained).toBeTruthy()
+  expect(gained!.tone).toBe('negative')
+  expect(gained!.affectedPhrases.length).toBe(2)
+  expect(gained!.title).toMatch(/rival\.com appeared on 2 keyword/)
 })
 
 test('competitor gained: only tracked competitors are flagged', () => {
@@ -240,8 +239,8 @@ test('competitor gained: only tracked competitors are flagged', () => {
     trackedCompetitors: [],
   })
 
-  assert.equal(insights.length, 1)
-  assert.equal(insights[0]!.id, 'insight_stable')
+  expect(insights.length).toBe(1)
+  expect(insights[0]!.id).toBe('insight_stable')
 })
 
 test('competitor lost: competitor drops out of citations', () => {
@@ -254,9 +253,9 @@ test('competitor lost: competitor drops out of citations', () => {
   })
 
   const lost = insights.find(i => i.id === 'insight_comp_lost_rival.com')
-  assert.ok(lost, 'should flag competitor lost')
-  assert.equal(lost.tone, 'neutral')
-  assert.match(lost.title, /rival\.com dropped from 1 keyword/)
+  expect(lost).toBeTruthy()
+  expect(lost!.tone).toBe('neutral')
+  expect(lost!.title).toMatch(/rival\.com dropped from 1 keyword/)
 })
 
 test('persistent gap: keyword uncited for 3+ runs', () => {
@@ -273,9 +272,9 @@ test('persistent gap: keyword uncited for 3+ runs', () => {
   })
 
   const gap = insights.find(i => i.id === 'insight_persistent_gap')
-  assert.ok(gap, 'should flag persistent gap')
-  assert.equal(gap.tone, 'caution')
-  assert.match(gap.title, /1 keyword/)
+  expect(gap).toBeTruthy()
+  expect(gap!.tone).toBe('caution')
+  expect(gap!.title).toMatch(/1 keyword/)
 })
 
 test('persistent gap: not triggered below threshold', () => {
@@ -290,7 +289,7 @@ test('persistent gap: not triggered below threshold', () => {
     trackedCompetitors: [],
   })
 
-  assert.equal(insights.find(i => i.id === 'insight_persistent_gap'), undefined)
+  expect(insights.find(i => i.id === 'insight_persistent_gap')).toBe(undefined)
 })
 
 test('multiple signal types can fire simultaneously', () => {
@@ -324,10 +323,10 @@ test('multiple signal types can fire simultaneously', () => {
     trackedCompetitors: ['rival.com'],
   })
 
-  assert.ok(insights.find(i => i.id === 'insight_lost'), 'should have lost')
-  assert.ok(insights.find(i => i.id === 'insight_first_citation'), 'should have first citation')
-  assert.ok(insights.find(i => i.id === 'insight_persistent_gap'), 'should have persistent gap')
-  assert.ok(insights.find(i => i.id === 'insight_comp_gained_rival.com'), 'should have competitor gained')
+  expect(insights.find(i => i.id === 'insight_lost')).toBeTruthy()
+  expect(insights.find(i => i.id === 'insight_first_citation')).toBeTruthy()
+  expect(insights.find(i => i.id === 'insight_persistent_gap')).toBeTruthy()
+  expect(insights.find(i => i.id === 'insight_comp_gained_rival.com')).toBeTruthy()
 })
 
 test('render order: lost before competitor before pickup before first-citation before gap', () => {
@@ -375,16 +374,16 @@ test('render order: lost before competitor before pickup before first-citation b
   const firstIdx = ids.indexOf('insight_first_citation')
   const gapIdx = ids.indexOf('insight_persistent_gap')
 
-  assert.notEqual(lostIdx, -1, 'insight_lost should be present')
-  assert.notEqual(compIdx, -1, 'insight_comp_gained_rival.com should be present')
-  assert.notEqual(pickupIdx, -1, 'insight_provider_pickup should be present')
-  assert.notEqual(firstIdx, -1, 'insight_first_citation should be present')
-  assert.notEqual(gapIdx, -1, 'insight_persistent_gap should be present')
+  expect(lostIdx).not.toBe(-1)
+  expect(compIdx).not.toBe(-1)
+  expect(pickupIdx).not.toBe(-1)
+  expect(firstIdx).not.toBe(-1)
+  expect(gapIdx).not.toBe(-1)
 
-  assert.ok(lostIdx < compIdx, 'lost before competitor gained')
-  assert.ok(compIdx < pickupIdx, 'competitor gained before pickup')
-  assert.ok(pickupIdx < firstIdx, 'pickup before first citation')
-  assert.ok(firstIdx < gapIdx, 'first citation before gap')
+  expect(lostIdx < compIdx).toBeTruthy()
+  expect(compIdx < pickupIdx).toBeTruthy()
+  expect(pickupIdx < firstIdx).toBeTruthy()
+  expect(firstIdx < gapIdx).toBeTruthy()
 })
 
 test('no previous snapshots: competitor signals gracefully absent', () => {
@@ -398,5 +397,5 @@ test('no previous snapshots: competitor signals gracefully absent', () => {
 
   // Without previous snapshots, every competitor keyword looks "gained" since previous set is empty
   const gained = insights.find(i => i.id === 'insight_comp_gained_rival.com')
-  assert.ok(gained, 'competitor appears as gained when no previous data exists')
+  expect(gained).toBeTruthy()
 })

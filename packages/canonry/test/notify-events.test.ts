@@ -1,5 +1,4 @@
-import { it } from 'node:test'
-import assert from 'node:assert/strict'
+import { it, expect } from 'vitest'
 import { listEvents } from '../src/commands/notify.js'
 
 it('listEvents prints all 4 notification event types', () => {
@@ -13,10 +12,10 @@ it('listEvents prints all 4 notification event types', () => {
   }
 
   const output = logs.join('\n')
-  assert.ok(output.includes('citation.lost'))
-  assert.ok(output.includes('citation.gained'))
-  assert.ok(output.includes('run.completed'))
-  assert.ok(output.includes('run.failed'))
+  expect(output.includes('citation.lost')).toBeTruthy()
+  expect(output.includes('citation.gained')).toBeTruthy()
+  expect(output.includes('run.completed')).toBeTruthy()
+  expect(output.includes('run.failed')).toBeTruthy()
 })
 
 it('listEvents outputs valid JSON with --format json', () => {
@@ -30,7 +29,7 @@ it('listEvents outputs valid JSON with --format json', () => {
   }
 
   const parsed = JSON.parse(logs.join('\n'))
-  assert.ok(Array.isArray(parsed))
-  assert.equal(parsed.length, 4)
-  assert.ok(parsed.every((e: { event: string; description: string }) => e.event && e.description))
+  expect(Array.isArray(parsed)).toBeTruthy()
+  expect(parsed.length).toBe(4)
+  expect(parsed.every((e: { event: string; description: string }) => e.event && e.description)).toBeTruthy()
 })

@@ -1,5 +1,4 @@
-import assert from 'node:assert/strict'
-import test from 'node:test'
+import { test, expect, onTestFinished } from 'vitest'
 
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -26,116 +25,116 @@ function renderApp(
 test('overview route renders the premium portfolio dashboard', () => {
   const html = renderApp('/')
 
-  assert.match(html, /Portfolio/)
-  assert.match(html, /Visibility and execution state/)
-  assert.match(html, /Infrastructure/)
-  assert.match(html, /Citypoint Dental NYC/)
-  assert.match(html, /Harbor Legal Group/)
-  assert.match(html, /src="\/favicon\.svg"/)
+  expect(html).toMatch(/Portfolio/)
+  expect(html).toMatch(/Visibility and execution state/)
+  expect(html).toMatch(/Infrastructure/)
+  expect(html).toMatch(/Citypoint Dental NYC/)
+  expect(html).toMatch(/Harbor Legal Group/)
+  expect(html).toMatch(/src="\/favicon\.svg"/)
 })
 
 test('project route renders a single command center with visibility sections', () => {
   const html = renderApp('/projects/project_citypoint')
 
-  assert.match(html, /Citypoint Dental NYC/)
-  assert.match(html, /Overview/)
-  assert.match(html, /Search Console/)
-  assert.match(html, /Citation signals/)
-  assert.match(html, /Key phrase citation tracking/)
-  assert.match(html, /Recent execution history/)
-  assert.doesNotMatch(html, /Google Search Console/)
+  expect(html).toMatch(/Citypoint Dental NYC/)
+  expect(html).toMatch(/Overview/)
+  expect(html).toMatch(/Search Console/)
+  expect(html).toMatch(/Citation signals/)
+  expect(html).toMatch(/Key phrase citation tracking/)
+  expect(html).toMatch(/Recent execution history/)
+  expect(html).not.toMatch(/Google Search Console/)
 })
 
 test('runs route renders the operational timeline and filters', () => {
   const html = renderApp('/runs')
 
-  assert.match(html, /Runs/)
-  assert.match(html, /All runs/)
-  assert.match(html, /Queued follow-up after local ranking movement/)
-  assert.match(html, /Citation losses on emergency-intent prompts/)
+  expect(html).toMatch(/Runs/)
+  expect(html).toMatch(/All runs/)
+  expect(html).toMatch(/Queued follow-up after local ranking movement/)
+  expect(html).toMatch(/Citation losses on emergency-intent prompts/)
 })
 
 test('settings route renders provider state, quota summary, and service health', () => {
   const html = renderApp('/settings')
 
-  assert.match(html, /Settings/)
-  assert.match(html, /Rate limit/)
-  assert.match(html, /Service health/)
-  assert.match(html, /Gemini/)
+  expect(html).toMatch(/Settings/)
+  expect(html).toMatch(/Rate limit/)
+  expect(html).toMatch(/Service health/)
+  expect(html).toMatch(/Gemini/)
 })
 
 test('settings route renders the Google Search Console OAuth configuration card', () => {
   const html = renderApp('/settings')
 
-  assert.match(html, /Search Console OAuth/)
-  assert.match(html, /~\/\.canonry\/config\.yaml/)
-  assert.match(html, /Configure Google OAuth|Update OAuth app/)
+  expect(html).toMatch(/Search Console OAuth/)
+  expect(html).toMatch(/~\/\.canonry\/config\.yaml/)
+  expect(html).toMatch(/Configure Google OAuth|Update OAuth app/)
 })
 
 test('setup route renders the step wizard with system check first', () => {
   const html = renderApp('/setup')
 
-  assert.match(html, /Setup/)
-  assert.match(html, /System ready/)
-  assert.match(html, /Step 1 of 5/)
-  assert.match(html, /Continue/)
+  expect(html).toMatch(/Setup/)
+  expect(html).toMatch(/System ready/)
+  expect(html).toMatch(/Step 1 of 5/)
+  expect(html).toMatch(/Continue/)
 })
 
 test('overview route renders first-run onboarding guidance when there are no projects', () => {
   const html = renderApp('/', { emptyPortfolio: true })
 
-  assert.match(html, /No projects yet/)
-  assert.match(html, /Canonry becomes useful after one project/)
-  assert.match(html, /Launch setup/)
+  expect(html).toMatch(/No projects yet/)
+  expect(html).toMatch(/Canonry becomes useful after one project/)
+  expect(html).toMatch(/Launch setup/)
 })
 
 test('default overview covers multiple projects and recent runs', () => {
   const html = renderApp('/')
 
-  assert.match(html, /Northstar Orthopedics/)
-  assert.match(html, /One follow-up run is queued/)
-  assert.match(html, /System health/)
+  expect(html).toMatch(/Northstar Orthopedics/)
+  expect(html).toMatch(/One follow-up run is queued/)
+  expect(html).toMatch(/System health/)
 })
 
 test('setup route renders step indicator with all step labels', () => {
   const html = renderApp('/setup')
 
-  assert.match(html, /System check/)
-  assert.match(html, /Create project/)
-  assert.match(html, /Key phrases/)
-  assert.match(html, /Competitors/)
-  assert.match(html, /Launch/)
+  expect(html).toMatch(/System check/)
+  expect(html).toMatch(/Create project/)
+  expect(html).toMatch(/Key phrases/)
+  expect(html).toMatch(/Competitors/)
+  expect(html).toMatch(/Launch/)
 })
 
 test('runs route renders partial runs clearly', () => {
   const html = renderApp('/runs', { runScenario: 'partial' })
 
-  assert.match(html, /Partial visibility sweep after quota cap/)
-  assert.match(html, /Quota window closed mid-run/)
+  expect(html).toMatch(/Partial visibility sweep after quota cap/)
+  expect(html).toMatch(/Quota window closed mid-run/)
 })
 
 test('runs route renders failed runs clearly', () => {
   const html = renderApp('/runs', { runScenario: 'failed' })
 
-  assert.match(html, /Provider retries exhausted before results were captured/)
-  assert.match(html, /Worker could not reach the provider after repeated retry exhaustion/)
+  expect(html).toMatch(/Provider retries exhausted before results were captured/)
+  expect(html).toMatch(/Worker could not reach the provider after repeated retry exhaustion/)
 })
 
 test('project route renders visibility drop insights', () => {
   const html = renderApp('/projects/project_citypoint', { visibilityDropProjectId: 'project_citypoint' })
 
-  assert.match(html, /Sharp citation drop detected/)
+  expect(html).toMatch(/Sharp citation drop detected/)
 })
 
 test('project search console route renders the Google Search Console section shell', () => {
   const html = renderApp('/projects/project_citypoint/search-console')
 
-  assert.match(html, /Google Search Console/)
-  assert.match(html, /Loading…|Loading\.\.\./)
-  assert.doesNotMatch(html, /Citation signals/)
+  expect(html).toMatch(/Google Search Console/)
+  expect(html).toMatch(/Loading…|Loading\.\.\./)
+  expect(html).not.toMatch(/Citation signals/)
 })
 
-test('fetchServiceStatus reports ok details from a health payload', async (t) => {
+test('fetchServiceStatus reports ok details from a health payload', async () => {
   const realFetch = globalThis.fetch
   globalThis.fetch = (async () =>
     new Response(
@@ -152,13 +151,13 @@ test('fetchServiceStatus reports ok details from a health payload', async (t) =>
       },
     )) as typeof fetch
 
-  t.after(() => {
+  onTestFinished(() => {
     globalThis.fetch = realFetch
   })
 
   const result = await fetchServiceStatus('/worker-health', 'Worker')
 
-  assert.deepEqual(result, {
+  expect(result).toEqual({
     label: 'Worker',
     state: 'ok',
     detail: 'phase-1 · database configured · heartbeat 2026-03-09T00:00:00.000Z',
@@ -168,19 +167,19 @@ test('fetchServiceStatus reports ok details from a health payload', async (t) =>
   })
 })
 
-test('fetchServiceStatus reports transport failures', async (t) => {
+test('fetchServiceStatus reports transport failures', async () => {
   const realFetch = globalThis.fetch
   globalThis.fetch = (async () => {
     throw new Error('connection refused')
   }) as typeof fetch
 
-  t.after(() => {
+  onTestFinished(() => {
     globalThis.fetch = realFetch
   })
 
   const result = await fetchServiceStatus('/api-health', 'API')
 
-  assert.deepEqual(result, {
+  expect(result).toEqual({
     label: 'API',
     state: 'error',
     detail: 'connection refused',

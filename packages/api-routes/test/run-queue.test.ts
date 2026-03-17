@@ -1,8 +1,7 @@
-import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import test from 'node:test'
+import { test, expect, onTestFinished } from 'vitest'
 import { createClient, migrate, projects, runs } from '@ainyc/canonry-db'
 import { eq } from 'drizzle-orm'
 import { queueRunIfProjectIdle } from '../src/run-queue.js'
@@ -17,6 +16,7 @@ function createTempDb() {
 
 test('queueRunIfProjectIdle queues once and reports conflicts afterward', () => {
   const { db, tmpDir } = createTempDb()
+  onTestFinished(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
   const now = new Date().toISOString()
 
   db.insert(projects).values({
@@ -35,18 +35,16 @@ test('queueRunIfProjectIdle queues once and reports conflicts afterward', () => 
     projectId: 'proj_1',
     trigger: 'scheduled',
   })
-  assert.equal(first.conflict, false)
+  expect(first.conflict).toBe(false)
 
   const second = queueRunIfProjectIdle(db, {
     createdAt: now,
     projectId: 'proj_1',
     trigger: 'manual',
   })
-  assert.equal(second.conflict, true)
+  expect(second.conflict).toBe(true)
 
   const queuedRuns = db.select().from(runs).where(eq(runs.projectId, 'proj_1')).all()
-  assert.equal(queuedRuns.length, 1)
-  assert.equal(queuedRuns[0]!.trigger, 'scheduled')
-
-  fs.rmSync(tmpDir, { recursive: true, force: true })
+  expect(queuedRuns).toHaveLength(1)
+  expect(queuedRuns[0]!.trigger).toBe('scheduled')
 })

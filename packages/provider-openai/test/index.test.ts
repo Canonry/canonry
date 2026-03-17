@@ -1,5 +1,4 @@
-import assert from 'node:assert/strict'
-import test from 'node:test'
+import { test, expect } from 'vitest'
 
 import { validateConfig, normalizeResult, buildPrompt } from '../src/index.js'
 import type { OpenAIRawResult } from '../src/index.js'
@@ -15,21 +14,21 @@ const validConfig = {
 
 test('validateConfig accepts a non-empty API key', () => {
   const result = validateConfig(validConfig)
-  assert.equal(result.ok, true)
-  assert.equal(result.provider, 'openai')
-  assert.equal(result.message, 'config valid')
-  assert.equal(result.model, 'gpt-5.4')
+  expect(result.ok).toBe(true)
+  expect(result.provider).toBe('openai')
+  expect(result.message).toBe('config valid')
+  expect(result.model).toBe('gpt-5.4')
 })
 
 test('validateConfig rejects empty API key', () => {
   const result = validateConfig({ ...validConfig, apiKey: '' })
-  assert.equal(result.ok, false)
-  assert.equal(result.message, 'missing api key')
+  expect(result.ok).toBe(false)
+  expect(result.message).toBe('missing api key')
 })
 
 test('validateConfig uses custom model when specified', () => {
   const result = validateConfig({ ...validConfig, model: 'gpt-4o-mini' })
-  assert.equal(result.model, 'gpt-4o-mini')
+  expect(result.model).toBe('gpt-4o-mini')
 })
 
 test('normalizeResult extracts answer text from output', () => {
@@ -56,14 +55,13 @@ test('normalizeResult extracts answer text from output', () => {
 
   const result = normalizeResult(raw)
 
-  assert.equal(result.provider, 'openai')
-  assert.equal(
-    result.answerText,
+  expect(result.provider).toBe('openai')
+  expect(result.answerText).toBe(
     'Answer engine optimization is the practice of optimizing for AI answers.',
   )
-  assert.deepEqual(result.citedDomains, ['example.com', 'blog.ainyc.ai'])
-  assert.equal(result.groundingSources.length, 2)
-  assert.deepEqual(result.searchQueries, ['answer engine optimization'])
+  expect(result.citedDomains).toEqual(['example.com', 'blog.ainyc.ai'])
+  expect(result.groundingSources.length).toBe(2)
+  expect(result.searchQueries).toEqual(['answer engine optimization'])
 })
 
 test('normalizeResult strips www. from domains', () => {
@@ -78,7 +76,7 @@ test('normalizeResult strips www. from domains', () => {
   }
 
   const result = normalizeResult(raw)
-  assert.deepEqual(result.citedDomains, ['example.com'])
+  expect(result.citedDomains).toEqual(['example.com'])
 })
 
 test('normalizeResult deduplicates domains', () => {
@@ -95,7 +93,7 @@ test('normalizeResult deduplicates domains', () => {
   }
 
   const result = normalizeResult(raw)
-  assert.deepEqual(result.citedDomains, ['example.com', 'other.com'])
+  expect(result.citedDomains).toEqual(['example.com', 'other.com'])
 })
 
 test('normalizeResult handles empty response gracefully', () => {
@@ -108,9 +106,9 @@ test('normalizeResult handles empty response gracefully', () => {
   }
 
   const result = normalizeResult(raw)
-  assert.equal(result.answerText, '')
-  assert.deepEqual(result.citedDomains, [])
-  assert.deepEqual(result.groundingSources, [])
+  expect(result.answerText).toBe('')
+  expect(result.citedDomains).toEqual([])
+  expect(result.groundingSources).toEqual([])
 })
 
 test('normalizeResult handles invalid grounding URIs', () => {
@@ -126,10 +124,10 @@ test('normalizeResult handles invalid grounding URIs', () => {
   }
 
   const result = normalizeResult(raw)
-  assert.deepEqual(result.citedDomains, ['valid.com'])
+  expect(result.citedDomains).toEqual(['valid.com'])
 })
 
 test('buildPrompt returns the keyword verbatim', () => {
-  assert.equal(buildPrompt('best crm software'), 'best crm software')
-  assert.equal(buildPrompt(''), '')
+  expect(buildPrompt('best crm software')).toBe('best crm software')
+  expect(buildPrompt('')).toBe('')
 })

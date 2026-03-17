@@ -1,5 +1,4 @@
-import assert from 'node:assert/strict'
-import test from 'node:test'
+import { test, expect } from 'vitest'
 
 import { buildDashboard, buildProjectCommandCenter, type ProjectData } from '../src/build-dashboard.js'
 import type { ApiSettings } from '../src/api.js'
@@ -18,12 +17,12 @@ test('buildDashboard maps Google settings into the dashboard view model', () => 
 
   const dashboard = buildDashboard([], apiSettings)
 
-  assert.equal(dashboard.settings.google.state, 'ready')
-  assert.match(dashboard.settings.google.detail, /configured/i)
-  assert.ok(
+  expect(dashboard.settings.google.state).toBe('ready')
+  expect(dashboard.settings.google.detail).toMatch(/configured/i)
+  expect(
     dashboard.settings.selfHostNotes.some((note) => note.includes('source of truth for authentication credentials')),
-  )
-  assert.match(dashboard.settings.bootstrapNote, /Authentication credentials persist to local config/)
+  ).toBeTruthy()
+  expect(dashboard.settings.bootstrapNote).toMatch(/Authentication credentials persist to local config/)
 })
 
 test('buildDashboard marks Google settings as needing config when OAuth is not configured', () => {
@@ -36,8 +35,8 @@ test('buildDashboard marks Google settings as needing config when OAuth is not c
 
   const dashboard = buildDashboard([], apiSettings)
 
-  assert.equal(dashboard.settings.google.state, 'needs-config')
-  assert.match(dashboard.settings.google.detail, /not configured yet/i)
+  expect(dashboard.settings.google.state).toBe('needs-config')
+  expect(dashboard.settings.google.detail).toMatch(/not configured yet/i)
 })
 
 test('buildProjectCommandCenter preserves provider continuity while marking mixed-model history', () => {
@@ -161,14 +160,13 @@ test('buildProjectCommandCenter preserves provider continuity while marking mixe
 
   const evidence = buildProjectCommandCenter(data).visibilityEvidence[0]!
 
-  assert.equal(evidence.changeLabel, 'Cited for 2 runs')
-  assert.equal(evidence.historyScope, 'provider')
-  assert.deepEqual(evidence.modelsSeen, ['gpt-4o', 'gpt-4.1'])
-  assert.deepEqual(
+  expect(evidence.changeLabel).toBe('Cited for 2 runs')
+  expect(evidence.historyScope).toBe('provider')
+  expect(evidence.modelsSeen).toEqual(['gpt-4o', 'gpt-4.1'])
+  expect(
     evidence.runHistory.map(point => point.model),
-    ['gpt-4o', 'gpt-4.1'],
-  )
-  assert.deepEqual(evidence.modelTransitions, [{
+  ).toEqual(['gpt-4o', 'gpt-4.1'])
+  expect(evidence.modelTransitions).toEqual([{
     runId: 'run_2',
     createdAt: '2026-03-15T00:00:00Z',
     fromModel: 'gpt-4o',

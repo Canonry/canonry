@@ -1,6 +1,5 @@
-import assert from 'node:assert/strict'
+import { test, expect, onTestFinished } from 'vitest'
 import { createServer } from 'node:net'
-import test from 'node:test'
 
 import { getPlatformEnv } from '@ainyc/canonry-config'
 
@@ -17,7 +16,7 @@ async function getAvailablePort(): Promise<number> {
   })
 
   const address = server.address()
-  assert.ok(address && typeof address === 'object')
+  expect(address && typeof address === 'object').toBeTruthy()
 
   await new Promise<void>((resolve, reject) => {
     server.close((error) => {
@@ -30,7 +29,7 @@ async function getAvailablePort(): Promise<number> {
     })
   })
 
-  return address.port
+  return (address as { port: number }).port
 }
 
 test('createHeartbeatLog reports configured database and provider count', () => {
@@ -39,13 +38,12 @@ test('createHeartbeatLog reports configured database and provider count', () => 
     GEMINI_API_KEY: 'test-key',
   })
 
-  assert.equal(
+  expect(
     createHeartbeatLog(env),
-    '[worker] heartbeat database=configured providers=1',
-  )
+  ).toBe('[worker] heartbeat database=configured providers=1')
 })
 
-test('startHeartbeatJobs triggers an immediate heartbeat and clears its timer', (t) => {
+test('startHeartbeatJobs triggers an immediate heartbeat and clears its timer', () => {
   const env = getPlatformEnv({})
   let heartbeatCount = 0
   let clearedTimer: NodeJS.Timeout | undefined
@@ -61,7 +59,7 @@ test('startHeartbeatJobs triggers an immediate heartbeat and clears its timer', 
   }) as typeof clearInterval
   console.info = () => {}
 
-  t.after(() => {
+  onTestFinished(() => {
     globalThis.setInterval = realSetInterval
     globalThis.clearInterval = realClearInterval
     console.info = realConsoleInfo
@@ -71,12 +69,12 @@ test('startHeartbeatJobs triggers an immediate heartbeat and clears its timer', 
     heartbeatCount += 1
   })
 
-  assert.equal(heartbeatCount, 1)
+  expect(heartbeatCount).toBe(1)
   stop()
-  assert.equal(clearedTimer, fakeTimer)
+  expect(clearedTimer).toBe(fakeTimer)
 })
 
-test('startHealthServer exposes worker health payload', async (t) => {
+test('startHealthServer exposes worker health payload', async () => {
   const workerPort = await getAvailablePort()
   const env = getPlatformEnv({
     DATABASE_URL: 'postgresql://aeo:aeo@localhost:5432/aeo_platform',
@@ -86,13 +84,13 @@ test('startHealthServer exposes worker health payload', async (t) => {
   const healthServer = startHealthServer(env, () => '2026-03-09T00:00:00.000Z')
   await healthServer.ready
 
-  t.after(async () => {
+  onTestFinished(async () => {
     await healthServer.close()
   })
 
   const response = await fetch(`http://127.0.0.1:${workerPort}/health`)
-  assert.equal(response.status, 200)
-  assert.deepEqual(await response.json(), {
+  expect(response.status).toBe(200)
+  expect(await response.json()).toEqual({
     service: 'aeo-platform-worker',
     status: 'ok',
     version: '0.1.0',

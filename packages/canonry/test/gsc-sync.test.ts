@@ -1,5 +1,4 @@
-import { describe, it } from 'node:test'
-import assert from 'node:assert/strict'
+import { describe, it, expect } from 'vitest'
 import { executeGscSync } from '../src/gsc-sync.js'
 
 type RunUpdate = { status?: string; startedAt?: string; finishedAt?: string; error?: string }
@@ -35,8 +34,7 @@ describe('executeGscSync', () => {
   it('marks run as running then failed when project is not found', async () => {
     const db = makeDbWithProject(null)
 
-    await assert.rejects(
-      () => executeGscSync(db as never, 'run-1', 'proj-1', {
+    await expect(() => executeGscSync(db as never, 'run-1', 'proj-1', {
         config: {
           apiUrl: 'http://localhost:4100',
           database: '/tmp/test.db',
@@ -47,12 +45,10 @@ describe('executeGscSync', () => {
             connections: [],
           },
         },
-      }),
-      /Project not found/,
-    )
+      })).rejects.toThrow(/Project not found/)
 
-    assert.ok(db.runUpdates.some((u) => u.status === 'running'), 'should have set running')
-    assert.ok(db.runUpdates.some((u) => u.status === 'failed'), 'should have set failed')
+    expect(db.runUpdates.some((u) => u.status === 'running'), 'should have set running').toBeTruthy()
+    expect(db.runUpdates.some((u) => u.status === 'failed'), 'should have set failed').toBeTruthy()
   })
 
   it('marks run as failed when no GSC connection exists for domain', async () => {
@@ -62,8 +58,7 @@ describe('executeGscSync', () => {
     }
     const db = makeDbWithProject(project)
 
-    await assert.rejects(
-      () => executeGscSync(db as never, 'run-1', 'proj-1', {
+    await expect(() => executeGscSync(db as never, 'run-1', 'proj-1', {
         config: {
           apiUrl: 'http://localhost:4100',
           database: '/tmp/test.db',
@@ -74,12 +69,10 @@ describe('executeGscSync', () => {
             connections: [],
           },
         },
-      }),
-      /No GSC connection found/,
-    )
+      })).rejects.toThrow(/No GSC connection found/)
 
-    assert.ok(db.runUpdates.some((u) => u.status === 'running'), 'should have set running')
-    assert.ok(db.runUpdates.some((u) => u.status === 'failed'), 'should have set failed')
+    expect(db.runUpdates.some((u) => u.status === 'running'), 'should have set running').toBeTruthy()
+    expect(db.runUpdates.some((u) => u.status === 'failed'), 'should have set failed').toBeTruthy()
   })
 
   it('marks run as failed when GSC connection has no propertyId', async () => {
@@ -89,8 +82,7 @@ describe('executeGscSync', () => {
     }
     const db = makeDbWithProject(project)
 
-    await assert.rejects(
-      () => executeGscSync(db as never, 'run-1', 'proj-1', {
+    await expect(() => executeGscSync(db as never, 'run-1', 'proj-1', {
         config: {
           apiUrl: 'http://localhost:4100',
           database: '/tmp/test.db',
@@ -111,11 +103,9 @@ describe('executeGscSync', () => {
             }],
           },
         },
-      }),
-      /No GSC property selected/,
-    )
+      })).rejects.toThrow(/No GSC property selected/)
 
-    assert.ok(db.runUpdates.some((u) => u.status === 'failed'), 'should have set failed')
+    expect(db.runUpdates.some((u) => u.status === 'failed'), 'should have set failed').toBeTruthy()
   })
 
   it('marks run as failed when GSC connection has no refreshToken', async () => {
@@ -125,8 +115,7 @@ describe('executeGscSync', () => {
     }
     const db = makeDbWithProject(project)
 
-    await assert.rejects(
-      () => executeGscSync(db as never, 'run-1', 'proj-1', {
+    await expect(() => executeGscSync(db as never, 'run-1', 'proj-1', {
         config: {
           apiUrl: 'http://localhost:4100',
           database: '/tmp/test.db',
@@ -147,11 +136,9 @@ describe('executeGscSync', () => {
             }],
           },
         },
-      }),
-      /No GSC connection found or connection is incomplete/,
-    )
+      })).rejects.toThrow(/No GSC connection found or connection is incomplete/)
 
-    assert.ok(db.runUpdates.some((u) => u.status === 'failed'), 'should have set failed')
+    expect(db.runUpdates.some((u) => u.status === 'failed'), 'should have set failed').toBeTruthy()
   })
 
   it('marks run as failed when Google OAuth client credentials are missing from config', async () => {
@@ -161,8 +148,7 @@ describe('executeGscSync', () => {
     }
     const db = makeDbWithProject(project)
 
-    await assert.rejects(
-      () => executeGscSync(db as never, 'run-1', 'proj-1', {
+    await expect(() => executeGscSync(db as never, 'run-1', 'proj-1', {
         config: {
           apiUrl: 'http://localhost:4100',
           database: '/tmp/test.db',
@@ -171,10 +157,8 @@ describe('executeGscSync', () => {
             connections: [],
           },
         },
-      }),
-      /Google OAuth is not configured/,
-    )
+      })).rejects.toThrow(/Google OAuth is not configured/)
 
-    assert.ok(db.runUpdates.some((u) => u.status === 'failed'), 'should have set failed')
+    expect(db.runUpdates.some((u) => u.status === 'failed'), 'should have set failed').toBeTruthy()
   })
 })

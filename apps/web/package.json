@@ -8,7 +8,7 @@
     "dev": "vite --host 0.0.0.0 --port 4173",
     "build": "vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "tsx --test test/*.test.ts test/*.test.tsx",
+    "test": "vitest run",
     "lint": "eslint src/ test/ vite.config.ts"
   },
   "dependencies": {
