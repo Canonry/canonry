@@ -1393,4 +1393,123 @@
     @apply absolute -m-px h-px w-px overflow-hidden border-0 p-0;
     clip: rect(0 0 0 0);
   }
+
+  /* ── Aero (Agent Chat) ── */
+
+  .aero-select {
+    @apply bg-zinc-900/50 border border-zinc-800/60 rounded-lg px-3 py-1.5
+           text-[13px] text-zinc-300 outline-none
+           focus:border-zinc-600 transition-colors;
+    appearance: auto;
+  }
+
+  .aero-layout {
+    @apply flex gap-4 mt-4;
+    height: calc(100vh - 200px);
+    min-height: 400px;
+  }
+
+  .aero-threads {
+    @apply w-56 shrink-0 bg-zinc-900/30 border border-zinc-800/60 rounded-xl p-3 overflow-y-auto;
+  }
+
+  .aero-thread-item {
+    @apply flex items-center gap-1 rounded-lg transition-colors;
+  }
+
+  .aero-thread-item.active {
+    @apply bg-zinc-800/60;
+  }
+
+  .aero-thread-item:hover {
+    @apply bg-zinc-800/40;
+  }
+
+  .aero-thread-btn {
+    @apply flex-1 flex items-center justify-between gap-2 text-left
+           px-2.5 py-2 text-[13px] text-zinc-300 truncate rounded-lg
+           min-w-0;
+  }
+
+  .aero-thread-delete {
+    @apply p-1.5 text-zinc-600 hover:text-rose-400 transition-colors shrink-0 rounded;
+  }
+
+  .aero-chat {
+    @apply flex-1 flex flex-col bg-zinc-900/30 border border-zinc-800/60 rounded-xl overflow-hidden;
+  }
+
+  .aero-empty {
+    @apply flex-1 flex flex-col items-center justify-center p-6;
+  }
+
+  .aero-messages {
+    @apply flex-1 overflow-y-auto p-4 space-y-4;
+  }
+
+  .aero-msg {
+    @apply max-w-[85%];
+  }
+
+  .aero-msg.user {
+    @apply ml-auto;
+  }
+
+  .aero-msg.assistant {
+    @apply mr-auto;
+  }
+
+  .aero-msg-label {
+    @apply text-[10px] uppercase tracking-[0.18em] text-zinc-500 mb-1;
+  }
+
+  .aero-msg.user .aero-msg-label {
+    @apply text-right;
+  }
+
+  .aero-msg-content {
+    @apply text-[13px] leading-relaxed rounded-xl px-4 py-3 whitespace-pre-wrap;
+  }
+
+  .aero-msg.user .aero-msg-content {
+    @apply bg-zinc-800/60 text-zinc-200;
+  }
+
+  .aero-msg.assistant .aero-msg-content {
+    @apply bg-zinc-900/60 text-zinc-300 border border-zinc-800/40;
+  }
+
+  .aero-error {
+    @apply text-[13px] text-rose-400 bg-rose-950/30 border border-rose-900/40
+           rounded-lg px-4 py-2.5 mr-auto max-w-[85%];
+  }
+
+  .aero-input-area {
+    @apply flex items-end gap-2 border-t border-zinc-800/60 p-3;
+  }
+
+  .aero-input {
+    @apply flex-1 bg-zinc-900/50 border border-zinc-800/60 rounded-xl px-4 py-2.5
+           text-[13px] text-zinc-200 placeholder-zinc-600 outline-none
+           resize-none min-h-[40px] max-h-[120px]
+           focus:border-zinc-600 transition-colors;
+  }
+
+  .aero-send {
+    @apply p-2.5 rounded-xl bg-zinc-800/60 text-zinc-400
+           hover:bg-zinc-700/60 hover:text-zinc-200
+           disabled:opacity-30 disabled:cursor-not-allowed
+           transition-colors shrink-0;
+  }
+
+  @keyframes aero-dots {
+    0%, 20% { content: '.'; }
+    40% { content: '..'; }
+    60%, 100% { content: '...'; }
+  }
+
+  .aero-thinking::after {
+    content: '...';
+    animation: aero-dots 1.2s steps(1) infinite;
+  }
 }

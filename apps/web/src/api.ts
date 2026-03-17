@@ -654,3 +654,56 @@ export function triggerDiscoverSitemaps(project: string): Promise<{ sitemaps: Ap
     body: '{}',
   })
 }
+
+// ── Agent (Aero) ─────────────────────────────────────────────
+
+export interface ApiAgentThread {
+  id: string
+  projectId: string
+  title: string | null
+  channel: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ApiAgentMessage {
+  id: string
+  threadId: string
+  role: 'user' | 'assistant' | 'tool'
+  content: string
+  toolName: string | null
+  toolArgs: string | null
+  toolCallId: string | null
+  createdAt: string
+}
+
+export function createAgentThread(project: string, opts?: { title?: string }): Promise<ApiAgentThread> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/agent/threads`, {
+    method: 'POST',
+    body: JSON.stringify({ title: opts?.title, channel: 'chat' }),
+  })
+}
+
+export function fetchAgentThreads(project: string): Promise<ApiAgentThread[]> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/agent/threads`)
+}
+
+export function fetchAgentThread(project: string, threadId: string): Promise<ApiAgentThread & { messages: ApiAgentMessage[] }> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/agent/threads/${encodeURIComponent(threadId)}`)
+}
+
+export function sendAgentMessage(project: string, threadId: string, message: string, provider?: string): Promise<{ threadId: string; response: string }> {
+  const body: Record<string, unknown> = { message }
+  if (provider) body.provider = provider
+  return apiFetch(`/projects/${encodeURIComponent(project)}/agent/threads/${encodeURIComponent(threadId)}/messages`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export function deleteAgentThread(project: string, threadId: string): Promise<void> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/agent/threads/${encodeURIComponent(threadId)}`, {
+    method: 'DELETE',
+    body: '{}',
+  })
+}

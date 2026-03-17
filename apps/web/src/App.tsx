@@ -5,6 +5,7 @@ import type { MouseEvent, ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import {
   Activity,
+  Bot,
   ChevronRight,
   Download,
   Globe,
@@ -13,6 +14,7 @@ import {
   Play,
   Plus,
   Rocket,
+  Send,
   Settings,
   Trash2,
   Users,
@@ -85,6 +87,13 @@ import {
   type ApiGscInspection,
   type ApiGscDeindexedRow,
   type GroundingSource,
+  createAgentThread,
+  fetchAgentThreads,
+  fetchAgentThread,
+  sendAgentMessage,
+  deleteAgentThread,
+  type ApiAgentThread,
+  type ApiAgentMessage,
 } from './api.js'
 import { buildDashboard } from './build-dashboard.js'
 import type { ProjectData } from './build-dashboard.js'
@@ -131,6 +140,7 @@ type AppRoute =
   | { kind: 'runs'; path: '/runs' }
   | { kind: 'settings'; path: '/settings' }
   | { kind: 'setup'; path: '/setup' }
+  | { kind: 'aero'; path: '/aero' }
   | { kind: 'not-found'; path: string }
 
 type DrawerState =
@@ -244,6 +254,10 @@ function resolveRoute(pathname: string, dashboard: DashboardVm): AppRoute {
 
   if (normalized === '/setup') {
     return { kind: 'setup', path: '/setup' }
+  }
+
+  if (normalized === '/aero') {
+    return { kind: 'aero', path: '/aero' }
   }
 
   if (normalized === '/projects') {
@@ -468,7 +482,7 @@ function createNavigationHandler(navigate: (to: string) => void, to: string) {
   }
 }
 
-function isNavActive(route: AppRoute, section: 'overview' | 'projects' | 'project' | 'runs' | 'settings'): boolean {
+function isNavActive(route: AppRoute, section: 'overview' | 'projects' | 'project' | 'runs' | 'aero' | 'settings'): boolean {
   if (section === 'projects') {
     return route.kind === 'projects' || route.kind === 'project'
   }
@@ -5309,6 +5323,272 @@ function SetupPage({
   )
 }
 
+// ── Aero (Agent Chat) ─────────────────────────────────────────
+
+function AeroPage({ projects, providers }: {
+  projects: Array<{ name: string; displayName?: string }>
+  providers: Array<{ name: string; state: string }>
+}) {
+  const [selectedProject, setSelectedProject] = useState(projects[0]?.name ?? '')
+  const [selectedProvider, setSelectedProvider] = useState('')
+  const [threads, setThreads] = useState<ApiAgentThread[]>([])
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
+  const [messages, setMessages] = useState<ApiAgentMessage[]>([])
+  const [input, setInput] = useState('')
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  const configuredProviders = providers.filter(p => p.state === 'ready')
+
+  // Load threads when project changes
+  useEffect(() => {
+    if (!selectedProject) return
+    fetchAgentThreads(selectedProject).then(setThreads).catch(() => setThreads([]))
+  }, [selectedProject])
+
+  // Load messages when thread changes
+  useEffect(() => {
+    if (!selectedProject || !activeThreadId) {
+      setMessages([])
+      return
+    }
+    fetchAgentThread(selectedProject, activeThreadId)
+      .then(data => setMessages(data.messages))
+      .catch(() => setMessages([]))
+  }, [selectedProject, activeThreadId])
+
+  // Scroll to bottom on new messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  async function handleNewThread() {
+    if (!selectedProject) return
+    const thread = await createAgentThread(selectedProject, { title: 'New conversation' })
+    setThreads(prev => [thread, ...prev])
+    setActiveThreadId(thread.id)
+    setMessages([])
+    setError(null)
+  }
+
+  async function handleDeleteThread(threadId: string) {
+    if (!selectedProject) return
+    await deleteAgentThread(selectedProject, threadId)
+    setThreads(prev => prev.filter(t => t.id !== threadId))
+    if (activeThreadId === threadId) {
+      setActiveThreadId(null)
+      setMessages([])
+    }
+  }
+
+  async function handleSend() {
+    if (!input.trim() || !selectedProject || !activeThreadId || sending) return
+    const msg = input.trim()
+    setInput('')
+    setError(null)
+    setSending(true)
+
+    // Optimistically add user message
+    const optimisticUser: ApiAgentMessage = {
+      id: `temp-${Date.now()}`,
+      threadId: activeThreadId,
+      role: 'user',
+      content: msg,
+      toolName: null,
+      toolArgs: null,
+      toolCallId: null,
+      createdAt: new Date().toISOString(),
+    }
+    setMessages(prev => [...prev, optimisticUser])
+
+    try {
+      const result = await sendAgentMessage(
+        selectedProject,
+        activeThreadId,
+        msg,
+        selectedProvider || undefined,
+      )
+
+      // Add assistant response
+      const assistantMsg: ApiAgentMessage = {
+        id: `resp-${Date.now()}`,
+        threadId: activeThreadId,
+        role: 'assistant',
+        content: result.response,
+        toolName: null,
+        toolArgs: null,
+        toolCallId: null,
+        createdAt: new Date().toISOString(),
+      }
+      setMessages(prev => [...prev, assistantMsg])
+
+      // Refresh threads to update titles
+      fetchAgentThreads(selectedProject).then(setThreads).catch(() => {})
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSending(false)
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
+    }
+  }
+
+  const visibleMessages = messages.filter(m => m.role !== 'tool')
+
+  return (
+    <div className="page-container">
+      <div className="page-header">
+        <div className="page-header-left">
+          <h1 className="page-title">Aero</h1>
+          <p className="page-subtitle">AI-powered AEO analyst</p>
+        </div>
+        <div className="page-header-right flex items-center gap-3">
+          <select
+            value={selectedProject}
+            onChange={e => { setSelectedProject(e.target.value); setActiveThreadId(null) }}
+            className="aero-select"
+          >
+            {projects.map(p => (
+              <option key={p.name} value={p.name}>{p.displayName || p.name}</option>
+            ))}
+          </select>
+          <select
+            value={selectedProvider}
+            onChange={e => setSelectedProvider(e.target.value)}
+            className="aero-select"
+          >
+            <option value="">Auto (default)</option>
+            {configuredProviders.map(p => (
+              <option key={p.name} value={p.name}>{p.name}</option>
+            ))}
+          </select>
+          <Button onClick={handleNewThread} variant="secondary" className="gap-1.5">
+            <Plus className="h-3.5 w-3.5" />
+            New chat
+          </Button>
+        </div>
+      </div>
+
+      <div className="aero-layout">
+        {/* Thread list sidebar */}
+        <div className="aero-threads">
+          <p className="eyebrow mb-2">Threads</p>
+          {threads.length === 0 ? (
+            <p className="text-[13px] text-zinc-500">No threads yet. Start a new chat.</p>
+          ) : (
+            <div className="flex flex-col gap-0.5">
+              {threads.map(t => (
+                <div
+                  key={t.id}
+                  className={`aero-thread-item ${activeThreadId === t.id ? 'active' : ''}`}
+                >
+                  <button
+                    className="aero-thread-btn"
+                    onClick={() => setActiveThreadId(t.id)}
+                  >
+                    <span className="truncate">{t.title ?? 'Untitled'}</span>
+                    <span className="text-[10px] text-zinc-600 shrink-0">
+                      {new Date(t.updatedAt).toLocaleDateString()}
+                    </span>
+                  </button>
+                  <button
+                    className="aero-thread-delete"
+                    onClick={() => handleDeleteThread(t.id)}
+                    aria-label="Delete thread"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Chat area */}
+        <div className="aero-chat">
+          {!activeThreadId ? (
+            <div className="aero-empty">
+              <Bot className="h-10 w-10 text-zinc-700" />
+              <h2 className="text-base font-medium text-zinc-300 mt-3">Ask Aero anything</h2>
+              <p className="text-[13px] text-zinc-500 mt-1 max-w-md text-center">
+                Select a project and start a new chat to analyze your AI citation visibility,
+                compare providers, spot trends, and get actionable recommendations.
+              </p>
+              <Button onClick={handleNewThread} variant="secondary" className="mt-4 gap-1.5">
+                <Plus className="h-3.5 w-3.5" />
+                Start a conversation
+              </Button>
+            </div>
+          ) : (
+            <>
+              {/* Messages */}
+              <div className="aero-messages">
+                {visibleMessages.length === 0 && !sending && (
+                  <div className="aero-empty">
+                    <Bot className="h-8 w-8 text-zinc-700" />
+                    <p className="text-[13px] text-zinc-500 mt-2">Send a message to get started.</p>
+                  </div>
+                )}
+                {visibleMessages.map(msg => (
+                  <div key={msg.id} className={`aero-msg ${msg.role}`}>
+                    <div className="aero-msg-label">
+                      {msg.role === 'user' ? 'You' : 'Aero'}
+                    </div>
+                    <div className="aero-msg-content">
+                      {msg.content}
+                    </div>
+                  </div>
+                ))}
+                {sending && (
+                  <div className="aero-msg assistant">
+                    <div className="aero-msg-label">Aero</div>
+                    <div className="aero-msg-content text-zinc-500">
+                      <span className="aero-thinking">Thinking</span>
+                    </div>
+                  </div>
+                )}
+                {error && (
+                  <div className="aero-error">
+                    {error}
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* Input */}
+              <div className="aero-input-area">
+                <textarea
+                  className="aero-input"
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Ask about your visibility, trends, competitors..."
+                  rows={1}
+                  disabled={sending}
+                />
+                <button
+                  className="aero-send"
+                  onClick={handleSend}
+                  disabled={!input.trim() || sending}
+                  aria-label="Send message"
+                >
+                  <Send className="h-4 w-4" />
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function NotFoundPage({ onNavigate }: { onNavigate: (to: string) => void }) {
   return (
     <div className="page-container">
@@ -6261,6 +6541,7 @@ export function App({
     { label: 'Overview', href: '/', icon: LayoutDashboard, active: isNavActive(route, 'overview') },
     { label: 'Projects', href: '/projects', icon: Globe, active: isNavActive(route, 'projects') },
     { label: 'Runs', href: '/runs', icon: Play, active: isNavActive(route, 'runs') },
+    { label: 'Aero', href: '/aero', icon: Bot, active: isNavActive(route, 'aero') },
     { label: 'Settings', href: '/settings', icon: Settings, active: isNavActive(route, 'settings') },
   ]
 
@@ -6273,10 +6554,12 @@ export function App({
           ? activeProject.project.name
           : route.kind === 'runs'
             ? 'Runs'
-            : route.kind === 'settings'
-              ? 'Settings'
-              : route.kind === 'setup'
-                ? 'Setup'
+            : route.kind === 'aero'
+              ? 'Aero'
+              : route.kind === 'settings'
+                ? 'Settings'
+                : route.kind === 'setup'
+                  ? 'Setup'
                 : 'Not found'
 
   return (
@@ -6464,6 +6747,9 @@ export function App({
                 <ProjectPage model={activeProject} tab={route.tab} onOpenEvidence={openEvidence} onOpenRun={openRun} onTriggerRun={handleTriggerRun} onDeleteProject={handleDeleteProject} onAddKeywords={handleAddKeywords} onDeleteKeywords={handleDeleteKeywords} onAddCompetitors={handleAddCompetitors} onUpdateOwnedDomains={handleUpdateOwnedDomains} onUpdateProject={handleUpdateProject} onNavigate={navigate} />
               ) : null}
               {route.kind === 'runs' ? <RunsPage runs={safeDashboard.runs} onOpenRun={openRun} onTriggerAll={handleTriggerAllRuns} /> : null}
+              {route.kind === 'aero' ? (
+                <AeroPage projects={safeDashboard.projects.map(p => p.project)} providers={safeDashboard.settings.providerStatuses} />
+              ) : null}
               {route.kind === 'settings' ? (
                 <SettingsPage settings={safeDashboard.settings} healthSnapshot={healthSnapshot} onSettingsChanged={refreshData} />
               ) : null}
