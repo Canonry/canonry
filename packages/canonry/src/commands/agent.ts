@@ -51,7 +51,7 @@ export async function agentAsk(project: string, message: string, opts?: {
   }
 
   if (opts?.format !== 'json') {
-    console.log('Thinking...\n')
+    console.log('Aero is thinking...\n')
   }
 
   const result = await client.sendAgentMessage(project, threadId, message)
@@ -73,11 +73,11 @@ export async function agentThreads(project: string, format?: string): Promise<vo
   }
 
   if (threads.length === 0) {
-    console.log('No agent threads yet. Use "canonry agent ask <project> <message>" to start.')
+    console.log('No Aero threads yet. Use "canonry agent ask <project> <message>" to start.')
     return
   }
 
-  console.log(`Agent threads for ${project}:\n`)
+  console.log(`Aero threads for ${project}:\n`)
   for (const thread of threads) {
     const title = thread.title ?? '(untitled)'
     const ago = timeSince(thread.updatedAt)
@@ -104,7 +104,7 @@ export async function agentThread(project: string, threadId: string, format?: st
 
     const label = msg.role === 'user' ? '🧑 You' :
                   msg.role === 'assistant' && msg.toolName ? `🔧 ${msg.toolName}` :
-                  '🤖 Agent'
+                  '🤖 Aero'
 
     console.log(`\n${label}:`)
     console.log(msg.content)

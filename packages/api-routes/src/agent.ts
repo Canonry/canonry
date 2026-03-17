@@ -184,7 +184,7 @@ export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions
       return reply.status(503).send({
         error: {
           code: 'AGENT_UNAVAILABLE',
-          message: 'Agent is not configured. Add a provider with an API key.',
+          message: 'Aero is not configured. Add a provider API key (claude, openai, or gemini) to enable the agent.',
         },
       })
     }
