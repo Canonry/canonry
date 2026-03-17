@@ -200,6 +200,15 @@ function _getRuntimeBasePath(): string {
 const _BASE_URL: string = _getRuntimeBasePath()
 const _BASE_PREFIX: string = _BASE_URL === '/' ? '' : _BASE_URL.replace(/\/$/, '')
 
+/**
+ * Returns the full href for an app-internal path, including the base prefix.
+ * Use this on <a href> so that right-click / middle-click also land correctly.
+ * e.g. appHref('/setup') → '/canonry/setup' (sub-path) or '/setup' (root)
+ */
+function appHref(path: string): string {
+  return _BASE_PREFIX + path
+}
+
 function normalizePathname(pathname: string): string {
   if (!pathname) {
     return '/'
@@ -479,7 +488,7 @@ function BrandLockup({ compact = false, navigate }: { compact?: boolean; navigat
   return (
     <a
       className={`brand-lockup ${compact ? 'brand-lockup-compact' : ''}`}
-      href="/"
+      href={appHref('/')}
       aria-label="Canonry home"
       onClick={createNavigationHandler(navigate, '/')}
     >
@@ -5308,7 +5317,7 @@ function NotFoundPage({ onNavigate }: { onNavigate: (to: string) => void }) {
           <h1>Route not found</h1>
           <p>The current path does not map to a dashboard view.</p>
           <Button asChild>
-            <a href="/" onClick={createNavigationHandler(onNavigate, '/')}>
+            <a href={appHref('/')} onClick={createNavigationHandler(onNavigate, '/')}>
               Return to overview
             </a>
           </Button>
@@ -6024,14 +6033,14 @@ export function App({
       // User already has projects — no need for setup wizard
       const nextPath = '/'
       if (typeof window !== 'undefined' && normalizePathname(window.location.pathname) !== nextPath) {
-        window.history.replaceState({}, '', nextPath)
+        window.history.replaceState({}, '', _BASE_PREFIX + nextPath)
       }
       setPathname(nextPath)
     } else if (pathname === '/' && !hasProjects) {
       // No projects yet — guide user to setup
       const nextPath = '/setup'
       if (typeof window !== 'undefined' && normalizePathname(window.location.pathname) !== nextPath) {
-        window.history.replaceState({}, '', nextPath)
+        window.history.replaceState({}, '', _BASE_PREFIX + nextPath)
       }
       setPathname(nextPath)
     }
@@ -6322,7 +6331,7 @@ export function App({
               <p className="sidebar-section-title">Resources</p>
               <a
                 className="sidebar-link"
-                href="/setup"
+                href={appHref('/setup')}
                 aria-current={route.kind === 'setup' ? 'page' : undefined}
                 onClick={createNavigationHandler(navigate, '/setup')}
               >
@@ -6351,7 +6360,7 @@ export function App({
               <BrandLockup compact navigate={navigate} />
             </div>
             <nav className="breadcrumb" aria-label="Breadcrumb">
-              <a href="/" onClick={createNavigationHandler(navigate, '/')}>
+              <a href={appHref('/')} onClick={createNavigationHandler(navigate, '/')}>
                 Home
               </a>
               <ChevronRight className="breadcrumb-sep size-3" />
