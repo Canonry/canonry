@@ -44,7 +44,8 @@ describe('listSites', () => {
 
     await expect(
       () => listSites('bad-token'),
-    ).rejects.toThrow()
+    ).rejects.toThrow(/expired or revoked/)
+    await expect(() => listSites('bad-token')).rejects.toMatchObject({ name: 'GoogleApiError' })
   })
 })
 
@@ -117,7 +118,7 @@ describe('fetchSearchAnalytics', () => {
 
     await expect(
       () => fetchSearchAnalytics('token', 'site', { startDate: '2024-01-01', endDate: '2024-01-31' }),
-    ).rejects.toThrow()
+    ).rejects.toThrow(/rate limit/)
   })
 })
 

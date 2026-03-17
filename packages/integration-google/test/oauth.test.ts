@@ -79,7 +79,10 @@ describe('exchangeCode', () => {
 
     await expect(
       () => exchangeCode('cid', 'csecret', 'bad-code', 'http://localhost/cb'),
-    ).rejects.toThrow()
+    ).rejects.toThrow(/Token exchange failed/)
+    await expect(
+      () => exchangeCode('cid', 'csecret', 'bad-code', 'http://localhost/cb'),
+    ).rejects.toThrow(/400/)
   })
 })
 
@@ -119,6 +122,6 @@ describe('refreshAccessToken', () => {
 
     await expect(
       () => refreshAccessToken('cid', 'csecret', 'expired-token'),
-    ).rejects.toThrow()
+    ).rejects.toThrow(/Token refresh failed/)
   })
 })

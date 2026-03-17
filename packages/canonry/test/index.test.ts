@@ -57,7 +57,7 @@ describe('canonry', () => {
     const tmpDir = path.join(os.tmpdir(), `canonry-port-${crypto.randomUUID()}`)
     fs.mkdirSync(tmpDir, { recursive: true })
     vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
-    delete process.env.CANONRY_PORT
+    vi.stubEnv('CANONRY_PORT', undefined as unknown as string)
 
     const yaml = `apiUrl: 'http://localhost:4100'\ndatabase: /tmp/test.db\napiKey: cnry_testkey\n`
     fs.writeFileSync(path.join(tmpDir, 'config.yaml'), yaml)
@@ -95,7 +95,7 @@ describe('canonry', () => {
     try {
       await initCommand({ force: true, geminiKey: 'test-gemini-key' })
 
-      delete process.env.CANONRY_PORT
+      vi.stubEnv('CANONRY_PORT', undefined as unknown as string)
       const config = loadConfig()
       expect(config.apiUrl).toBe('http://localhost:5555')
     } finally {
@@ -396,6 +396,7 @@ describe('canonry', () => {
   it('ApiClient gives clear error when server is not running', async () => {
     const client = new ApiClient('http://localhost:19999', 'cnry_fake_key')
     await expect(() => client.listProjects()).rejects.toThrow('Could not connect to canonry server')
+    await expect(() => client.listProjects()).rejects.toThrow('canonry serve')
   })
 
   it('settings/google persists Google OAuth credentials to local config', async () => {
