@@ -6,6 +6,9 @@ import { defineConfig } from 'vite'
 const cannonryTarget = process.env.CANONRY_API_URL ?? 'http://127.0.0.1:4100'
 
 export default defineConfig({
+  // Use relative asset paths so the build works at any sub-path.
+  // The server injects a <base href="..."> tag at runtime via --base-path.
+  base: './',
   plugins: [tailwindcss(), react()],
   server: {
     proxy: {

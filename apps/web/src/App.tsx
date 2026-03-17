@@ -189,6 +189,17 @@ export async function fetchServiceStatus(url: string, label: string): Promise<Se
   }
 }
 
+// Strip the base path prefix so routing works correctly under sub-paths (e.g. /canonry/).
+// The server injects window.__CANONRY_CONFIG__.basePath at runtime via `canonry serve --base-path`.
+function _getRuntimeBasePath(): string {
+  if (typeof window !== 'undefined' && window.__CANONRY_CONFIG__?.basePath) {
+    return window.__CANONRY_CONFIG__.basePath
+  }
+  return '/'
+}
+const _BASE_URL: string = _getRuntimeBasePath()
+const _BASE_PREFIX: string = _BASE_URL === '/' ? '' : _BASE_URL.replace(/\/$/, '')
+
 function normalizePathname(pathname: string): string {
   if (!pathname) {
     return '/'
@@ -199,7 +210,12 @@ function normalizePathname(pathname: string): string {
     return '/'
   }
 
-  return normalized.length > 1 && normalized.endsWith('/') ? normalized.slice(0, -1) : normalized
+  // Strip sub-path prefix (e.g. /canonry) so router sees clean paths
+  const stripped = _BASE_PREFIX && normalized.startsWith(_BASE_PREFIX)
+    ? normalized.slice(_BASE_PREFIX.length) || '/'
+    : normalized
+
+  return stripped.length > 1 && stripped.endsWith('/') ? stripped.slice(0, -1) : stripped
 }
 
 function resolveRoute(pathname: string, dashboard: DashboardVm): AppRoute {
@@ -6111,7 +6127,7 @@ export function App({
     }
 
     if (normalizePathname(window.location.pathname) !== nextPath) {
-      window.history.pushState({}, '', nextPath)
+      window.history.pushState({}, '', _BASE_PREFIX + nextPath)
     }
 
     setPathname(nextPath)

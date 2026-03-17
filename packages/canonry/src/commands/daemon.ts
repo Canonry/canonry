@@ -33,7 +33,7 @@ async function waitForReady(host: string, port: string, maxMs = 10000): Promise<
   return false
 }
 
-export async function startDaemon(opts: { port?: string; host?: string }): Promise<void> {
+export async function startDaemon(opts: { port?: string; host?: string; basePath?: string }): Promise<void> {
   const pidPath = getPidPath()
 
   // Check for existing process
@@ -53,6 +53,7 @@ export async function startDaemon(opts: { port?: string; host?: string }): Promi
   const args = inSourceMode ? ['--import', 'tsx', cliPath, 'serve'] : [cliPath, 'serve']
   if (opts.port) args.push('--port', opts.port)
   if (opts.host) args.push('--host', opts.host)
+  if (opts.basePath) args.push('--base-path', opts.basePath)
 
   const child = spawn(process.execPath, args, {
     detached: true,

@@ -396,9 +396,22 @@ export async function createServer(opts: {
   if (fs.existsSync(assetsDir)) {
     const indexPath = path.join(assetsDir, 'index.html')
 
+    // Read base path from env (set by --base-path CLI flag) or config.
+    // Normalize: ensure it starts and ends with '/' (e.g. '/canonry/').
+    const rawBasePath = process.env.CANONRY_BASE_PATH ?? opts.config.basePath
+    const basePath: string | undefined = rawBasePath
+      ? ('/' + rawBasePath.replace(/^\//, '').replace(/\/?$/, '/'))
+      : undefined
+
     const injectConfig = (html: string): string => {
-      const configScript = `<script>window.__CANONRY_CONFIG__=${JSON.stringify({ apiKey: opts.config.apiKey })}</script>`
-      return html.replace('</head>', `${configScript}</head>`)
+      const clientConfig: Record<string, unknown> = { apiKey: opts.config.apiKey }
+      if (basePath) clientConfig.basePath = basePath
+
+      const configScript = `<script>window.__CANONRY_CONFIG__=${JSON.stringify(clientConfig)}</script>`
+      // Inject <base href> so relative asset paths resolve correctly at any sub-path.
+      // This must come before other resource tags in <head>.
+      const baseTag = basePath ? `<base href="${basePath}">` : ''
+      return html.replace('<head>', `<head>${baseTag}`).replace('</head>', `${configScript}</head>`)
     }
 
     const fastifyStatic = await import('@fastify/static')

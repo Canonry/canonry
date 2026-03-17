@@ -2,13 +2,30 @@ import type { GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryD
 
 export type { GroundingSource }
 
-const API_BASE = '/api/v1'
-
 declare global {
   interface Window {
-    __CANONRY_CONFIG__?: { apiKey?: string }
+    __CANONRY_CONFIG__?: {
+      apiKey?: string
+      /**
+       * Sub-path prefix injected by `canonry serve --base-path /canonry/`.
+       * When set, API requests are sent relative to this path so they route
+       * correctly through reverse proxies that strip the prefix.
+       * Example: '/canonry/' → API calls go to '/canonry/api/v1/...'
+       */
+      basePath?: string
+    }
   }
 }
+
+function getApiBase(): string {
+  if (typeof window !== 'undefined' && window.__CANONRY_CONFIG__?.basePath) {
+    // Strip trailing slash then append /api/v1 so we never get double slashes
+    return window.__CANONRY_CONFIG__.basePath.replace(/\/$/, '') + '/api/v1'
+  }
+  return '/api/v1'
+}
+
+const API_BASE = getApiBase()
 
 function getApiKey(): string {
   if (typeof window !== 'undefined' && window.__CANONRY_CONFIG__?.apiKey) {

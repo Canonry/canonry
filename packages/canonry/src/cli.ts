@@ -231,11 +231,13 @@ async function main() {
           options: {
             port: { type: 'string', short: 'p', default: '4100' },
             host: { type: 'string', short: 'H' },
+            'base-path': { type: 'string' },
           },
           allowPositionals: false,
         })
         process.env.CANONRY_PORT = values.port
         if (values.host) process.env.CANONRY_HOST = values.host
+        if (values['base-path']) process.env.CANONRY_BASE_PATH = values['base-path']
         await serveCommand()
         break
       }
@@ -246,10 +248,11 @@ async function main() {
           options: {
             port: { type: 'string', short: 'p', default: '4100' },
             host: { type: 'string', short: 'H' },
+            'base-path': { type: 'string' },
           },
           allowPositionals: false,
         })
-        await startDaemon({ port: values.port, host: values.host })
+        await startDaemon({ port: values.port, host: values.host, basePath: values['base-path'] })
         break
       }
 

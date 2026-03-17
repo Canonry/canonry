@@ -35,6 +35,8 @@ export interface GoogleConfigEntry {
 export interface CanonryConfig {
   apiUrl: string
   publicUrl?: string
+  /** Sub-path prefix when canonry is served behind a reverse proxy (e.g. "/canonry/"). */
+  basePath?: string
   database: string
   apiKey: string
   port?: number
