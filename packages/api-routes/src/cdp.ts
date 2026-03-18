@@ -70,6 +70,14 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
     if (!host || typeof host !== 'string') {
       return reply.code(400).send({ error: 'host is required' })
     }
+    // Restrict to loopback addresses only — arbitrary hosts would allow SSRF
+    const ALLOWED_HOSTS = ['localhost', '127.0.0.1', '::1']
+    if (!ALLOWED_HOSTS.includes(host)) {
+      return reply.code(400).send({ error: 'host must be localhost, 127.0.0.1, or ::1' })
+    }
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return reply.code(400).send({ error: 'port must be an integer between 1 and 65535' })
+    }
     await opts.onCdpConfigure(host, port)
     return reply.code(200).send({ endpoint: `ws://${host}:${port}` })
   })

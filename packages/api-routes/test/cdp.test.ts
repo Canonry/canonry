@@ -420,12 +420,12 @@ describe('PUT /api/v1/settings/cdp', () => {
     const res = await app.inject({
       method: 'PUT',
       url: '/api/v1/settings/cdp',
-      payload: { host: 'my-host', port: 9333 },
+      payload: { host: 'localhost', port: 9333 },
     })
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload)
-    expect(body.endpoint).toBe('ws://my-host:9333')
-    expect(onCdpConfigure).toHaveBeenCalledWith('my-host', 9333)
+    expect(body.endpoint).toBe('ws://localhost:9333')
+    expect(onCdpConfigure).toHaveBeenCalledWith('localhost', 9333)
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
@@ -443,6 +443,50 @@ describe('PUT /api/v1/settings/cdp', () => {
     const body = JSON.parse(res.payload)
     expect(body.endpoint).toBe('ws://localhost:9222')
     expect(onCdpConfigure).toHaveBeenCalledWith('localhost', 9222)
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('returns 400 when host is not an allowed loopback address', async () => {
+    const onCdpConfigure = vi.fn().mockResolvedValue(undefined)
+    const { app, tmpDir } = buildApp({ onCdpConfigure })
+    await app.ready()
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/settings/cdp',
+      payload: { host: '192.168.1.1', port: 9222 },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(onCdpConfigure).not.toHaveBeenCalled()
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('accepts 127.0.0.1 as a valid host', async () => {
+    const onCdpConfigure = vi.fn().mockResolvedValue(undefined)
+    const { app, tmpDir } = buildApp({ onCdpConfigure })
+    await app.ready()
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/settings/cdp',
+      payload: { host: '127.0.0.1', port: 9222 },
+    })
+    expect(res.statusCode).toBe(200)
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('returns 400 when port is out of range', async () => {
+    const onCdpConfigure = vi.fn().mockResolvedValue(undefined)
+    const { app, tmpDir } = buildApp({ onCdpConfigure })
+    await app.ready()
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/settings/cdp',
+      payload: { host: 'localhost', port: 99999 },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(onCdpConfigure).not.toHaveBeenCalled()
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
