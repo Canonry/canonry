@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Download, Trash2 } from 'lucide-react'
+import { ChevronRight, Download, Trash2 } from 'lucide-react'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
+import { CitationBadge } from '../components/shared/CitationBadge.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
-import { InsightSignals } from '../components/shared/InsightSignals.js'
 import { ProviderBadge } from '../components/shared/ProviderBadge.js'
 import { RunRow } from '../components/shared/RunRow.js'
 import { ScoreGauge } from '../components/shared/ScoreGauge.js'
-import { EvidencePhraseCards } from '../components/project/EvidencePhraseCards.js'
+import { ToneBadge } from '../components/shared/ToneBadge.js'
+import { EvidenceTable } from '../components/project/EvidenceTable.js'
 import { CompetitorTable } from '../components/project/CompetitorTable.js'
 import { AnalyticsSection } from '../components/project/AnalyticsSection.js'
 import { GscSection } from '../components/project/GscSection.js'
@@ -27,6 +28,76 @@ function createNavigationHandler(navigate: (to: string) => void, to: string) {
   }
 }
 
+function InsightSignals({
+  insights,
+  onOpenEvidence,
+}: {
+  insights: ProjectCommandCenterVm['insights']
+  onOpenEvidence: (evidenceId: string) => void
+}) {
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  return (
+    <div className="insight-list">
+      {insights.map((insight) => {
+        const isExpanded = expandedId === insight.id
+        const hasAffected = insight.affectedPhrases.length > 0
+
+        return (
+          <div key={insight.id}>
+            <div
+              className={`insight-row insight-row-${insight.tone} ${hasAffected ? 'cursor-pointer' : ''}`}
+              onClick={hasAffected ? () => setExpandedId(isExpanded ? null : insight.id) : undefined}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                {hasAffected && (
+                  <ChevronRight
+                    size={12}
+                    className={`shrink-0 text-zinc-500 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
+                  />
+                )}
+                <ToneBadge tone={insight.tone}>{insight.actionLabel}</ToneBadge>
+                <span className="text-sm font-medium text-zinc-100 truncate">{insight.title}</span>
+                <span className="hidden sm:inline text-xs text-zinc-500 truncate">{insight.detail}</span>
+              </div>
+              {hasAffected && (
+                <span className="text-[11px] text-zinc-600 whitespace-nowrap">
+                  {insight.affectedPhrases.length} phrase{insight.affectedPhrases.length > 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+            {isExpanded && (
+              <div className="divide-y divide-zinc-800/20">
+                {insight.affectedPhrases.map((ap) => (
+                  <div
+                    key={ap.evidenceId}
+                    className="flex items-center justify-between gap-3 px-4 py-2 pl-9 bg-zinc-900/40"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <CitationBadge state={ap.citationState} />
+                      <span className="text-sm text-zinc-200 truncate">{ap.keyword}</span>
+                      <div className="hidden sm:flex gap-1">
+                        {ap.provider && <ProviderBadge provider={ap.provider} />}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="text-xs text-zinc-400 hover:text-zinc-200 whitespace-nowrap transition-colors"
+                      onClick={(e) => { e.stopPropagation(); onOpenEvidence(ap.evidenceId) }}
+                    >
+                      View &rarr;
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export function ProjectPage({
   model,
   tab,
@@ -35,7 +106,7 @@ export function ProjectPage({
   onTriggerRun,
   onDeleteProject,
   onAddKeywords,
-  onDeleteKeywords,
+  onDeleteKeywords: _onDeleteKeywords,
   onAddCompetitors,
   onUpdateOwnedDomains,
   onUpdateProject,
@@ -61,7 +132,6 @@ export function ProjectPage({
   const [addingKeywords, setAddingKeywords] = useState(false)
   const [newKeywordText, setNewKeywordText] = useState('')
   const [keywordSaving, setKeywordSaving] = useState(false)
-  const [keywordDeleting, setKeywordDeleting] = useState<string | null>(null)
   const [addingCompetitor, setAddingCompetitor] = useState(false)
   const [newCompetitorDomain, setNewCompetitorDomain] = useState('')
   const [competitorSaving, setCompetitorSaving] = useState(false)
@@ -71,7 +141,7 @@ export function ProjectPage({
   const [locationFilter, setLocationFilter] = useState<string | undefined>(undefined)
   const [compareLocations, setCompareLocations] = useState(false)
   const [locationTimeline, setLocationTimeline] = useState<import('../api.js').ApiTimelineEntry[] | null>(null)
-  const [locationTimelineLoading, setLocationTimelineLoading] = useState(false)
+  const [_locationTimelineLoading, setLocationTimelineLoading] = useState(false)
 
   const locationLabelsInEvidence = useMemo(() => new Set(model.visibilityEvidence.map(e => e.location ?? '')), [model.visibilityEvidence])
   const hasNullLocationEvidence = locationLabelsInEvidence.has('')
@@ -136,15 +206,6 @@ export function ProjectPage({
     a.click()
     URL.revokeObjectURL(url)
   }
-  async function handleDeleteKeyword(phrase: string) {
-    setKeywordDeleting(phrase)
-    try {
-      await onDeleteKeywords(model.project.name, [phrase])
-    } finally {
-      setKeywordDeleting(null)
-    }
-  }
-
   async function handleAddKeywords() {
     const keywords = newKeywordText.split('\n').map(k => k.trim()).filter(Boolean)
     if (keywords.length === 0) return
@@ -386,19 +447,34 @@ export function ProjectPage({
                   <h2>Visibility by model <InfoTooltip text="Per-model citation rate. Shows how often each AI model cites your domain across all tracked key phrases. Switching models can significantly affect citation rates." /></h2>
                 </div>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                {model.providerScores.map((ps) => (
-                  <Card key={`${ps.provider}::${ps.model ?? 'unknown'}`} className="surface-card compact-card">
-                    <div className="flex items-center justify-between">
-                      <ProviderBadge provider={ps.provider} />
-                      <span className={`text-lg font-semibold ${ps.score >= 70 ? 'text-emerald-400' : ps.score >= 40 ? 'text-amber-400' : 'text-rose-400'}`}>
-                        {ps.score}%
-                      </span>
-                    </div>
-                    {ps.model && <p className="mt-0.5 text-[11px] font-mono text-zinc-500 truncate">{ps.model}</p>}
-                    <p className="mt-1 text-xs text-zinc-500">{ps.cited} of {ps.total} key phrases cited</p>
-                  </Card>
-                ))}
+              <div className="evidence-table-wrap">
+                <table className="evidence-table">
+                  <thead>
+                    <tr>
+                      <th>Model</th>
+                      <th>Score</th>
+                      <th>Cited key phrases</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {model.providerScores.map((ps) => (
+                      <tr key={`${ps.provider}::${ps.model ?? 'unknown'}`}>
+                        <td>
+                          <div className="flex flex-col gap-0.5">
+                            <ProviderBadge provider={ps.provider} />
+                            {ps.model && <span className="text-[11px] font-mono text-zinc-500">{ps.model}</span>}
+                          </div>
+                        </td>
+                        <td>
+                          <span className={`font-semibold ${ps.score >= 70 ? 'text-emerald-400' : ps.score >= 40 ? 'text-amber-400' : 'text-rose-400'}`}>
+                            {ps.score}%
+                          </span>
+                        </td>
+                        <td className="text-zinc-500">{ps.cited} of {ps.total}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </section>
           )}
@@ -491,13 +567,9 @@ export function ProjectPage({
                 )}
               </div>
             )}
-            <EvidencePhraseCards
+            <EvidenceTable
               evidence={filteredEvidence}
               onOpenEvidence={onOpenEvidence}
-              showLocationLabels={locationFilter === undefined}
-              compareLocations={locationFilter === undefined && compareLocations}
-              timelineLoading={locationTimelineLoading}
-              onDeleteKeyword={keywordDeleting ? undefined : handleDeleteKeyword}
             />
           </section>
 

@@ -287,6 +287,10 @@ export function GscSection({
     setNotice(null)
     try {
       const { authUrl } = await googleConnect(projectName, 'gsc')
+      if (!authUrl.startsWith('https://accounts.google.com/')) {
+        setError('Unexpected OAuth redirect URL. Please try again.')
+        return
+      }
       const popup = window.open(authUrl, '_blank', 'width=600,height=700')
       if (!popup) {
         window.location.assign(authUrl)

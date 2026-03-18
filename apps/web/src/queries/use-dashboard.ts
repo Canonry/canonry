@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import { useQuery, useQueries } from '@tanstack/react-query'
 import {
   fetchProjects,
@@ -90,18 +90,20 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
   }, [initialDashboard, projectsQuery.data, runsQuery.data, settingsQuery.data, allProjectDetailsLoaded, projectDetailQueries, projects.length])
 
   const isLoading = !initialDashboard && (projectsQuery.isLoading || runsQuery.isLoading)
-  const isError = !initialDashboard && (projectsQuery.isError && runsQuery.isError)
+  const isError = !initialDashboard && (projectsQuery.isError || runsQuery.isError)
+
+  const refetch = useCallback(async () => {
+    await Promise.all([
+      projectsQuery.refetch(),
+      runsQuery.refetch(),
+      settingsQuery.refetch(),
+    ])
+  }, [projectsQuery.refetch, runsQuery.refetch, settingsQuery.refetch])
 
   return {
     dashboard,
     isLoading,
     isError,
-    refetch: async () => {
-      await Promise.all([
-        projectsQuery.refetch(),
-        runsQuery.refetch(),
-        settingsQuery.refetch(),
-      ])
-    },
+    refetch,
   }
 }

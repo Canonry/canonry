@@ -24,6 +24,8 @@ export function toneFromRunStatus(status: RunListItemVm['status']): MetricTone {
     case 'queued':
     case 'running':
       return 'neutral'
+    default:
+      return 'neutral'
   }
 }
 
@@ -38,6 +40,8 @@ export function toneFromCitationState(state: CitationInsightVm['citationState'])
     case 'lost':
       return 'negative'
     case 'pending':
+      return 'neutral'
+    default:
       return 'neutral'
   }
 }
