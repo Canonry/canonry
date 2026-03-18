@@ -126,14 +126,17 @@ export const chatgptTarget: CDPTarget = {
   async extractAnswer(client: CDP.Client): Promise<string> {
     const { result } = await client.Runtime.evaluate({
       expression: `(() => {
-        // Get the last assistant message and use innerText (not textContent)
-        // so that citation link labels like "pbjmarketing.com+1" are excluded.
+        // Get the last assistant message. Clone it and strip <a> elements
+        // so inline citation badges ("pbjmarketing.com+1") don't bleed
+        // into the prose. innerText alone is not enough — the link text
+        // is visible and therefore included by innerText too.
         const turns = document.querySelectorAll('[data-message-author-role="assistant"]');
         if (turns.length === 0) return '';
         const last = turns[turns.length - 1];
-        // Prefer .markdown container for cleaner prose
         const md = last.querySelector('.markdown');
-        return (md ?? last).innerText?.trim() ?? '';
+        const clone = (md ?? last).cloneNode(true);
+        clone.querySelectorAll('a').forEach(a => a.remove());
+        return clone.innerText?.trim() ?? '';
       })()`,
       returnByValue: true,
     })
@@ -164,11 +167,17 @@ export const chatgptTarget: CDPTarget = {
         const links = last ? last.querySelectorAll('a[href]') : [];
         for (const link of links) {
           const href = link.getAttribute('href');
-          if (href && !seen.has(href) && !href.includes('chatgpt.com') && !href.includes('openai.com')) {
+          // ChatGPT appends ?utm_source=chatgpt.com to external links,
+          // so string-includes would false-positive on every citation.
+          // Parse the URL and compare the hostname instead.
+          if (!href) continue;
+          let hostname = '';
+          try { hostname = new URL(href).hostname.replace(/^www\\./, ''); } catch {}
+          if (!seen.has(href) && hostname !== 'chatgpt.com' && hostname !== 'openai.com') {
             seen.add(href);
             sources.push({
               uri: href,
-              title: link.textContent?.trim() || href,
+              title: hostname || href,
             });
           }
         }
