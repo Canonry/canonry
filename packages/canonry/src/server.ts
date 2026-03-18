@@ -229,10 +229,14 @@ export async function createServer(opts: {
   const basePath: string | undefined =
     normalizedBasePath === '/' ? undefined : normalizedBasePath
 
-  // API routes are registered under <basePath>api/v1 (or /api/v1 when no base path).
+  // Register API routes.
+  // When a basePath is set, routes are registered at `${basePath}api/v1` so they
+  // match requests forwarded by a reverse proxy that does NOT strip the prefix
+  // (e.g. Caddy `reverse_proxy localhost:4100` without `uri strip_prefix`).
+  // If the proxy does strip the prefix, set CANONRY_BASE_PATH to empty/unset and
+  // let the proxy handle path rewriting instead.
   const apiPrefix = basePath ? `${basePath}api/v1` : '/api/v1'
 
-  // Register API routes
   await app.register(apiRoutes, {
     db: opts.db,
     routePrefix: apiPrefix,
@@ -525,7 +529,8 @@ export async function createServer(opts: {
       const url = request.url.split('?')[0]!
 
       // Never serve HTML for API routes — return proper JSON 404.
-      // Guard against both the prefixed (/canonry/api/...) and bare (/api/...) forms.
+      // Check both the bare /api/ prefix and the basePath-prefixed form so the
+      // SPA catch-all never intercepts API calls regardless of proxy config.
       const isApiRoute =
         url.startsWith('/api/') ||
         (basePath !== undefined && url.startsWith(`${basePath}api/`))

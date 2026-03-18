@@ -38,10 +38,7 @@ export interface ApiRoutesOptions {
   openApiInfo?: OpenApiInfo
   /** Skip auth for testing */
   skipAuth?: boolean
-  /** API route prefix (default: /api/v1). Override for sub-path deployments e.g. /canonry/api/v1.
-   *  Named routePrefix (not prefix) to avoid collision with Fastify's reserved prefix option.
-   *  Must start with '/' — values without a leading slash will be rejected at startup. */
-  routePrefix?: string
+
   /** Callback when a run is created (wire up job runner) */
   onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: import('@ainyc/canonry-contracts').LocationContext | null) => void
   /** Provider configuration summary for settings endpoint */
@@ -73,17 +70,16 @@ export interface ApiRoutesOptions {
   getCdpStatus?: CDPRoutesOptions['getCdpStatus']
   onCdpScreenshot?: CDPRoutesOptions['onCdpScreenshot']
   onCdpConfigure?: CDPRoutesOptions['onCdpConfigure']
+  /**
+   * API route prefix (default: /api/v1).
+   * Override when the server is behind a reverse proxy that does NOT strip the
+   * base-path prefix before forwarding — e.g. set to '/canonry/api/v1' when
+   * Caddy proxies /canonry/* directly to this server without path rewriting.
+   */
+  routePrefix?: string
 }
 
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
-  // Validate routePrefix format eagerly to surface misconfiguration at startup
-  // rather than silently mis-routing all API requests.
-  if (opts.routePrefix !== undefined && !opts.routePrefix.startsWith('/')) {
-    throw new Error(
-      `apiRoutes: routePrefix must start with '/' — got ${JSON.stringify(opts.routePrefix)}`,
-    )
-  }
-
   // Decorate with db
   app.decorate('db', opts.db)
 
@@ -128,7 +124,9 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await app.register(authPlugin)
   }
 
-  // Register route plugins under /api/v1
+  // Register route plugins under the configured prefix (default: /api/v1).
+  // When a basePath is set and the reverse proxy does not strip it, pass
+  // routePrefix: `${basePath}api/v1` so routes match the full incoming path.
   await app.register(async (api) => {
     await api.register(openApiRoutes, opts.openApiInfo ?? {})
     await api.register(projectRoutes, {
