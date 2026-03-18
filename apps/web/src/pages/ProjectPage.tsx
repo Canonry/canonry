@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronRight, Download, Trash2 } from 'lucide-react'
+import { useParams, useNavigate } from '@tanstack/react-router'
+import { Link } from '@tanstack/react-router'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
@@ -16,25 +18,32 @@ import { GscSection } from '../components/project/GscSection.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
 import { ScheduleSection } from '../components/project/ScheduleSection.js'
 import { NotificationsSection } from '../components/project/NotificationsSection.js'
-import { fetchExport, fetchTimeline } from '../api.js'
+import {
+  fetchExport,
+  fetchTimeline,
+  triggerRun as apiTriggerRun,
+  deleteProject as apiDeleteProject,
+  appendKeywords as apiAppendKeywords,
+  fetchCompetitors as apiFetchCompetitors,
+  setCompetitors as apiSetCompetitors,
+  updateOwnedDomains as apiUpdateOwnedDomains,
+  updateProject as apiUpdateProject,
+} from '../api.js'
+import { useDashboard } from '../queries/use-dashboard.js'
+import { useDrawer } from '../hooks/use-drawer.js'
+import { findProjectVm, createDashboardFixture } from '../mock-data.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
 export type ProjectPageTab = 'overview' | 'search-console' | 'analytics'
 
-function createNavigationHandler(navigate: (to: string) => void, to: string) {
-  return (e: React.MouseEvent) => {
-    e.preventDefault()
-    navigate(to)
-  }
-}
+const defaultFixture = createDashboardFixture()
 
 function InsightSignals({
   insights,
-  onOpenEvidence,
 }: {
   insights: ProjectCommandCenterVm['insights']
-  onOpenEvidence: (evidenceId: string) => void
 }) {
+  const { openEvidence } = useDrawer()
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   return (
@@ -83,7 +92,7 @@ function InsightSignals({
                     <button
                       type="button"
                       className="text-xs text-zinc-400 hover:text-zinc-200 whitespace-nowrap transition-colors"
-                      onClick={(e) => { e.stopPropagation(); onOpenEvidence(ap.evidenceId) }}
+                      onClick={(e) => { e.stopPropagation(); openEvidence(ap.evidenceId) }}
                     >
                       View &rarr;
                     </button>
@@ -99,32 +108,15 @@ function InsightSignals({
 }
 
 export function ProjectPage({
-  model,
   tab,
-  onOpenEvidence,
-  onOpenRun,
-  onTriggerRun,
-  onDeleteProject,
-  onAddKeywords,
-  onDeleteKeywords: _onDeleteKeywords,
-  onAddCompetitors,
-  onUpdateOwnedDomains,
-  onUpdateProject,
-  onNavigate,
 }: {
-  model: ProjectCommandCenterVm
   tab: ProjectPageTab
-  onOpenEvidence: (evidenceId: string) => void
-  onOpenRun: (runId?: string) => void
-  onTriggerRun: (projectName: string) => Promise<void>
-  onDeleteProject: (projectName: string) => void
-  onAddKeywords: (projectName: string, keywords: string[]) => Promise<void>
-  onDeleteKeywords: (projectName: string, keywords: string[]) => Promise<void>
-  onAddCompetitors: (projectName: string, domains: string[]) => Promise<void>
-  onUpdateOwnedDomains: (projectName: string, ownedDomains: string[]) => Promise<void>
-  onUpdateProject: (projectName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null }) => Promise<void>
-  onNavigate: (to: string) => void
 }) {
+  const { projectId } = useParams({ from: '/projects/$projectId' })
+  const navigate = useNavigate()
+  const { dashboard, refetch } = useDashboard()
+  const safeDashboard = dashboard ?? defaultFixture.dashboard
+  const model = findProjectVm(safeDashboard, projectId)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [runTriggering, setRunTriggering] = useState(false)
@@ -143,21 +135,24 @@ export function ProjectPage({
   const [locationTimeline, setLocationTimeline] = useState<import('../api.js').ApiTimelineEntry[] | null>(null)
   const [_locationTimelineLoading, setLocationTimelineLoading] = useState(false)
 
-  const locationLabelsInEvidence = useMemo(() => new Set(model.visibilityEvidence.map(e => e.location ?? '')), [model.visibilityEvidence])
+  const visibilityEvidence = model?.visibilityEvidence ?? []
+  const projectName = model?.project.name ?? ''
+
+  const locationLabelsInEvidence = useMemo(() => new Set(visibilityEvidence.map(e => e.location ?? '')), [visibilityEvidence])
   const hasNullLocationEvidence = locationLabelsInEvidence.has('')
   const distinctLocationsWithEvidence = useMemo(() => [...locationLabelsInEvidence].filter(Boolean), [locationLabelsInEvidence])
 
   useEffect(() => {
-    if (locationFilter === undefined || locationFilter === '') {
+    if (locationFilter === undefined || locationFilter === '' || !projectName) {
       setLocationTimeline(null)
       setLocationTimelineLoading(false)
       return
     }
     setLocationTimelineLoading(true)
-    fetchTimeline(model.project.name, locationFilter)
+    fetchTimeline(projectName, locationFilter)
       .then(tl => { setLocationTimeline(tl); setLocationTimelineLoading(false) })
       .catch(() => { setLocationTimeline(null); setLocationTimelineLoading(false) })
-  }, [locationFilter, model.project.name])
+  }, [locationFilter, projectName])
 
   // Build a runHistory override map keyed by keyword::provider from the location-scoped timeline
   const locationRunHistoryMap = useMemo<Map<string, RunHistoryPoint[]> | null>(() => {
@@ -185,33 +180,73 @@ export function ProjectPage({
 
   const filteredEvidence = useMemo(() => {
     const filtered = locationFilter !== undefined
-      ? model.visibilityEvidence.filter(e => locationFilter === '' ? !e.location : e.location === locationFilter)
-      : model.visibilityEvidence
+      ? visibilityEvidence.filter(e => locationFilter === '' ? !e.location : e.location === locationFilter)
+      : visibilityEvidence
     if (!locationRunHistoryMap) return filtered
     return filtered.map(item => {
       const history = locationRunHistoryMap.get(`${item.keyword}::${item.provider}`)
         ?? locationRunHistoryMap.get(`${item.keyword}::`)
       return history ? { ...item, runHistory: history } : item
     })
-  }, [model.visibilityEvidence, locationFilter, locationRunHistoryMap])
+  }, [visibilityEvidence, locationFilter, locationRunHistoryMap])
+
+  if (!model) {
+    return (
+      <div className="page-container">
+        <Card className="surface-card empty-card">
+          <h1>Project not found</h1>
+          <p>Could not find a project with ID "{projectId}".</p>
+          <Button asChild>
+            <Link to="/">Return to overview</Link>
+          </Button>
+        </Card>
+      </div>
+    )
+  }
+
+  async function handleTriggerRun() {
+    setRunTriggering(true)
+    setRunError(null)
+    try {
+      await apiTriggerRun(projectName)
+      void refetch()
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : 'Failed to trigger run')
+    } finally {
+      setRunTriggering(false)
+    }
+  }
+
+  async function handleDeleteProject() {
+    try {
+      setDeleting(true)
+      await apiDeleteProject(projectName)
+      navigate({ to: '/' })
+      void refetch()
+    } catch (err) {
+      console.error('Failed to delete project:', err)
+    }
+  }
 
   async function handleExport() {
-    const data = await fetchExport(model.project.name)
+    const data = await fetchExport(projectName)
     const yaml = typeof data === 'string' ? data : JSON.stringify(data, null, 2)
     const blob = new Blob([yaml], { type: 'text/yaml' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${model.project.name}.yaml`
+    a.download = `${projectName}.yaml`
     a.click()
     URL.revokeObjectURL(url)
   }
+
   async function handleAddKeywords() {
     const keywords = newKeywordText.split('\n').map(k => k.trim()).filter(Boolean)
     if (keywords.length === 0) return
     setKeywordSaving(true)
     try {
-      await onAddKeywords(model.project.name, keywords)
+      await apiAppendKeywords(projectName, keywords)
+      void refetch()
       setNewKeywordText('')
       setAddingKeywords(false)
     } finally {
@@ -224,7 +259,11 @@ export function ProjectPage({
     if (!domain) return
     setCompetitorSaving(true)
     try {
-      await onAddCompetitors(model.project.name, [domain])
+      const existing = await apiFetchCompetitors(projectName)
+      const existingDomains = existing.map(c => c.domain)
+      const merged = [...new Set([...existingDomains, domain])]
+      await apiSetCompetitors(projectName, merged)
+      void refetch()
       setNewCompetitorDomain('')
       setAddingCompetitor(false)
     } finally {
@@ -237,8 +276,9 @@ export function ProjectPage({
     if (!domain) return
     setOwnedDomainSaving(true)
     try {
-      const current = model.project.ownedDomains ?? []
-      await onUpdateOwnedDomains(model.project.name, [...current, domain])
+      const current = model?.project.ownedDomains ?? []
+      await apiUpdateOwnedDomains(projectName, [...current, domain])
+      void refetch()
       setNewOwnedDomain('')
       setAddingOwnedDomain(false)
     } finally {
@@ -249,11 +289,17 @@ export function ProjectPage({
   async function handleRemoveOwnedDomain(domain: string) {
     setOwnedDomainSaving(true)
     try {
-      const current = model.project.ownedDomains ?? []
-      await onUpdateOwnedDomains(model.project.name, current.filter(d => d !== domain))
+      const current = model?.project.ownedDomains ?? []
+      await apiUpdateOwnedDomains(projectName, current.filter(d => d !== domain))
+      void refetch()
     } finally {
       setOwnedDomainSaving(false)
     }
+  }
+
+  async function handleUpdateProject(pName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null }) {
+    await apiUpdateProject(pName, updates)
+    void refetch()
   }
 
   const isNumericScore = (value: string) => !Number.isNaN(Number.parseInt(value, 10))
@@ -277,10 +323,7 @@ export function ProjectPage({
               type="button"
               variant="destructive"
               disabled={deleting}
-              onClick={async () => {
-                setDeleting(true)
-                onDeleteProject(model.project.name)
-              }}
+              onClick={handleDeleteProject}
             >
               {deleting ? 'Deleting...' : 'Yes, delete project'}
             </Button>
@@ -366,17 +409,7 @@ export function ProjectPage({
             <Button
               type="button"
               disabled={runTriggering}
-              onClick={async () => {
-                setRunTriggering(true)
-                setRunError(null)
-                try {
-                  await onTriggerRun(model.project.name)
-                } catch (err) {
-                  setRunError(err instanceof Error ? err.message : 'Failed to trigger run')
-                } finally {
-                  setRunTriggering(false)
-                }
-              }}
+              onClick={handleTriggerRun}
             >
               {runTriggering ? 'Starting...' : 'Run now'}
             </Button>
@@ -393,15 +426,14 @@ export function ProjectPage({
 
       <nav className="project-subnav" aria-label="Project sections">
         {projectTabItems.map((item) => (
-          <a
+          <Link
             key={item.key}
+            to={item.href}
             className={`project-subnav-link ${item.key === tab ? 'project-subnav-link-active' : ''}`}
-            href={item.href}
             aria-current={item.key === tab ? 'page' : undefined}
-            onClick={createNavigationHandler(onNavigate, item.href)}
           >
             {item.label}
-          </a>
+          </Link>
         ))}
       </nav>
 
@@ -487,7 +519,7 @@ export function ProjectPage({
                 <h2>Citation signals</h2>
               </div>
             </div>
-            <InsightSignals insights={model.insights} onOpenEvidence={onOpenEvidence} />
+            <InsightSignals insights={model.insights} />
           </section>
 
           {/* Evidence table */}
@@ -569,7 +601,6 @@ export function ProjectPage({
             )}
             <EvidenceTable
               evidence={filteredEvidence}
-              onOpenEvidence={onOpenEvidence}
             />
           </section>
 
@@ -615,19 +646,19 @@ export function ProjectPage({
             </div>
             <div className="run-list">
               {model.recentRuns.map((run) => (
-                <RunRow key={run.id} run={run} onOpen={onOpenRun} />
+                <RunRow key={run.id} run={run} />
               ))}
             </div>
           </section>
 
-          <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={onUpdateProject} />
+          <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={handleUpdateProject} />
           <ScheduleSection projectName={model.project.name} />
           <NotificationsSection projectName={model.project.name} />
         </>
       ) : tab === 'analytics' ? (
         <AnalyticsSection projectName={model.project.name} />
       ) : (
-        <GscSection projectName={model.project.name} onOpenSettings={() => onNavigate('/settings')} />
+        <GscSection projectName={model.project.name} />
       )}
     </div>
   )

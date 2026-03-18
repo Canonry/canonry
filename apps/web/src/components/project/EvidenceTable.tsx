@@ -5,15 +5,15 @@ import { Button } from '../ui/button.js'
 import { CitationBadge } from '../shared/CitationBadge.js'
 import { ProviderBadge } from '../shared/ProviderBadge.js'
 import { CitationTimeline, mergeProviderHistories } from './CitationTimeline.js'
+import { useDrawer } from '../../hooks/use-drawer.js'
 import type { CitationInsightVm, CitationState } from '../../view-models.js'
 
 export function EvidenceTable({
   evidence,
-  onOpenEvidence,
 }: {
   evidence: CitationInsightVm[]
-  onOpenEvidence: (evidenceId: string) => void
 }) {
+  const { openEvidence } = useDrawer()
   const [expandedPhrases, setExpandedPhrases] = useState<Set<string>>(new Set())
 
   const groups = useMemo(() => {
@@ -131,7 +131,7 @@ export function EvidenceTable({
                         variant="ghost"
                         size="sm"
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); onOpenEvidence(item.id) }}
+                        onClick={(e) => { e.stopPropagation(); openEvidence(item.id) }}
                       >
                         View
                       </Button>

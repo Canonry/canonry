@@ -13,18 +13,22 @@ import { buildDashboard } from '../build-dashboard.js'
 import type { ProjectData } from '../build-dashboard.js'
 import type { DashboardVm } from '../view-models.js'
 import { queryKeys } from './query-keys.js'
+import { useInitialDashboard } from '../contexts/dashboard-context.js'
 
 export function useDashboard(initialDashboard?: DashboardVm | null) {
+  const contextDashboard = useInitialDashboard()
+  const effectiveInitial = initialDashboard ?? contextDashboard?.dashboard ?? null
+
   const projectsQuery = useQuery({
     queryKey: queryKeys.projects.all,
     queryFn: fetchProjects,
-    enabled: !initialDashboard,
+    enabled: !effectiveInitial,
   })
 
   const runsQuery = useQuery({
     queryKey: queryKeys.runs.all,
     queryFn: fetchAllRuns,
-    enabled: !initialDashboard,
+    enabled: !effectiveInitial,
     refetchInterval: (query) => {
       const runs = query.state.data
       const hasActive = runs?.some(r => r.status === 'running' || r.status === 'queued')
@@ -35,7 +39,7 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
   const settingsQuery = useQuery({
     queryKey: queryKeys.settings,
     queryFn: () => fetchSettings().catch(() => null),
-    enabled: !initialDashboard,
+    enabled: !effectiveInitial,
   })
 
   const projects = projectsQuery.data ?? []
@@ -70,7 +74,7 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
             previousRunDetail,
           }
         },
-        enabled: !initialDashboard && projectsQuery.isSuccess && runsQuery.isSuccess,
+        enabled: !effectiveInitial && projectsQuery.isSuccess && runsQuery.isSuccess,
       }
     }),
   })
@@ -78,7 +82,7 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
   const allProjectDetailsLoaded = projectDetailQueries.every(q => q.isSuccess)
 
   const dashboard = useMemo(() => {
-    if (initialDashboard) return initialDashboard
+    if (effectiveInitial) return effectiveInitial
     if (!projectsQuery.data || !runsQuery.data) return null
     if (projects.length > 0 && !allProjectDetailsLoaded) return null
 
@@ -87,10 +91,10 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
       .filter((d): d is ProjectData => d != null)
 
     return buildDashboard(projectDataList, settingsQuery.data ?? null)
-  }, [initialDashboard, projectsQuery.data, runsQuery.data, settingsQuery.data, allProjectDetailsLoaded, projectDetailQueries, projects.length])
+  }, [effectiveInitial, projectsQuery.data, runsQuery.data, settingsQuery.data, allProjectDetailsLoaded, projectDetailQueries, projects.length])
 
-  const isLoading = !initialDashboard && (projectsQuery.isLoading || runsQuery.isLoading)
-  const isError = !initialDashboard && (projectsQuery.isError || runsQuery.isError)
+  const isLoading = !effectiveInitial && (projectsQuery.isLoading || runsQuery.isLoading)
+  const isError = !effectiveInitial && (projectsQuery.isError || runsQuery.isError)
 
   const refetch = useCallback(async () => {
     await Promise.all([

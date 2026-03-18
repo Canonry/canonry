@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Plus } from 'lucide-react'
+import { useNavigate } from '@tanstack/react-router'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
@@ -7,24 +8,14 @@ import { StatusBadge } from '../components/shared/StatusBadge.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { YamlApplyPanel } from '../components/project/YamlApplyPanel.js'
 import { createProject } from '../api.js'
-import type { ProjectCommandCenterVm } from '../view-models.js'
+import { useDashboard } from '../queries/use-dashboard.js'
+import { Link } from '@tanstack/react-router'
 
-function createNavigationHandler(navigate: (to: string) => void, to: string) {
-  return (e: React.MouseEvent) => {
-    e.preventDefault()
-    navigate(to)
-  }
-}
+export function ProjectsPage() {
+  const { dashboard, refetch } = useDashboard()
+  const projects = dashboard?.projects ?? []
+  const navigate = useNavigate()
 
-export function ProjectsPage({
-  projects,
-  onNavigate,
-  onProjectCreated,
-}: {
-  projects: ProjectCommandCenterVm[]
-  onNavigate: (to: string) => void
-  onProjectCreated: () => void
-}) {
   const [showForm, setShowForm] = useState(false)
   const [projectName, setProjectName] = useState('')
   const [displayName, setDisplayName] = useState('')
@@ -47,14 +38,14 @@ export function ProjectsPage({
         country,
         language,
       })
-      onProjectCreated()
+      void refetch()
       setProjectName('')
       setDisplayName('')
       setDomain('')
       setCountry('US')
       setLanguage('en')
       setShowForm(false)
-      onNavigate(`/projects/${project.id}`)
+      navigate({ to: '/projects/$projectId', params: { projectId: project.id } })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create project')
     } finally {
@@ -177,18 +168,18 @@ export function ProjectsPage({
             </thead>
             <tbody>
               {projects.map((p) => {
-                const href = `/projects/${p.project.id}`
                 const latestRun = p.recentRuns[0]
                 return (
-                  <tr key={p.project.id} className="cursor-pointer" onClick={() => onNavigate(href)}>
+                  <tr key={p.project.id} className="cursor-pointer" onClick={() => navigate({ to: '/projects/$projectId', params: { projectId: p.project.id } })}>
                     <td>
-                      <a
+                      <Link
+                        to="/projects/$projectId"
+                        params={{ projectId: p.project.id }}
                         className="text-zinc-100 font-medium hover:underline"
-                        href={href}
-                        onClick={createNavigationHandler(onNavigate, href)}
+                        onClick={(e) => e.stopPropagation()}
                       >
                         {p.project.displayName || p.project.name}
-                      </a>
+                      </Link>
                       <p className="text-[11px] text-zinc-500">{p.project.name}</p>
                     </td>
                     <td className="text-zinc-400">{p.project.canonicalDomain}</td>
@@ -220,7 +211,7 @@ export function ProjectsPage({
         </Card>
       ) : null}
 
-      <YamlApplyPanel onApplied={onProjectCreated} />
+      <YamlApplyPanel onApplied={() => { void refetch() }} />
     </div>
   )
 }

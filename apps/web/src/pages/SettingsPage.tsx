@@ -7,19 +7,28 @@ import { ProviderConfigForm } from '../components/settings/ProviderConfigForm.js
 import { GoogleOAuthConfigForm } from '../components/settings/GoogleOAuthConfigForm.js'
 import { CdpConfigCard } from '../components/settings/CdpConfigCard.js'
 import { toneFromService } from '../lib/tone-helpers.js'
-import type { HealthSnapshot, SettingsVm } from '../view-models.js'
+import { useDashboard } from '../queries/use-dashboard.js'
+import { useHealth } from '../queries/use-health.js'
+import { useInitialDashboard } from '../contexts/dashboard-context.js'
+import type { HealthSnapshot } from '../view-models.js'
 
-export function SettingsPage({
-  settings,
-  healthSnapshot,
-  onSettingsChanged,
-}: {
-  settings: SettingsVm
-  healthSnapshot: HealthSnapshot
-  onSettingsChanged?: () => void
-}) {
+const defaultHealthSnapshot: HealthSnapshot = {
+  apiStatus: { label: 'API', state: 'checking', detail: 'Checking service health' },
+  workerStatus: { label: 'Worker', state: 'checking', detail: 'Checking service health' },
+}
+
+export function SettingsPage() {
+  const contextDashboard = useInitialDashboard()
+  const { dashboard } = useDashboard()
+  const settings = dashboard?.settings ?? contextDashboard?.dashboard?.settings
+  const enableLiveStatus = !contextDashboard
+  const healthQuery = useHealth(enableLiveStatus, contextDashboard?.health)
+  const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? defaultHealthSnapshot
+
   const [configuringProvider, setConfiguringProvider] = useState<string | null>(null)
   const [configuringGoogle, setConfiguringGoogle] = useState(false)
+
+  if (!settings) return null
 
   return (
     <div className="page-container">
@@ -76,7 +85,6 @@ export function SettingsPage({
                 providerName={provider.name}
                 onSaved={() => {
                   setConfiguringProvider(null)
-                  onSettingsChanged?.()
                 }}
               />
             )}
@@ -118,13 +126,12 @@ export function SettingsPage({
             <GoogleOAuthConfigForm
               onSaved={() => {
                 setConfiguringGoogle(false)
-                onSettingsChanged?.()
               }}
             />
           )}
         </Card>
 
-        <CdpConfigCard onSettingsChanged={onSettingsChanged} />
+        <CdpConfigCard />
 
         <Card className="surface-card">
           <div className="section-head">

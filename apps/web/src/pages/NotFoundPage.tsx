@@ -1,15 +1,8 @@
+import { Link } from '@tanstack/react-router'
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
-import { appHref } from '../lib/base-path.js'
 
-function createNavigationHandler(navigate: (to: string) => void, to: string) {
-  return (e: React.MouseEvent) => {
-    e.preventDefault()
-    navigate(to)
-  }
-}
-
-export function NotFoundPage({ onNavigate }: { onNavigate: (to: string) => void }) {
+export function NotFoundPage() {
   return (
     <div className="page-container">
       <section className="page-section">
@@ -17,9 +10,9 @@ export function NotFoundPage({ onNavigate }: { onNavigate: (to: string) => void 
           <h1>Route not found</h1>
           <p>The current path does not map to a dashboard view.</p>
           <Button asChild>
-            <a href={appHref('/')} onClick={createNavigationHandler(onNavigate, '/')}>
+            <Link to="/">
               Return to overview
-            </a>
+            </Link>
           </Button>
         </Card>
       </section>

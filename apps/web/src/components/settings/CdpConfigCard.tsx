@@ -5,7 +5,7 @@ import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { fetchCdpStatus, configureCdp, type ApiCdpStatus } from '../../api.js'
 
-export function CdpConfigCard({ onSettingsChanged }: { onSettingsChanged?: () => void }) {
+export function CdpConfigCard() {
   const [cdpStatus, setCdpStatus] = useState<ApiCdpStatus | null>(null)
   const [cdpStatusError, setCdpStatusError] = useState<string | null>(null)
   const [configuringCdp, setConfiguringCdp] = useState(false)
@@ -87,7 +87,6 @@ export function CdpConfigCard({ onSettingsChanged }: { onSettingsChanged?: () =>
               const status = await fetchCdpStatus().catch(() => null)
               if (status) setCdpStatus(status)
               setConfiguringCdp(false)
-              onSettingsChanged?.()
             } catch (err) {
               setCdpStatusError(err instanceof Error ? err.message : String(err))
             } finally {

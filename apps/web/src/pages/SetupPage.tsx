@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { useNavigate } from '@tanstack/react-router'
+import { Link } from '@tanstack/react-router'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
@@ -11,7 +13,13 @@ import {
   triggerRun as apiTriggerRun,
   generateKeywords as apiGenerateKeywords,
 } from '../api.js'
-import type { SetupWizardVm, SettingsVm } from '../view-models.js'
+import { useDashboard } from '../queries/use-dashboard.js'
+import { useHealth } from '../queries/use-health.js'
+import { useInitialDashboard } from '../contexts/dashboard-context.js'
+import { buildSetupModel } from '../lib/health-helpers.js'
+import { createDashboardFixture } from '../mock-data.js'
+
+const defaultFixture = createDashboardFixture()
 
 const SETUP_STEPS = [
   { label: 'System check', description: 'Verify your instance is ready' },
@@ -38,17 +46,19 @@ function SetupStepIndicator({ current, labels }: { current: number; labels: read
   )
 }
 
-export function SetupPage({
-  model,
-  settings,
-  onProjectCreated,
-  onNavigate,
-}: {
-  model: SetupWizardVm
-  settings: SettingsVm
-  onProjectCreated: () => void
-  onNavigate: (to: string) => void
-}) {
+export function SetupPage() {
+  const contextDashboard = useInitialDashboard()
+  const { dashboard, refetch } = useDashboard()
+  const safeDashboard = dashboard ?? contextDashboard?.dashboard ?? defaultFixture.dashboard
+  const settings = safeDashboard.settings
+
+  const enableLiveStatus = !contextDashboard
+  const healthQuery = useHealth(enableLiveStatus, contextDashboard?.health)
+  const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? { apiStatus: { label: 'API', state: 'checking', detail: 'Checking service health' }, workerStatus: { label: 'Worker', state: 'checking', detail: 'Checking service health' } }
+  const model = buildSetupModel(safeDashboard.setup, healthSnapshot, settings)
+
+  const navigate = useNavigate()
+
   const [step, setStep] = useState(0)
 
   const [projectName, setProjectName] = useState('')
@@ -100,7 +110,7 @@ export function SetupPage({
       })
       setCreatedProjectName(slug)
       setCreatedProjectId(project.id)
-      onProjectCreated()
+      void refetch()
       setStep(2)
     } catch (err) {
       setProjectError(err instanceof Error ? err.message : 'Failed to create project')
@@ -118,7 +128,7 @@ export function SetupPage({
     try {
       await setKeywords(createdProjectName, keywords)
       setKeywordsSaved(true)
-      onProjectCreated()
+      void refetch()
       setStep(3)
     } catch (err) {
       setKeywordsError(err instanceof Error ? err.message : 'Failed to save key phrases')
@@ -155,7 +165,7 @@ export function SetupPage({
     try {
       await setCompetitors(createdProjectName, competitors)
       setCompetitorsSaved(true)
-      onProjectCreated()
+      void refetch()
       setStep(4)
     } catch (err) {
       setCompetitorsError(err instanceof Error ? err.message : 'Failed to save competitors')
@@ -171,7 +181,7 @@ export function SetupPage({
     try {
       await apiTriggerRun(createdProjectName)
       setRunTriggered(true)
-      onProjectCreated()
+      void refetch()
     } catch (err) {
       setRunError(err instanceof Error ? err.message : 'Failed to trigger run')
     } finally {
@@ -200,13 +210,12 @@ export function SetupPage({
                     <p className="run-row-title">{check.label}</p>
                     <p className="supporting-copy">{check.detail}</p>
                     {check.id === 'provider' && check.state !== 'ready' && (
-                      <button
-                        type="button"
-                        className="text-emerald-400 hover:text-emerald-300 text-sm mt-1 underline underline-offset-2 cursor-pointer bg-transparent border-none p-0"
-                        onClick={() => onNavigate('/settings')}
+                      <Link
+                        to="/settings"
+                        className="text-emerald-400 hover:text-emerald-300 text-sm mt-1 underline underline-offset-2 cursor-pointer"
                       >
                         Configure providers
-                      </button>
+                      </Link>
                     )}
                   </div>
                   <ToneBadge tone={check.state === 'ready' ? 'positive' : 'caution'}>
@@ -446,7 +455,7 @@ export function SetupPage({
                 <p className="text-zinc-300">Visibility sweep has been queued. View progress on the project page.</p>
                 <div className="setup-nav">
                   <span />
-                  <Button type="button" onClick={() => onNavigate(createdProjectId ? `/projects/${createdProjectId}` : '/')}>
+                  <Button type="button" onClick={() => navigate({ to: createdProjectId ? `/projects/${createdProjectId}` : '/' })}>
                     Open project
                   </Button>
                 </div>

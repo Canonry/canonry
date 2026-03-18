@@ -1,5 +1,6 @@
-import type { MouseEvent } from 'react'
 import { ChevronRight } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { Sparkline } from '../components/shared/Sparkline.js'
@@ -7,37 +8,26 @@ import { StatusBadge } from '../components/shared/StatusBadge.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { toneFromRunStatus } from '../lib/tone-helpers.js'
 import { toTitleCase } from '../lib/format-helpers.js'
-import type { PortfolioOverviewVm, PortfolioProjectVm, SystemHealthCardVm } from '../view-models.js'
+import { buildSystemHealthCards } from '../lib/health-helpers.js'
+import { useDashboard } from '../queries/use-dashboard.js'
+import { useHealth } from '../queries/use-health.js'
+import { useDrawer } from '../hooks/use-drawer.js'
+import { useInitialDashboard } from '../contexts/dashboard-context.js'
+import { createDashboardFixture } from '../mock-data.js'
+import type { PortfolioProjectVm } from '../view-models.js'
 
-function createNavigationHandler(navigate: (to: string) => void, to: string) {
-  return (e: React.MouseEvent) => {
-    e.preventDefault()
-    navigate(to)
-  }
-}
+const defaultFixture = createDashboardFixture()
 
 function OverviewProjectCard({
   project,
-  onNavigate,
 }: {
   project: PortfolioProjectVm
-  onNavigate: (to: string) => void
 }) {
-  const projectPath = `/projects/${project.project.id}`
-
-  function createCardNavigationHandler(to: string) {
-    return (event: MouseEvent<HTMLAnchorElement>) => {
-      event.preventDefault()
-      event.stopPropagation()
-      onNavigate(to)
-    }
-  }
-
   return (
-    <a
+    <Link
+      to="/projects/$projectId"
+      params={{ projectId: project.project.id }}
       className="project-row cursor-pointer"
-      href={projectPath}
-      onClick={createCardNavigationHandler(projectPath)}
     >
       <div className="project-row-primary">
         <div>
@@ -68,21 +58,23 @@ function OverviewProjectCard({
       <span className="project-row-link">
         <ChevronRight className="h-4 w-4 text-zinc-500" />
       </span>
-    </a>
+    </Link>
   )
 }
 
-export function OverviewPage({
-  model,
-  systemHealth,
-  onNavigate,
-  onOpenRun,
-}: {
-  model: PortfolioOverviewVm
-  systemHealth: SystemHealthCardVm[]
-  onNavigate: (to: string) => void
-  onOpenRun: (runId: string) => void
-}) {
+export function OverviewPage() {
+  const contextDashboard = useInitialDashboard()
+  const { dashboard } = useDashboard()
+  const safeDashboard = dashboard ?? contextDashboard?.dashboard ?? defaultFixture.dashboard
+  const model = safeDashboard.portfolioOverview
+
+  const enableLiveStatus = !contextDashboard
+  const healthQuery = useHealth(enableLiveStatus, contextDashboard?.health)
+  const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? { apiStatus: { label: 'API', state: 'checking', detail: 'Checking service health' }, workerStatus: { label: 'Worker', state: 'checking', detail: 'Checking service health' } }
+  const systemHealth = buildSystemHealthCards(model.systemHealth, healthSnapshot, safeDashboard.settings)
+
+  const { openRun } = useDrawer()
+
   return (
     <div className="page-container">
       <div className="page-header">
@@ -98,7 +90,7 @@ export function OverviewPage({
       {model.projects.length > 0 ? (
         <div className="project-list project-list-scrollable">
           {model.projects.map((project) => (
-            <OverviewProjectCard key={project.project.id} project={project} onNavigate={onNavigate} />
+            <OverviewProjectCard key={project.project.id} project={project} />
           ))}
         </div>
       ) : (
@@ -106,12 +98,9 @@ export function OverviewPage({
           <h3>{model.emptyState?.title ?? 'No projects yet'}</h3>
           <p className="supporting-copy">{model.emptyState?.detail}</p>
           <Button size="sm" asChild>
-            <a
-              href={model.emptyState?.ctaHref ?? '/setup'}
-              onClick={createNavigationHandler(onNavigate, model.emptyState?.ctaHref ?? '/setup')}
-            >
+            <Link to={model.emptyState?.ctaHref === '/setup' || !model.emptyState?.ctaHref ? '/setup' : '/'}>
               {model.emptyState?.ctaLabel ?? 'Launch setup'}
-            </a>
+            </Link>
           </Button>
         </Card>
       )}
@@ -127,18 +116,17 @@ export function OverviewPage({
             </div>
             <div className="attention-list attention-list-scrollable">
               {model.attentionItems.map((item) => (
-                <a
+                <Link
                   key={item.id}
+                  to={item.href}
                   className={`attention-item attention-item-${item.tone}`}
-                  href={item.href}
-                  onClick={createNavigationHandler(onNavigate, item.href)}
                 >
                   <div>
                     <p className="attention-title">{item.title}</p>
                     <p className="attention-detail">{item.detail}</p>
                   </div>
                   <span className="attention-action">{item.actionLabel}</span>
-                </a>
+                </Link>
               ))}
             </div>
           </section>
@@ -154,7 +142,7 @@ export function OverviewPage({
           <div className="compact-stack compact-stack-scrollable">
             {model.recentRuns.length > 0 ? (
               model.recentRuns.map((run) => (
-                <button key={run.id} className="compact-run" type="button" onClick={() => onOpenRun(run.id)}>
+                <button key={run.id} className="compact-run" type="button" onClick={() => openRun(run.id)}>
                   <div>
                     <p className="compact-run-title">{run.projectName}</p>
                     <p className="compact-run-detail">{run.summary}</p>

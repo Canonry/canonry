@@ -3,33 +3,36 @@ import { test, expect, onTestFinished } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { RouterProvider } from '@tanstack/react-router'
 
-import { App, fetchServiceStatus } from '../src/App.js'
+import { fetchServiceStatus } from '../src/App.js'
 import { createDashboardFixture } from '../src/mock-data.js'
+import { createAppRouter } from '../src/router/router.js'
+import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 
-function renderApp(
+async function renderApp(
   pathname: string,
   options: Parameters<typeof createDashboardFixture>[0] = {},
-): string {
+): Promise<string> {
   const fixture = createDashboardFixture(options)
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
 
+  const router = createAppRouter(queryClient, { initialEntries: [pathname] })
+  await router.load()
+
   return renderToStaticMarkup(
     <QueryClientProvider client={queryClient}>
-      <App
-        enableLiveStatus={false}
-        initialPathname={pathname}
-        initialDashboard={fixture.dashboard}
-        initialHealthSnapshot={fixture.health}
-      />
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
     </QueryClientProvider>,
   )
 }
 
-test('overview route renders the premium portfolio dashboard', () => {
-  const html = renderApp('/')
+test('overview route renders the premium portfolio dashboard', async () => {
+  const html = await renderApp('/')
 
   expect(html).toMatch(/Portfolio/)
   expect(html).toMatch(/Visibility and execution state/)
@@ -39,8 +42,8 @@ test('overview route renders the premium portfolio dashboard', () => {
   expect(html).toMatch(/src="\.\/favicon\.svg"/)
 })
 
-test('project route renders a single command center with visibility sections', () => {
-  const html = renderApp('/projects/project_citypoint')
+test('project route renders a single command center with visibility sections', async () => {
+  const html = await renderApp('/projects/project_citypoint')
 
   expect(html).toMatch(/Citypoint Dental NYC/)
   expect(html).toMatch(/Overview/)
@@ -51,8 +54,8 @@ test('project route renders a single command center with visibility sections', (
   expect(html).not.toMatch(/Google Search Console/)
 })
 
-test('runs route renders the operational timeline and filters', () => {
-  const html = renderApp('/runs')
+test('runs route renders the operational timeline and filters', async () => {
+  const html = await renderApp('/runs')
 
   expect(html).toMatch(/Runs/)
   expect(html).toMatch(/All runs/)
@@ -60,8 +63,8 @@ test('runs route renders the operational timeline and filters', () => {
   expect(html).toMatch(/Citation losses on emergency-intent prompts/)
 })
 
-test('settings route renders provider state, quota summary, and service health', () => {
-  const html = renderApp('/settings')
+test('settings route renders provider state, quota summary, and service health', async () => {
+  const html = await renderApp('/settings')
 
   expect(html).toMatch(/Settings/)
   expect(html).toMatch(/Rate limit/)
@@ -69,16 +72,16 @@ test('settings route renders provider state, quota summary, and service health',
   expect(html).toMatch(/Gemini/)
 })
 
-test('settings route renders the Google Search Console OAuth configuration card', () => {
-  const html = renderApp('/settings')
+test('settings route renders the Google Search Console OAuth configuration card', async () => {
+  const html = await renderApp('/settings')
 
   expect(html).toMatch(/Search Console OAuth/)
   expect(html).toMatch(/~\/\.canonry\/config\.yaml/)
   expect(html).toMatch(/Configure Google OAuth|Update OAuth app/)
 })
 
-test('setup route renders the step wizard with system check first', () => {
-  const html = renderApp('/setup')
+test('setup route renders the step wizard with system check first', async () => {
+  const html = await renderApp('/setup')
 
   expect(html).toMatch(/Setup/)
   expect(html).toMatch(/System ready/)
@@ -86,24 +89,24 @@ test('setup route renders the step wizard with system check first', () => {
   expect(html).toMatch(/Continue/)
 })
 
-test('overview route renders first-run onboarding guidance when there are no projects', () => {
-  const html = renderApp('/', { emptyPortfolio: true })
+test('overview route renders first-run onboarding guidance when there are no projects', async () => {
+  const html = await renderApp('/', { emptyPortfolio: true })
 
   expect(html).toMatch(/No projects yet/)
   expect(html).toMatch(/Canonry becomes useful after one project/)
   expect(html).toMatch(/Launch setup/)
 })
 
-test('default overview covers multiple projects and recent runs', () => {
-  const html = renderApp('/')
+test('default overview covers multiple projects and recent runs', async () => {
+  const html = await renderApp('/')
 
   expect(html).toMatch(/Northstar Orthopedics/)
   expect(html).toMatch(/One follow-up run is queued/)
   expect(html).toMatch(/System health/)
 })
 
-test('setup route renders step indicator with all step labels', () => {
-  const html = renderApp('/setup')
+test('setup route renders step indicator with all step labels', async () => {
+  const html = await renderApp('/setup')
 
   expect(html).toMatch(/System check/)
   expect(html).toMatch(/Create project/)
@@ -112,28 +115,28 @@ test('setup route renders step indicator with all step labels', () => {
   expect(html).toMatch(/Launch/)
 })
 
-test('runs route renders partial runs clearly', () => {
-  const html = renderApp('/runs', { runScenario: 'partial' })
+test('runs route renders partial runs clearly', async () => {
+  const html = await renderApp('/runs', { runScenario: 'partial' })
 
   expect(html).toMatch(/Partial visibility sweep after quota cap/)
   expect(html).toMatch(/Quota window closed mid-run/)
 })
 
-test('runs route renders failed runs clearly', () => {
-  const html = renderApp('/runs', { runScenario: 'failed' })
+test('runs route renders failed runs clearly', async () => {
+  const html = await renderApp('/runs', { runScenario: 'failed' })
 
   expect(html).toMatch(/Provider retries exhausted before results were captured/)
   expect(html).toMatch(/Worker could not reach the provider after repeated retry exhaustion/)
 })
 
-test('project route renders visibility drop insights', () => {
-  const html = renderApp('/projects/project_citypoint', { visibilityDropProjectId: 'project_citypoint' })
+test('project route renders visibility drop insights', async () => {
+  const html = await renderApp('/projects/project_citypoint', { visibilityDropProjectId: 'project_citypoint' })
 
   expect(html).toMatch(/Sharp citation drop detected/)
 })
 
-test('project search console route renders the Google Search Console section shell', () => {
-  const html = renderApp('/projects/project_citypoint/search-console')
+test('project search console route renders the Google Search Console section shell', async () => {
+  const html = await renderApp('/projects/project_citypoint/search-console')
 
   expect(html).toMatch(/Google Search Console/)
   expect(html).toMatch(/Loading…|Loading\.\.\./)

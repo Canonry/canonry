@@ -4,11 +4,22 @@ import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { RunRow } from '../components/shared/RunRow.js'
 import { toTitleCase } from '../lib/format-helpers.js'
-import type { RunFilter, RunListItemVm } from '../view-models.js'
+import { useDashboard } from '../queries/use-dashboard.js'
+import type { RunFilter } from '../view-models.js'
 
-export function RunsPage({ runs, onOpenRun, onTriggerAll }: { runs: RunListItemVm[]; onOpenRun: (runId: string) => void; onTriggerAll?: () => void }) {
+export function RunsPage() {
+  const { dashboard } = useDashboard()
+  const runs = dashboard?.runs ?? []
   const [filter, setFilter] = useState<RunFilter>('all')
   const filteredRuns = filter === 'all' ? runs : runs.filter((run) => run.status === filter)
+
+  const handleTriggerAll = () => {
+    import('../api.js').then(({ triggerAllRuns }) =>
+      triggerAllRuns().catch((err: unknown) => {
+        console.error('Failed to trigger all runs', err)
+      }),
+    )
+  }
 
   return (
     <div className="page-container">
@@ -19,11 +30,9 @@ export function RunsPage({ runs, onOpenRun, onTriggerAll }: { runs: RunListItemV
             Status, type, project, duration, and the shortest explanation that makes the outcome trustworthy.
           </p>
         </div>
-        {onTriggerAll && (
-          <Button type="button" variant="outline" size="sm" onClick={onTriggerAll}>
-            Run all projects
-          </Button>
-        )}
+        <Button type="button" variant="outline" size="sm" onClick={handleTriggerAll}>
+          Run all projects
+        </Button>
       </div>
 
       <section>
@@ -43,7 +52,7 @@ export function RunsPage({ runs, onOpenRun, onTriggerAll }: { runs: RunListItemV
 
         <div className="run-list">
           {filteredRuns.length > 0 ? (
-            filteredRuns.map((run) => <RunRow key={run.id} run={run} onOpen={onOpenRun} />)
+            filteredRuns.map((run) => <RunRow key={run.id} run={run} />)
           ) : (
             <Card className="surface-card empty-card">
               <h2>No runs match this filter</h2>

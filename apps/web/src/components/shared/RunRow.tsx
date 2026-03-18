@@ -1,14 +1,15 @@
 import type { RunListItemVm } from '../../view-models.js'
 import { Button } from '../ui/button.js'
 import { StatusBadge } from './StatusBadge.js'
+import { useDrawer } from '../../hooks/use-drawer.js'
 
 export function RunRow({
   run,
-  onOpen,
 }: {
   run: RunListItemVm
-  onOpen: (runId: string) => void
 }) {
+  const { openRun } = useDrawer()
+
   return (
     <article className="run-row">
       <div className="run-row-main">
@@ -37,7 +38,7 @@ export function RunRow({
           <dd>{run.triggerLabel}</dd>
         </div>
       </dl>
-      <Button variant="outline" size="sm" type="button" onClick={() => onOpen(run.id)}>
+      <Button variant="outline" size="sm" type="button" onClick={() => openRun(run.id)}>
         View run
       </Button>
     </article>

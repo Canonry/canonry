@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from '@tanstack/react-router'
 
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
@@ -34,10 +35,8 @@ import {
 
 export function GscSection({
   projectName,
-  onOpenSettings,
 }: {
   projectName: string
-  onOpenSettings?: () => void
 }) {
   const [googleConfigured, setGoogleConfigured] = useState(false)
   const [connections, setConnections] = useState<ApiGoogleConnection[]>([])
@@ -463,8 +462,8 @@ export function GscSection({
                       {connecting ? 'Opening\u2026' : 'Connect Google Search Console'}
                     </Button>
                   ) : (
-                    <Button type="button" variant="outline" size="sm" disabled={!onOpenSettings} onClick={onOpenSettings}>
-                      Open Settings
+                    <Button type="button" variant="outline" size="sm" asChild>
+                      <Link to="/settings">Open Settings</Link>
                     </Button>
                   )}
                   {!googleConfigured && (
