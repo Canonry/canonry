@@ -2366,7 +2366,7 @@ function AnalyticsSection({ projectName }: { projectName: string }) {
             </div>
 
             {/* Trend chart */}
-            {metrics.buckets.length > 1 && (
+            {metrics.buckets.length >= 1 && (
               <AnalyticsTrendChart buckets={metrics.buckets} />
             )}
           </div>
@@ -2472,7 +2472,7 @@ function AnalyticsTrendChart({ buckets }: { buckets: BrandMetricsDto['buckets'] 
   const chartW = width - padding.left - padding.right
   const chartH = height - padding.top - padding.bottom
 
-  const maxRate = Math.max(...buckets.map(b => b.citationRate), 0.01)
+  const maxRate = 1
   const points = buckets.map((b, i) => {
     const x = padding.left + (buckets.length > 1 ? (i / (buckets.length - 1)) * chartW : chartW / 2)
     const y = padding.top + chartH - (b.citationRate / maxRate) * chartH
