@@ -11,6 +11,7 @@ import { triggerRun, triggerRunAll, showRun, listRuns } from './commands/run.js'
 import { showStatus } from './commands/status.js'
 import { showEvidence } from './commands/evidence.js'
 import { showHistory } from './commands/history.js'
+import { showAnalytics } from './commands/analytics.js'
 import { applyConfig } from './commands/apply.js'
 import { exportProject } from './commands/export-cmd.js'
 import { showSettings, setProvider, setGoogleAuth } from './commands/settings.js'
@@ -62,6 +63,7 @@ Usage:
   canonry runs <project>              List runs for a project
   canonry status <project>            Show project summary
   canonry evidence <project>          Show per-phrase results
+  canonry analytics <project>         Show analytics (--feature metrics|gaps|sources, --window 7d|30d|90d|all)
   canonry history <project>           Show audit trail
   canonry export <project>            Export project as YAML
   canonry apply <file...>              Apply declarative config (multi-doc YAML supported)
@@ -612,6 +614,20 @@ async function main() {
           process.exit(1)
         }
         await showHistory(project, format)
+        break
+      }
+
+      case 'analytics': {
+        const project = args[1]
+        if (!project) {
+          console.error('Error: project name is required')
+          process.exit(1)
+        }
+        const featureIdx = args.indexOf('--feature')
+        const feature = featureIdx !== -1 ? args[featureIdx + 1] : undefined
+        const windowIdx = args.indexOf('--window')
+        const windowArg = windowIdx !== -1 ? args[windowIdx + 1] : undefined
+        await showAnalytics(project, { feature, window: windowArg, format })
         break
       }
 
