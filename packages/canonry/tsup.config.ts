@@ -38,5 +38,6 @@ export default defineConfig({
     '@ainyc/canonry-provider-local',
     '@ainyc/canonry-provider-cdp',
     '@ainyc/canonry-integration-google',
+    '@ainyc/canonry-integration-bing',
   ],
 })
