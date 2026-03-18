@@ -1,4 +1,4 @@
-import type { GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto } from '@ainyc/canonry-contracts'
+import type { GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, MetricsWindow } from '@ainyc/canonry-contracts'
 
 export type { GroundingSource }
 
@@ -705,4 +705,20 @@ export function requestIndexing(
     method: 'POST',
     body: JSON.stringify(body),
   })
+}
+
+// Analytics
+export function fetchAnalyticsMetrics(project: string, window?: MetricsWindow): Promise<BrandMetricsDto> {
+  const qs = window ? `?window=${window}` : ''
+  return apiFetch(`/projects/${encodeURIComponent(project)}/analytics/metrics${qs}`)
+}
+
+export function fetchAnalyticsGaps(project: string, window?: MetricsWindow): Promise<GapAnalysisDto> {
+  const qs = window ? `?window=${window}` : ''
+  return apiFetch(`/projects/${encodeURIComponent(project)}/analytics/gaps${qs}`)
+}
+
+export function fetchAnalyticsSources(project: string, window?: MetricsWindow): Promise<SourceBreakdownDto> {
+  const qs = window ? `?window=${window}` : ''
+  return apiFetch(`/projects/${encodeURIComponent(project)}/analytics/sources${qs}`)
 }

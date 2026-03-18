@@ -268,6 +268,22 @@ export class ApiClient {
     return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/google/gsc/discover-sitemaps`, {})
   }
 
+  // Analytics
+  async getAnalyticsMetrics(project: string, window?: string): Promise<object> {
+    const qs = window ? `?window=${encodeURIComponent(window)}` : ''
+    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/analytics/metrics${qs}`)
+  }
+
+  async getAnalyticsGaps(project: string, window?: string): Promise<object> {
+    const qs = window ? `?window=${encodeURIComponent(window)}` : ''
+    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/analytics/gaps${qs}`)
+  }
+
+  async getAnalyticsSources(project: string, window?: string): Promise<object> {
+    const qs = window ? `?window=${encodeURIComponent(window)}` : ''
+    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/analytics/sources${qs}`)
+  }
+
   // Google Indexing API
   async googleRequestIndexing(project: string, body: { urls: string[]; allUnindexed?: boolean }): Promise<object> {
     return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/google/indexing/request`, body)
