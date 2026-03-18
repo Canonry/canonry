@@ -6,7 +6,15 @@ import type { NotificationEvent, NotificationDto } from '@ainyc/canonry-contract
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { deliverWebhook, resolveWebhookTarget } from './webhooks.js'
 
-const VALID_EVENTS: NotificationEvent[] = ['citation.lost', 'citation.gained', 'run.completed', 'run.failed']
+const VALID_EVENTS: NotificationEvent[] = [
+  'citation.lost',
+  'citation.gained',
+  'run.completed',
+  'run.failed',
+  'social.mention.new',
+  'social.sentiment.negative',
+  'social.spike',
+]
 
 export async function notificationRoutes(app: FastifyInstance) {
   // GET /notifications/events — list valid notification event types

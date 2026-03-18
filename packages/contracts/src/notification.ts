@@ -5,6 +5,9 @@ export const notificationEventSchema = z.enum([
   'citation.gained',
   'run.completed',
   'run.failed',
+  'social.mention.new',
+  'social.sentiment.negative',
+  'social.spike',
 ])
 export type NotificationEvent = z.infer<typeof notificationEventSchema>
 
@@ -33,5 +36,26 @@ export interface WebhookPayload {
     to: string
     provider: string
   }>
+  dashboardUrl: string
+}
+
+export interface SocialWebhookPayload {
+  source: 'canonry'
+  event: 'social.mention.new' | 'social.sentiment.negative' | 'social.spike'
+  project: { name: string; canonicalDomain: string }
+  mention?: {
+    platform: string
+    url: string
+    snippet: string
+    sentiment: 'positive' | 'negative' | 'neutral'
+    mentionedAt: string
+    linksToCanonicalDomain: boolean
+  }
+  spike?: {
+    platform: string
+    mentionCount: number
+    windowHours: number
+    baselineMentionCount: number
+  }
   dashboardUrl: string
 }

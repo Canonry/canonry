@@ -10,8 +10,10 @@ import type {
 } from './api.js'
 import type {
   AffectedPhrase,
+  BrandHealthVm,
   CitationInsightVm,
   CitationState,
+  CrossSignalInsightVm,
   EvidenceHistoryScope,
   ModelTransitionVm,
   CompetitorVm,
@@ -23,6 +25,7 @@ import type {
   RunHistoryPoint,
   RunListItemVm,
   ScoreSummaryVm,
+  SocialSparklineVm,
 } from './view-models.js'
 
 function toProjectDto(p: ApiProject): ProjectDto {
@@ -627,6 +630,24 @@ function runStatusSummary(projectRuns: ApiRun[]): ScoreSummaryVm {
   }
 }
 
+/**
+ * Optional social signals for a project. When present, enables brand health
+ * and cross-signal insight generation. All fields are read-only inputs derived
+ * from a social monitoring service; this package only consumes them.
+ */
+export interface SocialData {
+  /** 7-day daily mention counts (oldest → newest, length must be 7). */
+  dailyMentionCounts: number[]
+  /** Total engagement (likes + shares + comments) over the same window. */
+  totalEngagement: number
+  /** Number of mentions that link to the project's canonical domain. */
+  mentionsWithCanonicalLink: number
+  /** Total mention count over the 7-day window. */
+  totalMentions: number
+  /** Sentiment breakdown across all mentions. */
+  sentiment: { positive: number; neutral: number; negative: number }
+}
+
 export interface ProjectData {
   project: ApiProject
   runs: ApiRun[]
@@ -635,6 +656,122 @@ export interface ProjectData {
   timeline: ApiTimelineEntry[]
   latestRunDetail: ApiRunDetail | null
   previousRunDetail: ApiRunDetail | null
+  /** Optional social monitoring data. Omit when not yet connected. */
+  socialData?: SocialData | null
+}
+
+// ── Social signal helpers ────────────────────────────────────────────────────
+
+function buildSocialSparkline(social: SocialData): SocialSparklineVm {
+  const counts = social.dailyMentionCounts.slice(-7)
+  const first = counts[0] ?? 0
+  const last = counts[counts.length - 1] ?? 0
+  return {
+    counts,
+    delta: last - first,
+    sentimentSummary: social.sentiment,
+  }
+}
+
+function computeSentimentScore(sentiment: SocialData['sentiment']): number {
+  const total = sentiment.positive + sentiment.neutral + sentiment.negative
+  if (total === 0) return 0
+  return Math.round((sentiment.positive / total) * 100)
+}
+
+function computeDomainLinkRate(social: SocialData): number {
+  if (social.totalMentions === 0) return 0
+  return Math.round((social.mentionsWithCanonicalLink / social.totalMentions) * 100)
+}
+
+function computeCompositeScore(aiScore: number, sentimentScore: number, domainLinkRate: number): number {
+  // Weighted blend: AI visibility 50%, sentiment 30%, domain link rate 20%
+  return Math.round(aiScore * 0.5 + sentimentScore * 0.3 + domainLinkRate * 0.2)
+}
+
+function buildBrandHealth(aiVisibilityScore: number, social: SocialData): BrandHealthVm {
+  const sentimentScore = computeSentimentScore(social.sentiment)
+  const domainLinkRate = computeDomainLinkRate(social)
+  const compositeScore = computeCompositeScore(aiVisibilityScore, sentimentScore, domainLinkRate)
+
+  return {
+    aiVisibilityScore,
+    aiVisibilityTone: scoreTone(aiVisibilityScore),
+    socialReach: social.totalEngagement,
+    sentimentScore,
+    sentimentTone: scoreTone(sentimentScore),
+    domainLinkRate,
+    domainLinkTone: scoreTone(domainLinkRate),
+    compositeScore,
+    compositeTone: scoreTone(compositeScore),
+  }
+}
+
+/**
+ * Build cross-signal insights by comparing AI citation data against social
+ * discussion trends. Generates observations such as high-AI / low-social gaps
+ * or keywords with social traction but no AI visibility.
+ */
+export function buildCrossSignalInsights(
+  evidence: CitationInsightVm[],
+  social: SocialData | null | undefined,
+): CrossSignalInsightVm[] {
+  const insights: CrossSignalInsightVm[] = []
+
+  if (!social) return insights
+
+  // Insight: high AI visibility but low social discussion
+  const citedKeywords = evidence.filter(e => e.citationState === 'cited').map(e => e.keyword)
+  const totalMentions = social.totalMentions
+  if (citedKeywords.length > 0 && totalMentions < 10) {
+    insights.push({
+      id: 'cross_high_ai_low_social',
+      tone: 'caution',
+      title: 'Strong AI visibility but low social discussion',
+      detail: `${citedKeywords.length} keyword${citedKeywords.length > 1 ? 's are' : ' is'} cited in AI answers but social mention volume is low (${totalMentions} mention${totalMentions !== 1 ? 's' : ''} in 7d). Consider seeding social content to amplify reach.`,
+    })
+  }
+
+  // Insight: negative sentiment spike
+  const { positive, negative, neutral } = social.sentiment
+  const totalSentiment = positive + negative + neutral
+  if (totalSentiment > 0 && negative / totalSentiment >= 0.4) {
+    insights.push({
+      id: 'cross_negative_sentiment',
+      tone: 'negative',
+      title: 'Elevated negative sentiment in social mentions',
+      detail: `${Math.round((negative / totalSentiment) * 100)}% of recent mentions carry negative sentiment. Review brand messaging and monitor for escalation.`,
+    })
+  }
+
+  // Insight: social mentions spiking (last day >> daily average)
+  const counts = social.dailyMentionCounts
+  if (counts.length >= 2) {
+    const latestDay = counts[counts.length - 1] ?? 0
+    const prior = counts.slice(0, -1)
+    const avg = prior.reduce((s, n) => s + n, 0) / prior.length
+    if (avg > 0 && latestDay >= avg * 2) {
+      insights.push({
+        id: 'cross_social_spike',
+        tone: 'positive',
+        title: 'Social mention spike detected',
+        detail: `Mentions jumped to ${latestDay} today vs a ${Math.round(avg)}/day average — a ${Math.round((latestDay / avg - 1) * 100)}% increase. Engage while the conversation is active.`,
+      })
+    }
+  }
+
+  // Insight: good social but no AI citations
+  const notCitedCount = evidence.filter(e => e.citationState === 'not-cited' || e.citationState === 'pending').length
+  if (notCitedCount > 0 && totalMentions >= 20) {
+    insights.push({
+      id: 'cross_social_no_ai',
+      tone: 'caution',
+      title: 'Social traction without AI citation',
+      detail: `${notCitedCount} keyword${notCitedCount > 1 ? 's have' : ' has'} no AI citation despite active social discussion (${totalMentions} mention${totalMentions !== 1 ? 's' : ''}). Optimise content for AI answer engines to convert social reach into AI visibility.`,
+    })
+  }
+
+  return insights
 }
 
 export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCenterVm {
@@ -675,6 +812,11 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
       total,
     }))
 
+  const brandHealth = data.socialData
+    ? buildBrandHealth(kwVis.score, data.socialData)
+    : null
+  const crossSignalInsights = buildCrossSignalInsights(evidence, data.socialData)
+
   return {
     project: dto,
     dateRangeLabel: 'All time',
@@ -705,6 +847,8 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
     runStatus: runStatusSummary(sortedRuns),
     insights,
     visibilityEvidence: evidence,
+    brandHealth,
+    crossSignalInsights,
     competitors: data.competitors.map((c, i) => {
       const citedKeywordSet = new Set<string>()
       for (const snap of snapshots) {
@@ -760,6 +904,15 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
         triggerLabel: '',
       }
 
+  const socialSparkline = data.socialData ? buildSocialSparkline(data.socialData) : null
+  const brandVisibilityScore = data.socialData
+    ? computeCompositeScore(
+        kwVis.score,
+        computeSentimentScore(data.socialData.sentiment),
+        computeDomainLinkRate(data.socialData),
+      )
+    : null
+
   return {
     project: dto,
     visibilityScore: kwVis.score,
@@ -770,6 +923,8 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
       : 'No runs completed yet.',
     trend: [],
     competitorPressureLabel: pressure.label,
+    socialSparkline,
+    brandVisibilityScore,
   }
 }
 

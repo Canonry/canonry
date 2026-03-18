@@ -73,6 +73,9 @@ const EVENT_DESCRIPTIONS: Record<string, string> = {
   'citation.gained': 'A keyword gained citation status',
   'run.completed': 'A visibility run completed successfully',
   'run.failed': 'A visibility run failed',
+  'social.mention.new': 'A new social mention of the project was detected',
+  'social.sentiment.negative': 'A social mention with negative sentiment was detected',
+  'social.spike': 'An unusual increase in social mention volume was detected',
 }
 
 export function listEvents(format?: string): void {

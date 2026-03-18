@@ -474,6 +474,8 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       },
     ],
     recentRuns: [runCitypointQueued, runCitypointVisibility],
+    brandHealth: null,
+    crossSignalInsights: [],
   },
   {
     project: projects[1],
@@ -563,6 +565,8 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       },
     ],
     recentRuns: [runHarborVisibility],
+    brandHealth: null,
+    crossSignalInsights: [],
   },
   {
     project: projects[2],
@@ -645,6 +649,8 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       },
     ],
     recentRuns: [runNorthstarVisibility],
+    brandHealth: null,
+    crossSignalInsights: [],
   },
 ]
 
@@ -659,6 +665,8 @@ const baseDashboard: DashboardVm = {
         insight: 'Lost emergency-intent citations after competitors refreshed availability pages.',
         trend: [73, 71, 69, 66, 61],
         competitorPressureLabel: 'High',
+        socialSparkline: null,
+        brandVisibilityScore: null,
       },
       {
         project: projects[1],
@@ -668,6 +676,8 @@ const baseDashboard: DashboardVm = {
         insight: 'Practice-area consolidation is stabilizing branded and informational prompts.',
         trend: [68, 70, 71, 73, 74],
         competitorPressureLabel: 'Moderate',
+        socialSparkline: null,
+        brandVisibilityScore: null,
       },
       {
         project: projects[2],
@@ -677,6 +687,8 @@ const baseDashboard: DashboardVm = {
         insight: 'Location pages are improving, but local treatment proof still trails competitors.',
         trend: [52, 54, 55, 57, 58],
         competitorPressureLabel: 'Moderate',
+        socialSparkline: null,
+        brandVisibilityScore: null,
       },
     ],
     attentionItems: [

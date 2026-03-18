@@ -55,6 +55,41 @@ export interface RunListItemVm extends RunDto {
   triggerLabel: string
 }
 
+export interface SocialSparklineVm {
+  /** 7-day daily mention counts (oldest to newest). */
+  counts: number[]
+  /** Net change from first to last day in the window. */
+  delta: number
+  /** Overall sentiment distribution across the 7d window. */
+  sentimentSummary: { positive: number; neutral: number; negative: number }
+}
+
+export interface BrandHealthVm {
+  /** AI citation rate — existing keyword visibility score (0-100). */
+  aiVisibilityScore: number
+  aiVisibilityTone: MetricTone
+  /** Total engagement (likes + shares + comments) across monitored platforms. */
+  socialReach: number
+  /** Percentage of mentions with positive sentiment (0-100). */
+  sentimentScore: number
+  sentimentTone: MetricTone
+  /** Percentage of social mentions that link to the canonical domain (0-100). */
+  domainLinkRate: number
+  domainLinkTone: MetricTone
+  /** Composite brand visibility combining AI + social signals (0-100). */
+  compositeScore: number
+  compositeTone: MetricTone
+}
+
+export interface CrossSignalInsightVm {
+  id: string
+  tone: MetricTone
+  title: string
+  detail: string
+  keyword?: string
+  platform?: string
+}
+
 export interface PortfolioProjectVm {
   project: ProjectDto
   visibilityScore: number
@@ -63,6 +98,10 @@ export interface PortfolioProjectVm {
   insight: string
   trend: number[]
   competitorPressureLabel: string
+  /** 7-day social mention sparkline. Null when no social data is available. */
+  socialSparkline: SocialSparklineVm | null
+  /** Composite brand visibility score combining AI + social (null if no data). */
+  brandVisibilityScore: number | null
 }
 
 export interface PortfolioOverviewVm {
@@ -156,6 +195,10 @@ export interface ProjectCommandCenterVm {
   visibilityEvidence: CitationInsightVm[]
   competitors: CompetitorVm[]
   recentRuns: RunListItemVm[]
+  /** Combined brand health section (AI + social). Null when no social data available. */
+  brandHealth: BrandHealthVm | null
+  /** Cross-signal insights comparing AI visibility against social discussion trends. */
+  crossSignalInsights: CrossSignalInsightVm[]
 }
 
 export interface SetupHealthCheckVm {
