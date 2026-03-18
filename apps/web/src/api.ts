@@ -375,6 +375,9 @@ export interface ApiSettings {
   google: {
     configured: boolean
   }
+  bing: {
+    configured: boolean
+  }
 }
 
 export function fetchSettings(): Promise<ApiSettings> {
@@ -722,6 +725,130 @@ export function requestIndexing(
   return apiFetch(`/projects/${encodeURIComponent(project)}/google/indexing/request`, {
     method: 'POST',
     body: JSON.stringify(body),
+  })
+}
+
+// ── Bing Webmaster Tools ─────────────────────────────────────────────────────
+
+export interface ApiBingConnection {
+  connected: boolean
+  domain: string
+  siteUrl: string | null
+  createdAt: string | null
+  updatedAt: string | null
+}
+
+export interface ApiBingSite {
+  url: string
+  verified: boolean
+}
+
+export interface ApiBingInspection {
+  id: string
+  url: string
+  httpCode: number | null
+  inIndex: boolean | null
+  lastCrawledDate: string | null
+  inIndexDate: string | null
+  inspectedAt: string
+}
+
+export interface ApiBingCoverageSummary {
+  summary: {
+    total: number
+    indexed: number
+    notIndexed: number
+    percentage: number
+  }
+  lastInspectedAt: string | null
+  indexed: ApiBingInspection[]
+  notIndexed: ApiBingInspection[]
+}
+
+export interface ApiBingKeywordStats {
+  query: string
+  impressions: number
+  clicks: number
+  ctr: number
+  averagePosition: number
+}
+
+export function fetchBingStatus(project: string): Promise<ApiBingConnection> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/bing/status`)
+}
+
+export function bingConnect(project: string, apiKey: string): Promise<{
+  connected: boolean
+  domain: string
+  availableSites: ApiBingSite[]
+}> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/bing/connect`, {
+    method: 'POST',
+    body: JSON.stringify({ apiKey }),
+  })
+}
+
+export function bingDisconnect(project: string): Promise<void> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/bing/disconnect`, {
+    method: 'DELETE',
+    body: '{}',
+  })
+}
+
+export function fetchBingSites(project: string): Promise<{ sites: ApiBingSite[] }> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/bing/sites`)
+}
+
+export function bingSetSite(project: string, siteUrl: string): Promise<{ siteUrl: string }> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/bing/set-site`, {
+    method: 'POST',
+    body: JSON.stringify({ siteUrl }),
+  })
+}
+
+export function fetchBingCoverage(project: string): Promise<ApiBingCoverageSummary> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/bing/coverage`)
+}
+
+export function fetchBingInspections(
+  project: string,
+  params?: { url?: string; limit?: number },
+): Promise<ApiBingInspection[]> {
+  const qs = new URLSearchParams()
+  if (params?.url) qs.set('url', params.url)
+  if (params?.limit !== undefined) qs.set('limit', String(params.limit))
+  const query = qs.toString() ? `?${qs.toString()}` : ''
+  return apiFetch(`/projects/${encodeURIComponent(project)}/bing/inspections${query}`)
+}
+
+export function inspectBingUrl(project: string, url: string): Promise<ApiBingInspection> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/bing/inspect-url`, {
+    method: 'POST',
+    body: JSON.stringify({ url }),
+  })
+}
+
+export function bingRequestIndexing(
+  project: string,
+  body: { urls?: string[]; allUnindexed?: boolean },
+): Promise<{
+  summary: { total: number; succeeded: number; failed: number }
+  results: Array<{ url: string; status: string; submittedAt: string; error?: string }>
+}> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/bing/request-indexing`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export function fetchBingPerformance(project: string): Promise<ApiBingKeywordStats[]> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/bing/performance`)
+}
+
+export function updateBingApiKey(apiKey: string): Promise<{ configured: boolean }> {
+  return apiFetch('/settings/bing', {
+    method: 'PUT',
+    body: JSON.stringify({ apiKey }),
   })
 }
 

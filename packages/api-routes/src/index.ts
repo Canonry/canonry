@@ -24,6 +24,8 @@ import type { ScheduleRoutesOptions } from './schedules.js'
 import { notificationRoutes } from './notifications.js'
 import { googleRoutes } from './google.js'
 import type { GoogleRoutesOptions } from './google.js'
+import { bingRoutes } from './bing.js'
+import type { BingRoutesOptions } from './bing.js'
 import { cdpRoutes } from './cdp.js'
 import type { CDPRoutesOptions } from './cdp.js'
 
@@ -65,6 +67,11 @@ export interface ApiRoutesOptions {
   publicUrl?: string
   onGscSyncRequested?: GoogleRoutesOptions['onGscSyncRequested']
   onInspectSitemapRequested?: GoogleRoutesOptions['onInspectSitemapRequested']
+  /** Bing Webmaster Tools connection store */
+  bingConnectionStore?: BingRoutesOptions['bingConnectionStore']
+  /** Bing settings summary for settings endpoint */
+  bingSettingsSummary?: SettingsRoutesOptions['bing']
+  onBingSettingsUpdate?: SettingsRoutesOptions['onBingUpdate']
   /** CDP browser provider callbacks */
   getCdpStatus?: CDPRoutesOptions['getCdpStatus']
   onCdpScreenshot?: CDPRoutesOptions['onCdpScreenshot']
@@ -143,6 +150,8 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onProviderUpdate: opts.onProviderUpdate,
       google: opts.googleSettingsSummary,
       onGoogleUpdate: opts.onGoogleSettingsUpdate,
+      bing: opts.bingSettingsSummary,
+      onBingUpdate: opts.onBingSettingsUpdate,
     } satisfies SettingsRoutesOptions)
     await api.register(scheduleRoutes, {
       onScheduleUpdated: opts.onScheduleUpdated,
@@ -152,6 +161,9 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getTelemetryStatus: opts.getTelemetryStatus,
       setTelemetryEnabled: opts.setTelemetryEnabled,
     } satisfies TelemetryRoutesOptions)
+    await api.register(bingRoutes, {
+      bingConnectionStore: opts.bingConnectionStore,
+    } satisfies BingRoutesOptions)
     await api.register(googleRoutes, {
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
       googleConnectionStore: opts.googleConnectionStore,

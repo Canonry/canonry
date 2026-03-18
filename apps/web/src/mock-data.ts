@@ -809,6 +809,10 @@ const baseDashboard: DashboardVm = {
       state: 'ready',
       detail: 'Google OAuth app credentials are configured. Project-level GSC connections can be created from the dashboard.',
     },
+    bing: {
+      state: 'needs-config',
+      detail: 'Bing Webmaster Tools API key is not configured yet.',
+    },
     selfHostNotes: [
       'Configuration is stored in ~/.canonry/config.yaml.',
       'The local config file is the source of truth for authentication credentials.',

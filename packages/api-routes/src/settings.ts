@@ -13,17 +13,24 @@ export interface GoogleSettingsSummary {
   configured: boolean
 }
 
+export interface BingSettingsSummary {
+  configured: boolean
+}
+
 export interface SettingsRoutesOptions {
   providerSummary?: ProviderSummaryEntry[]
   onProviderUpdate?: (provider: string, apiKey: string, model?: string, baseUrl?: string, quota?: Partial<ProviderQuotaPolicy>) => ProviderSummaryEntry | null
   google?: GoogleSettingsSummary
   onGoogleUpdate?: (clientId: string, clientSecret: string) => GoogleSettingsSummary | null
+  bing?: BingSettingsSummary
+  onBingUpdate?: (apiKey: string) => BingSettingsSummary | null
 }
 
 export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesOptions) {
   app.get('/settings', async () => ({
     providers: opts.providerSummary ?? [],
     google: opts.google ?? { configured: false },
+    bing: opts.bing ?? { configured: false },
   }))
 
   app.put<{
@@ -103,6 +110,29 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     const result = opts.onGoogleUpdate(clientId, clientSecret)
     if (!result) {
       return reply.status(500).send({ error: 'Failed to update Google OAuth configuration' })
+    }
+
+    return result
+  })
+
+  app.put<{
+    Body: { apiKey?: string }
+  }>('/settings/bing', async (request, reply) => {
+    const { apiKey } = request.body ?? {}
+
+    if (!apiKey || typeof apiKey !== 'string') {
+      return reply.status(400).send({
+        error: { code: 'VALIDATION_ERROR', message: 'apiKey is required' },
+      })
+    }
+
+    if (!opts.onBingUpdate) {
+      return reply.status(501).send({ error: 'Bing configuration updates are not supported in this deployment' })
+    }
+
+    const result = opts.onBingUpdate(apiKey)
+    if (!result) {
+      return reply.status(500).send({ error: 'Failed to update Bing configuration' })
     }
 
     return result

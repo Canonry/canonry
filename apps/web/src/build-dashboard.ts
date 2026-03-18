@@ -850,6 +850,12 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
           ? 'Google OAuth app credentials are configured. Project-level GSC connections can be created from the dashboard.'
           : 'Google OAuth client ID and client secret are not configured yet.',
       },
+      bing: {
+        state: apiSettings?.bing?.configured ? 'ready' : 'needs-config',
+        detail: apiSettings?.bing?.configured
+          ? 'Bing Webmaster Tools API key is configured. Project-level Bing connections can be created from the dashboard.'
+          : 'Bing Webmaster Tools API key is not configured yet.',
+      },
       selfHostNotes: [
         'Configuration is stored in ~/.canonry/config.yaml.',
         'The local config file is the source of truth for authentication credentials.',

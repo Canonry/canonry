@@ -157,6 +157,9 @@ importers:
       '@ainyc/canonry-db':
         specifier: workspace:*
         version: link:../db
+      '@ainyc/canonry-integration-bing':
+        specifier: workspace:*
+        version: link:../integration-bing
       '@ainyc/canonry-integration-google':
         specifier: workspace:*
         version: link:../integration-google
@@ -218,6 +221,9 @@ importers:
       '@ainyc/canonry-db':
         specifier: workspace:*
         version: link:../db
+      '@ainyc/canonry-integration-bing':
+        specifier: workspace:*
+        version: link:../integration-bing
       '@ainyc/canonry-integration-google':
         specifier: workspace:*
         version: link:../integration-google
@@ -279,6 +285,12 @@ importers:
       drizzle-kit:
         specifier: ^0.31.9
         version: 0.31.9
+
+  packages/integration-bing:
+    dependencies:
+      '@ainyc/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
   packages/integration-google:
     dependencies:

@@ -25,6 +25,10 @@ import {
   googleInspections, googleDeindexed, googleCoverage, googleCoverageHistory, googleInspectSitemap,
   googleDiscoverSitemaps, googleRequestIndexing,
 } from './commands/google.js'
+import {
+  bingConnect, bingDisconnect, bingStatus, bingSites, bingSetSite,
+  bingCoverage, bingInspect, bingInspections, bingRequestIndexing, bingPerformance,
+} from './commands/bing.js'
 import { trackEvent, isTelemetryEnabled, isFirstRun, getOrCreateAnonymousId, showFirstRunNotice } from './telemetry.js'
 
 const USAGE = `
@@ -95,6 +99,17 @@ Usage:
   canonry google coverage <project>  Show index coverage summary
   canonry google inspections <project>  Show URL inspection history (--url <url>)
   canonry google deindexed <project>  Show pages that lost indexing
+  canonry bing connect <project>     Connect Bing Webmaster Tools (prompted for API key)
+  canonry bing disconnect <project>  Disconnect Bing integration
+  canonry bing status <project>      Show Bing connection status
+  canonry bing sites <project>       List registered Bing sites
+  canonry bing set-site <project> <url>  Set active Bing site
+  canonry bing coverage <project>    Show Bing index coverage summary
+  canonry bing inspect <project> <url>  Inspect a URL via Bing
+  canonry bing inspections <project>  Show Bing URL inspection history (--url <url>)
+  canonry bing request-indexing <project> <url>  Submit URL to Bing for indexing
+  canonry bing request-indexing <project> --all-unindexed  Submit all unindexed URLs to Bing
+  canonry bing performance <project>  Show Bing search performance data
   canonry settings                    Show active provider and quota settings
   canonry settings provider <name>    Update a provider config
   canonry settings google             Update Google OAuth credentials
@@ -181,7 +196,7 @@ async function main() {
   }
 
   // Resolve command name for telemetry (e.g. "project.create", "run")
-  const SUBCOMMAND_COMMANDS = new Set(['project', 'keyword', 'competitor', 'schedule', 'notify', 'settings', 'telemetry', 'google'])
+  const SUBCOMMAND_COMMANDS = new Set(['project', 'keyword', 'competitor', 'schedule', 'notify', 'settings', 'telemetry', 'google', 'bing'])
   const resolvedCommand = SUBCOMMAND_COMMANDS.has(command) && args[1] && !args[1].startsWith('-')
     ? `${command}.${args[1]}`
     : command
@@ -1136,6 +1151,144 @@ async function main() {
           default:
             console.error(`Unknown google subcommand: ${subcommand ?? '(none)'}`)
             console.log('Available: connect, disconnect, status, properties, set-property, set-sitemap, list-sitemaps, discover-sitemaps, sync, performance, inspect, inspect-sitemap, coverage, coverage-history, inspections, deindexed, request-indexing')
+            process.exit(1)
+        }
+        break
+      }
+
+      case 'bing': {
+        const subcommand = args[1]
+        switch (subcommand) {
+          case 'connect': {
+            const project = args[2]
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            const { values: bingConnectValues } = parseArgs({
+              args: args.slice(3),
+              options: {
+                'api-key': { type: 'string' },
+              },
+              allowPositionals: false,
+            })
+            await bingConnect(project, { apiKey: bingConnectValues['api-key'], format })
+            break
+          }
+          case 'disconnect': {
+            const project = args[2]
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            await bingDisconnect(project)
+            break
+          }
+          case 'status': {
+            const project = args[2]
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            await bingStatus(project, format)
+            break
+          }
+          case 'sites': {
+            const project = args[2]
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            await bingSites(project, format)
+            break
+          }
+          case 'set-site': {
+            const project = args[2]
+            const siteUrl = args[3]
+            if (!project || !siteUrl) {
+              console.error('Error: project name and site URL are required')
+              process.exit(1)
+            }
+            await bingSetSite(project, siteUrl)
+            break
+          }
+          case 'coverage': {
+            const project = args[2]
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            await bingCoverage(project, format)
+            break
+          }
+          case 'inspect': {
+            const project = args[2]
+            const url = args[3]
+            if (!project || !url) {
+              console.error('Error: project name and URL are required')
+              process.exit(1)
+            }
+            await bingInspect(project, url, format)
+            break
+          }
+          case 'inspections': {
+            const project = args[2]
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            const { values: inspValues } = parseArgs({
+              args: args.slice(3),
+              options: {
+                url: { type: 'string' },
+                format: { type: 'string' },
+              },
+              allowPositionals: false,
+            })
+            await bingInspections(project, {
+              url: inspValues.url,
+              format: inspValues.format === 'json' ? 'json' : format,
+            })
+            break
+          }
+          case 'request-indexing': {
+            const project = args[2]
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            const { values: reqIdxValues, positionals: reqIdxPos } = parseArgs({
+              args: args.slice(3),
+              options: {
+                'all-unindexed': { type: 'boolean', default: false },
+                format: { type: 'string' },
+              },
+              allowPositionals: true,
+            })
+            const reqIdxUrl = reqIdxPos[0]
+            if (!reqIdxUrl && !reqIdxValues['all-unindexed']) {
+              console.error('Error: provide a URL or use --all-unindexed')
+              process.exit(1)
+            }
+            await bingRequestIndexing(project, {
+              url: reqIdxUrl,
+              allUnindexed: reqIdxValues['all-unindexed'] ?? false,
+              format: reqIdxValues.format === 'json' ? 'json' : format,
+            })
+            break
+          }
+          case 'performance': {
+            const project = args[2]
+            if (!project) {
+              console.error('Error: project name is required')
+              process.exit(1)
+            }
+            await bingPerformance(project, format)
+            break
+          }
+          default:
+            console.error(`Unknown bing subcommand: ${subcommand ?? '(none)'}`)
+            console.log('Available: connect, disconnect, status, sites, set-site, coverage, inspect, inspections, request-indexing, performance')
             process.exit(1)
         }
         break

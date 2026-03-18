@@ -47,11 +47,10 @@ test('project route renders a single command center with visibility sections', a
 
   expect(html).toMatch(/Citypoint Dental NYC/)
   expect(html).toMatch(/Overview/)
-  expect(html).toMatch(/Search Console/)
+  expect(html).toMatch(/Search Engine Intelligence/)
   expect(html).toMatch(/Citation signals/)
   expect(html).toMatch(/Key phrase citation tracking/)
   expect(html).toMatch(/Recent execution history/)
-  expect(html).not.toMatch(/Google Search Console/)
 })
 
 test('runs route renders the operational timeline and filters', async () => {
@@ -135,11 +134,12 @@ test('project route renders visibility drop insights', async () => {
   expect(html).toMatch(/Sharp citation drop detected/)
 })
 
-test('project search console route renders the Google Search Console section shell', async () => {
+test('project search console route renders the Search Engine Intelligence section', async () => {
   const html = await renderApp('/projects/project_citypoint/search-console')
 
-  expect(html).toMatch(/Google Search Console/)
-  expect(html).toMatch(/Loading…|Loading\.\.\./)
+  expect(html).toMatch(/Search Engine Intelligence/)
+  expect(html).toMatch(/Google \(Gemini\)/)
+  expect(html).toMatch(/Bing \(OpenAI\)/)
   expect(html).not.toMatch(/Citation signals/)
 })
 

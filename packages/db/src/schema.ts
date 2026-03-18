@@ -203,6 +203,46 @@ export const gscCoverageSnapshots = sqliteTable('gsc_coverage_snapshots', {
   index('idx_gsc_coverage_snap_run').on(table.syncRunId),
 ])
 
+export const bingConnections = sqliteTable('bing_connections', {
+  id: text('id').primaryKey(),
+  domain: text('domain').notNull(),
+  siteUrl: text('site_url'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_bing_conn_domain').on(table.domain),
+])
+
+export const bingUrlInspections = sqliteTable('bing_url_inspections', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  url: text('url').notNull(),
+  httpCode: integer('http_code'),
+  inIndex: integer('in_index'),
+  lastCrawledDate: text('last_crawled_date'),
+  inIndexDate: text('in_index_date'),
+  inspectedAt: text('inspected_at').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_bing_inspect_project_url').on(table.projectId, table.url),
+  index('idx_bing_inspect_url_time').on(table.url, table.inspectedAt),
+])
+
+export const bingKeywordStats = sqliteTable('bing_keyword_stats', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  query: text('query').notNull(),
+  impressions: integer('impressions').notNull().default(0),
+  clicks: integer('clicks').notNull().default(0),
+  ctr: text('ctr').notNull().default('0'),
+  averagePosition: text('average_position').notNull().default('0'),
+  syncedAt: text('synced_at').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_bing_keyword_project').on(table.projectId),
+  index('idx_bing_keyword_query').on(table.query),
+])
+
 export const usageCounters = sqliteTable('usage_counters', {
   id: text('id').primaryKey(),
   scope: text('scope').notNull(),

@@ -208,9 +208,15 @@ export interface GoogleSettingsVm {
   detail: string
 }
 
+export interface BingSettingsVm {
+  state: 'ready' | 'needs-config'
+  detail: string
+}
+
 export interface SettingsVm {
   providerStatuses: ProviderStatusVm[]
   google: GoogleSettingsVm
+  bing: BingSettingsVm
   selfHostNotes: string[]
   bootstrapNote: string
 }

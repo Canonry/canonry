@@ -289,6 +289,49 @@ export class ApiClient {
     return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/google/indexing/request`, body)
   }
 
+  // Bing Webmaster Tools
+  async bingConnect(project: string, body: { apiKey: string }): Promise<object> {
+    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/bing/connect`, body)
+  }
+
+  async bingDisconnect(project: string): Promise<void> {
+    await this.request<void>('DELETE', `/projects/${encodeURIComponent(project)}/bing/disconnect`)
+  }
+
+  async bingStatus(project: string): Promise<object> {
+    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/bing/status`)
+  }
+
+  async bingSites(project: string): Promise<object> {
+    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/bing/sites`)
+  }
+
+  async bingSetSite(project: string, siteUrl: string): Promise<object> {
+    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/bing/set-site`, { siteUrl })
+  }
+
+  async bingCoverage(project: string): Promise<object> {
+    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/bing/coverage`)
+  }
+
+  async bingInspections(project: string, params?: Record<string, string>): Promise<object[]> {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/bing/inspections${qs}`)
+  }
+
+  async bingInspectUrl(project: string, url: string): Promise<object> {
+    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/bing/inspect-url`, { url })
+  }
+
+  async bingRequestIndexing(project: string, body: { urls?: string[]; allUnindexed?: boolean }): Promise<object> {
+    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/bing/request-indexing`, body)
+  }
+
+  async bingPerformance(project: string, params?: Record<string, string>): Promise<object[]> {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/bing/performance${qs}`)
+  }
+
   // CDP browser provider
   async getCdpStatus(): Promise<object> {
     return this.request<object>('GET', '/cdp/status')

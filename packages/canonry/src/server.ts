@@ -170,6 +170,52 @@ export async function createServer(opts: {
   const googleSettingsSummary = {
     configured: Boolean(opts.config.google?.clientId && opts.config.google?.clientSecret),
   }
+  const bingSettingsSummary = {
+    configured: Boolean(opts.config.bing?.apiKey),
+  }
+
+  // Bing connection store — stores connections in ~/.canonry/config.yaml
+  const bingConnectionStore = {
+    getConnection: (domain: string) => {
+      return opts.config.bing?.connections?.find((c) => c.domain === domain)
+    },
+    upsertConnection: (connection: {
+      domain: string
+      apiKey: string
+      siteUrl?: string | null
+      createdAt: string
+      updatedAt: string
+    }) => {
+      if (!opts.config.bing) opts.config.bing = {}
+      if (!opts.config.bing.connections) opts.config.bing.connections = []
+      const idx = opts.config.bing.connections.findIndex((c) => c.domain === connection.domain)
+      if (idx >= 0) {
+        opts.config.bing.connections[idx] = connection
+      } else {
+        opts.config.bing.connections.push(connection)
+      }
+      saveConfig(opts.config)
+      return connection
+    },
+    updateConnection: (
+      domain: string,
+      patch: Partial<{ apiKey: string; siteUrl: string | null; updatedAt: string }>,
+    ) => {
+      const conn = opts.config.bing?.connections?.find((c) => c.domain === domain)
+      if (!conn) return undefined
+      Object.assign(conn, patch)
+      saveConfig(opts.config)
+      return conn
+    },
+    deleteConnection: (domain: string) => {
+      if (!opts.config.bing?.connections) return false
+      const idx = opts.config.bing.connections.findIndex((c) => c.domain === domain)
+      if (idx < 0) return false
+      opts.config.bing.connections.splice(idx, 1)
+      saveConfig(opts.config)
+      return true
+    },
+  } as const
 
   const adapterMap = { gemini: geminiAdapter, openai: openaiAdapter, claude: claudeAdapter, local: localAdapter } as const
 
@@ -258,6 +304,8 @@ export async function createServer(opts: {
     },
     providerSummary,
     googleSettingsSummary,
+    bingSettingsSummary,
+    bingConnectionStore,
     onRunCreated: (runId: string, projectId: string, providers?: string[], location?: import('@ainyc/canonry-contracts').LocationContext | null) => {
       // Fire and forget — run executes in background
       jobRunner.executeRun(runId, projectId, providers as ProviderName[] | undefined, location).catch((err: unknown) => {
@@ -356,6 +404,18 @@ export async function createServer(opts: {
         return { ...googleSettingsSummary }
       } catch (err) {
         app.log.error({ err }, 'Failed to save Google OAuth config')
+        return null
+      }
+    },
+    onBingSettingsUpdate: (apiKey: string) => {
+      try {
+        if (!opts.config.bing) opts.config.bing = {}
+        opts.config.bing.apiKey = apiKey
+        saveConfig(opts.config)
+        bingSettingsSummary.configured = true
+        return { ...bingSettingsSummary }
+      } catch (err) {
+        app.log.error({ err }, 'Failed to save Bing API key config')
         return null
       }
     },

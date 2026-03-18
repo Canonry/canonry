@@ -38,6 +38,19 @@ export interface GoogleConfigEntry {
   connections?: GoogleConnectionConfigEntry[]
 }
 
+export interface BingConnectionConfigEntry {
+  domain: string
+  apiKey: string
+  siteUrl?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface BingConfigEntry {
+  apiKey?: string
+  connections?: BingConnectionConfigEntry[]
+}
+
 export interface CanonryConfig {
   apiUrl: string
   publicUrl?: string
@@ -60,6 +73,7 @@ export interface CanonryConfig {
   // CDP browser provider config (separate from API providers)
   cdp?: CdpConfigEntry
   google?: GoogleConfigEntry
+  bing?: BingConfigEntry
   // Telemetry (opt-out: undefined/true = enabled, false = disabled)
   telemetry?: boolean
   anonymousId?: string
