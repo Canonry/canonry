@@ -220,10 +220,14 @@ export async function createServer(opts: {
 
   // Resolve base path early so API route prefix and SPA handler both use it.
   // Normalize: ensure it starts and ends with '/' (e.g. '/canonry/').
+  // A value that normalises to bare '/' is treated as no base path to avoid
+  // a duplicate-route error with fastify-static (which also registers '/').
   const rawBasePath = process.env.CANONRY_BASE_PATH ?? opts.config.basePath
-  const basePath: string | undefined = rawBasePath
+  const normalizedBasePath = rawBasePath
     ? ('/' + rawBasePath.replace(/^\//, '').replace(/\/?$/, '/'))
     : undefined
+  const basePath: string | undefined =
+    normalizedBasePath === '/' ? undefined : normalizedBasePath
 
   // API routes are registered under <basePath>api/v1 (or /api/v1 when no base path).
   const apiPrefix = basePath ? `${basePath}api/v1` : '/api/v1'
@@ -494,25 +498,43 @@ export async function createServer(opts: {
       index: false,
     })
 
-    // Serve index.html with injected config for the root/base-path route
-    const rootRoute = basePath ?? '/'
-    app.get(rootRoute, (_request, reply) => {
+    // Serve index.html with injected config for the root/base-path route.
+    // Register both the trailing-slash form ('/canonry/') and the bare form
+    // ('/canonry') so either URL shape hits the handler without a 404.
+    const serveIndex = (_request: unknown, reply: { type: (t: string) => { send: (b: string) => unknown }; status: (s: number) => { send: (b: unknown) => unknown } }) => {
       if (fs.existsSync(indexPath)) {
         const html = fs.readFileSync(indexPath, 'utf-8')
         return reply.type('text/html').send(injectConfig(html))
       }
       return reply.status(404).send({ error: 'Dashboard not built' })
-    })
+    }
+    const rootRouteTrailing = basePath ?? '/'
+    app.get(rootRouteTrailing, serveIndex)
+    // Also register the no-trailing-slash variant when base path is set
+    // (e.g. '/canonry' in addition to '/canonry/') to avoid a 404 on bare navigation.
+    if (basePath) {
+      const rootRouteBare = basePath.replace(/\/$/, '')
+      if (rootRouteBare) app.get(rootRouteBare, serveIndex)
+    }
 
-    // SPA fallback: serve index.html for unmatched non-API routes
+    // SPA fallback: serve index.html for unmatched routes that belong to this app.
+    // - With no base path: serve for any non-API path (existing behaviour).
+    // - With base path: only serve for paths under basePath to avoid hijacking
+    //   other apps co-hosted on the same origin outside the base path.
     app.setNotFoundHandler((request, reply) => {
+      const url = request.url.split('?')[0]!
+
       // Never serve HTML for API routes — return proper JSON 404.
-      // Check both the prefixed path (/canonry/api/...) and the bare path (/api/...)
-      // so this guard works with and without --base-path.
+      // Guard against both the prefixed (/canonry/api/...) and bare (/api/...) forms.
       const isApiRoute =
-        request.url.startsWith('/api/') ||
-        (basePath !== undefined && request.url.startsWith(`${basePath}api/`))
+        url.startsWith('/api/') ||
+        (basePath !== undefined && url.startsWith(`${basePath}api/`))
       if (isApiRoute) {
+        return reply.status(404).send({ error: 'Not found', path: request.url })
+      }
+
+      // When a base path is configured, only serve the SPA for paths under it.
+      if (basePath && !url.startsWith(basePath)) {
         return reply.status(404).send({ error: 'Not found', path: request.url })
       }
 
@@ -524,18 +546,12 @@ export async function createServer(opts: {
     })
   }
 
-  // Health endpoint — registered at both /health and <basePath>health when base path is set
-  app.get('/health', async () => ({
-    status: 'ok',
-    service: 'canonry',
-    version: PKG_VERSION,
-  }))
+  // Health endpoint — registered at both /health and <basePath>health when base path is set,
+  // so load-balancer probes work regardless of whether the proxy strips the prefix.
+  const healthHandler = async () => ({ status: 'ok', service: 'canonry', version: PKG_VERSION })
+  app.get('/health', healthHandler)
   if (basePath) {
-    app.get(`${basePath}health`, async () => ({
-      status: 'ok',
-      service: 'canonry',
-      version: PKG_VERSION,
-    }))
+    app.get(`${basePath}health`, healthHandler)
   }
 
   // Start scheduler after setup
