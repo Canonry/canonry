@@ -218,9 +218,20 @@ export async function createServer(opts: {
     },
   } as const
 
+  // Resolve base path early so API route prefix and SPA handler both use it.
+  // Normalize: ensure it starts and ends with '/' (e.g. '/canonry/').
+  const rawBasePath = process.env.CANONRY_BASE_PATH ?? opts.config.basePath
+  const basePath: string | undefined = rawBasePath
+    ? ('/' + rawBasePath.replace(/^\//, '').replace(/\/?$/, '/'))
+    : undefined
+
+  // API routes are registered under <basePath>api/v1 (or /api/v1 when no base path).
+  const apiPrefix = basePath ? `${basePath}api/v1` : '/api/v1'
+
   // Register API routes
   await app.register(apiRoutes, {
     db: opts.db,
+    routePrefix: apiPrefix,
     skipAuth: false,
     getGoogleAuthConfig: () => getGoogleAuthConfig(opts.config),
     googleConnectionStore,
@@ -461,13 +472,7 @@ export async function createServer(opts: {
   if (fs.existsSync(assetsDir)) {
     const indexPath = path.join(assetsDir, 'index.html')
 
-    // Read base path from env (set by --base-path CLI flag) or config.
-    // Normalize: ensure it starts and ends with '/' (e.g. '/canonry/').
-    const rawBasePath = process.env.CANONRY_BASE_PATH ?? opts.config.basePath
-    const basePath: string | undefined = rawBasePath
-      ? ('/' + rawBasePath.replace(/^\//, '').replace(/\/?$/, '/'))
-      : undefined
-
+    // basePath is already resolved above. Used here for SPA serving.
     const injectConfig = (html: string): string => {
       const clientConfig: Record<string, unknown> = { apiKey: opts.config.apiKey }
       if (basePath) clientConfig.basePath = basePath
@@ -482,15 +487,16 @@ export async function createServer(opts: {
     const fastifyStatic = await import('@fastify/static')
     await app.register(fastifyStatic.default, {
       root: assetsDir,
-      prefix: '/',
+      prefix: basePath ?? '/',
       wildcard: false,
       // Don't serve index.html automatically — we handle it with config injection
       serve: true,
       index: false,
     })
 
-    // Serve index.html with injected API key for the root route
-    app.get('/', (_request, reply) => {
+    // Serve index.html with injected config for the root/base-path route
+    const rootRoute = basePath ?? '/'
+    app.get(rootRoute, (_request, reply) => {
       if (fs.existsSync(indexPath)) {
         const html = fs.readFileSync(indexPath, 'utf-8')
         return reply.type('text/html').send(injectConfig(html))
@@ -500,8 +506,13 @@ export async function createServer(opts: {
 
     // SPA fallback: serve index.html for unmatched non-API routes
     app.setNotFoundHandler((request, reply) => {
-      // Never serve HTML for API routes — return proper JSON 404
-      if (request.url.startsWith('/api/')) {
+      // Never serve HTML for API routes — return proper JSON 404.
+      // Check both the prefixed path (/canonry/api/...) and the bare path (/api/...)
+      // so this guard works with and without --base-path.
+      const isApiRoute =
+        request.url.startsWith('/api/') ||
+        (basePath !== undefined && request.url.startsWith(`${basePath}api/`))
+      if (isApiRoute) {
         return reply.status(404).send({ error: 'Not found', path: request.url })
       }
 
@@ -513,12 +524,19 @@ export async function createServer(opts: {
     })
   }
 
-  // Health endpoint
+  // Health endpoint — registered at both /health and <basePath>health when base path is set
   app.get('/health', async () => ({
     status: 'ok',
     service: 'canonry',
     version: PKG_VERSION,
   }))
+  if (basePath) {
+    app.get(`${basePath}health`, async () => ({
+      status: 'ok',
+      service: 'canonry',
+      version: PKG_VERSION,
+    }))
+  }
 
   // Start scheduler after setup
   scheduler.start()
