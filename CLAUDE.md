@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-`canonry` is an open-source agent first AEO monitoring platform that tracks how AI answer engines cite a domain for tracked keywords. Published as `@ainyc/canonry` on npm.
+`canonry` is an open-source **agent-first** AEO monitoring platform that tracks how AI answer engines cite a domain for tracked keywords. Published as `@ainyc/canonry` on npm. The CLI and API are the primary interfaces — the web dashboard is supplementary.
 
 ## Workspace Map
 
@@ -52,17 +52,26 @@ canonry export <project>
 - `packages/canonry/` is the only publishable artifact. Internal packages are bundled via tsup.
 - All internal packages use `@ainyc/canonry-*` naming convention.
 
-## Surface Parity
+## Surface Priority
 
-THIS IS A AI AGENT FIRST PLATFORM. 
+THIS IS AN **AGENT-FIRST** PLATFORM. The CLI and API are the primary interfaces. The web UI is a nice-to-have — it must never block or delay CLI/API work.
 
-**Every feature must be equally accessible through CLI, API, and UI.** No surface is privileged — if a user can do something from the terminal, they must be able to do the same from the web dashboard and vice versa. The API is the shared backbone; both CLI and UI are clients of it.
+### Priority order
+1. **API** — the shared backbone. Every capability must be exposed here first.
+2. **CLI** — the primary user-facing surface. Must feel complete and polished.
+3. **Web UI** — important but lower priority. Ideally all features have a UI, but never block a release on it.
 
-When adding a new feature:
-1. Add the API endpoint in `packages/api-routes/`.
-2. Add the CLI command in `packages/canonry/src/commands/`.
-3. Add the UI interaction in `apps/web/`.
-4. All three must ship together — do not defer one surface to a later phase.
+### When adding a new feature
+1. **Required:** Add the API endpoint in `packages/api-routes/`.
+2. **Required:** Add the CLI command in `packages/canonry/src/commands/`.
+3. **Ideal:** Add the UI interaction in `apps/web/` — aim to include it, but never block a release waiting for UI work.
+
+### Agent & automation design principles
+- Every operation must be scriptable via CLI or API without human interaction.
+- CLI output must be machine-parseable (support `--json` flag on all commands that produce output).
+- API responses must be self-describing and stable — external agents and scripts depend on them.
+- Prefer config-as-code (`canonry apply`) over interactive wizards.
+- Error messages must be actionable from a terminal — include the failed command, the reason, and a suggested fix.
 
 ## Maintenance Guidance
 
