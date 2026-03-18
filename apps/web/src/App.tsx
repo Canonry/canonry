@@ -2301,7 +2301,7 @@ function AnalyticsSection({ projectName }: { projectName: string }) {
         <div className="flex items-center justify-between mb-4">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">Citation Metrics</p>
-            <h2 className="text-base font-semibold text-zinc-50">Citation Rate Trends</h2>
+            <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">Citation Rate Trends <InfoTooltip text="Citation rate over time across all runs within the selected window. Each data point represents the percentage of queries where your brand was cited by AI providers." /></h2>
           </div>
           <div className="flex gap-1">
             {ANALYTICS_WINDOWS.map(w => (
@@ -2380,7 +2380,7 @@ function AnalyticsSection({ projectName }: { projectName: string }) {
         <div className="flex items-center justify-between mb-4">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">Opportunity Analysis</p>
-            <h2 className="text-base font-semibold text-zinc-50">Brand Gap Analysis</h2>
+            <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">Brand Gap Analysis <InfoTooltip text="Based on the most recent completed run. Cited: your brand appeared in the AI answer. Gap: a competitor was cited but you were not — highest-priority opportunities. Not Cited: neither you nor a competitor was mentioned." /></h2>
           </div>
         </div>
 
@@ -2420,7 +2420,7 @@ function AnalyticsSection({ projectName }: { projectName: string }) {
       <section>
         <div className="mb-4">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">Source Intelligence</p>
-          <h2 className="text-base font-semibold text-zinc-50">Source Origin Breakdown</h2>
+          <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">Source Origin Breakdown <InfoTooltip text="Based on the most recent completed run. Shows what types of websites the AI cited as grounding sources across all keywords. Helps identify which content categories are most influential for your topic area." /></h2>
         </div>
 
         {sources && sources.overall.length > 0 && (
