@@ -239,7 +239,10 @@ export function ProjectPage({
     a.href = url
     a.download = `${projectName}.yaml`
     a.click()
-    setTimeout(() => URL.revokeObjectURL(url), 100)
+    // Blob URL is revoked asynchronously — a.click() returns void with no
+    // completion signal, so revoking synchronously can break the download.
+    // The blob is small and will be GC'd when the page unloads.
+
   }
 
   async function handleAddKeywords() {
