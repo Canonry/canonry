@@ -1,5 +1,6 @@
 import { loadConfig } from '../config.js'
 import { ApiClient } from '../client.js'
+import { resolveProviderInput } from '@ainyc/canonry-contracts'
 
 function getClient(): ApiClient {
   const config = loadConfig()
@@ -12,7 +13,10 @@ export async function triggerRun(project: string, opts?: { provider?: string; wa
   const client = getClient()
   const body: Record<string, unknown> = {}
   if (opts?.provider) {
-    body.providers = [opts.provider]
+    // Support comma-separated providers and 'cdp' shorthand expansion
+    const providerInputs = opts.provider.split(',').map(s => s.trim()).filter(Boolean)
+    const resolved = providerInputs.flatMap(p => resolveProviderInput(p))
+    body.providers = resolved.length > 0 ? resolved : providerInputs
   }
   if (opts?.location) {
     body.location = opts.location
@@ -116,7 +120,9 @@ export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; 
 
   const body: Record<string, unknown> = {}
   if (opts?.provider) {
-    body.providers = [opts.provider]
+    const providerInputs = opts.provider.split(',').map(s => s.trim()).filter(Boolean)
+    const resolved = providerInputs.flatMap(p => resolveProviderInput(p))
+    body.providers = resolved.length > 0 ? resolved : providerInputs
   }
 
   const results: Array<{ project: string; runId: string; status: string; error?: string }> = []

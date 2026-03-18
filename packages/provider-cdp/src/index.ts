@@ -1,0 +1,8 @@
+export { cdpChatgptAdapter } from './adapter.js'
+export { CDPConnectionManager, waitForStabilization } from './connection.js'
+export { captureElementScreenshot } from './screenshot.js'
+export { extractCitedDomains, normalizeResult } from './normalize.js'
+export { chatgptTarget } from './targets/chatgpt.js'
+export { CDPProviderError } from './targets/types.js'
+export type { CDPTarget, CDPErrorCode } from './targets/types.js'
+export type { CDPHealthResult, TabStatus } from './connection.js'

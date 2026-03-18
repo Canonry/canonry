@@ -1,9 +1,12 @@
 import crypto from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
+import os from 'node:os'
 import { eq, inArray } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { runs, keywords, competitors, projects, querySnapshots, usageCounters } from '@ainyc/canonry-db'
 import type { ProviderName, NormalizedQueryResult, LocationContext } from '@ainyc/canonry-contracts'
-import { effectiveDomains, normalizeProjectDomain } from '@ainyc/canonry-contracts'
+import { effectiveDomains, normalizeProjectDomain, isBrowserProvider } from '@ainyc/canonry-contracts'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
 
@@ -135,10 +138,14 @@ export class JobRunner {
       const providerErrors = new Map<ProviderName, string>()
       let totalSnapshotsInserted = 0
 
+      // Split providers: API providers fan out in parallel, browser providers run sequentially
+      const apiProviders = activeProviders.filter(p => !isBrowserProvider(p.adapter.name))
+      const browserProviders = activeProviders.filter(p => isBrowserProvider(p.adapter.name))
+
       // Process each keyword across all providers
       for (const kw of projectKeywords) {
-        // Fan out across providers for this keyword
-        const providerPromises = activeProviders.map(async (registeredProvider) => {
+        // Fan out across API providers for this keyword
+        const providerPromises = apiProviders.map(async (registeredProvider) => {
           const { adapter, config } = registeredProvider
           const providerName = adapter.name
 
@@ -170,25 +177,57 @@ export class JobRunner {
             const citationState = determineCitationState(normalized, allDomains)
             const overlap = computeCompetitorOverlap(normalized, competitorDomains)
 
-            this.db.insert(querySnapshots).values({
-              id: crypto.randomUUID(),
-              runId,
-              keywordId: kw.id,
-              provider: providerName,
-              model: raw.model,
-              citationState,
-              answerText: normalized.answerText,
-              citedDomains: JSON.stringify(normalized.citedDomains),
-              competitorOverlap: JSON.stringify(overlap),
-              location: runLocation?.label ?? null,
-              rawResponse: JSON.stringify({
+            // Move screenshot to canonical location if present
+            let screenshotRelPath: string | null = null
+            if (raw.screenshotPath && fs.existsSync(raw.screenshotPath)) {
+              const snapshotId = crypto.randomUUID()
+              const screenshotDir = path.join(os.homedir(), '.canonry', 'screenshots', runId)
+              if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true })
+              const destPath = path.join(screenshotDir, `${snapshotId}.png`)
+              fs.renameSync(raw.screenshotPath, destPath)
+              screenshotRelPath = `${runId}/${snapshotId}.png`
+
+              this.db.insert(querySnapshots).values({
+                id: snapshotId,
+                runId,
+                keywordId: kw.id,
+                provider: providerName,
                 model: raw.model,
-                groundingSources: normalized.groundingSources,
-                searchQueries: normalized.searchQueries,
-                apiResponse: raw.rawResponse,
-              }),
-              createdAt: new Date().toISOString(),
-            }).run()
+                citationState,
+                answerText: normalized.answerText,
+                citedDomains: JSON.stringify(normalized.citedDomains),
+                competitorOverlap: JSON.stringify(overlap),
+                location: runLocation?.label ?? null,
+                screenshotPath: screenshotRelPath,
+                rawResponse: JSON.stringify({
+                  model: raw.model,
+                  groundingSources: normalized.groundingSources,
+                  searchQueries: normalized.searchQueries,
+                  apiResponse: raw.rawResponse,
+                }),
+                createdAt: new Date().toISOString(),
+              }).run()
+            } else {
+              this.db.insert(querySnapshots).values({
+                id: crypto.randomUUID(),
+                runId,
+                keywordId: kw.id,
+                provider: providerName,
+                model: raw.model,
+                citationState,
+                answerText: normalized.answerText,
+                citedDomains: JSON.stringify(normalized.citedDomains),
+                competitorOverlap: JSON.stringify(overlap),
+                location: runLocation?.label ?? null,
+                rawResponse: JSON.stringify({
+                  model: raw.model,
+                  groundingSources: normalized.groundingSources,
+                  searchQueries: normalized.searchQueries,
+                  apiResponse: raw.rawResponse,
+                }),
+                createdAt: new Date().toISOString(),
+              }).run()
+            }
 
             totalSnapshotsInserted++
             console.log(`[JobRunner] ${providerName}: keyword "${kw.keyword}" → ${citationState}`)
@@ -200,6 +239,99 @@ export class JobRunner {
         })
 
         await Promise.all(providerPromises)
+
+        // Browser providers run sequentially (shared browser, one tab at a time)
+        for (const registeredProvider of browserProviders) {
+          const { adapter, config } = registeredProvider
+          const providerName = adapter.name
+
+          try {
+            await this.waitForRateLimit(
+              minuteWindows.get(providerName)!,
+              config.quotaPolicy.maxRequestsPerMinute,
+            )
+
+            const allDomains = effectiveDomains({
+              canonicalDomain: project.canonicalDomain,
+              ownedDomains: JSON.parse(project.ownedDomains || '[]') as string[],
+            })
+
+            const raw = await adapter.executeTrackedQuery(
+              {
+                keyword: kw.keyword,
+                canonicalDomains: allDomains,
+                competitorDomains,
+                location: runLocation,
+              },
+              config,
+            )
+
+            const normalized = adapter.normalizeResult(raw)
+
+            console.log(`[JobRunner] ${providerName}: "${kw.keyword}" citedDomains=${JSON.stringify(normalized.citedDomains)}, groundingSources=${JSON.stringify(normalized.groundingSources.map(s => s.uri))}, domains=${JSON.stringify(allDomains)}`)
+            const citationState = determineCitationState(normalized, allDomains)
+            const overlap = computeCompetitorOverlap(normalized, competitorDomains)
+
+            // Move screenshot to canonical location if present
+            let screenshotRelPath: string | null = null
+            if (raw.screenshotPath && fs.existsSync(raw.screenshotPath)) {
+              const snapshotId = crypto.randomUUID()
+              const screenshotDir = path.join(os.homedir(), '.canonry', 'screenshots', runId)
+              if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true })
+              const destPath = path.join(screenshotDir, `${snapshotId}.png`)
+              fs.renameSync(raw.screenshotPath, destPath)
+              screenshotRelPath = `${runId}/${snapshotId}.png`
+
+              this.db.insert(querySnapshots).values({
+                id: snapshotId,
+                runId,
+                keywordId: kw.id,
+                provider: providerName,
+                model: raw.model,
+                citationState,
+                answerText: normalized.answerText,
+                citedDomains: JSON.stringify(normalized.citedDomains),
+                competitorOverlap: JSON.stringify(overlap),
+                location: runLocation?.label ?? null,
+                screenshotPath: screenshotRelPath,
+                rawResponse: JSON.stringify({
+                  model: raw.model,
+                  groundingSources: normalized.groundingSources,
+                  searchQueries: normalized.searchQueries,
+                  apiResponse: raw.rawResponse,
+                }),
+                createdAt: new Date().toISOString(),
+              }).run()
+            } else {
+              this.db.insert(querySnapshots).values({
+                id: crypto.randomUUID(),
+                runId,
+                keywordId: kw.id,
+                provider: providerName,
+                model: raw.model,
+                citationState,
+                answerText: normalized.answerText,
+                citedDomains: JSON.stringify(normalized.citedDomains),
+                competitorOverlap: JSON.stringify(overlap),
+                location: runLocation?.label ?? null,
+                rawResponse: JSON.stringify({
+                  model: raw.model,
+                  groundingSources: normalized.groundingSources,
+                  searchQueries: normalized.searchQueries,
+                  apiResponse: raw.rawResponse,
+                }),
+                createdAt: new Date().toISOString(),
+              }).run()
+            }
+
+            totalSnapshotsInserted++
+            console.log(`[JobRunner] ${providerName}: keyword "${kw.keyword}" → ${citationState}`)
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err)
+            console.error(`[JobRunner] ${providerName}: keyword "${kw.keyword}" FAILED: ${msg}`)
+            providerErrors.set(providerName, msg)
+          }
+        }
       }
 
       // Determine final run status

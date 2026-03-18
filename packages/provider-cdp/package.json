@@ -1,0 +1,26 @@
+{
+  "name": "@ainyc/canonry-provider-cdp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "FSL-1.1-ALv2",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "eslint src/ test/"
+  },
+  "dependencies": {
+    "@ainyc/canonry-contracts": "workspace:*",
+    "chrome-remote-interface": "^0.33.2"
+  },
+  "devDependencies": {
+    "@types/chrome-remote-interface": "^0.31.14"
+  }
+}

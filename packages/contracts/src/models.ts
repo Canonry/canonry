@@ -71,6 +71,14 @@ export const MODEL_REGISTRY: Record<ProviderName, ProviderModelRegistry> = {
       { id: 'llama3', displayName: 'Llama 3', tier: 'standard' },
     ],
   },
+  'cdp:chatgpt': {
+    defaultModel: 'chatgpt-web',
+    validationPattern: /./,
+    validationHint: 'model is detected from the ChatGPT web UI',
+    knownModels: [
+      { id: 'chatgpt-web', displayName: 'ChatGPT (Web UI)', tier: 'standard' },
+    ],
+  },
 }
 
 /** Get the default model ID for a provider */

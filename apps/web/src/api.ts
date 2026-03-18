@@ -662,6 +662,41 @@ export interface ApiIndexingRequestResponse {
   results: IndexingRequestResultDto[]
 }
 
+export interface ApiCdpTarget {
+  name: string
+  alive: boolean
+  lastUsed: string | null
+}
+
+export interface ApiCdpStatus {
+  connected: boolean
+  endpoint: string
+  version?: string
+  browserVersion?: string
+  targets: ApiCdpTarget[]
+}
+
+export function fetchCdpStatus(): Promise<ApiCdpStatus> {
+  return apiFetch('/cdp/status')
+}
+
+export function configureCdp(host: string, port: number): Promise<{ endpoint: string }> {
+  return apiFetch('/settings/cdp', {
+    method: 'PUT',
+    body: JSON.stringify({ host, port }),
+  })
+}
+
+export function triggerCdpScreenshot(
+  query: string,
+  targets?: string[],
+): Promise<{ results: { target: string; screenshotPath: string; answerText: string; citations: { uri: string; title: string }[] }[] }> {
+  return apiFetch('/cdp/screenshot', {
+    method: 'POST',
+    body: JSON.stringify({ query, targets }),
+  })
+}
+
 export function requestIndexing(
   project: string,
   body: { urls: string[]; allUnindexed?: boolean },

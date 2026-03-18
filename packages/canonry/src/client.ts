@@ -273,4 +273,17 @@ export class ApiClient {
     return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/google/indexing/request`, body)
   }
 
+  // CDP browser provider
+  async getCdpStatus(): Promise<object> {
+    return this.request<object>('GET', '/cdp/status')
+  }
+
+  async cdpScreenshot(query: string, targets?: string[]): Promise<object> {
+    return this.request<object>('POST', '/cdp/screenshot', { query, targets })
+  }
+
+  async getBrowserDiff(project: string, runId: string): Promise<object> {
+    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/runs/${encodeURIComponent(runId)}/browser-diff`)
+  }
+
 }

@@ -13,6 +13,12 @@ export interface ProviderConfigEntry {
   quota?: ProviderQuotaPolicy
 }
 
+export interface CdpConfigEntry {
+  host?: string
+  port?: number
+  quota?: ProviderQuotaPolicy
+}
+
 export interface GoogleConnectionConfigEntry {
   domain: string
   connectionType: GoogleConnectionType
@@ -44,13 +50,15 @@ export interface CanonryConfig {
   geminiApiKey?: string
   geminiModel?: string
   geminiQuota?: ProviderQuotaPolicy
-  // Multi-provider config
+  // Multi-provider config (API providers)
   providers?: {
     gemini?: ProviderConfigEntry
     openai?: ProviderConfigEntry
     claude?: ProviderConfigEntry
     local?: ProviderConfigEntry
   }
+  // CDP browser provider config (separate from API providers)
+  cdp?: CdpConfigEntry
   google?: GoogleConfigEntry
   // Telemetry (opt-out: undefined/true = enabled, false = disabled)
   telemetry?: boolean

@@ -218,6 +218,8 @@ const MIGRATIONS = [
   `ALTER TABLE runs ADD COLUMN location TEXT`,
   // v10: Add sitemapUrl to google_connections for persistent sitemap storage
   `ALTER TABLE google_connections ADD COLUMN sitemap_url TEXT`,
+  // v11: CDP browser provider — screenshot path for captured evidence
+  `ALTER TABLE query_snapshots ADD COLUMN screenshot_path TEXT`,
 ]
 
 export function migrate(db: DatabaseClient) {

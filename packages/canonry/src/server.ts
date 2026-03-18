@@ -14,6 +14,7 @@ import { geminiAdapter } from '@ainyc/canonry-provider-gemini'
 import { openaiAdapter } from '@ainyc/canonry-provider-openai'
 import { claudeAdapter } from '@ainyc/canonry-provider-claude'
 import { localAdapter } from '@ainyc/canonry-provider-local'
+import { cdpChatgptAdapter } from '@ainyc/canonry-provider-cdp'
 import type { ProviderName } from '@ainyc/canonry-contracts'
 import type { CanonryConfig, ProviderConfigEntry } from './config.js'
 import { saveConfig, loadConfig } from './config.js'
@@ -128,6 +129,18 @@ export async function createServer(opts: {
       baseUrl: providers.local.baseUrl,
       model: providers.local.model,
       quotaPolicy: providers.local.quota ?? DEFAULT_QUOTA,
+    })
+  }
+
+  // CDP browser provider — connects to user's Chrome via CDP
+  const cdpConfig = opts.config.cdp
+  if (cdpConfig?.host || cdpConfig?.port) {
+    const CDP_DEFAULT_QUOTA = { maxConcurrency: 1, maxRequestsPerMinute: 4, maxRequestsPerDay: 200 }
+    const cdpEndpoint = `ws://${cdpConfig.host ?? 'localhost'}:${cdpConfig.port ?? 9222}`
+    registry.register(cdpChatgptAdapter, {
+      provider: 'cdp:chatgpt',
+      cdpEndpoint,
+      quotaPolicy: cdpConfig.quota ?? CDP_DEFAULT_QUOTA,
     })
   }
 
@@ -368,6 +381,58 @@ export async function createServer(opts: {
       saveConfig(config)
       // Keep in-memory config in sync
       opts.config.telemetry = enabled
+    },
+    onCdpConfigure: async (host: string, port: number) => {
+      if (!opts.config.cdp) opts.config.cdp = {}
+      opts.config.cdp.host = host
+      opts.config.cdp.port = port
+      try {
+        saveConfig(opts.config)
+      } catch (err) {
+        app.log.error({ err }, 'Failed to save CDP config')
+        throw err
+      }
+      // Re-register CDP adapter with the new endpoint
+      const CDP_DEFAULT_QUOTA = { maxConcurrency: 1, maxRequestsPerMinute: 4, maxRequestsPerDay: 200 }
+      registry.register(cdpChatgptAdapter, {
+        provider: 'cdp:chatgpt',
+        cdpEndpoint: `ws://${host}:${port}`,
+        quotaPolicy: opts.config.cdp.quota ?? CDP_DEFAULT_QUOTA,
+      })
+    },
+    getCdpStatus: async () => {
+      const conn = registry.get('cdp:chatgpt')
+      if (!conn) {
+        return {
+          connected: false,
+          endpoint: opts.config.cdp
+            ? `ws://${opts.config.cdp.host ?? 'localhost'}:${opts.config.cdp.port ?? 9222}`
+            : '',
+          targets: [],
+        }
+      }
+      const health = await conn.adapter.healthcheck(conn.config)
+      return {
+        connected: health.ok,
+        endpoint: conn.config.cdpEndpoint ?? '',
+        browserVersion: health.message,
+        targets: [],
+      }
+    },
+    onCdpScreenshot: async (query: string, targets?: string[]) => {
+      const conn = registry.get('cdp:chatgpt')
+      if (!conn) throw new Error('CDP provider not configured')
+      const result = await conn.adapter.executeTrackedQuery(
+        { keyword: query, canonicalDomains: [], competitorDomains: [] },
+        conn.config,
+      )
+      const raw = result.rawResponse as { answerText?: string; groundingSources?: { uri: string; title: string }[] }
+      return [{
+        target: targets?.[0] ?? 'chatgpt',
+        screenshotPath: result.screenshotPath ?? '',
+        answerText: raw.answerText ?? '',
+        citations: (raw.groundingSources ?? []),
+      }]
     },
     onGenerateKeywords: async (providerName, count, project) => {
       const provider = registry.get(providerName as ProviderName)

@@ -66,6 +66,7 @@ export const querySnapshots = sqliteTable('query_snapshots', {
   citedDomains: text('cited_domains').notNull().default('[]'),
   competitorOverlap: text('competitor_overlap').notNull().default('[]'),
   location: text('location'),
+  screenshotPath: text('screenshot_path'),
   rawResponse: text('raw_response'),
   createdAt: text('created_at').notNull(),
 }, (table) => [

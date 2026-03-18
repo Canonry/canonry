@@ -1,4 +1,5 @@
 import type { ProviderAdapter, ProviderConfig, ProviderName, ProviderHealthcheckResult } from '@ainyc/canonry-contracts'
+import { isBrowserProvider } from '@ainyc/canonry-contracts'
 
 export interface RegisteredProvider {
   adapter: ProviderAdapter
@@ -36,6 +37,16 @@ export class ProviderRegistry {
       }
     }
     return result
+  }
+
+  /** Get only browser-based (CDP) providers */
+  getBrowserProviders(): RegisteredProvider[] {
+    return this.getAll().filter(p => isBrowserProvider(p.adapter.name))
+  }
+
+  /** Get only API-based providers */
+  getApiProviders(): RegisteredProvider[] {
+    return this.getAll().filter(p => !isBrowserProvider(p.adapter.name))
   }
 
   get size(): number {

@@ -1,4 +1,10 @@
-import { describe, test, expect } from 'vitest'
+import { describe, test, it, expect } from 'vitest'
+
+import {
+  resolveProviderInput,
+  isBrowserProvider,
+  parseProviderName,
+} from '../src/provider.js'
 
 import {
   AppError,
@@ -412,3 +418,70 @@ test('querySnapshotDtoSchema accepts null location', () => {
 })
 
 }) // end querySnapshotDtoSchema location
+
+// ─── provider.ts ──────────────────────────────────────────────────────────────
+
+describe('resolveProviderInput', () => {
+  it('expands "cdp" shorthand to all CDP targets', () => {
+    const result = resolveProviderInput('cdp')
+    expect(result).toContain('cdp:chatgpt')
+    expect(result.length).toBeGreaterThan(0)
+  })
+
+  it('expands "CDP" (case-insensitive) to all CDP targets', () => {
+    const result = resolveProviderInput('CDP')
+    expect(result).toContain('cdp:chatgpt')
+  })
+
+  it('returns a single-element array for a known provider name', () => {
+    expect(resolveProviderInput('gemini')).toEqual(['gemini'])
+    expect(resolveProviderInput('openai')).toEqual(['openai'])
+    expect(resolveProviderInput('claude')).toEqual(['claude'])
+    expect(resolveProviderInput('local')).toEqual(['local'])
+    expect(resolveProviderInput('cdp:chatgpt')).toEqual(['cdp:chatgpt'])
+  })
+
+  it('normalizes casing', () => {
+    expect(resolveProviderInput('GEMINI')).toEqual(['gemini'])
+    expect(resolveProviderInput('OpenAI')).toEqual(['openai'])
+  })
+
+  it('trims leading/trailing whitespace', () => {
+    expect(resolveProviderInput('  gemini  ')).toEqual(['gemini'])
+  })
+
+  it('returns an empty array for an unknown input', () => {
+    expect(resolveProviderInput('unknown-provider')).toEqual([])
+    expect(resolveProviderInput('')).toEqual([])
+  })
+})
+
+describe('isBrowserProvider', () => {
+  it('returns true for cdp:chatgpt', () => {
+    expect(isBrowserProvider('cdp:chatgpt')).toBe(true)
+  })
+
+  it('returns false for API-based providers', () => {
+    expect(isBrowserProvider('gemini')).toBe(false)
+    expect(isBrowserProvider('openai')).toBe(false)
+    expect(isBrowserProvider('claude')).toBe(false)
+    expect(isBrowserProvider('local')).toBe(false)
+  })
+})
+
+describe('parseProviderName', () => {
+  it('returns the provider name for known providers', () => {
+    expect(parseProviderName('gemini')).toBe('gemini')
+    expect(parseProviderName('cdp:chatgpt')).toBe('cdp:chatgpt')
+  })
+
+  it('normalizes casing', () => {
+    expect(parseProviderName('GEMINI')).toBe('gemini')
+    expect(parseProviderName('OpenAI')).toBe('openai')
+  })
+
+  it('returns undefined for unknown providers', () => {
+    expect(parseProviderName('unknown')).toBeUndefined()
+    expect(parseProviderName('')).toBeUndefined()
+  })
+})

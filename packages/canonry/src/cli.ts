@@ -13,6 +13,7 @@ import { showEvidence } from './commands/evidence.js'
 import { showHistory } from './commands/history.js'
 import { applyConfig } from './commands/apply.js'
 import { exportProject } from './commands/export-cmd.js'
+import { cdpConnect, cdpStatus, cdpTargets, cdpScreenshot } from './commands/cdp.js'
 import { showSettings, setProvider, setGoogleAuth } from './commands/settings.js'
 import { setSchedule, showSchedule, enableSchedule, disableSchedule, removeSchedule } from './commands/schedule.js'
 import { addNotification, listNotifications, removeNotification, testNotification, listEvents } from './commands/notify.js'
@@ -119,7 +120,7 @@ Options:
   --display-name <name>    Display name for project create/update
   --country <code>     Country code (default: US)
   --language <lang>    Language code (default: en)
-  --provider <name>    Provider to use (gemini, openai, claude, local)
+  --provider <name>    Provider to use (gemini, openai, claude, local, cdp:chatgpt, or cdp for all CDP targets)
   --format <fmt>       Output format: text (default) or json
   --location <label>   Run with a specific configured location
   --all-locations      Run for every configured location
@@ -1119,6 +1120,52 @@ async function main() {
           default:
             console.error(`Unknown google subcommand: ${subcommand ?? '(none)'}`)
             console.log('Available: connect, disconnect, status, properties, set-property, set-sitemap, list-sitemaps, discover-sitemaps, sync, performance, inspect, inspect-sitemap, coverage, coverage-history, inspections, deindexed, request-indexing')
+            process.exit(1)
+        }
+        break
+      }
+
+      case 'cdp': {
+        const subcommand = args[1]
+        switch (subcommand) {
+          case 'connect': {
+            const { values: connectValues } = parseArgs({
+              args: args.slice(2),
+              options: {
+                host: { type: 'string', default: 'localhost' },
+                port: { type: 'string', default: '9222' },
+              },
+              allowPositionals: false,
+            })
+            await cdpConnect({ host: connectValues.host, port: connectValues.port })
+            break
+          }
+          case 'status':
+            await cdpStatus()
+            break
+          case 'targets':
+            await cdpTargets()
+            break
+          case 'screenshot': {
+            const query = args[2]
+            if (!query) {
+              console.error('Error: query is required')
+              console.error('Usage: canonry cdp screenshot "best coffee in NYC"')
+              process.exit(1)
+            }
+            const { values: screenshotValues } = parseArgs({
+              args: args.slice(3),
+              options: {
+                targets: { type: 'string' },
+              },
+              allowPositionals: false,
+            })
+            await cdpScreenshot(query, { targets: screenshotValues.targets })
+            break
+          }
+          default:
+            console.error(`Unknown cdp subcommand: ${subcommand ?? '(none)'}`)
+            console.log('Available: connect, status, targets, screenshot')
             process.exit(1)
         }
         break

@@ -22,6 +22,8 @@ import type { ScheduleRoutesOptions } from './schedules.js'
 import { notificationRoutes } from './notifications.js'
 import { googleRoutes } from './google.js'
 import type { GoogleRoutesOptions } from './google.js'
+import { cdpRoutes } from './cdp.js'
+import type { CDPRoutesOptions } from './cdp.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -61,6 +63,10 @@ export interface ApiRoutesOptions {
   publicUrl?: string
   onGscSyncRequested?: GoogleRoutesOptions['onGscSyncRequested']
   onInspectSitemapRequested?: GoogleRoutesOptions['onInspectSitemapRequested']
+  /** CDP browser provider callbacks */
+  getCdpStatus?: CDPRoutesOptions['getCdpStatus']
+  onCdpScreenshot?: CDPRoutesOptions['onCdpScreenshot']
+  onCdpConfigure?: CDPRoutesOptions['onCdpConfigure']
 }
 
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
@@ -115,6 +121,11 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onGscSyncRequested: opts.onGscSyncRequested,
       onInspectSitemapRequested: opts.onInspectSitemapRequested,
     } satisfies GoogleRoutesOptions)
+    await api.register(cdpRoutes, {
+      getCdpStatus: opts.getCdpStatus,
+      onCdpScreenshot: opts.onCdpScreenshot,
+      onCdpConfigure: opts.onCdpConfigure,
+    } satisfies CDPRoutesOptions)
   }, { prefix: '/api/v1' })
 }
 
