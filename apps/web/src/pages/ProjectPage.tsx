@@ -497,7 +497,7 @@ export function ProjectPage({
                     {model.providerScores.map((ps) => (
                       <tr key={`${ps.provider}::${ps.model ?? 'unknown'}`}>
                         <td>
-                          <div className="flex flex-col gap-0.5">
+                          <div className="flex flex-col items-start gap-0.5">
                             <ProviderBadge provider={ps.provider} />
                             {ps.model && <span className="text-[11px] font-mono text-zinc-500">{ps.model}</span>}
                           </div>

@@ -61,8 +61,8 @@ export async function executeInspectSitemap(
       saveConfig(opts.config)
     }
 
-    // Determine sitemap URL
-    const sitemapUrl = opts.sitemapUrl || `https://${project.canonicalDomain}/sitemap.xml`
+    // Determine sitemap URL: explicit > stored on connection > default
+    const sitemapUrl = opts.sitemapUrl || conn.sitemapUrl || `https://${project.canonicalDomain}/sitemap.xml`
     console.log(`[Inspect Sitemap] Fetching sitemap from ${sitemapUrl}`)
 
     const urls = await fetchAndParseSitemap(sitemapUrl)
