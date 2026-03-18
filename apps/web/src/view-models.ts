@@ -86,7 +86,9 @@ export interface CrossSignalInsightVm {
   tone: MetricTone
   title: string
   detail: string
+  // TODO: populate when per-keyword cross-signal insights are implemented.
   keyword?: string
+  // TODO: populate when per-platform cross-signal insights are implemented.
   platform?: string
 }
 

@@ -3,18 +3,12 @@ import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { notifications } from '@ainyc/canonry-db'
 import type { NotificationEvent, NotificationDto } from '@ainyc/canonry-contracts'
+import { notificationEventSchema } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { deliverWebhook, resolveWebhookTarget } from './webhooks.js'
 
-const VALID_EVENTS: NotificationEvent[] = [
-  'citation.lost',
-  'citation.gained',
-  'run.completed',
-  'run.failed',
-  'social.mention.new',
-  'social.sentiment.negative',
-  'social.spike',
-]
+// Derived from the schema so it stays in sync automatically when events are added/removed.
+const VALID_EVENTS: NotificationEvent[] = notificationEventSchema.options
 
 export async function notificationRoutes(app: FastifyInstance) {
   // GET /notifications/events — list valid notification event types

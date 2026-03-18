@@ -41,7 +41,8 @@ export interface WebhookPayload {
 
 export interface SocialWebhookPayload {
   source: 'canonry'
-  event: 'social.mention.new' | 'social.sentiment.negative' | 'social.spike'
+  // Narrow to just the social events via Extract to avoid diverging from NotificationEvent.
+  event: Extract<NotificationEvent, `social.${string}`>
   project: { name: string; canonicalDomain: string }
   mention?: {
     platform: string
@@ -59,3 +60,6 @@ export interface SocialWebhookPayload {
   }
   dashboardUrl: string
 }
+
+// Discriminated union for webhook consumers covering all payload types.
+export type AnyWebhookPayload = WebhookPayload | SocialWebhookPayload

@@ -663,7 +663,10 @@ export interface ProjectData {
 // ── Social signal helpers ────────────────────────────────────────────────────
 
 function buildSocialSparkline(social: SocialData): SocialSparklineVm {
-  const counts = social.dailyMentionCounts.slice(-7)
+  if (social.dailyMentionCounts.length !== 7) {
+    throw new Error(`dailyMentionCounts must have exactly 7 elements, got ${social.dailyMentionCounts.length}`)
+  }
+  const counts = social.dailyMentionCounts
   const first = counts[0] ?? 0
   const last = counts[counts.length - 1] ?? 0
   return {
@@ -681,7 +684,8 @@ function computeSentimentScore(sentiment: SocialData['sentiment']): number {
 
 function computeDomainLinkRate(social: SocialData): number {
   if (social.totalMentions === 0) return 0
-  return Math.round((social.mentionsWithCanonicalLink / social.totalMentions) * 100)
+  const rate = (social.mentionsWithCanonicalLink / social.totalMentions) * 100
+  return Math.min(100, Math.round(rate))
 }
 
 function computeCompositeScore(aiScore: number, sentimentScore: number, domainLinkRate: number): number {
@@ -707,6 +711,11 @@ function buildBrandHealth(aiVisibilityScore: number, social: SocialData): BrandH
   }
 }
 
+/** Minimum mentions considered "active social discussion" for cross-signal insights. */
+const LOW_SOCIAL_THRESHOLD = 10
+/** Minimum mentions to qualify as meaningful social traction vs AI citation gap. */
+const SOCIAL_TRACTION_THRESHOLD = 20
+
 /**
  * Build cross-signal insights by comparing AI citation data against social
  * discussion trends. Generates observations such as high-AI / low-social gaps
@@ -720,10 +729,13 @@ export function buildCrossSignalInsights(
 
   if (!social) return insights
 
+  // Derive totalMentions from the daily array to ensure consistency with spike detection.
+  // Note: social.totalMentions is kept for display purposes but thresholds use the derived value.
+  const totalMentions = social.dailyMentionCounts.reduce((s, n) => s + n, 0)
+
   // Insight: high AI visibility but low social discussion
   const citedKeywords = evidence.filter(e => e.citationState === 'cited').map(e => e.keyword)
-  const totalMentions = social.totalMentions
-  if (citedKeywords.length > 0 && totalMentions < 10) {
+  if (citedKeywords.length > 0 && totalMentions < LOW_SOCIAL_THRESHOLD) {
     insights.push({
       id: 'cross_high_ai_low_social',
       tone: 'caution',
@@ -762,7 +774,7 @@ export function buildCrossSignalInsights(
 
   // Insight: good social but no AI citations
   const notCitedCount = evidence.filter(e => e.citationState === 'not-cited' || e.citationState === 'pending').length
-  if (notCitedCount > 0 && totalMentions >= 20) {
+  if (notCitedCount > 0 && totalMentions >= SOCIAL_TRACTION_THRESHOLD) {
     insights.push({
       id: 'cross_social_no_ai',
       tone: 'caution',

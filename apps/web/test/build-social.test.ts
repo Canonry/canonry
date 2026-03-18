@@ -102,4 +102,5 @@ test('buildCrossSignalInsights: healthy state produces no insights', () => {
   expect(insights.find(i => i.id === 'cross_high_ai_low_social')).toBeUndefined()
   expect(insights.find(i => i.id === 'cross_negative_sentiment')).toBeUndefined()
   expect(insights.find(i => i.id === 'cross_social_no_ai')).toBeUndefined()
+  expect(insights.find(i => i.id === 'cross_social_spike')).toBeUndefined()
 })
