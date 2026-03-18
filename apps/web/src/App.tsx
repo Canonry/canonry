@@ -6911,16 +6911,6 @@ export function App({
           )}
         </main>
 
-        <footer className="footer">
-          <p className="supporting-copy">Technical readiness and answer visibility stay separate.</p>
-          <div className="footer-links">
-            {docs.map((doc) => (
-              <a key={doc.href} href={doc.href} target="_blank" rel="noreferrer">
-                {doc.label}
-              </a>
-            ))}
-          </div>
-        </footer>
       </div>
 
       {/* ── Drawers ── */}
