@@ -722,3 +722,49 @@ export function fetchAnalyticsSources(project: string, window?: MetricsWindow): 
   const qs = window ? `?window=${window}` : ''
   return apiFetch(`/projects/${encodeURIComponent(project)}/analytics/sources${qs}`)
 }
+
+// ── Health ──────────────────────────────────────────────────────────────────
+
+import type { ServiceStatus } from './view-models.js'
+
+export async function fetchServiceStatus(url: string, label: string): Promise<ServiceStatus> {
+  try {
+    const response = await fetch(url)
+
+    if (!response.ok) {
+      return {
+        label,
+        state: 'error',
+        detail: `HTTP ${response.status}`,
+      }
+    }
+
+    const payload = (await response.json()) as Record<string, unknown>
+    const version = typeof payload.version === 'string' ? payload.version : 'unknown'
+    const databaseConfigured =
+      typeof payload.databaseUrlConfigured === 'boolean' ? payload.databaseUrlConfigured : undefined
+    const lastHeartbeatAt = typeof payload.lastHeartbeatAt === 'string' ? payload.lastHeartbeatAt : undefined
+    const detail = [
+      version,
+      databaseConfigured === false ? 'database not configured' : 'database configured',
+      lastHeartbeatAt ? `heartbeat ${lastHeartbeatAt}` : undefined,
+    ]
+      .filter(Boolean)
+      .join(' \u00b7 ')
+
+    return {
+      label,
+      state: 'ok',
+      detail,
+      version,
+      databaseConfigured,
+      lastHeartbeatAt,
+    }
+  } catch (error) {
+    return {
+      label,
+      state: 'error',
+      detail: error instanceof Error ? error.message : 'unreachable',
+    }
+  }
+}

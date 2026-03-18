@@ -153,9 +153,10 @@ export function GscSection({
       ])
       setCoverage(data)
       setCoverageHistory(history)
-    } catch {
+    } catch (err) {
       setCoverage(null)
       setCoverageHistory([])
+      setError(err instanceof Error ? err.message : 'Failed to load coverage data')
     } finally {
       setLoadingCoverage(false)
     }

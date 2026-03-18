@@ -77,6 +77,10 @@ export function useAddCompetitors() {
       const merged = [...new Set([...existingDomains, ...domains])]
       return setCompetitors(projectName, merged)
     },
+    onMutate: async () => {
+      // Cancel any in-flight project queries to avoid overwriting with stale data
+      await queryClient.cancelQueries({ queryKey: queryKeys.projects.all })
+    },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all })
     },
@@ -116,7 +120,7 @@ export function useUpdateProject() {
 export function useCreateProject() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ name, body }: Parameters<typeof createProject> extends [infer N, infer B] ? { name: N; body: B } : never) =>
+    mutationFn: ({ name, body }: { name: string; body: Parameters<typeof createProject>[1] }) =>
       createProject(name, body),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all })

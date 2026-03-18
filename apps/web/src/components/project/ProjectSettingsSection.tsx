@@ -6,9 +6,11 @@ import { addLocation, removeLocation, setDefaultLocation, type ApiLocation } fro
 export function ProjectSettingsSection({
   project,
   onUpdateProject,
+  onRefresh,
 }: {
   project: { name: string; displayName: string; canonicalDomain: string; ownedDomains: string[]; country: string; language: string; locations: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation: string | null }
   onUpdateProject: (projectName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null }) => Promise<void>
+  onRefresh: () => void
 }) {
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -97,7 +99,7 @@ export function ProjectSettingsSection({
       const loc: ApiLocation = { label, city, region, country: locCountry }
       if (newLocTimezone.trim()) loc.timezone = newLocTimezone.trim()
       await addLocation(project.name, loc)
-      await onUpdateProject(project.name, {})
+      onRefresh()
       setNewLocLabel('')
       setNewLocCity('')
       setNewLocRegion('')
@@ -116,7 +118,7 @@ export function ProjectSettingsSection({
     setLocationError(null)
     try {
       await removeLocation(project.name, label)
-      await onUpdateProject(project.name, {})
+      onRefresh()
     } catch (err) {
       setLocationError(err instanceof Error ? err.message : 'Failed to remove location')
     } finally {
@@ -129,7 +131,7 @@ export function ProjectSettingsSection({
     setLocationError(null)
     try {
       await setDefaultLocation(project.name, label)
-      await onUpdateProject(project.name, {})
+      onRefresh()
     } catch (err) {
       setLocationError(err instanceof Error ? err.message : 'Failed to set default location')
     } finally {

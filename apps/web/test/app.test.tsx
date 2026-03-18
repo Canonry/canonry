@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 
-import { fetchServiceStatus } from '../src/App.js'
+import { fetchServiceStatus } from '../src/api.js'
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'

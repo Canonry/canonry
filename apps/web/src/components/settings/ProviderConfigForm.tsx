@@ -42,10 +42,17 @@ export function ProviderConfigForm({ providerName, onSaved }: { providerName: st
     setError(null)
     setSuccess(false)
     try {
+      const parseQuotaField = (s: string): number | undefined => {
+        const n = parseInt(s.trim(), 10)
+        return Number.isFinite(n) && n > 0 ? n : undefined
+      }
       const quota: { maxConcurrency?: number; maxRequestsPerMinute?: number; maxRequestsPerDay?: number } = {}
-      if (maxConcurrency.trim()) quota.maxConcurrency = parseInt(maxConcurrency.trim(), 10)
-      if (maxPerMinute.trim()) quota.maxRequestsPerMinute = parseInt(maxPerMinute.trim(), 10)
-      if (maxPerDay.trim()) quota.maxRequestsPerDay = parseInt(maxPerDay.trim(), 10)
+      const maxConcurrencyVal = parseQuotaField(maxConcurrency)
+      if (maxConcurrencyVal !== undefined) quota.maxConcurrency = maxConcurrencyVal
+      const maxPerMinuteVal = parseQuotaField(maxPerMinute)
+      if (maxPerMinuteVal !== undefined) quota.maxRequestsPerMinute = maxPerMinuteVal
+      const maxPerDayVal = parseQuotaField(maxPerDay)
+      if (maxPerDayVal !== undefined) quota.maxRequestsPerDay = maxPerDayVal
       await updateProviderConfig(providerName.toLowerCase(), {
         ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
         ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),

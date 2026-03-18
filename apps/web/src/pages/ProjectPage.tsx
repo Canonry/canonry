@@ -218,13 +218,15 @@ export function ProjectPage({
   }
 
   async function handleDeleteProject() {
+    setDeleting(true)
     try {
-      setDeleting(true)
       await apiDeleteProject(projectName)
       navigate({ to: '/' })
       void refetch()
     } catch (err) {
       console.error('Failed to delete project:', err)
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -237,7 +239,7 @@ export function ProjectPage({
     a.href = url
     a.download = `${projectName}.yaml`
     a.click()
-    URL.revokeObjectURL(url)
+    setTimeout(() => URL.revokeObjectURL(url), 100)
   }
 
   async function handleAddKeywords() {
@@ -651,7 +653,7 @@ export function ProjectPage({
             </div>
           </section>
 
-          <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={handleUpdateProject} />
+          <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={handleUpdateProject} onRefresh={() => void refetch()} />
           <ScheduleSection projectName={model.project.name} />
           <NotificationsSection projectName={model.project.name} />
         </>

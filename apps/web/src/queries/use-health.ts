@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { fetchServiceStatus } from '../App.js'
+import { fetchServiceStatus } from '../api.js'
 import type { HealthSnapshot, ServiceStatus } from '../view-models.js'
 import { queryKeys } from './query-keys.js'
 
