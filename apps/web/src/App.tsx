@@ -2512,14 +2512,17 @@ function AnalyticsTrendChart({ buckets }: { buckets: BrandMetricsDto['buckets'] 
           return <circle key={i} cx={x} cy={y} r="3" className="fill-emerald-500" />
         })}
         {/* X-axis date labels */}
-        {buckets.filter((_, i) => i === 0 || i === buckets.length - 1 || buckets.length <= 7).map((b, i) => {
-          const x = padding.left + (buckets.length > 1 ? (i / (buckets.length - 1)) * chartW : chartW / 2)
-          return (
-            <text key={i} x={x} y={height - 2} textAnchor="middle" className="fill-zinc-500" fontSize="8">
-              {b.startDate.slice(5, 10)}
-            </text>
-          )
-        })}
+        {buckets
+          .map((b, i) => ({ b, i }))
+          .filter(({ i }) => i === 0 || i === buckets.length - 1 || buckets.length <= 7)
+          .map(({ b, i }) => {
+            const x = padding.left + (buckets.length > 1 ? (i / (buckets.length - 1)) * chartW : chartW / 2)
+            return (
+              <text key={i} x={x} y={height - 2} textAnchor="middle" className="fill-zinc-500" fontSize="8">
+                {b.startDate.slice(5, 10)}
+              </text>
+            )
+          })}
       </svg>
     </div>
   )
