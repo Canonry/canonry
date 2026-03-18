@@ -2545,19 +2545,18 @@ function AnalyticsTrendChart({ buckets }: { buckets: BrandMetricsDto['buckets'] 
           const { x, y } = bucketCoords[hovered]!
           const label = `${(b.citationRate * 100).toFixed(1)}%`
           const date = b.startDate.slice(5, 10)
-          const detail = `${b.cited}/${b.total}`
-          const tooltipW = 72
-          const tooltipH = 36
+          const tooltipW = 56
+          const tooltipH = 30
           const tx = Math.max(padding.left, Math.min(x - tooltipW / 2, width - padding.right - tooltipW))
           const ty = y - tooltipH - 8
           return (
             <g>
               <rect x={tx} y={ty} width={tooltipW} height={tooltipH} rx="4" className="fill-zinc-800" stroke="currentColor" strokeWidth="0.5" />
-              <text x={tx + tooltipW / 2} y={ty + 14} textAnchor="middle" className="fill-zinc-50" fontSize="11" fontWeight="600">
+              <text x={tx + tooltipW / 2} y={ty + 13} textAnchor="middle" className="fill-zinc-50" fontSize="11" fontWeight="600">
                 {label}
               </text>
-              <text x={tx + tooltipW / 2} y={ty + 27} textAnchor="middle" className="fill-zinc-400" fontSize="8">
-                {date} · {detail}
+              <text x={tx + tooltipW / 2} y={ty + 24} textAnchor="middle" className="fill-zinc-400" fontSize="8">
+                {date}
               </text>
             </g>
           )
