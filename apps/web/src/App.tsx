@@ -2466,22 +2466,31 @@ function AnalyticsSection({ projectName }: { projectName: string }) {
 }
 
 function AnalyticsTrendChart({ buckets }: { buckets: BrandMetricsDto['buckets'] }) {
+  const [hovered, setHovered] = useState<number | null>(null)
   const width = 600
-  const height = 120
-  const padding = { top: 10, right: 10, bottom: 20, left: 40 }
+  const height = 140
+  const padding = { top: 24, right: 10, bottom: 20, left: 40 }
   const chartW = width - padding.left - padding.right
   const chartH = height - padding.top - padding.bottom
 
   const maxRate = 1
-  const points = buckets.map((b, i) => {
+
+  const bucketCoords = buckets.map((b, i) => {
     const x = padding.left + (buckets.length > 1 ? (i / (buckets.length - 1)) * chartW : chartW / 2)
     const y = padding.top + chartH - (b.citationRate / maxRate) * chartH
-    return `${x},${y}`
-  }).join(' ')
+    return { x, y }
+  })
+
+  const points = bucketCoords.map(c => `${c.x},${c.y}`).join(' ')
 
   return (
     <div className="surface-card rounded-lg p-3 border border-zinc-800/60">
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto" aria-label="Citation rate trend chart">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full h-auto"
+        aria-label="Citation rate trend chart"
+        onMouseLeave={() => setHovered(null)}
+      >
         {/* Y-axis labels */}
         <text x={padding.left - 4} y={padding.top + 4} textAnchor="end" className="fill-zinc-500" fontSize="9">
           {(maxRate * 100).toFixed(0)}%
@@ -2505,18 +2514,60 @@ function AnalyticsTrendChart({ buckets }: { buckets: BrandMetricsDto['buckets'] 
           strokeLinejoin="round"
           points={points}
         />
-        {/* Dots */}
+        {/* Hover vertical line */}
+        {hovered !== null && (
+          <line
+            x1={bucketCoords[hovered]!.x} y1={padding.top}
+            x2={bucketCoords[hovered]!.x} y2={padding.top + chartH}
+            stroke="currentColor" className="text-zinc-600" strokeWidth="0.5" strokeDasharray="3 2"
+          />
+        )}
+        {/* Dots + hover targets */}
         {buckets.map((b, i) => {
-          const x = padding.left + (buckets.length > 1 ? (i / (buckets.length - 1)) * chartW : chartW / 2)
-          const y = padding.top + chartH - (b.citationRate / maxRate) * chartH
-          return <circle key={i} cx={x} cy={y} r="3" className="fill-emerald-500" />
+          const { x, y } = bucketCoords[i]!
+          const isHovered = hovered === i
+          return (
+            <g key={i}>
+              {/* Invisible wider hit area */}
+              <circle
+                cx={x} cy={y} r="10"
+                fill="transparent"
+                onMouseEnter={() => setHovered(i)}
+                style={{ cursor: 'pointer' }}
+              />
+              <circle cx={x} cy={y} r={isHovered ? 5 : 3} className={isHovered ? 'fill-emerald-400' : 'fill-emerald-500'} />
+            </g>
+          )
         })}
+        {/* Tooltip */}
+        {hovered !== null && (() => {
+          const b = buckets[hovered]!
+          const { x, y } = bucketCoords[hovered]!
+          const label = `${(b.citationRate * 100).toFixed(1)}%`
+          const date = b.startDate.slice(5, 10)
+          const detail = `${b.cited}/${b.total}`
+          const tooltipW = 72
+          const tooltipH = 36
+          const tx = Math.max(padding.left, Math.min(x - tooltipW / 2, width - padding.right - tooltipW))
+          const ty = y - tooltipH - 8
+          return (
+            <g>
+              <rect x={tx} y={ty} width={tooltipW} height={tooltipH} rx="4" className="fill-zinc-800" stroke="currentColor" strokeWidth="0.5" />
+              <text x={tx + tooltipW / 2} y={ty + 14} textAnchor="middle" className="fill-zinc-50" fontSize="11" fontWeight="600">
+                {label}
+              </text>
+              <text x={tx + tooltipW / 2} y={ty + 27} textAnchor="middle" className="fill-zinc-400" fontSize="8">
+                {date} · {detail}
+              </text>
+            </g>
+          )
+        })()}
         {/* X-axis date labels */}
         {buckets
           .map((b, i) => ({ b, i }))
           .filter(({ i }) => i === 0 || i === buckets.length - 1 || buckets.length <= 7)
           .map(({ b, i }) => {
-            const x = padding.left + (buckets.length > 1 ? (i / (buckets.length - 1)) * chartW : chartW / 2)
+            const x = bucketCoords[i]!.x
             return (
               <text key={i} x={x} y={height - 2} textAnchor="middle" className="fill-zinc-500" fontSize="8">
                 {b.startDate.slice(5, 10)}
