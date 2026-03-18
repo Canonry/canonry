@@ -63,8 +63,11 @@ export async function analyticsRoutes(app: FastifyInstance) {
       byProvider[p] = computeProviderMetric(allSnapshots.filter(s => s.provider === p))
     }
 
-    // Time buckets
-    const bucketSize = bucketSizeForWindow(window)
+    // Time buckets — size based on actual data span, not the selected window
+    const earliest = new Date(projectRuns[0]!.createdAt)
+    const latest = new Date(projectRuns[projectRuns.length - 1]!.createdAt)
+    const spanDays = Math.max(1, Math.ceil((latest.getTime() - earliest.getTime()) / 86_400_000))
+    const bucketSize = bucketSizeForSpan(spanDays)
     const buckets = computeBuckets(allSnapshots, projectRuns, bucketSize)
 
     // Trend
@@ -286,14 +289,12 @@ function windowCutoff(window: MetricsWindow): string | null {
   return d.toISOString()
 }
 
-function bucketSizeForWindow(window: MetricsWindow): number {
-  // Return bucket size in days
-  switch (window) {
-    case '7d': return 1
-    case '30d': return 7
-    case '90d': return 14
-    case 'all': return 30
-  }
+function bucketSizeForSpan(spanDays: number): number {
+  // Pick a bucket size based on how many days of data actually exist
+  if (spanDays <= 14) return 1   // daily
+  if (spanDays <= 60) return 7   // weekly
+  if (spanDays <= 180) return 14 // bi-weekly
+  return 30                       // monthly
 }
 
 interface SnapshotLike {
