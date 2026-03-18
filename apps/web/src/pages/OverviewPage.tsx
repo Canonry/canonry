@@ -1,0 +1,136 @@
+import { Button } from '../components/ui/button.js'
+import { Card } from '../components/ui/card.js'
+import { OverviewProjectCard } from '../components/shared/OverviewProjectCard.js'
+import { StatusBadge } from '../components/shared/StatusBadge.js'
+import { ToneBadge } from '../components/shared/ToneBadge.js'
+import type { PortfolioOverviewVm, SystemHealthCardVm } from '../view-models.js'
+
+function createNavigationHandler(navigate: (to: string) => void, to: string) {
+  return (e: React.MouseEvent) => {
+    e.preventDefault()
+    navigate(to)
+  }
+}
+
+export function OverviewPage({
+  model,
+  systemHealth,
+  onNavigate,
+  onOpenRun,
+}: {
+  model: PortfolioOverviewVm
+  systemHealth: SystemHealthCardVm[]
+  onNavigate: (to: string) => void
+  onOpenRun: (runId: string) => void
+}) {
+  return (
+    <div className="page-container">
+      <div className="page-header">
+        <div className="page-header-left">
+          <h1 className="page-title">Portfolio</h1>
+          <p className="page-subtitle">Visibility and execution state across all projects</p>
+        </div>
+        <div className="page-header-right">
+          <p className="text-[11px] text-zinc-600">{model.lastUpdatedAt}</p>
+        </div>
+      </div>
+
+      {model.projects.length > 0 ? (
+        <div className="project-list project-list-scrollable">
+          {model.projects.map((project) => (
+            <OverviewProjectCard key={project.project.id} project={project} onNavigate={onNavigate} />
+          ))}
+        </div>
+      ) : (
+        <Card className="surface-card empty-card">
+          <h3>{model.emptyState?.title ?? 'No projects yet'}</h3>
+          <p className="supporting-copy">{model.emptyState?.detail}</p>
+          <Button size="sm" asChild>
+            <a
+              href={model.emptyState?.ctaHref ?? '/setup'}
+              onClick={createNavigationHandler(onNavigate, model.emptyState?.ctaHref ?? '/setup')}
+            >
+              {model.emptyState?.ctaLabel ?? 'Launch setup'}
+            </a>
+          </Button>
+        </Card>
+      )}
+
+      <div className="overview-secondary-grid">
+        {model.attentionItems.length > 0 && (
+          <section className="overview-secondary-section">
+            <div className="section-head section-head-inline">
+              <div>
+                <p className="eyebrow eyebrow-soft">Needs attention</p>
+                <h2 className="section-title-sm">What changed</h2>
+              </div>
+            </div>
+            <div className="attention-list attention-list-scrollable">
+              {model.attentionItems.map((item) => (
+                <a
+                  key={item.id}
+                  className={`attention-item attention-item-${item.tone}`}
+                  href={item.href}
+                  onClick={createNavigationHandler(onNavigate, item.href)}
+                >
+                  <div>
+                    <p className="attention-title">{item.title}</p>
+                    <p className="attention-detail">{item.detail}</p>
+                  </div>
+                  <span className="attention-action">{item.actionLabel}</span>
+                </a>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <section className="overview-secondary-section">
+          <div className="section-head section-head-inline">
+            <div>
+              <p className="eyebrow eyebrow-soft">Recent runs</p>
+              <h2 className="section-title-sm">Activity</h2>
+            </div>
+          </div>
+          <div className="compact-stack compact-stack-scrollable">
+            {model.recentRuns.length > 0 ? (
+              model.recentRuns.map((run) => (
+                <button key={run.id} className="compact-run" type="button" onClick={() => onOpenRun(run.id)}>
+                  <div>
+                    <p className="compact-run-title">{run.projectName}</p>
+                    <p className="compact-run-detail">{run.summary}</p>
+                  </div>
+                  <StatusBadge status={run.status} />
+                </button>
+              ))
+            ) : (
+              <p className="supporting-copy">Run history appears here after the first launch.</p>
+            )}
+          </div>
+        </section>
+      </div>
+
+      <section className="page-section">
+        <div className="section-head section-head-inline">
+          <div>
+            <p className="eyebrow eyebrow-soft">System health</p>
+            <h2 className="section-title-sm">Infrastructure</h2>
+          </div>
+        </div>
+        <div className="health-grid">
+          {systemHealth.map((item) => (
+            <Card key={item.id} className="surface-card compact-card">
+              <div className="section-head">
+                <div>
+                  <p className="eyebrow eyebrow-soft">{item.label}</p>
+                  <h3>{item.detail}</h3>
+                </div>
+                <ToneBadge tone={item.tone}>{item.label}</ToneBadge>
+              </div>
+              <p className="supporting-copy">{item.meta}</p>
+            </Card>
+          ))}
+        </div>
+      </section>
+    </div>
+  )
+}

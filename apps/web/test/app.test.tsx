@@ -2,6 +2,7 @@ import { test, expect, onTestFinished } from 'vitest'
 
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import { App, fetchServiceStatus } from '../src/App.js'
 import { createDashboardFixture } from '../src/mock-data.js'
@@ -11,14 +12,19 @@ function renderApp(
   options: Parameters<typeof createDashboardFixture>[0] = {},
 ): string {
   const fixture = createDashboardFixture(options)
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
 
   return renderToStaticMarkup(
-    <App
-      enableLiveStatus={false}
-      initialPathname={pathname}
-      initialDashboard={fixture.dashboard}
-      initialHealthSnapshot={fixture.health}
-    />,
+    <QueryClientProvider client={queryClient}>
+      <App
+        enableLiveStatus={false}
+        initialPathname={pathname}
+        initialDashboard={fixture.dashboard}
+        initialHealthSnapshot={fixture.health}
+      />
+    </QueryClientProvider>,
   )
 }
 
