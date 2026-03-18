@@ -1,5 +1,6 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyError } from 'fastify'
 import type { DatabaseClient } from '@ainyc/canonry-db'
+import { AppError } from '@ainyc/canonry-contracts'
 import { authPlugin } from './auth.js'
 import { projectRoutes } from './projects.js'
 import type { ProjectRoutesOptions } from './projects.js'
@@ -73,6 +74,42 @@ export interface ApiRoutesOptions {
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
   // Decorate with db
   app.decorate('db', opts.db)
+
+  // Global error handler — serializes AppError consistently, prevents stack trace leaks
+  app.setErrorHandler((error: FastifyError | AppError, _request, reply) => {
+    if (error instanceof AppError) {
+      return reply.status(error.statusCode).send(error.toJSON())
+    }
+
+    // Derive HTTP status from Fastify's statusCode or a generic .status property
+    // (e.g. GoogleApiError uses .status instead of .statusCode)
+    const httpStatus = error.statusCode
+      ?? (error as unknown as { status?: number }).status
+      ?? 500
+
+    // Client errors (4xx) — forward the message
+    if (httpStatus >= 400 && httpStatus < 500) {
+      return reply.status(httpStatus).send({
+        error: {
+          code: httpStatus === 401 ? 'AUTH_INVALID'
+            : httpStatus === 403 ? 'FORBIDDEN'
+            : httpStatus === 404 ? 'NOT_FOUND'
+            : httpStatus === 429 ? 'QUOTA_EXCEEDED'
+            : 'VALIDATION_ERROR',
+          message: error.message,
+        },
+      })
+    }
+
+    // Unexpected errors — log full detail, return safe message
+    app.log.error(error)
+    return reply.status(500).send({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'An unexpected error occurred',
+      },
+    })
+  })
 
   // Register auth (unless skipped)
   if (!opts.skipAuth) {

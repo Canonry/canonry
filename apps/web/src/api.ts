@@ -1,6 +1,22 @@
-import type { GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, MetricsWindow } from '@ainyc/canonry-contracts'
+import type { ErrorCode, GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, MetricsWindow } from '@ainyc/canonry-contracts'
 
 export type { GroundingSource }
+
+/**
+ * Client-side error that preserves the structured error code from the API.
+ * Components can check `err.code` to distinguish error types (e.g. NOT_FOUND vs AUTH_REQUIRED).
+ */
+export class ApiError extends Error {
+  readonly code: ErrorCode | 'UNKNOWN'
+  readonly statusCode: number
+
+  constructor(message: string, statusCode: number, code?: ErrorCode) {
+    super(message)
+    this.name = 'ApiError'
+    this.code = code ?? 'UNKNOWN'
+    this.statusCode = statusCode
+  }
+}
 
 declare global {
   interface Window {
@@ -47,6 +63,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   if (!res.ok) {
     const bodyText = await res.text()
     let message = `API ${res.status}: ${res.statusText}`
+    let code: ErrorCode | undefined
     if (bodyText) {
       try {
         const parsed = JSON.parse(bodyText) as {
@@ -57,6 +74,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
           message = parsed.error
         } else if (parsed.error?.message) {
           message = parsed.error.message
+          code = parsed.error.code as ErrorCode | undefined
         } else if (parsed.message) {
           message = parsed.message
         }
@@ -64,7 +82,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
         message = bodyText
       }
     }
-    throw new Error(message)
+    throw new ApiError(message, res.status, code)
   }
   if (res.status === 204) {
     return undefined as T

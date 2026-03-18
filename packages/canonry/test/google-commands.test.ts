@@ -189,7 +189,7 @@ describe('google CLI commands', () => {
     const { googleListSitemaps } = await import('../src/commands/google.js')
     // The fake access token causes Google to return 401, which gscFetch propagates as
     // a GoogleApiError(401) → Fastify returns HTTP 401 → ApiClient throws
-    await expect(() => googleListSitemaps('test-proj', {})).rejects.toThrow('HTTP 401')
+    await expect(() => googleListSitemaps('test-proj', {})).rejects.toThrow('Access token expired or revoked')
   })
 
   it('googleDiscoverSitemaps rejects when the GSC access token is rejected by Google', async () => {
@@ -203,7 +203,7 @@ describe('google CLI commands', () => {
     const { googleDiscoverSitemaps } = await import('../src/commands/google.js')
     // The fake access token causes Google to return 401, which gscFetch propagates as
     // a GoogleApiError(401) → Fastify returns HTTP 401 → ApiClient throws
-    await expect(() => googleDiscoverSitemaps('test-proj', { wait: false })).rejects.toThrow('HTTP 401')
+    await expect(() => googleDiscoverSitemaps('test-proj', { wait: false })).rejects.toThrow('Access token expired or revoked')
   })
 
   it('googleRequestIndexing prints success output for a single URL', async () => {

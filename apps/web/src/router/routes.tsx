@@ -2,6 +2,7 @@ import { createRootRouteWithContext, createRoute, redirect, Outlet } from '@tans
 import type { QueryClient } from '@tanstack/react-query'
 
 import { RootLayout } from '../App.js'
+import { ErrorBoundary } from '../components/layout/ErrorBoundary.js'
 import { OverviewPage } from '../pages/OverviewPage.js'
 import { ProjectsPage } from '../pages/ProjectsPage.js'
 import { ProjectPage } from '../pages/ProjectPage.js'
@@ -20,8 +21,16 @@ type SearchParams = {
   evidenceId?: string
 }
 
+function RootLayoutWithErrorBoundary() {
+  return (
+    <ErrorBoundary>
+      <RootLayout />
+    </ErrorBoundary>
+  )
+}
+
 export const rootRoute = createRootRouteWithContext<RouterContext>()({
-  component: RootLayout,
+  component: RootLayoutWithErrorBoundary,
   validateSearch: (search: Record<string, unknown>): SearchParams => ({
     runId: typeof search.runId === 'string' ? search.runId : undefined,
     evidenceId: typeof search.evidenceId === 'string' ? search.evidenceId : undefined,
