@@ -18,7 +18,7 @@ import { waitForStabilization } from '../connection.js'
 export const chatgptTarget: CDPTarget = {
   name: 'chatgpt',
   baseUrl: 'https://chatgpt.com',
-  newConversationUrl: 'https://chatgpt.com',
+  newConversationUrl: 'https://chatgpt.com/?model=auto',
   responseSelector: '[data-testid="conversation-turn-3"], article:last-of-type, .agent-turn:last-of-type',
 
   async submitQuery(client: CDP.Client, keyword: string): Promise<void> {
@@ -126,21 +126,14 @@ export const chatgptTarget: CDPTarget = {
   async extractAnswer(client: CDP.Client): Promise<string> {
     const { result } = await client.Runtime.evaluate({
       expression: `(() => {
-        // Try multiple selectors for the assistant response
-        const selectors = [
-          '[data-testid="conversation-turn-3"] .markdown',
-          'article:last-of-type .markdown',
-          '.agent-turn:last-of-type .markdown',
-          '[data-message-author-role="assistant"]:last-of-type .markdown',
-        ];
-        for (const sel of selectors) {
-          const el = document.querySelector(sel);
-          if (el?.textContent) return el.textContent.trim();
-        }
-        // Last resort: grab any assistant message content
+        // Get the last assistant message and use innerText (not textContent)
+        // so that citation link labels like "pbjmarketing.com+1" are excluded.
         const turns = document.querySelectorAll('[data-message-author-role="assistant"]');
-        if (turns.length > 0) return turns[turns.length - 1].textContent?.trim() ?? '';
-        return '';
+        if (turns.length === 0) return '';
+        const last = turns[turns.length - 1];
+        // Prefer .markdown container for cleaner prose
+        const md = last.querySelector('.markdown');
+        return (md ?? last).innerText?.trim() ?? '';
       })()`,
       returnByValue: true,
     })
@@ -162,28 +155,22 @@ export const chatgptTarget: CDPTarget = {
         // 2. Source pills at the bottom of the response
         // 3. "Sources" section with expandable links
 
-        // Look for any links in the last assistant message that are external
-        const selectors = [
-          '[data-testid="conversation-turn-3"] a[href^="http"]',
-          'article:last-of-type a[href^="http"]',
-          '.agent-turn:last-of-type a[href^="http"]',
-          '[data-message-author-role="assistant"]:last-of-type a[href^="http"]',
-        ];
-
+        // Collect external links from the last assistant message.
+        // :last-of-type does not work with attribute selectors (it selects
+        // by tag type), so we use JS to grab the actual last element.
         const seen = new Set();
-        for (const sel of selectors) {
-          const links = document.querySelectorAll(sel);
-          for (const link of links) {
-            const href = link.getAttribute('href');
-            if (href && !seen.has(href) && !href.includes('chatgpt.com') && !href.includes('openai.com')) {
-              seen.add(href);
-              sources.push({
-                uri: href,
-                title: link.textContent?.trim() || href,
-              });
-            }
+        const turns = document.querySelectorAll('[data-message-author-role="assistant"]');
+        const last = turns.length ? turns[turns.length - 1] : null;
+        const links = last ? last.querySelectorAll('a[href]') : [];
+        for (const link of links) {
+          const href = link.getAttribute('href');
+          if (href && !seen.has(href) && !href.includes('chatgpt.com') && !href.includes('openai.com')) {
+            seen.add(href);
+            sources.push({
+              uri: href,
+              title: link.textContent?.trim() || href,
+            });
           }
-          if (sources.length > 0) break;
         }
 
         // Also check for citation superscripts that may reference sources
