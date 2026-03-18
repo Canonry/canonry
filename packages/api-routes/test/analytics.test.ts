@@ -261,6 +261,37 @@ describe('analytics routes', () => {
     expect(res.statusCode).toBe(404)
   })
 
+  it('excludes provider infrastructure domains from source breakdown', async () => {
+    // Seed a snapshot that mixes real sources with provider infra URIs
+    const infraKwId = crypto.randomUUID()
+    db.insert(keywords).values({ id: infraKwId, projectId, keyword: 'infra-filter-test', createdAt: new Date().toISOString() }).run()
+    const infraRunId = crypto.randomUUID()
+    db.insert(runs).values({
+      id: infraRunId, projectId, kind: 'answer-visibility', status: 'completed',
+      trigger: 'manual', location: null, startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(), error: null, createdAt: new Date().toISOString(),
+    }).run()
+    db.insert(querySnapshots).values({
+      id: crypto.randomUUID(), runId: infraRunId, keywordId: infraKwId,
+      provider: 'gemini', model: 'gemini-2.5-flash', citationState: 'not-cited',
+      answerText: 'test', citedDomains: '[]', competitorOverlap: '[]', location: null,
+      rawResponse: JSON.stringify({
+        groundingSources: [
+          { uri: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/AbC123', title: 'Vertex proxy' },
+          { uri: 'https://openai.com/research/gpt4', title: 'OpenAI research' },
+          { uri: 'https://reddit.com/r/real', title: 'Real source' },
+        ],
+      }),
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/test-site/analytics/sources' })
+    const body = JSON.parse(res.payload)
+    const allDomains = body.overall.flatMap((c: { topDomains: Array<{ domain: string }> }) => c.topDomains.map(d => d.domain))
+    expect(allDomains).not.toContain('vertexaisearch.cloud.google.com')
+    expect(allDomains).not.toContain('openai.com')
+  })
+
   it('returns empty data when no runs exist', async () => {
     // Create a project with no runs
     const emptyProjectId = crypto.randomUUID()

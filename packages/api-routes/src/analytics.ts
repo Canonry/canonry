@@ -243,11 +243,34 @@ function tryParseJson<T>(value: string | null, fallback: T): T {
   }
 }
 
+// Domains that are provider infrastructure, not real grounding sources
+const PROVIDER_INFRA_DOMAINS = new Set([
+  'vertexaisearch.cloud.google.com',
+  'openai.com',
+  'anthropic.com',
+  'googleapis.com',
+])
+
+function isProviderInfraDomain(uri: string): boolean {
+  try {
+    const host = new URL(uri).hostname.toLowerCase()
+    for (const blocked of PROVIDER_INFRA_DOMAINS) {
+      if (host === blocked || host.endsWith(`.${blocked}`)) return true
+    }
+  } catch {
+    // malformed URI — skip
+  }
+  return false
+}
+
 function parseGroundingSources(rawResponse: string | null): Array<{ uri: string; title: string }> {
   const parsed = tryParseJson(rawResponse, {} as Record<string, unknown>)
   const sources = parsed.groundingSources as Array<{ uri?: string; title?: string }> | undefined
   if (!Array.isArray(sources)) return []
-  return sources.filter((s): s is { uri: string; title: string } => typeof s.uri === 'string')
+  return sources.filter(
+    (s): s is { uri: string; title: string } =>
+      typeof s.uri === 'string' && !isProviderInfraDomain(s.uri),
+  )
 }
 
 function parseWindow(value?: string): MetricsWindow {
