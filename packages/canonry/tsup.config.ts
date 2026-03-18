@@ -36,6 +36,7 @@ export default defineConfig({
     '@ainyc/canonry-provider-openai',
     '@ainyc/canonry-provider-claude',
     '@ainyc/canonry-provider-local',
+    '@ainyc/canonry-provider-cdp',
     '@ainyc/canonry-integration-google',
   ],
 })
