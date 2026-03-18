@@ -264,9 +264,28 @@ export async function createServer(opts: {
     },
   } as const
 
-  // Register API routes
+  // Resolve base path early so API route prefix and SPA handler both use it.
+  // Normalize: ensure it starts and ends with '/' (e.g. '/canonry/').
+  // A value that normalises to bare '/' is treated as no base path to avoid
+  // a duplicate-route error with fastify-static (which also registers '/').
+  const rawBasePath = process.env.CANONRY_BASE_PATH ?? opts.config.basePath
+  const normalizedBasePath = rawBasePath
+    ? ('/' + rawBasePath.replace(/^\//, '').replace(/\/?$/, '/'))
+    : undefined
+  const basePath: string | undefined =
+    normalizedBasePath === '/' ? undefined : normalizedBasePath
+
+  // Register API routes.
+  // When a basePath is set, routes are registered at `${basePath}api/v1` so they
+  // match requests forwarded by a reverse proxy that does NOT strip the prefix
+  // (e.g. Caddy `reverse_proxy localhost:4100` without `uri strip_prefix`).
+  // If the proxy does strip the prefix, set CANONRY_BASE_PATH to empty/unset and
+  // let the proxy handle path rewriting instead.
+  const apiPrefix = basePath ? `${basePath}api/v1` : '/api/v1'
+
   await app.register(apiRoutes, {
     db: opts.db,
+    routePrefix: apiPrefix,
     skipAuth: false,
     getGoogleAuthConfig: () => getGoogleAuthConfig(opts.config),
     googleConnectionStore,
@@ -521,13 +540,7 @@ export async function createServer(opts: {
   if (fs.existsSync(assetsDir)) {
     const indexPath = path.join(assetsDir, 'index.html')
 
-    // Read base path from env (set by --base-path CLI flag) or config.
-    // Normalize: ensure it starts and ends with '/' (e.g. '/canonry/').
-    const rawBasePath = process.env.CANONRY_BASE_PATH ?? opts.config.basePath
-    const basePath: string | undefined = rawBasePath
-      ? ('/' + rawBasePath.replace(/^\//, '').replace(/\/?$/, '/'))
-      : undefined
-
+    // basePath is already resolved above. Used here for SPA serving.
     const injectConfig = (html: string): string => {
       const clientConfig: Record<string, unknown> = { apiKey: opts.config.apiKey }
       if (basePath) clientConfig.basePath = basePath
@@ -542,26 +555,51 @@ export async function createServer(opts: {
     const fastifyStatic = await import('@fastify/static')
     await app.register(fastifyStatic.default, {
       root: assetsDir,
-      prefix: '/',
+      prefix: basePath ?? '/',
       wildcard: false,
       // Don't serve index.html automatically — we handle it with config injection
       serve: true,
       index: false,
     })
 
-    // Serve index.html with injected API key for the root route
-    app.get('/', (_request, reply) => {
+    // Serve index.html with injected config for the root/base-path route.
+    // Register both the trailing-slash form ('/canonry/') and the bare form
+    // ('/canonry') so either URL shape hits the handler without a 404.
+    const serveIndex = (_request: unknown, reply: { type: (t: string) => { send: (b: string) => unknown }; status: (s: number) => { send: (b: unknown) => unknown } }) => {
       if (fs.existsSync(indexPath)) {
         const html = fs.readFileSync(indexPath, 'utf-8')
         return reply.type('text/html').send(injectConfig(html))
       }
       return reply.status(404).send({ error: 'Dashboard not built' })
-    })
+    }
+    const rootRouteTrailing = basePath ?? '/'
+    app.get(rootRouteTrailing, serveIndex)
+    // Also register the no-trailing-slash variant when base path is set
+    // (e.g. '/canonry' in addition to '/canonry/') to avoid a 404 on bare navigation.
+    if (basePath) {
+      const rootRouteBare = basePath.replace(/\/$/, '')
+      if (rootRouteBare) app.get(rootRouteBare, serveIndex)
+    }
 
-    // SPA fallback: serve index.html for unmatched non-API routes
+    // SPA fallback: serve index.html for unmatched routes that belong to this app.
+    // - With no base path: serve for any non-API path (existing behaviour).
+    // - With base path: only serve for paths under basePath to avoid hijacking
+    //   other apps co-hosted on the same origin outside the base path.
     app.setNotFoundHandler((request, reply) => {
-      // Never serve HTML for API routes — return proper JSON 404
-      if (request.url.startsWith('/api/')) {
+      const url = request.url.split('?')[0]!
+
+      // Never serve HTML for API routes — return proper JSON 404.
+      // Check both the bare /api/ prefix and the basePath-prefixed form so the
+      // SPA catch-all never intercepts API calls regardless of proxy config.
+      const isApiRoute =
+        url.startsWith('/api/') ||
+        (basePath !== undefined && url.startsWith(`${basePath}api/`))
+      if (isApiRoute) {
+        return reply.status(404).send({ error: 'Not found', path: request.url })
+      }
+
+      // When a base path is configured, only serve the SPA for paths under it.
+      if (basePath && !url.startsWith(basePath)) {
         return reply.status(404).send({ error: 'Not found', path: request.url })
       }
 
@@ -573,12 +611,13 @@ export async function createServer(opts: {
     })
   }
 
-  // Health endpoint
-  app.get('/health', async () => ({
-    status: 'ok',
-    service: 'canonry',
-    version: PKG_VERSION,
-  }))
+  // Health endpoint — registered at both /health and <basePath>health when base path is set,
+  // so load-balancer probes work regardless of whether the proxy strips the prefix.
+  const healthHandler = async () => ({ status: 'ok', service: 'canonry', version: PKG_VERSION })
+  app.get('/health', healthHandler)
+  if (basePath) {
+    app.get(`${basePath}health`, healthHandler)
+  }
 
   // Start scheduler after setup
   scheduler.start()

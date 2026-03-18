@@ -40,6 +40,7 @@ export interface ApiRoutesOptions {
   openApiInfo?: OpenApiInfo
   /** Skip auth for testing */
   skipAuth?: boolean
+
   /** Callback when a run is created (wire up job runner) */
   onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: import('@ainyc/canonry-contracts').LocationContext | null) => void
   /** Provider configuration summary for settings endpoint */
@@ -76,6 +77,13 @@ export interface ApiRoutesOptions {
   getCdpStatus?: CDPRoutesOptions['getCdpStatus']
   onCdpScreenshot?: CDPRoutesOptions['onCdpScreenshot']
   onCdpConfigure?: CDPRoutesOptions['onCdpConfigure']
+  /**
+   * API route prefix (default: /api/v1).
+   * Override when the server is behind a reverse proxy that does NOT strip the
+   * base-path prefix before forwarding — e.g. set to '/canonry/api/v1' when
+   * Caddy proxies /canonry/* directly to this server without path rewriting.
+   */
+  routePrefix?: string
 }
 
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
@@ -123,7 +131,9 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await app.register(authPlugin)
   }
 
-  // Register route plugins under /api/v1
+  // Register route plugins under the configured prefix (default: /api/v1).
+  // When a basePath is set and the reverse proxy does not strip it, pass
+  // routePrefix: `${basePath}api/v1` so routes match the full incoming path.
   await app.register(async (api) => {
     await api.register(openApiRoutes, opts.openApiInfo ?? {})
     await api.register(projectRoutes, {
@@ -177,7 +187,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onCdpScreenshot: opts.onCdpScreenshot,
       onCdpConfigure: opts.onCdpConfigure,
     } satisfies CDPRoutesOptions)
-  }, { prefix: '/api/v1' })
+  }, { prefix: opts.routePrefix ?? '/api/v1' })
 }
 
 export type { DatabaseClient } from '@ainyc/canonry-db'
