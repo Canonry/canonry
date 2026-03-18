@@ -7,7 +7,7 @@ function getClient(): ApiClient {
   return new ApiClient(config.apiUrl, config.apiKey)
 }
 
-const TERMINAL_STATUSES = new Set(['completed', 'partial', 'failed'])
+const TERMINAL_STATUSES = new Set(['completed', 'partial', 'failed', 'cancelled'])
 
 export async function triggerRun(project: string, opts?: { provider?: string; wait?: boolean; format?: string; location?: string; allLocations?: boolean; noLocation?: boolean }): Promise<void> {
   const client = getClient()
@@ -162,6 +162,31 @@ export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; 
     const id = (r.runId || '(failed)').padEnd(36)
     console.log(`  ${proj}  ${id}  ${r.status}`)
   }
+}
+
+export async function cancelRun(project: string, runId?: string, format?: string): Promise<void> {
+  const client = getClient()
+
+  // If no run ID given, find the active run for the project
+  let targetId = runId
+  if (!targetId) {
+    const runs = await client.listRuns(project) as Array<{ id: string; status: string }>
+    const active = runs.find(r => r.status === 'queued' || r.status === 'running')
+    if (!active) {
+      console.error(`No active run found for "${project}".`)
+      process.exit(1)
+    }
+    targetId = active.id
+  }
+
+  const result = await client.cancelRun(targetId) as { id: string; status: string }
+
+  if (format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  console.log(`Run ${result.id} cancelled.`)
 }
 
 export async function showRun(id: string, format?: string): Promise<void> {

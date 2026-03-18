@@ -83,7 +83,7 @@ function createRun(input: {
   projectName: string
   kind: 'answer-visibility'
   kindLabel: string
-  status: 'queued' | 'running' | 'completed' | 'partial' | 'failed'
+  status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled'
   createdAt: string
   startedAt: string
   duration: string

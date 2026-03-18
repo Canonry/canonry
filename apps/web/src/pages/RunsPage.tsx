@@ -37,7 +37,7 @@ export function RunsPage() {
 
       <section>
         <div className="filter-row" role="toolbar" aria-label="Run filters">
-          {(['all', 'queued', 'running', 'completed', 'partial', 'failed'] as const).map((option) => (
+          {(['all', 'queued', 'running', 'completed', 'partial', 'failed', 'cancelled'] as const).map((option) => (
             <button
               key={option}
               className={`filter-chip ${filter === option ? 'filter-chip-active' : ''}`}

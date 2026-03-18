@@ -3,7 +3,7 @@ import { eq, asc } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { runs, querySnapshots, keywords, projects } from '@ainyc/canonry-db'
 import type { LocationContext } from '@ainyc/canonry-contracts'
-import { unsupportedKind, runInProgress, parseProviderName } from '@ainyc/canonry-contracts'
+import { unsupportedKind, runInProgress, runNotCancellable, notFound, parseProviderName } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { queueRunIfProjectIdle } from './run-queue.js'
 
@@ -207,6 +207,39 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     }
 
     return reply.status(207).send(results)
+  })
+
+  // POST /runs/:id/cancel — cancel a queued or running run
+  app.post<{ Params: { id: string } }>('/runs/:id/cancel', async (request, reply) => {
+    const run = app.db.select().from(runs).where(eq(runs.id, request.params.id)).get()
+    if (!run) {
+      const err = notFound('Run', request.params.id)
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
+    const terminalStatuses = new Set(['completed', 'partial', 'failed', 'cancelled'])
+    if (terminalStatuses.has(run.status)) {
+      const err = runNotCancellable(run.id, run.status)
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
+    const now = new Date().toISOString()
+    app.db
+      .update(runs)
+      .set({ status: 'cancelled', finishedAt: now, error: 'Cancelled by user' })
+      .where(eq(runs.id, run.id))
+      .run()
+
+    writeAuditLog(app.db, {
+      projectId: run.projectId,
+      actor: 'api',
+      action: 'run.cancelled',
+      entityType: 'run',
+      entityId: run.id,
+    })
+
+    const updated = app.db.select().from(runs).where(eq(runs.id, run.id)).get()!
+    return reply.send(formatRun(updated))
   })
 
   // GET /runs/:id — get single run with snapshots

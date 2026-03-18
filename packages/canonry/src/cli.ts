@@ -7,7 +7,7 @@ import { startDaemon, stopDaemon } from './commands/daemon.js'
 import { createProject, listProjects, showProject, deleteProject, updateProjectSettings, addLocation, listLocations, removeLocation, setDefaultLocation } from './commands/project.js'
 import { addKeywords, removeKeywords, listKeywords, importKeywords, generateKeywords } from './commands/keyword.js'
 import { addCompetitors, listCompetitors } from './commands/competitor.js'
-import { triggerRun, triggerRunAll, showRun, listRuns } from './commands/run.js'
+import { triggerRun, triggerRunAll, showRun, listRuns, cancelRun } from './commands/run.js'
 import { showStatus } from './commands/status.js'
 import { showEvidence } from './commands/evidence.js'
 import { showHistory } from './commands/history.js'
@@ -531,6 +531,18 @@ async function main() {
             process.exit(1)
           }
           await showRun(id, format)
+          break
+        }
+
+        // Handle 'run cancel <project> [run-id]'
+        if (args[1] === 'cancel') {
+          const project = args[2]
+          if (!project) {
+            console.error('Error: project name is required\nUsage: canonry run cancel <project> [run-id]')
+            process.exit(1)
+          }
+          const runId = args[3]
+          await cancelRun(project, runId, format)
           break
         }
 

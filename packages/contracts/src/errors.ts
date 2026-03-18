@@ -9,6 +9,7 @@ export type ErrorCode =
   | 'PROVIDER_ERROR'
   | 'RUN_IN_PROGRESS'
   | 'UNSUPPORTED_KIND'
+  | 'RUN_NOT_CANCELLABLE'
   | 'INTERNAL_ERROR'
 
 export class AppError extends Error {
@@ -74,6 +75,10 @@ export function providerError(message: string, details?: Record<string, unknown>
 
 export function runInProgress(projectName: string): AppError {
   return new AppError('RUN_IN_PROGRESS', `A run is already in progress for '${projectName}'`, 409)
+}
+
+export function runNotCancellable(runId: string, status: string): AppError {
+  return new AppError('RUN_NOT_CANCELLABLE', `Run '${runId}' is already in terminal state '${status}' and cannot be cancelled`, 409)
 }
 
 export function unsupportedKind(kind: string): AppError {

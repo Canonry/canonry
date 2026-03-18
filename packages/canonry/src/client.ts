@@ -111,6 +111,10 @@ export class ApiClient {
     return this.request<object>('GET', `/runs/${encodeURIComponent(id)}`)
   }
 
+  async cancelRun(id: string): Promise<object> {
+    return this.request<object>('POST', `/runs/${encodeURIComponent(id)}/cancel`)
+  }
+
   async getTimeline(project: string): Promise<object[]> {
     return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/timeline`)
   }

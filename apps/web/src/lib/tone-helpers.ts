@@ -21,6 +21,8 @@ export function toneFromRunStatus(status: RunListItemVm['status']): MetricTone {
       return 'caution'
     case 'failed':
       return 'negative'
+    case 'cancelled':
+      return 'caution'
     case 'queued':
     case 'running':
       return 'neutral'

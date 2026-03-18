@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { providerNameSchema } from './provider.js'
 
-export const runStatusSchema = z.enum(['queued', 'running', 'completed', 'partial', 'failed'])
+export const runStatusSchema = z.enum(['queued', 'running', 'completed', 'partial', 'failed', 'cancelled'])
 export type RunStatus = z.infer<typeof runStatusSchema>
 
 export const runKindSchema = z.enum(['answer-visibility', 'site-audit', 'gsc-sync', 'inspect-sitemap'])
