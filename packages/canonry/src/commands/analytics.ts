@@ -25,13 +25,13 @@ export async function showAnalytics(
         break
       }
       case 'gaps': {
-        const data = await client.getAnalyticsGaps(project) as GapAnalysisDto
+        const data = await client.getAnalyticsGaps(project, options.window) as GapAnalysisDto
         results.gaps = data
         if (options.format !== 'json') printGaps(data)
         break
       }
       case 'sources': {
-        const data = await client.getAnalyticsSources(project) as SourceBreakdownDto
+        const data = await client.getAnalyticsSources(project, options.window) as SourceBreakdownDto
         results.sources = data
         if (options.format !== 'json') printSources(data)
         break
@@ -82,7 +82,10 @@ function printGaps(data: GapAnalysisDto): void {
     console.log(`\n  Opportunity Gaps (competitors cited, you're not):`)
     for (const kw of data.gap) {
       const competitors = kw.competitorsCiting.join(', ')
-      console.log(`    • ${kw.keyword}`)
+      const cons = kw.consistency.totalRuns > 0
+        ? ` [cited ${kw.consistency.citedRuns}/${kw.consistency.totalRuns} runs]`
+        : ''
+      console.log(`    • ${kw.keyword}${cons}`)
       console.log(`      Competitors: ${competitors}`)
     }
   }
@@ -90,7 +93,10 @@ function printGaps(data: GapAnalysisDto): void {
   if (data.cited.length > 0) {
     console.log(`\n  Cited Keywords:`)
     for (const kw of data.cited) {
-      console.log(`    ✓ ${kw.keyword} (${kw.providers.join(', ')})`)
+      const cons = kw.consistency.totalRuns > 0
+        ? ` [${kw.consistency.citedRuns}/${kw.consistency.totalRuns} runs]`
+        : ''
+      console.log(`    ✓ ${kw.keyword} (${kw.providers.join(', ')})${cons}`)
     }
   }
 }

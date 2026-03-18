@@ -2276,8 +2276,8 @@ function AnalyticsSection({ projectName }: { projectName: string }) {
     setLoading(true)
     Promise.all([
       fetchAnalyticsMetrics(projectName, metricsWindow),
-      fetchAnalyticsGaps(projectName),
-      fetchAnalyticsSources(projectName),
+      fetchAnalyticsGaps(projectName, metricsWindow),
+      fetchAnalyticsSources(projectName, metricsWindow),
     ]).then(([m, g, s]) => {
       if (cancelled) return
       setMetrics(m)
@@ -2380,7 +2380,7 @@ function AnalyticsSection({ projectName }: { projectName: string }) {
         <div className="flex items-center justify-between mb-4">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">Opportunity Analysis</p>
-            <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">Brand Gap Analysis <InfoTooltip text="Based on the most recent completed run. Cited: your brand appeared in the AI answer. Gap: a competitor was cited but you were not — highest-priority opportunities. Not Cited: neither you nor a competitor was mentioned." /></h2>
+            <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">Brand Gap Analysis <InfoTooltip text="Classification based on the most recent completed run. Cited: your brand appeared in the AI answer. Gap: a competitor was cited but you were not. Not Cited: neither mentioned. Consistency shows how often each keyword was cited across all runs in the selected window." /></h2>
           </div>
         </div>
 
@@ -2420,7 +2420,7 @@ function AnalyticsSection({ projectName }: { projectName: string }) {
       <section>
         <div className="mb-4">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">Source Intelligence</p>
-          <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">Source Origin Breakdown <InfoTooltip text="Based on the most recent completed run. Shows what types of websites the AI cited as grounding sources across all keywords. Helps identify which content categories are most influential for your topic area." /></h2>
+          <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">Source Origin Breakdown <InfoTooltip text="Aggregated across all runs in the selected window. Shows what types of websites AI engines cite as grounding sources. More runs = more statistically meaningful breakdown." /></h2>
         </div>
 
         {sources && sources.overall.length > 0 && (
@@ -2551,6 +2551,7 @@ function GapAnalysisTable({ gaps, filter }: { gaps: GapAnalysisDto; filter: GapC
           <th className="text-left py-1 font-medium">Status</th>
           <th className="text-left py-1 font-medium">Providers Citing</th>
           <th className="text-left py-1 font-medium">Competitors Citing</th>
+          <th className="text-right py-1 font-medium">Consistency</th>
         </tr>
       </thead>
       <tbody>
@@ -2572,6 +2573,11 @@ function GapAnalysisTable({ gaps, filter }: { gaps: GapAnalysisDto; filter: GapC
               </td>
               <td className="py-1.5 text-zinc-400 text-xs">
                 {kw.competitorsCiting.length > 0 ? kw.competitorsCiting.join(', ') : '—'}
+              </td>
+              <td className="py-1.5 text-right text-zinc-400 text-xs">
+                {kw.consistency.totalRuns > 0
+                  ? `${kw.consistency.citedRuns}/${kw.consistency.totalRuns} runs`
+                  : '—'}
               </td>
             </tr>
           )

@@ -205,26 +205,39 @@ describe('analytics routes', () => {
   })
 
   describe('GET /projects/:name/analytics/gaps', () => {
-    it('classifies keywords correctly', async () => {
+    it('classifies keywords correctly with consistency', async () => {
       const res = await app.inject({ method: 'GET', url: '/api/v1/projects/test-site/analytics/gaps' })
       expect(res.statusCode).toBe(200)
       const body = JSON.parse(res.payload)
+
+      expect(body.window).toBe('all')
 
       // kw1 is cited by gemini
       expect(body.cited).toHaveLength(1)
       expect(body.cited[0].keyword).toBe('best seo tools')
       expect(body.cited[0].providers).toContain('gemini')
+      expect(body.cited[0].consistency.citedRuns).toBe(1)
+      expect(body.cited[0].consistency.totalRuns).toBe(1)
 
       // kw2 is a gap — not cited but competitor is
       expect(body.gap).toHaveLength(1)
       expect(body.gap[0].keyword).toBe('aeo monitoring')
       expect(body.gap[0].competitorsCiting).toContain('competitor.com')
+      expect(body.gap[0].consistency.citedRuns).toBe(0)
+      expect(body.gap[0].consistency.totalRuns).toBe(1)
 
       // kw3 is uncited — nobody cited
       expect(body.uncited).toHaveLength(1)
       expect(body.uncited[0].keyword).toBe('website analytics')
 
       expect(body.runId).toBe(runId)
+    })
+
+    it('supports window parameter', async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/v1/projects/test-site/analytics/gaps?window=7d' })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(body.window).toBe('7d')
     })
   })
 
@@ -234,6 +247,7 @@ describe('analytics routes', () => {
       expect(res.statusCode).toBe(200)
       const body = JSON.parse(res.payload)
 
+      expect(body.window).toBe('all')
       expect(body.overall).toBeInstanceOf(Array)
       expect(body.overall.length).toBeGreaterThan(0)
 
@@ -244,8 +258,6 @@ describe('analytics routes', () => {
       // Each category should have percentage summing to ~1
       const totalPct = body.overall.reduce((s: number, c: { percentage: number }) => s + c.percentage, 0)
       expect(totalPct).toBeCloseTo(1, 1)
-
-      expect(body.runId).toBe(runId)
     })
 
     it('includes per-keyword breakdown', async () => {
@@ -253,6 +265,13 @@ describe('analytics routes', () => {
       const body = JSON.parse(res.payload)
       expect(body.byKeyword).toBeDefined()
       expect(Object.keys(body.byKeyword).length).toBeGreaterThan(0)
+    })
+
+    it('supports window parameter', async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/v1/projects/test-site/analytics/sources?window=30d' })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(body.window).toBe('30d')
     })
   })
 

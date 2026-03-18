@@ -77,11 +77,17 @@ export async function analyticsRoutes(app: FastifyInstance) {
   })
 
   // GET /projects/:name/analytics/gaps — brand gap analysis
-  app.get<{ Params: { name: string } }>('/projects/:name/analytics/gaps', async (request, reply) => {
+  app.get<{
+    Params: { name: string }
+    Querystring: { window?: string }
+  }>('/projects/:name/analytics/gaps', async (request, reply) => {
     const project = resolveProjectSafe(app, request.params.name, reply)
     if (!project) return
 
-    // Find the latest completed or partial run
+    const window = parseWindow(request.query.window)
+    const cutoff = windowCutoff(window)
+
+    // Find the latest completed or partial run (determines classification)
     const latestRun = app.db
       .select()
       .from(runs)
@@ -91,9 +97,46 @@ export async function analyticsRoutes(app: FastifyInstance) {
       .find(r => r.status === 'completed' || r.status === 'partial')
 
     if (!latestRun) {
-      return reply.send({ cited: [], gap: [], uncited: [], runId: '' } satisfies GapAnalysisDto)
+      return reply.send({ cited: [], gap: [], uncited: [], runId: '', window } satisfies GapAnalysisDto)
     }
 
+    // All runs in window (for consistency signal)
+    const windowRuns = app.db
+      .select()
+      .from(runs)
+      .where(eq(runs.projectId, project.id))
+      .orderBy(runs.createdAt)
+      .all()
+      .filter(r => r.status === 'completed' || r.status === 'partial')
+      .filter(r => !cutoff || r.createdAt >= cutoff)
+
+    const windowRunIds = windowRuns.map(r => r.id)
+
+    // Consistency: for each keyword, count how many runs cited it
+    const consistencyMap = new Map<string, { citedRuns: Set<string>; totalRuns: Set<string> }>()
+    if (windowRunIds.length > 0) {
+      const allWindowSnaps = app.db
+        .select({
+          keywordId: querySnapshots.keywordId,
+          runId: querySnapshots.runId,
+          citationState: querySnapshots.citationState,
+        })
+        .from(querySnapshots)
+        .where(inArray(querySnapshots.runId, windowRunIds))
+        .all()
+
+      for (const s of allWindowSnaps) {
+        let entry = consistencyMap.get(s.keywordId)
+        if (!entry) {
+          entry = { citedRuns: new Set(), totalRuns: new Set() }
+          consistencyMap.set(s.keywordId, entry)
+        }
+        entry.totalRuns.add(s.runId)
+        if (s.citationState === 'cited') entry.citedRuns.add(s.runId)
+      }
+    }
+
+    // Latest-run snapshots (determines classification)
     const snapshots = app.db
       .select({
         keywordId: querySnapshots.keywordId,
@@ -140,12 +183,17 @@ export async function analyticsRoutes(app: FastifyInstance) {
         category = 'uncited'
       }
 
+      const cons = consistencyMap.get(keywordId)
       const entry: GapKeyword = {
         keyword,
         keywordId,
         category,
         providers: citedProviders,
         competitorsCiting: [...competitorsCiting],
+        consistency: {
+          citedRuns: cons?.citedRuns.size ?? 0,
+          totalRuns: cons?.totalRuns.size ?? 0,
+        },
       }
 
       if (category === 'cited') cited.push(entry)
@@ -158,25 +206,36 @@ export async function analyticsRoutes(app: FastifyInstance) {
     cited.sort((a, b) => a.keyword.localeCompare(b.keyword))
     uncited.sort((a, b) => a.keyword.localeCompare(b.keyword))
 
-    return reply.send({ cited, gap, uncited, runId: latestRun.id } satisfies GapAnalysisDto)
+    return reply.send({ cited, gap, uncited, runId: latestRun.id, window } satisfies GapAnalysisDto)
   })
 
   // GET /projects/:name/analytics/sources — source origin breakdown
-  app.get<{ Params: { name: string } }>('/projects/:name/analytics/sources', async (request, reply) => {
+  app.get<{
+    Params: { name: string }
+    Querystring: { window?: string }
+  }>('/projects/:name/analytics/sources', async (request, reply) => {
     const project = resolveProjectSafe(app, request.params.name, reply)
     if (!project) return
 
-    const latestRun = app.db
+    const window = parseWindow(request.query.window)
+    const cutoff = windowCutoff(window)
+
+    // All runs in window
+    const windowRuns = app.db
       .select()
       .from(runs)
       .where(eq(runs.projectId, project.id))
       .orderBy(desc(runs.createdAt))
       .all()
-      .find(r => r.status === 'completed' || r.status === 'partial')
+      .filter(r => r.status === 'completed' || r.status === 'partial')
+      .filter(r => !cutoff || r.createdAt >= cutoff)
 
-    if (!latestRun) {
-      return reply.send({ overall: [], byKeyword: {}, runId: '' } satisfies SourceBreakdownDto)
+    if (windowRuns.length === 0) {
+      return reply.send({ overall: [], byKeyword: {}, runId: '', window } satisfies SourceBreakdownDto)
     }
+
+    const latestRunId = windowRuns[0]!.id
+    const windowRunIds = windowRuns.map(r => r.id)
 
     const snapshots = app.db
       .select({
@@ -186,7 +245,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       })
       .from(querySnapshots)
       .leftJoin(keywords, eq(querySnapshots.keywordId, keywords.id))
-      .where(eq(querySnapshots.runId, latestRun.id))
+      .where(inArray(querySnapshots.runId, windowRunIds))
       .all()
 
     // Aggregate sources overall and per-keyword
@@ -218,7 +277,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
 
     const overall = buildCategoryCounts(overallCounts)
 
-    return reply.send({ overall, byKeyword, runId: latestRun.id } satisfies SourceBreakdownDto)
+    return reply.send({ overall, byKeyword, runId: latestRunId, window } satisfies SourceBreakdownDto)
   })
 }
 

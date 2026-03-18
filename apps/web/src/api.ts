@@ -678,10 +678,12 @@ export function fetchAnalyticsMetrics(project: string, window?: MetricsWindow): 
   return apiFetch(`/projects/${encodeURIComponent(project)}/analytics/metrics${qs}`)
 }
 
-export function fetchAnalyticsGaps(project: string): Promise<GapAnalysisDto> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/analytics/gaps`)
+export function fetchAnalyticsGaps(project: string, window?: MetricsWindow): Promise<GapAnalysisDto> {
+  const qs = window ? `?window=${window}` : ''
+  return apiFetch(`/projects/${encodeURIComponent(project)}/analytics/gaps${qs}`)
 }
 
-export function fetchAnalyticsSources(project: string): Promise<SourceBreakdownDto> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/analytics/sources`)
+export function fetchAnalyticsSources(project: string, window?: MetricsWindow): Promise<SourceBreakdownDto> {
+  const qs = window ? `?window=${window}` : ''
+  return apiFetch(`/projects/${encodeURIComponent(project)}/analytics/sources${qs}`)
 }

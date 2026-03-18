@@ -274,12 +274,14 @@ export class ApiClient {
     return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/analytics/metrics${qs}`)
   }
 
-  async getAnalyticsGaps(project: string): Promise<object> {
-    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/analytics/gaps`)
+  async getAnalyticsGaps(project: string, window?: string): Promise<object> {
+    const qs = window ? `?window=${encodeURIComponent(window)}` : ''
+    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/analytics/gaps${qs}`)
   }
 
-  async getAnalyticsSources(project: string): Promise<object> {
-    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/analytics/sources`)
+  async getAnalyticsSources(project: string, window?: string): Promise<object> {
+    const qs = window ? `?window=${encodeURIComponent(window)}` : ''
+    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/analytics/sources${qs}`)
   }
 
   // Google Indexing API

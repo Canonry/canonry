@@ -32,6 +32,7 @@ export interface GapKeyword {
   category: GapCategory
   providers: string[]
   competitorsCiting: string[]
+  consistency: { citedRuns: number; totalRuns: number }
 }
 
 export interface GapAnalysisDto {
@@ -39,6 +40,7 @@ export interface GapAnalysisDto {
   gap: GapKeyword[]
   uncited: GapKeyword[]
   runId: string
+  window: MetricsWindow
 }
 
 export interface SourceCategoryCount {
@@ -53,4 +55,5 @@ export interface SourceBreakdownDto {
   overall: SourceCategoryCount[]
   byKeyword: Record<string, SourceCategoryCount[]>
   runId: string
+  window: MetricsWindow
 }
