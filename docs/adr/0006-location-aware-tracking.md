@@ -1,4 +1,12 @@
-# ADR 0005: Location-Aware Keyword Tracking
+# ADR 0006: Location-Aware Keyword Tracking (Superseded)
+
+## Status
+
+Superseded by [ADR 0007](0007-project-scoped-location-context.md).
+
+## Note
+
+This document proposed a keyword-scoped location model. Canonry's accepted and implemented model keeps locations project-scoped and uses them as run context. The historical proposal remains below for reference only.
 
 ## Decision
 

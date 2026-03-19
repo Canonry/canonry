@@ -22,6 +22,8 @@ packages/provider-local/  Local LLM adapter (OpenAI-compatible API)
 docs/                     Architecture, roadmap, testing, ADRs
 ```
 
+Start with `docs/README.md` when you need the current doc map, active plans, ADR index, or canonical roadmap.
+
 ## Commands
 
 ```bash
@@ -68,7 +70,7 @@ THIS IS AN **AGENT-FIRST** PLATFORM. The CLI and API are the primary interfaces.
 
 ### Agent & automation design principles
 - Every operation must be scriptable via CLI or API without human interaction.
-- CLI output must be machine-parseable (support `--json` flag on all commands that produce output).
+- CLI output must be machine-parseable (support `--format json` on all commands that produce output).
 - API responses must be self-describing and stable — external agents and scripts depend on them.
 - Prefer config-as-code (`canonry apply`) over interactive wizards.
 - Error messages must be actionable from a terminal — include the failed command, the reason, and a suggested fix.
@@ -111,6 +113,8 @@ spec:
     - gemini
     - openai
 ```
+
+Locations are project-scoped via `spec.locations` and `spec.defaultLocation`. Runs choose the default location, an explicit location, all configured locations, or no location. Do not model locations as keyword-owned state.
 
 Multiple projects can be defined in one file using `---` document separators. Apply with `canonry apply <file...>` (accepts multiple files) or `POST /api/v1/apply`. Applied project YAML is declarative input; runtime project/run data lives in the DB, while local authentication credentials live in `~/.canonry/config.yaml`.
 

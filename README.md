@@ -4,6 +4,8 @@
 
 **Open-source AEO monitoring for your domain.** Canonry tracks how AI answer engines (ChatGPT, Gemini, Claude, and others) cite or omit your website for the keywords you care about.
 
+Canonry is API-first: the REST API is the source of truth, the CLI is the standard operator surface, and the web dashboard is a secondary interface for human analysts. Start with [docs/README.md](docs/README.md) for the architecture, roadmap, active plans, testing, deployment, and ADR index.
+
 AEO (Answer Engine Optimization) is the practice of ensuring your content is accurately represented in AI-generated answers. As search shifts from links to synthesized responses, monitoring your visibility across answer engines is essential.
 
 ![Canonry Dashboard](docs/images/dashboard.png)
@@ -16,7 +18,7 @@ canonry init
 canonry serve
 ```
 
-Open [http://localhost:4100](http://localhost:4100) to access the web dashboard.
+Open [http://localhost:4100](http://localhost:4100) to access the optional web dashboard.
 
 For CI or agent workflows, initialize non-interactively:
 
@@ -29,7 +31,8 @@ GEMINI_API_KEY=... OPENAI_API_KEY=... canonry init
 ## Features
 
 - **Multi-provider monitoring** -- query Gemini, OpenAI, Claude, and local LLMs (Ollama, LM Studio, or any OpenAI-compatible endpoint) from a single tool.
-- **Three equal surfaces** -- CLI, REST API, and web dashboard all backed by the same API. No surface is privileged.
+- **API-first surfaces** -- the REST API is canonical, the CLI is the standard automation surface, and the web dashboard consumes the same core workflows.
+- **Project-scoped location context** -- define named locations per project, set a default, and run explicit or all-location sweeps without making keywords location-owned.
 - **Config-as-code** -- manage projects with Kubernetes-style YAML files. Version control your monitoring setup.
 - **Self-hosted** -- runs locally with SQLite. No cloud account, no external dependencies beyond the LLM API keys you choose to configure.
 - **Scheduled monitoring** -- set up cron-based recurring runs to track citation changes over time.
@@ -61,6 +64,10 @@ canonry project create <name> --domain <domain> --country US --language en
 canonry project list
 canonry project show <name>
 canonry project delete <name>
+canonry project add-location <name> --label <label> --city <city> --region <region> --country <country>
+canonry project locations <name>
+canonry project set-default-location <name> <label>
+canonry project remove-location <name> <label>
 ```
 
 ### Keywords and Competitors
@@ -80,6 +87,9 @@ canonry competitor list <project>
 ```bash
 canonry run <project>                    # Run all configured providers
 canonry run <project> --provider gemini  # Run a single provider
+canonry run <project> --location sf      # Run with one configured project location
+canonry run <project> --all-locations    # Fan out one run per configured location
+canonry run <project> --no-location      # Explicitly skip location context
 canonry run <project> --wait             # Trigger and wait for completion
 canonry run --all                        # Trigger runs for all projects
 canonry run show <id>                    # Show run details and snapshots
@@ -164,7 +174,21 @@ spec:
     - openai
     - claude
     - local
+  locations:
+    - label: sf
+      city: San Francisco
+      region: California
+      country: US
+      timezone: America/Los_Angeles
+    - label: nyc
+      city: New York
+      region: New York
+      country: US
+      timezone: America/New_York
+  defaultLocation: sf
 ```
+
+Locations are project-scoped run context. Keywords remain project-wide; choose the location at run time via the default location or the `canonry run` location flags.
 
 Apply with the CLI or the API. Multiple projects can live in one file separated by `---`, or pass multiple files:
 

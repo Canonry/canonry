@@ -4,6 +4,8 @@
 
 Canonry is a self-hosted AEO monitoring application built on the published `@ainyc/aeo-audit` npm package. It tracks how AI answer engines (Gemini, OpenAI, and Claude) cite or omit a domain for tracked keywords.
 
+Locations are modeled as project-scoped run context. A project can define named locations and an optional default location, while keywords remain project-wide.
+
 ## Local Architecture (Phase 2)
 
 The local installation runs as a **single Node.js process** — no Docker, no Postgres, no message queue.
@@ -45,10 +47,10 @@ flowchart LR
 
 ### Data flow
 
-1. Analyst runs `canonry run <project>` (CLI) or triggers from the dashboard
+1. Analyst runs `canonry run <project>` with the project default location, an explicit `--location`, `--all-locations`, or no location context
 2. API creates a run record and enqueues a job
-3. Job runner fans out `executeTrackedQuery` for each keyword across all configured providers via the provider registry
-4. Raw observation snapshots (`cited` / `not-cited`) are persisted per keyword per run
+3. Job runner resolves the run location, fans out `executeTrackedQuery` for each keyword across all configured providers via the provider registry, and passes the location hint to providers
+4. Raw observation snapshots (`cited` / `not-cited`) are persisted per keyword per run, tagged with the run's location label when present
 5. Transitions (`lost`, `emerging`) are computed at query time by comparing consecutive snapshots
 6. Dashboard polls API for results and renders visibility data
 

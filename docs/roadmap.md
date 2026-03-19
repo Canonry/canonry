@@ -14,6 +14,7 @@ Canonry is a fully functional open-source AEO monitoring tool with the following
 - **Usage counters**: Per-provider daily quotas enforced in job runner
 - **Audit logging**: All config mutations tracked with diffs
 - **Snapshot history**: Timeline with computed transitions, run diffs, per-provider breakdowns
+- **Project-scoped location-aware runs**: Named project locations, default location selection, explicit per-run overrides, all-location sweeps, and location-filtered history
 - **Auth**: API key auth with scopes, same path local and cloud
 - **OpenAPI spec**: Auto-generated at `/api/v1/openapi.json`
 - **SQLite**: Local-first with Drizzle ORM and auto-migration

@@ -44,11 +44,15 @@ Only `@ainyc/canonry` is published to npm. All other packages are internal works
 
 ## Guidelines
 
-- **Surface parity**: every feature must work across CLI, API, and web dashboard.
+- **API first**: every feature starts as an API capability in `packages/api-routes/`.
+- **CLI required**: operator and agent workflows must be exposed through the CLI.
+- **Web UI secondary**: UI support is important, but it must not block API/CLI delivery.
 - Keep shared types in `packages/contracts/`.
 - Keep API route plugins in `packages/api-routes/` (no app-level concerns).
 - Keep provider logic in `packages/provider-*/`.
 - Keep API handlers thin.
+
+Use [`docs/README.md`](docs/README.md) as the entrypoint for roadmap, ADRs, active plans, and current reference docs.
 
 ## Before Submitting a PR
 
