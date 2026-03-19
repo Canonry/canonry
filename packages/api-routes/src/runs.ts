@@ -8,7 +8,7 @@ import { resolveProject, writeAuditLog } from './helpers.js'
 import { queueRunIfProjectIdle } from './run-queue.js'
 
 export interface RunRoutesOptions {
-  onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: LocationContext | null) => void
+  onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: LocationContext | null, kind?: string) => void
 }
 
 export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
@@ -21,7 +21,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     if (!project) return
 
     const kind = request.body?.kind ?? 'answer-visibility'
-    if (kind !== 'answer-visibility') {
+    if (kind !== 'answer-visibility' && kind !== 'social-monitor') {
       const err = unsupportedKind(kind)
       return reply.status(err.statusCode).send(err.toJSON())
     }
@@ -92,7 +92,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
         })
         const r = app.db.select().from(runs).where(eq(runs.id, runId)).get()!
         if (opts.onRunCreated) {
-          opts.onRunCreated(runId, project.id, providers, loc)
+          opts.onRunCreated(runId, project.id, providers, loc, kind)
         }
         results.push({ ...formatRun(r), location: loc.label })
       }
@@ -126,7 +126,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     const run = app.db.select().from(runs).where(eq(runs.id, runId)).get()!
 
     if (opts.onRunCreated) {
-      opts.onRunCreated(runId, project.id, providers, resolvedLocation)
+      opts.onRunCreated(runId, project.id, providers, resolvedLocation, kind)
     }
 
     return reply.status(201).send(formatRun(run))
@@ -156,7 +156,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     }
 
     const kind = request.body?.kind ?? 'answer-visibility'
-    if (kind !== 'answer-visibility') {
+    if (kind !== 'answer-visibility' && kind !== 'social-monitor') {
       const err = unsupportedKind(kind)
       return reply.status(err.statusCode).send(err.toJSON())
     }
@@ -200,7 +200,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
 
       const run = app.db.select().from(runs).where(eq(runs.id, runId)).get()!
       if (opts.onRunCreated) {
-        opts.onRunCreated(runId, project.id, providers)
+        opts.onRunCreated(runId, project.id, providers, undefined, kind)
       }
 
       results.push({ ...formatRun(run), projectName: project.name })

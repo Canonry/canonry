@@ -32,6 +32,7 @@ import { JobRunner } from './job-runner.js'
 import { executeGscSync } from './gsc-sync.js'
 import { executeInspectSitemap } from './gsc-inspect-sitemap.js'
 import { ProviderRegistry } from './provider-registry.js'
+import { SocialPlatformRegistry } from './social-registry.js'
 import { Scheduler } from './scheduler.js'
 import { Notifier } from './notifier.js'
 import { fetchSiteText } from './site-fetch.js'
@@ -147,7 +148,12 @@ export async function createServer(opts: {
   const port = opts.config.port ?? 4100
   const serverUrl = `http://localhost:${port}`
 
-  const jobRunner = new JobRunner(opts.db, registry)
+  // Build social platform registry from config
+  const socialRegistry = new SocialPlatformRegistry()
+  // Social platform adapters are registered here as they become available.
+  // e.g. if (opts.config.social?.reddit?.clientId) { socialRegistry.register(redditAdapter, ...) }
+
+  const jobRunner = new JobRunner(opts.db, registry, socialRegistry)
   jobRunner.recoverStaleRuns()
   const notifier = new Notifier(opts.db, serverUrl)
   jobRunner.onRunCompleted = (runId, projectId) => notifier.onRunCompleted(runId, projectId)
@@ -325,11 +331,17 @@ export async function createServer(opts: {
     googleSettingsSummary,
     bingSettingsSummary,
     bingConnectionStore,
-    onRunCreated: (runId: string, projectId: string, providers?: string[], location?: import('@ainyc/canonry-contracts').LocationContext | null) => {
+    onRunCreated: (runId: string, projectId: string, providers?: string[], location?: import('@ainyc/canonry-contracts').LocationContext | null, kind?: string) => {
       // Fire and forget — run executes in background
-      jobRunner.executeRun(runId, projectId, providers as ProviderName[] | undefined, location).catch((err: unknown) => {
-        app.log.error({ runId, err }, 'Job runner failed')
-      })
+      if (kind === 'social-monitor') {
+        jobRunner.executeSocialMonitorRun(runId, projectId).catch((err: unknown) => {
+          app.log.error({ runId, err }, 'Social monitor job runner failed')
+        })
+      } else {
+        jobRunner.executeRun(runId, projectId, providers as ProviderName[] | undefined, location).catch((err: unknown) => {
+          app.log.error({ runId, err }, 'Job runner failed')
+        })
+      }
     },
     onProviderUpdate: (providerName: string, apiKey: string, model?: string, baseUrl?: string, incomingQuota?: Partial<import('@ainyc/canonry-contracts').ProviderQuotaPolicy>) => {
       const name = providerName as keyof typeof adapterMap

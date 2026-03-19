@@ -4,20 +4,23 @@ import path from 'node:path'
 import os from 'node:os'
 import { eq, inArray } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { runs, keywords, competitors, projects, querySnapshots, usageCounters } from '@ainyc/canonry-db'
-import type { ProviderName, NormalizedQueryResult, LocationContext } from '@ainyc/canonry-contracts'
+import { runs, keywords, competitors, projects, querySnapshots, usageCounters, socialMentions } from '@ainyc/canonry-db'
+import type { ProviderName, NormalizedQueryResult, LocationContext, SocialPlatformName } from '@ainyc/canonry-contracts'
 import { effectiveDomains, normalizeProjectDomain, isBrowserProvider } from '@ainyc/canonry-contracts'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
+import type { SocialPlatformRegistry } from './social-registry.js'
 import { trackEvent } from './telemetry.js'
 
 export class JobRunner {
   private db: DatabaseClient
   private registry: ProviderRegistry
+  private socialRegistry: SocialPlatformRegistry | undefined
   onRunCompleted?: (runId: string, projectId: string) => Promise<void>
 
-  constructor(db: DatabaseClient, registry: ProviderRegistry) {
+  constructor(db: DatabaseClient, registry: ProviderRegistry, socialRegistry?: SocialPlatformRegistry) {
     this.db = db
     this.registry = registry
+    this.socialRegistry = socialRegistry
   }
 
   recoverStaleRuns(): void {
@@ -406,6 +409,184 @@ export class JobRunner {
       })
 
       // Notify on failure too
+      if (this.onRunCompleted) {
+        this.onRunCompleted(runId, projectId).catch((notifErr: unknown) => {
+          console.error('[JobRunner] Notification callback failed:', notifErr)
+        })
+      }
+    }
+  }
+
+  async executeSocialMonitorRun(runId: string, projectId: string): Promise<void> {
+    const now = new Date().toISOString()
+    const startTime = Date.now()
+
+    try {
+      // Mark run as running
+      this.db
+        .update(runs)
+        .set({ status: 'running', startedAt: now })
+        .where(eq(runs.id, runId))
+        .run()
+
+      // Fetch project
+      const project = this.db
+        .select()
+        .from(projects)
+        .where(eq(projects.id, projectId))
+        .get()
+
+      if (!project) {
+        throw new Error(`Project ${projectId} not found`)
+      }
+
+      if (!this.socialRegistry || this.socialRegistry.size === 0) {
+        throw new Error('No social platform adapters configured.')
+      }
+
+      // Resolve which platforms to use (all configured, since no per-project platform config yet)
+      const activePlatforms = this.socialRegistry.getAll()
+
+      console.log(`[JobRunner] Social run ${runId}: dispatching to ${activePlatforms.length} platforms: ${activePlatforms.map(p => p.adapter.name).join(', ')}`)
+
+      // Fetch keywords and canonical domains
+      const projectKeywords = this.db
+        .select()
+        .from(keywords)
+        .where(eq(keywords.projectId, projectId))
+        .all()
+
+      const allDomains = effectiveDomains({
+        canonicalDomain: project.canonicalDomain,
+        ownedDomains: JSON.parse(project.ownedDomains || '[]') as string[],
+      })
+
+      const keywordTexts = projectKeywords.map(k => k.keyword)
+
+      // Per-platform rate limiting windows
+      const minuteWindows = new Map<SocialPlatformName, number[]>()
+      for (const p of activePlatforms) {
+        minuteWindows.set(p.adapter.name, [])
+      }
+
+      const platformErrors = new Map<SocialPlatformName, string>()
+      let totalMentionsInserted = 0
+
+      for (const registeredPlatform of activePlatforms) {
+        const { adapter, quotaPolicy } = registeredPlatform
+        const platformName = adapter.name
+
+        try {
+          // Rate-limit per platform
+          await this.waitForRateLimit(
+            minuteWindows.get(platformName)!,
+            quotaPolicy.maxRequestsPerMinute,
+          )
+
+          const mentions = await adapter.searchMentions(
+            { keywords: keywordTexts, domains: allDomains },
+            quotaPolicy,
+          )
+
+          console.log(`[JobRunner] ${platformName}: fetched ${mentions.length} mentions`)
+
+          for (const mention of mentions) {
+            const mentionId = crypto.randomUUID()
+            const createdAt = new Date().toISOString()
+
+            // UPSERT on (platform, external_id) — skip already-captured posts
+            this.db
+              .insert(socialMentions)
+              .values({
+                id: mentionId,
+                projectId,
+                runId,
+                platform: mention.platform,
+                externalId: mention.externalId,
+                url: mention.url,
+                author: mention.author,
+                title: mention.title ?? null,
+                content: mention.content,
+                postedAt: mention.postedAt,
+                raw: mention.raw ? JSON.stringify(mention.raw) : null,
+                createdAt,
+              })
+              .onConflictDoNothing()
+              .run()
+
+            totalMentionsInserted++
+          }
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err)
+          console.error(`[JobRunner] ${platformName}: social-monitor FAILED: ${msg}`)
+          platformErrors.set(platformName, msg)
+        }
+      }
+
+      // Determine final run status
+      const allFailed = totalMentionsInserted === 0 && platformErrors.size > 0
+      const someFailed = platformErrors.size > 0
+
+      if (allFailed) {
+        const errorDetail = JSON.stringify(Object.fromEntries(platformErrors))
+        this.db
+          .update(runs)
+          .set({ status: 'failed', finishedAt: new Date().toISOString(), error: errorDetail })
+          .where(eq(runs.id, runId))
+          .run()
+      } else if (someFailed) {
+        const errorDetail = JSON.stringify(Object.fromEntries(platformErrors))
+        this.db
+          .update(runs)
+          .set({ status: 'partial', finishedAt: new Date().toISOString(), error: errorDetail })
+          .where(eq(runs.id, runId))
+          .run()
+      } else {
+        this.db
+          .update(runs)
+          .set({ status: 'completed', finishedAt: new Date().toISOString() })
+          .where(eq(runs.id, runId))
+          .run()
+      }
+
+      const finalStatus = allFailed ? 'failed' : someFailed ? 'partial' : 'completed'
+      trackEvent('run.completed', {
+        status: finalStatus,
+        kind: 'social-monitor',
+        platformCount: activePlatforms.length,
+        platforms: activePlatforms.map(p => p.adapter.name),
+        mentionsInserted: totalMentionsInserted,
+        durationMs: Date.now() - startTime,
+      })
+
+      this.incrementUsage(projectId, 'social-monitor-runs', 1)
+
+      if (this.onRunCompleted) {
+        this.onRunCompleted(runId, projectId).catch((err: unknown) => {
+          console.error('[JobRunner] Notification callback failed:', err)
+        })
+      }
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      this.db
+        .update(runs)
+        .set({
+          status: 'failed',
+          finishedAt: new Date().toISOString(),
+          error: errorMessage,
+        })
+        .where(eq(runs.id, runId))
+        .run()
+
+      trackEvent('run.completed', {
+        status: 'failed',
+        kind: 'social-monitor',
+        platformCount: 0,
+        platforms: [],
+        mentionsInserted: 0,
+        durationMs: Date.now() - startTime,
+      })
+
       if (this.onRunCompleted) {
         this.onRunCompleted(runId, projectId).catch((notifErr: unknown) => {
           console.error('[JobRunner] Notification callback failed:', notifErr)

@@ -42,7 +42,7 @@ export interface ApiRoutesOptions {
   skipAuth?: boolean
 
   /** Callback when a run is created (wire up job runner) */
-  onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: import('@ainyc/canonry-contracts').LocationContext | null) => void
+  onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: import('@ainyc/canonry-contracts').LocationContext | null, kind?: string) => void
   /** Provider configuration summary for settings endpoint */
   providerSummary?: ProviderSummaryEntry[]
   /** Callback when a provider config is updated via API */

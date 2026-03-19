@@ -243,6 +243,25 @@ export const bingKeywordStats = sqliteTable('bing_keyword_stats', {
   index('idx_bing_keyword_query').on(table.query),
 ])
 
+export const socialMentions = sqliteTable('social_mentions', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  runId: text('run_id').notNull().references(() => runs.id, { onDelete: 'cascade' }),
+  platform: text('platform').notNull(),
+  externalId: text('external_id').notNull(),
+  url: text('url').notNull(),
+  author: text('author').notNull(),
+  title: text('title'),
+  content: text('content').notNull(),
+  postedAt: text('posted_at').notNull(),
+  raw: text('raw'),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_social_mentions_platform_external').on(table.platform, table.externalId),
+  index('idx_social_mentions_project').on(table.projectId),
+  index('idx_social_mentions_run').on(table.runId),
+])
+
 export const usageCounters = sqliteTable('usage_counters', {
   id: text('id').primaryKey(),
   scope: text('scope').notNull(),
