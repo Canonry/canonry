@@ -1,7 +1,10 @@
-.PHONY: check typecheck test lint dev build serve publish release
+.PHONY: install check typecheck test lint dev build serve publish release
 
 # Run all validation: typecheck, lint, and tests
 check: typecheck lint test
+
+install:
+	pnpm install
 
 typecheck:
 	pnpm run typecheck
