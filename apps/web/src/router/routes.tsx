@@ -9,6 +9,7 @@ import { ProjectPage } from '../pages/ProjectPage.js'
 import { RunsPage } from '../pages/RunsPage.js'
 import { SettingsPage } from '../pages/SettingsPage.js'
 import { SetupPage } from '../pages/SetupPage.js'
+import { SocialPage } from '../pages/SocialPage.js'
 import { NotFoundPage } from '../pages/NotFoundPage.js'
 import { queryKeys } from '../queries/query-keys.js'
 
@@ -80,6 +81,12 @@ export const projectAnalyticsRoute = createRoute({
   component: () => <ProjectPage tab="analytics" />,
 })
 
+export const socialRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/social',
+  component: SocialPage,
+})
+
 export const runsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/runs',
@@ -121,6 +128,7 @@ export const routeTree = rootRoute.addChildren([
     projectSearchConsoleRoute,
     projectAnalyticsRoute,
   ]),
+  socialRoute,
   runsRoute,
   settingsRoute,
   setupRoute,

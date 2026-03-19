@@ -868,6 +868,71 @@ export function fetchAnalyticsSources(project: string, window?: MetricsWindow): 
   return apiFetch(`/projects/${encodeURIComponent(project)}/analytics/sources${qs}`)
 }
 
+// ── Social monitoring ────────────────────────────────────────────────────────
+
+export interface ApiSocialPlatform {
+  id: string
+  name: string
+  configured: boolean
+  mentions7d: number
+  engagement: number
+  sentiment: number
+  domainLinks: number
+}
+
+export interface ApiSocialMention {
+  id: string
+  platform: string
+  author: string
+  content: string
+  sentiment: 'positive' | 'negative' | 'neutral'
+  likes: number
+  shares: number
+  comments: number
+  postedAt: string
+  url: string
+  projectKeywords?: string[]
+}
+
+export interface ApiSocialSummary {
+  totalMentions7d: number
+  sentimentScore: number
+  domainLinks: number
+  platforms: ApiSocialPlatform[]
+  recentMentions: ApiSocialMention[]
+  trendByDay?: number[]
+}
+
+export function fetchSocialSummary(): Promise<ApiSocialSummary> {
+  return apiFetch('/social/summary')
+}
+
+export function fetchProjectSocialMentions(
+  project: string,
+  params?: { platform?: string; limit?: number; offset?: number },
+): Promise<ApiSocialMention[]> {
+  const qs = new URLSearchParams()
+  if (params?.platform) qs.set('platform', params.platform)
+  if (params?.limit !== undefined) qs.set('limit', String(params.limit))
+  if (params?.offset !== undefined) qs.set('offset', String(params.offset))
+  const query = qs.toString() ? `?${qs.toString()}` : ''
+  return apiFetch(`/projects/${encodeURIComponent(project)}/social/mentions${query}`)
+}
+
+export function connectSocialPlatform(platform: string, apiKey: string): Promise<ApiSocialPlatform> {
+  return apiFetch(`/social/platforms/${encodeURIComponent(platform)}/connect`, {
+    method: 'POST',
+    body: JSON.stringify({ apiKey }),
+  })
+}
+
+export function disconnectSocialPlatform(platform: string): Promise<void> {
+  return apiFetch(`/social/platforms/${encodeURIComponent(platform)}/disconnect`, {
+    method: 'POST',
+    body: '{}',
+  })
+}
+
 // ── Health ──────────────────────────────────────────────────────────────────
 
 import type { ServiceStatus } from './view-models.js'

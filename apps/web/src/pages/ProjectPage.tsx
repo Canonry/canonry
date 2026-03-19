@@ -15,6 +15,7 @@ import { EvidenceTable } from '../components/project/EvidenceTable.js'
 import { CompetitorTable } from '../components/project/CompetitorTable.js'
 import { AnalyticsSection } from '../components/project/AnalyticsSection.js'
 import { GscSection } from '../components/project/GscSection.js'
+import { SocialSignalsSection } from '../components/project/SocialSignalsSection.js'
 import { formatTimestamp } from '../lib/format-helpers.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
 import { ScheduleSection } from '../components/project/ScheduleSection.js'
@@ -1028,6 +1029,9 @@ export function ProjectPage({
               evidence={filteredEvidence}
             />
           </section>
+
+          {/* Social Signals */}
+          <SocialSignalsSection projectName={model.project.name} />
 
           {/* Competitor table */}
           <section className="page-section-divider">

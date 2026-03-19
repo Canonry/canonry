@@ -5,13 +5,121 @@ import { Card } from '../components/ui/card.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { ProviderConfigForm } from '../components/settings/ProviderConfigForm.js'
 import { GoogleOAuthConfigForm } from '../components/settings/GoogleOAuthConfigForm.js'
-import { updateBingApiKey } from '../api.js'
+import { updateBingApiKey, connectSocialPlatform, disconnectSocialPlatform } from '../api.js'
 import { CdpConfigCard } from '../components/settings/CdpConfigCard.js'
 import { toneFromService } from '../lib/tone-helpers.js'
 import { useDashboard } from '../queries/use-dashboard.js'
 import { useHealth } from '../queries/use-health.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import type { HealthSnapshot } from '../view-models.js'
+
+const SOCIAL_PLATFORMS = [
+  { id: 'twitter', name: 'Twitter / X', description: 'Monitor brand mentions, hashtags, and engagement.' },
+  { id: 'reddit', name: 'Reddit', description: 'Track subreddit mentions and comment sentiment.' },
+  { id: 'linkedin', name: 'LinkedIn', description: 'Follow professional mentions and company references.' },
+]
+
+function SocialPlatformCard({
+  platform,
+}: {
+  platform: (typeof SOCIAL_PLATFORMS)[number]
+}) {
+  const [apiKey, setApiKey] = useState('')
+  const [connected, setConnected] = useState(false)
+  const [configuring, setConfiguring] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleConnect = async () => {
+    if (!apiKey.trim()) return
+    setSaving(true)
+    setError(null)
+    try {
+      await connectSocialPlatform(platform.id, apiKey.trim())
+      setConnected(true)
+      setConfiguring(false)
+      setApiKey('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to connect')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDisconnect = async () => {
+    setSaving(true)
+    setError(null)
+    try {
+      await disconnectSocialPlatform(platform.id)
+      setConnected(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to disconnect')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card className="surface-card">
+      <div className="section-head">
+        <div>
+          <p className="eyebrow eyebrow-soft">Social Platform</p>
+          <h2>{platform.name}</h2>
+        </div>
+        <ToneBadge tone={connected ? 'positive' : 'neutral'}>
+          {connected ? 'Connected' : 'Disconnected'}
+        </ToneBadge>
+      </div>
+      <p className="mt-2 text-sm text-zinc-500">{platform.description}</p>
+      {error && <p className="mt-1 text-xs text-rose-400">{error}</p>}
+      <div className="mt-2 flex gap-2">
+        {connected ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={saving}
+            onClick={handleDisconnect}
+          >
+            {saving ? 'Disconnecting…' : 'Disconnect'}
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setConfiguring((v) => !v)}
+          >
+            {configuring ? 'Cancel' : 'Connect'}
+          </Button>
+        )}
+      </div>
+      {configuring && !connected && (
+        <div className="mt-3 space-y-2 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+          <label className="text-xs text-zinc-500" htmlFor={`api-key-${platform.id}`}>
+            API Key
+          </label>
+          <input
+            id={`api-key-${platform.id}`}
+            type="password"
+            className="mt-0.5 w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+            placeholder={`${platform.name} API key`}
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+          />
+          <Button
+            type="button"
+            size="sm"
+            disabled={!apiKey.trim() || saving}
+            onClick={handleConnect}
+          >
+            {saving ? 'Connecting…' : 'Save & Connect'}
+          </Button>
+        </div>
+      )}
+    </Card>
+  )
+}
 
 const defaultHealthSnapshot: HealthSnapshot = {
   apiStatus: { label: 'API', state: 'checking', detail: 'Checking service health' },
@@ -219,6 +327,10 @@ export function SettingsPage() {
         </Card>
 
         <CdpConfigCard />
+
+        {SOCIAL_PLATFORMS.map((platform) => (
+          <SocialPlatformCard key={platform.id} platform={platform} />
+        ))}
 
         <Card className="surface-card">
           <div className="section-head">

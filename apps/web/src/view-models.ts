@@ -156,6 +156,8 @@ export interface ProjectCommandCenterVm {
   visibilityEvidence: CitationInsightVm[]
   competitors: CompetitorVm[]
   recentRuns: RunListItemVm[]
+  /** 7-day social mention trend (mention counts per day, oldest first). Optional until social API is connected. */
+  socialTrend?: number[]
 }
 
 export interface SetupHealthCheckVm {
@@ -230,3 +232,54 @@ export interface DashboardVm {
 }
 
 export type RunFilter = 'all' | RunStatus
+
+// ── Social monitoring ─────────────────────────────────────────────────────────
+
+export interface SocialPlatformVm {
+  id: string
+  name: string
+  mentions7d: number
+  engagement: number
+  sentiment: number
+  domainLinks: number
+  connected: boolean
+}
+
+export interface SocialMentionVm {
+  id: string
+  platform: string
+  author: string
+  content: string
+  sentiment: 'positive' | 'negative' | 'neutral'
+  sentimentTone: MetricTone
+  likes: number
+  shares: number
+  comments: number
+  postedAt: string
+  url: string
+}
+
+export interface SocialSummaryVm {
+  totalMentions: number
+  sentimentScore: number
+  domainLinks: number
+  trendByDay: number[]
+}
+
+export interface SocialOverviewVm {
+  summary: SocialSummaryVm
+  platforms: SocialPlatformVm[]
+  recentMentions: SocialMentionVm[]
+  mentionPage: number
+  mentionPageSize: number
+  platformFilter: string
+}
+
+export interface ProjectSocialSignalsVm {
+  mentionCount: number
+  positivePercent: number
+  negativePercent: number
+  topTag: string
+  mentions: SocialMentionVm[]
+  trendByDay: number[]
+}

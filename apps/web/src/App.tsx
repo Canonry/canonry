@@ -5,6 +5,7 @@ import {
   Globe,
   LayoutDashboard,
   Menu,
+  MessageSquare,
   Play,
   Rocket,
   Settings,
@@ -119,6 +120,7 @@ export function RootLayout() {
     const path = location.pathname
     if (path === '/') return 'Portfolio'
     if (path === '/projects') return 'Projects'
+    if (path === '/social') return 'Social'
     if (path === '/runs') return 'Runs'
     if (path === '/settings') return 'Settings'
     if (path === '/setup') return 'Setup'
@@ -165,6 +167,15 @@ export function RootLayout() {
           >
             <Globe className="sidebar-icon" />
             <span>Projects</span>
+          </Link>
+          <Link
+            to="/social"
+            className="sidebar-link"
+            activeProps={{ className: 'sidebar-link sidebar-link-active' }}
+            activeOptions={{ exact: true }}
+          >
+            <MessageSquare className="sidebar-icon" />
+            <span>Social</span>
           </Link>
           <Link
             to="/runs"
@@ -289,6 +300,9 @@ export function RootLayout() {
           </Link>
           <Link to="/projects" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: false }}>
             Projects
+          </Link>
+          <Link to="/social" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
+            Social
           </Link>
           <Link to="/runs" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
             Runs

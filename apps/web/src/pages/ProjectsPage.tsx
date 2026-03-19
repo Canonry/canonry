@@ -6,6 +6,7 @@ import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { StatusBadge } from '../components/shared/StatusBadge.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
+import { Sparkline } from '../components/shared/Sparkline.js'
 import { YamlApplyPanel } from '../components/project/YamlApplyPanel.js'
 import { createProject } from '../api.js'
 import { useDashboard } from '../queries/use-dashboard.js'
@@ -162,6 +163,7 @@ export function ProjectsPage() {
                 <th>Name</th>
                 <th>Domain</th>
                 <th>Visibility</th>
+                <th>Social (7d)</th>
                 <th>Last run</th>
                 <th className="text-right">Country</th>
               </tr>
@@ -169,6 +171,7 @@ export function ProjectsPage() {
             <tbody>
               {projects.map((p) => {
                 const latestRun = p.recentRuns[0]
+                const socialTrend = p.socialTrend ?? []
                 return (
                   <tr key={p.project.id} className="cursor-pointer" onClick={() => navigate({ to: '/projects/$projectId', params: { projectId: p.project.id } })}>
                     <td>
@@ -185,6 +188,13 @@ export function ProjectsPage() {
                     <td className="text-zinc-400">{p.project.canonicalDomain}</td>
                     <td>
                       <ToneBadge tone={p.visibilitySummary.tone}>{p.visibilitySummary.value}</ToneBadge>
+                    </td>
+                    <td>
+                      {socialTrend.length > 1 ? (
+                        <Sparkline points={socialTrend} tone="neutral" />
+                      ) : (
+                        <span className="text-zinc-600 text-xs">—</span>
+                      )}
                     </td>
                     <td className="text-zinc-500 text-sm">
                       {latestRun ? (
