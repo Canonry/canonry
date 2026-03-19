@@ -26,29 +26,39 @@ export async function sweepRoutes(app: FastifyInstance, opts: SweepRoutesOptions
       : 'manual'
     const keyword = request.body?.keyword
 
-    // Guard against concurrent sweeps for the same project
-    const activeSweep = app.db
-      .select()
-      .from(indexingSweeps)
-      .where(
-        and(
-          eq(indexingSweeps.projectId, project.id),
-          inArray(indexingSweeps.status, ['queued', 'running']),
-        ),
-      )
-      .get()
-    if (activeSweep) {
-      return reply.status(409).send({ error: `Sweep ${activeSweep.id} is already ${activeSweep.status}` })
-    }
-
+    // Guard against concurrent sweeps for the same project.
+    // Wrap the check+insert in a transaction so two simultaneous requests cannot
+    // both observe no active sweep and then both insert — SQLite serialises writers.
     const sweepId = crypto.randomUUID()
-    app.db.insert(indexingSweeps).values({
-      id: sweepId,
-      projectId: project.id,
-      status: 'queued',
-      trigger,
-      createdAt: now,
-    }).run()
+    const txResult = app.db.transaction((tx) => {
+      const activeSweep = tx
+        .select()
+        .from(indexingSweeps)
+        .where(
+          and(
+            eq(indexingSweeps.projectId, project.id),
+            inArray(indexingSweeps.status, ['queued', 'running']),
+          ),
+        )
+        .get()
+      if (activeSweep) {
+        return { conflict: true, activeSweep } as const
+      }
+
+      tx.insert(indexingSweeps).values({
+        id: sweepId,
+        projectId: project.id,
+        status: 'queued',
+        trigger,
+        createdAt: now,
+      }).run()
+
+      return { conflict: false } as const
+    })
+
+    if (txResult.conflict) {
+      return reply.status(409).send({ error: `Sweep ${txResult.activeSweep.id} is already ${txResult.activeSweep.status}` })
+    }
 
     writeAuditLog(app.db, {
       projectId: project.id,
@@ -113,8 +123,8 @@ export async function sweepRoutes(app: FastifyInstance, opts: SweepRoutesOptions
 
   // GET /sweeps — list all sweeps across all projects (paginated)
   app.get<{ Querystring: { limit?: string; offset?: string } }>('/sweeps', async (request, reply) => {
-    const limit = Math.min(Number(request.query.limit ?? 50), 200)
-    const offset = Number(request.query.offset ?? 0)
+    const limit = Math.min(Math.max(parseInt(String(request.query.limit ?? '50'), 10) || 50, 1), 200)
+    const offset = Math.max(parseInt(String(request.query.offset ?? '0'), 10) || 0, 0)
     const rows = app.db
       .select({
         id: indexingSweeps.id,

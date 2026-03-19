@@ -128,6 +128,28 @@ describe('WebSearchAdapter.siteQuery (serper backend)', () => {
     const adapter = new WebSearchAdapter({ apiKey: 'test-key', backend: 'serper' })
     await assert.rejects(adapter.siteQuery('example.com', 'keyword'), /Serper API error: 403/)
   })
+
+  it('surfaces 429 status code in error message for rate-limit response', async () => {
+    mockFetch(429, { message: 'Too Many Requests' })
+
+    const adapter = new WebSearchAdapter({ apiKey: 'test-key', backend: 'serper' })
+    await assert.rejects(
+      adapter.siteQuery('example.com', 'keyword'),
+      /Serper API error: 429/,
+      'error message should include the HTTP 429 status code',
+    )
+  })
+
+  it('surfaces 5xx status code in error message for server error response', async () => {
+    mockFetch(500, { message: 'Internal Server Error' })
+
+    const adapter = new WebSearchAdapter({ apiKey: 'test-key', backend: 'serper' })
+    await assert.rejects(
+      adapter.siteQuery('example.com', 'keyword'),
+      /Serper API error: 500/,
+      'error message should include the HTTP 500 status code',
+    )
+  })
 })
 
 // ---------------------------------------------------------------------------

@@ -275,7 +275,29 @@ export async function createServer(opts: {
         app.log.error({ runId, err }, 'Job runner failed')
       })
     },
-    onProviderUpdate: (providerName: string, apiKey: string, model?: string, baseUrl?: string, incomingQuota?: Partial<import('@ainyc/canonry-contracts').ProviderQuotaPolicy>) => {
+    onProviderUpdate: (providerName: string, apiKey: string, model?: string, baseUrl?: string, incomingQuota?: Partial<import('@ainyc/canonry-contracts').ProviderQuotaPolicy>, meta?: Record<string, unknown>) => {
+      // Handle web-search provider separately — it isn't an LLM adapter
+      if (providerName === 'web-search') {
+        if (!opts.config.providers) opts.config.providers = {}
+        const cx = typeof meta?.cx === 'string' ? meta.cx : undefined
+        opts.config.providers.webSearch = {
+          apiKey,
+          // baseUrl carries the backend name (serper | google-cse) from the route handler
+          backend: (baseUrl ?? 'serper') as 'serper' | 'google-cse',
+          ...(cx ? { cx } : {}),
+        }
+        try {
+          saveConfig(opts.config)
+        } catch (err) {
+          app.log.error({ err }, 'Failed to save web-search config')
+          return null
+        }
+        const wsEntry = (providerSummary as Array<{ name: string; configured: boolean; model?: string }>)
+          .find(p => p.name === 'web-search')
+        if (wsEntry) wsEntry.configured = true
+        return { name: 'web-search', configured: true }
+      }
+
       const name = providerName as keyof typeof adapterMap
       if (!(name in adapterMap)) return null
 

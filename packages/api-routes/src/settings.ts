@@ -15,7 +15,7 @@ export interface GoogleSettingsSummary {
 
 export interface SettingsRoutesOptions {
   providerSummary?: ProviderSummaryEntry[]
-  onProviderUpdate?: (provider: string, apiKey: string, model?: string, baseUrl?: string, quota?: Partial<ProviderQuotaPolicy>) => ProviderSummaryEntry | null
+  onProviderUpdate?: (provider: string, apiKey: string, model?: string, baseUrl?: string, quota?: Partial<ProviderQuotaPolicy>, meta?: Record<string, unknown>) => ProviderSummaryEntry | null
   google?: GoogleSettingsSummary
   onGoogleUpdate?: (clientId: string, clientSecret: string) => GoogleSettingsSummary | null
 }
@@ -39,9 +39,9 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
       if (!opts.onProviderUpdate) {
         return reply.status(501).send({ error: 'Provider configuration updates are not supported in this deployment' })
       }
-      // Store web-search config via the generic provider update callback using name 'web-search'
-      // cx is passed as the model arg (workaround) so it is persisted for google-cse backend
-      const result = opts.onProviderUpdate('web-search' as never, apiKey, cx, backend ?? 'serper', undefined)
+      // Store web-search config via the generic provider update callback using name 'web-search'.
+      // cx is passed explicitly via the meta bag so it is persisted for google-cse backend.
+      const result = opts.onProviderUpdate('web-search', apiKey, undefined, backend ?? 'serper', undefined, cx ? { cx } : undefined)
       return result ?? reply.status(500).send({ error: 'Failed to update web-search provider configuration' })
     }
 
