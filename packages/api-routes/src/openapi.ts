@@ -525,6 +525,18 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'post',
+    path: '/api/v1/runs/{id}/cancel',
+    summary: 'Cancel a queued or running run',
+    tags: ['runs'],
+    parameters: [runIdParameter],
+    responses: {
+      200: { description: 'Run cancelled.' },
+      404: { description: 'Run not found.' },
+      409: { description: 'Run is not cancellable.' },
+    },
+  },
+  {
+    method: 'post',
     path: '/api/v1/apply',
     summary: 'Apply a Canonry config document',
     tags: ['config'],
