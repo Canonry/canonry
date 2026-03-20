@@ -3,6 +3,7 @@ export function ProviderBadge({ provider }: { provider: string }) {
     gemini: 'border-blue-800/50 bg-blue-950/40 text-blue-300',
     openai: 'border-green-800/50 bg-green-950/40 text-green-300',
     claude: 'border-amber-800/50 bg-amber-950/40 text-amber-300',
+    perplexity: 'border-teal-800/50 bg-teal-950/40 text-teal-300',
     local: 'border-purple-800/50 bg-purple-950/40 text-purple-300',
   }
   return (

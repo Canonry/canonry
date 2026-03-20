@@ -34,6 +34,7 @@ export interface InitOptions {
   geminiKey?: string
   openaiKey?: string
   claudeKey?: string
+  perplexityKey?: string
   localUrl?: string
   localModel?: string
   localKey?: string
@@ -75,6 +76,7 @@ export async function initCommand(opts?: InitOptions): Promise<void> {
     GEMINI_API_KEY: opts?.geminiKey,
     OPENAI_API_KEY: opts?.openaiKey,
     ANTHROPIC_API_KEY: opts?.claudeKey,
+    PERPLEXITY_API_KEY: opts?.perplexityKey,
     LOCAL_BASE_URL: opts?.localUrl,
     LOCAL_MODEL: opts?.localModel,
     LOCAL_API_KEY: opts?.localKey,
@@ -97,6 +99,7 @@ export async function initCommand(opts?: InitOptions): Promise<void> {
     envProviders.gemini ||
     envProviders.openai ||
     envProviders.claude ||
+    envProviders.perplexity ||
     envProviders.local ||
     envGoogleConfigured
   )
@@ -129,7 +132,7 @@ export async function initCommand(opts?: InitOptions): Promise<void> {
     // Interactive mode — prompt for each provider
     console.log('Configure AI providers (at least one required):\n')
     console.log('Tip: For non-interactive setup, pass provider flags or set')
-    console.log('GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY,')
+    console.log('GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, PERPLEXITY_API_KEY,')
     console.log('GOOGLE_CLIENT_ID, and GOOGLE_CLIENT_SECRET env vars.')
     console.log('Or use "canonry bootstrap".\n')
 
@@ -152,6 +155,13 @@ export async function initCommand(opts?: InitOptions): Promise<void> {
     if (claudeApiKey) {
       const claudeModel = await prompt('  Claude model [claude-sonnet-4-6]: ') || 'claude-sonnet-4-6'
       providers.claude = { apiKey: claudeApiKey, model: claudeModel, quota: DEFAULT_QUOTA }
+    }
+
+    // Perplexity
+    const perplexityApiKey = await prompt('Perplexity API key (press Enter to skip): ')
+    if (perplexityApiKey) {
+      const perplexityModel = await prompt('  Perplexity model [sonar]: ') || 'sonar'
+      providers.perplexity = { apiKey: perplexityApiKey, model: perplexityModel, quota: DEFAULT_QUOTA }
     }
 
     // Local LLM
@@ -186,7 +196,7 @@ export async function initCommand(opts?: InitOptions): Promise<void> {
   }
 
   // Validate at least one provider
-  const hasProvider = providers.gemini || providers.openai || providers.claude || providers.local
+  const hasProvider = providers.gemini || providers.openai || providers.claude || providers.perplexity || providers.local
   if (!hasProvider) {
     throw new CliError({
       code: 'INIT_PROVIDER_REQUIRED',

@@ -12,11 +12,11 @@ export async function bootstrapCommand(_opts?: { force?: boolean; format?: CliFo
   const format = _opts?.format ?? 'text'
   const env = getBootstrapEnv(process.env)
   const providers = env.providers
-  const hasProvider = providers?.gemini || providers?.openai || providers?.claude || providers?.local
+  const hasProvider = providers?.gemini || providers?.openai || providers?.claude || providers?.perplexity || providers?.local
 
   if (!hasProvider) {
     console.warn(
-      'Warning: No provider env vars set (GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, or LOCAL_BASE_URL). You can configure providers later via the dashboard.',
+      'Warning: No provider env vars set (GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, PERPLEXITY_API_KEY, or LOCAL_BASE_URL). You can configure providers later via the dashboard.',
     )
   }
 
@@ -43,6 +43,7 @@ export async function bootstrapCommand(_opts?: { force?: boolean; format?: CliFo
   if (providers?.gemini) mergedProviders.gemini = providers.gemini
   if (providers?.openai) mergedProviders.openai = providers.openai
   if (providers?.claude) mergedProviders.claude = providers.claude
+  if (providers?.perplexity) mergedProviders.perplexity = providers.perplexity
   if (providers?.local) mergedProviders.local = providers.local
 
   if ((env.googleClientId && !env.googleClientSecret) || (!env.googleClientId && env.googleClientSecret)) {

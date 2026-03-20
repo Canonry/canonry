@@ -15,11 +15,11 @@ export type ProviderQuotaPolicy = z.infer<typeof providerQuotaPolicySchema>
  * registered adapters. These constants are kept for backward compatibility
  * but are NOT the source of truth — each adapter self-declares its name.
  */
-export const PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'local', 'cdp:chatgpt'] as const
+export const PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'perplexity', 'local', 'cdp:chatgpt'] as const
 export const providerNameSchema = z.string().min(1)
 export type ProviderName = string
 
-export const API_PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'local'] as const
+export const API_PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'perplexity', 'local'] as const
 export const apiProviderNameSchema = z.string().min(1)
 export type ApiProviderName = string
 

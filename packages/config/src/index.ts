@@ -50,6 +50,7 @@ export interface BootstrapEnv {
     gemini?: ProviderEnvConfig
     openai?: ProviderEnvConfig
     claude?: ProviderEnvConfig
+    perplexity?: ProviderEnvConfig
     local?: LocalBootstrapProviderConfig
   }
 }
@@ -77,6 +78,8 @@ const bootstrapEnvSchema = z.object({
   OPENAI_MODEL: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().optional(),
+  PERPLEXITY_API_KEY: z.string().optional(),
+  PERPLEXITY_MODEL: z.string().optional(),
   LOCAL_BASE_URL: z.string().optional(),
   LOCAL_API_KEY: z.string().optional(),
   LOCAL_MODEL: z.string().optional(),
@@ -173,6 +176,18 @@ export function getBootstrapEnv(
     providers.claude = {
       apiKey: parsed.ANTHROPIC_API_KEY,
       model: parsed.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
+      quota: providerQuotaPolicySchema.parse({
+        maxConcurrency: 2,
+        maxRequestsPerMinute: 10,
+        maxRequestsPerDay: 500,
+      }),
+    }
+  }
+
+  if (parsed.PERPLEXITY_API_KEY) {
+    providers.perplexity = {
+      apiKey: parsed.PERPLEXITY_API_KEY,
+      model: parsed.PERPLEXITY_MODEL || 'sonar',
       quota: providerQuotaPolicySchema.parse({
         maxConcurrency: 2,
         maxRequestsPerMinute: 10,

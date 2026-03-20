@@ -21,12 +21,13 @@ function applyServerEnv(values: Record<string, unknown>): void {
 export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['init'],
-    usage: 'canonry init [--force] [--gemini-key <key>] [--openai-key <key>] [--claude-key <key>] [--local-url <url>] [--local-model <name>] [--local-key <key>] [--google-client-id <id>] [--google-client-secret <key>] [--format json]',
+    usage: 'canonry init [--force] [--gemini-key <key>] [--openai-key <key>] [--claude-key <key>] [--perplexity-key <key>] [--local-url <url>] [--local-model <name>] [--local-key <key>] [--google-client-id <id>] [--google-client-secret <key>] [--format json]',
     options: {
       force: { type: 'boolean', short: 'f', default: false },
       'gemini-key': stringOption(),
       'openai-key': stringOption(),
       'claude-key': stringOption(),
+      'perplexity-key': stringOption(),
       'local-url': stringOption(),
       'local-model': stringOption(),
       'local-key': stringOption(),
@@ -40,6 +41,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
         geminiKey: getString(input.values, 'gemini-key'),
         openaiKey: getString(input.values, 'openai-key'),
         claudeKey: getString(input.values, 'claude-key'),
+        perplexityKey: getString(input.values, 'perplexity-key'),
         localUrl: getString(input.values, 'local-url'),
         localModel: getString(input.values, 'local-model'),
         localKey: getString(input.values, 'local-key'),

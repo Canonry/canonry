@@ -48,6 +48,7 @@ All commands support `--format json` for machine-readable output.
 ```bash
 canonry init [--force]               # Initialize config and database (interactive)
 canonry init --gemini-key <key>      # Initialize non-interactively (flags or env vars)
+canonry init --perplexity-key <key>  # Any combination of provider flags works
 canonry bootstrap [--force]          # Bootstrap config/database from env vars only
 canonry serve [--port 4100] [--base-path /prefix/]   # Start server (foreground)
 canonry start [--port 4100] [--base-path /prefix/]   # Start server (background daemon)
@@ -55,7 +56,7 @@ canonry stop                         # Stop the background daemon
 canonry settings                     # View active provider and quota settings
 ```
 
-Non-interactive `init` flags: `--gemini-key`, `--openai-key`, `--claude-key`, `--local-url`, `--local-model`, `--local-key`, `--google-client-id`, `--google-client-secret`. Falls back to `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `LOCAL_BASE_URL`, `LOCAL_MODEL`, `LOCAL_API_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` env vars.
+Non-interactive `init` flags: `--gemini-key`, `--openai-key`, `--claude-key`, `--perplexity-key`, `--local-url`, `--local-model`, `--local-key`, `--google-client-id`, `--google-client-secret`. Falls back to `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `PERPLEXITY_API_KEY`, `LOCAL_BASE_URL`, `LOCAL_MODEL`, `LOCAL_API_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` env vars.
 
 ### Projects
 
@@ -431,6 +432,7 @@ Canonry runs as a **single service** -- the API, web dashboard, and job schedule
 | `GEMINI_API_KEY` | Google Gemini provider key |
 | `OPENAI_API_KEY` | OpenAI provider key |
 | `ANTHROPIC_API_KEY` | Anthropic/Claude provider key |
+| `PERPLEXITY_API_KEY` | Perplexity provider key |
 | `LOCAL_BASE_URL` | Local LLM endpoint (Ollama, LM Studio, etc.) |
 | `CANONRY_API_KEY` | Pin a specific API key instead of auto-generating one |
 
