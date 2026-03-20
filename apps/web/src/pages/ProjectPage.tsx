@@ -675,8 +675,8 @@ function SearchConsoleSection({
   }
 
   /**
-   * Trigger a live GSC sync job, poll until it finishes, then reload coverage data.
-   * Falls back to a silent reload if the project has no GSC connection yet.
+   * Trigger live queries against both Google (GSC sync job) and Bing (per-URL re-inspection),
+   * run them in parallel, wait for both to settle, then reload coverage data.
    */
   async function handleRefresh() {
     if (refreshing) return
@@ -684,27 +684,38 @@ function SearchConsoleSection({
     setError(null)
 
     try {
-      // Only trigger a sync if we have an active GSC connection
-      if (googleConnection) {
-        setRefreshLabel('Syncing GSC…')
+      setRefreshLabel('Querying Google & Bing…')
+
+      // --- Google: trigger a background GSC sync job and poll to completion ---
+      async function syncGoogle() {
+        if (!googleConnection) return
         const run = await triggerGscSync(projectName).catch(() => null)
+        if (!run?.id) return
 
-        if (run?.id) {
-          // Poll until the job settles (completed / failed / cancelled)
-          const POLL_INTERVAL_MS = 2000
-          const TIMEOUT_MS = 120_000
-          const deadline = Date.now() + TIMEOUT_MS
+        const POLL_INTERVAL_MS = 2000
+        const TIMEOUT_MS = 120_000
+        const deadline = Date.now() + TIMEOUT_MS
 
-          while (Date.now() < deadline) {
-            await new Promise<void>((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
-            const detail = await fetchRunDetail(run.id).catch(() => null)
-            if (!detail) break
-            if (['completed', 'failed', 'cancelled'].includes(detail.status)) break
-          }
+        while (Date.now() < deadline) {
+          await new Promise<void>((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+          const detail = await fetchRunDetail(run.id).catch(() => null)
+          if (!detail) break
+          if (['completed', 'failed', 'cancelled'].includes(detail.status)) break
         }
       }
 
-      // Reload all coverage data (Google + Bing) with fresh DB values
+      // --- Bing: re-inspect all previously known URLs in parallel ---
+      async function syncBing() {
+        if (!bingConnection?.connected) return
+        const inspections = await fetchBingInspections(projectName).catch(() => [] as ApiBingInspection[])
+        const uniqueUrls = [...new Set(inspections.map((i) => i.url))]
+        if (uniqueUrls.length === 0) return
+        await Promise.allSettled(uniqueUrls.map((url) => inspectBingUrl(projectName, url)))
+      }
+
+      await Promise.allSettled([syncGoogle(), syncBing()])
+
+      // Reload both coverage summaries from fresh DB values
       setRefreshLabel('Reloading…')
       await loadSummary(true)
     } catch (err) {
