@@ -156,6 +156,7 @@ function BingSection({ projectName }: { projectName: string }) {
   const [selectedSite, setSelectedSite] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'coverage' | 'inspections' | 'performance'>('coverage')
 
   useEffect(() => {
@@ -242,6 +243,8 @@ function BingSection({ projectName }: { projectName: string }) {
     try {
       await bingRequestIndexing(projectName, { urls: [url] })
       setError(null)
+      setSuccessMessage(`Submitted to Bing: ${url}`)
+      setTimeout(() => setSuccessMessage(null), 4000)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Submission failed')
     }
@@ -249,8 +252,11 @@ function BingSection({ projectName }: { projectName: string }) {
 
   async function handleSubmitAllUnindexed() {
     try {
-      await bingRequestIndexing(projectName, { allUnindexed: true })
+      const result = await bingRequestIndexing(projectName, { allUnindexed: true })
       setError(null)
+      const { succeeded, total } = result.summary
+      setSuccessMessage(`Submitted ${succeeded}/${total} URL${total !== 1 ? 's' : ''} to Bing`)
+      setTimeout(() => setSuccessMessage(null), 4000)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Batch submission failed')
     }
@@ -397,6 +403,7 @@ function BingSection({ projectName }: { projectName: string }) {
           </div>
         </div>
         {error && <p className="mb-3 text-xs text-rose-400">{error}</p>}
+        {successMessage && <p className="mb-3 text-xs text-emerald-400">{successMessage}</p>}
         <div className="space-y-3">
           <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
             <div className="flex items-center gap-3">
