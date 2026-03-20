@@ -95,14 +95,29 @@ export function normalizeResult(raw: PerplexityRawResult): PerplexityNormalizedR
 // --- Internal helpers ---
 
 /**
- * Extract the citations array from the Perplexity response.
- * Perplexity adds a `citations` field to the response object
- * containing an array of source URLs.
+ * Extract the citations array from a Perplexity response.
+ *
+ * Handles two shapes:
+ * 1. Direct API response — `rawResponse.citations` (array of URL strings at top level)
+ * 2. Stored DB format — `rawResponse.apiResponse.citations` (job-runner wraps the raw API
+ *    response under an `apiResponse` key before persisting to query_snapshots.raw_response)
+ *
+ * Perplexity's Sonar models return citations by default; no extra flag required.
  */
 export function extractCitations(rawResponse: Record<string, unknown>): string[] {
-  const citations = rawResponse.citations
-  if (!Array.isArray(citations)) return []
-  return citations.filter((c): c is string => typeof c === 'string')
+  // Shape 1: direct API response (used at execution time)
+  if (Array.isArray(rawResponse.citations)) {
+    return rawResponse.citations.filter((c): c is string => typeof c === 'string')
+  }
+  // Shape 2: stored DB format — citations nested under apiResponse
+  const apiResponse = rawResponse.apiResponse
+  if (apiResponse !== null && typeof apiResponse === 'object' && !Array.isArray(apiResponse)) {
+    const nested = (apiResponse as Record<string, unknown>).citations
+    if (Array.isArray(nested)) {
+      return nested.filter((c): c is string => typeof c === 'string')
+    }
+  }
+  return []
 }
 
 function extractAnswerText(rawResponse: Record<string, unknown>): string {

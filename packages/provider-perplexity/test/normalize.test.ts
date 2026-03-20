@@ -29,6 +29,49 @@ describe('extractCitations', () => {
     }
     expect(extractCitations(raw)).toEqual(['https://example.com', 'https://other.com'])
   })
+
+  it('extracts citations from stored DB format (nested under apiResponse)', () => {
+    // job-runner stores raw_response as { model, groundingSources, searchQueries, apiResponse }
+    // where apiResponse is the actual Perplexity API response containing citations
+    const dbStoredFormat = {
+      model: 'sonar',
+      groundingSources: [{ uri: 'https://example.com', title: '' }],
+      searchQueries: ['AEO agency NYC'],
+      apiResponse: {
+        id: 'abc123',
+        model: 'sonar',
+        choices: [{ message: { content: 'answer text' } }],
+        citations: [
+          'https://example.com/page1',
+          'https://ainyc.ai/services',
+        ],
+      },
+    }
+    expect(extractCitations(dbStoredFormat)).toEqual([
+      'https://example.com/page1',
+      'https://ainyc.ai/services',
+    ])
+  })
+
+  it('prefers top-level citations over nested apiResponse citations', () => {
+    // If both exist, direct API response format takes precedence
+    const raw = {
+      citations: ['https://direct.com'],
+      apiResponse: {
+        citations: ['https://nested.com'],
+      },
+    }
+    expect(extractCitations(raw)).toEqual(['https://direct.com'])
+  })
+
+  it('returns empty array when apiResponse has no citations', () => {
+    const raw = {
+      model: 'sonar',
+      groundingSources: [],
+      apiResponse: { id: 'abc', choices: [] },
+    }
+    expect(extractCitations(raw)).toEqual([])
+  })
 })
 
 describe('extractCitedDomains', () => {
