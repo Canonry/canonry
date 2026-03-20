@@ -38,6 +38,8 @@ import {
   fetchBingInspections,
   inspectBingUrl,
   bingRequestIndexing,
+  triggerGscSync,
+  fetchRunDetail,
   fetchBingPerformance,
   fetchSettings,
   fetchGoogleConnections,
@@ -627,6 +629,7 @@ function SearchConsoleSection({
   const [workspace, setWorkspace] = useState<SearchConsoleWorkspace>('google')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [refreshLabel, setRefreshLabel] = useState('Refresh overview')
   const [error, setError] = useState<string | null>(null)
   const [googleConfigured, setGoogleConfigured] = useState(false)
   const [googleConnection, setGoogleConnection] = useState<ApiGoogleConnection | null>(null)
@@ -668,6 +671,47 @@ function SearchConsoleSection({
     } finally {
       setLoading(false)
       setRefreshing(false)
+    }
+  }
+
+  /**
+   * Trigger a live GSC sync job, poll until it finishes, then reload coverage data.
+   * Falls back to a silent reload if the project has no GSC connection yet.
+   */
+  async function handleRefresh() {
+    if (refreshing) return
+    setRefreshing(true)
+    setError(null)
+
+    try {
+      // Only trigger a sync if we have an active GSC connection
+      if (googleConnection) {
+        setRefreshLabel('Syncing GSC…')
+        const run = await triggerGscSync(projectName).catch(() => null)
+
+        if (run?.id) {
+          // Poll until the job settles (completed / failed / cancelled)
+          const POLL_INTERVAL_MS = 2000
+          const TIMEOUT_MS = 120_000
+          const deadline = Date.now() + TIMEOUT_MS
+
+          while (Date.now() < deadline) {
+            await new Promise<void>((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+            const detail = await fetchRunDetail(run.id).catch(() => null)
+            if (!detail) break
+            if (['completed', 'failed', 'cancelled'].includes(detail.status)) break
+          }
+        }
+      }
+
+      // Reload all coverage data (Google + Bing) with fresh DB values
+      setRefreshLabel('Reloading…')
+      await loadSummary(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Refresh failed')
+    } finally {
+      setRefreshing(false)
+      setRefreshLabel('Refresh overview')
     }
   }
 
@@ -718,8 +762,8 @@ function SearchConsoleSection({
               Scan both engines at a glance, then open the Google or Bing workspace when you need to inspect coverage or take action.
             </p>
           </div>
-          <Button type="button" variant="outline" size="sm" disabled={loading || refreshing} onClick={() => void loadSummary(true)}>
-            {loading || refreshing ? 'Refreshing…' : 'Refresh overview'}
+          <Button type="button" variant="outline" size="sm" disabled={loading || refreshing} onClick={() => void handleRefresh()}>
+            {loading || refreshing ? refreshLabel : 'Refresh overview'}
           </Button>
         </div>
 
