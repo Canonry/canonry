@@ -54,7 +54,7 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 
       return {
-        queryKey: queryKeys.projects.detail(project.id),
+        queryKey: queryKeys.projects.detail(project.id, completedRuns[0]?.id),
         queryFn: async (): Promise<ProjectData> => {
           const [kws, comps, timeline, latestRunDetail, previousRunDetail] = await Promise.all([
             fetchKeywords(project.name).catch(() => []),

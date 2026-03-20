@@ -7,7 +7,8 @@ describe('queryKeys', () => {
   })
 
   it('projects.detail includes project id', () => {
-    expect(queryKeys.projects.detail('proj_123')).toEqual(['projects', 'proj_123'])
+    expect(queryKeys.projects.detail('proj_123')).toEqual(['projects', 'proj_123', undefined])
+    expect(queryKeys.projects.detail('proj_123', 'run_abc')).toEqual(['projects', 'proj_123', 'run_abc'])
   })
 
   it('projects.keywords includes project name', () => {

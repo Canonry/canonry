@@ -1,7 +1,7 @@
 export const queryKeys = {
   projects: {
     all: ['projects'] as const,
-    detail: (id: string) => ['projects', id] as const,
+    detail: (id: string, latestRunId?: string) => ['projects', id, latestRunId] as const,
     keywords: (name: string) => ['projects', name, 'keywords'] as const,
     competitors: (name: string) => ['projects', name, 'competitors'] as const,
     timeline: (name: string, location?: string) => ['projects', name, 'timeline', location] as const,
