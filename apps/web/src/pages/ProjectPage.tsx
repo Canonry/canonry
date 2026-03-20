@@ -39,11 +39,16 @@ import {
   inspectBingUrl,
   bingRequestIndexing,
   fetchBingPerformance,
+  fetchSettings,
+  fetchGoogleConnections,
+  fetchGscCoverage,
   type ApiBingConnection,
   type ApiBingSite,
   type ApiBingInspection,
   type ApiBingCoverageSummary,
   type ApiBingKeywordStats,
+  type ApiGoogleConnection,
+  type ApiGscCoverageSummary,
 } from '../api.js'
 import { useDashboard } from '../queries/use-dashboard.js'
 import { useDrawer } from '../hooks/use-drawer.js'
@@ -53,6 +58,91 @@ import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 export type ProjectPageTab = 'overview' | 'search-console' | 'analytics'
 
 const defaultFixture = createDashboardFixture()
+
+type SearchConsoleWorkspace = 'google' | 'bing'
+
+function SearchConsoleSummaryCard({
+  eyebrow,
+  title,
+  status,
+  tone,
+  targetLabel,
+  targetValue,
+  coverageValue,
+  note,
+  updatedAt,
+  active,
+  onClick,
+}: {
+  eyebrow: string
+  title: string
+  status: string
+  tone: 'positive' | 'caution' | 'negative' | 'neutral'
+  targetLabel: string
+  targetValue: string
+  coverageValue: string
+  note: string
+  updatedAt: string | null
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`surface-card w-full text-left transition-colors ${
+        active
+          ? 'border-zinc-200 bg-zinc-900/50'
+          : 'hover:border-zinc-700 hover:bg-zinc-900/40'
+      }`}
+    >
+      <div className="section-head">
+        <div className="min-w-0">
+          <p className="eyebrow eyebrow-soft">{eyebrow}</p>
+          <h3>{title}</h3>
+        </div>
+        <ToneBadge tone={tone}>{status}</ToneBadge>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+          <p className="text-xs uppercase tracking-wide text-zinc-500">{targetLabel}</p>
+          <p className="mt-1 truncate text-sm text-zinc-200">{targetValue}</p>
+        </div>
+        <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+          <p className="text-xs uppercase tracking-wide text-zinc-500">Coverage</p>
+          <p className="mt-1 text-sm text-zinc-200">{coverageValue}</p>
+        </div>
+      </div>
+      <div className="mt-3 flex flex-col gap-1 text-xs text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
+        <span>{note}</span>
+        <span>{updatedAt ? `Updated ${formatTimestamp(updatedAt)}` : 'No recent sync yet'}</span>
+      </div>
+    </button>
+  )
+}
+
+function BingSummaryMetric({
+  label,
+  value,
+  tone,
+}: {
+  label: string
+  value: string | number
+  tone: 'positive' | 'negative' | 'neutral'
+}) {
+  const valueClass = tone === 'positive'
+    ? 'text-emerald-400'
+    : tone === 'negative'
+      ? 'text-rose-400'
+      : 'text-zinc-200'
+
+  return (
+    <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+      <p className="text-xs uppercase tracking-wide text-zinc-500">{label}</p>
+      <p className={`mt-2 text-2xl font-semibold ${valueClass}`}>{value}</p>
+    </div>
+  )
+}
 
 function BingSection({ projectName }: { projectName: string }) {
   const [connection, setConnection] = useState<ApiBingConnection | null>(null)
@@ -115,9 +205,13 @@ function BingSection({ projectName }: { projectName: string }) {
     try {
       await apiBingDisconnect(projectName)
       setConnection(null)
+      setSites([])
       setCoverage(null)
       setInspections([])
       setPerformance([])
+      setInspectionResult(null)
+      setSelectedSite('')
+      setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to disconnect')
     }
@@ -164,7 +258,7 @@ function BingSection({ projectName }: { projectName: string }) {
 
   if (loading) {
     return (
-      <Card className="p-4">
+      <Card className="surface-card">
         <div className="text-sm text-zinc-400">Loading Bing data...</div>
       </Card>
     )
@@ -172,12 +266,18 @@ function BingSection({ projectName }: { projectName: string }) {
 
   if (!connection?.connected) {
     return (
-      <Card className="p-4 space-y-3">
-        <h3 className="text-sm font-semibold text-zinc-200">Bing Webmaster Tools</h3>
-        <p className="text-xs text-zinc-400">
-          Connect Bing Webmaster Tools to monitor index coverage and submit URLs for the Bing search engine (used by OpenAI).
+      <Card className="surface-card">
+        <div className="section-head section-head-inline">
+          <div>
+            <p className="eyebrow eyebrow-soft">Connection</p>
+            <h3>Domain authorization</h3>
+          </div>
+          <ToneBadge tone="caution">Not connected</ToneBadge>
+        </div>
+        <p className="text-sm text-zinc-300">
+          Connect Bing Webmaster Tools to inspect URLs, monitor index coverage, and submit pages for indexing.
         </p>
-        <div>
+        <div className="mt-3">
           <label className="text-xs text-zinc-500" htmlFor="bing-api-key">API Key</label>
           <div className="flex items-center gap-2 mt-1">
             <input
@@ -205,47 +305,74 @@ function BingSection({ projectName }: { projectName: string }) {
             </a>
           </p>
         </div>
-        {error && <p className="text-xs text-rose-400">{error}</p>}
+        {error && <p className="mt-3 text-xs text-rose-400">{error}</p>}
       </Card>
     )
   }
 
   if (!connection.siteUrl) {
     return (
-      <Card className="p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-zinc-200">Bing Webmaster Tools</h3>
+      <Card className="surface-card">
+        <div className="section-head section-head-inline">
+          <div>
+            <p className="eyebrow eyebrow-soft">Connection</p>
+            <h3>Domain authorization</h3>
+          </div>
           <div className="flex items-center gap-2">
             <ToneBadge tone="positive">Connected</ToneBadge>
             <Button size="sm" variant="ghost" onClick={handleDisconnect}>Disconnect</Button>
           </div>
         </div>
-        <p className="text-xs text-zinc-400">Select a site to monitor:</p>
-        {sites.length > 0 ? (
-          <div className="flex items-center gap-2">
-            <select
-              className="flex-1 rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200 focus:border-zinc-500 focus:outline-none"
-              value={selectedSite}
-              onChange={(e) => setSelectedSite(e.target.value)}
-            >
-              <option value="">Select a site...</option>
-              {sites.map((s) => (
-                <option key={s.url} value={s.url}>{s.url}{s.verified ? ' (verified)' : ''}</option>
-              ))}
-            </select>
-            <Button size="sm" disabled={!selectedSite} onClick={handleSetSite}>Set Site</Button>
+        <div className="space-y-3">
+          <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
+            <div className="flex items-center gap-3">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              <span className="text-sm text-zinc-200">Authorized for this project domain</span>
+              <span className="text-xs text-zinc-500">{connection.domain}</span>
+            </div>
+            <p className="mt-2 text-xs text-zinc-500">
+              The API key is connected, but no Bing site is selected yet. Pick the verified site that should receive inspections and indexing requests.
+            </p>
           </div>
-        ) : (
-          <div>
-            <Button size="sm" onClick={async () => {
-              const result = await fetchBingSites(projectName)
-              setSites(result.sites)
-            }}>
-              Load Sites
-            </Button>
+          <div className="grid gap-3 lg:grid-cols-2">
+            <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+              <p className="text-xs uppercase tracking-wide text-zinc-500">Registered domain</p>
+              <p className="mt-1 text-sm text-zinc-200">{connection.domain}</p>
+            </div>
+            <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+              <p className="text-xs uppercase tracking-wide text-zinc-500">Last auth update</p>
+              <p className="mt-1 text-sm text-zinc-200">{connection.updatedAt ? formatTimestamp(connection.updatedAt) : '\u2014'}</p>
+            </div>
           </div>
-        )}
-        {error && <p className="text-xs text-rose-400">{error}</p>}
+          <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+            <p className="text-xs uppercase tracking-wide text-zinc-500">Select site</p>
+            {sites.length > 0 ? (
+              <div className="mt-3 flex flex-col gap-2 lg:flex-row">
+                <select
+                  className="flex-1 rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200 focus:border-zinc-500 focus:outline-none"
+                  value={selectedSite}
+                  onChange={(e) => setSelectedSite(e.target.value)}
+                >
+                  <option value="">Select a site...</option>
+                  {sites.map((s) => (
+                    <option key={s.url} value={s.url}>{s.url}{s.verified ? ' (verified)' : ''}</option>
+                  ))}
+                </select>
+                <Button size="sm" disabled={!selectedSite} onClick={handleSetSite}>Set Site</Button>
+              </div>
+            ) : (
+              <div className="mt-3">
+                <Button size="sm" onClick={async () => {
+                  const result = await fetchBingSites(projectName)
+                  setSites(result.sites)
+                }}>
+                  Load Sites
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+        {error && <p className="mt-3 text-xs text-rose-400">{error}</p>}
       </Card>
     )
   }
@@ -257,204 +384,415 @@ function BingSection({ projectName }: { projectName: string }) {
   ]
 
   return (
-    <Card className="p-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-semibold text-zinc-200">Bing Webmaster Tools</h3>
-          <p className="text-xs text-zinc-500">{connection.siteUrl}</p>
+    <div className="space-y-3">
+      <Card className="surface-card">
+        <div className="section-head section-head-inline">
+          <div>
+            <p className="eyebrow eyebrow-soft">Connection</p>
+            <h3>Domain authorization</h3>
+          </div>
+          <div className="flex items-center gap-2">
+            <ToneBadge tone="positive">Connected</ToneBadge>
+            <Button size="sm" variant="ghost" onClick={handleDisconnect}>Disconnect</Button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <ToneBadge tone="positive">Connected</ToneBadge>
-          <Button size="sm" variant="ghost" onClick={handleDisconnect}>Disconnect</Button>
+        {error && <p className="mb-3 text-xs text-rose-400">{error}</p>}
+        <div className="space-y-3">
+          <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
+            <div className="flex items-center gap-3">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              <span className="text-sm text-zinc-200">Authorized for this project domain</span>
+              <span className="text-xs text-zinc-500">{connection.domain}</span>
+            </div>
+            <p className="mt-2 text-xs text-zinc-500">
+              Canonry stores Bing connections per canonical domain. This project is currently mapped to <code>{connection.siteUrl}</code>.
+            </p>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+              <p className="text-xs uppercase tracking-wide text-zinc-500">Selected site</p>
+              <p className="mt-1 text-sm text-zinc-200">{connection.siteUrl}</p>
+            </div>
+            <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">
+              <p className="text-xs uppercase tracking-wide text-zinc-500">Last auth update</p>
+              <p className="mt-1 text-sm text-zinc-200">{connection.updatedAt ? formatTimestamp(connection.updatedAt) : '\u2014'}</p>
+            </div>
+          </div>
         </div>
-      </div>
+      </Card>
 
-      {error && <p className="text-xs text-rose-400">{error}</p>}
+      <Card className="surface-card">
+        <div className="section-head section-head-inline">
+          <div>
+            <p className="eyebrow eyebrow-soft">Coverage</p>
+            <h3>Index monitoring</h3>
+          </div>
+          <p className="text-xs text-zinc-500">
+            {coverage?.lastInspectedAt ? `Last inspected ${formatTimestamp(coverage.lastInspectedAt)}` : 'No inspection history yet'}
+          </p>
+        </div>
 
-      <div className="flex gap-1 border-b border-zinc-800">
-        {tabs.map((t) => (
+        <div className="flex gap-1 border-b border-zinc-800">
+          {tabs.map((t) => (
+            <button
+              key={t.key}
+              className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+                activeTab === t.key
+                  ? 'border-zinc-200 text-zinc-200'
+                  : 'border-transparent text-zinc-500 hover:text-zinc-300'
+              }`}
+              onClick={() => setActiveTab(t.key)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {activeTab === 'coverage' && coverage && (
+          <div className="mt-4 space-y-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <BingSummaryMetric label="Indexed" value={coverage.summary.indexed} tone="positive" />
+              <BingSummaryMetric label="Not indexed" value={coverage.summary.notIndexed} tone="negative" />
+              <BingSummaryMetric label="Coverage" value={`${coverage.summary.percentage}%`} tone="neutral" />
+            </div>
+
+            {coverage.notIndexed.length > 0 && (
+              <div>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <h4 className="text-xs font-medium text-zinc-400">Not Indexed ({coverage.notIndexed.length})</h4>
+                  <Button size="sm" variant="ghost" onClick={handleSubmitAllUnindexed}>
+                    Submit all to Bing
+                  </Button>
+                </div>
+                <div className="overflow-x-auto rounded-lg border border-zinc-800/60">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-zinc-800">
+                        <th className="text-left py-1.5 px-3 text-zinc-500 font-medium">URL</th>
+                        <th className="text-left py-1.5 px-3 text-zinc-500 font-medium w-16">HTTP</th>
+                        <th className="text-right py-1.5 px-3 text-zinc-500 font-medium w-20">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {coverage.notIndexed.map((row) => (
+                        <tr key={row.id} className="border-b border-zinc-800/50">
+                          <td className="py-1.5 px-3 text-zinc-300 truncate max-w-[480px]">{row.url}</td>
+                          <td className="py-1.5 px-3 text-zinc-400">{row.httpCode ?? '\u2014'}</td>
+                          <td className="py-1.5 px-3 text-right">
+                            <button
+                              className="text-[10px] text-zinc-400 hover:text-zinc-200 underline underline-offset-2"
+                              onClick={() => handleSubmitUrl(row.url)}
+                            >
+                              Submit
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {coverage.indexed.length > 0 && (
+              <div>
+                <h4 className="mb-2 text-xs font-medium text-zinc-400">Indexed ({coverage.indexed.length})</h4>
+                <div className="overflow-x-auto rounded-lg border border-zinc-800/60">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-zinc-800">
+                        <th className="text-left py-1.5 px-3 text-zinc-500 font-medium">URL</th>
+                        <th className="text-left py-1.5 px-3 text-zinc-500 font-medium w-32">Last Crawled</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {coverage.indexed.map((row) => (
+                        <tr key={row.id} className="border-b border-zinc-800/50">
+                          <td className="py-1.5 px-3 text-zinc-300 truncate max-w-[480px]">{row.url}</td>
+                          <td className="py-1.5 px-3 text-zinc-400">{row.lastCrawledDate ? formatTimestamp(row.lastCrawledDate) : '\u2014'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'coverage' && !coverage && (
+          <p className="mt-4 text-xs text-zinc-500">No coverage data yet. Inspect URLs to build coverage data.</p>
+        )}
+
+        {activeTab === 'inspections' && (
+          <div className="mt-4 space-y-3">
+            <div className="flex flex-col gap-2 lg:flex-row">
+              <input
+                type="text"
+                className="flex-1 rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                placeholder="URL to inspect"
+                value={inspectionUrl}
+                onChange={(e) => setInspectionUrl(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleInspect()}
+              />
+              <Button size="sm" disabled={!inspectionUrl.trim()} onClick={handleInspect}>
+                Inspect
+              </Button>
+            </div>
+
+            {inspectionResult && (
+              <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3 text-xs space-y-1">
+                <div className="font-medium text-zinc-200">{inspectionResult.url}</div>
+                <div className="text-zinc-400">
+                  In Index: <span className={inspectionResult.inIndex ? 'text-emerald-400' : 'text-rose-400'}>
+                    {inspectionResult.inIndex ? 'Yes' : 'No'}
+                  </span>
+                  {' \u00b7 '}HTTP: {inspectionResult.httpCode ?? '\u2014'}
+                  {' \u00b7 '}Crawled: {inspectionResult.lastCrawledDate ?? '\u2014'}
+                </div>
+              </div>
+            )}
+
+            {inspections.length > 0 && (
+              <div className="overflow-x-auto rounded-lg border border-zinc-800/60">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-zinc-800">
+                      <th className="text-left py-1.5 px-3 text-zinc-500 font-medium">URL</th>
+                      <th className="text-left py-1.5 px-3 text-zinc-500 font-medium w-16">Index</th>
+                      <th className="text-left py-1.5 px-3 text-zinc-500 font-medium w-14">HTTP</th>
+                      <th className="text-left py-1.5 px-3 text-zinc-500 font-medium w-32">Inspected</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {inspections.map((row) => (
+                      <tr key={row.id} className="border-b border-zinc-800/50">
+                        <td className="py-1.5 px-3 text-zinc-300 truncate max-w-[480px]">{row.url}</td>
+                        <td className="py-1.5 px-3">
+                          <ToneBadge tone={row.inIndex ? 'positive' : 'negative'}>{row.inIndex ? 'Yes' : 'No'}</ToneBadge>
+                        </td>
+                        <td className="py-1.5 px-3 text-zinc-400">{row.httpCode ?? '\u2014'}</td>
+                        <td className="py-1.5 px-3 text-zinc-400">{formatTimestamp(row.inspectedAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'performance' && (
+          <div className="mt-4">
+            {performance.length === 0 ? (
+              <p className="text-xs text-zinc-500">No Bing performance data available.</p>
+            ) : (
+              <div className="overflow-x-auto rounded-lg border border-zinc-800/60">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-zinc-800">
+                      <th className="text-left py-1.5 px-3 text-zinc-500 font-medium">Query</th>
+                      <th className="text-right py-1.5 px-3 text-zinc-500 font-medium w-16">Clicks</th>
+                      <th className="text-right py-1.5 px-3 text-zinc-500 font-medium w-16">Impr</th>
+                      <th className="text-right py-1.5 px-3 text-zinc-500 font-medium w-14">CTR</th>
+                      <th className="text-right py-1.5 px-3 text-zinc-500 font-medium w-14">Pos</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {performance.map((row, i) => (
+                      <tr key={i} className="border-b border-zinc-800/50">
+                        <td className="py-1.5 px-3 text-zinc-300 truncate max-w-[480px]">{row.query}</td>
+                        <td className="py-1.5 px-3 text-right text-zinc-200">{row.clicks}</td>
+                        <td className="py-1.5 px-3 text-right text-zinc-400">{row.impressions}</td>
+                        <td className="py-1.5 px-3 text-right text-zinc-400">{(row.ctr * 100).toFixed(1)}%</td>
+                        <td className="py-1.5 px-3 text-right text-zinc-400">{row.averagePosition.toFixed(1)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
+    </div>
+  )
+}
+
+function SearchConsoleSection({
+  projectName,
+}: {
+  projectName: string
+}) {
+  const [workspace, setWorkspace] = useState<SearchConsoleWorkspace>('google')
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [googleConfigured, setGoogleConfigured] = useState(false)
+  const [googleConnection, setGoogleConnection] = useState<ApiGoogleConnection | null>(null)
+  const [googleCoverage, setGoogleCoverage] = useState<ApiGscCoverageSummary | null>(null)
+  const [bingConfigured, setBingConfigured] = useState(false)
+  const [bingConnection, setBingConnection] = useState<ApiBingConnection | null>(null)
+  const [bingCoverage, setBingCoverage] = useState<ApiBingCoverageSummary | null>(null)
+
+  async function loadSummary(silent = false) {
+    if (silent) {
+      setRefreshing(true)
+    } else {
+      setLoading(true)
+    }
+    setError(null)
+
+    try {
+      const [settings, connections, bingStatus] = await Promise.all([
+        fetchSettings().catch(() => null),
+        fetchGoogleConnections(projectName).catch(() => [] as ApiGoogleConnection[]),
+        fetchBingStatus(projectName).catch(() => null),
+      ])
+
+      const gscConnection = connections.find((connection) => connection.connectionType === 'gsc') ?? null
+      setGoogleConfigured(Boolean(settings?.google?.configured))
+      setBingConfigured(Boolean(settings?.bing?.configured))
+      setGoogleConnection(gscConnection)
+      setBingConnection(bingStatus)
+
+      const [googleCoverageData, bingCoverageData] = await Promise.all([
+        gscConnection ? fetchGscCoverage(projectName).catch(() => null) : Promise.resolve(null),
+        bingStatus?.connected ? fetchBingCoverage(projectName).catch(() => null) : Promise.resolve(null),
+      ])
+
+      setGoogleCoverage(googleCoverageData)
+      setBingCoverage(bingCoverageData)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load search console overview')
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadSummary()
+  }, [projectName])
+
+  const googleTone = googleConnection ? 'positive' : googleConfigured ? 'caution' : 'negative'
+  const googleStatus = googleConnection ? 'Connected' : googleConfigured ? 'Ready to connect' : 'Needs setup'
+  const googleCoverageValue = googleCoverage
+    ? `${googleCoverage.summary.percentage}% indexed`
+    : googleConnection
+      ? 'Awaiting coverage'
+      : 'No coverage data'
+  const googleNote = googleCoverage
+    ? `${googleCoverage.summary.notIndexed} not indexed${googleCoverage.summary.deindexed > 0 ? ` · ${googleCoverage.summary.deindexed} deindexed` : ''}`
+    : googleConnection
+      ? 'Run sitemap inspection to populate coverage'
+      : googleConfigured
+        ? 'Connect Search Console for this domain'
+        : 'Add Google OAuth credentials in Settings'
+  const googleUpdatedAt = googleCoverage?.lastInspectedAt ?? googleConnection?.updatedAt ?? null
+
+  const bingTone = bingConnection?.connected ? 'positive' : bingConfigured ? 'caution' : 'negative'
+  const bingStatus = bingConnection?.connected ? 'Connected' : bingConfigured ? 'Ready to connect' : 'Needs setup'
+  const bingCoverageValue = bingCoverage
+    ? `${bingCoverage.summary.percentage}% indexed`
+    : bingConnection?.connected
+      ? 'Awaiting coverage'
+      : 'No coverage data'
+  const bingNote = bingCoverage
+    ? `${bingCoverage.summary.notIndexed} not indexed`
+    : bingConnection?.connected
+      ? 'Inspect URLs to populate coverage'
+      : bingConfigured
+        ? 'Connect Bing Webmaster Tools for this domain'
+        : 'Add a Bing API key in Settings'
+  const bingUpdatedAt = bingCoverage?.lastInspectedAt ?? bingConnection?.updatedAt ?? null
+
+  return (
+    <div className="space-y-6">
+      <Card className="surface-card">
+        <div className="section-head section-head-inline">
+          <div>
+            <p className="eyebrow eyebrow-soft">Search console</p>
+            <h2>Search Engine Intelligence</h2>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-zinc-500">
+              Scan both engines at a glance, then open the Google or Bing workspace when you need to inspect coverage or take action.
+            </p>
+          </div>
+          <Button type="button" variant="outline" size="sm" disabled={loading || refreshing} onClick={() => void loadSummary(true)}>
+            {loading || refreshing ? 'Refreshing…' : 'Refresh overview'}
+          </Button>
+        </div>
+
+        {error && (
+          <div className="mb-3 rounded-lg border border-rose-800/40 bg-rose-950/20 px-3 py-2 text-sm text-rose-300">
+            {error}
+          </div>
+        )}
+
+        <div className="grid gap-3 lg:grid-cols-2">
+          <SearchConsoleSummaryCard
+            eyebrow="Google"
+            title="Google Search Console"
+            status={loading ? 'Loading…' : googleStatus}
+            tone={loading ? 'neutral' : googleTone}
+            targetLabel="Selected property"
+            targetValue={googleConnection?.propertyId ?? 'No property selected'}
+            coverageValue={loading ? 'Loading…' : googleCoverageValue}
+            note={loading ? 'Loading overview…' : googleNote}
+            updatedAt={googleUpdatedAt}
+            active={workspace === 'google'}
+            onClick={() => setWorkspace('google')}
+          />
+          <SearchConsoleSummaryCard
+            eyebrow="Bing"
+            title="Bing Webmaster Tools"
+            status={loading ? 'Loading…' : bingStatus}
+            tone={loading ? 'neutral' : bingTone}
+            targetLabel="Selected site"
+            targetValue={bingConnection?.siteUrl ?? 'No site selected'}
+            coverageValue={loading ? 'Loading…' : bingCoverageValue}
+            note={loading ? 'Loading overview…' : bingNote}
+            updatedAt={bingUpdatedAt}
+            active={workspace === 'bing'}
+            onClick={() => setWorkspace('bing')}
+          />
+        </div>
+      </Card>
+
+      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Search engine workspaces">
+        {([
+          ['google', 'Google'],
+          ['bing', 'Bing'],
+        ] as const).map(([key, label]) => (
           <button
-            key={t.key}
-            className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
-              activeTab === t.key
-                ? 'border-zinc-200 text-zinc-200'
-                : 'border-transparent text-zinc-500 hover:text-zinc-300'
-            }`}
-            onClick={() => setActiveTab(t.key)}
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={workspace === key}
+            className={`project-subnav-link ${workspace === key ? 'project-subnav-link-active' : ''}`}
+            onClick={() => setWorkspace(key)}
           >
-            {t.label}
+            {label}
           </button>
         ))}
       </div>
 
-      {activeTab === 'coverage' && coverage && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-4">
-            <div className="text-center">
-              <div className="text-2xl font-semibold text-emerald-400">{coverage.summary.indexed}</div>
-              <div className="text-[10px] uppercase tracking-wide text-zinc-500">Indexed</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-semibold text-rose-400">{coverage.summary.notIndexed}</div>
-              <div className="text-[10px] uppercase tracking-wide text-zinc-500">Not Indexed</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-semibold text-zinc-300">{coverage.summary.percentage}%</div>
-              <div className="text-[10px] uppercase tracking-wide text-zinc-500">Coverage</div>
+      {workspace === 'google' && (
+        <GscSection projectName={projectName} />
+      )}
+
+      {workspace === 'bing' && (
+        <section className="page-section-divider">
+          <div className="section-head section-head-inline">
+            <div>
+              <p className="eyebrow eyebrow-soft">Search engine</p>
+              <h2>Bing Webmaster Tools</h2>
             </div>
           </div>
-
-          {coverage.notIndexed.length > 0 && (
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="text-xs font-medium text-zinc-400">Not Indexed ({coverage.notIndexed.length})</h4>
-                <Button size="sm" variant="ghost" onClick={handleSubmitAllUnindexed}>
-                  Submit all to Bing
-                </Button>
-              </div>
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-zinc-800">
-                    <th className="text-left py-1.5 text-zinc-500 font-medium">URL</th>
-                    <th className="text-left py-1.5 text-zinc-500 font-medium w-16">HTTP</th>
-                    <th className="text-right py-1.5 text-zinc-500 font-medium w-20">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {coverage.notIndexed.map((row) => (
-                    <tr key={row.id} className="border-b border-zinc-800/50">
-                      <td className="py-1.5 text-zinc-300 truncate max-w-[300px]">{row.url}</td>
-                      <td className="py-1.5 text-zinc-400">{row.httpCode ?? '\u2014'}</td>
-                      <td className="py-1.5 text-right">
-                        <button
-                          className="text-[10px] text-zinc-400 hover:text-zinc-200 underline underline-offset-2"
-                          onClick={() => handleSubmitUrl(row.url)}
-                        >
-                          Submit
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {coverage.indexed.length > 0 && (
-            <div>
-              <h4 className="text-xs font-medium text-zinc-400 mb-2">Indexed ({coverage.indexed.length})</h4>
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-zinc-800">
-                    <th className="text-left py-1.5 text-zinc-500 font-medium">URL</th>
-                    <th className="text-left py-1.5 text-zinc-500 font-medium w-28">Last Crawled</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {coverage.indexed.map((row) => (
-                    <tr key={row.id} className="border-b border-zinc-800/50">
-                      <td className="py-1.5 text-zinc-300 truncate max-w-[300px]">{row.url}</td>
-                      <td className="py-1.5 text-zinc-400">{row.lastCrawledDate ? formatTimestamp(row.lastCrawledDate) : '\u2014'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+          <BingSection projectName={projectName} />
+        </section>
       )}
-
-      {activeTab === 'coverage' && !coverage && (
-        <p className="text-xs text-zinc-500">No coverage data. Inspect URLs to build coverage data.</p>
-      )}
-
-      {activeTab === 'inspections' && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              className="flex-1 rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-              placeholder="URL to inspect"
-              value={inspectionUrl}
-              onChange={(e) => setInspectionUrl(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleInspect()}
-            />
-            <Button size="sm" disabled={!inspectionUrl.trim()} onClick={handleInspect}>
-              Inspect
-            </Button>
-          </div>
-
-          {inspectionResult && (
-            <div className="rounded border border-zinc-800 bg-zinc-900/40 p-3 text-xs space-y-1">
-              <div className="text-zinc-200 font-medium">{inspectionResult.url}</div>
-              <div className="text-zinc-400">
-                In Index: <span className={inspectionResult.inIndex ? 'text-emerald-400' : 'text-rose-400'}>
-                  {inspectionResult.inIndex ? 'Yes' : 'No'}
-                </span>
-                {' \u00b7 '}HTTP: {inspectionResult.httpCode ?? '\u2014'}
-                {' \u00b7 '}Crawled: {inspectionResult.lastCrawledDate ?? '\u2014'}
-              </div>
-            </div>
-          )}
-
-          {inspections.length > 0 && (
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-zinc-800">
-                  <th className="text-left py-1.5 text-zinc-500 font-medium">URL</th>
-                  <th className="text-left py-1.5 text-zinc-500 font-medium w-16">Index</th>
-                  <th className="text-left py-1.5 text-zinc-500 font-medium w-14">HTTP</th>
-                  <th className="text-left py-1.5 text-zinc-500 font-medium w-28">Inspected</th>
-                </tr>
-              </thead>
-              <tbody>
-                {inspections.map((row) => (
-                  <tr key={row.id} className="border-b border-zinc-800/50">
-                    <td className="py-1.5 text-zinc-300 truncate max-w-[250px]">{row.url}</td>
-                    <td className="py-1.5">
-                      <ToneBadge tone={row.inIndex ? 'positive' : 'negative'}>{row.inIndex ? 'Yes' : 'No'}</ToneBadge>
-                    </td>
-                    <td className="py-1.5 text-zinc-400">{row.httpCode ?? '\u2014'}</td>
-                    <td className="py-1.5 text-zinc-400">{formatTimestamp(row.inspectedAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-
-      {activeTab === 'performance' && (
-        <div>
-          {performance.length === 0 ? (
-            <p className="text-xs text-zinc-500">No Bing performance data available.</p>
-          ) : (
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-zinc-800">
-                  <th className="text-left py-1.5 text-zinc-500 font-medium">Query</th>
-                  <th className="text-right py-1.5 text-zinc-500 font-medium w-16">Clicks</th>
-                  <th className="text-right py-1.5 text-zinc-500 font-medium w-16">Impr</th>
-                  <th className="text-right py-1.5 text-zinc-500 font-medium w-14">CTR</th>
-                  <th className="text-right py-1.5 text-zinc-500 font-medium w-14">Pos</th>
-                </tr>
-              </thead>
-              <tbody>
-                {performance.map((row, i) => (
-                  <tr key={i} className="border-b border-zinc-800/50">
-                    <td className="py-1.5 text-zinc-300 truncate max-w-[250px]">{row.query}</td>
-                    <td className="py-1.5 text-zinc-200 text-right">{row.clicks}</td>
-                    <td className="py-1.5 text-zinc-400 text-right">{row.impressions}</td>
-                    <td className="py-1.5 text-zinc-400 text-right">{(row.ctr * 100).toFixed(1)}%</td>
-                    <td className="py-1.5 text-zinc-400 text-right">{row.averagePosition.toFixed(1)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-    </Card>
+    </div>
   )
 }
 
@@ -1083,19 +1421,7 @@ export function ProjectPage({
       ) : tab === 'analytics' ? (
         <AnalyticsSection projectName={model.project.name} />
       ) : (
-        <div className="space-y-6">
-          <h2 className="text-lg font-semibold text-zinc-100">Search Engine Intelligence</h2>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div>
-              <h3 className="text-xs uppercase tracking-wide text-zinc-500 mb-2">Google (Gemini)</h3>
-              <GscSection projectName={model.project.name} />
-            </div>
-            <div>
-              <h3 className="text-xs uppercase tracking-wide text-zinc-500 mb-2">Bing (OpenAI)</h3>
-              <BingSection projectName={model.project.name} />
-            </div>
-          </div>
-        </div>
+        <SearchConsoleSection projectName={model.project.name} />
       )}
     </div>
   )

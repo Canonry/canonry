@@ -138,8 +138,10 @@ test('project search console route renders the Search Engine Intelligence sectio
   const html = await renderApp('/projects/project_citypoint/search-console')
 
   expect(html).toMatch(/Search Engine Intelligence/)
-  expect(html).toMatch(/Google \(Gemini\)/)
-  expect(html).toMatch(/Bing \(OpenAI\)/)
+  expect(html).toMatch(/Google Search Console/)
+  expect(html).toMatch(/Bing Webmaster Tools/)
+  expect(html).not.toMatch(/Bing \(OpenAI\)/)
+  expect(html).not.toMatch(/Operator snapshot/)
   expect(html).not.toMatch(/Citation signals/)
 })
 
