@@ -11,6 +11,10 @@ type TimelineEntry = {
   }[]
 }
 
+type EvidenceJsonEntry = TimelineEntry & {
+  cited: boolean
+}
+
 function getClient(): ApiClient {
   const config = loadConfig()
   return new ApiClient(config.apiUrl, config.apiKey)
@@ -21,7 +25,11 @@ export async function showEvidence(project: string, format?: string): Promise<vo
   const timeline = await client.getTimeline(project) as TimelineEntry[]
 
   if (format === 'json') {
-    console.log(JSON.stringify(timeline, null, 2))
+    const enriched: EvidenceJsonEntry[] = timeline.map((entry) => ({
+      ...entry,
+      cited: entry.runs[entry.runs.length - 1]?.citationState === 'cited',
+    }))
+    console.log(JSON.stringify(enriched, null, 2))
     return
   }
 

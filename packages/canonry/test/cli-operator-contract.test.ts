@@ -3,7 +3,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { createClient, migrate, apiKeys } from '@ainyc/canonry-db'
+import { createClient, migrate, apiKeys, keywords, querySnapshots, runs } from '@ainyc/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 import { loadConfig } from '../src/config.js'
@@ -15,6 +15,7 @@ describe('operator CLI contract', () => {
   let origTelemetryDisabled: string | undefined
   let origCi: string | undefined
   let client: ApiClient
+  let db: ReturnType<typeof createClient>
   let close: () => Promise<void>
 
   beforeEach(async () => {
@@ -30,7 +31,7 @@ describe('operator CLI contract', () => {
     const dbPath = path.join(tmpDir, 'data.db')
     const configPath = path.join(tmpDir, 'config.yaml')
 
-    const db = createClient(dbPath)
+    db = createClient(dbPath)
     migrate(db)
 
     const apiKeyPlain = `cnry_${crypto.randomBytes(16).toString('hex')}`
@@ -125,12 +126,43 @@ describe('operator CLI contract', () => {
   })
 
   it('prints evidence to stdout in JSON mode', async () => {
+    const project = await client.getProject('test-proj') as { id: string }
+    const keywordId = crypto.randomUUID()
+    const runId = crypto.randomUUID()
+    const createdAt = new Date().toISOString()
+
+    db.insert(keywords).values({
+      id: keywordId,
+      projectId: project.id,
+      keyword: 'answer engine optimization',
+      createdAt,
+    }).run()
+
+    db.insert(runs).values({
+      id: runId,
+      projectId: project.id,
+      status: 'completed',
+      createdAt,
+      finishedAt: createdAt,
+    }).run()
+
+    db.insert(querySnapshots).values({
+      id: crypto.randomUUID(),
+      runId,
+      keywordId,
+      provider: 'gemini',
+      citationState: 'cited',
+      createdAt,
+    }).run()
+
     const result = await invokeCli(['evidence', 'test-proj', '--format', 'json'])
 
     expect(result.exitCode).toBe(undefined)
     expect(result.stderr).toBe('')
-    const parsed = JSON.parse(result.stdout) as unknown[]
+    const parsed = JSON.parse(result.stdout) as Array<{ keyword: string; cited: boolean }>
     expect(parsed).toBeInstanceOf(Array)
+    expect(parsed[0]?.keyword).toBe('answer engine optimization')
+    expect(parsed[0]?.cited).toBe(true)
   })
 
   it('prints audit history to stdout in JSON mode', async () => {
@@ -324,14 +356,14 @@ describe('operator CLI contract', () => {
       'add',
       'test-proj',
       '--webhook',
-      'https://example.com/canonry-webhook',
+      'https://1.1.1.1/canonry-webhook',
       '--events',
       'run.completed,run.failed',
       '--format',
       'json',
     ])
     const added = JSON.parse(addResult.stdout) as { id: string; url: string; events: string[] }
-    expect(added.url).toBe('https://example.com/canonry-webhook')
+    expect(added.url).toBe('https://1.1.1.1/canonry-webhook')
     expect(added.events).toEqual(['run.completed', 'run.failed'])
 
     const listResult = await invokeCli(['notify', 'list', 'test-proj', '--format', 'json'])

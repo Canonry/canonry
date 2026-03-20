@@ -97,14 +97,14 @@ describe('run lifecycle CLI contract', () => {
     if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  async function insertQueuedRun(): Promise<string> {
+  async function insertRun(opts?: { status?: string; createdAt?: string }): Promise<string> {
     const project = await client.getProject('test-proj') as { id: string }
     const runId = crypto.randomUUID()
     db.insert(runs).values({
       id: runId,
       projectId: project.id,
-      status: 'queued',
-      createdAt: new Date().toISOString(),
+      status: opts?.status ?? 'queued',
+      createdAt: opts?.createdAt ?? new Date().toISOString(),
     }).run()
     return runId
   }
@@ -154,7 +154,7 @@ describe('run lifecycle CLI contract', () => {
   })
 
   it('prints JSON to stdout for runs <project> --format json', async () => {
-    await insertQueuedRun()
+    await insertRun()
 
     const result = await invokeCli(['runs', 'test-proj', '--format', 'json'])
 
@@ -164,5 +164,40 @@ describe('run lifecycle CLI contract', () => {
     expect(parsed).toBeInstanceOf(Array)
     expect(parsed).toHaveLength(1)
     expect(parsed[0]?.status).toBe('queued')
+  })
+
+  it('supports runs <project> --limit <n> in JSON mode', async () => {
+    const olderRunId = await insertRun({
+      status: 'completed',
+      createdAt: new Date(Date.now() + 10_000).toISOString(),
+    })
+    const latestRunId = await insertRun({
+      status: 'completed',
+      createdAt: new Date(Date.now() + 20_000).toISOString(),
+    })
+
+    const result = await invokeCli(['runs', 'test-proj', '--limit', '1', '--format', 'json'])
+
+    expect(result.exitCode).toBe(undefined)
+    expect(result.stderr).toBe('')
+    const parsed = JSON.parse(result.stdout) as Array<{ id: string }>
+    expect(parsed).toHaveLength(1)
+    expect(parsed[0]?.id).toBe(latestRunId)
+    expect(parsed[0]?.id).not.toBe(olderRunId)
+  })
+
+  it('prints a JSON usage error for runs <project> --limit with a non-integer value', async () => {
+    const result = await invokeCli(['runs', 'test-proj', '--limit', 'bogus', '--format', 'json'])
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).toBe('')
+    const parsed = JSON.parse(result.stderr) as {
+      error: { code: string; message: string; details: { command: string; usage: string; option: string; value: string } }
+    }
+    expect(parsed.error.code).toBe('CLI_USAGE_ERROR')
+    expect(parsed.error.message).toBe('--limit must be an integer')
+    expect(parsed.error.details.command).toBe('runs')
+    expect(parsed.error.details.option).toBe('limit')
+    expect(parsed.error.details.value).toBe('bogus')
   })
 })

@@ -103,8 +103,9 @@ export class ApiClient {
     return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/runs`, body ?? {})
   }
 
-  async listRuns(project: string): Promise<object[]> {
-    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/runs`)
+  async listRuns(project: string, limit?: number): Promise<object[]> {
+    const query = limit != null ? `?limit=${encodeURIComponent(String(limit))}` : ''
+    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/runs${query}`)
   }
 
   async getRun(id: string): Promise<object> {

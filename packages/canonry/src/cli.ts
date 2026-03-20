@@ -39,7 +39,7 @@ Usage:
   canonry run <project> --wait        Trigger and wait for completion
   canonry run --all                   Trigger runs for all projects
   canonry run show <id>               Show run details and snapshots
-  canonry runs <project>              List runs for a project
+  canonry runs <project>              List runs for a project (--limit <n>)
   canonry status <project>            Show project summary
   canonry evidence <project>          Show per-phrase results
   canonry analytics <project>         Show analytics (--feature metrics|gaps|sources, --window 7d|30d|90d|all)
@@ -124,6 +124,7 @@ Options:
   --timezone <tz>      IANA timezone for schedule (default: UTC)
   --webhook <url>      Webhook URL for notifications
   --events <list>      Comma-separated notification events
+  --limit <n>          Maximum number of results to return where supported
   --api-key <key>      Provider API key (settings provider)
   --base-url <url>     Provider base URL (settings provider)
   --model <name>       Provider model name (settings provider)

@@ -2,8 +2,9 @@ import { describe, it, beforeAll, afterAll, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import crypto from 'node:crypto'
 import Fastify from 'fastify'
-import { createClient, migrate } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
 
@@ -21,11 +22,13 @@ function buildApp(opts: Partial<Omit<ApiRoutesOptions, 'db'>> = {}) {
 
 describe('api-routes', () => {
   let app: ReturnType<typeof Fastify>
+  let db: ReturnType<typeof createClient>
   let tmpDir: string
 
   beforeAll(async () => {
     const ctx = buildApp()
     app = ctx.app
+    db = ctx.db
     tmpDir = ctx.tmpDir
     await app.ready()
   })
@@ -168,6 +171,38 @@ describe('api-routes', () => {
       payload: {},
     })
     expect(res.statusCode).toBe(409)
+  })
+
+  it('GET /api/v1/projects/:name/runs respects the limit query', async () => {
+    const project = db.select().from(projects).all().find(row => row.name === 'my-site')
+    expect(project).toBeDefined()
+
+    const olderRunId = crypto.randomUUID()
+    const latestRunId = crypto.randomUUID()
+    const olderCreatedAt = new Date(Date.now() + 10_000).toISOString()
+    const latestCreatedAt = new Date(Date.now() + 20_000).toISOString()
+
+    db.insert(runs).values([
+      {
+        id: olderRunId,
+        projectId: project!.id,
+        status: 'completed',
+        createdAt: olderCreatedAt,
+        finishedAt: olderCreatedAt,
+      },
+      {
+        id: latestRunId,
+        projectId: project!.id,
+        status: 'completed',
+        createdAt: latestCreatedAt,
+        finishedAt: latestCreatedAt,
+      },
+    ]).run()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/my-site/runs?limit=2' })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload) as Array<{ id: string }>
+    expect(body.map(run => run.id)).toEqual([olderRunId, latestRunId])
   })
 
   it('GET /api/v1/projects/:name/history returns audit log', async () => {

@@ -1,6 +1,6 @@
 import { cancelRun, listRuns, showRun, triggerRun, triggerRunAll } from '../commands/run.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
-import { getBoolean, getString, requirePositional, requireProject, stringOption } from '../cli-command-helpers.js'
+import { getBoolean, getString, parseIntegerOption, requirePositional, requireProject, stringOption } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
 
 export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
@@ -73,10 +73,20 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['runs'],
-    usage: 'canonry runs <project>',
+    usage: 'canonry runs <project> [--limit <n>] [--format json]',
+    options: {
+      limit: stringOption(),
+    },
     run: async (input) => {
-      const project = requireProject(input, 'runs', 'canonry runs <project>')
-      await listRuns(project, input.format)
+      const project = requireProject(input, 'runs', 'canonry runs <project> [--limit <n>] [--format json]')
+      await listRuns(project, {
+        format: input.format,
+        limit: parseIntegerOption(input, 'limit', {
+          command: 'runs',
+          usage: 'canonry runs <project> [--limit <n>] [--format json]',
+          message: '--limit must be an integer',
+        }),
+      })
     },
   },
 ]

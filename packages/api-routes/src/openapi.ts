@@ -476,7 +476,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/runs',
     summary: 'List project runs',
     tags: ['runs'],
-    parameters: [nameParameter],
+    parameters: [nameParameter, limitQueryParameter],
     responses: {
       200: { description: 'Runs returned.' },
     },

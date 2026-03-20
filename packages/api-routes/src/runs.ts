@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { eq, asc } from 'drizzle-orm'
+import { eq, asc, desc } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { runs, querySnapshots, keywords, projects } from '@ainyc/canonry-db'
 import type { LocationContext } from '@ainyc/canonry-contracts'
@@ -133,10 +133,32 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   })
 
   // GET /projects/:name/runs — list runs for project
-  app.get<{ Params: { name: string } }>('/projects/:name/runs', async (request, reply) => {
+  app.get<{
+    Params: { name: string }
+    Querystring: { limit?: string }
+  }>('/projects/:name/runs', async (request, reply) => {
     const project = resolveProjectSafe(app, request.params.name, reply)
     if (!project) return
-    const rows = app.db.select().from(runs).where(eq(runs.projectId, project.id)).orderBy(asc(runs.createdAt)).all()
+
+    const parsedLimit = parseInt(request.query.limit ?? '', 10)
+    const limit = Number.isNaN(parsedLimit) || parsedLimit <= 0 ? undefined : parsedLimit
+
+    const rows = limit == null
+      ? app.db
+        .select()
+        .from(runs)
+        .where(eq(runs.projectId, project.id))
+        .orderBy(asc(runs.createdAt))
+        .all()
+      : app.db
+        .select()
+        .from(runs)
+        .where(eq(runs.projectId, project.id))
+        .orderBy(desc(runs.createdAt))
+        .limit(limit)
+        .all()
+        .reverse()
+
     return reply.send(rows.map(formatRun))
   })
 
