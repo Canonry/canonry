@@ -486,8 +486,11 @@ describe('resolveProviderInput', () => {
     expect(resolveProviderInput('  gemini  ')).toEqual(['gemini'])
   })
 
-  it('returns an empty array for an unknown input', () => {
-    expect(resolveProviderInput('unknown-provider')).toEqual([])
+  it('returns the normalized name for any non-empty input (validated at runtime)', () => {
+    expect(resolveProviderInput('unknown-provider')).toEqual(['unknown-provider'])
+  })
+
+  it('returns an empty array for empty input', () => {
     expect(resolveProviderInput('')).toEqual([])
   })
 })
@@ -506,9 +509,10 @@ describe('isBrowserProvider', () => {
 })
 
 describe('parseProviderName', () => {
-  it('returns the provider name for known providers', () => {
+  it('normalizes and returns provider name strings', () => {
     expect(parseProviderName('gemini')).toBe('gemini')
     expect(parseProviderName('cdp:chatgpt')).toBe('cdp:chatgpt')
+    expect(parseProviderName('perplexity')).toBe('perplexity')
   })
 
   it('normalizes casing', () => {
@@ -516,8 +520,11 @@ describe('parseProviderName', () => {
     expect(parseProviderName('OpenAI')).toBe('openai')
   })
 
-  it('returns undefined for unknown providers', () => {
-    expect(parseProviderName('unknown')).toBeUndefined()
+  it('accepts any non-empty string (providers are validated at runtime)', () => {
+    expect(parseProviderName('unknown')).toBe('unknown')
+  })
+
+  it('returns undefined for empty input', () => {
     expect(parseProviderName('')).toBeUndefined()
   })
 })

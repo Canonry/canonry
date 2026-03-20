@@ -63,13 +63,8 @@ export interface CanonryConfig {
   geminiApiKey?: string
   geminiModel?: string
   geminiQuota?: ProviderQuotaPolicy
-  // Multi-provider config (API providers)
-  providers?: {
-    gemini?: ProviderConfigEntry
-    openai?: ProviderConfigEntry
-    claude?: ProviderConfigEntry
-    local?: ProviderConfigEntry
-  }
+  // Multi-provider config (API providers) — keyed by adapter name
+  providers?: Record<string, ProviderConfigEntry>
   // CDP browser provider config (separate from API providers)
   cdp?: CdpConfigEntry
   google?: GoogleConfigEntry

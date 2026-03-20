@@ -15,7 +15,8 @@ import { openaiAdapter } from '@ainyc/canonry-provider-openai'
 import { claudeAdapter } from '@ainyc/canonry-provider-claude'
 import { localAdapter } from '@ainyc/canonry-provider-local'
 import { cdpChatgptAdapter } from '@ainyc/canonry-provider-cdp'
-import type { ProviderName } from '@ainyc/canonry-contracts'
+import { perplexityAdapter } from '@ainyc/canonry-provider-perplexity'
+import type { ProviderAdapter } from '@ainyc/canonry-contracts'
 import type { CanonryConfig, ProviderConfigEntry } from './config.js'
 import { saveConfig, loadConfig } from './config.js'
 import {
@@ -42,8 +43,24 @@ const DEFAULT_QUOTA = {
   maxRequestsPerDay: 1000,
 }
 
+/** All known API adapters — add new providers here */
+const API_ADAPTERS: ProviderAdapter[] = [
+  geminiAdapter, openaiAdapter, claudeAdapter, localAdapter, perplexityAdapter,
+]
+
+/** All known browser (CDP) adapters */
+const BROWSER_ADAPTERS: ProviderAdapter[] = [
+  cdpChatgptAdapter,
+]
+
+const ALL_ADAPTERS: ProviderAdapter[] = [...API_ADAPTERS, ...BROWSER_ADAPTERS]
+
+const adapterMap = Object.fromEntries(
+  API_ADAPTERS.map(a => [a.name, a]),
+) as Record<string, ProviderAdapter>
+
 function summarizeProviderConfig(
-  provider: ProviderName,
+  provider: string,
   config: ProviderConfigEntry | undefined,
 ) {
   return {
@@ -94,42 +111,25 @@ export async function createServer(opts: {
   }
 
   console.log('[Server] Configured providers:', Object.keys(providers).filter(k => {
-    const p = providers[k as keyof typeof providers]
+    const p = providers[k]
     return p?.apiKey || p?.baseUrl
   }))
 
-  if (providers.gemini?.apiKey) {
-    registry.register(geminiAdapter, {
-      provider: 'gemini',
-      apiKey: providers.gemini.apiKey,
-      model: providers.gemini.model,
-      quotaPolicy: providers.gemini.quota ?? DEFAULT_QUOTA,
-    })
-  }
-  if (providers.openai?.apiKey) {
-    registry.register(openaiAdapter, {
-      provider: 'openai',
-      apiKey: providers.openai.apiKey,
-      model: providers.openai.model,
-      quotaPolicy: providers.openai.quota ?? DEFAULT_QUOTA,
-    })
-  }
-  if (providers.claude?.apiKey) {
-    registry.register(claudeAdapter, {
-      provider: 'claude',
-      apiKey: providers.claude.apiKey,
-      model: providers.claude.model,
-      quotaPolicy: providers.claude.quota ?? DEFAULT_QUOTA,
-    })
-  }
-  if (providers.local?.baseUrl) {
-    registry.register(localAdapter, {
-      provider: 'local',
-      apiKey: providers.local.apiKey,
-      baseUrl: providers.local.baseUrl,
-      model: providers.local.model,
-      quotaPolicy: providers.local.quota ?? DEFAULT_QUOTA,
-    })
+  // Register API providers from config
+  for (const adapter of API_ADAPTERS) {
+    const entry = providers[adapter.name]
+    if (!entry) continue
+    // Local provider requires baseUrl; others require apiKey
+    const isConfigured = adapter.name === 'local' ? !!entry.baseUrl : !!entry.apiKey
+    if (isConfigured) {
+      registry.register(adapter, {
+        provider: adapter.name,
+        apiKey: entry.apiKey,
+        baseUrl: entry.baseUrl,
+        model: entry.model,
+        quotaPolicy: entry.quota ?? DEFAULT_QUOTA,
+      })
+    }
   }
 
   // CDP browser provider — connects to user's Chrome via CDP
@@ -160,12 +160,15 @@ export async function createServer(opts: {
     },
   })
 
-  // Build provider summary for API routes
-  const providerSummary = (['gemini', 'openai', 'claude', 'local'] as const).map(name => ({
-    name,
-    model: registry.get(name)?.config.model,
-    configured: !!registry.get(name),
-    quota: registry.get(name)?.config.quotaPolicy,
+  // Build provider summary for API routes (dynamic from adapter list)
+  const providerSummary = API_ADAPTERS.map(adapter => ({
+    name: adapter.name,
+    displayName: adapter.displayName,
+    keyUrl: adapter.keyUrl,
+    modelHint: `e.g. ${adapter.modelRegistry.defaultModel}`,
+    model: registry.get(adapter.name)?.config.model,
+    configured: !!registry.get(adapter.name),
+    quota: registry.get(adapter.name)?.config.quotaPolicy,
   }))
   const googleSettingsSummary = {
     configured: Boolean(opts.config.google?.clientId && opts.config.google?.clientSecret),
@@ -216,8 +219,6 @@ export async function createServer(opts: {
       return true
     },
   } as const
-
-  const adapterMap = { gemini: geminiAdapter, openai: openaiAdapter, claude: claudeAdapter, local: localAdapter } as const
 
   const googleStateSecret = process.env.GOOGLE_STATE_SECRET ?? crypto.randomBytes(32).toString('hex')
 
@@ -322,18 +323,25 @@ export async function createServer(opts: {
       version: PKG_VERSION,
     },
     providerSummary,
+    providerAdapters: API_ADAPTERS.map(a => ({
+      name: a.name,
+      displayName: a.displayName,
+      mode: a.mode,
+      modelValidationPattern: a.modelRegistry.validationPattern,
+      modelValidationHint: a.modelRegistry.validationHint,
+    })),
     googleSettingsSummary,
     bingSettingsSummary,
     bingConnectionStore,
     onRunCreated: (runId: string, projectId: string, providers?: string[], location?: import('@ainyc/canonry-contracts').LocationContext | null) => {
       // Fire and forget — run executes in background
-      jobRunner.executeRun(runId, projectId, providers as ProviderName[] | undefined, location).catch((err: unknown) => {
+      jobRunner.executeRun(runId, projectId, providers, location).catch((err: unknown) => {
         app.log.error({ runId, err }, 'Job runner failed')
       })
     },
     onProviderUpdate: (providerName: string, apiKey: string, model?: string, baseUrl?: string, incomingQuota?: Partial<import('@ainyc/canonry-contracts').ProviderQuotaPolicy>) => {
-      const name = providerName as keyof typeof adapterMap
-      if (!(name in adapterMap)) return null
+      const name = providerName
+      if (!adapterMap[name]) return null
 
       // Update config and persist
       if (!opts.config.providers) opts.config.providers = {}
@@ -358,7 +366,7 @@ export async function createServer(opts: {
 
       // Re-register in the live registry (use preserved model if none was passed)
       const quota = opts.config.providers[name]!.quota ?? DEFAULT_QUOTA
-      registry.register(adapterMap[name], {
+      registry.register(adapterMap[name]!, {
         provider: name,
         apiKey: apiKey || existing?.apiKey,
         baseUrl: baseUrl || existing?.baseUrl,
@@ -514,7 +522,7 @@ export async function createServer(opts: {
       }]
     },
     onGenerateKeywords: async (providerName, count, project) => {
-      const provider = registry.get(providerName as ProviderName)
+      const provider = registry.get(providerName)
       if (!provider) throw new Error(`Provider "${providerName}" is not configured`)
 
       const siteText = await fetchSiteText(project.domain)

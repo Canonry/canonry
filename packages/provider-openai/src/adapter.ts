@@ -25,6 +25,22 @@ function toOpenAIConfig(config: ProviderConfig): OpenAIConfig {
 
 export const openaiAdapter: ProviderAdapter = {
   name: 'openai',
+  displayName: 'OpenAI',
+  mode: 'api',
+  keyUrl: 'https://platform.openai.com/api-keys',
+  modelRegistry: {
+    defaultModel: 'gpt-5.4',
+    validationPattern: /^(gpt-|o\d)/,
+    validationHint: 'expected a GPT or o-series model name (e.g. gpt-5.4, o3)',
+    knownModels: [
+      { id: 'gpt-5.4', displayName: 'GPT-5.4', tier: 'flagship' },
+      { id: 'gpt-5.4-pro', displayName: 'GPT-5.4 Pro', tier: 'flagship' },
+      { id: 'gpt-5-mini', displayName: 'GPT-5 Mini', tier: 'fast' },
+      { id: 'gpt-5-nano', displayName: 'GPT-5 Nano', tier: 'economy' },
+      { id: 'gpt-5', displayName: 'GPT-5', tier: 'standard' },
+      { id: 'gpt-4.1', displayName: 'GPT-4.1', tier: 'standard' },
+    ],
+  },
 
   validateConfig(config: ProviderConfig): ProviderHealthcheckResult {
     const result = openaiValidateConfig(toOpenAIConfig(config))

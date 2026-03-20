@@ -1,5 +1,4 @@
 import OpenAI from 'openai'
-import { getDefaultModel } from '@ainyc/canonry-contracts'
 import type {
   LocalConfig,
   LocalHealthcheckResult,
@@ -8,7 +7,7 @@ import type {
   LocalTrackedQueryInput,
 } from './types.js'
 
-const DEFAULT_MODEL = getDefaultModel('local')
+const DEFAULT_MODEL = 'llama3'
 
 export function validateConfig(config: LocalConfig): LocalHealthcheckResult {
   if (!config.baseUrl || config.baseUrl.length === 0) {

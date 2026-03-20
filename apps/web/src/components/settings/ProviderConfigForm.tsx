@@ -3,26 +3,12 @@ import { useState } from 'react'
 import { Button } from '../ui/button.js'
 import { updateProviderConfig } from '../../api.js'
 
-const PROVIDER_KEY_URLS: Record<string, string> = {
-  openai: 'https://platform.openai.com/api-keys',
-  claude: 'https://platform.claude.com/settings/keys',
-}
-
-export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  gemini: 'Gemini',
-  openai: 'OpenAI',
-  claude: 'Claude',
-  local: 'Local',
-}
-
-export const PROVIDER_MODEL_PLACEHOLDERS: Record<string, string> = {
-  gemini: 'e.g. gemini-3-flash',
-  openai: 'e.g. gpt-5.4',
-  claude: 'e.g. claude-sonnet-4-6',
-  local: 'e.g. llama3, mistral',
-}
-
-export function ProviderConfigForm({ providerName, onSaved }: { providerName: string; onSaved: () => void }) {
+export function ProviderConfigForm({ providerName, keyUrl, modelHint, onSaved }: {
+  providerName: string
+  keyUrl?: string
+  modelHint?: string
+  onSaved: () => void
+}) {
   const isLocal = providerName.toLowerCase() === 'local'
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
@@ -74,8 +60,7 @@ export function ProviderConfigForm({ providerName, onSaved }: { providerName: st
     }
   }
 
-  const keyUrl = PROVIDER_KEY_URLS[providerName.toLowerCase()]
-  const modelPlaceholder = PROVIDER_MODEL_PLACEHOLDERS[providerName.toLowerCase()] ?? 'Use default model'
+  const modelPlaceholder = modelHint ?? 'Use default model'
 
   return (
     <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 space-y-2">
@@ -105,7 +90,7 @@ export function ProviderConfigForm({ providerName, onSaved }: { providerName: st
               rel="noopener noreferrer"
               className="text-[10px] text-zinc-500 hover:text-zinc-300 underline underline-offset-2"
             >
-              Get API key \u2197
+              Get API key {'\u2197'}
             </a>
           )}
         </div>

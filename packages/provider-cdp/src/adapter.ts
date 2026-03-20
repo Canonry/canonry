@@ -43,6 +43,16 @@ function getScreenshotDir(): string {
 
 export const cdpChatgptAdapter: ProviderAdapter = {
   name: 'cdp:chatgpt',
+  displayName: 'ChatGPT (Browser)',
+  mode: 'browser',
+  modelRegistry: {
+    defaultModel: 'chatgpt-web',
+    validationPattern: /./,
+    validationHint: 'model is detected from the ChatGPT web UI',
+    knownModels: [
+      { id: 'chatgpt-web', displayName: 'ChatGPT (Web UI)', tier: 'standard' },
+    ],
+  },
 
   validateConfig(config: ProviderConfig): ProviderHealthcheckResult {
     if (!config.cdpEndpoint) {

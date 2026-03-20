@@ -5,7 +5,6 @@ import { Link } from '@tanstack/react-router'
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
-import { PROVIDER_DISPLAY_NAMES } from '../components/settings/ProviderConfigForm.js'
 import {
   createProject,
   setKeywords,
@@ -332,7 +331,7 @@ export function SetupPage() {
                           onChange={(e) => setSelectedProvider(e.target.value)}
                         >
                           {readyProviders.map((p) => (
-                            <option key={p.name} value={p.name}>{PROVIDER_DISPLAY_NAMES[p.name] ?? p.name}{p.model ? ` (${p.model})` : ''}</option>
+                            <option key={p.name} value={p.name}>{p.displayName ?? p.name}{p.model ? ` (${p.model})` : ''}</option>
                           ))}
                         </select>
                       </div>

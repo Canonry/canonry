@@ -65,7 +65,14 @@ describe('api error envelopes', () => {
   })
 
   it('returns a typed envelope for invalid provider settings names', async () => {
-    const { app, tmpDir } = buildApp()
+    const { app, tmpDir } = buildApp({
+      providerAdapters: [
+        { name: 'gemini', displayName: 'Gemini', mode: 'api', modelValidationPattern: /^gemini-/, modelValidationHint: '' },
+        { name: 'openai', displayName: 'OpenAI', mode: 'api', modelValidationPattern: /^(gpt-|o\d)/, modelValidationHint: '' },
+        { name: 'claude', displayName: 'Claude', mode: 'api', modelValidationPattern: /^claude-/, modelValidationHint: '' },
+        { name: 'local', displayName: 'Local', mode: 'api', modelValidationPattern: /./, modelValidationHint: '' },
+      ],
+    })
     await app.ready()
 
     const res = await app.inject({

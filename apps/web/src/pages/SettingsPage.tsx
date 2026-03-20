@@ -51,7 +51,7 @@ export function SettingsPage() {
             <div className="section-head">
               <div>
                 <p className="eyebrow eyebrow-soft">Provider</p>
-                <h2>{provider.name}</h2>
+                <h2>{provider.displayName ?? provider.name}</h2>
               </div>
               <ToneBadge tone={provider.state === 'ready' ? 'positive' : 'caution'}>
                 {provider.state === 'ready' ? 'Ready' : 'Needs config'}
@@ -89,6 +89,8 @@ export function SettingsPage() {
             {configuringProvider === provider.name && (
               <ProviderConfigForm
                 providerName={provider.name}
+                keyUrl={provider.keyUrl}
+                modelHint={provider.modelHint}
                 onSaved={() => {
                   setConfiguringProvider(null)
                 }}

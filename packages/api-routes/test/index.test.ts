@@ -227,7 +227,7 @@ describe('api-routes', () => {
     expect(body.map(run => run.id)).toEqual([olderRunId, latestRunId])
   })
 
-  it('PUT /api/v1/projects/:name/schedule rejects unknown provider names', async () => {
+  it('PUT /api/v1/projects/:name/schedule accepts any provider name string (validated at runtime)', async () => {
     const res = await app.inject({
       method: 'PUT',
       url: '/api/v1/projects/my-site/schedule',
@@ -237,10 +237,9 @@ describe('api-routes', () => {
       },
     })
 
-    expect(res.statusCode).toBe(400)
-    const body = JSON.parse(res.payload)
-    expect(body.error.code).toBe('VALIDATION_ERROR')
-    expect(body.error.details.issues[0].path).toBe('providers.0')
+    // Provider names are now validated at runtime against registered adapters,
+    // not at schema level, so this should succeed
+    expect(res.statusCode).toBe(201)
   })
 
   it('GET /api/v1/projects/:name/history returns audit log', async () => {

@@ -7,15 +7,15 @@ import type {
   NormalizedQueryResult,
 } from '@ainyc/canonry-contracts'
 import {
-  validateConfig as geminiValidateConfig,
-  healthcheck as geminiHealthcheck,
-  executeTrackedQuery as geminiExecuteTrackedQuery,
-  normalizeResult as geminiNormalizeResult,
-  generateText as geminiGenerateText,
+  validateConfig as perplexityValidateConfig,
+  healthcheck as perplexityHealthcheck,
+  executeTrackedQuery as perplexityExecuteTrackedQuery,
+  normalizeResult as perplexityNormalizeResult,
+  generateText as perplexityGenerateText,
 } from './normalize.js'
-import type { GeminiConfig } from './types.js'
+import type { PerplexityConfig } from './types.js'
 
-function toGeminiConfig(config: ProviderConfig): GeminiConfig {
+function toPerplexityConfig(config: ProviderConfig): PerplexityConfig {
   return {
     apiKey: config.apiKey ?? '',
     model: config.model,
@@ -23,53 +23,53 @@ function toGeminiConfig(config: ProviderConfig): GeminiConfig {
   }
 }
 
-export const geminiAdapter: ProviderAdapter = {
-  name: 'gemini',
-  displayName: 'Gemini',
+export const perplexityAdapter: ProviderAdapter = {
+  name: 'perplexity',
+  displayName: 'Perplexity',
   mode: 'api',
-  keyUrl: 'https://aistudio.google.com/apikey',
+  keyUrl: 'https://www.perplexity.ai/settings/api',
   modelRegistry: {
-    defaultModel: 'gemini-3-flash',
-    validationPattern: /^gemini-/,
-    validationHint: 'model name must start with "gemini-" (e.g. gemini-3-flash)',
+    defaultModel: 'sonar',
+    validationPattern: /^sonar/,
+    validationHint: 'expected a sonar model (e.g. sonar, sonar-pro, sonar-reasoning)',
     knownModels: [
-      { id: 'gemini-3.1-pro-preview', displayName: 'Gemini 3.1 Pro (Preview)', tier: 'flagship' },
-      { id: 'gemini-3-flash-preview', displayName: 'Gemini 3 Flash (Preview)', tier: 'standard' },
-      { id: 'gemini-3.1-flash-lite-preview', displayName: 'Gemini 3.1 Flash-Lite (Preview)', tier: 'economy' },
-      { id: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', tier: 'standard' },
+      { id: 'sonar', displayName: 'Sonar', tier: 'standard' },
+      { id: 'sonar-pro', displayName: 'Sonar Pro', tier: 'flagship' },
+      { id: 'sonar-reasoning', displayName: 'Sonar Reasoning', tier: 'flagship' },
+      { id: 'sonar-reasoning-pro', displayName: 'Sonar Reasoning Pro', tier: 'flagship' },
     ],
   },
 
   validateConfig(config: ProviderConfig): ProviderHealthcheckResult {
-    const result = geminiValidateConfig(toGeminiConfig(config))
+    const result = perplexityValidateConfig(toPerplexityConfig(config))
     return {
       ok: result.ok,
-      provider: 'gemini',
+      provider: 'perplexity',
       message: result.message,
       model: result.model,
     }
   },
 
   async healthcheck(config: ProviderConfig): Promise<ProviderHealthcheckResult> {
-    const result = await geminiHealthcheck(toGeminiConfig(config))
+    const result = await perplexityHealthcheck(toPerplexityConfig(config))
     return {
       ok: result.ok,
-      provider: 'gemini',
+      provider: 'perplexity',
       message: result.message,
       model: result.model,
     }
   },
 
   async executeTrackedQuery(input: TrackedQueryInput, config: ProviderConfig): Promise<RawQueryResult> {
-    const raw = await geminiExecuteTrackedQuery({
+    const raw = await perplexityExecuteTrackedQuery({
       keyword: input.keyword,
       canonicalDomains: input.canonicalDomains,
       competitorDomains: input.competitorDomains,
-      config: toGeminiConfig(config),
+      config: toPerplexityConfig(config),
       location: input.location,
     })
     return {
-      provider: 'gemini',
+      provider: 'perplexity',
       rawResponse: raw.rawResponse,
       model: raw.model,
       groundingSources: raw.groundingSources,
@@ -78,16 +78,16 @@ export const geminiAdapter: ProviderAdapter = {
   },
 
   normalizeResult(raw: RawQueryResult): NormalizedQueryResult {
-    const geminiRaw = {
-      provider: 'gemini' as const,
+    const perplexityRaw = {
+      provider: 'perplexity' as const,
       rawResponse: raw.rawResponse,
       model: raw.model,
       groundingSources: raw.groundingSources,
       searchQueries: raw.searchQueries,
     }
-    const normalized = geminiNormalizeResult(geminiRaw)
+    const normalized = perplexityNormalizeResult(perplexityRaw)
     return {
-      provider: 'gemini',
+      provider: 'perplexity',
       answerText: normalized.answerText,
       citedDomains: normalized.citedDomains,
       groundingSources: normalized.groundingSources,
@@ -96,6 +96,6 @@ export const geminiAdapter: ProviderAdapter = {
   },
 
   async generateText(prompt: string, config: ProviderConfig): Promise<string> {
-    return geminiGenerateText(prompt, toGeminiConfig(config))
+    return perplexityGenerateText(prompt, toPerplexityConfig(config))
   },
 }

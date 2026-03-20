@@ -2,13 +2,15 @@ import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { keywords } from '@ainyc/canonry-db'
-import { validationError, parseProviderName, notImplemented } from '@ainyc/canonry-contracts'
+import { validationError, notImplemented } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 
 export interface KeywordRoutesOptions {
   onGenerateKeywords?: (provider: string, count: number, project: {
     domain: string; displayName?: string; country: string; language: string; existingKeywords: string[]
   }) => Promise<string[]>
+  /** Valid provider names from registered adapters — used to reject unknown providers */
+  validProviderNames?: string[]
 }
 
 export async function keywordRoutes(app: FastifyInstance, opts: KeywordRoutesOptions) {
@@ -168,9 +170,13 @@ export async function keywordRoutes(app: FastifyInstance, opts: KeywordRoutesOpt
       return reply.status(err.statusCode).send(err.toJSON())
     }
 
-    const provider = parseProviderName(body.provider)
-    if (!provider) {
-      const err = validationError(`Unknown provider "${body.provider}". Valid providers: gemini, openai, claude, local`)
+    const provider = body.provider.trim().toLowerCase()
+    const validNames = opts.validProviderNames ?? []
+    if (validNames.length && !validNames.includes(provider)) {
+      const err = validationError(`Unknown provider "${body.provider}". Valid providers: ${validNames.join(', ')}`, {
+        provider: body.provider,
+        validProviders: validNames,
+      })
       return reply.status(err.statusCode).send(err.toJSON())
     }
     if (body.count !== undefined && (typeof body.count !== 'number' || !Number.isFinite(body.count) || !Number.isInteger(body.count))) {

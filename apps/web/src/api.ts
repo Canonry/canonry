@@ -361,6 +361,9 @@ export function fetchExport(name: string): Promise<unknown> {
 
 export interface ApiProviderSummary {
   name: string
+  displayName?: string
+  keyUrl?: string
+  modelHint?: string
   model?: string
   configured: boolean
   quota?: {

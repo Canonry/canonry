@@ -26,6 +26,16 @@ function toLocalConfig(config: ProviderConfig): LocalConfig {
 
 export const localAdapter: ProviderAdapter = {
   name: 'local',
+  displayName: 'Local',
+  mode: 'api',
+  modelRegistry: {
+    defaultModel: 'llama3',
+    validationPattern: /./,
+    validationHint: 'any model name accepted',
+    knownModels: [
+      { id: 'llama3', displayName: 'Llama 3', tier: 'standard' },
+    ],
+  },
 
   validateConfig(config: ProviderConfig): ProviderHealthcheckResult {
     const result = localValidateConfig(toLocalConfig(config))

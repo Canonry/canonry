@@ -1,6 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { WebSearchTool20250305 } from '@anthropic-ai/sdk/resources/messages/messages.js'
-import { getDefaultModel } from '@ainyc/canonry-contracts'
 import type {
   ClaudeConfig,
   ClaudeHealthcheckResult,
@@ -10,7 +9,7 @@ import type {
   GroundingSource,
 } from './types.js'
 
-const DEFAULT_MODEL = getDefaultModel('claude')
+const DEFAULT_MODEL = 'claude-sonnet-4-6'
 
 export function validateConfig(config: ClaudeConfig): ClaudeHealthcheckResult {
   if (!config.apiKey || config.apiKey.length === 0) {

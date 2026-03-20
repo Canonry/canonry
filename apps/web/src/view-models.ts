@@ -193,6 +193,9 @@ export interface SetupWizardVm {
 
 export interface ProviderStatusVm {
   name: string
+  displayName?: string
+  keyUrl?: string
+  modelHint?: string
   model?: string
   state: 'ready' | 'needs-config'
   detail: string

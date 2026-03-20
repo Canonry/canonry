@@ -1,11 +1,9 @@
 import type { HealthSnapshot, MetricTone, SettingsVm, SetupWizardVm, SystemHealthCardVm } from '../view-models.js'
 import { toneFromService } from './tone-helpers.js'
 
-const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  gemini: 'Gemini',
-  openai: 'OpenAI',
-  claude: 'Claude',
-  local: 'Local',
+/** Display name comes from the API (adapter.displayName). Capitalize as fallback. */
+function providerDisplayName(p: { name: string; displayName?: string }): string {
+  return p.displayName ?? p.name.charAt(0).toUpperCase() + p.name.slice(1)
 }
 
 export function buildSystemHealthCards(
@@ -35,7 +33,7 @@ export function buildSystemHealthCards(
     const configuredCount = settings.providerStatuses.filter(p => p.state === 'ready').length
     const totalCount = settings.providerStatuses.length
     const allReady = configuredCount > 0
-    const configuredNames = settings.providerStatuses.filter(p => p.state === 'ready').map(p => PROVIDER_DISPLAY_NAMES[p.name] ?? p.name).join(' · ')
+    const configuredNames = settings.providerStatuses.filter(p => p.state === 'ready').map(p => providerDisplayName(p)).join(' · ')
     return {
       ...card,
       label: 'Providers',

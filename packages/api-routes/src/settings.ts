@@ -1,14 +1,15 @@
 import type { FastifyInstance } from 'fastify'
 import type { ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
 import {
-  apiProviderNameSchema,
-  MODEL_REGISTRY,
   validationError,
   notImplemented,
 } from '@ainyc/canonry-contracts'
 
 export interface ProviderSummaryEntry {
   name: string
+  displayName?: string
+  keyUrl?: string
+  modelHint?: string
   model?: string
   configured: boolean
   quota?: ProviderQuotaPolicy
@@ -22,8 +23,18 @@ export interface BingSettingsSummary {
   configured: boolean
 }
 
+export interface ProviderAdapterInfo {
+  name: string
+  displayName: string
+  mode: 'api' | 'browser'
+  modelValidationPattern: RegExp
+  modelValidationHint: string
+}
+
 export interface SettingsRoutesOptions {
   providerSummary?: ProviderSummaryEntry[]
+  /** Adapter metadata for validation — keyed by provider name */
+  providerAdapters?: ProviderAdapterInfo[]
   onProviderUpdate?: (provider: string, apiKey: string, model?: string, baseUrl?: string, quota?: Partial<ProviderQuotaPolicy>) => ProviderSummaryEntry | null
   google?: GoogleSettingsSummary
   onGoogleUpdate?: (clientId: string, clientSecret: string) => GoogleSettingsSummary | null
@@ -42,17 +53,20 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     Params: { name: string }
     Body: { apiKey?: string; baseUrl?: string; model?: string; quota?: Partial<ProviderQuotaPolicy> }
   }>('/settings/providers/:name', async (request, reply) => {
-    const providerName = apiProviderNameSchema.safeParse(request.params.name)
     const { apiKey, baseUrl, model, quota } = request.body ?? {}
+    const name = request.params.name
 
-    if (!providerName.success) {
-      const err = validationError(`Invalid provider: ${request.params.name}. Must be one of: gemini, openai, claude, local`, {
-        provider: request.params.name,
-        validProviders: ['gemini', 'openai', 'claude', 'local'],
+    // Validate against registered adapters
+    const adapters = opts.providerAdapters ?? []
+    const adapterInfo = adapters.find(a => a.name === name)
+    if (!adapterInfo) {
+      const validNames = adapters.filter(a => a.mode === 'api').map(a => a.name)
+      const err = validationError(`Invalid provider: ${name}. Must be one of: ${validNames.join(', ')}`, {
+        provider: name,
+        validProviders: validNames,
       })
       return reply.status(err.statusCode).send(err.toJSON())
     }
-    const name = providerName.data
 
     // Local provider requires baseUrl; others require apiKey
     if (name === 'local') {
@@ -68,10 +82,9 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     }
 
     if (model !== undefined) {
-      const registry = MODEL_REGISTRY[name]
-      if (!registry.validationPattern.test(model)) {
+      if (!adapterInfo.modelValidationPattern.test(model)) {
         return reply.status(400).send({
-          error: { code: 'VALIDATION_ERROR', message: `Invalid model "${model}" for provider "${name}" — ${registry.validationHint}` },
+          error: { code: 'VALIDATION_ERROR', message: `Invalid model "${model}" for provider "${name}" — ${adapterInfo.modelValidationHint}` },
         })
       }
     }

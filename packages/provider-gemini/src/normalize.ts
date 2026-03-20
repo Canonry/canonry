@@ -1,5 +1,4 @@
 import { GoogleGenerativeAI, type EnhancedGenerateContentResponse } from '@google/generative-ai'
-import { getDefaultModel, isValidModelName } from '@ainyc/canonry-contracts'
 import type {
   GeminiConfig,
   GeminiHealthcheckResult,
@@ -9,7 +8,8 @@ import type {
   GroundingSource,
 } from './types.js'
 
-const DEFAULT_MODEL = getDefaultModel('gemini')
+const DEFAULT_MODEL = 'gemini-3-flash'
+const VALIDATION_PATTERN = /^gemini-/
 
 /**
  * Resolve the effective model name, validating that it is a recognised Gemini
@@ -20,7 +20,7 @@ const DEFAULT_MODEL = getDefaultModel('gemini')
 function resolveModel(config: GeminiConfig): string {
   const m = config.model
   if (!m) return DEFAULT_MODEL
-  if (isValidModelName('gemini', m)) return m
+  if (VALIDATION_PATTERN.test(m)) return m
   console.warn(
     `[provider-gemini] Invalid model name "${m}" — this provider uses the Gemini AI Studio API ` +
     `(generativelanguage.googleapis.com) which only accepts "gemini-*" model names. ` +
@@ -34,7 +34,7 @@ export function validateConfig(config: GeminiConfig): GeminiHealthcheckResult {
     return { ok: false, provider: 'gemini', message: 'missing api key' }
   }
   const model = resolveModel(config)
-  const warning = config.model && !isValidModelName('gemini', config.model)
+  const warning = config.model && !VALIDATION_PATTERN.test(config.model)
     ? ` (invalid model "${config.model}" replaced with default)`
     : ''
   return {

@@ -37,6 +37,7 @@ export default defineConfig({
     '@ainyc/canonry-provider-claude',
     '@ainyc/canonry-provider-local',
     '@ainyc/canonry-provider-cdp',
+    '@ainyc/canonry-provider-perplexity',
     '@ainyc/canonry-integration-google',
     '@ainyc/canonry-integration-bing',
   ],

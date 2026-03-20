@@ -3,12 +3,14 @@ import { eq, asc, desc } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { runs, querySnapshots, keywords, projects } from '@ainyc/canonry-db'
 import type { LocationContext } from '@ainyc/canonry-contracts'
-import { unsupportedKind, runInProgress, runNotCancellable, notFound, parseProviderName } from '@ainyc/canonry-contracts'
+import { unsupportedKind, runInProgress, runNotCancellable, notFound, validationError } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { queueRunIfProjectIdle } from './run-queue.js'
 
 export interface RunRoutesOptions {
   onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: LocationContext | null) => void
+  /** Valid provider names from registered adapters — used to reject unknown providers */
+  validProviderNames?: string[]
 }
 
 export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
@@ -30,13 +32,19 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     const trigger = request.body?.trigger ?? 'manual'
     const rawProviders = request.body?.providers
     if (rawProviders?.length) {
-      const parsed = rawProviders.map(p => parseProviderName(p))
-      const invalid = rawProviders.filter((_, i) => !parsed[i])
-      if (invalid.length) {
-        return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: `Invalid provider(s): ${invalid.join(', ')}. Must be one of: gemini, openai, claude, local` } })
+      const normalized = rawProviders.map(p => p.trim().toLowerCase()).filter(Boolean)
+      const validNames = opts.validProviderNames ?? []
+      if (validNames.length) {
+        const invalid = normalized.filter(p => !validNames.includes(p))
+        if (invalid.length) {
+          const err = validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
+            invalidProviders: invalid,
+            validProviders: validNames,
+          })
+          return reply.status(err.statusCode).send(err.toJSON())
+        }
       }
-      // Use normalized names
-      rawProviders.splice(0, rawProviders.length, ...parsed.filter(Boolean) as string[])
+      rawProviders.splice(0, rawProviders.length, ...normalized)
     }
     const providers = rawProviders?.length ? rawProviders : undefined
 
@@ -185,12 +193,19 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
 
     const rawProviders = request.body?.providers
     if (rawProviders?.length) {
-      const parsed = rawProviders.map(p => parseProviderName(p))
-      const invalid = rawProviders.filter((_, i) => !parsed[i])
-      if (invalid.length) {
-        return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: `Invalid provider(s): ${invalid.join(', ')}. Must be one of: gemini, openai, claude, local` } })
+      const normalized = rawProviders.map(p => p.trim().toLowerCase()).filter(Boolean)
+      const validNames = opts.validProviderNames ?? []
+      if (validNames.length) {
+        const invalid = normalized.filter(p => !validNames.includes(p))
+        if (invalid.length) {
+          const err = validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
+            invalidProviders: invalid,
+            validProviders: validNames,
+          })
+          return reply.status(err.statusCode).send(err.toJSON())
+        }
       }
-      rawProviders.splice(0, rawProviders.length, ...parsed.filter(Boolean) as string[])
+      rawProviders.splice(0, rawProviders.length, ...normalized)
     }
     const providers = rawProviders?.length ? rawProviders : undefined
 

@@ -25,6 +25,19 @@ function toClaudeConfig(config: ProviderConfig): ClaudeConfig {
 
 export const claudeAdapter: ProviderAdapter = {
   name: 'claude',
+  displayName: 'Claude',
+  mode: 'api',
+  keyUrl: 'https://platform.claude.com/settings/keys',
+  modelRegistry: {
+    defaultModel: 'claude-sonnet-4-6',
+    validationPattern: /^claude-/,
+    validationHint: 'model name must start with "claude-" (e.g. claude-sonnet-4-6)',
+    knownModels: [
+      { id: 'claude-opus-4-6', displayName: 'Claude Opus 4.6', tier: 'flagship' },
+      { id: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6', tier: 'standard' },
+      { id: 'claude-haiku-4-5', displayName: 'Claude Haiku 4.5', tier: 'fast' },
+    ],
+  },
 
   validateConfig(config: ProviderConfig): ProviderHealthcheckResult {
     const result = claudeValidateConfig(toClaudeConfig(config))

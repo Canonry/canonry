@@ -1,6 +1,6 @@
 {
   "name": "@ainyc/canonry",
-  "version": "1.20.1",
+  "version": "1.21.0",
   "type": "module",
   "description": "The ultimate open-source AEO monitoring tool - track how answer engines cite your domain",
   "license": "FSL-1.1-ALv2",
@@ -67,6 +67,7 @@
     "@ainyc/canonry-integration-bing": "workspace:*",
     "@ainyc/canonry-integration-google": "workspace:*",
     "@ainyc/canonry-provider-openai": "workspace:*",
+    "@ainyc/canonry-provider-perplexity": "workspace:*",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node-cron": "^3.0.11",
     "tsup": "^8.5.1",
