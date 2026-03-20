@@ -85,6 +85,40 @@ THIS IS AN **AGENT-FIRST** PLATFORM. The CLI and API are the primary interfaces.
 - Keep the monitoring app independent from the audit package repo except for the published npm dependency.
 - Raw observation snapshots only (`cited`/`not-cited`); transitions computed at query time.
 
+## Database Schema Changes (Critical)
+
+**Every new `sqliteTable(...)` in `packages/db/src/schema.ts` MUST have a corresponding migration in `packages/db/src/migrate.ts`.**
+
+This is not optional. If you add a table to the schema but omit the migration, the table will never be created in any existing or new database, and every query against it will throw `no such table` at runtime.
+
+### Rules
+
+1. **New table** → add `CREATE TABLE IF NOT EXISTS ...` to the `MIGRATIONS` array in `migrate.ts`. Include all indexes from the schema definition.
+2. **New column** → add `ALTER TABLE ... ADD COLUMN ...` to `MIGRATIONS`. SQLite ignores duplicate `ADD COLUMN` attempts, so these are safe to re-run.
+3. **Removed column or table** → SQLite does not support DROP COLUMN on older versions; document the intent and leave the migration as a no-op comment if needed.
+4. **Never edit MIGRATION_SQL** (the initial block at the top). That block bootstraps brand-new installs. All incremental changes go in the `MIGRATIONS` array only.
+
+### Pattern
+
+```typescript
+// In packages/db/src/migrate.ts — MIGRATIONS array:
+
+// v12: My new feature — my_new_table
+`CREATE TABLE IF NOT EXISTS my_new_table (
+  id          TEXT PRIMARY KEY,
+  project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  value       TEXT NOT NULL,
+  created_at  TEXT NOT NULL
+)`,
+`CREATE INDEX IF NOT EXISTS idx_my_new_table_project ON my_new_table(project_id)`,
+```
+
+### Checklist for any schema change
+
+- [ ] Table/column added to `schema.ts`
+- [ ] Matching migration added to `MIGRATIONS` in `migrate.ts`
+- [ ] `pnpm typecheck && pnpm lint && pnpm test` all pass before committing
+
 ## Authentication Storage
 
 - The local config file at `~/.canonry/config.yaml` is the source of truth for authentication credentials.
