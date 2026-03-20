@@ -9,7 +9,7 @@ function getClient(): ApiClient {
 
 export async function createProject(
   name: string,
-  opts: { domain: string; ownedDomains?: string[]; country: string; language: string; displayName: string },
+  opts: { domain: string; ownedDomains?: string[]; country: string; language: string; displayName: string; format?: string },
 ): Promise<void> {
   const client = getClient()
   const result = await client.putProject(name, {
@@ -18,7 +18,13 @@ export async function createProject(
     ownedDomains: opts.ownedDomains ?? [],
     country: opts.country,
     language: opts.language,
-  }) as { id: string; name: string }
+  }) as { id: string; name: string; canonicalDomain: string; country: string; language: string }
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
   console.log(`Project created: ${result.name} (${result.id})`)
 }
 
@@ -114,6 +120,7 @@ export async function updateProjectSettings(
     removeOwnedDomain?: string[]
     country?: string
     language?: string
+    format?: string
   },
 ): Promise<void> {
   const client = getClient()
@@ -141,22 +148,54 @@ export async function updateProjectSettings(
     ownedDomains,
     country: opts.country ?? project.country,
     language: opts.language ?? project.language,
-  }) as { name: string }
+  }) as {
+    id: string
+    name: string
+    displayName: string
+    canonicalDomain: string
+    ownedDomains?: string[]
+    country: string
+    language: string
+  }
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
   console.log(`Project updated: ${result.name}`)
 }
 
-export async function deleteProject(name: string): Promise<void> {
+export async function deleteProject(name: string, format?: string): Promise<void> {
   const client = getClient()
   await client.deleteProject(name)
+
+  if (format === 'json') {
+    console.log(JSON.stringify({ name, deleted: true }, null, 2))
+    return
+  }
+
   console.log(`Project deleted: ${name}`)
 }
 
 export async function addLocation(
   project: string,
-  opts: { label: string; city: string; region: string; country: string; timezone?: string },
+  opts: { label: string; city: string; region: string; country: string; timezone?: string; format?: string },
 ): Promise<void> {
   const client = getClient()
-  await client.addLocation(project, opts)
+  const location = await client.addLocation(project, {
+    label: opts.label,
+    city: opts.city,
+    region: opts.region,
+    country: opts.country,
+    timezone: opts.timezone,
+  })
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(location, null, 2))
+    return
+  }
+
   console.log(`Location added: ${opts.label} (${opts.city}, ${opts.region}, ${opts.country})`)
 }
 
@@ -190,14 +229,26 @@ export async function listLocations(project: string, format?: string): Promise<v
   }
 }
 
-export async function removeLocation(project: string, label: string): Promise<void> {
+export async function removeLocation(project: string, label: string, format?: string): Promise<void> {
   const client = getClient()
   await client.removeLocation(project, label)
+
+  if (format === 'json') {
+    console.log(JSON.stringify({ project, label, removed: true }, null, 2))
+    return
+  }
+
   console.log(`Location removed: ${label}`)
 }
 
-export async function setDefaultLocation(project: string, label: string): Promise<void> {
+export async function setDefaultLocation(project: string, label: string, format?: string): Promise<void> {
   const client = getClient()
-  await client.setDefaultLocation(project, label)
+  const result = await client.setDefaultLocation(project, label)
+
+  if (format === 'json') {
+    console.log(JSON.stringify({ project, ...(result as object) }, null, 2))
+    return
+  }
+
   console.log(`Default location set to: ${label}`)
 }

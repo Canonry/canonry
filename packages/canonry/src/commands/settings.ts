@@ -12,14 +12,22 @@ export async function setProvider(name: string, opts: {
   baseUrl?: string
   model?: string
   quota?: { maxConcurrency?: number; maxRequestsPerMinute?: number; maxRequestsPerDay?: number }
+  format?: string
 }): Promise<void> {
   const client = getClient()
-  const result = await client.updateProvider(name, opts) as {
+  const { format, ...payload } = opts
+  const result = await client.updateProvider(name, payload) as {
     name: string
     model?: string
     configured: boolean
     quota?: { maxConcurrency: number; maxRequestsPerMinute: number; maxRequestsPerDay: number }
   }
+
+  if (format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
   console.log(`Provider ${result.name} updated successfully.`)
   if (result.model) {
     console.log(`  Model: ${result.model}`)
@@ -68,13 +76,22 @@ export async function showSettings(format?: string): Promise<void> {
   console.log(`  ${config.google?.clientId && config.google?.clientSecret ? 'configured' : 'not configured'}`)
 }
 
-export function setGoogleAuth(opts: { clientId: string; clientSecret: string }): void {
+export function setGoogleAuth(opts: { clientId: string; clientSecret: string; format?: string }): void {
   const config = loadConfig()
   setGoogleAuthConfig(config, {
     clientId: opts.clientId,
     clientSecret: opts.clientSecret,
   })
   saveConfig(config)
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify({
+      configured: true,
+      configPath: getConfigPath(),
+      restartRequired: true,
+    }, null, 2))
+    return
+  }
 
   console.log(`Google OAuth credentials saved to ${getConfigPath()}.`)
   console.log('Restart the local server if it is already running.')

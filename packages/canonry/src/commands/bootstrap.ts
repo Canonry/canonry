@@ -6,8 +6,10 @@ import { getBootstrapEnv } from '@ainyc/canonry-config'
 import { createClient, migrate, apiKeys } from '@ainyc/canonry-db'
 
 import { configExists, getConfigDir, getConfigPath, loadConfig, saveConfig } from '../config.js'
+import type { CliFormat } from '../cli-error.js'
 
-export async function bootstrapCommand(_opts?: { force?: boolean }): Promise<void> {
+export async function bootstrapCommand(_opts?: { force?: boolean; format?: CliFormat }): Promise<void> {
+  const format = _opts?.format ?? 'text'
   const env = getBootstrapEnv(process.env)
   const providers = env.providers
   const hasProvider = providers?.gemini || providers?.openai || providers?.claude || providers?.local
@@ -77,6 +79,19 @@ export async function bootstrapCommand(_opts?: { force?: boolean }): Promise<voi
     providers: mergedProviders,
     google: mergedGoogle,
   })
+
+  if (format === 'json') {
+    console.log(JSON.stringify({
+      bootstrapped: true,
+      configPath: getConfigPath(),
+      databasePath,
+      apiUrl: env.apiUrl || existingConfig?.apiUrl || `http://localhost:${process.env.CANONRY_PORT || '4100'}`,
+      providers: Object.keys(mergedProviders ?? {}),
+      googleConfigured: !!mergedGoogle,
+      generatedApiKey,
+    }, null, 2))
+    return
+  }
 
   console.log(`Bootstrap complete. Config saved to ${getConfigPath()}`)
   console.log(`SQLite database path: ${databasePath}`)

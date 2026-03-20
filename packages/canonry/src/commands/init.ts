@@ -4,10 +4,11 @@ import readline from 'node:readline'
 import path from 'node:path'
 import { getBootstrapEnv } from '@ainyc/canonry-config'
 import { getConfigDir, getConfigPath, configExists, saveConfig } from '../config.js'
-import type { CanonryConfig, ProviderConfigEntry } from '../config.js'
+import type { CanonryConfig } from '../config.js'
 import { trackEvent, showFirstRunNotice } from '../telemetry.js'
 import { createClient, migrate } from '@ainyc/canonry-db'
 import { apiKeys } from '@ainyc/canonry-db'
+import { CliError, type CliFormat } from '../cli-error.js'
 
 function prompt(question: string): Promise<string> {
   const rl = readline.createInterface({
@@ -38,12 +39,26 @@ export interface InitOptions {
   localKey?: string
   googleClientId?: string
   googleClientSecret?: string
+  format?: CliFormat
 }
 
 export async function initCommand(opts?: InitOptions): Promise<void> {
-  console.log('Initializing canonry...\n')
+  const format = opts?.format ?? 'text'
+
+  if (format !== 'json') {
+    console.log('Initializing canonry...\n')
+  }
 
   if (configExists() && !opts?.force) {
+    if (format === 'json') {
+      console.log(JSON.stringify({
+        initialized: false,
+        reason: 'config_exists',
+        configPath: getConfigPath(),
+      }, null, 2))
+      return
+    }
+
     console.log(`Config already exists at ${getConfigPath()}`)
     console.log('To reinitialize, run "canonry init --force".')
     return
@@ -67,8 +82,14 @@ export async function initCommand(opts?: InitOptions): Promise<void> {
     GOOGLE_CLIENT_SECRET: opts?.googleClientSecret,
   })
   if ((bootstrapEnv.googleClientId && !bootstrapEnv.googleClientSecret) || (!bootstrapEnv.googleClientId && bootstrapEnv.googleClientSecret)) {
-    console.error('Google OAuth requires both a client ID and client secret when configured non-interactively.')
-    process.exit(1)
+    throw new CliError({
+      code: 'GOOGLE_OAUTH_CREDENTIALS_INCOMPLETE',
+      message: 'Google OAuth requires both a client ID and client secret when configured non-interactively.',
+      displayMessage: 'Google OAuth requires both a client ID and client secret when configured non-interactively.',
+      details: {
+        required: ['google-client-id', 'google-client-secret'],
+      },
+    })
   }
   const envProviders = bootstrapEnv.providers
   const envGoogleConfigured = !!(bootstrapEnv.googleClientId && bootstrapEnv.googleClientSecret)
@@ -82,6 +103,17 @@ export async function initCommand(opts?: InitOptions): Promise<void> {
 
   const providers: CanonryConfig['providers'] = {}
   let google: CanonryConfig['google'] | undefined
+
+  if (format === 'json' && !nonInteractive) {
+    throw new CliError({
+      code: 'INIT_JSON_REQUIRES_NON_INTERACTIVE',
+      message: '--format json requires non-interactive provider configuration via flags or environment variables.',
+      displayMessage: '--format json requires non-interactive provider configuration via flags or environment variables.',
+      details: {
+        required: ['provider flags or environment variables'],
+      },
+    })
+  }
 
   if (nonInteractive) {
     // Non-interactive mode — providers fully resolved by getBootstrapEnv
@@ -136,8 +168,14 @@ export async function initCommand(opts?: InitOptions): Promise<void> {
     if (googleClientId) {
       const googleClientSecret = await prompt('  Google OAuth client secret: ')
       if (!googleClientSecret) {
-        console.error('\nGoogle OAuth client secret is required when a client ID is provided.')
-        process.exit(1)
+        throw new CliError({
+          code: 'GOOGLE_OAUTH_CREDENTIALS_INCOMPLETE',
+          message: 'Google OAuth client secret is required when a client ID is provided.',
+          displayMessage: '\nGoogle OAuth client secret is required when a client ID is provided.',
+          details: {
+            required: ['google-client-secret'],
+          },
+        })
       }
       google = {
         clientId: googleClientId,
@@ -150,8 +188,14 @@ export async function initCommand(opts?: InitOptions): Promise<void> {
   // Validate at least one provider
   const hasProvider = providers.gemini || providers.openai || providers.claude || providers.local
   if (!hasProvider) {
-    console.error('\nAt least one provider is required.')
-    process.exit(1)
+    throw new CliError({
+      code: 'INIT_PROVIDER_REQUIRED',
+      message: 'At least one provider is required.',
+      displayMessage: '\nAt least one provider is required.',
+      details: {
+        required: ['provider'],
+      },
+    })
   }
 
   // Generate random API key for the local server
@@ -186,17 +230,30 @@ export async function initCommand(opts?: InitOptions): Promise<void> {
   })
 
   const providerNames = Object.keys(providers)
-  console.log(`\nConfig saved to ${getConfigPath()}`)
-  console.log(`Database created at ${databasePath}`)
-  console.log(`API key: ${rawApiKey}`)
-  console.log(`Providers: ${providerNames.join(', ')}`)
+  if (format === 'json') {
+    console.log(JSON.stringify({
+      initialized: true,
+      configPath: getConfigPath(),
+      databasePath,
+      apiUrl: `http://localhost:${process.env.CANONRY_PORT || '4100'}`,
+      apiKey: rawApiKey,
+      providers: providerNames,
+      googleConfigured: !!google,
+    }, null, 2))
+  } else {
+    console.log(`\nConfig saved to ${getConfigPath()}`)
+    console.log(`Database created at ${databasePath}`)
+    console.log(`API key: ${rawApiKey}`)
+    console.log(`Providers: ${providerNames.join(', ')}`)
+  }
 
   // Show the first-run telemetry notice during init — this is the natural
   // first command most users run, so the notice must appear here before
   // we generate the anonymousId and fire any telemetry events.
-  showFirstRunNotice()
-
-  console.log('Run "canonry serve" to start the server.')
+  if (format !== 'json') {
+    showFirstRunNotice()
+    console.log('Run "canonry serve" to start the server.')
+  }
 
   trackEvent('cli.init', {
     providerCount: providerNames.length,

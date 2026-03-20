@@ -95,6 +95,35 @@ describe('location CLI commands', () => {
     expect(output).toMatch(/New York/)
   })
 
+  it('project add-location outputs JSON when format is json', async () => {
+    await client.putProject('test-proj', {
+      displayName: 'Test',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+    })
+
+    const { addLocation } = await import('../src/commands/project.js')
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await addLocation('test-proj', {
+        label: 'nyc',
+        city: 'New York',
+        region: 'NY',
+        country: 'US',
+        format: 'json',
+      })
+    } finally {
+      console.log = origLog
+    }
+
+    const parsed = JSON.parse(logs.join('\n'))
+    expect(parsed.label).toBe('nyc')
+    expect(parsed.city).toBe('New York')
+  })
+
   it('project locations lists configured locations', async () => {
     await client.putProject('test-proj', {
       displayName: 'Test',
@@ -168,6 +197,31 @@ describe('location CLI commands', () => {
     expect(result.locations).toHaveLength(0)
   })
 
+  it('project remove-location outputs JSON when format is json', async () => {
+    await client.putProject('test-proj', {
+      displayName: 'Test',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+    })
+    await client.addLocation('test-proj', { label: 'nyc', city: 'New York', region: 'NY', country: 'US' })
+
+    const { removeLocation } = await import('../src/commands/project.js')
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await removeLocation('test-proj', 'nyc', 'json')
+    } finally {
+      console.log = origLog
+    }
+
+    const parsed = JSON.parse(logs.join('\n'))
+    expect(parsed.project).toBe('test-proj')
+    expect(parsed.label).toBe('nyc')
+    expect(parsed.removed).toBe(true)
+  })
+
   it('project set-default-location sets the default location', async () => {
     await client.putProject('test-proj', {
       displayName: 'Test',
@@ -194,6 +248,31 @@ describe('location CLI commands', () => {
     // Verify default was actually set
     const result = await client.listLocations('test-proj')
     expect(result.defaultLocation).toBe('nyc')
+  })
+
+  it('project set-default-location outputs JSON when format is json', async () => {
+    await client.putProject('test-proj', {
+      displayName: 'Test',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+    })
+    await client.addLocation('test-proj', { label: 'nyc', city: 'New York', region: 'NY', country: 'US' })
+    await client.addLocation('test-proj', { label: 'lax', city: 'Los Angeles', region: 'CA', country: 'US' })
+
+    const { setDefaultLocation } = await import('../src/commands/project.js')
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await setDefaultLocation('test-proj', 'nyc', 'json')
+    } finally {
+      console.log = origLog
+    }
+
+    const parsed = JSON.parse(logs.join('\n'))
+    expect(parsed.project).toBe('test-proj')
+    expect(parsed.defaultLocation).toBe('nyc')
   })
 
   it('run --all-locations triggers one run per configured location', async () => {

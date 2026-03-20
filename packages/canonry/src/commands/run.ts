@@ -1,6 +1,7 @@
 import { loadConfig } from '../config.js'
 import { ApiClient } from '../client.js'
 import { resolveProviderInput } from '@ainyc/canonry-contracts'
+import { CliError } from '../cli-error.js'
 
 function getClient(): ApiClient {
   const config = loadConfig()
@@ -173,12 +174,22 @@ export async function cancelRun(project: string, runId?: string, format?: string
     const runs = await client.listRuns(project) as Array<{ id: string; status: string }>
     const active = runs.find(r => r.status === 'queued' || r.status === 'running')
     if (!active) {
-      console.error(
-        `Error: canonry run cancel "${project}" — no active run found (status must be queued or running).\n` +
-        `Check run status : canonry status ${project}\n` +
-        `To cancel by ID  : canonry run cancel ${project} <run-id>`,
-      )
-      process.exit(1)
+      throw new CliError({
+        code: 'NO_ACTIVE_RUN',
+        message: `No active run found for project "${project}"`,
+        displayMessage:
+          `Error: canonry run cancel "${project}" — no active run found (status must be queued or running).\n` +
+          `Check run status : canonry status ${project}\n` +
+          `To cancel by ID  : canonry run cancel ${project} <run-id>`,
+        details: {
+          project,
+          allowedStatuses: ['queued', 'running'],
+          suggestedCommands: [
+            `canonry status ${project}`,
+            `canonry run cancel ${project} <run-id>`,
+          ],
+        },
+      })
     }
     targetId = active.id
   }

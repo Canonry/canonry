@@ -1,5 +1,6 @@
 import { loadConfig } from '../config.js'
 import { ApiClient } from '../client.js'
+import { CliError } from '../cli-error.js'
 
 function getClient(): ApiClient {
   const config = loadConfig()
@@ -22,8 +23,14 @@ export async function bingConnect(project: string, opts?: { apiKey?: string; for
   }
 
   if (!apiKey) {
-    console.error('Error: API key is required (pass --api-key or enter interactively)')
-    process.exit(1)
+    throw new CliError({
+      code: 'BING_API_KEY_REQUIRED',
+      message: 'API key is required (pass --api-key or enter interactively)',
+      displayMessage: 'Error: API key is required (pass --api-key or enter interactively)',
+      details: {
+        project,
+      },
+    })
   }
 
   const client = getClient()
@@ -52,9 +59,15 @@ export async function bingConnect(project: string, opts?: { apiKey?: string; for
   }
 }
 
-export async function bingDisconnect(project: string): Promise<void> {
+export async function bingDisconnect(project: string, format?: string): Promise<void> {
   const client = getClient()
   await client.bingDisconnect(project)
+
+  if (format === 'json') {
+    console.log(JSON.stringify({ project, disconnected: true }, null, 2))
+    return
+  }
+
   console.log(`Bing Webmaster Tools disconnected from project "${project}".`)
 }
 
@@ -112,9 +125,15 @@ export async function bingSites(project: string, format?: string): Promise<void>
   console.log(`\nUse "canonry bing set-site <project> <url>" to select a site.`)
 }
 
-export async function bingSetSite(project: string, siteUrl: string): Promise<void> {
+export async function bingSetSite(project: string, siteUrl: string, format?: string): Promise<void> {
   const client = getClient()
   await client.bingSetSite(project, siteUrl)
+
+  if (format === 'json') {
+    console.log(JSON.stringify({ project, siteUrl }, null, 2))
+    return
+  }
+
   console.log(`Bing site set to "${siteUrl}" for project "${project}".`)
 }
 
@@ -241,8 +260,12 @@ export async function bingRequestIndexing(project: string, opts: {
   } else if (opts.url) {
     body.urls = [opts.url]
   } else {
-    console.error('Error: provide a URL or use --all-unindexed')
-    process.exit(1)
+    throw new CliError({
+      code: 'CLI_USAGE_ERROR',
+      message: 'provide a URL or use --all-unindexed',
+      displayMessage: 'Error: provide a URL or use --all-unindexed',
+      details: { command: 'bing.request-indexing' },
+    })
   }
 
   const result = await client.bingRequestIndexing(project, body) as {
