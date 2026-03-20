@@ -293,7 +293,7 @@ describe('google CLI commands', () => {
     expect(parsed.results[0]!.status).toBe('success')
   })
 
-  it('googleRequestIndexing exits with error when neither URL nor --all-unindexed is provided', async () => {
+  it('googleRequestIndexing throws a usage error when neither URL nor --all-unindexed is provided', async () => {
     await client.putProject('test-proj', {
       displayName: 'Test',
       canonicalDomain: 'example.com',
@@ -302,20 +302,6 @@ describe('google CLI commands', () => {
     })
 
     const { googleRequestIndexing } = await import('../src/commands/google.js')
-    const errors: string[] = []
-    const origError = console.error
-    const origExit = process.exit
-    console.error = (...args: unknown[]) => errors.push(args.join(' '))
-    process.exit = (() => { throw new Error('process.exit called') }) as never
-    try {
-      await googleRequestIndexing('test-proj', {})
-    } catch (err) {
-      expect((err as Error).message).toBe('process.exit called')
-    } finally {
-      console.error = origError
-      process.exit = origExit
-    }
-
-    expect(errors.join('\n')).toMatch(/provide a URL or use --all-unindexed/)
+    await expect(() => googleRequestIndexing('test-proj', {})).rejects.toThrow('provide a URL or use --all-unindexed')
   })
 })

@@ -1,5 +1,6 @@
 import { loadConfig, saveConfig } from '../config.js'
 import { ApiClient } from '../client.js'
+import { CliError } from '../cli-error.js'
 
 function getClient(): ApiClient {
   const config = loadConfig()
@@ -10,7 +11,7 @@ function getClient(): ApiClient {
  * canonry cdp connect --host <host> --port <port>
  * Saves CDP endpoint to ~/.canonry/config.yaml
  */
-export async function cdpConnect(opts: { host?: string; port?: string }): Promise<void> {
+export async function cdpConnect(opts: { host?: string; port?: string; format?: string }): Promise<void> {
   const config = loadConfig()
   const host = opts.host ?? 'localhost'
   const port = parseInt(opts.port ?? '9222', 10)
@@ -21,6 +22,17 @@ export async function cdpConnect(opts: { host?: string; port?: string }): Promis
     port,
   }
   saveConfig(config)
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify({
+      host,
+      port,
+      endpoint: `ws://${host}:${port}`,
+      restartRequired: true,
+    }, null, 2))
+    return
+  }
+
   console.log(`CDP endpoint configured: ws://${host}:${port}`)
   console.log('Restart canonry server for changes to take effect.')
 }
@@ -29,7 +41,7 @@ export async function cdpConnect(opts: { host?: string; port?: string }): Promis
  * canonry cdp status
  * Check CDP connection health + tab status
  */
-export async function cdpStatus(): Promise<void> {
+export async function cdpStatus(format?: string): Promise<void> {
   const client = getClient()
   try {
     const status = await client.getCdpStatus() as {
@@ -38,6 +50,11 @@ export async function cdpStatus(): Promise<void> {
       version?: string
       browserVersion?: string
       targets: { name: string; alive: boolean; lastUsed: string | null }[]
+    }
+
+    if (format === 'json') {
+      console.log(JSON.stringify(status, null, 2))
+      return
     }
 
     if (status.connected) {
@@ -58,9 +75,21 @@ export async function cdpStatus(): Promise<void> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     if (msg.includes('501') || msg.includes('not configured')) {
+      if (format === 'json') {
+        console.log(JSON.stringify({
+          connected: false,
+          endpoint: '',
+          targets: [],
+        }, null, 2))
+        return
+      }
       console.log('CDP not configured. Run: canonry cdp connect --host <host> --port <port>')
     } else {
-      console.error(`Error checking CDP status: ${msg}`)
+      throw new CliError({
+        code: 'CDP_STATUS_FAILED',
+        message: `Error checking CDP status: ${msg}`,
+        displayMessage: `Error checking CDP status: ${msg}`,
+      })
     }
   }
 }
@@ -69,20 +98,26 @@ export async function cdpStatus(): Promise<void> {
  * canonry cdp targets
  * Show per-target status + last seen
  */
-export async function cdpTargets(): Promise<void> {
+export async function cdpTargets(format?: string): Promise<void> {
   // Same as status but focused on targets
-  await cdpStatus()
+  await cdpStatus(format)
 }
 
 /**
  * canonry cdp screenshot <query> [--targets chatgpt]
  * One-off screenshot across CDP targets
  */
-export async function cdpScreenshot(query: string, opts?: { targets?: string }): Promise<void> {
+export async function cdpScreenshot(query: string, opts?: { targets?: string; format?: string }): Promise<void> {
   if (!query) {
-    console.error('Error: query is required')
-    console.error('Usage: canonry cdp screenshot "best coffee in NYC"')
-    process.exit(1)
+    throw new CliError({
+      code: 'CLI_USAGE_ERROR',
+      message: 'query is required',
+      displayMessage: 'Error: query is required\nUsage: canonry cdp screenshot "best coffee in NYC"',
+      details: {
+        command: 'cdp.screenshot',
+        usage: 'canonry cdp screenshot "best coffee in NYC"',
+      },
+    })
   }
 
   const client = getClient()
@@ -94,6 +129,11 @@ export async function cdpScreenshot(query: string, opts?: { targets?: string }):
   try {
     const response = await client.cdpScreenshot(query, body.targets as string[] | undefined) as {
       results: { target: string; screenshotPath: string; answerText: string; citations: { uri: string; title: string }[] }[]
+    }
+
+    if (opts?.format === 'json') {
+      console.log(JSON.stringify(response, null, 2))
+      return
     }
 
     for (const r of response.results) {
@@ -114,7 +154,13 @@ export async function cdpScreenshot(query: string, opts?: { targets?: string }):
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    console.error(`CDP screenshot failed: ${msg}`)
-    process.exit(1)
+    throw new CliError({
+      code: 'CDP_SCREENSHOT_FAILED',
+      message: `CDP screenshot failed: ${msg}`,
+      displayMessage: `CDP screenshot failed: ${msg}`,
+      details: {
+        query,
+      },
+    })
   }
 }

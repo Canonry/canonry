@@ -1,18 +1,85 @@
 import type { IndexingRequestResultDto } from '@ainyc/canonry-contracts'
 import { loadConfig } from '../config.js'
 import { ApiClient } from '../client.js'
+import { CliError } from '../cli-error.js'
 
 function getClient(): ApiClient {
   const config = loadConfig()
   return new ApiClient(config.apiUrl, config.apiKey)
 }
 
-export async function googleConnect(project: string, opts: { type: string; publicUrl?: string }): Promise<void> {
+async function waitForRunStatus(
+  client: ApiClient,
+  runId: string,
+  config: {
+    timeoutMs: number
+    intervalMs: number
+    progressLabel: string
+    successStatuses: string[]
+    failureStatuses: string[]
+    timeoutCode: string
+    failureCode: string
+    timeoutMessage: string
+    failureMessage: string
+    details?: Record<string, unknown>
+  },
+): Promise<{ status: string }> {
+  const start = Date.now()
+  process.stderr.write(config.progressLabel)
+
+  while (Date.now() - start < config.timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, config.intervalMs))
+    const current = await client.getRun(runId) as { status: string }
+    process.stderr.write('.')
+
+    if (config.successStatuses.includes(current.status)) {
+      process.stderr.write('\n')
+      return current
+    }
+
+    if (config.failureStatuses.includes(current.status)) {
+      process.stderr.write('\n')
+      throw new CliError({
+        code: config.failureCode,
+        message: config.failureMessage,
+        displayMessage: config.failureMessage,
+        details: {
+          runId,
+          status: current.status,
+          ...(config.details ?? {}),
+        },
+      })
+    }
+  }
+
+  process.stderr.write('\n')
+  throw new CliError({
+    code: config.timeoutCode,
+    message: config.timeoutMessage,
+    displayMessage: config.timeoutMessage,
+    details: {
+      runId,
+      ...(config.details ?? {}),
+    },
+  })
+}
+
+export async function googleConnect(project: string, opts: { type: string; publicUrl?: string; format?: string }): Promise<void> {
   const client = getClient()
   const { authUrl, redirectUri } = await client.googleConnect(project, {
     type: opts.type,
     publicUrl: opts.publicUrl,
   })
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify({
+      project,
+      type: opts.type,
+      authUrl,
+      redirectUri: redirectUri ?? null,
+    }, null, 2))
+    return
+  }
 
   console.log(`\nOpen this URL in your browser to authorize Google ${opts.type.toUpperCase()} access:\n`)
   console.log(`  ${authUrl}\n`)
@@ -34,9 +101,15 @@ export async function googleConnect(project: string, opts: { type: string; publi
   }
 }
 
-export async function googleDisconnect(project: string, opts: { type: string }): Promise<void> {
+export async function googleDisconnect(project: string, opts: { type: string; format?: string }): Promise<void> {
   const client = getClient()
   await client.googleDisconnect(project, opts.type)
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify({ project, type: opts.type, disconnected: true }, null, 2))
+    return
+  }
+
   console.log(`Disconnected Google ${opts.type.toUpperCase()} from project "${project}".`)
 }
 
@@ -97,9 +170,15 @@ export async function googleProperties(project: string, format?: string): Promis
   console.log(`\nUse "canonry google set-property <project> <siteUrl>" to select a property.`)
 }
 
-export async function googleSetProperty(project: string, propertyUrl: string): Promise<void> {
+export async function googleSetProperty(project: string, propertyUrl: string, format?: string): Promise<void> {
   const client = getClient()
   await client.googleSetProperty(project, 'gsc', propertyUrl)
+
+  if (format === 'json') {
+    console.log(JSON.stringify({ project, type: 'gsc', propertyUrl }, null, 2))
+    return
+  }
+
   console.log(`GSC property set to "${propertyUrl}" for project "${project}".`)
 }
 
@@ -117,37 +196,35 @@ export async function googleSync(project: string, opts: {
     kind: string
   }
 
-  if (opts.format === 'json') {
+  if (!opts.wait && opts.format === 'json') {
     console.log(JSON.stringify(run, null, 2))
     return
   }
 
-  console.log(`GSC sync started (run ${run.id})`)
+  if (opts.format !== 'json') {
+    console.log(`GSC sync started (run ${run.id})`)
+  }
 
   if (opts.wait) {
-    const timeout = 10 * 60 * 1000
-    const start = Date.now()
-    process.stderr.write('Waiting for sync to complete')
+    const current = await waitForRunStatus(client, run.id, {
+      timeoutMs: 10 * 60 * 1000,
+      intervalMs: 2000,
+      progressLabel: 'Waiting for sync to complete',
+      successStatuses: ['completed'],
+      failureStatuses: ['failed'],
+      timeoutCode: 'GOOGLE_SYNC_TIMEOUT',
+      failureCode: 'GOOGLE_SYNC_FAILED',
+      timeoutMessage: 'Timed out waiting for GSC sync to complete.',
+      failureMessage: 'GSC sync failed.',
+      details: { project },
+    })
 
-    while (Date.now() - start < timeout) {
-      await new Promise((r) => setTimeout(r, 2000))
-      const current = await client.getRun(run.id) as { status: string }
-      process.stderr.write('.')
-
-      if (current.status === 'completed' || current.status === 'failed') {
-        process.stderr.write('\n')
-        if (current.status === 'completed') {
-          console.log('GSC sync completed successfully.')
-        } else {
-          console.error('GSC sync failed.')
-        }
-        return
-      }
+    if (opts.format === 'json') {
+      console.log(JSON.stringify({ ...run, status: current.status }, null, 2))
+      return
     }
 
-    process.stderr.write('\n')
-    console.error('Timed out waiting for GSC sync to complete.')
-    process.exit(1)
+    console.log('GSC sync completed successfully.')
   }
 }
 
@@ -331,9 +408,15 @@ export async function googleCoverage(project: string, format?: string): Promise<
   }
 }
 
-export async function googleSetSitemap(project: string, sitemapUrl: string): Promise<void> {
+export async function googleSetSitemap(project: string, sitemapUrl: string, format?: string): Promise<void> {
   const client = getClient()
   await client.googleSetSitemap(project, 'gsc', sitemapUrl)
+
+  if (format === 'json') {
+    console.log(JSON.stringify({ project, type: 'gsc', sitemapUrl }, null, 2))
+    return
+  }
+
   console.log(`GSC sitemap URL set to "${sitemapUrl}" for project "${project}".`)
 }
 
@@ -380,39 +463,40 @@ export async function googleInspectSitemap(project: string, opts: {
     sitemapUrl: opts.sitemapUrl,
   }) as { id: string; status: string; kind: string }
 
-  if (opts.format === 'json') {
+  if (!opts.wait && opts.format === 'json') {
     console.log(JSON.stringify(run, null, 2))
     return
   }
 
-  console.log(`Sitemap inspection started (run ${run.id})`)
+  if (opts.format !== 'json') {
+    console.log(`Sitemap inspection started (run ${run.id})`)
+  }
 
   if (opts.wait) {
-    const timeout = 30 * 60 * 1000 // 30 minutes for potentially large sitemaps
-    const start = Date.now()
-    process.stderr.write('Waiting for sitemap inspection to complete')
+    const current = await waitForRunStatus(client, run.id, {
+      timeoutMs: 30 * 60 * 1000,
+      intervalMs: 3000,
+      progressLabel: 'Waiting for sitemap inspection to complete',
+      successStatuses: ['completed', 'partial'],
+      failureStatuses: ['failed'],
+      timeoutCode: 'GOOGLE_INSPECT_SITEMAP_TIMEOUT',
+      failureCode: 'GOOGLE_INSPECT_SITEMAP_FAILED',
+      timeoutMessage: 'Timed out waiting for sitemap inspection to complete.',
+      failureMessage: 'Sitemap inspection failed.',
+      details: { project },
+    })
 
-    while (Date.now() - start < timeout) {
-      await new Promise((r) => setTimeout(r, 3000))
-      const current = await client.getRun(run.id) as { status: string }
-      process.stderr.write('.')
-
-      if (current.status === 'completed' || current.status === 'partial' || current.status === 'failed') {
-        process.stderr.write('\n')
-        if (current.status === 'completed') {
-          console.log('Sitemap inspection completed successfully.')
-        } else if (current.status === 'partial') {
-          console.log('Sitemap inspection completed with some errors.')
-        } else {
-          console.error('Sitemap inspection failed.')
-        }
-        return
-      }
+    if (opts.format === 'json') {
+      console.log(JSON.stringify({ ...run, status: current.status }, null, 2))
+      return
     }
 
-    process.stderr.write('\n')
-    console.error('Timed out waiting for sitemap inspection to complete.')
-    process.exit(1)
+    if (current.status === 'partial') {
+      console.log('Sitemap inspection completed with some errors.')
+      return
+    }
+
+    console.log('Sitemap inspection completed successfully.')
   }
 }
 
@@ -460,49 +544,56 @@ export async function googleDiscoverSitemaps(project: string, opts: { wait?: boo
     run: { id: string; status: string }
   }
 
-  if (opts.format === 'json') {
+  if (!opts.wait && opts.format === 'json') {
     console.log(JSON.stringify(result, null, 2))
     return
   }
 
-  console.log(`\nDiscovered ${result.sitemaps.length} sitemap(s) for project "${project}":\n`)
-  for (const s of result.sitemaps) {
-    const primary = s.path === result.primarySitemapUrl ? ' (primary)' : ''
-    const indexed = s.contents?.[0]?.indexed ?? '?'
-    const submitted = s.contents?.[0]?.submitted ?? '?'
-    console.log(`  ${s.path}${primary}`)
-    console.log(`    Indexed: ${indexed} / ${submitted} submitted  |  Last submitted: ${s.lastSubmitted ?? 'unknown'}`)
-  }
-
-  console.log(`\nPrimary sitemap: ${result.primarySitemapUrl}`)
-  console.log(`Sitemap URL saved. Inspection run queued (run ${result.run.id}).`)
-
-  if (opts.wait) {
-    const timeout = 30 * 60 * 1000
-    const start = Date.now()
-    process.stderr.write('Waiting for sitemap inspection to complete')
-
-    while (Date.now() - start < timeout) {
-      await new Promise((r) => setTimeout(r, 3000))
-      const current = await client.getRun(result.run.id) as { status: string }
-      process.stderr.write('.')
-
-      if (current.status === 'completed' || current.status === 'partial' || current.status === 'failed') {
-        process.stderr.write('\n')
-        if (current.status === 'completed') {
-          console.log('Sitemap inspection completed successfully.')
-        } else if (current.status === 'partial') {
-          console.log('Sitemap inspection completed with some errors.')
-        } else {
-          console.error('Sitemap inspection failed.')
-        }
-        return
-      }
+  if (opts.format !== 'json') {
+    console.log(`\nDiscovered ${result.sitemaps.length} sitemap(s) for project "${project}":\n`)
+    for (const s of result.sitemaps) {
+      const primary = s.path === result.primarySitemapUrl ? ' (primary)' : ''
+      const indexed = s.contents?.[0]?.indexed ?? '?'
+      const submitted = s.contents?.[0]?.submitted ?? '?'
+      console.log(`  ${s.path}${primary}`)
+      console.log(`    Indexed: ${indexed} / ${submitted} submitted  |  Last submitted: ${s.lastSubmitted ?? 'unknown'}`)
     }
 
-    process.stderr.write('\n')
-    console.error('Timed out waiting for sitemap inspection to complete.')
-    process.exit(1)
+    console.log(`\nPrimary sitemap: ${result.primarySitemapUrl}`)
+    console.log(`Sitemap URL saved. Inspection run queued (run ${result.run.id}).`)
+  }
+
+  if (opts.wait) {
+    const current = await waitForRunStatus(client, result.run.id, {
+      timeoutMs: 30 * 60 * 1000,
+      intervalMs: 3000,
+      progressLabel: 'Waiting for sitemap inspection to complete',
+      successStatuses: ['completed', 'partial'],
+      failureStatuses: ['failed'],
+      timeoutCode: 'GOOGLE_DISCOVER_SITEMAPS_TIMEOUT',
+      failureCode: 'GOOGLE_DISCOVER_SITEMAPS_FAILED',
+      timeoutMessage: 'Timed out waiting for sitemap inspection to complete.',
+      failureMessage: 'Sitemap inspection failed.',
+      details: { project },
+    })
+
+    if (opts.format === 'json') {
+      console.log(JSON.stringify({
+        ...result,
+        run: {
+          ...result.run,
+          status: current.status,
+        },
+      }, null, 2))
+      return
+    }
+
+    if (current.status === 'partial') {
+      console.log('Sitemap inspection completed with some errors.')
+      return
+    }
+
+    console.log('Sitemap inspection completed successfully.')
   }
 }
 
@@ -520,8 +611,12 @@ export async function googleRequestIndexing(project: string, opts: {
   } else if (opts.url) {
     body.urls = [opts.url]
   } else {
-    console.error('Error: provide a URL or use --all-unindexed')
-    process.exit(1)
+    throw new CliError({
+      code: 'CLI_USAGE_ERROR',
+      message: 'provide a URL or use --all-unindexed',
+      displayMessage: 'Error: provide a URL or use --all-unindexed',
+      details: { command: 'google.request-indexing' },
+    })
   }
 
   const result = await client.googleRequestIndexing(project, body) as {
@@ -529,28 +624,7 @@ export async function googleRequestIndexing(project: string, opts: {
     results: IndexingRequestResultDto[]
   }
 
-  if (opts.format === 'json') {
-    console.log(JSON.stringify(result, null, 2))
-    return
-  }
-
-  for (const r of result.results) {
-    if (r.status === 'success') {
-      console.log(`Indexing requested: ${r.url}`)
-      console.log(`  Notified at: ${r.notifiedAt}`)
-      console.log(`  Type: ${r.type}`)
-      console.log()
-    } else {
-      console.error(`Failed: ${r.url}`)
-      console.error(`  Error: ${r.error}`)
-      console.log()
-    }
-  }
-
-  if (result.results.length > 1) {
-    console.log(`Summary: ${result.summary.succeeded} succeeded, ${result.summary.failed} failed (${result.summary.total} total)`)
-  }
-
+  let indexingConfirmed = false
   if (opts.wait && result.results.some((r) => r.status === 'success')) {
     const successUrls = result.results.filter((r) => r.status === 'success').map((r) => r.url)
     const timeout = 10 * 60 * 1000
@@ -579,13 +653,49 @@ export async function googleRequestIndexing(project: string, opts: {
 
       if (allIndexed) {
         process.stderr.write('\n')
-        console.log('All requested URLs are now indexed.')
-        return
+        indexingConfirmed = true
+        break
       }
     }
 
-    process.stderr.write('\n')
-    console.error('Timed out waiting for indexing confirmation. URLs may still be processing.')
+    if (!indexingConfirmed) {
+      process.stderr.write('\n')
+      throw new CliError({
+        code: 'GOOGLE_INDEXING_CONFIRMATION_TIMEOUT',
+        message: 'Timed out waiting for indexing confirmation. URLs may still be processing.',
+        displayMessage: 'Timed out waiting for indexing confirmation. URLs may still be processing.',
+        details: {
+          project,
+          urls: successUrls,
+        },
+      })
+    }
+  }
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify({ ...result, ...(opts.wait ? { indexingConfirmed } : {}) }, null, 2))
+    return
+  }
+
+  for (const r of result.results) {
+    if (r.status === 'success') {
+      console.log(`Indexing requested: ${r.url}`)
+      console.log(`  Notified at: ${r.notifiedAt}`)
+      console.log(`  Type: ${r.type}`)
+      console.log()
+    } else {
+      console.error(`Failed: ${r.url}`)
+      console.error(`  Error: ${r.error}`)
+      console.log()
+    }
+  }
+
+  if (result.results.length > 1) {
+    console.log(`Summary: ${result.summary.succeeded} succeeded, ${result.summary.failed} failed (${result.summary.total} total)`)
+  }
+
+  if (indexingConfirmed) {
+    console.log('All requested URLs are now indexed.')
   }
 }
 

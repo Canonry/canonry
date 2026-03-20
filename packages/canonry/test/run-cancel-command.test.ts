@@ -6,6 +6,7 @@ import crypto from 'node:crypto'
 import { createClient, migrate, apiKeys, runs } from '@ainyc/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
+import { CliError } from '../src/cli-error.js'
 
 describe('cancelRun command', () => {
   let tmpDir: string
@@ -118,32 +119,20 @@ describe('cancelRun command', () => {
     expect(output).toContain('cancelled')
   })
 
-  it('outputs an actionable error and exits when no active run exists', async () => {
+  it('throws an actionable CLI error when no active run exists', async () => {
     const { cancelRun } = await import('../src/commands/run.js')
-    const errors: string[] = []
-    const origError = console.error
-    console.error = (...args: unknown[]) => errors.push(args.join(' '))
-    let exitCode: number | undefined
-    const origExit = process.exit
-    process.exit = ((code?: number) => {
-      exitCode = code
-      throw new Error(`process.exit(${code})`)
-    }) as typeof process.exit
+    await expect(cancelRun('test-proj')).rejects.toBeInstanceOf(CliError)
+
     try {
       await cancelRun('test-proj')
-    } catch {
-      // expected: process.exit throws in test environment
-    } finally {
-      console.error = origError
-      process.exit = origExit
+    } catch (err) {
+      const cliErr = err as CliError
+      expect(cliErr.code).toBe('NO_ACTIVE_RUN')
+      expect(cliErr.message).toMatch(/No active run found/)
+      expect(cliErr.displayMessage).toMatch(/canonry run cancel/)
+      expect(cliErr.displayMessage).toMatch(/no active run found/)
+      expect(cliErr.displayMessage).toMatch(/canonry status/)
     }
-
-    expect(exitCode).toBe(1)
-    const errOutput = errors.join('\n')
-    // Must include the failed command, reason, and a suggested fix per CLAUDE.md
-    expect(errOutput).toMatch(/canonry run cancel/)
-    expect(errOutput).toMatch(/no active run found/)
-    expect(errOutput).toMatch(/canonry status/)
   })
 
   it('outputs JSON with status cancelled when format is json', async () => {

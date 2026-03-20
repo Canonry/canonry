@@ -2,6 +2,8 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { getConfigDir } from '../config.js'
+import type { CliFormat } from '../cli-error.js'
+import { CliError } from '../cli-error.js'
 
 function getPidPath(): string {
   return path.join(getConfigDir(), 'canonry.pid')
@@ -33,15 +35,22 @@ async function waitForReady(host: string, port: string, maxMs = 10000): Promise<
   return false
 }
 
-export async function startDaemon(opts: { port?: string; host?: string; basePath?: string }): Promise<void> {
+export async function startDaemon(opts: { port?: string; host?: string; basePath?: string; format?: CliFormat }): Promise<void> {
   const pidPath = getPidPath()
+  const format = opts.format ?? 'text'
 
   // Check for existing process
   if (fs.existsSync(pidPath)) {
     const existingPid = parseInt(fs.readFileSync(pidPath, 'utf-8').trim(), 10)
     if (!isNaN(existingPid) && isProcessAlive(existingPid)) {
-      console.error(`Canonry is already running (PID: ${existingPid})`)
-      process.exit(1)
+      throw new CliError({
+        code: 'DAEMON_ALREADY_RUNNING',
+        message: `Canonry is already running (PID: ${existingPid})`,
+        displayMessage: `Canonry is already running (PID: ${existingPid})`,
+        details: {
+          pid: existingPid,
+        },
+      })
     }
     // Stale PID file — remove it
     fs.unlinkSync(pidPath)
@@ -63,8 +72,11 @@ export async function startDaemon(opts: { port?: string; host?: string; basePath
   child.unref()
 
   if (!child.pid) {
-    console.error('Failed to start Canonry server')
-    process.exit(1)
+    throw new CliError({
+      code: 'DAEMON_START_FAILED',
+      message: 'Failed to start Canonry server',
+      displayMessage: 'Failed to start Canonry server',
+    })
   }
 
   // Ensure config dir exists
@@ -77,22 +89,54 @@ export async function startDaemon(opts: { port?: string; host?: string; basePath
 
   const port = opts.port ?? '4100'
   const host = opts.host ?? '127.0.0.1'
-  process.stderr.write('Waiting for server to start...')
+  if (format !== 'json') {
+    process.stderr.write('Waiting for server to start...')
+  }
   const ready = await waitForReady(host, port)
   if (!ready) {
     // Server didn't come up — clean up the PID file to avoid leaving a stale one
     try { fs.unlinkSync(pidPath) } catch { /* ignore */ }
-    console.error('\nFailed to start: server did not respond within 10s')
-    process.exit(1)
+    throw new CliError({
+      code: 'DAEMON_START_TIMEOUT',
+      message: 'Failed to start: server did not respond within 10s',
+      displayMessage: '\nFailed to start: server did not respond within 10s',
+      details: {
+        host,
+        port,
+        pid: child.pid,
+      },
+    })
   }
-  process.stderr.write('\n')
-  console.log(`Canonry started (PID: ${child.pid}), listening on http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`)
+  if (format !== 'json') {
+    process.stderr.write('\n')
+  }
+
+  const url = `http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`
+  if (format === 'json') {
+    console.log(JSON.stringify({
+      started: true,
+      pid: child.pid,
+      host,
+      port: Number.parseInt(port, 10),
+      url,
+    }, null, 2))
+    return
+  }
+
+  console.log(`Canonry started (PID: ${child.pid}), listening on ${url}`)
 }
 
-export function stopDaemon(): void {
+export function stopDaemon(format: CliFormat = 'text'): void {
   const pidPath = getPidPath()
 
   if (!fs.existsSync(pidPath)) {
+    if (format === 'json') {
+      console.log(JSON.stringify({
+        stopped: false,
+        reason: 'not_running',
+      }, null, 2))
+      return
+    }
     console.log('Canonry is not running (no PID file found)')
     return
   }
@@ -100,13 +144,30 @@ export function stopDaemon(): void {
   const pid = parseInt(fs.readFileSync(pidPath, 'utf-8').trim(), 10)
 
   if (isNaN(pid)) {
-    console.error('Invalid PID file. Removing it.')
+    if (format === 'json') {
+      console.log(JSON.stringify({
+        stopped: false,
+        reason: 'invalid_pid',
+        cleaned: true,
+      }, null, 2))
+    } else {
+      console.error('Invalid PID file. Removing it.')
+    }
     fs.unlinkSync(pidPath)
     return
   }
 
   if (!isProcessAlive(pid)) {
-    console.log(`Canonry is not running (stale PID: ${pid}). Cleaning up.`)
+    if (format === 'json') {
+      console.log(JSON.stringify({
+        stopped: false,
+        reason: 'stale_pid',
+        pid,
+        cleaned: true,
+      }, null, 2))
+    } else {
+      console.log(`Canonry is not running (stale PID: ${pid}). Cleaning up.`)
+    }
     fs.unlinkSync(pidPath)
     return
   }
@@ -114,10 +175,23 @@ export function stopDaemon(): void {
   try {
     process.kill(pid, 'SIGTERM')
     fs.unlinkSync(pidPath)
+    if (format === 'json') {
+      console.log(JSON.stringify({
+        stopped: true,
+        pid,
+      }, null, 2))
+      return
+    }
     console.log(`Canonry stopped (PID: ${pid})`)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    console.error(`Failed to stop Canonry (PID: ${pid}): ${msg}`)
-    process.exit(1)
+    throw new CliError({
+      code: 'DAEMON_STOP_FAILED',
+      message: `Failed to stop Canonry (PID: ${pid}): ${msg}`,
+      displayMessage: `Failed to stop Canonry (PID: ${pid}): ${msg}`,
+      details: {
+        pid,
+      },
+    })
   }
 }
