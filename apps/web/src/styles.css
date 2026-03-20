@@ -1399,15 +1399,18 @@
   }
 
   .skeleton-text {
-    @apply skeleton h-3 rounded;
+    @apply h-3 rounded bg-zinc-800/60;
+    animation: skeleton-pulse 1.5s ease-in-out infinite;
   }
 
   .skeleton-text-sm {
-    @apply skeleton h-2.5 rounded;
+    @apply h-2.5 rounded bg-zinc-800/60;
+    animation: skeleton-pulse 1.5s ease-in-out infinite;
   }
 
   .skeleton-circle {
-    @apply skeleton rounded-full;
+    @apply rounded-full bg-zinc-800/60;
+    animation: skeleton-pulse 1.5s ease-in-out infinite;
   }
 
   @keyframes skeleton-pulse {
@@ -1422,7 +1425,7 @@
 
   /* Page-level loading skeleton */
   .page-skeleton {
-    @apply page-container space-y-6;
+    @apply mx-auto max-w-6xl space-y-6;
   }
 
   .page-skeleton-header {
