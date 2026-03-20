@@ -134,6 +134,42 @@ test('projectConfigSchema rejects invalid project names', () => {
   })).toThrow()
 })
 
+test('projectConfigSchema rejects a defaultLocation that is not configured', () => {
+  expect(() => projectConfigSchema.parse({
+    apiVersion: 'canonry/v1',
+    kind: 'Project',
+    metadata: { name: 'my-project' },
+    spec: {
+      displayName: 'My Project',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+      locations: [
+        { label: 'nyc', city: 'New York', region: 'NY', country: 'US' },
+      ],
+      defaultLocation: 'sf',
+    },
+  })).toThrow(/defaultLocation/)
+})
+
+test('projectConfigSchema rejects duplicate location labels', () => {
+  expect(() => projectConfigSchema.parse({
+    apiVersion: 'canonry/v1',
+    kind: 'Project',
+    metadata: { name: 'my-project' },
+    spec: {
+      displayName: 'My Project',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+      locations: [
+        { label: 'nyc', city: 'New York', region: 'NY', country: 'US' },
+        { label: 'nyc', city: 'Brooklyn', region: 'NY', country: 'US' },
+      ],
+    },
+  })).toThrow(/Duplicate location labels/)
+})
+
 test('citationStateSchema accepts only raw observation values', () => {
   expect(citationStateSchema.parse('cited')).toBe('cited')
   expect(citationStateSchema.parse('not-cited')).toBe('not-cited')

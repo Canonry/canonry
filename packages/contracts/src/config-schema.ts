@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { providerNameSchema, locationContextSchema } from './provider.js'
 import { notificationEventSchema } from './notification.js'
+import { findDuplicateLocationLabels, hasLocationLabel } from './project.js'
 
 export const configMetadataSchema = z.object({
   name: z.string().min(1).max(63).regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, {
@@ -49,6 +50,23 @@ export const configSpecSchema = z.object({
   schedule: configScheduleSchema,
   notifications: z.array(configNotificationSchema).optional().default([]),
   google: configGoogleSchema,
+}).superRefine((spec, ctx) => {
+  const duplicateLabels = findDuplicateLocationLabels(spec.locations)
+  if (duplicateLabels.length > 0) {
+    ctx.addIssue({
+      code: 'custom',
+      message: `Duplicate location labels are not allowed: ${duplicateLabels.join(', ')}`,
+      path: ['locations'],
+    })
+  }
+
+  if (!hasLocationLabel(spec.locations, spec.defaultLocation)) {
+    ctx.addIssue({
+      code: 'custom',
+      message: `defaultLocation "${spec.defaultLocation}" must match a configured location label`,
+      path: ['defaultLocation'],
+    })
+  }
 })
 
 export const projectConfigSchema = z.object({

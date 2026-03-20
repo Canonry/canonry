@@ -10,6 +10,7 @@ export type ErrorCode =
   | 'RUN_IN_PROGRESS'
   | 'UNSUPPORTED_KIND'
   | 'RUN_NOT_CANCELLABLE'
+  | 'NOT_IMPLEMENTED'
   | 'INTERNAL_ERROR'
 
 export class AppError extends Error {
@@ -83,4 +84,8 @@ export function runNotCancellable(runId: string, status: string): AppError {
 
 export function unsupportedKind(kind: string): AppError {
   return new AppError('UNSUPPORTED_KIND', `Kind '${kind}' is not supported in this version`, 400)
+}
+
+export function notImplemented(message: string): AppError {
+  return new AppError('NOT_IMPLEMENTED', message, 501)
 }

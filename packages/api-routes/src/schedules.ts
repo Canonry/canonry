@@ -2,7 +2,12 @@ import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { schedules } from '@ainyc/canonry-db'
-import type { ScheduleDto, ProviderName } from '@ainyc/canonry-contracts'
+import {
+  type ScheduleDto,
+  type ProviderName,
+  scheduleUpsertRequestSchema,
+  validationError,
+} from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
 
@@ -19,13 +24,17 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
     const project = resolveProjectSafe(app, request.params.name, reply)
     if (!project) return
 
-    const { preset, cron, timezone = 'UTC', providers = [], enabled = true } = request.body ?? {}
-
-    if ((!preset && !cron) || (preset && cron)) {
-      return reply.status(400).send({
-        error: { code: 'VALIDATION_ERROR', message: 'Exactly one of "preset" or "cron" must be provided' },
+    const parsedBody = scheduleUpsertRequestSchema.safeParse(request.body)
+    if (!parsedBody.success) {
+      const err = validationError('Invalid schedule payload', {
+        issues: parsedBody.error.issues.map(issue => ({
+          path: issue.path.join('.'),
+          message: issue.message,
+        })),
       })
+      return reply.status(err.statusCode).send(err.toJSON())
     }
+    const { preset, cron, timezone, providers, enabled } = parsedBody.data
 
     if (!isValidTimezone(timezone)) {
       return reply.status(400).send({

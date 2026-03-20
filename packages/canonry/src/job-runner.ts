@@ -2,13 +2,99 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { runs, keywords, competitors, projects, querySnapshots, usageCounters } from '@ainyc/canonry-db'
 import type { ProviderName, NormalizedQueryResult, LocationContext } from '@ainyc/canonry-contracts'
 import { effectiveDomains, normalizeProjectDomain, isBrowserProvider } from '@ainyc/canonry-contracts'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
+
+class RunCancelledError extends Error {
+  constructor(runId: string) {
+    super(`Run ${runId} was cancelled`)
+    this.name = 'RunCancelledError'
+  }
+}
+
+class ProviderExecutionGate {
+  private readonly window: number[] = []
+  private readonly waiters: Array<() => void> = []
+  private rateLimitChain = Promise.resolve()
+  private inFlight = 0
+
+  constructor(
+    private readonly maxConcurrency: number,
+    private readonly maxPerMinute: number,
+  ) {}
+
+  async run<T>(task: () => Promise<T>): Promise<T> {
+    await this.acquire()
+    try {
+      await this.waitForRateLimit()
+      return await task()
+    } finally {
+      this.release()
+    }
+  }
+
+  private async acquire(): Promise<void> {
+    if (this.inFlight < Math.max(1, this.maxConcurrency)) {
+      this.inFlight++
+      return
+    }
+
+    await new Promise<void>((resolve) => {
+      this.waiters.push(resolve)
+    })
+    this.inFlight++
+  }
+
+  private release(): void {
+    this.inFlight = Math.max(0, this.inFlight - 1)
+    const next = this.waiters.shift()
+    next?.()
+  }
+
+  private async waitForRateLimit(): Promise<void> {
+    let releaseChain: (() => void) | undefined
+    const previousChain = this.rateLimitChain
+    this.rateLimitChain = new Promise<void>((resolve) => {
+      releaseChain = resolve
+    })
+
+    await previousChain
+    try {
+      const now = Date.now()
+      const windowStart = now - 60_000
+      while (this.window.length > 0 && this.window[0]! < windowStart) {
+        this.window.shift()
+      }
+
+      if (this.window.length >= this.maxPerMinute) {
+        const oldestInWindow = this.window[0]!
+        const waitMs = oldestInWindow + 60_000 - now + 50
+        await new Promise(resolve => setTimeout(resolve, waitMs))
+        const nowAfterWait = Date.now()
+        const newWindowStart = nowAfterWait - 60_000
+        while (this.window.length > 0 && this.window[0]! < newWindowStart) {
+          this.window.shift()
+        }
+      }
+
+      this.window.push(Date.now())
+    } finally {
+      releaseChain?.()
+    }
+  }
+}
+
+type RunExecutionContext = {
+  providerCount: number
+  providers: ProviderName[]
+  keywordCount: number
+  location?: string
+}
 
 export class JobRunner {
   private db: DatabaseClient
@@ -43,14 +129,36 @@ export class JobRunner {
   async executeRun(runId: string, projectId: string, providerOverride?: ProviderName[], locationOverride?: LocationContext | null): Promise<void> {
     const now = new Date().toISOString()
     const startTime = Date.now()
+    let runLocation: LocationContext | undefined
+    let activeProviders: RegisteredProvider[] = []
+    let projectKeywords: typeof keywords.$inferSelect[] = []
+    const providerDispatchCounts = new Map<ProviderName, number>()
 
     try {
-      // Mark run as running
-      this.db
-        .update(runs)
-        .set({ status: 'running', startedAt: now })
-        .where(eq(runs.id, runId))
-        .run()
+      const existingRun = this.getRunState(runId)
+      if (!existingRun) {
+        throw new Error(`Run ${runId} not found`)
+      }
+      if (existingRun.status === 'cancelled') {
+        this.handleCancelledRun(runId, projectId, startTime, {
+          providerCount: 0,
+          providers: [],
+          keywordCount: 0,
+        })
+        return
+      }
+      if (existingRun.status !== 'queued' && existingRun.status !== 'running') {
+        throw new Error(`Run ${runId} is not executable from status '${existingRun.status}'`)
+      }
+
+      if (existingRun.status === 'queued') {
+        this.db
+          .update(runs)
+          .set({ status: 'running', startedAt: now })
+          .where(and(eq(runs.id, runId), eq(runs.status, 'queued')))
+          .run()
+      }
+      this.throwIfRunCancelled(runId)
 
       // Fetch project
       const project = this.db
@@ -66,7 +174,6 @@ export class JobRunner {
       // Resolve location: explicit override > project default > none
       // locationOverride === null means explicitly no location (--no-location)
       // locationOverride === undefined means use project default
-      let runLocation: LocationContext | undefined
       if (locationOverride === null) {
         runLocation = undefined
       } else if (locationOverride) {
@@ -80,7 +187,7 @@ export class JobRunner {
 
       // Resolve which providers to use — honour per-run override, then project config
       const projectProviders = providerOverride ?? (JSON.parse(project.providers || '[]') as ProviderName[])
-      const activeProviders = this.registry.getForProject(projectProviders)
+      activeProviders = this.registry.getForProject(projectProviders)
 
       if (activeProviders.length === 0) {
         throw new Error('No providers configured. Add at least one provider API key.')
@@ -89,7 +196,7 @@ export class JobRunner {
       console.log(`[JobRunner] Run ${runId}: dispatching to ${activeProviders.length} providers: ${activeProviders.map(p => p.adapter.name).join(', ')}`)
 
       // Fetch keywords for the project
-      const projectKeywords = this.db
+      projectKeywords = this.db
         .select()
         .from(keywords)
         .where(eq(keywords.projectId, projectId))
@@ -103,12 +210,22 @@ export class JobRunner {
         .all()
 
       const competitorDomains = projectCompetitors.map(c => c.domain)
+      const allDomains = effectiveDomains({
+        canonicalDomain: project.canonicalDomain,
+        ownedDomains: JSON.parse(project.ownedDomains || '[]') as string[],
+      })
+      const executionContext: RunExecutionContext = {
+        providerCount: activeProviders.length,
+        providers: activeProviders.map(provider => provider.adapter.name),
+        keywordCount: projectKeywords.length,
+        ...(runLocation ? { location: runLocation.label } : {}),
+      }
 
       // Enforce daily quota per provider — each provider receives one query per keyword.
       // Track and check usage per (projectId, providerName) so that a provider that has
       // never been used isn't blocked by another provider's past usage.
       const queriesPerProvider = projectKeywords.length
-      const todayPeriod = getCurrentPeriod()
+      const todayPeriod = getCurrentUsageDay()
 
       for (const p of activeProviders) {
         const providerScope = `${projectId}:${p.adapter.name}`
@@ -128,10 +245,15 @@ export class JobRunner {
         }
       }
 
-      // Per-provider rate limiting: separate sliding windows
-      const minuteWindows = new Map<ProviderName, number[]>()
-      for (const p of activeProviders) {
-        minuteWindows.set(p.adapter.name, [])
+      const executionGates = new Map<ProviderName, ProviderExecutionGate>()
+      for (const provider of activeProviders) {
+        executionGates.set(
+          provider.adapter.name,
+          new ProviderExecutionGate(
+            provider.config.quotaPolicy.maxConcurrency,
+            provider.config.quotaPolicy.maxRequestsPerMinute,
+          ),
+        )
       }
 
       // Track per-provider errors for partial completion
@@ -142,24 +264,21 @@ export class JobRunner {
       const apiProviders = activeProviders.filter(p => !isBrowserProvider(p.adapter.name))
       const browserProviders = activeProviders.filter(p => isBrowserProvider(p.adapter.name))
 
-      // Process each keyword across all providers
-      for (const kw of projectKeywords) {
-        // Fan out across API providers for this keyword
-        const providerPromises = apiProviders.map(async (registeredProvider) => {
-          const { adapter, config } = registeredProvider
-          const providerName = adapter.name
+      const processKeywordForProvider = async (
+        registeredProvider: RegisteredProvider,
+        kw: typeof keywords.$inferSelect,
+      ): Promise<void> => {
+        const { adapter, config } = registeredProvider
+        const providerName = adapter.name
+        const gate = executionGates.get(providerName)
+        if (!gate) {
+          throw new Error(`Missing execution gate for provider ${providerName}`)
+        }
 
-          try {
-            // Enforce per-minute rate limit
-            await this.waitForRateLimit(
-              minuteWindows.get(providerName)!,
-              config.quotaPolicy.maxRequestsPerMinute,
-            )
-
-            const allDomains = effectiveDomains({
-              canonicalDomain: project.canonicalDomain,
-              ownedDomains: JSON.parse(project.ownedDomains || '[]') as string[],
-            })
+        try {
+          await gate.run(async () => {
+            this.throwIfRunCancelled(runId)
+            providerDispatchCounts.set(providerName, (providerDispatchCounts.get(providerName) ?? 0) + 1)
 
             const raw = await adapter.executeTrackedQuery(
               {
@@ -170,6 +289,8 @@ export class JobRunner {
               },
               config,
             )
+
+            this.throwIfRunCancelled(runId)
 
             const normalized = adapter.normalizeResult(raw)
 
@@ -231,108 +352,34 @@ export class JobRunner {
 
             totalSnapshotsInserted++
             console.log(`[JobRunner] ${providerName}: keyword "${kw.keyword}" → ${citationState}`)
-          } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : String(err)
-            console.error(`[JobRunner] ${providerName}: keyword "${kw.keyword}" FAILED: ${msg}`)
-            providerErrors.set(providerName, msg)
+          })
+        } catch (err: unknown) {
+          if (err instanceof RunCancelledError) {
+            throw err
           }
-        })
 
-        await Promise.all(providerPromises)
-
-        // Browser providers run sequentially (shared browser, one tab at a time)
-        for (const registeredProvider of browserProviders) {
-          const { adapter, config } = registeredProvider
-          const providerName = adapter.name
-
-          try {
-            await this.waitForRateLimit(
-              minuteWindows.get(providerName)!,
-              config.quotaPolicy.maxRequestsPerMinute,
-            )
-
-            const allDomains = effectiveDomains({
-              canonicalDomain: project.canonicalDomain,
-              ownedDomains: JSON.parse(project.ownedDomains || '[]') as string[],
-            })
-
-            const raw = await adapter.executeTrackedQuery(
-              {
-                keyword: kw.keyword,
-                canonicalDomains: allDomains,
-                competitorDomains,
-                location: runLocation,
-              },
-              config,
-            )
-
-            const normalized = adapter.normalizeResult(raw)
-
-            console.log(`[JobRunner] ${providerName}: "${kw.keyword}" citedDomains=${JSON.stringify(normalized.citedDomains)}, groundingSources=${JSON.stringify(normalized.groundingSources.map(s => s.uri))}, domains=${JSON.stringify(allDomains)}`)
-            const citationState = determineCitationState(normalized, allDomains)
-            const overlap = computeCompetitorOverlap(normalized, competitorDomains)
-
-            // Move screenshot to canonical location if present
-            let screenshotRelPath: string | null = null
-            if (raw.screenshotPath && fs.existsSync(raw.screenshotPath)) {
-              const snapshotId = crypto.randomUUID()
-              const screenshotDir = path.join(os.homedir(), '.canonry', 'screenshots', runId)
-              if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true })
-              const destPath = path.join(screenshotDir, `${snapshotId}.png`)
-              fs.renameSync(raw.screenshotPath, destPath)
-              screenshotRelPath = `${runId}/${snapshotId}.png`
-
-              this.db.insert(querySnapshots).values({
-                id: snapshotId,
-                runId,
-                keywordId: kw.id,
-                provider: providerName,
-                model: raw.model,
-                citationState,
-                answerText: normalized.answerText,
-                citedDomains: JSON.stringify(normalized.citedDomains),
-                competitorOverlap: JSON.stringify(overlap),
-                location: runLocation?.label ?? null,
-                screenshotPath: screenshotRelPath,
-                rawResponse: JSON.stringify({
-                  model: raw.model,
-                  groundingSources: normalized.groundingSources,
-                  searchQueries: normalized.searchQueries,
-                  apiResponse: raw.rawResponse,
-                }),
-                createdAt: new Date().toISOString(),
-              }).run()
-            } else {
-              this.db.insert(querySnapshots).values({
-                id: crypto.randomUUID(),
-                runId,
-                keywordId: kw.id,
-                provider: providerName,
-                model: raw.model,
-                citationState,
-                answerText: normalized.answerText,
-                citedDomains: JSON.stringify(normalized.citedDomains),
-                competitorOverlap: JSON.stringify(overlap),
-                location: runLocation?.label ?? null,
-                rawResponse: JSON.stringify({
-                  model: raw.model,
-                  groundingSources: normalized.groundingSources,
-                  searchQueries: normalized.searchQueries,
-                  apiResponse: raw.rawResponse,
-                }),
-                createdAt: new Date().toISOString(),
-              }).run()
-            }
-
-            totalSnapshotsInserted++
-            console.log(`[JobRunner] ${providerName}: keyword "${kw.keyword}" → ${citationState}`)
-          } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : String(err)
-            console.error(`[JobRunner] ${providerName}: keyword "${kw.keyword}" FAILED: ${msg}`)
+          const msg = err instanceof Error ? err.message : String(err)
+          console.error(`[JobRunner] ${providerName}: keyword "${kw.keyword}" FAILED: ${msg}`)
+          if (!providerErrors.has(providerName)) {
             providerErrors.set(providerName, msg)
           }
         }
       }
+
+      await Promise.all(apiProviders.map(async (registeredProvider) => {
+        await Promise.all(projectKeywords.map(async (kw) => {
+          await processKeywordForProvider(registeredProvider, kw)
+        }))
+      }))
+
+      // Browser providers still run keyword-by-keyword to preserve tab reuse semantics.
+      for (const registeredProvider of browserProviders) {
+        for (const kw of projectKeywords) {
+          await processKeywordForProvider(registeredProvider, kw)
+        }
+      }
+
+      this.throwIfRunCancelled(runId)
 
       // Determine final run status
       const allFailed = totalSnapshotsInserted === 0 && providerErrors.size > 0
@@ -360,21 +407,19 @@ export class JobRunner {
           .run()
       }
 
+      this.flushProviderUsage(projectId, providerDispatchCounts)
+
       // Track run completion telemetry
       const finalStatus = allFailed ? 'failed' : someFailed ? 'partial' : 'completed'
       trackEvent('run.completed', {
         status: finalStatus,
-        providerCount: activeProviders.length,
-        providers: activeProviders.map(p => p.adapter.name),
-        keywordCount: projectKeywords.length,
+        providerCount: executionContext.providerCount,
+        providers: executionContext.providers,
+        keywordCount: executionContext.keywordCount,
         durationMs: Date.now() - startTime,
-        ...(runLocation ? { location: runLocation.label } : {}),
+        ...(executionContext.location ? { location: executionContext.location } : {}),
       })
 
-      // Increment per-provider usage counters to keep quota checks accurate
-      for (const p of activeProviders) {
-        this.incrementUsage(`${projectId}:${p.adapter.name}`, 'queries', queriesPerProvider)
-      }
       this.incrementUsage(projectId, 'runs', 1)
 
       // Notify after run completion
@@ -384,6 +429,19 @@ export class JobRunner {
         })
       }
     } catch (err: unknown) {
+      const executionContext: RunExecutionContext = {
+        providerCount: activeProviders.length,
+        providers: activeProviders.map(provider => provider.adapter.name),
+        keywordCount: projectKeywords.length,
+        ...(runLocation ? { location: runLocation.label } : {}),
+      }
+
+      if (err instanceof RunCancelledError || this.isRunCancelled(runId)) {
+        this.flushProviderUsage(projectId, providerDispatchCounts)
+        this.handleCancelledRun(runId, projectId, startTime, executionContext)
+        return
+      }
+
       // Mark run as failed
       const errorMessage = err instanceof Error ? err.message : String(err)
       this.db
@@ -396,13 +454,16 @@ export class JobRunner {
         .where(eq(runs.id, runId))
         .run()
 
+      this.flushProviderUsage(projectId, providerDispatchCounts)
+
       // Track fatal run failures (missing project, quota exceeded, no providers, etc.)
       trackEvent('run.completed', {
         status: 'failed',
-        providerCount: 0,
-        providers: [],
-        keywordCount: 0,
+        providerCount: executionContext.providerCount,
+        providers: executionContext.providers,
+        keywordCount: executionContext.keywordCount,
         durationMs: Date.now() - startTime,
+        ...(executionContext.location ? { location: executionContext.location } : {}),
       })
 
       // Notify on failure too
@@ -414,28 +475,9 @@ export class JobRunner {
     }
   }
 
-  private async waitForRateLimit(window: number[], maxPerMinute: number): Promise<void> {
-    const now = Date.now()
-    const windowStart = now - 60_000
-    while (window.length > 0 && window[0]! < windowStart) {
-      window.shift()
-    }
-    if (window.length >= maxPerMinute) {
-      const oldestInWindow = window[0]!
-      const waitMs = oldestInWindow + 60_000 - now + 50
-      await new Promise(resolve => setTimeout(resolve, waitMs))
-      const nowAfterWait = Date.now()
-      const newWindowStart = nowAfterWait - 60_000
-      while (window.length > 0 && window[0]! < newWindowStart) {
-        window.shift()
-      }
-    }
-    window.push(Date.now())
-  }
-
   private incrementUsage(scope: string, metric: string, count: number): void {
     const now = new Date()
-    const period = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
+    const period = now.toISOString().slice(0, 10)
     const id = crypto.randomUUID()
 
     const existing = this.db
@@ -462,11 +504,73 @@ export class JobRunner {
       }).run()
     }
   }
+
+  private flushProviderUsage(projectId: string, providerDispatchCounts: ReadonlyMap<ProviderName, number>): void {
+    for (const [providerName, count] of providerDispatchCounts.entries()) {
+      if (count <= 0) continue
+      this.incrementUsage(`${projectId}:${providerName}`, 'queries', count)
+    }
+  }
+
+  private getRunState(runId: string): { status: string; finishedAt: string | null; error: string | null } | undefined {
+    return this.db
+      .select({
+        status: runs.status,
+        finishedAt: runs.finishedAt,
+        error: runs.error,
+      })
+      .from(runs)
+      .where(eq(runs.id, runId))
+      .get()
+  }
+
+  private isRunCancelled(runId: string): boolean {
+    return this.getRunState(runId)?.status === 'cancelled'
+  }
+
+  private throwIfRunCancelled(runId: string): void {
+    if (this.isRunCancelled(runId)) {
+      throw new RunCancelledError(runId)
+    }
+  }
+
+  private handleCancelledRun(
+    runId: string,
+    projectId: string,
+    startTime: number,
+    context: RunExecutionContext,
+  ): void {
+    const currentRun = this.getRunState(runId)
+    if (currentRun && !currentRun.finishedAt) {
+      this.db
+        .update(runs)
+        .set({
+          finishedAt: new Date().toISOString(),
+          error: currentRun.error ?? 'Cancelled by user',
+        })
+        .where(eq(runs.id, runId))
+        .run()
+    }
+
+    trackEvent('run.completed', {
+      status: 'cancelled',
+      providerCount: context.providerCount,
+      providers: context.providers,
+      keywordCount: context.keywordCount,
+      durationMs: Date.now() - startTime,
+      ...(context.location ? { location: context.location } : {}),
+    })
+
+    if (this.onRunCompleted) {
+      this.onRunCompleted(runId, projectId).catch((err: unknown) => {
+        console.error('[JobRunner] Notification callback failed:', err)
+      })
+    }
+  }
 }
 
-function getCurrentPeriod(): string {
-  const d = new Date()
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+function getCurrentUsageDay(): string {
+  return new Date().toISOString().slice(0, 10)
 }
 
 function domainMatches(domain: string, canonicalDomain: string): boolean {

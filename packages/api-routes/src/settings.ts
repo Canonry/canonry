@@ -1,6 +1,11 @@
 import type { FastifyInstance } from 'fastify'
 import type { ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
-import { parseProviderName, MODEL_REGISTRY } from '@ainyc/canonry-contracts'
+import {
+  apiProviderNameSchema,
+  MODEL_REGISTRY,
+  validationError,
+  notImplemented,
+} from '@ainyc/canonry-contracts'
 
 export interface ProviderSummaryEntry {
   name: string
@@ -37,22 +42,28 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     Params: { name: string }
     Body: { apiKey?: string; baseUrl?: string; model?: string; quota?: Partial<ProviderQuotaPolicy> }
   }>('/settings/providers/:name', async (request, reply) => {
-    const providerName = parseProviderName(request.params.name)
+    const providerName = apiProviderNameSchema.safeParse(request.params.name)
     const { apiKey, baseUrl, model, quota } = request.body ?? {}
 
-    if (!providerName) {
-      return reply.status(400).send({ error: `Invalid provider: ${request.params.name}. Must be one of: gemini, openai, claude, local` })
+    if (!providerName.success) {
+      const err = validationError(`Invalid provider: ${request.params.name}. Must be one of: gemini, openai, claude, local`, {
+        provider: request.params.name,
+        validProviders: ['gemini', 'openai', 'claude', 'local'],
+      })
+      return reply.status(err.statusCode).send(err.toJSON())
     }
-    const name = providerName
+    const name = providerName.data
 
     // Local provider requires baseUrl; others require apiKey
     if (name === 'local') {
       if (!baseUrl || typeof baseUrl !== 'string') {
-        return reply.status(400).send({ error: 'baseUrl is required for local provider' })
+        const err = validationError('baseUrl is required for local provider')
+        return reply.status(err.statusCode).send(err.toJSON())
       }
     } else {
       if (!apiKey || typeof apiKey !== 'string') {
-        return reply.status(400).send({ error: 'apiKey is required' })
+        const err = validationError('apiKey is required')
+        return reply.status(err.statusCode).send(err.toJSON())
       }
     }
 
@@ -66,7 +77,8 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     }
 
     if (!opts.onProviderUpdate) {
-      return reply.status(501).send({ error: 'Provider configuration updates are not supported in this deployment' })
+      const err = notImplemented('Provider configuration updates are not supported in this deployment')
+      return reply.status(err.statusCode).send(err.toJSON())
     }
 
     // Validate quota fields if provided
@@ -86,7 +98,12 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
 
     const result = opts.onProviderUpdate(name, apiKey ?? '', model, baseUrl, quota)
     if (!result) {
-      return reply.status(500).send({ error: 'Failed to update provider configuration' })
+      return reply.status(500).send({
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Failed to update provider configuration',
+        },
+      })
     }
 
     return result
@@ -104,12 +121,18 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     }
 
     if (!opts.onGoogleUpdate) {
-      return reply.status(501).send({ error: 'Google OAuth configuration updates are not supported in this deployment' })
+      const err = notImplemented('Google OAuth configuration updates are not supported in this deployment')
+      return reply.status(err.statusCode).send(err.toJSON())
     }
 
     const result = opts.onGoogleUpdate(clientId, clientSecret)
     if (!result) {
-      return reply.status(500).send({ error: 'Failed to update Google OAuth configuration' })
+      return reply.status(500).send({
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Failed to update Google OAuth configuration',
+        },
+      })
     }
 
     return result
@@ -127,12 +150,18 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     }
 
     if (!opts.onBingUpdate) {
-      return reply.status(501).send({ error: 'Bing configuration updates are not supported in this deployment' })
+      const err = notImplemented('Bing configuration updates are not supported in this deployment')
+      return reply.status(err.statusCode).send(err.toJSON())
     }
 
     const result = opts.onBingUpdate(apiKey)
     if (!result) {
-      return reply.status(500).send({ error: 'Failed to update Bing configuration' })
+      return reply.status(500).send({
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Failed to update Bing configuration',
+        },
+      })
     }
 
     return result

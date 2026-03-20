@@ -4,7 +4,7 @@ import os from 'node:os'
 import type { FastifyInstance } from 'fastify'
 import { eq, and } from 'drizzle-orm'
 import { querySnapshots, runs, keywords } from '@ainyc/canonry-db'
-import type { GroundingSource } from '@ainyc/canonry-contracts'
+import { notFound, notImplemented, validationError, type GroundingSource } from '@ainyc/canonry-contracts'
 import { resolveProject } from './helpers.js'
 
 export interface CDPRoutesOptions {
@@ -44,17 +44,20 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
       .get()
 
     if (!snapshot?.screenshotPath) {
-      return reply.code(404).send({ error: 'Screenshot not found' })
+      const err = notFound('Screenshot', snapshotId)
+      return reply.code(err.statusCode).send(err.toJSON())
     }
 
     const base = path.resolve(getScreenshotDir())
     const fullPath = path.resolve(path.join(base, snapshot.screenshotPath))
     // Prevent path traversal: ensure resolved path stays within base dir
     if (!fullPath.startsWith(base + path.sep) && fullPath !== base) {
-      return reply.code(404).send({ error: 'Screenshot not found' })
+      const err = notFound('Screenshot', snapshotId)
+      return reply.code(err.statusCode).send(err.toJSON())
     }
     if (!fs.existsSync(fullPath)) {
-      return reply.code(404).send({ error: 'Screenshot file not found on disk' })
+      const err = notFound('Screenshot file', snapshotId)
+      return reply.code(err.statusCode).send(err.toJSON())
     }
 
     const stream = fs.createReadStream(fullPath)
@@ -64,19 +67,23 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
   // PUT /settings/cdp — configure the CDP endpoint (host + port)
   app.put<{ Body: { host: string; port?: number } }>('/settings/cdp', async (request, reply) => {
     if (!opts.onCdpConfigure) {
-      return reply.code(501).send({ error: 'CDP configuration not supported in this deployment' })
+      const err = notImplemented('CDP configuration not supported in this deployment')
+      return reply.code(err.statusCode).send(err.toJSON())
     }
     const { host, port = 9222 } = request.body
     if (!host || typeof host !== 'string') {
-      return reply.code(400).send({ error: 'host is required' })
+      const err = validationError('host is required')
+      return reply.code(err.statusCode).send(err.toJSON())
     }
     // Restrict to loopback addresses only — arbitrary hosts would allow SSRF
     const ALLOWED_HOSTS = ['localhost', '127.0.0.1', '::1']
     if (!ALLOWED_HOSTS.includes(host)) {
-      return reply.code(400).send({ error: 'host must be localhost, 127.0.0.1, or ::1' })
+      const err = validationError('host must be localhost, 127.0.0.1, or ::1')
+      return reply.code(err.statusCode).send(err.toJSON())
     }
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
-      return reply.code(400).send({ error: 'port must be an integer between 1 and 65535' })
+      const err = validationError('port must be an integer between 1 and 65535')
+      return reply.code(err.statusCode).send(err.toJSON())
     }
     await opts.onCdpConfigure(host, port)
     return reply.code(200).send({ endpoint: `ws://${host}:${port}` })
@@ -85,7 +92,8 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
   // GET /cdp/status — CDP connection health + tab status
   app.get('/cdp/status', async (_request, reply) => {
     if (!opts.getCdpStatus) {
-      return reply.code(501).send({ error: 'CDP not configured' })
+      const err = notImplemented('CDP not configured')
+      return reply.code(err.statusCode).send(err.toJSON())
     }
     const status = await opts.getCdpStatus()
     return reply.send(status)
@@ -94,12 +102,14 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
   // POST /cdp/screenshot — one-off screenshot query (not tied to a project/run)
   app.post<{ Body: { query: string; targets?: string[] } }>('/cdp/screenshot', async (request, reply) => {
     if (!opts.onCdpScreenshot) {
-      return reply.code(501).send({ error: 'CDP not configured' })
+      const err = notImplemented('CDP not configured')
+      return reply.code(err.statusCode).send(err.toJSON())
     }
 
     const { query, targets } = request.body
     if (!query || typeof query !== 'string') {
-      return reply.code(400).send({ error: 'query is required' })
+      const err = validationError('query is required')
+      return reply.code(err.statusCode).send(err.toJSON())
     }
 
     const results = await opts.onCdpScreenshot(query, targets)
@@ -120,7 +130,10 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
         .from(runs)
         .where(and(eq(runs.id, runId), eq(runs.projectId, project.id)))
         .get()
-      if (!run) return reply.code(404).send({ error: 'Run not found' })
+      if (!run) {
+        const err = notFound('Run', runId)
+        return reply.code(err.statusCode).send(err.toJSON())
+      }
 
       // Get all snapshots for this run
       const snapshots = app.db

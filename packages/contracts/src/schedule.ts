@@ -18,3 +18,16 @@ export const scheduleDtoSchema = z.object({
 })
 
 export type ScheduleDto = z.infer<typeof scheduleDtoSchema>
+
+export const scheduleUpsertRequestSchema = z.object({
+  preset: z.string().optional(),
+  cron: z.string().optional(),
+  timezone: z.string().optional().default('UTC'),
+  enabled: z.boolean().optional().default(true),
+  providers: z.array(providerNameSchema).optional().default([]),
+}).refine(
+  (data) => (data.preset && !data.cron) || (!data.preset && data.cron),
+  { message: 'Exactly one of "preset" or "cron" must be provided' },
+)
+
+export type ScheduleUpsertRequest = z.infer<typeof scheduleUpsertRequestSchema>

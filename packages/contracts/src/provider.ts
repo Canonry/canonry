@@ -13,6 +13,10 @@ export const PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'local', 'cdp:chatg
 export const providerNameSchema = z.enum(PROVIDER_NAMES)
 export type ProviderName = z.infer<typeof providerNameSchema>
 
+export const API_PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'local'] as const
+export const apiProviderNameSchema = z.enum(API_PROVIDER_NAMES)
+export type ApiProviderName = z.infer<typeof apiProviderNameSchema>
+
 /** Classify providers by surface: API-based or browser-based (CDP) */
 export const PROVIDER_MODE: Record<ProviderName, 'api' | 'browser'> = {
   gemini: 'api',

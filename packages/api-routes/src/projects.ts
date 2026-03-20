@@ -2,7 +2,13 @@ import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { projects, keywords, competitors, schedules, notifications } from '@ainyc/canonry-db'
-import { validationError, locationContextSchema } from '@ainyc/canonry-contracts'
+import {
+  validationError,
+  locationContextSchema,
+  projectUpsertRequestSchema,
+  findDuplicateLocationLabels,
+  hasLocationLabel,
+} from '@ainyc/canonry-contracts'
 import type { LocationContext } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 
@@ -29,21 +35,41 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     }
   }>('/projects/:name', async (request, reply) => {
     const { name } = request.params
-    const body = request.body
-    if (!body || !body.displayName || !body.canonicalDomain || !body.country || !body.language) {
-      const err = validationError('Missing required fields: displayName, canonicalDomain, country, language')
+    const parsedBody = projectUpsertRequestSchema.safeParse(request.body)
+    if (!parsedBody.success) {
+      const err = validationError('Invalid project payload', {
+        issues: parsedBody.error.issues.map(issue => ({
+          path: issue.path.join('.'),
+          message: issue.message,
+        })),
+      })
       return reply.status(err.statusCode).send(err.toJSON())
     }
-    if (body.ownedDomains !== undefined && (
-      !Array.isArray(body.ownedDomains) ||
-      body.ownedDomains.some(d => typeof d !== 'string' || d.trim() === '')
-    )) {
-      const err = validationError('ownedDomains must be an array of non-empty strings')
-      return reply.status(err.statusCode).send(err.toJSON())
-    }
+    const body = parsedBody.data
 
     const now = new Date().toISOString()
     const existing = app.db.select().from(projects).where(eq(projects.name, name)).get()
+    const existingLocations = existing
+      ? (JSON.parse(existing.locations || '[]') as LocationContext[])
+      : []
+    const nextLocations = body.locations ?? existingLocations
+    const duplicateLabels = findDuplicateLocationLabels(nextLocations)
+    if (duplicateLabels.length > 0) {
+      const err = validationError(`Duplicate location labels are not allowed: ${duplicateLabels.join(', ')}`, {
+        duplicateLabels,
+      })
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
+    const nextDefaultLocation = body.defaultLocation !== undefined
+      ? (body.defaultLocation ?? null)
+      : existing?.defaultLocation ?? null
+    if (!hasLocationLabel(nextLocations, nextDefaultLocation)) {
+      const err = validationError(`defaultLocation "${nextDefaultLocation}" must match a configured location label`, {
+        defaultLocation: nextDefaultLocation,
+      })
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
 
     if (existing) {
       app.db.update(projects).set({
@@ -55,8 +81,8 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         tags: JSON.stringify(body.tags ?? []),
         labels: JSON.stringify(body.labels ?? {}),
         providers: JSON.stringify(body.providers ?? []),
-        locations: JSON.stringify(body.locations ?? JSON.parse(existing.locations || '[]')),
-        defaultLocation: body.defaultLocation !== undefined ? (body.defaultLocation ?? null) : existing.defaultLocation,
+        locations: JSON.stringify(nextLocations),
+        defaultLocation: nextDefaultLocation,
         configSource: body.configSource ?? 'api',
         configRevision: existing.configRevision + 1,
         updatedAt: now,
@@ -86,8 +112,8 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       tags: JSON.stringify(body.tags ?? []),
       labels: JSON.stringify(body.labels ?? {}),
       providers: JSON.stringify(body.providers ?? []),
-      locations: JSON.stringify(body.locations ?? []),
-      defaultLocation: body.defaultLocation ?? null,
+      locations: JSON.stringify(nextLocations),
+      defaultLocation: nextDefaultLocation,
       configSource: body.configSource ?? 'api',
       configRevision: 1,
       createdAt: now,

@@ -58,6 +58,28 @@ describe('api-routes', () => {
     expect(body.ownedDomains).toEqual(['docs.example.com'])
   })
 
+  it('PUT /api/v1/projects/:name rejects an unknown defaultLocation', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/bad-default',
+      payload: {
+        displayName: 'Bad Default',
+        canonicalDomain: 'example.com',
+        country: 'US',
+        language: 'en',
+        locations: [
+          { label: 'nyc', city: 'New York', region: 'NY', country: 'US' },
+        ],
+        defaultLocation: 'sf',
+      },
+    })
+
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.payload)
+    expect(body.error.code).toBe('VALIDATION_ERROR')
+    expect(body.error.message).toMatch(/defaultLocation/)
+  })
+
   it('GET /api/v1/projects lists projects', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/projects' })
     expect(res.statusCode).toBe(200)
@@ -203,6 +225,22 @@ describe('api-routes', () => {
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload) as Array<{ id: string }>
     expect(body.map(run => run.id)).toEqual([olderRunId, latestRunId])
+  })
+
+  it('PUT /api/v1/projects/:name/schedule rejects unknown provider names', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/my-site/schedule',
+      payload: {
+        preset: 'daily',
+        providers: ['bogus-provider'],
+      },
+    })
+
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.payload)
+    expect(body.error.code).toBe('VALIDATION_ERROR')
+    expect(body.error.details.issues[0].path).toBe('providers.0')
   })
 
   it('GET /api/v1/projects/:name/history returns audit log', async () => {

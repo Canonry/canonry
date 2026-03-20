@@ -38,7 +38,7 @@ export function writeAuditLog(db: Pick<DatabaseClient, 'insert'>, entry: AuditEn
 
 export function incrementUsage(db: DatabaseClient, scope: string, metric: string) {
   const now = new Date()
-  const period = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
+  const period = now.toISOString().slice(0, 10)
   const existing = db
     .select()
     .from(usageCounters)

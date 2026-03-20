@@ -1,8 +1,47 @@
 import { z } from 'zod'
-import { locationContextSchema } from './provider.js'
+import { locationContextSchema, providerNameSchema, type LocationContext } from './provider.js'
 
 export const configSourceSchema = z.enum(['cli', 'api', 'config-file'])
 export type ConfigSource = z.infer<typeof configSourceSchema>
+
+export function findDuplicateLocationLabels(locations: readonly Pick<LocationContext, 'label'>[]): string[] {
+  const seen = new Set<string>()
+  const duplicates = new Set<string>()
+
+  for (const location of locations) {
+    if (seen.has(location.label)) {
+      duplicates.add(location.label)
+      continue
+    }
+    seen.add(location.label)
+  }
+
+  return [...duplicates]
+}
+
+export function hasLocationLabel(
+  locations: readonly Pick<LocationContext, 'label'>[],
+  label: string | null | undefined,
+): boolean {
+  if (!label) return true
+  return locations.some(location => location.label === label)
+}
+
+export const projectUpsertRequestSchema = z.object({
+  displayName: z.string().min(1),
+  canonicalDomain: z.string().min(1),
+  ownedDomains: z.array(z.string().min(1)).optional(),
+  country: z.string().length(2),
+  language: z.string().min(2),
+  tags: z.array(z.string()).optional(),
+  labels: z.record(z.string(), z.string()).optional(),
+  providers: z.array(providerNameSchema).optional(),
+  locations: z.array(locationContextSchema).optional(),
+  defaultLocation: z.string().nullable().optional(),
+  configSource: configSourceSchema.optional(),
+})
+
+export type ProjectUpsertRequest = z.infer<typeof projectUpsertRequestSchema>
 
 export const projectDtoSchema = z.object({
   id: z.string(),

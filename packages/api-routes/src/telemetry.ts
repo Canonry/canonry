@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { notImplemented, validationError } from '@ainyc/canonry-contracts'
 
 export interface TelemetryRoutesOptions {
   getTelemetryStatus?: () => { enabled: boolean; anonymousId?: string }
@@ -8,7 +9,8 @@ export interface TelemetryRoutesOptions {
 export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoutesOptions) {
   app.get('/telemetry', async (_request, reply) => {
     if (!opts.getTelemetryStatus) {
-      return reply.status(501).send({ error: 'Telemetry status is not available in this deployment' })
+      const err = notImplemented('Telemetry status is not available in this deployment')
+      return reply.status(err.statusCode).send(err.toJSON())
     }
 
     const status = opts.getTelemetryStatus()
@@ -20,12 +22,14 @@ export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoute
 
   app.put<{ Body: { enabled: boolean } }>('/telemetry', async (request, reply) => {
     if (!opts.setTelemetryEnabled) {
-      return reply.status(501).send({ error: 'Telemetry configuration is not available in this deployment' })
+      const err = notImplemented('Telemetry configuration is not available in this deployment')
+      return reply.status(err.statusCode).send(err.toJSON())
     }
 
     const { enabled } = request.body ?? {}
     if (typeof enabled !== 'boolean') {
-      return reply.status(400).send({ error: 'enabled (boolean) is required' })
+      const err = validationError('enabled (boolean) is required')
+      return reply.status(err.statusCode).send(err.toJSON())
     }
 
     opts.setTelemetryEnabled(enabled)

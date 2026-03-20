@@ -25,6 +25,12 @@ describe('GET /api/v1/cdp/status', () => {
     await app.ready()
     const res = await app.inject({ method: 'GET', url: '/api/v1/cdp/status' })
     expect(res.statusCode).toBe(501)
+    expect(JSON.parse(res.payload)).toEqual({
+      error: {
+        code: 'NOT_IMPLEMENTED',
+        message: 'CDP not configured',
+      },
+    })
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
@@ -84,6 +90,12 @@ describe('POST /api/v1/cdp/screenshot', () => {
       payload: { query: 'test query' },
     })
     expect(res.statusCode).toBe(501)
+    expect(JSON.parse(res.payload)).toEqual({
+      error: {
+        code: 'NOT_IMPLEMENTED',
+        message: 'CDP not configured',
+      },
+    })
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
@@ -97,6 +109,12 @@ describe('POST /api/v1/cdp/screenshot', () => {
       payload: {},
     })
     expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.payload)).toEqual({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'query is required',
+      },
+    })
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
