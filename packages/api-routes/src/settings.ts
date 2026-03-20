@@ -56,11 +56,13 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     const { apiKey, baseUrl, model, quota } = request.body ?? {}
     const name = request.params.name
 
-    // Validate against registered adapters
+    // Validate against registered API adapters (browser/CDP adapters are
+    // configured separately and cannot be updated through this endpoint)
     const adapters = opts.providerAdapters ?? []
-    const adapterInfo = adapters.find(a => a.name === name)
+    const apiAdapters = adapters.filter(a => a.mode === 'api')
+    const adapterInfo = apiAdapters.find(a => a.name === name)
     if (!adapterInfo) {
-      const validNames = adapters.filter(a => a.mode === 'api').map(a => a.name)
+      const validNames = apiAdapters.map(a => a.name)
       const err = validationError(`Invalid provider: ${name}. Must be one of: ${validNames.join(', ')}`, {
         provider: name,
         validProviders: validNames,

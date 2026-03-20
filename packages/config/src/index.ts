@@ -25,6 +25,12 @@ const envSchema = z.object({
   ANTHROPIC_MAX_CONCURRENCY: z.coerce.number().int().positive().default(2),
   ANTHROPIC_MAX_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(10),
   ANTHROPIC_MAX_REQUESTS_PER_DAY: z.coerce.number().int().positive().default(1000),
+  // Perplexity
+  PERPLEXITY_API_KEY: z.string().optional(),
+  PERPLEXITY_MODEL: z.string().optional(),
+  PERPLEXITY_MAX_CONCURRENCY: z.coerce.number().int().positive().default(2),
+  PERPLEXITY_MAX_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(10),
+  PERPLEXITY_MAX_REQUESTS_PER_DAY: z.coerce.number().int().positive().default(1000),
 })
 
 export interface ProviderEnvConfig {
@@ -65,6 +71,7 @@ export interface PlatformEnv {
     gemini?: ProviderEnvConfig
     openai?: ProviderEnvConfig
     claude?: ProviderEnvConfig
+    perplexity?: ProviderEnvConfig
   }
 }
 
@@ -124,6 +131,18 @@ export function getPlatformEnv(source: NodeJS.ProcessEnv): PlatformEnv {
         maxConcurrency: parsed.ANTHROPIC_MAX_CONCURRENCY,
         maxRequestsPerMinute: parsed.ANTHROPIC_MAX_REQUESTS_PER_MINUTE,
         maxRequestsPerDay: parsed.ANTHROPIC_MAX_REQUESTS_PER_DAY,
+      }),
+    }
+  }
+
+  if (parsed.PERPLEXITY_API_KEY) {
+    providers.perplexity = {
+      apiKey: parsed.PERPLEXITY_API_KEY,
+      model: parsed.PERPLEXITY_MODEL,
+      quota: providerQuotaPolicySchema.parse({
+        maxConcurrency: parsed.PERPLEXITY_MAX_CONCURRENCY,
+        maxRequestsPerMinute: parsed.PERPLEXITY_MAX_REQUESTS_PER_MINUTE,
+        maxRequestsPerDay: parsed.PERPLEXITY_MAX_REQUESTS_PER_DAY,
       }),
     }
   }

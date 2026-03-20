@@ -79,7 +79,7 @@ const providerNameParameter: OpenApiParameter = {
   in: 'path',
   required: true,
   description: 'Provider name.',
-  schema: { type: 'string', enum: ['gemini', 'openai', 'claude', 'local'] },
+  schema: { type: 'string', enum: ['gemini', 'openai', 'claude', 'perplexity', 'local'] },
 }
 
 const locationLabelParameter: OpenApiParameter = {
@@ -397,7 +397,7 @@ const routeCatalog: OpenApiOperation[] = [
             type: 'object',
             required: ['provider'],
             properties: {
-              provider: { type: 'string', enum: ['gemini', 'openai', 'claude', 'local'] },
+              provider: { type: 'string', enum: ['gemini', 'openai', 'claude', 'perplexity', 'local'] },
               count: integerSchema,
             },
           },
