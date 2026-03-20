@@ -111,7 +111,7 @@ Options:
   --display-name <name>    Display name for project create/update
   --country <code>     Country code (default: US)
   --language <lang>    Language code (default: en)
-  --provider <name>    Provider to use (gemini, openai, claude, local, cdp:chatgpt, or cdp for all CDP targets)
+  --provider <name>    Provider to use (gemini, openai, claude, perplexity, local, cdp:chatgpt, or cdp for all CDP targets)
   --format <fmt>       Output format: text (default) or json
   --location <label>   Run with a specific configured location
   --all-locations      Run for every configured location

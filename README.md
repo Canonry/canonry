@@ -30,7 +30,7 @@ GEMINI_API_KEY=... OPENAI_API_KEY=... canonry init
 
 ## Features
 
-- **Multi-provider monitoring** -- query Gemini, OpenAI, Claude, and local LLMs (Ollama, LM Studio, or any OpenAI-compatible endpoint) from a single tool.
+- **Multi-provider monitoring** -- query Gemini, OpenAI, Claude, Perplexity, and local LLMs (Ollama, LM Studio, or any OpenAI-compatible endpoint) from a single tool.
 - **API-first surfaces** -- the REST API is canonical, the CLI is the standard automation surface, and the web dashboard consumes the same core workflows.
 - **Project-scoped location context** -- define named locations per project, set a default, and run explicit or all-location sweeps without making keywords location-owned.
 - **Config-as-code** -- manage projects with Kubernetes-style YAML files. Version control your monitoring setup.
@@ -136,6 +136,7 @@ canonry settings provider gemini --api-key <key>
 canonry settings google --client-id <id> --client-secret <secret>
 canonry settings provider local --base-url http://localhost:11434/v1 --model llama3
 canonry settings provider openai --api-key <key> --max-per-day 1000 --max-per-minute 20
+canonry settings provider perplexity --api-key <key>
 ```
 
 Quota flags: `--max-concurrent`, `--max-per-minute`, `--max-per-day`.
@@ -173,6 +174,7 @@ spec:
     - gemini
     - openai
     - claude
+    - perplexity
     - local
   locations:
     - label: sf
@@ -244,6 +246,16 @@ Get an API key from [platform.openai.com](https://platform.openai.com/api-keys).
 ### Claude
 
 Get an API key from [console.anthropic.com](https://console.anthropic.com/settings/keys).
+
+### Perplexity
+
+Get an API key from [perplexity.ai/settings/api](https://www.perplexity.ai/settings/api). Perplexity uses its Sonar model family with built-in web search, so citation results reflect live search grounding.
+
+```bash
+canonry settings provider perplexity --api-key <key>
+```
+
+Available models: `sonar` (default), `sonar-pro`, `sonar-reasoning`, `sonar-reasoning-pro`.
 
 ### Local LLMs
 
