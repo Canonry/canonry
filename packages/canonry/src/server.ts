@@ -174,7 +174,13 @@ export async function createServer(opts: {
     configured: Boolean(opts.config.google?.clientId && opts.config.google?.clientSecret),
   }
   const bingSettingsSummary = {
-    configured: Boolean(opts.config.bing?.apiKey),
+    // Treat Bing as configured if there is at least one connection with an API key,
+    // OR if a global bing.apiKey is set. The CLI stores keys per-connection
+    // (bing.connections[].apiKey), so checking only bing.apiKey missed existing connections.
+    configured: Boolean(
+      opts.config.bing?.apiKey ||
+      opts.config.bing?.connections?.some((c) => c.apiKey)
+    ),
   }
 
   // Bing connection store — stores connections in ~/.canonry/config.yaml
