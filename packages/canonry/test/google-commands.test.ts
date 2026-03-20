@@ -186,10 +186,21 @@ describe('google CLI commands', () => {
       language: 'en',
     })
 
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('googleapis.com/webmasters')) {
+        return new Response('Unauthorized', { status: 401 })
+      }
+      return originalFetch(input, init)
+    }
+
     const { googleListSitemaps } = await import('../src/commands/google.js')
-    // The fake access token causes Google to return 401, which gscFetch propagates as
-    // a GoogleApiError(401) → Fastify returns HTTP 401 → ApiClient throws
-    await expect(() => googleListSitemaps('test-proj', {})).rejects.toThrow('Access token expired or revoked')
+    try {
+      await expect(() => googleListSitemaps('test-proj', {})).rejects.toThrow('Access token expired or revoked')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 
   it('googleDiscoverSitemaps rejects when the GSC access token is rejected by Google', async () => {
@@ -200,10 +211,21 @@ describe('google CLI commands', () => {
       language: 'en',
     })
 
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('googleapis.com/webmasters')) {
+        return new Response('Unauthorized', { status: 401 })
+      }
+      return originalFetch(input, init)
+    }
+
     const { googleDiscoverSitemaps } = await import('../src/commands/google.js')
-    // The fake access token causes Google to return 401, which gscFetch propagates as
-    // a GoogleApiError(401) → Fastify returns HTTP 401 → ApiClient throws
-    await expect(() => googleDiscoverSitemaps('test-proj', { wait: false })).rejects.toThrow('Access token expired or revoked')
+    try {
+      await expect(() => googleDiscoverSitemaps('test-proj', { wait: false })).rejects.toThrow('Access token expired or revoked')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 
   it('googleRequestIndexing prints success output for a single URL', async () => {
