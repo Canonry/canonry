@@ -154,6 +154,22 @@ export function loadConfig(): CanonryConfig {
     }
   }
 
+  // If basePath is configured, ensure apiUrl includes it so the CLI client
+  // constructs correct paths when canonry runs behind a reverse proxy.
+  // e.g. apiUrl: http://localhost:4100 + basePath: /canonry/ → effective apiUrl: http://localhost:4100/canonry
+  // Safe to re-run: if apiUrl already contains the base path, it is left unchanged.
+  if (parsed.basePath) {
+    const normalizedBase = '/' + parsed.basePath.replace(/^\/|\/$/g, '')
+    try {
+      const url = new URL(parsed.apiUrl)
+      if (normalizedBase !== '/' && !url.pathname.startsWith(normalizedBase)) {
+        parsed.apiUrl = url.origin + normalizedBase
+      }
+    } catch {
+      // invalid URL in config, leave as-is
+    }
+  }
+
   return parsed
 }
 

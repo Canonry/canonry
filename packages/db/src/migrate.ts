@@ -220,6 +220,43 @@ const MIGRATIONS = [
   `ALTER TABLE google_connections ADD COLUMN sitemap_url TEXT`,
   // v11: CDP browser provider — screenshot path for captured evidence
   `ALTER TABLE query_snapshots ADD COLUMN screenshot_path TEXT`,
+  // v12: Bing Webmaster Tools — bing_connections table
+  `CREATE TABLE IF NOT EXISTS bing_connections (
+    id          TEXT PRIMARY KEY,
+    domain      TEXT NOT NULL,
+    site_url    TEXT,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_bing_conn_domain ON bing_connections(domain)`,
+  // v12: Bing Webmaster Tools — bing_url_inspections table
+  `CREATE TABLE IF NOT EXISTS bing_url_inspections (
+    id                TEXT PRIMARY KEY,
+    project_id        TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    url               TEXT NOT NULL,
+    http_code         INTEGER,
+    in_index          INTEGER,
+    last_crawled_date TEXT,
+    in_index_date     TEXT,
+    inspected_at      TEXT NOT NULL,
+    created_at        TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_bing_inspect_project_url ON bing_url_inspections(project_id, url)`,
+  `CREATE INDEX IF NOT EXISTS idx_bing_inspect_url_time ON bing_url_inspections(url, inspected_at)`,
+  // v12: Bing Webmaster Tools — bing_keyword_stats table
+  `CREATE TABLE IF NOT EXISTS bing_keyword_stats (
+    id               TEXT PRIMARY KEY,
+    project_id       TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    query            TEXT NOT NULL,
+    impressions      INTEGER NOT NULL DEFAULT 0,
+    clicks           INTEGER NOT NULL DEFAULT 0,
+    ctr              TEXT NOT NULL DEFAULT '0',
+    average_position TEXT NOT NULL DEFAULT '0',
+    synced_at        TEXT NOT NULL,
+    created_at       TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_bing_keyword_project ON bing_keyword_stats(project_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_bing_keyword_query ON bing_keyword_stats(query)`,
 ]
 
 export function migrate(db: DatabaseClient) {
