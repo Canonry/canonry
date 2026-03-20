@@ -984,6 +984,10 @@
     @apply mx-auto flex max-w-6xl flex-col gap-3 border-t border-zinc-800/40 px-4 py-5 text-sm md:flex-row md:items-center md:justify-between md:px-6;
   }
 
+  .footer-brand {
+    @apply flex items-center gap-1.5 text-zinc-600 transition hover:text-zinc-300;
+  }
+
   .footer-links {
     @apply flex flex-wrap gap-4;
   }
@@ -1385,6 +1389,53 @@
 
   .drawer-section-label {
     @apply mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600;
+  }
+
+  /* ── Skeleton / loading placeholders ── */
+
+  .skeleton {
+    @apply rounded bg-zinc-800/60;
+    animation: skeleton-pulse 1.5s ease-in-out infinite;
+  }
+
+  .skeleton-text {
+    @apply skeleton h-3 rounded;
+  }
+
+  .skeleton-text-sm {
+    @apply skeleton h-2.5 rounded;
+  }
+
+  .skeleton-circle {
+    @apply skeleton rounded-full;
+  }
+
+  @keyframes skeleton-pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 0.8; }
+  }
+
+  /* Sidebar skeleton items */
+  .sidebar-skeleton-item {
+    @apply flex items-center gap-2.5 px-3 py-1.5;
+  }
+
+  /* Page-level loading skeleton */
+  .page-skeleton {
+    @apply page-container space-y-6;
+  }
+
+  .page-skeleton-header {
+    @apply space-y-2;
+  }
+
+  .page-skeleton-grid {
+    @apply grid gap-4;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+
+  .page-skeleton-card {
+    @apply rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-5 space-y-3;
   }
 
   /* ── Misc helpers ── */

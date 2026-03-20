@@ -8,8 +8,31 @@ import { useDashboard } from '../queries/use-dashboard.js'
 import type { RunFilter } from '../view-models.js'
 
 export function RunsPage() {
-  const { dashboard } = useDashboard()
-  const runs = dashboard?.runs ?? []
+  const { dashboard, isLoading } = useDashboard()
+
+  if (!dashboard || isLoading) {
+    return (
+      <div className="page-skeleton">
+        <div className="page-skeleton-header">
+          <div className="skeleton-text h-6 w-20" />
+          <div className="skeleton-text-sm w-72" />
+        </div>
+        <div className="space-y-2">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-3 flex items-center gap-3">
+              <div className="flex-1 space-y-1.5">
+                <div className="skeleton-text w-40" />
+                <div className="skeleton-text-sm w-56" />
+              </div>
+              <div className="skeleton h-5 w-16 rounded-full" />
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  const runs = dashboard.runs
   const [filter, setFilter] = useState<RunFilter>('all')
   const filteredRuns = filter === 'all' ? runs : runs.filter((run) => run.status === filter)
 

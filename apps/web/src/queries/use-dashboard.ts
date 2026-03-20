@@ -93,8 +93,8 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
     return buildDashboard(projectDataList, settingsQuery.data ?? null)
   }, [effectiveInitial, projectsQuery.data, runsQuery.data, settingsQuery.data, allProjectDetailsLoaded, projectDetailQueries, projects.length])
 
-  const isLoading = !effectiveInitial && (projectsQuery.isLoading || runsQuery.isLoading)
   const isError = !effectiveInitial && (projectsQuery.isError || runsQuery.isError)
+  const isLoading = !effectiveInitial && !dashboard && !isError
 
   const refetch = useCallback(async () => {
     await Promise.all([

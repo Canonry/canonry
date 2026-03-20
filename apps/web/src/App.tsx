@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import {
   ChevronRight,
+  Github,
   Globe,
   LayoutDashboard,
   Menu,
@@ -20,7 +21,7 @@ import { ProviderBadge } from './components/shared/ProviderBadge.js'
 import { StatusBadge } from './components/shared/StatusBadge.js'
 import { Drawer } from './components/layout/Drawer.js'
 import { EvidenceDetailModal } from './components/layout/EvidenceDetailModal.js'
-import { createDashboardFixture, findEvidenceById, findRunById } from './mock-data.js'
+import { findEvidenceById, findRunById } from './mock-data.js'
 import { useDashboard } from './queries/use-dashboard.js'
 import { useHealth } from './queries/use-health.js'
 import { useRunDetail } from './queries/use-run-detail.js'
@@ -37,8 +38,6 @@ const docs = [
   { label: 'Architecture', href: 'https://github.com/AINYC/canonry/blob/main/docs/architecture.md' },
   { label: 'Testing Guide', href: 'https://github.com/AINYC/canonry/blob/main/docs/testing.md' },
 ]
-
-const defaultFixture = createDashboardFixture()
 
 const checkingStatus = (label: string): ServiceStatus => ({
   label,
@@ -108,11 +107,11 @@ export function RootLayout() {
     }
   }, [runId, evidenceId, closeDrawer])
 
-  // While loading or dashboard not yet available, use a safe fallback for derived values
-  const safeDashboard = dashboard ?? contextDashboard?.dashboard ?? defaultFixture.dashboard
+  // While loading or dashboard not yet available, use context data or null (no mock fallback)
+  const safeDashboard = dashboard ?? contextDashboard?.dashboard ?? null
 
-  const selectedRun = runId ? findRunById(safeDashboard, runId) : undefined
-  const selectedEvidenceContext = evidenceId ? findEvidenceById(safeDashboard, evidenceId) : undefined
+  const selectedRun = runId && safeDashboard ? findRunById(safeDashboard, runId) : undefined
+  const selectedEvidenceContext = evidenceId && safeDashboard ? findEvidenceById(safeDashboard, evidenceId) : undefined
 
   // Derive breadcrumb label from current location
   const breadcrumbLabel = (() => {
@@ -126,7 +125,7 @@ export function RootLayout() {
       // Try to find project name
       const segments = path.split('/').filter(Boolean)
       const projectId = segments[1]
-      if (projectId) {
+      if (projectId && safeDashboard) {
         const projectVm = safeDashboard.projects.find(p => p.project.id === projectId)
         if (projectVm) return projectVm.project.name
       }
@@ -185,7 +184,17 @@ export function RootLayout() {
             <span>Settings</span>
           </Link>
 
-          {safeDashboard.projects.length > 0 ? (
+          {isLoading ? (
+            <>
+              <p className="sidebar-section-title">Projects</p>
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="sidebar-skeleton-item">
+                  <span className="skeleton-circle size-2" />
+                  <span className="skeleton-text flex-1" style={{ width: `${50 + i * 15}%` }} />
+                </div>
+              ))}
+            </>
+          ) : safeDashboard && safeDashboard.projects.length > 0 ? (
             <>
               <p className="sidebar-section-title">Projects</p>
               {safeDashboard.projects.map((projectVm) => {
@@ -204,9 +213,7 @@ export function RootLayout() {
                 )
               })}
             </>
-          ) : null}
-
-          {safeDashboard.projects.length === 0 ? (
+          ) : !isLoading ? (
             <>
               <p className="sidebar-section-title">Resources</p>
               <Link
@@ -296,7 +303,7 @@ export function RootLayout() {
           <Link to="/settings" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
             Settings
           </Link>
-          {safeDashboard.projects.length > 0 ? (
+          {safeDashboard && safeDashboard.projects.length > 0 ? (
             <div className="mobile-nav-section">
               <p className="mobile-nav-section-title">Projects</p>
               {safeDashboard.projects.map((projectVm) => (
@@ -316,12 +323,31 @@ export function RootLayout() {
         {/* Page content */}
         <main id="content" className="page-shell">
           {isLoading && !contextDashboard ? (
-            <div className="page-container">
-              <div className="page-header">
-                <div className="page-header-left">
-                  <h1 className="page-title">Loading</h1>
-                  <p className="page-subtitle">Connecting to API and loading dashboard data...</p>
-                </div>
+            <div className="page-skeleton">
+              <div className="page-skeleton-header">
+                <div className="skeleton-text h-6 w-40" />
+                <div className="skeleton-text-sm w-72" />
+              </div>
+              <div className="page-skeleton-grid">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="page-skeleton-card">
+                    <div className="skeleton-text w-24" />
+                    <div className="skeleton-text w-full" />
+                    <div className="skeleton-text-sm w-3/4" />
+                  </div>
+                ))}
+              </div>
+              <div className="page-skeleton-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                {[1, 2].map((i) => (
+                  <div key={i} className="page-skeleton-card">
+                    <div className="skeleton-text w-20" />
+                    <div className="space-y-2">
+                      {[1, 2, 3].map((j) => (
+                        <div key={j} className="skeleton-text-sm w-full" />
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           ) : (
@@ -330,7 +356,10 @@ export function RootLayout() {
         </main>
 
         <footer className="footer">
-          <p className="supporting-copy">Technical readiness and answer visibility stay separate.</p>
+          <a href="https://github.com/AINYC/canonry" target="_blank" rel="noreferrer" className="footer-brand">
+            <Github className="size-3.5" />
+            <span>Canonry</span>
+          </a>
           <div className="footer-links">
             {docs.map((doc) => (
               <a key={doc.href} href={doc.href} target="_blank" rel="noreferrer">

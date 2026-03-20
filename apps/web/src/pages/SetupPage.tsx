@@ -16,9 +16,6 @@ import { useDashboard } from '../queries/use-dashboard.js'
 import { useHealth } from '../queries/use-health.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import { buildSetupModel } from '../lib/health-helpers.js'
-import { createDashboardFixture } from '../mock-data.js'
-
-const defaultFixture = createDashboardFixture()
 
 const SETUP_STEPS = [
   { label: 'System check', description: 'Verify your instance is ready' },
@@ -47,8 +44,34 @@ function SetupStepIndicator({ current, labels }: { current: number; labels: read
 
 export function SetupPage() {
   const contextDashboard = useInitialDashboard()
-  const { dashboard, refetch } = useDashboard()
-  const safeDashboard = dashboard ?? contextDashboard?.dashboard ?? defaultFixture.dashboard
+  const { dashboard, isLoading, refetch } = useDashboard()
+  const safeDashboard = dashboard ?? contextDashboard?.dashboard
+
+  if (!safeDashboard || isLoading) {
+    return (
+      <div className="page-skeleton">
+        <div className="page-skeleton-header">
+          <div className="skeleton-text h-6 w-24" />
+          <div className="skeleton-text-sm w-80" />
+        </div>
+        <div className="page-skeleton-card">
+          <div className="skeleton-text w-32" />
+          <div className="space-y-3 mt-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="flex items-center justify-between">
+                <div className="space-y-1 flex-1">
+                  <div className="skeleton-text w-24" />
+                  <div className="skeleton-text-sm w-48" />
+                </div>
+                <div className="skeleton h-6 w-16 rounded-full" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   const settings = safeDashboard.settings
 
   const enableLiveStatus = !contextDashboard

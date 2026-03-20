@@ -392,15 +392,18 @@ function computeBuckets(
     const startISO = start.toISOString()
     const endISO = end.toISOString()
     const inBucket = snapshots.filter(s => s.createdAt >= startISO && s.createdAt < endISO)
-    const metric = computeProviderMetric(inBucket)
 
-    buckets.push({
-      startDate: startISO,
-      endDate: endISO,
-      citationRate: metric.citationRate,
-      cited: metric.cited,
-      total: metric.total,
-    })
+    // Only emit buckets that contain actual sweep data
+    if (inBucket.length > 0) {
+      const metric = computeProviderMetric(inBucket)
+      buckets.push({
+        startDate: startISO,
+        endDate: endISO,
+        citationRate: metric.citationRate,
+        cited: metric.cited,
+        total: metric.total,
+      })
+    }
 
     start = end
   }

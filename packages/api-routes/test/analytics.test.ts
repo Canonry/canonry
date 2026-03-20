@@ -311,6 +311,109 @@ describe('analytics routes', () => {
     expect(allDomains).not.toContain('openai.com')
   })
 
+  it('omits buckets for days with no sweep data', async () => {
+    // Create a project with runs on non-consecutive days
+    const gapProjectId = crypto.randomUUID()
+    db.insert(projects).values({
+      id: gapProjectId,
+      name: 'gap-bucket-project',
+      displayName: 'Gap Bucket',
+      canonicalDomain: 'gapbucket.com',
+      ownedDomains: '[]',
+      country: 'US',
+      language: 'en',
+      tags: '[]',
+      labels: '{}',
+      providers: '["gemini"]',
+      locations: '[]',
+      defaultLocation: null,
+      configSource: 'api',
+      configRevision: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }).run()
+
+    const gapKwId = crypto.randomUUID()
+    db.insert(keywords).values({
+      id: gapKwId,
+      projectId: gapProjectId,
+      keyword: 'gap test keyword',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    // Run 1: 5 days ago
+    const day1 = new Date()
+    day1.setDate(day1.getDate() - 5)
+    const run1Id = crypto.randomUUID()
+    db.insert(runs).values({
+      id: run1Id,
+      projectId: gapProjectId,
+      kind: 'answer-visibility',
+      status: 'completed',
+      trigger: 'manual',
+      location: null,
+      startedAt: day1.toISOString(),
+      finishedAt: day1.toISOString(),
+      error: null,
+      createdAt: day1.toISOString(),
+    }).run()
+    db.insert(querySnapshots).values({
+      id: crypto.randomUUID(),
+      runId: run1Id,
+      keywordId: gapKwId,
+      provider: 'gemini',
+      model: 'gemini-2.5-flash',
+      citationState: 'cited',
+      answerText: 'test',
+      citedDomains: '["gapbucket.com"]',
+      competitorOverlap: '[]',
+      location: null,
+      rawResponse: '{}',
+      createdAt: day1.toISOString(),
+    }).run()
+
+    // Run 2: today (skipping days in between)
+    const day2 = new Date()
+    const run2Id = crypto.randomUUID()
+    db.insert(runs).values({
+      id: run2Id,
+      projectId: gapProjectId,
+      kind: 'answer-visibility',
+      status: 'completed',
+      trigger: 'manual',
+      location: null,
+      startedAt: day2.toISOString(),
+      finishedAt: day2.toISOString(),
+      error: null,
+      createdAt: day2.toISOString(),
+    }).run()
+    db.insert(querySnapshots).values({
+      id: crypto.randomUUID(),
+      runId: run2Id,
+      keywordId: gapKwId,
+      provider: 'gemini',
+      model: 'gemini-2.5-flash',
+      citationState: 'not-cited',
+      answerText: 'test',
+      citedDomains: '[]',
+      competitorOverlap: '[]',
+      location: null,
+      rawResponse: '{}',
+      createdAt: day2.toISOString(),
+    }).run()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/gap-bucket-project/analytics/metrics' })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload)
+
+    // Every bucket should have actual data (total > 0), no empty gap-fill buckets
+    for (const bucket of body.buckets) {
+      expect(bucket.total).toBeGreaterThan(0)
+    }
+    // Should have exactly 2 buckets (one per day with data), not 6 (filling every day)
+    expect(body.buckets.length).toBe(2)
+  })
+
   it('returns empty data when no runs exist', async () => {
     // Create a project with no runs
     const emptyProjectId = crypto.randomUUID()

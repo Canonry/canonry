@@ -47,12 +47,10 @@ import {
 } from '../api.js'
 import { useDashboard } from '../queries/use-dashboard.js'
 import { useDrawer } from '../hooks/use-drawer.js'
-import { findProjectVm, createDashboardFixture } from '../mock-data.js'
+import { findProjectVm } from '../mock-data.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
 export type ProjectPageTab = 'overview' | 'search-console' | 'analytics'
-
-const defaultFixture = createDashboardFixture()
 
 function BingSection({ projectName }: { projectName: string }) {
   const [connection, setConnection] = useState<ApiBingConnection | null>(null)
@@ -534,9 +532,36 @@ export function ProjectPage({
 }) {
   const { projectId } = useParams({ from: '/projects/$projectId' })
   const navigate = useNavigate()
-  const { dashboard, refetch } = useDashboard()
-  const safeDashboard = dashboard ?? defaultFixture.dashboard
-  const model = findProjectVm(safeDashboard, projectId)
+  const { dashboard, isLoading, refetch } = useDashboard()
+
+  if (!dashboard || isLoading) {
+    return (
+      <div className="page-skeleton">
+        <div className="page-skeleton-header">
+          <div className="skeleton-text h-6 w-48" />
+          <div className="skeleton-text-sm w-32" />
+        </div>
+        <div className="grid grid-cols-3 gap-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="page-skeleton-card flex flex-col items-center">
+              <div className="skeleton-circle size-20" />
+              <div className="skeleton-text w-16 mt-3" />
+            </div>
+          ))}
+        </div>
+        <div className="page-skeleton-card">
+          <div className="skeleton-text w-28" />
+          <div className="space-y-2 mt-2">
+            {[1, 2, 3, 4].map((j) => (
+              <div key={j} className="skeleton-text-sm w-full" />
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const model = findProjectVm(dashboard, projectId)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [runTriggering, setRunTriggering] = useState(false)

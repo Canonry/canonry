@@ -12,8 +12,39 @@ import { useDashboard } from '../queries/use-dashboard.js'
 import { Link } from '@tanstack/react-router'
 
 export function ProjectsPage() {
-  const { dashboard, refetch } = useDashboard()
-  const projects = dashboard?.projects ?? []
+  const { dashboard, isLoading, refetch } = useDashboard()
+
+  if (!dashboard || isLoading) {
+    return (
+      <div className="page-skeleton">
+        <div className="page-skeleton-header">
+          <div className="skeleton-text h-6 w-28" />
+          <div className="skeleton-text-sm w-40" />
+        </div>
+        <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 overflow-hidden">
+          <div className="p-3 border-b border-zinc-800/60 flex gap-8">
+            {['Name', 'Domain', 'Visibility', 'Last run', 'Country'].map((h) => (
+              <div key={h} className="skeleton-text-sm w-16" />
+            ))}
+          </div>
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="p-3 border-b border-zinc-800/40 flex gap-8 items-center">
+              <div className="flex-1 space-y-1">
+                <div className="skeleton-text w-28" />
+                <div className="skeleton-text-sm w-16" />
+              </div>
+              <div className="skeleton-text w-24" />
+              <div className="skeleton h-5 w-14 rounded-full" />
+              <div className="skeleton h-5 w-16 rounded-full" />
+              <div className="skeleton-text-sm w-8" />
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  const projects = dashboard.projects
   const navigate = useNavigate()
 
   const [showForm, setShowForm] = useState(false)
