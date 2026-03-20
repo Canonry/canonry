@@ -323,7 +323,7 @@ export async function createServer(opts: {
       version: PKG_VERSION,
     },
     providerSummary,
-    providerAdapters: API_ADAPTERS.map(a => ({
+    providerAdapters: [...API_ADAPTERS, ...BROWSER_ADAPTERS].map(a => ({
       name: a.name,
       displayName: a.displayName,
       mode: a.mode,

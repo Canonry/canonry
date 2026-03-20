@@ -14,6 +14,8 @@ import { resolveProject, writeAuditLog } from './helpers.js'
 
 export interface ProjectRoutesOptions {
   onProjectDeleted?: (projectId: string) => void
+  /** Valid provider names from registered adapters — used to reject unknown providers */
+  validProviderNames?: string[]
 }
 
 export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOptions) {
@@ -46,6 +48,19 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       return reply.status(err.statusCode).send(err.toJSON())
     }
     const body = parsedBody.data
+
+    // Validate provider names against registered adapters
+    const validNames = opts.validProviderNames ?? []
+    if (validNames.length && body.providers?.length) {
+      const invalid = body.providers.filter(p => !validNames.includes(p))
+      if (invalid.length) {
+        const err = validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
+          invalidProviders: invalid,
+          validProviders: validNames,
+        })
+        return reply.status(err.statusCode).send(err.toJSON())
+      }
+    }
 
     const now = new Date().toISOString()
     const existing = app.db.select().from(projects).where(eq(projects.name, name)).get()

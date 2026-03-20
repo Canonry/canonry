@@ -13,6 +13,8 @@ import { resolvePreset, validateCron, isValidTimezone } from './schedule-utils.j
 
 export interface ScheduleRoutesOptions {
   onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string) => void
+  /** Valid provider names from registered adapters — used to reject unknown providers */
+  validProviderNames?: string[]
 }
 
 export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesOptions) {
@@ -35,6 +37,19 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
       return reply.status(err.statusCode).send(err.toJSON())
     }
     const { preset, cron, timezone, providers, enabled } = parsedBody.data
+
+    // Validate provider names against registered adapters
+    const validNames = opts.validProviderNames ?? []
+    if (validNames.length && providers?.length) {
+      const invalid = providers.filter(p => !validNames.includes(p))
+      if (invalid.length) {
+        const err = validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
+          invalidProviders: invalid,
+          validProviders: validNames,
+        })
+        return reply.status(err.statusCode).send(err.toJSON())
+      }
+    }
 
     if (!isValidTimezone(timezone)) {
       return reply.status(400).send({

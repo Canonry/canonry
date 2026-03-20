@@ -10,6 +10,8 @@ import { resolveWebhookTarget } from './webhooks.js'
 export interface ApplyRoutesOptions {
   onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string) => void
   onGoogleConnectionPropertyUpdated?: (domain: string, connectionType: 'gsc' | 'ga4', propertyId: string) => void
+  /** Valid provider names from registered adapters — used to reject unknown providers */
+  validProviderNames?: string[]
 }
 
 export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOptions) {
@@ -24,6 +26,26 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     }
 
     const config = parsed.data
+
+    // Validate provider names against registered adapters
+    const validNames = opts?.validProviderNames ?? []
+    if (validNames.length) {
+      const allProviders = [
+        ...(config.spec.providers ?? []),
+        ...(config.spec.schedule?.providers ?? []),
+      ]
+      if (allProviders.length) {
+        const invalid = allProviders.filter(p => !validNames.includes(p))
+        if (invalid.length) {
+          const err = validationError(`Invalid provider(s): ${[...new Set(invalid)].join(', ')}. Must be one of: ${validNames.join(', ')}`, {
+            invalidProviders: [...new Set(invalid)],
+            validProviders: validNames,
+          })
+          return reply.status(err.statusCode).send(err.toJSON())
+        }
+      }
+    }
+
     const now = new Date().toISOString()
     const name = config.metadata.name
 

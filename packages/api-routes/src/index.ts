@@ -140,6 +140,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(openApiRoutes, opts.openApiInfo ?? {})
     await api.register(projectRoutes, {
       onProjectDeleted: opts.onProjectDeleted,
+      validProviderNames: opts.providerAdapters?.map(a => a.name),
     } satisfies ProjectRoutesOptions)
     await api.register(keywordRoutes, {
       onGenerateKeywords: opts.onGenerateKeywords,
@@ -152,6 +153,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     } satisfies RunRoutesOptions)
     await api.register(applyRoutes, {
       onScheduleUpdated: opts.onScheduleUpdated,
+      validProviderNames: opts.providerAdapters?.map(a => a.name),
       onGoogleConnectionPropertyUpdated: (domain, connectionType, propertyId) => {
         opts.googleConnectionStore?.updateConnection(domain, connectionType, {
           propertyId,
@@ -172,6 +174,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     } satisfies SettingsRoutesOptions)
     await api.register(scheduleRoutes, {
       onScheduleUpdated: opts.onScheduleUpdated,
+      validProviderNames: opts.providerAdapters?.map(a => a.name),
     } satisfies ScheduleRoutesOptions)
     await api.register(notificationRoutes)
     await api.register(telemetryRoutes, {
