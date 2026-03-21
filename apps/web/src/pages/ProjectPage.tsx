@@ -1336,25 +1336,6 @@ export function ProjectPage({
             />
             <div className="metric-card">
               <p className="metric-card-eyebrow">
-                Cited Keywords
-                <InfoTooltip text="How many of your tracked key phrases are being cited by at least one AI answer engine." />
-              </p>
-              <p className="metric-card-big-value">
-                <span className="text-zinc-50">{model.keywordCounts.cited}</span>
-                <span className="text-zinc-600"> / {model.keywordCounts.total}</span>
-              </p>
-              <div className="metric-card-bar">
-                <div
-                  className="metric-card-bar-fill"
-                  style={{ width: model.keywordCounts.total > 0 ? `${(model.keywordCounts.cited / model.keywordCounts.total) * 100}%` : '0%' }}
-                />
-              </div>
-              <p className="metric-card-sub">
-                {model.keywordCounts.total - model.keywordCounts.cited} not yet cited
-              </p>
-            </div>
-            <div className="metric-card">
-              <p className="metric-card-eyebrow">
                 Since Last Run
                 <InfoTooltip text="Keyword-level citation changes compared to the previous completed run." />
               </p>
