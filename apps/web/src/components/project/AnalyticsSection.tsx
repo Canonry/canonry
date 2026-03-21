@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, MetricsWindow, GapCategory, SourceCategory } from '@ainyc/canonry-contracts'
+import type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, MetricsWindow, GapCategory, SourceCategory, KeywordChangeEvent } from '@ainyc/canonry-contracts'
 
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { ScoreGauge } from '../shared/ScoreGauge.js'
@@ -126,7 +126,7 @@ export function AnalyticsSection({ projectName }: { projectName: string }) {
 
             {/* Trend chart */}
             {metrics.buckets.length >= 1 && (
-              <AnalyticsTrendChart buckets={metrics.buckets} />
+              <AnalyticsTrendChart buckets={metrics.buckets} keywordChanges={metrics.keywordChanges ?? []} />
             )}
           </div>
         )}
@@ -224,11 +224,11 @@ export function AnalyticsSection({ projectName }: { projectName: string }) {
   )
 }
 
-function AnalyticsTrendChart({ buckets }: { buckets: BrandMetricsDto['buckets'] }) {
+function AnalyticsTrendChart({ buckets, keywordChanges }: { buckets: BrandMetricsDto['buckets']; keywordChanges: KeywordChangeEvent[] }) {
   const [hovered, setHovered] = useState<number | null>(null)
   const width = 600
   const height = 140
-  const padding = { top: 24, right: 10, bottom: 20, left: 40 }
+  const padding = { top: 30, right: 10, bottom: 20, left: 40 }
   const chartW = width - padding.left - padding.right
   const chartH = height - padding.top - padding.bottom
 
@@ -239,6 +239,23 @@ function AnalyticsTrendChart({ buckets }: { buckets: BrandMetricsDto['buckets'] 
     const y = padding.top + chartH - (b.citationRate / maxRate) * chartH
     return { x, y }
   })
+
+  const annotations = useMemo(() => {
+    if (!keywordChanges || keywordChanges.length === 0 || buckets.length < 2) return []
+    const tMin = new Date(buckets[0]!.startDate).getTime()
+    const tMax = new Date(buckets[buckets.length - 1]!.startDate).getTime()
+    const span = tMax - tMin
+    if (span <= 0) return []
+
+    return keywordChanges
+      .map(ev => {
+        const t = new Date(ev.date).getTime()
+        const ratio = (t - tMin) / span
+        if (ratio < 0 || ratio > 1) return null
+        return { ...ev, x: padding.left + ratio * chartW }
+      })
+      .filter((a): a is NonNullable<typeof a> => a !== null)
+  }, [buckets, keywordChanges, padding.left, chartW])
 
   const points = bucketCoords.map(c => `${c.x},${c.y}`).join(' ')
 
@@ -273,6 +290,29 @@ function AnalyticsTrendChart({ buckets }: { buckets: BrandMetricsDto['buckets'] 
           strokeLinejoin="round"
           points={points}
         />
+        {/* Keyword change annotations */}
+        {annotations.map((a, i) => (
+          <g key={`kw-change-${i}`}>
+            <line
+              x1={a.x} y1={padding.top}
+              x2={a.x} y2={padding.top + chartH}
+              stroke="currentColor"
+              className="text-zinc-600"
+              strokeWidth="0.5"
+              strokeDasharray="4 2"
+            />
+            <text
+              x={a.x}
+              y={padding.top - 6}
+              textAnchor="middle"
+              className="fill-zinc-500"
+              fontSize="7"
+              fontWeight="500"
+            >
+              {a.label}
+            </text>
+          </g>
+        ))}
         {/* Hover vertical line */}
         {hovered !== null && (
           <line
@@ -304,7 +344,8 @@ function AnalyticsTrendChart({ buckets }: { buckets: BrandMetricsDto['buckets'] 
           const { x, y } = bucketCoords[hovered]!
           const label = `${(b.citationRate * 100).toFixed(1)}%`
           const date = b.startDate.slice(5, 10)
-          const tooltipW = 56
+          const kwLabel = b.keywordCount ? ` · ${b.keywordCount} kw` : ''
+          const tooltipW = 76
           const tooltipH = 30
           const tx = Math.max(padding.left, Math.min(x - tooltipW / 2, width - padding.right - tooltipW))
           const ty = y - tooltipH - 8
@@ -315,7 +356,7 @@ function AnalyticsTrendChart({ buckets }: { buckets: BrandMetricsDto['buckets'] 
                 {label}
               </text>
               <text x={tx + tooltipW / 2} y={ty + 24} textAnchor="middle" className="fill-zinc-400" fontSize="8">
-                {date}
+                {date}{kwLabel}
               </text>
             </g>
           )

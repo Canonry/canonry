@@ -10,6 +10,13 @@ export interface TimeBucket {
   citationRate: number
   cited: number
   total: number
+  keywordCount: number
+}
+
+export interface KeywordChangeEvent {
+  date: string
+  delta: number
+  label: string
 }
 
 export interface ProviderMetric {
@@ -24,6 +31,7 @@ export interface BrandMetricsDto {
   overall: ProviderMetric
   byProvider: Record<string, ProviderMetric>
   trend: TrendDirection
+  keywordChanges: KeywordChangeEvent[]
 }
 
 export interface GapKeyword {
