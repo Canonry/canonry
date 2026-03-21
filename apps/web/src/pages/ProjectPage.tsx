@@ -403,7 +403,6 @@ function BingSection({ projectName }: { projectName: string }) {
           </div>
         </div>
         {error && <p className="mb-3 text-xs text-rose-400">{error}</p>}
-        {successMessage && <p className="mb-3 text-xs text-emerald-400">{successMessage}</p>}
         <div className="space-y-3">
           <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
             <div className="flex items-center gap-3">
@@ -467,9 +466,12 @@ function BingSection({ projectName }: { projectName: string }) {
               <div>
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <h4 className="text-xs font-medium text-zinc-400">Not Indexed ({coverage.notIndexed.length})</h4>
-                  <Button size="sm" variant="ghost" onClick={handleSubmitAllUnindexed}>
-                    Submit all to Bing
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {successMessage && <span className="text-xs text-emerald-400">{successMessage}</span>}
+                    <Button size="sm" variant="ghost" onClick={handleSubmitAllUnindexed}>
+                      Submit all to Bing
+                    </Button>
+                  </div>
                 </div>
                 <div className="overflow-x-auto rounded-lg border border-zinc-800/60">
                   <table className="w-full text-xs">
