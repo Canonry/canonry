@@ -1336,7 +1336,7 @@ export function ProjectPage({
             />
             <div className="metric-card">
               <p className="metric-card-eyebrow">
-                Cited Keywords
+                Cited Key Phrases
                 <InfoTooltip text="How many of your tracked key phrases are being cited by at least one AI answer engine." />
               </p>
               <p className="metric-card-big-value">
