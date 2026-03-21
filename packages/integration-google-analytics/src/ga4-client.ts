@@ -132,29 +132,44 @@ export async function fetchTrafficByLandingPage(
 
   ga4Log('info', 'fetch-traffic.start', { propertyId, days: syncDays })
 
-  const request: GA4RunReportRequest = {
-    dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
-    dimensions: [
-      { name: 'date' },
-      { name: 'landingPagePlusQueryString' },
-    ],
-    metrics: [
-      { name: 'sessions' },
-      { name: 'organicGoogleSearchSessions' },
-      { name: 'totalUsers' },
-    ],
-    limit: 10000,
+  const PAGE_SIZE = 10000
+  const rows: GA4TrafficRow[] = []
+  let offset = 0
+
+  // Paginate through all results — the GA4 Data API caps each response at `limit` rows.
+  // We loop until we've fetched every row reported by `rowCount`.
+  while (true) {
+    const request: GA4RunReportRequest = {
+      dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
+      dimensions: [
+        { name: 'date' },
+        { name: 'landingPagePlusQueryString' },
+      ],
+      metrics: [
+        { name: 'sessions' },
+        { name: 'organicGoogleSearchSessions' },
+        { name: 'totalUsers' },
+      ],
+      limit: PAGE_SIZE,
+      offset,
+    }
+
+    const response = await runReport(accessToken, propertyId, request)
+    const pageRows = (response.rows ?? []).map((row) => ({
+      date: row.dimensionValues[0]!.value,
+      landingPage: row.dimensionValues[1]!.value,
+      sessions: parseInt(row.metricValues[0]!.value, 10) || 0,
+      organicSessions: parseInt(row.metricValues[1]!.value, 10) || 0,
+      users: parseInt(row.metricValues[2]!.value, 10) || 0,
+    }))
+
+    rows.push(...pageRows)
+
+    const totalRows = response.rowCount ?? 0
+    offset += pageRows.length
+
+    if (pageRows.length < PAGE_SIZE || offset >= totalRows) break
   }
-
-  const response = await runReport(accessToken, propertyId, request)
-
-  const rows: GA4TrafficRow[] = (response.rows ?? []).map((row) => ({
-    date: row.dimensionValues[0]!.value,
-    landingPage: row.dimensionValues[1]!.value,
-    sessions: parseInt(row.metricValues[0]!.value, 10) || 0,
-    organicSessions: parseInt(row.metricValues[1]!.value, 10) || 0,
-    users: parseInt(row.metricValues[2]!.value, 10) || 0,
-  }))
 
   // Convert YYYYMMDD to YYYY-MM-DD
   for (const row of rows) {

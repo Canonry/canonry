@@ -260,7 +260,7 @@ describe('GA4 routes', () => {
     credentials.delete('test-project')
   })
 
-  it('GET /ga/traffic respects limit parameter', async () => {
+  it('GET /ga/traffic respects limit parameter and computes totals across all pages', async () => {
     const now = new Date().toISOString()
     credentials.set('test-project', {
       projectName: 'test-project',
@@ -277,7 +277,12 @@ describe('GA4 routes', () => {
     })
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload)
+    // Only 1 page returned due to limit
     expect(body.topPages).toHaveLength(1)
+    // But totals must reflect ALL pages, not just the limited set
+    expect(body.totalSessions).toBe(350)
+    expect(body.totalOrganicSessions).toBe(175)
+    expect(body.totalUsers).toBe(270)
 
     credentials.delete('test-project')
   })

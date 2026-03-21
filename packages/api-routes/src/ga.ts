@@ -279,7 +279,18 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
 
     const limit = Math.max(1, Math.min(parseInt(request.query.limit ?? '50', 10) || 50, 500))
 
-    // Aggregate traffic by landing page across all dates
+    // Compute totals across ALL pages (not limited by the topPages cap)
+    const totals = app.db
+      .select({
+        totalSessions: sql<number>`SUM(${gaTrafficSnapshots.sessions})`,
+        totalOrganicSessions: sql<number>`SUM(${gaTrafficSnapshots.organicSessions})`,
+        totalUsers: sql<number>`SUM(${gaTrafficSnapshots.users})`,
+      })
+      .from(gaTrafficSnapshots)
+      .where(eq(gaTrafficSnapshots.projectId, project.id))
+      .get()
+
+    // Top pages by session count (limited)
     const rows = app.db
       .select({
         landingPage: gaTrafficSnapshots.landingPage,
@@ -302,14 +313,10 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .limit(1)
       .get()
 
-    const totalSessions = rows.reduce((sum, r) => sum + (r.sessions ?? 0), 0)
-    const totalOrganicSessions = rows.reduce((sum, r) => sum + (r.organicSessions ?? 0), 0)
-    const totalUsers = rows.reduce((sum, r) => sum + (r.users ?? 0), 0)
-
     return {
-      totalSessions,
-      totalOrganicSessions,
-      totalUsers,
+      totalSessions: totals?.totalSessions ?? 0,
+      totalOrganicSessions: totals?.totalOrganicSessions ?? 0,
+      totalUsers: totals?.totalUsers ?? 0,
       topPages: rows.map((r) => ({
         landingPage: r.landingPage,
         sessions: r.sessions ?? 0,
