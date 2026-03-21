@@ -164,7 +164,6 @@ export async function fetchTrafficByLandingPage(
       ],
       metrics: [
         { name: 'sessions' },
-        { name: 'organicGoogleSearchSessions' },
         { name: 'totalUsers' },
       ],
       limit: PAGE_SIZE,
@@ -176,8 +175,8 @@ export async function fetchTrafficByLandingPage(
       date: row.dimensionValues[0]!.value,
       landingPage: row.dimensionValues[1]!.value,
       sessions: parseInt(row.metricValues[0]!.value, 10) || 0,
-      organicSessions: parseInt(row.metricValues[1]!.value, 10) || 0,
-      users: parseInt(row.metricValues[2]!.value, 10) || 0,
+      organicSessions: 0, // populated by organic-only pass below
+      users: parseInt(row.metricValues[1]!.value, 10) || 0,
     }))
 
     rows.push(...pageRows)
@@ -186,6 +185,41 @@ export async function fetchTrafficByLandingPage(
     offset += pageRows.length
 
     if (pageRows.length < PAGE_SIZE || offset >= totalRows) break
+  }
+
+  // Second pass: organic-only report filtered to "Organic Search" channel.
+  // `organicGoogleSearchSessions` is only available when Search Console is linked;
+  // using a dimensionFilter on sessionDefaultChannelGrouping works for all properties.
+  const organicMap = new Map<string, number>()
+  let organicOffset = 0
+  while (true) {
+    const organicRequest: GA4RunReportRequest = {
+      dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
+      dimensions: [{ name: 'date' }, { name: 'landingPagePlusQueryString' }],
+      metrics: [{ name: 'sessions' }],
+      dimensionFilter: {
+        filter: {
+          fieldName: 'sessionDefaultChannelGrouping',
+          stringFilter: { matchType: 'EXACT', value: 'Organic Search' },
+        },
+      },
+      limit: 10000,
+      offset: organicOffset,
+    }
+    const organicResponse = await runReport(accessToken, propertyId, organicRequest)
+    for (const row of organicResponse.rows ?? []) {
+      const key = `${row.dimensionValues[0]!.value}::${row.dimensionValues[1]!.value}`
+      organicMap.set(key, parseInt(row.metricValues[0]!.value, 10) || 0)
+    }
+    const total = organicResponse.rowCount ?? 0
+    organicOffset += (organicResponse.rows ?? []).length
+    if ((organicResponse.rows ?? []).length < 10000 || organicOffset >= total) break
+  }
+
+  // Merge organic session counts back into the rows
+  for (const row of rows) {
+    const key = `${row.date}::${row.landingPage}`
+    row.organicSessions = organicMap.get(key) ?? 0
   }
 
   // Convert YYYYMMDD to YYYY-MM-DD

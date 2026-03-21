@@ -90,13 +90,15 @@ describe('fetchTrafficByLandingPage', () => {
     const page1Rows = Array.from({ length: PAGE_SIZE }, (_, i) => makeRow(i))
     const page2Rows = [makeRow(PAGE_SIZE), makeRow(PAGE_SIZE + 1)]
 
-    const requestBodies: Array<{ offset?: number }> = []
+    const mainRequestBodies: Array<{ offset?: number }> = []
 
     fetchSpy.mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
       if (url.includes('runReport')) {
         const body = JSON.parse(init?.body as string ?? '{}')
-        requestBodies.push({ offset: body.offset })
+        // Organic-pass requests have a dimensionFilter — return empty rows
+        if (body.dimensionFilter) return mockFetchResponse({ rows: [], rowCount: 0 })
+        mainRequestBodies.push({ offset: body.offset })
         const isPage1 = (body.offset ?? 0) === 0
         return mockFetchResponse({
           rows: isPage1 ? page1Rows : page2Rows,
@@ -110,10 +112,10 @@ describe('fetchTrafficByLandingPage', () => {
 
     // All rows from both pages should be collected
     expect(rows).toHaveLength(totalRows)
-    // Two API calls: offset=0, then offset=10000
-    expect(requestBodies).toHaveLength(2)
-    expect(requestBodies[0]!.offset).toBe(0)
-    expect(requestBodies[1]!.offset).toBe(PAGE_SIZE)
+    // Two main API calls: offset=0, then offset=10000 (organic pass is separate)
+    expect(mainRequestBodies).toHaveLength(2)
+    expect(mainRequestBodies[0]!.offset).toBe(0)
+    expect(mainRequestBodies[1]!.offset).toBe(PAGE_SIZE)
     // Dates should be converted from YYYYMMDD to YYYY-MM-DD
     expect(rows[0]!.date).toBe('2026-03-20')
   })
@@ -126,9 +128,12 @@ describe('fetchTrafficByLandingPage', () => {
       rowCount: 1,
     }
 
-    let callCount = 0
-    fetchSpy.mockImplementation(async () => {
-      callCount++
+    let mainCallCount = 0
+    fetchSpy.mockImplementation(async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(init?.body as string ?? '{}')
+      // Organic-pass requests have a dimensionFilter — return empty, don't count as main
+      if (body.dimensionFilter) return mockFetchResponse({ rows: [], rowCount: 0 })
+      mainCallCount++
       return mockFetchResponse(response)
     })
 
@@ -136,6 +141,6 @@ describe('fetchTrafficByLandingPage', () => {
 
     expect(rows).toHaveLength(1)
     expect(rows[0]!.sessions).toBe(100)
-    expect(callCount).toBe(1)
+    expect(mainCallCount).toBe(1)
   })
 })
