@@ -269,6 +269,21 @@ export const gaTrafficSnapshots = sqliteTable('ga_traffic_snapshots', {
   index('idx_ga_traffic_page').on(table.landingPage),
 ])
 
+// Aggregate GA4 totals for a sync period — stores true unique user count
+// (not derivable by summing per-page rows, which inflates the metric).
+export const gaTrafficSummaries = sqliteTable('ga_traffic_summaries', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  periodStart: text('period_start').notNull(),
+  periodEnd: text('period_end').notNull(),
+  totalSessions: integer('total_sessions').notNull().default(0),
+  totalOrganicSessions: integer('total_organic_sessions').notNull().default(0),
+  totalUsers: integer('total_users').notNull().default(0),
+  syncedAt: text('synced_at').notNull(),
+}, (table) => [
+  index('idx_ga_summary_project').on(table.projectId),
+])
+
 export const usageCounters = sqliteTable('usage_counters', {
   id: text('id').primaryKey(),
   scope: text('scope').notNull(),

@@ -281,6 +281,18 @@ const MIGRATIONS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_ga_traffic_project_date ON ga_traffic_snapshots(project_id, date)`,
   `CREATE INDEX IF NOT EXISTS idx_ga_traffic_page ON ga_traffic_snapshots(landing_page)`,
+  // v14: GA4 aggregate summaries — stores true unique user count per sync period
+  `CREATE TABLE IF NOT EXISTS ga_traffic_summaries (
+    id                     TEXT PRIMARY KEY,
+    project_id             TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    period_start           TEXT NOT NULL,
+    period_end             TEXT NOT NULL,
+    total_sessions         INTEGER NOT NULL DEFAULT 0,
+    total_organic_sessions INTEGER NOT NULL DEFAULT 0,
+    total_users            INTEGER NOT NULL DEFAULT 0,
+    synced_at              TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ga_summary_project ON ga_traffic_summaries(project_id)`,
 ]
 
 export function migrate(db: DatabaseClient) {

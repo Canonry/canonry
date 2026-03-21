@@ -4,7 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
-import { createClient, migrate, gaTrafficSnapshots } from '@ainyc/canonry-db'
+import { createClient, migrate, gaTrafficSnapshots, gaTrafficSummaries } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialStore, Ga4CredentialRecord } from '../src/ga.js'
 
@@ -238,6 +238,18 @@ describe('GA4 routes', () => {
       sessions: 50,
       organicSessions: 25,
       users: 40,
+      syncedAt: now,
+    }).run()
+
+    // Seed aggregate summary (true unique counts — what the sync now stores separately)
+    db.insert(gaTrafficSummaries).values({
+      id: crypto.randomUUID(),
+      projectId,
+      periodStart: '2026-02-19',
+      periodEnd: '2026-03-20',
+      totalSessions: 350,
+      totalOrganicSessions: 175,
+      totalUsers: 270,
       syncedAt: now,
     }).run()
 

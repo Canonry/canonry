@@ -1,12 +1,13 @@
 import crypto from 'node:crypto'
 import { eq, desc, and, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { gaTrafficSnapshots } from '@ainyc/canonry-db'
+import { gaTrafficSnapshots, gaTrafficSummaries } from '@ainyc/canonry-db'
 import { validationError, notFound } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import {
   getAccessToken,
   fetchTrafficByLandingPage,
+  fetchAggregateSummary,
   verifyConnection,
 } from '@ainyc/canonry-integration-google-analytics'
 
@@ -208,8 +209,12 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     }
 
     let rows
+    let summary
     try {
-      rows = await fetchTrafficByLandingPage(accessToken, conn.propertyId, days)
+      ;[rows, summary] = await Promise.all([
+        fetchTrafficByLandingPage(accessToken, conn.propertyId, days),
+        fetchAggregateSummary(accessToken, conn.propertyId, days),
+      ])
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       gaLog('error', 'sync.fetch-failed', { projectId: project.id, error: msg })
@@ -220,12 +225,12 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
 
     // Clear old data for this project in the synced date range, then insert fresh
     // Wrapped in a transaction to ensure atomicity — a crash mid-insert won't lose data
-    if (rows.length > 0) {
-      const dates = rows.map((r: { date: string }) => r.date)
-      const minDate = dates.reduce((a: string, b: string) => (a < b ? a : b))
-      const maxDate = dates.reduce((a: string, b: string) => (a > b ? a : b))
+    app.db.transaction((tx) => {
+      if (rows.length > 0) {
+        const dates = rows.map((r: { date: string }) => r.date)
+        const minDate = dates.reduce((a: string, b: string) => (a < b ? a : b))
+        const maxDate = dates.reduce((a: string, b: string) => (a > b ? a : b))
 
-      app.db.transaction((tx) => {
         tx.delete(gaTrafficSnapshots)
           .where(
             and(
@@ -248,10 +253,26 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
             syncedAt: now,
           }).run()
         }
-      })
-    }
+      }
 
-    gaLog('info', 'sync.complete', { projectId: project.id, rowCount: rows.length, days })
+      // Replace aggregate summary for this project — always one row per project
+      tx.delete(gaTrafficSummaries)
+        .where(eq(gaTrafficSummaries.projectId, project.id))
+        .run()
+
+      tx.insert(gaTrafficSummaries).values({
+        id: crypto.randomUUID(),
+        projectId: project.id,
+        periodStart: summary.periodStart,
+        periodEnd: summary.periodEnd,
+        totalSessions: summary.totalSessions,
+        totalOrganicSessions: summary.totalOrganicSessions,
+        totalUsers: summary.totalUsers,
+        syncedAt: now,
+      }).run()
+    })
+
+    gaLog('info', 'sync.complete', { projectId: project.id, rowCount: rows.length, days, totalUsers: summary.totalUsers })
 
     return {
       synced: true,
@@ -279,15 +300,12 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
 
     const limit = Math.max(1, Math.min(parseInt(request.query.limit ?? '50', 10) || 50, 500))
 
-    // Compute totals across ALL pages (not limited by the topPages cap)
-    const totals = app.db
-      .select({
-        totalSessions: sql<number>`SUM(${gaTrafficSnapshots.sessions})`,
-        totalOrganicSessions: sql<number>`SUM(${gaTrafficSnapshots.organicSessions})`,
-        totalUsers: sql<number>`SUM(${gaTrafficSnapshots.users})`,
-      })
-      .from(gaTrafficSnapshots)
-      .where(eq(gaTrafficSnapshots.projectId, project.id))
+    // Pull aggregate totals from the summary table — these are true unique counts
+    // (not inflated by summing non-additive metrics across per-page dimensions).
+    const summary = app.db
+      .select()
+      .from(gaTrafficSummaries)
+      .where(eq(gaTrafficSummaries.projectId, project.id))
       .get()
 
     // Top pages by session count (limited)
@@ -314,9 +332,9 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .get()
 
     return {
-      totalSessions: totals?.totalSessions ?? 0,
-      totalOrganicSessions: totals?.totalOrganicSessions ?? 0,
-      totalUsers: totals?.totalUsers ?? 0,
+      totalSessions: summary?.totalSessions ?? 0,
+      totalOrganicSessions: summary?.totalOrganicSessions ?? 0,
+      totalUsers: summary?.totalUsers ?? 0,
       topPages: rows.map((r) => ({
         landingPage: r.landingPage,
         sessions: r.sessions ?? 0,

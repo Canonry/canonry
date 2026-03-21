@@ -257,3 +257,64 @@ export async function verifyConnection(
 
   return true
 }
+
+export interface GA4AggregateSummary {
+  periodStart: string
+  periodEnd: string
+  totalSessions: number
+  totalOrganicSessions: number
+  totalUsers: number
+}
+
+/**
+ * Fetch true aggregate totals for the given period.
+ * Uses no landing-page dimension so totalUsers reflects actual unique visitors,
+ * not a sum-of-per-page counts which inflates the metric.
+ */
+export async function fetchAggregateSummary(
+  accessToken: string,
+  propertyId: string,
+  days?: number,
+): Promise<GA4AggregateSummary> {
+  const syncDays = Math.min(Math.max(1, days ?? GA4_DEFAULT_SYNC_DAYS), GA4_MAX_SYNC_DAYS)
+  const endDate = new Date()
+  const startDate = new Date()
+  startDate.setDate(startDate.getDate() - syncDays)
+
+  ga4Log('info', 'fetch-aggregate.start', { propertyId, days: syncDays })
+
+  const [totalRes, organicRes] = await Promise.all([
+    runReport(accessToken, propertyId, {
+      dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
+      dimensions: [],
+      metrics: [{ name: 'sessions' }, { name: 'totalUsers' }],
+      limit: 1,
+    }),
+    runReport(accessToken, propertyId, {
+      dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
+      dimensions: [],
+      metrics: [{ name: 'sessions' }],
+      dimensionFilter: {
+        filter: {
+          fieldName: 'sessionDefaultChannelGrouping',
+          stringFilter: { matchType: 'EXACT', value: 'Organic Search' },
+        },
+      },
+      limit: 1,
+    }),
+  ])
+
+  const totalRow = totalRes.rows?.[0]
+  const organicRow = organicRes.rows?.[0]
+
+  const summary: GA4AggregateSummary = {
+    periodStart: formatDate(startDate),
+    periodEnd: formatDate(endDate),
+    totalSessions: parseInt(totalRow?.metricValues[0]?.value ?? '0', 10) || 0,
+    totalUsers: parseInt(totalRow?.metricValues[1]?.value ?? '0', 10) || 0,
+    totalOrganicSessions: parseInt(organicRow?.metricValues[0]?.value ?? '0', 10) || 0,
+  }
+
+  ga4Log('info', 'fetch-aggregate.done', { propertyId, ...summary })
+  return summary
+}
