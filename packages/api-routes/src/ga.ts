@@ -132,9 +132,12 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       return reply.status(err.statusCode).send(err.toJSON())
     }
 
-    // Delete traffic data along with connection
+    // Delete traffic data and summary along with connection
     app.db.delete(gaTrafficSnapshots)
       .where(eq(gaTrafficSnapshots.projectId, project.id))
+      .run()
+    app.db.delete(gaTrafficSummaries)
+      .where(eq(gaTrafficSummaries.projectId, project.id))
       .run()
 
     store.deleteConnection(project.name)
@@ -255,7 +258,9 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         }
       }
 
-      // Replace aggregate summary for this project — always one row per project
+      // Replace aggregate summary for this project — always one row per project.
+      // Written even when per-page rows are empty: the property may have traffic
+      // that doesn't resolve to a landing page, so aggregate totals are still valid.
       tx.delete(gaTrafficSummaries)
         .where(eq(gaTrafficSummaries.projectId, project.id))
         .run()
@@ -303,7 +308,11 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     // Pull aggregate totals from the summary table — these are true unique counts
     // (not inflated by summing non-additive metrics across per-page dimensions).
     const summary = app.db
-      .select()
+      .select({
+        totalSessions: gaTrafficSummaries.totalSessions,
+        totalOrganicSessions: gaTrafficSummaries.totalOrganicSessions,
+        totalUsers: gaTrafficSummaries.totalUsers,
+      })
       .from(gaTrafficSummaries)
       .where(eq(gaTrafficSummaries.projectId, project.id))
       .get()

@@ -129,6 +129,50 @@ async function runReport(
   return (await res.json()) as GA4RunReportResponse
 }
 
+/**
+ * Batch multiple GA4 reports into a single HTTP request.
+ * Reduces API quota usage vs. making individual runReport calls.
+ */
+async function batchRunReports(
+  accessToken: string,
+  propertyId: string,
+  requests: GA4RunReportRequest[],
+): Promise<GA4RunReportResponse[]> {
+  const url = `${GA4_DATA_API_BASE}/properties/${propertyId}:batchRunReports`
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ requests }),
+  })
+
+  if (res.status === 401 || res.status === 403) {
+    const body = await res.text().catch(() => '')
+    ga4Log('error', 'batch-report.auth-failed', { propertyId, httpStatus: res.status })
+    throw new GA4ApiError(
+      `GA4 API authentication failed — check service account permissions. ${body}`,
+      res.status,
+    )
+  }
+
+  if (res.status === 429) {
+    ga4Log('error', 'batch-report.rate-limited', { propertyId })
+    throw new GA4ApiError('GA4 API rate limit exceeded', 429)
+  }
+
+  if (!res.ok) {
+    const body = await res.text()
+    ga4Log('error', 'batch-report.error', { propertyId, httpStatus: res.status })
+    throw new GA4ApiError(`GA4 API error (${res.status}): ${body}`, res.status)
+  }
+
+  const data = (await res.json()) as { reports: GA4RunReportResponse[] }
+  return data.reports
+}
+
 function formatDate(d: Date): string {
   return d.toISOString().split('T')[0]!
 }
@@ -283,15 +327,19 @@ export async function fetchAggregateSummary(
 
   ga4Log('info', 'fetch-aggregate.start', { propertyId, days: syncDays })
 
-  const [totalRes, organicRes] = await Promise.all([
-    runReport(accessToken, propertyId, {
-      dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
+  const dateRange = { startDate: formatDate(startDate), endDate: formatDate(endDate) }
+
+  // Use batchRunReports to combine both queries into a single HTTP request,
+  // reducing GA4 API quota consumption (property-level rate limits).
+  const batchRes = await batchRunReports(accessToken, propertyId, [
+    {
+      dateRanges: [dateRange],
       dimensions: [],
       metrics: [{ name: 'sessions' }, { name: 'totalUsers' }],
       limit: 1,
-    }),
-    runReport(accessToken, propertyId, {
-      dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
+    },
+    {
+      dateRanges: [dateRange],
       dimensions: [],
       metrics: [{ name: 'sessions' }],
       dimensionFilter: {
@@ -301,11 +349,11 @@ export async function fetchAggregateSummary(
         },
       },
       limit: 1,
-    }),
+    },
   ])
 
-  const totalRow = totalRes.rows?.[0]
-  const organicRow = organicRes.rows?.[0]
+  const totalRow = batchRes[0]?.rows?.[0]
+  const organicRow = batchRes[1]?.rows?.[0]
 
   const summary: GA4AggregateSummary = {
     periodStart: formatDate(startDate),

@@ -1,9 +1,10 @@
-import { describe, it, beforeAll, afterAll, expect } from 'vitest'
+import { describe, it, beforeAll, afterAll, expect, vi } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
+import { eq, inArray } from 'drizzle-orm'
 import { createClient, migrate, gaTrafficSnapshots, gaTrafficSummaries } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialStore, Ga4CredentialRecord } from '../src/ga.js'
@@ -186,6 +187,71 @@ describe('GA4 routes', () => {
     // Traffic data should be deleted too
     const remaining = db.select().from(gaTrafficSnapshots).all()
     expect(remaining).toHaveLength(0)
+  })
+
+  it('POST /ga/sync writes per-page rows and aggregate summary', async () => {
+    const now = new Date().toISOString()
+    credentials.set('test-project', {
+      projectName: 'test-project',
+      propertyId: '999888',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    // Mock the GA integration functions used by the sync endpoint
+    const gaModule = await import('@ainyc/canonry-integration-google-analytics')
+    const getAccessTokenSpy = vi.spyOn(gaModule, 'getAccessToken').mockResolvedValue('mock-token')
+    const fetchTrafficSpy = vi.spyOn(gaModule, 'fetchTrafficByLandingPage').mockResolvedValue([
+      { date: '2026-03-19', landingPage: '/synced-a', sessions: 50, organicSessions: 20, users: 40 },
+      { date: '2026-03-20', landingPage: '/synced-b', sessions: 30, organicSessions: 10, users: 25 },
+    ])
+    const fetchAggregateSpy = vi.spyOn(gaModule, 'fetchAggregateSummary').mockResolvedValue({
+      periodStart: '2026-02-19',
+      periodEnd: '2026-03-20',
+      totalSessions: 80,
+      totalOrganicSessions: 30,
+      totalUsers: 55,
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/ga/sync',
+      payload: { days: 30 },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload)
+    expect(body.synced).toBe(true)
+    expect(body.rowCount).toBe(2)
+
+    // Verify per-page rows were written
+    const snapshots = db.select().from(gaTrafficSnapshots)
+      .where(inArray(gaTrafficSnapshots.landingPage, ['/synced-a', '/synced-b']))
+      .all()
+    expect(snapshots).toHaveLength(2)
+
+    // Verify aggregate summary was written
+    const summaries = db.select().from(gaTrafficSummaries)
+      .where(eq(gaTrafficSummaries.projectId, projectId))
+      .all()
+    expect(summaries).toHaveLength(1)
+    expect(summaries[0]!.totalUsers).toBe(55)
+    expect(summaries[0]!.totalSessions).toBe(80)
+    expect(summaries[0]!.totalOrganicSessions).toBe(30)
+
+    // Cleanup
+    getAccessTokenSpy.mockRestore()
+    fetchTrafficSpy.mockRestore()
+    fetchAggregateSpy.mockRestore()
+    credentials.delete('test-project')
+    // Clean up synced data so it doesn't interfere with later tests
+    db.delete(gaTrafficSnapshots)
+      .where(inArray(gaTrafficSnapshots.landingPage, ['/synced-a', '/synced-b']))
+      .run()
+    db.delete(gaTrafficSummaries)
+      .where(eq(gaTrafficSummaries.projectId, projectId))
+      .run()
   })
 
   it('GET /ga/traffic returns error when no connection', async () => {
