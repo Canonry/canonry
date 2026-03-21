@@ -458,7 +458,7 @@ function computeKeywordChanges(
   return days.slice(1).map(([date, count]) => ({
     date: new Date(date + 'T00:00:00.000Z').toISOString(),
     delta: count,
-    label: `+${count} keyword${count !== 1 ? 's' : ''}`,
+    label: `+${count} kp`,
   }))
 }
 

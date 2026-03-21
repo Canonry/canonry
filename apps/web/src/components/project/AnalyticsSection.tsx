@@ -261,6 +261,9 @@ function AnalyticsTrendChart({ buckets, keywordChanges }: { buckets: BrandMetric
 
   return (
     <div className="surface-card rounded-lg p-3 border border-zinc-800/60">
+      <p className="text-[10px] text-zinc-500 mb-1 flex items-center gap-1">
+        kp = key phrases tracked in this window
+      </p>
       <svg
         viewBox={`0 0 ${width} ${height}`}
         className="w-full h-auto"
@@ -343,9 +346,8 @@ function AnalyticsTrendChart({ buckets, keywordChanges }: { buckets: BrandMetric
           const b = buckets[hovered]!
           const { x, y } = bucketCoords[hovered]!
           const label = `${(b.citationRate * 100).toFixed(1)}%`
-          const date = b.startDate.slice(5, 10)
-          const kwLabel = b.keywordCount ? ` · ${b.keywordCount} kw` : ''
-          const tooltipW = 76
+          const kwLabel = b.keywordCount ? `${b.keywordCount} kp` : ''
+          const tooltipW = 56
           const tooltipH = 30
           const tx = Math.max(padding.left, Math.min(x - tooltipW / 2, width - padding.right - tooltipW))
           const ty = y - tooltipH - 8
@@ -355,9 +357,11 @@ function AnalyticsTrendChart({ buckets, keywordChanges }: { buckets: BrandMetric
               <text x={tx + tooltipW / 2} y={ty + 13} textAnchor="middle" className="fill-zinc-50" fontSize="11" fontWeight="600">
                 {label}
               </text>
-              <text x={tx + tooltipW / 2} y={ty + 24} textAnchor="middle" className="fill-zinc-400" fontSize="8">
-                {date}{kwLabel}
-              </text>
+              {kwLabel && (
+                <text x={tx + tooltipW / 2} y={ty + 24} textAnchor="middle" className="fill-zinc-400" fontSize="8">
+                  {kwLabel}
+                </text>
+              )}
             </g>
           )
         })()}

@@ -495,7 +495,7 @@ describe('analytics routes', () => {
       expect(body.keywordChanges).toBeInstanceOf(Array)
       expect(body.keywordChanges.length).toBe(1)
       expect(body.keywordChanges[0].delta).toBe(3)
-      expect(body.keywordChanges[0].label).toBe('+3 keywords')
+      expect(body.keywordChanges[0].label).toBe('+3 kp')
     })
 
     it('returns empty keywordChanges when all keywords created same day', async () => {
