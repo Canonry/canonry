@@ -1,6 +1,7 @@
 import type { CliCommandSpec } from './cli-dispatch.js'
 import { BING_CLI_COMMANDS } from './cli-commands/bing.js'
 import { CDP_CLI_COMMANDS } from './cli-commands/cdp.js'
+import { GA_CLI_COMMANDS } from './cli-commands/ga.js'
 import { COMPETITOR_CLI_COMMANDS } from './cli-commands/competitor.js'
 import { GOOGLE_CLI_COMMANDS } from './cli-commands/google.js'
 import { KEYWORD_CLI_COMMANDS } from './cli-commands/keyword.js'
@@ -25,4 +26,5 @@ export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...GOOGLE_CLI_COMMANDS,
   ...BING_CLI_COMMANDS,
   ...CDP_CLI_COMMANDS,
+  ...GA_CLI_COMMANDS,
 ]

@@ -28,6 +28,8 @@ import { bingRoutes } from './bing.js'
 import type { BingRoutesOptions } from './bing.js'
 import { cdpRoutes } from './cdp.js'
 import type { CDPRoutesOptions } from './cdp.js'
+import { ga4Routes } from './ga.js'
+import type { GA4RoutesOptions } from './ga.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -197,6 +199,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onCdpScreenshot: opts.onCdpScreenshot,
       onCdpConfigure: opts.onCdpConfigure,
     } satisfies CDPRoutesOptions)
+    await api.register(ga4Routes, {} satisfies GA4RoutesOptions)
   }, { prefix: opts.routePrefix ?? '/api/v1' })
 }
 

@@ -243,6 +243,32 @@ export const bingKeywordStats = sqliteTable('bing_keyword_stats', {
   index('idx_bing_keyword_query').on(table.query),
 ])
 
+export const gaConnections = sqliteTable('ga_connections', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  propertyId: text('property_id').notNull(),
+  clientEmail: text('client_email').notNull(),
+  privateKey: text('private_key').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_ga_conn_project').on(table.projectId),
+])
+
+export const gaTrafficSnapshots = sqliteTable('ga_traffic_snapshots', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  date: text('date').notNull(),
+  landingPage: text('landing_page').notNull(),
+  sessions: integer('sessions').notNull().default(0),
+  organicSessions: integer('organic_sessions').notNull().default(0),
+  users: integer('users').notNull().default(0),
+  syncedAt: text('synced_at').notNull(),
+}, (table) => [
+  index('idx_ga_traffic_project_date').on(table.projectId, table.date),
+  index('idx_ga_traffic_page').on(table.landingPage),
+])
+
 export const usageCounters = sqliteTable('usage_counters', {
   id: text('id').primaryKey(),
   scope: text('scope').notNull(),

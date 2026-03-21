@@ -1,5 +1,5 @@
 {
-  "name": "@ainyc/canonry-api-routes",
+  "name": "@ainyc/canonry-integration-google-analytics",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -17,12 +17,6 @@
     "lint": "eslint src/ test/"
   },
   "dependencies": {
-    "@ainyc/canonry-contracts": "workspace:*",
-    "@ainyc/canonry-db": "workspace:*",
-    "@ainyc/canonry-integration-bing": "workspace:*",
-    "@ainyc/canonry-integration-google": "workspace:*",
-    "@ainyc/canonry-integration-google-analytics": "workspace:*",
-    "drizzle-orm": "^0.45.1",
-    "fastify": "^5.4.0"
+    "@ainyc/canonry-contracts": "workspace:*"
   }
 }

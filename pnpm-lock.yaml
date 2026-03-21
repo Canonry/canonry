@@ -163,6 +163,9 @@ importers:
       '@ainyc/canonry-integration-google':
         specifier: workspace:*
         version: link:../integration-google
+      '@ainyc/canonry-integration-google-analytics':
+        specifier: workspace:*
+        version: link:../integration-google-analytics
       drizzle-orm:
         specifier: ^0.45.1
         version: 0.45.1(@types/better-sqlite3@7.6.13)(better-sqlite3@12.6.2)
@@ -296,6 +299,12 @@ importers:
         version: link:../contracts
 
   packages/integration-google:
+    dependencies:
+      '@ainyc/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
+  packages/integration-google-analytics:
     dependencies:
       '@ainyc/canonry-contracts':
         specifier: workspace:*

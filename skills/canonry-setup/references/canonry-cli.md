@@ -177,6 +177,19 @@ canonry bing request-indexing <project> --all-unindexed  # submit all unindexed
 canonry bing performance <project>               # search performance data
 ```
 
+## Google Analytics 4
+
+GA4 integration uses service account authentication (no OAuth). The service account must have Viewer access on the GA4 property.
+
+```bash
+canonry ga connect <project> --property-id <id> --key-file ./sa-key.json  # connect GA4
+canonry ga disconnect <project>                  # disconnect
+canonry ga status <project>                      # connection status
+canonry ga sync <project> [--days 30]            # pull traffic data
+canonry ga traffic <project>                     # top landing pages by sessions
+canonry ga coverage <project>                    # indexed pages with traffic overlay
+```
+
 ## CDP / Browser Provider
 
 The CDP (Chrome DevTools Protocol) provider enables browser-based queries against AI chat interfaces (e.g., ChatGPT). This gives more accurate results than API-based providers for some use cases.

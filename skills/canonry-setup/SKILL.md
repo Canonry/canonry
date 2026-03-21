@@ -15,7 +15,7 @@ Open-source AEO (Answer Engine Optimization) monitoring CLI by [AINYC](https://a
 
 ## When to Use
 
-Use this skill when setting up canonry, running visibility sweeps, interpreting citation results, managing projects/keywords/competitors, troubleshooting errors, performing competitive analysis, managing Google/Bing indexing, or working with analytics.
+Use this skill when setting up canonry, running visibility sweeps, interpreting citation results, managing projects/keywords/competitors, troubleshooting errors, performing competitive analysis, managing Google/Bing indexing, connecting Google Analytics 4, or working with analytics.
 
 ## Quick Start
 
