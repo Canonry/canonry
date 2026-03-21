@@ -29,7 +29,7 @@ import type { BingRoutesOptions } from './bing.js'
 import { cdpRoutes } from './cdp.js'
 import type { CDPRoutesOptions } from './cdp.js'
 import { ga4Routes } from './ga.js'
-import type { GA4RoutesOptions } from './ga.js'
+import type { GA4RoutesOptions, Ga4CredentialStore } from './ga.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -81,6 +81,8 @@ export interface ApiRoutesOptions {
   getCdpStatus?: CDPRoutesOptions['getCdpStatus']
   onCdpScreenshot?: CDPRoutesOptions['onCdpScreenshot']
   onCdpConfigure?: CDPRoutesOptions['onCdpConfigure']
+  /** GA4 credential store — stores service account keys in config, not DB */
+  ga4CredentialStore?: Ga4CredentialStore
   /**
    * API route prefix (default: /api/v1).
    * Override when the server is behind a reverse proxy that does NOT strip the
@@ -199,7 +201,9 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onCdpScreenshot: opts.onCdpScreenshot,
       onCdpConfigure: opts.onCdpConfigure,
     } satisfies CDPRoutesOptions)
-    await api.register(ga4Routes, {} satisfies GA4RoutesOptions)
+    await api.register(ga4Routes, {
+      ga4CredentialStore: opts.ga4CredentialStore,
+    } satisfies GA4RoutesOptions)
   }, { prefix: opts.routePrefix ?? '/api/v1' })
 }
 

@@ -351,7 +351,7 @@ export class ApiClient {
   }
 
   // Google Analytics 4
-  async gaConnect(project: string, body: { propertyId: string; keyFile?: string; keyJson?: string }): Promise<object> {
+  async gaConnect(project: string, body: { propertyId: string; keyJson?: string }): Promise<object> {
     return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/ga/connect`, body)
   }
 

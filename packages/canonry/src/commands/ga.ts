@@ -31,11 +31,12 @@ export async function gaConnect(project: string, opts: {
     })
   }
 
-  const body: { propertyId: string; keyFile?: string; keyJson?: string } = {
+  const body: { propertyId: string; keyJson?: string } = {
     propertyId: opts.propertyId,
   }
 
-  // If key-file is provided, read it and send as keyJson to the API
+  // If key-file is provided, read it locally and send contents as keyJson to the API
+  // (the server never reads files from its own filesystem for security)
   if (opts.keyFile) {
     const fs = await import('node:fs')
     try {

@@ -28,6 +28,11 @@ import {
   setGoogleAuthConfig,
   upsertGoogleConnection,
 } from './google-config.js'
+import {
+  getGa4Connection,
+  upsertGa4Connection,
+  removeGa4Connection,
+} from './ga4-config.js'
 import { isTelemetryEnabled, getOrCreateAnonymousId } from './telemetry.js'
 import { JobRunner } from './job-runner.js'
 import { executeGscSync } from './gsc-sync.js'
@@ -229,6 +234,30 @@ export async function createServer(opts: {
     },
   } as const
 
+  // GA4 credential store — stores service account keys in ~/.canonry/config.yaml
+  const ga4CredentialStore = {
+    getConnection: (projectName: string) => {
+      return getGa4Connection(opts.config, projectName)
+    },
+    upsertConnection: (connection: {
+      projectName: string
+      propertyId: string
+      clientEmail: string
+      privateKey: string
+      createdAt: string
+      updatedAt: string
+    }) => {
+      const updated = upsertGa4Connection(opts.config, connection)
+      saveConfig(opts.config)
+      return updated
+    },
+    deleteConnection: (projectName: string) => {
+      const removed = removeGa4Connection(opts.config, projectName)
+      if (removed) saveConfig(opts.config)
+      return removed
+    },
+  } as const
+
   const googleStateSecret = process.env.GOOGLE_STATE_SECRET ?? crypto.randomBytes(32).toString('hex')
 
   const googleConnectionStore = {
@@ -342,6 +371,7 @@ export async function createServer(opts: {
     googleSettingsSummary,
     bingSettingsSummary,
     bingConnectionStore,
+    ga4CredentialStore,
     onRunCreated: (runId: string, projectId: string, providers?: string[], location?: import('@ainyc/canonry-contracts').LocationContext | null) => {
       // Fire and forget — run executes in background
       jobRunner.executeRun(runId, projectId, providers, location).catch((err: unknown) => {

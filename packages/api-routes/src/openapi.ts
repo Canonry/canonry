@@ -1506,10 +1506,9 @@ const routeCatalog: OpenApiOperation[] = [
         'application/json': {
           schema: {
             type: 'object',
-            required: ['propertyId'],
+            required: ['propertyId', 'keyJson'],
             properties: {
               propertyId: stringSchema,
-              keyFile: stringSchema,
               keyJson: stringSchema,
             },
           },

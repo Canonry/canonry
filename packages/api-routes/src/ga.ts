@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, desc, and, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { gaConnections, gaTrafficSnapshots } from '@ainyc/canonry-db'
+import { gaTrafficSnapshots } from '@ainyc/canonry-db'
 import { validationError, notFound } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import {
@@ -16,17 +16,43 @@ function gaLog(level: 'info' | 'warn' | 'error', action: string, ctx?: Record<st
   stream.write(JSON.stringify(entry) + '\n')
 }
 
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface GA4RoutesOptions {}
+export interface Ga4CredentialRecord {
+  projectName: string
+  propertyId: string
+  clientEmail: string
+  privateKey: string
+  createdAt: string
+  updatedAt: string
+}
 
-export async function ga4Routes(app: FastifyInstance, _opts: GA4RoutesOptions) {
+export interface Ga4CredentialStore {
+  getConnection: (projectName: string) => Ga4CredentialRecord | undefined
+  upsertConnection: (connection: Ga4CredentialRecord) => Ga4CredentialRecord
+  deleteConnection: (projectName: string) => boolean
+}
+
+export interface GA4RoutesOptions {
+  ga4CredentialStore?: Ga4CredentialStore
+}
+
+export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
+  function requireCredentialStore(reply: { status: (code: number) => { send: (body: unknown) => unknown } }) {
+    if (opts.ga4CredentialStore) return opts.ga4CredentialStore
+    const err = validationError('GA4 credential storage is not configured for this deployment')
+    reply.status(err.statusCode).send(err.toJSON())
+    return null
+  }
+
   // POST /projects/:name/ga/connect
   app.post<{
     Params: { name: string }
-    Body: { propertyId: string; keyFile?: string; keyJson?: string }
+    Body: { propertyId: string; keyJson?: string }
   }>('/projects/:name/ga/connect', async (request, reply) => {
+    const store = requireCredentialStore(reply)
+    if (!store) return
+
     const project = resolveProject(app.db, request.params.name)
-    const { propertyId, keyFile, keyJson } = request.body ?? {}
+    const { propertyId, keyJson } = request.body ?? {}
 
     if (!propertyId || typeof propertyId !== 'string') {
       const err = validationError('propertyId is required')
@@ -49,28 +75,8 @@ export async function ga4Routes(app: FastifyInstance, _opts: GA4RoutesOptions) {
         const err = validationError('Invalid JSON in keyJson')
         return reply.status(err.statusCode).send(err.toJSON())
       }
-    } else if (keyFile && typeof keyFile === 'string') {
-      try {
-        const fs = await import('node:fs')
-        const content = fs.readFileSync(keyFile, 'utf-8')
-        const parsed = JSON.parse(content) as { client_email?: string; private_key?: string }
-        if (!parsed.client_email || !parsed.private_key) {
-          const err = validationError('Service account JSON file must contain client_email and private_key')
-          return reply.status(err.statusCode).send(err.toJSON())
-        }
-        clientEmail = parsed.client_email
-        privateKey = parsed.private_key
-      } catch (e) {
-        if (e instanceof SyntaxError) {
-          const err = validationError('Service account key file contains invalid JSON')
-          return reply.status(err.statusCode).send(err.toJSON())
-        }
-        const msg = e instanceof Error ? e.message : String(e)
-        const err = validationError(`Failed to read key file: ${msg}`)
-        return reply.status(err.statusCode).send(err.toJSON())
-      }
     } else {
-      const err = validationError('Either keyJson or keyFile is required')
+      const err = validationError('keyJson is required')
       return reply.status(err.statusCode).send(err.toJSON())
     }
 
@@ -86,28 +92,16 @@ export async function ga4Routes(app: FastifyInstance, _opts: GA4RoutesOptions) {
     }
 
     const now = new Date().toISOString()
-    const existing = app.db
-      .select()
-      .from(gaConnections)
-      .where(eq(gaConnections.projectId, project.id))
-      .get()
+    const existing = store.getConnection(project.name)
 
-    if (existing) {
-      app.db.update(gaConnections)
-        .set({ propertyId, clientEmail, privateKey, updatedAt: now })
-        .where(eq(gaConnections.id, existing.id))
-        .run()
-    } else {
-      app.db.insert(gaConnections).values({
-        id: crypto.randomUUID(),
-        projectId: project.id,
-        propertyId,
-        clientEmail,
-        privateKey,
-        createdAt: now,
-        updatedAt: now,
-      }).run()
-    }
+    store.upsertConnection({
+      projectName: project.name,
+      propertyId,
+      clientEmail,
+      privateKey,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    })
 
     writeAuditLog(app.db, {
       projectId: project.id,
@@ -126,14 +120,12 @@ export async function ga4Routes(app: FastifyInstance, _opts: GA4RoutesOptions) {
 
   // DELETE /projects/:name/ga/disconnect
   app.delete<{ Params: { name: string } }>('/projects/:name/ga/disconnect', async (request, reply) => {
+    const store = requireCredentialStore(reply)
+    if (!store) return
+
     const project = resolveProject(app.db, request.params.name)
 
-    const conn = app.db
-      .select()
-      .from(gaConnections)
-      .where(eq(gaConnections.projectId, project.id))
-      .get()
-
+    const conn = store.getConnection(project.name)
     if (!conn) {
       const err = notFound('GA4 connection', project.name)
       return reply.status(err.statusCode).send(err.toJSON())
@@ -144,9 +136,7 @@ export async function ga4Routes(app: FastifyInstance, _opts: GA4RoutesOptions) {
       .where(eq(gaTrafficSnapshots.projectId, project.id))
       .run()
 
-    app.db.delete(gaConnections)
-      .where(eq(gaConnections.id, conn.id))
-      .run()
+    store.deleteConnection(project.name)
 
     writeAuditLog(app.db, {
       projectId: project.id,
@@ -160,15 +150,13 @@ export async function ga4Routes(app: FastifyInstance, _opts: GA4RoutesOptions) {
   })
 
   // GET /projects/:name/ga/status
-  app.get<{ Params: { name: string } }>('/projects/:name/ga/status', async (request) => {
+  app.get<{ Params: { name: string } }>('/projects/:name/ga/status', async (request, reply) => {
+    const store = requireCredentialStore(reply)
+    if (!store) return
+
     const project = resolveProject(app.db, request.params.name)
 
-    const conn = app.db
-      .select()
-      .from(gaConnections)
-      .where(eq(gaConnections.projectId, project.id))
-      .get()
-
+    const conn = store.getConnection(project.name)
     if (!conn) {
       return { connected: false, propertyId: null, clientEmail: null, lastSyncedAt: null }
     }
@@ -196,14 +184,12 @@ export async function ga4Routes(app: FastifyInstance, _opts: GA4RoutesOptions) {
     Params: { name: string }
     Body: { days?: number }
   }>('/projects/:name/ga/sync', async (request, reply) => {
+    const store = requireCredentialStore(reply)
+    if (!store) return
+
     const project = resolveProject(app.db, request.params.name)
 
-    const conn = app.db
-      .select()
-      .from(gaConnections)
-      .where(eq(gaConnections.projectId, project.id))
-      .get()
-
+    const conn = store.getConnection(project.name)
     if (!conn) {
       const err = validationError('No GA4 connection found. Run "canonry ga connect <project>" first.')
       return reply.status(err.statusCode).send(err.toJSON())
@@ -233,33 +219,36 @@ export async function ga4Routes(app: FastifyInstance, _opts: GA4RoutesOptions) {
     const now = new Date().toISOString()
 
     // Clear old data for this project in the synced date range, then insert fresh
+    // Wrapped in a transaction to ensure atomicity — a crash mid-insert won't lose data
     if (rows.length > 0) {
       const dates = rows.map((r) => r.date)
       const minDate = dates.reduce((a, b) => (a < b ? a : b))
       const maxDate = dates.reduce((a, b) => (a > b ? a : b))
 
-      app.db.delete(gaTrafficSnapshots)
-        .where(
-          and(
-            eq(gaTrafficSnapshots.projectId, project.id),
-            sql`${gaTrafficSnapshots.date} >= ${minDate}`,
-            sql`${gaTrafficSnapshots.date} <= ${maxDate}`,
-          ),
-        )
-        .run()
+      app.db.transaction((tx) => {
+        tx.delete(gaTrafficSnapshots)
+          .where(
+            and(
+              eq(gaTrafficSnapshots.projectId, project.id),
+              sql`${gaTrafficSnapshots.date} >= ${minDate}`,
+              sql`${gaTrafficSnapshots.date} <= ${maxDate}`,
+            ),
+          )
+          .run()
 
-      for (const row of rows) {
-        app.db.insert(gaTrafficSnapshots).values({
-          id: crypto.randomUUID(),
-          projectId: project.id,
-          date: row.date,
-          landingPage: row.landingPage,
-          sessions: row.sessions,
-          organicSessions: row.organicSessions,
-          users: row.users,
-          syncedAt: now,
-        }).run()
-      }
+        for (const row of rows) {
+          tx.insert(gaTrafficSnapshots).values({
+            id: crypto.randomUUID(),
+            projectId: project.id,
+            date: row.date,
+            landingPage: row.landingPage,
+            sessions: row.sessions,
+            organicSessions: row.organicSessions,
+            users: row.users,
+            syncedAt: now,
+          }).run()
+        }
+      })
     }
 
     gaLog('info', 'sync.complete', { projectId: project.id, rowCount: rows.length, days })
@@ -277,14 +266,12 @@ export async function ga4Routes(app: FastifyInstance, _opts: GA4RoutesOptions) {
     Params: { name: string }
     Querystring: { limit?: string; days?: string }
   }>('/projects/:name/ga/traffic', async (request, reply) => {
+    const store = requireCredentialStore(reply)
+    if (!store) return
+
     const project = resolveProject(app.db, request.params.name)
 
-    const conn = app.db
-      .select()
-      .from(gaConnections)
-      .where(eq(gaConnections.projectId, project.id))
-      .get()
-
+    const conn = store.getConnection(project.name)
     if (!conn) {
       const err = validationError('No GA4 connection found. Run "canonry ga connect <project>" first.')
       return reply.status(err.statusCode).send(err.toJSON())
@@ -337,14 +324,12 @@ export async function ga4Routes(app: FastifyInstance, _opts: GA4RoutesOptions) {
   app.get<{
     Params: { name: string }
   }>('/projects/:name/ga/coverage', async (request, reply) => {
+    const store = requireCredentialStore(reply)
+    if (!store) return
+
     const project = resolveProject(app.db, request.params.name)
 
-    const conn = app.db
-      .select()
-      .from(gaConnections)
-      .where(eq(gaConnections.projectId, project.id))
-      .get()
-
+    const conn = store.getConnection(project.name)
     if (!conn) {
       const err = validationError('No GA4 connection found. Run "canonry ga connect <project>" first.')
       return reply.status(err.statusCode).send(err.toJSON())
