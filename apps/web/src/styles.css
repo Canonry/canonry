@@ -347,7 +347,7 @@
   }
 
   .gauge-label {
-    @apply mt-1 text-center text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500 w-full truncate;
+    @apply mt-1 text-center text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500 w-full;
   }
 
   .gauge-delta {
