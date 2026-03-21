@@ -442,7 +442,7 @@ export function buildInsights(input: InsightInput): ProjectInsightVm[] {
     insights.push({
       id: 'insight_lost',
       tone: 'negative',
-      title: `Lost citation on ${lostPhrases.length} keyword${lostPhrases.length > 1 ? 's' : ''}`,
+      title: `Lost citation on ${lostPhrases.length} key phrase${lostPhrases.length > 1 ? 's' : ''}`,
       detail: 'Citations dropped since the last run.',
       actionLabel: 'Lost',
       affectedPhrases: lostPhrases,
@@ -461,7 +461,7 @@ export function buildInsights(input: InsightInput): ProjectInsightVm[] {
       insights.push({
         id: `insight_comp_gained_${comp}`,
         tone: 'negative',
-        title: `${comp} appeared on ${gained.length} keyword${gained.length > 1 ? 's' : ''}`,
+        title: `${comp} appeared on ${gained.length} key phrase${gained.length > 1 ? 's' : ''}`,
         detail: 'A tracked competitor gained new citations.',
         actionLabel: 'Competitor',
         affectedPhrases: gained.map(kw => {
@@ -512,7 +512,7 @@ export function buildInsights(input: InsightInput): ProjectInsightVm[] {
     insights.push({
       id: 'insight_provider_pickup',
       tone: 'positive',
-      title: `Picked up by new provider on ${kwCount} keyword${kwCount > 1 ? 's' : ''}`,
+      title: `Picked up by new provider on ${kwCount} key phrase${kwCount > 1 ? 's' : ''}`,
       detail: 'Your domain started appearing on additional providers.',
       actionLabel: 'Pickup',
       affectedPhrases: newProviderPhrases,
@@ -523,7 +523,7 @@ export function buildInsights(input: InsightInput): ProjectInsightVm[] {
     insights.push({
       id: 'insight_first_citation',
       tone: 'positive',
-      title: `First citation on ${firstCitationKeywords.size} keyword${firstCitationKeywords.size > 1 ? 's' : ''}`,
+      title: `First citation on ${firstCitationKeywords.size} key phrase${firstCitationKeywords.size > 1 ? 's' : ''}`,
       detail: 'Your domain appeared in AI answers for the first time.',
       actionLabel: 'New',
       affectedPhrases: firstCitationPhrases,
@@ -550,8 +550,8 @@ export function buildInsights(input: InsightInput): ProjectInsightVm[] {
     insights.push({
       id: 'insight_persistent_gap',
       tone: 'caution',
-      title: `${gapPhrases.length} keyword${gapPhrases.length > 1 ? 's' : ''} uncited for ${GAP_THRESHOLD}+ runs`,
-      detail: 'These keywords have not been cited by any provider across multiple consecutive runs.',
+      title: `${gapPhrases.length} key phrase${gapPhrases.length > 1 ? 's' : ''} uncited for ${GAP_THRESHOLD}+ runs`,
+      detail: 'These key phrases have not been cited by any provider across multiple consecutive runs.',
       actionLabel: 'Gap',
       affectedPhrases: gapPhrases,
     })
@@ -566,7 +566,7 @@ export function buildInsights(input: InsightInput): ProjectInsightVm[] {
       insights.push({
         id: `insight_comp_lost_${comp}`,
         tone: 'neutral',
-        title: `${comp} dropped from ${lost.length} keyword${lost.length > 1 ? 's' : ''}`,
+        title: `${comp} dropped from ${lost.length} key phrase${lost.length > 1 ? 's' : ''}`,
         detail: 'A tracked competitor lost citations.',
         actionLabel: 'Competitor',
         affectedPhrases: lost.map(kw => {

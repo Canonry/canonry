@@ -867,7 +867,7 @@ export function createDashboardFixture(options: DashboardFixtureOptions = {}): D
     dashboard.portfolioOverview.recentRuns = []
     dashboard.portfolioOverview.emptyState = {
       title: 'No projects yet',
-      detail: 'Canonry becomes useful after one project, a small keyword set, and one competitor list are in place.',
+      detail: 'Canonry becomes useful after one project, a small key phrase set, and one competitor list are in place.',
       ctaLabel: 'Launch setup',
       ctaHref: '/setup',
     }

@@ -139,7 +139,7 @@ export function AnalyticsSection({ projectName }: { projectName: string }) {
         <div className="flex items-center justify-between mb-4">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">Opportunity Analysis</p>
-            <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">Brand Gap Analysis <InfoTooltip text="Classification based on the most recent completed run. Cited: your brand appeared in the AI answer. Gap: a competitor was cited but you were not. Not Cited: neither mentioned. Consistency shows how often each keyword was cited across all runs in the selected window." /></h2>
+            <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">Brand Gap Analysis <InfoTooltip text="Classification based on the most recent completed run. Cited: your brand appeared in the AI answer. Gap: a competitor was cited but you were not. Not Cited: neither mentioned. Consistency shows how often each key phrase was cited across all runs in the selected window." /></h2>
           </div>
         </div>
 
@@ -394,7 +394,7 @@ function GapAnalysisTable({ gaps, filter }: { gaps: GapAnalysisDto; filter: GapC
   }, [gaps, filter])
 
   if (rows.length === 0) {
-    return <p className="text-sm text-zinc-500 py-4">No keywords found{filter ? ` with status "${filter}"` : ''}.</p>
+    return <p className="text-sm text-zinc-500 py-4">No key phrases found{filter ? ` with status "${filter}"` : ''}.</p>
   }
 
   return (
