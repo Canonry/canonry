@@ -14,6 +14,7 @@ import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { EvidenceTable } from '../components/project/EvidenceTable.js'
 import { CompetitorTable } from '../components/project/CompetitorTable.js'
 import { AnalyticsSection } from '../components/project/AnalyticsSection.js'
+import { TrafficSection } from '../components/project/TrafficSection.js'
 import { GscSection } from '../components/project/GscSection.js'
 import { formatTimestamp } from '../lib/format-helpers.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
@@ -57,7 +58,7 @@ import { useDrawer } from '../hooks/use-drawer.js'
 import { findProjectVm } from '../mock-data.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
-export type ProjectPageTab = 'overview' | 'search-console' | 'analytics'
+export type ProjectPageTab = 'overview' | 'search-console' | 'analytics' | 'traffic'
 
 type SearchConsoleWorkspace = 'google' | 'bing'
 
@@ -1189,6 +1190,7 @@ export function ProjectPage({
     { key: 'overview', label: 'Overview', href: `/projects/${model.project.id}` },
     { key: 'search-console', label: 'Search Engine Intelligence', href: `/projects/${model.project.id}/search-console` },
     { key: 'analytics', label: 'Analytics', href: `/projects/${model.project.id}/analytics` },
+    { key: 'traffic', label: 'Traffic', href: `/projects/${model.project.id}/traffic` },
   ]
 
   return (
@@ -1539,6 +1541,8 @@ export function ProjectPage({
         </>
       ) : tab === 'analytics' ? (
         <AnalyticsSection projectName={model.project.name} />
+      ) : tab === 'traffic' ? (
+        <TrafficSection projectName={model.project.name} />
       ) : (
         <SearchConsoleSection projectName={model.project.name} />
       )}
