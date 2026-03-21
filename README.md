@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@ainyc/canonry)](https://www.npmjs.com/package/@ainyc/canonry) [![License: FSL-1.1-ALv2](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue.svg)](https://fsl.software/) [![Node.js >= 20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 
-**Agent-first AEO monitoring.** Canonry tracks how AI answer engines (ChatGPT, Gemini, Claude, Perplexity, and others) cite or omit your website, and it's built so that AI coding agents and automation pipelines can operate it end-to-end without human intervention.
+**Agent-first AEO monitoring.** Canonry tracks how AI answer engines (ChatGPT, Gemini, Claude, Perplexity, and others) cite or omit your website, and it's built so that AI agents and automation pipelines can operate it end-to-end without human intervention.
 
 Every capability is exposed through a stable REST API and a machine-readable CLI. An AI agent can install canonry, configure providers, create projects, trigger visibility sweeps, and act on the results. All from a terminal, all scriptable, all JSON-parseable. The web dashboard is there for human analysts, but nothing requires it.
 
@@ -61,7 +61,7 @@ Every command supports `--format json` so agents can parse output directly. Erro
 
 ## Why Agent-First?
 
-Canonry is designed so that AI coding agents and automation pipelines can drive it without human interaction.
+Canonry is designed so that AI agents and automation pipelines can drive it without human interaction.
 
 - **No browser required.** The CLI and API cover 100% of functionality.
 - **Deterministic setup.** `canonry bootstrap` is idempotent and non-interactive. Run it in CI, in a container, or from an agent with zero human input.
@@ -71,6 +71,16 @@ Canonry is designed so that AI coding agents and automation pipelines can drive 
 - **Actionable errors.** Every failure includes the command that failed, why it failed, and what to do next.
 
 Start with [docs/README.md](docs/README.md) for the full architecture, roadmap, active plans, testing, deployment, and ADR index.
+
+## Skills for AI Agents
+
+Canonry ships with an [OpenClaw](https://clawhub.dev) skill that teaches AI agents how to use it. The skill covers CLI commands, provider setup, interpreting results, indexing workflows, and troubleshooting.
+
+**Claude Code** picks it up automatically from `.claude/skills/canonry-setup/` when you open this repo. No configuration needed.
+
+**ClawHub** hosts the same skill at [clawhub.dev](https://clawhub.dev) so any MCP-equipped agent (Cursor, Windsurf, Copilot, etc.) can discover and install it. Search for `canonry` on ClawHub, or point your agent at the `skills/canonry-setup/` directory in this repo.
+
+Once an agent has the skill loaded, it can set up canonry, run sweeps, interpret citation evidence, and troubleshoot errors without you having to explain any of it.
 
 ## Features
 
