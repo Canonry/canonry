@@ -14,6 +14,12 @@ import {
   BING_SUBMIT_URL_DAILY_LIMIT,
 } from '@ainyc/canonry-integration-bing'
 
+function bingLog(level: 'info' | 'warn' | 'error', action: string, ctx?: Record<string, unknown>): void {
+  const entry = { ts: new Date().toISOString(), level, module: 'BingRoutes', action, ...ctx }
+  const stream = level === 'error' ? process.stderr : process.stdout
+  stream.write(JSON.stringify(entry) + '\n')
+}
+
 export interface BingConnectionRecord {
   domain: string
   apiKey: string
@@ -74,8 +80,10 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     let sites
     try {
       sites = await getSites(apiKey)
+      bingLog('info', 'connect.verify-key', { domain: project.canonicalDomain, siteCount: sites.length })
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
+      bingLog('error', 'connect.verify-key-failed', { domain: project.canonicalDomain, error: msg })
       const err = validationError(`Failed to verify Bing API key: ${msg}`)
       return reply.status(err.statusCode).send(err.toJSON())
     }
@@ -308,7 +316,15 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       return reply.status(err.statusCode).send(err.toJSON())
     }
 
-    const result = await getUrlInfo(conn.apiKey, conn.siteUrl, url)
+    let result
+    try {
+      result = await getUrlInfo(conn.apiKey, conn.siteUrl, url)
+      bingLog('info', 'inspect-url.result', { domain: project.canonicalDomain, url, httpCode: result.HttpCode ?? null, inIndex: result.InIndex ?? null, lastCrawledDate: result.LastCrawledDate ?? null })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      bingLog('error', 'inspect-url.failed', { domain: project.canonicalDomain, url, error: msg })
+      throw e
+    }
 
     const now = new Date().toISOString()
     const id = crypto.randomUUID()
@@ -402,6 +418,8 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       error?: string
     }> = []
 
+    bingLog('info', 'index-submit.start', { domain: project.canonicalDomain, siteUrl: conn.siteUrl, urlCount: urlsToSubmit.length, allUnindexed: !!request.body?.allUnindexed })
+
     // Use batch submission for multiple URLs
     if (urlsToSubmit.length > 1) {
       for (let i = 0; i < urlsToSubmit.length; i += BING_SUBMIT_URL_BATCH_LIMIT) {
@@ -412,12 +430,14 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
           for (const url of batch) {
             results.push({ url, status: 'success', submittedAt: now })
           }
+          bingLog('info', 'index-submit.batch-ok', { domain: project.canonicalDomain, batchSize: batch.length, urls: batch })
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e)
           const now = new Date().toISOString()
           for (const url of batch) {
             results.push({ url, status: 'error', submittedAt: now, error: msg })
           }
+          bingLog('error', 'index-submit.batch-failed', { domain: project.canonicalDomain, batchSize: batch.length, urls: batch, error: msg })
         }
       }
     } else {
@@ -426,14 +446,18 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       try {
         await submitUrl(conn.apiKey, conn.siteUrl, url)
         results.push({ url, status: 'success', submittedAt: new Date().toISOString() })
+        bingLog('info', 'index-submit.ok', { domain: project.canonicalDomain, url })
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
         results.push({ url, status: 'error', submittedAt: new Date().toISOString(), error: msg })
+        bingLog('error', 'index-submit.failed', { domain: project.canonicalDomain, url, error: msg })
       }
     }
 
     const succeeded = results.filter((r) => r.status === 'success').length
     const failed = results.filter((r) => r.status === 'error').length
+
+    bingLog('info', 'index-submit.complete', { domain: project.canonicalDomain, total: results.length, succeeded, failed })
 
     return {
       summary: { total: results.length, succeeded, failed },

@@ -4,6 +4,9 @@ import type { DatabaseClient } from '@ainyc/canonry-db'
 import { notifications, runs, querySnapshots, keywords, projects, auditLog } from '@ainyc/canonry-db'
 import type { NotificationEvent, WebhookPayload } from '@ainyc/canonry-contracts'
 import crypto from 'node:crypto'
+import { createLogger } from './logger.js'
+
+const log = createLogger('Notifier')
 
 export class Notifier {
   private db: DatabaseClient
@@ -16,7 +19,7 @@ export class Notifier {
 
   /** Called after a run completes (success, partial, or failed). */
   async onRunCompleted(runId: string, projectId: string): Promise<void> {
-    console.log(`[Notifier] onRunCompleted: runId=${runId} projectId=${projectId}`)
+    log.info('run.completed', { runId, projectId })
 
     // Get project notifications
     const notifs = this.db
@@ -27,23 +30,23 @@ export class Notifier {
       .filter(n => n.enabled === 1)
 
     if (notifs.length === 0) {
-      console.log(`[Notifier] No enabled notifications for project ${projectId} — skipping`)
+      log.info('notifications.none-enabled', { projectId })
       return
     }
 
-    console.log(`[Notifier] Found ${notifs.length} enabled notification(s) for project ${projectId}`)
+    log.info('notifications.found', { projectId, count: notifs.length })
 
     // Get the completed run
     const run = this.db.select().from(runs).where(eq(runs.id, runId)).get()
     if (!run) {
-      console.error(`[Notifier] Run ${runId} not found — skipping notification dispatch`)
+      log.error('run.not-found', { runId, msg: 'skipping notification dispatch' })
       return
     }
 
     // Get the project
     const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
     if (!project) {
-      console.error(`[Notifier] Project ${projectId} not found — skipping notification dispatch`)
+      log.error('project.not-found', { projectId, msg: 'skipping notification dispatch' })
       return
     }
 
@@ -52,7 +55,7 @@ export class Notifier {
 
     // Determine which events occurred
     const events: NotificationEvent[] = []
-    console.log(`[Notifier] Run status: ${run.status}`)
+    log.info('run.status', { runId: run.id, status: run.status, projectId })
 
     if (run.status === 'completed' || run.status === 'partial') {
       events.push('run.completed')
@@ -74,7 +77,7 @@ export class Notifier {
 
       // Filter to events this notification cares about
       const matchingEvents = events.filter(e => subscribedEvents.includes(e))
-      console.log(`[Notifier] Notification ${notif.id}: subscribed=${JSON.stringify(subscribedEvents)} matched=${JSON.stringify(matchingEvents)}`)
+      log.info('notification.match', { notificationId: notif.id, subscribedEvents, matchedEvents: matchingEvents })
       if (matchingEvents.length === 0) continue
 
       // Send one webhook per matching event
@@ -173,12 +176,12 @@ export class Notifier {
   private async sendWebhook(url: string, payload: WebhookPayload, notificationId: string, projectId: string, webhookSecret: string | null): Promise<void> {
     const targetCheck = await resolveWebhookTarget(url)
     if (!targetCheck.ok) {
-      console.error(`[Notifier] Webhook URL blocked by SSRF check: ${url}`)
+      log.error('webhook.ssrf-blocked', { url, reason: targetCheck.message })
       this.logDelivery(projectId, notificationId, payload.event, 'failed', `SSRF: ${targetCheck.message}`)
       return
     }
 
-    console.log(`[Notifier] Sending webhook event="${payload.event}" to ${url}`)
+    log.info('webhook.send', { event: payload.event, url })
 
     const maxRetries = 3
     const delays = [1000, 4000, 16000]
@@ -188,13 +191,13 @@ export class Notifier {
         const response = await deliverWebhook(targetCheck.target, payload, webhookSecret)
 
         if (response.status >= 200 && response.status < 300) {
-          console.log(`[Notifier] Webhook delivered: event="${payload.event}" status=${response.status}`)
+          log.info('webhook.delivered', { event: payload.event, url, httpStatus: response.status })
           this.logDelivery(projectId, notificationId, payload.event, 'sent', null)
           return
         }
 
         const errorDetail = response.error ?? `HTTP ${response.status}`
-        console.warn(`[Notifier] Webhook attempt ${attempt + 1}/${maxRetries} failed: ${errorDetail}`)
+        log.warn('webhook.attempt-failed', { event: payload.event, url, attempt: attempt + 1, maxRetries, httpStatus: response.status, error: errorDetail })
         if (attempt === maxRetries - 1) {
           this.logDelivery(projectId, notificationId, payload.event, 'failed', errorDetail)
         }
@@ -202,7 +205,7 @@ export class Notifier {
         const errorDetail = err instanceof Error ? err.message : String(err)
         if (attempt === maxRetries - 1) {
           this.logDelivery(projectId, notificationId, payload.event, 'failed', errorDetail)
-          console.error(`[Notifier] Failed to deliver webhook after ${maxRetries} attempts: ${errorDetail}`)
+          log.error('webhook.exhausted', { event: payload.event, url, maxRetries, error: errorDetail })
         }
       }
 

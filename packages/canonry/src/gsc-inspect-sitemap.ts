@@ -10,6 +10,9 @@ import type { CanonryConfig } from './config.js'
 import { saveConfig } from './config.js'
 import { getGoogleAuthConfig, getGoogleConnection, patchGoogleConnection } from './google-config.js'
 import { fetchAndParseSitemap } from './sitemap-parser.js'
+import { createLogger } from './logger.js'
+
+const log = createLogger('InspectSitemap')
 
 interface InspectSitemapOptions {
   sitemapUrl?: string
@@ -63,10 +66,10 @@ export async function executeInspectSitemap(
 
     // Determine sitemap URL: explicit > stored on connection > default
     const sitemapUrl = opts.sitemapUrl || conn.sitemapUrl || `https://${project.canonicalDomain}/sitemap.xml`
-    console.log(`[Inspect Sitemap] Fetching sitemap from ${sitemapUrl}`)
+    log.info('sitemap.fetch', { runId, projectId, sitemapUrl })
 
     const urls = await fetchAndParseSitemap(sitemapUrl)
-    console.log(`[Inspect Sitemap] Found ${urls.length} URLs in sitemap`)
+    log.info('sitemap.parsed', { runId, projectId, urlCount: urls.length, sitemapUrl })
 
     if (urls.length === 0) {
       throw new Error('No URLs found in sitemap')
@@ -104,10 +107,10 @@ export async function executeInspectSitemap(
         }).run()
 
         inspected++
-        console.log(`[Inspect Sitemap] ${inspected}/${urls.length} inspected: ${pageUrl}`)
+        log.info('inspect.url-done', { runId, projectId, url: pageUrl, progress: `${inspected}/${urls.length}` })
       } catch (err) {
         errors++
-        console.error(`[Inspect Sitemap] Failed to inspect ${pageUrl}:`, err instanceof Error ? err.message : err)
+        log.error('inspect.url-failed', { runId, projectId, url: pageUrl, error: err instanceof Error ? err.message : String(err) })
       }
 
       // Rate limit: ~1 request per second to stay within API quotas
@@ -166,7 +169,7 @@ export async function executeInspectSitemap(
       .where(eq(runs.id, runId))
       .run()
 
-    console.log(`[Inspect Sitemap] Done. ${inspected} inspected, ${errors} errors out of ${urls.length} URLs. Coverage: ${snapIndexed} indexed / ${snapNotIndexed} not-indexed.`)
+    log.info('inspect.completed', { runId, projectId, inspected, errors, total: urls.length, indexed: snapIndexed, notIndexed: snapNotIndexed })
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err)
     db.update(runs)
@@ -174,7 +177,7 @@ export async function executeInspectSitemap(
       .where(eq(runs.id, runId))
       .run()
 
-    console.error(`[Inspect Sitemap] Failed:`, errorMsg)
+    log.error('inspect.failed', { runId, projectId, error: errorMsg })
     throw err
   }
 }

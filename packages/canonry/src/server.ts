@@ -36,6 +36,9 @@ import { ProviderRegistry } from './provider-registry.js'
 import { Scheduler } from './scheduler.js'
 import { Notifier } from './notifier.js'
 import { fetchSiteText } from './site-fetch.js'
+import { createLogger } from './logger.js'
+
+const log = createLogger('Server')
 
 const DEFAULT_QUOTA = {
   maxConcurrency: 2,
@@ -110,10 +113,10 @@ export async function createServer(opts: {
     }
   }
 
-  console.log('[Server] Configured providers:', Object.keys(providers).filter(k => {
+  log.info('providers.configured', { providers: Object.keys(providers).filter(k => {
     const p = providers[k]
     return p?.apiKey || p?.baseUrl
-  }))
+  }) })
 
   // Register API providers from config
   for (const adapter of API_ADAPTERS) {

@@ -8,6 +8,12 @@ import type {
 } from './types.js'
 import { BingApiError } from './types.js'
 
+function bingClientLog(level: 'info' | 'error', action: string, ctx?: Record<string, unknown>): void {
+  const entry = { ts: new Date().toISOString(), level, module: 'BingClient', action, ...ctx }
+  const stream = level === 'error' ? process.stderr : process.stdout
+  stream.write(JSON.stringify(entry) + '\n')
+}
+
 async function bingFetch<T>(apiKey: string, endpoint: string, opts?: { method?: string; body?: unknown }): Promise<T> {
   const method = opts?.method ?? 'GET'
   const separator = endpoint.includes('?') ? '&' : '?'
@@ -24,15 +30,20 @@ async function bingFetch<T>(apiKey: string, endpoint: string, opts?: { method?: 
   })
 
   if (res.status === 401 || res.status === 403) {
+    const body = await res.text().catch(() => '')
+    bingClientLog('error', 'http.auth-failed', { endpoint, method, httpStatus: res.status, responseBody: body })
     throw new BingApiError('Bing API key is invalid or unauthorized', res.status)
   }
 
   if (res.status === 429) {
+    const body = await res.text().catch(() => '')
+    bingClientLog('error', 'http.rate-limited', { endpoint, method, httpStatus: 429, responseBody: body })
     throw new BingApiError('Bing API rate limit exceeded', 429)
   }
 
   if (!res.ok) {
     const body = await res.text()
+    bingClientLog('error', 'http.error', { endpoint, method, httpStatus: res.status, responseBody: body })
     throw new BingApiError(`Bing API error (${res.status}): ${body}`, res.status)
   }
 
