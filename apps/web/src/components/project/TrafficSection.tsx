@@ -4,7 +4,7 @@ import { RefreshCw, Unplug } from 'lucide-react'
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
-import { ScoreGauge } from '../shared/ScoreGauge.js'
+import type { MetricTone } from '../../view-models.js'
 import {
   fetchGaStatus,
   fetchGaTraffic,
@@ -210,30 +210,24 @@ export function TrafficSection({ projectName }: { projectName: string }) {
         </div>
 
         {traffic ? (
-          <div className="flex items-center gap-6">
-            <ScoreGauge
+          <div className="grid grid-cols-3 gap-4">
+            <TrafficMetric
               value={formatCompact(traffic.totalSessions)}
               label="Total Sessions"
-              delta={traffic.totalSessions.toLocaleString()}
+              subtitle={traffic.totalSessions.toLocaleString()}
               tone="neutral"
-              description="All traffic sources"
-              isNumeric={false}
             />
-            <ScoreGauge
+            <TrafficMetric
               value={formatCompact(traffic.totalOrganicSessions)}
               label="Organic Sessions"
-              delta={`${organicPct}% of total`}
+              subtitle={`${organicPct}% of total`}
               tone="positive"
-              description="Google organic search"
-              isNumeric={false}
             />
-            <ScoreGauge
+            <TrafficMetric
               value={formatCompact(traffic.totalUsers)}
               label="Total Users"
-              delta={traffic.totalUsers.toLocaleString()}
+              subtitle={traffic.totalUsers.toLocaleString()}
               tone="neutral"
-              description="Unique users"
-              isNumeric={false}
             />
           </div>
         ) : (
@@ -320,6 +314,33 @@ function SortHeader({
       {label}
       {active && <span className="ml-0.5">{dir === 'asc' ? '↑' : '↓'}</span>}
     </th>
+  )
+}
+
+const toneColor: Record<MetricTone, string> = {
+  positive: 'text-emerald-400',
+  caution: 'text-amber-400',
+  negative: 'text-rose-400',
+  neutral: 'text-zinc-50',
+}
+
+function TrafficMetric({
+  value,
+  label,
+  subtitle,
+  tone,
+}: {
+  value: string
+  label: string
+  subtitle: string
+  tone: MetricTone
+}) {
+  return (
+    <div className="rounded-lg bg-zinc-900/30 border border-zinc-800/60 px-5 py-4">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">{label}</p>
+      <p className={`text-2xl font-bold tabular-nums ${toneColor[tone]}`}>{value}</p>
+      <p className="text-xs text-zinc-500 mt-1">{subtitle}</p>
+    </div>
   )
 }
 
