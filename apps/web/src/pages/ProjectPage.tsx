@@ -1323,7 +1323,7 @@ export function ProjectPage({
 
       {tab === 'overview' ? (
         <>
-          {/* Score gauges */}
+          {/* At-a-glance metrics */}
           <section className="gauge-row">
             <ScoreGauge
               value={model.visibilitySummary.value}
@@ -1334,24 +1334,53 @@ export function ProjectPage({
               tooltip={model.visibilitySummary.tooltip}
               isNumeric={isNumericScore(model.visibilitySummary.value)}
             />
-            <ScoreGauge
-              value={model.competitorPressure.value}
-              label={model.competitorPressure.label}
-              delta={model.competitorPressure.delta}
-              tone={model.competitorPressure.tone}
-              description={model.competitorPressure.description}
-              tooltip={model.competitorPressure.tooltip}
-              isNumeric={isNumericScore(model.competitorPressure.value)}
-            />
-            <ScoreGauge
-              value={model.runStatus.value}
-              label={model.runStatus.label}
-              delta={model.runStatus.delta}
-              tone={model.runStatus.tone}
-              description={model.runStatus.description}
-              tooltip={model.runStatus.tooltip}
-              isNumeric={isNumericScore(model.runStatus.value)}
-            />
+            <div className="metric-card">
+              <p className="metric-card-eyebrow">
+                Cited Keywords
+                <InfoTooltip text="How many of your tracked key phrases are being cited by at least one AI answer engine." />
+              </p>
+              <p className="metric-card-big-value">
+                <span className="text-zinc-50">{model.keywordCounts.cited}</span>
+                <span className="text-zinc-600"> / {model.keywordCounts.total}</span>
+              </p>
+              <div className="metric-card-bar">
+                <div
+                  className="metric-card-bar-fill"
+                  style={{ width: model.keywordCounts.total > 0 ? `${(model.keywordCounts.cited / model.keywordCounts.total) * 100}%` : '0%' }}
+                />
+              </div>
+              <p className="metric-card-sub">
+                {model.keywordCounts.total - model.keywordCounts.cited} not yet cited
+              </p>
+            </div>
+            <div className="metric-card">
+              <p className="metric-card-eyebrow">
+                Since Last Run
+                <InfoTooltip text="Keyword-level citation changes compared to the previous completed run." />
+              </p>
+              {model.movementSummary.hasPreviousRun ? (
+                <div className="metric-card-movement">
+                  <span className={model.movementSummary.gained > 0 ? 'text-emerald-400' : 'text-zinc-500'}>
+                    +{model.movementSummary.gained} gained
+                  </span>
+                  <span className="text-zinc-600 mx-1.5">·</span>
+                  <span className={model.movementSummary.lost > 0 ? 'text-rose-400' : 'text-zinc-500'}>
+                    −{model.movementSummary.lost} lost
+                  </span>
+                </div>
+              ) : (
+                <p className="metric-card-movement text-zinc-500">First run — no comparison yet</p>
+              )}
+              <p className="metric-card-sub mt-auto">
+                {model.movementSummary.gained === 0 && model.movementSummary.lost === 0 && model.movementSummary.hasPreviousRun
+                  ? 'No changes since last run'
+                  : model.movementSummary.gained > model.movementSummary.lost
+                    ? 'Visibility improving'
+                    : model.movementSummary.lost > model.movementSummary.gained
+                      ? 'Visibility declining'
+                      : ''}
+              </p>
+            </div>
           </section>
 
           {/* Per-provider visibility breakdown */}

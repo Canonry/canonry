@@ -17,6 +17,7 @@ import type {
   CompetitorVm,
   DashboardVm,
   MetricTone,
+  MovementSummaryVm,
   PortfolioProjectVm,
   ProjectCommandCenterVm,
   ProjectInsightVm,
@@ -591,6 +592,44 @@ export function buildInsights(input: InsightInput): ProjectInsightVm[] {
   return insights
 }
 
+/** Compare latest vs previous run to count keyword-level gains and losses. */
+function computeMovement(
+  latestSnapshots: ApiRunDetail['snapshots'],
+  previousSnapshots: ApiRunDetail['snapshots'],
+): MovementSummaryVm {
+  if (previousSnapshots.length === 0) {
+    // No previous run to compare against
+    const citedCount = new Set(
+      latestSnapshots.filter(s => s.citationState === 'cited').map(s => s.keyword),
+    ).size
+    return { gained: citedCount, lost: 0, tone: citedCount > 0 ? 'positive' : 'neutral', hasPreviousRun: false }
+  }
+
+  // Build keyword-level cited sets (cited if ANY provider cited it)
+  const buildCitedSet = (snaps: ApiRunDetail['snapshots']): Set<string> => {
+    const cited = new Set<string>()
+    for (const s of snaps) {
+      if (s.citationState === 'cited' && s.keyword) cited.add(s.keyword)
+    }
+    return cited
+  }
+
+  const latestCited = buildCitedSet(latestSnapshots)
+  const previousCited = buildCitedSet(previousSnapshots)
+
+  let gained = 0
+  let lost = 0
+  for (const kw of latestCited) {
+    if (!previousCited.has(kw)) gained++
+  }
+  for (const kw of previousCited) {
+    if (!latestCited.has(kw)) lost++
+  }
+
+  const tone: MetricTone = lost > gained ? 'negative' : gained > lost ? 'positive' : 'neutral'
+  return { gained, lost, tone, hasPreviousRun: true }
+}
+
 function runStatusSummary(projectRuns: ApiRun[]): ScoreSummaryVm {
   const latest = projectRuns[0]
   if (!latest) {
@@ -690,6 +729,7 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
       tooltip: 'Percentage of tracked key phrases where your domain is cited by at least one AI answer engine. A key phrase is "visible" if any configured provider includes your site in its response.',
       trend: [],
     },
+    keywordCounts: { cited: kwVis.citedCount, total: kwVis.totalCount },
     providerScores,
     competitorPressure: {
       label: 'Competitor Pressure',
@@ -703,6 +743,10 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
       trend: [],
     },
     runStatus: runStatusSummary(sortedRuns),
+    movementSummary: computeMovement(
+      data.latestRunDetail?.snapshots ?? [],
+      data.previousRunDetail?.snapshots ?? [],
+    ),
     insights,
     visibilityEvidence: evidence,
     competitors: data.competitors.map((c, i) => {

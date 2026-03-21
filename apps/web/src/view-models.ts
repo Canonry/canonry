@@ -144,14 +144,28 @@ export interface CompetitorVm {
   notes: string
 }
 
+export interface MovementSummaryVm {
+  gained: number
+  lost: number
+  tone: MetricTone
+  hasPreviousRun: boolean
+}
+
+export interface KeywordCountsVm {
+  cited: number
+  total: number
+}
+
 export interface ProjectCommandCenterVm {
   project: ProjectDto
   dateRangeLabel: string
   contextLabel: string
   visibilitySummary: ScoreSummaryVm
+  keywordCounts: KeywordCountsVm
   providerScores: { provider: string; model: string | null; score: number; cited: number; total: number }[]
   competitorPressure: ScoreSummaryVm
   runStatus: ScoreSummaryVm
+  movementSummary: MovementSummaryVm
   insights: ProjectInsightVm[]
   visibilityEvidence: CitationInsightVm[]
   competitors: CompetitorVm[]

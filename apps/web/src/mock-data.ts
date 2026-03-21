@@ -383,6 +383,8 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       { provider: 'openai', model: 'gpt-5.4', score: 67, cited: 6, total: 9 },
       { provider: 'claude', model: 'claude-sonnet-4-6', score: 44, cited: 4, total: 9 },
     ],
+    keywordCounts: { cited: 6, total: 9 },
+    movementSummary: { gained: 1, lost: 2, tone: 'negative', hasPreviousRun: true },
     competitorPressure: {
       label: 'Competitor Pressure',
       value: 'High',
@@ -491,6 +493,8 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       { provider: 'gemini', model: 'gemini-3-flash', score: 75, cited: 3, total: 4 },
       { provider: 'openai', model: 'gpt-5.4', score: 50, cited: 2, total: 4 },
     ],
+    keywordCounts: { cited: 3, total: 4 },
+    movementSummary: { gained: 1, lost: 0, tone: 'positive', hasPreviousRun: true },
     competitorPressure: {
       label: 'Competitor Pressure',
       value: 'Moderate',
@@ -579,6 +583,8 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     providerScores: [
       { provider: 'openai', model: 'gpt-5.4', score: 58, cited: 4, total: 7 },
     ],
+    keywordCounts: { cited: 4, total: 7 },
+    movementSummary: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
     competitorPressure: {
       label: 'Competitor Pressure',
       value: 'Moderate',
