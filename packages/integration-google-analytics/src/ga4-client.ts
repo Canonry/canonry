@@ -94,8 +94,25 @@ async function runReport(
 
   if (res.status === 401 || res.status === 403) {
     const body = await res.text().catch(() => '')
+    let detail = ''
+    try {
+      const parsed = JSON.parse(body) as { error?: { message?: string; status?: string } }
+      if (parsed.error?.status === 'SERVICE_DISABLED') {
+        detail =
+          ' The Google Analytics Data API is not enabled for this GCP project. ' +
+          'Enable it at: https://console.developers.google.com/apis/api/analyticsdata.googleapis.com/overview'
+      } else if (parsed.error?.message) {
+        detail = ` ${parsed.error.message}`
+      }
+    } catch {
+      // not JSON — use raw body if short enough
+      if (body.length < 200) detail = ` ${body}`
+    }
     ga4Log('error', 'report.auth-failed', { propertyId, httpStatus: res.status, responseBody: body })
-    throw new GA4ApiError('GA4 API authentication failed — check service account permissions', res.status)
+    throw new GA4ApiError(
+      `GA4 API authentication failed — check service account permissions.${detail}`,
+      res.status,
+    )
   }
 
   if (res.status === 429) {

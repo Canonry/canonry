@@ -221,9 +221,9 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     // Clear old data for this project in the synced date range, then insert fresh
     // Wrapped in a transaction to ensure atomicity — a crash mid-insert won't lose data
     if (rows.length > 0) {
-      const dates = rows.map((r) => r.date)
-      const minDate = dates.reduce((a, b) => (a < b ? a : b))
-      const maxDate = dates.reduce((a, b) => (a > b ? a : b))
+      const dates = rows.map((r: { date: string }) => r.date)
+      const minDate = dates.reduce((a: string, b: string) => (a < b ? a : b))
+      const maxDate = dates.reduce((a: string, b: string) => (a > b ? a : b))
 
       app.db.transaction((tx) => {
         tx.delete(gaTrafficSnapshots)
