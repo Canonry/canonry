@@ -5,12 +5,9 @@ export interface BingSite {
 
 export interface BingUrlInfo {
   Url: string
-  // InIndex and HttpCode are in the SOAP schema but never populated by the API
-  HttpCode?: number
-  InIndex?: boolean
-  InIndexDate?: string
-  CacheDate?: string
-  // These fields are actually returned and are the reliable index signals
+  // Documented UrlInfo fields from Bing's published contract:
+  // https://learn.microsoft.com/en-us/dotnet/api/microsoft.bing.webmaster.api.interfaces.urlinfo?view=bing-webmaster-dotnet
+  // WSDL: https://ssl.bing.com/webmaster/api.svc?singleWsdl
   DocumentSize?: number
   AnchorCount?: number
   DiscoveryDate?: string
@@ -18,6 +15,11 @@ export interface BingUrlInfo {
   IsPage?: boolean
   HttpStatus?: number
   TotalChildUrlCount?: number
+  // Legacy/undocumented fields observed in older integrations. Keep as fallbacks.
+  HttpCode?: number
+  InIndex?: boolean
+  InIndexDate?: string
+  CacheDate?: string
 }
 
 export interface BingPageStats {

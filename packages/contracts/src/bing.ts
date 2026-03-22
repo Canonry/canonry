@@ -29,11 +29,13 @@ export const bingCoverageSummaryDtoSchema = z.object({
     total: z.number(),
     indexed: z.number(),
     notIndexed: z.number(),
+    unknown: z.number().optional(),
     percentage: z.number(),
   }),
   lastInspectedAt: z.string().nullable(),
   indexed: z.array(bingUrlInspectionDtoSchema).default([]),
   notIndexed: z.array(bingUrlInspectionDtoSchema).default([]),
+  unknown: z.array(bingUrlInspectionDtoSchema).default([]).optional(),
 })
 export type BingCoverageSummaryDto = z.infer<typeof bingCoverageSummaryDtoSchema>
 

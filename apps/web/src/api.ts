@@ -761,11 +761,13 @@ export interface ApiBingCoverageSummary {
     total: number
     indexed: number
     notIndexed: number
+    unknown?: number
     percentage: number
   }
   lastInspectedAt: string | null
   indexed: ApiBingInspection[]
   notIndexed: ApiBingInspection[]
+  unknown?: ApiBingInspection[]
 }
 
 export interface ApiBingKeywordStats {

@@ -140,10 +140,11 @@ export async function bingSetSite(project: string, siteUrl: string, format?: str
 export async function bingCoverage(project: string, format?: string): Promise<void> {
   const client = getClient()
   const result = await client.bingCoverage(project) as {
-    summary: { total: number; indexed: number; notIndexed: number; percentage: number }
+    summary: { total: number; indexed: number; notIndexed: number; unknown?: number; percentage: number }
     lastInspectedAt: string | null
     indexed: Array<{ url: string; inIndex: boolean | null; lastCrawledDate: string | null }>
     notIndexed: Array<{ url: string; inIndex: boolean | null; httpCode: number | null }>
+    unknown?: Array<{ url: string; inIndex: boolean | null; httpCode: number | null }>
   }
 
   if (format === 'json') {
@@ -153,6 +154,11 @@ export async function bingCoverage(project: string, format?: string): Promise<vo
 
   const { summary } = result
   if (summary.total === 0) {
+    if ((summary.unknown ?? 0) > 0) {
+      console.log('No URLs have a definitive Bing index status yet.')
+      console.log('Run more inspections or use --format json to review the unknown responses.')
+      return
+    }
     console.log('No URL inspections found. Run "canonry bing inspect <project> <url>" first.')
     return
   }
@@ -183,6 +189,10 @@ export async function bingCoverage(project: string, format?: string): Promise<vo
 
   if (result.lastInspectedAt) {
     console.log(`  Last inspected: ${result.lastInspectedAt}`)
+  }
+
+  if ((summary.unknown ?? 0) > 0) {
+    console.log(`  Unknown status: ${summary.unknown}`)
   }
 }
 
