@@ -195,6 +195,9 @@ export async function bingInspect(project: string, url: string, format?: string)
     lastCrawledDate: string | null
     inIndexDate: string | null
     inspectedAt: string
+    documentSize: number | null
+    anchorCount: number | null
+    discoveryDate: string | null
   }
 
   if (format === 'json') {
@@ -202,11 +205,19 @@ export async function bingInspect(project: string, url: string, format?: string)
     return
   }
 
+  const indexLabel = result.inIndex === true
+    ? `yes${result.documentSize != null ? ` (document size: ${result.documentSize.toLocaleString()} bytes)` : ''}`
+    : result.inIndex === false
+      ? 'no'
+      : 'unknown'
+
   console.log(`\nBing URL Inspection: ${result.url}\n`)
-  console.log(`  In Index:          ${result.inIndex === true ? 'Yes' : result.inIndex === false ? 'No' : 'unknown'}`)
-  console.log(`  HTTP Code:         ${result.httpCode ?? 'unknown'}`)
-  console.log(`  Last Crawled:      ${result.lastCrawledDate ?? 'unknown'}`)
-  console.log(`  Index Date:        ${result.inIndexDate ?? 'unknown'}`)
+  console.log(`  In Index:          ${indexLabel}`)
+  console.log(`  Last Crawled:      ${result.lastCrawledDate ? result.lastCrawledDate.split('T')[0] : 'never'}`)
+  console.log(`  Discovery Date:    ${result.discoveryDate ? result.discoveryDate.split('T')[0] : 'unknown'}`)
+  if (result.anchorCount != null) {
+    console.log(`  Inbound Links:     ${result.anchorCount}`)
+  }
   console.log(`  Inspected At:      ${result.inspectedAt}`)
 }
 

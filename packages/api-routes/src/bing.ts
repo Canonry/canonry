@@ -244,6 +244,9 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       lastCrawledDate: r.lastCrawledDate,
       inIndexDate: r.inIndexDate,
       inspectedAt: r.inspectedAt,
+      documentSize: r.documentSize ?? null,
+      anchorCount: r.anchorCount ?? null,
+      discoveryDate: r.discoveryDate ?? null,
     })
 
     return {
@@ -290,6 +293,9 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       lastCrawledDate: r.lastCrawledDate,
       inIndexDate: r.inIndexDate,
       inspectedAt: r.inspectedAt,
+      documentSize: r.documentSize ?? null,
+      anchorCount: r.anchorCount ?? null,
+      discoveryDate: r.discoveryDate ?? null,
     }))
   })
 
@@ -319,7 +325,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     let result
     try {
       result = await getUrlInfo(conn.apiKey, conn.siteUrl, url)
-      bingLog('info', 'inspect-url.result', { domain: project.canonicalDomain, url, httpCode: result.HttpCode ?? null, inIndex: result.InIndex ?? null, lastCrawledDate: result.LastCrawledDate ?? null })
+      bingLog('info', 'inspect-url.result', { domain: project.canonicalDomain, url, httpCode: result.HttpCode ?? null, inIndex: result.InIndex ?? null, documentSize: result.DocumentSize ?? null, lastCrawledDate: result.LastCrawledDate ?? null })
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       bingLog('error', 'inspect-url.failed', { domain: project.canonicalDomain, url, error: msg })
@@ -329,26 +335,41 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     const now = new Date().toISOString()
     const id = crypto.randomUUID()
 
+    // Bing's GetUrlInfo never populates InIndex — derive it from DocumentSize instead.
+    // DocumentSize > 0 means Bing has the page content stored (i.e. indexed).
+    const derivedInIndex: boolean | null =
+      result.InIndex != null
+        ? result.InIndex
+        : result.DocumentSize != null
+          ? result.DocumentSize > 0
+          : null
+
     app.db.insert(bingUrlInspections).values({
       id,
       projectId: project.id,
       url,
       httpCode: result.HttpCode ?? null,
-      inIndex: result.InIndex === true ? 1 : result.InIndex === false ? 0 : null,
+      inIndex: derivedInIndex === true ? 1 : derivedInIndex === false ? 0 : null,
       lastCrawledDate: result.LastCrawledDate ?? null,
       inIndexDate: result.InIndexDate ?? null,
       inspectedAt: now,
       createdAt: now,
+      documentSize: result.DocumentSize ?? null,
+      anchorCount: result.AnchorCount ?? null,
+      discoveryDate: result.DiscoveryDate ?? null,
     }).run()
 
     return {
       id,
       url,
       httpCode: result.HttpCode ?? null,
-      inIndex: result.InIndex ?? null,
+      inIndex: derivedInIndex,
       lastCrawledDate: result.LastCrawledDate ?? null,
       inIndexDate: result.InIndexDate ?? null,
       inspectedAt: now,
+      documentSize: result.DocumentSize ?? null,
+      anchorCount: result.AnchorCount ?? null,
+      discoveryDate: result.DiscoveryDate ?? null,
     }
   })
 

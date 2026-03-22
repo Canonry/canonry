@@ -223,6 +223,9 @@ export const bingUrlInspections = sqliteTable('bing_url_inspections', {
   inIndexDate: text('in_index_date'),
   inspectedAt: text('inspected_at').notNull(),
   createdAt: text('created_at').notNull(),
+  documentSize: integer('document_size'),
+  anchorCount: integer('anchor_count'),
+  discoveryDate: text('discovery_date'),
 }, (table) => [
   index('idx_bing_inspect_project_url').on(table.projectId, table.url),
   index('idx_bing_inspect_url_time').on(table.url, table.inspectedAt),

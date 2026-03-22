@@ -17,6 +17,10 @@ export const bingUrlInspectionDtoSchema = z.object({
   lastCrawledDate: z.string().nullable().optional(),
   inIndexDate: z.string().nullable().optional(),
   inspectedAt: z.string(),
+  // Fields derived from GetUrlInfo response (more reliable than InIndex)
+  documentSize: z.number().nullable().optional(),
+  anchorCount: z.number().nullable().optional(),
+  discoveryDate: z.string().nullable().optional(),
 })
 export type BingUrlInspectionDto = z.infer<typeof bingUrlInspectionDtoSchema>
 

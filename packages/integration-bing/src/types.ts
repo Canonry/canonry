@@ -5,11 +5,19 @@ export interface BingSite {
 
 export interface BingUrlInfo {
   Url: string
+  // InIndex and HttpCode are in the SOAP schema but never populated by the API
   HttpCode?: number
-  LastCrawledDate?: string
   InIndex?: boolean
   InIndexDate?: string
   CacheDate?: string
+  // These fields are actually returned and are the reliable index signals
+  DocumentSize?: number
+  AnchorCount?: number
+  DiscoveryDate?: string
+  LastCrawledDate?: string
+  IsPage?: boolean
+  HttpStatus?: number
+  TotalChildUrlCount?: number
 }
 
 export interface BingPageStats {

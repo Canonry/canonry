@@ -293,6 +293,10 @@ const MIGRATIONS = [
     synced_at              TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_ga_summary_project ON ga_traffic_summaries(project_id)`,
+  // v15: Bing URL inspections — document_size, anchor_count, discovery_date columns
+  `ALTER TABLE bing_url_inspections ADD COLUMN document_size INTEGER`,
+  `ALTER TABLE bing_url_inspections ADD COLUMN anchor_count INTEGER`,
+  `ALTER TABLE bing_url_inspections ADD COLUMN discovery_date TEXT`,
 ]
 
 export function migrate(db: DatabaseClient) {
