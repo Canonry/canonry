@@ -1333,7 +1333,48 @@ export function ProjectPage({
               description={model.visibilitySummary.description}
               tooltip={model.visibilitySummary.tooltip}
               isNumeric={isNumericScore(model.visibilitySummary.value)}
+              progress={model.visibilitySummary.progress}
             />
+            <div className="metric-card">
+              <p className="metric-card-eyebrow">
+                Gap Key Phrases
+                <InfoTooltip text="Tracked key phrases where competitors are cited in the latest completed visibility run but your domain is not." />
+              </p>
+              <p className="metric-card-big-value">
+                <span className="text-zinc-50">{model.gapKeyPhrases.value}</span>
+                <span className="text-zinc-600"> / {model.keywordCounts.total}</span>
+              </p>
+              <div className="metric-card-bar">
+                <div
+                  className={`metric-card-bar-fill progress-fill-${model.gapKeyPhrases.tone}`}
+                  style={{ width: model.gapKeyPhrases.progress !== undefined ? `${model.gapKeyPhrases.progress * 100}%` : '0%' }}
+                />
+              </div>
+              <p className="metric-card-detail">{model.gapKeyPhrases.delta}</p>
+              <p className="metric-card-sub">
+                {model.gapKeyPhrases.description}
+              </p>
+            </div>
+            <div className="metric-card">
+              <p className="metric-card-eyebrow">
+                Index Coverage
+                <InfoTooltip text="Percentage of inspected URLs that are currently indexed. Google Search Console is preferred when available, otherwise Bing Webmaster Tools is used." />
+              </p>
+              <p className="metric-card-big-value">
+                <span className="text-zinc-50">{model.indexCoverage.value}</span>
+                <span className="text-zinc-600">%</span>
+              </p>
+              <div className="metric-card-bar">
+                <div
+                  className={`metric-card-bar-fill progress-fill-${model.indexCoverage.tone}`}
+                  style={{ width: `${Number.parseInt(model.indexCoverage.value, 10) || 0}%` }}
+                />
+              </div>
+              <p className="metric-card-detail">{model.indexCoverage.delta}</p>
+              <p className="metric-card-sub">
+                {model.indexCoverage.description}
+              </p>
+            </div>
             <div className="metric-card">
               <p className="metric-card-eyebrow">
                 Since Last Run

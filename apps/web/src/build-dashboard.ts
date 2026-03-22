@@ -1,8 +1,10 @@
 import type { ProjectDto } from '@ainyc/canonry-contracts'
 import type {
   ApiCompetitor,
+  ApiBingCoverageSummary,
   ApiKeyword,
   ApiProject,
+  ApiGscCoverageSummary,
   ApiRun,
   ApiRunDetail,
   ApiSettings,
@@ -167,6 +169,138 @@ function pressureTone(label: string): MetricTone {
   if (label === 'High') return 'negative'
   if (label === 'Moderate') return 'caution'
   return 'neutral'
+}
+
+function gapTone(gapCount: number, totalCount: number): MetricTone {
+  if (gapCount === 0) return 'positive'
+  const ratio = totalCount > 0 ? gapCount / totalCount : 0
+  if (ratio >= 0.3) return 'negative'
+  return 'caution'
+}
+
+function buildGapKeyPhraseSummary(
+  snapshots: ApiRunDetail['snapshots'],
+): ScoreSummaryVm {
+  if (snapshots.length === 0) {
+    return {
+      label: 'Gap Key Phrases',
+      value: 'No data',
+      delta: 'Run a sweep first',
+      tone: 'neutral',
+      description: 'Run a visibility sweep to identify key phrases where competitors are cited and your domain is not.',
+      tooltip: 'Tracked key phrases where a competitor is cited in the latest run but your domain is not.',
+      trend: [],
+    }
+  }
+
+  const byKeyword = new Map<string, { cited: boolean; competitorOverlap: Set<string> }>()
+
+  for (const snap of snapshots) {
+    const key = snap.keywordId
+    const current = byKeyword.get(key) ?? { cited: false, competitorOverlap: new Set<string>() }
+    if (snap.citationState === 'cited') current.cited = true
+    for (const domain of snap.competitorOverlap) current.competitorOverlap.add(domain)
+    byKeyword.set(key, current)
+  }
+
+  const totalCount = byKeyword.size
+  const gapCount = [...byKeyword.values()].filter(entry => !entry.cited && entry.competitorOverlap.size > 0).length
+  const gapPhraseLabel = gapCount === 1 ? 'key phrase' : 'key phrases'
+
+  return {
+    label: 'Gap Key Phrases',
+    value: `${gapCount}`,
+    delta: `${gapCount} of ${totalCount} key phrases at risk`,
+    tone: gapTone(gapCount, totalCount),
+    description: gapCount > 0
+      ? `${gapCount} tracked ${gapPhraseLabel} currently cite competitors without citing your domain.`
+      : 'No competitive key phrase gaps detected in the latest visibility run.',
+    tooltip: 'Tracked key phrases where a competitor is cited in the latest run but your domain is not.',
+    trend: [],
+    progress: totalCount > 0 ? gapCount / totalCount : 0,
+  }
+}
+
+type CoverageSummarySource =
+  | ({ provider: 'Google' } & ApiGscCoverageSummary['summary'])
+  | ({ provider: 'Bing'; deindexed: 0 } & ApiBingCoverageSummary['summary'])
+
+function chooseIndexCoverageSummary(
+  gscCoverage?: ApiGscCoverageSummary | null,
+  bingCoverage?: ApiBingCoverageSummary | null,
+): CoverageSummarySource | null {
+  if (gscCoverage && gscCoverage.summary.total > 0) {
+    return {
+      provider: 'Google',
+      ...gscCoverage.summary,
+    }
+  }
+
+  if (bingCoverage && bingCoverage.summary.total > 0) {
+    return {
+      provider: 'Bing',
+      ...bingCoverage.summary,
+      deindexed: 0,
+    }
+  }
+
+  if (gscCoverage) {
+    return {
+      provider: 'Google',
+      ...gscCoverage.summary,
+    }
+  }
+
+  if (bingCoverage) {
+    return {
+      provider: 'Bing',
+      ...bingCoverage.summary,
+      deindexed: 0,
+    }
+  }
+
+  return null
+}
+
+function indexCoverageTone(summary: CoverageSummarySource): MetricTone {
+  if (summary.provider === 'Google' && summary.deindexed > 0) return 'negative'
+  if (summary.percentage >= 90) return 'positive'
+  if (summary.percentage >= 70) return 'caution'
+  return 'negative'
+}
+
+function buildIndexCoverageSummary(
+  gscCoverage?: ApiGscCoverageSummary | null,
+  bingCoverage?: ApiBingCoverageSummary | null,
+): ScoreSummaryVm {
+  const coverage = chooseIndexCoverageSummary(gscCoverage, bingCoverage)
+
+  if (!coverage || coverage.total === 0) {
+    return {
+      label: 'Index Coverage',
+      value: 'No data',
+      delta: 'Connect GSC or Bing',
+      tone: 'neutral',
+      description: 'Connect Google Search Console or Bing Webmaster Tools and inspect your sitemap to populate coverage.',
+      tooltip: 'Percentage of inspected URLs currently indexed. Google Search Console is preferred when available, otherwise Bing Webmaster Tools is used.',
+      trend: [],
+    }
+  }
+
+  const notIndexedLabel = coverage.notIndexed === 1 ? 'URL is' : 'URLs are'
+  const deindexedLabel = coverage.deindexed === 1 ? 'URL' : 'URLs'
+
+  return {
+    label: 'Index Coverage',
+    value: `${Math.round(coverage.percentage)}`,
+    delta: `${coverage.provider} · ${coverage.indexed} of ${coverage.total} indexed`,
+    tone: indexCoverageTone(coverage),
+    description: coverage.provider === 'Google' && coverage.deindexed > 0
+      ? `${coverage.deindexed} deindexed ${deindexedLabel} detected in the latest Google Search Console inspection.`
+      : `${coverage.notIndexed} ${notIndexedLabel} not indexed in ${coverage.provider === 'Google' ? 'Google Search Console' : 'Bing Webmaster Tools'}.`,
+    tooltip: 'Percentage of inspected URLs currently indexed. Google Search Console is preferred when available, otherwise Bing Webmaster Tools is used.',
+    trend: [],
+  }
 }
 
 function computeCompetitorPressure(snapshots: ApiRunDetail['snapshots'], competitorDomains: string[]): { label: string; count: number } {
@@ -674,6 +808,8 @@ export interface ProjectData {
   timeline: ApiTimelineEntry[]
   latestRunDetail: ApiRunDetail | null
   previousRunDetail: ApiRunDetail | null
+  gscCoverage?: ApiGscCoverageSummary | null
+  bingCoverage?: ApiBingCoverageSummary | null
 }
 
 export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCenterVm {
@@ -681,6 +817,8 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
   const evidence = buildEvidenceFromTimeline(dto.name, data.timeline, data.latestRunDetail, data.keywords)
   const snapshots = data.latestRunDetail?.snapshots ?? []
   const kwVis = computeKeywordVisibility(snapshots)
+  const gapKeyPhrases = buildGapKeyPhraseSummary(snapshots)
+  const indexCoverage = buildIndexCoverageSummary(data.gscCoverage, data.bingCoverage)
   const pressure = computeCompetitorPressure(snapshots, data.competitors.map(c => c.domain))
   const insights = buildInsights({
     evidence,
@@ -730,6 +868,8 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
       trend: [],
     },
     keywordCounts: { cited: kwVis.citedCount, total: kwVis.totalCount },
+    gapKeyPhrases,
+    indexCoverage,
     providerScores,
     competitorPressure: {
       label: 'Competitor Pressure',

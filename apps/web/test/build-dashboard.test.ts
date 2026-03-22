@@ -173,3 +173,193 @@ test('buildProjectCommandCenter preserves provider continuity while marking mixe
     toModel: 'gpt-4.1',
   }])
 })
+
+test('buildProjectCommandCenter summarizes gap key phrases and prefers Google index coverage', () => {
+  const data: ProjectData = {
+    project: {
+      id: 'proj_2',
+      name: 'harbor',
+      displayName: 'Harbor',
+      canonicalDomain: 'harbor.example',
+      ownedDomains: [],
+      country: 'US',
+      language: 'en',
+      tags: [],
+      labels: {},
+      providers: ['gemini', 'openai'],
+      configSource: 'api',
+      configRevision: 1,
+      createdAt: '2026-03-10T00:00:00Z',
+      updatedAt: '2026-03-15T00:00:00Z',
+    },
+    runs: [{
+      id: 'run_latest',
+      projectId: 'proj_2',
+      kind: 'answer-visibility',
+      status: 'completed',
+      trigger: 'manual',
+      startedAt: '2026-03-15T00:00:00Z',
+      finishedAt: '2026-03-15T00:00:20Z',
+      error: null,
+      createdAt: '2026-03-15T00:00:00Z',
+    }],
+    keywords: [
+      { id: 'kw_gap', keyword: 'ai seo consultant', createdAt: '2026-03-10T00:00:00Z' },
+      { id: 'kw_cited', keyword: 'aeo agency', createdAt: '2026-03-10T00:00:00Z' },
+    ],
+    competitors: [{ id: 'comp_1', domain: 'rival.example', createdAt: '2026-03-10T00:00:00Z' }],
+    timeline: [
+      {
+        keyword: 'ai seo consultant',
+        runs: [{ runId: 'run_latest', createdAt: '2026-03-15T00:00:00Z', citationState: 'not-cited', transition: 'not-cited' }],
+      },
+      {
+        keyword: 'aeo agency',
+        runs: [{ runId: 'run_latest', createdAt: '2026-03-15T00:00:00Z', citationState: 'cited', transition: 'new' }],
+      },
+    ],
+    latestRunDetail: {
+      id: 'run_latest',
+      projectId: 'proj_2',
+      kind: 'answer-visibility',
+      status: 'completed',
+      trigger: 'manual',
+      startedAt: '2026-03-15T00:00:00Z',
+      finishedAt: '2026-03-15T00:00:20Z',
+      error: null,
+      createdAt: '2026-03-15T00:00:00Z',
+      snapshots: [
+        {
+          id: 'snap_gap_gemini',
+          runId: 'run_latest',
+          keywordId: 'kw_gap',
+          keyword: 'ai seo consultant',
+          provider: 'gemini',
+          model: 'gemini-3-flash',
+          citationState: 'not-cited',
+          answerText: null,
+          citedDomains: [],
+          competitorOverlap: ['rival.example'],
+          groundingSources: [],
+          searchQueries: [],
+          location: null,
+          createdAt: '2026-03-15T00:00:00Z',
+        },
+        {
+          id: 'snap_gap_openai',
+          runId: 'run_latest',
+          keywordId: 'kw_gap',
+          keyword: 'ai seo consultant',
+          provider: 'openai',
+          model: 'gpt-5.4',
+          citationState: 'not-cited',
+          answerText: null,
+          citedDomains: [],
+          competitorOverlap: ['rival.example'],
+          groundingSources: [],
+          searchQueries: [],
+          location: null,
+          createdAt: '2026-03-15T00:00:00Z',
+        },
+        {
+          id: 'snap_cited_gemini',
+          runId: 'run_latest',
+          keywordId: 'kw_cited',
+          keyword: 'aeo agency',
+          provider: 'gemini',
+          model: 'gemini-3-flash',
+          citationState: 'cited',
+          answerText: null,
+          citedDomains: ['harbor.example'],
+          competitorOverlap: [],
+          groundingSources: [],
+          searchQueries: [],
+          location: null,
+          createdAt: '2026-03-15T00:00:00Z',
+        },
+      ],
+    },
+    previousRunDetail: null,
+    gscCoverage: {
+      summary: {
+        total: 10,
+        indexed: 8,
+        notIndexed: 2,
+        deindexed: 1,
+        percentage: 80,
+      },
+      lastInspectedAt: '2026-03-15T01:00:00Z',
+      indexed: [],
+      notIndexed: [],
+      deindexed: [],
+      reasonGroups: [],
+    },
+    bingCoverage: {
+      summary: {
+        total: 12,
+        indexed: 12,
+        notIndexed: 0,
+        percentage: 100,
+      },
+      lastInspectedAt: '2026-03-15T01:00:00Z',
+      indexed: [],
+      notIndexed: [],
+    },
+  }
+
+  const model = buildProjectCommandCenter(data)
+
+  expect(model.gapKeyPhrases.label).toBe('Gap Key Phrases')
+  expect(model.gapKeyPhrases.value).toBe('1')
+  expect(model.gapKeyPhrases.delta).toBe('1 of 2 key phrases at risk')
+  expect(model.gapKeyPhrases.progress).toBe(0.5)
+  expect(model.indexCoverage.value).toBe('80')
+  expect(model.indexCoverage.delta).toBe('Google · 8 of 10 indexed')
+  expect(model.indexCoverage.tone).toBe('negative')
+  expect(model.indexCoverage.description).toMatch(/deindexed/i)
+})
+
+test('buildProjectCommandCenter falls back to Bing coverage when Google coverage is unavailable', () => {
+  const data: ProjectData = {
+    project: {
+      id: 'proj_3',
+      name: 'northstar',
+      displayName: 'Northstar',
+      canonicalDomain: 'northstar.example',
+      ownedDomains: [],
+      country: 'US',
+      language: 'en',
+      tags: [],
+      labels: {},
+      providers: ['openai'],
+      configSource: 'api',
+      configRevision: 1,
+      createdAt: '2026-03-10T00:00:00Z',
+      updatedAt: '2026-03-15T00:00:00Z',
+    },
+    runs: [],
+    keywords: [],
+    competitors: [],
+    timeline: [],
+    latestRunDetail: null,
+    previousRunDetail: null,
+    gscCoverage: null,
+    bingCoverage: {
+      summary: {
+        total: 20,
+        indexed: 15,
+        notIndexed: 5,
+        percentage: 75,
+      },
+      lastInspectedAt: '2026-03-15T01:00:00Z',
+      indexed: [],
+      notIndexed: [],
+    },
+  }
+
+  const model = buildProjectCommandCenter(data)
+
+  expect(model.indexCoverage.value).toBe('75')
+  expect(model.indexCoverage.delta).toBe('Bing · 15 of 20 indexed')
+  expect(model.indexCoverage.description).toMatch(/Bing Webmaster Tools/)
+})

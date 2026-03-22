@@ -292,7 +292,7 @@
   /* ── Score gauge ── */
 
   .gauge-row {
-    @apply grid gap-3 sm:grid-cols-2 lg:grid-cols-3;
+    @apply grid gap-3 sm:grid-cols-2 lg:grid-cols-4;
   }
 
   .score-gauge {

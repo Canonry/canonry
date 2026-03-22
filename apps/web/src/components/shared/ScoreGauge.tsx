@@ -9,6 +9,7 @@ export function ScoreGauge({
   description,
   tooltip,
   isNumeric = true,
+  progress,
 }: {
   value: string
   label: string
@@ -17,13 +18,18 @@ export function ScoreGauge({
   description: string
   tooltip?: string
   isNumeric?: boolean
+  progress?: number
 }) {
   const radius = 48
   const strokeWidth = 6
   const circumference = 2 * Math.PI * radius
   const numericValue = Number.parseInt(value, 10)
-  const progress = isNumeric && !Number.isNaN(numericValue) ? Math.min(numericValue / 100, 1) : 0.5
-  const dashOffset = circumference * (1 - progress)
+  const normalizedProgress = typeof progress === 'number' && Number.isFinite(progress)
+    ? Math.min(Math.max(progress, 0), 1)
+    : isNumeric && !Number.isNaN(numericValue)
+      ? Math.min(numericValue / 100, 1)
+      : 0.5
+  const dashOffset = circumference * (1 - normalizedProgress)
 
   return (
     <div className="score-gauge">

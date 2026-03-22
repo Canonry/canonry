@@ -26,6 +26,7 @@ export interface ScoreSummaryVm {
   description: string
   tooltip?: string
   trend: number[]
+  progress?: number
 }
 
 export interface AttentionItemVm {
@@ -162,6 +163,8 @@ export interface ProjectCommandCenterVm {
   contextLabel: string
   visibilitySummary: ScoreSummaryVm
   keywordCounts: KeywordCountsVm
+  gapKeyPhrases: ScoreSummaryVm
+  indexCoverage: ScoreSummaryVm
   providerScores: { provider: string; model: string | null; score: number; cited: number; total: number }[]
   competitorPressure: ScoreSummaryVm
   runStatus: ScoreSummaryVm
