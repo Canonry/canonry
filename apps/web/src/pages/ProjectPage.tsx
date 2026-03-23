@@ -457,9 +457,10 @@ function BingSection({ projectName }: { projectName: string }) {
 
         {activeTab === 'coverage' && coverage && (
           <div className="mt-4 space-y-4">
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-4">
               <BingSummaryMetric label="Indexed" value={coverage.summary.indexed} tone="positive" />
               <BingSummaryMetric label="Not indexed" value={coverage.summary.notIndexed} tone="negative" />
+              <BingSummaryMetric label="Unknown" value={coverage.summary.unknown ?? 0} tone="neutral" />
               <BingSummaryMetric label="Coverage" value={`${coverage.summary.percentage}%`} tone="neutral" />
             </div>
 
@@ -488,6 +489,47 @@ function BingSection({ projectName }: { projectName: string }) {
                         <tr key={row.id} className="border-b border-zinc-800/50">
                           <td className="py-1.5 px-3 text-zinc-300 truncate max-w-[480px]">{row.url}</td>
                           <td className="py-1.5 px-3 text-zinc-400">{row.httpCode ?? '\u2014'}</td>
+                          <td className="py-1.5 px-3 text-right">
+                            <button
+                              className="text-[10px] text-zinc-400 hover:text-zinc-200 underline underline-offset-2"
+                              onClick={() => handleSubmitUrl(row.url)}
+                            >
+                              Submit
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {(coverage.unknown ?? []).length > 0 && (
+              <div>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <h4 className="text-xs font-medium text-zinc-400">Unknown — not yet confirmed ({(coverage.unknown ?? []).length})</h4>
+                  <div className="flex items-center gap-2">
+                    {successMessage && <span className="text-xs text-emerald-400">{successMessage}</span>}
+                    <Button size="sm" variant="ghost" onClick={handleSubmitAllUnindexed}>
+                      Submit all to Bing
+                    </Button>
+                  </div>
+                </div>
+                <div className="overflow-x-auto rounded-lg border border-zinc-800/60">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-zinc-800">
+                        <th className="text-left py-1.5 px-3 text-zinc-500 font-medium">URL</th>
+                        <th className="text-left py-1.5 px-3 text-zinc-500 font-medium w-32">Last Crawled</th>
+                        <th className="text-right py-1.5 px-3 text-zinc-500 font-medium w-20">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(coverage.unknown ?? []).map((row) => (
+                        <tr key={row.id} className="border-b border-zinc-800/50">
+                          <td className="py-1.5 px-3 text-zinc-300 truncate max-w-[480px]">{row.url}</td>
+                          <td className="py-1.5 px-3 text-zinc-400">{row.lastCrawledDate ? formatTimestamp(row.lastCrawledDate) : '\u2014'}</td>
                           <td className="py-1.5 px-3 text-right">
                             <button
                               className="text-[10px] text-zinc-400 hover:text-zinc-200 underline underline-offset-2"
