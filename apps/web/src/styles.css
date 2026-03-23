@@ -296,7 +296,7 @@
   }
 
   .score-gauge {
-    @apply flex flex-col items-center rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-3 py-5 min-w-0 overflow-hidden;
+    @apply flex flex-col items-center rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-3 py-5 min-w-0 overflow-visible;
   }
 
   .gauge-ring-wrapper {
@@ -347,7 +347,7 @@
   }
 
   .gauge-label {
-    @apply mt-1 text-center text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500 w-full truncate;
+    @apply mt-1 text-center text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500 w-full;
   }
 
   .gauge-delta {
@@ -356,6 +356,40 @@
 
   .gauge-description {
     @apply mt-1.5 text-center text-[11px] leading-4 text-zinc-500 w-full;
+  }
+
+  /* ── Metric cards (non-gauge) ── */
+
+  .metric-card {
+    @apply flex flex-col rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-4 py-5 min-w-0 overflow-visible;
+  }
+
+  .metric-card-eyebrow {
+    @apply text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500 flex items-center gap-1;
+  }
+
+  .metric-card-big-value {
+    @apply mt-3 text-2xl font-bold tracking-tight;
+  }
+
+  .metric-card-bar {
+    @apply mt-3 h-1.5 w-full rounded-full bg-zinc-800;
+  }
+
+  .metric-card-bar-fill {
+    @apply h-full rounded-full bg-emerald-500 transition-all duration-300;
+  }
+
+  .metric-card-movement {
+    @apply mt-3 text-lg font-semibold tracking-tight;
+  }
+
+  .metric-card-detail {
+    @apply mt-2 text-[12px] text-zinc-400;
+  }
+
+  .metric-card-sub {
+    @apply mt-1 text-[11px] leading-4 text-zinc-500;
   }
 
   /* ── Surface cards ── */
@@ -984,6 +1018,10 @@
     @apply mx-auto flex max-w-6xl flex-col gap-3 border-t border-zinc-800/40 px-4 py-5 text-sm md:flex-row md:items-center md:justify-between md:px-6;
   }
 
+  .footer-brand {
+    @apply flex items-center gap-1.5 text-zinc-600 transition hover:text-zinc-300;
+  }
+
   .footer-links {
     @apply flex flex-wrap gap-4;
   }
@@ -1385,6 +1423,56 @@
 
   .drawer-section-label {
     @apply mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600;
+  }
+
+  /* ── Skeleton / loading placeholders ── */
+
+  .skeleton {
+    @apply rounded bg-zinc-800/60;
+    animation: skeleton-pulse 1.5s ease-in-out infinite;
+  }
+
+  .skeleton-text {
+    @apply h-3 rounded bg-zinc-800/60;
+    animation: skeleton-pulse 1.5s ease-in-out infinite;
+  }
+
+  .skeleton-text-sm {
+    @apply h-2.5 rounded bg-zinc-800/60;
+    animation: skeleton-pulse 1.5s ease-in-out infinite;
+  }
+
+  .skeleton-circle {
+    @apply rounded-full bg-zinc-800/60;
+    animation: skeleton-pulse 1.5s ease-in-out infinite;
+  }
+
+  @keyframes skeleton-pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 0.8; }
+  }
+
+  /* Sidebar skeleton items */
+  .sidebar-skeleton-item {
+    @apply flex items-center gap-2.5 px-3 py-1.5;
+  }
+
+  /* Page-level loading skeleton */
+  .page-skeleton {
+    @apply mx-auto max-w-6xl space-y-6;
+  }
+
+  .page-skeleton-header {
+    @apply space-y-2;
+  }
+
+  .page-skeleton-grid {
+    @apply grid gap-4;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+
+  .page-skeleton-card {
+    @apply rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-5 space-y-3;
   }
 
   /* ── Misc helpers ── */

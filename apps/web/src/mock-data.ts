@@ -378,11 +378,30 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       description: 'Lost citation share on emergency-intent prompts while Invisalign visibility improved.',
       trend: [73, 71, 69, 66, 61],
     },
+    gapKeyPhrases: {
+      label: 'Gap Key Phrases',
+      value: '1',
+      delta: '1 of 8 key phrases at risk',
+      tone: 'caution',
+      description: 'One tracked key phrase currently cites competitors without citing Citypoint.',
+      trend: [],
+      progress: 0.125,
+    },
+    indexCoverage: {
+      label: 'Index Coverage',
+      value: '82',
+      delta: 'Google · 46 of 56 indexed',
+      tone: 'caution',
+      description: '10 URLs are not indexed in Google Search Console.',
+      trend: [84, 84, 83, 82, 82],
+    },
     providerScores: [
       { provider: 'gemini', model: 'gemini-3-flash', score: 55, cited: 5, total: 9 },
       { provider: 'openai', model: 'gpt-5.4', score: 67, cited: 6, total: 9 },
       { provider: 'claude', model: 'claude-sonnet-4-6', score: 44, cited: 4, total: 9 },
     ],
+    keywordCounts: { cited: 6, total: 9 },
+    movementSummary: { gained: 1, lost: 2, tone: 'negative', hasPreviousRun: true },
     competitorPressure: {
       label: 'Competitor Pressure',
       value: 'High',
@@ -487,10 +506,29 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       description: 'Branded prompts are stable and informational queries are gradually improving.',
       trend: [68, 70, 71, 73, 74],
     },
+    gapKeyPhrases: {
+      label: 'Gap Key Phrases',
+      value: '0',
+      delta: '0 of 6 key phrases at risk',
+      tone: 'positive',
+      description: 'No competitive key phrase gaps detected in the latest visibility run.',
+      trend: [],
+      progress: 0,
+    },
+    indexCoverage: {
+      label: 'Index Coverage',
+      value: '91',
+      delta: 'Google · 51 of 56 indexed',
+      tone: 'positive',
+      description: '5 URLs are not indexed in Google Search Console.',
+      trend: [88, 89, 89, 90, 91],
+    },
     providerScores: [
       { provider: 'gemini', model: 'gemini-3-flash', score: 75, cited: 3, total: 4 },
       { provider: 'openai', model: 'gpt-5.4', score: 50, cited: 2, total: 4 },
     ],
+    keywordCounts: { cited: 3, total: 4 },
+    movementSummary: { gained: 1, lost: 0, tone: 'positive', hasPreviousRun: true },
     competitorPressure: {
       label: 'Competitor Pressure',
       value: 'Moderate',
@@ -576,9 +614,28 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       description: 'The current run is measuring whether treatment-location pages improved citation breadth.',
       trend: [52, 54, 55, 57, 58],
     },
+    gapKeyPhrases: {
+      label: 'Gap Key Phrases',
+      value: '2',
+      delta: '2 of 7 key phrases at risk',
+      tone: 'caution',
+      description: 'Two tracked key phrases currently cite competitors without citing Northstar.',
+      trend: [],
+      progress: 2 / 7,
+    },
+    indexCoverage: {
+      label: 'Index Coverage',
+      value: '71',
+      delta: 'Bing · 27 of 38 indexed',
+      tone: 'caution',
+      description: '11 URLs are not indexed in Bing Webmaster Tools.',
+      trend: [68, 69, 70, 71, 71],
+    },
     providerScores: [
       { provider: 'openai', model: 'gpt-5.4', score: 58, cited: 4, total: 7 },
     ],
+    keywordCounts: { cited: 4, total: 7 },
+    movementSummary: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
     competitorPressure: {
       label: 'Competitor Pressure',
       value: 'Moderate',
@@ -861,7 +918,7 @@ export function createDashboardFixture(options: DashboardFixtureOptions = {}): D
     dashboard.portfolioOverview.recentRuns = []
     dashboard.portfolioOverview.emptyState = {
       title: 'No projects yet',
-      detail: 'Canonry becomes useful after one project, a small keyword set, and one competitor list are in place.',
+      detail: 'Canonry becomes useful after one project, a small key phrase set, and one competitor list are in place.',
       ctaLabel: 'Launch setup',
       ctaHref: '/setup',
     }

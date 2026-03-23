@@ -140,10 +140,11 @@ export async function bingSetSite(project: string, siteUrl: string, format?: str
 export async function bingCoverage(project: string, format?: string): Promise<void> {
   const client = getClient()
   const result = await client.bingCoverage(project) as {
-    summary: { total: number; indexed: number; notIndexed: number; percentage: number }
+    summary: { total: number; indexed: number; notIndexed: number; unknown?: number; percentage: number }
     lastInspectedAt: string | null
     indexed: Array<{ url: string; inIndex: boolean | null; lastCrawledDate: string | null }>
     notIndexed: Array<{ url: string; inIndex: boolean | null; httpCode: number | null }>
+    unknown?: Array<{ url: string; inIndex: boolean | null; httpCode: number | null }>
   }
 
   if (format === 'json') {
@@ -153,15 +154,25 @@ export async function bingCoverage(project: string, format?: string): Promise<vo
 
   const { summary } = result
   if (summary.total === 0) {
+    if ((summary.unknown ?? 0) > 0) {
+      console.log('No URLs have a definitive Bing index status yet.')
+      console.log('Run more inspections or use --format json to review the unknown responses.')
+      return
+    }
     console.log('No URL inspections found. Run "canonry bing inspect <project> <url>" first.')
     return
   }
 
-  const pctColor = summary.percentage >= 80 ? '\x1b[32m' : summary.percentage >= 50 ? '\x1b[33m' : '\x1b[31m'
   const reset = '\x1b[0m'
+  let pctColor: string
+  if (summary.percentage >= 80) pctColor = '\x1b[32m'
+  else if (summary.percentage >= 50) pctColor = '\x1b[33m'
+  else pctColor = '\x1b[31m'
+
+  const unknownNote = (summary.unknown ?? 0) > 0 ? `, ${summary.unknown} unknown` : ''
 
   console.log(`\nBing Index Coverage for "${project}"\n`)
-  console.log(`  SUMMARY: ${pctColor}${summary.indexed} / ${summary.total} pages indexed (${summary.percentage}%)${reset}\n`)
+  console.log(`  SUMMARY: ${pctColor}${summary.indexed} / ${summary.total} pages indexed (${summary.percentage}%)${reset}${unknownNote}\n`)
 
   if (result.indexed.length > 0) {
     console.log(`  INDEXED (${result.indexed.length}):`)
@@ -195,6 +206,9 @@ export async function bingInspect(project: string, url: string, format?: string)
     lastCrawledDate: string | null
     inIndexDate: string | null
     inspectedAt: string
+    documentSize: number | null
+    anchorCount: number | null
+    discoveryDate: string | null
   }
 
   if (format === 'json') {
@@ -202,11 +216,19 @@ export async function bingInspect(project: string, url: string, format?: string)
     return
   }
 
+  const indexLabel = result.inIndex === true
+    ? `yes${result.documentSize != null ? ` (document size: ${result.documentSize.toLocaleString()} bytes)` : ''}`
+    : result.inIndex === false
+      ? 'no'
+      : 'unknown'
+
   console.log(`\nBing URL Inspection: ${result.url}\n`)
-  console.log(`  In Index:          ${result.inIndex === true ? 'Yes' : result.inIndex === false ? 'No' : 'unknown'}`)
-  console.log(`  HTTP Code:         ${result.httpCode ?? 'unknown'}`)
-  console.log(`  Last Crawled:      ${result.lastCrawledDate ?? 'unknown'}`)
-  console.log(`  Index Date:        ${result.inIndexDate ?? 'unknown'}`)
+  console.log(`  In Index:          ${indexLabel}`)
+  console.log(`  Last Crawled:      ${result.lastCrawledDate ? result.lastCrawledDate.split('T')[0] : 'never'}`)
+  console.log(`  Discovery Date:    ${result.discoveryDate ? result.discoveryDate.split('T')[0] : 'unknown'}`)
+  if (result.anchorCount != null) {
+    console.log(`  Inbound Links:     ${result.anchorCount}`)
+  }
   console.log(`  Inspected At:      ${result.inspectedAt}`)
 }
 

@@ -9,6 +9,9 @@ import type { ProviderName, NormalizedQueryResult, LocationContext } from '@ainy
 import { effectiveDomains, normalizeProjectDomain, isBrowserProvider } from '@ainyc/canonry-contracts'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
+import { createLogger } from './logger.js'
+
+const log = createLogger('JobRunner')
 
 class RunCancelledError extends Error {
   constructor(runId: string) {
@@ -122,7 +125,7 @@ export class JobRunner {
         .set({ status: 'failed', finishedAt: now, error: 'Server restarted while run was in progress' })
         .where(eq(runs.id, run.id))
         .run()
-      console.log(`[JobRunner] Recovered stale run ${run.id} (was ${run.status})`)
+      log.warn('run.recovered-stale', { runId: run.id, previousStatus: run.status })
     }
   }
 
@@ -193,7 +196,7 @@ export class JobRunner {
         throw new Error('No providers configured. Add at least one provider API key.')
       }
 
-      console.log(`[JobRunner] Run ${runId}: dispatching to ${activeProviders.length} providers: ${activeProviders.map(p => p.adapter.name).join(', ')}`)
+      log.info('run.dispatch', { runId, providerCount: activeProviders.length, providers: activeProviders.map(p => p.adapter.name) })
 
       // Fetch keywords for the project
       projectKeywords = this.db
@@ -294,7 +297,7 @@ export class JobRunner {
 
             const normalized = adapter.normalizeResult(raw)
 
-            console.log(`[JobRunner] ${providerName}: "${kw.keyword}" citedDomains=${JSON.stringify(normalized.citedDomains)}, groundingSources=${JSON.stringify(normalized.groundingSources.map(s => s.uri))}, domains=${JSON.stringify(allDomains)}`)
+            log.info('query.result', { runId, provider: providerName, keyword: kw.keyword, citedDomains: normalized.citedDomains, groundingSources: normalized.groundingSources.map(s => s.uri), matchDomains: allDomains })
             const citationState = determineCitationState(normalized, allDomains)
             const overlap = computeCompetitorOverlap(normalized, competitorDomains)
 
@@ -351,7 +354,7 @@ export class JobRunner {
             }
 
             totalSnapshotsInserted++
-            console.log(`[JobRunner] ${providerName}: keyword "${kw.keyword}" → ${citationState}`)
+            log.info('query.citation', { runId, provider: providerName, keyword: kw.keyword, citationState })
           })
         } catch (err: unknown) {
           if (err instanceof RunCancelledError) {
@@ -359,7 +362,8 @@ export class JobRunner {
           }
 
           const msg = err instanceof Error ? err.message : String(err)
-          console.error(`[JobRunner] ${providerName}: keyword "${kw.keyword}" FAILED: ${msg}`)
+          const stack = err instanceof Error ? err.stack : undefined
+          log.error('query.failed', { runId, provider: providerName, keyword: kw.keyword, error: msg, stack })
           if (!providerErrors.has(providerName)) {
             providerErrors.set(providerName, msg)
           }
@@ -425,7 +429,7 @@ export class JobRunner {
       // Notify after run completion
       if (this.onRunCompleted) {
         this.onRunCompleted(runId, projectId).catch((err: unknown) => {
-          console.error('[JobRunner] Notification callback failed:', err)
+          log.error('notification.callback-failed', { runId, error: err instanceof Error ? err.message : String(err) })
         })
       }
     } catch (err: unknown) {
@@ -563,7 +567,7 @@ export class JobRunner {
 
     if (this.onRunCompleted) {
       this.onRunCompleted(runId, projectId).catch((err: unknown) => {
-        console.error('[JobRunner] Notification callback failed:', err)
+        log.error('notification.callback-failed', { runId, error: err instanceof Error ? err.message : String(err) })
       })
     }
   }

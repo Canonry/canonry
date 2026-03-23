@@ -257,6 +257,46 @@ const MIGRATIONS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_bing_keyword_project ON bing_keyword_stats(project_id)`,
   `CREATE INDEX IF NOT EXISTS idx_bing_keyword_query ON bing_keyword_stats(query)`,
+  // v13: Google Analytics 4 — ga_connections table (service account auth)
+  `CREATE TABLE IF NOT EXISTS ga_connections (
+    id            TEXT PRIMARY KEY,
+    project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    property_id   TEXT NOT NULL,
+    client_email  TEXT NOT NULL,
+    private_key   TEXT NOT NULL,
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_conn_project ON ga_connections(project_id)`,
+  // v13: Google Analytics 4 — ga_traffic_snapshots table
+  `CREATE TABLE IF NOT EXISTS ga_traffic_snapshots (
+    id               TEXT PRIMARY KEY,
+    project_id       TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    date             TEXT NOT NULL,
+    landing_page     TEXT NOT NULL,
+    sessions         INTEGER NOT NULL DEFAULT 0,
+    organic_sessions INTEGER NOT NULL DEFAULT 0,
+    users            INTEGER NOT NULL DEFAULT 0,
+    synced_at        TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ga_traffic_project_date ON ga_traffic_snapshots(project_id, date)`,
+  `CREATE INDEX IF NOT EXISTS idx_ga_traffic_page ON ga_traffic_snapshots(landing_page)`,
+  // v14: GA4 aggregate summaries — stores true unique user count per sync period
+  `CREATE TABLE IF NOT EXISTS ga_traffic_summaries (
+    id                     TEXT PRIMARY KEY,
+    project_id             TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    period_start           TEXT NOT NULL,
+    period_end             TEXT NOT NULL,
+    total_sessions         INTEGER NOT NULL DEFAULT 0,
+    total_organic_sessions INTEGER NOT NULL DEFAULT 0,
+    total_users            INTEGER NOT NULL DEFAULT 0,
+    synced_at              TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ga_summary_project ON ga_traffic_summaries(project_id)`,
+  // v15: Bing URL inspections — document_size, anchor_count, discovery_date columns
+  `ALTER TABLE bing_url_inspections ADD COLUMN document_size INTEGER`,
+  `ALTER TABLE bing_url_inspections ADD COLUMN anchor_count INTEGER`,
+  `ALTER TABLE bing_url_inspections ADD COLUMN discovery_date TEXT`,
 ]
 
 export function migrate(db: DatabaseClient) {

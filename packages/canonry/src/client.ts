@@ -350,4 +350,30 @@ export class ApiClient {
     return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/runs/${encodeURIComponent(runId)}/browser-diff`)
   }
 
+  // Google Analytics 4
+  async gaConnect(project: string, body: { propertyId: string; keyJson?: string }): Promise<object> {
+    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/ga/connect`, body)
+  }
+
+  async gaDisconnect(project: string): Promise<void> {
+    await this.request<void>('DELETE', `/projects/${encodeURIComponent(project)}/ga/disconnect`)
+  }
+
+  async gaStatus(project: string): Promise<object> {
+    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/ga/status`)
+  }
+
+  async gaSync(project: string, body?: { days?: number }): Promise<object> {
+    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/ga/sync`, body ?? {})
+  }
+
+  async gaTraffic(project: string, params?: Record<string, string>): Promise<object> {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/ga/traffic${qs}`)
+  }
+
+  async gaCoverage(project: string): Promise<object> {
+    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/ga/coverage`)
+  }
+
 }

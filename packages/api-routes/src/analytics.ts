@@ -5,7 +5,7 @@ import { categorizeSource, categoryLabel } from '@ainyc/canonry-contracts'
 import type {
   BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto,
   MetricsWindow, TimeBucket, TrendDirection, GapKeyword, GapCategory,
-  SourceCategory, SourceCategoryCount, ProviderMetric,
+  SourceCategory, SourceCategoryCount, ProviderMetric, KeywordChangeEvent,
 } from '@ainyc/canonry-contracts'
 import { resolveProject } from './helpers.js'
 
@@ -37,6 +37,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         overall: { citationRate: 0, cited: 0, total: 0 },
         byProvider: {},
         trend: 'stable',
+        keywordChanges: [],
       } satisfies BrandMetricsDto)
     }
 
@@ -53,6 +54,14 @@ export async function analyticsRoutes(app: FastifyInstance) {
       .where(inArray(querySnapshots.runId, runIds))
       .all()
 
+    // Fetch keyword creation dates for normalization
+    const projectKeywords = app.db
+      .select({ id: keywords.id, createdAt: keywords.createdAt })
+      .from(keywords)
+      .where(eq(keywords.projectId, project.id))
+      .all()
+    const keywordCreatedAt = new Map(projectKeywords.map(k => [k.id, k.createdAt]))
+
     // Overall metrics
     const overall = computeProviderMetric(allSnapshots)
 
@@ -68,12 +77,15 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const latest = new Date(projectRuns[projectRuns.length - 1]!.createdAt)
     const spanDays = Math.max(1, Math.ceil((latest.getTime() - earliest.getTime()) / 86_400_000))
     const bucketSize = bucketSizeForSpan(spanDays)
-    const buckets = computeBuckets(allSnapshots, projectRuns, bucketSize)
+    const buckets = computeBuckets(allSnapshots, projectRuns, bucketSize, keywordCreatedAt)
 
     // Trend
     const trend = computeTrend(buckets)
 
-    return reply.send({ window, buckets, overall, byProvider, trend } satisfies BrandMetricsDto)
+    // Keyword change annotations
+    const keywordChanges = computeKeywordChanges(projectKeywords, cutoff)
+
+    return reply.send({ window, buckets, overall, byProvider, trend, keywordChanges } satisfies BrandMetricsDto)
   })
 
   // GET /projects/:name/analytics/gaps — brand gap analysis
@@ -357,6 +369,7 @@ function bucketSizeForSpan(spanDays: number): number {
 }
 
 interface SnapshotLike {
+  keywordId: string
   citationState: string
   createdAt: string
 }
@@ -375,6 +388,7 @@ function computeBuckets(
   snapshots: SnapshotLike[],
   projectRuns: Array<{ createdAt: string }>,
   bucketDays: number,
+  keywordCreatedAt?: Map<string, string>,
 ): TimeBucket[] {
   if (projectRuns.length === 0) return []
 
@@ -392,20 +406,60 @@ function computeBuckets(
     const startISO = start.toISOString()
     const endISO = end.toISOString()
     const inBucket = snapshots.filter(s => s.createdAt >= startISO && s.createdAt < endISO)
-    const metric = computeProviderMetric(inBucket)
 
-    buckets.push({
-      startDate: startISO,
-      endDate: endISO,
-      citationRate: metric.citationRate,
-      cited: metric.cited,
-      total: metric.total,
-    })
+    // Only emit buckets that contain actual sweep data
+    if (inBucket.length > 0) {
+      // Normalize: only include keywords that existed before this bucket started
+      let usable = inBucket
+      if (keywordCreatedAt) {
+        const eligible = inBucket.filter(s => {
+          const kwCreated = keywordCreatedAt.get(s.keywordId)
+          return kwCreated !== undefined && kwCreated < startISO
+        })
+        // Fallback: if ALL keywords are new (e.g. first bucket), use full set
+        if (eligible.length > 0) usable = eligible
+      }
+
+      const metric = computeProviderMetric(usable)
+      const keywordCount = new Set(usable.map(s => s.keywordId)).size
+      buckets.push({
+        startDate: startISO,
+        endDate: endISO,
+        citationRate: metric.citationRate,
+        cited: metric.cited,
+        total: metric.total,
+        keywordCount,
+      })
+    }
 
     start = end
   }
 
   return buckets
+}
+
+function computeKeywordChanges(
+  projectKeywords: Array<{ id: string; createdAt: string }>,
+  cutoff: string | null,
+): KeywordChangeEvent[] {
+  // Group keywords by creation day (YYYY-MM-DD)
+  const byDay = new Map<string, number>()
+  for (const kw of projectKeywords) {
+    if (cutoff && kw.createdAt < cutoff) continue
+    const day = kw.createdAt.slice(0, 10)
+    byDay.set(day, (byDay.get(day) ?? 0) + 1)
+  }
+
+  const days = [...byDay.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+
+  // First day is the baseline set, not a "change"
+  if (days.length <= 1) return []
+
+  return days.slice(1).map(([date, count]) => ({
+    date: new Date(date + 'T00:00:00.000Z').toISOString(),
+    delta: count,
+    label: `+${count} kp`,
+  }))
 }
 
 function computeTrend(buckets: TimeBucket[]): TrendDirection {

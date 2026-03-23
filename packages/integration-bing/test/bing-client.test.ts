@@ -69,10 +69,12 @@ describe('getUrlInfo', () => {
     const mockResult = {
       d: {
         Url: 'https://example.com/page',
-        HttpCode: 200,
-        InIndex: true,
+        HttpStatus: 200,
+        DocumentSize: 2048,
+        AnchorCount: 12,
+        DiscoveryDate: '2026-03-10T10:00:00Z',
+        IsPage: true,
         LastCrawledDate: '2026-03-15T10:00:00Z',
-        InIndexDate: '2026-03-14T10:00:00Z',
       },
     }
 
@@ -88,8 +90,10 @@ describe('getUrlInfo', () => {
     expect(capturedUrl).toContain('siteUrl=')
     expect(capturedUrl).toContain('url=')
     expect(result.Url).toBe('https://example.com/page')
-    expect(result.InIndex).toBe(true)
-    expect(result.HttpCode).toBe(200)
+    expect(result.HttpStatus).toBe(200)
+    expect(result.DocumentSize).toBe(2048)
+    expect(result.AnchorCount).toBe(12)
+    expect(result.DiscoveryDate).toBe('2026-03-10T10:00:00Z')
   })
 })
 

@@ -5,8 +5,18 @@ export interface BingSite {
 
 export interface BingUrlInfo {
   Url: string
-  HttpCode?: number
+  // Documented UrlInfo fields from Bing's published contract:
+  // https://learn.microsoft.com/en-us/dotnet/api/microsoft.bing.webmaster.api.interfaces.urlinfo?view=bing-webmaster-dotnet
+  // WSDL: https://ssl.bing.com/webmaster/api.svc?singleWsdl
+  DocumentSize?: number
+  AnchorCount?: number
+  DiscoveryDate?: string
   LastCrawledDate?: string
+  IsPage?: boolean
+  HttpStatus?: number
+  TotalChildUrlCount?: number
+  // Legacy/undocumented fields observed in older integrations. Keep as fallbacks.
+  HttpCode?: number
   InIndex?: boolean
   InIndexDate?: string
   CacheDate?: string

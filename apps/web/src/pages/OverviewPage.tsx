@@ -13,10 +13,7 @@ import { useDashboard } from '../queries/use-dashboard.js'
 import { useHealth } from '../queries/use-health.js'
 import { useDrawer } from '../hooks/use-drawer.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
-import { createDashboardFixture } from '../mock-data.js'
 import type { PortfolioProjectVm } from '../view-models.js'
-
-const defaultFixture = createDashboardFixture()
 
 function OverviewProjectCard({
   project,
@@ -64,8 +61,33 @@ function OverviewProjectCard({
 
 export function OverviewPage() {
   const contextDashboard = useInitialDashboard()
-  const { dashboard } = useDashboard()
-  const safeDashboard = dashboard ?? contextDashboard?.dashboard ?? defaultFixture.dashboard
+  const { dashboard, isLoading } = useDashboard()
+  const safeDashboard = dashboard ?? contextDashboard?.dashboard
+
+  if (!safeDashboard || isLoading) {
+    return (
+      <div className="page-skeleton">
+        <div className="page-skeleton-header">
+          <div className="skeleton-text h-6 w-32" />
+          <div className="skeleton-text-sm w-64" />
+        </div>
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4 flex items-center gap-4">
+              <div className="flex-1 space-y-2">
+                <div className="skeleton-text w-36" />
+                <div className="skeleton-text-sm w-48" />
+              </div>
+              <div className="skeleton-text w-16" />
+              <div className="skeleton-text w-16" />
+              <div className="skeleton h-8 w-20 rounded" />
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   const model = safeDashboard.portfolioOverview
 
   const enableLiveStatus = !contextDashboard

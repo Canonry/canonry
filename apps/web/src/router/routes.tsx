@@ -80,6 +80,12 @@ export const projectAnalyticsRoute = createRoute({
   component: () => <ProjectPage tab="analytics" />,
 })
 
+export const projectTrafficRoute = createRoute({
+  getParentRoute: () => projectLayoutRoute,
+  path: '/traffic',
+  component: () => <ProjectPage tab="traffic" />,
+})
+
 export const runsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/runs',
@@ -120,6 +126,7 @@ export const routeTree = rootRoute.addChildren([
     projectOverviewRoute,
     projectSearchConsoleRoute,
     projectAnalyticsRoute,
+    projectTrafficRoute,
   ]),
   runsRoute,
   settingsRoute,

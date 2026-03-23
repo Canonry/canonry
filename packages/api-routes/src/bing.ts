@@ -14,6 +14,27 @@ import {
   BING_SUBMIT_URL_DAILY_LIMIT,
 } from '@ainyc/canonry-integration-bing'
 
+/**
+ * Convert Bing's /Date(epoch-offset)/ format to an ISO 8601 string.
+ * Returns null if the value is absent or represents the epoch-zero sentinel
+ * (-62135568000000) that Bing uses for "never".
+ */
+function parseBingDate(value: string | undefined | null): string | null {
+  if (!value) return null
+  const match = /\/Date\((-?\d+)[^)]*\)\//.exec(value)
+  if (!match) return null
+  const ms = parseInt(match[1], 10)
+  // Bing uses -62135568000000 as a sentinel for "unknown / never"
+  if (ms <= 0) return null
+  return new Date(ms).toISOString()
+}
+
+function bingLog(level: 'info' | 'warn' | 'error', action: string, ctx?: Record<string, unknown>): void {
+  const entry = { ts: new Date().toISOString(), level, module: 'BingRoutes', action, ...ctx }
+  const stream = level === 'error' ? process.stderr : process.stdout
+  stream.write(JSON.stringify(entry) + '\n')
+}
+
 export interface BingConnectionRecord {
   domain: string
   apiKey: string
@@ -74,8 +95,10 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     let sites
     try {
       sites = await getSites(apiKey)
+      bingLog('info', 'connect.verify-key', { domain: project.canonicalDomain, siteCount: sites.length })
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
+      bingLog('error', 'connect.verify-key-failed', { domain: project.canonicalDomain, error: msg })
       const err = validationError(`Failed to verify Bing API key: ${msg}`)
       return reply.status(err.statusCode).send(err.toJSON())
     }
@@ -211,22 +234,26 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
 
     const indexedUrls: typeof allInspections = []
     const notIndexedUrls: typeof allInspections = []
+    const unknownUrls: typeof allInspections = []
     let lastInspectedAt: string | null = null
 
     for (const [, row] of latestByUrl) {
       if (row.inIndex === 1) {
         indexedUrls.push(row)
-      } else {
+      } else if (row.inIndex === 0) {
         notIndexedUrls.push(row)
+      } else {
+        unknownUrls.push(row)
       }
       if (!lastInspectedAt || row.inspectedAt > lastInspectedAt) {
         lastInspectedAt = row.inspectedAt
       }
     }
 
-    const total = latestByUrl.size
     const indexed = indexedUrls.length
     const notIndexed = notIndexedUrls.length
+    const unknown = unknownUrls.length
+    const total = indexed + notIndexed + unknown
 
     const formatRow = (r: typeof allInspections[number]) => ({
       id: r.id,
@@ -236,6 +263,9 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       lastCrawledDate: r.lastCrawledDate,
       inIndexDate: r.inIndexDate,
       inspectedAt: r.inspectedAt,
+      documentSize: r.documentSize ?? null,
+      anchorCount: r.anchorCount ?? null,
+      discoveryDate: r.discoveryDate ?? null,
     })
 
     return {
@@ -243,11 +273,13 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
         total,
         indexed,
         notIndexed,
+        unknown,
         percentage: total > 0 ? Math.round((indexed / total) * 1000) / 10 : 0,
       },
       lastInspectedAt,
       indexed: indexedUrls.map(formatRow),
       notIndexed: notIndexedUrls.map(formatRow),
+      unknown: unknownUrls.map(formatRow),
     }
   })
 
@@ -282,6 +314,9 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       lastCrawledDate: r.lastCrawledDate,
       inIndexDate: r.inIndexDate,
       inspectedAt: r.inspectedAt,
+      documentSize: r.documentSize ?? null,
+      anchorCount: r.anchorCount ?? null,
+      discoveryDate: r.discoveryDate ?? null,
     }))
   })
 
@@ -308,31 +343,70 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       return reply.status(err.statusCode).send(err.toJSON())
     }
 
-    const result = await getUrlInfo(conn.apiKey, conn.siteUrl, url)
+    let result
+    try {
+      result = await getUrlInfo(conn.apiKey, conn.siteUrl, url)
+      bingLog('info', 'inspect-url.result', {
+        domain: project.canonicalDomain,
+        url,
+        httpStatus: result.HttpStatus ?? result.HttpCode ?? null,
+        inIndex: result.InIndex ?? null,
+        documentSize: result.DocumentSize ?? null,
+        lastCrawledDate: result.LastCrawledDate ?? null,
+      })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      bingLog('error', 'inspect-url.failed', { domain: project.canonicalDomain, url, error: msg })
+      throw e
+    }
 
     const now = new Date().toISOString()
     const id = crypto.randomUUID()
+    const httpCode = result.HttpStatus ?? result.HttpCode ?? null
+
+    // Bing's published GetUrlInfo contract documents UrlInfo via:
+    // https://learn.microsoft.com/en-us/dotnet/api/microsoft.bing.webmaster.api.interfaces.iwebmasterapi.geturlinfo?view=bing-webmaster-dotnet
+    // WSDL: https://ssl.bing.com/webmaster/api.svc?singleWsdl
+    // Use any explicit legacy InIndex flag if it is present. Otherwise, only a
+    // positive DocumentSize is strong enough to treat the URL as indexed.
+    // Zero-byte responses stay unknown instead of being forced to "not indexed".
+    let derivedInIndex: boolean | null = null
+    if (result.InIndex != null) {
+      derivedInIndex = result.InIndex
+    } else if (result.DocumentSize != null && result.DocumentSize > 0) {
+      derivedInIndex = true
+    }
+
+    const lastCrawledDate = parseBingDate(result.LastCrawledDate)
+    const inIndexDate = parseBingDate(result.InIndexDate)
+    const discoveryDate = parseBingDate(result.DiscoveryDate)
 
     app.db.insert(bingUrlInspections).values({
       id,
       projectId: project.id,
       url,
-      httpCode: result.HttpCode ?? null,
-      inIndex: result.InIndex === true ? 1 : result.InIndex === false ? 0 : null,
-      lastCrawledDate: result.LastCrawledDate ?? null,
-      inIndexDate: result.InIndexDate ?? null,
+      httpCode,
+      inIndex: derivedInIndex === true ? 1 : derivedInIndex === false ? 0 : null,
+      lastCrawledDate,
+      inIndexDate,
       inspectedAt: now,
       createdAt: now,
+      documentSize: result.DocumentSize ?? null,
+      anchorCount: result.AnchorCount ?? null,
+      discoveryDate,
     }).run()
 
     return {
       id,
       url,
-      httpCode: result.HttpCode ?? null,
-      inIndex: result.InIndex ?? null,
-      lastCrawledDate: result.LastCrawledDate ?? null,
-      inIndexDate: result.InIndexDate ?? null,
+      httpCode,
+      inIndex: derivedInIndex,
+      lastCrawledDate,
+      inIndexDate,
       inspectedAt: now,
+      documentSize: result.DocumentSize ?? null,
+      anchorCount: result.AnchorCount ?? null,
+      discoveryDate,
     }
   })
 
@@ -372,13 +446,13 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
 
       const unindexedUrls: string[] = []
       for (const [url, row] of latestByUrl) {
-        if (row.inIndex !== 1) {
+        if (row.inIndex === 0) {
           unindexedUrls.push(url)
         }
       }
 
       if (unindexedUrls.length === 0) {
-        const err = validationError('No unindexed URLs found. Run "canonry bing inspect <project> <url>" first.')
+        const err = validationError('No explicitly unindexed URLs found. Run "canonry bing inspect <project> <url>" first.')
         return reply.status(err.statusCode).send(err.toJSON())
       }
 
@@ -402,6 +476,8 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       error?: string
     }> = []
 
+    bingLog('info', 'index-submit.start', { domain: project.canonicalDomain, siteUrl: conn.siteUrl, urlCount: urlsToSubmit.length, allUnindexed: !!request.body?.allUnindexed })
+
     // Use batch submission for multiple URLs
     if (urlsToSubmit.length > 1) {
       for (let i = 0; i < urlsToSubmit.length; i += BING_SUBMIT_URL_BATCH_LIMIT) {
@@ -412,12 +488,14 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
           for (const url of batch) {
             results.push({ url, status: 'success', submittedAt: now })
           }
+          bingLog('info', 'index-submit.batch-ok', { domain: project.canonicalDomain, batchSize: batch.length, urls: batch })
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e)
           const now = new Date().toISOString()
           for (const url of batch) {
             results.push({ url, status: 'error', submittedAt: now, error: msg })
           }
+          bingLog('error', 'index-submit.batch-failed', { domain: project.canonicalDomain, batchSize: batch.length, urls: batch, error: msg })
         }
       }
     } else {
@@ -426,14 +504,18 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       try {
         await submitUrl(conn.apiKey, conn.siteUrl, url)
         results.push({ url, status: 'success', submittedAt: new Date().toISOString() })
+        bingLog('info', 'index-submit.ok', { domain: project.canonicalDomain, url })
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
         results.push({ url, status: 'error', submittedAt: new Date().toISOString(), error: msg })
+        bingLog('error', 'index-submit.failed', { domain: project.canonicalDomain, url, error: msg })
       }
     }
 
     const succeeded = results.filter((r) => r.status === 'success').length
     const failed = results.filter((r) => r.status === 'error').length
+
+    bingLog('info', 'index-submit.complete', { domain: project.canonicalDomain, total: results.length, succeeded, failed })
 
     return {
       summary: { total: results.length, succeeded, failed },

@@ -23,6 +23,9 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | [`providers/openai.md`](providers/openai.md) | current | engineers | OpenAI provider behavior and constraints |
 | [`providers/claude.md`](providers/claude.md) | current | engineers | Claude provider behavior and constraints |
 | [`providers/local.md`](providers/local.md) | current | engineers | Local provider behavior and constraints |
+| [`google-search-console-setup.md`](google-search-console-setup.md) | current | operators | Google Search Console OAuth setup and usage |
+| [`bing-webmaster-setup.md`](bing-webmaster-setup.md) | current | operators | Bing Webmaster Tools API key setup and usage |
+| [`google-analytics-setup.md`](google-analytics-setup.md) | current | operators | Google Analytics 4 service account setup and usage |
 
 ## Product Direction
 

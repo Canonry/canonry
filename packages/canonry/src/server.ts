@@ -29,6 +29,11 @@ import {
   setGoogleAuthConfig,
   upsertGoogleConnection,
 } from './google-config.js'
+import {
+  getGa4Connection,
+  upsertGa4Connection,
+  removeGa4Connection,
+} from './ga4-config.js'
 import { isTelemetryEnabled, getOrCreateAnonymousId } from './telemetry.js'
 import { JobRunner } from './job-runner.js'
 import { executeGscSync } from './gsc-sync.js'
@@ -37,6 +42,9 @@ import { ProviderRegistry } from './provider-registry.js'
 import { Scheduler } from './scheduler.js'
 import { Notifier } from './notifier.js'
 import { fetchSiteText } from './site-fetch.js'
+import { createLogger } from './logger.js'
+
+const log = createLogger('Server')
 
 const DEFAULT_QUOTA = {
   maxConcurrency: 2,
@@ -172,10 +180,10 @@ export async function createServer(opts: {
     }
   }
 
-  console.log('[Server] Configured providers:', Object.keys(providers).filter(k => {
+  log.info('providers.configured', { providers: Object.keys(providers).filter(k => {
     const p = providers[k]
     return p?.apiKey || p?.baseUrl
-  }))
+  }) })
 
   // Register API providers from config
   for (const adapter of API_ADAPTERS) {
@@ -285,6 +293,30 @@ export async function createServer(opts: {
       opts.config.bing.connections.splice(idx, 1)
       saveConfig(opts.config)
       return true
+    },
+  } as const
+
+  // GA4 credential store — stores service account keys in ~/.canonry/config.yaml
+  const ga4CredentialStore = {
+    getConnection: (projectName: string) => {
+      return getGa4Connection(opts.config, projectName)
+    },
+    upsertConnection: (connection: {
+      projectName: string
+      propertyId: string
+      clientEmail: string
+      privateKey: string
+      createdAt: string
+      updatedAt: string
+    }) => {
+      const updated = upsertGa4Connection(opts.config, connection)
+      saveConfig(opts.config)
+      return updated
+    },
+    deleteConnection: (projectName: string) => {
+      const removed = removeGa4Connection(opts.config, projectName)
+      if (removed) saveConfig(opts.config)
+      return removed
     },
   } as const
 
@@ -500,6 +532,7 @@ export async function createServer(opts: {
     googleSettingsSummary,
     bingSettingsSummary,
     bingConnectionStore,
+    ga4CredentialStore,
     onRunCreated: (runId: string, projectId: string, providers?: string[], location?: import('@ainyc/canonry-contracts').LocationContext | null) => {
       // Fire and forget — run executes in background
       jobRunner.executeRun(runId, projectId, providers, location).catch((err: unknown) => {

@@ -10,6 +10,12 @@ import type {
 } from './types.js'
 import { GoogleApiError } from './types.js'
 
+function gscClientLog(level: 'info' | 'error', action: string, ctx?: Record<string, unknown>): void {
+  const entry = { ts: new Date().toISOString(), level, module: 'GscClient', action, ...ctx }
+  const stream = level === 'error' ? process.stderr : process.stdout
+  stream.write(JSON.stringify(entry) + '\n')
+}
+
 async function gscFetch<T>(accessToken: string, url: string, opts?: { method?: string; body?: unknown }): Promise<T> {
   const method = opts?.method ?? 'GET'
   const headers: Record<string, string> = {
@@ -24,15 +30,20 @@ async function gscFetch<T>(accessToken: string, url: string, opts?: { method?: s
   })
 
   if (res.status === 401) {
+    const body = await res.text().catch(() => '')
+    gscClientLog('error', 'http.auth-expired', { url, method, httpStatus: 401, responseBody: body })
     throw new GoogleApiError('Access token expired or revoked', 401)
   }
 
   if (res.status === 429) {
+    const body = await res.text().catch(() => '')
+    gscClientLog('error', 'http.rate-limited', { url, method, httpStatus: 429, responseBody: body })
     throw new GoogleApiError('Google API rate limit exceeded', 429)
   }
 
   if (!res.ok) {
     const body = await res.text()
+    gscClientLog('error', 'http.error', { url, method, httpStatus: res.status, responseBody: body })
     throw new GoogleApiError(`GSC API error (${res.status}): ${body}`, res.status)
   }
 

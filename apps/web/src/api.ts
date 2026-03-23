@@ -777,11 +777,13 @@ export interface ApiBingCoverageSummary {
     total: number
     indexed: number
     notIndexed: number
+    unknown?: number
     percentage: number
   }
   lastInspectedAt: string | null
   indexed: ApiBingInspection[]
   notIndexed: ApiBingInspection[]
+  unknown?: ApiBingInspection[]
 }
 
 export interface ApiBingKeywordStats {
@@ -885,6 +887,69 @@ export function fetchAnalyticsGaps(project: string, window?: MetricsWindow): Pro
 export function fetchAnalyticsSources(project: string, window?: MetricsWindow): Promise<SourceBreakdownDto> {
   const qs = window ? `?window=${window}` : ''
   return apiFetch(`/projects/${encodeURIComponent(project)}/analytics/sources${qs}`)
+}
+
+// ── GA4 Traffic ─────────────────────────────────────────────────────────────
+
+export interface ApiGaStatus {
+  connected: boolean
+  propertyId: string | null
+  clientEmail: string | null
+  lastSyncedAt: string | null
+  createdAt: string | null
+  updatedAt: string | null
+}
+
+export interface ApiGaTrafficPage {
+  landingPage: string
+  sessions: number
+  organicSessions: number
+  users: number
+}
+
+export interface ApiGaTraffic {
+  totalSessions: number
+  totalOrganicSessions: number
+  totalUsers: number
+  topPages: ApiGaTrafficPage[]
+  lastSyncedAt: string | null
+}
+
+export interface ApiGaSyncResult {
+  synced: boolean
+  rowCount: number
+  days: number
+  syncedAt: string
+}
+
+export function fetchGaStatus(project: string): Promise<ApiGaStatus> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/ga/status`)
+}
+
+export function fetchGaTraffic(project: string, limit?: number): Promise<ApiGaTraffic> {
+  const qs = limit ? `?limit=${limit}` : ''
+  return apiFetch(`/projects/${encodeURIComponent(project)}/ga/traffic${qs}`)
+}
+
+export function triggerGaSync(project: string, days?: number): Promise<ApiGaSyncResult> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/ga/sync`, {
+    method: 'POST',
+    body: JSON.stringify(days ? { days } : {}),
+  })
+}
+
+export function connectGa(project: string, body: { propertyId: string; keyJson: string }): Promise<{ connected: boolean; propertyId: string; clientEmail: string }> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/ga/connect`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export function disconnectGa(project: string): Promise<void> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/ga/disconnect`, {
+    method: 'DELETE',
+    body: '{}',
+  })
 }
 
 // ── Health ──────────────────────────────────────────────────────────────────

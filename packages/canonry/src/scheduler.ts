@@ -4,6 +4,9 @@ import { queueRunIfProjectIdle } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { schedules, projects } from '@ainyc/canonry-db'
 import type { ProviderName } from '@ainyc/canonry-contracts'
+import { createLogger } from './logger.js'
+
+const log = createLogger('Scheduler')
 
 export interface SchedulerCallbacks {
   onRunCreated: (runId: string, projectId: string, providers?: ProviderName[]) => void
@@ -36,12 +39,12 @@ export class Scheduler {
       // Catch-up: if the scheduled slot was set but the server was down when
       // it was supposed to fire, trigger immediately.
       if (missedRunAt && new Date(missedRunAt) < new Date()) {
-        console.log(`[Scheduler] Catch-up run for project ${schedule.projectId} (missed ${missedRunAt})`)
+        log.info('run.catch-up', { projectId: schedule.projectId, missedRunAt })
         this.triggerRun(schedule.id, schedule.projectId)
       }
     }
 
-    console.log(`[Scheduler] Started with ${allSchedules.length} schedule(s)`)
+    log.info('started', { scheduleCount: allSchedules.length })
   }
 
   /** Stop all cron tasks for graceful shutdown. */
@@ -85,14 +88,14 @@ export class Scheduler {
   private stopTask(projectId: string, task: cron.ScheduledTask, verb: 'Stopped' | 'Removed'): void {
     task.stop()
     task.destroy()
-    console.log(`[Scheduler] ${verb} task for project ${projectId}`)
+    log.info(`task.${verb.toLowerCase()}`, { projectId })
   }
 
   private registerCronTask(schedule: typeof schedules.$inferSelect): void {
     const { id: scheduleId, projectId, cronExpr, timezone } = schedule
 
     if (!cron.validate(cronExpr)) {
-      console.error(`[Scheduler] Invalid cron expression for project ${projectId}: ${cronExpr}`)
+      log.error('cron.invalid', { projectId, cronExpr })
       return
     }
 
@@ -109,14 +112,14 @@ export class Scheduler {
     }).where(eq(schedules.id, scheduleId)).run()
 
     const label = schedule.preset ?? cronExpr
-    console.log(`[Scheduler] Registered "${label}" (${timezone}) for project ${projectId}`)
+    log.info('cron.registered', { projectId, schedule: label, timezone })
   }
 
   private triggerRun(scheduleId: string, projectId: string): void {
     const now = new Date().toISOString()
     const currentSchedule = this.db.select().from(schedules).where(eq(schedules.id, scheduleId)).get()
     if (!currentSchedule || currentSchedule.enabled !== 1) {
-      console.log(`[Scheduler] Schedule ${scheduleId} no longer exists or is disabled, removing task for project ${projectId}`)
+      log.warn('schedule.stale', { scheduleId, projectId, msg: 'schedule no longer exists or is disabled' })
       this.remove(projectId)
       return
     }
@@ -127,7 +130,7 @@ export class Scheduler {
     // Check if project still exists
     const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
     if (!project) {
-      console.error(`[Scheduler] Project ${projectId} not found, skipping scheduled run`)
+      log.error('project.not-found', { projectId, msg: 'skipping scheduled run' })
       this.remove(projectId)
       return
     }
@@ -140,7 +143,7 @@ export class Scheduler {
     })
 
     if (queueResult.conflict) {
-      console.log(`[Scheduler] Skipping scheduled run for ${project.name} — run ${queueResult.activeRunId} already active`)
+      log.info('run.skipped-active', { projectName: project.name, activeRunId: queueResult.activeRunId })
       this.db.update(schedules).set({
         nextRunAt,
         updatedAt: now,
@@ -159,7 +162,7 @@ export class Scheduler {
     const scheduleProviders = JSON.parse(currentSchedule.providers) as string[]
     const providers = scheduleProviders.length > 0 ? scheduleProviders as ProviderName[] : undefined
 
-    console.log(`[Scheduler] Triggered scheduled run ${runId} for project ${project.name}`)
+    log.info('run.triggered', { runId, projectName: project.name, providers: providers ?? 'all' })
     this.callbacks.onRunCreated(runId, projectId, providers)
   }
 }

@@ -98,7 +98,7 @@ test('lost citation: per-provider lost surfaces with correct keyword count', () 
   expect(lost!.tone).toBe('negative')
   // 2 affected phrases (kw1/gemini, kw2/gemini) across 2 keywords
   expect(lost!.affectedPhrases.length).toBe(2)
-  expect(lost!.title).toMatch(/2 keyword/)
+  expect(lost!.title).toMatch(/2 key phrase/)
   // Each affected phrase has a single provider
   expect(lost!.affectedPhrases[0]!.provider).toBe('gemini')
 })
@@ -227,7 +227,7 @@ test('competitor gained: competitor appears on keywords it was not cited on befo
   expect(gained).toBeTruthy()
   expect(gained!.tone).toBe('negative')
   expect(gained!.affectedPhrases.length).toBe(2)
-  expect(gained!.title).toMatch(/rival\.com appeared on 2 keyword/)
+  expect(gained!.title).toMatch(/rival\.com appeared on 2 key phrase/)
 })
 
 test('competitor gained: only tracked competitors are flagged', () => {
@@ -255,7 +255,7 @@ test('competitor lost: competitor drops out of citations', () => {
   const lost = insights.find(i => i.id === 'insight_comp_lost_rival.com')
   expect(lost).toBeTruthy()
   expect(lost!.tone).toBe('neutral')
-  expect(lost!.title).toMatch(/rival\.com dropped from 1 keyword/)
+  expect(lost!.title).toMatch(/rival\.com dropped from 1 key phrase/)
 })
 
 test('persistent gap: keyword uncited for 3+ runs', () => {
@@ -274,7 +274,7 @@ test('persistent gap: keyword uncited for 3+ runs', () => {
   const gap = insights.find(i => i.id === 'insight_persistent_gap')
   expect(gap).toBeTruthy()
   expect(gap!.tone).toBe('caution')
-  expect(gap!.title).toMatch(/1 keyword/)
+  expect(gap!.title).toMatch(/1 key phrase/)
 })
 
 test('persistent gap: not triggered below threshold', () => {

@@ -249,6 +249,24 @@ See `docs/roadmap.md` for the full feature roadmap including competitive analysi
 - Use temp directories (`os.tmpdir()`) for file-system tests; clean up in `afterEach`.
 - Run `pnpm run test` to verify before committing.
 
+## Skills Maintenance
+
+The `skills/canonry-setup/` directory contains an OpenClaw/Claude skill that documents how to install, configure, and operate canonry. **Keep this skill in sync with the codebase.**
+
+### When to update skills
+
+- **New CLI command** → add it to `skills/canonry-setup/references/canonry-cli.md`
+- **New provider** → update the provider list in `SKILL.md` and `canonry-cli.md`
+- **New integration** (Google/Bing/CDP feature) → update the relevant reference file in `skills/canonry-setup/references/`
+- **Changed troubleshooting patterns** → update the troubleshooting table in `SKILL.md`
+- **New analytics feature** → update `references/aeo-analysis.md`
+
+### What NOT to put in skills
+
+- Internal implementation details, file paths, or architecture
+- Anything that changes every release (version numbers, changelog)
+- Dev-only workflows (testing, CI, building from source beyond basic install)
+
 ## CI Guidance
 
 - Validation CI: `typecheck`, `test`, `lint` across the full workspace on PRs.

@@ -51,6 +51,19 @@ export interface BingConfigEntry {
   connections?: BingConnectionConfigEntry[]
 }
 
+export interface Ga4ConnectionConfigEntry {
+  projectName: string
+  propertyId: string
+  clientEmail: string
+  privateKey: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Ga4ConfigEntry {
+  connections?: Ga4ConnectionConfigEntry[]
+}
+
 export interface CanonryConfig {
   apiUrl: string
   publicUrl?: string
@@ -69,6 +82,7 @@ export interface CanonryConfig {
   cdp?: CdpConfigEntry
   google?: GoogleConfigEntry
   bing?: BingConfigEntry
+  ga4?: Ga4ConfigEntry
   // Telemetry (opt-out: undefined/true = enabled, false = disabled)
   telemetry?: boolean
   anonymousId?: string

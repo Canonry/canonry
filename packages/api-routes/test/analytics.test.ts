@@ -311,6 +311,208 @@ describe('analytics routes', () => {
     expect(allDomains).not.toContain('openai.com')
   })
 
+  it('omits buckets for days with no sweep data', async () => {
+    // Create a project with runs on non-consecutive days
+    const gapProjectId = crypto.randomUUID()
+    db.insert(projects).values({
+      id: gapProjectId,
+      name: 'gap-bucket-project',
+      displayName: 'Gap Bucket',
+      canonicalDomain: 'gapbucket.com',
+      ownedDomains: '[]',
+      country: 'US',
+      language: 'en',
+      tags: '[]',
+      labels: '{}',
+      providers: '["gemini"]',
+      locations: '[]',
+      defaultLocation: null,
+      configSource: 'api',
+      configRevision: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }).run()
+
+    const gapKwId = crypto.randomUUID()
+    db.insert(keywords).values({
+      id: gapKwId,
+      projectId: gapProjectId,
+      keyword: 'gap test keyword',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    // Run 1: 5 days ago
+    const day1 = new Date()
+    day1.setDate(day1.getDate() - 5)
+    const run1Id = crypto.randomUUID()
+    db.insert(runs).values({
+      id: run1Id,
+      projectId: gapProjectId,
+      kind: 'answer-visibility',
+      status: 'completed',
+      trigger: 'manual',
+      location: null,
+      startedAt: day1.toISOString(),
+      finishedAt: day1.toISOString(),
+      error: null,
+      createdAt: day1.toISOString(),
+    }).run()
+    db.insert(querySnapshots).values({
+      id: crypto.randomUUID(),
+      runId: run1Id,
+      keywordId: gapKwId,
+      provider: 'gemini',
+      model: 'gemini-2.5-flash',
+      citationState: 'cited',
+      answerText: 'test',
+      citedDomains: '["gapbucket.com"]',
+      competitorOverlap: '[]',
+      location: null,
+      rawResponse: '{}',
+      createdAt: day1.toISOString(),
+    }).run()
+
+    // Run 2: today (skipping days in between)
+    const day2 = new Date()
+    const run2Id = crypto.randomUUID()
+    db.insert(runs).values({
+      id: run2Id,
+      projectId: gapProjectId,
+      kind: 'answer-visibility',
+      status: 'completed',
+      trigger: 'manual',
+      location: null,
+      startedAt: day2.toISOString(),
+      finishedAt: day2.toISOString(),
+      error: null,
+      createdAt: day2.toISOString(),
+    }).run()
+    db.insert(querySnapshots).values({
+      id: crypto.randomUUID(),
+      runId: run2Id,
+      keywordId: gapKwId,
+      provider: 'gemini',
+      model: 'gemini-2.5-flash',
+      citationState: 'not-cited',
+      answerText: 'test',
+      citedDomains: '[]',
+      competitorOverlap: '[]',
+      location: null,
+      rawResponse: '{}',
+      createdAt: day2.toISOString(),
+    }).run()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/gap-bucket-project/analytics/metrics' })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload)
+
+    // Every bucket should have actual data (total > 0), no empty gap-fill buckets
+    for (const bucket of body.buckets) {
+      expect(bucket.total).toBeGreaterThan(0)
+    }
+    // Should have exactly 2 buckets (one per day with data), not 6 (filling every day)
+    expect(body.buckets.length).toBe(2)
+  })
+
+  describe('citation rate normalization', () => {
+    it('normalizes buckets to exclude newly added keywords', async () => {
+      const normProjectId = crypto.randomUUID()
+      db.insert(projects).values({
+        id: normProjectId, name: 'norm-project', displayName: 'Norm',
+        canonicalDomain: 'norm.com', ownedDomains: '[]', country: 'US', language: 'en',
+        tags: '[]', labels: '{}', providers: '["gemini"]', locations: '[]',
+        defaultLocation: null, configSource: 'api', configRevision: 1,
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      }).run()
+
+      // Day 1: 2 original keywords
+      const day1 = new Date()
+      day1.setDate(day1.getDate() - 5)
+      const day1ISO = day1.toISOString()
+
+      const origKw1 = crypto.randomUUID()
+      const origKw2 = crypto.randomUUID()
+      db.insert(keywords).values([
+        { id: origKw1, projectId: normProjectId, keyword: 'orig keyword 1', createdAt: day1ISO },
+        { id: origKw2, projectId: normProjectId, keyword: 'orig keyword 2', createdAt: day1ISO },
+      ]).run()
+
+      // Run 1 on day 1
+      const run1Id = crypto.randomUUID()
+      db.insert(runs).values({
+        id: run1Id, projectId: normProjectId, kind: 'answer-visibility', status: 'completed',
+        trigger: 'manual', location: null, startedAt: day1ISO, finishedAt: day1ISO,
+        error: null, createdAt: day1ISO,
+      }).run()
+      db.insert(querySnapshots).values([
+        { id: crypto.randomUUID(), runId: run1Id, keywordId: origKw1, provider: 'gemini', citationState: 'cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day1ISO },
+        { id: crypto.randomUUID(), runId: run1Id, keywordId: origKw2, provider: 'gemini', citationState: 'cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day1ISO },
+      ]).run()
+
+      // Day 2: add 3 new keywords
+      const day2 = new Date()
+      const day2ISO = day2.toISOString()
+
+      const newKw1 = crypto.randomUUID()
+      const newKw2 = crypto.randomUUID()
+      const newKw3 = crypto.randomUUID()
+      db.insert(keywords).values([
+        { id: newKw1, projectId: normProjectId, keyword: 'new keyword 1', createdAt: day2ISO },
+        { id: newKw2, projectId: normProjectId, keyword: 'new keyword 2', createdAt: day2ISO },
+        { id: newKw3, projectId: normProjectId, keyword: 'new keyword 3', createdAt: day2ISO },
+      ]).run()
+
+      // Run 2 on day 2: original keywords still cited, new ones not
+      const run2Id = crypto.randomUUID()
+      db.insert(runs).values({
+        id: run2Id, projectId: normProjectId, kind: 'answer-visibility', status: 'completed',
+        trigger: 'manual', location: null, startedAt: day2ISO, finishedAt: day2ISO,
+        error: null, createdAt: day2ISO,
+      }).run()
+      db.insert(querySnapshots).values([
+        { id: crypto.randomUUID(), runId: run2Id, keywordId: origKw1, provider: 'gemini', citationState: 'cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day2ISO },
+        { id: crypto.randomUUID(), runId: run2Id, keywordId: origKw2, provider: 'gemini', citationState: 'cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day2ISO },
+        { id: crypto.randomUUID(), runId: run2Id, keywordId: newKw1, provider: 'gemini', citationState: 'not-cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day2ISO },
+        { id: crypto.randomUUID(), runId: run2Id, keywordId: newKw2, provider: 'gemini', citationState: 'not-cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day2ISO },
+        { id: crypto.randomUUID(), runId: run2Id, keywordId: newKw3, provider: 'gemini', citationState: 'not-cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day2ISO },
+      ]).run()
+
+      const res = await app.inject({ method: 'GET', url: '/api/v1/projects/norm-project/analytics/metrics' })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+
+      // Second bucket should be normalized to only original keywords (100% cited)
+      // Without normalization it would be 2/5 = 40%
+      const lastBucket = body.buckets[body.buckets.length - 1]
+      expect(lastBucket.citationRate).toBe(1) // 2/2 = 100%
+      expect(lastBucket.keywordCount).toBe(2)
+    })
+
+    it('returns keywordChanges annotations', async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/v1/projects/norm-project/analytics/metrics' })
+      const body = JSON.parse(res.payload)
+
+      expect(body.keywordChanges).toBeInstanceOf(Array)
+      expect(body.keywordChanges.length).toBe(1)
+      expect(body.keywordChanges[0].delta).toBe(3)
+      expect(body.keywordChanges[0].label).toBe('+3 kp')
+    })
+
+    it('returns empty keywordChanges when all keywords created same day', async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/v1/projects/test-site/analytics/metrics' })
+      const body = JSON.parse(res.payload)
+      expect(body.keywordChanges).toEqual([])
+    })
+
+    it('includes keywordCount on each bucket', async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/v1/projects/test-site/analytics/metrics' })
+      const body = JSON.parse(res.payload)
+      for (const bucket of body.buckets) {
+        expect(bucket.keywordCount).toBeGreaterThan(0)
+      }
+    })
+  })
+
   it('returns empty data when no runs exist', async () => {
     // Create a project with no runs
     const emptyProjectId = crypto.randomUUID()

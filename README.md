@@ -2,9 +2,9 @@
 
 [![npm version](https://img.shields.io/npm/v/@ainyc/canonry)](https://www.npmjs.com/package/@ainyc/canonry) [![License: FSL-1.1-ALv2](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue.svg)](https://fsl.software/) [![Node.js >= 20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 
-**Open-source AEO monitoring for your domain.** Canonry tracks how AI answer engines (ChatGPT, Gemini, Claude, and others) cite or omit your website for the keywords you care about.
+**Agent-first AEO monitoring.** Canonry tracks how AI answer engines (ChatGPT, Gemini, Claude, Perplexity, and others) cite or omit your website, and it's built so that AI agents and automation pipelines can operate it end-to-end without human intervention.
 
-Canonry is API-first: the REST API is the source of truth, the CLI is the standard operator surface, and the web dashboard is a secondary interface for human analysts. Start with [docs/README.md](docs/README.md) for the architecture, roadmap, active plans, testing, deployment, and ADR index.
+Every capability is exposed through a stable REST API and a machine-readable CLI. An AI agent can install canonry, configure providers, create projects, trigger visibility sweeps, and act on the results. All from a terminal, all scriptable, all JSON-parseable. The web dashboard is there for human analysts, but nothing requires it.
 
 AEO (Answer Engine Optimization) is the practice of ensuring your content is accurately represented in AI-generated answers. As search shifts from links to synthesized responses, monitoring your visibility across answer engines is essential.
 
@@ -20,21 +20,75 @@ canonry serve
 
 Open [http://localhost:4100](http://localhost:4100) to access the optional web dashboard.
 
-For CI or agent workflows, initialize non-interactively:
+### Zero-touch setup for agents and CI
+
+No interactive prompts required. Pass keys as flags or environment variables and canonry configures itself:
 
 ```bash
+# flags
 canonry init --gemini-key <key> --openai-key <key>
-# or via environment variables:
+
+# environment variables
 GEMINI_API_KEY=... OPENAI_API_KEY=... canonry init
+
+# headless bootstrap (env vars only, no prompts, idempotent)
+canonry bootstrap
 ```
+
+### Agent workflow example
+
+A coding agent (Claude Code, Cursor, Copilot, or any MCP-equipped tool) can run an entire monitoring cycle in a single script:
+
+```bash
+# 1. Install and bootstrap
+npm install -g @ainyc/canonry
+GEMINI_API_KEY=$KEY canonry bootstrap
+canonry start                                # background daemon
+
+# 2. Define a project from a YAML spec
+canonry apply canonry.yaml --format json     # declarative, version-controlled
+
+# 3. Trigger a sweep and wait for results
+canonry run my-project --wait --format json
+
+# 4. Inspect results programmatically
+canonry status my-project --format json      # visibility scores
+canonry evidence my-project --format json    # citation evidence
+canonry history my-project --format json     # timeline for trend analysis
+```
+
+Every command supports `--format json` so agents can parse output directly. Error messages include the failed command, the reason, and a suggested fix, so there's no guesswork.
+
+## Why Agent-First?
+
+Canonry is designed so that AI agents and automation pipelines can drive it without human interaction.
+
+- **No browser required.** The CLI and API cover 100% of functionality.
+- **Deterministic setup.** `canonry bootstrap` is idempotent and non-interactive. Run it in CI, in a container, or from an agent with zero human input.
+- **Config-as-code.** Kubernetes-style YAML files that agents can generate, version-control, and apply. No forms to fill out.
+- **Structured output everywhere.** `--format json` on every command. Agents parse results, not humans.
+- **Stable API contract.** Endpoints never change paths or methods. Agents can hard-code routes safely.
+- **Actionable errors.** Every failure includes the command that failed, why it failed, and what to do next.
+
+Start with [docs/README.md](docs/README.md) for the full architecture, roadmap, active plans, testing, deployment, and ADR index.
+
+## Skills for AI Agents
+
+Canonry ships with an [OpenClaw](https://clawhub.dev) skill that teaches AI agents how to use it. The skill covers CLI commands, provider setup, interpreting results, indexing workflows, and troubleshooting.
+
+**Claude Code** picks it up automatically from `.claude/skills/canonry-setup/` when you open this repo. No configuration needed.
+
+**ClawHub** hosts the same skill at [clawhub.dev](https://clawhub.dev) so any MCP-equipped agent (Cursor, Windsurf, Copilot, etc.) can discover and install it. Search for `canonry` on ClawHub, or point your agent at the `skills/canonry-setup/` directory in this repo.
+
+Once an agent has the skill loaded, it can set up canonry, run sweeps, interpret citation evidence, and troubleshoot errors without you having to explain any of it.
 
 ## Features
 
 - **Multi-provider monitoring** -- query Gemini, OpenAI, Claude, Perplexity, and local LLMs (Ollama, LM Studio, or any OpenAI-compatible endpoint) from a single tool.
-- **API-first surfaces** -- the REST API is canonical, the CLI is the standard automation surface, and the web dashboard consumes the same core workflows.
-- **Project-scoped location context** -- define named locations per project, set a default, and run explicit or all-location sweeps without making keywords location-owned.
-- **Config-as-code** -- manage projects with Kubernetes-style YAML files. Version control your monitoring setup.
+- **Agent-first surfaces** -- the REST API is canonical, the CLI supports `--format json` on every command, and the web dashboard is an optional visualization layer.
+- **Config-as-code** -- manage projects with Kubernetes-style YAML files. Version control your monitoring setup and let agents apply changes declaratively.
 - **Self-hosted** -- runs locally with SQLite. No cloud account, no external dependencies beyond the LLM API keys you choose to configure.
+- **Project-scoped location context** -- define named locations per project, set a default, and run explicit or all-location sweeps without making keywords location-owned.
 - **Scheduled monitoring** -- set up cron-based recurring runs to track citation changes over time.
 - **Webhook notifications** -- get alerted when your citation status changes.
 - **Audit logging** -- full history of every action taken through any surface.
@@ -348,7 +402,7 @@ pnpm run dev:web          # Run SPA in dev mode
 
 ## Deployment
 
-See **[docs/deployment.md](docs/deployment.md)** for the full guide — local, reverse proxy (Caddy/nginx), sub-path, Tailscale, systemd, and Docker.
+See **[docs/deployment.md](docs/deployment.md)** for the full guide covering local, reverse proxy (Caddy/nginx), sub-path, Tailscale, systemd, and Docker.
 
 ### Sub-path deployments
 
@@ -358,7 +412,7 @@ Serve canonry under a URL prefix without rebuilding:
 canonry serve --base-path /canonry/
 ```
 
-The server injects the base path at runtime — no build-time config needed.
+The server injects the base path at runtime, so no build-time config is needed.
 
 ### Docker Deployment
 
@@ -456,7 +510,7 @@ Contributions are welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup in
 
 ## License
 
-[FSL-1.1-ALv2](./LICENSE) — Free to use, modify, and self-host. Each version converts to Apache 2.0 after two years.
+[FSL-1.1-ALv2](./LICENSE). Free to use, modify, and self-host. Each version converts to Apache 2.0 after two years.
 
 ---
 

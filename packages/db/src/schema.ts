@@ -223,6 +223,9 @@ export const bingUrlInspections = sqliteTable('bing_url_inspections', {
   inIndexDate: text('in_index_date'),
   inspectedAt: text('inspected_at').notNull(),
   createdAt: text('created_at').notNull(),
+  documentSize: integer('document_size'),
+  anchorCount: integer('anchor_count'),
+  discoveryDate: text('discovery_date'),
 }, (table) => [
   index('idx_bing_inspect_project_url').on(table.projectId, table.url),
   index('idx_bing_inspect_url_time').on(table.url, table.inspectedAt),
@@ -241,6 +244,47 @@ export const bingKeywordStats = sqliteTable('bing_keyword_stats', {
 }, (table) => [
   index('idx_bing_keyword_project').on(table.projectId),
   index('idx_bing_keyword_query').on(table.query),
+])
+
+export const gaConnections = sqliteTable('ga_connections', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  propertyId: text('property_id').notNull(),
+  clientEmail: text('client_email').notNull(),
+  privateKey: text('private_key').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_ga_conn_project').on(table.projectId),
+])
+
+export const gaTrafficSnapshots = sqliteTable('ga_traffic_snapshots', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  date: text('date').notNull(),
+  landingPage: text('landing_page').notNull(),
+  sessions: integer('sessions').notNull().default(0),
+  organicSessions: integer('organic_sessions').notNull().default(0),
+  users: integer('users').notNull().default(0),
+  syncedAt: text('synced_at').notNull(),
+}, (table) => [
+  index('idx_ga_traffic_project_date').on(table.projectId, table.date),
+  index('idx_ga_traffic_page').on(table.landingPage),
+])
+
+// Aggregate GA4 totals for a sync period — stores true unique user count
+// (not derivable by summing per-page rows, which inflates the metric).
+export const gaTrafficSummaries = sqliteTable('ga_traffic_summaries', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  periodStart: text('period_start').notNull(),
+  periodEnd: text('period_end').notNull(),
+  totalSessions: integer('total_sessions').notNull().default(0),
+  totalOrganicSessions: integer('total_organic_sessions').notNull().default(0),
+  totalUsers: integer('total_users').notNull().default(0),
+  syncedAt: text('synced_at').notNull(),
+}, (table) => [
+  index('idx_ga_summary_project').on(table.projectId),
 ])
 
 export const usageCounters = sqliteTable('usage_counters', {

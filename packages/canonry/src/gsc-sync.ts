@@ -11,6 +11,9 @@ import {
 import type { CanonryConfig } from './config.js'
 import { saveConfig } from './config.js'
 import { getGoogleAuthConfig, getGoogleConnection, patchGoogleConnection } from './google-config.js'
+import { createLogger } from './logger.js'
+
+const log = createLogger('GscSync')
 
 function formatDate(d: Date): string {
   return d.toISOString().split('T')[0]!
@@ -81,13 +84,13 @@ export async function executeGscSync(
     const startDate = formatDate(daysAgo(days + lagOffset))
 
     // Fetch search analytics with pagination
-    console.log(`[GSC Sync] Fetching search analytics for ${conn.propertyId} from ${startDate} to ${endDate}`)
+    log.info('fetch.start', { runId, projectId, propertyId: conn.propertyId, startDate, endDate })
     const rows = await fetchSearchAnalytics(accessToken, conn.propertyId, {
       startDate,
       endDate,
     })
 
-    console.log(`[GSC Sync] Received ${rows.length} rows`)
+    log.info('fetch.complete', { runId, projectId, rowCount: rows.length })
 
     // Delete existing rows for this project in the same date range to avoid duplicates on re-sync
     db.delete(gscSearchData)
@@ -142,7 +145,7 @@ export async function executeGscSync(
       .slice(0, 50) // Inspect top 50 pages by clicks
       .map(([page]) => page)
 
-    console.log(`[GSC Sync] Inspecting ${topPages.length} URLs`)
+    log.info('inspect.start', { runId, projectId, urlCount: topPages.length })
 
     for (const pageUrl of topPages) {
       try {
@@ -173,7 +176,7 @@ export async function executeGscSync(
         }).run()
       } catch (err) {
         // Log but don't fail the whole sync for individual inspection errors
-        console.error(`[GSC Sync] Failed to inspect ${pageUrl}:`, err instanceof Error ? err.message : err)
+        log.error('inspect.url-failed', { runId, projectId, url: pageUrl, error: err instanceof Error ? err.message : String(err) })
       }
     }
 
@@ -226,7 +229,7 @@ export async function executeGscSync(
       .where(eq(runs.id, runId))
       .run()
 
-    console.log(`[GSC Sync] Completed. ${rows.length} search data rows, ${topPages.length} URL inspections, coverage snapshot: ${snapIndexed} indexed / ${snapNotIndexed} not-indexed.`)
+    log.info('sync.completed', { runId, projectId, searchDataRows: rows.length, urlInspections: topPages.length, indexed: snapIndexed, notIndexed: snapNotIndexed })
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err)
     db.update(runs)
@@ -234,7 +237,7 @@ export async function executeGscSync(
       .where(eq(runs.id, runId))
       .run()
 
-    console.error(`[GSC Sync] Failed:`, errorMsg)
+    log.error('sync.failed', { runId, projectId, error: errorMsg })
     throw err
   }
 }

@@ -1,8 +1,10 @@
 import type { ProjectDto } from '@ainyc/canonry-contracts'
 import type {
   ApiCompetitor,
+  ApiBingCoverageSummary,
   ApiKeyword,
   ApiProject,
+  ApiGscCoverageSummary,
   ApiRun,
   ApiRunDetail,
   ApiSettings,
@@ -17,6 +19,7 @@ import type {
   CompetitorVm,
   DashboardVm,
   MetricTone,
+  MovementSummaryVm,
   PortfolioProjectVm,
   ProjectCommandCenterVm,
   ProjectInsightVm,
@@ -168,6 +171,138 @@ function pressureTone(label: string): MetricTone {
   return 'neutral'
 }
 
+function gapTone(gapCount: number, totalCount: number): MetricTone {
+  if (gapCount === 0) return 'positive'
+  const ratio = totalCount > 0 ? gapCount / totalCount : 0
+  if (ratio >= 0.3) return 'negative'
+  return 'caution'
+}
+
+function buildGapKeyPhraseSummary(
+  snapshots: ApiRunDetail['snapshots'],
+): ScoreSummaryVm {
+  if (snapshots.length === 0) {
+    return {
+      label: 'Gap Key Phrases',
+      value: 'No data',
+      delta: 'Run a sweep first',
+      tone: 'neutral',
+      description: 'Run a visibility sweep to identify key phrases where competitors are cited and your domain is not.',
+      tooltip: 'Tracked key phrases where a competitor is cited in the latest run but your domain is not.',
+      trend: [],
+    }
+  }
+
+  const byKeyword = new Map<string, { cited: boolean; competitorOverlap: Set<string> }>()
+
+  for (const snap of snapshots) {
+    const key = snap.keywordId
+    const current = byKeyword.get(key) ?? { cited: false, competitorOverlap: new Set<string>() }
+    if (snap.citationState === 'cited') current.cited = true
+    for (const domain of snap.competitorOverlap) current.competitorOverlap.add(domain)
+    byKeyword.set(key, current)
+  }
+
+  const totalCount = byKeyword.size
+  const gapCount = [...byKeyword.values()].filter(entry => !entry.cited && entry.competitorOverlap.size > 0).length
+  const gapPhraseLabel = gapCount === 1 ? 'key phrase' : 'key phrases'
+
+  return {
+    label: 'Gap Key Phrases',
+    value: `${gapCount}`,
+    delta: `${gapCount} of ${totalCount} key phrases at risk`,
+    tone: gapTone(gapCount, totalCount),
+    description: gapCount > 0
+      ? `${gapCount} tracked ${gapPhraseLabel} currently cite competitors without citing your domain.`
+      : 'No competitive key phrase gaps detected in the latest visibility run.',
+    tooltip: 'Tracked key phrases where a competitor is cited in the latest run but your domain is not.',
+    trend: [],
+    progress: totalCount > 0 ? gapCount / totalCount : 0,
+  }
+}
+
+type CoverageSummarySource =
+  | ({ provider: 'Google' } & ApiGscCoverageSummary['summary'])
+  | ({ provider: 'Bing'; deindexed: 0 } & ApiBingCoverageSummary['summary'])
+
+function chooseIndexCoverageSummary(
+  gscCoverage?: ApiGscCoverageSummary | null,
+  bingCoverage?: ApiBingCoverageSummary | null,
+): CoverageSummarySource | null {
+  if (gscCoverage && gscCoverage.summary.total > 0) {
+    return {
+      provider: 'Google',
+      ...gscCoverage.summary,
+    }
+  }
+
+  if (bingCoverage && bingCoverage.summary.total > 0) {
+    return {
+      provider: 'Bing',
+      ...bingCoverage.summary,
+      deindexed: 0,
+    }
+  }
+
+  if (gscCoverage) {
+    return {
+      provider: 'Google',
+      ...gscCoverage.summary,
+    }
+  }
+
+  if (bingCoverage) {
+    return {
+      provider: 'Bing',
+      ...bingCoverage.summary,
+      deindexed: 0,
+    }
+  }
+
+  return null
+}
+
+function indexCoverageTone(summary: CoverageSummarySource): MetricTone {
+  if (summary.provider === 'Google' && summary.deindexed > 0) return 'negative'
+  if (summary.percentage >= 90) return 'positive'
+  if (summary.percentage >= 70) return 'caution'
+  return 'negative'
+}
+
+function buildIndexCoverageSummary(
+  gscCoverage?: ApiGscCoverageSummary | null,
+  bingCoverage?: ApiBingCoverageSummary | null,
+): ScoreSummaryVm {
+  const coverage = chooseIndexCoverageSummary(gscCoverage, bingCoverage)
+
+  if (!coverage || coverage.total === 0) {
+    return {
+      label: 'Index Coverage',
+      value: 'No data',
+      delta: 'Connect GSC or Bing',
+      tone: 'neutral',
+      description: 'Connect Google Search Console or Bing Webmaster Tools and inspect your sitemap to populate coverage.',
+      tooltip: 'Percentage of inspected URLs currently indexed. Google Search Console is preferred when available, otherwise Bing Webmaster Tools is used.',
+      trend: [],
+    }
+  }
+
+  const notIndexedLabel = coverage.notIndexed === 1 ? 'URL is' : 'URLs are'
+  const deindexedLabel = coverage.deindexed === 1 ? 'URL' : 'URLs'
+
+  return {
+    label: 'Index Coverage',
+    value: `${Math.round(coverage.percentage)}`,
+    delta: `${coverage.provider} · ${coverage.indexed} of ${coverage.total} indexed`,
+    tone: indexCoverageTone(coverage),
+    description: coverage.provider === 'Google' && coverage.deindexed > 0
+      ? `${coverage.deindexed} deindexed ${deindexedLabel} detected in the latest Google Search Console inspection.`
+      : `${coverage.notIndexed} ${notIndexedLabel} not indexed in ${coverage.provider === 'Google' ? 'Google Search Console' : 'Bing Webmaster Tools'}.`,
+    tooltip: 'Percentage of inspected URLs currently indexed. Google Search Console is preferred when available, otherwise Bing Webmaster Tools is used.',
+    trend: [],
+  }
+}
+
 function computeCompetitorPressure(snapshots: ApiRunDetail['snapshots'], competitorDomains: string[]): { label: string; count: number } {
   if (snapshots.length === 0 || competitorDomains.length === 0) {
     return { label: 'None', count: 0 }
@@ -207,23 +342,27 @@ function buildEvidenceFromTimeline(
       }
     }
 
-    // Collect unique providers from snapshots
-    const providers = [...new Set(latestRunDetail.snapshots.map(s => s.provider))].sort()
-    if (providers.length === 0) providers.push('gemini')
+    // Collect unique providers from the full timeline history (not just the latest run)
+    // so that providers that errored or were absent in the latest run still show badges.
+    const providersFromLatestRun = new Set(latestRunDetail.snapshots.map(s => s.provider))
+    const providersFromHistory = new Set(
+      timeline.flatMap(entry =>
+        Object.keys(entry.providerRuns ?? {})
+      )
+    )
+    const allProviders = [...new Set([...providersFromLatestRun, ...providersFromHistory])].sort()
+    const providers = allProviders.length > 0 ? allProviders : ['gemini']
 
     for (const entry of timeline) {
       if (entry.runs.length === 0) continue // never run yet; pending fallback handles it
       seenKeywords.add(entry.keyword)
       const latestRun = entry.runs.at(-1)
       const transition = latestRun?.transition ?? 'not-cited'
-      const citationState: CitationState = transition === 'lost' ? 'lost'
-        : transition === 'emerging' ? 'emerging'
-        : transition === 'cited' ? 'cited'
-        : 'not-cited'
-
       for (const provider of providers) {
         const snap = snapshotsByKey.get(`${entry.keyword}::${provider}`)
-        if (!snap && providers.length > 1) continue
+        // Only skip if provider has zero history for this phrase AND no snapshot in latest run
+        const hasHistory = (entry.providerRuns?.[provider]?.length ?? 0) > 0
+        if (!snap && !hasHistory) continue
 
         // Prefer provider-level history for continuity across model changes; fall back to model-scoped then keyword-level
         const model = snap?.model ?? null
@@ -242,11 +381,15 @@ function buildEvidenceFromTimeline(
           ? effectiveHistory.at(-1)!.transition
           : transition
 
-        const snapState: CitationState = effectiveTransition === 'lost' ? 'lost'
-          : effectiveTransition === 'emerging' ? 'emerging'
-          : snap
-            ? (snap.citationState === 'cited' ? 'cited' : 'not-cited')
-            : citationState
+        // When a provider is missing from the latest run, keep showing its last
+        // observed provider-level state instead of leaking the keyword-level
+        // transition from another provider into this synthetic badge row.
+        const latestProviderState = effectiveHistory?.at(-1)?.citationState
+        const snapState: CitationState = snap
+          ? effectiveTransition === 'lost' ? 'lost'
+            : effectiveTransition === 'emerging' ? 'emerging'
+            : snap.citationState === 'cited' ? 'cited' : 'not-cited'
+          : latestProviderState === 'cited' ? 'cited' : 'not-cited'
 
         const streak = effectiveHistory
           ? computeStreak(effectiveHistory)
@@ -441,7 +584,7 @@ export function buildInsights(input: InsightInput): ProjectInsightVm[] {
     insights.push({
       id: 'insight_lost',
       tone: 'negative',
-      title: `Lost citation on ${lostPhrases.length} keyword${lostPhrases.length > 1 ? 's' : ''}`,
+      title: `Lost citation on ${lostPhrases.length} key phrase${lostPhrases.length > 1 ? 's' : ''}`,
       detail: 'Citations dropped since the last run.',
       actionLabel: 'Lost',
       affectedPhrases: lostPhrases,
@@ -460,7 +603,7 @@ export function buildInsights(input: InsightInput): ProjectInsightVm[] {
       insights.push({
         id: `insight_comp_gained_${comp}`,
         tone: 'negative',
-        title: `${comp} appeared on ${gained.length} keyword${gained.length > 1 ? 's' : ''}`,
+        title: `${comp} appeared on ${gained.length} key phrase${gained.length > 1 ? 's' : ''}`,
         detail: 'A tracked competitor gained new citations.',
         actionLabel: 'Competitor',
         affectedPhrases: gained.map(kw => {
@@ -511,7 +654,7 @@ export function buildInsights(input: InsightInput): ProjectInsightVm[] {
     insights.push({
       id: 'insight_provider_pickup',
       tone: 'positive',
-      title: `Picked up by new provider on ${kwCount} keyword${kwCount > 1 ? 's' : ''}`,
+      title: `Picked up by new provider on ${kwCount} key phrase${kwCount > 1 ? 's' : ''}`,
       detail: 'Your domain started appearing on additional providers.',
       actionLabel: 'Pickup',
       affectedPhrases: newProviderPhrases,
@@ -522,7 +665,7 @@ export function buildInsights(input: InsightInput): ProjectInsightVm[] {
     insights.push({
       id: 'insight_first_citation',
       tone: 'positive',
-      title: `First citation on ${firstCitationKeywords.size} keyword${firstCitationKeywords.size > 1 ? 's' : ''}`,
+      title: `First citation on ${firstCitationKeywords.size} key phrase${firstCitationKeywords.size > 1 ? 's' : ''}`,
       detail: 'Your domain appeared in AI answers for the first time.',
       actionLabel: 'New',
       affectedPhrases: firstCitationPhrases,
@@ -549,8 +692,8 @@ export function buildInsights(input: InsightInput): ProjectInsightVm[] {
     insights.push({
       id: 'insight_persistent_gap',
       tone: 'caution',
-      title: `${gapPhrases.length} keyword${gapPhrases.length > 1 ? 's' : ''} uncited for ${GAP_THRESHOLD}+ runs`,
-      detail: 'These keywords have not been cited by any provider across multiple consecutive runs.',
+      title: `${gapPhrases.length} key phrase${gapPhrases.length > 1 ? 's' : ''} uncited for ${GAP_THRESHOLD}+ runs`,
+      detail: 'These key phrases have not been cited by any provider across multiple consecutive runs.',
       actionLabel: 'Gap',
       affectedPhrases: gapPhrases,
     })
@@ -565,7 +708,7 @@ export function buildInsights(input: InsightInput): ProjectInsightVm[] {
       insights.push({
         id: `insight_comp_lost_${comp}`,
         tone: 'neutral',
-        title: `${comp} dropped from ${lost.length} keyword${lost.length > 1 ? 's' : ''}`,
+        title: `${comp} dropped from ${lost.length} key phrase${lost.length > 1 ? 's' : ''}`,
         detail: 'A tracked competitor lost citations.',
         actionLabel: 'Competitor',
         affectedPhrases: lost.map(kw => {
@@ -589,6 +732,44 @@ export function buildInsights(input: InsightInput): ProjectInsightVm[] {
   }
 
   return insights
+}
+
+/** Compare latest vs previous run to count keyword-level gains and losses. */
+function computeMovement(
+  latestSnapshots: ApiRunDetail['snapshots'],
+  previousSnapshots: ApiRunDetail['snapshots'],
+): MovementSummaryVm {
+  if (previousSnapshots.length === 0) {
+    // No previous run to compare against
+    const citedCount = new Set(
+      latestSnapshots.filter(s => s.citationState === 'cited').map(s => s.keyword),
+    ).size
+    return { gained: citedCount, lost: 0, tone: citedCount > 0 ? 'positive' : 'neutral', hasPreviousRun: false }
+  }
+
+  // Build keyword-level cited sets (cited if ANY provider cited it)
+  const buildCitedSet = (snaps: ApiRunDetail['snapshots']): Set<string> => {
+    const cited = new Set<string>()
+    for (const s of snaps) {
+      if (s.citationState === 'cited' && s.keyword) cited.add(s.keyword)
+    }
+    return cited
+  }
+
+  const latestCited = buildCitedSet(latestSnapshots)
+  const previousCited = buildCitedSet(previousSnapshots)
+
+  let gained = 0
+  let lost = 0
+  for (const kw of latestCited) {
+    if (!previousCited.has(kw)) gained++
+  }
+  for (const kw of previousCited) {
+    if (!latestCited.has(kw)) lost++
+  }
+
+  const tone: MetricTone = lost > gained ? 'negative' : gained > lost ? 'positive' : 'neutral'
+  return { gained, lost, tone, hasPreviousRun: true }
 }
 
 function runStatusSummary(projectRuns: ApiRun[]): ScoreSummaryVm {
@@ -635,6 +816,8 @@ export interface ProjectData {
   timeline: ApiTimelineEntry[]
   latestRunDetail: ApiRunDetail | null
   previousRunDetail: ApiRunDetail | null
+  gscCoverage?: ApiGscCoverageSummary | null
+  bingCoverage?: ApiBingCoverageSummary | null
 }
 
 export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCenterVm {
@@ -642,6 +825,8 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
   const evidence = buildEvidenceFromTimeline(dto.name, data.timeline, data.latestRunDetail, data.keywords)
   const snapshots = data.latestRunDetail?.snapshots ?? []
   const kwVis = computeKeywordVisibility(snapshots)
+  const gapKeyPhrases = buildGapKeyPhraseSummary(snapshots)
+  const indexCoverage = buildIndexCoverageSummary(data.gscCoverage, data.bingCoverage)
   const pressure = computeCompetitorPressure(snapshots, data.competitors.map(c => c.domain))
   const insights = buildInsights({
     evidence,
@@ -690,6 +875,9 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
       tooltip: 'Percentage of tracked key phrases where your domain is cited by at least one AI answer engine. A key phrase is "visible" if any configured provider includes your site in its response.',
       trend: [],
     },
+    keywordCounts: { cited: kwVis.citedCount, total: kwVis.totalCount },
+    gapKeyPhrases,
+    indexCoverage,
     providerScores,
     competitorPressure: {
       label: 'Competitor Pressure',
@@ -703,6 +891,10 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
       trend: [],
     },
     runStatus: runStatusSummary(sortedRuns),
+    movementSummary: computeMovement(
+      data.latestRunDetail?.snapshots ?? [],
+      data.previousRunDetail?.snapshots ?? [],
+    ),
     insights,
     visibilityEvidence: evidence,
     competitors: data.competitors.map((c, i) => {

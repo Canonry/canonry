@@ -1493,6 +1493,105 @@ const routeCatalog: OpenApiOperation[] = [
       404: { description: 'Project not found.' },
     },
   },
+  // GA4 routes
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/ga/connect',
+    summary: 'Connect Google Analytics 4 via service account',
+    tags: ['ga4'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['propertyId', 'keyJson'],
+            properties: {
+              propertyId: stringSchema,
+              keyJson: stringSchema,
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'GA4 connection established.' },
+      400: { description: 'Invalid GA4 connection request.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'delete',
+    path: '/api/v1/projects/{name}/ga/disconnect',
+    summary: 'Disconnect Google Analytics 4',
+    tags: ['ga4'],
+    parameters: [nameParameter],
+    responses: {
+      204: { description: 'GA4 connection deleted.' },
+      404: { description: 'Project or connection not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/ga/status',
+    summary: 'Get GA4 connection status',
+    tags: ['ga4'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'GA4 status returned.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/ga/sync',
+    summary: 'Sync GA4 traffic data',
+    tags: ['ga4'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: false,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            properties: {
+              days: integerSchema,
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'GA4 sync completed.' },
+      400: { description: 'GA4 is not connected.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/ga/traffic',
+    summary: 'Get GA4 landing page traffic',
+    tags: ['ga4'],
+    parameters: [nameParameter, limitQueryParameter],
+    responses: {
+      200: { description: 'GA4 traffic data returned.' },
+      400: { description: 'GA4 is not connected.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/ga/coverage',
+    summary: 'Get GA4 page coverage with traffic overlay',
+    tags: ['ga4'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'GA4 coverage data returned.' },
+      400: { description: 'GA4 is not connected.' },
+      404: { description: 'Project not found.' },
+    },
+  },
 ]
 
 export function buildOpenApiDocument(info: OpenApiInfo = {}) {
