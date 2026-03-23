@@ -163,11 +163,16 @@ export async function bingCoverage(project: string, format?: string): Promise<vo
     return
   }
 
-  const pctColor = summary.percentage >= 80 ? '\x1b[32m' : summary.percentage >= 50 ? '\x1b[33m' : '\x1b[31m'
   const reset = '\x1b[0m'
+  let pctColor: string
+  if (summary.percentage >= 80) pctColor = '\x1b[32m'
+  else if (summary.percentage >= 50) pctColor = '\x1b[33m'
+  else pctColor = '\x1b[31m'
+
+  const unknownNote = (summary.unknown ?? 0) > 0 ? `, ${summary.unknown} unknown` : ''
 
   console.log(`\nBing Index Coverage for "${project}"\n`)
-  console.log(`  SUMMARY: ${pctColor}${summary.indexed} / ${summary.total} pages indexed (${summary.percentage}%)${reset}\n`)
+  console.log(`  SUMMARY: ${pctColor}${summary.indexed} / ${summary.total} pages indexed (${summary.percentage}%)${reset}${unknownNote}\n`)
 
   if (result.indexed.length > 0) {
     console.log(`  INDEXED (${result.indexed.length}):`)
@@ -189,10 +194,6 @@ export async function bingCoverage(project: string, format?: string): Promise<vo
 
   if (result.lastInspectedAt) {
     console.log(`  Last inspected: ${result.lastInspectedAt}`)
-  }
-
-  if ((summary.unknown ?? 0) > 0) {
-    console.log(`  Unknown status: ${summary.unknown}`)
   }
 }
 

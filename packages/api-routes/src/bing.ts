@@ -253,7 +253,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     const indexed = indexedUrls.length
     const notIndexed = notIndexedUrls.length
     const unknown = unknownUrls.length
-    const total = indexed + notIndexed
+    const total = indexed + notIndexed + unknown
 
     const formatRow = (r: typeof allInspections[number]) => ({
       id: r.id,
@@ -370,12 +370,12 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     // Use any explicit legacy InIndex flag if it is present. Otherwise, only a
     // positive DocumentSize is strong enough to treat the URL as indexed.
     // Zero-byte responses stay unknown instead of being forced to "not indexed".
-    const derivedInIndex: boolean | null =
-      result.InIndex != null
-        ? result.InIndex
-        : result.DocumentSize != null && result.DocumentSize > 0
-          ? true
-          : null
+    let derivedInIndex: boolean | null = null
+    if (result.InIndex != null) {
+      derivedInIndex = result.InIndex
+    } else if (result.DocumentSize != null && result.DocumentSize > 0) {
+      derivedInIndex = true
+    }
 
     const lastCrawledDate = parseBingDate(result.LastCrawledDate)
     const inIndexDate = parseBingDate(result.InIndexDate)

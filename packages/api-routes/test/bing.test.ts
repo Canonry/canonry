@@ -155,7 +155,7 @@ describe('Bing routes', () => {
     expect(body.inIndex).toBe(true)
   })
 
-  it('coverage excludes unknown rows from the not-indexed bucket', async () => {
+  it('coverage includes unknown rows in total for percentage calculation', async () => {
     const now = new Date().toISOString()
     db.insert(bingUrlInspections).values([
       {
@@ -215,11 +215,11 @@ describe('Bing routes', () => {
       unknown: Array<{ url: string }>
     }
     expect(body.summary).toEqual({
-      total: 2,
+      total: 3,
       indexed: 1,
       notIndexed: 1,
       unknown: 1,
-      percentage: 50,
+      percentage: 33.3,
     })
     expect(body.indexed.map((row) => row.url)).toEqual(['https://example.com/indexed'])
     expect(body.notIndexed.map((row) => row.url)).toEqual(['https://example.com/not-indexed'])
