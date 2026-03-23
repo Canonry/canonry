@@ -247,7 +247,7 @@ export function ProjectSettingsSection({
                       ))}
                     </div>
                   ) : (
-                    <span className="text-zinc-500">\u2014</span>
+                    <span className="text-zinc-500">{'\u2014'}</span>
                   )}
                 </td>
               </tr>

@@ -459,7 +459,7 @@ export function EvidenceDetailModal({
                         })}
                         {!isCited && (
                           <div className="citation-leaderboard-item citation-leaderboard-item--not-cited border-dashed">
-                            <span className="citation-leaderboard-rank text-zinc-600">\u2014</span>
+                            <span className="citation-leaderboard-rank text-zinc-600">{'\u2014'}</span>
                             <span className="citation-leaderboard-domain text-zinc-600">{project.project.canonicalDomain}</span>
                             <span className="citation-leaderboard-tag text-zinc-600">Not cited</span>
                           </div>
