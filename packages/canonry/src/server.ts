@@ -8,7 +8,7 @@ import { eq } from 'drizzle-orm'
 const _require = createRequire(import.meta.url)
 const { version: PKG_VERSION } = _require('../package.json') as { version: string }
 import Fastify from 'fastify'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { apiRoutes } from '@ainyc/canonry-api-routes'
 import { apiKeys, auditLog, projects, type DatabaseClient } from '@ainyc/canonry-db'
 import { geminiAdapter } from '@ainyc/canonry-provider-gemini'
@@ -426,6 +426,31 @@ export async function createServer(opts: {
     }
   }
 
+  // Auto-create a session cookie for browser requests when the server has a
+  // configured API key. This lets `canonry serve` users open the dashboard
+  // without manually pasting the key they already own.
+  const ensureBrowserSession = (request: FastifyRequest, reply: FastifyReply) => {
+    if (!opts.config.apiKey) return
+    const existing = parseCookies(request.headers.cookie)[SESSION_COOKIE_NAME]
+    if (existing && resolveSessionApiKeyId(existing)) return
+
+    const key = opts.db
+      .select()
+      .from(apiKeys)
+      .where(eq(apiKeys.keyHash, hashApiKey(opts.config.apiKey)))
+      .get()
+    if (!key || key.revokedAt) return
+
+    const sessionId = createSession(key.id)
+    reply.header('set-cookie', serializeSessionCookie({
+      name: SESSION_COOKIE_NAME,
+      value: sessionId,
+      path: sessionCookiePath,
+      secure: sessionCookieSecure,
+      ttlMs: SESSION_TTL_MS,
+    }))
+  }
+
   app.get(apiPrefix + '/session', async (request, reply) => {
     const sessionId = parseCookies(request.headers.cookie)[SESSION_COOKIE_NAME]
     return reply.send({ authenticated: Boolean(sessionId && resolveSessionApiKeyId(sessionId)) })
@@ -773,7 +798,9 @@ export async function createServer(opts: {
     // Serve index.html with injected config for the root/base-path route.
     // Register both the trailing-slash form ('/canonry/') and the bare form
     // ('/canonry') so either URL shape hits the handler without a 404.
-    const serveIndex = (_request: unknown, reply: { type: (t: string) => { send: (b: string) => unknown }; status: (s: number) => { send: (b: unknown) => unknown } }) => {
+    // Auto-sets a session cookie so local users don't need to paste their key.
+    const serveIndex = (request: FastifyRequest, reply: FastifyReply) => {
+      ensureBrowserSession(request, reply)
       if (fs.existsSync(indexPath)) {
         const html = fs.readFileSync(indexPath, 'utf-8')
         return reply.type('text/html').send(injectConfig(html))
@@ -812,6 +839,7 @@ export async function createServer(opts: {
       }
 
       if (fs.existsSync(indexPath)) {
+        ensureBrowserSession(request, reply)
         const html = fs.readFileSync(indexPath, 'utf-8')
         return reply.type('text/html').send(injectConfig(html))
       }
