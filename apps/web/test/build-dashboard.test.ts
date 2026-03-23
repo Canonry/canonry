@@ -174,6 +174,107 @@ test('buildProjectCommandCenter preserves provider continuity while marking mixe
   }])
 })
 
+test('buildProjectCommandCenter keeps historical-only provider badges on their own last known state', () => {
+  const data: ProjectData = {
+    project: {
+      id: 'proj_history',
+      name: 'history-demo',
+      displayName: 'History Demo',
+      canonicalDomain: 'history.example',
+      ownedDomains: [],
+      country: 'US',
+      language: 'en',
+      tags: [],
+      labels: {},
+      providers: ['gemini', 'openai'],
+      configSource: 'api',
+      configRevision: 1,
+      createdAt: '2026-03-20T00:00:00Z',
+      updatedAt: '2026-03-22T00:00:00Z',
+    },
+    runs: [
+      {
+        id: 'run_1',
+        projectId: 'proj_history',
+        kind: 'answer-visibility',
+        status: 'completed',
+        trigger: 'manual',
+        startedAt: '2026-03-21T00:00:00Z',
+        finishedAt: '2026-03-21T00:00:10Z',
+        error: null,
+        createdAt: '2026-03-21T00:00:00Z',
+      },
+      {
+        id: 'run_2',
+        projectId: 'proj_history',
+        kind: 'answer-visibility',
+        status: 'completed',
+        trigger: 'manual',
+        startedAt: '2026-03-22T00:00:00Z',
+        finishedAt: '2026-03-22T00:00:10Z',
+        error: null,
+        createdAt: '2026-03-22T00:00:00Z',
+      },
+    ],
+    keywords: [{ id: 'kw_1', keyword: 'best ai seo agency', createdAt: '2026-03-20T00:00:00Z' }],
+    competitors: [],
+    timeline: [{
+      keyword: 'best ai seo agency',
+      runs: [
+        { runId: 'run_1', createdAt: '2026-03-21T00:00:00Z', citationState: 'cited', transition: 'new' },
+        { runId: 'run_2', createdAt: '2026-03-22T00:00:00Z', citationState: 'not-cited', transition: 'lost' },
+      ],
+      providerRuns: {
+        gemini: [
+          { runId: 'run_1', createdAt: '2026-03-21T00:00:00Z', citationState: 'cited', transition: 'new' },
+        ],
+        openai: [
+          { runId: 'run_1', createdAt: '2026-03-21T00:00:00Z', citationState: 'not-cited', transition: 'new' },
+          { runId: 'run_2', createdAt: '2026-03-22T00:00:00Z', citationState: 'not-cited', transition: 'not-cited' },
+        ],
+      },
+      modelRuns: {},
+    }],
+    latestRunDetail: {
+      id: 'run_2',
+      projectId: 'proj_history',
+      kind: 'answer-visibility',
+      status: 'completed',
+      trigger: 'manual',
+      startedAt: '2026-03-22T00:00:00Z',
+      finishedAt: '2026-03-22T00:00:10Z',
+      error: null,
+      createdAt: '2026-03-22T00:00:00Z',
+      snapshots: [{
+        id: 'snap_2',
+        runId: 'run_2',
+        keywordId: 'kw_1',
+        keyword: 'best ai seo agency',
+        provider: 'openai',
+        model: 'gpt-5.4',
+        citationState: 'not-cited',
+        answerText: null,
+        citedDomains: [],
+        competitorOverlap: [],
+        groundingSources: [],
+        searchQueries: [],
+        location: null,
+        createdAt: '2026-03-22T00:00:00Z',
+      }],
+    },
+    previousRunDetail: null,
+  }
+
+  const evidence = buildProjectCommandCenter(data).visibilityEvidence
+  const geminiEvidence = evidence.find(item => item.provider === 'gemini')
+  const openaiEvidence = evidence.find(item => item.provider === 'openai')
+
+  expect(geminiEvidence?.citationState).toBe('cited')
+  expect(geminiEvidence?.changeLabel).toBe('First observation')
+  expect(geminiEvidence?.runHistory).toHaveLength(1)
+  expect(openaiEvidence?.citationState).toBe('not-cited')
+})
+
 test('buildProjectCommandCenter summarizes gap key phrases and prefers Google index coverage', () => {
   const data: ProjectData = {
     project: {

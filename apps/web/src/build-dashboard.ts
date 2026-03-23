@@ -386,11 +386,15 @@ function buildEvidenceFromTimeline(
           ? effectiveHistory.at(-1)!.transition
           : transition
 
-        const snapState: CitationState = effectiveTransition === 'lost' ? 'lost'
-          : effectiveTransition === 'emerging' ? 'emerging'
-          : snap
-            ? (snap.citationState === 'cited' ? 'cited' : 'not-cited')
-            : citationState
+        // When a provider is missing from the latest run, keep showing its last
+        // observed provider-level state instead of leaking the keyword-level
+        // transition from another provider into this synthetic badge row.
+        const latestProviderState = effectiveHistory?.at(-1)?.citationState
+        const snapState: CitationState = snap
+          ? effectiveTransition === 'lost' ? 'lost'
+            : effectiveTransition === 'emerging' ? 'emerging'
+            : snap.citationState === 'cited' ? 'cited' : 'not-cited'
+          : latestProviderState === 'cited' ? 'cited' : 'not-cited'
 
         const streak = effectiveHistory
           ? computeStreak(effectiveHistory)
