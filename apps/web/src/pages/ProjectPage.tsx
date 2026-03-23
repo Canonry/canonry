@@ -459,8 +459,8 @@ function BingSection({ projectName }: { projectName: string }) {
           <div className="mt-4 space-y-4">
             <div className="grid gap-3 sm:grid-cols-4">
               <BingSummaryMetric label="Indexed" value={coverage.summary.indexed} tone="positive" />
-              <BingSummaryMetric label="Not indexed" value={coverage.summary.notIndexed} tone="negative" />
-              <BingSummaryMetric label="Unknown" value={coverage.summary.unknown ?? 0} tone="neutral" />
+              <BingSummaryMetric label="Not in index" value={coverage.summary.notIndexed + (coverage.summary.unknown ?? 0)} tone="negative" />
+              <BingSummaryMetric label="Status unknown" value={coverage.summary.unknown ?? 0} tone="neutral" />
               <BingSummaryMetric label="Coverage" value={`${coverage.summary.percentage}%`} tone="neutral" />
             </div>
 
@@ -833,8 +833,11 @@ function SearchConsoleSection({
     : bingConnection?.connected
       ? 'Awaiting coverage'
       : 'No coverage data'
+  const bingNotInIndex = bingCoverage
+    ? bingCoverage.summary.notIndexed + (bingCoverage.summary.unknown ?? 0)
+    : 0
   const bingNote = bingCoverage
-    ? `${bingCoverage.summary.notIndexed} not indexed`
+    ? `${bingNotInIndex} not in index`
     : bingConnection?.connected
       ? 'Inspect URLs to populate coverage'
       : bingConfigured
