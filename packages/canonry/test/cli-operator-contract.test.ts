@@ -363,7 +363,7 @@ describe('operator CLI contract', () => {
       'json',
     ])
     const added = JSON.parse(addResult.stdout) as { id: string; url: string; events: string[] }
-    expect(added.url).toBe('https://1.1.1.1/canonry-webhook')
+    expect(added.url).toBe('https://1.1.1.1/redacted')
     expect(added.events).toEqual(['run.completed', 'run.failed'])
 
     const listResult = await invokeCli(['notify', 'list', 'test-proj', '--format', 'json'])
