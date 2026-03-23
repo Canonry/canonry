@@ -40,6 +40,9 @@ export interface ApiRoutesOptions {
   openApiInfo?: OpenApiInfo
   /** Skip auth for testing */
   skipAuth?: boolean
+  /** Optional cookie-backed browser session support */
+  sessionCookieName?: string
+  resolveSessionApiKeyId?: (sessionId: string) => string | null | Promise<string | null>
 
   /** Callback when a run is created (wire up job runner) */
   onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: import('@ainyc/canonry-contracts').LocationContext | null) => void
@@ -128,15 +131,17 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     })
   })
 
-  // Register auth (unless skipped)
-  if (!opts.skipAuth) {
-    await app.register(authPlugin)
-  }
-
   // Register route plugins under the configured prefix (default: /api/v1).
   // When a basePath is set and the reverse proxy does not strip it, pass
   // routePrefix: `${basePath}api/v1` so routes match the full incoming path.
   await app.register(async (api) => {
+    if (!opts.skipAuth) {
+      await authPlugin(api, {
+        sessionCookieName: opts.sessionCookieName,
+        resolveSessionApiKeyId: opts.resolveSessionApiKeyId,
+      })
+    }
+
     await api.register(openApiRoutes, opts.openApiInfo ?? {})
     await api.register(projectRoutes, {
       onProjectDeleted: opts.onProjectDeleted,
@@ -203,5 +208,6 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
 export type { DatabaseClient } from '@ainyc/canonry-db'
 export { queueRunIfProjectIdle } from './run-queue.js'
 export { deliverWebhook, resolveWebhookTarget } from './webhooks.js'
+export { redactNotificationDiff, redactNotificationUrl } from './notification-redaction.js'
 export type { SafeWebhookTarget } from './webhooks.js'
 export type { RunRoutesOptions } from './runs.js'

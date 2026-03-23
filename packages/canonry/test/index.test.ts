@@ -192,6 +192,98 @@ describe('canonry', () => {
     }
   })
 
+  it('local server uses cookie sessions for the web UI without exposing the root API key in HTML', async () => {
+    const tmpDir = path.join(os.tmpdir(), `canonry-session-${crypto.randomUUID()}`)
+    fs.mkdirSync(tmpDir, { recursive: true })
+    const dbPath = path.join(tmpDir, 'test.db')
+
+    const db = createClient(dbPath)
+    migrate(db)
+
+    const rawKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
+    const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex')
+    db.insert(apiKeys).values({
+      id: crypto.randomUUID(),
+      name: 'test',
+      keyHash,
+      keyPrefix: rawKey.slice(0, 9),
+      scopes: '["*"]',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    const app = await createServer({
+      config: {
+        apiUrl: 'http://localhost:4100',
+        database: dbPath,
+        apiKey: rawKey,
+        geminiApiKey: 'test-key',
+      },
+      db,
+      logger: false,
+    })
+
+    try {
+      const unauthRes = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects',
+      })
+      expect(unauthRes.statusCode).toBe(401)
+
+      const loginRes = await app.inject({
+        method: 'POST',
+        url: '/api/v1/session',
+        payload: { apiKey: rawKey },
+      })
+      expect(loginRes.statusCode).toBe(200)
+      expect(JSON.parse(loginRes.body)).toEqual({ authenticated: true })
+
+      const setCookie = loginRes.headers['set-cookie']
+      const cookieHeader = (Array.isArray(setCookie) ? setCookie[0] : setCookie)?.split(';')[0]
+      expect(cookieHeader).toBeTruthy()
+      expect(cookieHeader).toContain('canonry_session=')
+
+      const sessionRes = await app.inject({
+        method: 'GET',
+        url: '/api/v1/session',
+        headers: { cookie: cookieHeader! },
+      })
+      expect(sessionRes.statusCode).toBe(200)
+      expect(JSON.parse(sessionRes.body)).toEqual({ authenticated: true })
+
+      const authedRes = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects',
+        headers: { cookie: cookieHeader! },
+      })
+      expect(authedRes.statusCode).toBe(200)
+
+      const htmlRes = await app.inject({
+        method: 'GET',
+        url: '/',
+      })
+      expect(htmlRes.statusCode).toBe(200)
+      expect(htmlRes.body).toContain('__CANONRY_CONFIG__')
+      expect(htmlRes.body).not.toContain(rawKey)
+
+      const logoutRes = await app.inject({
+        method: 'DELETE',
+        url: '/api/v1/session',
+        headers: { cookie: cookieHeader! },
+      })
+      expect(logoutRes.statusCode).toBe(204)
+
+      const afterLogoutRes = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects',
+        headers: { cookie: cookieHeader! },
+      })
+      expect(afterLogoutRes.statusCode).toBe(401)
+    } finally {
+      await app.close()
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
   it('API flow: create and get project via inject', async () => {
     const tmpDir = path.join(os.tmpdir(), `canonry-test-${crypto.randomUUID()}`)
     fs.mkdirSync(tmpDir, { recursive: true })

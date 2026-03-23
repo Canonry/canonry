@@ -13,6 +13,8 @@ export const notificationDtoSchema = z.object({
   projectId: z.string(),
   channel: z.literal('webhook'),
   url: z.string().url(),
+  urlDisplay: z.string(),
+  urlHost: z.string(),
   events: z.array(notificationEventSchema),
   enabled: z.boolean().default(true),
   webhookSecret: z.string().optional(),

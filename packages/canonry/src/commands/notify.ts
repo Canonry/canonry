@@ -12,6 +12,8 @@ interface NotificationResponse {
   projectId: string
   channel: string
   url: string
+  urlDisplay?: string
+  urlHost?: string
   events: string[]
   enabled: boolean
 }
@@ -104,7 +106,7 @@ export function listEvents(format?: string): void {
 function printNotification(n: NotificationResponse): void {
   console.log(`  ID:      ${n.id}`)
   console.log(`  Channel: ${n.channel}`)
-  console.log(`  URL:     ${n.url}`)
+  console.log(`  URL:     ${n.urlDisplay ?? n.url}`)
   console.log(`  Events:  ${n.events.join(', ')}`)
   console.log(`  Enabled: ${n.enabled ? 'yes' : 'no'}`)
 }

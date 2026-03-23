@@ -17,38 +17,83 @@ function shouldSkipAuth(url: string): boolean {
   return false
 }
 
-export async function authPlugin(app: FastifyInstance) {
+export interface AuthPluginOptions {
+  sessionCookieName?: string
+  resolveSessionApiKeyId?: (sessionId: string) => string | null | Promise<string | null>
+}
+
+function parseCookies(header: string | undefined): Record<string, string> {
+  if (!header) return {}
+
+  return header
+    .split(';')
+    .map(part => part.trim())
+    .filter(Boolean)
+    .reduce<Record<string, string>>((cookies, part) => {
+      const eqIdx = part.indexOf('=')
+      if (eqIdx <= 0) return cookies
+      const name = part.slice(0, eqIdx).trim()
+      const value = part.slice(eqIdx + 1).trim()
+      if (!name) return cookies
+      try {
+        cookies[name] = decodeURIComponent(value)
+      } catch {
+        cookies[name] = value
+      }
+      return cookies
+    }, {})
+}
+
+export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions = {}) {
   app.addHook('onRequest', async (request, reply) => {
     const url = request.url.split('?')[0]!
     if (shouldSkipAuth(url)) return
 
     const header = request.headers.authorization
-    if (!header) {
+    let key: typeof apiKeys.$inferSelect | undefined
+
+    if (header) {
+      const parts = header.split(' ')
+      if (parts.length !== 2 || parts[0] !== 'Bearer') {
+        const err = authRequired()
+        return reply.status(err.statusCode).send(err.toJSON())
+      }
+
+      const token = parts[1]!
+      const hash = hashKey(token)
+
+      key = app.db
+        .select()
+        .from(apiKeys)
+        .where(eq(apiKeys.keyHash, hash))
+        .get()
+
+      if (!key || key.revokedAt) {
+        const err = authInvalid()
+        return reply.status(err.statusCode).send(err.toJSON())
+      }
+    } else if (opts.resolveSessionApiKeyId && opts.sessionCookieName) {
+      const sessionId = parseCookies(request.headers.cookie)[opts.sessionCookieName]
+      if (sessionId) {
+        const apiKeyId = await opts.resolveSessionApiKeyId(sessionId)
+        if (apiKeyId) {
+          key = app.db
+            .select()
+            .from(apiKeys)
+            .where(eq(apiKeys.id, apiKeyId))
+            .get()
+        }
+      }
+
+      if (!key || key.revokedAt) {
+        const err = authRequired()
+        return reply.status(err.statusCode).send(err.toJSON())
+      }
+    } else {
       const err = authRequired()
       return reply.status(err.statusCode).send(err.toJSON())
     }
 
-    const parts = header.split(' ')
-    if (parts.length !== 2 || parts[0] !== 'Bearer') {
-      const err = authRequired()
-      return reply.status(err.statusCode).send(err.toJSON())
-    }
-
-    const token = parts[1]!
-    const hash = hashKey(token)
-
-    const key = app.db
-      .select()
-      .from(apiKeys)
-      .where(eq(apiKeys.keyHash, hash))
-      .get()
-
-    if (!key || key.revokedAt) {
-      const err = authInvalid()
-      return reply.status(err.statusCode).send(err.toJSON())
-    }
-
-    // Update last_used_at
     app.db
       .update(apiKeys)
       .set({ lastUsedAt: new Date().toISOString() })

@@ -2,6 +2,7 @@ import { eq, desc, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { auditLog, querySnapshots, runs, keywords } from '@ainyc/canonry-db'
 import { resolveProject } from './helpers.js'
+import { redactNotificationDiff } from './notification-redaction.js'
 
 export async function historyRoutes(app: FastifyInstance) {
   // GET /projects/:name/history — audit log for project
@@ -320,7 +321,11 @@ function formatAuditEntry(row: {
     action: row.action,
     entityType: row.entityType,
     entityId: row.entityId,
-    diff: row.diff ? tryParseJson(row.diff, null) : null,
+    diff: row.diff
+      ? row.entityType === 'notification'
+        ? redactNotificationDiff(tryParseJson(row.diff, null))
+        : tryParseJson(row.diff, null)
+      : null,
     createdAt: row.createdAt,
   }
 }

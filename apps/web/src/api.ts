@@ -21,7 +21,6 @@ export class ApiError extends Error {
 declare global {
   interface Window {
     __CANONRY_CONFIG__?: {
-      apiKey?: string
       /**
        * Sub-path prefix injected by `canonry serve --base-path /canonry/`.
        * When set, API requests are sent relative to this path so they route
@@ -44,16 +43,18 @@ function getApiBase(): string {
 const API_BASE = getApiBase()
 
 function getApiKey(): string {
-  if (typeof window !== 'undefined' && window.__CANONRY_CONFIG__?.apiKey) {
-    return window.__CANONRY_CONFIG__.apiKey
-  }
   return import.meta.env.VITE_API_KEY ?? ''
+}
+
+export function hasExplicitBrowserApiKey(): boolean {
+  return Boolean(getApiKey())
 }
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const key = getApiKey()
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
+    credentials: options?.credentials ?? 'same-origin',
     headers: {
       'Content-Type': 'application/json',
       ...(key ? { Authorization: `Bearer ${key}` } : {}),
@@ -385,6 +386,21 @@ export interface ApiSettings {
 
 export function fetchSettings(): Promise<ApiSettings> {
   return apiFetch('/settings')
+}
+
+export interface ApiSessionState {
+  authenticated: boolean
+}
+
+export function fetchSession(): Promise<ApiSessionState> {
+  return apiFetch('/session')
+}
+
+export function loginWithApiKey(apiKey: string): Promise<ApiSessionState> {
+  return apiFetch('/session', {
+    method: 'POST',
+    body: JSON.stringify({ apiKey }),
+  })
 }
 
 export async function fetchHealthCheck(): Promise<{ status: string }> {

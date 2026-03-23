@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import { notifications } from '@ainyc/canonry-db'
 import type { NotificationEvent, NotificationDto } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
+import { redactNotificationUrl } from './notification-redaction.js'
 import { deliverWebhook, resolveWebhookTarget } from './webhooks.js'
 
 const VALID_EVENTS: NotificationEvent[] = ['citation.lost', 'citation.gained', 'run.completed', 'run.failed']
@@ -71,7 +72,7 @@ export async function notificationRoutes(app: FastifyInstance) {
       action: 'notification.created',
       entityType: 'notification',
       entityId: id,
-      diff: { channel, url, events },
+      diff: { channel, ...redactNotificationUrl(url), events },
     })
 
     // Include webhookSecret only in the 201 response; it is never returned again.
@@ -148,9 +149,10 @@ export async function notificationRoutes(app: FastifyInstance) {
       dashboardUrl: `/projects/${project.name}`,
     }
 
-    request.log.info(`[Notification test] POST ${config.url}`)
+    const targetLabel = redactNotificationUrl(config.url).urlDisplay
+    request.log.info(`[Notification test] POST ${targetLabel}`)
     const { status, error } = await deliverWebhook(urlCheck.target, payload, notification.webhookSecret ?? null)
-    request.log.info(`[Notification test] Response: HTTP ${status} from ${config.url}`)
+    request.log.info(`[Notification test] Response: HTTP ${status} from ${targetLabel}`)
 
     writeAuditLog(app.db, {
       projectId: project.id,
@@ -170,11 +172,14 @@ export async function notificationRoutes(app: FastifyInstance) {
 
 function formatNotification(row: typeof notifications.$inferSelect): Omit<NotificationDto, 'webhookSecret'> {
   const config = JSON.parse(row.config) as { url: string; events: NotificationEvent[] }
+  const redacted = redactNotificationUrl(config.url)
   return {
     id: row.id,
     projectId: row.projectId,
     channel: 'webhook',
-    url: config.url,
+    url: redacted.url,
+    urlDisplay: redacted.urlDisplay,
+    urlHost: redacted.urlHost,
     events: config.events,
     enabled: row.enabled === 1,
     createdAt: row.createdAt,

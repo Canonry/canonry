@@ -1,5 +1,5 @@
 import { eq, desc, and, or } from 'drizzle-orm'
-import { deliverWebhook, resolveWebhookTarget } from '@ainyc/canonry-api-routes'
+import { deliverWebhook, redactNotificationUrl, resolveWebhookTarget } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { notifications, runs, querySnapshots, keywords, projects, auditLog } from '@ainyc/canonry-db'
 import type { NotificationEvent, WebhookPayload } from '@ainyc/canonry-contracts'
@@ -171,14 +171,15 @@ export class Notifier {
   }
 
   private async sendWebhook(url: string, payload: WebhookPayload, notificationId: string, projectId: string, webhookSecret: string | null): Promise<void> {
+    const targetLabel = redactNotificationUrl(url).urlDisplay
     const targetCheck = await resolveWebhookTarget(url)
     if (!targetCheck.ok) {
-      console.error(`[Notifier] Webhook URL blocked by SSRF check: ${url}`)
+      console.error(`[Notifier] Webhook URL blocked by SSRF check: ${targetLabel}`)
       this.logDelivery(projectId, notificationId, payload.event, 'failed', `SSRF: ${targetCheck.message}`)
       return
     }
 
-    console.log(`[Notifier] Sending webhook event="${payload.event}" to ${url}`)
+    console.log(`[Notifier] Sending webhook event="${payload.event}" to ${targetLabel}`)
 
     const maxRetries = 3
     const delays = [1000, 4000, 16000]

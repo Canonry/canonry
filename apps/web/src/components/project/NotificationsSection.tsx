@@ -140,7 +140,7 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
           <table className="evidence-table">
             <thead>
               <tr>
-                <th>URL</th>
+                <th>Endpoint</th>
                 <th>Events</th>
                 <th>Status</th>
                 <th />
@@ -150,7 +150,9 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
               {notifs.map(n => (
                 <tr key={n.id}>
                   <td className="evidence-keyword-cell">
-                    <span className="font-mono text-xs text-zinc-300 break-all">{n.url}</span>
+                    <span className="font-mono text-xs text-zinc-300 break-all" title={n.urlHost}>
+                      {n.urlDisplay ?? n.url}
+                    </span>
                   </td>
                   <td>
                     <div className="flex flex-wrap gap-1">

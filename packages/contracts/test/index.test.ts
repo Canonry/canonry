@@ -19,6 +19,7 @@ import {
   computedTransitionSchema,
   querySnapshotDtoSchema,
   auditLogEntrySchema,
+  notificationDtoSchema,
   notificationEventSchema,
   effectiveDomains,
   normalizeProjectDomain,
@@ -224,6 +225,24 @@ test('auditLogEntrySchema validates log entries', () => {
 
   expect(entry.action).toBe('project.created')
   expect(entry.projectId).toBeUndefined()
+})
+
+test('notificationDtoSchema accepts redacted runtime notification payloads', () => {
+  const notification = notificationDtoSchema.parse({
+    id: 'notif_1',
+    projectId: 'project_1',
+    channel: 'webhook',
+    url: 'https://hooks.example.com/redacted',
+    urlDisplay: 'hooks.example.com/redacted',
+    urlHost: 'hooks.example.com',
+    events: ['run.completed'],
+    enabled: true,
+    createdAt: '2026-03-09T00:00:00.000Z',
+    updatedAt: '2026-03-09T00:00:00.000Z',
+  })
+
+  expect(notification.urlHost).toBe('hooks.example.com')
+  expect(notification.urlDisplay).toBe('hooks.example.com/redacted')
 })
 
 test('AppError serializes to JSON with code and message', () => {
