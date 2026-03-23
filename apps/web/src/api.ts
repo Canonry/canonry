@@ -390,10 +390,25 @@ export function fetchSettings(): Promise<ApiSettings> {
 
 export interface ApiSessionState {
   authenticated: boolean
+  setupRequired?: boolean
 }
 
 export function fetchSession(): Promise<ApiSessionState> {
   return apiFetch('/session')
+}
+
+export function setupDashboardPassword(password: string): Promise<ApiSessionState> {
+  return apiFetch('/session/setup', {
+    method: 'POST',
+    body: JSON.stringify({ password }),
+  })
+}
+
+export function loginWithPassword(password: string): Promise<ApiSessionState> {
+  return apiFetch('/session', {
+    method: 'POST',
+    body: JSON.stringify({ password }),
+  })
 }
 
 export function loginWithApiKey(apiKey: string): Promise<ApiSessionState> {

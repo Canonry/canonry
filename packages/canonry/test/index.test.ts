@@ -192,7 +192,7 @@ describe('canonry', () => {
     }
   })
 
-  it('local server uses cookie sessions for the web UI without exposing the root API key in HTML', async () => {
+  it('dashboard password setup and login flow protects the web UI', async () => {
     const tmpDir = path.join(os.tmpdir(), `canonry-session-${crypto.randomUUID()}`)
     fs.mkdirSync(tmpDir, { recursive: true })
     const dbPath = path.join(tmpDir, 'test.db')
@@ -211,45 +211,67 @@ describe('canonry', () => {
       createdAt: new Date().toISOString(),
     }).run()
 
-    const app = await createServer({
-      config: {
-        apiUrl: 'http://localhost:4100',
-        database: dbPath,
-        apiKey: rawKey,
-        geminiApiKey: 'test-key',
-      },
-      db,
-      logger: false,
-    })
+    const config = {
+      apiUrl: 'http://localhost:4100',
+      database: dbPath,
+      apiKey: rawKey,
+      geminiApiKey: 'test-key',
+    }
+
+    const app = await createServer({ config, db, logger: false })
 
     try {
+      // API routes require auth
       const unauthRes = await app.inject({
         method: 'GET',
         url: '/api/v1/projects',
       })
       expect(unauthRes.statusCode).toBe(401)
 
-      const loginRes = await app.inject({
-        method: 'POST',
-        url: '/api/v1/session',
-        payload: { apiKey: rawKey },
-      })
-      expect(loginRes.statusCode).toBe(200)
-      expect(JSON.parse(loginRes.body)).toEqual({ authenticated: true })
-
-      const setCookie = loginRes.headers['set-cookie']
-      const cookieHeader = (Array.isArray(setCookie) ? setCookie[0] : setCookie)?.split(';')[0]
-      expect(cookieHeader).toBeTruthy()
-      expect(cookieHeader).toContain('canonry_session=')
-
-      const sessionRes = await app.inject({
+      // Session check reports setup is required (no password yet)
+      const preSetupSession = await app.inject({
         method: 'GET',
         url: '/api/v1/session',
-        headers: { cookie: cookieHeader! },
       })
-      expect(sessionRes.statusCode).toBe(200)
-      expect(JSON.parse(sessionRes.body)).toEqual({ authenticated: true })
+      expect(preSetupSession.statusCode).toBe(200)
+      const preSetup = JSON.parse(preSetupSession.body) as { authenticated: boolean; setupRequired: boolean }
+      expect(preSetup.authenticated).toBe(false)
+      expect(preSetup.setupRequired).toBe(true)
 
+      // Setup rejects short passwords
+      const shortPwRes = await app.inject({
+        method: 'POST',
+        url: '/api/v1/session/setup',
+        payload: { password: 'short' },
+      })
+      expect(shortPwRes.statusCode).toBe(400)
+
+      // Setup with valid password creates session
+      const dashboardPassword = 'my-secure-dashboard-password'
+      const setupRes = await app.inject({
+        method: 'POST',
+        url: '/api/v1/session/setup',
+        payload: { password: dashboardPassword },
+      })
+      expect(setupRes.statusCode).toBe(200)
+      expect(JSON.parse(setupRes.body)).toEqual({ authenticated: true })
+
+      const setupCookie = setupRes.headers['set-cookie']
+      const cookieHeader = (Array.isArray(setupCookie) ? setupCookie[0] : setupCookie)?.split(';')[0]
+      expect(cookieHeader).toContain('canonry_session=')
+
+      // Password hash is persisted in config
+      expect(config.dashboardPasswordHash).toBeTruthy()
+
+      // Setup endpoint rejects second call (password already set)
+      const doubleSetup = await app.inject({
+        method: 'POST',
+        url: '/api/v1/session/setup',
+        payload: { password: 'another-password' },
+      })
+      expect(doubleSetup.statusCode).toBe(400)
+
+      // Session cookie grants API access
       const authedRes = await app.inject({
         method: 'GET',
         url: '/api/v1/projects',
@@ -257,16 +279,17 @@ describe('canonry', () => {
       })
       expect(authedRes.statusCode).toBe(200)
 
+      // HTML never contains the raw API key
       const htmlRes = await app.inject({
         method: 'GET',
         url: '/',
       })
-      // Assets may not be built in CI — only assert config injection when SPA is available
       if (htmlRes.statusCode === 200) {
         expect(htmlRes.body).toContain('__CANONRY_CONFIG__')
       }
       expect(htmlRes.body).not.toContain(rawKey)
 
+      // Logout invalidates the session
       const logoutRes = await app.inject({
         method: 'DELETE',
         url: '/api/v1/session',
@@ -280,6 +303,23 @@ describe('canonry', () => {
         headers: { cookie: cookieHeader! },
       })
       expect(afterLogoutRes.statusCode).toBe(401)
+
+      // Login with password works after setup
+      const loginRes = await app.inject({
+        method: 'POST',
+        url: '/api/v1/session',
+        payload: { password: dashboardPassword },
+      })
+      expect(loginRes.statusCode).toBe(200)
+      expect(JSON.parse(loginRes.body)).toEqual({ authenticated: true })
+
+      // Wrong password is rejected
+      const badLoginRes = await app.inject({
+        method: 'POST',
+        url: '/api/v1/session',
+        payload: { password: 'wrong-password' },
+      })
+      expect(badLoginRes.statusCode).toBe(401)
     } finally {
       await app.close()
       fs.rmSync(tmpDir, { recursive: true, force: true })

@@ -426,20 +426,20 @@ export async function createServer(opts: {
     }
   }
 
-  // Auto-create a session cookie for browser requests when the server has a
-  // configured API key. This lets `canonry serve` users open the dashboard
-  // without manually pasting the key they already own.
-  const ensureBrowserSession = (request: FastifyRequest, reply: FastifyReply) => {
-    if (!opts.config.apiKey) return
-    const existing = parseCookies(request.headers.cookie)[SESSION_COOKIE_NAME]
-    if (existing && resolveSessionApiKeyId(existing)) return
-
-    const key = opts.db
+  // Resolve the default API key record once — used by password-based sessions
+  // to bind the session to the server's configured key.
+  const getDefaultApiKey = () => {
+    if (!opts.config.apiKey) return undefined
+    return opts.db
       .select()
       .from(apiKeys)
       .where(eq(apiKeys.keyHash, hashApiKey(opts.config.apiKey)))
       .get()
-    if (!key || key.revokedAt) return
+  }
+
+  const createPasswordSession = (reply: FastifyReply) => {
+    const key = getDefaultApiKey()
+    if (!key || key.revokedAt) return false
 
     const sessionId = createSession(key.id)
     reply.header('set-cookie', serializeSessionCookie({
@@ -449,48 +449,96 @@ export async function createServer(opts: {
       secure: sessionCookieSecure,
       ttlMs: SESSION_TTL_MS,
     }))
+    return true
   }
 
   app.get(apiPrefix + '/session', async (request, reply) => {
     const sessionId = parseCookies(request.headers.cookie)[SESSION_COOKIE_NAME]
-    return reply.send({ authenticated: Boolean(sessionId && resolveSessionApiKeyId(sessionId)) })
+    return reply.send({
+      authenticated: Boolean(sessionId && resolveSessionApiKeyId(sessionId)),
+      setupRequired: !opts.config.dashboardPasswordHash,
+    })
   })
 
+  // One-time password setup — only works when no password is configured yet.
   app.post<{
-    Body: { apiKey?: string }
-  }>(apiPrefix + '/session', async (request, reply) => {
-    const apiKey = request.body?.apiKey?.trim()
-    if (!apiKey) {
-      const err = validationError('An API key is required')
+    Body: { password?: string }
+  }>(apiPrefix + '/session/setup', async (request, reply) => {
+    if (opts.config.dashboardPasswordHash) {
+      const err = validationError('Dashboard password is already configured')
       return reply.status(err.statusCode).send(err.toJSON())
     }
 
-    const key = opts.db
-      .select()
-      .from(apiKeys)
-      .where(eq(apiKeys.keyHash, hashApiKey(apiKey)))
-      .get()
+    const password = request.body?.password?.trim()
+    if (!password || password.length < 8) {
+      const err = validationError('Password must be at least 8 characters')
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
 
-    if (!key || key.revokedAt) {
+    opts.config.dashboardPasswordHash = hashApiKey(password)
+    saveConfig(opts.config)
+
+    if (!createPasswordSession(reply)) {
       const err = authInvalid()
       return reply.status(err.statusCode).send(err.toJSON())
     }
-
-    opts.db
-      .update(apiKeys)
-      .set({ lastUsedAt: new Date().toISOString() })
-      .where(eq(apiKeys.id, key.id))
-      .run()
-
-    const sessionId = createSession(key.id)
-    reply.header('set-cookie', serializeSessionCookie({
-      name: SESSION_COOKIE_NAME,
-      value: sessionId,
-      path: sessionCookiePath,
-      secure: sessionCookieSecure,
-      ttlMs: SESSION_TTL_MS,
-    }))
     return reply.send({ authenticated: true })
+  })
+
+  // Login with dashboard password or API key.
+  app.post<{
+    Body: { password?: string; apiKey?: string }
+  }>(apiPrefix + '/session', async (request, reply) => {
+    const password = request.body?.password?.trim()
+    const apiKey = request.body?.apiKey?.trim()
+
+    if (password) {
+      if (!opts.config.dashboardPasswordHash) {
+        const err = validationError('No dashboard password configured — use /session/setup first')
+        return reply.status(err.statusCode).send(err.toJSON())
+      }
+      if (hashApiKey(password) !== opts.config.dashboardPasswordHash) {
+        const err = authInvalid()
+        return reply.status(err.statusCode).send(err.toJSON())
+      }
+      if (!createPasswordSession(reply)) {
+        const err = authInvalid()
+        return reply.status(err.statusCode).send(err.toJSON())
+      }
+      return reply.send({ authenticated: true })
+    }
+
+    if (apiKey) {
+      const key = opts.db
+        .select()
+        .from(apiKeys)
+        .where(eq(apiKeys.keyHash, hashApiKey(apiKey)))
+        .get()
+
+      if (!key || key.revokedAt) {
+        const err = authInvalid()
+        return reply.status(err.statusCode).send(err.toJSON())
+      }
+
+      opts.db
+        .update(apiKeys)
+        .set({ lastUsedAt: new Date().toISOString() })
+        .where(eq(apiKeys.id, key.id))
+        .run()
+
+      const sessionId = createSession(key.id)
+      reply.header('set-cookie', serializeSessionCookie({
+        name: SESSION_COOKIE_NAME,
+        value: sessionId,
+        path: sessionCookiePath,
+        secure: sessionCookieSecure,
+        ttlMs: SESSION_TTL_MS,
+      }))
+      return reply.send({ authenticated: true })
+    }
+
+    const err = validationError('Either password or apiKey is required')
+    return reply.status(err.statusCode).send(err.toJSON())
   })
 
   app.delete(apiPrefix + '/session', async (request, reply) => {
@@ -798,9 +846,7 @@ export async function createServer(opts: {
     // Serve index.html with injected config for the root/base-path route.
     // Register both the trailing-slash form ('/canonry/') and the bare form
     // ('/canonry') so either URL shape hits the handler without a 404.
-    // Auto-sets a session cookie so local users don't need to paste their key.
-    const serveIndex = (request: FastifyRequest, reply: FastifyReply) => {
-      ensureBrowserSession(request, reply)
+    const serveIndex = (_request: FastifyRequest, reply: FastifyReply) => {
       if (fs.existsSync(indexPath)) {
         const html = fs.readFileSync(indexPath, 'utf-8')
         return reply.type('text/html').send(injectConfig(html))
@@ -839,7 +885,6 @@ export async function createServer(opts: {
       }
 
       if (fs.existsSync(indexPath)) {
-        ensureBrowserSession(request, reply)
         const html = fs.readFileSync(indexPath, 'utf-8')
         return reply.type('text/html').send(injectConfig(html))
       }

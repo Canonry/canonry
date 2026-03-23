@@ -83,6 +83,8 @@ export interface CanonryConfig {
   google?: GoogleConfigEntry
   bing?: BingConfigEntry
   ga4?: Ga4ConfigEntry
+  // Dashboard password hash (SHA-256 hex) — set during first dashboard visit
+  dashboardPasswordHash?: string
   // Telemetry (opt-out: undefined/true = enabled, false = disabled)
   telemetry?: boolean
   anonymousId?: string
