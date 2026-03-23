@@ -358,11 +358,6 @@ function buildEvidenceFromTimeline(
       seenKeywords.add(entry.keyword)
       const latestRun = entry.runs.at(-1)
       const transition = latestRun?.transition ?? 'not-cited'
-      const citationState: CitationState = transition === 'lost' ? 'lost'
-        : transition === 'emerging' ? 'emerging'
-        : transition === 'cited' ? 'cited'
-        : 'not-cited'
-
       for (const provider of providers) {
         const snap = snapshotsByKey.get(`${entry.keyword}::${provider}`)
         // Only skip if provider has zero history for this phrase AND no snapshot in latest run
