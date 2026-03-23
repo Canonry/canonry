@@ -922,6 +922,13 @@ export function triggerGaSync(project: string, days?: number): Promise<ApiGaSync
   })
 }
 
+export function connectGa(project: string, body: { propertyId: string; keyJson: string }): Promise<{ connected: boolean; propertyId: string; clientEmail: string }> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/ga/connect`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
 export function disconnectGa(project: string): Promise<void> {
   return apiFetch(`/projects/${encodeURIComponent(project)}/ga/disconnect`, {
     method: 'DELETE',

@@ -2,6 +2,8 @@
 
 Canonry integrates with Google Analytics 4 (GA4) via a **service account** — no OAuth redirect flow required. You grant a service account read-only access to your GA4 property once, and canonry handles the rest.
 
+You can complete the setup via the **web dashboard** or the **CLI** — both are documented below.
+
 ---
 
 ## Prerequisites
@@ -26,7 +28,7 @@ Or go directly:
 https://console.developers.google.com/apis/api/analyticsdata.googleapis.com/overview?project=YOUR_PROJECT_ID
 ```
 
-> **Note:** If you skip this step, `canonry ga connect` will fail with a `SERVICE_DISABLED` error even if your service account credentials are correct and the account has GA4 property access.
+> **Note:** If you skip this step, connecting will fail with a `SERVICE_DISABLED` error even if your service account credentials are correct and the account has GA4 property access.
 
 ---
 
@@ -66,6 +68,17 @@ The service account needs **Viewer** (or higher) access to your GA4 property.
 
 ## Step 5 — Connect via Canonry
 
+### Web UI
+
+1. Navigate to your project → **Traffic** tab
+2. Enter your **GA4 Property ID** (the numeric ID from Step 4)
+3. Click **Upload .json key file** and select the service account key file you downloaded in Step 2
+4. Click **Connect GA4**
+
+Canonry verifies the credentials by making a test API call. On success, the page refreshes to show your traffic data.
+
+### CLI
+
 ```bash
 canonry ga connect <project> --property-id <id> --key-file ./canonry-ga4.json
 ```
@@ -83,6 +96,18 @@ GA4 connected for project "ainyc" (property 527609434).
 ---
 
 ## Usage
+
+### Web UI
+
+The **Traffic** tab on each project page provides:
+
+- **Connection status** — shows the connected property ID and service account email
+- **Traffic overview** — total sessions, organic sessions, and total users
+- **Top landing pages table** — sortable by sessions, organic sessions, users, and organic percentage
+- **Sync** — pull the latest traffic data from GA4
+- **Disconnect** — remove the GA4 connection and purge stored traffic data
+
+### CLI
 
 ```bash
 # Sync last 30 days of traffic data
@@ -123,6 +148,14 @@ Either:
 
 The JSON key file is invalid or the private key is corrupted. Download a fresh key from the GCP service account console.
 
+### `JSON file is missing required fields: client_email and private_key`
+
+You uploaded the wrong type of credential file. Make sure you downloaded a **service account key** (IAM & Admin → Service Accounts → Keys), not an OAuth client JSON.
+
 ### `No GA4 connection found`
 
-Run `canonry ga connect` first before `sync`, `traffic`, or `coverage`.
+You haven't connected GA4 to this project yet.
+
+**UI:** Navigate to the **Traffic** tab and use the connect form.
+
+**CLI:** Run `canonry ga connect` with your property ID and key file.

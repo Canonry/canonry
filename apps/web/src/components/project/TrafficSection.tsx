@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
-import { RefreshCw, Unplug } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { RefreshCw, Unplug, Upload } from 'lucide-react'
 
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import type { MetricTone } from '../../view-models.js'
 import {
+  connectGa,
   fetchGaStatus,
   fetchGaTraffic,
   triggerGaSync,
@@ -137,15 +138,10 @@ export function TrafficSection({ projectName }: { projectName: string }) {
   // Not connected state
   if (!status?.connected) {
     return (
-      <Card className="surface-card p-6">
-        <h3 className="text-base font-semibold text-zinc-50 mb-2">Google Analytics 4</h3>
-        <p className="text-sm text-zinc-400 mb-4">
-          Connect a GA4 property via the CLI to see traffic data for this project.
-        </p>
-        <div className="bg-zinc-900/60 rounded-lg p-3 border border-zinc-800/60">
-          <code className="text-sm text-zinc-300">canonry ga connect {projectName} --key-file service-account.json --property-id 123456789</code>
-        </div>
-      </Card>
+      <Ga4ConnectForm
+        projectName={projectName}
+        onConnected={() => loadData({ current: false })}
+      />
     )
   }
 
@@ -287,6 +283,143 @@ export function TrafficSection({ projectName }: { projectName: string }) {
         <span>{traffic ? `${traffic.topPages.length} pages shown` : ''}</span>
       </div>
     </>
+  )
+}
+
+function Ga4ConnectForm({ projectName, onConnected }: { projectName: string; onConnected: () => void }) {
+  const [propertyId, setPropertyId] = useState('')
+  const [fileName, setFileName] = useState<string | null>(null)
+  const [keyJson, setKeyJson] = useState<string | null>(null)
+  const [connecting, setConnecting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setError(null)
+    setFileName(file.name)
+    const reader = new FileReader()
+    reader.onload = () => {
+      const text = reader.result as string
+      try {
+        const parsed = JSON.parse(text)
+        if (!parsed.client_email || !parsed.private_key) {
+          setError('JSON file is missing required fields: client_email and private_key. Make sure you downloaded a service account key (not an OAuth client).')
+          setKeyJson(null)
+          return
+        }
+        setKeyJson(text)
+      } catch {
+        setError('File is not valid JSON. Please upload a service account key file (.json) downloaded from Google Cloud Console.')
+        setKeyJson(null)
+      }
+    }
+    reader.onerror = () => {
+      setError('Failed to read file.')
+      setKeyJson(null)
+    }
+    reader.readAsText(file)
+  }, [])
+
+  async function handleConnect() {
+    setError(null)
+    if (!propertyId.trim()) {
+      setError('Property ID is required.')
+      return
+    }
+    if (!keyJson) {
+      setError('Please upload a service account key file.')
+      return
+    }
+    setConnecting(true)
+    try {
+      await connectGa(projectName, { propertyId: propertyId.trim(), keyJson })
+      // Trigger an initial sync so the user sees data immediately
+      try {
+        await triggerGaSync(projectName)
+      } catch {
+        // Sync failure is non-fatal — the connection succeeded and user can retry
+      }
+      onConnected()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to connect GA4')
+    } finally {
+      setConnecting(false)
+    }
+  }
+
+  return (
+    <Card className="surface-card p-6">
+      <h3 className="text-base font-semibold text-zinc-50 mb-1">Connect Google Analytics 4</h3>
+      <p className="text-sm text-zinc-400 mb-5">
+        Connect a GA4 property to see traffic data for this project. You'll need a service account key file from Google Cloud Console.
+      </p>
+
+      {error && (
+        <div className="mb-4 px-4 py-2 rounded-lg bg-rose-900/20 border border-rose-800/60 text-sm text-rose-300">
+          {error}
+        </div>
+      )}
+
+      {/* Step 1 — Property ID */}
+      <div className="mb-4">
+        <label htmlFor="ga4-property-id" className="block text-xs font-medium text-zinc-400 mb-1.5">
+          GA4 Property ID
+        </label>
+        <input
+          id="ga4-property-id"
+          type="text"
+          placeholder="e.g. 123456789"
+          value={propertyId}
+          onChange={(e) => setPropertyId(e.target.value)}
+          className="w-full rounded-lg bg-zinc-900/60 border border-zinc-800/60 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-zinc-600"
+        />
+        <p className="mt-1 text-[11px] text-zinc-500">
+          Find this in GA4 → Admin → Property Settings. It's a numeric ID, not the Measurement ID (G-XXXXXX).
+        </p>
+      </div>
+
+      {/* Step 2 — Service account key file */}
+      <div className="mb-5">
+        <label className="block text-xs font-medium text-zinc-400 mb-1.5">
+          Service Account Key File
+        </label>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json,application/json"
+          onChange={handleFileSelect}
+          className="hidden"
+        />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="flex items-center gap-2 w-full rounded-lg bg-zinc-900/60 border border-zinc-800/60 border-dashed px-4 py-3 text-sm text-zinc-400 hover:border-zinc-600 hover:text-zinc-300 transition-colors cursor-pointer"
+        >
+          <Upload className="w-4 h-4 shrink-0" />
+          {fileName ? (
+            <span className="text-zinc-200 truncate">{fileName}</span>
+          ) : (
+            <span>Upload .json key file</span>
+          )}
+        </button>
+        <p className="mt-1 text-[11px] text-zinc-500">
+          Download from Google Cloud Console → IAM & Admin → Service Accounts → Keys → Add Key → JSON.
+          The service account must have <span className="text-zinc-400">Viewer</span> access on the GA4 property.
+        </p>
+      </div>
+
+      {/* Connect button */}
+      <Button
+        variant="default"
+        size="sm"
+        disabled={connecting || !propertyId.trim() || !keyJson}
+        onClick={handleConnect}
+      >
+        {connecting ? 'Connecting & syncing…' : 'Connect GA4'}
+      </Button>
+    </Card>
   )
 }
 

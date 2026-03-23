@@ -45,6 +45,9 @@ canonry evidence mysite
 | Full CLI commands | [references/canonry-cli.md](references/canonry-cli.md) |
 | Interpreting results | [references/aeo-analysis.md](references/aeo-analysis.md) |
 | Indexing workflows | [references/indexing.md](references/indexing.md) |
+| Google Search Console setup | [../../docs/google-search-console-setup.md](../../docs/google-search-console-setup.md) |
+| Bing Webmaster setup | [../../docs/bing-webmaster-setup.md](../../docs/bing-webmaster-setup.md) |
+| Google Analytics 4 setup | [../../docs/google-analytics-setup.md](../../docs/google-analytics-setup.md) |
 
 ## Common Errors
 
@@ -56,3 +59,6 @@ canonry evidence mysite
 | `429 rate_limit_error` | Provider quota hit — wait or reduce sweep frequency |
 | Run status `partial` | Some providers failed — successful snapshots still saved |
 | CDP connection refused | Chrome not running with `--remote-debugging-port` |
+| `Google connection is incomplete` | OAuth tokens expired — `canonry google disconnect` then `connect` |
+| `No Bing connection found` | Run `canonry bing connect <project> --api-key <key>` first |
+| `Bing API returned 401` | API key invalid — get a new one from Bing WMT Settings → API Access |
