@@ -383,6 +383,25 @@ export async function createServer(opts: {
   // If the proxy does strip the prefix, set CANONRY_BASE_PATH to empty/unset and
   // let the proxy handle path rewriting instead.
   const apiPrefix = basePath ? `${basePath}api/v1` : '/api/v1'
+  // Ensure the configured API key exists in the DB — handles upgrades from
+  // older versions that stored the key in config.yaml but never inserted it
+  // into the api_keys table (or used a different DB file).
+  if (opts.config.apiKey) {
+    const keyHash = hashApiKey(opts.config.apiKey)
+    const existing = opts.db.select().from(apiKeys).where(eq(apiKeys.keyHash, keyHash)).get()
+    if (!existing) {
+      const prefix = opts.config.apiKey.slice(0, 12)
+      opts.db.insert(apiKeys).values({
+        id: `key_${crypto.randomBytes(8).toString('hex')}`,
+        name: 'default',
+        keyHash,
+        keyPrefix: prefix,
+        scopes: JSON.stringify(['*']),
+        createdAt: new Date().toISOString(),
+      }).run()
+    }
+  }
+
   const sessionCookiePath = basePath ?? '/'
   const sessionCookieSecure = Boolean(
     opts.config.publicUrl?.startsWith('https://')
@@ -498,12 +517,10 @@ export async function createServer(opts: {
         return reply.status(err.statusCode).send(err.toJSON())
       }
       if (hashApiKey(password) !== opts.config.dashboardPasswordHash) {
-        const err = authInvalid()
-        return reply.status(err.statusCode).send(err.toJSON())
+        return reply.status(401).send({ error: { code: 'AUTH_INVALID', message: 'Incorrect password' } })
       }
       if (!createPasswordSession(reply)) {
-        const err = authInvalid()
-        return reply.status(err.statusCode).send(err.toJSON())
+        return reply.status(401).send({ error: { code: 'AUTH_INVALID', message: 'Server API key not found — re-run canonry init' } })
       }
       return reply.send({ authenticated: true })
     }
