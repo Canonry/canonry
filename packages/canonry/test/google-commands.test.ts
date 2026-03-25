@@ -315,6 +315,73 @@ describe('google CLI commands', () => {
     expect(parsed.results[0]!.status).toBe('success')
   })
 
+  it('googleRefresh triggers GSC sync, waits, and prints coverage output', async () => {
+    await client.putProject('test-proj', {
+      displayName: 'Test',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+    })
+
+    // Mock external Google API calls to return empty data (sync succeeds)
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('googleapis.com')) {
+        return new Response(JSON.stringify({ rows: [] }), { status: 200 })
+      }
+      return originalFetch(input, init)
+    }
+
+    const { googleRefresh } = await import('../src/commands/google.js')
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await googleRefresh('test-proj')
+    } finally {
+      console.log = origLog
+      globalThis.fetch = originalFetch
+    }
+
+    // With no inspections, it should print the "No URL inspections found" message from coverage
+    expect(logs.join('\n')).toMatch(/No URL inspections found/)
+  })
+
+  it('googleRefresh outputs valid JSON when format is json', async () => {
+    await client.putProject('test-proj', {
+      displayName: 'Test',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+    })
+
+    // Mock external Google API calls to return empty data (sync succeeds)
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('googleapis.com')) {
+        return new Response(JSON.stringify({ rows: [] }), { status: 200 })
+      }
+      return originalFetch(input, init)
+    }
+
+    const { googleRefresh } = await import('../src/commands/google.js')
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await googleRefresh('test-proj', 'json')
+    } finally {
+      console.log = origLog
+      globalThis.fetch = originalFetch
+    }
+
+    const parsed = JSON.parse(logs.join('\n')) as { summary: { total: number } }
+    expect(parsed.summary).toBeDefined()
+    expect(parsed.summary.total).toBe(0)
+  })
+
   it('googleRequestIndexing throws a usage error when neither URL nor --all-unindexed is provided', async () => {
     await client.putProject('test-proj', {
       displayName: 'Test',

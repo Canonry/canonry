@@ -71,6 +71,7 @@ Usage:
   canonry google request-indexing <project> <url>  Request Google indexing for a URL
   canonry google request-indexing <project> --all-unindexed  Request indexing for all unindexed URLs
   canonry google coverage <project>  Show index coverage summary
+  canonry google refresh <project>  Force-fetch fresh GSC coverage data and display updated summary
   canonry google inspections <project>  Show URL inspection history (--url <url>)
   canonry google deindexed <project>  Show pages that lost indexing
   canonry bing connect <project>     Connect Bing Webmaster Tools (prompted for API key)
@@ -79,6 +80,7 @@ Usage:
   canonry bing sites <project>       List registered Bing sites
   canonry bing set-site <project> <url>  Set active Bing site
   canonry bing coverage <project>    Show Bing index coverage summary
+  canonry bing refresh <project>    Force-fetch fresh Bing coverage data and display updated summary
   canonry bing inspect <project> <url>  Inspect a URL via Bing
   canonry bing inspections <project>  Show Bing URL inspection history (--url <url>)
   canonry bing request-indexing <project> <url>  Submit URL to Bing for indexing

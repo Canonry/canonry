@@ -269,6 +269,56 @@ export async function bingInspections(project: string, opts: { url?: string; for
   }
 }
 
+export async function bingRefresh(project: string, format?: string): Promise<void> {
+  const client = getClient()
+
+  // Fetch all previously inspected URLs
+  const rows = await client.bingInspections(project) as Array<{ url: string }>
+  const uniqueUrls = [...new Set(rows.map((r) => r.url))]
+
+  if (uniqueUrls.length === 0) {
+    if (format === 'json') {
+      console.log(JSON.stringify({ refreshed: 0, message: 'No previously inspected URLs to refresh.' }, null, 2))
+      return
+    }
+    console.log('No previously inspected URLs to refresh. Run "canonry bing inspect <project> <url>" first.')
+    return
+  }
+
+  if (format !== 'json') {
+    process.stderr.write(`Re-inspecting ${uniqueUrls.length} URL(s) via Bing`)
+  }
+
+  // Re-inspect each URL with concurrency limit (same as UI refresh)
+  const CONCURRENCY = 10
+  const errors: string[] = []
+
+  for (let i = 0; i < uniqueUrls.length; i += CONCURRENCY) {
+    const batch = uniqueUrls.slice(i, i + CONCURRENCY)
+    const results = await Promise.allSettled(
+      batch.map((url) => client.bingInspectUrl(project, url)),
+    )
+    for (const r of results) {
+      if (r.status === 'rejected') {
+        errors.push(r.reason instanceof Error ? r.reason.message : String(r.reason))
+      }
+    }
+    if (format !== 'json') {
+      process.stderr.write('.')
+    }
+  }
+
+  if (format !== 'json') {
+    process.stderr.write('\n')
+    if (errors.length > 0) {
+      process.stderr.write(`${errors.length} URL(s) failed to re-inspect.\n`)
+    }
+  }
+
+  // Display updated coverage (same as `canonry bing coverage`)
+  await bingCoverage(project, format)
+}
+
 export async function bingRequestIndexing(project: string, opts: {
   url?: string
   allUnindexed?: boolean

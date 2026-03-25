@@ -148,6 +148,7 @@ canonry google sync <project>                             # sync GSC data
 canonry google sync <project> --days 30 --full --wait     # full sync with wait
 
 canonry google coverage <project>                         # index coverage summary
+canonry google refresh <project>                         # force-fetch fresh GSC coverage data
 canonry google performance <project>                      # search performance data
 canonry google performance <project> --days 30 --keyword "term" --page "/url"
 
@@ -170,6 +171,7 @@ canonry bing status <project>                    # connection status
 canonry bing sites <project>                     # list verified sites
 canonry bing set-site <project> <url>            # set active site URL
 canonry bing coverage <project>                  # URL coverage data
+canonry bing refresh <project>                  # force-fetch fresh Bing coverage data
 canonry bing inspect <project> <url>             # inspect specific URL
 canonry bing inspections <project>               # inspection history
 canonry bing request-indexing <project> <url>    # submit URL for indexing

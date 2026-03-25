@@ -11,6 +11,7 @@ import {
   googleListSitemaps,
   googlePerformance,
   googleProperties,
+  googleRefresh,
   googleRequestIndexing,
   googleSetProperty,
   googleSetSitemap,
@@ -276,13 +277,21 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['google', 'refresh'],
+    usage: 'canonry google refresh <project> [--format json]',
+    run: async (input) => {
+      const project = requireProject(input, 'google.refresh', 'canonry google refresh <project> [--format json]')
+      await googleRefresh(project, input.format)
+    },
+  },
+  {
     path: ['google'],
-    usage: 'canonry google <connect|disconnect|status|properties|set-property|set-sitemap|list-sitemaps|discover-sitemaps|sync|performance|inspect|inspect-sitemap|coverage|coverage-history|inspections|deindexed|request-indexing> <project> [args]',
+    usage: 'canonry google <connect|disconnect|status|properties|set-property|set-sitemap|list-sitemaps|discover-sitemaps|sync|performance|inspect|inspect-sitemap|coverage|coverage-history|inspections|deindexed|request-indexing|refresh> <project> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'google',
-        usage: 'canonry google <connect|disconnect|status|properties|set-property|set-sitemap|list-sitemaps|discover-sitemaps|sync|performance|inspect|inspect-sitemap|coverage|coverage-history|inspections|deindexed|request-indexing> <project> [args]',
-        available: ['connect', 'disconnect', 'status', 'properties', 'set-property', 'set-sitemap', 'list-sitemaps', 'discover-sitemaps', 'sync', 'performance', 'inspect', 'inspect-sitemap', 'coverage', 'coverage-history', 'inspections', 'deindexed', 'request-indexing'],
+        usage: 'canonry google <connect|disconnect|status|properties|set-property|set-sitemap|list-sitemaps|discover-sitemaps|sync|performance|inspect|inspect-sitemap|coverage|coverage-history|inspections|deindexed|request-indexing|refresh> <project> [args]',
+        available: ['connect', 'disconnect', 'status', 'properties', 'set-property', 'set-sitemap', 'list-sitemaps', 'discover-sitemaps', 'sync', 'performance', 'inspect', 'inspect-sitemap', 'coverage', 'coverage-history', 'inspections', 'deindexed', 'request-indexing', 'refresh'],
       })
     },
   },

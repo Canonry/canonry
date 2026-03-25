@@ -5,6 +5,7 @@ import {
   bingInspect,
   bingInspections,
   bingPerformance,
+  bingRefresh,
   bingRequestIndexing,
   bingSetSite,
   bingSites,
@@ -136,13 +137,21 @@ export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['bing', 'refresh'],
+    usage: 'canonry bing refresh <project> [--format json]',
+    run: async (input) => {
+      const project = requireProject(input, 'bing.refresh', 'canonry bing refresh <project> [--format json]')
+      await bingRefresh(project, input.format)
+    },
+  },
+  {
     path: ['bing'],
-    usage: 'canonry bing <connect|disconnect|status|sites|set-site|coverage|inspect|inspections|request-indexing|performance> <project> [args]',
+    usage: 'canonry bing <connect|disconnect|status|sites|set-site|coverage|inspect|inspections|request-indexing|performance|refresh> <project> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'bing',
-        usage: 'canonry bing <connect|disconnect|status|sites|set-site|coverage|inspect|inspections|request-indexing|performance> <project> [args]',
-        available: ['connect', 'disconnect', 'status', 'sites', 'set-site', 'coverage', 'inspect', 'inspections', 'request-indexing', 'performance'],
+        usage: 'canonry bing <connect|disconnect|status|sites|set-site|coverage|inspect|inspections|request-indexing|performance|refresh> <project> [args]',
+        available: ['connect', 'disconnect', 'status', 'sites', 'set-site', 'coverage', 'inspect', 'inspections', 'request-indexing', 'performance', 'refresh'],
       })
     },
   },

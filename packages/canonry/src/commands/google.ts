@@ -699,6 +699,37 @@ export async function googleRequestIndexing(project: string, opts: {
   }
 }
 
+export async function googleRefresh(project: string, format?: string): Promise<void> {
+  const client = getClient()
+
+  // Trigger a GSC sync and wait for completion (same as UI refresh button)
+  const run = await client.gscSync(project, {}) as { id: string; status: string; kind: string }
+
+  if (format !== 'json') {
+    process.stderr.write('Refreshing GSC coverage data')
+  }
+
+  const current = await waitForRunStatus(client, run.id, {
+    timeoutMs: 10 * 60 * 1000,
+    intervalMs: 2000,
+    progressLabel: '',
+    successStatuses: ['completed', 'partial'],
+    failureStatuses: ['failed'],
+    timeoutCode: 'GOOGLE_REFRESH_TIMEOUT',
+    failureCode: 'GOOGLE_REFRESH_FAILED',
+    timeoutMessage: 'Timed out waiting for GSC refresh to complete.',
+    failureMessage: 'GSC refresh failed.',
+    details: { project },
+  })
+
+  if (current.status === 'partial' && format !== 'json') {
+    process.stderr.write('Refresh completed with some errors.\n')
+  }
+
+  // Display updated coverage (same as `canonry google coverage`)
+  await googleCoverage(project, format)
+}
+
 export async function googleDeindexed(project: string, format?: string): Promise<void> {
   const client = getClient()
   const rows = await client.gscDeindexed(project) as Array<{
