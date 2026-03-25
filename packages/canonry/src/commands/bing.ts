@@ -310,9 +310,9 @@ export async function bingRefresh(project: string, format?: string): Promise<voi
 
   if (format !== 'json') {
     process.stderr.write('\n')
-    if (errors.length > 0) {
-      process.stderr.write(`${errors.length} URL(s) failed to re-inspect.\n`)
-    }
+  }
+  if (errors.length > 0) {
+    process.stderr.write(`${errors.length} URL(s) failed to re-inspect.\n`)
   }
 
   // Display updated coverage (same as `canonry bing coverage`)
