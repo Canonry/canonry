@@ -156,12 +156,13 @@ export async function healthcheck(config: GeminiConfig): Promise<GeminiHealthche
 
 export async function executeTrackedQuery(input: GeminiTrackedQueryInput): Promise<GeminiRawResult> {
   const model = resolveModel(input.config)
-  const searchTool = { googleSearch: {} }
 
   const prompt = buildPrompt(input.keyword, input.location)
 
   if (isVertexConfig(input.config)) {
-    const generativeModel = createVertexModel(input.config, model, [searchTool] as unknown[])
+    // Vertex AI SDK uses googleSearchRetrieval, not googleSearch
+    const vertexSearchTool = { googleSearchRetrieval: {} }
+    const generativeModel = createVertexModel(input.config, model, [vertexSearchTool] as unknown[])
     const result = await generativeModel.generateContent(prompt)
     const response = result.response
     const unified = wrapVertexResponse(response)
@@ -176,9 +177,10 @@ export async function executeTrackedQuery(input: GeminiTrackedQueryInput): Promi
       searchQueries,
     }
   } else {
-    const genAI = new GoogleGenerativeAI(input.config.apiKey)
-    // Use google_search tool (replaces deprecated googleSearchRetrieval).
+    // AI Studio SDK uses googleSearch (replaces deprecated googleSearchRetrieval).
     // SDK types don't include this yet, so we cast through unknown.
+    const searchTool = { googleSearch: {} }
+    const genAI = new GoogleGenerativeAI(input.config.apiKey)
     const generativeModel = genAI.getGenerativeModel({
       model,
       tools: [searchTool as unknown as Record<string, unknown>],

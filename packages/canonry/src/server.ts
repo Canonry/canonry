@@ -246,6 +246,7 @@ export async function createServer(opts: {
     model: registry.get(adapter.name)?.config.model,
     configured: !!registry.get(adapter.name),
     quota: registry.get(adapter.name)?.config.quotaPolicy,
+    vertexConfigured: adapter.name === 'gemini' ? !!opts.config.providers?.gemini?.vertexProject : undefined,
   }))
   const googleSettingsSummary = {
     configured: Boolean(opts.config.google?.clientId && opts.config.google?.clientSecret),
@@ -652,6 +653,11 @@ export async function createServer(opts: {
         baseUrl: baseUrl || existing?.baseUrl,
         model: model || existing?.model,
         quota: mergedQuota,
+        // Preserve Vertex AI config (Gemini provider) — these are set via
+        // config file or env vars, not through the dashboard update payload
+        vertexProject: existing?.vertexProject,
+        vertexRegion: existing?.vertexRegion,
+        vertexCredentials: existing?.vertexCredentials,
       }
 
       try {
@@ -669,6 +675,9 @@ export async function createServer(opts: {
         baseUrl: baseUrl || existing?.baseUrl,
         model: model || existing?.model,
         quotaPolicy: quota,
+        vertexProject: existing?.vertexProject,
+        vertexRegion: existing?.vertexRegion,
+        vertexCredentials: existing?.vertexCredentials,
       })
 
       // Update the providerSummary array in-place
@@ -677,6 +686,9 @@ export async function createServer(opts: {
         entry.configured = true
         entry.model = model || registry.get(name)?.config.model
         entry.quota = quota
+        if (name === 'gemini') {
+          entry.vertexConfigured = !!opts.config.providers?.[name]?.vertexProject
+        }
       }
 
       const afterConfig = summarizeProviderConfig(name, opts.config.providers[name])

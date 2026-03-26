@@ -13,6 +13,8 @@ export interface ProviderSummaryEntry {
   model?: string
   configured: boolean
   quota?: ProviderQuotaPolicy
+  /** Whether Vertex AI is configured for this provider (Gemini only) */
+  vertexConfigured?: boolean
 }
 
 export interface GoogleSettingsSummary {
@@ -78,9 +80,15 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
         return reply.status(err.statusCode).send(err.toJSON())
       }
     } else if (name === 'gemini' && !apiKey) {
-      // Gemini allows empty apiKey when using Vertex AI (configured via config file / env vars).
-      // Return an informational response so the caller knows no API key was saved.
-      // The provider will only work if Vertex AI config (GEMINI_VERTEX_PROJECT) is set elsewhere.
+      // Gemini allows empty apiKey only when Vertex AI is already configured
+      const geminiSummary = (opts.providerSummary ?? []).find(p => p.name === 'gemini')
+      if (!geminiSummary?.vertexConfigured) {
+        const err = validationError(
+          'apiKey is required for Gemini unless Vertex AI is configured ' +
+          '(set GEMINI_VERTEX_PROJECT env var or vertexProject in config file)',
+        )
+        return reply.status(err.statusCode).send(err.toJSON())
+      }
     } else {
       if (!apiKey || typeof apiKey !== 'string') {
         const err = validationError('apiKey is required')
