@@ -1,4 +1,4 @@
-import { loadConfig, saveConfig, getConfigPath } from '../config.js'
+import { loadConfig, saveConfigPatch, getConfigPath } from '../config.js'
 import { createApiClient } from '../client.js'
 import { setGoogleAuthConfig } from '../google-config.js'
 
@@ -81,7 +81,7 @@ export function setGoogleAuth(opts: { clientId: string; clientSecret: string; fo
     clientId: opts.clientId,
     clientSecret: opts.clientSecret,
   })
-  saveConfig(config)
+  saveConfigPatch(config)
 
   if (opts.format === 'json') {
     console.log(JSON.stringify({

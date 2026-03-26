@@ -19,7 +19,7 @@ import { cdpChatgptAdapter } from '@ainyc/canonry-provider-cdp'
 import { perplexityAdapter } from '@ainyc/canonry-provider-perplexity'
 import { authInvalid, validationError, type ProviderAdapter } from '@ainyc/canonry-contracts'
 import type { CanonryConfig, ProviderConfigEntry } from './config.js'
-import { saveConfig, loadConfig } from './config.js'
+import { saveConfigPatch, loadConfig } from './config.js'
 import {
   getGoogleAuthConfig,
   getGoogleConnection,
@@ -281,7 +281,7 @@ export async function createServer(opts: {
       } else {
         opts.config.bing.connections.push(connection)
       }
-      saveConfig(opts.config)
+      saveConfigPatch(opts.config)
       return connection
     },
     updateConnection: (
@@ -291,7 +291,7 @@ export async function createServer(opts: {
       const conn = opts.config.bing?.connections?.find((c) => c.domain === domain)
       if (!conn) return undefined
       Object.assign(conn, patch)
-      saveConfig(opts.config)
+      saveConfigPatch(opts.config)
       return conn
     },
     deleteConnection: (domain: string) => {
@@ -299,7 +299,7 @@ export async function createServer(opts: {
       const idx = opts.config.bing.connections.findIndex((c) => c.domain === domain)
       if (idx < 0) return false
       opts.config.bing.connections.splice(idx, 1)
-      saveConfig(opts.config)
+      saveConfigPatch(opts.config)
       return true
     },
   } as const
@@ -318,12 +318,12 @@ export async function createServer(opts: {
       updatedAt: string
     }) => {
       const updated = upsertGa4Connection(opts.config, connection)
-      saveConfig(opts.config)
+      saveConfigPatch(opts.config)
       return updated
     },
     deleteConnection: (projectName: string) => {
       const removed = removeGa4Connection(opts.config, projectName)
-      if (removed) saveConfig(opts.config)
+      if (removed) saveConfigPatch(opts.config)
       return removed
     },
   } as const
@@ -346,7 +346,7 @@ export async function createServer(opts: {
       updatedAt: string
     }) => {
       const updated = upsertGoogleConnection(opts.config, connection)
-      saveConfig(opts.config)
+      saveConfigPatch(opts.config)
       return updated
     },
     updateConnection: (
@@ -363,12 +363,12 @@ export async function createServer(opts: {
       }>,
     ) => {
       const updated = patchGoogleConnection(opts.config, domain, connectionType, patch)
-      if (updated) saveConfig(opts.config)
+      if (updated) saveConfigPatch(opts.config)
       return updated
     },
     deleteConnection: (domain: string, connectionType: 'gsc' | 'ga4') => {
       const removed = removeGoogleConnection(opts.config, domain, connectionType)
-      if (removed) saveConfig(opts.config)
+      if (removed) saveConfigPatch(opts.config)
       return removed
     },
   } as const
@@ -503,7 +503,7 @@ export async function createServer(opts: {
     }
 
     opts.config.dashboardPasswordHash = hashApiKey(password)
-    saveConfig(opts.config)
+    saveConfigPatch(opts.config)
 
     if (!createPasswordSession(reply)) {
       const err = authInvalid()
@@ -661,7 +661,7 @@ export async function createServer(opts: {
       }
 
       try {
-        saveConfig(opts.config)
+        saveConfigPatch(opts.config)
       } catch (err) {
         app.log.error({ err }, 'Failed to save config')
         return null
@@ -735,7 +735,7 @@ export async function createServer(opts: {
     onGoogleSettingsUpdate: (clientId: string, clientSecret: string) => {
       try {
         setGoogleAuthConfig(opts.config, { clientId, clientSecret })
-        saveConfig(opts.config)
+        saveConfigPatch(opts.config)
         googleSettingsSummary.configured = true
         return { ...googleSettingsSummary }
       } catch (err) {
@@ -747,7 +747,7 @@ export async function createServer(opts: {
       try {
         if (!opts.config.bing) opts.config.bing = {}
         opts.config.bing.apiKey = apiKey
-        saveConfig(opts.config)
+        saveConfigPatch(opts.config)
         bingSettingsSummary.configured = true
         return { ...bingSettingsSummary }
       } catch (err) {
@@ -774,7 +774,7 @@ export async function createServer(opts: {
     setTelemetryEnabled: (enabled: boolean) => {
       const config = loadConfig()
       config.telemetry = enabled
-      saveConfig(config)
+      saveConfigPatch(config)
       // Keep in-memory config in sync
       opts.config.telemetry = enabled
     },
@@ -783,7 +783,7 @@ export async function createServer(opts: {
       opts.config.cdp.host = host
       opts.config.cdp.port = port
       try {
-        saveConfig(opts.config)
+        saveConfigPatch(opts.config)
       } catch (err) {
         app.log.error({ err }, 'Failed to save CDP config')
         throw err

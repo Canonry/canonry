@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { loadConfig, saveConfig, configExists } from './config.js'
+import { loadConfig, saveConfigPatch, configExists } from './config.js'
 
 import { createRequire } from 'node:module'
 const _require = createRequire(import.meta.url)
@@ -51,7 +51,7 @@ export function getOrCreateAnonymousId(): string | undefined {
 
     const id = crypto.randomUUID()
     config.anonymousId = id
-    saveConfig(config)
+    saveConfigPatch(config)
     return id
   } catch {
     return undefined

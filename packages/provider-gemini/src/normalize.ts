@@ -160,8 +160,9 @@ export async function executeTrackedQuery(input: GeminiTrackedQueryInput): Promi
   const prompt = buildPrompt(input.keyword, input.location)
 
   if (isVertexConfig(input.config)) {
-    // Vertex AI SDK uses googleSearchRetrieval, not googleSearch
-    const vertexSearchTool = { googleSearchRetrieval: {} }
+    // Vertex AI SDK: newer models (gemini-2.5+) require googleSearch; older models used googleSearchRetrieval.
+    // Use googleSearch which works across all current stable Vertex models.
+    const vertexSearchTool = { googleSearch: {} }
     const generativeModel = createVertexModel(input.config, model, [vertexSearchTool] as unknown[])
     const result = await generativeModel.generateContent(prompt)
     const response = result.response

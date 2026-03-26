@@ -274,6 +274,55 @@ export function saveConfig(config: CanonryConfig): void {
   fs.writeFileSync(configPath, yaml, { encoding: 'utf-8', mode: 0o600 })
 }
 
+/**
+ * Perform a targeted (partial) save: read the on-disk config, apply only the
+ * specified keys from `patch`, and write back.  Use this for runtime updates
+ * (provider settings, connection tokens, etc.) to prevent a server started
+ * with a temporary CANONRY_CONFIG_DIR from clobbering production values like
+ * `database`, `apiKey`, and `anonymousId`.
+ */
+export function saveConfigPatch(patch: Partial<CanonryConfig>): void {
+  const configDir = getConfigDir()
+  if (!fs.existsSync(configDir)) {
+    fs.mkdirSync(configDir, { recursive: true })
+  }
+  const configPath = getConfigPath()
+
+  let base: Partial<CanonryConfig> = {}
+  if (fs.existsSync(configPath)) {
+    try {
+      const raw = fs.readFileSync(configPath, 'utf-8')
+      base = (parse(raw) as Partial<CanonryConfig>) ?? {}
+    } catch {
+      base = {}
+    }
+  }
+
+  const merged = { ...base, ...patch }
+
+  // Always preserve these critical production settings if they exist on disk.
+  // This prevents a server started with a temporary CANONRY_CONFIG_DIR from
+  // overwriting the production config file with its session-specific defaults.
+  if (base.database) merged.database = base.database
+  if (base.apiKey) merged.apiKey = base.apiKey
+  if (base.anonymousId) merged.anonymousId = base.anonymousId
+  if (base.dashboardPasswordHash) merged.dashboardPasswordHash = base.dashboardPasswordHash
+
+  // Deep-merge providers: for each provider, preserve keys that exist on disk
+  // but are absent or null in the patch (e.g. vertexProject, vertexRegion,
+  // vertexCredentials set manually on prod but unknown to a test session).
+  if (base.providers && patch.providers) {
+    merged.providers = { ...base.providers }
+    for (const [key, patchEntry] of Object.entries(patch.providers)) {
+      const baseEntry = base.providers[key] ?? {}
+      merged.providers[key] = { ...baseEntry, ...patchEntry }
+    }
+  }
+
+  const yaml = stringify(merged)
+  fs.writeFileSync(configPath, yaml, { encoding: 'utf-8', mode: 0o600 })
+}
+
 export function configExists(): boolean {
   return fs.existsSync(getConfigPath())
 }

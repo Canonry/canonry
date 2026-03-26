@@ -7,7 +7,7 @@ import {
   refreshAccessToken,
 } from '@ainyc/canonry-integration-google'
 import type { CanonryConfig } from './config.js'
-import { saveConfig } from './config.js'
+import { saveConfigPatch } from './config.js'
 import { getGoogleAuthConfig, getGoogleConnection, patchGoogleConnection } from './google-config.js'
 import { fetchAndParseSitemap } from './sitemap-parser.js'
 import { createLogger } from './logger.js'
@@ -61,7 +61,7 @@ export async function executeInspectSitemap(
         tokenExpiresAt: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
         updatedAt: new Date().toISOString(),
       })
-      saveConfig(opts.config)
+      saveConfigPatch(opts.config)
     }
 
     // Determine sitemap URL: explicit > stored on connection > default

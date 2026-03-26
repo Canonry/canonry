@@ -1,4 +1,4 @@
-import { loadConfig, saveConfig } from '../config.js'
+import { loadConfig, saveConfigPatch } from '../config.js'
 import { createApiClient } from '../client.js'
 import { CliError } from '../cli-error.js'
 
@@ -20,7 +20,7 @@ export async function cdpConnect(opts: { host?: string; port?: string; format?: 
     host,
     port,
   }
-  saveConfig(config)
+  saveConfigPatch(config)
 
   if (opts.format === 'json') {
     console.log(JSON.stringify({

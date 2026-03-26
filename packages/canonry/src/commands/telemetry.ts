@@ -1,4 +1,4 @@
-import { configExists, getConfigPath, loadConfig, saveConfig } from '../config.js'
+import { configExists, getConfigPath, loadConfig, saveConfigPatch } from '../config.js'
 import { CliError, type CliFormat, usageError } from '../cli-error.js'
 
 export function telemetryCommand(subcommand?: string, format: CliFormat = 'text'): void {
@@ -87,7 +87,7 @@ export function telemetryCommand(subcommand?: string, format: CliFormat = 'text'
       }
       const config = loadConfig()
       config.telemetry = true
-      saveConfig(config)
+      saveConfigPatch(config)
 
       if (format === 'json') {
         console.log(JSON.stringify({
@@ -114,7 +114,7 @@ export function telemetryCommand(subcommand?: string, format: CliFormat = 'text'
       }
       const config = loadConfig()
       config.telemetry = false
-      saveConfig(config)
+      saveConfigPatch(config)
 
       if (format === 'json') {
         console.log(JSON.stringify({

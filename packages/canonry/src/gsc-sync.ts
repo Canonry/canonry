@@ -9,7 +9,7 @@ import {
   GSC_DATA_LAG_DAYS,
 } from '@ainyc/canonry-integration-google'
 import type { CanonryConfig } from './config.js'
-import { saveConfig } from './config.js'
+import { saveConfigPatch } from './config.js'
 import { getGoogleAuthConfig, getGoogleConnection, patchGoogleConnection } from './google-config.js'
 import { createLogger } from './logger.js'
 
@@ -74,7 +74,7 @@ export async function executeGscSync(
         tokenExpiresAt: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
         updatedAt: new Date().toISOString(),
       })
-      saveConfig(opts.config)
+      saveConfigPatch(opts.config)
     }
 
     // Determine date range
