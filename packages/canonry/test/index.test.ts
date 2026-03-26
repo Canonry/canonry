@@ -769,8 +769,9 @@ describe('canonry', () => {
         url: '/health',
       })
       expect(res.statusCode).toBe(200)
-      const body = JSON.parse(res.body) as { status: string }
+      const body = JSON.parse(res.body) as { status: string; basePath?: string }
       expect(body.status).toBe('ok')
+      expect(body.basePath).toBeUndefined()
     } finally {
       await app.close()
       fs.rmSync(tmpDir, { recursive: true, force: true })
