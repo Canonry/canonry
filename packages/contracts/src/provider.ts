@@ -64,6 +64,12 @@ export interface ProviderConfig {
   quotaPolicy: ProviderQuotaPolicy
   /** CDP WebSocket endpoint (e.g. "ws://localhost:9222" or "ws://host.tailnet:9222") */
   cdpEndpoint?: string
+  /** Vertex AI GCP project ID (Gemini provider only) */
+  vertexProject?: string
+  /** Vertex AI region, e.g. "us-central1" (Gemini provider only) */
+  vertexRegion?: string
+  /** Path to service account JSON for Vertex AI auth (falls back to ADC) */
+  vertexCredentials?: string
 }
 
 export interface LocationContext {

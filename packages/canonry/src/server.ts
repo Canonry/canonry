@@ -182,15 +182,19 @@ export async function createServer(opts: {
 
   log.info('providers.configured', { providers: Object.keys(providers).filter(k => {
     const p = providers[k]
-    return p?.apiKey || p?.baseUrl
+    return p?.apiKey || p?.baseUrl || p?.vertexProject
   }) })
 
   // Register API providers from config
   for (const adapter of API_ADAPTERS) {
     const entry = providers[adapter.name]
     if (!entry) continue
-    // Local provider requires baseUrl; others require apiKey
-    const isConfigured = adapter.name === 'local' ? !!entry.baseUrl : !!entry.apiKey
+    // Local provider requires baseUrl; Gemini can use apiKey OR vertexProject; others require apiKey
+    const isConfigured = adapter.name === 'local'
+      ? !!entry.baseUrl
+      : adapter.name === 'gemini'
+        ? !!(entry.apiKey || entry.vertexProject)
+        : !!entry.apiKey
     if (isConfigured) {
       registry.register(adapter, {
         provider: adapter.name,
@@ -198,6 +202,9 @@ export async function createServer(opts: {
         baseUrl: entry.baseUrl,
         model: entry.model,
         quotaPolicy: entry.quota ?? DEFAULT_QUOTA,
+        vertexProject: entry.vertexProject,
+        vertexRegion: entry.vertexRegion,
+        vertexCredentials: entry.vertexCredentials,
       })
     }
   }

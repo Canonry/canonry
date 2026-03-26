@@ -31,6 +31,40 @@ test('validateConfig uses custom model when specified', () => {
   expect(result.model).toBe('gemini-1.5-pro')
 })
 
+test('validateConfig accepts Vertex AI config without API key', () => {
+  const result = validateConfig({
+    apiKey: '',
+    quotaPolicy: validConfig.quotaPolicy,
+    vertexProject: 'my-gcp-project',
+    vertexRegion: 'us-central1',
+  })
+  expect(result.ok).toBe(true)
+  expect(result.message).toBe('config valid (Vertex AI)')
+  expect(result.model).toBe('gemini-3-flash')
+})
+
+test('validateConfig accepts Vertex AI config with custom model', () => {
+  const result = validateConfig({
+    apiKey: '',
+    quotaPolicy: validConfig.quotaPolicy,
+    vertexProject: 'my-gcp-project',
+    model: 'gemini-2.5-flash',
+  })
+  expect(result.ok).toBe(true)
+  expect(result.model).toBe('gemini-2.5-flash')
+})
+
+test('validateConfig falls back to default model for invalid model on Vertex AI', () => {
+  const result = validateConfig({
+    apiKey: '',
+    quotaPolicy: validConfig.quotaPolicy,
+    vertexProject: 'my-gcp-project',
+    model: 'invalid-model',
+  })
+  expect(result.ok).toBe(true)
+  expect(result.model).toBe('gemini-3-flash')
+})
+
 test('normalizeResult extracts answer text from candidates', () => {
   const raw: GeminiRawResult = {
     provider: 'gemini',

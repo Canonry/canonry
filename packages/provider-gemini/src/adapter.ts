@@ -20,6 +20,9 @@ function toGeminiConfig(config: ProviderConfig): GeminiConfig {
     apiKey: config.apiKey ?? '',
     model: config.model,
     quotaPolicy: config.quotaPolicy,
+    vertexProject: config.vertexProject,
+    vertexRegion: config.vertexRegion,
+    vertexCredentials: config.vertexCredentials,
   }
 }
 

@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI, type EnhancedGenerateContentResponse } from '@google/generative-ai'
+import { VertexAI, type GenerateContentResponse as VertexGenerateContentResponse } from '@google-cloud/vertexai'
 import type {
   GeminiConfig,
   GeminiHealthcheckResult,
@@ -12,6 +13,13 @@ const DEFAULT_MODEL = 'gemini-3-flash'
 const VALIDATION_PATTERN = /^gemini-/
 
 /**
+ * Whether this config targets Vertex AI instead of AI Studio.
+ */
+function isVertexConfig(config: GeminiConfig): boolean {
+  return !!config.vertexProject
+}
+
+/**
  * Resolve the effective model name, validating that it is a recognised Gemini
  * model identifier (must start with "gemini-").  If an invalid name is stored
  * (e.g. "vertex", which refers to a different product) the default is used and
@@ -21,15 +29,83 @@ function resolveModel(config: GeminiConfig): string {
   const m = config.model
   if (!m) return DEFAULT_MODEL
   if (VALIDATION_PATTERN.test(m)) return m
+  const backend = isVertexConfig(config) ? 'Vertex AI' : 'AI Studio'
   console.warn(
-    `[provider-gemini] Invalid model name "${m}" — this provider uses the Gemini AI Studio API ` +
-    `(generativelanguage.googleapis.com) which only accepts "gemini-*" model names. ` +
+    `[provider-gemini] Invalid model name "${m}" — this provider uses the Gemini ${backend} API ` +
+    `which only accepts "gemini-*" model names. ` +
     `Falling back to ${DEFAULT_MODEL}.`,
   )
   return DEFAULT_MODEL
 }
 
+/**
+ * Unified response shape for both AI Studio and Vertex AI SDK responses.
+ * We extract just what we need so the rest of the code is backend-agnostic.
+ */
+interface UnifiedResponse {
+  text: () => string
+  candidates: Array<{
+    content?: { parts?: Array<{ text?: string }> }
+    finishReason?: string
+    groundingMetadata?: {
+      webSearchQueries?: string[]
+      groundingChunks?: Array<{
+        web?: { uri?: string; title?: string }
+      }>
+    }
+  }> | undefined
+  usageMetadata?: unknown
+}
+
+function wrapVertexResponse(response: VertexGenerateContentResponse): UnifiedResponse {
+  return {
+    text: () => {
+      const parts = response.candidates?.[0]?.content?.parts
+      return parts?.map(p => p.text ?? '').join('') ?? ''
+    },
+    candidates: response.candidates?.map(c => ({
+      content: c.content,
+      finishReason: c.finishReason as string | undefined,
+      groundingMetadata: c.groundingMetadata as UnifiedResponse['candidates'] extends Array<infer T> ? T extends { groundingMetadata?: infer M } ? M : undefined : undefined,
+    })),
+    usageMetadata: response.usageMetadata,
+  }
+}
+
+/**
+ * Create a generative model using Vertex AI (ADC / service account auth).
+ */
+function createVertexModel(config: GeminiConfig, model: string, tools?: unknown[]) {
+  const vertexOpts: ConstructorParameters<typeof VertexAI>[0] = {
+    project: config.vertexProject!,
+    location: config.vertexRegion || 'us-central1',
+  }
+  // If a service account credentials file is specified, set the env var
+  // so the Google Auth library picks it up via ADC.
+  if (config.vertexCredentials) {
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = config.vertexCredentials
+  }
+  const vertexAI = new VertexAI(vertexOpts)
+  return vertexAI.getGenerativeModel({
+    model,
+    ...(tools ? { tools: tools as never[] } : {}),
+  })
+}
+
 export function validateConfig(config: GeminiConfig): GeminiHealthcheckResult {
+  if (isVertexConfig(config)) {
+    if (!config.vertexProject) {
+      return { ok: false, provider: 'gemini', message: 'missing vertexProject' }
+    }
+    const model = resolveModel(config)
+    return {
+      ok: true,
+      provider: 'gemini',
+      message: 'config valid (Vertex AI)',
+      model,
+    }
+  }
+
   if (!config.apiKey || config.apiKey.length === 0) {
     return { ok: false, provider: 'gemini', message: 'missing api key' }
   }
@@ -50,15 +126,28 @@ export async function healthcheck(config: GeminiConfig): Promise<GeminiHealthche
   if (!validation.ok) return validation
 
   try {
-    const genAI = new GoogleGenerativeAI(config.apiKey)
-    const model = genAI.getGenerativeModel({ model: resolveModel(config) })
-    const result = await model.generateContent('Say "ok"')
-    const text = result.response.text()
-    return {
-      ok: text.length > 0,
-      provider: 'gemini',
-      message: text.length > 0 ? 'gemini api key verified' : 'empty response from gemini',
-      model: config.model ?? DEFAULT_MODEL,
+    const model = resolveModel(config)
+    if (isVertexConfig(config)) {
+      const generativeModel = createVertexModel(config, model)
+      const result = await generativeModel.generateContent('Say "ok"')
+      const text = result.response.candidates?.[0]?.content?.parts?.map(p => p.text ?? '').join('') ?? ''
+      return {
+        ok: text.length > 0,
+        provider: 'gemini',
+        message: text.length > 0 ? 'gemini vertex ai verified' : 'empty response from gemini vertex ai',
+        model,
+      }
+    } else {
+      const genAI = new GoogleGenerativeAI(config.apiKey)
+      const generativeModel = genAI.getGenerativeModel({ model })
+      const result = await generativeModel.generateContent('Say "ok"')
+      const text = result.response.text()
+      return {
+        ok: text.length > 0,
+        provider: 'gemini',
+        message: text.length > 0 ? 'gemini api key verified' : 'empty response from gemini',
+        model,
+      }
     }
   } catch (err: unknown) {
     return {
@@ -72,30 +161,46 @@ export async function healthcheck(config: GeminiConfig): Promise<GeminiHealthche
 
 export async function executeTrackedQuery(input: GeminiTrackedQueryInput): Promise<GeminiRawResult> {
   const model = resolveModel(input.config)
-  const genAI = new GoogleGenerativeAI(input.config.apiKey)
-
-  // Use google_search tool (replaces deprecated googleSearchRetrieval).
-  // SDK types don't include this yet, so we cast through unknown.
-  const generativeModel = genAI.getGenerativeModel({
-    model,
-    tools: [{ googleSearch: {} } as unknown as Record<string, unknown>],
-  })
+  const searchTool = { googleSearch: {} }
 
   const prompt = buildPrompt(input.keyword, input.location)
 
-  const result = await generativeModel.generateContent(prompt)
-  const response = result.response
+  if (isVertexConfig(input.config)) {
+    const generativeModel = createVertexModel(input.config, model, [searchTool] as unknown[])
+    const result = await generativeModel.generateContent(prompt)
+    const response = result.response
+    const unified = wrapVertexResponse(response)
+    const groundingMetadata = extractGroundingMetadataFromUnified(unified)
+    const searchQueries = extractSearchQueriesFromUnified(unified)
 
-  // Extract grounding metadata from SDK response object
-  const groundingMetadata = extractGroundingMetadata(response)
-  const searchQueries = extractSearchQueries(response)
+    return {
+      provider: 'gemini',
+      rawResponse: unifiedToRecord(unified),
+      model,
+      groundingSources: groundingMetadata,
+      searchQueries,
+    }
+  } else {
+    const genAI = new GoogleGenerativeAI(input.config.apiKey)
+    // Use google_search tool (replaces deprecated googleSearchRetrieval).
+    // SDK types don't include this yet, so we cast through unknown.
+    const generativeModel = genAI.getGenerativeModel({
+      model,
+      tools: [searchTool as unknown as Record<string, unknown>],
+    })
 
-  return {
-    provider: 'gemini',
-    rawResponse: responseToRecord(response),
-    model,
-    groundingSources: groundingMetadata,
-    searchQueries,
+    const result = await generativeModel.generateContent(prompt)
+    const response = result.response
+    const groundingMetadata = extractGroundingMetadata(response)
+    const searchQueries = extractSearchQueries(response)
+
+    return {
+      provider: 'gemini',
+      rawResponse: responseToRecord(response),
+      model,
+      groundingSources: groundingMetadata,
+      searchQueries,
+    }
   }
 }
 
@@ -160,7 +265,38 @@ function extractGroundingMetadata(response: EnhancedGenerateContentResponse): Gr
   }
 }
 
+function extractGroundingMetadataFromUnified(response: UnifiedResponse): GroundingSource[] {
+  try {
+    const candidate = response.candidates?.[0]
+    if (!candidate) return []
+
+    const metadata = candidate.groundingMetadata
+    if (!metadata) return []
+
+    const chunks = metadata.groundingChunks
+    if (!chunks) return []
+
+    return chunks
+      .filter(chunk => chunk.web?.uri)
+      .map(chunk => ({
+        uri: chunk.web!.uri!,
+        title: chunk.web?.title ?? '',
+      }))
+  } catch {
+    return []
+  }
+}
+
 function extractSearchQueries(response: EnhancedGenerateContentResponse): string[] {
+  try {
+    const candidate = response.candidates?.[0]
+    return candidate?.groundingMetadata?.webSearchQueries ?? []
+  } catch {
+    return []
+  }
+}
+
+function extractSearchQueriesFromUnified(response: UnifiedResponse): string[] {
   try {
     const candidate = response.candidates?.[0]
     return candidate?.groundingMetadata?.webSearchQueries ?? []
@@ -237,15 +373,41 @@ function extractDomainFromUri(uri: string): string | null {
 
 export async function generateText(prompt: string, config: GeminiConfig): Promise<string> {
   const model = resolveModel(config)
-  const genAI = new GoogleGenerativeAI(config.apiKey)
-  const generativeModel = genAI.getGenerativeModel({ model })
-  const result = await generativeModel.generateContent(prompt)
-  return result.response.text()
+  if (isVertexConfig(config)) {
+    const generativeModel = createVertexModel(config, model)
+    const result = await generativeModel.generateContent(prompt)
+    return result.response.candidates?.[0]?.content?.parts?.map(p => p.text ?? '').join('') ?? ''
+  } else {
+    const genAI = new GoogleGenerativeAI(config.apiKey)
+    const generativeModel = genAI.getGenerativeModel({ model })
+    const result = await generativeModel.generateContent(prompt)
+    return result.response.text()
+  }
 }
 
 function responseToRecord(response: EnhancedGenerateContentResponse): Record<string, unknown> {
   try {
     // Serialize the SDK response to a plain object for DB storage
+    const candidates = response.candidates?.map(c => ({
+      content: c.content,
+      finishReason: c.finishReason,
+      groundingMetadata: c.groundingMetadata ? {
+        webSearchQueries: c.groundingMetadata.webSearchQueries,
+        groundingChunks: c.groundingMetadata.groundingChunks,
+      } : undefined,
+    }))
+
+    return {
+      candidates: candidates ?? [],
+      usageMetadata: response.usageMetadata ?? null,
+    }
+  } catch {
+    return { error: 'failed to serialize response' }
+  }
+}
+
+function unifiedToRecord(response: UnifiedResponse): Record<string, unknown> {
+  try {
     const candidates = response.candidates?.map(c => ({
       content: c.content,
       finishReason: c.finishReason,

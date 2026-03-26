@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@ainyc/canonry-contracts": "workspace:*",
+    "@google-cloud/vertexai": "^1.10.3",
     "@google/generative-ai": "^0.24.1"
   }
 }

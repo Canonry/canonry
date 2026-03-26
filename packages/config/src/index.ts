@@ -13,6 +13,10 @@ const envSchema = z.object({
   GEMINI_MAX_CONCURRENCY: z.coerce.number().int().positive().default(2),
   GEMINI_MAX_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(10),
   GEMINI_MAX_REQUESTS_PER_DAY: z.coerce.number().int().positive().default(1000),
+  // Gemini Vertex AI (alternative to API key auth)
+  GEMINI_VERTEX_PROJECT: z.string().optional(),
+  GEMINI_VERTEX_REGION: z.string().optional(),
+  GEMINI_VERTEX_CREDENTIALS: z.string().optional(),
   // OpenAI
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().optional(),
@@ -37,6 +41,9 @@ export interface ProviderEnvConfig {
   apiKey: string
   model?: string
   quota: ProviderQuotaPolicy
+  vertexProject?: string
+  vertexRegion?: string
+  vertexCredentials?: string
 }
 
 export interface LocalBootstrapProviderConfig {
@@ -81,6 +88,9 @@ const bootstrapEnvSchema = z.object({
   CANONRY_DATABASE_PATH: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_MODEL: z.string().optional(),
+  GEMINI_VERTEX_PROJECT: z.string().optional(),
+  GEMINI_VERTEX_REGION: z.string().optional(),
+  GEMINI_VERTEX_CREDENTIALS: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
@@ -99,15 +109,18 @@ export function getPlatformEnv(source: NodeJS.ProcessEnv): PlatformEnv {
 
   const providers: PlatformEnv['providers'] = {}
 
-  if (parsed.GEMINI_API_KEY) {
+  if (parsed.GEMINI_API_KEY || parsed.GEMINI_VERTEX_PROJECT) {
     providers.gemini = {
-      apiKey: parsed.GEMINI_API_KEY,
+      apiKey: parsed.GEMINI_API_KEY ?? '',
       model: parsed.GEMINI_MODEL,
       quota: providerQuotaPolicySchema.parse({
         maxConcurrency: parsed.GEMINI_MAX_CONCURRENCY,
         maxRequestsPerMinute: parsed.GEMINI_MAX_REQUESTS_PER_MINUTE,
         maxRequestsPerDay: parsed.GEMINI_MAX_REQUESTS_PER_DAY,
       }),
+      vertexProject: parsed.GEMINI_VERTEX_PROJECT,
+      vertexRegion: parsed.GEMINI_VERTEX_REGION,
+      vertexCredentials: parsed.GEMINI_VERTEX_CREDENTIALS,
     }
   }
 
@@ -167,15 +180,18 @@ export function getBootstrapEnv(
   const parsed = bootstrapEnvSchema.parse({ ...source, ...filtered })
   const providers: BootstrapEnv['providers'] = {}
 
-  if (parsed.GEMINI_API_KEY) {
+  if (parsed.GEMINI_API_KEY || parsed.GEMINI_VERTEX_PROJECT) {
     providers.gemini = {
-      apiKey: parsed.GEMINI_API_KEY,
+      apiKey: parsed.GEMINI_API_KEY ?? '',
       model: parsed.GEMINI_MODEL || 'gemini-3-flash',
       quota: providerQuotaPolicySchema.parse({
         maxConcurrency: 2,
         maxRequestsPerMinute: 10,
         maxRequestsPerDay: 500,
       }),
+      vertexProject: parsed.GEMINI_VERTEX_PROJECT,
+      vertexRegion: parsed.GEMINI_VERTEX_REGION,
+      vertexCredentials: parsed.GEMINI_VERTEX_CREDENTIALS,
     }
   }
 

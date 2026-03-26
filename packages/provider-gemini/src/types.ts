@@ -6,6 +6,12 @@ export interface GeminiConfig {
   apiKey: string
   quotaPolicy: ProviderQuotaPolicy
   model?: string
+  /** Vertex AI GCP project ID — when set, uses Vertex AI instead of AI Studio */
+  vertexProject?: string
+  /** Vertex AI region (default: "us-central1") */
+  vertexRegion?: string
+  /** Path to service account JSON for Vertex AI auth (falls back to ADC) */
+  vertexCredentials?: string
 }
 
 export interface GeminiHealthcheckResult {
