@@ -19,6 +19,7 @@ export default defineConfig({
     '@fastify/static',
     'openai',
     '@google/generative-ai',
+    '@google-cloud/vertexai',
     '@anthropic-ai/sdk',
     'node-cron',
     'yaml',
