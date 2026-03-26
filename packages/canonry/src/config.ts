@@ -167,9 +167,12 @@ export function loadConfig(): CanonryConfig {
 
   // Honor CANONRY_BASE_PATH env var — overrides basePath from config so that CLI
   // client commands route to the correct sub-path when behind a reverse proxy.
-  const basePathOverride = process.env.CANONRY_BASE_PATH?.trim()
-  if (basePathOverride) {
-    parsed.basePath = basePathOverride
+  // Check presence (not truthiness) so that CANONRY_BASE_PATH='' explicitly
+  // clears a basePath set in config.yaml, matching the server's normalization
+  // which treats empty as "no prefix".
+  if ('CANONRY_BASE_PATH' in process.env) {
+    const val = process.env.CANONRY_BASE_PATH!.trim()
+    parsed.basePath = val || undefined
   }
 
   // If basePath is configured (from config.yaml or CANONRY_BASE_PATH env var),

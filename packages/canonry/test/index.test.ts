@@ -117,6 +117,24 @@ describe('canonry', () => {
     }
   })
 
+  it('loadConfig clears basePath when CANONRY_BASE_PATH is empty string', () => {
+    const tmpDir = path.join(os.tmpdir(), `canonry-basepath-clear-${crypto.randomUUID()}`)
+    fs.mkdirSync(tmpDir, { recursive: true })
+    vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
+    vi.stubEnv('CANONRY_BASE_PATH', '')
+    // config.yaml has basePath set, but the empty env var should clear it
+    fs.writeFileSync(path.join(tmpDir, 'config.yaml'), 'apiUrl: http://localhost:4100\nbasePath: /canonry/\ndatabase: test.db\napiKey: cnry_test')
+
+    try {
+      const config = loadConfig()
+      expect(config.basePath).toBeUndefined()
+      // apiUrl should NOT include the basePath since it was cleared
+      expect(config.apiUrl).toBe('http://localhost:4100')
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
   it('loadConfig does not duplicate basePath when apiUrl already includes it', () => {
     const tmpDir = path.join(os.tmpdir(), `canonry-basepath-dup-${crypto.randomUUID()}`)
     fs.mkdirSync(tmpDir, { recursive: true })
@@ -829,6 +847,52 @@ describe('canonry', () => {
         headers: { Authorization: `Bearer ${rawKey}` },
       })
       expect(res3.statusCode).toBe(200)
+    } finally {
+      await app.close()
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('ApiClient auto-discovers basePath from health endpoint', async () => {
+    const tmpDir = path.join(os.tmpdir(), `canonry-test-${crypto.randomUUID()}`)
+    fs.mkdirSync(tmpDir, { recursive: true })
+    const dbPath = path.join(tmpDir, 'test.db')
+
+    const db = createClient(dbPath)
+    migrate(db)
+
+    const rawKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
+    const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex')
+    db.insert(apiKeys).values({
+      id: crypto.randomUUID(),
+      name: 'test',
+      keyHash,
+      keyPrefix: rawKey.slice(0, 9),
+      scopes: '["*"]',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    const app = await createServer({
+      config: {
+        apiUrl: 'http://localhost:4100',
+        basePath: '/canonry/',
+        database: dbPath,
+        apiKey: rawKey,
+      },
+      db,
+      logger: false,
+    })
+
+    try {
+      // Start the server on a random port
+      const address = await app.listen({ port: 0, host: '127.0.0.1' })
+
+      // Create a client pointing at the server's origin WITHOUT basePath.
+      // skipProbe defaults to false, so the client should auto-discover /canonry
+      // from the /health endpoint.
+      const client = new ApiClient(address, rawKey)
+      const projects = await client.listProjects()
+      expect(Array.isArray(projects)).toBe(true)
     } finally {
       await app.close()
       fs.rmSync(tmpDir, { recursive: true, force: true })
