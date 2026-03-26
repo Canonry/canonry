@@ -79,11 +79,9 @@ function createVertexModel(config: GeminiConfig, model: string, tools?: unknown[
   const vertexOpts: ConstructorParameters<typeof VertexAI>[0] = {
     project: config.vertexProject!,
     location: config.vertexRegion || 'us-central1',
-  }
-  // If a service account credentials file is specified, set the env var
-  // so the Google Auth library picks it up via ADC.
-  if (config.vertexCredentials) {
-    process.env.GOOGLE_APPLICATION_CREDENTIALS = config.vertexCredentials
+    googleAuthOptions: config.vertexCredentials
+      ? { keyFilename: config.vertexCredentials }
+      : undefined,
   }
   const vertexAI = new VertexAI(vertexOpts)
   return vertexAI.getGenerativeModel({
@@ -94,9 +92,6 @@ function createVertexModel(config: GeminiConfig, model: string, tools?: unknown[
 
 export function validateConfig(config: GeminiConfig): GeminiHealthcheckResult {
   if (isVertexConfig(config)) {
-    if (!config.vertexProject) {
-      return { ok: false, provider: 'gemini', message: 'missing vertexProject' }
-    }
     const model = resolveModel(config)
     return {
       ok: true,

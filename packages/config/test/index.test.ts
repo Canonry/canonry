@@ -65,6 +65,46 @@ test('getPlatformEnv omits providers without API keys', () => {
   expect(env.providers.claude).toBe(undefined)
 })
 
+test('getPlatformEnv configures Gemini via Vertex AI env vars (no API key)', () => {
+  const env = getPlatformEnv({
+    GEMINI_VERTEX_PROJECT: 'my-gcp-project',
+    GEMINI_VERTEX_REGION: 'europe-west1',
+    GEMINI_VERTEX_CREDENTIALS: '/path/to/sa.json',
+  })
+
+  expect(env.providers.gemini).toBeTruthy()
+  expect(env.providers.gemini!.apiKey).toBe('')
+  expect(env.providers.gemini!.vertexProject).toBe('my-gcp-project')
+  expect(env.providers.gemini!.vertexRegion).toBe('europe-west1')
+  expect(env.providers.gemini!.vertexCredentials).toBe('/path/to/sa.json')
+})
+
+test('getPlatformEnv configures Gemini via Vertex AI with only project (defaults region)', () => {
+  const env = getPlatformEnv({
+    GEMINI_VERTEX_PROJECT: 'my-gcp-project',
+  })
+
+  expect(env.providers.gemini).toBeTruthy()
+  expect(env.providers.gemini!.apiKey).toBe('')
+  expect(env.providers.gemini!.vertexProject).toBe('my-gcp-project')
+  expect(env.providers.gemini!.vertexRegion).toBeUndefined()
+})
+
+test('getBootstrapEnv configures Gemini via Vertex AI env vars', () => {
+  const env = getBootstrapEnv({
+    GEMINI_VERTEX_PROJECT: 'my-gcp-project',
+    GEMINI_VERTEX_REGION: 'us-east1',
+    GEMINI_VERTEX_CREDENTIALS: '/path/to/sa.json',
+  })
+
+  expect(env.providers.gemini).toBeTruthy()
+  expect(env.providers.gemini!.apiKey).toBe('')
+  expect(env.providers.gemini!.vertexProject).toBe('my-gcp-project')
+  expect(env.providers.gemini!.vertexRegion).toBe('us-east1')
+  expect(env.providers.gemini!.vertexCredentials).toBe('/path/to/sa.json')
+  expect(env.providers.gemini!.model).toBe('gemini-3-flash')
+})
+
 test('getBootstrapEnv parses hosted Canonry env vars', () => {
   const env = getBootstrapEnv({
     CANONRY_API_KEY: 'cnry_test',

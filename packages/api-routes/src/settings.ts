@@ -77,8 +77,11 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
         const err = validationError('baseUrl is required for local provider')
         return reply.status(err.statusCode).send(err.toJSON())
       }
-    } else if (name !== 'gemini' || apiKey) {
-      // For gemini, allow empty apiKey (Vertex AI config is set via config file)
+    } else if (name === 'gemini' && !apiKey) {
+      // Gemini allows empty apiKey when using Vertex AI (configured via config file / env vars).
+      // Return an informational response so the caller knows no API key was saved.
+      // The provider will only work if Vertex AI config (GEMINI_VERTEX_PROJECT) is set elsewhere.
+    } else {
       if (!apiKey || typeof apiKey !== 'string') {
         const err = validationError('apiKey is required')
         return reply.status(err.statusCode).send(err.toJSON())

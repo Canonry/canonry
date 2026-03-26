@@ -132,6 +132,22 @@ Available providers: `gemini`, `openai`, `claude`, `perplexity`, `local`, `cdp`
 
 If a provider hits rate limits (429 errors), the run completes as `partial`. Reduce concurrency or increase time between sweeps.
 
+### Gemini Vertex AI
+
+Gemini supports Vertex AI as an alternative to API key authentication. Use GCP Application Default Credentials (ADC) or a service account JSON key file:
+
+```bash
+# Via env vars (recommended for servers)
+export GEMINI_VERTEX_PROJECT=my-gcp-project
+export GEMINI_VERTEX_REGION=us-central1            # optional, defaults to us-central1
+export GEMINI_VERTEX_CREDENTIALS=/path/to/sa.json  # optional, falls back to ADC
+
+# Or in canonry.yaml config
+# vertexProject, vertexRegion, vertexCredentials fields under provider config
+```
+
+When Vertex AI is configured, no `GEMINI_API_KEY` is required. The provider uses the `@google-cloud/vertexai` SDK with `googleAuthOptions` for credential handling.
+
 ## Google Search Console
 
 ```bash
