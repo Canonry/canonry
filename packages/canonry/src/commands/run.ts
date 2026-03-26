@@ -1,11 +1,9 @@
-import { loadConfig } from '../config.js'
-import { ApiClient } from '../client.js'
+import { ApiClient, createApiClient } from '../client.js'
 import { resolveProviderInput } from '@ainyc/canonry-contracts'
 import { CliError } from '../cli-error.js'
 
-function getClient(): ApiClient {
-  const config = loadConfig()
-  return new ApiClient(config.apiUrl, config.apiKey)
+function getClient() {
+  return createApiClient()
 }
 
 const TERMINAL_STATUSES = new Set(['completed', 'partial', 'failed', 'cancelled'])

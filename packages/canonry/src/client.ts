@@ -1,13 +1,74 @@
+import { loadConfig } from './config.js'
+
+/**
+ * Create an ApiClient using the loaded config.
+ * This is the canonical way to get a client — it ensures basePath and env var
+ * overrides (CANONRY_PORT, CANONRY_BASE_PATH) are always incorporated.
+ *
+ * When no basePath is configured locally (config.yaml or CANONRY_BASE_PATH env),
+ * the client will auto-discover it from the server's /health endpoint on the
+ * first API call.
+ */
+export function createApiClient(): ApiClient {
+  const config = loadConfig()
+  // basePath is already resolved if configured in config.yaml or env var.
+  // Also treat an explicitly-set CANONRY_BASE_PATH (even empty) as resolved,
+  // since the user is deliberately controlling the value.
+  const basePathResolved = !!config.basePath || 'CANONRY_BASE_PATH' in process.env
+  return new ApiClient(config.apiUrl, config.apiKey, { skipProbe: basePathResolved })
+}
+
 export class ApiClient {
   private baseUrl: string
+  private originUrl: string
   private apiKey: string
+  private probePromise: Promise<void> | null = null
+  private probeSkipped: boolean
 
-  constructor(baseUrl: string, apiKey: string) {
-    this.baseUrl = baseUrl.replace(/\/$/, '') + '/api/v1'
+  constructor(baseUrl: string, apiKey: string, opts?: { skipProbe?: boolean }) {
+    this.originUrl = baseUrl.replace(/\/$/, '')
+    this.baseUrl = this.originUrl + '/api/v1'
     this.apiKey = apiKey
+    this.probeSkipped = opts?.skipProbe ?? false
+  }
+
+  /**
+   * On first API call, probe /health to auto-discover basePath when the user
+   * hasn't configured one locally. This lets `canonry run` in a separate shell
+   * discover that the server is running at e.g. /canonry/ without requiring
+   * config.yaml edits or CANONRY_BASE_PATH in every shell.
+   */
+  private probeBasePath(): Promise<void> {
+    if (this.probeSkipped) return Promise.resolve()
+    if (!this.probePromise) {
+      this.probePromise = (async () => {
+        try {
+          const origin = new URL(this.originUrl).origin
+          const res = await fetch(`${origin}/health`, {
+            signal: AbortSignal.timeout(2000),
+          })
+          if (res.ok) {
+            const body = (await res.json()) as { basePath?: string }
+            if (body.basePath && typeof body.basePath === 'string') {
+              const normalized = '/' + body.basePath.replace(/^\/|\/$/g, '')
+              if (normalized !== '/') {
+                this.originUrl = origin + normalized
+                this.baseUrl = this.originUrl + '/api/v1'
+              }
+            }
+          }
+        } catch {
+          // Health probe failed (server not reachable, timeout, etc.) —
+          // proceed with the locally-configured URL. The actual API call
+          // will surface its own connection error.
+        }
+      })()
+    }
+    return this.probePromise
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    await this.probeBasePath()
     const url = `${this.baseUrl}${path}`
     const serializedBody = body != null ? JSON.stringify(body) : undefined
     const headers: Record<string, string> = {

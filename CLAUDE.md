@@ -219,6 +219,47 @@ The web dashboard follows a dark, professional analytics aesthetic inspired by *
 
 See `docs/roadmap.md` for the full feature roadmap including competitive analysis, priority matrix, and phased implementation order.
 
+## Base Path Awareness (Critical)
+
+Canonry supports running behind a reverse proxy with a sub-path prefix (e.g. `/canonry/`). All code that constructs URLs or registers routes **must** respect `basePath`. Failing to do so causes silent 404s in production.
+
+### CLI commands — always use `createApiClient()`
+
+Never instantiate `ApiClient` directly with `loadConfig()` in command files. Use the centralized helper:
+
+```typescript
+import { createApiClient } from '../client.js'
+
+function getClient() {
+  return createApiClient()
+}
+```
+
+`createApiClient()` (in `packages/canonry/src/client.ts`) calls `loadConfig()` which incorporates `basePath` from both `config.yaml` and the `CANONRY_BASE_PATH` env var into `apiUrl` before constructing the client.
+
+### Server routes — use `apiPrefix`
+
+All API routes in `packages/api-routes/` are registered via a Fastify plugin with a `routePrefix` that already includes `basePath`. Do not hardcode `/api/v1` in route handlers or redirects. Use the prefix passed to the plugin.
+
+### Health endpoint
+
+The `/health` endpoint exposes `basePath` in its response for auto-discovery:
+```json
+{ "status": "ok", "service": "canonry", "version": "1.26.1", "basePath": "/canonry" }
+```
+When `basePath` is not configured, the `basePath` field is omitted.
+
+### Web UI — use `window.__CANONRY_CONFIG__.basePath`
+
+The SPA receives `basePath` via an injected config object. Use it for all API fetch calls and router base paths. Do not hardcode `/api/v1`.
+
+### Checklist for any new route or CLI command
+
+- [ ] Server route registered via the plugin's `routePrefix` (not hardcoded `/api/v1`)
+- [ ] CLI command uses `createApiClient()` (not `new ApiClient(loadConfig().apiUrl, ...)`)
+- [ ] Any redirect URLs or OAuth callback URLs use `publicUrl` or `apiUrl` (which already include basePath)
+- [ ] Frontend fetch calls prepend `window.__CANONRY_CONFIG__.basePath`
+
 ## API Stability
 
 **Never change existing API endpoint paths or HTTP methods during revisions.** The CLI, UI, and any external integrations are hard-coded to the published routes. Changing a path or method is a breaking change regardless of the reason.

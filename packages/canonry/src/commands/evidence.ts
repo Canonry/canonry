@@ -1,5 +1,4 @@
-import { loadConfig } from '../config.js'
-import { ApiClient } from '../client.js'
+import { createApiClient } from '../client.js'
 
 type TimelineEntry = {
   keyword: string
@@ -15,9 +14,8 @@ type EvidenceJsonEntry = TimelineEntry & {
   cited: boolean
 }
 
-function getClient(): ApiClient {
-  const config = loadConfig()
-  return new ApiClient(config.apiUrl, config.apiKey)
+function getClient() {
+  return createApiClient()
 }
 
 export async function showEvidence(project: string, format?: string): Promise<void> {
