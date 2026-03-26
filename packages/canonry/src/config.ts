@@ -201,13 +201,77 @@ export function loadConfig(): CanonryConfig {
   return parsed
 }
 
+/**
+ * Read the raw on-disk config without applying any runtime transformations
+ * (env-var overrides, legacy migrations, etc.).  Returns null when the
+ * file does not exist or cannot be parsed.
+ */
+export function loadConfigRaw(): CanonryConfig | null {
+  const configPath = getConfigPath()
+  if (!fs.existsSync(configPath)) return null
+  try {
+    return (parse(fs.readFileSync(configPath, 'utf-8')) as CanonryConfig) ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Persist config to disk using a **read-modify-write** strategy.
+ *
+ * Instead of blindly overwriting the file with the full in-memory config,
+ * we re-read the current on-disk state and merge the incoming config on
+ * top. This prevents:
+ *
+ * 1. **Env-var override leakage** — `loadConfig()` mutates `apiUrl` and
+ *    `basePath` based on `CANONRY_PORT` / `CANONRY_BASE_PATH`. A naïve
+ *    save would persist those runtime-only values back to disk.
+ *
+ * 2. **Cross-session clobbering** — when `CANONRY_CONFIG_DIR` points to a
+ *    test session directory, the in-memory config contains test-specific
+ *    values (e.g. a temp `database` path). If another process later calls
+ *    `saveConfig` for a targeted change, it should not overwrite unrelated
+ *    fields that were loaded from a different session.
+ */
 export function saveConfig(config: CanonryConfig): void {
   const configDir = getConfigDir()
   if (!fs.existsSync(configDir)) {
     fs.mkdirSync(configDir, { recursive: true })
   }
-  const yaml = stringify(config)
-  fs.writeFileSync(getConfigPath(), yaml, { encoding: 'utf-8', mode: 0o600 })
+
+  const configPath = getConfigPath()
+  const onDisk = loadConfigRaw()
+
+  // Start with on-disk state as the base so that fields untouched by the
+  // caller are preserved exactly as they were on disk.
+  const merged: Record<string, unknown> = onDisk
+    ? { ...(onDisk as unknown as Record<string, unknown>) }
+    : {}
+
+  // Overlay every field from the incoming config.
+  for (const [key, value] of Object.entries(config)) {
+    if (value !== undefined) {
+      merged[key] = value
+    }
+  }
+
+  // Restore on-disk values for fields that `loadConfig()` may have mutated
+  // via env-var overrides — these are runtime-only and must not leak to disk.
+  if (onDisk) {
+    if (process.env.CANONRY_PORT?.trim() || onDisk.basePath) {
+      merged.apiUrl = onDisk.apiUrl
+    }
+    if ('CANONRY_BASE_PATH' in process.env) {
+      if (onDisk.basePath !== undefined) {
+        merged.basePath = onDisk.basePath
+      } else {
+        delete merged.basePath
+      }
+    }
+  }
+
+  const yaml = stringify(merged)
+  fs.writeFileSync(configPath, yaml, { encoding: 'utf-8', mode: 0o600 })
 }
 
 export function configExists(): boolean {
