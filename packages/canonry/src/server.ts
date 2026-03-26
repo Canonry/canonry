@@ -911,7 +911,12 @@ export async function createServer(opts: {
 
   // Health endpoint — registered at both /health and <basePath>health when base path is set,
   // so load-balancer probes work regardless of whether the proxy strips the prefix.
-  const healthHandler = async () => ({ status: 'ok', service: 'canonry', version: PKG_VERSION })
+  const healthHandler = async () => ({
+    status: 'ok',
+    service: 'canonry',
+    version: PKG_VERSION,
+    ...(basePath ? { basePath: basePath.replace(/\/$/, '') } : {}),
+  })
   app.get('/health', healthHandler)
   if (basePath) {
     app.get(`${basePath}health`, healthHandler)

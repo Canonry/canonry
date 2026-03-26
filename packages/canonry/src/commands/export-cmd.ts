@@ -1,13 +1,11 @@
 import { stringify } from 'yaml'
-import { loadConfig } from '../config.js'
-import { ApiClient } from '../client.js'
+import { createApiClient } from '../client.js'
 
 export async function exportProject(
   project: string,
   opts: { includeResults?: boolean; format?: string },
 ): Promise<void> {
-  const config = loadConfig()
-  const client = new ApiClient(config.apiUrl, config.apiKey)
+  const client = createApiClient()
 
   const data = await client.getExport(project) as {
     apiVersion: string

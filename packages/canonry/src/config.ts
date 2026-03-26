@@ -165,8 +165,16 @@ export function loadConfig(): CanonryConfig {
     }
   }
 
-  // If basePath is configured, ensure apiUrl includes it so the CLI client
-  // constructs correct paths when canonry runs behind a reverse proxy.
+  // Honor CANONRY_BASE_PATH env var — overrides basePath from config so that CLI
+  // client commands route to the correct sub-path when behind a reverse proxy.
+  const basePathOverride = process.env.CANONRY_BASE_PATH?.trim()
+  if (basePathOverride) {
+    parsed.basePath = basePathOverride
+  }
+
+  // If basePath is configured (from config.yaml or CANONRY_BASE_PATH env var),
+  // ensure apiUrl includes it so the CLI client constructs correct paths when
+  // canonry runs behind a reverse proxy.
   // e.g. apiUrl: http://localhost:4100 + basePath: /canonry/ → effective apiUrl: http://localhost:4100/canonry
   // Safe to re-run: if apiUrl already contains the base path, it is left unchanged.
   if (parsed.basePath) {

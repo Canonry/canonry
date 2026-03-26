@@ -1,10 +1,8 @@
-import { loadConfig } from '../config.js'
-import { ApiClient } from '../client.js'
+import { createApiClient } from '../client.js'
 import { notificationEventSchema } from '@ainyc/canonry-contracts'
 
-function getClient(): ApiClient {
-  const config = loadConfig()
-  return new ApiClient(config.apiUrl, config.apiKey)
+function getClient() {
+  return createApiClient()
 }
 
 interface NotificationResponse {

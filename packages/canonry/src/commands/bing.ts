@@ -1,10 +1,8 @@
-import { loadConfig } from '../config.js'
-import { ApiClient } from '../client.js'
+import { createApiClient } from '../client.js'
 import { CliError } from '../cli-error.js'
 
-function getClient(): ApiClient {
-  const config = loadConfig()
-  return new ApiClient(config.apiUrl, config.apiKey)
+function getClient() {
+  return createApiClient()
 }
 
 export async function bingConnect(project: string, opts?: { apiKey?: string; format?: string }): Promise<void> {

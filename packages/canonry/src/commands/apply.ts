@@ -1,7 +1,6 @@
 import fs from 'node:fs'
 import { parseAllDocuments } from 'yaml'
-import { loadConfig } from '../config.js'
-import { ApiClient } from '../client.js'
+import { createApiClient } from '../client.js'
 import { CliError } from '../cli-error.js'
 
 export type ApplyResult = {
@@ -43,8 +42,7 @@ export async function applyConfigFile(filePath: string): Promise<ApplyFileResult
   const content = fs.readFileSync(filePath, 'utf-8')
   const docs = parseAllDocuments(content)
 
-  const clientConfig = loadConfig()
-  const client = new ApiClient(clientConfig.apiUrl, clientConfig.apiKey)
+  const client = createApiClient()
 
   const errors: string[] = []
   const applied: ApplyResult[] = []

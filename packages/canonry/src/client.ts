@@ -1,3 +1,15 @@
+import { loadConfig } from './config.js'
+
+/**
+ * Create an ApiClient using the loaded config.
+ * This is the canonical way to get a client — it ensures basePath and env var
+ * overrides (CANONRY_PORT, CANONRY_BASE_PATH) are always incorporated.
+ */
+export function createApiClient(): ApiClient {
+  const config = loadConfig()
+  return new ApiClient(config.apiUrl, config.apiKey)
+}
+
 export class ApiClient {
   private baseUrl: string
   private apiKey: string
