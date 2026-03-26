@@ -181,6 +181,9 @@ importers:
       '@fastify/static':
         specifier: ^8.1.0
         version: 8.3.0
+      '@google-cloud/vertexai':
+        specifier: ^1.10.3
+        version: 1.10.3
       '@google/generative-ai':
         specifier: ^0.24.1
         version: 0.24.1
