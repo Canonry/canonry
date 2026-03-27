@@ -117,6 +117,7 @@ describe('WordPress routes', () => {
       pageCount: 12,
       version: '6.8.1',
       plugins: [],
+      authenticatedUser: { id: 1, slug: 'admin' },
     })
     vi.spyOn(wordpressModule, 'getSiteStatus').mockResolvedValue({
       url: 'https://example.com',
@@ -124,6 +125,7 @@ describe('WordPress routes', () => {
       pageCount: 12,
       version: '6.8.1',
       plugins: ['wordpress-seo/wp-seo.php'],
+      authenticatedUser: { id: 1, slug: 'admin' },
     })
 
     const connectRes = await app.inject({
@@ -172,23 +174,12 @@ describe('WordPress routes', () => {
     expect(connections.has('test-project')).toBe(false)
   })
 
-  it('returns actionable Hostinger auth guidance when wordpress connect fails behind hcdn', async () => {
+  it('returns an actionable error when wordpress connect fails with invalid credentials', async () => {
     const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
     vi.spyOn(wordpressModule, 'verifyWordpressConnection').mockRejectedValue(
       new WordpressApiError(
         'AUTH_INVALID',
-        [
-          'WordPress REST API authentication failed.',
-          '',
-          'Detected hosting: Hostinger (hcdn)',
-          "Hostinger's CDN strips the Authorization header before it reaches WordPress.",
-          '',
-          'Fix: add the following line to your .htaccess file before "# BEGIN WordPress":',
-          '',
-          '  SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1',
-          '',
-          'Then re-run: canonry wordpress connect <project>',
-        ].join('\n'),
+        'Authentication failed — the username or application password is incorrect. Verify the app password belongs to the user specified with --user.',
         401,
       ),
     )
@@ -207,18 +198,7 @@ describe('WordPress routes', () => {
     expect(res.json()).toEqual({
       error: {
         code: 'AUTH_INVALID',
-        message: [
-          'WordPress REST API authentication failed.',
-          '',
-          'Detected hosting: Hostinger (hcdn)',
-          "Hostinger's CDN strips the Authorization header before it reaches WordPress.",
-          '',
-          'Fix: add the following line to your .htaccess file before "# BEGIN WordPress":',
-          '',
-          '  SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1',
-          '',
-          'Then re-run: canonry wordpress connect <project>',
-        ].join('\n'),
+        message: 'Authentication failed — the username or application password is incorrect. Verify the app password belongs to the user specified with --user.',
       },
     })
   })

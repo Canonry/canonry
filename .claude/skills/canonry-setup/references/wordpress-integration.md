@@ -54,4 +54,4 @@ canonry wordpress staging push mysite
 - Canonry does not use wp-admin automation or undocumented plugin APIs
 - If SEO meta is not writable through REST, canonry returns an actionable error instead of guessing
 - Duplicate slug matches are returned as explicit ambiguity errors with candidate page IDs/titles
-- Hostinger sites may need `SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1` in `.htaccess` because `hcdn` can strip the `Authorization` header
+- Authentication is verified on connect by calling `/wp/v2/users/me` — if that fails, canonry returns an actionable error message

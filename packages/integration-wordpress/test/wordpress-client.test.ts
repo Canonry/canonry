@@ -286,7 +286,7 @@ describe('wordpress client', () => {
     expect(pageSummaryRequest).not.toContain('context=edit')
   })
 
-  it('surfaces the Hostinger Authorization-header workaround on auth failures', async () => {
+  it('returns an actionable error message when auth fails on connect', async () => {
     globalThis.fetch = async (input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
       if (url.includes('/wp-json/wp/v2/users/me?')) {
@@ -300,9 +300,6 @@ describe('wordpress client', () => {
             status: 401,
             headers: {
               'content-type': 'application/json',
-              'platform': 'hostinger',
-              'panel': 'hpanel',
-              'server': 'hcdn',
             },
           },
         )
@@ -313,11 +310,11 @@ describe('wordpress client', () => {
     await expect(() => verifyWordpressConnection(createConnection())).rejects.toMatchObject({
       name: 'WordpressApiError',
       code: 'AUTH_INVALID',
-      message: expect.stringContaining('Detected hosting: Hostinger (hcdn)'),
+      message: expect.stringContaining('Authentication failed'),
     } satisfies Partial<WordpressApiError>)
 
     await expect(() => verifyWordpressConnection(createConnection())).rejects.toThrow(
-      'SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1',
+      'application password is incorrect',
     )
   })
 })

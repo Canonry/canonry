@@ -21,6 +21,10 @@ export const wordpressSiteStatusDtoSchema = z.object({
   version: z.string().nullable().optional(),
   error: z.string().nullable().optional(),
   plugins: z.array(z.string()).optional(),
+  authenticatedUser: z.object({
+    id: z.number(),
+    slug: z.string(),
+  }).nullable().optional(),
 })
 export type WordpressSiteStatusDto = z.infer<typeof wordpressSiteStatusDtoSchema>
 

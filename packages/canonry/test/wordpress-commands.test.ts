@@ -200,7 +200,7 @@ describe('wordpress CLI commands', () => {
     })
   })
 
-  it('prints the Hostinger .htaccess workaround when wordpress connect hits stripped auth headers', async () => {
+  it('shows an actionable error when wordpress connect fails with invalid credentials', async () => {
     originalConfigDir = process.env.CANONRY_CONFIG_DIR
     originalFetch = globalThis.fetch
 
@@ -224,9 +224,6 @@ describe('wordpress CLI commands', () => {
             status: 401,
             headers: {
               'content-type': 'application/json',
-              'platform': 'hostinger',
-              'panel': 'hpanel',
-              'server': 'hcdn',
             },
           },
         )
@@ -247,9 +244,8 @@ describe('wordpress CLI commands', () => {
     ])
 
     expect(result.exitCode).toBe(1)
-    expect(result.stderr).toContain('Detected hosting: Hostinger (hcdn)')
-    expect(result.stderr).toContain('SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1')
-    expect(result.stderr).toContain('canonry wordpress connect <project>')
+    expect(result.stderr).toContain('Authentication failed')
+    expect(result.stderr).toContain('application password is incorrect')
 
     const stored = parse(fs.readFileSync(harness.configPath, 'utf-8')) as {
       wordpress?: { connections?: Array<{ projectName: string }> }
