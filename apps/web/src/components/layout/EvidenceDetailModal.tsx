@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
@@ -44,20 +44,54 @@ export function EvidenceDetailModal({
   const history = evidence.runHistory
   const hasHistory = history.length > 1
 
+  // Auto-fetch answer text when the initial evidence has none (e.g. latest run
+  // was a single-provider run that didn't include this provider).
+  const [autoFetchedDisplay, setAutoFetchedDisplay] = useState<EvidenceDisplayData | null>(null)
+  const autoFetchedRef = useRef(false)
+  useEffect(() => {
+    if (autoFetchedRef.current) return
+    if (evidence.answerSnippet) return // already have text
+    // Find the most recent history entry for this provider that might have data
+    const latestHistoryRun = history.at(-1)
+    if (!latestHistoryRun) return
+    autoFetchedRef.current = true
+    fetchRunDetail(latestHistoryRun.runId).then(runDetail => {
+      const snap = runDetail.snapshots.find(
+        s => s.keyword === evidence.keyword && s.provider === evidence.provider,
+      )
+      if (snap?.answerText) {
+        setAutoFetchedDisplay({
+          citationState: evidence.citationState,
+          provider: evidence.provider,
+          model: snap.model ?? evidence.model,
+          answerSnippet: snap.answerText,
+          citedDomains: snap.citedDomains ?? evidence.citedDomains,
+          competitorDomains: snap.competitorOverlap ?? evidence.competitorDomains,
+          groundingSources: snap.groundingSources ?? evidence.groundingSources,
+          evidenceUrls: [],
+          changeLabel: evidence.changeLabel,
+          summary: evidence.summary,
+        })
+      }
+    }).catch(() => { /* ignore */ })
+  }, [evidence, history])
+
   // Current display data — from historical snapshot when viewing past runs, otherwise from latest evidence
   const isViewingHistory = selectedRunIdx >= 0 && historicalSnapshot !== null
-  const display: EvidenceDisplayData = isViewingHistory ? historicalSnapshot : {
-    citationState: evidence.citationState,
-    provider: evidence.provider,
-    model: evidence.model,
-    answerSnippet: evidence.answerSnippet,
-    citedDomains: evidence.citedDomains,
-    competitorDomains: evidence.competitorDomains,
-    groundingSources: evidence.groundingSources,
-    evidenceUrls: evidence.evidenceUrls,
-    changeLabel: evidence.changeLabel,
-    summary: evidence.summary,
-  }
+  const display: EvidenceDisplayData = isViewingHistory ? historicalSnapshot
+    : autoFetchedDisplay ? autoFetchedDisplay
+    : {
+      citationState: evidence.citationState,
+      provider: evidence.provider,
+      model: evidence.model,
+      answerSnippet: evidence.answerSnippet,
+      citedDomains: evidence.citedDomains,
+      competitorDomains: evidence.competitorDomains,
+      groundingSources: evidence.groundingSources,
+      evidenceUrls: evidence.evidenceUrls,
+      changeLabel: evidence.changeLabel,
+      summary: evidence.summary,
+    }
 
   const isCited = display.citationState === 'cited' || display.citationState === 'emerging'
   const positionIndex = display.citedDomains.findIndex(
