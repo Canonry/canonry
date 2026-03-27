@@ -1475,6 +1475,90 @@
     @apply rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-5 space-y-3;
   }
 
+  /* ── Toasts ── */
+
+  .toast-viewport {
+    @apply fixed bottom-4 right-4 z-50 flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2;
+  }
+
+  .toast-card {
+    @apply flex items-start gap-3 rounded-xl border px-4 py-3 shadow-lg backdrop-blur-sm;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.32);
+  }
+
+  .toast-card[data-state='open'] {
+    animation: toast-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .toast-card[data-state='closing'] {
+    animation: toast-out 180ms ease-in forwards;
+  }
+
+  .toast-card-neutral {
+    @apply border-zinc-700/70 bg-zinc-900/92 text-zinc-100;
+  }
+
+  .toast-card-positive {
+    @apply border-emerald-700/60 bg-emerald-950/88 text-emerald-100;
+  }
+
+  .toast-card-caution {
+    @apply border-amber-700/60 bg-amber-950/88 text-amber-100;
+  }
+
+  .toast-card-negative {
+    @apply border-rose-700/60 bg-rose-950/88 text-rose-100;
+  }
+
+  .toast-copy {
+    @apply min-w-0 flex-1;
+  }
+
+  .toast-title {
+    @apply text-sm font-semibold leading-snug;
+  }
+
+  .toast-detail {
+    @apply mt-1 text-xs leading-relaxed text-current/75;
+  }
+
+  .toast-action {
+    @apply mt-2 inline-flex rounded-md border border-current/20 px-2.5 py-1 text-xs font-medium text-current transition hover:bg-white/8;
+  }
+
+  .toast-dismiss {
+    @apply shrink-0 rounded-md p-1 text-current/65 transition hover:bg-white/8 hover:text-current;
+  }
+
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  @keyframes toast-out {
+    from {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(6px) scale(0.98);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .toast-card[data-state='open'],
+    .toast-card[data-state='closing'] {
+      animation: none;
+    }
+  }
+
   /* ── Misc helpers ── */
 
   .sr-only {

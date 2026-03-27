@@ -1,45 +1,73 @@
-import { useSyncExternalStore, useCallback } from 'react'
+import { useCallback, useSyncExternalStore } from 'react'
+import { useNavigate } from '@tanstack/react-router'
 import { X } from 'lucide-react'
-import { subscribe, getToasts, dismissToast, type Toast } from '../../lib/toast-store.js'
+import { dismissToast, getToasts, subscribe, type Toast } from '../../lib/toast-store.js'
+import { useDrawer } from '../../hooks/use-drawer.js'
 
 const toneStyles: Record<Toast['tone'], string> = {
-  negative: 'border-rose-700/60 bg-rose-950/80 text-rose-200',
-  caution: 'border-amber-700/60 bg-amber-950/80 text-amber-200',
-  positive: 'border-emerald-700/60 bg-emerald-950/80 text-emerald-200',
-  neutral: 'border-zinc-700/60 bg-zinc-900/80 text-zinc-200',
+  negative: 'toast-card-negative',
+  caution: 'toast-card-caution',
+  positive: 'toast-card-positive',
+  neutral: 'toast-card-neutral',
 }
 
 export function Toaster() {
   const toasts = useSyncExternalStore(subscribe, getToasts, getToasts)
+  const navigate = useNavigate()
+  const { openRun } = useDrawer()
 
   const handleDismiss = useCallback((id: string) => {
     dismissToast(id)
   }, [])
 
+  const handleAction = useCallback((toast: Toast) => {
+    if (!toast.cta) return
+
+    if (toast.cta.intent === 'open-run-drawer') {
+      openRun(toast.cta.runId)
+    } else {
+      navigate({ to: '/runs' })
+    }
+
+    dismissToast(toast.id)
+  }, [navigate, openRun])
+
   if (toasts.length === 0) return null
 
   return (
-    <div
-      aria-live="polite"
-      aria-label="Notifications"
-      className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm"
-    >
-      {toasts.map(toast => (
-        <div
+    <div className="toast-viewport" aria-label="Notifications">
+      {toasts.map((toast) => (
+        <section
           key={toast.id}
-          role="alert"
-          className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm shadow-lg backdrop-blur-sm animate-in slide-in-from-bottom-2 ${toneStyles[toast.tone]}`}
+          role={toast.tone === 'negative' ? 'alert' : 'status'}
+          aria-live={toast.tone === 'negative' ? 'assertive' : 'polite'}
+          data-state={toast.state}
+          className={`toast-card ${toneStyles[toast.tone]}`}
         >
-          <p className="flex-1 leading-snug">{toast.message}</p>
+          <div className="toast-copy">
+            <p className="toast-title">{toast.title}</p>
+            {toast.detail ? (
+              <p className="toast-detail">{toast.detail}</p>
+            ) : null}
+            {toast.cta ? (
+              <button
+                type="button"
+                className="toast-action"
+                onClick={() => handleAction(toast)}
+              >
+                {toast.cta.label}
+              </button>
+            ) : null}
+          </div>
           <button
             type="button"
             onClick={() => handleDismiss(toast.id)}
-            className="shrink-0 rounded p-0.5 opacity-60 hover:opacity-100 transition-opacity"
+            className="toast-dismiss"
             aria-label="Dismiss"
           >
             <X className="size-3.5" />
           </button>
-        </div>
+        </section>
       ))}
     </div>
   )

@@ -3,6 +3,7 @@ import { parseAllDocuments } from 'yaml'
 
 import { Button } from '../ui/button.js'
 import { applyProjectConfig } from '../../api.js'
+import { addToast } from '../../lib/toast-store.js'
 
 export function YamlApplyPanel({ onApplied }: { onApplied: () => void }) {
   const [yamlText, setYamlText] = useState('')
@@ -39,7 +40,16 @@ export function YamlApplyPanel({ onApplied }: { onApplied: () => void }) {
     setResults(applied)
     setErrors(errs)
     setApplying(false)
-    if (applied.length > 0) onApplied()
+    if (applied.length > 0) {
+      addToast({
+        title: 'YAML applied',
+        detail: `Applied ${applied.length} document${applied.length === 1 ? '' : 's'} successfully.`,
+        tone: errs.length > 0 ? 'caution' : 'positive',
+        dedupeKey: 'yaml:apply',
+        dedupeMode: 'replace',
+      })
+      onApplied()
+    }
   }
 
   return (

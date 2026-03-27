@@ -5,6 +5,7 @@ import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { formatTimestamp, formatBooleanState } from '../../lib/format-helpers.js'
+import { addToast } from '../../lib/toast-store.js'
 import {
   fetchSettings,
   fetchGoogleConnections,
@@ -12,15 +13,12 @@ import {
   googleConnect,
   googleDisconnect,
   saveGoogleProperty,
-  triggerGscSync,
   fetchGscPerformance,
   inspectGscUrl,
   fetchGscInspections,
   fetchGscDeindexed,
   fetchGscCoverage,
   fetchGscCoverageHistory,
-  triggerInspectSitemap,
-  triggerDiscoverSitemaps,
   saveSitemapUrl,
   fetchGscSitemaps,
   requestIndexing,
@@ -32,6 +30,11 @@ import {
   type ApiGscDeindexedRow,
   type ApiGscCoverageSummary,
 } from '../../api.js'
+import {
+  useTriggerDiscoverSitemaps,
+  useTriggerGscSync,
+  useTriggerInspectSitemap,
+} from '../../queries/mutations.js'
 
 export function GscSection({
   projectName,
@@ -59,7 +62,6 @@ export function GscSection({
   const [inspectionFilterUrl, setInspectionFilterUrl] = useState('')
   const [loading, setLoading] = useState(true)
   const [connecting, setConnecting] = useState(false)
-  const [syncing, setSyncing] = useState(false)
   const [propertiesLoading, setPropertiesLoading] = useState(false)
   const [savingProperty, setSavingProperty] = useState(false)
   const [loadingPerformance, setLoadingPerformance] = useState(false)
@@ -67,8 +69,6 @@ export function GscSection({
   const [inspecting, setInspecting] = useState(false)
   const [coverage, setCoverage] = useState<ApiGscCoverageSummary | null>(null)
   const [loadingCoverage, setLoadingCoverage] = useState(false)
-  const [inspectingSitemap, setInspectingSitemap] = useState(false)
-  const [discoveringSitemaps, setDiscoveringSitemaps] = useState(false)
   const [listingSitemaps, setListingSitemaps] = useState(false)
   const [discoveredSitemaps, setDiscoveredSitemaps] = useState<ApiGscSitemap[] | null>(null)
   const [sitemapUrlInput, setSitemapUrlInput] = useState('')
@@ -83,6 +83,9 @@ export function GscSection({
 
   const gscConn = connections.find((c) => c.connectionType === 'gsc')
   const hasHistoricalData = performance.length > 0 || inspections.length > 0 || deindexed.length > 0
+  const triggerGscSyncMutation = useTriggerGscSync()
+  const triggerDiscoverSitemapsMutation = useTriggerDiscoverSitemaps()
+  const triggerInspectSitemapMutation = useTriggerInspectSitemap()
 
   async function loadProperties(currentConn: ApiGoogleConnection | undefined) {
     if (!currentConn) {
@@ -168,11 +171,15 @@ export function GscSection({
     try {
       const result = await requestIndexing(projectName, { urls })
       const { succeeded, failed, total } = result.summary
-      if (failed === 0) {
-        setNotice(`Indexing requested for ${succeeded} URL${succeeded !== 1 ? 's' : ''}.`)
-      } else {
-        setNotice(`Indexing requested: ${succeeded}/${total} succeeded, ${failed} failed.`)
-      }
+      addToast({
+        title: 'Indexing requested',
+        detail: failed === 0
+          ? `${succeeded} URL${succeeded !== 1 ? 's' : ''} submitted for indexing.`
+          : `${succeeded}/${total} submitted successfully, ${failed} failed.`,
+        tone: failed === 0 ? 'positive' : 'caution',
+        dedupeKey: `gsc:indexing:${projectName}`,
+        dedupeMode: 'replace',
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to request indexing')
     } finally {
@@ -186,11 +193,15 @@ export function GscSection({
     try {
       const result = await requestIndexing(projectName, { urls: [], allUnindexed: true })
       const { succeeded, failed, total } = result.summary
-      if (failed === 0) {
-        setNotice(`Indexing requested for ${succeeded} unindexed URL${succeeded !== 1 ? 's' : ''}.`)
-      } else {
-        setNotice(`Indexing requested: ${succeeded}/${total} succeeded, ${failed} failed.`)
-      }
+      addToast({
+        title: 'Indexing requested',
+        detail: failed === 0
+          ? `${succeeded} unindexed URL${succeeded !== 1 ? 's' : ''} submitted for indexing.`
+          : `${succeeded}/${total} submitted successfully, ${failed} failed.`,
+        tone: failed === 0 ? 'positive' : 'caution',
+        dedupeKey: `gsc:indexing-all:${projectName}`,
+        dedupeMode: 'replace',
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to request indexing')
     } finally {
@@ -207,7 +218,13 @@ export function GscSection({
       setConnections((prev) => prev.map((c) => (
         c.connectionType === 'gsc' ? { ...c, sitemapUrl: sitemapUrlInput.trim() } : c
       )))
-      setNotice('Sitemap URL saved.')
+      addToast({
+        title: 'Sitemap URL saved',
+        detail: `${projectName} will use the updated sitemap URL.`,
+        tone: 'positive',
+        dedupeKey: `gsc:sitemap:${projectName}`,
+        dedupeMode: 'drop',
+      })
       setSitemapUrlInput('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save sitemap URL')
@@ -217,19 +234,18 @@ export function GscSection({
   }
 
   async function handleDiscoverSitemaps() {
-    setDiscoveringSitemaps(true)
     setError(null)
     try {
-      const result = await triggerDiscoverSitemaps(projectName)
+      const result = await triggerDiscoverSitemapsMutation.mutateAsync({
+        projectName,
+        projectLabel: projectName,
+      })
       setDiscoveredSitemaps(result.sitemaps)
       setConnections((prev) => prev.map((c) => (
         c.connectionType === 'gsc' ? { ...c, sitemapUrl: result.primarySitemapUrl } : c
       )))
-      setNotice(`Discovered ${result.sitemaps.length} sitemap(s). Primary sitemap saved and inspection queued (run ${result.run.id}).`)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to discover sitemaps')
-    } finally {
-      setDiscoveringSitemaps(false)
+    } catch {
+      // Mutation hook surfaces the toast and error state.
     }
   }
 
@@ -335,7 +351,13 @@ export function GscSection({
           ? { ...connection, propertyId: selectedProperty }
           : connection
       )))
-      setNotice('GSC property updated.')
+      addToast({
+        title: 'GSC property updated',
+        detail: `${projectName} is now linked to ${selectedProperty}.`,
+        tone: 'positive',
+        dedupeKey: `gsc:property:${projectName}`,
+        dedupeMode: 'drop',
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save GSC property')
     } finally {
@@ -344,19 +366,19 @@ export function GscSection({
   }
 
   async function handleSync() {
-    setSyncing(true)
     setError(null)
     setNotice(null)
     try {
-      await triggerGscSync(projectName, {
-        days: parseInt(syncDays, 10) || undefined,
-        full: fullSync || undefined,
+      await triggerGscSyncMutation.mutateAsync({
+        projectName,
+        projectLabel: projectName,
+        opts: {
+          days: parseInt(syncDays, 10) || undefined,
+          full: fullSync || undefined,
+        },
       })
-      setNotice('GSC sync queued. Refresh after the run completes to see imported data.')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to trigger sync')
-    } finally {
-      setSyncing(false)
+    } catch {
+      // Mutation hook surfaces the toast and error state.
     }
   }
 
@@ -492,10 +514,10 @@ export function GscSection({
                       <Button
                         type="button"
                         size="sm"
-                        disabled={discoveringSitemaps || !gscConn.propertyId}
+                        disabled={triggerDiscoverSitemapsMutation.isPending || !gscConn.propertyId}
                         onClick={handleDiscoverSitemaps}
                       >
-                        {discoveringSitemaps ? 'Discovering\u2026' : 'Auto-discover from GSC'}
+                        {triggerDiscoverSitemapsMutation.isPending ? 'Discovering\u2026' : 'Auto-discover from GSC'}
                       </Button>
                       <span className="self-center text-xs text-amber-400/60">or enter manually:</span>
                     </div>
@@ -1256,10 +1278,10 @@ export function GscSection({
                         <Button
                           type="button"
                           size="sm"
-                          disabled={syncing || !gscConn.propertyId}
+                          disabled={triggerGscSyncMutation.isPending || !gscConn.propertyId}
                           onClick={handleSync}
                         >
-                          {syncing ? 'Queueing\u2026' : 'Queue sync'}
+                          {triggerGscSyncMutation.isPending ? 'Queueing\u2026' : 'Queue sync'}
                         </Button>
                         {!gscConn.propertyId && (
                           <p className="text-xs text-amber-400">Select a Search Console property before queueing a sync.</p>
@@ -1298,10 +1320,10 @@ export function GscSection({
                           type="button"
                           size="sm"
                           variant="outline"
-                          disabled={discoveringSitemaps || !gscConn.propertyId}
+                          disabled={triggerDiscoverSitemapsMutation.isPending || !gscConn.propertyId}
                           onClick={handleDiscoverSitemaps}
                         >
-                          {discoveringSitemaps ? 'Discovering\u2026' : 'Auto-discover and queue inspection'}
+                          {triggerDiscoverSitemapsMutation.isPending ? 'Discovering\u2026' : 'Auto-discover and queue inspection'}
                         </Button>
                       </div>
                       <p className="text-xs text-zinc-500">Browse lists available sitemaps without queueing a run. Auto-discover saves the primary sitemap and queues an inspection.</p>
@@ -1362,19 +1384,24 @@ export function GscSection({
                           type="button"
                           size="sm"
                           variant="outline"
-                          disabled={inspectingSitemap || !gscConn.propertyId}
-                          onClick={() => {
+                          disabled={triggerInspectSitemapMutation.isPending || !gscConn.propertyId}
+                          onClick={async () => {
                             const el = document.getElementById(`gsc-sitemap-inspect-${projectName}`) as HTMLInputElement | null
                             const url = el?.value?.trim() || gscConn.sitemapUrl || undefined
-                            setInspectingSitemap(true)
-                            void triggerInspectSitemap(projectName, { sitemapUrl: url }).then((run) => {
-                              setNotice(`Sitemap inspection queued (run ${run.id}). Refresh coverage after the run completes.`)
-                            }).catch((err) => {
-                              setError(err instanceof Error ? err.message : 'Failed to queue sitemap inspection')
-                            }).finally(() => setInspectingSitemap(false))
+                            setError(null)
+                            setNotice(null)
+                            try {
+                              await triggerInspectSitemapMutation.mutateAsync({
+                                projectName,
+                                projectLabel: projectName,
+                                opts: { sitemapUrl: url },
+                              })
+                            } catch {
+                              // Mutation hook surfaces the toast and error state.
+                            }
                           }}
                         >
-                          {inspectingSitemap ? 'Queueing\u2026' : 'Inspect sitemap'}
+                          {triggerInspectSitemapMutation.isPending ? 'Queueing\u2026' : 'Inspect sitemap'}
                         </Button>
                       </div>
                       {!gscConn.propertyId && (

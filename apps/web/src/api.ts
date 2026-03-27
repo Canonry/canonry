@@ -131,6 +131,15 @@ export interface ApiRun {
   createdAt: string
 }
 
+export interface ApiTriggerAllRunsConflict {
+  projectName: string
+  projectId: string
+  status: 'conflict'
+  error: string
+}
+
+export type ApiTriggerAllRunsResult = (ApiRun & { projectName: string }) | ApiTriggerAllRunsConflict
+
 export interface ApiSnapshot {
   id: string
   runId: string
@@ -527,7 +536,7 @@ export function fetchNotificationEvents(): Promise<string[]> {
   return apiFetch('/notifications/events')
 }
 
-export function triggerAllRuns(body?: { providers?: string[] }): Promise<unknown[]> {
+export function triggerAllRuns(body?: { providers?: string[] }): Promise<ApiTriggerAllRunsResult[]> {
   return apiFetch('/runs', {
     method: 'POST',
     body: JSON.stringify(body ?? {}),

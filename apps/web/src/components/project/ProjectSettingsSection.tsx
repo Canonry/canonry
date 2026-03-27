@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { Button } from '../ui/button.js'
 import { addLocation, removeLocation, setDefaultLocation, type ApiLocation } from '../../api.js'
+import { addToast } from '../../lib/toast-store.js'
 
 export function ProjectSettingsSection({
   project,
@@ -80,6 +81,13 @@ export function ProjectSettingsSection({
         language: language.trim(),
       })
       setEditing(false)
+      addToast({
+        title: 'Project settings saved',
+        detail: `${displayName.trim()} was updated.`,
+        tone: 'positive',
+        dedupeKey: `project:update:${project.name}`,
+        dedupeMode: 'replace',
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save')
     } finally {
@@ -106,6 +114,13 @@ export function ProjectSettingsSection({
       setNewLocCountry('')
       setNewLocTimezone('')
       setShowAddLocation(false)
+      addToast({
+        title: 'Location added',
+        detail: `${label} is now available for ${project.name}.`,
+        tone: 'positive',
+        dedupeKey: `project:location:add:${project.name}:${label}`,
+        dedupeMode: 'drop',
+      })
     } catch (err) {
       setLocationError(err instanceof Error ? err.message : 'Failed to add location')
     } finally {
@@ -119,6 +134,13 @@ export function ProjectSettingsSection({
     try {
       await removeLocation(project.name, label)
       onRefresh()
+      addToast({
+        title: 'Location removed',
+        detail: `${label} was removed from ${project.name}.`,
+        tone: 'positive',
+        dedupeKey: `project:location:remove:${project.name}:${label}`,
+        dedupeMode: 'drop',
+      })
     } catch (err) {
       setLocationError(err instanceof Error ? err.message : 'Failed to remove location')
     } finally {
@@ -132,6 +154,13 @@ export function ProjectSettingsSection({
     try {
       await setDefaultLocation(project.name, label)
       onRefresh()
+      addToast({
+        title: 'Default location updated',
+        detail: `${label} is now the default for ${project.name}.`,
+        tone: 'positive',
+        dedupeKey: `project:location:default:${project.name}`,
+        dedupeMode: 'replace',
+      })
     } catch (err) {
       setLocationError(err instanceof Error ? err.message : 'Failed to set default location')
     } finally {

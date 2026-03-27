@@ -17,13 +17,13 @@ import { AnalyticsSection } from '../components/project/AnalyticsSection.js'
 import { TrafficSection } from '../components/project/TrafficSection.js'
 import { GscSection } from '../components/project/GscSection.js'
 import { formatTimestamp } from '../lib/format-helpers.js'
+import { addToast } from '../lib/toast-store.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
 import { ScheduleSection } from '../components/project/ScheduleSection.js'
 import { NotificationsSection } from '../components/project/NotificationsSection.js'
 import {
   fetchExport,
   fetchTimeline,
-  triggerRun as apiTriggerRun,
   deleteProject as apiDeleteProject,
   appendKeywords as apiAppendKeywords,
   fetchCompetitors as apiFetchCompetitors,
@@ -53,6 +53,7 @@ import {
   type ApiGoogleConnection,
   type ApiGscCoverageSummary,
 } from '../api.js'
+import { useTriggerRun } from '../queries/mutations.js'
 import { useDashboard } from '../queries/use-dashboard.js'
 import { useDrawer } from '../hooks/use-drawer.js'
 import { findProjectVm } from '../mock-data.js'
@@ -1042,8 +1043,6 @@ export function ProjectPage({
   const model = findProjectVm(dashboard, projectId)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [runTriggering, setRunTriggering] = useState(false)
-  const [runError, setRunError] = useState<string | null>(null)
   const [addingKeywords, setAddingKeywords] = useState(false)
   const [newKeywordText, setNewKeywordText] = useState('')
   const [keywordSaving, setKeywordSaving] = useState(false)
@@ -1060,6 +1059,8 @@ export function ProjectPage({
 
   const visibilityEvidence = model?.visibilityEvidence ?? []
   const projectName = model?.project.name ?? ''
+  const projectLabel = model?.project.displayName || model?.project.name || projectName
+  const triggerRunMutation = useTriggerRun()
 
   const locationLabelsInEvidence = useMemo(() => new Set(visibilityEvidence.map(e => e.location ?? '')), [visibilityEvidence])
   const hasNullLocationEvidence = locationLabelsInEvidence.has('')
@@ -1128,15 +1129,15 @@ export function ProjectPage({
   }
 
   async function handleTriggerRun() {
-    setRunTriggering(true)
-    setRunError(null)
     try {
-      await apiTriggerRun(projectName)
+      await triggerRunMutation.mutateAsync({
+        projectName,
+        projectLabel,
+        sourceAction: 'project-run',
+      })
       void refetch()
-    } catch (err) {
-      setRunError(err instanceof Error ? err.message : 'Failed to trigger run')
-    } finally {
-      setRunTriggering(false)
+    } catch {
+      // Mutation hook surfaces the toast and error state.
     }
   }
 
@@ -1144,6 +1145,13 @@ export function ProjectPage({
     setDeleting(true)
     try {
       await apiDeleteProject(projectName)
+      addToast({
+        title: 'Project deleted',
+        detail: `${projectLabel} was removed.`,
+        tone: 'positive',
+        dedupeKey: `project:delete:${projectName}`,
+        dedupeMode: 'drop',
+      })
       navigate({ to: '/' })
       void refetch()
     } catch (err) {
@@ -1337,21 +1345,14 @@ export function ProjectPage({
             </Button>
             <Button
               type="button"
-              disabled={runTriggering}
+              disabled={triggerRunMutation.isPending}
               onClick={handleTriggerRun}
             >
-              {runTriggering ? 'Starting...' : 'Run now'}
+              {triggerRunMutation.isPending ? 'Starting...' : 'Run now'}
             </Button>
           </div>
         </div>
       </div>
-
-      {runError && (
-        <div className="mb-3 rounded-lg border border-rose-800/40 bg-rose-950/20 px-3 py-2 text-sm text-rose-300">
-          {runError}
-          <button type="button" className="ml-2 text-rose-400 hover:text-rose-200" onClick={() => setRunError(null)}>×</button>
-        </div>
-      )}
 
       <nav className="project-subnav" aria-label="Project sections">
         {projectTabItems.map((item) => (

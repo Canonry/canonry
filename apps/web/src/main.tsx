@@ -8,7 +8,6 @@ import { createQueryClient } from './queries/query-client.js'
 import { createAppRouter } from './router/router.js'
 import { Button } from './components/ui/button.js'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card.js'
-import { Toaster } from './components/layout/Toaster.js'
 import './styles.css'
 
 const queryClient = createQueryClient()
@@ -107,7 +106,6 @@ function AuthGate() {
     return (
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
-        <Toaster />
       </QueryClientProvider>
     )
   }

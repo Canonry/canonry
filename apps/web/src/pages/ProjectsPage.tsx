@@ -7,6 +7,7 @@ import { Card } from '../components/ui/card.js'
 import { StatusBadge } from '../components/shared/StatusBadge.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { YamlApplyPanel } from '../components/project/YamlApplyPanel.js'
+import { addToast } from '../lib/toast-store.js'
 import { createProject } from '../api.js'
 import { useDashboard } from '../queries/use-dashboard.js'
 import { Link } from '@tanstack/react-router'
@@ -68,6 +69,13 @@ export function ProjectsPage() {
         canonicalDomain: domain,
         country,
         language,
+      })
+      addToast({
+        title: 'Project created',
+        detail: `${project.displayName || project.name} is ready to configure.`,
+        tone: 'positive',
+        dedupeKey: `project:create:${project.name}`,
+        dedupeMode: 'drop',
       })
       void refetch()
       setProjectName('')

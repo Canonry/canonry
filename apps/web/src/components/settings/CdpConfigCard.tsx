@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
+import { addToast } from '../../lib/toast-store.js'
 import { fetchCdpStatus, configureCdp, type ApiCdpStatus } from '../../api.js'
 
 export function CdpConfigCard() {
@@ -87,6 +88,13 @@ export function CdpConfigCard() {
               const status = await fetchCdpStatus().catch(() => null)
               if (status) setCdpStatus(status)
               setConfiguringCdp(false)
+              addToast({
+                title: 'CDP endpoint saved',
+                detail: `${cdpHost}:${parseInt(cdpPort, 10) || 9222} is now configured.`,
+                tone: 'positive',
+                dedupeKey: 'settings:cdp',
+                dedupeMode: 'replace',
+              })
             } catch (err) {
               setCdpStatusError(err instanceof Error ? err.message : String(err))
             } finally {

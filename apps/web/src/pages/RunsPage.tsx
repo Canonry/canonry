@@ -4,11 +4,13 @@ import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { RunRow } from '../components/shared/RunRow.js'
 import { toTitleCase } from '../lib/format-helpers.js'
+import { useTriggerAllRuns } from '../queries/mutations.js'
 import { useDashboard } from '../queries/use-dashboard.js'
 import type { RunFilter } from '../view-models.js'
 
 export function RunsPage() {
   const { dashboard, isLoading } = useDashboard()
+  const triggerAllRunsMutation = useTriggerAllRuns()
 
   if (!dashboard || isLoading) {
     return (
@@ -36,12 +38,12 @@ export function RunsPage() {
   const [filter, setFilter] = useState<RunFilter>('all')
   const filteredRuns = filter === 'all' ? runs : runs.filter((run) => run.status === filter)
 
-  const handleTriggerAll = () => {
-    import('../api.js').then(({ triggerAllRuns }) =>
-      triggerAllRuns().catch((err: unknown) => {
-        console.error('Failed to trigger all runs', err)
-      }),
-    )
+  const handleTriggerAll = async () => {
+    try {
+      await triggerAllRunsMutation.mutateAsync(undefined)
+    } catch {
+      // Mutation hook surfaces the toast and error state.
+    }
   }
 
   return (
@@ -53,8 +55,8 @@ export function RunsPage() {
             Status, type, project, duration, and the shortest explanation that makes the outcome trustworthy.
           </p>
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={handleTriggerAll}>
-          Run all projects
+        <Button type="button" variant="outline" size="sm" disabled={triggerAllRunsMutation.isPending} onClick={() => void handleTriggerAll()}>
+          {triggerAllRunsMutation.isPending ? 'Queueing…' : 'Run all projects'}
         </Button>
       </div>
 

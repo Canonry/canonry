@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { Button } from '../ui/button.js'
 import { updateGoogleAuthConfig } from '../../api.js'
+import { addToast } from '../../lib/toast-store.js'
 
 export function GoogleOAuthConfigForm({ onSaved }: { onSaved: () => void }) {
   const [clientId, setClientId] = useState('')
@@ -25,6 +26,13 @@ export function GoogleOAuthConfigForm({ onSaved }: { onSaved: () => void }) {
       setClientId('')
       setClientSecret('')
       setSuccess(true)
+      addToast({
+        title: 'Google OAuth app updated',
+        detail: 'Dashboard Google credentials were saved.',
+        tone: 'positive',
+        dedupeKey: 'settings:google-oauth',
+        dedupeMode: 'replace',
+      })
       onSaved()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update Google OAuth credentials')

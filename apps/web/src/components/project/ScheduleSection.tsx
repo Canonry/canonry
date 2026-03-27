@@ -4,6 +4,7 @@ import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { formatHour, buildPreset, parsePreset, scheduleLabel } from '../../lib/format-helpers.js'
+import { addToast } from '../../lib/toast-store.js'
 import { fetchSchedule, saveSchedule, removeSchedule, type ApiSchedule } from '../../api.js'
 
 // --- Schedule helpers ---
@@ -84,6 +85,13 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
       const result = await saveSchedule(projectName, body)
       setSchedule(result)
       setEditing(false)
+      addToast({
+        title: 'Schedule saved',
+        detail: scheduleLabel(result.preset ?? null, result.cronExpr, result.timezone),
+        tone: 'positive',
+        dedupeKey: `schedule:${projectName}`,
+        dedupeMode: 'replace',
+      })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to save schedule')
     } finally {
@@ -102,7 +110,15 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
       }
       if (schedule.preset) body.preset = schedule.preset
       else body.cron = schedule.cronExpr
-      setSchedule(await saveSchedule(projectName, body))
+      const nextSchedule = await saveSchedule(projectName, body)
+      setSchedule(nextSchedule)
+      addToast({
+        title: nextSchedule.enabled ? 'Schedule resumed' : 'Schedule paused',
+        detail: scheduleLabel(nextSchedule.preset ?? null, nextSchedule.cronExpr, nextSchedule.timezone),
+        tone: 'positive',
+        dedupeKey: `schedule:toggle:${projectName}`,
+        dedupeMode: 'replace',
+      })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to update schedule')
     } finally {
@@ -117,6 +133,13 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
       await removeSchedule(projectName)
       setSchedule(null)
       setEditing(false)
+      addToast({
+        title: 'Schedule removed',
+        detail: `${projectName} will no longer run automatically.`,
+        tone: 'positive',
+        dedupeKey: `schedule:remove:${projectName}`,
+        dedupeMode: 'drop',
+      })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to remove schedule')
     } finally {

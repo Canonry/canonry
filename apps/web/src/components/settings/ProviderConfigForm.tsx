@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { Button } from '../ui/button.js'
 import { updateProviderConfig } from '../../api.js'
+import { addToast } from '../../lib/toast-store.js'
 
 export function ProviderConfigForm({ providerName, keyUrl, modelHint, onSaved }: {
   providerName: string
@@ -52,6 +53,13 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, onSaved }:
       setMaxPerMinute('')
       setMaxPerDay('')
       setSuccess(true)
+      addToast({
+        title: 'Provider updated',
+        detail: `${providerName} configuration saved.`,
+        tone: 'positive',
+        dedupeKey: `settings:provider:${providerName}`,
+        dedupeMode: 'replace',
+      })
       onSaved()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update provider')

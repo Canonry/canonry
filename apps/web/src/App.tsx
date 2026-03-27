@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useQuery } from '@tanstack/react-query'
 
 import {
   ChevronRight,
@@ -13,6 +14,16 @@ import {
 } from 'lucide-react'
 
 import { formatErrorLog } from './lib/format-helpers.js'
+import { fetchAllRuns, fetchProjects, type ApiProject, type ApiRun } from './api.js'
+import { addToast, type ToastTone } from './lib/toast-store.js'
+import {
+  getRunTrackerState,
+  isTerminalRunStatus,
+  removeTrackedBatch,
+  removeTrackedRun,
+  subscribeRunTracker,
+  summarizeBatchStatuses,
+} from './lib/run-tracker-store.js'
 
 import { Button } from './components/ui/button.js'
 import { Badge } from './components/ui/badge.js'
@@ -27,6 +38,8 @@ import { useHealth } from './queries/use-health.js'
 import { useRunDetail } from './queries/use-run-detail.js'
 import { useDrawer } from './hooks/use-drawer.js'
 import { useInitialDashboard } from './contexts/dashboard-context.js'
+import { Toaster } from './components/layout/Toaster.js'
+import { queryKeys } from './queries/query-keys.js'
 import type {
   HealthSnapshot,
   ServiceStatus,
@@ -48,6 +61,160 @@ const checkingStatus = (label: string): ServiceStatus => ({
 const defaultHealthSnapshot: HealthSnapshot = {
   apiStatus: checkingStatus('API'),
   workerStatus: checkingStatus('Worker'),
+}
+
+function formatTrackedRunKind(kind: string) {
+  if (kind === 'gsc-sync') return 'GSC sync'
+  if (kind === 'inspect-sitemap') return 'Sitemap inspection'
+  return 'Visibility sweep'
+}
+
+function terminalToneForRun(status: string): ToastTone {
+  if (status === 'completed') return 'positive'
+  if (status === 'partial') return 'caution'
+  return 'negative'
+}
+
+function terminalTitleForRun(run: ApiRun) {
+  const kindLabel = formatTrackedRunKind(run.kind)
+  if (run.status === 'completed') return `${kindLabel} completed`
+  if (run.status === 'partial') return `${kindLabel} completed with partial results`
+  if (run.status === 'cancelled') return `${kindLabel} cancelled`
+  return `${kindLabel} failed`
+}
+
+function terminalDetailForRun(run: ApiRun, projectLabel: string) {
+  if (run.error) {
+    return `${projectLabel}: ${run.error}`
+  }
+  if (run.location) {
+    return `${projectLabel} · ${run.location}`
+  }
+  return projectLabel
+}
+
+function resolveProjectLabel(projectId: string, trackedLabel: string | undefined, projects: ApiProject[]) {
+  if (trackedLabel) return trackedLabel
+  const project = projects.find((candidate) => candidate.id === projectId)
+  return project?.displayName || project?.name || projectId
+}
+
+function batchDetail(summary: ReturnType<typeof summarizeBatchStatuses>, skippedCount: number) {
+  const parts = [
+    summary.completed > 0 ? `${summary.completed} completed` : null,
+    summary.partial > 0 ? `${summary.partial} partial` : null,
+    summary.failed > 0 ? `${summary.failed} failed` : null,
+    summary.cancelled > 0 ? `${summary.cancelled} cancelled` : null,
+    skippedCount > 0 ? `${skippedCount} skipped at queue time` : null,
+  ].filter(Boolean)
+
+  return parts.join(', ')
+}
+
+function batchTone(summary: ReturnType<typeof summarizeBatchStatuses>): ToastTone {
+  if (summary.failed > 0 || summary.cancelled > 0) return 'negative'
+  if (summary.partial > 0) return 'caution'
+  return 'positive'
+}
+
+export function RunNotificationObserver() {
+  const contextDashboard = useInitialDashboard()
+  const trackedState = useSyncExternalStore(subscribeRunTracker, getRunTrackerState, getRunTrackerState)
+  const runsQuery = useQuery({
+    queryKey: queryKeys.runs.all,
+    queryFn: fetchAllRuns,
+    enabled: !contextDashboard,
+  })
+  const projectsQuery = useQuery({
+    queryKey: queryKeys.projects.all,
+    queryFn: fetchProjects,
+    enabled: !contextDashboard,
+  })
+  const prevStatusesRef = useRef<Record<string, string>>({})
+  const hasPendingTracking = Object.keys(trackedState.runs).length > 0 || Object.keys(trackedState.batches).length > 0
+
+  useEffect(() => {
+    if (contextDashboard || !hasPendingTracking) return
+    void runsQuery.refetch()
+  }, [contextDashboard, hasPendingTracking, runsQuery])
+
+  useEffect(() => {
+    if (contextDashboard || !hasPendingTracking || typeof window === 'undefined') return
+
+    const refetchRuns = () => {
+      void runsQuery.refetch()
+    }
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        refetchRuns()
+      }
+    }
+
+    window.addEventListener('focus', refetchRuns)
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      window.removeEventListener('focus', refetchRuns)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [contextDashboard, hasPendingTracking, runsQuery])
+
+  useEffect(() => {
+    const runs = runsQuery.data ?? []
+    const projects = projectsQuery.data ?? []
+    const runsById = Object.fromEntries(runs.map((run) => [run.id, run]))
+    const nextStatuses = Object.fromEntries(runs.map((run) => [run.id, run.status]))
+
+    for (const trackedRun of Object.values(trackedState.runs)) {
+      const run = runsById[trackedRun.runId]
+      if (!run || !isTerminalRunStatus(run.status)) continue
+
+      const previousStatus = prevStatusesRef.current[run.id] ?? trackedRun.lastAnnouncedStatus
+      if (previousStatus === run.status) continue
+
+      if (trackedRun.sourceAction === 'run-all') {
+        removeTrackedRun(run.id)
+        continue
+      }
+
+      const projectLabel = resolveProjectLabel(run.projectId, trackedRun.projectLabel, projects)
+      addToast({
+        title: terminalTitleForRun(run),
+        detail: terminalDetailForRun(run, projectLabel),
+        tone: terminalToneForRun(run.status),
+        dedupeKey: `run:${run.id}`,
+        dedupeMode: 'replace',
+        cta: {
+          label: 'View run',
+          intent: 'open-run-drawer',
+          runId: run.id,
+        },
+      })
+      removeTrackedRun(run.id)
+    }
+
+    for (const batch of Object.values(trackedState.batches)) {
+      const summary = summarizeBatchStatuses(batch.runIds, runsById)
+      if (!summary.finished || batch.lastAnnouncedState === 'completed') continue
+
+      addToast({
+        title: 'Run-all batch finished',
+        detail: batchDetail(summary, batch.skippedCount),
+        tone: batchTone(summary),
+        dedupeKey: `batch:${batch.batchId}`,
+        dedupeMode: 'replace',
+        cta: {
+          label: 'View runs',
+          intent: 'go-to-runs',
+        },
+      })
+      removeTrackedBatch(batch.batchId)
+    }
+
+    prevStatusesRef.current = nextStatuses
+  }, [projectsQuery.data, runsQuery.data, trackedState])
+
+  return null
 }
 
 /* ────────────────────────────────────────────
@@ -473,6 +640,9 @@ export function RootLayout() {
       {selectedEvidenceContext ? (
         <EvidenceDetailModal evidence={selectedEvidenceContext.evidence} project={selectedEvidenceContext.project} onClose={closeDrawer} />
       ) : null}
+
+      <RunNotificationObserver />
+      <Toaster />
     </div>
   )
 }

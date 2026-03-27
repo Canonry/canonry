@@ -8,6 +8,7 @@ import { GoogleOAuthConfigForm } from '../components/settings/GoogleOAuthConfigF
 import { updateBingApiKey } from '../api.js'
 import { CdpConfigCard } from '../components/settings/CdpConfigCard.js'
 import { toneFromService } from '../lib/tone-helpers.js'
+import { addToast } from '../lib/toast-store.js'
 import { useDashboard } from '../queries/use-dashboard.js'
 import { useHealth } from '../queries/use-health.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
@@ -208,6 +209,13 @@ export function SettingsPage() {
                   setBingApiKey('')
                   setBingSuccess(true)
                   setConfiguringBing(false)
+                  addToast({
+                    title: 'Bing API key updated',
+                    detail: 'Dashboard Bing credentials were saved.',
+                    tone: 'positive',
+                    dedupeKey: 'settings:bing',
+                    dedupeMode: 'replace',
+                  })
                 } catch (err) {
                   setBingError(err instanceof Error ? err.message : 'Failed to update Bing API key')
                 } finally {

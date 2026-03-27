@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
+import { addToast } from '../../lib/toast-store.js'
 import { listNotifications, addNotification, removeNotification, sendTestNotification, type ApiNotification } from '../../api.js'
 
 // --- Notification events ---
@@ -44,6 +45,13 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
       setWebhookUrl('')
       setSelectedEvents(['citation.lost', 'citation.gained'])
       setAdding(false)
+      addToast({
+        title: 'Webhook added',
+        detail: `Notifications will be sent to ${result.url}.`,
+        tone: 'positive',
+        dedupeKey: `notification:add:${projectName}`,
+        dedupeMode: 'drop',
+      })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to add webhook')
     } finally {
@@ -55,6 +63,13 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
     try {
       await removeNotification(projectName, id)
       setNotifs(prev => prev === 'loading' ? prev : prev.filter(n => n.id !== id))
+      addToast({
+        title: 'Webhook removed',
+        detail: `${projectName} no longer sends notifications to this endpoint.`,
+        tone: 'positive',
+        dedupeKey: `notification:remove:${projectName}:${id}`,
+        dedupeMode: 'drop',
+      })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to remove webhook')
     }
@@ -65,6 +80,15 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
     try {
       const result = await sendTestNotification(projectName, id)
       setTestStates(prev => ({ ...prev, [id]: { state: result.ok ? 'ok' : 'fail', status: result.status } }))
+      if (result.ok) {
+        addToast({
+          title: 'Test notification sent',
+          detail: `Webhook returned status ${result.status}.`,
+          tone: 'positive',
+          dedupeKey: `notification:test:${projectName}:${id}`,
+          dedupeMode: 'replace',
+        })
+      }
     } catch {
       setTestStates(prev => ({ ...prev, [id]: { state: 'fail' } }))
     }

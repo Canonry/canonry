@@ -11,14 +11,17 @@ export function createQueryClient() {
       },
     },
     mutationCache: new MutationCache({
-      onError: (error) => {
+      onError: (error, _variables, _context, mutation) => {
+        if (mutation.meta?.skipGlobalErrorToast) {
+          return
+        }
         // Global fallback — only fires if the mutation caller didn't handle the error.
         // Components with custom onError callbacks still receive their error first;
         // this ensures no mutation fails silently.
-        addToast(
-          error instanceof Error ? error.message : 'An unexpected error occurred',
-          'negative',
-        )
+        addToast({
+          title: error instanceof Error ? error.message : 'An unexpected error occurred',
+          tone: 'negative',
+        })
       },
     }),
   })

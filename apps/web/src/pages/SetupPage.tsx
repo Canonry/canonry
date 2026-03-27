@@ -5,13 +5,14 @@ import { Link } from '@tanstack/react-router'
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
+import { addToast } from '../lib/toast-store.js'
 import {
   createProject,
   setKeywords,
   setCompetitors,
-  triggerRun as apiTriggerRun,
   generateKeywords as apiGenerateKeywords,
 } from '../api.js'
+import { useTriggerRun } from '../queries/mutations.js'
 import { useDashboard } from '../queries/use-dashboard.js'
 import { useHealth } from '../queries/use-health.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
@@ -110,8 +111,8 @@ export function SetupPage() {
   const [competitorsSaving, setCompetitorsSaving] = useState(false)
 
   const [runTriggered, setRunTriggered] = useState(false)
-  const [runError, setRunError] = useState<string | null>(null)
   const [runSaving, setRunSaving] = useState(false)
+  const triggerRunMutation = useTriggerRun()
 
   const slug = projectName.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
   const parsedKeywords = keywordsText.split('\n').map(k => k.trim()).filter(Boolean)
@@ -132,6 +133,13 @@ export function SetupPage() {
       })
       setCreatedProjectName(slug)
       setCreatedProjectId(project.id)
+      addToast({
+        title: 'Project created',
+        detail: `${project.displayName || project.name} is ready for setup.`,
+        tone: 'positive',
+        dedupeKey: `project:create:${project.name}`,
+        dedupeMode: 'drop',
+      })
       void refetch()
       setStep(2)
     } catch (err) {
@@ -199,13 +207,16 @@ export function SetupPage() {
   const handleLaunchRun = async () => {
     if (!createdProjectName) return
     setRunSaving(true)
-    setRunError(null)
     try {
-      await apiTriggerRun(createdProjectName)
+      await triggerRunMutation.mutateAsync({
+        projectName: createdProjectName,
+        projectLabel: displayName || projectName || createdProjectName,
+        sourceAction: 'setup-launch',
+      })
       setRunTriggered(true)
       void refetch()
-    } catch (err) {
-      setRunError(err instanceof Error ? err.message : 'Failed to trigger run')
+    } catch {
+      // Mutation hook surfaces the toast and error state.
     } finally {
       setRunSaving(false)
     }
@@ -487,7 +498,6 @@ export function SetupPage() {
                 <p className="supporting-copy">
                   Everything is configured. Launch an answer-visibility sweep to start tracking citations for <span className="text-zinc-100 font-medium">{createdProjectName}</span>.
                 </p>
-                {runError ? <p className="text-rose-400 text-sm">{runError}</p> : null}
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={goBack}>Back</Button>
                   <Button type="button" disabled={runSaving} onClick={handleLaunchRun}>
