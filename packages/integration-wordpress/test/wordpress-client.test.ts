@@ -258,6 +258,9 @@ describe('wordpress client', () => {
     globalThis.fetch = async (input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
       requestedUrls.push(url)
+      if (url.includes('/wp-json/wp/v2/users/me?')) {
+        return jsonResponse({ id: 1, slug: 'admin' })
+      }
       if (url.includes('/wp-json/wp/v2/pages?')) {
         return jsonResponse([], {
           headers: {
@@ -274,9 +277,47 @@ describe('wordpress client', () => {
 
     await verifyWordpressConnection(createConnection())
 
-    const verifyRequest = requestedUrls.find((url) => url.includes('/wp-json/wp/v2/pages?'))
-    expect(verifyRequest).toBeTruthy()
-    expect(verifyRequest).toContain('context=view')
-    expect(verifyRequest).not.toContain('context=edit')
+    const authRequest = requestedUrls.find((url) => url.includes('/wp-json/wp/v2/users/me?'))
+    const pageSummaryRequest = requestedUrls.find((url) => url.includes('/wp-json/wp/v2/pages?'))
+    expect(authRequest).toBeTruthy()
+    expect(authRequest).not.toContain('context=edit')
+    expect(pageSummaryRequest).toBeTruthy()
+    expect(pageSummaryRequest).toContain('context=view')
+    expect(pageSummaryRequest).not.toContain('context=edit')
+  })
+
+  it('surfaces the Hostinger Authorization-header workaround on auth failures', async () => {
+    globalThis.fetch = async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('/wp-json/wp/v2/users/me?')) {
+        return new Response(
+          JSON.stringify({
+            code: 'rest_not_logged_in',
+            message: 'You are not currently logged in.',
+            data: { status: 401 },
+          }),
+          {
+            status: 401,
+            headers: {
+              'content-type': 'application/json',
+              'platform': 'hostinger',
+              'panel': 'hpanel',
+              'server': 'hcdn',
+            },
+          },
+        )
+      }
+      throw new Error(`Unhandled URL: ${url}`)
+    }
+
+    await expect(() => verifyWordpressConnection(createConnection())).rejects.toMatchObject({
+      name: 'WordpressApiError',
+      code: 'AUTH_INVALID',
+      message: expect.stringContaining('Detected hosting: Hostinger (hcdn)'),
+    } satisfies Partial<WordpressApiError>)
+
+    await expect(() => verifyWordpressConnection(createConnection())).rejects.toThrow(
+      'SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1',
+    )
   })
 })

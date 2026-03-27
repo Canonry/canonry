@@ -172,6 +172,57 @@ describe('WordPress routes', () => {
     expect(connections.has('test-project')).toBe(false)
   })
 
+  it('returns actionable Hostinger auth guidance when wordpress connect fails behind hcdn', async () => {
+    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    vi.spyOn(wordpressModule, 'verifyWordpressConnection').mockRejectedValue(
+      new WordpressApiError(
+        'AUTH_INVALID',
+        [
+          'WordPress REST API authentication failed.',
+          '',
+          'Detected hosting: Hostinger (hcdn)',
+          "Hostinger's CDN strips the Authorization header before it reaches WordPress.",
+          '',
+          'Fix: add the following line to your .htaccess file before "# BEGIN WordPress":',
+          '',
+          '  SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1',
+          '',
+          'Then re-run: canonry wordpress connect <project>',
+        ].join('\n'),
+        401,
+      ),
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/wordpress/connect',
+      payload: {
+        url: 'https://example.com/',
+        username: 'admin',
+        appPassword: 'app-pass',
+      },
+    })
+
+    expect(res.statusCode).toBe(401)
+    expect(res.json()).toEqual({
+      error: {
+        code: 'AUTH_INVALID',
+        message: [
+          'WordPress REST API authentication failed.',
+          '',
+          'Detected hosting: Hostinger (hcdn)',
+          "Hostinger's CDN strips the Authorization header before it reaches WordPress.",
+          '',
+          'Fix: add the following line to your .htaccess file before "# BEGIN WordPress":',
+          '',
+          '  SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1',
+          '',
+          'Then re-run: canonry wordpress connect <project>',
+        ].join('\n'),
+      },
+    })
+  })
+
   it('passes the requested environment through page listing routes', async () => {
     const now = new Date().toISOString()
     connections.set('test-project', {

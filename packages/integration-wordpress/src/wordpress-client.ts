@@ -19,6 +19,7 @@ import { WordpressApiError } from './types.js'
 const PAGE_FIELDS = 'id,slug,status,link,modified,modified_gmt,title,content,meta'
 const PAGE_LIST_FIELDS = 'id,slug,status,link,modified,modified_gmt,title'
 const VERIFY_PAGE_FIELDS = 'id,status'
+const VERIFY_USER_FIELDS = 'id,slug'
 const SEO_TARGETS = [
   {
     pluginHints: ['wordpress-seo', 'yoast'],
@@ -49,6 +50,55 @@ function encodeBasicAuth(username: string, appPassword: string): string {
   return Buffer.from(`${username}:${appPassword}`).toString('base64')
 }
 
+function parseJsonObject(text: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(text) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null
+  } catch {
+    return null
+  }
+}
+
+function detectHostingerHeaders(headers: Headers): string | null {
+  const platform = headers.get('platform')?.trim().toLowerCase()
+  const server = headers.get('server')?.trim().toLowerCase()
+  const panel = headers.get('panel')?.trim().toLowerCase()
+
+  if (platform === 'hostinger') return server === 'hcdn' ? 'Hostinger (hcdn)' : 'Hostinger'
+  if (server === 'hcdn') return 'Hostinger (hcdn)'
+  if (panel === 'hpanel') return 'Hostinger (hpanel)'
+  return null
+}
+
+function buildHostingerAuthMessage(hostingLabel: string): string {
+  return [
+    'WordPress REST API authentication failed.',
+    '',
+    `Detected hosting: ${hostingLabel}`,
+    "Hostinger's CDN strips the Authorization header before it reaches WordPress.",
+    '',
+    'Fix: add the following line to your .htaccess file before "# BEGIN WordPress":',
+    '',
+    '  SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1',
+    '',
+    'Then re-run: canonry wordpress connect <project>',
+  ].join('\n')
+}
+
+function buildAuthErrorMessage(res: Response, responseText: string): string {
+  const payload = parseJsonObject(responseText)
+  const wordpressCode = typeof payload?.code === 'string' ? payload.code : null
+  const hostingLabel = detectHostingerHeaders(res.headers)
+
+  if (hostingLabel && wordpressCode === 'rest_not_logged_in') {
+    return buildHostingerAuthMessage(hostingLabel)
+  }
+
+  return 'WordPress credentials are invalid or lack permission for this action'
+}
+
 async function fetchJson<T>(
   connection: WordpressConnectionRecord,
   siteUrl: string,
@@ -65,7 +115,8 @@ async function fetchJson<T>(
   })
 
   if (res.status === 401 || res.status === 403) {
-    throw new WordpressApiError('AUTH_INVALID', 'WordPress credentials are invalid or lack permission for this action', res.status)
+    const text = await res.text().catch(() => '')
+    throw new WordpressApiError('AUTH_INVALID', buildAuthErrorMessage(res, text), res.status)
   }
 
   if (res.status === 404) {
@@ -81,6 +132,17 @@ async function fetchJson<T>(
     body: (await res.json()) as T,
     response: res,
   }
+}
+
+async function verifyAuthenticatedRestAccess(
+  connection: WordpressConnectionRecord,
+  siteUrl: string,
+): Promise<void> {
+  await fetchJson<Record<string, unknown>>(
+    connection,
+    siteUrl,
+    `/wp-json/wp/v2/users/me?_fields=${VERIFY_USER_FIELDS}`,
+  )
 }
 
 async function fetchPageCollectionSummary(
@@ -299,6 +361,7 @@ export async function verifyWordpressConnection(
   connection: WordpressConnectionRecord,
 ): Promise<WordpressSiteStatusDto> {
   const site = resolveEnvironment({ ...connection, defaultEnv: 'live' }, 'live')
+  await verifyAuthenticatedRestAccess(connection, site.siteUrl)
   const response = await fetchPageCollectionSummary(connection, site.siteUrl, { context: 'view' })
   const homeHtml = await fetchText(site.siteUrl)
   return {
@@ -316,6 +379,7 @@ export async function getSiteStatus(
 ): Promise<WordpressSiteStatusDto> {
   const site = resolveEnvironment(connection, env)
   try {
+    await verifyAuthenticatedRestAccess(connection, site.siteUrl)
     const response = await fetchPageCollectionSummary(connection, site.siteUrl, { context: 'view' })
     const homeHtml = await fetchText(site.siteUrl)
     const plugins = await listActivePlugins(connection, env)

@@ -135,6 +135,18 @@ Each command returns:
 
 The username or Application Password is wrong, or the account lacks page-edit permissions. Create a fresh Application Password in WordPress and reconnect.
 
+### `Detected hosting: Hostinger (hcdn)`
+
+Hostinger's CDN strips the `Authorization` header before it reaches WordPress, so REST auth fails even when the Application Password is valid.
+
+Add this line to `.htaccess` before `# BEGIN WordPress`:
+
+```apacheconf
+SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+```
+
+Then re-run `canonry wordpress connect <project>`.
+
 ### `No staging URL configured`
 
 Reconnect the project with `--staging-url`, or use `--live` on the command.
