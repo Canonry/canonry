@@ -245,7 +245,7 @@ export function GscSection({
         c.connectionType === 'gsc' ? { ...c, sitemapUrl: result.primarySitemapUrl } : c
       )))
     } catch {
-      // Mutation hook surfaces the toast and error state.
+      // Mutation hook handles the toast; keep the last discovered sitemap state visible.
     }
   }
 
@@ -378,7 +378,7 @@ export function GscSection({
         },
       })
     } catch {
-      // Mutation hook surfaces the toast and error state.
+      // Mutation hook handles the toast-only failure path for queued syncs.
     }
   }
 
@@ -1397,7 +1397,7 @@ export function GscSection({
                                 opts: { sitemapUrl: url },
                               })
                             } catch {
-                              // Mutation hook surfaces the toast and error state.
+                              // Mutation hook handles the toast-only failure path for queued inspections.
                             }
                           }}
                         >

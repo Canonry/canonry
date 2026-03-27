@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
 import {
@@ -118,32 +118,32 @@ function batchTone(summary: ReturnType<typeof summarizeBatchStatuses>): ToastTon
 }
 
 export function RunNotificationObserver() {
-  const contextDashboard = useInitialDashboard()
   const trackedState = useSyncExternalStore(subscribeRunTracker, getRunTrackerState, getRunTrackerState)
+  const hasPendingTracking = Object.keys(trackedState.runs).length > 0 || Object.keys(trackedState.batches).length > 0
   const runsQuery = useQuery({
     queryKey: queryKeys.runs.all,
     queryFn: fetchAllRuns,
-    enabled: !contextDashboard,
+    // Keep notification polling live whenever this browser session is tracking runs,
+    // even if the app was bootstrapped with initial dashboard context.
+    enabled: hasPendingTracking,
   })
   const projectsQuery = useQuery({
     queryKey: queryKeys.projects.all,
     queryFn: fetchProjects,
-    enabled: !contextDashboard,
+    enabled: hasPendingTracking,
   })
   const prevStatusesRef = useRef<Record<string, string>>({})
-  const hasPendingTracking = Object.keys(trackedState.runs).length > 0 || Object.keys(trackedState.batches).length > 0
-
-  useEffect(() => {
-    if (contextDashboard || !hasPendingTracking) return
+  const refetchRuns = useCallback(() => {
     void runsQuery.refetch()
-  }, [contextDashboard, hasPendingTracking, runsQuery])
+  }, [runsQuery.refetch])
 
   useEffect(() => {
-    if (contextDashboard || !hasPendingTracking || typeof window === 'undefined') return
+    if (!hasPendingTracking) return
+    refetchRuns()
+  }, [hasPendingTracking, refetchRuns])
 
-    const refetchRuns = () => {
-      void runsQuery.refetch()
-    }
+  useEffect(() => {
+    if (!hasPendingTracking || typeof window === 'undefined') return
 
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
@@ -157,7 +157,7 @@ export function RunNotificationObserver() {
       window.removeEventListener('focus', refetchRuns)
       document.removeEventListener('visibilitychange', handleVisibility)
     }
-  }, [contextDashboard, hasPendingTracking, runsQuery])
+  }, [hasPendingTracking, refetchRuns])
 
   useEffect(() => {
     const runs = runsQuery.data ?? []
@@ -195,7 +195,7 @@ export function RunNotificationObserver() {
 
     for (const batch of Object.values(trackedState.batches)) {
       const summary = summarizeBatchStatuses(batch.runIds, runsById)
-      if (!summary.finished || batch.lastAnnouncedState === 'completed') continue
+      if (!summary.finished) continue
 
       addToast({
         title: 'Run-all batch finished',

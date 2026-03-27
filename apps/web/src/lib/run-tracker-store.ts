@@ -22,7 +22,6 @@ export interface TrackedBatch {
   runIds: string[]
   queuedCount: number
   skippedCount: number
-  lastAnnouncedState: 'queued' | 'completed'
 }
 
 export interface RunTrackerState {
@@ -146,7 +145,6 @@ export function createTrackedBatch(input: {
         runIds: input.runIds,
         queuedCount: input.queuedCount,
         skippedCount: input.skippedCount,
-        lastAnnouncedState: 'queued',
       },
     },
   })

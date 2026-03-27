@@ -129,6 +129,8 @@ export function addToast(input: string | ToastInput, tone: ToastTone = 'negative
   }
 
   if (toasts.length >= MAX_TOASTS) {
+    // Capacity eviction is intentionally immediate so the incoming toast can
+    // appear without waiting for an out-animation slot to clear.
     removeToastImmediately(toasts[0]!.id)
   }
 

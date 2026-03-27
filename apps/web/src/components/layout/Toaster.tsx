@@ -11,6 +11,11 @@ const toneStyles: Record<Toast['tone'], string> = {
   neutral: 'toast-card-neutral',
 }
 
+function actionAriaLabel(toast: Toast) {
+  if (!toast.cta) return undefined
+  return `${toast.cta.label}: ${toast.title}`
+}
+
 export function Toaster() {
   const toasts = useSyncExternalStore(subscribe, getToasts, getToasts)
   const navigate = useNavigate()
@@ -54,6 +59,7 @@ export function Toaster() {
                 type="button"
                 className="toast-action"
                 onClick={() => handleAction(toast)}
+                aria-label={actionAriaLabel(toast)}
               >
                 {toast.cta.label}
               </button>
