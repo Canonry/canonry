@@ -91,8 +91,8 @@ Usage:
   canonry wordpress status <project>  Show WordPress connection status
   canonry wordpress pages <project>  List WordPress pages (--live|--staging)
   canonry wordpress page <project> <slug>  Show a WordPress page
-  canonry wordpress create-page <project>  Create a WordPress page (--title, --slug, --content)
-  canonry wordpress update-page <project> <slug>  Update a WordPress page
+  canonry wordpress create-page <project>  Create a WordPress page (--title, --slug, --content/--content-file)
+  canonry wordpress update-page <project> <slug>  Update a WordPress page (--content/--content-file)
   canonry wordpress set-meta <project> <slug>  Update REST-exposed SEO meta
   canonry wordpress schema <project> <slug>  Read rendered JSON-LD schema
   canonry wordpress set-schema <project> <slug>  Generate manual schema handoff

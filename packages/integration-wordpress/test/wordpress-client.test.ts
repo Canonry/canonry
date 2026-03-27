@@ -6,6 +6,7 @@ import {
   getPageDetail,
   runAudit,
   setSeoMeta,
+  verifyWordpressConnection,
 } from '../src/index.js'
 
 function createConnection(overrides: Partial<WordpressConnectionRecord> = {}): WordpressConnectionRecord {
@@ -137,6 +138,7 @@ describe('wordpress client', () => {
   })
 
   it('prioritizes audit issues for published thin noindex pages', async () => {
+    let pluginFetchCount = 0
     globalThis.fetch = async (input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
       if (url.includes('/wp-json/wp/v2/pages?per_page=100&page=1')) {
@@ -156,6 +158,7 @@ describe('wordpress client', () => {
         })
       }
       if (url.includes('/wp-json/wp/v2/plugins')) {
+        pluginFetchCount += 1
         return new Response('Not found', { status: 404 })
       }
       if (url.includes('/wp-json/wp/v2/pages?slug=thin-page')) {
@@ -194,6 +197,7 @@ describe('wordpress client', () => {
       'missing-schema',
       'thin-content',
     ])
+    expect(pluginFetchCount).toBe(1)
   })
 
   it('computes live vs staging diffs with hashes and snippets', async () => {
@@ -240,11 +244,39 @@ describe('wordpress client', () => {
     }
 
     const diff = await diffPageAcrossEnvironments(createConnection(), 'pricing')
+    expect(diff.hasDifferences).toBe(true)
     expect(diff.differences.title).toBe(true)
     expect(diff.differences.content).toBe(true)
     expect(diff.live.contentHash).toHaveLength(64)
     expect(diff.staging.contentHash).toHaveLength(64)
     expect(diff.live.contentSnippet).toContain('Live pricing content')
     expect(diff.staging.contentSnippet).toContain('Staging pricing content')
+  })
+
+  it('verifies connections without requesting edit context', async () => {
+    const requestedUrls: string[] = []
+    globalThis.fetch = async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      requestedUrls.push(url)
+      if (url.includes('/wp-json/wp/v2/pages?')) {
+        return jsonResponse([], {
+          headers: {
+            'x-wp-total': '0',
+            'x-wp-totalpages': '1',
+          },
+        })
+      }
+      if (url === 'https://example.com' || url === 'https://example.com/') {
+        return new Response('<meta name="generator" content="WordPress 6.8.1" />', { status: 200 })
+      }
+      throw new Error(`Unhandled URL: ${url}`)
+    }
+
+    await verifyWordpressConnection(createConnection())
+
+    const verifyRequest = requestedUrls.find((url) => url.includes('/wp-json/wp/v2/pages?'))
+    expect(verifyRequest).toBeTruthy()
+    expect(verifyRequest).toContain('context=view')
+    expect(verifyRequest).not.toContain('context=edit')
   })
 })

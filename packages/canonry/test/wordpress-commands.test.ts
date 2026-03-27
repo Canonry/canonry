@@ -264,6 +264,98 @@ describe('wordpress CLI commands', () => {
     })
   })
 
+  it('reads create-page content from --content-file', async () => {
+    originalConfigDir = process.env.CANONRY_CONFIG_DIR
+    originalFetch = globalThis.fetch
+
+    const now = new Date().toISOString()
+    const harness = await startHarness({
+      wordpress: {
+        connections: [
+          {
+            projectName: 'test-proj',
+            url: 'https://example.com',
+            username: 'admin',
+            appPassword: 'app-pass',
+            defaultEnv: 'live',
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+      },
+    })
+    closeHarness = harness.close
+    process.env.CANONRY_CONFIG_DIR = harness.tmpDir
+
+    const contentPath = path.join(harness.tmpDir, 'page.html')
+    fs.writeFileSync(contentPath, '<p>From file</p>', 'utf-8')
+
+    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.startsWith(harness.serverUrl)) {
+        return originalFetch(input, init)
+      }
+      if (url.includes('/wp-json/wp/v2/pages') && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as { title: string; slug: string; content: string; status: string }
+        expect(body).toMatchObject({
+          title: 'About',
+          slug: 'about',
+          content: '<p>From file</p>',
+          status: 'draft',
+        })
+        return jsonResponse({
+          id: 5,
+          slug: 'about',
+          status: 'draft',
+          link: 'https://example.com/about/',
+          modified: '2026-03-27T12:00:00Z',
+          title: { rendered: 'About' },
+          content: { raw: '<p>From file</p>' },
+          meta: {},
+        })
+      }
+      if (url.includes('/wp-json/wp/v2/plugins')) {
+        return new Response('Not found', { status: 404 })
+      }
+      if (url.includes('/wp-json/wp/v2/pages?slug=about')) {
+        return jsonResponse([
+          {
+            id: 5,
+            slug: 'about',
+            status: 'draft',
+            link: 'https://example.com/about/',
+            modified: '2026-03-27T12:00:00Z',
+            title: { rendered: 'About' },
+            content: { raw: '<p>From file</p>' },
+            meta: {},
+          },
+        ])
+      }
+      if (url === 'https://example.com/about/') {
+        return new Response('<html><head><title>About</title></head><body>From file</body></html>', { status: 200 })
+      }
+      throw new Error(`Unhandled URL: ${url}`)
+    }
+
+    const result = await invokeCli([
+      'wordpress',
+      'create-page',
+      'test-proj',
+      '--title',
+      'About',
+      '--slug',
+      'about',
+      '--content-file',
+      contentPath,
+      '--format',
+      'json',
+    ])
+
+    const body = parseJsonOutput(result.stdout) as { slug: string; content: string }
+    expect(body.slug).toBe('about')
+    expect(body.content).toBe('<p>From file</p>')
+  })
+
   it('returns manual schema instructions instead of applying schema remotely', async () => {
     originalConfigDir = process.env.CANONRY_CONFIG_DIR
     originalFetch = globalThis.fetch

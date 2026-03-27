@@ -5,6 +5,7 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createClient, migrate, projects } from '@ainyc/canonry-db'
+import { WordpressApiError } from '@ainyc/canonry-integration-wordpress'
 import { apiRoutes } from '../src/index.js'
 import type { WordpressConnectionStore } from '../src/wordpress.js'
 
@@ -231,10 +232,13 @@ describe('WordPress routes', () => {
     })
 
     const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
-    vi.spyOn(wordpressModule, 'setSeoMeta').mockRejectedValue(Object.assign(
-      new Error('This WordPress site does not expose writable SEO meta fields through REST.'),
-      { statusCode: 400 },
-    ))
+    vi.spyOn(wordpressModule, 'setSeoMeta').mockRejectedValue(
+      new WordpressApiError(
+        'UNSUPPORTED',
+        'This WordPress site does not expose writable SEO meta fields through REST.',
+        400,
+      ),
+    )
 
     const res = await app.inject({
       method: 'POST',
@@ -252,6 +256,42 @@ describe('WordPress routes', () => {
         message: 'This WordPress site does not expose writable SEO meta fields through REST.',
       },
     })
+  })
+
+  it('rejects invalid env values in POST bodies before they reach the client', async () => {
+    const now = new Date().toISOString()
+    connections.set('test-project', {
+      projectName: 'test-project',
+      url: 'https://example.com',
+      username: 'admin',
+      appPassword: 'app-pass',
+      defaultEnv: 'live',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    const createPageSpy = vi.spyOn(wordpressModule, 'createPage')
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/wordpress/pages',
+      payload: {
+        title: 'About',
+        slug: 'about',
+        content: '<p>About</p>',
+        env: 'production',
+      },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toEqual({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'env must be "live" or "staging"',
+      },
+    })
+    expect(createPageSpy).not.toHaveBeenCalled()
   })
 
   it('returns structured live vs staging diffs', async () => {
@@ -298,6 +338,7 @@ describe('WordPress routes', () => {
         contentHash: 'b'.repeat(64),
         contentSnippet: 'Staging',
       },
+      hasDifferences: true,
       differences: {
         title: true,
         slug: false,
@@ -317,6 +358,7 @@ describe('WordPress routes', () => {
     expect(res.statusCode).toBe(200)
     expect(res.json()).toMatchObject({
       slug: 'pricing',
+      hasDifferences: true,
       differences: {
         title: true,
         content: true,

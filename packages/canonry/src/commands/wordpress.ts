@@ -147,7 +147,8 @@ function printDiff(diff: WordpressDiffDto): void {
     .map(([key]) => key)
 
   console.log(`WordPress diff for "${diff.slug}":\n`)
-  console.log(`  Changed fields: ${changed.length > 0 ? changed.join(', ') : 'none'}`)
+  console.log(`  Has differences: ${diff.hasDifferences ? 'yes' : 'no'}`)
+  console.log(`  Changed fields:  ${changed.length > 0 ? changed.join(', ') : 'none'}`)
   console.log(`\nLive:`)
   console.log(`  Title:        ${diff.live.title}`)
   console.log(`  Slug:         ${diff.live.slug}`)

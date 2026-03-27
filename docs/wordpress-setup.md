@@ -23,8 +23,8 @@ There is currently **no WordPress web UI** in canonry. Use the CLI or API.
 ```bash
 canonry wordpress pages <project>
 canonry wordpress page <project> <slug>
-canonry wordpress create-page <project> --title ... --slug ... --content ...
-canonry wordpress update-page <project> <slug> --title ... --content ...
+canonry wordpress create-page <project> --title ... --slug ... --content-file ./page.html
+canonry wordpress update-page <project> <slug> --title ... --content-file ./page.html
 canonry wordpress set-meta <project> <slug> --title ... --description ...
 canonry wordpress audit <project>
 canonry wordpress diff <project> <slug>
@@ -68,6 +68,7 @@ canonry wordpress connect mysite \
 If you omit `--app-password`, canonry prompts for it interactively.
 
 Connection data is stored in `~/.canonry/config.yaml` under the WordPress section, not in the project database tables.
+The Application Password is stored there in plain text with the config file’s existing `0600` permissions model, so do not commit or share that file.
 
 ### Environment model
 
@@ -93,7 +94,7 @@ canonry wordpress audit mysite --staging
 ```bash
 canonry wordpress pages mysite --staging
 canonry wordpress page mysite pricing --staging
-canonry wordpress update-page mysite pricing --title "New title" --content "<p>...</p>" --staging
+canonry wordpress update-page mysite pricing --title "New title" --content-file ./pricing.html --staging
 ```
 
 ### Audit a site before publishing

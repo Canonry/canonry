@@ -18,6 +18,7 @@ import { WordpressApiError } from './types.js'
 
 const PAGE_FIELDS = 'id,slug,status,link,modified,modified_gmt,title,content,meta'
 const PAGE_LIST_FIELDS = 'id,slug,status,link,modified,modified_gmt,title'
+const VERIFY_PAGE_FIELDS = 'id,status'
 const SEO_TARGETS = [
   {
     pluginHints: ['wordpress-seo', 'yoast'],
@@ -80,6 +81,27 @@ async function fetchJson<T>(
     body: (await res.json()) as T,
     response: res,
   }
+}
+
+async function fetchPageCollectionSummary(
+  connection: WordpressConnectionRecord,
+  siteUrl: string,
+  options?: { context?: 'view' | 'edit' },
+): Promise<Response> {
+  const params = new URLSearchParams({
+    per_page: '1',
+    _fields: VERIFY_PAGE_FIELDS,
+  })
+  if (options?.context) {
+    params.set('context', options.context)
+  }
+
+  const { response } = await fetchJson<WordpressRestPage[]>(
+    connection,
+    siteUrl,
+    `/wp-json/wp/v2/pages?${params.toString()}`,
+  )
+  return response
 }
 
 async function fetchText(url: string): Promise<string | null> {
@@ -277,7 +299,7 @@ export async function verifyWordpressConnection(
   connection: WordpressConnectionRecord,
 ): Promise<WordpressSiteStatusDto> {
   const site = resolveEnvironment({ ...connection, defaultEnv: 'live' }, 'live')
-  const { response } = await fetchJson<WordpressRestPage[]>(connection, site.siteUrl, `/wp-json/wp/v2/pages?per_page=1&context=edit&_fields=${PAGE_LIST_FIELDS}`)
+  const response = await fetchPageCollectionSummary(connection, site.siteUrl, { context: 'view' })
   const homeHtml = await fetchText(site.siteUrl)
   return {
     url: site.siteUrl,
@@ -294,7 +316,7 @@ export async function getSiteStatus(
 ): Promise<WordpressSiteStatusDto> {
   const site = resolveEnvironment(connection, env)
   try {
-    const { response } = await fetchJson<WordpressRestPage[]>(connection, site.siteUrl, `/wp-json/wp/v2/pages?per_page=1&context=edit&_fields=${PAGE_LIST_FIELDS}`)
+    const response = await fetchPageCollectionSummary(connection, site.siteUrl, { context: 'view' })
     const homeHtml = await fetchText(site.siteUrl)
     const plugins = await listActivePlugins(connection, env)
     return {
@@ -409,13 +431,16 @@ export async function getPageDetail(
   connection: WordpressConnectionRecord,
   slug: string,
   env?: WordpressEnv,
+  plugins?: string[] | null,
 ): Promise<WordpressPageDetailDto> {
   const site = resolveEnvironment(connection, env)
-  const plugins = await listActivePlugins(connection, site.env)
+  const resolvedPlugins = plugins === undefined
+    ? await listActivePlugins(connection, site.env)
+    : plugins
   const page = await getPageBySlug(connection, slug, site.env)
   const html = await fetchRenderedPage(page.link)
   const schemaBlocks = html ? extractSchemaBlocks(html) : []
-  const seo = buildSeoState(page, html, plugins)
+  const seo = buildSeoState(page, html, resolvedPlugins)
 
   return {
     id: page.id,
@@ -525,7 +550,7 @@ export async function setSeoMeta(
     },
   )
 
-  return getPageDetail(connection, slug, site.env)
+  return getPageDetail(connection, slug, site.env, plugins)
 }
 
 export async function getLlmsTxt(
@@ -601,10 +626,11 @@ export async function runAudit(
 ): Promise<{ env: WordpressEnv; pages: WordpressAuditPageDto[]; issues: WordpressAuditIssueDto[] }> {
   const site = resolveEnvironment(connection, env)
   const pages = await listPages(connection, site.env)
+  const plugins = await listActivePlugins(connection, site.env)
   const details = await mapWithConcurrency(
     pages,
     5,
-    async (page) => getPageDetail(connection, page.slug, site.env),
+    async (page) => getPageDetail(connection, page.slug, site.env, plugins),
   )
 
   const auditPages: WordpressAuditPageDto[] = []
@@ -688,8 +714,12 @@ export async function diffPageAcrossEnvironments(
     throw new WordpressApiError('VALIDATION_ERROR', 'No staging URL configured for this project. Reconnect with --staging-url before using diff.', 400)
   }
 
-  const live = await getPageDetail(connection, slug, 'live')
-  const staging = await getPageDetail(connection, slug, 'staging')
+  const [livePlugins, stagingPlugins] = await Promise.all([
+    listActivePlugins(connection, 'live'),
+    listActivePlugins(connection, 'staging'),
+  ])
+  const live = await getPageDetail(connection, slug, 'live', livePlugins)
+  const staging = await getPageDetail(connection, slug, 'staging', stagingPlugins)
   const liveContentHash = contentHash(live.content)
   const stagingContentHash = contentHash(staging.content)
   const liveDiff: WordpressDiffPageDto = {
@@ -702,20 +732,22 @@ export async function diffPageAcrossEnvironments(
     contentHash: stagingContentHash,
     contentSnippet: buildSnippet(staging.content),
   }
+  const differences = {
+    title: live.title !== staging.title,
+    slug: live.slug !== staging.slug,
+    content: liveContentHash !== stagingContentHash,
+    seoTitle: live.seo.title !== staging.seo.title,
+    seoDescription: live.seo.description !== staging.seo.description,
+    noindex: live.seo.noindex !== staging.seo.noindex,
+    schema: JSON.stringify(live.schemaBlocks) !== JSON.stringify(staging.schemaBlocks),
+  }
 
   return {
     slug,
     live: liveDiff,
     staging: stagingDiff,
-    differences: {
-      title: live.title !== staging.title,
-      slug: live.slug !== staging.slug,
-      content: liveContentHash !== stagingContentHash,
-      seoTitle: live.seo.title !== staging.seo.title,
-      seoDescription: live.seo.description !== staging.seo.description,
-      noindex: live.seo.noindex !== staging.seo.noindex,
-      schema: JSON.stringify(live.schemaBlocks) !== JSON.stringify(staging.schemaBlocks),
-    },
+    hasDifferences: Object.values(differences).some(Boolean),
+    differences,
   }
 }
 

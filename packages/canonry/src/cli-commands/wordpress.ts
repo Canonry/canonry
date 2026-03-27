@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import type { WordpressEnv } from '@ainyc/canonry-contracts'
 import type { CliCommandInput, CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, requirePositional, requireProject, requireStringOption, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
@@ -47,6 +48,43 @@ function resolveNoindex(input: CliCommandInput, command: string, usage: string):
   if (noindex) return true
   if (index) return false
   return undefined
+}
+
+function resolveContent(
+  input: CliCommandInput,
+  command: string,
+  usage: string,
+  options?: { required?: boolean },
+): string | undefined {
+  const content = getString(input.values, 'content')
+  const contentFile = getString(input.values, 'content-file')
+
+  if (content && contentFile) {
+    throw usageError('Error: choose only one of --content or --content-file', {
+      message: 'choose only one of --content or --content-file',
+      details: { command, usage },
+    })
+  }
+
+  if (contentFile) {
+    try {
+      return fs.readFileSync(contentFile, 'utf-8')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw usageError(`Error: could not read --content-file "${contentFile}": ${message}`, {
+        message: `could not read --content-file "${contentFile}": ${message}`,
+        details: { command, usage },
+      })
+    }
+  }
+
+  if (content != null) return content
+  if (!options?.required) return undefined
+
+  throw usageError('Error: one of --content or --content-file is required', {
+    message: 'one of --content or --content-file is required',
+    details: { command, usage },
+  })
 }
 
 const envOptions = {
@@ -144,16 +182,17 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['wordpress', 'create-page'],
-    usage: 'canonry wordpress create-page <project> --title <title> --slug <slug> --content <content> [--status draft|publish] [--live|--staging] [--format json]',
+    usage: 'canonry wordpress create-page <project> --title <title> --slug <slug> [--content <content>|--content-file <path>] [--status draft|publish] [--live|--staging] [--format json]',
     options: {
       title: stringOption(),
       slug: stringOption(),
       content: stringOption(),
+      'content-file': stringOption(),
       status: stringOption(),
       ...envOptions,
     },
     run: async (input) => {
-      const usage = 'canonry wordpress create-page <project> --title <title> --slug <slug> --content <content> [--status draft|publish] [--live|--staging] [--format json]'
+      const usage = 'canonry wordpress create-page <project> --title <title> --slug <slug> [--content <content>|--content-file <path>] [--status draft|publish] [--live|--staging] [--format json]'
       const project = requireProject(input, 'wordpress.create-page', usage)
       await wordpressCreatePage(project, {
         title: requireStringOption(input, 'title', {
@@ -166,11 +205,7 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
           usage,
           message: '--slug is required',
         }),
-        content: requireStringOption(input, 'content', {
-          command: 'wordpress.create-page',
-          usage,
-          message: '--content is required',
-        }),
+        content: resolveContent(input, 'wordpress.create-page', usage, { required: true })!,
         status: getString(input.values, 'status'),
         env: resolveEnv(input, 'wordpress.create-page', usage),
         format: input.format,
@@ -179,16 +214,17 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['wordpress', 'update-page'],
-    usage: 'canonry wordpress update-page <project> <slug> [--title <title>] [--slug <slug>] [--content <content>] [--status draft|publish] [--live|--staging] [--format json]',
+    usage: 'canonry wordpress update-page <project> <slug> [--title <title>] [--slug <slug>] [--content <content>|--content-file <path>] [--status draft|publish] [--live|--staging] [--format json]',
     options: {
       title: stringOption(),
       slug: stringOption(),
       content: stringOption(),
+      'content-file': stringOption(),
       status: stringOption(),
       ...envOptions,
     },
     run: async (input) => {
-      const usage = 'canonry wordpress update-page <project> <slug> [--title <title>] [--slug <slug>] [--content <content>] [--status draft|publish] [--live|--staging] [--format json]'
+      const usage = 'canonry wordpress update-page <project> <slug> [--title <title>] [--slug <slug>] [--content <content>|--content-file <path>] [--status draft|publish] [--live|--staging] [--format json]'
       const project = requireProject(input, 'wordpress.update-page', usage)
       const currentSlug = requirePositional(input, 1, {
         command: 'wordpress.update-page',
@@ -199,7 +235,7 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
         currentSlug,
         title: getString(input.values, 'title'),
         slug: getString(input.values, 'slug'),
-        content: getString(input.values, 'content'),
+        content: resolveContent(input, 'wordpress.update-page', usage),
         status: getString(input.values, 'status'),
         env: resolveEnv(input, 'wordpress.update-page', usage),
         format: input.format,

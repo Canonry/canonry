@@ -111,6 +111,7 @@ export const wordpressDiffDtoSchema = z.object({
   slug: z.string(),
   live: wordpressDiffPageDtoSchema,
   staging: wordpressDiffPageDtoSchema,
+  hasDifferences: z.boolean(),
   differences: z.object({
     title: z.boolean(),
     slug: z.boolean(),

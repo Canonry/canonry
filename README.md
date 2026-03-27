@@ -204,8 +204,8 @@ canonry wordpress connect <project> --url https://example.com --user admin
 canonry wordpress status <project>
 canonry wordpress pages <project> --staging
 canonry wordpress page <project> about --live
-canonry wordpress create-page <project> --title "About" --slug about --content "<p>...</p>"
-canonry wordpress update-page <project> about --title "About Us"
+canonry wordpress create-page <project> --title "About" --slug about --content-file ./about.html
+canonry wordpress update-page <project> about --title "About Us" --content-file ./about.html
 canonry wordpress set-meta <project> about --title "SEO title" --description "Meta description"
 canonry wordpress audit <project> --staging
 canonry wordpress diff <project> about

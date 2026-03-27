@@ -186,8 +186,8 @@ canonry wordpress status <project>
 
 canonry wordpress pages <project> [--live|--staging]
 canonry wordpress page <project> <slug> [--live|--staging]
-canonry wordpress create-page <project> --title <title> --slug <slug> --content "<p>...</p>" [--live|--staging]
-canonry wordpress update-page <project> <slug> [--title <title>] [--content "<p>...</p>"] [--live|--staging]
+canonry wordpress create-page <project> --title <title> --slug <slug> [--content "<p>...</p>"|--content-file ./page.html] [--live|--staging]
+canonry wordpress update-page <project> <slug> [--title <title>] [--content "<p>...</p>"|--content-file ./page.html] [--live|--staging]
 canonry wordpress set-meta <project> <slug> [--title <title>] [--description <text>] [--noindex|--index] [--live|--staging]
 
 canonry wordpress audit <project> [--live|--staging]
