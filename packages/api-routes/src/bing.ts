@@ -225,10 +225,27 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       .orderBy(desc(bingUrlInspections.inspectedAt))
       .all()
 
+    // Pick the best inspection per URL: prefer the latest one that has a
+    // definitive inIndex value (0 or 1).  If the most recent inspection is
+    // inconclusive (inIndex === null — common with Bing API inconsistencies),
+    // fall back to the most recent inspection that DID have a definitive answer.
     const latestByUrl = new Map<string, typeof allInspections[number]>()
+    const definitiveByUrl = new Map<string, typeof allInspections[number]>()
     for (const row of allInspections) {
       if (!latestByUrl.has(row.url)) {
         latestByUrl.set(row.url, row)
+      }
+      if (!definitiveByUrl.has(row.url) && row.inIndex != null) {
+        definitiveByUrl.set(row.url, row)
+      }
+    }
+    // Merge: use definitive answer when latest is inconclusive
+    for (const [url, latest] of latestByUrl) {
+      if (latest.inIndex == null) {
+        const definitive = definitiveByUrl.get(url)
+        if (definitive) {
+          latestByUrl.set(url, definitive)
+        }
       }
     }
 

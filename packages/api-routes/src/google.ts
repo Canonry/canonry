@@ -584,17 +584,26 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       .orderBy(desc(gscUrlInspections.inspectedAt))
       .all()
 
+    // Normalize http:// → https:// so both variants collapse into one entry.
+    // Prefer the https inspection; fall back to http if that's all we have.
+    const canonicalUrl = (url: string) => url.replace(/^http:\/\//, 'https://')
+
     const latestByUrl = new Map<string, typeof allInspections[number]>()
     const historyByUrl = new Map<string, typeof allInspections>()
     for (const row of allInspections) {
-      if (!latestByUrl.has(row.url)) {
-        latestByUrl.set(row.url, row)
+      const key = canonicalUrl(row.url)
+      const existing = latestByUrl.get(key)
+      if (!existing) {
+        latestByUrl.set(key, row)
+      } else if (existing.url.startsWith('http://') && row.url.startsWith('https://')) {
+        // Prefer the https variant even if the http one was seen first
+        latestByUrl.set(key, row)
       }
-      const history = historyByUrl.get(row.url)
+      const history = historyByUrl.get(key)
       if (history) {
         history.push(row)
       } else {
-        historyByUrl.set(row.url, [row])
+        historyByUrl.set(key, [row])
       }
     }
 
