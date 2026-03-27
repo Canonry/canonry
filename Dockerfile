@@ -1,4 +1,6 @@
-FROM node:20-bookworm-slim AS build
+# Use the public ECR mirror of Docker Official Images to avoid Docker Hub
+# auth/rate-limit failures on GitHub-hosted runners.
+FROM public.ecr.aws/docker/library/node:20-bookworm-slim AS build
 
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
@@ -15,7 +17,7 @@ RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @ainyc/canonry build
 RUN pnpm deploy --legacy --filter @ainyc/canonry --prod /prod/app
 
-FROM node:20-bookworm-slim
+FROM public.ecr.aws/docker/library/node:20-bookworm-slim
 
 ENV NODE_ENV=production
 ENV CANONRY_CONFIG_DIR=/data/canonry
