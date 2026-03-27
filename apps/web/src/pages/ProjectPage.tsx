@@ -1282,8 +1282,8 @@ export function ProjectPage({
   const projectTabItems: Array<{ key: ProjectPageTab; label: string; href: string }> = [
     { key: 'overview', label: 'Overview', href: `/projects/${model.project.id}` },
     { key: 'search-console', label: 'Search Engine Intelligence', href: `/projects/${model.project.id}/search-console` },
-    { key: 'analytics', label: 'Analytics', href: `/projects/${model.project.id}/analytics` },
-    { key: 'traffic', label: 'Traffic', href: `/projects/${model.project.id}/traffic` },
+    { key: 'analytics', label: 'Visibility', href: `/projects/${model.project.id}/analytics` },
+    { key: 'traffic', label: 'GA4', href: `/projects/${model.project.id}/traffic` },
   ]
 
   return (
