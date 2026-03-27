@@ -157,8 +157,8 @@ function BingSection({ projectName }: { projectName: string }) {
   const [apiKeyInput, setApiKeyInput] = useState('')
   const [selectedSite, setSelectedSite] = useState('')
   const [loading, setLoading] = useState(true)
+  const [requestingIndexing, setRequestingIndexing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'coverage' | 'inspections' | 'performance'>('coverage')
 
   useEffect(() => {
@@ -242,25 +242,69 @@ function BingSection({ projectName }: { projectName: string }) {
   }
 
   async function handleSubmitUrl(url: string) {
+    setRequestingIndexing(true)
+    setError(null)
     try {
-      await bingRequestIndexing(projectName, { urls: [url] })
-      setError(null)
-      setSuccessMessage(`Submitted to Bing: ${url}`)
-      setTimeout(() => setSuccessMessage(null), 4000)
+      const result = await bingRequestIndexing(projectName, { urls: [url] })
+      const { succeeded, failed, total } = result.summary
+      addToast({
+        title: 'Bing submission requested',
+        detail: failed === 0
+          ? `${succeeded} URL submitted to Bing.`
+          : `${succeeded}/${total} submitted successfully, ${failed} failed.`,
+        tone: failed === 0 ? 'positive' : 'caution',
+        dedupeKey: `bing:indexing:${projectName}:${url}`,
+        dedupeMode: 'replace',
+      })
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Submission failed')
+      const message = e instanceof Error ? e.message : 'Submission failed'
+      setError(message)
+      addToast({
+        title: 'Bing submission failed',
+        detail: message,
+        tone: 'negative',
+        dedupeKey: `bing:indexing:${projectName}:${url}`,
+        dedupeMode: 'replace',
+      })
+    } finally {
+      setRequestingIndexing(false)
     }
   }
 
   async function handleSubmitAllUnindexed() {
+    setRequestingIndexing(true)
+    setError(null)
+    addToast({
+      title: 'Submitting URLs to Bing',
+      detail: 'Requesting indexing for all currently unindexed URLs.',
+      tone: 'neutral',
+      dedupeKey: `bing:indexing-all:${projectName}`,
+      dedupeMode: 'replace',
+    })
     try {
       const result = await bingRequestIndexing(projectName, { allUnindexed: true })
-      setError(null)
-      const { succeeded, total } = result.summary
-      setSuccessMessage(`Submitted ${succeeded}/${total} URL${total !== 1 ? 's' : ''} to Bing`)
-      setTimeout(() => setSuccessMessage(null), 4000)
+      const { succeeded, failed, total } = result.summary
+      addToast({
+        title: 'Bing submissions requested',
+        detail: failed === 0
+          ? `${succeeded}/${total} URL${total !== 1 ? 's' : ''} submitted to Bing.`
+          : `${succeeded}/${total} submitted successfully, ${failed} failed.`,
+        tone: failed === 0 ? 'positive' : 'caution',
+        dedupeKey: `bing:indexing-all:${projectName}`,
+        dedupeMode: 'replace',
+      })
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Batch submission failed')
+      const message = e instanceof Error ? e.message : 'Batch submission failed'
+      setError(message)
+      addToast({
+        title: 'Bing submissions failed',
+        detail: message,
+        tone: 'negative',
+        dedupeKey: `bing:indexing-all:${projectName}`,
+        dedupeMode: 'replace',
+      })
+    } finally {
+      setRequestingIndexing(false)
     }
   }
 
@@ -469,12 +513,9 @@ function BingSection({ projectName }: { projectName: string }) {
               <div>
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <h4 className="text-xs font-medium text-zinc-400">Not Indexed ({coverage.notIndexed.length})</h4>
-                  <div className="flex items-center gap-2">
-                    {successMessage && <span className="text-xs text-emerald-400">{successMessage}</span>}
-                    <Button size="sm" variant="ghost" onClick={handleSubmitAllUnindexed}>
-                      Submit all to Bing
-                    </Button>
-                  </div>
+                  <Button size="sm" variant="ghost" disabled={requestingIndexing} onClick={handleSubmitAllUnindexed}>
+                    {requestingIndexing ? 'Submitting…' : 'Submit all to Bing'}
+                  </Button>
                 </div>
                 <div className="overflow-x-auto rounded-lg border border-zinc-800/60">
                   <table className="w-full text-xs">
@@ -493,6 +534,7 @@ function BingSection({ projectName }: { projectName: string }) {
                           <td className="py-1.5 px-3 text-right">
                             <button
                               className="text-[10px] text-zinc-400 hover:text-zinc-200 underline underline-offset-2"
+                              disabled={requestingIndexing}
                               onClick={() => handleSubmitUrl(row.url)}
                             >
                               Submit
@@ -510,12 +552,9 @@ function BingSection({ projectName }: { projectName: string }) {
               <div>
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <h4 className="text-xs font-medium text-zinc-400">Unknown — not yet confirmed ({(coverage.unknown ?? []).length})</h4>
-                  <div className="flex items-center gap-2">
-                    {successMessage && <span className="text-xs text-emerald-400">{successMessage}</span>}
-                    <Button size="sm" variant="ghost" onClick={handleSubmitAllUnindexed}>
-                      Submit all to Bing
-                    </Button>
-                  </div>
+                  <Button size="sm" variant="ghost" disabled={requestingIndexing} onClick={handleSubmitAllUnindexed}>
+                    {requestingIndexing ? 'Submitting…' : 'Submit all to Bing'}
+                  </Button>
                 </div>
                 <div className="overflow-x-auto rounded-lg border border-zinc-800/60">
                   <table className="w-full text-xs">
@@ -534,6 +573,7 @@ function BingSection({ projectName }: { projectName: string }) {
                           <td className="py-1.5 px-3 text-right">
                             <button
                               className="text-[10px] text-zinc-400 hover:text-zinc-200 underline underline-offset-2"
+                              disabled={requestingIndexing}
                               onClick={() => handleSubmitUrl(row.url)}
                             >
                               Submit
