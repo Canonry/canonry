@@ -1,4 +1,15 @@
 import { loadConfig } from './config.js'
+import type {
+  WordpressAuditIssueDto,
+  WordpressAuditPageDto,
+  WordpressDiffDto,
+  WordpressEnv,
+  WordpressManualAssistDto,
+  WordpressPageDetailDto,
+  WordpressPageSummaryDto,
+  WordpressSchemaBlockDto,
+  WordpressStatusDto,
+} from '@ainyc/canonry-contracts'
 
 /**
  * Create an ApiClient using the loaded config.
@@ -435,6 +446,122 @@ export class ApiClient {
 
   async gaCoverage(project: string): Promise<object> {
     return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/ga/coverage`)
+  }
+
+  async wordpressConnect(
+    project: string,
+    body: {
+      url: string
+      stagingUrl?: string
+      username: string
+      appPassword: string
+      defaultEnv?: WordpressEnv
+    },
+  ): Promise<WordpressStatusDto> {
+    return this.request<WordpressStatusDto>('POST', `/projects/${encodeURIComponent(project)}/wordpress/connect`, body)
+  }
+
+  async wordpressDisconnect(project: string): Promise<void> {
+    await this.request<void>('DELETE', `/projects/${encodeURIComponent(project)}/wordpress/disconnect`)
+  }
+
+  async wordpressStatus(project: string): Promise<WordpressStatusDto> {
+    return this.request<WordpressStatusDto>('GET', `/projects/${encodeURIComponent(project)}/wordpress/status`)
+  }
+
+  async wordpressPages(project: string, env?: WordpressEnv): Promise<{ env: WordpressEnv; pages: WordpressPageSummaryDto[] }> {
+    const qs = env ? `?env=${encodeURIComponent(env)}` : ''
+    return this.request<{ env: WordpressEnv; pages: WordpressPageSummaryDto[] }>('GET', `/projects/${encodeURIComponent(project)}/wordpress/pages${qs}`)
+  }
+
+  async wordpressPage(project: string, slug: string, env?: WordpressEnv): Promise<WordpressPageDetailDto> {
+    const params = new URLSearchParams({ slug })
+    if (env) params.set('env', env)
+    return this.request<WordpressPageDetailDto>('GET', `/projects/${encodeURIComponent(project)}/wordpress/page?${params.toString()}`)
+  }
+
+  async wordpressCreatePage(
+    project: string,
+    body: { title: string; slug: string; content: string; status?: string; env?: WordpressEnv },
+  ): Promise<WordpressPageDetailDto> {
+    return this.request<WordpressPageDetailDto>('POST', `/projects/${encodeURIComponent(project)}/wordpress/pages`, body)
+  }
+
+  async wordpressUpdatePage(
+    project: string,
+    body: { currentSlug: string; title?: string; slug?: string; content?: string; status?: string; env?: WordpressEnv },
+  ): Promise<WordpressPageDetailDto> {
+    return this.request<WordpressPageDetailDto>('PUT', `/projects/${encodeURIComponent(project)}/wordpress/page`, body)
+  }
+
+  async wordpressSetMeta(
+    project: string,
+    body: { slug: string; title?: string; description?: string; noindex?: boolean; env?: WordpressEnv },
+  ): Promise<WordpressPageDetailDto> {
+    return this.request<WordpressPageDetailDto>('POST', `/projects/${encodeURIComponent(project)}/wordpress/page/meta`, body)
+  }
+
+  async wordpressSchema(
+    project: string,
+    slug: string,
+    env?: WordpressEnv,
+  ): Promise<{ env: WordpressEnv; slug: string; blocks: WordpressSchemaBlockDto[] }> {
+    const params = new URLSearchParams({ slug })
+    if (env) params.set('env', env)
+    return this.request<{ env: WordpressEnv; slug: string; blocks: WordpressSchemaBlockDto[] }>('GET', `/projects/${encodeURIComponent(project)}/wordpress/schema?${params.toString()}`)
+  }
+
+  async wordpressSetSchema(
+    project: string,
+    body: { slug: string; type?: string; json: string; env?: WordpressEnv },
+  ): Promise<WordpressManualAssistDto> {
+    return this.request<WordpressManualAssistDto>('POST', `/projects/${encodeURIComponent(project)}/wordpress/schema/manual`, body)
+  }
+
+  async wordpressLlmsTxt(
+    project: string,
+    env?: WordpressEnv,
+  ): Promise<{ env: WordpressEnv; url: string; content: string | null }> {
+    const qs = env ? `?env=${encodeURIComponent(env)}` : ''
+    return this.request<{ env: WordpressEnv; url: string; content: string | null }>('GET', `/projects/${encodeURIComponent(project)}/wordpress/llms-txt${qs}`)
+  }
+
+  async wordpressSetLlmsTxt(
+    project: string,
+    body: { content: string; env?: WordpressEnv },
+  ): Promise<WordpressManualAssistDto> {
+    return this.request<WordpressManualAssistDto>('POST', `/projects/${encodeURIComponent(project)}/wordpress/llms-txt/manual`, body)
+  }
+
+  async wordpressAudit(
+    project: string,
+    env?: WordpressEnv,
+  ): Promise<{ env: WordpressEnv; pages: WordpressAuditPageDto[]; issues: WordpressAuditIssueDto[] }> {
+    const qs = env ? `?env=${encodeURIComponent(env)}` : ''
+    return this.request<{ env: WordpressEnv; pages: WordpressAuditPageDto[]; issues: WordpressAuditIssueDto[] }>('GET', `/projects/${encodeURIComponent(project)}/wordpress/audit${qs}`)
+  }
+
+  async wordpressDiff(project: string, slug: string): Promise<WordpressDiffDto> {
+    const params = new URLSearchParams({ slug })
+    return this.request<WordpressDiffDto>('GET', `/projects/${encodeURIComponent(project)}/wordpress/diff?${params.toString()}`)
+  }
+
+  async wordpressStagingStatus(project: string): Promise<{
+    stagingConfigured: boolean
+    stagingUrl: string | null
+    wpStagingActive: boolean
+    adminUrl: string
+  }> {
+    return this.request<{
+      stagingConfigured: boolean
+      stagingUrl: string | null
+      wpStagingActive: boolean
+      adminUrl: string
+    }>('GET', `/projects/${encodeURIComponent(project)}/wordpress/staging/status`)
+  }
+
+  async wordpressStagingPush(project: string): Promise<WordpressManualAssistDto> {
+    return this.request<WordpressManualAssistDto>('POST', `/projects/${encodeURIComponent(project)}/wordpress/staging/push`)
   }
 
 }

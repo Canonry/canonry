@@ -89,6 +89,7 @@ Once an agent has the skill loaded, it can set up canonry, run sweeps, interpret
 - **Config-as-code** -- manage projects with Kubernetes-style YAML files. Version control your monitoring setup and let agents apply changes declaratively.
 - **Self-hosted** -- runs locally with SQLite. No cloud account, no external dependencies beyond the LLM API keys you choose to configure.
 - **Project-scoped location context** -- define named locations per project, set a default, and run explicit or all-location sweeps without making keywords location-owned.
+- **WordPress publishing workflows** -- manage WordPress pages over REST, compare live vs staging, and generate manual handoffs for `llms.txt`, schema, and staging pushes.
 - **Scheduled monitoring** -- set up cron-based recurring runs to track citation changes over time.
 - **Webhook notifications** -- get alerted when your citation status changes.
 - **Audit logging** -- full history of every action taken through any surface.
@@ -196,6 +197,28 @@ canonry settings provider perplexity --api-key <key>
 
 Quota flags: `--max-concurrent`, `--max-per-minute`, `--max-per-day`.
 
+### WordPress
+
+```bash
+canonry wordpress connect <project> --url https://example.com --user admin
+canonry wordpress status <project>
+canonry wordpress pages <project> --staging
+canonry wordpress page <project> about --live
+canonry wordpress create-page <project> --title "About" --slug about --content "<p>...</p>"
+canonry wordpress update-page <project> about --title "About Us"
+canonry wordpress set-meta <project> about --title "SEO title" --description "Meta description"
+canonry wordpress audit <project> --staging
+canonry wordpress diff <project> about
+canonry wordpress schema <project> about
+canonry wordpress set-schema <project> about --json '{"@type":"FAQPage"}'
+canonry wordpress llms-txt <project>
+canonry wordpress set-llms-txt <project> --content "User-agent: *"
+canonry wordpress staging status <project>
+canonry wordpress staging push <project>
+```
+
+WordPress automation uses REST + Application Passwords. `set-schema`, `set-llms-txt`, and `staging push` are manual-assist commands by design. See [docs/wordpress-setup.md](docs/wordpress-setup.md) for the full workflow and constraints.
+
 ### Telemetry
 
 ```bash
@@ -293,6 +316,20 @@ The web dashboard now supports the same flow:
 - Open a project and generate the Google consent link for that canonical domain.
 - Select the matching Search Console property in the project dashboard.
 - Queue syncs, inspect URLs, review inspection history, and review deindexed pages from the same project view.
+
+### WordPress
+
+Connect a project-scoped WordPress site with an Application Password:
+
+```bash
+canonry wordpress connect <project> \
+  --url https://example.com \
+  --user admin \
+  --staging-url https://staging.example.com \
+  --default-env staging
+```
+
+Canonry can automate page reads/writes, audits, and live-vs-staging diffs through the REST API. `llms.txt`, schema injection, and WP STAGING push remain manual-assist workflows. Full setup instructions live in [docs/wordpress-setup.md](docs/wordpress-setup.md).
 
 ### OpenAI
 

@@ -34,6 +34,12 @@ import {
   upsertGa4Connection,
   removeGa4Connection,
 } from './ga4-config.js'
+import {
+  getWordpressConnection,
+  patchWordpressConnection,
+  removeWordpressConnection,
+  upsertWordpressConnection,
+} from './wordpress-config.js'
 import { isTelemetryEnabled, getOrCreateAnonymousId } from './telemetry.js'
 import { JobRunner } from './job-runner.js'
 import { executeGscSync } from './gsc-sync.js'
@@ -373,6 +379,46 @@ export async function createServer(opts: {
     },
   } as const
 
+  const wordpressConnectionStore = {
+    getConnection: (projectName: string) => {
+      return getWordpressConnection(opts.config, projectName)
+    },
+    upsertConnection: (connection: {
+      projectName: string
+      url: string
+      stagingUrl?: string
+      username: string
+      appPassword: string
+      defaultEnv: 'live' | 'staging'
+      createdAt: string
+      updatedAt: string
+    }) => {
+      const updated = upsertWordpressConnection(opts.config, connection)
+      saveConfigPatch(opts.config)
+      return updated
+    },
+    updateConnection: (
+      projectName: string,
+      patch: Partial<{
+        url: string
+        stagingUrl?: string
+        username: string
+        appPassword: string
+        defaultEnv: 'live' | 'staging'
+        updatedAt: string
+      }>,
+    ) => {
+      const updated = patchWordpressConnection(opts.config, projectName, patch)
+      if (updated) saveConfigPatch(opts.config)
+      return updated
+    },
+    deleteConnection: (projectName: string) => {
+      const removed = removeWordpressConnection(opts.config, projectName)
+      if (removed) saveConfigPatch(opts.config)
+      return removed
+    },
+  } as const
+
   // Resolve base path early so API route prefix and SPA handler both use it.
   // Normalize: ensure it starts and ends with '/' (e.g. '/canonry/').
   // A value that normalises to bare '/' is treated as no base path to avoid
@@ -630,6 +676,7 @@ export async function createServer(opts: {
     googleSettingsSummary,
     bingSettingsSummary,
     bingConnectionStore,
+    wordpressConnectionStore,
     ga4CredentialStore,
     onRunCreated: (runId: string, projectId: string, providers?: string[], location?: import('@ainyc/canonry-contracts').LocationContext | null) => {
       // Fire and forget — run executes in background

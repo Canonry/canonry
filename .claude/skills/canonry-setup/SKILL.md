@@ -15,7 +15,7 @@ Open-source AEO (Answer Engine Optimization) monitoring CLI by [AINYC](https://a
 
 ## When to Use
 
-Use this skill when setting up canonry, running visibility sweeps, interpreting citation results, managing projects/keywords/competitors, troubleshooting errors, performing competitive analysis, managing Google/Bing indexing, or working with analytics.
+Use this skill when setting up canonry, running visibility sweeps, interpreting citation results, managing projects/keywords/competitors, troubleshooting errors, performing competitive analysis, managing Google/Bing indexing, working with analytics, or operating WordPress publishing workflows through canonry.
 
 ## Quick Start
 
@@ -45,6 +45,7 @@ canonry evidence mysite
 | Full CLI commands | [references/canonry-cli.md](references/canonry-cli.md) |
 | Interpreting results | [references/aeo-analysis.md](references/aeo-analysis.md) |
 | Indexing workflows | [references/indexing.md](references/indexing.md) |
+| WordPress workflows | [references/wordpress-integration.md](references/wordpress-integration.md) |
 
 ## Common Errors
 

@@ -30,6 +30,8 @@ import { cdpRoutes } from './cdp.js'
 import type { CDPRoutesOptions } from './cdp.js'
 import { ga4Routes } from './ga.js'
 import type { GA4RoutesOptions, Ga4CredentialStore } from './ga.js'
+import { wordpressRoutes } from './wordpress.js'
+import type { WordpressRoutesOptions } from './wordpress.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -80,6 +82,8 @@ export interface ApiRoutesOptions {
   /** Bing settings summary for settings endpoint */
   bingSettingsSummary?: SettingsRoutesOptions['bing']
   onBingSettingsUpdate?: SettingsRoutesOptions['onBingUpdate']
+  /** WordPress connection store */
+  wordpressConnectionStore?: WordpressRoutesOptions['wordpressConnectionStore']
   /** CDP browser provider callbacks */
   getCdpStatus?: CDPRoutesOptions['getCdpStatus']
   onCdpScreenshot?: CDPRoutesOptions['onCdpScreenshot']
@@ -201,6 +205,9 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onGscSyncRequested: opts.onGscSyncRequested,
       onInspectSitemapRequested: opts.onInspectSitemapRequested,
     } satisfies GoogleRoutesOptions)
+    await api.register(wordpressRoutes, {
+      wordpressConnectionStore: opts.wordpressConnectionStore,
+    } satisfies WordpressRoutesOptions)
     await api.register(cdpRoutes, {
       getCdpStatus: opts.getCdpStatus,
       onCdpScreenshot: opts.onCdpScreenshot,

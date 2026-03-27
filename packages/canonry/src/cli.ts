@@ -86,6 +86,22 @@ Usage:
   canonry bing request-indexing <project> <url>  Submit URL to Bing for indexing
   canonry bing request-indexing <project> --all-unindexed  Submit all unindexed URLs to Bing
   canonry bing performance <project>  Show Bing search performance data
+  canonry wordpress connect <project>  Connect WordPress REST access (--url, --user, --staging-url)
+  canonry wordpress disconnect <project>  Disconnect WordPress integration
+  canonry wordpress status <project>  Show WordPress connection status
+  canonry wordpress pages <project>  List WordPress pages (--live|--staging)
+  canonry wordpress page <project> <slug>  Show a WordPress page
+  canonry wordpress create-page <project>  Create a WordPress page (--title, --slug, --content)
+  canonry wordpress update-page <project> <slug>  Update a WordPress page
+  canonry wordpress set-meta <project> <slug>  Update REST-exposed SEO meta
+  canonry wordpress schema <project> <slug>  Read rendered JSON-LD schema
+  canonry wordpress set-schema <project> <slug>  Generate manual schema handoff
+  canonry wordpress llms-txt <project>  Read /llms.txt
+  canonry wordpress set-llms-txt <project>  Generate manual llms.txt handoff
+  canonry wordpress audit <project>  Audit WordPress pages for SEO/content issues
+  canonry wordpress diff <project> <slug>  Compare live vs staging for a page
+  canonry wordpress staging status <project>  Show staging configuration
+  canonry wordpress staging push <project>  Generate manual staging push instructions
   canonry settings                    Show active provider and quota settings
   canonry settings provider <name>    Update a provider config
   canonry settings google             Update Google OAuth credentials
@@ -172,7 +188,7 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
   }
 
   // Resolve command name for telemetry (e.g. "project.create", "run")
-  const SUBCOMMAND_COMMANDS = new Set(['project', 'keyword', 'competitor', 'schedule', 'notify', 'settings', 'telemetry', 'google', 'bing', 'cdp'])
+  const SUBCOMMAND_COMMANDS = new Set(['project', 'keyword', 'competitor', 'schedule', 'notify', 'settings', 'telemetry', 'google', 'bing', 'wordpress', 'cdp'])
   const resolvedCommand = SUBCOMMAND_COMMANDS.has(command) && args[1] && !args[1].startsWith('-')
     ? `${command}.${args[1]}`
     : command

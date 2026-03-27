@@ -142,6 +142,21 @@ const analyticsWindowParameter: OpenApiParameter = {
   schema: { type: 'string', enum: ['7d', '30d', '90d', 'all'] },
 }
 
+const wordpressEnvQueryParameter: OpenApiParameter = {
+  name: 'env',
+  in: 'query',
+  description: 'WordPress environment to target.',
+  schema: { type: 'string', enum: ['live', 'staging'] },
+}
+
+const wordpressSlugQueryParameter: OpenApiParameter = {
+  name: 'slug',
+  in: 'query',
+  required: true,
+  description: 'WordPress page slug.',
+  schema: stringSchema,
+}
+
 const routeCatalog: OpenApiOperation[] = [
   {
     method: 'get',
@@ -1491,6 +1506,301 @@ const routeCatalog: OpenApiOperation[] = [
       200: { description: 'Bing performance returned.' },
       400: { description: 'Bing is not configured for this project.' },
       404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/wordpress/connect',
+    summary: 'Connect WordPress REST access',
+    tags: ['wordpress'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['url', 'username', 'appPassword'],
+            properties: {
+              url: stringSchema,
+              stagingUrl: stringSchema,
+              username: stringSchema,
+              appPassword: stringSchema,
+              defaultEnv: { type: 'string', enum: ['live', 'staging'] },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'WordPress connection status returned.' },
+      400: { description: 'Invalid WordPress connection request.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'delete',
+    path: '/api/v1/projects/{name}/wordpress/disconnect',
+    summary: 'Disconnect WordPress',
+    tags: ['wordpress'],
+    parameters: [nameParameter],
+    responses: {
+      204: { description: 'WordPress connection deleted.' },
+      404: { description: 'Project or connection not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/wordpress/status',
+    summary: 'Get WordPress connection status',
+    tags: ['wordpress'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'WordPress status returned.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/wordpress/pages',
+    summary: 'List WordPress pages',
+    tags: ['wordpress'],
+    parameters: [nameParameter, wordpressEnvQueryParameter],
+    responses: {
+      200: { description: 'WordPress pages returned.' },
+      400: { description: 'Invalid environment or missing connection.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/wordpress/page',
+    summary: 'Get a WordPress page by slug',
+    tags: ['wordpress'],
+    parameters: [nameParameter, wordpressSlugQueryParameter, wordpressEnvQueryParameter],
+    responses: {
+      200: { description: 'WordPress page returned.' },
+      400: { description: 'Invalid slug or environment.' },
+      404: { description: 'Project, connection, or page not found.' },
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/wordpress/pages',
+    summary: 'Create a WordPress page',
+    tags: ['wordpress'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['title', 'slug', 'content'],
+            properties: {
+              title: stringSchema,
+              slug: stringSchema,
+              content: stringSchema,
+              status: stringSchema,
+              env: { type: 'string', enum: ['live', 'staging'] },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'WordPress page created.' },
+      400: { description: 'Invalid page creation request.' },
+      404: { description: 'Project or connection not found.' },
+    },
+  },
+  {
+    method: 'put',
+    path: '/api/v1/projects/{name}/wordpress/page',
+    summary: 'Update a WordPress page by slug',
+    tags: ['wordpress'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['currentSlug'],
+            properties: {
+              currentSlug: stringSchema,
+              title: stringSchema,
+              slug: stringSchema,
+              content: stringSchema,
+              status: stringSchema,
+              env: { type: 'string', enum: ['live', 'staging'] },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'WordPress page updated.' },
+      400: { description: 'Invalid page update request.' },
+      404: { description: 'Project, connection, or page not found.' },
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/wordpress/page/meta',
+    summary: 'Update REST-exposed WordPress SEO meta',
+    tags: ['wordpress'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['slug'],
+            properties: {
+              slug: stringSchema,
+              title: stringSchema,
+              description: stringSchema,
+              noindex: booleanSchema,
+              env: { type: 'string', enum: ['live', 'staging'] },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'WordPress SEO meta updated.' },
+      400: { description: 'SEO meta is unsupported or the request is invalid.' },
+      404: { description: 'Project, connection, or page not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/wordpress/schema',
+    summary: 'Read rendered JSON-LD schema for a page',
+    tags: ['wordpress'],
+    parameters: [nameParameter, wordpressSlugQueryParameter, wordpressEnvQueryParameter],
+    responses: {
+      200: { description: 'WordPress schema blocks returned.' },
+      400: { description: 'Invalid slug or environment.' },
+      404: { description: 'Project, connection, or page not found.' },
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/wordpress/schema/manual',
+    summary: 'Generate a manual schema update payload',
+    tags: ['wordpress'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['slug', 'json'],
+            properties: {
+              slug: stringSchema,
+              type: stringSchema,
+              json: stringSchema,
+              env: { type: 'string', enum: ['live', 'staging'] },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Manual schema instructions returned.' },
+      400: { description: 'Invalid schema request.' },
+      404: { description: 'Project, connection, or page not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/wordpress/llms-txt',
+    summary: 'Read /llms.txt for a WordPress environment',
+    tags: ['wordpress'],
+    parameters: [nameParameter, wordpressEnvQueryParameter],
+    responses: {
+      200: { description: 'llms.txt returned.' },
+      400: { description: 'Invalid environment or missing connection.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/wordpress/llms-txt/manual',
+    summary: 'Generate a manual llms.txt update payload',
+    tags: ['wordpress'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['content'],
+            properties: {
+              content: stringSchema,
+              env: { type: 'string', enum: ['live', 'staging'] },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Manual llms.txt instructions returned.' },
+      400: { description: 'Invalid llms.txt request.' },
+      404: { description: 'Project or connection not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/wordpress/audit',
+    summary: 'Audit WordPress pages for SEO and content issues',
+    tags: ['wordpress'],
+    parameters: [nameParameter, wordpressEnvQueryParameter],
+    responses: {
+      200: { description: 'WordPress audit returned.' },
+      400: { description: 'Invalid environment or missing connection.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/wordpress/diff',
+    summary: 'Compare live and staging versions of a WordPress page',
+    tags: ['wordpress'],
+    parameters: [nameParameter, wordpressSlugQueryParameter],
+    responses: {
+      200: { description: 'WordPress diff returned.' },
+      400: { description: 'Invalid slug or missing staging configuration.' },
+      404: { description: 'Project, connection, or page not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/wordpress/staging/status',
+    summary: 'Get WordPress staging configuration status',
+    tags: ['wordpress'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'WordPress staging status returned.' },
+      400: { description: 'WordPress is not configured for this project.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/wordpress/staging/push',
+    summary: 'Generate a manual staging push handoff',
+    tags: ['wordpress'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'Manual staging push instructions returned.' },
+      400: { description: 'Missing staging configuration.' },
+      404: { description: 'Project or connection not found.' },
     },
   },
   // GA4 routes

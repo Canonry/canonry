@@ -70,6 +70,23 @@ export interface Ga4ConfigEntry {
   connections?: Ga4ConnectionConfigEntry[]
 }
 
+export type WordpressEnv = 'live' | 'staging'
+
+export interface WordpressConnectionConfigEntry {
+  projectName: string
+  url: string
+  stagingUrl?: string
+  username: string
+  appPassword: string
+  defaultEnv: WordpressEnv
+  createdAt: string
+  updatedAt: string
+}
+
+export interface WordpressConfigEntry {
+  connections?: WordpressConnectionConfigEntry[]
+}
+
 export interface CanonryConfig {
   apiUrl: string
   publicUrl?: string
@@ -89,6 +106,7 @@ export interface CanonryConfig {
   google?: GoogleConfigEntry
   bing?: BingConfigEntry
   ga4?: Ga4ConfigEntry
+  wordpress?: WordpressConfigEntry
   // Dashboard password hash (SHA-256 hex) — set during first dashboard visit
   dashboardPasswordHash?: string
   // Telemetry (opt-out: undefined/true = enabled, false = disabled)
@@ -104,6 +122,16 @@ function normalizeGoogleConfig(config: CanonryConfig): void {
     refreshToken: connection.refreshToken ?? null,
     tokenExpiresAt: connection.tokenExpiresAt ?? null,
     scopes: connection.scopes ?? [],
+  }))
+}
+
+function normalizeWordpressConfig(config: CanonryConfig): void {
+  if (!config.wordpress) return
+  config.wordpress.connections = (config.wordpress.connections ?? []).map((connection) => ({
+    ...connection,
+    url: connection.url.replace(/\/$/, ''),
+    stagingUrl: connection.stagingUrl?.replace(/\/$/, ''),
+    defaultEnv: connection.defaultEnv ?? 'live',
   }))
 }
 
@@ -157,6 +185,7 @@ export function loadConfig(): CanonryConfig {
   }
 
   normalizeGoogleConfig(parsed)
+  normalizeWordpressConfig(parsed)
 
   // Honor CANONRY_PORT env var — overrides apiUrl port so that CLI client
   // commands (status, run, etc.) connect to the same port as `canonry serve --port`.

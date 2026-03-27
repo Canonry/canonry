@@ -177,6 +177,36 @@ canonry bing request-indexing <project> --all-unindexed  # submit all unindexed
 canonry bing performance <project>               # search performance data
 ```
 
+## WordPress
+
+```bash
+canonry wordpress connect <project> --url <url> --user <user>
+canonry wordpress disconnect <project>
+canonry wordpress status <project>
+
+canonry wordpress pages <project> [--live|--staging]
+canonry wordpress page <project> <slug> [--live|--staging]
+canonry wordpress create-page <project> --title <title> --slug <slug> --content "<p>...</p>" [--live|--staging]
+canonry wordpress update-page <project> <slug> [--title <title>] [--content "<p>...</p>"] [--live|--staging]
+canonry wordpress set-meta <project> <slug> [--title <title>] [--description <text>] [--noindex|--index] [--live|--staging]
+
+canonry wordpress audit <project> [--live|--staging]
+canonry wordpress diff <project> <slug>
+
+canonry wordpress schema <project> <slug> [--live|--staging]
+canonry wordpress set-schema <project> <slug> --json '{"@type":"FAQPage"}' [--type FAQPage] [--live|--staging]
+canonry wordpress llms-txt <project> [--live|--staging]
+canonry wordpress set-llms-txt <project> --content "..."
+
+canonry wordpress staging status <project>
+canonry wordpress staging push <project>
+```
+
+Notes:
+- `--live` / `--staging` override the project's configured `defaultEnv`
+- `set-meta` only works when the site exposes writable SEO meta fields through REST
+- `set-schema`, `set-llms-txt`, and `staging push` are manual-assist commands and do not apply the change remotely
+
 ## CDP / Browser Provider
 
 The CDP (Chrome DevTools Protocol) provider enables browser-based queries against AI chat interfaces (e.g., ChatGPT). This gives more accurate results than API-based providers for some use cases.
