@@ -56,8 +56,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/setup-buildx-action@v3
-
+      # Use the runner's bundled buildx/docker driver so CI doesn't have to pull
+      # an extra BuildKit image from Docker Hub before the actual image build.
       - uses: docker/build-push-action@v6
         with:
           context: .
