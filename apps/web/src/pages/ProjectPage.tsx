@@ -697,7 +697,7 @@ function BingSection({ projectName }: { projectName: string }) {
                         <td className="py-1.5 px-3 text-zinc-300 truncate max-w-[480px]">{row.query}</td>
                         <td className="py-1.5 px-3 text-right text-zinc-200">{row.clicks}</td>
                         <td className="py-1.5 px-3 text-right text-zinc-400">{row.impressions}</td>
-                        <td className="py-1.5 px-3 text-right text-zinc-400">{(row.ctr * 100).toFixed(1)}%</td>
+                        <td className="py-1.5 px-3 text-right text-zinc-400">{(Number.isFinite(row.ctr) ? row.ctr * 100 : 0).toFixed(1)}%</td>
                         <td className="py-1.5 px-3 text-right text-zinc-400">{row.averagePosition.toFixed(1)}</td>
                       </tr>
                     ))}

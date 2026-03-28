@@ -226,6 +226,27 @@ describe('Bing routes', () => {
     expect(body.unknown.map((row) => row.url)).toEqual(['https://example.com/unknown'])
   })
 
+  it('performance normalizes non-finite CTR values to 0', async () => {
+    const bingModule = await import('@ainyc/canonry-integration-bing')
+    vi.spyOn(bingModule, 'getKeywordStats').mockResolvedValue([
+      { Query: 'normal query', Impressions: 100, Clicks: 5, Ctr: 0.05, AverageClickPosition: 3, AverageImpressionPosition: 3 },
+      { Query: 'nan ctr', Impressions: 0, Clicks: 0, Ctr: NaN, AverageClickPosition: 0, AverageImpressionPosition: 0 },
+      { Query: 'infinity ctr', Impressions: 0, Clicks: 0, Ctr: Infinity, AverageClickPosition: 0, AverageImpressionPosition: 0 },
+    ])
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/projects/test-project/bing/performance',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as Array<{ query: string; ctr: number }>
+    expect(body).toHaveLength(3)
+    expect(body[0]!.ctr).toBe(0.05)
+    expect(body[1]!.ctr).toBe(0)
+    expect(body[2]!.ctr).toBe(0)
+  })
+
   it('allUnindexed only submits URLs with an explicit not-indexed status', async () => {
     const now = new Date().toISOString()
     db.insert(bingUrlInspections).values([

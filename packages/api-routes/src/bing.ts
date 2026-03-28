@@ -563,7 +563,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       query: s.Query,
       impressions: s.Impressions,
       clicks: s.Clicks,
-      ctr: s.Ctr,
+      ctr: Number.isFinite(s.Ctr) ? s.Ctr : 0,
       averagePosition: s.AverageClickPosition ?? s.AverageImpressionPosition ?? 0,
     }))
   })

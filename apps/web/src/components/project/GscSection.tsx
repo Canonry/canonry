@@ -1037,7 +1037,7 @@ export function GscSection({
                             <td className="max-w-xs truncate text-zinc-400">{row.page}</td>
                             <td className="text-right tabular-nums text-zinc-300">{row.clicks.toLocaleString()}</td>
                             <td className="text-right tabular-nums text-zinc-400">{row.impressions.toLocaleString()}</td>
-                            <td className="text-right tabular-nums text-zinc-400">{(row.ctr * 100).toFixed(1)}%</td>
+                            <td className="text-right tabular-nums text-zinc-400">{(Number.isFinite(row.ctr) ? row.ctr * 100 : 0).toFixed(1)}%</td>
                             <td className="text-right tabular-nums text-zinc-400">{row.position.toFixed(1)}</td>
                           </tr>
                         ))}
