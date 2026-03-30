@@ -379,7 +379,7 @@ export class SnapshotService {
           heuristicCompetitors: result.recommendedCompetitors,
           citedDomains: result.citedDomains,
           groundingSources: result.groundingSources.map(source => source.uri),
-          answerText: clipText(result.answerText, 420),
+          answerText: clipText(result.answerText, 2000),
         })),
     )
 
@@ -425,7 +425,7 @@ export class SnapshotService {
               incorrectClaims: uniqueStrings(assessment.incorrectClaims ?? []).slice(0, 5),
               ...(hasReviewedCompetitors
                 ? {
-                    recommendedCompetitors: uniqueStrings(assessment.recommendedCompetitors ?? []).slice(0, 6),
+                    recommendedCompetitors: uniqueStrings(assessment.recommendedCompetitors ?? []).slice(0, 10),
                   }
                 : {}),
             }
@@ -508,7 +508,13 @@ function buildBatchAnalysisPrompt(ctx: {
     'Return strict JSON with keys: assessments, whatThisMeans, recommendedActions.',
     'Each assessment must include: phrase, provider, mentioned, describedAccurately, accuracyNotes, incorrectClaims, recommendedCompetitors.',
     'describedAccurately must be one of: yes, no, unknown, not-mentioned.',
-    'recommendedCompetitors should list actual competitor brands or domains named in the answer, not generic directories unless that is the only thing recommended.',
+    '',
+    'CRITICAL — recommendedCompetitors extraction:',
+    'For each response, extract EVERY specific company/brand/product name that the AI recommended or listed as an alternative.',
+    'Include the company name exactly as it appears in the response (e.g. "Accenture", "Deloitte", "C3.ai").',
+    'Do NOT include generic terms like "consulting firms" or directories like "G2" or "Clutch".',
+    'Do NOT include the target company itself.',
+    'This is the most important field — it shows the prospect who AI recommends INSTEAD of them.',
     '',
     `Target company: ${ctx.companyName}`,
     `Target domain: ${ctx.domain}`,
