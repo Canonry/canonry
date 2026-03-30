@@ -913,8 +913,17 @@ export async function getSchemaStatus(
       }
     }
 
+    // Count-based subtraction: each canonry schema type accounts for one
+    // occurrence in allSchemaTypes; remaining occurrences are third-party
+    const canonryCounts = new Map<string, number>()
+    for (const t of canonrySchemas) {
+      canonryCounts.set(t, (canonryCounts.get(t) ?? 0) + 1)
+    }
     for (const schemaType of allSchemaTypes) {
-      if (!canonrySchemas.includes(schemaType)) {
+      const remaining = canonryCounts.get(schemaType) ?? 0
+      if (remaining > 0) {
+        canonryCounts.set(schemaType, remaining - 1)
+      } else {
         thirdPartySchemas.push(schemaType)
       }
     }

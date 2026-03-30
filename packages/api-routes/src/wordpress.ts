@@ -602,6 +602,11 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
     const defaultEnv = parseEnvInput(request.body?.defaultEnv, 'defaultEnv')
       ?? (stagingUrl ? 'staging' : 'live')
 
+    if (defaultEnv === 'staging' && !stagingUrl) {
+      const err = validationError('defaultEnv "staging" requires stagingUrl')
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
     type StepResult = { name: string; status: 'completed' | 'skipped' | 'failed'; summary?: string; error?: string }
     const steps: StepResult[] = []
     let connection: WordpressConnectionRecord | null = null
@@ -639,14 +644,20 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
 
     // Step 2: Audit
     let auditIssues: Array<{ slug: string; code: string }> = []
+    let auditPages: Array<{ slug: string; title: string }> = []
     try {
       const audit = await runAudit(connection)
       const issueCount = audit.issues?.length ?? 0
       const pageCount = audit.pages?.length ?? 0
-      // Build page URLs from site URL + slug
-      const siteUrl = url.replace(/\/+$/, '')
-      pageUrls = audit.pages.map((p) => `${siteUrl}/${p.slug}`)
       auditIssues = audit.issues
+      auditPages = audit.pages
+
+      // Get proper permalink URLs from listPages (handles hierarchical slugs + custom permalinks)
+      const pageSummaries = await listPages(connection)
+      pageUrls = pageSummaries
+        .map((p) => p.link)
+        .filter((link): link is string => typeof link === 'string' && link.length > 0)
+
       steps.push({ name: 'audit', status: 'completed', summary: `${pageCount} pages audited, ${issueCount} issues` })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -655,12 +666,26 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
     }
 
     // Step 3: Set meta (bulk, for pages missing title/description)
+    // Build entries with the page title as a fallback value for missing SEO fields
     try {
       const metaEntries: Array<{ slug: string; title?: string; description?: string }> = []
       for (const issue of auditIssues) {
         if (issue.code === 'missing-meta-description' || issue.code === 'missing-seo-title') {
-          if (!metaEntries.some((e) => e.slug === issue.slug)) {
-            metaEntries.push({ slug: issue.slug })
+          const existing = metaEntries.find((e) => e.slug === issue.slug)
+          const page = auditPages.find((p) => p.slug === issue.slug)
+          if (!existing) {
+            metaEntries.push({
+              slug: issue.slug,
+              title: issue.code === 'missing-seo-title' ? (page?.title ?? issue.slug) : undefined,
+              description: issue.code === 'missing-meta-description' ? (page?.title ?? issue.slug) : undefined,
+            })
+          } else {
+            if (issue.code === 'missing-seo-title' && !existing.title) {
+              existing.title = page?.title ?? issue.slug
+            }
+            if (issue.code === 'missing-meta-description' && !existing.description) {
+              existing.description = page?.title ?? issue.slug
+            }
           }
         }
       }

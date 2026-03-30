@@ -656,14 +656,18 @@ describe('WordPress routes', () => {
       env: 'live',
       pages: [
         { slug: 'home', title: 'Home', status: 'publish', wordCount: 500, seo: { title: 'Home', description: 'Desc', noindex: false, writable: false, writeTargets: [] }, schemaPresent: false, issues: [] },
-        { slug: 'about', title: 'About', status: 'publish', wordCount: 300, seo: { title: null, description: null, noindex: false, writable: false, writeTargets: [] }, schemaPresent: false, issues: [] },
+        { slug: 'about', title: 'About Us', status: 'publish', wordCount: 300, seo: { title: null, description: null, noindex: false, writable: false, writeTargets: [] }, schemaPresent: false, issues: [] },
       ],
       issues: [
         { slug: 'about', severity: 'medium', code: 'missing-seo-title', message: 'Missing title' },
         { slug: 'about', severity: 'medium', code: 'missing-meta-description', message: 'Missing description' },
       ],
     })
-    vi.spyOn(wordpressModule, 'bulkSetSeoMeta').mockResolvedValue({
+    vi.spyOn(wordpressModule, 'listPages').mockResolvedValue([
+      { id: 1, slug: 'home', title: 'Home', status: 'publish', modifiedAt: '2026-03-27T12:00:00Z', link: 'https://example.com/home/' },
+      { id: 2, slug: 'about', title: 'About Us', status: 'publish', modifiedAt: '2026-03-27T12:00:00Z', link: 'https://example.com/about-us/team/' },
+    ])
+    const bulkMetaSpy = vi.spyOn(wordpressModule, 'bulkSetSeoMeta').mockResolvedValue({
       env: 'live',
       strategy: 'manual',
       results: [{ slug: 'about', status: 'manual' }],
@@ -691,6 +695,30 @@ describe('WordPress routes', () => {
     expect(body.steps[3]).toMatchObject({ name: 'schema-deploy', status: 'skipped' })
     expect(body.steps[4]).toMatchObject({ name: 'google-submit', status: 'skipped' })
     expect(body.steps[5]).toMatchObject({ name: 'bing-submit', status: 'skipped' })
+
+    // P1 fix: set-meta entries must include actual title/description values
+    expect(bulkMetaSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.arrayContaining([
+        expect.objectContaining({ slug: 'about', title: 'About Us', description: 'About Us' }),
+      ]),
+    )
+  })
+
+  it('onboard rejects staging defaultEnv without stagingUrl', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/wordpress/onboard',
+      payload: {
+        url: 'https://example.com',
+        username: 'admin',
+        appPassword: 'app-pass',
+        defaultEnv: 'staging',
+      },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error.message).toContain('stagingUrl')
   })
 
   it('onboard halts and reports on connection failure', async () => {
