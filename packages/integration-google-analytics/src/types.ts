@@ -10,11 +10,12 @@ export interface GA4RunReportRequest {
   dimensions: Array<{ name: string }>
   metrics: Array<{ name: string }>
   dimensionFilter?: {
-    filter?: {
+    filter: {
       fieldName: string
       stringFilter?: { matchType: string; value: string }
     }
-    orGroup?: {
+  } | {
+    orGroup: {
       expressions: Array<{
         filter: {
           fieldName: string

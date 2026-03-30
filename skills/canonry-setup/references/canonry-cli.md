@@ -236,8 +236,8 @@ GA4 integration uses service account authentication (no OAuth). The service acco
 canonry ga connect <project> --property-id <id> --key-file ./sa-key.json  # connect GA4
 canonry ga disconnect <project>                  # disconnect
 canonry ga status <project>                      # connection status
-canonry ga sync <project> [--days 30]            # pull traffic data
-canonry ga traffic <project>                     # top landing pages by sessions
+canonry ga sync <project> [--days 30]            # pull traffic + AI referral data
+canonry ga traffic <project>                     # landing pages + AI referral sources
 canonry ga coverage <project>                    # indexed pages with traffic overlay
 ```
 

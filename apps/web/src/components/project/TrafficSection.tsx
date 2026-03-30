@@ -340,11 +340,11 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="text-[10px] uppercase tracking-wider text-zinc-500">
-                          <ReferralSortHeader label="Source" sortKey="source" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="left" />
-                          <ReferralSortHeader label="Medium" sortKey="medium" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="left" />
-                          <ReferralSortHeader label="Sessions" sortKey="sessions" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="right" />
+                          <SortHeader label="Source" sortKey="source" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="left" />
+                          <SortHeader label="Medium" sortKey="medium" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="left" />
+                          <SortHeader label="Sessions" sortKey="sessions" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="right" />
                           <th className="py-1 font-medium text-right">Share</th>
-                          <ReferralSortHeader label="Users" sortKey="users" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="right" />
+                          <SortHeader label="Users" sortKey="users" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="right" />
                         </tr>
                       </thead>
                       <tbody>
@@ -383,11 +383,11 @@ export function TrafficSection({ projectName }: { projectName: string }) {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-[10px] uppercase tracking-wider text-zinc-500">
-                    <PageSortHeader label="Landing Page" sortKey="landingPage" current={pageSortKey} dir={pageSortDir} onSort={handlePageSort} align="left" />
-                    <PageSortHeader label="Sessions" sortKey="sessions" current={pageSortKey} dir={pageSortDir} onSort={handlePageSort} align="right" />
-                    <PageSortHeader label="Organic" sortKey="organicSessions" current={pageSortKey} dir={pageSortDir} onSort={handlePageSort} align="right" />
+                    <SortHeader label="Landing Page" sortKey="landingPage" current={pageSortKey} dir={pageSortDir} onSort={handlePageSort} align="left" />
+                    <SortHeader label="Sessions" sortKey="sessions" current={pageSortKey} dir={pageSortDir} onSort={handlePageSort} align="right" />
+                    <SortHeader label="Organic" sortKey="organicSessions" current={pageSortKey} dir={pageSortDir} onSort={handlePageSort} align="right" />
                     <th className="text-right py-1 font-medium">Organic %</th>
-                    <PageSortHeader label="Users" sortKey="users" current={pageSortKey} dir={pageSortDir} onSort={handlePageSort} align="right" />
+                    <SortHeader label="Users" sortKey="users" current={pageSortKey} dir={pageSortDir} onSort={handlePageSort} align="right" />
                   </tr>
                 </thead>
                 <tbody>
@@ -551,7 +551,7 @@ function Ga4ConnectForm({ projectName, onConnected }: { projectName: string; onC
   )
 }
 
-function PageSortHeader({
+function SortHeader<K extends string>({
   label,
   sortKey: key,
   current,
@@ -560,37 +560,10 @@ function PageSortHeader({
   align,
 }: {
   label: string
-  sortKey: PageSortKey
-  current: PageSortKey
+  sortKey: K
+  current: K
   dir: SortDir
-  onSort: (key: PageSortKey) => void
-  align: 'left' | 'right'
-}) {
-  const active = current === key
-  return (
-    <th
-      className={`py-1 font-medium cursor-pointer select-none hover:text-zinc-300 transition-colors ${align === 'right' ? 'text-right' : 'text-left'}`}
-      onClick={() => onSort(key)}
-    >
-      {label}
-      {active && <span className="ml-0.5">{dir === 'asc' ? '↑' : '↓'}</span>}
-    </th>
-  )
-}
-
-function ReferralSortHeader({
-  label,
-  sortKey: key,
-  current,
-  dir,
-  onSort,
-  align,
-}: {
-  label: string
-  sortKey: ReferralSortKey
-  current: ReferralSortKey
-  dir: SortDir
-  onSort: (key: ReferralSortKey) => void
+  onSort: (key: K) => void
   align: 'left' | 'right'
 }) {
   const active = current === key

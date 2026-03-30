@@ -285,6 +285,7 @@ export const gaAiReferrals = sqliteTable('ga_ai_referrals', {
 }, (table) => [
   index('idx_ga_ai_ref_project_date').on(table.projectId, table.date),
   index('idx_ga_ai_ref_source').on(table.source),
+  uniqueIndex('idx_ga_ai_ref_unique').on(table.projectId, table.date, table.source, table.medium),
 ])
 
 // Aggregate GA4 totals for a sync period — stores true unique user count
