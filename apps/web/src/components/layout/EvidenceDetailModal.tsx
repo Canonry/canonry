@@ -5,6 +5,7 @@ import { X } from 'lucide-react'
 import { effectiveDomains, normalizeProjectDomain } from '@ainyc/canonry-contracts'
 
 import { CitationBadge } from '../shared/CitationBadge.js'
+import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { highlightTermsInText } from '../../lib/highlight.js'
 import { fetchRunDetail, type GroundingSource } from '../../api.js'
 import type { CitationInsightVm, ProjectCommandCenterVm } from '../../view-models.js'
@@ -34,7 +35,7 @@ export function EvidenceDetailModal({
   onClose: () => void
 }) {
   const [showFullAnswer, setShowFullAnswer] = useState(false)
-  const [sidebarTab, setSidebarTab] = useState<'competitors' | 'sources'>('competitors')
+  const [sidebarTab, setSidebarTab] = useState<'citations' | 'sources'>('citations')
   const [selectedRunIdx, setSelectedRunIdx] = useState(-1) // -1 = latest (current)
   const [historicalSnapshot, setHistoricalSnapshot] = useState<EvidenceDisplayData | null>(null)
   const [loadingHistory, setLoadingHistory] = useState(false)
@@ -481,27 +482,32 @@ export function EvidenceDetailModal({
                   {(display.citedDomains.length > 0 || display.recommendedCompetitors.length > 0 || display.groundingSources.length > 0 || display.evidenceUrls.length > 0) && (
                     <div className="sidebar-tabs">
                       <button
-                        className={`sidebar-tab ${sidebarTab === 'competitors' ? 'sidebar-tab--active' : ''}`}
-                        onClick={() => setSidebarTab('competitors')}
+                        className={`sidebar-tab ${sidebarTab === 'citations' ? 'sidebar-tab--active' : ''}`}
+                        onClick={() => setSidebarTab('citations')}
                         type="button"
+                        title="Domains Canonry identified as cited in the model response. This is the primary visibility signal."
                       >
-                        Competitors
+                        Citations
                       </button>
                       <button
                         className={`sidebar-tab ${sidebarTab === 'sources' ? 'sidebar-tab--active' : ''}`}
                         onClick={() => setSidebarTab('sources')}
                         type="button"
+                        title="Grounding links the model used to build the answer. These are supporting sources, not the cited-domain ranking."
                       >
                         Sources
                       </button>
                     </div>
                   )}
 
-                  {sidebarTab === 'competitors' && (
+                  {sidebarTab === 'citations' && (
                     <>
                       {display.recommendedCompetitors.length > 0 && (
                         <div>
-                          <p className="drawer-section-label">AI recommended instead</p>
+                          <div className="drawer-section-label flex items-center">
+                            <span>Company names mentioned</span>
+                            <InfoTooltip text="Best-effort company names extracted from the answer text. This is supplementary context and does not replace the cited-domain list below." />
+                          </div>
                           <div className="citation-leaderboard">
                             {display.recommendedCompetitors.map((name, i) => (
                               <div key={name} className="citation-leaderboard-item citation-leaderboard-item--competitor">
@@ -515,7 +521,10 @@ export function EvidenceDetailModal({
 
                       {display.citedDomains.length > 0 ? (
                         <div>
-                          <p className="drawer-section-label">Domains cited instead</p>
+                          <div className="drawer-section-label flex items-center">
+                            <span>Domains cited in answer</span>
+                            <InfoTooltip text="Domains Canonry identified as actually cited in the model response. This is the canonical evidence used for citation state and ranking." />
+                          </div>
                           <div className="citation-leaderboard">
                             {display.citedDomains.map((domain, i) => {
                               const norm = domain.toLowerCase().replace(/^www\./, '')
@@ -544,7 +553,7 @@ export function EvidenceDetailModal({
                         </div>
                       ) : display.recommendedCompetitors.length === 0 ? (
                         <div className="flex items-center justify-center h-24 text-zinc-600 text-sm">
-                          No competitor data {isViewingHistory ? 'for this run' : 'yet'}
+                          No citation data {isViewingHistory ? 'for this run' : 'yet'}
                         </div>
                       ) : null}
                     </>
@@ -554,7 +563,10 @@ export function EvidenceDetailModal({
                     <>
                       {display.groundingSources.length > 0 && (
                         <div>
-                          <p className="drawer-section-label">Grounding sources ({display.groundingSources.length})</p>
+                          <div className="drawer-section-label flex items-center">
+                            <span>Grounding source links ({display.groundingSources.length})</span>
+                            <InfoTooltip text="Links the model used as grounding or supporting context while producing the answer. These are not the same thing as the cited-domain ranking." />
+                          </div>
                           <ul className="grid gap-0.5">
                             {display.groundingSources.map((src, i) => (
                               <li key={i} className="truncate text-sm">
