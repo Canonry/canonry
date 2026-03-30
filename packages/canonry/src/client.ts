@@ -2,12 +2,16 @@ import { loadConfig } from './config.js'
 import type {
   WordpressAuditIssueDto,
   WordpressAuditPageDto,
+  WordpressBulkMetaResultDto,
   WordpressDiffDto,
   WordpressEnv,
   WordpressManualAssistDto,
+  WordpressOnboardResultDto,
   WordpressPageDetailDto,
   WordpressPageSummaryDto,
   WordpressSchemaBlockDto,
+  WordpressSchemaDeployResultDto,
+  WordpressSchemaStatusResultDto,
   WordpressStatusDto,
 } from '@ainyc/canonry-contracts'
 
@@ -501,6 +505,16 @@ export class ApiClient {
     return this.request<WordpressPageDetailDto>('POST', `/projects/${encodeURIComponent(project)}/wordpress/page/meta`, body)
   }
 
+  async wordpressBulkSetMeta(
+    project: string,
+    body: {
+      entries: Array<{ slug: string; title?: string; description?: string; noindex?: boolean }>
+      env?: WordpressEnv
+    },
+  ): Promise<WordpressBulkMetaResultDto> {
+    return this.request<WordpressBulkMetaResultDto>('POST', `/projects/${encodeURIComponent(project)}/wordpress/pages/meta/bulk`, body)
+  }
+
   async wordpressSchema(
     project: string,
     slug: string,
@@ -516,6 +530,39 @@ export class ApiClient {
     body: { slug: string; type?: string; json: string; env?: WordpressEnv },
   ): Promise<WordpressManualAssistDto> {
     return this.request<WordpressManualAssistDto>('POST', `/projects/${encodeURIComponent(project)}/wordpress/schema/manual`, body)
+  }
+
+  async wordpressSchemaDeploy(
+    project: string,
+    body: { profile: unknown; env?: WordpressEnv },
+  ): Promise<WordpressSchemaDeployResultDto> {
+    return this.request<WordpressSchemaDeployResultDto>('POST', `/projects/${encodeURIComponent(project)}/wordpress/schema/deploy`, body)
+  }
+
+  async wordpressSchemaStatus(
+    project: string,
+    env?: WordpressEnv,
+  ): Promise<WordpressSchemaStatusResultDto> {
+    const params = new URLSearchParams()
+    if (env) params.set('env', env)
+    const qs = params.toString()
+    return this.request<WordpressSchemaStatusResultDto>('GET', `/projects/${encodeURIComponent(project)}/wordpress/schema/status${qs ? `?${qs}` : ''}`)
+  }
+
+  async wordpressOnboard(
+    project: string,
+    body: {
+      url: string
+      username: string
+      appPassword: string
+      stagingUrl?: string
+      defaultEnv?: WordpressEnv
+      profile?: unknown
+      skipSchema?: boolean
+      skipSubmit?: boolean
+    },
+  ): Promise<WordpressOnboardResultDto> {
+    return this.request<WordpressOnboardResultDto>('POST', `/projects/${encodeURIComponent(project)}/wordpress/onboard`, body)
   }
 
   async wordpressLlmsTxt(

@@ -482,6 +482,142 @@ describe('wordpress CLI commands', () => {
     expect(body.content).toBe('{"@type":"FAQPage"}')
   })
 
+  it('bulk set-meta reports an error when the --from file does not exist', async () => {
+    originalConfigDir = process.env.CANONRY_CONFIG_DIR
+
+    const harness = await startHarness()
+    closeHarness = harness.close
+    process.env.CANONRY_CONFIG_DIR = harness.tmpDir
+
+    const result = await invokeCli([
+      'wordpress', 'set-meta', 'test-proj', '--from', '/does/not/exist.json',
+    ])
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain('cannot read file')
+  })
+
+  it('bulk set-meta reports an error when the --from file is not valid JSON', async () => {
+    originalConfigDir = process.env.CANONRY_CONFIG_DIR
+
+    const harness = await startHarness()
+    closeHarness = harness.close
+    process.env.CANONRY_CONFIG_DIR = harness.tmpDir
+
+    const metaFile = path.join(harness.tmpDir, 'meta.json')
+    fs.writeFileSync(metaFile, 'not json', 'utf-8')
+
+    const result = await invokeCli([
+      'wordpress', 'set-meta', 'test-proj', '--from', metaFile,
+    ])
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain('not valid JSON')
+  })
+
+  it('schema deploy reports an error when the --profile file does not exist', async () => {
+    originalConfigDir = process.env.CANONRY_CONFIG_DIR
+
+    const harness = await startHarness()
+    closeHarness = harness.close
+    process.env.CANONRY_CONFIG_DIR = harness.tmpDir
+
+    const result = await invokeCli([
+      'wordpress', 'schema', 'deploy', 'test-proj', '--profile', '/does/not/exist.yaml',
+    ])
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain('cannot read file')
+  })
+
+  it('schema status outputs JSON with empty pages when no pages are published', async () => {
+    originalConfigDir = process.env.CANONRY_CONFIG_DIR
+    originalFetch = globalThis.fetch
+
+    const now = new Date().toISOString()
+    const harness = await startHarness({
+      wordpress: {
+        connections: [
+          {
+            projectName: 'test-proj',
+            url: 'https://example.com',
+            username: 'admin',
+            appPassword: 'app-pass',
+            defaultEnv: 'live',
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+      },
+    })
+    closeHarness = harness.close
+    process.env.CANONRY_CONFIG_DIR = harness.tmpDir
+
+    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.startsWith(harness.serverUrl)) {
+        return originalFetch(input, init)
+      }
+      if (url.includes('/wp-json/wp/v2/pages?per_page=100&page=1')) {
+        return jsonResponse([], {
+          headers: {
+            'x-wp-total': '0',
+            'x-wp-totalpages': '1',
+          },
+        })
+      }
+      throw new Error(`Unhandled URL: ${url}`)
+    }
+
+    const result = await invokeCli([
+      'wordpress', 'schema', 'status', 'test-proj', '--format', 'json',
+    ])
+
+    const body = parseJsonOutput(result.stdout) as { env: string; pages: unknown[] }
+    expect(body.env).toBe('live')
+    expect(body.pages).toEqual([])
+  })
+
+  it('onboard returns a failed connect step when WordPress credentials are invalid', async () => {
+    originalConfigDir = process.env.CANONRY_CONFIG_DIR
+    originalFetch = globalThis.fetch
+
+    const harness = await startHarness()
+    closeHarness = harness.close
+    process.env.CANONRY_CONFIG_DIR = harness.tmpDir
+
+    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.startsWith(harness.serverUrl)) {
+        return originalFetch(input, init)
+      }
+      if (url.includes('/wp-json/wp/v2/users/me?')) {
+        return new Response(
+          JSON.stringify({
+            code: 'rest_not_logged_in',
+            message: 'You are not currently logged in.',
+            data: { status: 401 },
+          }),
+          { status: 401, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      throw new Error(`Unhandled URL: ${url}`)
+    }
+
+    const result = await invokeCli([
+      'wordpress', 'onboard', 'test-proj',
+      '--url', 'https://example.com',
+      '--user', 'admin',
+      '--app-password', 'wrong-pass',
+      '--skip-schema',
+      '--skip-submit',
+      '--format', 'json',
+    ])
+
+    const body = parseJsonOutput(result.stdout) as { steps: Array<{ name: string; status: string }> }
+    expect(body.steps[0]).toMatchObject({ name: 'connect', status: 'failed' })
+  })
+
   it('renders actionable errors when SEO meta writes are unsupported', async () => {
     originalConfigDir = process.env.CANONRY_CONFIG_DIR
     originalFetch = globalThis.fetch
