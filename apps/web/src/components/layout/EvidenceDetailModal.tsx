@@ -315,7 +315,7 @@ export function EvidenceDetailModal({
           {/* ── Header ── */}
           <div className="evidence-modal-header">
             <div className="min-w-0 flex-1">
-              <p className="eyebrow eyebrow-soft">{project.project.name} \u00b7 {display.provider || 'All providers'}</p>
+              <p className="eyebrow eyebrow-soft">{project.project.name} {'\u00b7'} {display.provider || 'All providers'}</p>
               <Dialog.Title className="text-lg font-semibold text-zinc-50 truncate">{evidence.keyword}</Dialog.Title>
             </div>
             <Dialog.Close className="inline-flex size-8 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-800 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 shrink-0">
@@ -362,8 +362,8 @@ export function EvidenceDetailModal({
               </div>
               {selectedRunIdx >= 0 && selectedRunIdx < history.length && (
                 <p className="text-[11px] text-zinc-500 mt-1">
-                  Viewing run from {new Date(history[selectedRunIdx].createdAt).toLocaleString()} \u2014 <span className="capitalize">{history[selectedRunIdx].citationState}</span>
-                  <button type="button" className="text-zinc-400 hover:text-zinc-200 ml-2" onClick={() => selectHistoricalRun(-1)}>\u2190 Back to latest</button>
+                  Viewing run from {new Date(history[selectedRunIdx].createdAt).toLocaleString()} {'\u2014'} <span className="capitalize">{history[selectedRunIdx].citationState}</span>
+                  <button type="button" className="text-zinc-400 hover:text-zinc-200 ml-2" onClick={() => selectHistoricalRun(-1)}>{'\u2190'} Back to latest</button>
                 </p>
               )}
               {!isViewingHistory && (evidence.modelTransitions?.length ?? 0) > 0 && (
@@ -385,7 +385,7 @@ export function EvidenceDetailModal({
           <div className="evidence-modal-body">
             {loadingHistory && (
               <div className="md:col-span-2 flex items-center justify-center py-12 text-zinc-500 text-sm">
-                Loading historical run data\u2026
+                Loading historical run data{'\u2026'}
               </div>
             )}
 
@@ -473,7 +473,7 @@ export function EvidenceDetailModal({
                   {/* Citation leaderboard */}
                   {display.citedDomains.length > 0 && (
                     <div>
-                      <p className="drawer-section-label">Who was cited \u2014 in order</p>
+                      <p className="drawer-section-label">Who was cited {'\u2014'} in order</p>
                       <div className="citation-leaderboard">
                         {display.citedDomains.map((domain, i) => {
                           const norm = domain.toLowerCase().replace(/^www\./, '')

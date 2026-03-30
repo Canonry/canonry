@@ -765,7 +765,7 @@ export function GscSection({
                                 className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
                                 onClick={() => setSelectedReason(null)}
                               >
-                                \u2190 Back to reasons
+                                {'\u2190'} Back to reasons
                               </button>
                             </div>
                             <div className="mb-3 flex items-center justify-between rounded-lg border border-zinc-800/60 bg-zinc-900/20 p-3">

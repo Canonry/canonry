@@ -52,7 +52,7 @@ export function GoogleOAuthConfigForm({ onSaved }: { onSaved: () => void }) {
             rel="noopener noreferrer"
             className="text-[10px] text-zinc-500 hover:text-zinc-300 underline underline-offset-2"
           >
-            Google Cloud \u2197
+            Google Cloud {'\u2197'}
           </a>
         </div>
         <input
