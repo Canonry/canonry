@@ -344,6 +344,13 @@ describe('wordpress client', () => {
       expect(result).toContain('<p>Hello</p>')
     })
 
+    it('escapes </script> sequences in schema values to prevent XSS', () => {
+      const schemas = [{ name: 'evil</script><script>alert(1)</script>' }]
+      const result = injectCanonrySchema('<p>Hello</p>', schemas)
+      expect(result).not.toContain('</script><script>')
+      expect(result).toContain('<\\/script>')
+    })
+
     it('replaces existing canonry blocks before injecting', () => {
       const content = [
         '<p>Hello</p>',

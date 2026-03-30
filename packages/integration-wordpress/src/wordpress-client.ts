@@ -765,7 +765,7 @@ function escapeRegExp(str: string): string {
 export function injectCanonrySchema(content: string, schemas: Record<string, unknown>[]): string {
   if (schemas.length === 0) return content
   const blocks = schemas
-    .map((schema) => `<script type="application/ld+json">${JSON.stringify(schema)}</script>`)
+    .map((schema) => `<script type="application/ld+json">${JSON.stringify(schema).replace(/<\//g, '<\\/')}</script>`)
     .join('\n')
   const injection = `\n\n${CANONRY_SCHEMA_START}\n${blocks}\n${CANONRY_SCHEMA_END}`
   const stripped = stripCanonrySchema(content)
