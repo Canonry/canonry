@@ -1,5 +1,6 @@
 import { loadConfig } from './config.js'
 import type {
+  SnapshotReportDto,
   WordpressAuditIssueDto,
   WordpressAuditPageDto,
   WordpressDiffDto,
@@ -210,6 +211,15 @@ export class ApiClient {
 
   async getSettings(): Promise<object> {
     return this.request<object>('GET', '/settings')
+  }
+
+  async createSnapshot(body: {
+    companyName: string
+    domain: string
+    phrases?: string[]
+    competitors?: string[]
+  }): Promise<SnapshotReportDto> {
+    return this.request<SnapshotReportDto>('POST', '/snapshot', body)
   }
 
   async updateProvider(name: string, body: { apiKey?: string; baseUrl?: string; model?: string; quota?: { maxConcurrency?: number; maxRequestsPerMinute?: number; maxRequestsPerDay?: number } }): Promise<object> {

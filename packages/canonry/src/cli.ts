@@ -31,6 +31,7 @@ Usage:
   canonry keyword generate <project>  Auto-generate key phrases (--provider, --count, --save)
   canonry competitor add <project> <domain>  Add competitors
   canonry competitor list <project>   List competitors
+  canonry snapshot <company> --domain <domain>  One-shot AI perception report
   canonry run <project>               Trigger a run (all providers)
   canonry run <project> --provider <name>  Trigger a run for a specific provider
   canonry run <project> --location <label> Run with a specific location
@@ -132,6 +133,9 @@ Options:
   --language <lang>    Language code (default: en)
   --provider <name>    Provider to use (gemini, openai, claude, perplexity, local, cdp:chatgpt, or cdp for all CDP targets)
   --format <fmt>       Output format: text (default) or json
+  --phrases <list>     Comma-separated category queries (snapshot)
+  --competitors <list> Comma-separated competitor hints (snapshot)
+  --pdf <path>         Write a PDF snapshot report to a file
   --location <label>   Run with a specific configured location
   --all-locations      Run for every configured location
   --no-location        Explicitly skip location context

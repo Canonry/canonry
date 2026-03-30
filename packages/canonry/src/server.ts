@@ -47,6 +47,7 @@ import { executeInspectSitemap } from './gsc-inspect-sitemap.js'
 import { ProviderRegistry } from './provider-registry.js'
 import { Scheduler } from './scheduler.js'
 import { Notifier } from './notifier.js'
+import { SnapshotService } from './snapshot-service.js'
 import { fetchSiteText } from './site-fetch.js'
 import { createLogger } from './logger.js'
 
@@ -234,6 +235,7 @@ export async function createServer(opts: {
   jobRunner.recoverStaleRuns()
   const notifier = new Notifier(opts.db, serverUrl)
   jobRunner.onRunCompleted = (runId, projectId) => notifier.onRunCompleted(runId, projectId)
+  const snapshotService = new SnapshotService(registry)
 
   const scheduler = new Scheduler(opts.db, {
     onRunCreated: (runId, projectId, providers) => {
@@ -895,6 +897,9 @@ export async function createServer(opts: {
 
       const raw = await provider.adapter.generateText(prompt, provider.config)
       return parseKeywordResponse(raw, count)
+    },
+    onSnapshotRequested: async (input) => {
+      return snapshotService.createReport(input)
     },
   })
 

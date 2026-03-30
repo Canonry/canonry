@@ -11,6 +11,7 @@ import { PROJECT_CLI_COMMANDS } from './cli-commands/project.js'
 import { RUN_CLI_COMMANDS } from './cli-commands/run.js'
 import { SCHEDULE_CLI_COMMANDS } from './cli-commands/schedule.js'
 import { SETTINGS_CLI_COMMANDS } from './cli-commands/settings.js'
+import { SNAPSHOT_CLI_COMMANDS } from './cli-commands/snapshot.js'
 import { SYSTEM_CLI_COMMANDS } from './cli-commands/system.js'
 import { WORDPRESS_CLI_COMMANDS } from './cli-commands/wordpress.js'
 
@@ -20,6 +21,7 @@ export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...KEYWORD_CLI_COMMANDS,
   ...COMPETITOR_CLI_COMMANDS,
   ...SETTINGS_CLI_COMMANDS,
+  ...SNAPSHOT_CLI_COMMANDS,
   ...RUN_CLI_COMMANDS,
   ...OPERATOR_CLI_COMMANDS,
   ...SCHEDULE_CLI_COMMANDS,

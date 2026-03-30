@@ -17,6 +17,8 @@ import { openApiRoutes } from './openapi.js'
 import type { OpenApiInfo } from './openapi.js'
 import { settingsRoutes } from './settings.js'
 import type { SettingsRoutesOptions, ProviderSummaryEntry, ProviderAdapterInfo } from './settings.js'
+import { snapshotRoutes } from './snapshot.js'
+import type { SnapshotRoutesOptions } from './snapshot.js'
 import { telemetryRoutes } from './telemetry.js'
 import type { TelemetryRoutesOptions } from './telemetry.js'
 import { scheduleRoutes } from './schedules.js'
@@ -63,6 +65,8 @@ export interface ApiRoutesOptions {
   onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string) => void
   /** Callback when a project is deleted */
   onProjectDeleted?: (projectId: string) => void
+  /** Callback to generate a one-shot AI perception snapshot */
+  onSnapshotRequested?: SnapshotRoutesOptions['onSnapshotRequested']
   /** Callback to generate keyword suggestions using an LLM provider */
   onGenerateKeywords?: KeywordRoutesOptions['onGenerateKeywords']
   /** Telemetry status/toggle callbacks */
@@ -185,6 +189,9 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       bing: opts.bingSettingsSummary,
       onBingUpdate: opts.onBingSettingsUpdate,
     } satisfies SettingsRoutesOptions)
+    await api.register(snapshotRoutes, {
+      onSnapshotRequested: opts.onSnapshotRequested,
+    } satisfies SnapshotRoutesOptions)
     await api.register(scheduleRoutes, {
       onScheduleUpdated: opts.onScheduleUpdated,
       validProviderNames: opts.providerAdapters?.map(a => a.name),

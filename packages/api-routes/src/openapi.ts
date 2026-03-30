@@ -737,6 +737,34 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'post',
+    path: '/api/v1/snapshot',
+    summary: 'Generate a one-shot AI perception snapshot',
+    tags: ['snapshot'],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['companyName', 'domain'],
+            properties: {
+              companyName: stringSchema,
+              domain: stringSchema,
+              phrases: stringArraySchema,
+              competitors: stringArraySchema,
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Snapshot report returned.' },
+      400: { description: 'Invalid snapshot input.' },
+      501: { description: 'Snapshot reporting is not supported.' },
+    },
+  },
+  {
     method: 'put',
     path: '/api/v1/settings/bing',
     summary: 'Update Bing settings',

@@ -44,6 +44,10 @@ canonry project remove-location <name> <label>
 ## Sweeps
 
 ```bash
+canonry snapshot "Acme Corp" --domain acme.example.com      # one-shot sales snapshot
+canonry snapshot "Acme Corp" --domain acme.example.com --pdf ./acme.pdf
+canonry snapshot "Acme Corp" --domain acme.example.com --format json
+
 canonry run <project>                             # sweep all configured providers
 canonry run <project> --provider gemini           # single provider only
 canonry run <project> --wait                      # block until complete
@@ -59,6 +63,8 @@ canonry run show <id>                             # show run details
 Run statuses: `queued` → `running` → `completed` / `failed` / `partial`
 
 `partial` = some providers failed (usually rate limits) — successful snapshots are still saved.
+
+`snapshot` does not create a project or write to the DB. It generates category queries, runs providers, and produces a report for prospecting.
 
 ## Citation Data
 
