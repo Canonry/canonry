@@ -49,6 +49,7 @@ export const querySnapshotDtoSchema = z.object({
   answerText: z.string().nullable().optional(),
   citedDomains: z.array(z.string()).default([]),
   competitorOverlap: z.array(z.string()).default([]),
+  recommendedCompetitors: z.array(z.string()).default([]),
   groundingSources: z.array(groundingSourceSchema).default([]),
   searchQueries: z.array(z.string()).default([]),
   model: z.string().nullable().optional(),

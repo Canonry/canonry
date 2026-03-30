@@ -4,7 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
-import { createClient, migrate, projects, runs } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, keywords, querySnapshots, runs } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
 
@@ -248,6 +248,68 @@ describe('api-routes', () => {
     const body = JSON.parse(res.payload)
     expect(body).toBeInstanceOf(Array)
     expect(body.length).toBeGreaterThan(0)
+  })
+
+  it('run detail and project snapshot history expose recommendedCompetitors', async () => {
+    const projectId = crypto.randomUUID()
+    const keywordId = crypto.randomUUID()
+    const runId = crypto.randomUUID()
+    const now = new Date(Date.now() + 30_000).toISOString()
+
+    db.insert(projects).values({
+      id: projectId,
+      name: 'snapshot-history-project',
+      displayName: 'Snapshot History Project',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+      providers: '[]',
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+
+    db.insert(keywords).values({
+      id: keywordId,
+      projectId,
+      keyword: 'best example software',
+      createdAt: now,
+    }).run()
+
+    db.insert(runs).values({
+      id: runId,
+      projectId,
+      status: 'completed',
+      createdAt: now,
+      finishedAt: now,
+    }).run()
+
+    db.insert(querySnapshots).values({
+      id: crypto.randomUUID(),
+      runId,
+      keywordId,
+      provider: 'gemini',
+      citationState: 'not-cited',
+      answerText: '1. Downtown Smiles - strong reviews',
+      citedDomains: '["downtownsmiles.com"]',
+      competitorOverlap: '["downtownsmiles.com"]',
+      recommendedCompetitors: '["Downtown Smiles"]',
+      rawResponse: '{"groundingSources":[],"searchQueries":[]}',
+      createdAt: now,
+    }).run()
+
+    const runRes = await app.inject({ method: 'GET', url: `/api/v1/runs/${runId}` })
+    expect(runRes.statusCode).toBe(200)
+    const runBody = JSON.parse(runRes.payload) as {
+      snapshots: Array<{ recommendedCompetitors: string[] }>
+    }
+    expect(runBody.snapshots[0]?.recommendedCompetitors).toEqual(['Downtown Smiles'])
+
+    const historyRes = await app.inject({ method: 'GET', url: '/api/v1/projects/snapshot-history-project/snapshots' })
+    expect(historyRes.statusCode).toBe(200)
+    const historyBody = JSON.parse(historyRes.payload) as {
+      snapshots: Array<{ recommendedCompetitors: string[] }>
+    }
+    expect(historyBody.snapshots[0]?.recommendedCompetitors).toEqual(['Downtown Smiles'])
   })
 
   it('PUT /api/v1/projects/:name updates project settings', async () => {

@@ -66,6 +66,7 @@ export async function historyRoutes(app: FastifyInstance) {
         answerText: querySnapshots.answerText,
         citedDomains: querySnapshots.citedDomains,
         competitorOverlap: querySnapshots.competitorOverlap,
+        recommendedCompetitors: querySnapshots.recommendedCompetitors,
         location: querySnapshots.location,
         createdAt: querySnapshots.createdAt,
       })
@@ -96,6 +97,7 @@ export async function historyRoutes(app: FastifyInstance) {
         answerText: s.answerText,
         citedDomains: tryParseJson(s.citedDomains, [] as string[]),
         competitorOverlap: tryParseJson(s.competitorOverlap, [] as string[]),
+        recommendedCompetitors: tryParseJson(s.recommendedCompetitors, [] as string[]),
         location: s.location,
         createdAt: s.createdAt,
       })),

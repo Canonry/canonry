@@ -300,6 +300,12 @@ export class JobRunner {
             log.info('query.result', { runId, provider: providerName, keyword: kw.keyword, citedDomains: normalized.citedDomains, groundingSources: normalized.groundingSources.map(s => s.uri), matchDomains: allDomains })
             const citationState = determineCitationState(normalized, allDomains)
             const overlap = computeCompetitorOverlap(normalized, competitorDomains)
+            const extractedCompetitors = extractRecommendedCompetitors(
+              normalized.answerText,
+              allDomains,
+              normalized.citedDomains,
+              overlap,
+            )
 
             // Move screenshot to canonical location if present
             let screenshotRelPath: string | null = null
@@ -321,6 +327,7 @@ export class JobRunner {
                 answerText: normalized.answerText,
                 citedDomains: JSON.stringify(normalized.citedDomains),
                 competitorOverlap: JSON.stringify(overlap),
+                recommendedCompetitors: JSON.stringify(extractedCompetitors),
                 location: runLocation?.label ?? null,
                 screenshotPath: screenshotRelPath,
                 rawResponse: JSON.stringify({
@@ -342,6 +349,7 @@ export class JobRunner {
                 answerText: normalized.answerText,
                 citedDomains: JSON.stringify(normalized.citedDomains),
                 competitorOverlap: JSON.stringify(overlap),
+                recommendedCompetitors: JSON.stringify(extractedCompetitors),
                 location: runLocation?.label ?? null,
                 rawResponse: JSON.stringify({
                   model: raw.model,
@@ -663,4 +671,122 @@ function computeCompetitorOverlap(
   }
 
   return [...overlapSet]
+}
+
+/**
+ * Extract brand names from the answer, but only when they line up with
+ * domains we already know were cited or matched as competitors.
+ */
+export function extractRecommendedCompetitors(
+  answerText: string | null | undefined,
+  ownDomains: string[],
+  citedDomains: string[],
+  competitorDomains: string[],
+): string[] {
+  if (!answerText || answerText.length < 20) return []
+
+  const ownBrandKeys = new Set(
+    ownDomains.flatMap(domain => collectBrandKeysFromDomain(domain)),
+  )
+  const knownCompetitorKeys = new Set(
+    [...citedDomains, ...competitorDomains]
+      .flatMap(domain => collectBrandKeysFromDomain(domain))
+      .filter(key => !ownBrandKeys.has(key)),
+  )
+
+  if (knownCompetitorKeys.size === 0) return []
+
+  const candidatePatterns = [
+    /^\s*(?:[-*]|\d+\.)\s+(?:\*\*)?([A-Z0-9][A-Za-z0-9][\w\s.&',/()-]{1,50}?)(?:\*\*)?\s*[:\u2014\u2013–-]/gm,
+    /\*\*([A-Z0-9][A-Za-z0-9][\w\s.&',/()-]{1,50}?)\*\*/g,
+    /^#{1,4}\s+(?:\d+\.\s+)?(?:\*\*)?([A-Z0-9][A-Za-z0-9][\w\s.&',/()-]{1,50}?)(?:\*\*)?$/gm,
+    /\[([A-Z0-9][A-Za-z0-9][\w\s.&',/()-]{1,50}?)\]\(https?:\/\/[^\s)]+\)/g,
+  ]
+  const genericKeys = new Set([
+    'additional',
+    'best',
+    'benefits',
+    'bottomline',
+    'comparison',
+    'conclusion',
+    'directorylisting',
+    'example',
+    'expertise',
+    'features',
+    'finalthoughts',
+    'howitworks',
+    'important',
+    'keybenefits',
+    'keyfeatures',
+    'major',
+    'note',
+    'notable',
+    'option',
+    'other',
+    'overview',
+    'pricing',
+    'pros',
+    'reviews',
+    'step',
+    'summary',
+    'top',
+    'verdict',
+    'whattolookfor',
+    'whyitmatters',
+    'whyitstandsout',
+    'whywechoseit',
+  ])
+
+  const seen = new Map<string, string>()
+  for (const pattern of candidatePatterns) {
+    let match: RegExpExecArray | null
+    while ((match = pattern.exec(answerText)) !== null) {
+      const candidate = cleanCandidateName(match[1] ?? '')
+      const candidateKey = brandKeyFromText(candidate)
+      if (!candidateKey) continue
+      if (genericKeys.has(candidateKey)) continue
+      if (candidate.split(/\s+/).length > 6) continue
+      if (matchesBrandKey(candidateKey, ownBrandKeys)) continue
+      if (!matchesBrandKey(candidateKey, knownCompetitorKeys)) continue
+      if (!seen.has(candidateKey)) seen.set(candidateKey, candidate)
+    }
+  }
+
+  return [...seen.values()].slice(0, 10)
+}
+
+function cleanCandidateName(candidate: string): string {
+  return candidate
+    .replace(/^[\s"'`]+|[\s"'`.,:;!?]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function brandKeyFromText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+function collectBrandKeysFromDomain(domain: string): string[] {
+  const hostname = normalizeProjectDomain(domain).split('/')[0] ?? ''
+  const labels = hostname.split('.').filter(Boolean)
+  const keys = new Set<string>()
+
+  const hostnameKey = hostname.replace(/[^a-z0-9]/gi, '').toLowerCase()
+  if (hostnameKey.length >= 4) keys.add(hostnameKey)
+
+  for (const label of labels) {
+    const key = label.replace(/[^a-z0-9]/gi, '').toLowerCase()
+    if (key.length >= 4) keys.add(key)
+  }
+
+  return [...keys]
+}
+
+function matchesBrandKey(candidateKey: string, brandKeys: Set<string>): boolean {
+  for (const brandKey of brandKeys) {
+    if (candidateKey === brandKey) return true
+    if (candidateKey.startsWith(brandKey) || candidateKey.endsWith(brandKey)) return true
+    if (brandKey.startsWith(candidateKey) || brandKey.endsWith(candidateKey)) return true
+  }
+  return false
 }

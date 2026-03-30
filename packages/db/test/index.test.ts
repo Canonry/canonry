@@ -196,6 +196,7 @@ test('CRUD: insert run and query snapshot', () => {
   const [snap] = db.select().from(querySnapshots).where(eq(querySnapshots.runId, 'run_1')).all()
   expect(snap.citationState).toBe('cited')
   expect(JSON.parse(snap.citedDomains)).toEqual(['example.com'])
+  expect(JSON.parse(snap.recommendedCompetitors)).toEqual([])
 })
 
 test('unique constraint on keywords(project_id, keyword)', () => {

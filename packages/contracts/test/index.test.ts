@@ -197,6 +197,7 @@ test('querySnapshotDtoSchema applies defaults', () => {
   expect(snapshot.provider).toBe('gemini')
   expect(snapshot.citedDomains).toEqual([])
   expect(snapshot.competitorOverlap).toEqual([])
+  expect(snapshot.recommendedCompetitors).toEqual([])
 })
 
 test('querySnapshotDtoSchema accepts all provider names', () => {

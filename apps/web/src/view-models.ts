@@ -108,6 +108,7 @@ export interface CitationInsightVm {
   citedDomains: string[]
   evidenceUrls: string[]
   competitorDomains: string[]
+  recommendedCompetitors?: string[]
   relatedTechnicalSignals: string[]
   groundingSources: GroundingSource[]
   summary: string
