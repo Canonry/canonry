@@ -439,4 +439,372 @@ describe('WordPress routes', () => {
       nextSteps: ['Open the WP STAGING admin page on the live site.'],
     })
   })
+
+  it('bulk set-meta applies plugin meta for writable sites and returns manual for non-writable', async () => {
+    const now = new Date().toISOString()
+    connections.set('test-project', {
+      projectName: 'test-project',
+      url: 'https://example.com',
+      username: 'admin',
+      appPassword: 'app-pass',
+      defaultEnv: 'live',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    vi.spyOn(wordpressModule, 'bulkSetSeoMeta').mockResolvedValue({
+      env: 'live',
+      strategy: 'plugin',
+      results: [
+        { slug: 'about', status: 'applied' },
+        { slug: 'missing-page', status: 'skipped', error: 'Page "missing-page" not found' },
+      ],
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/wordpress/pages/meta/bulk',
+      payload: {
+        entries: [
+          { slug: 'about', title: 'About Us', description: 'About page' },
+          { slug: 'missing-page', title: 'Missing' },
+        ],
+      },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.env).toBe('live')
+    expect(body.strategy).toBe('plugin')
+    expect(body.results).toHaveLength(2)
+    expect(body.results[0]).toMatchObject({ slug: 'about', status: 'applied' })
+    expect(body.results[1]).toMatchObject({ slug: 'missing-page', status: 'skipped' })
+  })
+
+  it('bulk set-meta rejects empty entries array', async () => {
+    const now = new Date().toISOString()
+    connections.set('test-project', {
+      projectName: 'test-project',
+      url: 'https://example.com',
+      username: 'admin',
+      appPassword: 'app-pass',
+      defaultEnv: 'live',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/wordpress/pages/meta/bulk',
+      payload: { entries: [] },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toEqual({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'entries array is required and must not be empty',
+      },
+    })
+  })
+
+  it('schema deploy deploys JSON-LD from profile and returns per-slug results', async () => {
+    const now = new Date().toISOString()
+    connections.set('test-project', {
+      projectName: 'test-project',
+      url: 'https://example.com',
+      username: 'admin',
+      appPassword: 'app-pass',
+      defaultEnv: 'live',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    vi.spyOn(wordpressModule, 'deploySchemaFromProfile').mockResolvedValue({
+      env: 'live',
+      results: [
+        { slug: 'home', status: 'deployed', schemasInjected: ['Organization', 'LocalBusiness'] },
+        { slug: 'faq', status: 'stripped', manualAssist: {
+          manualRequired: true,
+          targetUrl: 'https://example.com/faq',
+          adminUrl: 'https://example.com/wp-admin/',
+          content: '{"@type":"FAQPage"}',
+          nextSteps: ['Add schema manually.'],
+        } },
+        { slug: 'nonexistent', status: 'skipped', error: 'Page "nonexistent" not found' },
+      ],
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/wordpress/schema/deploy',
+      payload: {
+        profile: {
+          business: { name: 'Test Co', url: 'https://example.com' },
+          pages: {
+            home: ['Organization', 'LocalBusiness'],
+            faq: [{ type: 'FAQPage', faqs: [{ q: 'Q?', a: 'A.' }] }],
+            nonexistent: ['WebPage'],
+          },
+        },
+      },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.results).toHaveLength(3)
+    expect(body.results[0]).toMatchObject({ slug: 'home', status: 'deployed' })
+    expect(body.results[1]).toMatchObject({ slug: 'faq', status: 'stripped' })
+    expect(body.results[1].manualAssist).toBeDefined()
+    expect(body.results[2]).toMatchObject({ slug: 'nonexistent', status: 'skipped' })
+  })
+
+  it('schema deploy rejects profiles without business.name', async () => {
+    const now = new Date().toISOString()
+    connections.set('test-project', {
+      projectName: 'test-project',
+      url: 'https://example.com',
+      username: 'admin',
+      appPassword: 'app-pass',
+      defaultEnv: 'live',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/wordpress/schema/deploy',
+      payload: {
+        profile: { business: {}, pages: { home: ['Organization'] } },
+      },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error.code).toBe('VALIDATION_ERROR')
+  })
+
+  it('schema deploy rejects profiles with empty pages', async () => {
+    const now = new Date().toISOString()
+    connections.set('test-project', {
+      projectName: 'test-project',
+      url: 'https://example.com',
+      username: 'admin',
+      appPassword: 'app-pass',
+      defaultEnv: 'live',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/wordpress/schema/deploy',
+      payload: {
+        profile: { business: { name: 'Test Co' }, pages: {} },
+      },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error.code).toBe('VALIDATION_ERROR')
+  })
+
+  it('schema status returns per-page schema summary', async () => {
+    const now = new Date().toISOString()
+    connections.set('test-project', {
+      projectName: 'test-project',
+      url: 'https://example.com',
+      username: 'admin',
+      appPassword: 'app-pass',
+      defaultEnv: 'live',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    vi.spyOn(wordpressModule, 'getSchemaStatus').mockResolvedValue({
+      env: 'live',
+      pages: [
+        { slug: 'home', title: 'Home', canonrySchemas: ['Organization'], thirdPartySchemas: ['WebSite'], hasCanonrySchema: true },
+        { slug: 'about', title: 'About', canonrySchemas: [], thirdPartySchemas: [], hasCanonrySchema: false },
+      ],
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/test-project/wordpress/schema/status',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.pages).toHaveLength(2)
+    expect(body.pages[0]).toMatchObject({ slug: 'home', hasCanonrySchema: true })
+    expect(body.pages[1]).toMatchObject({ slug: 'about', hasCanonrySchema: false })
+  })
+
+  it('onboard runs all steps sequentially and returns step results', async () => {
+    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    vi.spyOn(wordpressModule, 'verifyWordpressConnection').mockResolvedValue({
+      url: 'https://example.com',
+      reachable: true,
+      pageCount: 2,
+      version: '6.8.1',
+      plugins: [],
+      authenticatedUser: { id: 1, slug: 'admin' },
+    })
+    vi.spyOn(wordpressModule, 'runAudit').mockResolvedValue({
+      env: 'live',
+      pages: [
+        { slug: 'home', title: 'Home', status: 'publish', wordCount: 500, seo: { title: 'Home', description: 'Desc', noindex: false, writable: false, writeTargets: [] }, schemaPresent: false, issues: [] },
+        { slug: 'about', title: 'About Us', status: 'publish', wordCount: 300, seo: { title: null, description: null, noindex: false, writable: false, writeTargets: [] }, schemaPresent: false, issues: [] },
+      ],
+      issues: [
+        { slug: 'about', severity: 'medium', code: 'missing-seo-title', message: 'Missing title' },
+        { slug: 'about', severity: 'medium', code: 'missing-meta-description', message: 'Missing description' },
+      ],
+    })
+    vi.spyOn(wordpressModule, 'listPages').mockResolvedValue([
+      { id: 1, slug: 'home', title: 'Home', status: 'publish', modifiedAt: '2026-03-27T12:00:00Z', link: 'https://example.com/home/' },
+      { id: 2, slug: 'about', title: 'About Us', status: 'publish', modifiedAt: '2026-03-27T12:00:00Z', link: 'https://example.com/about-us/team/' },
+    ])
+    const bulkMetaSpy = vi.spyOn(wordpressModule, 'bulkSetSeoMeta').mockResolvedValue({
+      env: 'live',
+      strategy: 'manual',
+      results: [{ slug: 'about', status: 'manual' }],
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/wordpress/onboard',
+      payload: {
+        url: 'https://example.com',
+        username: 'admin',
+        appPassword: 'app-pass',
+        skipSchema: true,
+        skipSubmit: true,
+      },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.projectName).toBe('test-project')
+    expect(body.steps).toHaveLength(6)
+    expect(body.steps[0]).toMatchObject({ name: 'connect', status: 'completed' })
+    expect(body.steps[1]).toMatchObject({ name: 'audit', status: 'completed' })
+    expect(body.steps[2]).toMatchObject({ name: 'set-meta', status: 'completed' })
+    expect(body.steps[3]).toMatchObject({ name: 'schema-deploy', status: 'skipped' })
+    expect(body.steps[4]).toMatchObject({ name: 'google-submit', status: 'skipped' })
+    expect(body.steps[5]).toMatchObject({ name: 'bing-submit', status: 'skipped' })
+
+    // P1 fix: set-meta entries must include actual title/description values
+    expect(bulkMetaSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.arrayContaining([
+        expect.objectContaining({ slug: 'about', title: 'About Us', description: 'About Us' }),
+      ]),
+    )
+  })
+
+  it('onboard rejects staging defaultEnv without stagingUrl', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/wordpress/onboard',
+      payload: {
+        url: 'https://example.com',
+        username: 'admin',
+        appPassword: 'app-pass',
+        defaultEnv: 'staging',
+      },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error.message).toContain('stagingUrl')
+  })
+
+  it('onboard halts and reports on connection failure', async () => {
+    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    vi.spyOn(wordpressModule, 'verifyWordpressConnection').mockRejectedValue(
+      new WordpressApiError('AUTH_INVALID', 'Authentication failed', 401),
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/wordpress/onboard',
+      payload: {
+        url: 'https://example.com',
+        username: 'admin',
+        appPassword: 'wrong-pass',
+      },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.steps).toHaveLength(1)
+    expect(body.steps[0]).toMatchObject({ name: 'connect', status: 'failed', error: 'Authentication failed' })
+  })
+
+  it('onboard validates required fields', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/wordpress/onboard',
+      payload: { url: 'https://example.com' },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error.code).toBe('VALIDATION_ERROR')
+  })
+
+  it('bulk set-meta returns manual-assist results for sites without SEO plugins', async () => {
+    const now = new Date().toISOString()
+    connections.set('test-project', {
+      projectName: 'test-project',
+      url: 'https://example.com',
+      username: 'admin',
+      appPassword: 'app-pass',
+      defaultEnv: 'live',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const wordpressModule = await import('@ainyc/canonry-integration-wordpress')
+    vi.spyOn(wordpressModule, 'bulkSetSeoMeta').mockResolvedValue({
+      env: 'live',
+      strategy: 'manual',
+      results: [
+        {
+          slug: 'about',
+          status: 'manual',
+          manualAssist: {
+            manualRequired: true,
+            targetUrl: 'https://example.com/about',
+            adminUrl: 'https://example.com/wp-admin/',
+            content: 'Title: About Us\nDescription: About page',
+            nextSteps: [
+              'Open the WordPress editor for page "about".',
+              'Install an SEO plugin (Yoast SEO, Rank Math, or AIOSEO) to manage meta fields via REST, or set the values manually in the page editor.',
+              'Apply the meta values listed above.',
+              'Publish/update the page.',
+            ],
+          },
+        },
+      ],
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/wordpress/pages/meta/bulk',
+      payload: {
+        entries: [
+          { slug: 'about', title: 'About Us', description: 'About page' },
+        ],
+      },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.strategy).toBe('manual')
+    expect(body.results[0].status).toBe('manual')
+    expect(body.results[0].manualAssist).toBeDefined()
+    expect(body.results[0].manualAssist.manualRequired).toBe(true)
+  })
 })

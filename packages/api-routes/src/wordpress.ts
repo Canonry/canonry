@@ -5,11 +5,14 @@ import {
   buildManualLlmsTxtUpdate,
   buildManualSchemaUpdate,
   buildManualStagingPush,
+  bulkSetSeoMeta,
   createPage,
+  deploySchemaFromProfile,
   diffPageAcrossEnvironments,
   getLlmsTxt,
   getPageDetail,
   getPageSchema,
+  getSchemaStatus,
   getSiteStatus,
   getWpStagingAdminUrl,
   listActivePlugins,
@@ -21,7 +24,7 @@ import {
   verifyWordpressConnection,
   WordpressApiError,
 } from '@ainyc/canonry-integration-wordpress'
-import type { WordpressConnectionRecord } from '@ainyc/canonry-integration-wordpress'
+import type { SchemaProfileFile, WordpressConnectionRecord } from '@ainyc/canonry-integration-wordpress'
 import { resolveProject, writeAuditLog } from './helpers.js'
 
 export interface WordpressConnectionStore {
@@ -36,6 +39,7 @@ export interface WordpressConnectionStore {
 
 export interface WordpressRoutesOptions {
   wordpressConnectionStore?: WordpressConnectionStore
+  routePrefix?: string
 }
 
 function parseEnvInput(
@@ -354,6 +358,46 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
     })
   })
 
+  app.post<{
+    Params: { name: string }
+    Body: {
+      entries: Array<{ slug: string; title?: string; description?: string; noindex?: boolean }>
+      env?: WordpressEnv
+    }
+  }>('/projects/:name/wordpress/pages/meta/bulk', async (request, reply) => {
+    return withWordpressErrorHandling(reply, async () => {
+      const store = requireStore(reply)
+      if (!store) return
+      const project = resolveProject(app.db, request.params.name)
+      const connection = requireConnection(store, project.name, reply)
+      if (!connection) return
+      const entries = request.body?.entries
+      if (!Array.isArray(entries) || entries.length === 0) {
+        const err = validationError('entries array is required and must not be empty')
+        return reply.status(err.statusCode).send(err.toJSON())
+      }
+      for (const entry of entries) {
+        if (!entry.slug?.trim()) {
+          const err = validationError('each entry must have a slug')
+          return reply.status(err.statusCode).send(err.toJSON())
+        }
+      }
+      const env = parseEnvInput(request.body?.env)
+      const result = await bulkSetSeoMeta(connection, entries, env)
+      const applied = result.results.filter((r) => r.status === 'applied')
+      if (applied.length > 0) {
+        writeAuditLog(app.db, {
+          projectId: project.id,
+          actor: 'api',
+          action: 'wordpress.page-meta-updated',
+          entityType: 'wordpress_page',
+          entityId: `bulk(${applied.map((r) => r.slug).join(',')})`,
+        })
+      }
+      return result
+    })
+  })
+
   app.get<{
     Params: { name: string }
     Querystring: { slug?: string; env?: string }
@@ -392,6 +436,41 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
       }
       const env = parseEnvInput(request.body?.env)
       return buildManualSchemaUpdate(connection, slug, { type: request.body?.type, json }, env)
+    })
+  })
+
+  app.post<{
+    Params: { name: string }
+    Body: { profile: SchemaProfileFile; env?: WordpressEnv }
+  }>('/projects/:name/wordpress/schema/deploy', async (request, reply) => {
+    return withWordpressErrorHandling(reply, async () => {
+      const store = requireStore(reply)
+      if (!store) return
+      const project = resolveProject(app.db, request.params.name)
+      const connection = requireConnection(store, project.name, reply)
+      if (!connection) return
+      const profile = request.body?.profile
+      if (!profile?.business?.name || !profile?.pages || Object.keys(profile.pages).length === 0) {
+        const err = validationError('profile with business.name and non-empty pages is required')
+        return reply.status(err.statusCode).send(err.toJSON())
+      }
+      const env = parseEnvInput(request.body?.env)
+      return deploySchemaFromProfile(connection, profile, env)
+    })
+  })
+
+  app.get<{
+    Params: { name: string }
+    Querystring: { env?: string }
+  }>('/projects/:name/wordpress/schema/status', async (request, reply) => {
+    return withWordpressErrorHandling(reply, async () => {
+      const store = requireStore(reply)
+      if (!store) return
+      const project = resolveProject(app.db, request.params.name)
+      const connection = requireConnection(store, project.name, reply)
+      if (!connection) return
+      const env = parseEnvInput(request.query?.env)
+      return getSchemaStatus(connection, env)
     })
   })
 
@@ -492,5 +571,243 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
       }
       return buildManualStagingPush(connection)
     })
+  })
+
+  // POST /projects/:name/wordpress/onboard — compound onboarding command
+  app.post<{
+    Params: { name: string }
+    Body: {
+      url: string
+      username: string
+      appPassword: string
+      stagingUrl?: string
+      defaultEnv?: WordpressEnv
+      profile?: SchemaProfileFile
+      skipSchema?: boolean
+      skipSubmit?: boolean
+    }
+  }>('/projects/:name/wordpress/onboard', async (request, reply) => {
+    return withWordpressErrorHandling(reply, async () => {
+    const store = requireStore(reply)
+    if (!store) return
+
+    const project = resolveProject(app.db, request.params.name)
+    const { url, username, appPassword, stagingUrl, profile, skipSchema, skipSubmit } = request.body ?? {}
+
+    if (!url || !username || !appPassword) {
+      const err = validationError('url, username, and appPassword are required')
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
+    const defaultEnv = parseEnvInput(request.body?.defaultEnv, 'defaultEnv')
+      ?? (stagingUrl ? 'staging' : 'live')
+
+    if (defaultEnv === 'staging' && !stagingUrl) {
+      const err = validationError('defaultEnv "staging" requires stagingUrl')
+      return reply.status(err.statusCode).send(err.toJSON())
+    }
+
+    type StepResult = { name: string; status: 'completed' | 'skipped' | 'failed'; summary?: string; error?: string }
+    const steps: StepResult[] = []
+    let connection: WordpressConnectionRecord | null = null
+    let pageUrls: string[] = []
+
+    // Step 1: Connect
+    try {
+      const now = new Date().toISOString()
+      const existing = store.getConnection(project.name)
+      const nextConnection: WordpressConnectionRecord = {
+        projectName: project.name,
+        url,
+        stagingUrl,
+        username,
+        appPassword,
+        defaultEnv,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+      }
+      await verifyWordpressConnection(nextConnection)
+      connection = store.upsertConnection(nextConnection)
+      writeAuditLog(app.db, {
+        projectId: project.id,
+        actor: 'api',
+        action: 'wordpress.connected',
+        entityType: 'wordpress_connection',
+        entityId: project.name,
+      })
+      steps.push({ name: 'connect', status: 'completed', summary: `Connected to ${url}` })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      steps.push({ name: 'connect', status: 'failed', error: msg })
+      return { projectName: project.name, steps }
+    }
+
+    // Step 2: Audit
+    let auditIssues: Array<{ slug: string; code: string }> = []
+    let auditPages: Array<{ slug: string; title: string }> = []
+    try {
+      const audit = await runAudit(connection)
+      const issueCount = audit.issues?.length ?? 0
+      const pageCount = audit.pages?.length ?? 0
+      auditIssues = audit.issues
+      auditPages = audit.pages
+
+      // Get proper permalink URLs from listPages (handles hierarchical slugs + custom permalinks)
+      const pageSummaries = await listPages(connection)
+      pageUrls = pageSummaries
+        .map((p) => p.link)
+        .filter((link): link is string => typeof link === 'string' && link.length > 0)
+
+      steps.push({ name: 'audit', status: 'completed', summary: `${pageCount} pages audited, ${issueCount} issues` })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      steps.push({ name: 'audit', status: 'failed', error: msg })
+      return { projectName: project.name, steps }
+    }
+
+    // Step 3: Set meta (bulk, for pages missing title/description)
+    // Build entries with the page title as a fallback value for missing SEO fields
+    try {
+      const metaEntries: Array<{ slug: string; title?: string; description?: string }> = []
+      for (const issue of auditIssues) {
+        if (issue.code === 'missing-meta-description' || issue.code === 'missing-seo-title') {
+          const existing = metaEntries.find((e) => e.slug === issue.slug)
+          const page = auditPages.find((p) => p.slug === issue.slug)
+          if (!existing) {
+            metaEntries.push({
+              slug: issue.slug,
+              title: issue.code === 'missing-seo-title' ? (page?.title ?? issue.slug) : undefined,
+              description: issue.code === 'missing-meta-description' ? (page?.title ?? issue.slug) : undefined,
+            })
+          } else {
+            if (issue.code === 'missing-seo-title' && !existing.title) {
+              existing.title = page?.title ?? issue.slug
+            }
+            if (issue.code === 'missing-meta-description' && !existing.description) {
+              existing.description = page?.title ?? issue.slug
+            }
+          }
+        }
+      }
+      if (metaEntries.length === 0) {
+        steps.push({ name: 'set-meta', status: 'skipped', summary: 'No pages with missing meta found' })
+      } else {
+        const result = await bulkSetSeoMeta(connection, metaEntries)
+        const applied = result.results.filter((r) => r.status === 'applied').length
+        const manual = result.results.filter((r) => r.status === 'manual').length
+        const skipped = result.results.filter((r) => r.status === 'skipped').length
+        steps.push({
+          name: 'set-meta',
+          status: 'completed',
+          summary: `${applied} applied, ${manual} manual-assist, ${skipped} skipped`,
+        })
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      steps.push({ name: 'set-meta', status: 'failed', error: msg })
+      return { projectName: project.name, steps }
+    }
+
+    // Step 4: Schema deploy (if profile provided and not skipped)
+    if (skipSchema || !profile) {
+      steps.push({
+        name: 'schema-deploy',
+        status: 'skipped',
+        summary: skipSchema ? 'Skipped via --skip-schema' : 'No --profile provided',
+      })
+    } else {
+      try {
+        if (!profile.business?.name || !profile.pages || Object.keys(profile.pages).length === 0) {
+          steps.push({ name: 'schema-deploy', status: 'skipped', summary: 'Profile missing business.name or pages' })
+        } else {
+          const result = await deploySchemaFromProfile(connection, profile)
+          const deployed = result.results.filter((r) => r.status === 'deployed').length
+          const stripped = result.results.filter((r) => r.status === 'stripped').length
+          const skipped = result.results.filter((r) => r.status === 'skipped').length
+          steps.push({
+            name: 'schema-deploy',
+            status: 'completed',
+            summary: `${deployed} deployed, ${stripped} stripped (manual-assist), ${skipped} skipped`,
+          })
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        steps.push({ name: 'schema-deploy', status: 'failed', error: msg })
+        return { projectName: project.name, steps }
+      }
+    }
+
+    // Step 5 & 6: Submit URLs to Google/Bing (via app.inject)
+    if (skipSubmit || pageUrls.length === 0) {
+      const reason = skipSubmit ? 'Skipped via --skip-submit' : 'No page URLs to submit'
+      steps.push({ name: 'google-submit', status: 'skipped', summary: reason })
+      steps.push({ name: 'bing-submit', status: 'skipped', summary: reason })
+    } else {
+      // Step 5: Google submit
+      try {
+        const authHeader = request.headers.authorization
+        const googleRes = await app.inject({
+          method: 'POST',
+          url: `${opts.routePrefix ?? '/api/v1'}/projects/${encodeURIComponent(project.name)}/google/indexing/request`,
+          payload: { urls: pageUrls },
+          headers: authHeader ? { authorization: authHeader } : {},
+        })
+        if (googleRes.statusCode === 200) {
+          const body = JSON.parse(googleRes.body)
+          const succeeded = body.results?.filter((r: { status: string }) => r.status === 'success').length ?? 0
+          steps.push({ name: 'google-submit', status: 'completed', summary: `${succeeded}/${pageUrls.length} URLs submitted` })
+        } else {
+          const body = JSON.parse(googleRes.body)
+          const msg = body.message || body.error || `HTTP ${googleRes.statusCode}`
+          // Treat "not configured" as skipped, not failed
+          if (googleRes.statusCode === 400 || googleRes.statusCode === 404) {
+            steps.push({ name: 'google-submit', status: 'skipped', summary: msg })
+          } else {
+            steps.push({ name: 'google-submit', status: 'failed', error: msg })
+          }
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        steps.push({ name: 'google-submit', status: 'skipped', summary: `Google not available: ${msg}` })
+      }
+
+      // Step 6: Bing submit
+      try {
+        const authHeader = request.headers.authorization
+        const bingRes = await app.inject({
+          method: 'POST',
+          url: `${opts.routePrefix ?? '/api/v1'}/projects/${encodeURIComponent(project.name)}/bing/request-indexing`,
+          payload: { urls: pageUrls },
+          headers: authHeader ? { authorization: authHeader } : {},
+        })
+        if (bingRes.statusCode === 200) {
+          const body = JSON.parse(bingRes.body)
+          const succeeded = body.results?.filter((r: { status: string }) => r.status === 'success').length ?? 0
+          steps.push({ name: 'bing-submit', status: 'completed', summary: `${succeeded}/${pageUrls.length} URLs submitted` })
+        } else {
+          const body = JSON.parse(bingRes.body)
+          const msg = body.message || body.error || `HTTP ${bingRes.statusCode}`
+          if (bingRes.statusCode === 400 || bingRes.statusCode === 404) {
+            steps.push({ name: 'bing-submit', status: 'skipped', summary: msg })
+          } else {
+            steps.push({ name: 'bing-submit', status: 'failed', error: msg })
+          }
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        steps.push({ name: 'bing-submit', status: 'skipped', summary: `Bing not available: ${msg}` })
+      }
+    }
+
+    writeAuditLog(app.db, {
+      projectId: project.id,
+      actor: 'api',
+      action: 'wordpress.onboarded',
+      entityType: 'wordpress_connection',
+      entityId: project.name,
+    })
+
+    return { projectName: project.name, steps }
+    }) // end withWordpressErrorHandling
   })
 }

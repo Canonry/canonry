@@ -201,6 +201,33 @@ canonry bing request-indexing <project> --all-unindexed  # submit all unindexed
 canonry bing performance <project>               # search performance data
 ```
 
+## WordPress Integration
+
+```bash
+canonry wordpress connect <project> --url <url> --user <user>   # connect (prompts for app password)
+canonry wordpress disconnect <project>                          # disconnect
+canonry wordpress status <project>                              # connection status
+canonry wordpress pages <project> [--live|--staging]            # list pages
+canonry wordpress page <project> <slug>                         # show page detail
+canonry wordpress create-page <project> --title <t> --slug <s> --content <c>  # create page
+canonry wordpress update-page <project> <slug> --content <c>   # update page
+canonry wordpress set-meta <project> <slug> --title <t>        # set SEO meta (single page)
+canonry wordpress set-meta <project> --from <file>              # bulk set SEO meta from JSON
+canonry wordpress schema <project> <slug>                       # read page JSON-LD
+canonry wordpress schema deploy <project> --profile <file>      # deploy schema from profile
+canonry wordpress schema status <project>                       # schema status per page
+canonry wordpress set-schema <project> <slug>                   # manual schema handoff
+canonry wordpress audit <project>                               # audit pages for SEO issues
+canonry wordpress diff <project> <slug>                         # compare live vs staging
+canonry wordpress staging status <project>                      # staging config status
+canonry wordpress staging push <project>                        # manual staging push handoff
+canonry wordpress llms-txt <project>                            # read /llms.txt
+canonry wordpress set-llms-txt <project>                        # manual llms.txt handoff
+canonry wordpress onboard <project> --url <url> --user <user>  # full onboarding workflow
+```
+
+**Onboard** runs: connect → audit → set-meta → schema deploy → Google submit → Bing submit. Use `--skip-schema` or `--skip-submit` to skip steps. `--profile <file>` provides business data and page-to-schema mapping for schema deployment.
+
 ## Google Analytics 4
 
 GA4 integration uses service account authentication (no OAuth). The service account must have Viewer access on the GA4 property.

@@ -1704,6 +1704,45 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'post',
+    path: '/api/v1/projects/{name}/wordpress/pages/meta/bulk',
+    summary: 'Bulk update SEO meta for multiple pages',
+    tags: ['wordpress'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['entries'],
+            properties: {
+              entries: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  required: ['slug'],
+                  properties: {
+                    slug: stringSchema,
+                    title: stringSchema,
+                    description: stringSchema,
+                    noindex: booleanSchema,
+                  },
+                },
+              },
+              env: { type: 'string', enum: ['live', 'staging'] },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Bulk SEO meta update results returned.' },
+      400: { description: 'Invalid entries or environment.' },
+      404: { description: 'Project or connection not found.' },
+    },
+  },
+  {
     method: 'get',
     path: '/api/v1/projects/{name}/wordpress/schema',
     summary: 'Read rendered JSON-LD schema for a page',
@@ -1742,6 +1781,48 @@ const routeCatalog: OpenApiOperation[] = [
       200: { description: 'Manual schema instructions returned.' },
       400: { description: 'Invalid schema request.' },
       404: { description: 'Project, connection, or page not found.' },
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/wordpress/schema/deploy',
+    summary: 'Deploy JSON-LD schema to WordPress pages',
+    tags: ['wordpress'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['profile'],
+            properties: {
+              profile: {
+                type: 'object',
+                description: 'Business profile and per-slug schema mapping',
+              },
+              env: { type: 'string', enum: ['live', 'staging'] },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Schema deployment results returned.' },
+      400: { description: 'Invalid profile or environment.' },
+      404: { description: 'Project or connection not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/wordpress/schema/status',
+    summary: 'Get JSON-LD schema status for all pages',
+    tags: ['wordpress'],
+    parameters: [nameParameter, wordpressEnvQueryParameter],
+    responses: {
+      200: { description: 'Schema status per page returned.' },
+      400: { description: 'Invalid environment.' },
+      404: { description: 'Project or connection not found.' },
     },
   },
   {
@@ -1829,6 +1910,39 @@ const routeCatalog: OpenApiOperation[] = [
       200: { description: 'Manual staging push instructions returned.' },
       400: { description: 'Missing staging configuration.' },
       404: { description: 'Project or connection not found.' },
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/wordpress/onboard',
+    summary: 'Full WordPress onboarding workflow',
+    tags: ['wordpress'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['url', 'username', 'appPassword'],
+            properties: {
+              url: stringSchema,
+              stagingUrl: stringSchema,
+              username: stringSchema,
+              appPassword: stringSchema,
+              defaultEnv: { type: 'string', enum: ['live', 'staging'] },
+              profile: objectSchema,
+              skipSchema: booleanSchema,
+              skipSubmit: booleanSchema,
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Onboarding result with step-by-step status.' },
+      400: { description: 'Invalid onboarding request.' },
+      404: { description: 'Project not found.' },
     },
   },
   // GA4 routes

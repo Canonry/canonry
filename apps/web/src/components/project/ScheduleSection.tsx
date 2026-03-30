@@ -252,7 +252,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
               {COMMON_TIMEZONES.map(tz => (
                 <option key={tz} value={tz}>{tz}</option>
               ))}
-              <option value="Other">Other (enter manually)\u2026</option>
+              <option value="Other">Other (enter manually){'\u2026'}</option>
             </select>
             {tzOther && (
               <input

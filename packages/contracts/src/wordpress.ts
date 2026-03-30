@@ -111,6 +111,65 @@ export const wordpressAuditPageDtoSchema = z.object({
 })
 export type WordpressAuditPageDto = z.infer<typeof wordpressAuditPageDtoSchema>
 
+export const wordpressBulkMetaEntryResultDtoSchema = z.object({
+  slug: z.string(),
+  status: z.enum(['applied', 'skipped', 'manual']),
+  error: z.string().optional(),
+  manualAssist: wordpressManualAssistDtoSchema.optional(),
+})
+export type WordpressBulkMetaEntryResultDto = z.infer<typeof wordpressBulkMetaEntryResultDtoSchema>
+
+export const wordpressBulkMetaResultDtoSchema = z.object({
+  env: wordpressEnvSchema,
+  strategy: z.enum(['plugin', 'manual']),
+  results: z.array(wordpressBulkMetaEntryResultDtoSchema),
+})
+export type WordpressBulkMetaResultDto = z.infer<typeof wordpressBulkMetaResultDtoSchema>
+
+export const wordpressSchemaDeployEntryResultDtoSchema = z.object({
+  slug: z.string(),
+  status: z.enum(['deployed', 'stripped', 'skipped', 'failed']),
+  schemasInjected: z.array(z.string()).optional(),
+  manualAssist: wordpressManualAssistDtoSchema.optional(),
+  error: z.string().optional(),
+})
+export type WordpressSchemaDeployEntryResultDto = z.infer<typeof wordpressSchemaDeployEntryResultDtoSchema>
+
+export const wordpressSchemaDeployResultDtoSchema = z.object({
+  env: wordpressEnvSchema,
+  results: z.array(wordpressSchemaDeployEntryResultDtoSchema),
+})
+export type WordpressSchemaDeployResultDto = z.infer<typeof wordpressSchemaDeployResultDtoSchema>
+
+export const wordpressSchemaStatusPageDtoSchema = z.object({
+  slug: z.string(),
+  title: z.string(),
+  canonrySchemas: z.array(z.string()),
+  thirdPartySchemas: z.array(z.string()),
+  hasCanonrySchema: z.boolean(),
+})
+export type WordpressSchemaStatusPageDto = z.infer<typeof wordpressSchemaStatusPageDtoSchema>
+
+export const wordpressSchemaStatusResultDtoSchema = z.object({
+  env: wordpressEnvSchema,
+  pages: z.array(wordpressSchemaStatusPageDtoSchema),
+})
+export type WordpressSchemaStatusResultDto = z.infer<typeof wordpressSchemaStatusResultDtoSchema>
+
+export const wordpressOnboardStepDtoSchema = z.object({
+  name: z.string(),
+  status: z.enum(['completed', 'skipped', 'failed']),
+  summary: z.string().optional(),
+  error: z.string().optional(),
+})
+export type WordpressOnboardStepDto = z.infer<typeof wordpressOnboardStepDtoSchema>
+
+export const wordpressOnboardResultDtoSchema = z.object({
+  projectName: z.string(),
+  steps: z.array(wordpressOnboardStepDtoSchema),
+})
+export type WordpressOnboardResultDto = z.infer<typeof wordpressOnboardResultDtoSchema>
+
 export const wordpressDiffDtoSchema = z.object({
   slug: z.string(),
   live: wordpressDiffPageDtoSchema,

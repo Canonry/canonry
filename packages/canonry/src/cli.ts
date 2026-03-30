@@ -95,8 +95,12 @@ Usage:
   canonry wordpress create-page <project>  Create a WordPress page (--title, --slug, --content/--content-file)
   canonry wordpress update-page <project> <slug>  Update a WordPress page (--content/--content-file)
   canonry wordpress set-meta <project> <slug>  Update REST-exposed SEO meta
+  canonry wordpress set-meta <project> --from <file>  Bulk update SEO meta from JSON file
   canonry wordpress schema <project> <slug>  Read rendered JSON-LD schema
+  canonry wordpress schema deploy <project> --profile <file>  Deploy JSON-LD schema to pages
+  canonry wordpress schema status <project>  Show schema status per page
   canonry wordpress set-schema <project> <slug>  Generate manual schema handoff
+  canonry wordpress onboard <project> --url <url> --user <user>  Full onboarding workflow
   canonry wordpress llms-txt <project>  Read /llms.txt
   canonry wordpress set-llms-txt <project>  Generate manual llms.txt handoff
   canonry wordpress audit <project>  Audit WordPress pages for SEO/content issues

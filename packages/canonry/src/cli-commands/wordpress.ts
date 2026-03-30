@@ -5,14 +5,18 @@ import { getBoolean, getString, requirePositional, requireProject, requireString
 import { usageError } from '../cli-error.js'
 import {
   wordpressAudit,
+  wordpressBulkSetMeta,
   wordpressConnect,
   wordpressCreatePage,
   wordpressDiff,
   wordpressDisconnect,
   wordpressLlmsTxt,
+  wordpressOnboard,
   wordpressPage,
   wordpressPages,
   wordpressSchema,
+  wordpressSchemaDeploy,
+  wordpressSchemaStatus,
   wordpressSetLlmsTxt,
   wordpressSetMeta,
   wordpressSetSchema,
@@ -244,15 +248,27 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['wordpress', 'set-meta'],
-    usage: 'canonry wordpress set-meta <project> <slug> [--title <title>] [--description <text>] [--noindex|--index] [--live|--staging] [--format json]',
+    usage: 'canonry wordpress set-meta <project> <slug> [--title <title>] [--description <text>] [--noindex|--index] [--from <file>] [--live|--staging] [--format json]',
     options: {
       title: stringOption(),
       description: stringOption(),
       noindex: { type: 'boolean', default: false },
       index: { type: 'boolean', default: false },
+      from: stringOption(),
       ...envOptions,
     },
     run: async (input) => {
+      const fromFile = getString(input.values, 'from')
+      if (fromFile) {
+        const usage = 'canonry wordpress set-meta <project> --from <file> [--live|--staging] [--format json]'
+        const project = requireProject(input, 'wordpress.set-meta', usage)
+        await wordpressBulkSetMeta(project, {
+          from: fromFile,
+          env: resolveEnv(input, 'wordpress.set-meta', usage),
+          format: input.format,
+        })
+        return
+      }
       const usage = 'canonry wordpress set-meta <project> <slug> [--title <title>] [--description <text>] [--noindex|--index] [--live|--staging] [--format json]'
       const project = requireProject(input, 'wordpress.set-meta', usage)
       const slug = requirePositional(input, 1, {
@@ -266,6 +282,41 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
         description: getString(input.values, 'description'),
         noindex: resolveNoindex(input, 'wordpress.set-meta', usage),
         env: resolveEnv(input, 'wordpress.set-meta', usage),
+        format: input.format,
+      })
+    },
+  },
+  {
+    path: ['wordpress', 'schema', 'deploy'],
+    usage: 'canonry wordpress schema deploy <project> --profile <file> [--live|--staging] [--format json]',
+    options: {
+      profile: stringOption(),
+      ...envOptions,
+    },
+    run: async (input) => {
+      const usage = 'canonry wordpress schema deploy <project> --profile <file> [--live|--staging] [--format json]'
+      const project = requireProject(input, 'wordpress.schema.deploy', usage)
+      const profile = requireStringOption(input, 'profile', {
+        message: '--profile is required',
+        command: 'wordpress.schema.deploy',
+        usage,
+      })
+      await wordpressSchemaDeploy(project, {
+        profile,
+        env: resolveEnv(input, 'wordpress.schema.deploy', usage),
+        format: input.format,
+      })
+    },
+  },
+  {
+    path: ['wordpress', 'schema', 'status'],
+    usage: 'canonry wordpress schema status <project> [--live|--staging] [--format json]',
+    options: envOptions,
+    run: async (input) => {
+      const usage = 'canonry wordpress schema status <project> [--live|--staging] [--format json]'
+      const project = requireProject(input, 'wordpress.schema.status', usage)
+      await wordpressSchemaStatus(project, {
+        env: resolveEnv(input, 'wordpress.schema.status', usage),
         format: input.format,
       })
     },
@@ -347,6 +398,45 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
           message: '--content is required',
         }),
         env: resolveEnv(input, 'wordpress.set-llms-txt', usage),
+        format: input.format,
+      })
+    },
+  },
+  {
+    path: ['wordpress', 'onboard'],
+    usage: 'canonry wordpress onboard <project> --url <url> --user <user> [--app-password <pw>] [--profile <file>] [--skip-schema] [--skip-submit] [--live|--staging] [--format json]',
+    options: {
+      url: stringOption(),
+      user: stringOption(),
+      'app-password': stringOption(),
+      'staging-url': stringOption(),
+      profile: stringOption(),
+      'skip-schema': { type: 'boolean', default: false },
+      'skip-submit': { type: 'boolean', default: false },
+      ...envOptions,
+    },
+    run: async (input) => {
+      const usage = 'canonry wordpress onboard <project> --url <url> --user <user> [--app-password <pw>] [--profile <file>] [--format json]'
+      const project = requireProject(input, 'wordpress.onboard', usage)
+      const url = requireStringOption(input, 'url', {
+        message: '--url is required',
+        command: 'wordpress.onboard',
+        usage,
+      })
+      const user = requireStringOption(input, 'user', {
+        message: '--user is required',
+        command: 'wordpress.onboard',
+        usage,
+      })
+      await wordpressOnboard(project, {
+        url,
+        user,
+        appPassword: getString(input.values, 'app-password'),
+        stagingUrl: getString(input.values, 'staging-url'),
+        defaultEnv: resolveEnv(input, 'wordpress.onboard', usage),
+        profile: getString(input.values, 'profile'),
+        skipSchema: getBoolean(input.values, 'skip-schema'),
+        skipSubmit: getBoolean(input.values, 'skip-submit'),
         format: input.format,
       })
     },

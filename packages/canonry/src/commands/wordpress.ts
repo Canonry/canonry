@@ -304,6 +304,100 @@ export async function wordpressSetMeta(
   printPageDetail(result)
 }
 
+export async function wordpressBulkSetMeta(
+  project: string,
+  opts: { from: string; env?: WordpressEnv; format?: string },
+): Promise<void> {
+  const fs = await import('node:fs/promises')
+  const path = await import('node:path')
+
+  const filePath = path.resolve(opts.from)
+  let raw: string
+  try {
+    raw = await fs.readFile(filePath, 'utf8')
+  } catch {
+    throw new CliError({
+      code: 'FILE_READ_ERROR',
+      message: `Cannot read file: ${filePath}`,
+      displayMessage: `Error: cannot read file "${opts.from}". Check the path and permissions.`,
+      details: { path: filePath },
+    })
+  }
+
+  let parsed: Record<string, { title?: string; description?: string; noindex?: boolean }>
+  try {
+    parsed = JSON.parse(raw) as typeof parsed
+  } catch {
+    throw new CliError({
+      code: 'INVALID_JSON',
+      message: `File is not valid JSON: ${filePath}`,
+      displayMessage: `Error: "${opts.from}" is not valid JSON.`,
+      details: { path: filePath },
+    })
+  }
+
+  const entries = Object.entries(parsed).map(([slug, meta]) => ({
+    slug,
+    title: meta.title,
+    description: meta.description,
+    noindex: meta.noindex,
+  }))
+
+  if (entries.length === 0) {
+    throw new CliError({
+      code: 'EMPTY_META_FILE',
+      message: 'Meta file contains no entries',
+      displayMessage: `Error: "${opts.from}" contains no entries. Expected JSON object keyed by slug.`,
+      details: { path: filePath },
+    })
+  }
+
+  const client = getClient()
+  const result = await client.wordpressBulkSetMeta(project, { entries, env: opts.env })
+
+  if (opts.format === 'json') {
+    printJson(result)
+    return
+  }
+
+  const applied = result.results.filter((r) => r.status === 'applied')
+  const skipped = result.results.filter((r) => r.status === 'skipped')
+  const manual = result.results.filter((r) => r.status === 'manual')
+
+  console.log(`Bulk SEO meta update (${result.env}, strategy: ${result.strategy}):\n`)
+
+  if (applied.length > 0) {
+    console.log(`  Applied (${applied.length}):`)
+    for (const r of applied) {
+      console.log(`    ${r.slug}`)
+    }
+  }
+
+  if (skipped.length > 0) {
+    console.log(`\n  Skipped (${skipped.length}):`)
+    for (const r of skipped) {
+      console.log(`    ${r.slug}: ${r.error ?? 'unknown reason'}`)
+    }
+  }
+
+  if (manual.length > 0) {
+    console.log(`\n  Manual action required (${manual.length}):`)
+    console.log('  No SEO plugin with REST-writable meta fields was detected.')
+    console.log('  Install Yoast SEO, Rank Math, or AIOSEO, or update these pages manually:\n')
+    for (const r of manual) {
+      if (r.manualAssist) {
+        console.log(`    ${r.slug}:`)
+        console.log(`      Admin: ${r.manualAssist.adminUrl ?? '-'}`)
+        console.log(`      Values: ${r.manualAssist.content}`)
+      } else {
+        console.log(`    ${r.slug}`)
+      }
+    }
+  }
+
+  console.log(`\nTotal: ${applied.length} applied, ${skipped.length} skipped, ${manual.length} manual`)
+}
+
 export async function wordpressSchema(project: string, slug: string, opts: { env?: WordpressEnv; format?: string }): Promise<void> {
   const client = getClient()
   const result = await client.wordpressSchema(project, slug, opts.env)
@@ -330,6 +424,201 @@ export async function wordpressSetSchema(
   }
 
   printManualAssist(`Schema update for "${body.slug}"`, result)
+}
+
+export async function wordpressSchemaDeploy(
+  project: string,
+  opts: { profile: string; env?: WordpressEnv; format?: string },
+): Promise<void> {
+  const fs = await import('node:fs/promises')
+  const path = await import('node:path')
+  const yaml = await import('yaml' as string).catch(() => null)
+
+  const filePath = path.resolve(opts.profile)
+  let raw: string
+  try {
+    raw = await fs.readFile(filePath, 'utf8')
+  } catch {
+    throw new CliError({
+      code: 'FILE_READ_ERROR',
+      message: `Cannot read file: ${filePath}`,
+      displayMessage: `Error: cannot read file "${opts.profile}". Check the path and permissions.`,
+      details: { path: filePath },
+    })
+  }
+
+  let parsed: unknown
+  try {
+    if (yaml?.parse) {
+      parsed = yaml.parse(raw)
+    } else {
+      parsed = JSON.parse(raw)
+    }
+  } catch {
+    throw new CliError({
+      code: 'INVALID_PROFILE',
+      message: `File is not valid YAML or JSON: ${filePath}`,
+      displayMessage: `Error: "${opts.profile}" is not valid YAML or JSON.`,
+      details: { path: filePath },
+    })
+  }
+
+  const profile = parsed as { business?: { name?: string }; pages?: Record<string, unknown> }
+  if (!profile?.business?.name || !profile?.pages || Object.keys(profile.pages).length === 0) {
+    throw new CliError({
+      code: 'INVALID_PROFILE',
+      message: 'Profile must have business.name and non-empty pages',
+      displayMessage: 'Error: profile file must contain business.name and at least one page entry.',
+      details: { path: filePath },
+    })
+  }
+
+  const client = getClient()
+  const result = await client.wordpressSchemaDeploy(project, { profile: parsed, env: opts.env })
+
+  if (opts.format === 'json') {
+    printJson(result)
+    return
+  }
+
+  console.log(`Schema deploy (${result.env}):\n`)
+  for (const r of result.results) {
+    const types = r.schemasInjected?.join(', ') ?? ''
+    switch (r.status) {
+      case 'deployed':
+        console.log(`  ${r.slug}: deployed (${types})`)
+        break
+      case 'stripped':
+        console.log(`  ${r.slug}: STRIPPED — WordPress removed <script> tags. Manual action required.`)
+        if (r.manualAssist) {
+          console.log(`    Admin: ${r.manualAssist.adminUrl ?? '-'}`)
+          for (const step of r.manualAssist.nextSteps) {
+            console.log(`    - ${step}`)
+          }
+        }
+        break
+      case 'skipped':
+        console.log(`  ${r.slug}: skipped — ${r.error ?? 'unknown'}`)
+        break
+      case 'failed':
+        console.log(`  ${r.slug}: FAILED — ${r.error ?? 'unknown'}`)
+        break
+    }
+  }
+
+  const deployed = result.results.filter((r) => r.status === 'deployed').length
+  const stripped = result.results.filter((r) => r.status === 'stripped').length
+  const skipped = result.results.filter((r) => r.status === 'skipped').length
+  const failed = result.results.filter((r) => r.status === 'failed').length
+  console.log(`\nTotal: ${deployed} deployed, ${stripped} stripped, ${skipped} skipped, ${failed} failed`)
+}
+
+export async function wordpressSchemaStatus(
+  project: string,
+  opts: { env?: WordpressEnv; format?: string },
+): Promise<void> {
+  const client = getClient()
+  const result = await client.wordpressSchemaStatus(project, opts.env)
+
+  if (opts.format === 'json') {
+    printJson(result)
+    return
+  }
+
+  console.log(`Schema status (${result.env}):\n`)
+  if (result.pages.length === 0) {
+    console.log('  No pages found.')
+    return
+  }
+
+  const slugWidth = Math.max(4, ...result.pages.map((p) => p.slug.length))
+  console.log(`  ${'SLUG'.padEnd(slugWidth)}  CANONRY           THIRD-PARTY`)
+  console.log(`  ${'─'.repeat(slugWidth)}  ${'─'.repeat(17)}  ${'─'.repeat(20)}`)
+  for (const page of result.pages) {
+    const canonry = page.canonrySchemas.length > 0 ? page.canonrySchemas.join(', ') : '-'
+    const thirdParty = page.thirdPartySchemas.length > 0 ? page.thirdPartySchemas.join(', ') : '-'
+    console.log(`  ${page.slug.padEnd(slugWidth)}  ${canonry.padEnd(17)}  ${thirdParty}`)
+  }
+}
+
+export async function wordpressOnboard(
+  project: string,
+  opts: {
+    url: string
+    user: string
+    appPassword?: string
+    stagingUrl?: string
+    defaultEnv?: WordpressEnv
+    profile?: string
+    skipSchema?: boolean
+    skipSubmit?: boolean
+    format?: string
+  },
+): Promise<void> {
+  const appPassword = opts.appPassword ?? await promptForAppPassword()
+  if (!appPassword) {
+    throw new CliError({
+      code: 'WORDPRESS_APP_PASSWORD_REQUIRED',
+      message: 'WordPress Application Password is required',
+      displayMessage: 'Error: WordPress Application Password is required (pass --app-password or enter interactively).',
+      details: { project },
+    })
+  }
+
+  let profileData: unknown | undefined
+  if (opts.profile) {
+    const fs = await import('node:fs/promises')
+    const path = await import('node:path')
+    const yaml = await import('yaml' as string).catch(() => null)
+
+    const filePath = path.resolve(opts.profile)
+    let raw: string
+    try {
+      raw = await fs.readFile(filePath, 'utf8')
+    } catch {
+      throw new CliError({
+        code: 'FILE_READ_ERROR',
+        message: `Cannot read file: ${filePath}`,
+        displayMessage: `Error: cannot read file "${opts.profile}".`,
+        details: { path: filePath },
+      })
+    }
+    try {
+      profileData = yaml?.parse ? yaml.parse(raw) : JSON.parse(raw)
+    } catch {
+      throw new CliError({
+        code: 'INVALID_PROFILE',
+        message: `File is not valid YAML or JSON: ${filePath}`,
+        displayMessage: `Error: "${opts.profile}" is not valid YAML or JSON.`,
+        details: { path: filePath },
+      })
+    }
+  }
+
+  const client = getClient()
+  const result = await client.wordpressOnboard(project, {
+    url: opts.url,
+    username: opts.user,
+    appPassword,
+    stagingUrl: opts.stagingUrl,
+    defaultEnv: opts.defaultEnv,
+    profile: profileData,
+    skipSchema: opts.skipSchema,
+    skipSubmit: opts.skipSubmit,
+  })
+
+  if (opts.format === 'json') {
+    printJson(result)
+    return
+  }
+
+  console.log(`WordPress onboarding for "${project}":\n`)
+  for (const step of result.steps) {
+    const icon = step.status === 'completed' ? '+' : step.status === 'skipped' ? '-' : 'x'
+    console.log(`  [${icon}] ${step.name}: ${step.status}`)
+    if (step.summary) console.log(`      ${step.summary}`)
+    if (step.error) console.log(`      Error: ${step.error}`)
+  }
 }
 
 export async function wordpressLlmsTxt(project: string, opts: { env?: WordpressEnv; format?: string }): Promise<void> {

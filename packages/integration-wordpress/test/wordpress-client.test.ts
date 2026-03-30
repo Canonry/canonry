@@ -6,8 +6,15 @@ import {
   getPageDetail,
   runAudit,
   setSeoMeta,
+  stripCanonrySchema,
+  injectCanonrySchema,
   verifyWordpressConnection,
 } from '../src/index.js'
+import {
+  generateSchema,
+  isSupportedSchemaType,
+  supportedSchemaTypes,
+} from '../src/schema-templates.js'
 
 function createConnection(overrides: Partial<WordpressConnectionRecord> = {}): WordpressConnectionRecord {
   return {
@@ -284,6 +291,159 @@ describe('wordpress client', () => {
     expect(pageSummaryRequest).toBeTruthy()
     expect(pageSummaryRequest).toContain('context=view')
     expect(pageSummaryRequest).not.toContain('context=edit')
+  })
+
+  describe('stripCanonrySchema', () => {
+    it('removes only canonry-marked schema blocks', () => {
+      const content = [
+        '<p>Hello</p>',
+        '<!-- canonry:schema:start -->',
+        '<script type="application/ld+json">{"@type":"Organization"}</script>',
+        '<!-- canonry:schema:end -->',
+        '<script type="application/ld+json">{"@type":"WebSite"}</script>',
+      ].join('\n')
+
+      const result = stripCanonrySchema(content)
+      expect(result).not.toContain('canonry:schema:start')
+      expect(result).not.toContain('Organization')
+      expect(result).toContain('WebSite')
+      expect(result).toContain('<p>Hello</p>')
+    })
+
+    it('returns content unchanged when no canonry markers present', () => {
+      const content = '<p>Hello</p>\n<script type="application/ld+json">{"@type":"WebSite"}</script>'
+      expect(stripCanonrySchema(content)).toBe(content)
+    })
+
+    it('handles multiple canonry blocks', () => {
+      const content = [
+        '<!-- canonry:schema:start -->',
+        '<script type="application/ld+json">{"@type":"A"}</script>',
+        '<!-- canonry:schema:end -->',
+        '<p>Middle</p>',
+        '<!-- canonry:schema:start -->',
+        '<script type="application/ld+json">{"@type":"B"}</script>',
+        '<!-- canonry:schema:end -->',
+      ].join('\n')
+
+      const result = stripCanonrySchema(content)
+      expect(result).not.toContain('@type')
+      expect(result).toContain('<p>Middle</p>')
+    })
+  })
+
+  describe('injectCanonrySchema', () => {
+    it('appends marked schema blocks to content', () => {
+      const content = '<p>Hello</p>'
+      const schemas = [{ '@context': 'https://schema.org', '@type': 'Organization', name: 'Test' }]
+      const result = injectCanonrySchema(content, schemas)
+
+      expect(result).toContain('<!-- canonry:schema:start -->')
+      expect(result).toContain('<!-- canonry:schema:end -->')
+      expect(result).toContain('"@type":"Organization"')
+      expect(result).toContain('<p>Hello</p>')
+    })
+
+    it('escapes </script> sequences in schema values to prevent XSS', () => {
+      const schemas = [{ name: 'evil</script><script>alert(1)</script>' }]
+      const result = injectCanonrySchema('<p>Hello</p>', schemas)
+      expect(result).not.toContain('</script><script>')
+      expect(result).toContain('<\\/script>')
+    })
+
+    it('replaces existing canonry blocks before injecting', () => {
+      const content = [
+        '<p>Hello</p>',
+        '<!-- canonry:schema:start -->',
+        '<script type="application/ld+json">{"@type":"OldSchema"}</script>',
+        '<!-- canonry:schema:end -->',
+      ].join('\n')
+      const schemas = [{ '@type': 'NewSchema' }]
+      const result = injectCanonrySchema(content, schemas)
+
+      expect(result).not.toContain('OldSchema')
+      expect(result).toContain('NewSchema')
+      // Only one set of markers
+      expect(result.match(/canonry:schema:start/g)?.length).toBe(1)
+    })
+  })
+
+  describe('schema templates', () => {
+    const profile = {
+      name: 'Test Co',
+      url: 'https://example.com',
+      phone: '+1-555-0100',
+      address: {
+        street: '123 Main St',
+        city: 'New York',
+        state: 'NY',
+        zip: '10001',
+      },
+    }
+
+    it('generates LocalBusiness schema', () => {
+      const schema = generateSchema('LocalBusiness', profile)
+      expect(schema['@context']).toBe('https://schema.org')
+      expect(schema['@type']).toBe('LocalBusiness')
+      expect(schema['name']).toBe('Test Co')
+      expect(schema['telephone']).toBe('+1-555-0100')
+      expect(schema['address']).toBeDefined()
+    })
+
+    it('generates Organization schema', () => {
+      const schema = generateSchema('Organization', profile)
+      expect(schema['@type']).toBe('Organization')
+      expect(schema['name']).toBe('Test Co')
+      expect(schema['url']).toBe('https://example.com')
+    })
+
+    it('generates FAQPage schema with faqs', () => {
+      const schema = generateSchema('FAQPage', profile, {
+        faqs: [{ q: 'What?', a: 'This.' }],
+      })
+      expect(schema['@type']).toBe('FAQPage')
+      expect(schema['mainEntity']).toHaveLength(1)
+      const faq = (schema['mainEntity'] as Array<Record<string, unknown>>)[0]
+      expect(faq['@type']).toBe('Question')
+      expect(faq['name']).toBe('What?')
+    })
+
+    it('generates Service schema', () => {
+      const schema = generateSchema('Service', profile)
+      expect(schema['@type']).toBe('Service')
+    })
+
+    it('generates WebPage schema', () => {
+      const schema = generateSchema('WebPage', profile)
+      expect(schema['@type']).toBe('WebPage')
+    })
+
+    it('throws for unsupported schema types', () => {
+      expect(() => generateSchema('UnsupportedType', profile)).toThrow('Unsupported schema type')
+    })
+
+    it('isSupportedSchemaType returns true for valid types', () => {
+      expect(isSupportedSchemaType('LocalBusiness')).toBe(true)
+      expect(isSupportedSchemaType('Organization')).toBe(true)
+      expect(isSupportedSchemaType('Invalid')).toBe(false)
+    })
+
+    it('supportedSchemaTypes returns all types', () => {
+      const types = supportedSchemaTypes()
+      expect(types).toContain('LocalBusiness')
+      expect(types).toContain('Organization')
+      expect(types).toContain('FAQPage')
+      expect(types).toContain('Service')
+      expect(types).toContain('WebPage')
+    })
+
+    it('omits optional fields when not provided', () => {
+      const minimal = { name: 'Minimal Co' }
+      const schema = generateSchema('Organization', minimal)
+      expect(schema['name']).toBe('Minimal Co')
+      expect(schema['telephone']).toBeUndefined()
+      expect(schema['address']).toBeUndefined()
+    })
   })
 
   it('returns an actionable error message when auth fails on connect', async () => {

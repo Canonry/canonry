@@ -2,6 +2,8 @@ import crypto from 'node:crypto'
 import type {
   WordpressAuditIssueDto,
   WordpressAuditPageDto,
+  WordpressBulkMetaEntryResultDto,
+  WordpressBulkMetaResultDto,
   WordpressDiffDto,
   WordpressDiffPageDto,
   WordpressEnv,
@@ -9,12 +11,18 @@ import type {
   WordpressPageDetailDto,
   WordpressPageSummaryDto,
   WordpressSchemaBlockDto,
+  WordpressSchemaDeployEntryResultDto,
+  WordpressSchemaDeployResultDto,
+  WordpressSchemaStatusPageDto,
+  WordpressSchemaStatusResultDto,
   WordpressSeoStateDto,
   WordpressSiteStatusDto,
 } from '@ainyc/canonry-contracts'
 import { wordpressEnvSchema } from '@ainyc/canonry-contracts'
 import type { WordpressConnectionRecord, WordpressRestPage, WordpressSiteContext } from './types.js'
 import { WordpressApiError } from './types.js'
+import type { BusinessProfile, SchemaPageEntry, SchemaProfileFile } from './schema-templates.js'
+import { generateSchema, isSupportedSchemaType, parseSchemaPageEntry } from './schema-templates.js'
 
 const PAGE_FIELDS = 'id,slug,status,link,modified,modified_gmt,title,content,meta'
 const PAGE_LIST_FIELDS = 'id,slug,status,link,modified,modified_gmt,title'
@@ -592,6 +600,344 @@ export async function setSeoMeta(
   )
 
   return getPageDetail(connection, slug, site.env, plugins)
+}
+
+export type SeoWriteStrategy = { strategy: 'plugin' | 'manual'; plugins: string[] | null }
+
+export async function detectSeoWriteStrategy(
+  connection: WordpressConnectionRecord,
+  env?: WordpressEnv,
+): Promise<SeoWriteStrategy> {
+  const site = resolveEnvironment(connection, env)
+  const plugins = await listActivePlugins(connection, site.env)
+  const pages = await listPages(connection, site.env)
+  if (pages.length === 0) {
+    return { strategy: 'manual', plugins }
+  }
+
+  const samplePage = await getPageBySlug(connection, pages[0]!.slug, site.env)
+  const writeTargets = resolveSeoWriteTargets(samplePage.meta, plugins)
+  return {
+    strategy: writeTargets.length > 0 ? 'plugin' : 'manual',
+    plugins,
+  }
+}
+
+function buildManualMetaAssist(
+  siteUrl: string,
+  slug: string,
+  link: string | null | undefined,
+  meta: { title?: string; description?: string; noindex?: boolean },
+): WordpressManualAssistDto {
+  const fields: string[] = []
+  if (meta.title != null) fields.push(`Title: ${meta.title}`)
+  if (meta.description != null) fields.push(`Description: ${meta.description}`)
+  if (meta.noindex != null) fields.push(`Noindex: ${meta.noindex}`)
+  return {
+    manualRequired: true,
+    targetUrl: link ?? `${siteUrl}/${slug}`,
+    adminUrl: `${siteUrl}/wp-admin/`,
+    content: fields.join('\n'),
+    nextSteps: [
+      `Open the WordPress editor for page "${slug}".`,
+      'Install an SEO plugin (Yoast SEO, Rank Math, or AIOSEO) to manage meta fields via REST, or set the values manually in the page editor.',
+      'Apply the meta values listed above.',
+      'Publish/update the page.',
+    ],
+  }
+}
+
+export interface BulkMetaEntry {
+  slug: string
+  title?: string
+  description?: string
+  noindex?: boolean
+}
+
+export async function bulkSetSeoMeta(
+  connection: WordpressConnectionRecord,
+  entries: BulkMetaEntry[],
+  env?: WordpressEnv,
+): Promise<WordpressBulkMetaResultDto> {
+  const site = resolveEnvironment(connection, env)
+  const { strategy, plugins } = await detectSeoWriteStrategy(connection, site.env)
+
+  const results = await mapWithConcurrency<BulkMetaEntry, WordpressBulkMetaEntryResultDto>(
+    entries,
+    3,
+    async (entry) => {
+      try {
+        const page = await getPageBySlug(connection, entry.slug, site.env)
+
+        if (strategy === 'manual') {
+          return {
+            slug: entry.slug,
+            status: 'manual',
+            manualAssist: buildManualMetaAssist(
+              site.siteUrl,
+              entry.slug,
+              page.link,
+              entry,
+            ),
+          }
+        }
+
+        const writeTargets = resolveSeoWriteTargets(page.meta, plugins)
+        if (writeTargets.length === 0 || !page.meta) {
+          return {
+            slug: entry.slug,
+            status: 'manual',
+            manualAssist: buildManualMetaAssist(
+              site.siteUrl,
+              entry.slug,
+              page.link,
+              entry,
+            ),
+          }
+        }
+
+        const patch: Record<string, unknown> = {}
+        for (const target of SEO_TARGETS) {
+          if (entry.title != null && writeTargets.includes(target.titleKey)) patch[target.titleKey] = entry.title
+          if (entry.description != null && writeTargets.includes(target.descriptionKey)) patch[target.descriptionKey] = entry.description
+          if (entry.noindex != null && writeTargets.includes(target.noindexKey)) {
+            patch[target.noindexKey] = encodeNoindexValue(target.noindexKey, entry.noindex)
+          }
+        }
+
+        if (Object.keys(patch).length === 0) {
+          return {
+            slug: entry.slug,
+            status: 'manual',
+            manualAssist: buildManualMetaAssist(
+              site.siteUrl,
+              entry.slug,
+              page.link,
+              entry,
+            ),
+          }
+        }
+
+        await fetchJson<WordpressRestPage>(
+          connection,
+          site.siteUrl,
+          `/wp-json/wp/v2/pages/${page.id}`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              meta: { ...(page.meta ?? {}), ...patch },
+            }),
+          },
+        )
+
+        return { slug: entry.slug, status: 'applied' }
+      } catch (error) {
+        if (error instanceof WordpressApiError && error.code === 'NOT_FOUND') {
+          return { slug: entry.slug, status: 'skipped', error: `Page "${entry.slug}" not found` }
+        }
+        return {
+          slug: entry.slug,
+          status: 'skipped',
+          error: error instanceof Error ? error.message : String(error),
+        }
+      }
+    },
+  )
+
+  return { env: site.env, strategy, results }
+}
+
+const CANONRY_SCHEMA_START = '<!-- canonry:schema:start -->'
+const CANONRY_SCHEMA_END = '<!-- canonry:schema:end -->'
+
+export function stripCanonrySchema(content: string): string {
+  const regex = new RegExp(
+    `${escapeRegExp(CANONRY_SCHEMA_START)}[\\s\\S]*?${escapeRegExp(CANONRY_SCHEMA_END)}`,
+    'g',
+  )
+  return content.replace(regex, '').replace(/\n{3,}/g, '\n\n').trim()
+}
+
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+export function injectCanonrySchema(content: string, schemas: Record<string, unknown>[]): string {
+  if (schemas.length === 0) return content
+  const blocks = schemas
+    .map((schema) => `<script type="application/ld+json">${JSON.stringify(schema).replace(/<\//g, '<\\/')}</script>`)
+    .join('\n')
+  const injection = `\n\n${CANONRY_SCHEMA_START}\n${blocks}\n${CANONRY_SCHEMA_END}`
+  const stripped = stripCanonrySchema(content)
+  return stripped + injection
+}
+
+async function verifySchemaInjection(
+  connection: WordpressConnectionRecord,
+  slug: string,
+  env: WordpressEnv,
+): Promise<boolean> {
+  const page = await getPageBySlug(connection, slug, env)
+  const raw = page.content?.raw ?? page.content?.rendered ?? ''
+  return raw.includes(CANONRY_SCHEMA_START)
+}
+
+export async function deploySchema(
+  connection: WordpressConnectionRecord,
+  slug: string,
+  schemas: Record<string, unknown>[],
+  env?: WordpressEnv,
+): Promise<WordpressSchemaDeployEntryResultDto> {
+  const site = resolveEnvironment(connection, env)
+  try {
+    const page = await getPageBySlug(connection, slug, site.env)
+    const currentContent = page.content?.raw ?? page.content?.rendered ?? ''
+    const updatedContent = injectCanonrySchema(currentContent, schemas)
+
+    await fetchJson<WordpressRestPage>(
+      connection,
+      site.siteUrl,
+      `/wp-json/wp/v2/pages/${page.id}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ content: updatedContent }),
+      },
+    )
+
+    const persisted = await verifySchemaInjection(connection, slug, site.env)
+    if (!persisted) {
+      return {
+        slug,
+        status: 'stripped',
+        schemasInjected: schemas.map((s) => String(s['@type'] ?? 'Unknown')),
+        manualAssist: {
+          manualRequired: true,
+          targetUrl: page.link ?? `${site.siteUrl}/${slug}`,
+          adminUrl: `${site.siteUrl}/wp-admin/`,
+          content: schemas.map((s) => JSON.stringify(s, null, 2)).join('\n\n'),
+          nextSteps: [
+            `WordPress stripped the schema <script> tags for page "${slug}". The connected user likely lacks the unfiltered_html capability.`,
+            'Grant the user Administrator or Super Admin role, or add the schema manually in the page editor or via a schema plugin.',
+            'Paste the JSON-LD blocks provided above.',
+          ],
+        },
+      }
+    }
+
+    return {
+      slug,
+      status: 'deployed',
+      schemasInjected: schemas.map((s) => String(s['@type'] ?? 'Unknown')),
+    }
+  } catch (error) {
+    if (error instanceof WordpressApiError && error.code === 'NOT_FOUND') {
+      return { slug, status: 'skipped', error: `Page "${slug}" not found` }
+    }
+    return {
+      slug,
+      status: 'failed',
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+export async function deploySchemaFromProfile(
+  connection: WordpressConnectionRecord,
+  profile: SchemaProfileFile,
+  env?: WordpressEnv,
+): Promise<WordpressSchemaDeployResultDto> {
+  const site = resolveEnvironment(connection, env)
+
+  const slugEntries = Object.entries(profile.pages)
+  const results = await mapWithConcurrency<
+    [string, SchemaPageEntry[]],
+    WordpressSchemaDeployEntryResultDto
+  >(
+    slugEntries,
+    3,
+    async ([slug, entries]) => {
+      const parsed = entries.map(parseSchemaPageEntry)
+      const unsupported = parsed.filter((p) => !isSupportedSchemaType(p.type))
+      if (unsupported.length > 0) {
+        return {
+          slug,
+          status: 'failed',
+          error: `Unsupported schema type(s): ${unsupported.map((u) => u.type).join(', ')}`,
+        }
+      }
+
+      const schemas = parsed.map((p) => generateSchema(p.type, profile.business, { faqs: p.faqs }))
+      return deploySchema(connection, slug, schemas, site.env)
+    },
+  )
+
+  return { env: site.env, results }
+}
+
+export async function getSchemaStatus(
+  connection: WordpressConnectionRecord,
+  env?: WordpressEnv,
+): Promise<WordpressSchemaStatusResultDto> {
+  const site = resolveEnvironment(connection, env)
+  const pages = await listPages(connection, site.env)
+  const details = await mapWithConcurrency(
+    pages,
+    5,
+    async (page) => getPageDetail(connection, page.slug, site.env),
+  )
+
+  const statusPages: WordpressSchemaStatusPageDto[] = details.map((page) => {
+    const rawContent = page.content
+    const hasCanonryMarker = rawContent.includes(CANONRY_SCHEMA_START)
+
+    const allSchemaTypes = page.schemaBlocks.map((b) => b.type)
+    const canonrySchemas: string[] = []
+    const thirdPartySchemas: string[] = []
+
+    if (hasCanonryMarker) {
+      const markerRegex = new RegExp(
+        `${escapeRegExp(CANONRY_SCHEMA_START)}([\\s\\S]*?)${escapeRegExp(CANONRY_SCHEMA_END)}`,
+      )
+      const match = markerRegex.exec(rawContent)
+      if (match?.[1]) {
+        const jsonLdRegex = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
+        let jsonMatch: RegExpExecArray | null
+        while ((jsonMatch = jsonLdRegex.exec(match[1])) !== null) {
+          try {
+            const parsed = JSON.parse(jsonMatch[1]!.trim()) as Record<string, unknown>
+            canonrySchemas.push(String(parsed['@type'] ?? 'Unknown'))
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }
+
+    // Count-based subtraction: each canonry schema type accounts for one
+    // occurrence in allSchemaTypes; remaining occurrences are third-party
+    const canonryCounts = new Map<string, number>()
+    for (const t of canonrySchemas) {
+      canonryCounts.set(t, (canonryCounts.get(t) ?? 0) + 1)
+    }
+    for (const schemaType of allSchemaTypes) {
+      const remaining = canonryCounts.get(schemaType) ?? 0
+      if (remaining > 0) {
+        canonryCounts.set(schemaType, remaining - 1)
+      } else {
+        thirdPartySchemas.push(schemaType)
+      }
+    }
+
+    return {
+      slug: page.slug,
+      title: page.title,
+      canonrySchemas,
+      thirdPartySchemas,
+      hasCanonrySchema: hasCanonryMarker,
+    }
+  })
+
+  return { env: site.env, pages: statusPages }
 }
 
 export async function getLlmsTxt(
