@@ -17,6 +17,7 @@ export interface EvidenceDisplayData {
   answerSnippet: string
   citedDomains: string[]
   competitorDomains: string[]
+  recommendedCompetitors: string[]
   groundingSources: GroundingSource[]
   evidenceUrls: string[]
   changeLabel: string
@@ -33,6 +34,7 @@ export function EvidenceDetailModal({
   onClose: () => void
 }) {
   const [showFullAnswer, setShowFullAnswer] = useState(false)
+  const [sidebarTab, setSidebarTab] = useState<'competitors' | 'sources'>('competitors')
   const [selectedRunIdx, setSelectedRunIdx] = useState(-1) // -1 = latest (current)
   const [historicalSnapshot, setHistoricalSnapshot] = useState<EvidenceDisplayData | null>(null)
   const [loadingHistory, setLoadingHistory] = useState(false)
@@ -67,6 +69,7 @@ export function EvidenceDetailModal({
           answerSnippet: snap.answerText,
           citedDomains: snap.citedDomains ?? evidence.citedDomains,
           competitorDomains: snap.competitorOverlap ?? evidence.competitorDomains,
+          recommendedCompetitors: snap.recommendedCompetitors ?? evidence.recommendedCompetitors ?? [],
           groundingSources: snap.groundingSources ?? evidence.groundingSources,
           evidenceUrls: [],
           changeLabel: evidence.changeLabel,
@@ -87,6 +90,7 @@ export function EvidenceDetailModal({
       answerSnippet: evidence.answerSnippet,
       citedDomains: evidence.citedDomains,
       competitorDomains: evidence.competitorDomains,
+      recommendedCompetitors: evidence.recommendedCompetitors ?? [],
       groundingSources: evidence.groundingSources,
       evidenceUrls: evidence.evidenceUrls,
       changeLabel: evidence.changeLabel,
@@ -158,6 +162,7 @@ export function EvidenceDetailModal({
         answerSnippet: snap.answerText ?? '',
         citedDomains: snap.citedDomains,
         competitorDomains: snap.competitorOverlap,
+        recommendedCompetitors: snap.recommendedCompetitors ?? [],
         groundingSources: snap.groundingSources,
         evidenceUrls: [],
         changeLabel: run.citationState,
@@ -169,6 +174,7 @@ export function EvidenceDetailModal({
         answerSnippet: '',
         citedDomains: [],
         competitorDomains: [],
+        recommendedCompetitors: [],
         groundingSources: [],
         evidenceUrls: [],
         changeLabel: run.citationState,
@@ -186,6 +192,7 @@ export function EvidenceDetailModal({
         answerSnippet: '',
         citedDomains: [],
         competitorDomains: [],
+        recommendedCompetitors: [],
         groundingSources: [],
         evidenceUrls: [],
         changeLabel: run.citationState,
@@ -470,72 +477,126 @@ export function EvidenceDetailModal({
 
                 {/* Right: leaderboard + sources */}
                 <div className="evidence-modal-sidebar">
-                  {/* Citation leaderboard */}
-                  {display.citedDomains.length > 0 && (
-                    <div>
-                      <p className="drawer-section-label">Who was cited \u2014 in order</p>
-                      <div className="citation-leaderboard">
-                        {display.citedDomains.map((domain, i) => {
-                          const norm = domain.toLowerCase().replace(/^www\./, '')
-                          const isYou = myDomains.has(norm)
-                          const isCompetitor = !isYou && display.competitorDomains.some(
-                            c => c.toLowerCase().replace(/^www\./, '') === norm,
-                          )
-                          const variant = isYou ? 'you' : isCompetitor ? 'competitor' : 'other'
-                          return (
-                            <div key={domain} className={`citation-leaderboard-item citation-leaderboard-item--${variant}`}>
-                              <span className="citation-leaderboard-rank">#{i + 1}</span>
-                              <span className="citation-leaderboard-domain">{domain}</span>
-                              {isYou && <span className="citation-leaderboard-tag">You</span>}
-                              {isCompetitor && <span className="citation-leaderboard-tag">Competitor</span>}
-                            </div>
-                          )
-                        })}
-                        {!isCited && (
-                          <div className="citation-leaderboard-item citation-leaderboard-item--not-cited border-dashed">
-                            <span className="citation-leaderboard-rank text-zinc-600">{'\u2014'}</span>
-                            <span className="citation-leaderboard-domain text-zinc-600">{project.project.canonicalDomain}</span>
-                            <span className="citation-leaderboard-tag text-zinc-600">Not cited</span>
+                  {/* Tabbed sidebar navigation */}
+                  {(display.citedDomains.length > 0 || display.recommendedCompetitors.length > 0 || display.groundingSources.length > 0 || display.evidenceUrls.length > 0) && (
+                    <div className="sidebar-tabs">
+                      <button
+                        className={`sidebar-tab ${sidebarTab === 'competitors' ? 'sidebar-tab--active' : ''}`}
+                        onClick={() => setSidebarTab('competitors')}
+                      >
+                        Competitors
+                      </button>
+                      <button
+                        className={`sidebar-tab ${sidebarTab === 'sources' ? 'sidebar-tab--active' : ''}`}
+                        onClick={() => setSidebarTab('sources')}
+                      >
+                        Sources
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Competitors tab — company names (preferred) or domain fallback */}
+                  {sidebarTab === 'competitors' && (
+                    <>
+                      {display.recommendedCompetitors.length > 0 ? (
+                        <div>
+                          <p className="drawer-section-label">AI recommended instead</p>
+                          <div className="citation-leaderboard">
+                            {display.recommendedCompetitors.map((name, i) => (
+                              <div key={name} className="citation-leaderboard-item citation-leaderboard-item--competitor">
+                                <span className="citation-leaderboard-rank">#{i + 1}</span>
+                                <span className="citation-leaderboard-domain">{name}</span>
+                              </div>
+                            ))}
+                            {!isCited && (
+                              <div className="citation-leaderboard-item citation-leaderboard-item--not-cited border-dashed">
+                                <span className="citation-leaderboard-rank text-zinc-600">{'\u2014'}</span>
+                                <span className="citation-leaderboard-domain text-zinc-600">{project.project.displayName || project.project.name}</span>
+                                <span className="citation-leaderboard-tag text-zinc-600">Not mentioned</span>
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    </div>
+                        </div>
+                      ) : display.citedDomains.length > 0 ? (
+                        <div>
+                          <p className="drawer-section-label">Domains cited instead</p>
+                          <div className="citation-leaderboard">
+                            {display.citedDomains.map((domain, i) => {
+                              const norm = domain.toLowerCase().replace(/^www\./, '')
+                              const isYou = myDomains.has(norm)
+                              const isCompetitor = !isYou && display.competitorDomains.some(
+                                c => c.toLowerCase().replace(/^www\./, '') === norm,
+                              )
+                              const variant = isYou ? 'you' : isCompetitor ? 'competitor' : 'other'
+                              return (
+                                <div key={domain} className={`citation-leaderboard-item citation-leaderboard-item--${variant}`}>
+                                  <span className="citation-leaderboard-rank">#{i + 1}</span>
+                                  <span className="citation-leaderboard-domain">{domain}</span>
+                                  {isYou && <span className="citation-leaderboard-tag">You</span>}
+                                  {isCompetitor && <span className="citation-leaderboard-tag">Competitor</span>}
+                                </div>
+                              )
+                            })}
+                            {!isCited && (
+                              <div className="citation-leaderboard-item citation-leaderboard-item--not-cited border-dashed">
+                                <span className="citation-leaderboard-rank text-zinc-600">{'\u2014'}</span>
+                                <span className="citation-leaderboard-domain text-zinc-600">{project.project.canonicalDomain}</span>
+                                <span className="citation-leaderboard-tag text-zinc-600">Not cited</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center h-24 text-zinc-600 text-sm">
+                          No competitor data {isViewingHistory ? 'for this run' : 'yet'}
+                        </div>
+                      )}
+                    </>
                   )}
 
-                  {/* Grounding sources */}
-                  {display.groundingSources.length > 0 && (
-                    <div>
-                      <p className="drawer-section-label">Grounding sources ({display.groundingSources.length})</p>
-                      <ul className="grid gap-0.5">
-                        {display.groundingSources.map((src, i) => (
-                          <li key={i} className="truncate text-sm">
-                            <a href={src.uri} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
-                              {src.title || src.uri}
-                            </a>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
+                  {/* Sources tab — grounding sources + evidence URLs */}
+                  {sidebarTab === 'sources' && (
+                    <>
+                      {display.groundingSources.length > 0 && (
+                        <div>
+                          <p className="drawer-section-label">Grounding sources ({display.groundingSources.length})</p>
+                          <ul className="grid gap-0.5">
+                            {display.groundingSources.map((src, i) => (
+                              <li key={i} className="truncate text-sm">
+                                <a href={src.uri} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
+                                  {src.title || src.uri}
+                                </a>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
 
-                  {/* Evidence URLs */}
-                  {display.evidenceUrls.length > 0 && (
-                    <div>
-                      <p className="drawer-section-label">Evidence URLs</p>
-                      <ul className="grid gap-1">
-                        {display.evidenceUrls.map((url) => (
-                          <li key={url} className="truncate text-sm">
-                            <a href={url} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
-                              {url}
-                            </a>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
+                      {display.evidenceUrls.length > 0 && (
+                        <div>
+                          <p className="drawer-section-label">Evidence URLs</p>
+                          <ul className="grid gap-1">
+                            {display.evidenceUrls.map((url) => (
+                              <li key={url} className="truncate text-sm">
+                                <a href={url} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
+                                  {url}
+                                </a>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {display.groundingSources.length === 0 && display.evidenceUrls.length === 0 && (
+                        <div className="flex items-center justify-center h-24 text-zinc-600 text-sm">
+                          No source data {isViewingHistory ? 'for this run' : 'yet'}
+                        </div>
+                      )}
+                    </>
                   )}
 
                   {/* No data state */}
-                  {display.citedDomains.length === 0 && display.groundingSources.length === 0 && display.evidenceUrls.length === 0 && (
+                  {display.citedDomains.length === 0 && display.recommendedCompetitors.length === 0 && display.groundingSources.length === 0 && display.evidenceUrls.length === 0 && (
                     <div className="flex items-center justify-center h-24 text-zinc-600 text-sm">
                       No citation data {isViewingHistory ? 'for this run' : 'yet'}
                     </div>

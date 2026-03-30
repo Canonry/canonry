@@ -300,6 +300,7 @@ export class JobRunner {
             log.info('query.result', { runId, provider: providerName, keyword: kw.keyword, citedDomains: normalized.citedDomains, groundingSources: normalized.groundingSources.map(s => s.uri), matchDomains: allDomains })
             const citationState = determineCitationState(normalized, allDomains)
             const overlap = computeCompetitorOverlap(normalized, competitorDomains)
+            const extractedCompetitors = extractRecommendedCompetitors(normalized.answerText, allDomains)
 
             // Move screenshot to canonical location if present
             let screenshotRelPath: string | null = null
@@ -321,6 +322,7 @@ export class JobRunner {
                 answerText: normalized.answerText,
                 citedDomains: JSON.stringify(normalized.citedDomains),
                 competitorOverlap: JSON.stringify(overlap),
+                recommendedCompetitors: JSON.stringify(extractedCompetitors),
                 location: runLocation?.label ?? null,
                 screenshotPath: screenshotRelPath,
                 rawResponse: JSON.stringify({
@@ -342,6 +344,7 @@ export class JobRunner {
                 answerText: normalized.answerText,
                 citedDomains: JSON.stringify(normalized.citedDomains),
                 competitorOverlap: JSON.stringify(overlap),
+                recommendedCompetitors: JSON.stringify(extractedCompetitors),
                 location: runLocation?.label ?? null,
                 rawResponse: JSON.stringify({
                   model: raw.model,
@@ -663,4 +666,90 @@ function computeCompetitorOverlap(
   }
 
   return [...overlapSet]
+}
+
+/**
+ * Extract company/brand names recommended in an AI answer.
+ * Uses pattern matching (no LLM call) to keep runs cost-neutral.
+ *
+ * Targets common AI response patterns:
+ *   - **Company Name** (bold markdown)
+ *   - ### Company Name (headings)
+ *   - 1. Company Name — description
+ *   - Company Name: description (after newline)
+ *   - [Company Name](url)
+ */
+function extractRecommendedCompetitors(
+  answerText: string | null | undefined,
+  ownDomains: string[],
+): string[] {
+  if (!answerText || answerText.length < 20) return []
+
+  const candidates = new Set<string>()
+
+  // Pattern 1: **Bold Company Names** — most common in ChatGPT/Claude responses
+  const boldPattern = /\*\*([A-Z][A-Za-z0-9][\w\s.&',/()-]{1,50}?)\*\*/g
+  let match: RegExpExecArray | null
+  while ((match = boldPattern.exec(answerText)) !== null) {
+    candidates.add(match[1].trim())
+  }
+
+  // Pattern 2: ### Heading Company Names (with optional numbering)
+  const headingPattern = /^#{1,4}\s+(?:\d+\.\s+)?(?:\*\*)?([A-Z][A-Za-z0-9][\w\s.&',/()-]{1,50}?)(?:\*\*)?$/gm
+  while ((match = headingPattern.exec(answerText)) !== null) {
+    candidates.add(match[1].trim())
+  }
+
+  // Pattern 3: Numbered list — "1. Company Name —" or "1. Company Name:"
+  const numberedPattern = /^\s*\d+\.\s+(?:\*\*)?([A-Z][A-Za-z0-9][\w\s.&',/()-]{1,50}?)(?:\*\*)?\s*[:\u2014\u2013–-]/gm
+  while ((match = numberedPattern.exec(answerText)) !== null) {
+    candidates.add(match[1].trim())
+  }
+
+  // Pattern 4: Markdown links [Company Name](url)
+  const linkPattern = /\[([A-Z][A-Za-z0-9][\w\s.&',/()-]{1,50}?)\]\(https?:\/\//g
+  while ((match = linkPattern.exec(answerText)) !== null) {
+    candidates.add(match[1].trim())
+  }
+
+  // Filter out noise
+  const ownBrands = new Set(
+    ownDomains.map(d => normalizeProjectDomain(d).split('.')[0].toLowerCase()),
+  )
+
+  const stopWords = new Set([
+    'here', 'why', 'how', 'what', 'when', 'where', 'which', 'who',
+    'key', 'note', 'example', 'summary', 'overview', 'conclusion',
+    'pros', 'cons', 'features', 'benefits', 'pricing', 'comparison',
+    'step', 'option', 'important', 'recommendation', 'verdict',
+    'best', 'top', 'leading', 'notable', 'major', 'other', 'additional',
+    'why it matters', 'key features', 'key benefits', 'how it works',
+    'bottom line', 'final thoughts', 'in summary', 'the bottom line',
+  ])
+
+  const results: string[] = []
+  for (const candidate of candidates) {
+    const lower = candidate.toLowerCase().trim()
+    // Skip if it's your own brand
+    if (ownBrands.has(lower.split(/[\s.]/)[0])) continue
+    // Skip generic headings / noise
+    if (stopWords.has(lower)) continue
+    // Skip very short or very long
+    if (candidate.length < 2 || candidate.length > 60) continue
+    // Skip if it looks like a sentence (has too many spaces — likely a description, not a name)
+    if (candidate.split(/\s+/).length > 6) continue
+    // Skip common non-company patterns
+    if (/^(step|option|tier|plan|level)\s+\d/i.test(candidate)) continue
+
+    results.push(candidate)
+  }
+
+  // Deduplicate case-insensitively, keep first occurrence casing
+  const seen = new Map<string, string>()
+  for (const r of results) {
+    const key = r.toLowerCase()
+    if (!seen.has(key)) seen.set(key, r)
+  }
+
+  return [...seen.values()].slice(0, 15)
 }

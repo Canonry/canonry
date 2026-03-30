@@ -297,6 +297,8 @@ const MIGRATIONS = [
   `ALTER TABLE bing_url_inspections ADD COLUMN document_size INTEGER`,
   `ALTER TABLE bing_url_inspections ADD COLUMN anchor_count INTEGER`,
   `ALTER TABLE bing_url_inspections ADD COLUMN discovery_date TEXT`,
+  // v16: Recommended competitors — company names extracted from answer text
+  `ALTER TABLE query_snapshots ADD COLUMN recommended_competitors TEXT NOT NULL DEFAULT '[]'`,
 ]
 
 export function migrate(db: DatabaseClient) {
