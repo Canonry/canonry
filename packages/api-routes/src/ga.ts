@@ -133,12 +133,15 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       return reply.status(err.statusCode).send(err.toJSON())
     }
 
-    // Delete traffic data and summary along with connection
+    // Delete traffic data, summaries, and AI referral rows along with the connection.
     app.db.delete(gaTrafficSnapshots)
       .where(eq(gaTrafficSnapshots.projectId, project.id))
       .run()
     app.db.delete(gaTrafficSummaries)
       .where(eq(gaTrafficSummaries.projectId, project.id))
+      .run()
+    app.db.delete(gaAiReferrals)
+      .where(eq(gaAiReferrals.projectId, project.id))
       .run()
 
     store.deleteConnection(project.name)
@@ -167,10 +170,10 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     }
 
     const latestSync = app.db
-      .select({ syncedAt: gaTrafficSnapshots.syncedAt })
-      .from(gaTrafficSnapshots)
-      .where(eq(gaTrafficSnapshots.projectId, project.id))
-      .orderBy(desc(gaTrafficSnapshots.syncedAt))
+      .select({ syncedAt: gaTrafficSummaries.syncedAt })
+      .from(gaTrafficSummaries)
+      .where(eq(gaTrafficSummaries.projectId, project.id))
+      .orderBy(desc(gaTrafficSummaries.syncedAt))
       .limit(1)
       .get()
 
@@ -232,21 +235,17 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     // Clear old data for this project in the synced date range, then insert fresh
     // Wrapped in a transaction to ensure atomicity — a crash mid-insert won't lose data
     app.db.transaction((tx) => {
+      tx.delete(gaTrafficSnapshots)
+        .where(
+          and(
+            eq(gaTrafficSnapshots.projectId, project.id),
+            sql`${gaTrafficSnapshots.date} >= ${summary.periodStart}`,
+            sql`${gaTrafficSnapshots.date} <= ${summary.periodEnd}`,
+          ),
+        )
+        .run()
+
       if (rows.length > 0) {
-        const dates = rows.map((r: { date: string }) => r.date)
-        const minDate = dates.reduce((a: string, b: string) => (a < b ? a : b))
-        const maxDate = dates.reduce((a: string, b: string) => (a > b ? a : b))
-
-        tx.delete(gaTrafficSnapshots)
-          .where(
-            and(
-              eq(gaTrafficSnapshots.projectId, project.id),
-              sql`${gaTrafficSnapshots.date} >= ${minDate}`,
-              sql`${gaTrafficSnapshots.date} <= ${maxDate}`,
-            ),
-          )
-          .run()
-
         for (const row of rows) {
           tx.insert(gaTrafficSnapshots).values({
             id: crypto.randomUUID(),
@@ -261,22 +260,18 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         }
       }
 
+      tx.delete(gaAiReferrals)
+        .where(
+          and(
+            eq(gaAiReferrals.projectId, project.id),
+            sql`${gaAiReferrals.date} >= ${summary.periodStart}`,
+            sql`${gaAiReferrals.date} <= ${summary.periodEnd}`,
+          ),
+        )
+        .run()
+
       // Sync AI referrals
       if (aiReferrals.length > 0) {
-        const dates = aiReferrals.map((r: { date: string }) => r.date)
-        const minDate = dates.reduce((a: string, b: string) => (a < b ? a : b))
-        const maxDate = dates.reduce((a: string, b: string) => (a > b ? a : b))
-
-        tx.delete(gaAiReferrals)
-          .where(
-            and(
-              eq(gaAiReferrals.projectId, project.id),
-              sql`${gaAiReferrals.date} >= ${minDate}`,
-              sql`${gaAiReferrals.date} <= ${maxDate}`,
-            ),
-          )
-          .run()
-
         for (const row of aiReferrals) {
           tx.insert(gaAiReferrals).values({
             id: crypto.randomUUID(),
@@ -387,10 +382,10 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .all()
 
     const latestSync = app.db
-      .select({ syncedAt: gaTrafficSnapshots.syncedAt })
-      .from(gaTrafficSnapshots)
-      .where(eq(gaTrafficSnapshots.projectId, project.id))
-      .orderBy(desc(gaTrafficSnapshots.syncedAt))
+      .select({ syncedAt: gaTrafficSummaries.syncedAt })
+      .from(gaTrafficSummaries)
+      .where(eq(gaTrafficSummaries.projectId, project.id))
+      .orderBy(desc(gaTrafficSummaries.syncedAt))
       .limit(1)
       .get()
 

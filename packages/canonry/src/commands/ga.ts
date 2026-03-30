@@ -118,6 +118,7 @@ export async function gaSync(project: string, opts?: { days?: number; format?: s
   const result = await client.gaSync(project, { days: opts?.days }) as {
     synced: boolean
     rowCount: number
+    aiReferralCount: number
     days: number
     syncedAt: string
   }
@@ -128,7 +129,8 @@ export async function gaSync(project: string, opts?: { days?: number; format?: s
   }
 
   console.log(`GA4 sync complete for "${project}".`)
-  console.log(`  Rows synced: ${result.rowCount}`)
+  console.log(`  Page rows:   ${result.rowCount}`)
+  console.log(`  AI rows:     ${result.aiReferralCount}`)
   console.log(`  Period:      ${result.days} days`)
   console.log(`  Synced at:   ${result.syncedAt}`)
 }
@@ -176,16 +178,18 @@ export async function gaTraffic(project: string, opts?: { limit?: number; format
     console.log()
   }
 
-  const pageWidth = Math.min(60, Math.max(15, ...result.topPages.map((r) => r.landingPage.length)))
-  console.log(`  TOP LANDING PAGES`)
-  console.log(`  ${'PAGE'.padEnd(pageWidth)}  ${'SESSIONS'.padEnd(10)}${'ORGANIC'.padEnd(10)}${'USERS'.padEnd(8)}`)
-  console.log(`  ${'─'.repeat(pageWidth)}  ${'─'.repeat(10)}${'─'.repeat(10)}${'─'.repeat(8)}`)
+  if (result.topPages.length > 0) {
+    const pageWidth = Math.min(60, Math.max(15, ...result.topPages.map((r) => r.landingPage.length)))
+    console.log(`  TOP LANDING PAGES`)
+    console.log(`  ${'PAGE'.padEnd(pageWidth)}  ${'SESSIONS'.padEnd(10)}${'ORGANIC'.padEnd(10)}${'USERS'.padEnd(8)}`)
+    console.log(`  ${'─'.repeat(pageWidth)}  ${'─'.repeat(10)}${'─'.repeat(10)}${'─'.repeat(8)}`)
 
-  for (const row of result.topPages) {
-    const page = row.landingPage.length > pageWidth ? row.landingPage.slice(0, pageWidth - 3) + '...' : row.landingPage
-    console.log(
-      `  ${page.padEnd(pageWidth)}  ${String(row.sessions).padEnd(10)}${String(row.organicSessions).padEnd(10)}${String(row.users).padEnd(8)}`,
-    )
+    for (const row of result.topPages) {
+      const page = row.landingPage.length > pageWidth ? row.landingPage.slice(0, pageWidth - 3) + '...' : row.landingPage
+      console.log(
+        `  ${page.padEnd(pageWidth)}  ${String(row.sessions).padEnd(10)}${String(row.organicSessions).padEnd(10)}${String(row.users).padEnd(8)}`,
+      )
+    }
   }
 
   if (result.lastSyncedAt) {

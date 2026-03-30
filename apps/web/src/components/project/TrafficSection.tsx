@@ -12,9 +12,10 @@ import {
   triggerGaSync,
   disconnectGa,
 } from '../../api.js'
-import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficPage } from '../../api.js'
+import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficPage, ApiGaTrafficReferral } from '../../api.js'
 
-type SortKey = 'landingPage' | 'sessions' | 'organicSessions' | 'users'
+type PageSortKey = 'landingPage' | 'sessions' | 'organicSessions' | 'users'
+type ReferralSortKey = 'source' | 'medium' | 'sessions' | 'users'
 type SortDir = 'asc' | 'desc'
 
 function formatCompact(n: number): string {
@@ -42,8 +43,10 @@ export function TrafficSection({ projectName }: { projectName: string }) {
   const [disconnecting, setDisconnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [sortKey, setSortKey] = useState<SortKey>('sessions')
-  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [pageSortKey, setPageSortKey] = useState<PageSortKey>('sessions')
+  const [pageSortDir, setPageSortDir] = useState<SortDir>('desc')
+  const [referralSortKey, setReferralSortKey] = useState<ReferralSortKey>('sessions')
+  const [referralSortDir, setReferralSortDir] = useState<SortDir>('desc')
 
   function loadData(cancelled: { current: boolean }) {
     setLoading(true)
@@ -56,9 +59,9 @@ export function TrafficSection({ projectName }: { projectName: string }) {
         }
         return null
       })
-      .then((t) => {
+      .then((t: ApiGaTraffic | null | undefined) => {
         if (cancelled.current) return
-        if (t) setTraffic(t)
+        setTraffic(t ?? null)
         setLoading(false)
       })
       .catch((err) => {
@@ -82,7 +85,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
     setNotice(null)
     try {
       const result = await triggerGaSync(projectName)
-      setNotice(`Synced ${result.rowCount.toLocaleString()} rows (${result.days} days)`)
+      setNotice(`Synced ${result.rowCount.toLocaleString()} page rows and ${result.aiReferralCount.toLocaleString()} AI referral rows (${result.days} days)`)
       const t = await fetchGaTraffic(projectName)
       setTraffic(t)
       const s = await fetchGaStatus(projectName)
@@ -110,26 +113,47 @@ export function TrafficSection({ projectName }: { projectName: string }) {
     }
   }
 
-  function handleSort(key: SortKey) {
-    if (sortKey === key) {
-      setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))
+  function handlePageSort(key: PageSortKey) {
+    if (pageSortKey === key) {
+      setPageSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))
     } else {
-      setSortKey(key)
-      setSortDir('desc')
+      setPageSortKey(key)
+      setPageSortDir('desc')
+    }
+  }
+
+  function handleReferralSort(key: ReferralSortKey) {
+    if (referralSortKey === key) {
+      setReferralSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))
+    } else {
+      setReferralSortKey(key)
+      setReferralSortDir('desc')
     }
   }
 
   const sortedPages = useMemo(() => {
     if (!traffic?.topPages) return []
     return [...traffic.topPages].sort((a, b) => {
-      const av = a[sortKey]
-      const bv = b[sortKey]
+      const av = a[pageSortKey]
+      const bv = b[pageSortKey]
       if (typeof av === 'string' && typeof bv === 'string') {
-        return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
+        return pageSortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
       }
-      return sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number)
+      return pageSortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number)
     })
-  }, [traffic?.topPages, sortKey, sortDir])
+  }, [traffic?.topPages, pageSortKey, pageSortDir])
+
+  const sortedAiReferrals = useMemo(() => {
+    if (!traffic?.aiReferrals) return []
+    return [...traffic.aiReferrals].sort((a, b) => {
+      const av = a[referralSortKey]
+      const bv = b[referralSortKey]
+      if (typeof av === 'string' && typeof bv === 'string') {
+        return referralSortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
+      }
+      return referralSortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number)
+    })
+  }, [traffic?.aiReferrals, referralSortKey, referralSortDir])
 
   if (loading && !status) {
     return <p className="text-sm text-zinc-500 py-8 text-center">Loading traffic data…</p>
@@ -148,6 +172,12 @@ export function TrafficSection({ projectName }: { projectName: string }) {
   const organicPct = traffic && traffic.totalSessions > 0
     ? Math.round((traffic.totalOrganicSessions / traffic.totalSessions) * 100)
     : 0
+  const aiSessions = traffic?.aiReferrals.reduce((sum, referral) => sum + referral.sessions, 0) ?? 0
+  const aiSharePct = traffic && traffic.totalSessions > 0
+    ? Math.round((aiSessions / traffic.totalSessions) * 100)
+    : 0
+  const aiSourceCount = traffic ? new Set(traffic.aiReferrals.map((referral) => referral.source.toLowerCase())).size : 0
+  const topAiSource = sortedAiReferrals[0] ?? null
 
   return (
     <>
@@ -206,7 +236,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
         </div>
 
         {traffic ? (
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid gap-4 md:grid-cols-3">
             <TrafficMetric
               value={formatCompact(traffic.totalSessions)}
               label="Total Sessions"
@@ -237,6 +267,104 @@ export function TrafficSection({ projectName }: { projectName: string }) {
         )}
       </section>
 
+      {/* AI Referrals */}
+      {traffic && (
+        <>
+          <div className="page-section-divider" />
+
+          <section>
+            <div className="mb-4">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">AI Attribution</p>
+              <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">
+                AI Referral Sources
+                <InfoTooltip text="Counts explicit AI referrers detected in GA4 sessionSource values, such as ChatGPT, Claude, Gemini, Perplexity, OpenAI, and Copilot. Generic search-engine sources like plain Bing are intentionally excluded to avoid false positives." />
+              </h2>
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.5fr)]">
+              <Card className="surface-card p-5">
+                <div className="mb-4">
+                  <p className="eyebrow eyebrow-soft">Summary</p>
+                  <h3 className="text-sm font-semibold text-zinc-100">Attributable AI visits</h3>
+                </div>
+
+                {traffic.aiReferrals.length > 0 ? (
+                  <>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <AttributionStat
+                        label="AI Sessions"
+                        value={formatCompact(aiSessions)}
+                        hint={`${aiSessions.toLocaleString()} sessions`}
+                        tone="positive"
+                      />
+                      <AttributionStat
+                        label="Share of Traffic"
+                        value={`${aiSharePct}%`}
+                        hint="of total sessions"
+                        tone="neutral"
+                      />
+                      <AttributionStat
+                        label="Tracked Sources"
+                        value={String(aiSourceCount)}
+                        hint={`${traffic.aiReferrals.length} source rows`}
+                        tone="neutral"
+                      />
+                    </div>
+
+                    <div className="mt-4 rounded-lg border border-emerald-800/40 bg-emerald-500/6 px-4 py-3 text-sm text-emerald-100">
+                      {topAiSource
+                        ? `Top explicit AI referrer: ${topAiSource.source} via ${topAiSource.medium}, accounting for ${topAiSource.sessions.toLocaleString()} sessions in the current sync window.`
+                        : 'Explicit AI referrers detected in the current sync window.'}
+                    </div>
+                  </>
+                ) : (
+                  <div className="rounded-lg border border-amber-800/40 bg-amber-500/6 px-4 py-4 text-sm text-amber-100">
+                    No explicit AI referrers were detected in the current sync window. This view intentionally favors precision over broad matching, so unattributed traffic hidden inside generic search sources is excluded.
+                  </div>
+                )}
+              </Card>
+
+              <Card className="surface-card p-5">
+                <div className="mb-4 flex items-end justify-between gap-3">
+                  <div>
+                    <p className="eyebrow eyebrow-soft">Breakdown</p>
+                    <h3 className="text-sm font-semibold text-zinc-100">Source / medium</h3>
+                  </div>
+                  <p className="text-xs text-zinc-500">
+                    {traffic.aiReferrals.length > 0 ? `${traffic.aiReferrals.length} rows` : 'No source rows'}
+                  </p>
+                </div>
+
+                {traffic.aiReferrals.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-[10px] uppercase tracking-wider text-zinc-500">
+                          <ReferralSortHeader label="Source" sortKey="source" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="left" />
+                          <ReferralSortHeader label="Medium" sortKey="medium" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="left" />
+                          <ReferralSortHeader label="Sessions" sortKey="sessions" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="right" />
+                          <th className="py-1 font-medium text-right">Share</th>
+                          <ReferralSortHeader label="Users" sortKey="users" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="right" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedAiReferrals.map((referral) => (
+                          <AiReferralRow key={`${referral.source}:${referral.medium}`} referral={referral} totalSessions={aiSessions} />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-zinc-800/60 bg-zinc-950/40 px-4 py-6 text-sm text-zinc-500">
+                    Connect GA4 and sync traffic to monitor explicit AI referral sources here.
+                  </div>
+                )}
+              </Card>
+            </div>
+          </section>
+        </>
+      )}
+
       {/* Top Landing Pages */}
       {traffic && traffic.topPages.length > 0 && (
         <>
@@ -255,11 +383,11 @@ export function TrafficSection({ projectName }: { projectName: string }) {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-[10px] uppercase tracking-wider text-zinc-500">
-                    <SortHeader label="Landing Page" sortKey="landingPage" current={sortKey} dir={sortDir} onSort={handleSort} align="left" />
-                    <SortHeader label="Sessions" sortKey="sessions" current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
-                    <SortHeader label="Organic" sortKey="organicSessions" current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+                    <PageSortHeader label="Landing Page" sortKey="landingPage" current={pageSortKey} dir={pageSortDir} onSort={handlePageSort} align="left" />
+                    <PageSortHeader label="Sessions" sortKey="sessions" current={pageSortKey} dir={pageSortDir} onSort={handlePageSort} align="right" />
+                    <PageSortHeader label="Organic" sortKey="organicSessions" current={pageSortKey} dir={pageSortDir} onSort={handlePageSort} align="right" />
                     <th className="text-right py-1 font-medium">Organic %</th>
-                    <SortHeader label="Users" sortKey="users" current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+                    <PageSortHeader label="Users" sortKey="users" current={pageSortKey} dir={pageSortDir} onSort={handlePageSort} align="right" />
                   </tr>
                 </thead>
                 <tbody>
@@ -280,7 +408,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
             ? `Last synced ${relativeTime(traffic.lastSyncedAt)}`
             : 'Never synced'}
         </span>
-        <span>{traffic ? `${traffic.topPages.length} pages shown` : ''}</span>
+        <span>{traffic ? `${traffic.topPages.length} pages · ${traffic.aiReferrals.length} AI rows` : ''}</span>
       </div>
     </>
   )
@@ -423,7 +551,7 @@ function Ga4ConnectForm({ projectName, onConnected }: { projectName: string; onC
   )
 }
 
-function SortHeader({
+function PageSortHeader({
   label,
   sortKey: key,
   current,
@@ -432,10 +560,37 @@ function SortHeader({
   align,
 }: {
   label: string
-  sortKey: SortKey
-  current: SortKey
+  sortKey: PageSortKey
+  current: PageSortKey
   dir: SortDir
-  onSort: (key: SortKey) => void
+  onSort: (key: PageSortKey) => void
+  align: 'left' | 'right'
+}) {
+  const active = current === key
+  return (
+    <th
+      className={`py-1 font-medium cursor-pointer select-none hover:text-zinc-300 transition-colors ${align === 'right' ? 'text-right' : 'text-left'}`}
+      onClick={() => onSort(key)}
+    >
+      {label}
+      {active && <span className="ml-0.5">{dir === 'asc' ? '↑' : '↓'}</span>}
+    </th>
+  )
+}
+
+function ReferralSortHeader({
+  label,
+  sortKey: key,
+  current,
+  dir,
+  onSort,
+  align,
+}: {
+  label: string
+  sortKey: ReferralSortKey
+  current: ReferralSortKey
+  dir: SortDir
+  onSort: (key: ReferralSortKey) => void
   align: 'left' | 'right'
 }) {
   const active = current === key
@@ -477,6 +632,26 @@ function TrafficMetric({
   )
 }
 
+function AttributionStat({
+  value,
+  label,
+  hint,
+  tone,
+}: {
+  value: string
+  label: string
+  hint: string
+  tone: MetricTone
+}) {
+  return (
+    <div className="rounded-lg border border-zinc-800/60 bg-zinc-950/40 px-4 py-3">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">{label}</p>
+      <p className={`text-xl font-semibold tabular-nums ${toneColor[tone]}`}>{value}</p>
+      <p className="text-xs text-zinc-500 mt-1">{hint}</p>
+    </div>
+  )
+}
+
 function LandingPageRow({ page }: { page: ApiGaTrafficPage }) {
   const organicPct = page.sessions > 0
     ? ((page.organicSessions / page.sessions) * 100).toFixed(1)
@@ -498,6 +673,36 @@ function LandingPageRow({ page }: { page: ApiGaTrafficPage }) {
       </td>
       <td className="py-1.5 text-right text-zinc-200 tabular-nums">
         {page.users.toLocaleString()}
+      </td>
+    </tr>
+  )
+}
+
+function AiReferralRow({
+  referral,
+  totalSessions,
+}: {
+  referral: ApiGaTrafficReferral
+  totalSessions: number
+}) {
+  const share = totalSessions > 0 ? ((referral.sessions / totalSessions) * 100).toFixed(1) : '0.0'
+
+  return (
+    <tr className="border-t border-zinc-800/40">
+      <td className="py-1.5 text-zinc-200 max-w-[220px] truncate" title={referral.source}>
+        {referral.source}
+      </td>
+      <td className="py-1.5 text-zinc-500 max-w-[180px] truncate" title={referral.medium}>
+        {referral.medium}
+      </td>
+      <td className="py-1.5 text-right text-emerald-400 tabular-nums">
+        {referral.sessions.toLocaleString()}
+      </td>
+      <td className="py-1.5 text-right text-zinc-400 tabular-nums">
+        {share}%
+      </td>
+      <td className="py-1.5 text-right text-zinc-200 tabular-nums">
+        {referral.users.toLocaleString()}
       </td>
     </tr>
   )

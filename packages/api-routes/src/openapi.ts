@@ -1998,7 +1998,7 @@ const routeCatalog: OpenApiOperation[] = [
   {
     method: 'post',
     path: '/api/v1/projects/{name}/ga/sync',
-    summary: 'Sync GA4 traffic data',
+    summary: 'Sync GA4 traffic and AI referral data',
     tags: ['ga4'],
     parameters: [nameParameter],
     requestBody: {
@@ -2023,7 +2023,7 @@ const routeCatalog: OpenApiOperation[] = [
   {
     method: 'get',
     path: '/api/v1/projects/{name}/ga/traffic',
-    summary: 'Get GA4 landing page traffic',
+    summary: 'Get GA4 landing page traffic and AI referral sources',
     tags: ['ga4'],
     parameters: [nameParameter, limitQueryParameter],
     responses: {

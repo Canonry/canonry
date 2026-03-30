@@ -5,7 +5,7 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { eq, inArray } from 'drizzle-orm'
-import { createClient, migrate, gaTrafficSnapshots, gaTrafficSummaries } from '@ainyc/canonry-db'
+import { createClient, migrate, gaAiReferrals, gaTrafficSnapshots, gaTrafficSummaries } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialStore, Ga4CredentialRecord } from '../src/ga.js'
 
@@ -176,6 +176,26 @@ describe('GA4 routes', () => {
       users: 8,
       syncedAt: now,
     }).run()
+    db.insert(gaTrafficSummaries).values({
+      id: crypto.randomUUID(),
+      projectId,
+      periodStart: '2026-03-01',
+      periodEnd: '2026-03-20',
+      totalSessions: 10,
+      totalOrganicSessions: 5,
+      totalUsers: 8,
+      syncedAt: now,
+    }).run()
+    db.insert(gaAiReferrals).values({
+      id: crypto.randomUUID(),
+      projectId,
+      date: '2026-03-20',
+      source: 'chatgpt.com',
+      medium: 'referral',
+      sessions: 4,
+      users: 3,
+      syncedAt: now,
+    }).run()
 
     const res = await app.inject({
       method: 'DELETE',
@@ -185,8 +205,9 @@ describe('GA4 routes', () => {
     expect(credentials.has('test-project')).toBe(false)
 
     // Traffic data should be deleted too
-    const remaining = db.select().from(gaTrafficSnapshots).all()
-    expect(remaining).toHaveLength(0)
+    expect(db.select().from(gaTrafficSnapshots).all()).toHaveLength(0)
+    expect(db.select().from(gaTrafficSummaries).all()).toHaveLength(0)
+    expect(db.select().from(gaAiReferrals).all()).toHaveLength(0)
   })
 
   it('POST /ga/sync writes per-page rows and aggregate summary', async () => {
@@ -214,6 +235,9 @@ describe('GA4 routes', () => {
       totalOrganicSessions: 30,
       totalUsers: 55,
     })
+    const fetchAiReferralsSpy = vi.spyOn(gaModule, 'fetchAiReferrals').mockResolvedValue([
+      { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', sessions: 12, users: 9 },
+    ])
 
     const res = await app.inject({
       method: 'POST',
@@ -224,6 +248,7 @@ describe('GA4 routes', () => {
     const body = JSON.parse(res.payload)
     expect(body.synced).toBe(true)
     expect(body.rowCount).toBe(2)
+    expect(body.aiReferralCount).toBe(1)
 
     // Verify per-page rows were written
     const snapshots = db.select().from(gaTrafficSnapshots)
@@ -240,15 +265,89 @@ describe('GA4 routes', () => {
     expect(summaries[0]!.totalSessions).toBe(80)
     expect(summaries[0]!.totalOrganicSessions).toBe(30)
 
+    const aiReferrals = db.select().from(gaAiReferrals)
+      .where(eq(gaAiReferrals.projectId, projectId))
+      .all()
+    expect(aiReferrals).toHaveLength(1)
+    expect(aiReferrals[0]!.source).toBe('chatgpt.com')
+
     // Cleanup
     getAccessTokenSpy.mockRestore()
     fetchTrafficSpy.mockRestore()
     fetchAggregateSpy.mockRestore()
+    fetchAiReferralsSpy.mockRestore()
     credentials.delete('test-project')
     // Clean up synced data so it doesn't interfere with later tests
     db.delete(gaTrafficSnapshots)
       .where(inArray(gaTrafficSnapshots.landingPage, ['/synced-a', '/synced-b']))
       .run()
+    db.delete(gaAiReferrals)
+      .where(eq(gaAiReferrals.projectId, projectId))
+      .run()
+    db.delete(gaTrafficSummaries)
+      .where(eq(gaTrafficSummaries.projectId, projectId))
+      .run()
+  })
+
+  it('POST /ga/sync clears stale landing-page and AI referral rows when the latest sync is empty', async () => {
+    const now = new Date().toISOString()
+    credentials.set('test-project', {
+      projectName: 'test-project',
+      propertyId: '999888',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    db.insert(gaTrafficSnapshots).values({
+      id: crypto.randomUUID(),
+      projectId,
+      date: '2026-03-15',
+      landingPage: '/stale-page',
+      sessions: 21,
+      organicSessions: 7,
+      users: 14,
+      syncedAt: now,
+    }).run()
+    db.insert(gaAiReferrals).values({
+      id: crypto.randomUUID(),
+      projectId,
+      date: '2026-03-16',
+      source: 'chatgpt.com',
+      medium: 'referral',
+      sessions: 5,
+      users: 4,
+      syncedAt: now,
+    }).run()
+
+    const gaModule = await import('@ainyc/canonry-integration-google-analytics')
+    const getAccessTokenSpy = vi.spyOn(gaModule, 'getAccessToken').mockResolvedValue('mock-token')
+    const fetchTrafficSpy = vi.spyOn(gaModule, 'fetchTrafficByLandingPage').mockResolvedValue([])
+    const fetchAggregateSpy = vi.spyOn(gaModule, 'fetchAggregateSummary').mockResolvedValue({
+      periodStart: '2026-03-01',
+      periodEnd: '2026-03-31',
+      totalSessions: 0,
+      totalOrganicSessions: 0,
+      totalUsers: 0,
+    })
+    const fetchAiReferralsSpy = vi.spyOn(gaModule, 'fetchAiReferrals').mockResolvedValue([])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/ga/sync',
+      payload: { days: 30 },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(db.select().from(gaTrafficSnapshots).where(eq(gaTrafficSnapshots.projectId, projectId)).all()).toHaveLength(0)
+    expect(db.select().from(gaAiReferrals).where(eq(gaAiReferrals.projectId, projectId)).all()).toHaveLength(0)
+
+    getAccessTokenSpy.mockRestore()
+    fetchTrafficSpy.mockRestore()
+    fetchAggregateSpy.mockRestore()
+    fetchAiReferralsSpy.mockRestore()
+    credentials.delete('test-project')
     db.delete(gaTrafficSummaries)
       .where(eq(gaTrafficSummaries.projectId, projectId))
       .run()
@@ -318,6 +417,16 @@ describe('GA4 routes', () => {
       totalUsers: 270,
       syncedAt: now,
     }).run()
+    db.insert(gaAiReferrals).values({
+      id: crypto.randomUUID(),
+      projectId,
+      date: '2026-03-20',
+      source: 'chatgpt.com',
+      medium: 'referral',
+      sessions: 17,
+      users: 10,
+      syncedAt: now,
+    }).run()
 
     const res = await app.inject({
       method: 'GET',
@@ -333,6 +442,9 @@ describe('GA4 routes', () => {
     expect(body.topPages[0].landingPage).toBe('/page-a')
     expect(body.topPages[0].sessions).toBe(300)
     expect(body.topPages[1].landingPage).toBe('/page-b')
+    expect(body.aiReferrals).toEqual([
+      { source: 'chatgpt.com', medium: 'referral', sessions: 17, users: 10 },
+    ])
     expect(body.lastSyncedAt).toBe(now)
 
     credentials.delete('test-project')

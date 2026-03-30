@@ -932,17 +932,26 @@ export interface ApiGaTrafficPage {
   users: number
 }
 
+export interface ApiGaTrafficReferral {
+  source: string
+  medium: string
+  sessions: number
+  users: number
+}
+
 export interface ApiGaTraffic {
   totalSessions: number
   totalOrganicSessions: number
   totalUsers: number
   topPages: ApiGaTrafficPage[]
+  aiReferrals: ApiGaTrafficReferral[]
   lastSyncedAt: string | null
 }
 
 export interface ApiGaSyncResult {
   synced: boolean
   rowCount: number
+  aiReferralCount: number
   days: number
   syncedAt: string
 }

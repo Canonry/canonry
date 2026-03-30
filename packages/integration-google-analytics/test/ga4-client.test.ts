@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { createServiceAccountJwt, fetchTrafficByLandingPage } from '../src/ga4-client.js'
+import { createServiceAccountJwt, fetchAiReferrals, fetchTrafficByLandingPage } from '../src/ga4-client.js'
 import crypto from 'node:crypto'
 
 describe('createServiceAccountJwt', () => {
@@ -142,5 +142,54 @@ describe('fetchTrafficByLandingPage', () => {
     expect(rows).toHaveLength(1)
     expect(rows[0]!.sessions).toBe(100)
     expect(mainCallCount).toBe(1)
+  })
+})
+
+describe('fetchAiReferrals', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch')
+  })
+
+  afterEach(() => {
+    fetchSpy.mockRestore()
+  })
+
+  function mockFetchResponse(body: object, status = 200) {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  it('uses explicit AI source filters and excludes generic bing traffic', async () => {
+    let requestBody: Record<string, unknown> | null = null
+
+    fetchSpy.mockImplementation(async (_input: string | URL | Request, init?: RequestInit) => {
+      requestBody = JSON.parse(init?.body as string ?? '{}') as Record<string, unknown>
+      return mockFetchResponse({
+        rows: [
+          {
+            dimensionValues: [{ value: '20260320' }, { value: 'chatgpt.com' }, { value: 'referral' }],
+            metricValues: [{ value: '12' }, { value: '10' }],
+          },
+        ],
+        rowCount: 1,
+      })
+    })
+
+    const rows = await fetchAiReferrals('fake-token', '123456', 7)
+
+    expect(rows).toEqual([
+      { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', sessions: 12, users: 10 },
+    ])
+
+    const expressions = ((requestBody?.dimensionFilter as { orGroup?: { expressions?: Array<{ filter: { stringFilter: { value: string } } }> } })
+      .orGroup?.expressions ?? [])
+      .map((expression) => expression.filter.stringFilter.value)
+
+    expect(expressions).toContain('copilot')
+    expect(expressions).not.toContain('bing')
   })
 })

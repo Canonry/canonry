@@ -20,6 +20,14 @@ export const ga4TrafficSnapshotDtoSchema = z.object({
 })
 export type GA4TrafficSnapshotDto = z.infer<typeof ga4TrafficSnapshotDtoSchema>
 
+export const ga4AiReferralDtoSchema = z.object({
+  source: z.string(),
+  medium: z.string(),
+  sessions: z.number(),
+  users: z.number(),
+})
+export type GA4AiReferralDto = z.infer<typeof ga4AiReferralDtoSchema>
+
 export const ga4TrafficSummaryDtoSchema = z.object({
   totalSessions: z.number(),
   totalOrganicSessions: z.number(),
@@ -30,6 +38,7 @@ export const ga4TrafficSummaryDtoSchema = z.object({
     organicSessions: z.number(),
     users: z.number(),
   })),
+  aiReferrals: z.array(ga4AiReferralDtoSchema),
   lastSyncedAt: z.string().nullable(),
 })
 export type GA4TrafficSummaryDto = z.infer<typeof ga4TrafficSummaryDtoSchema>
