@@ -366,3 +366,65 @@ export async function fetchAggregateSummary(
   ga4Log('info', 'fetch-aggregate.done', { propertyId, ...summary })
   return summary
 }
+
+/**
+ * Fetch traffic specifically from AI referral sources.
+ */
+export async function fetchAiReferrals(
+  accessToken: string,
+  propertyId: string,
+  days?: number,
+): Promise<GA4AiReferralRow[]> {
+  const syncDays = Math.min(Math.max(1, days ?? GA4_DEFAULT_SYNC_DAYS), GA4_MAX_SYNC_DAYS)
+  const endDate = new Date()
+  const startDate = new Date()
+  startDate.setDate(startDate.getDate() - syncDays)
+
+  ga4Log('info', 'fetch-ai-referrals.start', { propertyId, days: syncDays })
+
+  // Filters for common AI search engines and LLMs
+  const aiSources = ['perplexity', 'gemini', 'openai', 'chatgpt', 'claude', 'anthropic', 'bing']
+  
+  const request: GA4RunReportRequest = {
+    dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
+    dimensions: [
+      { name: 'date' },
+      { name: 'sessionSource' },
+      { name: 'sessionMedium' },
+    ],
+    metrics: [
+      { name: 'sessions' },
+      { name: 'totalUsers' },
+    ],
+    dimensionFilter: {
+      orGroup: {
+        expressions: aiSources.map(source => ({
+          filter: {
+            fieldName: 'sessionSource',
+            stringFilter: { matchType: 'CONTAINS', value: source },
+          },
+        })),
+      },
+    },
+    limit: 1000,
+  }
+
+  const response = await runReport(accessToken, propertyId, request)
+  const rows = (response.rows ?? []).map((row) => ({
+    date: row.dimensionValues[0]!.value,
+    source: row.dimensionValues[1]!.value,
+    medium: row.dimensionValues[2]!.value,
+    sessions: parseInt(row.metricValues[0]!.value, 10) || 0,
+    users: parseInt(row.metricValues[1]!.value, 10) || 0,
+  }))
+
+  // Convert YYYYMMDD to YYYY-MM-DD
+  for (const row of rows) {
+    if (row.date.length === 8 && !row.date.includes('-')) {
+      row.date = `${row.date.slice(0, 4)}-${row.date.slice(4, 6)}-${row.date.slice(6, 8)}`
+    }
+  }
+
+  ga4Log('info', 'fetch-ai-referrals.done', { propertyId, rowCount: rows.length })
+  return rows
+}

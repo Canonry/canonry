@@ -143,6 +143,7 @@ export async function gaTraffic(project: string, opts?: { limit?: number; format
     totalOrganicSessions: number
     totalUsers: number
     topPages: Array<{ landingPage: string; sessions: number; organicSessions: number; users: number }>
+    aiReferrals: Array<{ source: string; medium: string; sessions: number; users: number }>
     lastSyncedAt: string | null
   }
 
@@ -151,7 +152,7 @@ export async function gaTraffic(project: string, opts?: { limit?: number; format
     return
   }
 
-  if (result.topPages.length === 0) {
+  if (result.topPages.length === 0 && result.aiReferrals.length === 0) {
     console.log('No GA4 traffic data. Run "canonry ga sync <project>" first.')
     return
   }
@@ -162,8 +163,22 @@ export async function gaTraffic(project: string, opts?: { limit?: number; format
   console.log(`  Total Users:             ${result.totalUsers}`)
   console.log()
 
+  if (result.aiReferrals.length > 0) {
+    console.log('  AI REFERRAL SOURCES')
+    console.log(`  ${'SOURCE'.padEnd(25)}  ${'MEDIUM'.padEnd(15)}  ${'SESSIONS'.padEnd(10)}${'USERS'.padEnd(8)}`)
+    console.log(`  ${'─'.repeat(25)}  ${'─'.repeat(15)}  ${'─'.repeat(10)}${'─'.repeat(8)}`)
+
+    for (const ref of result.aiReferrals) {
+      console.log(
+        `  ${ref.source.padEnd(25)}  ${ref.medium.padEnd(15)}  ${String(ref.sessions).padEnd(10)}${String(ref.users).padEnd(8)}`,
+      )
+    }
+    console.log()
+  }
+
   const pageWidth = Math.min(60, Math.max(15, ...result.topPages.map((r) => r.landingPage.length)))
-  console.log(`  ${'LANDING PAGE'.padEnd(pageWidth)}  ${'SESSIONS'.padEnd(10)}${'ORGANIC'.padEnd(10)}${'USERS'.padEnd(8)}`)
+  console.log(`  TOP LANDING PAGES`)
+  console.log(`  ${'PAGE'.padEnd(pageWidth)}  ${'SESSIONS'.padEnd(10)}${'ORGANIC'.padEnd(10)}${'USERS'.padEnd(8)}`)
   console.log(`  ${'─'.repeat(pageWidth)}  ${'─'.repeat(10)}${'─'.repeat(10)}${'─'.repeat(8)}`)
 
   for (const row of result.topPages) {

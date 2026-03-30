@@ -14,6 +14,14 @@ export interface GA4RunReportRequest {
       fieldName: string
       stringFilter?: { matchType: string; value: string }
     }
+    orGroup?: {
+      expressions: Array<{
+        filter: {
+          fieldName: string
+          stringFilter: { matchType: string; value: string }
+        }
+      }>
+    }
   }
   limit?: number
   offset?: number
@@ -36,6 +44,14 @@ export interface GA4TrafficRow {
   landingPage: string
   sessions: number
   organicSessions: number
+  users: number
+}
+
+export interface GA4AiReferralRow {
+  date: string
+  source: string
+  medium: string
+  sessions: number
   users: number
 }
 

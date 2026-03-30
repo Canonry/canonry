@@ -299,6 +299,19 @@ const MIGRATIONS = [
   `ALTER TABLE bing_url_inspections ADD COLUMN discovery_date TEXT`,
   // v16: Recommended competitor names extracted from run answers
   `ALTER TABLE query_snapshots ADD COLUMN recommended_competitors TEXT NOT NULL DEFAULT '[]'`,
+  // v17: GA4 AI referral tracking — ga_ai_referrals table
+  `CREATE TABLE IF NOT EXISTS ga_ai_referrals (
+    id          TEXT PRIMARY KEY,
+    project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    date        TEXT NOT NULL,
+    source      TEXT NOT NULL,
+    medium      TEXT NOT NULL,
+    sessions    INTEGER NOT NULL DEFAULT 0,
+    users       INTEGER NOT NULL DEFAULT 0,
+    synced_at   TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ga_ai_ref_project_date ON ga_ai_referrals(project_id, date)`,
+  `CREATE INDEX IF NOT EXISTS idx_ga_ai_ref_source ON ga_ai_referrals(source)`,
 ]
 
 export function migrate(db: DatabaseClient) {
