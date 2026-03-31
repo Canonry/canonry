@@ -1,5 +1,5 @@
 import type { IndexingRequestResultDto } from '@ainyc/canonry-contracts'
-import { ApiClient, createApiClient } from '../client.js'
+import { type ApiClient, createApiClient } from '../client.js'
 import { CliError } from '../cli-error.js'
 
 function getClient() {
@@ -89,10 +89,14 @@ export async function googleConnect(project: string, opts: { type: string; publi
 
   // Try to open browser automatically
   try {
-    const { exec } = await import('node:child_process')
+    const { spawn } = await import('node:child_process')
     const platform = process.platform
-    const cmd = platform === 'darwin' ? 'open' : platform === 'win32' ? 'start' : 'xdg-open'
-    exec(`${cmd} "${authUrl}"`)
+    const [cmd, ...extraArgs] = platform === 'darwin'
+      ? ['open', authUrl]
+      : platform === 'win32'
+        ? ['cmd', '/c', 'start', '', authUrl]
+        : ['xdg-open', authUrl]
+    spawn(cmd!, [...extraArgs], { detached: true, stdio: 'ignore' }).unref()
     console.log('(Browser opened automatically)')
   } catch {
     console.log('(Could not open browser automatically — please copy the URL above)')

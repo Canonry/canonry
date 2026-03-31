@@ -54,7 +54,7 @@ export async function showSchedule(project: string, format?: string): Promise<vo
 export async function enableSchedule(project: string, format?: string): Promise<void> {
   const client = getClient()
   const current = await client.getSchedule(project) as ScheduleResponse
-  const body: Record<string, unknown> = { timezone: current.timezone }
+  const body: Record<string, unknown> = { timezone: current.timezone, enabled: true }
   if (current.preset) body.preset = current.preset
   else body.cron = current.cronExpr
   if (current.providers.length) body.providers = current.providers

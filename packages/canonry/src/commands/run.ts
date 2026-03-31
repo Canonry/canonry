@@ -1,4 +1,4 @@
-import { ApiClient, createApiClient, type RunDetailDto } from '../client.js'
+import { type ApiClient, createApiClient, type RunDetailDto } from '../client.js'
 import { resolveProviderInput } from '@ainyc/canonry-contracts'
 import { CliError } from '../cli-error.js'
 
