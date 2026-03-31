@@ -4,6 +4,7 @@ import type { DatabaseClient } from '@ainyc/canonry-db'
 import { projects, auditLog, usageCounters, parseJsonColumn } from '@ainyc/canonry-db'
 import {
   determineAnswerMentioned,
+  extractAnswerMentions,
   effectiveDomains,
   notFound,
   visibilityStateFromAnswerMentioned,
@@ -87,6 +88,18 @@ export function resolveSnapshotVisibilityState(
   project: SnapshotVisibilityProject,
 ): VisibilityState {
   return visibilityStateFromAnswerMentioned(resolveSnapshotAnswerMentioned(snapshot, project))
+}
+
+export function resolveSnapshotMatchedTerms(
+  snapshot: { answerText?: string | null },
+  project: SnapshotVisibilityProject,
+): string[] {
+  if (!snapshot.answerText) return []
+  const domains = effectiveDomains({
+    canonicalDomain: project.canonicalDomain,
+    ownedDomains: normalizeOwnedDomains(project.ownedDomains),
+  })
+  return extractAnswerMentions(snapshot.answerText, project.displayName, domains).matchedTerms
 }
 
 function normalizeOwnedDomains(value: string | string[] | null | undefined): string[] {

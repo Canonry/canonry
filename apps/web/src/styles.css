@@ -1189,13 +1189,61 @@
     @apply rounded-lg border border-zinc-800/60 bg-zinc-900/50 p-3 text-sm leading-relaxed text-zinc-400;
   }
 
-  .answer-highlight {
+  .answer-highlight,
+  .answer-highlight-brand {
     background: rgba(52, 211, 153, 0.15);
     color: rgb(110 231 183);
     border-radius: 2px;
     padding: 0 2px;
     font-style: normal;
     font-weight: 500;
+  }
+
+  .answer-highlight-competitor {
+    background: rgba(251, 191, 36, 0.12);
+    color: rgb(252 211 77);
+    border-radius: 2px;
+    padding: 0 2px;
+    font-style: normal;
+    font-weight: 500;
+  }
+
+  /* ── Mention status (answer visibility sidebar) ── */
+
+  .mention-status {
+    @apply flex items-center gap-2 rounded-lg px-3 py-2 border;
+  }
+
+  .mention-status--visible {
+    @apply border-emerald-800/40 bg-emerald-950/25 text-emerald-300;
+  }
+
+  .mention-status--not-visible {
+    @apply border-zinc-800/40 bg-zinc-900/20 text-zinc-500;
+  }
+
+  .mention-status-icon {
+    @apply text-sm font-semibold shrink-0;
+  }
+
+  .mention-status-label {
+    @apply text-sm font-medium;
+  }
+
+  .mention-chip {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium border;
+  }
+
+  .mention-chip--brand {
+    @apply border-emerald-800/40 bg-emerald-950/25 text-emerald-300;
+  }
+
+  .mention-chip--competitor {
+    @apply border-amber-800/30 bg-amber-950/15 text-amber-300;
+  }
+
+  .mention-chip--muted {
+    @apply border-zinc-800/40 bg-zinc-900/20 text-zinc-500;
   }
 
   /* ── Citation leaderboard ── */

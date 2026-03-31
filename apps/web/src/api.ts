@@ -153,6 +153,7 @@ export interface ApiSnapshot {
   citedDomains: string[]
   competitorOverlap: string[]
   recommendedCompetitors?: string[]
+  matchedTerms?: string[]
   groundingSources: GroundingSource[]
   searchQueries: string[]
   model: string | null

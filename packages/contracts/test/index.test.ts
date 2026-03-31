@@ -18,6 +18,7 @@ import {
   citationStateSchema,
   computedTransitionSchema,
   determineAnswerMentioned,
+  extractAnswerMentions,
   querySnapshotDtoSchema,
   auditLogEntrySchema,
   notificationDtoSchema,
@@ -199,6 +200,7 @@ test('querySnapshotDtoSchema applies defaults', () => {
   expect(snapshot.citedDomains).toEqual([])
   expect(snapshot.competitorOverlap).toEqual([])
   expect(snapshot.recommendedCompetitors).toEqual([])
+  expect(snapshot.matchedTerms).toEqual([])
   expect(snapshot.answerMentioned).toBeUndefined()
   expect(snapshot.visibilityState).toBeUndefined()
 })
@@ -554,6 +556,66 @@ describe('determineAnswerMentioned', () => {
       'Example Health',
       ['examplehealth.com'],
     )).toBe(false)
+  })
+})
+
+describe('extractAnswerMentions', () => {
+  it('returns matched domain terms', () => {
+    const result = extractAnswerMentions(
+      'Top picks include example.com and other vendors.',
+      'Example Inc',
+      ['example.com'],
+    )
+    expect(result.mentioned).toBe(true)
+    expect(result.matchedTerms).toContain('example.com')
+  })
+
+  it('returns matched display name', () => {
+    const result = extractAnswerMentions(
+      'Example Health is frequently recommended for this workflow.',
+      'Example Health',
+      ['examplehealth.com'],
+    )
+    expect(result.mentioned).toBe(true)
+    expect(result.matchedTerms).toContain('Example Health')
+  })
+
+  it('returns empty matchedTerms when nothing matches', () => {
+    const result = extractAnswerMentions(
+      'Top picks include Contoso and Fabrikam.',
+      'Example Health',
+      ['examplehealth.com'],
+    )
+    expect(result.mentioned).toBe(false)
+    expect(result.matchedTerms).toEqual([])
+  })
+
+  it('returns both domain and display name when both match', () => {
+    const result = extractAnswerMentions(
+      'According to Example Inc at example.com, this is the best approach.',
+      'Example Inc',
+      ['example.com'],
+    )
+    expect(result.mentioned).toBe(true)
+    expect(result.matchedTerms).toContain('example.com')
+    expect(result.matchedTerms).toContain('Example Inc')
+  })
+
+  it('deduplicates matched terms', () => {
+    const result = extractAnswerMentions(
+      'Visit ainyc.ai for details. AINYC.AI is great.',
+      'AI NYC',
+      ['ainyc.ai'],
+    )
+    expect(result.mentioned).toBe(true)
+    const domainCount = result.matchedTerms.filter(t => t === 'ainyc.ai').length
+    expect(domainCount).toBe(1)
+  })
+
+  it('handles null answer text', () => {
+    const result = extractAnswerMentions(null, 'Example', ['example.com'])
+    expect(result.mentioned).toBe(false)
+    expect(result.matchedTerms).toEqual([])
   })
 })
 

@@ -20,40 +20,64 @@ const GENERIC_TOKENS = new Set([
   'tech',
 ])
 
+export interface AnswerMentionResult {
+  mentioned: boolean
+  matchedTerms: string[]
+}
+
+export function extractAnswerMentions(
+  answerText: string | null | undefined,
+  displayName: string,
+  domains: string[],
+): AnswerMentionResult {
+  if (!answerText) return { mentioned: false, matchedTerms: [] }
+
+  const matchedTerms: string[] = []
+  const lowerAnswer = answerText.toLowerCase()
+
+  for (const domain of domains) {
+    const normalizedDomain = normalizeProjectDomain(domain)
+    if (!normalizedDomain || !normalizedDomain.includes('.')) continue
+    if (domainMentioned(lowerAnswer, normalizedDomain)) {
+      matchedTerms.push(normalizedDomain)
+    }
+  }
+
+  const normalizedDisplayName = normalizeText(displayName)
+  if (normalizedDisplayName && normalizeText(answerText).includes(normalizedDisplayName)) {
+    matchedTerms.push(displayName)
+  }
+
+  const tokens = collectDistinctiveTokens(displayName, domains)
+  let tokenMatches = 0
+  const matchedTokens: string[] = []
+  for (const token of tokens) {
+    if (new RegExp(`\\b${escapeRegExp(token)}\\b`).test(lowerAnswer)) {
+      tokenMatches++
+      matchedTokens.push(token)
+    }
+  }
+
+  const tokenThresholdMet = tokens.length > 0 && (
+    (tokens.length === 1 && tokenMatches >= 1)
+    || tokenMatches >= Math.min(2, tokens.length)
+  )
+
+  if (tokenThresholdMet) {
+    matchedTerms.push(...matchedTokens)
+  }
+
+  // Deduplicate
+  const unique = [...new Set(matchedTerms)]
+  return { mentioned: unique.length > 0, matchedTerms: unique }
+}
+
 export function determineAnswerMentioned(
   answerText: string | null | undefined,
   displayName: string,
   domains: string[],
 ): boolean {
-  if (!answerText) return false
-
-  const lowerAnswer = answerText.toLowerCase()
-  for (const domain of domains) {
-    const normalizedDomain = normalizeProjectDomain(domain)
-    if (!normalizedDomain || !normalizedDomain.includes('.')) continue
-    if (domainMentioned(lowerAnswer, normalizedDomain)) return true
-  }
-
-  const normalizedDisplayName = normalizeText(displayName)
-  if (normalizedDisplayName && normalizeText(answerText).includes(normalizedDisplayName)) {
-    return true
-  }
-
-  const tokens = collectDistinctiveTokens(displayName, domains)
-  if (tokens.length === 0) return false
-
-  let matches = 0
-  for (const token of tokens) {
-    if (new RegExp(`\\b${escapeRegExp(token)}\\b`).test(lowerAnswer)) {
-      matches++
-    }
-  }
-
-  if (tokens.length === 1) {
-    return matches >= 1
-  }
-
-  return matches >= Math.min(2, tokens.length)
+  return extractAnswerMentions(answerText, displayName, domains).mentioned
 }
 
 export function visibilityStateFromAnswerMentioned(answerMentioned: boolean | null | undefined): VisibilityState {

@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import { runs, querySnapshots, keywords, projects, parseJsonColumn } from '@ainyc/canonry-db'
 import type { LocationContext } from '@ainyc/canonry-contracts'
 import { unsupportedKind, runInProgress, runNotCancellable, notFound, validationError } from '@ainyc/canonry-contracts'
-import { resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotVisibilityState, writeAuditLog } from './helpers.js'
+import { resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotVisibilityState, resolveSnapshotMatchedTerms, writeAuditLog } from './helpers.js'
 import { queueRunIfProjectIdle } from './run-queue.js'
 
 export interface RunRoutesOptions {
@@ -319,6 +319,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
           citedDomains: parseJsonColumn<string[]>(s.citedDomains, []),
           competitorOverlap: parseJsonColumn<string[]>(s.competitorOverlap, []),
           recommendedCompetitors: parseJsonColumn<string[]>(s.recommendedCompetitors, []),
+          matchedTerms: project ? resolveSnapshotMatchedTerms(s, project) : [],
           model: s.model ?? rawParsed.model,
           location: s.location,
           groundingSources: rawParsed.groundingSources,

@@ -116,6 +116,7 @@ export interface CitationInsightVm {
   evidenceUrls: string[]
   competitorDomains: string[]
   recommendedCompetitors?: string[]
+  matchedTerms?: string[]
   relatedTechnicalSignals: string[]
   groundingSources: GroundingSource[]
   summary: string

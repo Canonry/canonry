@@ -5,7 +5,7 @@ import { X } from 'lucide-react'
 import { effectiveDomains, normalizeProjectDomain } from '@ainyc/canonry-contracts'
 
 import { InfoTooltip } from '../shared/InfoTooltip.js'
-import { highlightTermsInText } from '../../lib/highlight.js'
+import { highlightTermsInText, type HighlightTermGroup } from '../../lib/highlight.js'
 import { fetchRunDetail, type GroundingSource } from '../../api.js'
 import type { CitationInsightVm, ProjectCommandCenterVm } from '../../view-models.js'
 
@@ -21,6 +21,7 @@ export interface EvidenceDisplayData {
   citedDomains: string[]
   competitorDomains: string[]
   recommendedCompetitors: string[]
+  matchedTerms: string[]
   groundingSources: GroundingSource[]
   evidenceUrls: string[]
   changeLabel: string
@@ -88,6 +89,7 @@ export function EvidenceDetailModal({
           citedDomains: snap.citedDomains ?? evidence.citedDomains,
           competitorDomains: snap.competitorOverlap ?? evidence.competitorDomains,
           recommendedCompetitors: snap.recommendedCompetitors ?? evidence.recommendedCompetitors ?? [],
+          matchedTerms: snap.matchedTerms ?? evidence.matchedTerms ?? [],
           groundingSources: snap.groundingSources ?? evidence.groundingSources,
           evidenceUrls: [],
           changeLabel: evidence.visibilityChangeLabel ?? evidence.changeLabel,
@@ -112,6 +114,7 @@ export function EvidenceDetailModal({
       citedDomains: evidence.citedDomains,
       competitorDomains: evidence.competitorDomains,
       recommendedCompetitors: evidence.recommendedCompetitors ?? [],
+      matchedTerms: evidence.matchedTerms ?? [],
       groundingSources: evidence.groundingSources,
       evidenceUrls: evidence.evidenceUrls,
       changeLabel: evidence.visibilityChangeLabel ?? evidence.changeLabel,
@@ -135,11 +138,27 @@ export function EvidenceDetailModal({
 
   // Terms to highlight in the AI answer
   const projectDisplayName = project.project.displayName || project.project.name
-  const highlightTerms = [
+  const brandTerms = [
     ...projectDomains.map(normalizeProjectDomain),
     projectDisplayName,
     projectDisplayName.split(' ').slice(0, 2).join(' '),
   ].filter(t => t.trim().length > 2)
+
+  // Build competitor highlight terms from overlap domains + recommended competitor names
+  const competitorHighlightTerms = [
+    ...display.competitorDomains.flatMap(d => {
+      const brand = d.split('.')[0]
+      return brand && brand.length >= 4 ? [brand] : []
+    }),
+    ...display.recommendedCompetitors,
+  ].filter(t => t.trim().length > 2)
+
+  const highlightTermGroups: HighlightTermGroup[] = [
+    { terms: brandTerms, className: 'answer-highlight-brand' },
+    ...(competitorHighlightTerms.length > 0
+      ? [{ terms: competitorHighlightTerms, className: 'answer-highlight-competitor' }]
+      : []),
+  ]
 
   // State key for CSS variants
   const stateKey: 'cited' | 'not-cited' | 'lost' | 'pending' =
@@ -195,6 +214,7 @@ export function EvidenceDetailModal({
         citedDomains: snap.citedDomains,
         competitorDomains: snap.competitorOverlap,
         recommendedCompetitors: snap.recommendedCompetitors ?? [],
+        matchedTerms: snap.matchedTerms ?? [],
         groundingSources: snap.groundingSources,
         evidenceUrls: [],
         changeLabel: describeVisibilityChange(run.visibilityTransition, run.visibilityState),
@@ -210,6 +230,7 @@ export function EvidenceDetailModal({
         citedDomains: [],
         competitorDomains: [],
         recommendedCompetitors: [],
+        matchedTerms: [],
         groundingSources: [],
         evidenceUrls: [],
         changeLabel: describeVisibilityChange(run.visibilityTransition, run.visibilityState),
@@ -231,6 +252,7 @@ export function EvidenceDetailModal({
         citedDomains: [],
         competitorDomains: [],
         recommendedCompetitors: [],
+        matchedTerms: [],
         groundingSources: [],
         evidenceUrls: [],
         changeLabel: describeVisibilityChange(run.visibilityTransition, run.visibilityState),
@@ -297,7 +319,7 @@ export function EvidenceDetailModal({
       if (text) {
         elements.push(
           <p key={key++} className={elements.length > 0 ? 'mt-2.5' : ''}>
-            {highlightTermsInText(text, highlightTerms)}
+            {highlightTermsInText(text, highlightTermGroups)}
           </p>,
         )
       }
@@ -323,7 +345,7 @@ export function EvidenceDetailModal({
             : 'text-xs font-medium text-zinc-300 mt-2'
         elements.push(
           <p key={key++} className={cls}>
-            {highlightTermsInText(text, highlightTerms)}
+            {highlightTermsInText(text, highlightTermGroups)}
           </p>,
         )
         continue
@@ -533,35 +555,50 @@ export function EvidenceDetailModal({
                       <div>
                         <div className="drawer-section-label flex items-center">
                           <span>Answer visibility</span>
-                          <InfoTooltip text="This status comes from Canonry's answer-level matching against your owned domains and project name. It is independent from grounding or citation sources." />
+                          <InfoTooltip text="Canonry scans the AI answer for your owned domains and project name. This is independent from grounding or citation sources." />
                         </div>
-                        <div className={`citation-leaderboard-item citation-leaderboard-item--${isVisible ? 'you' : 'not-cited'}`}>
-                          <span className="citation-leaderboard-rank">{isVisible ? '✓' : '\u2014'}</span>
-                          <span className="citation-leaderboard-domain">
-                            {isPending
-                              ? 'Awaiting first visibility run'
-                              : isVisible
-                                ? 'Your brand or domain appears in the answer text'
-                                : 'Your brand or domain does not appear in the answer text'}
+                        <div className={`mention-status mention-status--${isVisible ? 'visible' : 'not-visible'}`}>
+                          <span className="mention-status-icon">{isPending ? '…' : isVisible ? '✓' : '—'}</span>
+                          <span className="mention-status-label">
+                            {isPending ? 'Pending' : isVisible ? 'Visible' : 'Not visible'}
                           </span>
-                          {!isPending && (
-                            <span className="citation-leaderboard-tag">{isVisible ? 'Visible' : 'Not visible'}</span>
-                          )}
                         </div>
+
+                        {/* Matched terms chips */}
+                        {display.matchedTerms.length > 0 && (
+                          <div className="mt-2">
+                            <p className="text-[10px] uppercase tracking-wide text-zinc-500 mb-1.5">Matched in answer</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {display.matchedTerms.map(term => (
+                                <span key={term} className="mention-chip mention-chip--brand">{term}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* When not visible, show what was searched for */}
+                        {!isPending && !isVisible && display.matchedTerms.length === 0 && (
+                          <div className="mt-2">
+                            <p className="text-[10px] uppercase tracking-wide text-zinc-500 mb-1.5">Searched for</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {brandTerms.map(term => (
+                                <span key={term} className="mention-chip mention-chip--muted">{term}</span>
+                              ))}
+                            </div>
+                            <p className="text-[11px] text-zinc-600 mt-1.5">None of these appear in the answer text.</p>
+                          </div>
+                        )}
                       </div>
 
                       {display.recommendedCompetitors.length > 0 && (
                         <div>
                           <div className="drawer-section-label flex items-center">
-                            <span>Company names mentioned</span>
-                            <InfoTooltip text="Best-effort company names extracted from the answer text. This is supplementary context only." />
+                            <span>Competitors in answer</span>
+                            <InfoTooltip text="Company names extracted from the answer text that match tracked or detected competitors." />
                           </div>
-                          <div className="citation-leaderboard">
-                            {display.recommendedCompetitors.map((name, i) => (
-                              <div key={name} className="citation-leaderboard-item citation-leaderboard-item--competitor">
-                                <span className="citation-leaderboard-rank">#{i + 1}</span>
-                                <span className="citation-leaderboard-domain">{name}</span>
-                              </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {display.recommendedCompetitors.map(name => (
+                              <span key={name} className="mention-chip mention-chip--competitor">{name}</span>
                             ))}
                           </div>
                         </div>
