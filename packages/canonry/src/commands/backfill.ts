@@ -23,8 +23,6 @@ export async function backfillAnswerVisibilityCommand(opts?: {
   let examined = 0
   let updated = 0
   let visible = 0
-  const skipped = 0
-
   if (scopedProjects.length > 0) {
     const runRows = projectFilter
       ? db
@@ -86,7 +84,6 @@ export async function backfillAnswerVisibilityCommand(opts?: {
     examined,
     updated,
     visible,
-    skipped,
   }
 
   if (opts?.format === 'json') {
@@ -102,7 +99,4 @@ export async function backfillAnswerVisibilityCommand(opts?: {
   console.log(`  Examined: ${examined}`)
   console.log(`  Updated:  ${updated}`)
   console.log(`  Visible:  ${visible}`)
-  if (skipped > 0) {
-    console.log(`  Skipped:  ${skipped}`)
-  }
 }

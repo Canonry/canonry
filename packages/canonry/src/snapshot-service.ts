@@ -315,12 +315,16 @@ export class SnapshotService {
               manualCompetitors: ctx.manualCompetitors,
               targetDomain: ctx.domain,
             })
+            // Snapshot requests currently carry a single target domain, so the
+            // audit path keeps answer visibility scoped to that domain until
+            // the snapshot API grows owned-domain support.
+            const answerVisibilityDomains = [ctx.domain]
 
             return {
               provider: provider.adapter.name,
               displayName: provider.adapter.displayName,
               model: raw.model,
-              mentioned: determineAnswerMentioned(normalized.answerText, ctx.companyName, [ctx.domain]),
+              mentioned: determineAnswerMentioned(normalized.answerText, ctx.companyName, answerVisibilityDomains),
               cited: citesTargetDomain(normalized.citedDomains, normalized.groundingSources, ctx.domain),
               describedAccurately: 'unknown' as const,
               accuracyNotes: null,

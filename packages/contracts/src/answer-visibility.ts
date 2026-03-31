@@ -44,7 +44,7 @@ export function determineAnswerMentioned(
 
   let matches = 0
   for (const token of tokens) {
-    if (new RegExp(`\\b${escapeRegExp(token)}\\b`, 'i').test(answerText)) {
+    if (new RegExp(`\\b${escapeRegExp(token)}\\b`).test(lowerAnswer)) {
       matches++
     }
   }
@@ -63,9 +63,9 @@ export function visibilityStateFromAnswerMentioned(answerMentioned: boolean | nu
 function domainMentioned(lowerAnswer: string, normalizedDomain: string): boolean {
   const escapedDomain = escapeRegExp(normalizedDomain.toLowerCase())
   const patterns = [
-    new RegExp(`(^|[^a-z0-9-])${escapedDomain}($|[^a-z0-9-])`, 'i'),
-    new RegExp(`https?://(?:www\\.)?${escapedDomain}(?:[/:?#]|$)`, 'i'),
-    new RegExp(`www\\.${escapedDomain}(?:[/:?#]|$)`, 'i'),
+    new RegExp(`(^|[^a-z0-9-])${escapedDomain}($|[^a-z0-9-])`),
+    new RegExp(`https?://(?:www\\.)?${escapedDomain}(?:[/:?#]|$)`),
+    new RegExp(`www\\.${escapedDomain}(?:[/:?#]|$)`),
   ]
   return patterns.some(pattern => pattern.test(lowerAnswer))
 }
