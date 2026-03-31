@@ -9,3 +9,7 @@ export const GSC_DATA_LAG_DAYS = 3
 export const URL_INSPECTION_DAILY_LIMIT = 2000
 export const INDEXING_API_BASE = 'https://indexing.googleapis.com/v3'
 export const INDEXING_API_DAILY_LIMIT = 200
+
+// HTTP request timeout (30 s) — prevents the process from hanging indefinitely
+// on a slow or unresponsive Google API endpoint.
+export const GOOGLE_REQUEST_TIMEOUT_MS = 30_000

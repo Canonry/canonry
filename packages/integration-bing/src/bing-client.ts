@@ -1,4 +1,4 @@
-import { BING_WMT_API_BASE, BING_SUBMIT_URL_BATCH_LIMIT } from './constants.js'
+import { BING_WMT_API_BASE, BING_SUBMIT_URL_BATCH_LIMIT, BING_REQUEST_TIMEOUT_MS } from './constants.js'
 import type {
   BingSite,
   BingUrlInfo,
@@ -27,6 +27,7 @@ async function bingFetch<T>(apiKey: string, endpoint: string, opts?: { method?: 
     method,
     headers,
     body: opts?.body != null ? JSON.stringify(opts.body) : undefined,
+    signal: AbortSignal.timeout(BING_REQUEST_TIMEOUT_MS),
   })
 
   if (res.status === 401 || res.status === 403) {

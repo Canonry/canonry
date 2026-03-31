@@ -1,4 +1,4 @@
-import { GSC_API_BASE, URL_INSPECTION_API, GSC_MAX_ROWS_PER_REQUEST, INDEXING_API_BASE } from './constants.js'
+import { GSC_API_BASE, URL_INSPECTION_API, GSC_MAX_ROWS_PER_REQUEST, INDEXING_API_BASE, GOOGLE_REQUEST_TIMEOUT_MS } from './constants.js'
 import type {
   GscSite,
   GscSitemap,
@@ -27,6 +27,7 @@ async function gscFetch<T>(accessToken: string, url: string, opts?: { method?: s
     method,
     headers,
     body: opts?.body != null ? JSON.stringify(opts.body) : undefined,
+    signal: AbortSignal.timeout(GOOGLE_REQUEST_TIMEOUT_MS),
   })
 
   if (res.status === 401) {

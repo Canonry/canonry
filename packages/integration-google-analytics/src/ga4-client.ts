@@ -5,6 +5,7 @@ import {
   GOOGLE_TOKEN_URL,
   GA4_DEFAULT_SYNC_DAYS,
   GA4_MAX_SYNC_DAYS,
+  GA4_REQUEST_TIMEOUT_MS,
 } from './constants.js'
 import type {
   GA4AiReferralRow,
@@ -62,6 +63,7 @@ export async function getAccessToken(clientEmail: string, privateKey: string): P
       grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
       assertion: jwt,
     }),
+    signal: AbortSignal.timeout(GA4_REQUEST_TIMEOUT_MS),
   })
 
   if (!res.ok) {
@@ -91,6 +93,7 @@ async function runReport(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(request),
+    signal: AbortSignal.timeout(GA4_REQUEST_TIMEOUT_MS),
   })
 
   if (res.status === 401 || res.status === 403) {
@@ -148,6 +151,7 @@ async function batchRunReports(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ requests }),
+    signal: AbortSignal.timeout(GA4_REQUEST_TIMEOUT_MS),
   })
 
   if (res.status === 401 || res.status === 403) {

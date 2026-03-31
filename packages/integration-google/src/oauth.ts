@@ -1,4 +1,4 @@
-import { GOOGLE_AUTH_URL, GOOGLE_TOKEN_URL } from './constants.js'
+import { GOOGLE_AUTH_URL, GOOGLE_TOKEN_URL, GOOGLE_REQUEST_TIMEOUT_MS } from './constants.js'
 import type { GoogleTokenResponse } from './types.js'
 import { GoogleAuthError } from './types.js'
 
@@ -36,6 +36,7 @@ export async function exchangeCode(
       redirect_uri: redirectUri,
       grant_type: 'authorization_code',
     }),
+    signal: AbortSignal.timeout(GOOGLE_REQUEST_TIMEOUT_MS),
   })
 
   if (!res.ok) {
@@ -60,6 +61,7 @@ export async function refreshAccessToken(
       refresh_token: currentRefreshToken,
       grant_type: 'refresh_token',
     }),
+    signal: AbortSignal.timeout(GOOGLE_REQUEST_TIMEOUT_MS),
   })
 
   if (!res.ok) {

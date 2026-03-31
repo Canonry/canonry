@@ -24,6 +24,11 @@ import { WordpressApiError } from './types.js'
 import type { BusinessProfile, SchemaPageEntry, SchemaProfileFile } from './schema-templates.js'
 import { generateSchema, isSupportedSchemaType, parseSchemaPageEntry } from './schema-templates.js'
 
+// HTTP request timeout (30 s for authenticated REST calls, 15 s for public HTML fetches).
+// Prevents the process from hanging indefinitely on a slow or unresponsive WordPress site.
+const WP_REQUEST_TIMEOUT_MS = 30_000
+const WP_FETCH_TEXT_TIMEOUT_MS = 15_000
+
 const PAGE_FIELDS = 'id,slug,status,link,modified,modified_gmt,title,content,meta'
 const PAGE_LIST_FIELDS = 'id,slug,status,link,modified,modified_gmt,title'
 const VERIFY_PAGE_FIELDS = 'id,status'
@@ -94,6 +99,7 @@ async function fetchJson<T>(
       ...(init?.body != null ? { 'Content-Type': 'application/json' } : {}),
       ...(init?.headers ?? {}),
     },
+    signal: AbortSignal.timeout(WP_REQUEST_TIMEOUT_MS),
   })
 
   if (res.status === 401 || res.status === 403) {
@@ -151,7 +157,7 @@ async function fetchPageCollectionSummary(
 
 async function fetchText(url: string): Promise<string | null> {
   try {
-    const res = await fetch(url)
+    const res = await fetch(url, { signal: AbortSignal.timeout(WP_FETCH_TEXT_TIMEOUT_MS) })
     if (!res.ok) return null
     return await res.text()
   } catch {
