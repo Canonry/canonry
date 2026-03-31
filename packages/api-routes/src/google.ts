@@ -16,6 +16,7 @@ import {
   INDEXING_SCOPE,
   INDEXING_API_DAILY_LIMIT,
 } from '@ainyc/canonry-integration-google'
+import { GA4_SCOPE } from '@ainyc/canonry-integration-google-analytics'
 
 export interface GoogleConnectionRecord {
   domain: string
@@ -176,7 +177,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       redirectUri = `${proto}://${host}/api/v1/projects/${encodeURIComponent(request.params.name)}/google/callback`
     }
 
-    const scopes = type === 'gsc' ? [GSC_SCOPE, INDEXING_SCOPE] : []
+    const scopes = type === 'gsc' ? [GSC_SCOPE, INDEXING_SCOPE] : [GA4_SCOPE]
     const stateEncoded = buildSignedState(
       { domain: project.canonicalDomain, type, propertyId, redirectUri },
       stateSecret,

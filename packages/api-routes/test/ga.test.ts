@@ -77,7 +77,8 @@ describe('GA4 routes', () => {
     expect(body.error.message).toMatch(/propertyId/)
   })
 
-  it('POST /ga/connect rejects missing keyJson', async () => {
+  it('POST /ga/connect falls back to OAuth path when no keyJson provided', async () => {
+    // No keyJson and no OAuth store configured → server returns 400 with OAuth guidance
     const res = await app.inject({
       method: 'POST',
       url: '/api/v1/projects/test-project/ga/connect',
@@ -85,7 +86,8 @@ describe('GA4 routes', () => {
     })
     expect(res.statusCode).toBe(400)
     const body = JSON.parse(res.payload)
-    expect(body.error.message).toMatch(/keyJson/)
+    // Should mention OAuth path, not keyJson requirement
+    expect(body.error.message).toMatch(/OAuth|oauth|google connect/i)
   })
 
   it('POST /ga/connect rejects invalid JSON in keyJson', async () => {
@@ -506,9 +508,10 @@ describe('GA4 routes', () => {
       url: '/api/v1/projects/test-project/ga/connect',
       payload: { propertyId: '123456', keyFile: '/etc/passwd' },
     })
-    // Should fail because keyJson is missing (keyFile is not accepted)
+    // keyFile is a CLI-only concept; server ignores it and falls back to OAuth path.
+    // With no OAuth store configured, returns 400 with OAuth guidance.
     expect(res.statusCode).toBe(400)
     const body = JSON.parse(res.payload)
-    expect(body.error.message).toMatch(/keyJson/)
+    expect(body.error.message).toMatch(/OAuth|oauth|google connect/i)
   })
 })

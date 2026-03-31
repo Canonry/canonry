@@ -223,6 +223,8 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     } satisfies CDPRoutesOptions)
     await api.register(ga4Routes, {
       ga4CredentialStore: opts.ga4CredentialStore,
+      googleConnectionStore: opts.googleConnectionStore,
+      getGoogleAuthConfig: opts.getGoogleAuthConfig,
     } satisfies GA4RoutesOptions)
   }, { prefix: opts.routePrefix ?? '/api/v1' })
 }

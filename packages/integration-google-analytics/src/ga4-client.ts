@@ -297,8 +297,17 @@ export async function verifyConnection(
   propertyId: string,
 ): Promise<boolean> {
   const accessToken = await getAccessToken(clientEmail, privateKey)
+  return verifyConnectionWithToken(accessToken, propertyId)
+}
 
-  // Run a minimal report to verify access
+/**
+ * Verify that an OAuth access token grants access to the given GA4 property.
+ * Used for the OAuth auth path (canonry google connect --type ga4).
+ */
+export async function verifyConnectionWithToken(
+  accessToken: string,
+  propertyId: string,
+): Promise<boolean> {
   const endDate = new Date()
   const startDate = new Date()
   startDate.setDate(startDate.getDate() - 1)

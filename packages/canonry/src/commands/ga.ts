@@ -20,15 +20,6 @@ export async function gaConnect(project: string, opts: {
     })
   }
 
-  if (!opts.keyFile && !opts.keyJson) {
-    throw new CliError({
-      code: 'GA_KEY_REQUIRED',
-      message: 'Service account key is required (pass --key-file or --key-json)',
-      displayMessage: 'Error: --key-file or --key-json is required',
-      details: { project },
-    })
-  }
-
   const body: { propertyId: string; keyJson?: string } = {
     propertyId: opts.propertyId,
   }
@@ -54,12 +45,15 @@ export async function gaConnect(project: string, opts: {
   } else if (opts.keyJson) {
     body.keyJson = opts.keyJson
   }
+  // No key provided — server will attempt to use existing OAuth token
+  // from "canonry google connect <project> --type ga4"
 
   const client = getClient()
   const result = await client.gaConnect(project, body) as {
     connected: boolean
     propertyId: string
-    clientEmail: string
+    authMethod: 'service-account' | 'oauth'
+    clientEmail?: string
   }
 
   if (opts.format === 'json') {
@@ -68,8 +62,12 @@ export async function gaConnect(project: string, opts: {
   }
 
   console.log(`GA4 connected for project "${project}".`)
-  console.log(`  Property ID:     ${result.propertyId}`)
-  console.log(`  Service Account: ${result.clientEmail}`)
+  console.log(`  Property ID:  ${result.propertyId}`)
+  if (result.authMethod === 'service-account' && result.clientEmail) {
+    console.log(`  Auth:         service account (${result.clientEmail})`)
+  } else {
+    console.log(`  Auth:         OAuth (canonry google connect --type ga4)`)
+  }
 }
 
 export async function gaDisconnect(project: string, format?: string): Promise<void> {
@@ -90,6 +88,7 @@ export async function gaStatus(project: string, format?: string): Promise<void> 
     connected: boolean
     propertyId: string | null
     clientEmail: string | null
+    authMethod: 'service-account' | 'oauth' | null
     lastSyncedAt: string | null
     createdAt?: string
     updatedAt?: string
@@ -102,15 +101,22 @@ export async function gaStatus(project: string, format?: string): Promise<void> 
 
   if (!result.connected) {
     console.log(`No GA4 connection for project "${project}".`)
-    console.log('Run "canonry ga connect <project> --property-id <id> --key-file <path>" to connect.')
+    console.log('Options:')
+    console.log('  With service account: canonry ga connect <project> --property-id <id> --key-file <path>')
+    console.log('  With OAuth:           canonry google connect <project> --type ga4')
+    console.log('                        canonry ga connect <project> --property-id <id>')
     return
   }
 
   console.log(`GA4 for "${project}":\n`)
-  console.log(`  Property ID:     ${result.propertyId}`)
-  console.log(`  Service Account: ${result.clientEmail}`)
-  console.log(`  Last Synced:     ${result.lastSyncedAt ?? '(never)'}`)
-  console.log(`  Connected:       ${result.createdAt ?? 'unknown'}`)
+  console.log(`  Property ID:  ${result.propertyId}`)
+  if (result.authMethod === 'service-account') {
+    console.log(`  Auth:         service account (${result.clientEmail})`)
+  } else {
+    console.log(`  Auth:         OAuth`)
+  }
+  console.log(`  Last Synced:  ${result.lastSyncedAt ?? '(never)'}`)
+  console.log(`  Connected:    ${result.createdAt ?? 'unknown'}`)
 }
 
 export async function gaSync(project: string, opts?: { days?: number; format?: string }): Promise<void> {
