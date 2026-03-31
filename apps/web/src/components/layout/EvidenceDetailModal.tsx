@@ -599,14 +599,17 @@ export function EvidenceDetailModal({
                             <InfoTooltip text="Competitors detected in the answer text or cited source links. Includes both tracked competitors and names extracted by Canonry." />
                           </div>
                           <div className="flex flex-wrap gap-1.5">
-                            {[
-                              ...display.recommendedCompetitors,
-                              ...display.competitorDomains.map(d => d.replace(/^www\./, '')),
-                            ]
-                              .filter((v, i, arr) => arr.indexOf(v) === i)
-                              .map(name => (
+                            {(() => {
+                              const brandKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+                              const domainChips = display.competitorDomains.map(d => d.replace(/^www\./, ''))
+                              const domainKeys = new Set(domainChips.map(d => brandKey(d.replace(/\.[^.]+$/, ''))))
+                              const filteredNames = display.recommendedCompetitors.filter(
+                                name => !domainKeys.has(brandKey(name))
+                              )
+                              return [...filteredNames, ...domainChips].map(name => (
                                 <span key={name} className="mention-chip mention-chip--competitor">{name}</span>
-                              ))}
+                              ))
+                            })()}
                           </div>
                         </div>
                       )}
