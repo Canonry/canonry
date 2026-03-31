@@ -117,7 +117,8 @@ export function EvidenceDetailModal({
       summary: evidence.summary,
     }
 
-  const isVisible = display.visibilityState === 'pending'
+  const isPending = display.visibilityState === 'pending' || display.citationState === 'pending'
+  const isVisible = isPending
     ? false
     : display.visibilityState != null
       ? display.visibilityState === 'visible'
@@ -141,7 +142,7 @@ export function EvidenceDetailModal({
 
   // State key for CSS variants
   const stateKey: 'cited' | 'not-cited' | 'lost' | 'pending' =
-    display.visibilityState === 'pending' ? 'pending' :
+    isPending ? 'pending' :
     display.visibilityTransition === 'lost' ? 'lost' :
     isVisible ? 'cited' : 'not-cited'
 
@@ -268,7 +269,7 @@ export function EvidenceDetailModal({
         meta: providerMeta,
       }
     }
-    if (display.visibilityState === 'pending') {
+    if (isPending) {
       return {
         label: 'Pending',
         title: 'Awaiting first visibility run',
@@ -537,13 +538,13 @@ export function EvidenceDetailModal({
                         <div className={`citation-leaderboard-item citation-leaderboard-item--${isVisible ? 'you' : 'not-cited'}`}>
                           <span className="citation-leaderboard-rank">{isVisible ? '✓' : '\u2014'}</span>
                           <span className="citation-leaderboard-domain">
-                            {display.visibilityState === 'pending'
+                            {isPending
                               ? 'Awaiting first visibility run'
                               : isVisible
                                 ? 'Your brand or domain appears in the answer text'
                                 : 'Your brand or domain does not appear in the answer text'}
                           </span>
-                          {display.visibilityState !== 'pending' && (
+                          {!isPending && (
                             <span className="citation-leaderboard-tag">{isVisible ? 'Visible' : 'Not visible'}</span>
                           )}
                         </div>
