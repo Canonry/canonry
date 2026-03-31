@@ -48,6 +48,34 @@ export interface GA4RoutesOptions {
 }
 
 /**
+ * Refresh an OAuth token if expired (or within 5 minutes of expiry).
+ * Returns the current or refreshed access token.
+ */
+async function refreshOAuthTokenIfNeeded(
+  googleStore: GoogleConnectionStore,
+  authConfig: GoogleAuthConfig,
+  canonicalDomain: string,
+  oauthConn: { accessToken: string; refreshToken: string; tokenExpiresAt?: string | null },
+): Promise<string> {
+  const expiresAt = oauthConn.tokenExpiresAt ? new Date(oauthConn.tokenExpiresAt).getTime() : 0
+  const fiveMinutes = 5 * 60 * 1000
+  if (Date.now() > expiresAt - fiveMinutes) {
+    if (!authConfig.clientId || !authConfig.clientSecret) {
+      throw validationError('Google OAuth client credentials are not configured — cannot refresh GA4 token.')
+    }
+    const tokens = await refreshAccessToken(authConfig.clientId, authConfig.clientSecret, oauthConn.refreshToken)
+    const newExpiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString()
+    googleStore.updateConnection(canonicalDomain, 'ga4', {
+      accessToken: tokens.access_token,
+      tokenExpiresAt: newExpiresAt,
+      updatedAt: new Date().toISOString(),
+    })
+    return tokens.access_token
+  }
+  return oauthConn.accessToken
+}
+
+/**
  * Resolve a valid GA4 access token for a project.
  * Priority: service account (ga4CredentialStore) → OAuth token (googleConnectionStore).
  * Returns the access token and the resolved property ID.
@@ -88,24 +116,24 @@ async function resolveGa4AccessToken(
     )
   }
 
-  // Refresh token if expired (or within 5 minutes of expiry)
-  const expiresAt = oauthConn.tokenExpiresAt ? new Date(oauthConn.tokenExpiresAt).getTime() : 0
-  const fiveMinutes = 5 * 60 * 1000
-  if (Date.now() > expiresAt - fiveMinutes) {
-    if (!authConfig.clientId || !authConfig.clientSecret) {
-      throw validationError('Google OAuth client credentials are not configured — cannot refresh GA4 token.')
-    }
-    const tokens = await refreshAccessToken(authConfig.clientId, authConfig.clientSecret, oauthConn.refreshToken)
-    const newExpiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString()
-    googleStore.updateConnection(canonicalDomain, 'ga4', {
-      accessToken: tokens.access_token,
-      tokenExpiresAt: newExpiresAt,
-      updatedAt: new Date().toISOString(),
-    })
-    return { accessToken: tokens.access_token, propertyId: oauthConn.propertyId }
-  }
+  const accessToken = await refreshOAuthTokenIfNeeded(googleStore, authConfig, canonicalDomain, {
+    accessToken: oauthConn.accessToken,
+    refreshToken: oauthConn.refreshToken,
+    tokenExpiresAt: oauthConn.tokenExpiresAt,
+  })
+  return { accessToken, propertyId: oauthConn.propertyId }
+}
 
-  return { accessToken: oauthConn.accessToken, propertyId: oauthConn.propertyId }
+/**
+ * Check that a GA4 connection (service account or OAuth) exists for a project.
+ * Throws if no connection is found.
+ */
+function requireGa4Connection(opts: GA4RoutesOptions, projectName: string, canonicalDomain: string): void {
+  const saConn = opts.ga4CredentialStore?.getConnection(projectName)
+  const oauthConn = opts.googleConnectionStore?.getConnection(canonicalDomain, 'ga4')
+  if (!saConn && !(oauthConn?.accessToken && oauthConn?.propertyId)) {
+    throw validationError('No GA4 connection found. Run "canonry ga connect <project>" first.')
+  }
 }
 
 export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
@@ -115,36 +143,32 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
   app.post<{
     Params: { name: string }
     Body: { propertyId: string; keyJson?: string }
-  }>('/projects/:name/ga/connect', async (request, reply) => {
+  }>('/projects/:name/ga/connect', async (request, _reply) => {
     const project = resolveProject(app.db, request.params.name)
     const { propertyId, keyJson } = request.body ?? {}
 
     if (!propertyId || typeof propertyId !== 'string') {
-      const err = validationError('propertyId is required')
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError('propertyId is required')
     }
 
     // --- Service account path ---
     if (keyJson && typeof keyJson === 'string') {
       if (!opts.ga4CredentialStore) {
-        const err = validationError('GA4 credential storage is not configured for this deployment')
-        return reply.status(err.statusCode).send(err.toJSON())
+        throw validationError('GA4 credential storage is not configured for this deployment')
       }
 
-      let clientEmail: string
-      let privateKey: string
+      let parsed: { client_email?: string; private_key?: string }
       try {
-        const parsed = JSON.parse(keyJson) as { client_email?: string; private_key?: string }
-        if (!parsed.client_email || !parsed.private_key) {
-          const err = validationError('Service account JSON must contain client_email and private_key')
-          return reply.status(err.statusCode).send(err.toJSON())
-        }
-        clientEmail = parsed.client_email
-        privateKey = parsed.private_key
+        parsed = JSON.parse(keyJson) as { client_email?: string; private_key?: string }
       } catch {
-        const err = validationError('Invalid JSON in keyJson')
-        return reply.status(err.statusCode).send(err.toJSON())
+        throw validationError('Invalid JSON in keyJson')
       }
+
+      if (!parsed.client_email || !parsed.private_key) {
+        throw validationError('Service account JSON must contain client_email and private_key')
+      }
+      const clientEmail = parsed.client_email
+      const privateKey = parsed.private_key
 
       try {
         await verifyConnection(clientEmail, privateKey, propertyId)
@@ -152,8 +176,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
         gaLog('error', 'connect.verify-failed', { projectId: project.id, propertyId, error: msg })
-        const err = validationError(`Failed to verify GA4 credentials: ${msg}`)
-        return reply.status(err.statusCode).send(err.toJSON())
+        throw validationError(`Failed to verify GA4 credentials: ${msg}`)
       }
 
       const now = new Date().toISOString()
@@ -182,40 +205,28 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     const googleStore = opts.googleConnectionStore
     const authConfig = opts.getGoogleAuthConfig?.()
     if (!googleStore || !authConfig) {
-      const err = validationError(
+      throw validationError(
         'No service account key provided and OAuth storage is not configured. ' +
         'Pass --key-file or run "canonry google connect <project> --type ga4" first.',
       )
-      return reply.status(err.statusCode).send(err.toJSON())
     }
 
     const oauthConn = googleStore.getConnection(project.canonicalDomain, 'ga4')
     if (!oauthConn?.accessToken) {
-      const err = validationError(
+      throw validationError(
         'No GA4 OAuth token found. Run "canonry google connect <project> --type ga4" first, ' +
         'or pass --key-file to use a service account.',
       )
-      return reply.status(err.statusCode).send(err.toJSON())
     }
 
     // Get a valid (possibly refreshed) token
-    let accessToken = oauthConn.accessToken
-    const expiresAt = oauthConn.tokenExpiresAt ? new Date(oauthConn.tokenExpiresAt).getTime() : 0
-    const fiveMinutes = 5 * 60 * 1000
-    if (Date.now() > expiresAt - fiveMinutes && oauthConn.refreshToken) {
-      if (!authConfig.clientId || !authConfig.clientSecret) {
-        const err = validationError('Google OAuth client credentials are not configured — cannot refresh GA4 token.')
-        return reply.status(err.statusCode).send(err.toJSON())
-      }
-      const tokens = await refreshAccessToken(authConfig.clientId, authConfig.clientSecret, oauthConn.refreshToken)
-      const newExpiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString()
-      googleStore.updateConnection(project.canonicalDomain, 'ga4', {
-        accessToken: tokens.access_token,
-        tokenExpiresAt: newExpiresAt,
-        updatedAt: new Date().toISOString(),
-      })
-      accessToken = tokens.access_token
-    }
+    const accessToken = oauthConn.refreshToken
+      ? await refreshOAuthTokenIfNeeded(googleStore, authConfig, project.canonicalDomain, {
+          accessToken: oauthConn.accessToken,
+          refreshToken: oauthConn.refreshToken,
+          tokenExpiresAt: oauthConn.tokenExpiresAt,
+        })
+      : oauthConn.accessToken
 
     // Verify the token works for this property
     try {
@@ -224,8 +235,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       gaLog('error', 'connect.verify-failed.oauth', { projectId: project.id, propertyId, error: msg })
-      const err = validationError(`Failed to verify GA4 access: ${msg}`)
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError(`Failed to verify GA4 access: ${msg}`)
     }
 
     // Store the property ID on the OAuth connection record
@@ -253,8 +263,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     const oauthConn = opts.googleConnectionStore?.getConnection(project.canonicalDomain, 'ga4')
 
     if (!saConn && !oauthConn) {
-      const err = notFound('GA4 connection', project.name)
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw notFound('GA4 connection', project.name)
     }
 
     // Delete traffic data, summaries, and AI referral rows along with the connection.
@@ -270,6 +279,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
 
     const propertyId = saConn?.propertyId ?? oauthConn?.propertyId ?? null
     opts.ga4CredentialStore?.deleteConnection(project.name)
+    opts.googleConnectionStore?.deleteConnection(project.canonicalDomain, 'ga4')
 
     writeAuditLog(app.db, {
       projectId: project.id,
@@ -317,25 +327,12 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
   app.post<{
     Params: { name: string }
     Body: { days?: number }
-  }>('/projects/:name/ga/sync', async (request, reply) => {
+  }>('/projects/:name/ga/sync', async (request, _reply) => {
     const project = resolveProject(app.db, request.params.name)
 
     const days = request.body?.days ?? 30
 
-    let accessToken: string
-    let propertyId: string
-    try {
-      ;({ accessToken, propertyId } = await resolveGa4AccessToken(opts, project.name, project.canonicalDomain))
-    } catch (e) {
-      const err = e as { statusCode?: number; toJSON?: () => unknown; message?: string }
-      if (err.statusCode && err.toJSON) {
-        return reply.status(err.statusCode).send(err.toJSON())
-      }
-      const msg = e instanceof Error ? e.message : String(e)
-      gaLog('error', 'sync.auth-failed', { projectId: project.id, error: msg })
-      const apiErr = validationError(`GA4 authentication failed: ${msg}`)
-      return reply.status(apiErr.statusCode).send(apiErr.toJSON())
-    }
+    const { accessToken, propertyId } = await resolveGa4AccessToken(opts, project.name, project.canonicalDomain)
 
     let rows
     let summary
@@ -446,15 +443,9 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
   app.get<{
     Params: { name: string }
     Querystring: { limit?: string; days?: string }
-  }>('/projects/:name/ga/traffic', async (request, reply) => {
+  }>('/projects/:name/ga/traffic', async (request, _reply) => {
     const project = resolveProject(app.db, request.params.name)
-
-    const saConn = opts.ga4CredentialStore?.getConnection(project.name)
-    const oauthConn = opts.googleConnectionStore?.getConnection(project.canonicalDomain, 'ga4')
-    if (!saConn && !(oauthConn?.accessToken && oauthConn?.propertyId)) {
-      const err = validationError('No GA4 connection found. Run "canonry ga connect <project>" first.')
-      return reply.status(err.statusCode).send(err.toJSON())
-    }
+    requireGa4Connection(opts, project.name, project.canonicalDomain)
 
     const limit = Math.max(1, Math.min(parseInt(request.query.limit ?? '50', 10) || 50, 500))
 
@@ -526,15 +517,9 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
   // GET /projects/:name/ga/coverage
   app.get<{
     Params: { name: string }
-  }>('/projects/:name/ga/coverage', async (request, reply) => {
+  }>('/projects/:name/ga/coverage', async (request, _reply) => {
     const project = resolveProject(app.db, request.params.name)
-
-    const saConn = opts.ga4CredentialStore?.getConnection(project.name)
-    const oauthConn = opts.googleConnectionStore?.getConnection(project.canonicalDomain, 'ga4')
-    if (!saConn && !(oauthConn?.accessToken && oauthConn?.propertyId)) {
-      const err = validationError('No GA4 connection found. Run "canonry ga connect <project>" first.')
-      return reply.status(err.statusCode).send(err.toJSON())
-    }
+    requireGa4Connection(opts, project.name, project.canonicalDomain)
 
     const trafficPages = app.db
       .select({
