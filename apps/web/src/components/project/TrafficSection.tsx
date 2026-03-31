@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RefreshCw, Unplug, Upload } from 'lucide-react'
+import { AreaChart, Area, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts'
 
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
@@ -9,10 +10,22 @@ import {
   connectGa,
   fetchGaStatus,
   fetchGaTraffic,
+  fetchGaAiReferralHistory,
   triggerGaSync,
   disconnectGa,
 } from '../../api.js'
-import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficPage, ApiGaTrafficReferral } from '../../api.js'
+import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficPage, ApiGaTrafficReferral, ApiGaAiReferralHistoryEntry } from '../../api.js'
+
+const SOURCE_COLORS = [
+  '#34d399', // emerald-400
+  '#60a5fa', // blue-400
+  '#f472b6', // pink-400
+  '#facc15', // yellow-400
+  '#a78bfa', // violet-400
+  '#fb923c', // orange-400
+  '#22d3ee', // cyan-400
+  '#f87171', // red-400
+]
 
 type PageSortKey = 'landingPage' | 'sessions' | 'organicSessions' | 'users'
 type ReferralSortKey = 'source' | 'medium' | 'sessions' | 'users'
@@ -47,6 +60,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
   const [pageSortDir, setPageSortDir] = useState<SortDir>('desc')
   const [referralSortKey, setReferralSortKey] = useState<ReferralSortKey>('sessions')
   const [referralSortDir, setReferralSortDir] = useState<SortDir>('desc')
+  const [aiHistory, setAiHistory] = useState<ApiGaAiReferralHistoryEntry[]>([])
 
   function loadData(cancelled: { current: boolean }) {
     setLoading(true)
@@ -55,13 +69,22 @@ export function TrafficSection({ projectName }: { projectName: string }) {
         if (cancelled.current) return
         setStatus(s)
         if (s.connected) {
-          return fetchGaTraffic(projectName)
+          return Promise.all([
+            fetchGaTraffic(projectName),
+            fetchGaAiReferralHistory(projectName).catch(() => [] as ApiGaAiReferralHistoryEntry[]),
+          ])
         }
         return null
       })
-      .then((t: ApiGaTraffic | null | undefined) => {
+      .then((result) => {
         if (cancelled.current) return
-        setTraffic(t ?? null)
+        if (Array.isArray(result)) {
+          setTraffic(result[0])
+          setAiHistory(result[1])
+        } else {
+          setTraffic(null)
+          setAiHistory([])
+        }
         setLoading(false)
       })
       .catch((err) => {
@@ -86,8 +109,12 @@ export function TrafficSection({ projectName }: { projectName: string }) {
     try {
       const result = await triggerGaSync(projectName)
       setNotice(`Synced ${result.rowCount.toLocaleString()} page rows and ${result.aiReferralCount.toLocaleString()} AI referral rows (${result.days} days)`)
-      const t = await fetchGaTraffic(projectName)
+      const [t, h] = await Promise.all([
+        fetchGaTraffic(projectName),
+        fetchGaAiReferralHistory(projectName).catch(() => [] as ApiGaAiReferralHistoryEntry[]),
+      ])
       setTraffic(t)
+      setAiHistory(h)
       const s = await fetchGaStatus(projectName)
       setStatus(s)
     } catch (err) {
@@ -178,6 +205,25 @@ export function TrafficSection({ projectName }: { projectName: string }) {
     : 0
   const aiSourceCount = traffic ? new Set(traffic.aiReferrals.map((referral) => referral.source.toLowerCase())).size : 0
   const topAiSource = sortedAiReferrals[0] ?? null
+
+  // Pivot AI referral history into stacked chart data: { date, source1: sessions, source2: sessions, ... }
+  const { chartData, chartSources } = useMemo(() => {
+    if (aiHistory.length === 0) return { chartData: [], chartSources: [] }
+    const sources = [...new Set(aiHistory.map((r) => r.source))]
+    const byDate = new Map<string, Record<string, number>>()
+    for (const row of aiHistory) {
+      let entry = byDate.get(row.date)
+      if (!entry) {
+        entry = {}
+        byDate.set(row.date, entry)
+      }
+      entry[row.source] = (entry[row.source] ?? 0) + row.sessions
+    }
+    const data = [...byDate.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, vals]) => ({ date, ...vals }))
+    return { chartData: data, chartSources: sources }
+  }, [aiHistory])
 
   return (
     <>
@@ -281,6 +327,61 @@ export function TrafficSection({ projectName }: { projectName: string }) {
               </h2>
             </div>
 
+            {chartData.length > 0 && (
+              <Card className="surface-card p-5 mb-4">
+                <div className="mb-4">
+                  <p className="eyebrow eyebrow-soft">Trend</p>
+                  <h3 className="text-sm font-semibold text-zinc-100">AI sessions over time</h3>
+                </div>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+                      <XAxis
+                        dataKey="date"
+                        tick={{ fill: '#71717a', fontSize: 11 }}
+                        tickLine={false}
+                        axisLine={{ stroke: '#27272a' }}
+                        tickFormatter={(v: string) => {
+                          const d = new Date(v + 'T00:00:00')
+                          return `${d.getMonth() + 1}/${d.getDate()}`
+                        }}
+                      />
+                      <YAxis
+                        tick={{ fill: '#71717a', fontSize: 11 }}
+                        tickLine={false}
+                        axisLine={false}
+                        allowDecimals={false}
+                        width={36}
+                      />
+                      <RechartsTooltip
+                        contentStyle={{ backgroundColor: '#18181b', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 12 }}
+                        labelStyle={{ color: '#e4e4e7' }}
+                        itemStyle={{ color: '#a1a1aa' }}
+                        labelFormatter={(v) => {
+                          const d = new Date(String(v) + 'T00:00:00')
+                          return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+                        }}
+                      />
+                      <Legend
+                        wrapperStyle={{ fontSize: 11, color: '#a1a1aa' }}
+                      />
+                      {chartSources.map((source, i) => (
+                        <Area
+                          key={source}
+                          type="monotone"
+                          dataKey={source}
+                          stackId="1"
+                          stroke={SOURCE_COLORS[i % SOURCE_COLORS.length]}
+                          fill={SOURCE_COLORS[i % SOURCE_COLORS.length]}
+                          fillOpacity={0.3}
+                        />
+                      ))}
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </Card>
+            )}
+
             <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.5fr)]">
               <Card className="surface-card p-5">
                 <div className="mb-4">
@@ -356,7 +457,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                   </div>
                 ) : (
                   <div className="rounded-lg border border-dashed border-zinc-800/60 bg-zinc-950/40 px-4 py-6 text-sm text-zinc-500">
-                    Connect GA4 and sync traffic to monitor explicit AI referral sources here.
+                    No AI referrer sessions detected in the current sync window.
                   </div>
                 )}
               </Card>

@@ -512,6 +512,29 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     }
   })
 
+  // GET /projects/:name/ga/ai-referral-history
+  app.get<{
+    Params: { name: string }
+  }>('/projects/:name/ga/ai-referral-history', async (request, _reply) => {
+    const project = resolveProject(app.db, request.params.name)
+    requireGa4Connection(opts, project.name, project.canonicalDomain)
+
+    const rows = app.db
+      .select({
+        date: gaAiReferrals.date,
+        source: gaAiReferrals.source,
+        medium: gaAiReferrals.medium,
+        sessions: gaAiReferrals.sessions,
+        users: gaAiReferrals.users,
+      })
+      .from(gaAiReferrals)
+      .where(eq(gaAiReferrals.projectId, project.id))
+      .orderBy(gaAiReferrals.date)
+      .all()
+
+    return rows
+  })
+
   // GET /projects/:name/ga/coverage
   app.get<{
     Params: { name: string }

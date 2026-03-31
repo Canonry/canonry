@@ -2034,6 +2034,18 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/ga/ai-referral-history',
+    summary: 'Get AI referral sessions per day grouped by source',
+    tags: ['ga4'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'AI referral history returned.' },
+      400: { description: 'GA4 is not connected.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/ga/coverage',
     summary: 'Get GA4 page coverage with traffic overlay',
     tags: ['ga4'],

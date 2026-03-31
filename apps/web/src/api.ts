@@ -991,6 +991,18 @@ export function connectGa(project: string, body: { propertyId: string; keyJson: 
   })
 }
 
+export interface ApiGaAiReferralHistoryEntry {
+  date: string
+  source: string
+  medium: string
+  sessions: number
+  users: number
+}
+
+export function fetchGaAiReferralHistory(project: string): Promise<ApiGaAiReferralHistoryEntry[]> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/ga/ai-referral-history`)
+}
+
 export function disconnectGa(project: string): Promise<void> {
   return apiFetch(`/projects/${encodeURIComponent(project)}/ga/disconnect`, {
     method: 'DELETE',

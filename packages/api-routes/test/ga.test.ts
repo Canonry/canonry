@@ -502,6 +502,57 @@ describe('GA4 routes', () => {
     credentials.delete('test-project')
   })
 
+  it('GET /ga/ai-referral-history returns error when no connection', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/test-project/ga/ai-referral-history',
+    })
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.payload)
+    expect(body.error.message).toMatch(/No GA4 connection/)
+  })
+
+  it('GET /ga/ai-referral-history returns per-date rows', async () => {
+    const now = new Date().toISOString()
+    credentials.set('test-project', {
+      projectName: 'test-project',
+      propertyId: '999888',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    // Insert multi-date AI referral data
+    db.insert(gaAiReferrals).values({
+      id: crypto.randomUUID(),
+      projectId,
+      date: '2026-03-18',
+      source: 'perplexity.ai',
+      medium: 'referral',
+      sessions: 7,
+      users: 6,
+      syncedAt: now,
+    }).run()
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/test-project/ga/ai-referral-history',
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload) as Array<{ date: string; source: string; medium: string; sessions: number; users: number }>
+    expect(body.length).toBeGreaterThanOrEqual(2)
+    // Should be ordered by date
+    const dates = body.map((r) => r.date)
+    expect(dates).toEqual([...dates].sort())
+    // Should include both sources
+    const sources = body.map((r) => r.source)
+    expect(sources).toContain('chatgpt.com')
+    expect(sources).toContain('perplexity.ai')
+
+    credentials.delete('test-project')
+  })
+
   it('POST /ga/connect does not accept keyFile parameter', async () => {
     const res = await app.inject({
       method: 'POST',

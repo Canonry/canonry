@@ -82,3 +82,12 @@ export interface GaTrafficResponse {
 export interface GaCoverageResponse {
   pages: Array<{ landingPage: string; sessions: number; organicSessions: number; users: number }>
 }
+
+export const ga4AiReferralHistoryEntrySchema = z.object({
+  date: z.string(),
+  source: z.string(),
+  medium: z.string(),
+  sessions: z.number(),
+  users: z.number(),
+})
+export type GA4AiReferralHistoryEntry = z.infer<typeof ga4AiReferralHistoryEntrySchema>
