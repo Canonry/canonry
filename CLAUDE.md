@@ -85,6 +85,114 @@ THIS IS AN **AGENT-FIRST** PLATFORM. The CLI and API are the primary interfaces.
 - Keep the monitoring app independent from the audit package repo except for the published npm dependency.
 - Raw observation snapshots only (`cited`/`not-cited`); transitions computed at query time.
 
+## Error Handling in API Routes (Critical)
+
+The global error handler in `packages/api-routes/src/index.ts` catches `AppError` instances and serializes them with the correct status code and JSON envelope. Route handlers must leverage this — never duplicate the serialization logic.
+
+### Rules
+
+1. **Throw `AppError` — never catch and manually reply.** Call `resolveProject(app.db, name)` directly. If the project doesn't exist it throws `notFound()`, which the global handler catches. Do not wrap in try-catch or use a `resolveProjectSafe` helper.
+2. **Always use factory functions from `@ainyc/canonry-contracts`.** Never hand-construct `{ error: { code: '...', message: '...' } }`. Use `validationError()`, `notFound()`, `authRequired()`, `providerError()`, etc. This guarantees typed error codes and a consistent envelope.
+3. **New error codes** must be added to the `ErrorCode` union in `packages/contracts/src/errors.ts` with a corresponding factory function.
+
+### Pattern
+
+```typescript
+// ✅ Correct — let the global handler serialize
+import { validationError, notFound } from '@ainyc/canonry-contracts'
+import { resolveProject } from './helpers.js'
+
+const project = resolveProject(app.db, request.params.name) // throws notFound on miss
+if (!body.keywords?.length) throw validationError('"keywords" must be non-empty')
+
+// ❌ Wrong — duplicates global handler logic
+try {
+  const project = resolveProject(app.db, name)
+} catch (e) {
+  reply.status(e.statusCode).send(e.toJSON()) // never do this
+}
+return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: '...' } }) // never do this
+```
+
+## JSON Column Parsing (Critical)
+
+Many SQLite text columns store JSON (`projects.locations`, `providers`, `tags`, `labels`, `citedDomains`, etc.). Always use the typed helper from `@ainyc/canonry-db` — never call `JSON.parse` directly on DB column values.
+
+### Rules
+
+1. **Use `parseJsonColumn(value, fallback)` from `@ainyc/canonry-db`.** It handles null, empty strings, and invalid JSON safely.
+2. **Never write `JSON.parse(row.field || '[]') as SomeType[]`** — this pattern is fragile (missing fallback = crash, wrong cast = silent corruption).
+3. `JSON.parse` is fine for HTTP request bodies, config files, and other non-DB sources.
+
+### Pattern
+
+```typescript
+import { parseJsonColumn } from '@ainyc/canonry-db'
+
+// ✅ Correct
+const locations = parseJsonColumn<LocationContext[]>(project.locations, [])
+const labels = parseJsonColumn<Record<string, string>>(project.labels, {})
+
+// ❌ Wrong
+const locations = JSON.parse(project.locations || '[]') as LocationContext[]
+```
+
+## ApiClient Type Safety
+
+All `ApiClient` methods in `packages/canonry/src/client.ts` must return typed DTOs from `@ainyc/canonry-contracts`. CLI commands must not cast API responses with `as Record<string, unknown>` or `as { ... }`.
+
+- Define response interfaces in `packages/contracts/` when they don't already exist.
+- The `request<T>()` method is already generic — specify the correct type parameter.
+- When adding a new API endpoint, add the corresponding client method with a typed return value.
+
+## Transaction Boundaries
+
+Multi-table writes must be wrapped in a single `db.transaction()` call to ensure atomicity.
+
+### Rules
+
+1. **Do all async I/O (HTTP calls, DNS lookups, validation) before entering the transaction.** SQLite transactions must be synchronous (better-sqlite3 requirement).
+2. **Include audit log writes inside the transaction** — `writeAuditLog()` accepts transaction context via its `Pick<DatabaseClient, 'insert'>` parameter.
+3. **Fire callbacks (e.g., `onScheduleUpdated`) after the transaction commits**, not inside it.
+
+### Pattern
+
+```typescript
+// Validate async work first
+const urlCheck = await resolveWebhookTarget(url)
+if (!urlCheck.ok) throw validationError(urlCheck.message)
+
+// Then do all writes atomically
+app.db.transaction((tx) => {
+  tx.update(projects).set({ ... }).where(...).run()
+  tx.delete(keywords).where(...).run()
+  for (const kw of newKeywords) {
+    tx.insert(keywords).values({ ... }).run()
+  }
+  writeAuditLog(tx, { ... })
+})
+
+// Fire callbacks after commit
+opts.onScheduleUpdated?.('upsert', projectId)
+```
+
+## Atomic Counters
+
+Use `INSERT ... ON CONFLICT DO UPDATE` for counter increments. Never use read-then-write patterns, which lose counts under concurrent requests.
+
+### Pattern
+
+```typescript
+import { sql } from 'drizzle-orm'
+
+db.insert(usageCounters).values({
+  id: crypto.randomUUID(), scope, period, metric, count: 1, updatedAt: now,
+}).onConflictDoUpdate({
+  target: [usageCounters.scope, usageCounters.period, usageCounters.metric],
+  set: { count: sql`${usageCounters.count} + 1`, updatedAt: now },
+}).run()
+```
+
 ## Database Schema Changes (Critical)
 
 **Every new `sqliteTable(...)` in `packages/db/src/schema.ts` MUST have a corresponding migration in `packages/db/src/migrate.ts`.**
