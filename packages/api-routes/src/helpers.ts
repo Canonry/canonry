@@ -72,17 +72,21 @@ function resolveSnapshotMentionResult(
   snapshot: { answerMentioned?: boolean | null; answerText?: string | null },
   project: SnapshotVisibilityProject,
 ): { mentioned: boolean; matchedTerms: string[] } {
-  // Legacy path: stored boolean is authoritative; matchedTerms cannot be reliably
-  // recomputed after a project rename or domain change, so return [] to avoid contradiction.
+  // Prefer recomputing from answerText so mentioned and matchedTerms always
+  // derive from the same source of truth (no contradiction possible).
+  if (snapshot.answerText) {
+    const domains = effectiveDomains({
+      canonicalDomain: project.canonicalDomain,
+      ownedDomains: normalizeOwnedDomains(project.ownedDomains),
+    })
+    return extractAnswerMentions(snapshot.answerText, project.displayName, domains)
+  }
+  // Legacy fallback: answerText was not stored; use the persisted boolean if available.
+  // matchedTerms cannot be derived without text, so return [] — no contradiction.
   if (typeof snapshot.answerMentioned === 'boolean') {
     return { mentioned: snapshot.answerMentioned, matchedTerms: [] }
   }
-  if (!snapshot.answerText) return { mentioned: false, matchedTerms: [] }
-  const domains = effectiveDomains({
-    canonicalDomain: project.canonicalDomain,
-    ownedDomains: normalizeOwnedDomains(project.ownedDomains),
-  })
-  return extractAnswerMentions(snapshot.answerText, project.displayName, domains)
+  return { mentioned: false, matchedTerms: [] }
 }
 
 export function resolveSnapshotAnswerMentioned(
