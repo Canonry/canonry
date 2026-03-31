@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
-import { effectiveDomains, normalizeProjectDomain } from '@ainyc/canonry-contracts'
+import { brandKeyFromText, effectiveDomains, normalizeProjectDomain } from '@ainyc/canonry-contracts'
 
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { highlightTermsInText, type HighlightTermGroup } from '../../lib/highlight.js'
@@ -600,11 +600,10 @@ export function EvidenceDetailModal({
                           </div>
                           <div className="flex flex-wrap gap-1.5">
                             {(() => {
-                              const brandKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
                               const domainChips = display.competitorDomains.map(d => d.replace(/^www\./, ''))
-                              const domainKeys = new Set(domainChips.map(d => brandKey(d.replace(/\.[^.]+$/, ''))))
+                              const domainKeys = new Set(domainChips.map(d => brandKeyFromText(d.replace(/\.[^.]+$/, ''))))
                               const filteredNames = display.recommendedCompetitors.filter(
-                                name => !domainKeys.has(brandKey(name))
+                                name => !domainKeys.has(brandKeyFromText(name))
                               )
                               return [...filteredNames, ...domainChips].map(name => (
                                 <span key={name} className="mention-chip mention-chip--competitor">{name}</span>

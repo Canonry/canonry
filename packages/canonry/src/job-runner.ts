@@ -6,7 +6,7 @@ import { and, eq, inArray } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { runs, keywords, competitors, projects, querySnapshots, usageCounters } from '@ainyc/canonry-db'
 import type { ProviderName, NormalizedQueryResult, LocationContext } from '@ainyc/canonry-contracts'
-import { determineAnswerMentioned, effectiveDomains, normalizeProjectDomain, isBrowserProvider } from '@ainyc/canonry-contracts'
+import { brandKeyFromText, determineAnswerMentioned, effectiveDomains, normalizeProjectDomain, isBrowserProvider } from '@ainyc/canonry-contracts'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
 import { createLogger } from './logger.js'
@@ -769,9 +769,6 @@ function cleanCandidateName(candidate: string): string {
     .trim()
 }
 
-function brandKeyFromText(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]/g, '')
-}
 
 function collectBrandKeysFromDomain(domain: string): string[] {
   const hostname = normalizeProjectDomain(domain).split('/')[0] ?? ''

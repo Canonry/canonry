@@ -91,6 +91,14 @@ export function visibilityStateFromAnswerMentioned(answerMentioned: boolean | nu
   return answerMentioned ? 'visible' : 'not-visible'
 }
 
+/**
+ * Normalize a brand name or domain label to a lowercase alphanumeric key
+ * for fuzzy comparison (e.g. "Downtown Smiles" → "downtownsmiles").
+ */
+export function brandKeyFromText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
 function domainMentioned(lowerAnswer: string, normalizedDomain: string): boolean {
   const escapedDomain = escapeRegExp(normalizedDomain.toLowerCase())
   const patterns = [
