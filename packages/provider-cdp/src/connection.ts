@@ -130,7 +130,7 @@ export class CDPConnectionManager {
       await sleep(1500)
     } catch (err) {
       throw new CDPProviderError(
-        'CDP_CONNECTION_REFUSED',
+        'CDP_TARGET_SELECTOR_FAILED',
         `Failed to navigate to ${target.newConversationUrl}: ${err instanceof Error ? err.message : String(err)}`,
       )
     }

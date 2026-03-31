@@ -54,10 +54,12 @@ export async function executeTrackedQuery(input: PerplexityTrackedQueryInput): P
   const model = input.config.model ?? DEFAULT_MODEL
   const client = new OpenAI({ apiKey: input.config.apiKey, baseURL: BASE_URL })
 
+  const prompt = buildPrompt(input.keyword, input.location)
+
   const response = await client.chat.completions.create({
     model,
     messages: [
-      { role: 'user', content: input.keyword },
+      { role: 'user', content: prompt },
     ],
   })
 
@@ -93,6 +95,13 @@ export function normalizeResult(raw: PerplexityRawResult): PerplexityNormalizedR
 }
 
 // --- Internal helpers ---
+
+function buildPrompt(keyword: string, location?: PerplexityTrackedQueryInput['location']): string {
+  if (location) {
+    return `${keyword} (searching from ${location.city}, ${location.region}, ${location.country})`
+  }
+  return keyword
+}
 
 /**
  * Extract the citations array from a Perplexity response.

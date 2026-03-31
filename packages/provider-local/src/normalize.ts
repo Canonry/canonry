@@ -131,7 +131,7 @@ export async function generateText(prompt: string, config: LocalConfig): Promise
  * Scan answer text for domain mentions — used as a citation heuristic
  * since local LLMs don't have structured grounding/search data.
  */
-function extractDomainMentions(text: string): string[] {
+export function extractDomainMentions(text: string): string[] {
   const domains = new Set<string>()
 
   // Match URLs like https://example.com/path or http://example.com
