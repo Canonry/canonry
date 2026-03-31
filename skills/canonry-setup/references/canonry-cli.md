@@ -73,6 +73,8 @@ canonry evidence <project>                        # per-keyword cited/not-cited
 canonry evidence <project> --format json          # JSON output
 canonry history <project>                         # audit trail
 canonry export <project> --include-results        # export as YAML
+canonry backfill answer-visibility                # recompute answer visibility from stored answers
+canonry backfill answer-visibility --project <name> --format json
 ```
 
 Output shows:

@@ -67,6 +67,7 @@ export function EvidenceDetailModal({
   const autoFetchedRef = useRef(false)
   useEffect(() => {
     if (autoFetchedRef.current) return
+    if (evidence.answerSnippet && (evidence.visibilityState != null || evidence.answerMentioned != null)) return
     // Find the most recent history entry for this provider that might have data
     const latestHistoryRun = history.at(-1)
     if (!latestHistoryRun) return
@@ -244,10 +245,9 @@ export function EvidenceDetailModal({
 
   // Hero copy
   const showModelInHeadline = isViewingHistory || evidence.historyScope !== 'provider'
-  const displayChangeLabel = display.changeLabel
   const providerMeta = showModelInHeadline && display.model
-    ? `${display.provider} (${display.model}) \u00b7 ${displayChangeLabel.toLowerCase()}`
-    : `${display.provider} \u00b7 ${displayChangeLabel.toLowerCase()}`
+    ? `${display.provider} (${display.model}) \u00b7 ${display.changeLabel.toLowerCase()}`
+    : `${display.provider} \u00b7 ${display.changeLabel.toLowerCase()}`
   const providerMetaNote = !isViewingHistory && evidence.historyScope === 'provider'
     ? [
         evidence.model ? `Current model: ${evidence.model}` : null,

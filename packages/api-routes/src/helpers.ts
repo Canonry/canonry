@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { projects, auditLog, usageCounters } from '@ainyc/canonry-db'
+import { projects, auditLog, usageCounters, parseJsonColumn } from '@ainyc/canonry-db'
 import {
   determineAnswerMentioned,
   effectiveDomains,
@@ -90,12 +90,7 @@ export function resolveSnapshotVisibilityState(
 }
 
 function normalizeOwnedDomains(value: string | string[] | null | undefined): string[] {
-  if (Array.isArray(value)) return value
-  if (typeof value !== 'string' || value.trim().length === 0) return []
-  try {
-    const parsed = JSON.parse(value) as unknown
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
-  } catch {
-    return []
-  }
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string')
+  const parsed = parseJsonColumn<unknown[]>(typeof value === 'string' ? value : null, [])
+  return parsed.filter((item): item is string => typeof item === 'string')
 }

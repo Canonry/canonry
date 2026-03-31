@@ -264,7 +264,15 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   app.get<{ Params: { id: string } }>('/runs/:id', async (request, reply) => {
     const run = app.db.select().from(runs).where(eq(runs.id, request.params.id)).get()
     if (!run) throw notFound('Run', request.params.id)
-    const project = app.db.select().from(projects).where(eq(projects.id, run.projectId)).get()
+    const project = app.db
+      .select({
+        displayName: projects.displayName,
+        canonicalDomain: projects.canonicalDomain,
+        ownedDomains: projects.ownedDomains,
+      })
+      .from(projects)
+      .where(eq(projects.id, run.projectId))
+      .get()
 
     const snapshots = app.db
       .select({
