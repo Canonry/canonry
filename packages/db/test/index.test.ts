@@ -7,7 +7,31 @@ import Database from 'better-sqlite3'
 import { eq } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 import * as schema from '../src/schema.js'
-import { createClient, migrate, projects, keywords, runs, querySnapshots, auditLog, apiKeys, usageCounters, schedules, notifications } from '../src/index.js'
+import {
+  createClient,
+  migrate,
+  projects,
+  keywords,
+  competitors,
+  runs,
+  querySnapshots,
+  auditLog,
+  apiKeys,
+  usageCounters,
+  schedules,
+  notifications,
+  googleConnections,
+  gscSearchData,
+  gscUrlInspections,
+  gscCoverageSnapshots,
+  bingConnections,
+  bingUrlInspections,
+  bingKeywordStats,
+  gaConnections,
+  gaTrafficSnapshots,
+  gaAiReferrals,
+  gaTrafficSummaries,
+} from '../src/index.js'
 
 function createTempDb() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-test-'))
@@ -58,6 +82,42 @@ test('migrate creates all tables', () => {
 
   const notifRows = db.select().from(notifications).all()
   expect(notifRows).toEqual([])
+
+  const competitorRows = db.select().from(competitors).all()
+  expect(competitorRows).toEqual([])
+
+  const googleConnRows = db.select().from(googleConnections).all()
+  expect(googleConnRows).toEqual([])
+
+  const gscSearchRows = db.select().from(gscSearchData).all()
+  expect(gscSearchRows).toEqual([])
+
+  const gscInspectRows = db.select().from(gscUrlInspections).all()
+  expect(gscInspectRows).toEqual([])
+
+  const gscCoverageRows = db.select().from(gscCoverageSnapshots).all()
+  expect(gscCoverageRows).toEqual([])
+
+  const bingConnRows = db.select().from(bingConnections).all()
+  expect(bingConnRows).toEqual([])
+
+  const bingInspectRows = db.select().from(bingUrlInspections).all()
+  expect(bingInspectRows).toEqual([])
+
+  const bingKwRows = db.select().from(bingKeywordStats).all()
+  expect(bingKwRows).toEqual([])
+
+  const gaConnRows = db.select().from(gaConnections).all()
+  expect(gaConnRows).toEqual([])
+
+  const gaTrafficRows = db.select().from(gaTrafficSnapshots).all()
+  expect(gaTrafficRows).toEqual([])
+
+  const gaAiRefRows = db.select().from(gaAiReferrals).all()
+  expect(gaAiRefRows).toEqual([])
+
+  const gaSummaryRows = db.select().from(gaTrafficSummaries).all()
+  expect(gaSummaryRows).toEqual([])
 })
 
 test('migrate is idempotent', () => {
