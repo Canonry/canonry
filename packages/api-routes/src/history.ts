@@ -1,14 +1,14 @@
 import { eq, desc, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { auditLog, querySnapshots, runs, keywords } from '@ainyc/canonry-db'
+import { auditLog, querySnapshots, runs, keywords, parseJsonColumn } from '@ainyc/canonry-db'
+import { validationError } from '@ainyc/canonry-contracts'
 import { resolveProject } from './helpers.js'
 import { redactNotificationDiff } from './notification-redaction.js'
 
 export async function historyRoutes(app: FastifyInstance) {
   // GET /projects/:name/history — audit log for project
   app.get<{ Params: { name: string } }>('/projects/:name/history', async (request, reply) => {
-    const project = resolveProjectSafe(app, request.params.name, reply)
-    if (!project) return
+    const project = resolveProject(app.db, request.params.name)
 
     const rows = app.db
       .select()
@@ -36,8 +36,7 @@ export async function historyRoutes(app: FastifyInstance) {
     Params: { name: string }
     Querystring: { limit?: string; offset?: string; location?: string }
   }>('/projects/:name/snapshots', async (request, reply) => {
-    const project = resolveProjectSafe(app, request.params.name, reply)
-    if (!project) return
+    const project = resolveProject(app.db, request.params.name)
 
     const limit = parseInt(request.query.limit ?? '50', 10)
     const offset = parseInt(request.query.offset ?? '0', 10)
@@ -95,9 +94,9 @@ export async function historyRoutes(app: FastifyInstance) {
         model: s.model,
         citationState: s.citationState,
         answerText: s.answerText,
-        citedDomains: tryParseJson(s.citedDomains, [] as string[]),
-        competitorOverlap: tryParseJson(s.competitorOverlap, [] as string[]),
-        recommendedCompetitors: tryParseJson(s.recommendedCompetitors, [] as string[]),
+        citedDomains: parseJsonColumn<string[]>(s.citedDomains, []),
+        competitorOverlap: parseJsonColumn<string[]>(s.competitorOverlap, []),
+        recommendedCompetitors: parseJsonColumn<string[]>(s.recommendedCompetitors, []),
         location: s.location,
         createdAt: s.createdAt,
       })),
@@ -107,8 +106,7 @@ export async function historyRoutes(app: FastifyInstance) {
 
   // GET /projects/:name/timeline — per-keyword citation state over time
   app.get<{ Params: { name: string }; Querystring: { location?: string } }>('/projects/:name/timeline', async (request, reply) => {
-    const project = resolveProjectSafe(app, request.params.name, reply)
-    if (!project) return
+    const project = resolveProject(app.db, request.params.name)
 
     // Get project keywords
     const projectKeywords = app.db
@@ -244,12 +242,11 @@ export async function historyRoutes(app: FastifyInstance) {
     Params: { name: string }
     Querystring: { run1: string; run2: string }
   }>('/projects/:name/snapshots/diff', async (request, reply) => {
-    const project = resolveProjectSafe(app, request.params.name, reply)
-    if (!project) return
+    resolveProject(app.db, request.params.name) // validate project exists
 
     const { run1, run2 } = request.query
     if (!run1 || !run2) {
-      return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'Both run1 and run2 query params are required' } })
+      throw validationError('Both run1 and run2 query params are required')
     }
 
     // Get snapshots for both runs
@@ -325,30 +322,9 @@ function formatAuditEntry(row: {
     entityId: row.entityId,
     diff: row.diff
       ? row.entityType === 'notification'
-        ? redactNotificationDiff(tryParseJson(row.diff, null))
-        : tryParseJson(row.diff, null)
+        ? redactNotificationDiff(parseJsonColumn<unknown>(row.diff, null))
+        : parseJsonColumn<unknown>(row.diff, null)
       : null,
     createdAt: row.createdAt,
-  }
-}
-
-function tryParseJson<T>(value: string, fallback: T): T {
-  try {
-    return JSON.parse(value) as T
-  } catch {
-    return fallback
-  }
-}
-
-function resolveProjectSafe(app: FastifyInstance, name: string, reply: { status: (code: number) => { send: (body: unknown) => unknown } }) {
-  try {
-    return resolveProject(app.db, name)
-  } catch (e: unknown) {
-    if (e && typeof e === 'object' && 'statusCode' in e && 'toJSON' in e) {
-      const err = e as { statusCode: number; toJSON(): unknown }
-      reply.status(err.statusCode).send(err.toJSON())
-      return null
-    }
-    throw e
   }
 }

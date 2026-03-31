@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { projects, keywords, competitors, schedules, notifications } from '@ainyc/canonry-db'
+import { projects, keywords, competitors, schedules, notifications, parseJsonColumn } from '@ainyc/canonry-db'
 import { projectConfigSchema, validationError } from '@ainyc/canonry-contracts'
 import { writeAuditLog } from './helpers.js'
 import { resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
@@ -19,10 +19,9 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
   app.post('/apply', async (request, reply) => {
     const parsed = projectConfigSchema.safeParse(request.body)
     if (!parsed.success) {
-      const err = validationError('Invalid project config', {
+      throw validationError('Invalid project config', {
         issues: parsed.error.issues.map(i => ({ path: i.path.join('.'), message: i.message })),
       })
-      return reply.status(err.statusCode).send(err.toJSON())
     }
 
     const config = parsed.data
@@ -37,78 +36,121 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       if (allProviders.length) {
         const invalid = allProviders.filter(p => !validNames.includes(p))
         if (invalid.length) {
-          const err = validationError(`Invalid provider(s): ${[...new Set(invalid)].join(', ')}. Must be one of: ${validNames.join(', ')}`, {
+          throw validationError(`Invalid provider(s): ${[...new Set(invalid)].join(', ')}. Must be one of: ${validNames.join(', ')}`, {
             invalidProviders: [...new Set(invalid)],
             validProviders: validNames,
           })
-          return reply.status(err.statusCode).send(err.toJSON())
         }
+      }
+    }
+
+    // Validate schedule before entering transaction
+    let resolvedSchedule: { cronExpr: string; preset: string | null; timezone: string } | null = null
+    let deleteSchedule = false
+    if (config.spec.schedule) {
+      const schedSpec = config.spec.schedule
+      let cronExpr: string
+      let preset: string | null = null
+
+      if (schedSpec.preset) {
+        preset = schedSpec.preset
+        try {
+          cronExpr = resolvePreset(schedSpec.preset)
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err)
+          throw validationError(msg)
+        }
+      } else if (schedSpec.cron) {
+        cronExpr = schedSpec.cron
+        if (!validateCron(cronExpr)) throw validationError(`Invalid cron expression in schedule: ${cronExpr}`)
+      } else {
+        throw validationError('Schedule requires either "preset" or "cron"')
+      }
+
+      const timezone = schedSpec.timezone ?? 'UTC'
+      if (!isValidTimezone(timezone)) throw validationError(`Invalid timezone: ${timezone}`)
+
+      resolvedSchedule = { cronExpr, preset, timezone }
+    } else {
+      deleteSchedule = true
+    }
+
+    // Validate webhook URLs before entering transaction (async I/O)
+    const rawSpec = (request.body as { spec?: Record<string, unknown> })?.spec ?? {}
+    const hasNotifications = 'notifications' in rawSpec
+    if (hasNotifications) {
+      for (const notif of config.spec.notifications) {
+        const urlCheck = await resolveWebhookTarget(notif.url ?? '')
+        if (!urlCheck.ok) throw validationError(`Notification URL invalid: ${urlCheck.message}`)
       }
     }
 
     const now = new Date().toISOString()
     const name = config.metadata.name
 
-    // Upsert project
-    const existing = app.db.select().from(projects).where(eq(projects.name, name)).get()
-
+    // All validation done — wrap all writes in a single transaction
     let projectId: string
-    if (existing) {
-      projectId = existing.id
-      app.db.update(projects).set({
-        displayName: config.spec.displayName,
-        canonicalDomain: config.spec.canonicalDomain,
-        ownedDomains: JSON.stringify(config.spec.ownedDomains ?? []),
-        country: config.spec.country,
-        language: config.spec.language,
-        labels: JSON.stringify(config.metadata.labels),
-        providers: JSON.stringify(config.spec.providers ?? []),
-        locations: JSON.stringify(config.spec.locations ?? []),
-        defaultLocation: config.spec.defaultLocation ?? null,
-        configSource: 'config-file',
-        configRevision: existing.configRevision + 1,
-        updatedAt: now,
-      }).where(eq(projects.id, existing.id)).run()
+    let scheduleAction: 'upsert' | 'delete' | null = null
 
-      writeAuditLog(app.db, {
-        projectId,
-        actor: 'api',
-        action: 'project.applied',
-        entityType: 'project',
-        entityId: projectId,
-      })
-    } else {
-      projectId = crypto.randomUUID()
-      app.db.insert(projects).values({
-        id: projectId,
-        name,
-        displayName: config.spec.displayName,
-        canonicalDomain: config.spec.canonicalDomain,
-        ownedDomains: JSON.stringify(config.spec.ownedDomains ?? []),
-        country: config.spec.country,
-        language: config.spec.language,
-        tags: '[]',
-        labels: JSON.stringify(config.metadata.labels),
-        providers: JSON.stringify(config.spec.providers ?? []),
-        locations: JSON.stringify(config.spec.locations ?? []),
-        defaultLocation: config.spec.defaultLocation ?? null,
-        configSource: 'config-file',
-        configRevision: 1,
-        createdAt: now,
-        updatedAt: now,
-      }).run()
-
-      writeAuditLog(app.db, {
-        projectId,
-        actor: 'api',
-        action: 'project.created',
-        entityType: 'project',
-        entityId: projectId,
-      })
-    }
-
-    // Atomic replace: keywords + competitors in a single transaction
     app.db.transaction((tx) => {
+      // Upsert project
+      const existing = tx.select().from(projects).where(eq(projects.name, name)).get()
+
+      if (existing) {
+        projectId = existing.id
+        tx.update(projects).set({
+          displayName: config.spec.displayName,
+          canonicalDomain: config.spec.canonicalDomain,
+          ownedDomains: JSON.stringify(config.spec.ownedDomains ?? []),
+          country: config.spec.country,
+          language: config.spec.language,
+          labels: JSON.stringify(config.metadata.labels),
+          providers: JSON.stringify(config.spec.providers ?? []),
+          locations: JSON.stringify(config.spec.locations ?? []),
+          defaultLocation: config.spec.defaultLocation ?? null,
+          configSource: 'config-file',
+          configRevision: existing.configRevision + 1,
+          updatedAt: now,
+        }).where(eq(projects.id, existing.id)).run()
+
+        writeAuditLog(tx, {
+          projectId,
+          actor: 'api',
+          action: 'project.applied',
+          entityType: 'project',
+          entityId: projectId,
+        })
+      } else {
+        projectId = crypto.randomUUID()
+        tx.insert(projects).values({
+          id: projectId,
+          name,
+          displayName: config.spec.displayName,
+          canonicalDomain: config.spec.canonicalDomain,
+          ownedDomains: JSON.stringify(config.spec.ownedDomains ?? []),
+          country: config.spec.country,
+          language: config.spec.language,
+          tags: '[]',
+          labels: JSON.stringify(config.metadata.labels),
+          providers: JSON.stringify(config.spec.providers ?? []),
+          locations: JSON.stringify(config.spec.locations ?? []),
+          defaultLocation: config.spec.defaultLocation ?? null,
+          configSource: 'config-file',
+          configRevision: 1,
+          createdAt: now,
+          updatedAt: now,
+        }).run()
+
+        writeAuditLog(tx, {
+          projectId,
+          actor: 'api',
+          action: 'project.created',
+          entityType: 'project',
+          entityId: projectId,
+        })
+      }
+
+      // Replace keywords + competitors
       tx.delete(keywords).where(eq(keywords.projectId, projectId)).run()
       for (const kw of config.spec.keywords) {
         tx.insert(keywords).values({
@@ -144,132 +186,88 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         entityType: 'competitor',
         diff: { competitors: config.spec.competitors },
       })
+
+      // Handle schedule
+      if (resolvedSchedule) {
+        const existingSched = tx.select().from(schedules).where(eq(schedules.projectId, projectId)).get()
+        if (existingSched) {
+          tx.update(schedules).set({
+            cronExpr: resolvedSchedule.cronExpr,
+            preset: resolvedSchedule.preset,
+            timezone: resolvedSchedule.timezone,
+            providers: JSON.stringify(config.spec.schedule?.providers ?? []),
+            enabled: 1,
+            updatedAt: now,
+          }).where(eq(schedules.id, existingSched.id)).run()
+        } else {
+          tx.insert(schedules).values({
+            id: crypto.randomUUID(),
+            projectId,
+            cronExpr: resolvedSchedule.cronExpr,
+            preset: resolvedSchedule.preset,
+            timezone: resolvedSchedule.timezone,
+            enabled: 1,
+            providers: JSON.stringify(config.spec.schedule?.providers ?? []),
+            createdAt: now,
+            updatedAt: now,
+          }).run()
+        }
+        scheduleAction = 'upsert'
+      } else if (deleteSchedule) {
+        const existingSched = tx.select().from(schedules).where(eq(schedules.projectId, projectId)).get()
+        if (existingSched) {
+          tx.delete(schedules).where(eq(schedules.projectId, projectId)).run()
+          scheduleAction = 'delete'
+        }
+      }
+
+      // Handle notifications
+      if (hasNotifications) {
+        tx.delete(notifications).where(eq(notifications.projectId, projectId)).run()
+        for (const notif of config.spec.notifications) {
+          tx.insert(notifications).values({
+            id: crypto.randomUUID(),
+            projectId,
+            channel: notif.channel,
+            config: JSON.stringify({ url: notif.url, events: notif.events }),
+            webhookSecret: crypto.randomBytes(32).toString('hex'),
+            enabled: 1,
+            createdAt: now,
+            updatedAt: now,
+          }).run()
+        }
+
+        writeAuditLog(tx, {
+          projectId,
+          actor: 'api',
+          action: 'notifications.replaced',
+          entityType: 'notification',
+          diff: { notifications: config.spec.notifications },
+        })
+      }
     })
 
-    // Handle schedule from config — declarative: absent means delete
-    if (config.spec.schedule) {
-      const schedSpec = config.spec.schedule
-      let cronExpr: string
-      let preset: string | null = null
-
-      if (schedSpec.preset) {
-        preset = schedSpec.preset
-        try {
-          cronExpr = resolvePreset(schedSpec.preset)
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err)
-          return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: msg } })
-        }
-      } else if (schedSpec.cron) {
-        cronExpr = schedSpec.cron
-        if (!validateCron(cronExpr)) {
-          return reply.status(400).send({
-            error: { code: 'VALIDATION_ERROR', message: `Invalid cron expression in schedule: ${cronExpr}` },
-          })
-        }
-      } else {
-        return reply.status(400).send({
-          error: { code: 'VALIDATION_ERROR', message: 'Schedule requires either "preset" or "cron"' },
-        })
-      }
-
-      const timezone = schedSpec.timezone ?? 'UTC'
-      if (!isValidTimezone(timezone)) {
-        return reply.status(400).send({
-          error: { code: 'VALIDATION_ERROR', message: `Invalid timezone: ${timezone}` },
-        })
-      }
-
-      const existingSched = app.db.select().from(schedules).where(eq(schedules.projectId, projectId)).get()
-      if (existingSched) {
-        app.db.update(schedules).set({
-          cronExpr,
-          preset,
-          timezone,
-          providers: JSON.stringify(schedSpec.providers ?? []),
-          enabled: 1,
-          updatedAt: now,
-        }).where(eq(schedules.id, existingSched.id)).run()
-      } else {
-        app.db.insert(schedules).values({
-          id: crypto.randomUUID(),
-          projectId,
-          cronExpr,
-          preset,
-          timezone,
-          enabled: 1,
-          providers: JSON.stringify(schedSpec.providers ?? []),
-          createdAt: now,
-          updatedAt: now,
-        }).run()
-      }
-
-      opts?.onScheduleUpdated?.('upsert', projectId)
-    } else {
-      // Declaratively remove schedule if omitted from config
-      const existingSched = app.db.select().from(schedules).where(eq(schedules.projectId, projectId)).get()
-      if (existingSched) {
-        app.db.delete(schedules).where(eq(schedules.projectId, projectId)).run()
-        opts?.onScheduleUpdated?.('delete', projectId)
-      }
+    // Fire callbacks after transaction commits
+    if (scheduleAction) {
+      opts?.onScheduleUpdated?.(scheduleAction, projectId!)
     }
-
-    // Handle notifications from config — declarative replace only when key is
-    // explicitly present (absent key leaves existing notifications untouched).
-    const rawSpec = (request.body as { spec?: Record<string, unknown> })?.spec ?? {}
-    if ('notifications' in rawSpec) {
-      // Validate all URLs before any writes so the replace is atomic.
-      for (const notif of config.spec.notifications) {
-        const urlCheck = await resolveWebhookTarget(notif.url ?? '')
-        if (!urlCheck.ok) {
-          return reply.status(400).send({
-            error: { code: 'VALIDATION_ERROR', message: `Notification URL invalid: ${urlCheck.message}` },
-          })
-        }
-      }
-
-      app.db.delete(notifications).where(eq(notifications.projectId, projectId)).run()
-      for (const notif of config.spec.notifications) {
-        app.db.insert(notifications).values({
-          id: crypto.randomUUID(),
-          projectId,
-          channel: notif.channel,
-          config: JSON.stringify({ url: notif.url, events: notif.events }),
-          webhookSecret: crypto.randomBytes(32).toString('hex'),
-          enabled: 1,
-          createdAt: now,
-          updatedAt: now,
-        }).run()
-      }
-
-      writeAuditLog(app.db, {
-        projectId,
-        actor: 'api',
-        action: 'notifications.replaced',
-        entityType: 'notification',
-        diff: { notifications: config.spec.notifications },
-      })
-    }
-
-    // Handle google config — if spec.google.gsc.propertyUrl is set and a GSC connection
-    // exists for this project's domain, update the property.
     if ('google' in rawSpec && config.spec.google?.gsc?.propertyUrl) {
       opts?.onGoogleConnectionPropertyUpdated?.(config.spec.canonicalDomain, 'gsc', config.spec.google.gsc.propertyUrl)
     }
 
-    const project = app.db.select().from(projects).where(eq(projects.id, projectId)).get()!
+    const project = app.db.select().from(projects).where(eq(projects.id, projectId!)).get()!
     return reply.status(200).send({
       id: project.id,
       name: project.name,
       displayName: project.displayName,
       canonicalDomain: project.canonicalDomain,
-      ownedDomains: JSON.parse(project.ownedDomains || '[]') as string[],
+      ownedDomains: parseJsonColumn<string[]>(project.ownedDomains, []),
       country: project.country,
       language: project.language,
-      tags: JSON.parse(project.tags) as string[],
-      labels: JSON.parse(project.labels) as Record<string, string>,
-      providers: JSON.parse(project.providers || '[]') as string[],
-      locations: JSON.parse(project.locations || '[]') as unknown[],
+      tags: parseJsonColumn<string[]>(project.tags, []),
+      labels: parseJsonColumn<Record<string, string>>(project.labels, {}),
+      providers: parseJsonColumn<string[]>(project.providers, []),
+      locations: parseJsonColumn<unknown[]>(project.locations, []),
       defaultLocation: project.defaultLocation,
       configSource: project.configSource,
       configRevision: project.configRevision,

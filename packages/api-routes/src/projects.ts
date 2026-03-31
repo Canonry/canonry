@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { projects, keywords, competitors, schedules, notifications } from '@ainyc/canonry-db'
+import { projects, keywords, competitors, schedules, notifications, parseJsonColumn } from '@ainyc/canonry-db'
 import {
   validationError,
   locationContextSchema,
@@ -39,13 +39,12 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     const { name } = request.params
     const parsedBody = projectUpsertRequestSchema.safeParse(request.body)
     if (!parsedBody.success) {
-      const err = validationError('Invalid project payload', {
+      throw validationError('Invalid project payload', {
         issues: parsedBody.error.issues.map(issue => ({
           path: issue.path.join('.'),
           message: issue.message,
         })),
       })
-      return reply.status(err.statusCode).send(err.toJSON())
     }
     const body = parsedBody.data
 
@@ -54,36 +53,33 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     if (validNames.length && body.providers?.length) {
       const invalid = body.providers.filter(p => !validNames.includes(p))
       if (invalid.length) {
-        const err = validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
+        throw validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
           invalidProviders: invalid,
           validProviders: validNames,
         })
-        return reply.status(err.statusCode).send(err.toJSON())
       }
     }
 
     const now = new Date().toISOString()
     const existing = app.db.select().from(projects).where(eq(projects.name, name)).get()
     const existingLocations = existing
-      ? (JSON.parse(existing.locations || '[]') as LocationContext[])
+      ? (parseJsonColumn<LocationContext[]>(existing.locations, []))
       : []
     const nextLocations = body.locations ?? existingLocations
     const duplicateLabels = findDuplicateLocationLabels(nextLocations)
     if (duplicateLabels.length > 0) {
-      const err = validationError(`Duplicate location labels are not allowed: ${duplicateLabels.join(', ')}`, {
+      throw validationError(`Duplicate location labels are not allowed: ${duplicateLabels.join(', ')}`, {
         duplicateLabels,
       })
-      return reply.status(err.statusCode).send(err.toJSON())
     }
 
     const nextDefaultLocation = body.defaultLocation !== undefined
       ? (body.defaultLocation ?? null)
       : existing?.defaultLocation ?? null
     if (!hasLocationLabel(nextLocations, nextDefaultLocation)) {
-      const err = validationError(`defaultLocation "${nextDefaultLocation}" must match a configured location label`, {
+      throw validationError(`defaultLocation "${nextDefaultLocation}" must match a configured location label`, {
         defaultLocation: nextDefaultLocation,
       })
-      return reply.status(err.statusCode).send(err.toJSON())
     }
 
     if (existing) {
@@ -155,30 +151,13 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
 
   // GET /projects/:name — get single
   app.get<{ Params: { name: string } }>('/projects/:name', async (request, reply) => {
-    try {
-      const project = resolveProject(app.db, request.params.name)
-      return reply.send(formatProject(project))
-    } catch (e: unknown) {
-      if (e && typeof e === 'object' && 'statusCode' in e && 'toJSON' in e) {
-        const err = e as { statusCode: number; toJSON(): unknown }
-        return reply.status(err.statusCode).send(err.toJSON())
-      }
-      throw e
-    }
+    const project = resolveProject(app.db, request.params.name)
+    return reply.send(formatProject(project))
   })
 
   // DELETE /projects/:name
   app.delete<{ Params: { name: string } }>('/projects/:name', async (request, reply) => {
-    let project: ReturnType<typeof resolveProject>
-    try {
-      project = resolveProject(app.db, request.params.name)
-    } catch (e: unknown) {
-      if (e && typeof e === 'object' && 'statusCode' in e && 'toJSON' in e) {
-        const err = e as { statusCode: number; toJSON(): unknown }
-        return reply.status(err.statusCode).send(err.toJSON())
-      }
-      throw e
-    }
+    const project = resolveProject(app.db, request.params.name)
 
     writeAuditLog(app.db, {
       projectId: project.id,
@@ -198,28 +177,17 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     Params: { name: string }
     Body: LocationContext
   }>('/projects/:name/locations', async (request, reply) => {
-    let project: ReturnType<typeof resolveProject>
-    try {
-      project = resolveProject(app.db, request.params.name)
-    } catch (e: unknown) {
-      if (e && typeof e === 'object' && 'statusCode' in e && 'toJSON' in e) {
-        const err = e as { statusCode: number; toJSON(): unknown }
-        return reply.status(err.statusCode).send(err.toJSON())
-      }
-      throw e
-    }
+    const project = resolveProject(app.db, request.params.name)
 
     const parsed = locationContextSchema.safeParse(request.body)
     if (!parsed.success) {
-      const err = validationError(parsed.error.issues.map(i => i.message).join(', '))
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError(parsed.error.issues.map(i => i.message).join(', '))
     }
 
     const location = parsed.data
-    const existing = JSON.parse(project.locations || '[]') as LocationContext[]
+    const existing = parseJsonColumn<LocationContext[]>(project.locations, [])
     if (existing.some(l => l.label === location.label)) {
-      const err = validationError(`Location "${location.label}" already exists`)
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError(`Location "${location.label}" already exists`)
     }
 
     existing.push(location)
@@ -242,18 +210,9 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
 
   // GET /projects/:name/locations — list locations
   app.get<{ Params: { name: string } }>('/projects/:name/locations', async (request, reply) => {
-    let project: ReturnType<typeof resolveProject>
-    try {
-      project = resolveProject(app.db, request.params.name)
-    } catch (e: unknown) {
-      if (e && typeof e === 'object' && 'statusCode' in e && 'toJSON' in e) {
-        const err = e as { statusCode: number; toJSON(): unknown }
-        return reply.status(err.statusCode).send(err.toJSON())
-      }
-      throw e
-    }
+    const project = resolveProject(app.db, request.params.name)
 
-    const locations = JSON.parse(project.locations || '[]') as LocationContext[]
+    const locations = parseJsonColumn<LocationContext[]>(project.locations, [])
     return reply.send({
       locations,
       defaultLocation: project.defaultLocation,
@@ -264,23 +223,13 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
   app.delete<{
     Params: { name: string; label: string }
   }>('/projects/:name/locations/:label', async (request, reply) => {
-    let project: ReturnType<typeof resolveProject>
-    try {
-      project = resolveProject(app.db, request.params.name)
-    } catch (e: unknown) {
-      if (e && typeof e === 'object' && 'statusCode' in e && 'toJSON' in e) {
-        const err = e as { statusCode: number; toJSON(): unknown }
-        return reply.status(err.statusCode).send(err.toJSON())
-      }
-      throw e
-    }
+    const project = resolveProject(app.db, request.params.name)
 
     const label = decodeURIComponent(request.params.label)
-    const existing = JSON.parse(project.locations || '[]') as LocationContext[]
+    const existing = parseJsonColumn<LocationContext[]>(project.locations, [])
     const filtered = existing.filter(l => l.label !== label)
     if (filtered.length === existing.length) {
-      const err = validationError(`Location "${label}" not found`)
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError(`Location "${label}" not found`)
     }
 
     const now = new Date().toISOString()
@@ -310,27 +259,16 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     Params: { name: string }
     Body: { label: string }
   }>('/projects/:name/locations/default', async (request, reply) => {
-    let project: ReturnType<typeof resolveProject>
-    try {
-      project = resolveProject(app.db, request.params.name)
-    } catch (e: unknown) {
-      if (e && typeof e === 'object' && 'statusCode' in e && 'toJSON' in e) {
-        const err = e as { statusCode: number; toJSON(): unknown }
-        return reply.status(err.statusCode).send(err.toJSON())
-      }
-      throw e
-    }
+    const project = resolveProject(app.db, request.params.name)
 
     const label = request.body?.label
     if (!label) {
-      const err = validationError('label is required')
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError('label is required')
     }
 
-    const existing = JSON.parse(project.locations || '[]') as LocationContext[]
+    const existing = parseJsonColumn<LocationContext[]>(project.locations, [])
     if (!existing.some(l => l.label === label)) {
-      const err = validationError(`Location "${label}" not found. Add it first.`)
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError(`Location "${label}" not found. Add it first.`)
     }
 
     const now = new Date().toISOString()
@@ -352,16 +290,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
 
   // GET /projects/:name/export — export as canonry.yaml format
   app.get<{ Params: { name: string } }>('/projects/:name/export', async (request, reply) => {
-    let project: ReturnType<typeof resolveProject>
-    try {
-      project = resolveProject(app.db, request.params.name)
-    } catch (e: unknown) {
-      if (e && typeof e === 'object' && 'statusCode' in e && 'toJSON' in e) {
-        const err = e as { statusCode: number; toJSON(): unknown }
-        return reply.status(err.statusCode).send(err.toJSON())
-      }
-      throw e
-    }
+    const project = resolveProject(app.db, request.params.name)
 
     const kws = app.db.select().from(keywords).where(eq(keywords.projectId, project.id)).all()
     const comps = app.db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
@@ -373,21 +302,21 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       kind: 'Project',
       metadata: {
         name: project.name,
-        labels: JSON.parse(project.labels) as Record<string, string>,
+        labels: parseJsonColumn<Record<string, string>>(project.labels, {}),
       },
       spec: {
         displayName: project.displayName,
         canonicalDomain: project.canonicalDomain,
-        ownedDomains: JSON.parse(project.ownedDomains || '[]') as string[],
+        ownedDomains: parseJsonColumn<string[]>(project.ownedDomains, []),
         country: project.country,
         language: project.language,
         keywords: kws.map(k => k.keyword),
         competitors: comps.map(c => c.domain),
-        providers: JSON.parse(project.providers || '[]') as string[],
-        locations: JSON.parse(project.locations || '[]') as LocationContext[],
+        providers: parseJsonColumn<string[]>(project.providers, []),
+        locations: parseJsonColumn<LocationContext[]>(project.locations, []),
         ...(project.defaultLocation ? { defaultLocation: project.defaultLocation } : {}),
         notifications: notificationRows.map((row) => {
-          const cfg = JSON.parse(row.config) as { url: string; events: string[] }
+          const cfg = parseJsonColumn<{ url: string; events: string[] }>(row.config, { url: '', events: [] })
           return {
             channel: row.channel,
             url: cfg.url,
@@ -398,7 +327,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
           schedule: {
             ...(schedule.preset ? { preset: schedule.preset } : { cron: schedule.cronExpr }),
             timezone: schedule.timezone,
-            providers: JSON.parse(schedule.providers || '[]') as string[],
+            providers: parseJsonColumn<string[]>(schedule.providers, []),
           },
         } : {}),
       },
@@ -431,13 +360,13 @@ function formatProject(row: {
     name: row.name,
     displayName: row.displayName,
     canonicalDomain: row.canonicalDomain,
-    ownedDomains: JSON.parse(row.ownedDomains || '[]') as string[],
+    ownedDomains: parseJsonColumn<string[]>(row.ownedDomains, []),
     country: row.country,
     language: row.language,
-    tags: JSON.parse(row.tags) as string[],
-    labels: JSON.parse(row.labels) as Record<string, string>,
-    providers: JSON.parse(row.providers || '[]') as string[],
-    locations: JSON.parse(row.locations || '[]') as LocationContext[],
+    tags: parseJsonColumn<string[]>(row.tags, []),
+    labels: parseJsonColumn<Record<string, string>>(row.labels, {}),
+    providers: parseJsonColumn<string[]>(row.providers, []),
+    locations: parseJsonColumn<LocationContext[]>(row.locations, []),
     defaultLocation: row.defaultLocation,
     configSource: row.configSource,
     configRevision: row.configRevision,

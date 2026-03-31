@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { eq, and } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { projects, auditLog, usageCounters } from '@ainyc/canonry-db'
 import { notFound } from '@ainyc/canonry-contracts'
@@ -39,31 +39,19 @@ export function writeAuditLog(db: Pick<DatabaseClient, 'insert'>, entry: AuditEn
 export function incrementUsage(db: DatabaseClient, scope: string, metric: string) {
   const now = new Date()
   const period = now.toISOString().slice(0, 10)
-  const existing = db
-    .select()
-    .from(usageCounters)
-    .where(
-      and(
-        eq(usageCounters.scope, scope),
-        eq(usageCounters.period, period),
-        eq(usageCounters.metric, metric),
-      ),
-    )
-    .get()
 
-  if (existing) {
-    db.update(usageCounters)
-      .set({ count: existing.count + 1, updatedAt: now.toISOString() })
-      .where(eq(usageCounters.id, existing.id))
-      .run()
-  } else {
-    db.insert(usageCounters).values({
-      id: crypto.randomUUID(),
-      scope,
-      period,
-      metric,
-      count: 1,
+  db.insert(usageCounters).values({
+    id: crypto.randomUUID(),
+    scope,
+    period,
+    metric,
+    count: 1,
+    updatedAt: now.toISOString(),
+  }).onConflictDoUpdate({
+    target: [usageCounters.scope, usageCounters.period, usageCounters.metric],
+    set: {
+      count: sql`${usageCounters.count} + 1`,
       updatedAt: now.toISOString(),
-    }).run()
-  }
+    },
+  }).run()
 }

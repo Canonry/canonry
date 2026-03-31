@@ -1,4 +1,4 @@
-import { ApiClient, createApiClient } from '../client.js'
+import { ApiClient, createApiClient, type RunDetailDto } from '../client.js'
 import { resolveProviderInput } from '@ainyc/canonry-contracts'
 import { CliError } from '../cli-error.js'
 
@@ -86,7 +86,7 @@ export async function triggerRun(project: string, opts?: { provider?: string; wa
       console.log(JSON.stringify(result, null, 2))
     } else {
       process.stderr.write('\n')
-      printRunDetail(result as Record<string, unknown>)
+      printRunDetail(result)
     }
     return
   }
@@ -204,7 +204,7 @@ export async function cancelRun(project: string, runId?: string, format?: string
 
 export async function showRun(id: string, format?: string): Promise<void> {
   const client = getClient()
-  const run = await client.getRun(id) as Record<string, unknown>
+  const run = await client.getRun(id)
 
   if (format === 'json') {
     console.log(JSON.stringify(run, null, 2))
@@ -249,22 +249,22 @@ export async function listRuns(project: string, opts?: { format?: string; limit?
 
 const POLL_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
 
-async function pollRun(client: ApiClient, runId: string): Promise<object> {
+async function pollRun(client: ApiClient, runId: string): Promise<RunDetailDto> {
   const deadline = Date.now() + POLL_TIMEOUT_MS
   for (;;) {
     await new Promise(r => setTimeout(r, 2000))
     if (Date.now() > deadline) {
       throw new Error(`Timed out waiting for run ${runId} after ${POLL_TIMEOUT_MS / 1000}s`)
     }
-    const run = await client.getRun(runId) as { status: string }
+    const run = await client.getRun(runId)
     process.stderr.write('.')
     if (TERMINAL_STATUSES.has(run.status)) {
-      return run as object
+      return run
     }
   }
 }
 
-function printRunDetail(run: Record<string, unknown>): void {
+function printRunDetail(run: RunDetailDto): void {
   console.log(`Run: ${run.id}`)
   console.log(`  Status:   ${run.status}`)
   console.log(`  Kind:     ${run.kind}`)
@@ -273,10 +273,9 @@ function printRunDetail(run: Record<string, unknown>): void {
   if (run.finishedAt) console.log(`  Finished: ${run.finishedAt}`)
   if (run.createdAt) console.log(`  Created:  ${run.createdAt}`)
   if (run.error) console.log(`  Error:    ${run.error}`)
-  const snapshots = run.snapshots as Array<Record<string, unknown>> | undefined
-  if (snapshots && snapshots.length > 0) {
-    console.log(`\n  Snapshots: ${snapshots.length}`)
-    for (const s of snapshots) {
+  if (run.snapshots && run.snapshots.length > 0) {
+    console.log(`\n  Snapshots: ${run.snapshots.length}`)
+    for (const s of run.snapshots) {
       const state = s.citationState === 'cited' ? '  cited    ' : '  not-cited'
       const modelLabel = s.model ? ` (${s.model})` : ''
       console.log(`    ${state}  ${s.provider}${modelLabel}  ${s.keyword}`)

@@ -1,6 +1,6 @@
 import { eq, desc, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { querySnapshots, runs, keywords } from '@ainyc/canonry-db'
+import { querySnapshots, runs, keywords, parseJsonColumn } from '@ainyc/canonry-db'
 import { categorizeSource, categoryLabel } from '@ainyc/canonry-contracts'
 import type {
   BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto,
@@ -15,8 +15,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     Params: { name: string }
     Querystring: { window?: string }
   }>('/projects/:name/analytics/metrics', async (request, reply) => {
-    const project = resolveProjectSafe(app, request.params.name, reply)
-    if (!project) return
+    const project = resolveProject(app.db, request.params.name)
 
     const window = parseWindow(request.query.window)
     const cutoff = windowCutoff(window)
@@ -93,8 +92,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     Params: { name: string }
     Querystring: { window?: string }
   }>('/projects/:name/analytics/gaps', async (request, reply) => {
-    const project = resolveProjectSafe(app, request.params.name, reply)
-    if (!project) return
+    const project = resolveProject(app.db, request.params.name)
 
     const window = parseWindow(request.query.window)
     const cutoff = windowCutoff(window)
@@ -182,7 +180,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         .map(s => s.provider)
       const competitorsCiting = new Set<string>()
       for (const s of kwSnapshots) {
-        const overlap = tryParseJson(s.competitorOverlap, [] as string[])
+        const overlap = parseJsonColumn<string[]>(s.competitorOverlap, [])
         for (const c of overlap) competitorsCiting.add(c)
       }
 
@@ -226,8 +224,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     Params: { name: string }
     Querystring: { window?: string }
   }>('/projects/:name/analytics/sources', async (request, reply) => {
-    const project = resolveProjectSafe(app, request.params.name, reply)
-    if (!project) return
+    const project = resolveProject(app.db, request.params.name)
 
     const window = parseWindow(request.query.window)
     const cutoff = windowCutoff(window)
@@ -295,27 +292,6 @@ export async function analyticsRoutes(app: FastifyInstance) {
 
 // --- Helpers ---
 
-function resolveProjectSafe(app: FastifyInstance, name: string, reply: { status: (code: number) => { send: (body: unknown) => unknown } }) {
-  try {
-    return resolveProject(app.db, name)
-  } catch (e: unknown) {
-    if (e && typeof e === 'object' && 'statusCode' in e && 'toJSON' in e) {
-      const err = e as { statusCode: number; toJSON(): unknown }
-      reply.status(err.statusCode).send(err.toJSON())
-      return null
-    }
-    throw e
-  }
-}
-
-function tryParseJson<T>(value: string | null, fallback: T): T {
-  if (!value) return fallback
-  try {
-    return JSON.parse(value) as T
-  } catch {
-    return fallback
-  }
-}
 
 // Domains that are provider infrastructure, not real grounding sources
 const PROVIDER_INFRA_DOMAINS = new Set([
@@ -338,7 +314,7 @@ function isProviderInfraDomain(uri: string): boolean {
 }
 
 function parseGroundingSources(rawResponse: string | null): Array<{ uri: string; title: string }> {
-  const parsed = tryParseJson(rawResponse, {} as Record<string, unknown>)
+  const parsed = parseJsonColumn<Record<string, unknown>>(rawResponse, {})
   const sources = parsed.groundingSources as Array<{ uri?: string; title?: string }> | undefined
   if (!Array.isArray(sources)) return []
   return sources.filter(

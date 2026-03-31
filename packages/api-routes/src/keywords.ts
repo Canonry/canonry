@@ -16,8 +16,7 @@ export interface KeywordRoutesOptions {
 export async function keywordRoutes(app: FastifyInstance, opts: KeywordRoutesOptions) {
   // GET /projects/:name/keywords
   app.get<{ Params: { name: string } }>('/projects/:name/keywords', async (request, reply) => {
-    const project = resolveProjectSafe(app, request.params.name, reply)
-    if (!project) return
+    const project = resolveProject(app.db, request.params.name)
     const rows = app.db.select().from(keywords).where(eq(keywords.projectId, project.id)).all()
     return reply.send(rows.map(r => ({ id: r.id, keyword: r.keyword, createdAt: r.createdAt })))
   })
@@ -27,13 +26,11 @@ export async function keywordRoutes(app: FastifyInstance, opts: KeywordRoutesOpt
     Params: { name: string }
     Body: { keywords: string[] }
   }>('/projects/:name/keywords', async (request, reply) => {
-    const project = resolveProjectSafe(app, request.params.name, reply)
-    if (!project) return
+    const project = resolveProject(app.db, request.params.name)
 
     const body = request.body
     if (!body || !Array.isArray(body.keywords)) {
-      const err = validationError('Body must contain a "keywords" array')
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError('Body must contain a "keywords" array')
     }
 
     const now = new Date().toISOString()
@@ -69,13 +66,11 @@ export async function keywordRoutes(app: FastifyInstance, opts: KeywordRoutesOpt
     Params: { name: string }
     Body: { keywords: string[] }
   }>('/projects/:name/keywords', async (request, reply) => {
-    const project = resolveProjectSafe(app, request.params.name, reply)
-    if (!project) return
+    const project = resolveProject(app.db, request.params.name)
 
     const body = request.body
     if (!body || !Array.isArray(body.keywords) || body.keywords.length === 0) {
-      const err = validationError('Body must contain a non-empty "keywords" array')
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError('Body must contain a non-empty "keywords" array')
     }
 
     const existing = app.db
@@ -112,13 +107,11 @@ export async function keywordRoutes(app: FastifyInstance, opts: KeywordRoutesOpt
     Params: { name: string }
     Body: { keywords: string[] }
   }>('/projects/:name/keywords', async (request, reply) => {
-    const project = resolveProjectSafe(app, request.params.name, reply)
-    if (!project) return
+    const project = resolveProject(app.db, request.params.name)
 
     const body = request.body
     if (!body || !Array.isArray(body.keywords)) {
-      const err = validationError('Body must contain a "keywords" array')
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError('Body must contain a "keywords" array')
     }
 
     const now = new Date().toISOString()
@@ -161,33 +154,28 @@ export async function keywordRoutes(app: FastifyInstance, opts: KeywordRoutesOpt
     Params: { name: string }
     Body: { provider: string; count?: number }
   }>('/projects/:name/keywords/generate', async (request, reply) => {
-    const project = resolveProjectSafe(app, request.params.name, reply)
-    if (!project) return
+    const project = resolveProject(app.db, request.params.name)
 
     const body = request.body
     if (!body?.provider || typeof body.provider !== 'string') {
-      const err = validationError('Body must contain a "provider" string')
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError('Body must contain a "provider" string')
     }
 
     const provider = body.provider.trim().toLowerCase()
     const validNames = opts.validProviderNames ?? []
     if (validNames.length && !validNames.includes(provider)) {
-      const err = validationError(`Unknown provider "${body.provider}". Valid providers: ${validNames.join(', ')}`, {
+      throw validationError(`Unknown provider "${body.provider}". Valid providers: ${validNames.join(', ')}`, {
         provider: body.provider,
         validProviders: validNames,
       })
-      return reply.status(err.statusCode).send(err.toJSON())
     }
     if (body.count !== undefined && (typeof body.count !== 'number' || !Number.isFinite(body.count) || !Number.isInteger(body.count))) {
-      const err = validationError('"count" must be an integer')
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError('"count" must be an integer')
     }
     const count = Math.min(Math.max(body.count ?? 5, 1), 20)
 
     if (!opts.onGenerateKeywords) {
-      const err = notImplemented('Key phrase generation is not supported in this deployment')
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw notImplemented('Key phrase generation is not supported in this deployment')
     }
 
     const existingRows = app.db.select().from(keywords).where(eq(keywords.projectId, project.id)).all()
@@ -212,17 +200,4 @@ export async function keywordRoutes(app: FastifyInstance, opts: KeywordRoutesOpt
       })
     }
   })
-}
-
-function resolveProjectSafe(app: FastifyInstance, name: string, reply: { status: (code: number) => { send: (body: unknown) => unknown } }) {
-  try {
-    return resolveProject(app.db, name)
-  } catch (e: unknown) {
-    if (e && typeof e === 'object' && 'statusCode' in e && 'toJSON' in e) {
-      const err = e as { statusCode: number; toJSON(): unknown }
-      reply.status(err.statusCode).send(err.toJSON())
-      return null
-    }
-    throw e
-  }
 }

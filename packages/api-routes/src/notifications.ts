@@ -1,8 +1,9 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { notifications } from '@ainyc/canonry-db'
+import { notifications, parseJsonColumn } from '@ainyc/canonry-db'
 import type { NotificationEvent, NotificationDto } from '@ainyc/canonry-contracts'
+import { validationError, notFound, deliveryFailed } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { redactNotificationUrl } from './notification-redaction.js'
 import { deliverWebhook, resolveWebhookTarget } from './webhooks.js'
@@ -20,35 +21,20 @@ export async function notificationRoutes(app: FastifyInstance) {
     Params: { name: string }
     Body: { channel: string; url: string; events: string[] }
   }>('/projects/:name/notifications', async (request, reply) => {
-    const project = resolveProjectSafe(app, request.params.name, reply)
-    if (!project) return
+    const project = resolveProject(app.db, request.params.name)
 
     const { channel, url, events } = request.body ?? {}
 
-    if (channel !== 'webhook') {
-      return reply.status(400).send({
-        error: { code: 'VALIDATION_ERROR', message: 'Only "webhook" channel is supported' },
-      })
-    }
+    if (channel !== 'webhook') throw validationError('Only "webhook" channel is supported')
 
     const urlCheck = await resolveWebhookTarget(url ?? '')
-    if (!urlCheck.ok) {
-      return reply.status(400).send({
-        error: { code: 'VALIDATION_ERROR', message: urlCheck.message },
-      })
-    }
+    if (!urlCheck.ok) throw validationError(urlCheck.message)
 
-    if (!events?.length) {
-      return reply.status(400).send({
-        error: { code: 'VALIDATION_ERROR', message: '"events" must be a non-empty array' },
-      })
-    }
+    if (!events?.length) throw validationError('"events" must be a non-empty array')
 
     const invalid = events.filter(e => !VALID_EVENTS.includes(e as NotificationEvent))
     if (invalid.length) {
-      return reply.status(400).send({
-        error: { code: 'VALIDATION_ERROR', message: `Invalid event(s): ${invalid.join(', ')}. Must be one of: ${VALID_EVENTS.join(', ')}` },
-      })
+      throw validationError(`Invalid event(s): ${invalid.join(', ')}. Must be one of: ${VALID_EVENTS.join(', ')}`)
     }
 
     const now = new Date().toISOString()
@@ -84,8 +70,7 @@ export async function notificationRoutes(app: FastifyInstance) {
 
   // GET /projects/:name/notifications — list notifications
   app.get<{ Params: { name: string } }>('/projects/:name/notifications', async (request, reply) => {
-    const project = resolveProjectSafe(app, request.params.name, reply)
-    if (!project) return
+    const project = resolveProject(app.db, request.params.name)
 
     const rows = app.db.select().from(notifications).where(eq(notifications.projectId, project.id)).all()
     return reply.send(rows.map(formatNotification))
@@ -93,14 +78,11 @@ export async function notificationRoutes(app: FastifyInstance) {
 
   // DELETE /projects/:name/notifications/:id — remove notification
   app.delete<{ Params: { name: string; id: string } }>('/projects/:name/notifications/:id', async (request, reply) => {
-    const project = resolveProjectSafe(app, request.params.name, reply)
-    if (!project) return
+    const project = resolveProject(app.db, request.params.name)
 
     const notification = app.db.select().from(notifications).where(eq(notifications.id, request.params.id)).get()
     if (!notification || notification.projectId !== project.id) {
-      return reply.status(404).send({
-        error: { code: 'NOT_FOUND', message: `Notification '${request.params.id}' not found` },
-      })
+      throw notFound('Notification', request.params.id)
     }
 
     app.db.delete(notifications).where(eq(notifications.id, notification.id)).run()
@@ -118,25 +100,18 @@ export async function notificationRoutes(app: FastifyInstance) {
 
   // POST /projects/:name/notifications/:id/test — send a test webhook from the server
   app.post<{ Params: { name: string; id: string } }>('/projects/:name/notifications/:id/test', async (request, reply) => {
-    const project = resolveProjectSafe(app, request.params.name, reply)
-    if (!project) return
+    const project = resolveProject(app.db, request.params.name)
 
     const notification = app.db.select().from(notifications).where(eq(notifications.id, request.params.id)).get()
     if (!notification || notification.projectId !== project.id) {
-      return reply.status(404).send({
-        error: { code: 'NOT_FOUND', message: `Notification '${request.params.id}' not found` },
-      })
+      throw notFound('Notification', request.params.id)
     }
 
-    const config = JSON.parse(notification.config) as { url: string; events: string[] }
+    const config = parseJsonColumn<{ url: string; events: string[] }>(notification.config, { url: '', events: [] })
 
     // Re-validate URL at delivery time (stored URLs may predate validation logic)
     const urlCheck = await resolveWebhookTarget(config.url)
-    if (!urlCheck.ok) {
-      return reply.status(400).send({
-        error: { code: 'VALIDATION_ERROR', message: `Stored webhook URL is invalid: ${urlCheck.message}` },
-      })
-    }
+    if (!urlCheck.ok) throw validationError(`Stored webhook URL is invalid: ${urlCheck.message}`)
 
     const payload = {
       source: 'canonry',
@@ -163,15 +138,13 @@ export async function notificationRoutes(app: FastifyInstance) {
       diff: { status, error },
     })
 
-    if (error) {
-      return reply.status(502).send({ error: { code: 'DELIVERY_FAILED', message: error } })
-    }
+    if (error) throw deliveryFailed(error)
     return reply.send({ status, ok: status >= 200 && status < 300 })
   })
 }
 
 function formatNotification(row: typeof notifications.$inferSelect): Omit<NotificationDto, 'webhookSecret'> {
-  const config = JSON.parse(row.config) as { url: string; events: NotificationEvent[] }
+  const config = parseJsonColumn<{ url: string; events: NotificationEvent[] }>(row.config, { url: '', events: [] })
   const redacted = redactNotificationUrl(config.url)
   return {
     id: row.id,
@@ -184,18 +157,5 @@ function formatNotification(row: typeof notifications.$inferSelect): Omit<Notifi
     enabled: row.enabled === 1,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-  }
-}
-
-function resolveProjectSafe(app: FastifyInstance, name: string, reply: { status: (code: number) => { send: (body: unknown) => unknown } }) {
-  try {
-    return resolveProject(app.db, name)
-  } catch (e: unknown) {
-    if (e && typeof e === 'object' && 'statusCode' in e && 'toJSON' in e) {
-      const err = e as { statusCode: number; toJSON(): unknown }
-      reply.status(err.statusCode).send(err.toJSON())
-      return null
-    }
-    throw e
   }
 }

@@ -8,8 +8,7 @@ import { resolveProject, writeAuditLog } from './helpers.js'
 export async function competitorRoutes(app: FastifyInstance) {
   // GET /projects/:name/competitors
   app.get<{ Params: { name: string } }>('/projects/:name/competitors', async (request, reply) => {
-    const project = resolveProjectSafe(app, request.params.name, reply)
-    if (!project) return
+    const project = resolveProject(app.db, request.params.name)
     const rows = app.db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
     return reply.send(rows.map(r => ({ id: r.id, domain: r.domain, createdAt: r.createdAt })))
   })
@@ -19,13 +18,11 @@ export async function competitorRoutes(app: FastifyInstance) {
     Params: { name: string }
     Body: { competitors: string[] }
   }>('/projects/:name/competitors', async (request, reply) => {
-    const project = resolveProjectSafe(app, request.params.name, reply)
-    if (!project) return
+    const project = resolveProject(app.db, request.params.name)
 
     const body = request.body
     if (!body || !Array.isArray(body.competitors)) {
-      const err = validationError('Body must contain a "competitors" array')
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError('Body must contain a "competitors" array')
     }
 
     const now = new Date().toISOString()
@@ -55,17 +52,4 @@ export async function competitorRoutes(app: FastifyInstance) {
     const rows = app.db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
     return reply.send(rows.map(r => ({ id: r.id, domain: r.domain, createdAt: r.createdAt })))
   })
-}
-
-function resolveProjectSafe(app: FastifyInstance, name: string, reply: { status: (code: number) => { send: (body: unknown) => unknown } }) {
-  try {
-    return resolveProject(app.db, name)
-  } catch (e: unknown) {
-    if (e && typeof e === 'object' && 'statusCode' in e && 'toJSON' in e) {
-      const err = e as { statusCode: number; toJSON(): unknown }
-      reply.status(err.statusCode).send(err.toJSON())
-      return null
-    }
-    throw e
-  }
 }

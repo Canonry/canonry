@@ -1,6 +1,15 @@
 import { loadConfig } from './config.js'
 import type {
+  ProjectDto,
+  RunDto,
+  QuerySnapshotDto,
+  ScheduleDto,
+  NotificationDto,
   SnapshotReportDto,
+  BrandMetricsDto,
+  GapAnalysisDto,
+  SourceBreakdownDto,
+  LocationContext,
   WordpressAuditIssueDto,
   WordpressAuditPageDto,
   WordpressBulkMetaResultDto,
@@ -15,6 +24,27 @@ import type {
   WordpressSchemaStatusResultDto,
   WordpressStatusDto,
 } from '@ainyc/canonry-contracts'
+
+/** Run detail response includes snapshots */
+export interface RunDetailDto extends RunDto {
+  snapshots?: QuerySnapshotDto[]
+}
+
+/** Settings response from GET /settings */
+export interface SettingsDto {
+  providers: Array<{ name: string; displayName: string; configured: boolean; healthy?: boolean; model?: string; quota?: object }>
+  google?: object
+  bing?: object
+}
+
+/** Apply response */
+export type ApplyResultDto = ProjectDto
+
+/** Telemetry status */
+export interface TelemetryDto {
+  enabled: boolean
+  anonymousId?: string
+}
 
 /**
  * Create an ApiClient using the loaded config.
@@ -136,16 +166,16 @@ export class ApiClient {
     return (await res.json()) as T
   }
 
-  async putProject(name: string, body: object): Promise<object> {
-    return this.request<object>('PUT', `/projects/${encodeURIComponent(name)}`, body)
+  async putProject(name: string, body: object): Promise<ProjectDto> {
+    return this.request<ProjectDto>('PUT', `/projects/${encodeURIComponent(name)}`, body)
   }
 
-  async listProjects(): Promise<object[]> {
-    return this.request<object[]>('GET', '/projects')
+  async listProjects(): Promise<ProjectDto[]> {
+    return this.request<ProjectDto[]>('GET', '/projects')
   }
 
-  async getProject(name: string): Promise<object> {
-    return this.request<object>('GET', `/projects/${encodeURIComponent(name)}`)
+  async getProject(name: string): Promise<ProjectDto> {
+    return this.request<ProjectDto>('GET', `/projects/${encodeURIComponent(name)}`)
   }
 
   async deleteProject(name: string): Promise<void> {
@@ -176,21 +206,21 @@ export class ApiClient {
     return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/competitors`)
   }
 
-  async triggerRun(project: string, body?: Record<string, unknown>): Promise<object> {
-    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/runs`, body ?? {})
+  async triggerRun(project: string, body?: Record<string, unknown>): Promise<RunDto | RunDto[]> {
+    return this.request<RunDto | RunDto[]>('POST', `/projects/${encodeURIComponent(project)}/runs`, body ?? {})
   }
 
-  async listRuns(project: string, limit?: number): Promise<object[]> {
+  async listRuns(project: string, limit?: number): Promise<RunDto[]> {
     const query = limit != null ? `?limit=${encodeURIComponent(String(limit))}` : ''
-    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/runs${query}`)
+    return this.request<RunDto[]>('GET', `/projects/${encodeURIComponent(project)}/runs${query}`)
   }
 
-  async getRun(id: string): Promise<object> {
-    return this.request<object>('GET', `/runs/${encodeURIComponent(id)}`)
+  async getRun(id: string): Promise<RunDetailDto> {
+    return this.request<RunDetailDto>('GET', `/runs/${encodeURIComponent(id)}`)
   }
 
-  async cancelRun(id: string): Promise<object> {
-    return this.request<object>('POST', `/runs/${encodeURIComponent(id)}/cancel`)
+  async cancelRun(id: string): Promise<RunDto> {
+    return this.request<RunDto>('POST', `/runs/${encodeURIComponent(id)}/cancel`)
   }
 
   async getTimeline(project: string): Promise<object[]> {
@@ -205,16 +235,16 @@ export class ApiClient {
     return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/export`)
   }
 
-  async apply(config: object): Promise<object> {
-    return this.request<object>('POST', '/apply', config)
+  async apply(config: object): Promise<ApplyResultDto> {
+    return this.request<ApplyResultDto>('POST', '/apply', config)
   }
 
-  async getStatus(project: string): Promise<object> {
-    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}`)
+  async getStatus(project: string): Promise<ProjectDto> {
+    return this.request<ProjectDto>('GET', `/projects/${encodeURIComponent(project)}`)
   }
 
-  async getSettings(): Promise<object> {
-    return this.request<object>('GET', '/settings')
+  async getSettings(): Promise<SettingsDto> {
+    return this.request<SettingsDto>('GET', '/settings')
   }
 
   async createSnapshot(body: {
@@ -230,56 +260,56 @@ export class ApiClient {
     return this.request<object>('PUT', `/settings/providers/${encodeURIComponent(name)}`, body)
   }
 
-  async putSchedule(project: string, body: object): Promise<object> {
-    return this.request<object>('PUT', `/projects/${encodeURIComponent(project)}/schedule`, body)
+  async putSchedule(project: string, body: object): Promise<ScheduleDto> {
+    return this.request<ScheduleDto>('PUT', `/projects/${encodeURIComponent(project)}/schedule`, body)
   }
 
-  async getSchedule(project: string): Promise<object> {
-    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/schedule`)
+  async getSchedule(project: string): Promise<ScheduleDto> {
+    return this.request<ScheduleDto>('GET', `/projects/${encodeURIComponent(project)}/schedule`)
   }
 
   async deleteSchedule(project: string): Promise<void> {
     await this.request<void>('DELETE', `/projects/${encodeURIComponent(project)}/schedule`)
   }
 
-  async createNotification(project: string, body: object): Promise<object> {
-    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/notifications`, body)
+  async createNotification(project: string, body: object): Promise<NotificationDto> {
+    return this.request<NotificationDto>('POST', `/projects/${encodeURIComponent(project)}/notifications`, body)
   }
 
-  async listNotifications(project: string): Promise<object[]> {
-    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/notifications`)
+  async listNotifications(project: string): Promise<NotificationDto[]> {
+    return this.request<NotificationDto[]>('GET', `/projects/${encodeURIComponent(project)}/notifications`)
   }
 
   async deleteNotification(project: string, id: string): Promise<void> {
     await this.request<void>('DELETE', `/projects/${encodeURIComponent(project)}/notifications/${encodeURIComponent(id)}`)
   }
 
-  async testNotification(project: string, id: string): Promise<object> {
-    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/notifications/${encodeURIComponent(id)}/test`)
+  async testNotification(project: string, id: string): Promise<{ status: number; ok: boolean }> {
+    return this.request<{ status: number; ok: boolean }>('POST', `/projects/${encodeURIComponent(project)}/notifications/${encodeURIComponent(id)}/test`)
   }
 
-  async addLocation(project: string, body: { label: string; city: string; region: string; country: string; timezone?: string }): Promise<object> {
-    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/locations`, body)
+  async addLocation(project: string, body: LocationContext): Promise<LocationContext> {
+    return this.request<LocationContext>('POST', `/projects/${encodeURIComponent(project)}/locations`, body)
   }
 
-  async listLocations(project: string): Promise<{ locations: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation: string | null }> {
-    return this.request<{ locations: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation: string | null }>('GET', `/projects/${encodeURIComponent(project)}/locations`)
+  async listLocations(project: string): Promise<{ locations: LocationContext[]; defaultLocation: string | null }> {
+    return this.request<{ locations: LocationContext[]; defaultLocation: string | null }>('GET', `/projects/${encodeURIComponent(project)}/locations`)
   }
 
   async removeLocation(project: string, label: string): Promise<void> {
     await this.request<void>('DELETE', `/projects/${encodeURIComponent(project)}/locations/${encodeURIComponent(label)}`)
   }
 
-  async setDefaultLocation(project: string, label: string): Promise<object> {
-    return this.request<object>('PUT', `/projects/${encodeURIComponent(project)}/locations/default`, { label })
+  async setDefaultLocation(project: string, label: string): Promise<{ defaultLocation: string }> {
+    return this.request<{ defaultLocation: string }>('PUT', `/projects/${encodeURIComponent(project)}/locations/default`, { label })
   }
 
-  async getTelemetry(): Promise<{ enabled: boolean; anonymousId?: string }> {
-    return this.request<{ enabled: boolean; anonymousId?: string }>('GET', '/telemetry')
+  async getTelemetry(): Promise<TelemetryDto> {
+    return this.request<TelemetryDto>('GET', '/telemetry')
   }
 
-  async updateTelemetry(enabled: boolean): Promise<{ enabled: boolean; anonymousId?: string }> {
-    return this.request<{ enabled: boolean; anonymousId?: string }>('PUT', '/telemetry', { enabled })
+  async updateTelemetry(enabled: boolean): Promise<TelemetryDto> {
+    return this.request<TelemetryDto>('PUT', '/telemetry', { enabled })
   }
 
   async generateKeywords(project: string, provider: string, count?: number): Promise<{ keywords: string[]; provider: string }> {
@@ -360,19 +390,19 @@ export class ApiClient {
   }
 
   // Analytics
-  async getAnalyticsMetrics(project: string, window?: string): Promise<object> {
+  async getAnalyticsMetrics(project: string, window?: string): Promise<BrandMetricsDto> {
     const qs = window ? `?window=${encodeURIComponent(window)}` : ''
-    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/analytics/metrics${qs}`)
+    return this.request<BrandMetricsDto>('GET', `/projects/${encodeURIComponent(project)}/analytics/metrics${qs}`)
   }
 
-  async getAnalyticsGaps(project: string, window?: string): Promise<object> {
+  async getAnalyticsGaps(project: string, window?: string): Promise<GapAnalysisDto> {
     const qs = window ? `?window=${encodeURIComponent(window)}` : ''
-    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/analytics/gaps${qs}`)
+    return this.request<GapAnalysisDto>('GET', `/projects/${encodeURIComponent(project)}/analytics/gaps${qs}`)
   }
 
-  async getAnalyticsSources(project: string, window?: string): Promise<object> {
+  async getAnalyticsSources(project: string, window?: string): Promise<SourceBreakdownDto> {
     const qs = window ? `?window=${encodeURIComponent(window)}` : ''
-    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/analytics/sources${qs}`)
+    return this.request<SourceBreakdownDto>('GET', `/projects/${encodeURIComponent(project)}/analytics/sources${qs}`)
   }
 
   // Google Indexing API

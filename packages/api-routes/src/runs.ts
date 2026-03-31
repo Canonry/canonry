@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, asc, desc } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { runs, querySnapshots, keywords, projects } from '@ainyc/canonry-db'
+import { runs, querySnapshots, keywords, projects, parseJsonColumn } from '@ainyc/canonry-db'
 import type { LocationContext } from '@ainyc/canonry-contracts'
 import { unsupportedKind, runInProgress, runNotCancellable, notFound, validationError } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
@@ -19,14 +19,10 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     Params: { name: string }
     Body: { kind?: string; trigger?: string; providers?: string[]; location?: string; allLocations?: boolean; noLocation?: boolean }
   }>('/projects/:name/runs', async (request, reply) => {
-    const project = resolveProjectSafe(app, request.params.name, reply)
-    if (!project) return
+    const project = resolveProject(app.db, request.params.name)
 
     const kind = request.body?.kind ?? 'answer-visibility'
-    if (kind !== 'answer-visibility') {
-      const err = unsupportedKind(kind)
-      return reply.status(err.statusCode).send(err.toJSON())
-    }
+    if (kind !== 'answer-visibility') throw unsupportedKind(kind)
 
     const now = new Date().toISOString()
     const trigger = request.body?.trigger ?? 'manual'
@@ -37,11 +33,10 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       if (validNames.length) {
         const invalid = normalized.filter(p => !validNames.includes(p))
         if (invalid.length) {
-          const err = validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
+          throw validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
             invalidProviders: invalid,
             validProviders: validNames,
           })
-          return reply.status(err.statusCode).send(err.toJSON())
         }
       }
       rawProviders.splice(0, rawProviders.length, ...normalized)
@@ -50,7 +45,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
 
     // Resolve location for this run
     let resolvedLocation: LocationContext | null | undefined
-    const projectLocations = JSON.parse(project.locations || '[]') as LocationContext[]
+    const projectLocations = parseJsonColumn<LocationContext[]>(project.locations, [])
 
     if (request.body?.noLocation) {
       resolvedLocation = null // explicitly no location
@@ -59,7 +54,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     } else if (request.body?.location) {
       const loc = projectLocations.find(l => l.label === request.body.location)
       if (!loc) {
-        return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: `Location "${request.body.location}" not found. Configure it first.` } })
+        throw validationError(`Location "${request.body.location}" not found. Configure it first.`)
       }
       resolvedLocation = loc
     }
@@ -69,7 +64,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     // Skip the idle-check here — each location gets its own run regardless of other active runs.
     if (request.body?.allLocations) {
       if (projectLocations.length === 0) {
-        return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'No locations configured for this project' } })
+        throw validationError('No locations configured for this project')
       }
 
       // Insert all run records first, then dispatch — bypassing queueRunIfProjectIdle
@@ -116,10 +111,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       location: locationLabel,
     })
 
-    if (queueResult.conflict) {
-      const err = runInProgress(project.name)
-      return reply.status(err.statusCode).send(err.toJSON())
-    }
+    if (queueResult.conflict) throw runInProgress(project.name)
 
     const runId = queueResult.runId
 
@@ -145,8 +137,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     Params: { name: string }
     Querystring: { limit?: string }
   }>('/projects/:name/runs', async (request, reply) => {
-    const project = resolveProjectSafe(app, request.params.name, reply)
-    if (!project) return
+    const project = resolveProject(app.db, request.params.name)
 
     const parsedLimit = parseInt(request.query.limit ?? '', 10)
     const limit = Number.isNaN(parsedLimit) || parsedLimit <= 0 ? undefined : parsedLimit
@@ -186,10 +177,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     }
 
     const kind = request.body?.kind ?? 'answer-visibility'
-    if (kind !== 'answer-visibility') {
-      const err = unsupportedKind(kind)
-      return reply.status(err.statusCode).send(err.toJSON())
-    }
+    if (kind !== 'answer-visibility') throw unsupportedKind(kind)
 
     const rawProviders = request.body?.providers
     if (rawProviders?.length) {
@@ -198,11 +186,10 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       if (validNames.length) {
         const invalid = normalized.filter(p => !validNames.includes(p))
         if (invalid.length) {
-          const err = validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
+          throw validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
             invalidProviders: invalid,
             validProviders: validNames,
           })
-          return reply.status(err.statusCode).send(err.toJSON())
         }
       }
       rawProviders.splice(0, rawProviders.length, ...normalized)
@@ -249,16 +236,10 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   // POST /runs/:id/cancel — cancel a queued or running run
   app.post<{ Params: { id: string } }>('/runs/:id/cancel', async (request, reply) => {
     const run = app.db.select().from(runs).where(eq(runs.id, request.params.id)).get()
-    if (!run) {
-      const err = notFound('Run', request.params.id)
-      return reply.status(err.statusCode).send(err.toJSON())
-    }
+    if (!run) throw notFound('Run', request.params.id)
 
     const terminalStatuses = new Set(['completed', 'partial', 'failed', 'cancelled'])
-    if (terminalStatuses.has(run.status)) {
-      const err = runNotCancellable(run.id, run.status)
-      return reply.status(err.statusCode).send(err.toJSON())
-    }
+    if (terminalStatuses.has(run.status)) throw runNotCancellable(run.id, run.status)
 
     const now = new Date().toISOString()
     app.db
@@ -282,9 +263,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   // GET /runs/:id — get single run with snapshots
   app.get<{ Params: { id: string } }>('/runs/:id', async (request, reply) => {
     const run = app.db.select().from(runs).where(eq(runs.id, request.params.id)).get()
-    if (!run) {
-      return reply.status(404).send({ error: { code: 'NOT_FOUND', message: `Run '${request.params.id}' not found` } })
-    }
+    if (!run) throw notFound('Run', request.params.id)
 
     const snapshots = app.db
       .select({
@@ -320,9 +299,9 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
           provider: s.provider,
           citationState: s.citationState,
           answerText: s.answerText,
-          citedDomains: tryParseJson(s.citedDomains, []),
-          competitorOverlap: tryParseJson(s.competitorOverlap, []),
-          recommendedCompetitors: tryParseJson(s.recommendedCompetitors, []),
+          citedDomains: parseJsonColumn<string[]>(s.citedDomains, []),
+          competitorOverlap: parseJsonColumn<string[]>(s.competitorOverlap, []),
+          recommendedCompetitors: parseJsonColumn<string[]>(s.recommendedCompetitors, []),
           model: s.model ?? rawParsed.model,
           location: s.location,
           groundingSources: rawParsed.groundingSources,
@@ -365,7 +344,7 @@ function parseSnapshotRawResponse(raw: string | null): {
   searchQueries: string[]
   model: string | null
 } {
-  const parsed = tryParseJson(raw ?? '{}', {} as Record<string, unknown>)
+  const parsed = parseJsonColumn<Record<string, unknown>>(raw, {})
   return {
     groundingSources: (parsed.groundingSources as unknown[] | undefined) ?? [],
     searchQueries: (parsed.searchQueries as string[] | undefined) ?? [],
@@ -373,23 +352,3 @@ function parseSnapshotRawResponse(raw: string | null): {
   }
 }
 
-function tryParseJson<T>(value: string, fallback: T): T {
-  try {
-    return JSON.parse(value) as T
-  } catch {
-    return fallback
-  }
-}
-
-function resolveProjectSafe(app: FastifyInstance, name: string, reply: { status: (code: number) => { send: (body: unknown) => unknown } }) {
-  try {
-    return resolveProject(app.db, name)
-  } catch (e: unknown) {
-    if (e && typeof e === 'object' && 'statusCode' in e && 'toJSON' in e) {
-      const err = e as { statusCode: number; toJSON(): unknown }
-      reply.status(err.statusCode).send(err.toJSON())
-      return null
-    }
-    throw e
-  }
-}

@@ -12,6 +12,7 @@ export type ErrorCode =
   | 'RUN_NOT_CANCELLABLE'
   | 'NOT_IMPLEMENTED'
   | 'INTERNAL_ERROR'
+  | 'DELIVERY_FAILED'
 
 export class AppError extends Error {
   readonly code: ErrorCode
@@ -88,4 +89,8 @@ export function unsupportedKind(kind: string): AppError {
 
 export function notImplemented(message: string): AppError {
   return new AppError('NOT_IMPLEMENTED', message, 501)
+}
+
+export function deliveryFailed(message: string): AppError {
+  return new AppError('DELIVERY_FAILED', message, 502)
 }
