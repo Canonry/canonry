@@ -4,7 +4,6 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
 import { effectiveDomains, normalizeProjectDomain } from '@ainyc/canonry-contracts'
 
-import { CitationBadge } from '../shared/CitationBadge.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { highlightTermsInText } from '../../lib/highlight.js'
 import { fetchRunDetail, type GroundingSource } from '../../api.js'
@@ -13,6 +12,9 @@ import type { CitationInsightVm, ProjectCommandCenterVm } from '../../view-model
 /** Shape of snapshot data used for display — works for both current evidence and fetched historical snapshots. */
 export interface EvidenceDisplayData {
   citationState: string
+  answerMentioned?: boolean
+  visibilityState?: string
+  visibilityTransition?: string
   provider: string
   model: string | null
   answerSnippet: string
@@ -25,6 +27,18 @@ export interface EvidenceDisplayData {
   summary: string
 }
 
+function describeVisibilityChange(transition?: string, visibilityState?: string): string {
+  switch (transition) {
+    case 'new': return 'First observation'
+    case 'emerging': return 'First visibility'
+    case 'lost': return 'Lost since last run'
+    default:
+      if (visibilityState === 'visible') return 'Visible in latest run'
+      if (visibilityState === 'pending') return 'Awaiting first run'
+      return 'Not visible in latest run'
+  }
+}
+
 export function EvidenceDetailModal({
   evidence,
   project,
@@ -35,7 +49,7 @@ export function EvidenceDetailModal({
   onClose: () => void
 }) {
   const [showFullAnswer, setShowFullAnswer] = useState(false)
-  const [sidebarTab, setSidebarTab] = useState<'citations' | 'sources'>('citations')
+  const [sidebarTab, setSidebarTab] = useState<'mentions' | 'sources'>('mentions')
   const [selectedRunIdx, setSelectedRunIdx] = useState(-1) // -1 = latest (current)
   const [historicalSnapshot, setHistoricalSnapshot] = useState<EvidenceDisplayData | null>(null)
   const [loadingHistory, setLoadingHistory] = useState(false)
@@ -53,7 +67,6 @@ export function EvidenceDetailModal({
   const autoFetchedRef = useRef(false)
   useEffect(() => {
     if (autoFetchedRef.current) return
-    if (evidence.answerSnippet) return // already have text
     // Find the most recent history entry for this provider that might have data
     const latestHistoryRun = history.at(-1)
     if (!latestHistoryRun) return
@@ -62,18 +75,21 @@ export function EvidenceDetailModal({
       const snap = runDetail.snapshots.find(
         s => s.keyword === evidence.keyword && s.provider === evidence.provider,
       )
-      if (snap?.answerText) {
+      if (snap) {
         setAutoFetchedDisplay({
-          citationState: evidence.citationState,
-          provider: evidence.provider,
+          citationState: snap.citationState,
+          answerMentioned: snap.answerMentioned,
+          visibilityState: snap.visibilityState,
+          visibilityTransition: latestHistoryRun.visibilityTransition,
+          provider: snap.provider,
           model: snap.model ?? evidence.model,
-          answerSnippet: snap.answerText,
+          answerSnippet: snap.answerText ?? evidence.answerSnippet,
           citedDomains: snap.citedDomains ?? evidence.citedDomains,
           competitorDomains: snap.competitorOverlap ?? evidence.competitorDomains,
           recommendedCompetitors: snap.recommendedCompetitors ?? evidence.recommendedCompetitors ?? [],
           groundingSources: snap.groundingSources ?? evidence.groundingSources,
           evidenceUrls: [],
-          changeLabel: evidence.changeLabel,
+          changeLabel: evidence.visibilityChangeLabel ?? evidence.changeLabel,
           summary: evidence.summary,
         })
       }
@@ -86,6 +102,9 @@ export function EvidenceDetailModal({
     : autoFetchedDisplay ? autoFetchedDisplay
     : {
       citationState: evidence.citationState,
+      answerMentioned: evidence.answerMentioned,
+      visibilityState: evidence.visibilityState,
+      visibilityTransition: history.at(-1)?.visibilityTransition,
       provider: evidence.provider,
       model: evidence.model,
       answerSnippet: evidence.answerSnippet,
@@ -94,16 +113,23 @@ export function EvidenceDetailModal({
       recommendedCompetitors: evidence.recommendedCompetitors ?? [],
       groundingSources: evidence.groundingSources,
       evidenceUrls: evidence.evidenceUrls,
-      changeLabel: evidence.changeLabel,
+      changeLabel: evidence.visibilityChangeLabel ?? evidence.changeLabel,
       summary: evidence.summary,
     }
 
-  const isCited = display.citationState === 'cited' || display.citationState === 'emerging'
-  const positionIndex = display.citedDomains.findIndex(
-    d => myDomains.has(d.toLowerCase().replace(/^www\./, '')),
-  )
-  const position = positionIndex + 1
-  const totalCited = display.citedDomains.length
+  const isVisible = display.visibilityState === 'pending'
+    ? false
+    : display.visibilityState != null
+      ? display.visibilityState === 'visible'
+      : display.answerMentioned != null
+        ? display.answerMentioned
+        : (display.citationState === 'cited' || display.citationState === 'emerging')
+  const hasMentionData = display.answerMentioned != null
+    || display.visibilityState != null
+    || display.recommendedCompetitors.length > 0
+  const hasSourceData = display.citedDomains.length > 0
+    || display.groundingSources.length > 0
+    || display.evidenceUrls.length > 0
 
   // Terms to highlight in the AI answer
   const projectDisplayName = project.project.displayName || project.project.name
@@ -115,9 +141,9 @@ export function EvidenceDetailModal({
 
   // State key for CSS variants
   const stateKey: 'cited' | 'not-cited' | 'lost' | 'pending' =
-    isCited ? 'cited' :
-    display.citationState === 'lost' ? 'lost' :
-    display.citationState === 'pending' ? 'pending' : 'not-cited'
+    display.visibilityState === 'pending' ? 'pending' :
+    display.visibilityTransition === 'lost' ? 'lost' :
+    isVisible ? 'cited' : 'not-cited'
 
   // Guard against out-of-order async completions when clicking dots quickly
   const activeRequestRef = useRef(0)
@@ -158,6 +184,9 @@ export function EvidenceDetailModal({
 
       const data: EvidenceDisplayData = snap ? {
         citationState: snap.citationState,
+        answerMentioned: snap.answerMentioned,
+        visibilityState: snap.visibilityState,
+        visibilityTransition: run.visibilityTransition,
         provider: snap.provider,
         model: snap.model ?? null,
         answerSnippet: snap.answerText ?? '',
@@ -166,10 +195,13 @@ export function EvidenceDetailModal({
         recommendedCompetitors: snap.recommendedCompetitors ?? [],
         groundingSources: snap.groundingSources,
         evidenceUrls: [],
-        changeLabel: run.citationState,
+        changeLabel: describeVisibilityChange(run.visibilityTransition, run.visibilityState),
         summary: '',
       } : {
         citationState: run.citationState,
+        answerMentioned: run.answerMentioned,
+        visibilityState: run.visibilityState,
+        visibilityTransition: run.visibilityTransition,
         provider: evidence.provider,
         model: run.model ?? null,
         answerSnippet: '',
@@ -178,7 +210,7 @@ export function EvidenceDetailModal({
         recommendedCompetitors: [],
         groundingSources: [],
         evidenceUrls: [],
-        changeLabel: run.citationState,
+        changeLabel: describeVisibilityChange(run.visibilityTransition, run.visibilityState),
         summary: 'Snapshot data not available for this run.',
       }
 
@@ -188,6 +220,9 @@ export function EvidenceDetailModal({
       if (requestId !== activeRequestRef.current) return
       setHistoricalSnapshot({
         citationState: run.citationState,
+        answerMentioned: run.answerMentioned,
+        visibilityState: run.visibilityState,
+        visibilityTransition: run.visibilityTransition,
         provider: evidence.provider,
         model: run.model ?? null,
         answerSnippet: '',
@@ -196,7 +231,7 @@ export function EvidenceDetailModal({
         recommendedCompetitors: [],
         groundingSources: [],
         evidenceUrls: [],
-        changeLabel: run.citationState,
+        changeLabel: describeVisibilityChange(run.visibilityTransition, run.visibilityState),
         summary: 'Failed to load historical run data.',
       })
     } finally {
@@ -208,9 +243,10 @@ export function EvidenceDetailModal({
 
   // Hero copy
   const showModelInHeadline = isViewingHistory || evidence.historyScope !== 'provider'
+  const displayChangeLabel = display.changeLabel
   const providerMeta = showModelInHeadline && display.model
-    ? `${display.provider} (${display.model}) \u00b7 ${display.changeLabel.toLowerCase()}`
-    : `${display.provider} \u00b7 ${display.changeLabel.toLowerCase()}`
+    ? `${display.provider} (${display.model}) \u00b7 ${displayChangeLabel.toLowerCase()}`
+    : `${display.provider} \u00b7 ${displayChangeLabel.toLowerCase()}`
   const providerMetaNote = !isViewingHistory && evidence.historyScope === 'provider'
     ? [
         evidence.model ? `Current model: ${evidence.model}` : null,
@@ -218,30 +254,21 @@ export function EvidenceDetailModal({
       ].filter(Boolean).join(' \u00b7 ')
     : ''
   const heroCopy = (() => {
-    if (isCited && position > 0) {
+    if (isVisible) {
       return {
-        label: 'Citation confirmed',
-        title: `Cited #${position} of ${totalCited} domain${totalCited !== 1 ? 's' : ''}`,
+        label: 'Visible in answer',
+        title: 'Your brand or domain is mentioned in this answer',
         meta: providerMeta,
       }
     }
-    if (isCited) {
+    if (display.visibilityTransition === 'lost') {
       return {
-        label: 'Citation confirmed',
-        title: 'Cited in this answer',
+        label: 'Visibility lost',
+        title: 'Your brand no longer appears in this answer',
         meta: providerMeta,
       }
     }
-    if (display.citationState === 'lost') {
-      return {
-        label: 'Citation lost',
-        title: totalCited > 0
-          ? `${totalCited} domain${totalCited !== 1 ? 's' : ''} cited instead`
-          : 'No longer appearing in this answer',
-        meta: providerMeta,
-      }
-    }
-    if (display.citationState === 'pending') {
+    if (display.visibilityState === 'pending') {
       return {
         label: 'Pending',
         title: 'Awaiting first visibility run',
@@ -249,10 +276,8 @@ export function EvidenceDetailModal({
       }
     }
     return {
-      label: 'Not in this answer',
-      title: totalCited > 0
-        ? `${totalCited} domain${totalCited !== 1 ? 's' : ''} cited instead`
-        : 'No domains cited for this query',
+      label: 'Not visible in answer',
+      title: 'Your brand or domain was not mentioned in this answer',
       meta: providerMeta,
     }
   })()
@@ -339,9 +364,11 @@ export function EvidenceDetailModal({
               <div className="flex items-center gap-1 overflow-x-auto pb-1">
                 {history.map((run, i) => {
                   const isSelected = (selectedRunIdx === -1 && i === history.length - 1) || selectedRunIdx === i
-                  const dotColor = run.citationState === 'cited'
-                    ? 'bg-emerald-400' : run.citationState === 'emerging'
-                      ? 'bg-amber-400' : run.citationState === 'lost'
+                  const visibilityState = run.visibilityState ?? (run.answerMentioned ? 'visible' : 'not-visible')
+                  const visibilityTransition = run.visibilityTransition ?? visibilityState
+                  const dotColor = visibilityState === 'visible'
+                    ? 'bg-emerald-400' : visibilityTransition === 'emerging'
+                      ? 'bg-amber-400' : visibilityTransition === 'lost'
                         ? 'bg-rose-400' : 'bg-zinc-600'
                   const date = new Date(run.createdAt)
                   const label = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
@@ -353,7 +380,7 @@ export function EvidenceDetailModal({
                       className={`evidence-run-dot ${isSelected ? 'evidence-run-dot--selected' : ''}`}
                       onClick={() => selectHistoricalRun(i === history.length - 1 ? -1 : i)}
                       aria-label={[
-                        `Run ${label}: ${run.citationState}`,
+                        `Run ${label}: ${visibilityState}`,
                         run.model ? `model ${run.model}` : null,
                         modelChanged ? 'model changed' : null,
                       ].filter(Boolean).join(' \u2014 ')}
@@ -370,7 +397,7 @@ export function EvidenceDetailModal({
               </div>
               {selectedRunIdx >= 0 && selectedRunIdx < history.length && (
                 <p className="text-[11px] text-zinc-500 mt-1">
-                  Viewing run from {new Date(history[selectedRunIdx].createdAt).toLocaleString()} {'\u2014'} <span className="capitalize">{history[selectedRunIdx].citationState}</span>
+                  Viewing run from {new Date(history[selectedRunIdx].createdAt).toLocaleString()} {'\u2014'} <span className="capitalize">{history[selectedRunIdx].visibilityState ?? (history[selectedRunIdx].answerMentioned ? 'visible' : 'not-visible')}</span>
                   <button type="button" className="text-zinc-400 hover:text-zinc-200 ml-2" onClick={() => selectHistoricalRun(-1)}>{'\u2190'} Back to latest</button>
                 </p>
               )}
@@ -444,16 +471,16 @@ export function EvidenceDetailModal({
                   {!isViewingHistory && evidence.relatedTechnicalSignals.length > 0 && (
                     <div>
                       <p className="drawer-section-label">
-                        {isCited ? 'Why you\'re cited' : 'What to fix'}
+                        {isVisible ? 'Why you\'re visible' : 'What to fix'}
                       </p>
                       <div className="action-items-list">
                         {evidence.relatedTechnicalSignals.map((signal, i) => (
                           <div key={i} className="action-item">
                             <svg
-                              className={`action-item-icon ${isCited ? 'text-emerald-400' : 'text-amber-400'}`}
+                              className={`action-item-icon ${isVisible ? 'text-emerald-400' : 'text-amber-400'}`}
                               viewBox="0 0 16 16" fill="none" aria-hidden="true"
                             >
-                              {isCited
+                              {isVisible
                                 ? <path d="M3 8l3.5 3.5L13 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                                 : (
                                   <>
@@ -479,34 +506,54 @@ export function EvidenceDetailModal({
                 {/* Right: leaderboard + sources */}
                 <div className="evidence-modal-sidebar">
                   {/* Tabbed sidebar navigation */}
-                  {(display.citedDomains.length > 0 || display.recommendedCompetitors.length > 0 || display.groundingSources.length > 0 || display.evidenceUrls.length > 0) && (
+                  {(hasMentionData || hasSourceData) && (
                     <div className="sidebar-tabs">
                       <button
-                        className={`sidebar-tab ${sidebarTab === 'citations' ? 'sidebar-tab--active' : ''}`}
-                        onClick={() => setSidebarTab('citations')}
+                        className={`sidebar-tab ${sidebarTab === 'mentions' ? 'sidebar-tab--active' : ''}`}
+                        onClick={() => setSidebarTab('mentions')}
                         type="button"
-                        title="Domains Canonry identified as cited in the model response. This is the primary visibility signal."
+                        title="Canonry's answer-level visibility assessment and any company names extracted from the answer text."
                       >
-                        Citations
+                        Mentions
                       </button>
                       <button
                         className={`sidebar-tab ${sidebarTab === 'sources' ? 'sidebar-tab--active' : ''}`}
                         onClick={() => setSidebarTab('sources')}
                         type="button"
-                        title="Grounding links the model used to build the answer. These are supporting sources, not the cited-domain ranking."
+                        title="Grounding links the model used to build the answer. These are supporting sources, not the primary visibility signal."
                       >
                         Sources
                       </button>
                     </div>
                   )}
 
-                  {sidebarTab === 'citations' && (
+                  {sidebarTab === 'mentions' && (
                     <>
+                      <div>
+                        <div className="drawer-section-label flex items-center">
+                          <span>Answer visibility</span>
+                          <InfoTooltip text="This status comes from Canonry's answer-level matching against your owned domains and project name. It is independent from grounding or citation sources." />
+                        </div>
+                        <div className={`citation-leaderboard-item citation-leaderboard-item--${isVisible ? 'you' : 'not-cited'}`}>
+                          <span className="citation-leaderboard-rank">{isVisible ? '✓' : '\u2014'}</span>
+                          <span className="citation-leaderboard-domain">
+                            {display.visibilityState === 'pending'
+                              ? 'Awaiting first visibility run'
+                              : isVisible
+                                ? 'Your brand or domain appears in the answer text'
+                                : 'Your brand or domain does not appear in the answer text'}
+                          </span>
+                          {display.visibilityState !== 'pending' && (
+                            <span className="citation-leaderboard-tag">{isVisible ? 'Visible' : 'Not visible'}</span>
+                          )}
+                        </div>
+                      </div>
+
                       {display.recommendedCompetitors.length > 0 && (
                         <div>
                           <div className="drawer-section-label flex items-center">
                             <span>Company names mentioned</span>
-                            <InfoTooltip text="Best-effort company names extracted from the answer text. This is supplementary context and does not replace the cited-domain list below." />
+                            <InfoTooltip text="Best-effort company names extracted from the answer text. This is supplementary context only." />
                           </div>
                           <div className="citation-leaderboard">
                             {display.recommendedCompetitors.map((name, i) => (
@@ -519,11 +566,16 @@ export function EvidenceDetailModal({
                         </div>
                       )}
 
-                      {display.citedDomains.length > 0 ? (
+                    </>
+                  )}
+
+                  {sidebarTab === 'sources' && (
+                    <>
+                      {display.citedDomains.length > 0 && (
                         <div>
                           <div className="drawer-section-label flex items-center">
-                            <span>Domains cited in answer</span>
-                            <InfoTooltip text="Domains Canonry identified as actually cited in the model response. This is the canonical evidence used for citation state and ranking." />
+                            <span>Domains from source links</span>
+                            <InfoTooltip text="These domains were extracted from grounding or citation URLs. They are supporting-source metadata, not proof that the answer text mentioned them." />
                           </div>
                           <div className="citation-leaderboard">
                             {display.citedDomains.map((domain, i) => {
@@ -542,30 +594,15 @@ export function EvidenceDetailModal({
                                 </div>
                               )
                             })}
-                            {!isCited && (
-                              <div className="citation-leaderboard-item citation-leaderboard-item--not-cited border-dashed">
-                                <span className="citation-leaderboard-rank text-zinc-600">{'\u2014'}</span>
-                                <span className="citation-leaderboard-domain text-zinc-600">{project.project.canonicalDomain}</span>
-                                <span className="citation-leaderboard-tag text-zinc-600">Not cited</span>
-                              </div>
-                            )}
                           </div>
                         </div>
-                      ) : display.recommendedCompetitors.length === 0 ? (
-                        <div className="flex items-center justify-center h-24 text-zinc-600 text-sm">
-                          No citation data {isViewingHistory ? 'for this run' : 'yet'}
-                        </div>
-                      ) : null}
-                    </>
-                  )}
+                      )}
 
-                  {sidebarTab === 'sources' && (
-                    <>
                       {display.groundingSources.length > 0 && (
                         <div>
                           <div className="drawer-section-label flex items-center">
                             <span>Grounding source links ({display.groundingSources.length})</span>
-                            <InfoTooltip text="Links the model used as grounding or supporting context while producing the answer. These are not the same thing as the cited-domain ranking." />
+                            <InfoTooltip text="Links the model used as grounding or supporting context while producing the answer. These are not the same thing as answer visibility." />
                           </div>
                           <ul className="grid gap-0.5">
                             {display.groundingSources.map((src, i) => (
@@ -594,7 +631,7 @@ export function EvidenceDetailModal({
                         </div>
                       )}
 
-                      {display.groundingSources.length === 0 && display.evidenceUrls.length === 0 && (
+                      {display.citedDomains.length === 0 && display.groundingSources.length === 0 && display.evidenceUrls.length === 0 && (
                         <div className="flex items-center justify-center h-24 text-zinc-600 text-sm">
                           No source data {isViewingHistory ? 'for this run' : 'yet'}
                         </div>
@@ -603,9 +640,9 @@ export function EvidenceDetailModal({
                   )}
 
                   {/* No data state */}
-                  {display.citedDomains.length === 0 && display.recommendedCompetitors.length === 0 && display.groundingSources.length === 0 && display.evidenceUrls.length === 0 && (
+                  {!hasMentionData && !hasSourceData && (
                     <div className="flex items-center justify-center h-24 text-zinc-600 text-sm">
-                      No citation data {isViewingHistory ? 'for this run' : 'yet'}
+                      No answer visibility data {isViewingHistory ? 'for this run' : 'yet'}
                     </div>
                   )}
                 </div>

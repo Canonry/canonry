@@ -62,6 +62,7 @@ export const querySnapshots = sqliteTable('query_snapshots', {
   provider: text('provider').notNull().default('gemini'),
   model: text('model'),
   citationState: text('citation_state').notNull(),
+  answerMentioned: integer('answer_mentioned', { mode: 'boolean' }),
   answerText: text('answer_text'),
   citedDomains: text('cited_domains').notNull().default('[]'),
   competitorOverlap: text('competitor_overlap').notNull().default('[]'),
@@ -271,21 +272,6 @@ export const gaTrafficSnapshots = sqliteTable('ga_traffic_snapshots', {
 }, (table) => [
   index('idx_ga_traffic_project_date').on(table.projectId, table.date),
   index('idx_ga_traffic_page').on(table.landingPage),
-])
-
-export const gaAiReferrals = sqliteTable('ga_ai_referrals', {
-  id: text('id').primaryKey(),
-  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
-  date: text('date').notNull(),
-  source: text('source').notNull(),
-  medium: text('medium').notNull(),
-  sessions: integer('sessions').notNull().default(0),
-  users: integer('users').notNull().default(0),
-  syncedAt: text('synced_at').notNull(),
-}, (table) => [
-  index('idx_ga_ai_ref_project_date').on(table.projectId, table.date),
-  index('idx_ga_ai_ref_source').on(table.source),
-  uniqueIndex('idx_ga_ai_ref_unique').on(table.projectId, table.date, table.source, table.medium),
 ])
 
 // Aggregate GA4 totals for a sync period — stores true unique user count

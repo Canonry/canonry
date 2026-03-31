@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify'
 import { runs, querySnapshots, keywords, projects } from '@ainyc/canonry-db'
 import type { LocationContext } from '@ainyc/canonry-contracts'
 import { unsupportedKind, runInProgress, runNotCancellable, notFound, validationError } from '@ainyc/canonry-contracts'
-import { resolveProject, writeAuditLog } from './helpers.js'
+import { resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotVisibilityState, writeAuditLog } from './helpers.js'
 import { queueRunIfProjectIdle } from './run-queue.js'
 
 export interface RunRoutesOptions {
@@ -285,6 +285,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     if (!run) {
       return reply.status(404).send({ error: { code: 'NOT_FOUND', message: `Run '${request.params.id}' not found` } })
     }
+    const project = app.db.select().from(projects).where(eq(projects.id, run.projectId)).get()
 
     const snapshots = app.db
       .select({
@@ -295,6 +296,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
         provider: querySnapshots.provider,
         model: querySnapshots.model,
         citationState: querySnapshots.citationState,
+        answerMentioned: querySnapshots.answerMentioned,
         answerText: querySnapshots.answerText,
         citedDomains: querySnapshots.citedDomains,
         competitorOverlap: querySnapshots.competitorOverlap,
@@ -312,6 +314,9 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       ...formatRun(run),
       snapshots: snapshots.map(s => {
         const rawParsed = parseSnapshotRawResponse(s.rawResponse)
+        const answerMentioned = project
+          ? resolveSnapshotAnswerMentioned(s, project)
+          : (s.answerMentioned ?? false)
         return {
           id: s.id,
           runId: s.runId,
@@ -319,6 +324,10 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
           keyword: s.keyword,
           provider: s.provider,
           citationState: s.citationState,
+          answerMentioned,
+          visibilityState: project
+            ? resolveSnapshotVisibilityState(s, project)
+            : (answerMentioned ? 'visible' : 'not-visible'),
           answerText: s.answerText,
           citedDomains: tryParseJson(s.citedDomains, []),
           competitorOverlap: tryParseJson(s.competitorOverlap, []),

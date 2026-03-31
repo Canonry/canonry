@@ -3,6 +3,7 @@ import type { ProjectDto, RunDto, RunStatus, GroundingSource } from '@ainyc/cano
 export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
 export type HealthState = 'checking' | 'ok' | 'error'
 export type CitationState = 'cited' | 'lost' | 'emerging' | 'not-cited' | 'pending'
+export type VisibilityState = 'visible' | 'not-visible' | 'pending'
 
 export interface ServiceStatus {
   label: string
@@ -85,6 +86,9 @@ export interface RunHistoryPoint {
   citationState: string
   createdAt: string
   model?: string | null
+  answerMentioned?: boolean
+  visibilityState?: VisibilityState
+  visibilityTransition?: string
 }
 
 export type EvidenceHistoryScope = 'keyword' | 'model' | 'provider'
@@ -103,6 +107,9 @@ export interface CitationInsightVm {
   model: string | null
   location: string | null
   citationState: CitationState
+  answerMentioned?: boolean
+  visibilityState?: VisibilityState
+  visibilityChangeLabel?: string
   changeLabel: string
   answerSnippet: string
   citedDomains: string[]

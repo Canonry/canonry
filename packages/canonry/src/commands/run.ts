@@ -277,7 +277,9 @@ function printRunDetail(run: Record<string, unknown>): void {
   if (snapshots && snapshots.length > 0) {
     console.log(`\n  Snapshots: ${snapshots.length}`)
     for (const s of snapshots) {
-      const state = s.citationState === 'cited' ? '  cited    ' : '  not-cited'
+      const state = typeof s.answerMentioned === 'boolean'
+        ? (s.answerMentioned ? '  visible  ' : '  not-vis  ')
+        : (s.citationState === 'cited' ? '  cited    ' : '  not-cited')
       const modelLabel = s.model ? ` (${s.model})` : ''
       console.log(`    ${state}  ${s.provider}${modelLabel}  ${s.keyword}`)
     }

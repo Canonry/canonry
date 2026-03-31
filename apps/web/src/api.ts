@@ -147,6 +147,8 @@ export interface ApiSnapshot {
   keyword: string | null
   provider: string
   citationState: string
+  answerMentioned?: boolean
+  visibilityState?: string
   answerText: string | null
   citedDomains: string[]
   competitorOverlap: string[]
@@ -181,18 +183,27 @@ export interface ApiTimelineEntry {
     createdAt: string
     citationState: string
     transition: string
+    answerMentioned?: boolean
+    visibilityState?: string
+    visibilityTransition?: string
   }[]
   providerRuns?: Record<string, {
     runId: string
     createdAt: string
     citationState: string
     transition: string
+    answerMentioned?: boolean
+    visibilityState?: string
+    visibilityTransition?: string
   }[]>
   modelRuns?: Record<string, {
     runId: string
     createdAt: string
     citationState: string
     transition: string
+    answerMentioned?: boolean
+    visibilityState?: string
+    visibilityTransition?: string
   }[]>
 }
 
@@ -932,26 +943,17 @@ export interface ApiGaTrafficPage {
   users: number
 }
 
-export interface ApiGaTrafficReferral {
-  source: string
-  medium: string
-  sessions: number
-  users: number
-}
-
 export interface ApiGaTraffic {
   totalSessions: number
   totalOrganicSessions: number
   totalUsers: number
   topPages: ApiGaTrafficPage[]
-  aiReferrals: ApiGaTrafficReferral[]
   lastSyncedAt: string | null
 }
 
 export interface ApiGaSyncResult {
   synced: boolean
   rowCount: number
-  aiReferralCount: number
   days: number
   syncedAt: string
 }

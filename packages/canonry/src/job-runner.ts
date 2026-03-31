@@ -6,7 +6,7 @@ import { and, eq, inArray } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { runs, keywords, competitors, projects, querySnapshots, usageCounters } from '@ainyc/canonry-db'
 import type { ProviderName, NormalizedQueryResult, LocationContext } from '@ainyc/canonry-contracts'
-import { effectiveDomains, normalizeProjectDomain, isBrowserProvider } from '@ainyc/canonry-contracts'
+import { determineAnswerMentioned, effectiveDomains, normalizeProjectDomain, isBrowserProvider } from '@ainyc/canonry-contracts'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
 import { createLogger } from './logger.js'
@@ -299,6 +299,11 @@ export class JobRunner {
 
             log.info('query.result', { runId, provider: providerName, keyword: kw.keyword, citedDomains: normalized.citedDomains, groundingSources: normalized.groundingSources.map(s => s.uri), matchDomains: allDomains })
             const citationState = determineCitationState(normalized, allDomains)
+            const answerMentioned = determineAnswerMentioned(
+              normalized.answerText,
+              project.displayName,
+              allDomains,
+            )
             const overlap = computeCompetitorOverlap(normalized, competitorDomains)
             const extractedCompetitors = extractRecommendedCompetitors(
               normalized.answerText,
@@ -324,6 +329,7 @@ export class JobRunner {
                 provider: providerName,
                 model: raw.model,
                 citationState,
+                answerMentioned,
                 answerText: normalized.answerText,
                 citedDomains: JSON.stringify(normalized.citedDomains),
                 competitorOverlap: JSON.stringify(overlap),
@@ -346,6 +352,7 @@ export class JobRunner {
                 provider: providerName,
                 model: raw.model,
                 citationState,
+                answerMentioned,
                 answerText: normalized.answerText,
                 citedDomains: JSON.stringify(normalized.citedDomains),
                 competitorOverlap: JSON.stringify(overlap),
@@ -362,7 +369,7 @@ export class JobRunner {
             }
 
             totalSnapshotsInserted++
-            log.info('query.citation', { runId, provider: providerName, keyword: kw.keyword, citationState })
+            log.info('query.citation', { runId, provider: providerName, keyword: kw.keyword, citationState, answerMentioned })
           })
         } catch (err: unknown) {
           if (err instanceof RunCancelledError) {

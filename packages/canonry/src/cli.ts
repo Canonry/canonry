@@ -12,6 +12,7 @@ Usage:
   canonry init [--force]               Initialize config and database (interactive)
   canonry init --gemini-key <key>     Initialize non-interactively (also reads env vars)
   canonry bootstrap [--force]          Bootstrap config/database from env vars
+  canonry backfill answer-visibility   Backfill answer-level visibility from stored answers
   canonry serve                       Start the local server (foreground)
   canonry start                       Start the server as a background daemon
   canonry stop                        Stop the background daemon
@@ -145,6 +146,7 @@ Options:
   --no-location        Explicitly skip location context
   --wait               Wait for run to complete before returning
   --all                Run all projects (with 'run' command)
+  --project <name>     Restrict maintenance commands to a single project
   --include-results    Include results in export
   --preset <preset>    Schedule preset (daily, weekly, twice-daily, daily@HH, weekly@DAY)
   --cron <expr>        Cron expression for schedule
@@ -196,7 +198,7 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
   }
 
   // Resolve command name for telemetry (e.g. "project.create", "run")
-  const SUBCOMMAND_COMMANDS = new Set(['project', 'keyword', 'competitor', 'schedule', 'notify', 'settings', 'telemetry', 'google', 'bing', 'wordpress', 'cdp'])
+  const SUBCOMMAND_COMMANDS = new Set(['backfill', 'project', 'keyword', 'competitor', 'schedule', 'notify', 'settings', 'telemetry', 'google', 'bing', 'wordpress', 'cdp'])
   const resolvedCommand = SUBCOMMAND_COMMANDS.has(command) && args[1] && !args[1].startsWith('-')
     ? `${command}.${args[1]}`
     : command

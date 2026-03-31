@@ -1,4 +1,5 @@
 import { runAeoAudit } from '@ainyc/aeo-audit'
+import { determineAnswerMentioned } from '@ainyc/canonry-contracts'
 import type {
   GroundingSource,
   SnapshotAccuracy,
@@ -319,7 +320,7 @@ export class SnapshotService {
               provider: provider.adapter.name,
               displayName: provider.adapter.displayName,
               model: raw.model,
-              mentioned: mentionsTargetCompany(normalized.answerText, ctx.companyName, ctx.domain),
+              mentioned: determineAnswerMentioned(normalized.answerText, ctx.companyName, [ctx.domain]),
               cited: citesTargetDomain(normalized.citedDomains, normalized.groundingSources, ctx.domain),
               describedAccurately: 'unknown' as const,
               accuracyNotes: null,
@@ -689,31 +690,6 @@ function buildFallbackRecommendedActions(audit: SnapshotAuditDto): string[] {
   return uniqueStrings([...weakestFactors, ...defaults]).slice(0, 4)
 }
 
-function mentionsTargetCompany(answerText: string, companyName: string, domain: string): boolean {
-  const haystack = normalizeText(answerText)
-  if (!haystack) return false
-
-  const fullName = normalizeText(companyName)
-  if (fullName && haystack.includes(fullName)) {
-    return true
-  }
-
-  const targetTokens = uniqueStrings([
-    ...extractDistinctiveTokens(companyName),
-    ...extractDistinctiveTokens(extractHostname(domain).split('.')[0] ?? ''),
-  ])
-
-  if (targetTokens.length === 0) return false
-  let matches = 0
-  for (const token of targetTokens) {
-    if (new RegExp(`\\b${escapeRegExp(token)}\\b`, 'i').test(answerText)) {
-      matches++
-    }
-  }
-
-  return matches >= Math.min(2, targetTokens.length) || matches >= 1 && targetTokens.length === 1
-}
-
 function citesTargetDomain(citedDomains: string[], groundingSources: GroundingSource[], targetDomain: string): boolean {
   const normalizedTarget = extractHostname(targetDomain)
   for (const domain of citedDomains) {
@@ -799,10 +775,6 @@ function parseJsonObject<T>(input: string): T {
   return JSON.parse(json) as T
 }
 
-function normalizeText(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
-}
-
 function normalizeStringList(values: string[]): string[] {
   const items = values.flatMap(value => value.split(','))
   return uniqueStrings(
@@ -843,13 +815,6 @@ function domainMatches(candidate: string, target: string): boolean {
   return normalizedCandidate === normalizedTarget || normalizedCandidate.endsWith(`.${normalizedTarget}`)
 }
 
-function extractDistinctiveTokens(value: string): string[] {
-  return normalizeText(value)
-    .split(' ')
-    .filter(token => token.length >= 4)
-    .filter(token => !['llc', 'inc', 'corp', 'company', 'group', 'services', 'solutions', 'agency'].includes(token))
-}
-
 function isDomainLike(value: string): boolean {
   const normalized = normalizeDomain(value)
   return normalized.includes('.') && !normalized.includes(' ')
@@ -858,8 +823,4 @@ function isDomainLike(value: string): boolean {
 function clipText(value: string, length: number): string {
   if (value.length <= length) return value
   return `${value.slice(0, length - 3)}...`
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }

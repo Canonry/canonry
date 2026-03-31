@@ -17,6 +17,7 @@ import {
   runStatusSchema,
   citationStateSchema,
   computedTransitionSchema,
+  determineAnswerMentioned,
   querySnapshotDtoSchema,
   auditLogEntrySchema,
   notificationDtoSchema,
@@ -198,6 +199,8 @@ test('querySnapshotDtoSchema applies defaults', () => {
   expect(snapshot.citedDomains).toEqual([])
   expect(snapshot.competitorOverlap).toEqual([])
   expect(snapshot.recommendedCompetitors).toEqual([])
+  expect(snapshot.answerMentioned).toBeUndefined()
+  expect(snapshot.visibilityState).toBeUndefined()
 })
 
 test('querySnapshotDtoSchema accepts all provider names', () => {
@@ -525,6 +528,32 @@ describe('isBrowserProvider', () => {
     expect(isBrowserProvider('openai')).toBe(false)
     expect(isBrowserProvider('claude')).toBe(false)
     expect(isBrowserProvider('local')).toBe(false)
+  })
+})
+
+describe('determineAnswerMentioned', () => {
+  it('matches exact domain mentions in answer text', () => {
+    expect(determineAnswerMentioned(
+      'Top picks include example.com and other vendors.',
+      'Example Inc',
+      ['example.com'],
+    )).toBe(true)
+  })
+
+  it('matches display name mentions when the domain is not present', () => {
+    expect(determineAnswerMentioned(
+      'Example Health is frequently recommended for this workflow.',
+      'Example Health',
+      ['examplehealth.com'],
+    )).toBe(true)
+  })
+
+  it('returns false when neither domain nor brand appears', () => {
+    expect(determineAnswerMentioned(
+      'Top picks include Contoso and Fabrikam.',
+      'Example Health',
+      ['examplehealth.com'],
+    )).toBe(false)
   })
 })
 

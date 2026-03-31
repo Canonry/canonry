@@ -380,20 +380,29 @@ function buildEvidenceFromTimeline(
         const effectiveTransition = effectiveHistory
           ? effectiveHistory.at(-1)!.transition
           : transition
+        const effectiveVisibilityTransition = effectiveHistory
+          ? (effectiveHistory.at(-1)!.visibilityTransition ?? (effectiveHistory.at(-1)!.visibilityState === 'visible' ? 'visible' : 'not-visible'))
+          : (latestRun?.visibilityTransition ?? (latestRun?.visibilityState === 'visible' ? 'visible' : 'not-visible'))
 
         // When a provider is missing from the latest run, keep showing its last
         // observed provider-level state instead of leaking the keyword-level
         // transition from another provider into this synthetic badge row.
         const latestProviderState = effectiveHistory?.at(-1)?.citationState
+        const latestProviderVisibilityState = effectiveHistory?.at(-1)?.visibilityState
         const snapState: CitationState = snap
           ? effectiveTransition === 'lost' ? 'lost'
             : effectiveTransition === 'emerging' ? 'emerging'
             : snap.citationState === 'cited' ? 'cited' : 'not-cited'
           : latestProviderState === 'cited' ? 'cited' : 'not-cited'
+        const snapVisibilityState = (snap?.visibilityState as CitationInsightVm['visibilityState'] | undefined)
+          ?? (latestProviderVisibilityState === 'visible' ? 'visible' : latestProviderVisibilityState === 'pending' ? 'pending' : 'not-visible')
 
         const streak = effectiveHistory
           ? computeStreak(effectiveHistory)
           : computeStreak(entry.runs)
+        const visibilityStreak = effectiveHistory
+          ? computeVisibilityStreak(effectiveHistory)
+          : computeVisibilityStreak(entry.runs)
 
         const runModels = buildRunModelMap(entry, provider)
         const runHistory = (effectiveHistory ?? entry.runs)
@@ -402,6 +411,9 @@ function buildEvidenceFromTimeline(
             citationState: r.citationState,
             createdAt: r.createdAt,
             model: runModels.get(r.runId) ?? null,
+            answerMentioned: r.answerMentioned,
+            visibilityState: r.visibilityState as RunHistoryPoint['visibilityState'] | undefined,
+            visibilityTransition: r.visibilityTransition,
           }))
         const modelsSeen = collectModels(runHistory)
         const historyScope: EvidenceHistoryScope = baseHistoryScope === 'provider' && modelsSeen.length <= 1
@@ -416,6 +428,13 @@ function buildEvidenceFromTimeline(
           model: snap?.model ?? null,
           location: snap?.location ?? null,
           citationState: snapState,
+          answerMentioned: snap?.answerMentioned,
+          visibilityState: snapVisibilityState,
+          visibilityChangeLabel: changeLabel(effectiveVisibilityTransition, visibilityStreak, {
+            positive: 'visible',
+            negative: 'not visible',
+            first: 'first visibility',
+          }),
           changeLabel: changeLabel(effectiveTransition, streak),
           answerSnippet: snap?.answerText ?? '',
           citedDomains: snap?.citedDomains ?? [],
@@ -424,7 +443,7 @@ function buildEvidenceFromTimeline(
           recommendedCompetitors: snap?.recommendedCompetitors ?? [],
           relatedTechnicalSignals: [],
           groundingSources: snap?.groundingSources ?? [],
-          summary: evidenceSummary(snapState, entry.keyword),
+          summary: visibilityEvidenceSummary(snapVisibilityState, effectiveVisibilityTransition, entry.keyword),
           runHistory,
           historyScope,
           modelsSeen,
@@ -444,6 +463,8 @@ function buildEvidenceFromTimeline(
       model: null,
       location: null,
       citationState: 'pending',
+      visibilityState: 'pending',
+      visibilityChangeLabel: 'Awaiting first run',
       changeLabel: 'Awaiting first run',
       answerSnippet: '',
       citedDomains: [],
@@ -519,24 +540,65 @@ function computeStreak(runs: { citationState: string }[]): number {
   return streak
 }
 
-function changeLabel(transition: string, streak: number): string {
+function computeVisibilityStreak(runs: { visibilityState?: string }[]): number {
+  if (runs.length === 0) return 0
+  const latest = runs[runs.length - 1]!.visibilityState ?? 'not-visible'
+  let streak = 0
+  for (let i = runs.length - 1; i >= 0; i--) {
+    if ((runs[i]!.visibilityState ?? 'not-visible') === latest) streak++
+    else break
+  }
+  return streak
+}
+
+function changeLabel(
+  transition: string,
+  streak: number,
+  labels?: { positive: string; negative: string; first: string },
+): string {
+  const resolved = {
+    positive: labels?.positive ?? 'cited',
+    negative: labels?.negative ?? 'not cited',
+    first: labels?.first ?? 'first citation',
+  }
   switch (transition) {
     case 'new': return 'First observation'
-    case 'cited': return streak <= 1 ? 'Cited in latest run' : `Cited for ${streak} runs`
+    case 'cited':
+    case 'visible':
+      return streak <= 1 ? `${capitalizeLabel(resolved.positive)} in latest run` : `${capitalizeLabel(resolved.positive)} for ${streak} runs`
     case 'lost': return 'Lost since last run'
-    case 'emerging': return 'First citation'
-    case 'not-cited': return streak <= 1 ? 'Not cited in latest run' : `Not cited across ${streak} runs`
+    case 'emerging': return capitalizeLabel(resolved.first)
+    case 'not-cited':
+    case 'not-visible':
+      return streak <= 1 ? `${capitalizeLabel(resolved.negative)} in latest run` : `${capitalizeLabel(resolved.negative)} across ${streak} runs`
     default: return transition
   }
 }
 
-function evidenceSummary(state: CitationState, keyword: string): string {
-  switch (state) {
-    case 'cited': return `Your domain is cited in AI answers for "${keyword}".`
-    case 'lost': return `Citation was lost for "${keyword}". Competitors may have gained ground.`
-    case 'emerging': return `Your domain is starting to appear in answers for "${keyword}".`
-    case 'not-cited': return `No citation detected for "${keyword}".`
-    case 'pending': return `"${keyword}" has been added but no visibility run has been triggered yet.`
+function capitalizeLabel(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+function visibilityEvidenceSummary(
+  visibilityState: CitationInsightVm['visibilityState'],
+  visibilityTransition: string,
+  keyword: string,
+): string {
+  switch (visibilityTransition) {
+    case 'lost':
+      return `Visibility was lost for "${keyword}". Your brand no longer appeared in the latest answer.`
+    case 'emerging':
+      return `Your brand started appearing in AI answers for "${keyword}".`
+  }
+
+  switch (visibilityState) {
+    case 'visible':
+      return `Your brand or domain is visible in AI answers for "${keyword}".`
+    case 'pending':
+      return `"${keyword}" has been added but no visibility run has been triggered yet.`
+    case 'not-visible':
+    default:
+      return `Your brand or domain was not mentioned in AI answers for "${keyword}".`
   }
 }
 

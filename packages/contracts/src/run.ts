@@ -13,6 +13,9 @@ export type RunTrigger = z.infer<typeof runTriggerSchema>
 export const citationStateSchema = z.enum(['cited', 'not-cited'])
 export type CitationState = z.infer<typeof citationStateSchema>
 
+export const visibilityStateSchema = z.enum(['visible', 'not-visible'])
+export type VisibilityState = z.infer<typeof visibilityStateSchema>
+
 export const computedTransitionSchema = z.enum(['new', 'cited', 'lost', 'emerging', 'not-cited'])
 export type ComputedTransition = z.infer<typeof computedTransitionSchema>
 
@@ -45,6 +48,8 @@ export const querySnapshotDtoSchema = z.object({
   keyword: z.string().optional(),
   provider: providerNameSchema,
   citationState: citationStateSchema,
+  answerMentioned: z.boolean().optional(),
+  visibilityState: visibilityStateSchema.optional(),
   transition: computedTransitionSchema.optional(),
   answerText: z.string().nullable().optional(),
   citedDomains: z.array(z.string()).default([]),

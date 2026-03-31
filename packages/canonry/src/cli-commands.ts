@@ -1,4 +1,5 @@
 import type { CliCommandSpec } from './cli-dispatch.js'
+import { BACKFILL_CLI_COMMANDS } from './cli-commands/backfill.js'
 import { BING_CLI_COMMANDS } from './cli-commands/bing.js'
 import { CDP_CLI_COMMANDS } from './cli-commands/cdp.js'
 import { GA_CLI_COMMANDS } from './cli-commands/ga.js'
@@ -16,6 +17,7 @@ import { SYSTEM_CLI_COMMANDS } from './cli-commands/system.js'
 import { WORDPRESS_CLI_COMMANDS } from './cli-commands/wordpress.js'
 
 export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
+  ...BACKFILL_CLI_COMMANDS,
   ...SYSTEM_CLI_COMMANDS,
   ...PROJECT_CLI_COMMANDS,
   ...KEYWORD_CLI_COMMANDS,

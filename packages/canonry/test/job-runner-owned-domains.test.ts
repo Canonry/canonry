@@ -106,5 +106,94 @@ test('JobRunner marks citations on owned domains as cited', async () => {
 
   const [snapshot] = db.select().from(querySnapshots).where(eq(querySnapshots.runId, runId)).all()
   expect(snapshot?.citationState).toBe('cited')
+  expect(snapshot?.answerMentioned).toBe(false)
   expect(JSON.parse(snapshot.citedDomains)).toEqual(['docs.example.com'])
+})
+
+test('JobRunner stores answerMentioned when the answer names the project', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-answer-mentioned-'))
+  onTestFinished(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+  const dbPath = path.join(tmpDir, 'test.db')
+  const db = createClient(dbPath)
+  migrate(db)
+
+  const projectId = crypto.randomUUID()
+  const keywordId = crypto.randomUUID()
+  const runId = crypto.randomUUID()
+  const now = new Date().toISOString()
+
+  const adapter: ProviderAdapter = {
+    name: 'gemini',
+    validateConfig(_config: ProviderConfig): ProviderHealthcheckResult {
+      return { ok: true, provider: 'gemini', message: 'ok' }
+    },
+    async healthcheck(_config: ProviderConfig): Promise<ProviderHealthcheckResult> {
+      return { ok: true, provider: 'gemini', message: 'ok' }
+    },
+    async executeTrackedQuery(_input: TrackedQueryInput, _config: ProviderConfig): Promise<RawQueryResult> {
+      return {
+        provider: 'gemini',
+        rawResponse: {},
+        model: 'stub-model',
+        groundingSources: [],
+        searchQueries: [],
+      }
+    },
+    normalizeResult(_raw: RawQueryResult): NormalizedQueryResult {
+      return {
+        provider: 'gemini',
+        answerText: 'Acme Health is one of the strongest vendors in this category.',
+        citedDomains: [],
+        groundingSources: [],
+        searchQueries: [],
+      }
+    },
+    async generateText(_prompt: string, _config: ProviderConfig): Promise<string> {
+      return 'stub'
+    },
+  }
+
+  const registry = new ProviderRegistry()
+  registry.register(adapter, {
+    provider: 'gemini',
+    apiKey: 'test-key',
+    quotaPolicy: {
+      maxConcurrency: 1,
+      maxRequestsPerMinute: 60,
+      maxRequestsPerDay: 1000,
+    },
+  })
+
+  db.insert(projects).values({
+    id: projectId,
+    name: 'acme-health',
+    displayName: 'Acme Health',
+    canonicalDomain: 'acmehealth.com',
+    country: 'US',
+    language: 'en',
+    providers: '[]',
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+
+  db.insert(keywords).values({
+    id: keywordId,
+    projectId,
+    keyword: 'best digital health platforms',
+    createdAt: now,
+  }).run()
+
+  db.insert(runs).values({
+    id: runId,
+    projectId,
+    status: 'queued',
+    createdAt: now,
+  }).run()
+
+  const runner = new JobRunner(db, registry)
+  await runner.executeRun(runId, projectId)
+
+  const [snapshot] = db.select().from(querySnapshots).where(eq(querySnapshots.runId, runId)).all()
+  expect(snapshot?.citationState).toBe('not-cited')
+  expect(snapshot?.answerMentioned).toBe(true)
 })
