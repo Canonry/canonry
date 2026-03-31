@@ -1,3 +1,4 @@
+import type { GaConnectResponse, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError } from '../cli-error.js'
 
@@ -49,12 +50,7 @@ export async function gaConnect(project: string, opts: {
   // from "canonry google connect <project> --type ga4"
 
   const client = getClient()
-  const result = await client.gaConnect(project, body) as {
-    connected: boolean
-    propertyId: string
-    authMethod: 'service-account' | 'oauth'
-    clientEmail?: string
-  }
+  const result: GaConnectResponse = await client.gaConnect(project, body)
 
   if (opts.format === 'json') {
     console.log(JSON.stringify(result, null, 2))
@@ -84,15 +80,7 @@ export async function gaDisconnect(project: string, format?: string): Promise<vo
 
 export async function gaStatus(project: string, format?: string): Promise<void> {
   const client = getClient()
-  const result = await client.gaStatus(project) as {
-    connected: boolean
-    propertyId: string | null
-    clientEmail: string | null
-    authMethod: 'service-account' | 'oauth' | null
-    lastSyncedAt: string | null
-    createdAt?: string
-    updatedAt?: string
-  }
+  const result: GaStatusResponse = await client.gaStatus(project)
 
   if (format === 'json') {
     console.log(JSON.stringify(result, null, 2))
@@ -121,13 +109,7 @@ export async function gaStatus(project: string, format?: string): Promise<void> 
 
 export async function gaSync(project: string, opts?: { days?: number; format?: string }): Promise<void> {
   const client = getClient()
-  const result = await client.gaSync(project, { days: opts?.days }) as {
-    synced: boolean
-    rowCount: number
-    aiReferralCount: number
-    days: number
-    syncedAt: string
-  }
+  const result: GaSyncResponse = await client.gaSync(project, { days: opts?.days })
 
   if (opts?.format === 'json') {
     console.log(JSON.stringify(result, null, 2))
@@ -146,14 +128,7 @@ export async function gaTraffic(project: string, opts?: { limit?: number; format
   const params: Record<string, string> = {}
   if (opts?.limit) params.limit = String(opts.limit)
 
-  const result = await client.gaTraffic(project, Object.keys(params).length > 0 ? params : undefined) as {
-    totalSessions: number
-    totalOrganicSessions: number
-    totalUsers: number
-    topPages: Array<{ landingPage: string; sessions: number; organicSessions: number; users: number }>
-    aiReferrals: Array<{ source: string; medium: string; sessions: number; users: number }>
-    lastSyncedAt: string | null
-  }
+  const result: GaTrafficResponse = await client.gaTraffic(project, Object.keys(params).length > 0 ? params : undefined)
 
   if (opts?.format === 'json') {
     console.log(JSON.stringify(result, null, 2))
@@ -205,9 +180,7 @@ export async function gaTraffic(project: string, opts?: { limit?: number; format
 
 export async function gaCoverage(project: string, format?: string): Promise<void> {
   const client = getClient()
-  const result = await client.gaCoverage(project) as {
-    pages: Array<{ landingPage: string; sessions: number; organicSessions: number; users: number }>
-  }
+  const result: GaCoverageResponse = await client.gaCoverage(project)
 
   if (format === 'json') {
     console.log(JSON.stringify(result, null, 2))

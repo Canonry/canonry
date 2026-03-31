@@ -42,3 +42,43 @@ export const ga4TrafficSummaryDtoSchema = z.object({
   lastSyncedAt: z.string().nullable(),
 })
 export type GA4TrafficSummaryDto = z.infer<typeof ga4TrafficSummaryDtoSchema>
+
+// API response DTOs for GA4 CLI commands
+
+export interface GaConnectResponse {
+  connected: boolean
+  propertyId: string
+  authMethod: 'service-account' | 'oauth'
+  clientEmail?: string
+}
+
+export interface GaStatusResponse {
+  connected: boolean
+  propertyId: string | null
+  clientEmail: string | null
+  authMethod: 'service-account' | 'oauth' | null
+  lastSyncedAt: string | null
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface GaSyncResponse {
+  synced: boolean
+  rowCount: number
+  aiReferralCount: number
+  days: number
+  syncedAt: string
+}
+
+export interface GaTrafficResponse {
+  totalSessions: number
+  totalOrganicSessions: number
+  totalUsers: number
+  topPages: Array<{ landingPage: string; sessions: number; organicSessions: number; users: number }>
+  aiReferrals: Array<{ source: string; medium: string; sessions: number; users: number }>
+  lastSyncedAt: string | null
+}
+
+export interface GaCoverageResponse {
+  pages: Array<{ landingPage: string; sessions: number; organicSessions: number; users: number }>
+}

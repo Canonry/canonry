@@ -212,7 +212,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     }
 
     const oauthConn = googleStore.getConnection(project.canonicalDomain, 'ga4')
-    if (!oauthConn?.accessToken) {
+    if (!oauthConn?.accessToken || !oauthConn?.refreshToken) {
       throw validationError(
         'No GA4 OAuth token found. Run "canonry google connect <project> --type ga4" first, ' +
         'or pass --key-file to use a service account.',
@@ -220,13 +220,11 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     }
 
     // Get a valid (possibly refreshed) token
-    const accessToken = oauthConn.refreshToken
-      ? await refreshOAuthTokenIfNeeded(googleStore, authConfig, project.canonicalDomain, {
-          accessToken: oauthConn.accessToken,
-          refreshToken: oauthConn.refreshToken,
-          tokenExpiresAt: oauthConn.tokenExpiresAt,
-        })
-      : oauthConn.accessToken
+    const accessToken = await refreshOAuthTokenIfNeeded(googleStore, authConfig, project.canonicalDomain, {
+      accessToken: oauthConn.accessToken,
+      refreshToken: oauthConn.refreshToken,
+      tokenExpiresAt: oauthConn.tokenExpiresAt,
+    })
 
     // Verify the token works for this property
     try {

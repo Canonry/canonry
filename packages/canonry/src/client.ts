@@ -23,6 +23,11 @@ import type {
   WordpressSchemaDeployResultDto,
   WordpressSchemaStatusResultDto,
   WordpressStatusDto,
+  GaConnectResponse,
+  GaStatusResponse,
+  GaSyncResponse,
+  GaTrafficResponse,
+  GaCoverageResponse,
 } from '@ainyc/canonry-contracts'
 
 /** Run detail response includes snapshots */
@@ -467,29 +472,29 @@ export class ApiClient {
   }
 
   // Google Analytics 4
-  async gaConnect(project: string, body: { propertyId: string; keyJson?: string }): Promise<object> {
-    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/ga/connect`, body)
+  async gaConnect(project: string, body: { propertyId: string; keyJson?: string }): Promise<GaConnectResponse> {
+    return this.request<GaConnectResponse>('POST', `/projects/${encodeURIComponent(project)}/ga/connect`, body)
   }
 
   async gaDisconnect(project: string): Promise<void> {
     await this.request<void>('DELETE', `/projects/${encodeURIComponent(project)}/ga/disconnect`)
   }
 
-  async gaStatus(project: string): Promise<object> {
-    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/ga/status`)
+  async gaStatus(project: string): Promise<GaStatusResponse> {
+    return this.request<GaStatusResponse>('GET', `/projects/${encodeURIComponent(project)}/ga/status`)
   }
 
-  async gaSync(project: string, body?: { days?: number }): Promise<object> {
-    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/ga/sync`, body ?? {})
+  async gaSync(project: string, body?: { days?: number }): Promise<GaSyncResponse> {
+    return this.request<GaSyncResponse>('POST', `/projects/${encodeURIComponent(project)}/ga/sync`, body ?? {})
   }
 
-  async gaTraffic(project: string, params?: Record<string, string>): Promise<object> {
+  async gaTraffic(project: string, params?: Record<string, string>): Promise<GaTrafficResponse> {
     const qs = params ? '?' + new URLSearchParams(params).toString() : ''
-    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/ga/traffic${qs}`)
+    return this.request<GaTrafficResponse>('GET', `/projects/${encodeURIComponent(project)}/ga/traffic${qs}`)
   }
 
-  async gaCoverage(project: string): Promise<object> {
-    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/ga/coverage`)
+  async gaCoverage(project: string): Promise<GaCoverageResponse> {
+    return this.request<GaCoverageResponse>('GET', `/projects/${encodeURIComponent(project)}/ga/coverage`)
   }
 
   async wordpressConnect(
