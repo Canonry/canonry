@@ -142,6 +142,8 @@ export function EvidenceDetailModal({
     ...projectDomains.map(normalizeProjectDomain),
     projectDisplayName,
     projectDisplayName.split(' ').slice(0, 2).join(' '),
+    // Include matchedTerms so token-based matches are highlighted in the answer body
+    ...display.matchedTerms,
   ].filter(t => t.trim().length > 2)
 
   // Build competitor highlight terms from overlap domains + recommended competitor names

@@ -3,7 +3,6 @@ import { eq, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { projects, auditLog, usageCounters, parseJsonColumn } from '@ainyc/canonry-db'
 import {
-  determineAnswerMentioned,
   extractAnswerMentions,
   effectiveDomains,
   notFound,
@@ -69,37 +68,42 @@ export interface SnapshotVisibilityProject {
   ownedDomains?: string | string[] | null
 }
 
+function resolveSnapshotMentionResult(
+  snapshot: { answerMentioned?: boolean | null; answerText?: string | null },
+  project: SnapshotVisibilityProject,
+): { mentioned: boolean; matchedTerms: string[] } {
+  // Legacy path: stored boolean is authoritative; matchedTerms cannot be reliably
+  // recomputed after a project rename or domain change, so return [] to avoid contradiction.
+  if (typeof snapshot.answerMentioned === 'boolean') {
+    return { mentioned: snapshot.answerMentioned, matchedTerms: [] }
+  }
+  if (!snapshot.answerText) return { mentioned: false, matchedTerms: [] }
+  const domains = effectiveDomains({
+    canonicalDomain: project.canonicalDomain,
+    ownedDomains: normalizeOwnedDomains(project.ownedDomains),
+  })
+  return extractAnswerMentions(snapshot.answerText, project.displayName, domains)
+}
+
 export function resolveSnapshotAnswerMentioned(
   snapshot: { answerMentioned?: boolean | null; answerText?: string | null },
   project: SnapshotVisibilityProject,
 ): boolean {
-  if (typeof snapshot.answerMentioned === 'boolean') {
-    return snapshot.answerMentioned
-  }
-
-  return determineAnswerMentioned(snapshot.answerText, project.displayName, effectiveDomains({
-    canonicalDomain: project.canonicalDomain,
-    ownedDomains: normalizeOwnedDomains(project.ownedDomains),
-  }))
+  return resolveSnapshotMentionResult(snapshot, project).mentioned
 }
 
 export function resolveSnapshotVisibilityState(
   snapshot: { answerMentioned?: boolean | null; answerText?: string | null },
   project: SnapshotVisibilityProject,
 ): VisibilityState {
-  return visibilityStateFromAnswerMentioned(resolveSnapshotAnswerMentioned(snapshot, project))
+  return visibilityStateFromAnswerMentioned(resolveSnapshotMentionResult(snapshot, project).mentioned)
 }
 
 export function resolveSnapshotMatchedTerms(
-  snapshot: { answerText?: string | null },
+  snapshot: { answerMentioned?: boolean | null; answerText?: string | null },
   project: SnapshotVisibilityProject,
 ): string[] {
-  if (!snapshot.answerText) return []
-  const domains = effectiveDomains({
-    canonicalDomain: project.canonicalDomain,
-    ownedDomains: normalizeOwnedDomains(project.ownedDomains),
-  })
-  return extractAnswerMentions(snapshot.answerText, project.displayName, domains).matchedTerms
+  return resolveSnapshotMentionResult(snapshot, project).matchedTerms
 }
 
 function normalizeOwnedDomains(value: string | string[] | null | undefined): string[] {
