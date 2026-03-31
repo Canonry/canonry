@@ -146,7 +146,13 @@ function BingSummaryMetric({
   )
 }
 
-function BingSection({ projectName }: { projectName: string }) {
+function BingSection({
+  projectName,
+  refreshNonce,
+}: {
+  projectName: string
+  refreshNonce: number
+}) {
   const [connection, setConnection] = useState<ApiBingConnection | null>(null)
   const [sites, setSites] = useState<ApiBingSite[]>([])
   const [coverage, setCoverage] = useState<ApiBingCoverageSummary | null>(null)
@@ -162,8 +168,8 @@ function BingSection({ projectName }: { projectName: string }) {
   const [activeTab, setActiveTab] = useState<'coverage' | 'inspections' | 'performance'>('coverage')
 
   useEffect(() => {
-    loadData()
-  }, [projectName])
+    void loadData()
+  }, [projectName, refreshNonce])
 
   async function loadData() {
     setLoading(true)
@@ -173,14 +179,21 @@ function BingSection({ projectName }: { projectName: string }) {
       setConnection(status)
 
       if (status.connected) {
-        const [coverageData, inspectionData, perfData] = await Promise.all([
+        const [coverageData, inspectionData, perfData, siteData] = await Promise.all([
           fetchBingCoverage(projectName).catch(() => null),
           fetchBingInspections(projectName).catch(() => []),
           fetchBingPerformance(projectName).catch(() => []),
+          !status.siteUrl ? fetchBingSites(projectName).then((result) => result.sites).catch(() => []) : Promise.resolve([]),
         ])
-        if (coverageData) setCoverage(coverageData)
+        setCoverage(coverageData)
         setInspections(inspectionData)
         setPerformance(perfData)
+        setSites(siteData)
+      } else {
+        setCoverage(null)
+        setInspections([])
+        setPerformance([])
+        setSites([])
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load Bing data')
@@ -413,14 +426,9 @@ function BingSection({ projectName }: { projectName: string }) {
                 <Button size="sm" disabled={!selectedSite} onClick={handleSetSite}>Set Site</Button>
               </div>
             ) : (
-              <div className="mt-3">
-                <Button size="sm" onClick={async () => {
-                  const result = await fetchBingSites(projectName)
-                  setSites(result.sites)
-                }}>
-                  Load Sites
-                </Button>
-              </div>
+              <p className="mt-3 text-xs text-zinc-500">
+                No verified Bing sites are available yet. Verify the domain in Bing Webmaster Tools, then use the page-level refresh to reload everything.
+              </p>
             )}
           </div>
         </div>
@@ -728,6 +736,7 @@ function SearchConsoleSection({
   const [bingConfigured, setBingConfigured] = useState(false)
   const [bingConnection, setBingConnection] = useState<ApiBingConnection | null>(null)
   const [bingCoverage, setBingCoverage] = useState<ApiBingCoverageSummary | null>(null)
+  const [workspaceRefreshNonce, setWorkspaceRefreshNonce] = useState(0)
 
   async function loadSummary(silent = false) {
     if (!silent) setLoading(true)
@@ -829,6 +838,7 @@ function SearchConsoleSection({
       // Reload both coverage summaries from fresh DB values
       setRefreshState('reloading')
       await loadSummary(true)
+      setWorkspaceRefreshNonce((current) => current + 1)
 
       if (failures.length > 0) {
         setError(`Partial refresh: ${failures.join('; ')}`)
@@ -898,7 +908,7 @@ function SearchConsoleSection({
             </p>
           </div>
           <Button type="button" variant="outline" size="sm" disabled={loading || refreshState !== 'idle'} onClick={() => void handleRefresh()}>
-            {loading ? 'Loading…' : refreshState === 'syncing' ? 'Querying Google & Bing…' : refreshState === 'reloading' ? 'Reloading…' : 'Refresh overview'}
+            {loading ? 'Loading…' : refreshState === 'syncing' ? 'Refreshing Google & Bing…' : refreshState === 'reloading' ? 'Reloading workspaces…' : 'Refresh all'}
           </Button>
         </div>
 
@@ -968,7 +978,7 @@ function SearchConsoleSection({
               <h2>Bing Webmaster Tools</h2>
             </div>
           </div>
-          <BingSection projectName={projectName} />
+          <BingSection projectName={projectName} refreshNonce={workspaceRefreshNonce} />
         </section>
       )}
     </div>
