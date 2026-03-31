@@ -592,16 +592,21 @@ export function EvidenceDetailModal({
                         )}
                       </div>
 
-                      {display.recommendedCompetitors.length > 0 && (
+                      {(display.recommendedCompetitors.length > 0 || display.competitorDomains.length > 0) && (
                         <div>
                           <div className="drawer-section-label flex items-center">
                             <span>Competitors in answer</span>
-                            <InfoTooltip text="Company names extracted from the answer text that match tracked or detected competitors." />
+                            <InfoTooltip text="Competitors detected in the answer text or cited source links. Includes both tracked competitors and names extracted by Canonry." />
                           </div>
                           <div className="flex flex-wrap gap-1.5">
-                            {display.recommendedCompetitors.map(name => (
-                              <span key={name} className="mention-chip mention-chip--competitor">{name}</span>
-                            ))}
+                            {[
+                              ...display.recommendedCompetitors,
+                              ...display.competitorDomains.map(d => d.replace(/^www\./, '')),
+                            ]
+                              .filter((v, i, arr) => arr.indexOf(v) === i)
+                              .map(name => (
+                                <span key={name} className="mention-chip mention-chip--competitor">{name}</span>
+                              ))}
                           </div>
                         </div>
                       )}

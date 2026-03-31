@@ -67,9 +67,16 @@ export function extractAnswerMentions(
     matchedTerms.push(...matchedTokens)
   }
 
-  // Deduplicate
+  // Deduplicate and remove tokens already subsumed by a domain match
+  // e.g. if 'ainyc.ai' is in matchedTerms, don't also show 'ainyc'
   const unique = [...new Set(matchedTerms)]
-  return { mentioned: unique.length > 0, matchedTerms: unique }
+  const domainMatches = unique.filter(t => t.includes('.'))
+  const dedupedFinal = unique.filter(term => {
+    if (term.includes('.')) return true // keep all domain matches
+    // drop a token if it's a prefix/root of any matched domain
+    return !domainMatches.some(d => d.toLowerCase().startsWith(term.toLowerCase() + '.'))
+  })
+  return { mentioned: dedupedFinal.length > 0, matchedTerms: dedupedFinal }
 }
 
 export function determineAnswerMentioned(
