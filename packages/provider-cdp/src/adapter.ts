@@ -30,8 +30,11 @@ function getConnection(config: ProviderConfig): CDPConnectionManager {
   if (parts.length >= 1 && parts[0]) host = parts[0]
   if (parts.length >= 2 && parts[1]) port = parseInt(parts[1], 10) || 9222
 
-  // Reuse or create connection
+  // Reuse or create connection; disconnect the old one if the endpoint changed
   if (!sharedConnection || sharedConnection.endpoint !== `${host}:${port}`) {
+    if (sharedConnection) {
+      sharedConnection.disconnect().catch(() => { /* ignore cleanup errors */ })
+    }
     sharedConnection = new CDPConnectionManager(host, port)
   }
   return sharedConnection

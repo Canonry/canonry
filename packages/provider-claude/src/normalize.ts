@@ -192,7 +192,7 @@ function extractCitedDomains(raw: ClaudeRawResult): string[] {
 function extractDomainFromUri(uri: string): string | null {
   try {
     const url = new URL(uri)
-    return url.hostname.replace(/^www\./, '')
+    return url.hostname.replace(/^www\./, '').toLowerCase()
   } catch {
     return null
   }
