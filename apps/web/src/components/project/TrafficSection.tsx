@@ -182,6 +182,26 @@ export function TrafficSection({ projectName }: { projectName: string }) {
     })
   }, [traffic?.aiReferrals, referralSortKey, referralSortDir])
 
+  // Pivot AI referral history into stacked chart data: { date, source1: sessions, source2: sessions, ... }
+  // Must be declared before any early returns to keep hook call count stable across renders.
+  const { chartData, chartSources } = useMemo(() => {
+    if (aiHistory.length === 0) return { chartData: [], chartSources: [] }
+    const sources = [...new Set(aiHistory.map((r) => r.source))]
+    const byDate = new Map<string, Record<string, number>>()
+    for (const row of aiHistory) {
+      let entry = byDate.get(row.date)
+      if (!entry) {
+        entry = {}
+        byDate.set(row.date, entry)
+      }
+      entry[row.source] = (entry[row.source] ?? 0) + row.sessions
+    }
+    const data = [...byDate.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, vals]) => ({ date, ...vals }))
+    return { chartData: data, chartSources: sources }
+  }, [aiHistory])
+
   if (loading && !status) {
     return <p className="text-sm text-zinc-500 py-8 text-center">Loading traffic data…</p>
   }
@@ -205,25 +225,6 @@ export function TrafficSection({ projectName }: { projectName: string }) {
     : 0
   const aiSourceCount = traffic ? new Set(traffic.aiReferrals.map((referral) => referral.source.toLowerCase())).size : 0
   const topAiSource = sortedAiReferrals[0] ?? null
-
-  // Pivot AI referral history into stacked chart data: { date, source1: sessions, source2: sessions, ... }
-  const { chartData, chartSources } = useMemo(() => {
-    if (aiHistory.length === 0) return { chartData: [], chartSources: [] }
-    const sources = [...new Set(aiHistory.map((r) => r.source))]
-    const byDate = new Map<string, Record<string, number>>()
-    for (const row of aiHistory) {
-      let entry = byDate.get(row.date)
-      if (!entry) {
-        entry = {}
-        byDate.set(row.date, entry)
-      }
-      entry[row.source] = (entry[row.source] ?? 0) + row.sessions
-    }
-    const data = [...byDate.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, vals]) => ({ date, ...vals }))
-    return { chartData: data, chartSources: sources }
-  }, [aiHistory])
 
   return (
     <>
