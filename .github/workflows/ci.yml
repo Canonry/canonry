@@ -48,6 +48,8 @@ jobs:
       - run: pnpm run typecheck
       - run: pnpm run test
       - run: pnpm run lint
+      - run: pnpm -r run build
+        name: Build all packages (catches missing deps, bundler errors)
 
   docker-build:
     runs-on: ubuntu-latest
