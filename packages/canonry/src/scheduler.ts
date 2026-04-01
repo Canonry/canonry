@@ -116,53 +116,57 @@ export class Scheduler {
   }
 
   private triggerRun(scheduleId: string, projectId: string): void {
-    const now = new Date().toISOString()
-    const currentSchedule = this.db.select().from(schedules).where(eq(schedules.id, scheduleId)).get()
-    if (!currentSchedule || currentSchedule.enabled !== 1) {
-      log.warn('schedule.stale', { scheduleId, projectId, msg: 'schedule no longer exists or is disabled' })
-      this.remove(projectId)
-      return
-    }
+    try {
+      const now = new Date().toISOString()
+      const currentSchedule = this.db.select().from(schedules).where(eq(schedules.id, scheduleId)).get()
+      if (!currentSchedule || currentSchedule.enabled !== 1) {
+        log.warn('schedule.stale', { scheduleId, projectId, msg: 'schedule no longer exists or is disabled' })
+        this.remove(projectId)
+        return
+      }
 
-    const task = this.tasks.get(projectId)
-    const nextRunAt = task?.getNextRun()?.toISOString() ?? null
+      const task = this.tasks.get(projectId)
+      const nextRunAt = task?.getNextRun()?.toISOString() ?? null
 
-    // Check if project still exists
-    const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
-    if (!project) {
-      log.error('project.not-found', { projectId, msg: 'skipping scheduled run' })
-      this.remove(projectId)
-      return
-    }
+      // Check if project still exists
+      const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
+      if (!project) {
+        log.error('project.not-found', { projectId, msg: 'skipping scheduled run' })
+        this.remove(projectId)
+        return
+      }
 
-    const queueResult = queueRunIfProjectIdle(this.db, {
-      createdAt: now,
-      kind: 'answer-visibility',
-      projectId,
-      trigger: 'scheduled',
-    })
+      const queueResult = queueRunIfProjectIdle(this.db, {
+        createdAt: now,
+        kind: 'answer-visibility',
+        projectId,
+        trigger: 'scheduled',
+      })
 
-    if (queueResult.conflict) {
-      log.info('run.skipped-active', { projectName: project.name, activeRunId: queueResult.activeRunId })
+      if (queueResult.conflict) {
+        log.info('run.skipped-active', { projectName: project.name, activeRunId: queueResult.activeRunId })
+        this.db.update(schedules).set({
+          nextRunAt,
+          updatedAt: now,
+        }).where(eq(schedules.id, currentSchedule.id)).run()
+        return
+      }
+
+      const runId = queueResult.runId
       this.db.update(schedules).set({
+        lastRunAt: now,
         nextRunAt,
         updatedAt: now,
       }).where(eq(schedules.id, currentSchedule.id)).run()
-      return
+
+      // Resolve providers
+      const scheduleProviders = JSON.parse(currentSchedule.providers) as string[]
+      const providers = scheduleProviders.length > 0 ? scheduleProviders as ProviderName[] : undefined
+
+      log.info('run.triggered', { runId, projectName: project.name, providers: providers ?? 'all' })
+      this.callbacks.onRunCreated(runId, projectId, providers)
+    } catch (err: unknown) {
+      log.error('trigger.error', { scheduleId, projectId, error: err instanceof Error ? err.message : String(err) })
     }
-
-    const runId = queueResult.runId
-    this.db.update(schedules).set({
-      lastRunAt: now,
-      nextRunAt,
-      updatedAt: now,
-    }).where(eq(schedules.id, currentSchedule.id)).run()
-
-    // Resolve providers
-    const scheduleProviders = JSON.parse(currentSchedule.providers) as string[]
-    const providers = scheduleProviders.length > 0 ? scheduleProviders as ProviderName[] : undefined
-
-    log.info('run.triggered', { runId, projectName: project.name, providers: providers ?? 'all' })
-    this.callbacks.onRunCreated(runId, projectId, providers)
   }
 }

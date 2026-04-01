@@ -71,6 +71,7 @@ export async function importKeywords(project: string, filePath: string, format?:
     throw new CliError({
       code: 'KEYWORD_IMPORT_FILE_NOT_FOUND',
       message: `File not found: ${filePath}`,
+      displayMessage: `Error: file not found: ${filePath}`,
       details: {
         project,
         filePath,
