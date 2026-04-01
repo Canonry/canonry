@@ -1,4 +1,4 @@
-import type { ErrorCode, GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, MetricsWindow, GA4AiReferralHistoryEntry } from '@ainyc/canonry-contracts'
+import type { ErrorCode, GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry } from '@ainyc/canonry-contracts'
 
 export type { GroundingSource }
 
@@ -991,10 +991,14 @@ export function connectGa(project: string, body: { propertyId: string; keyJson: 
   })
 }
 
-export type { GA4AiReferralHistoryEntry }
+export type { GA4AiReferralHistoryEntry, GA4SessionHistoryEntry }
 
 export function fetchGaAiReferralHistory(project: string): Promise<GA4AiReferralHistoryEntry[]> {
   return apiFetch(`/projects/${encodeURIComponent(project)}/ga/ai-referral-history`)
+}
+
+export function fetchGaSessionHistory(project: string): Promise<GA4SessionHistoryEntry[]> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/ga/session-history`)
 }
 
 export function disconnectGa(project: string): Promise<void> {

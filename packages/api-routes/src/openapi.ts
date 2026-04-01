@@ -2046,6 +2046,18 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/ga/session-history',
+    summary: 'Get total sessions per day for the project',
+    tags: ['ga4'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'Session history returned.' },
+      400: { description: 'GA4 is not connected.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/ga/coverage',
     summary: 'Get GA4 page coverage with traffic overlay',
     tags: ['ga4'],

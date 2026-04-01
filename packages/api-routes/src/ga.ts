@@ -535,6 +535,34 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     return rows
   })
 
+  // GET /projects/:name/ga/session-history
+  app.get<{
+    Params: { name: string }
+  }>('/projects/:name/ga/session-history', async (request, _reply) => {
+    const project = resolveProject(app.db, request.params.name)
+    requireGa4Connection(opts, project.name, project.canonicalDomain)
+
+    const rows = app.db
+      .select({
+        date: gaTrafficSnapshots.date,
+        sessions: sql<number>`SUM(${gaTrafficSnapshots.sessions})`,
+        organicSessions: sql<number>`SUM(${gaTrafficSnapshots.organicSessions})`,
+        users: sql<number>`SUM(${gaTrafficSnapshots.users})`,
+      })
+      .from(gaTrafficSnapshots)
+      .where(eq(gaTrafficSnapshots.projectId, project.id))
+      .groupBy(gaTrafficSnapshots.date)
+      .orderBy(gaTrafficSnapshots.date)
+      .all()
+
+    return rows.map((r) => ({
+      date: r.date,
+      sessions: r.sessions ?? 0,
+      organicSessions: r.organicSessions ?? 0,
+      users: r.users ?? 0,
+    }))
+  })
+
   // GET /projects/:name/ga/coverage
   app.get<{
     Params: { name: string }

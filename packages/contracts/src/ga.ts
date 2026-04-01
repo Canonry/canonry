@@ -91,3 +91,11 @@ export const ga4AiReferralHistoryEntrySchema = z.object({
   users: z.number(),
 })
 export type GA4AiReferralHistoryEntry = z.infer<typeof ga4AiReferralHistoryEntrySchema>
+
+export const ga4SessionHistoryEntrySchema = z.object({
+  date: z.string(),
+  sessions: z.number(),
+  organicSessions: z.number(),
+  users: z.number(),
+})
+export type GA4SessionHistoryEntry = z.infer<typeof ga4SessionHistoryEntrySchema>

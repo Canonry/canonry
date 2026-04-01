@@ -29,6 +29,7 @@ import type {
   GaTrafficResponse,
   GaCoverageResponse,
   GA4AiReferralHistoryEntry,
+  GA4SessionHistoryEntry,
 } from '@ainyc/canonry-contracts'
 
 /** Run detail response includes snapshots */
@@ -500,6 +501,10 @@ export class ApiClient {
 
   async gaAiReferralHistory(project: string): Promise<GA4AiReferralHistoryEntry[]> {
     return this.request<GA4AiReferralHistoryEntry[]>('GET', `/projects/${encodeURIComponent(project)}/ga/ai-referral-history`)
+  }
+
+  async gaSessionHistory(project: string): Promise<GA4SessionHistoryEntry[]> {
+    return this.request<GA4SessionHistoryEntry[]>('GET', `/projects/${encodeURIComponent(project)}/ga/session-history`)
   }
 
   async wordpressConnect(

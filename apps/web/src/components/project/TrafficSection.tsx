@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RefreshCw, Unplug, Upload } from 'lucide-react'
-import { AreaChart, Area, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts'
+import { Area, ComposedChart, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts'
 
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
@@ -11,10 +11,11 @@ import {
   fetchGaStatus,
   fetchGaTraffic,
   fetchGaAiReferralHistory,
+  fetchGaSessionHistory,
   triggerGaSync,
   disconnectGa,
 } from '../../api.js'
-import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficPage, ApiGaTrafficReferral, GA4AiReferralHistoryEntry } from '../../api.js'
+import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficPage, ApiGaTrafficReferral, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry } from '../../api.js'
 
 const SOURCE_COLORS = [
   '#34d399', // emerald-400
@@ -61,6 +62,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
   const [referralSortKey, setReferralSortKey] = useState<ReferralSortKey>('sessions')
   const [referralSortDir, setReferralSortDir] = useState<SortDir>('desc')
   const [aiHistory, setAiHistory] = useState<GA4AiReferralHistoryEntry[]>([])
+  const [sessionHistory, setSessionHistory] = useState<GA4SessionHistoryEntry[]>([])
 
   function loadData(cancelled: { current: boolean }) {
     setLoading(true)
@@ -72,6 +74,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
           return Promise.all([
             fetchGaTraffic(projectName),
             fetchGaAiReferralHistory(projectName).catch(() => [] as GA4AiReferralHistoryEntry[]),
+            fetchGaSessionHistory(projectName).catch(() => [] as GA4SessionHistoryEntry[]),
           ])
         }
         return null
@@ -81,9 +84,11 @@ export function TrafficSection({ projectName }: { projectName: string }) {
         if (Array.isArray(result)) {
           setTraffic(result[0])
           setAiHistory(result[1])
+          setSessionHistory(result[2])
         } else {
           setTraffic(null)
           setAiHistory([])
+          setSessionHistory([])
         }
         setLoading(false)
       })
@@ -109,12 +114,14 @@ export function TrafficSection({ projectName }: { projectName: string }) {
     try {
       const result = await triggerGaSync(projectName)
       setNotice(`Synced ${result.rowCount.toLocaleString()} page rows and ${result.aiReferralCount.toLocaleString()} AI referral rows (${result.days} days)`)
-      const [t, h] = await Promise.all([
+      const [t, h, sh] = await Promise.all([
         fetchGaTraffic(projectName),
         fetchGaAiReferralHistory(projectName).catch(() => [] as GA4AiReferralHistoryEntry[]),
+        fetchGaSessionHistory(projectName).catch(() => [] as GA4SessionHistoryEntry[]),
       ])
       setTraffic(t)
       setAiHistory(h)
+      setSessionHistory(sh)
       const s = await fetchGaStatus(projectName)
       setStatus(s)
     } catch (err) {
@@ -206,24 +213,40 @@ export function TrafficSection({ projectName }: { projectName: string }) {
   const aiSourceCount = traffic ? new Set(traffic.aiReferrals.map((referral) => referral.source.toLowerCase())).size : 0
   const topAiSource = sortedAiReferrals[0] ?? null
 
-  // Pivot AI referral history into stacked chart data: { date, source1: sessions, source2: sessions, ... }
-  const { chartData, chartSources } = useMemo(() => {
-    if (aiHistory.length === 0) return { chartData: [], chartSources: [] }
+  // Build combined chart data: total sessions per day + AI referral breakdown
+  const { chartData, chartSources, dateRange } = useMemo(() => {
+    // Collect AI referral sources
     const sources = [...new Set(aiHistory.map((r) => r.source))]
+
+    // Build a map of all dates from both session history and AI referral history
     const byDate = new Map<string, Record<string, number>>()
+
+    // Add total sessions per day from session history
+    for (const row of sessionHistory) {
+      byDate.set(row.date, { _totalSessions: row.sessions, _organicSessions: row.organicSessions })
+    }
+
+    // Overlay AI referral data
     for (const row of aiHistory) {
       let entry = byDate.get(row.date)
       if (!entry) {
-        entry = {}
+        entry = { _totalSessions: 0, _organicSessions: 0 }
         byDate.set(row.date, entry)
       }
       entry[row.source] = (entry[row.source] ?? 0) + row.sessions
     }
+
     const data = [...byDate.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, vals]) => ({ date, ...vals }))
-    return { chartData: data, chartSources: sources }
-  }, [aiHistory])
+
+    const dates = data.map((d) => d.date)
+    const range = dates.length > 0
+      ? { start: dates[0], end: dates[dates.length - 1] }
+      : null
+
+    return { chartData: data, chartSources: sources, dateRange: range }
+  }, [aiHistory, sessionHistory])
 
   return (
     <>
@@ -319,23 +342,40 @@ export function TrafficSection({ projectName }: { projectName: string }) {
           <div className="page-section-divider" />
 
           <section>
-            <div className="mb-4">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">AI Attribution</p>
-              <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">
-                AI Referral Sources
-                <InfoTooltip text="Counts explicit AI referrers detected in GA4 sessionSource values, such as ChatGPT, Claude, Gemini, Perplexity, OpenAI, and Copilot. Generic search-engine sources like plain Bing are intentionally excluded to avoid false positives." />
-              </h2>
+            <div className="mb-4 flex items-end justify-between">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">AI Attribution</p>
+                <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">
+                  AI Referral Sources
+                  <InfoTooltip text="Tracks sessions from known AI referrers (ChatGPT, Claude, Gemini, Perplexity, OpenAI, Copilot) detected in GA4 sessionSource. Generic search sources are excluded to avoid false positives." />
+                </h2>
+              </div>
+              {dateRange && (
+                <p className="text-xs text-zinc-500">
+                  {new Date(dateRange.start + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                  {' \u2013 '}
+                  {new Date(dateRange.end + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                </p>
+              )}
             </div>
 
+            {/* Always show the sessions chart when we have date-level data */}
             {chartData.length > 0 && (
               <Card className="surface-card p-5 mb-4">
-                <div className="mb-4">
-                  <p className="eyebrow eyebrow-soft">Trend</p>
-                  <h3 className="text-sm font-semibold text-zinc-100">AI sessions over time</h3>
+                <div className="mb-4 flex items-end justify-between">
+                  <div>
+                    <p className="eyebrow eyebrow-soft">Trend</p>
+                    <h3 className="text-sm font-semibold text-zinc-100">
+                      {chartSources.length > 0 ? 'AI vs. total sessions' : 'Total sessions over time'}
+                    </h3>
+                  </div>
+                  {chartSources.length === 0 && (
+                    <p className="text-xs text-zinc-500">No AI referrals detected yet</p>
+                  )}
                 </div>
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+                    <ComposedChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
                       <XAxis
                         dataKey="date"
                         tick={{ fill: '#71717a', fontSize: 11 }}
@@ -361,22 +401,44 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                           const d = new Date(String(v) + 'T00:00:00')
                           return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
                         }}
+                        formatter={(value: number, name: string) => {
+                          if (name === '_totalSessions') return [value.toLocaleString(), 'Total Sessions']
+                          if (name === '_organicSessions') return [value.toLocaleString(), 'Organic Sessions']
+                          return [value.toLocaleString(), name]
+                        }}
                       />
                       <Legend
                         wrapperStyle={{ fontSize: 11, color: '#a1a1aa' }}
+                        formatter={(value: string) => {
+                          if (value === '_totalSessions') return 'Total Sessions'
+                          if (value === '_organicSessions') return 'Organic Sessions'
+                          return value
+                        }}
                       />
+                      {/* Total sessions as a subtle area */}
+                      <Area
+                        type="monotone"
+                        dataKey="_totalSessions"
+                        stroke="#52525b"
+                        fill="#27272a"
+                        fillOpacity={0.4}
+                        strokeWidth={1.5}
+                        dot={false}
+                      />
+                      {/* AI referral sources stacked on top */}
                       {chartSources.map((source, i) => (
                         <Area
                           key={source}
                           type="monotone"
                           dataKey={source}
-                          stackId="1"
+                          stackId="ai"
                           stroke={SOURCE_COLORS[i % SOURCE_COLORS.length]}
                           fill={SOURCE_COLORS[i % SOURCE_COLORS.length]}
-                          fillOpacity={0.3}
+                          fillOpacity={0.4}
+                          strokeWidth={1.5}
                         />
                       ))}
-                    </AreaChart>
+                    </ComposedChart>
                   </ResponsiveContainer>
                 </div>
               </Card>
@@ -412,15 +474,23 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                       />
                     </div>
 
-                    <div className="mt-4 rounded-lg border border-emerald-800/40 bg-emerald-500/6 px-4 py-3 text-sm text-emerald-100">
-                      {topAiSource
-                        ? `Top explicit AI referrer: ${topAiSource.source} via ${topAiSource.medium}, accounting for ${topAiSource.sessions.toLocaleString()} sessions in the current sync window.`
-                        : 'Explicit AI referrers detected in the current sync window.'}
-                    </div>
+                    {topAiSource && (
+                      <div className="mt-4 rounded-lg border border-emerald-800/40 bg-emerald-500/6 px-4 py-3 text-sm text-emerald-100">
+                        Top AI referrer: <span className="font-medium">{topAiSource.source}</span> via {topAiSource.medium}, accounting for {topAiSource.sessions.toLocaleString()} sessions.
+                      </div>
+                    )}
                   </>
                 ) : (
-                  <div className="rounded-lg border border-amber-800/40 bg-amber-500/6 px-4 py-4 text-sm text-amber-100">
-                    No explicit AI referrers were detected in the current sync window. This view intentionally favors precision over broad matching, so unattributed traffic hidden inside generic search sources is excluded.
+                  <div className="space-y-3">
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <AttributionStat label="AI Sessions" value="0" hint="no AI referrals detected" tone="neutral" />
+                      <AttributionStat label="Share of Traffic" value="0%" hint="of total sessions" tone="neutral" />
+                      <AttributionStat label="Tracked Sources" value="0" hint="sources monitored: 7" tone="neutral" />
+                    </div>
+                    <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-3 text-sm text-zinc-400">
+                      <p className="mb-1.5 text-zinc-300">Monitoring for AI referral traffic from:</p>
+                      <p className="text-xs text-zinc-500">ChatGPT, Claude, Gemini, Perplexity, OpenAI, Anthropic, and Copilot. Sessions will appear here once GA4 detects visits from these sources.</p>
+                    </div>
                   </div>
                 )}
               </Card>
@@ -456,8 +526,11 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                     </table>
                   </div>
                 ) : (
-                  <div className="rounded-lg border border-dashed border-zinc-800/60 bg-zinc-950/40 px-4 py-6 text-sm text-zinc-500">
-                    No AI referrer sessions detected in the current sync window.
+                  <div className="flex flex-col items-center justify-center py-8 text-center">
+                    <p className="text-sm text-zinc-400 mb-2">No AI referrer sessions detected yet</p>
+                    <p className="text-xs text-zinc-500 max-w-sm">
+                      When visitors arrive from ChatGPT, Claude, Gemini, or other AI platforms, their sessions will be broken down here by source and medium.
+                    </p>
                   </div>
                 )}
               </Card>
