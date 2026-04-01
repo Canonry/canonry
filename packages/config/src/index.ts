@@ -7,6 +7,7 @@ const envSchema = z.object({
   WORKER_PORT: z.coerce.number().int().positive().default(3001),
   WEB_PORT: z.coerce.number().int().positive().default(4173),
   BOOTSTRAP_SECRET: z.string().default('change-me'),
+  CANONRY_BASE_PATH: z.string().default('/'),
   // Gemini
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_MODEL: z.string().optional(),
@@ -73,6 +74,7 @@ export interface PlatformEnv {
   apiPort: number
   workerPort: number
   webPort: number
+  basePath: string
   bootstrapSecret: string
   providers: {
     gemini?: ProviderEnvConfig
@@ -165,6 +167,7 @@ export function getPlatformEnv(source: NodeJS.ProcessEnv): PlatformEnv {
     apiPort: parsed.API_PORT,
     workerPort: parsed.WORKER_PORT,
     webPort: parsed.WEB_PORT,
+    basePath: parsed.CANONRY_BASE_PATH,
     bootstrapSecret: parsed.BOOTSTRAP_SECRET,
     providers,
   }

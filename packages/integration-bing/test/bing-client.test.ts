@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { getSites, getUrlInfo, submitUrl, submitUrlBatch, getKeywordStats, getCrawlStats, getCrawlIssues } from '../src/bing-client.js'
+import { getSites, addSite, getUrlInfo, submitUrl, submitUrlBatch, getKeywordStats, getCrawlStats, getCrawlIssues } from '../src/bing-client.js'
 import { BING_WMT_API_BASE } from '../src/constants.js'
 
 describe('getSites', () => {
@@ -51,6 +51,40 @@ describe('getSites', () => {
     globalThis.fetch = async () => new Response('Rate limited', { status: 429 })
 
     await expect(() => getSites('key')).rejects.toThrow(/rate limit/)
+  })
+})
+
+describe('addSite', () => {
+  let originalFetch: typeof globalThis.fetch
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  it('sends POST with siteUrl in body', async () => {
+    let capturedMethod = ''
+    let capturedBody: unknown
+
+    globalThis.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+      capturedMethod = init?.method ?? 'GET'
+      capturedBody = JSON.parse(String(init?.body ?? '{}'))
+      return new Response(JSON.stringify({ d: null }), { status: 200 })
+    }
+
+    await addSite('test-key', 'https://example.com/')
+
+    expect(capturedMethod).toBe('POST')
+    const body = capturedBody as { siteUrl: string }
+    expect(body.siteUrl).toBe('https://example.com/')
+  })
+
+  it('throws BingApiError on 401', async () => {
+    globalThis.fetch = async () => new Response('Unauthorized', { status: 401 })
+    await expect(() => addSite('bad-key', 'https://example.com/')).rejects.toMatchObject({ name: 'BingApiError' })
   })
 })
 

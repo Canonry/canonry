@@ -200,7 +200,7 @@ function extractCitedDomains(raw: OpenAIRawResult): string[] {
 function extractDomainFromUri(uri: string): string | null {
   try {
     const url = new URL(uri)
-    return url.hostname.replace(/^www\./, '')
+    return url.hostname.replace(/^www\./, '').toLowerCase()
   } catch {
     return null
   }
@@ -209,11 +209,11 @@ function extractDomainFromUri(uri: string): string | null {
 export async function generateText(prompt: string, config: OpenAIConfig): Promise<string> {
   const model = config.model ?? DEFAULT_MODEL
   const client = new OpenAI({ apiKey: config.apiKey })
-  const response = await client.chat.completions.create({
+  const response = await client.responses.create({
     model,
-    messages: [{ role: 'user', content: prompt }],
+    input: prompt,
   })
-  return response.choices[0]?.message?.content ?? ''
+  return extractResponseText(response)
 }
 
 function responseToRecord(response: OpenAI.Responses.Response): Record<string, unknown> {

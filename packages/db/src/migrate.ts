@@ -315,6 +315,13 @@ const MIGRATIONS = [
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_ai_ref_unique ON ga_ai_referrals(project_id, date, source, medium)`,
   // v18: Answer-level visibility derived from answer text
   `ALTER TABLE query_snapshots ADD COLUMN answer_mentioned INTEGER`,
+  // v19: Add named unique indexes and missing columns from early tables
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_keywords_project_keyword ON keywords(project_id, keyword)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_competitors_project_domain ON competitors(project_id, domain)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_schedules_project ON schedules(project_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_scope_period_metric ON usage_counters(scope, period, metric)`,
+  `ALTER TABLE projects ADD COLUMN config_source TEXT NOT NULL DEFAULT 'cli'`,
+  `ALTER TABLE projects ADD COLUMN config_revision INTEGER NOT NULL DEFAULT 1`,
 ]
 
 export function migrate(db: DatabaseClient) {

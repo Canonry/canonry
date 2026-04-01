@@ -488,7 +488,7 @@ export class JobRunner {
       // Notify on failure too
       if (this.onRunCompleted) {
         this.onRunCompleted(runId, projectId).catch((notifErr: unknown) => {
-          console.error('[JobRunner] Notification callback failed:', notifErr)
+          log.error('notification.callback-failed', { runId, error: notifErr instanceof Error ? notifErr.message : String(notifErr) })
         })
       }
     }

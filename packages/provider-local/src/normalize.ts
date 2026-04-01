@@ -75,7 +75,7 @@ export async function executeTrackedQuery(input: LocalTrackedQueryInput): Promis
 
   return {
     provider: 'local',
-    rawResponse: JSON.parse(JSON.stringify(response)) as Record<string, unknown>,
+    rawResponse: responseToRecord(response),
     model,
     groundingSources: [],
     searchQueries: [],
@@ -148,4 +148,12 @@ export function extractDomainMentions(text: string): string[] {
   }
 
   return [...domains]
+}
+
+function responseToRecord(response: OpenAI.Chat.Completions.ChatCompletion): Record<string, unknown> {
+  try {
+    return JSON.parse(JSON.stringify(response)) as Record<string, unknown>
+  } catch {
+    return { error: 'failed to serialize response' }
+  }
 }

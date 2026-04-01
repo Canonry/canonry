@@ -10,6 +10,11 @@ export default defineConfig({
   // The server injects a <base href="..."> tag at runtime via --base-path.
   base: './',
   plugins: [tailwindcss(), react()],
+  resolve: {
+    // Force recharts (and its redux deps) to resolve from apps/web/node_modules,
+    // not from the pnpm store peer-dep variant which has incomplete ESM files.
+    dedupe: ['recharts', '@reduxjs/toolkit', 'react-redux', 'redux'],
+  },
   server: {
     proxy: {
       '/api/v1': {

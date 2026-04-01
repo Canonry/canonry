@@ -400,12 +400,22 @@ export async function listActivePlugins(
 ): Promise<string[] | null> {
   const site = resolveEnvironment(connection, env)
   try {
-    const { body } = await fetchJson<Array<{ plugin: string; status: string }>>(
-      connection,
-      site.siteUrl,
-      '/wp-json/wp/v2/plugins?per_page=100&_fields=plugin,status',
-    )
-    return body
+    const allPlugins: Array<{ plugin: string; status: string }> = []
+    let page = 1
+    let totalPages = 1
+
+    while (page <= totalPages) {
+      const { body, response } = await fetchJson<Array<{ plugin: string; status: string }>>(
+        connection,
+        site.siteUrl,
+        `/wp-json/wp/v2/plugins?per_page=100&page=${page}&_fields=plugin,status`,
+      )
+      totalPages = Number.parseInt(response.headers.get('x-wp-totalpages') ?? '1', 10) || 1
+      allPlugins.push(...body)
+      page += 1
+    }
+
+    return allPlugins
       .filter((plugin) => plugin.status === 'active')
       .map((plugin) => plugin.plugin)
       .sort()

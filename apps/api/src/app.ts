@@ -24,6 +24,7 @@ export function buildApp(env: PlatformEnv) {
   app.register(apiRoutes, {
     db,
     skipAuth: false,
+    routePrefix: env.basePath === '/' ? '/api/v1' : `${env.basePath.replace(/\/$/, '')}/api/v1`,
     openApiInfo: {
       title: 'Canonry API',
       version: '0.1.0',

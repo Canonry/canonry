@@ -446,6 +446,44 @@ describe('wordpress client', () => {
     })
   })
 
+  it('paginates listActivePlugins across multiple pages', async () => {
+    const requestedUrls: string[] = []
+    globalThis.fetch = async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      requestedUrls.push(url)
+      if (url.includes('/wp-json/wp/v2/plugins?per_page=100&page=1')) {
+        return jsonResponse(
+          Array.from({ length: 100 }, (_, i) => ({ plugin: `plugin-${i}/plugin-${i}.php`, status: 'active' })),
+          { headers: { 'x-wp-totalpages': '2' } },
+        )
+      }
+      if (url.includes('/wp-json/wp/v2/plugins?per_page=100&page=2')) {
+        return jsonResponse(
+          [
+            { plugin: 'extra-plugin/extra.php', status: 'active' },
+            { plugin: 'inactive-plugin/inactive.php', status: 'inactive' },
+          ],
+          { headers: { 'x-wp-totalpages': '2' } },
+        )
+      }
+      throw new Error(`Unhandled URL: ${url}`)
+    }
+
+    const { listActivePlugins: _listActivePlugins } = await import('../src/wordpress-client.js')
+    const conn = createConnection()
+    // We can't import listActivePlugins directly in this test; instead verify
+    // through getSiteStatus which calls it internally.
+    // Re-import via the public index
+    const { listActivePlugins } = await import('../src/index.js')
+    const plugins = await listActivePlugins(conn, 'live')
+
+    expect(plugins).not.toBeNull()
+    expect(plugins!.length).toBe(101) // 100 page-1 active + 1 page-2 active (inactive excluded)
+    expect(plugins).toContain('extra-plugin/extra.php')
+    expect(plugins).not.toContain('inactive-plugin/inactive.php')
+    expect(requestedUrls.some((u) => u.includes('page=2'))).toBe(true)
+  })
+
   it('returns an actionable error message when auth fails on connect', async () => {
     globalThis.fetch = async (input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
