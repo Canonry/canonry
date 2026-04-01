@@ -14,7 +14,7 @@ import {
   triggerGaSync,
   disconnectGa,
 } from '../../api.js'
-import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficPage, ApiGaTrafficReferral, ApiGaAiReferralHistoryEntry } from '../../api.js'
+import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficPage, ApiGaTrafficReferral, GA4AiReferralHistoryEntry } from '../../api.js'
 
 const SOURCE_COLORS = [
   '#34d399', // emerald-400
@@ -60,7 +60,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
   const [pageSortDir, setPageSortDir] = useState<SortDir>('desc')
   const [referralSortKey, setReferralSortKey] = useState<ReferralSortKey>('sessions')
   const [referralSortDir, setReferralSortDir] = useState<SortDir>('desc')
-  const [aiHistory, setAiHistory] = useState<ApiGaAiReferralHistoryEntry[]>([])
+  const [aiHistory, setAiHistory] = useState<GA4AiReferralHistoryEntry[]>([])
 
   function loadData(cancelled: { current: boolean }) {
     setLoading(true)
@@ -71,7 +71,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
         if (s.connected) {
           return Promise.all([
             fetchGaTraffic(projectName),
-            fetchGaAiReferralHistory(projectName).catch(() => [] as ApiGaAiReferralHistoryEntry[]),
+            fetchGaAiReferralHistory(projectName).catch(() => [] as GA4AiReferralHistoryEntry[]),
           ])
         }
         return null
@@ -111,7 +111,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
       setNotice(`Synced ${result.rowCount.toLocaleString()} page rows and ${result.aiReferralCount.toLocaleString()} AI referral rows (${result.days} days)`)
       const [t, h] = await Promise.all([
         fetchGaTraffic(projectName),
-        fetchGaAiReferralHistory(projectName).catch(() => [] as ApiGaAiReferralHistoryEntry[]),
+        fetchGaAiReferralHistory(projectName).catch(() => [] as GA4AiReferralHistoryEntry[]),
       ])
       setTraffic(t)
       setAiHistory(h)

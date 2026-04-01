@@ -523,7 +523,17 @@ describe('GA4 routes', () => {
       updatedAt: now,
     })
 
-    // Insert multi-date AI referral data
+    // Insert multi-date AI referral data from two different sources
+    db.insert(gaAiReferrals).values({
+      id: crypto.randomUUID(),
+      projectId,
+      date: '2026-03-17',
+      source: 'chatgpt.com',
+      medium: 'referral',
+      sessions: 3,
+      users: 2,
+      syncedAt: now,
+    }).run()
     db.insert(gaAiReferrals).values({
       id: crypto.randomUUID(),
       projectId,

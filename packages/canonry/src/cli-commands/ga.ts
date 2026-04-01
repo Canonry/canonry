@@ -1,4 +1,5 @@
 import {
+  gaAiReferralHistory,
   gaConnect,
   gaCoverage,
   gaDisconnect,
@@ -89,13 +90,21 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['ga', 'ai-referral-history'],
+    usage: 'canonry ga ai-referral-history <project> [--format json]',
+    run: async (input) => {
+      const project = requireProject(input, 'ga.ai-referral-history', 'canonry ga ai-referral-history <project> [--format json]')
+      await gaAiReferralHistory(project, input.format)
+    },
+  },
+  {
     path: ['ga'],
-    usage: 'canonry ga <connect|disconnect|status|sync|traffic|coverage> <project> [args]',
+    usage: 'canonry ga <connect|disconnect|status|sync|traffic|coverage|ai-referral-history> <project> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'ga',
-        usage: 'canonry ga <connect|disconnect|status|sync|traffic|coverage> <project> [args]',
-        available: ['connect', 'disconnect', 'status', 'sync', 'traffic', 'coverage'],
+        usage: 'canonry ga <connect|disconnect|status|sync|traffic|coverage|ai-referral-history> <project> [args]',
+        available: ['connect', 'disconnect', 'status', 'sync', 'traffic', 'coverage', 'ai-referral-history'],
       })
     },
   },

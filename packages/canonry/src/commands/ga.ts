@@ -1,4 +1,4 @@
-import type { GaConnectResponse, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse } from '@ainyc/canonry-contracts'
+import type { GaConnectResponse, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GA4AiReferralHistoryEntry } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError } from '../cli-error.js'
 
@@ -175,6 +175,32 @@ export async function gaTraffic(project: string, opts?: { limit?: number; format
 
   if (result.lastSyncedAt) {
     console.log(`\n  Last synced: ${result.lastSyncedAt}`)
+  }
+}
+
+export async function gaAiReferralHistory(project: string, format?: string): Promise<void> {
+  const client = getClient()
+  const result: GA4AiReferralHistoryEntry[] = await client.gaAiReferralHistory(project)
+
+  if (format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  if (result.length === 0) {
+    console.log('No AI referral history. Run "canonry ga sync <project>" first.')
+    return
+  }
+
+  const dateWidth = 12
+  const sourceWidth = Math.min(30, Math.max(10, ...result.map((r) => r.source.length)))
+  console.log(`GA4 AI Referral History for "${project}":\n`)
+  console.log(`  ${'DATE'.padEnd(dateWidth)}  ${'SOURCE'.padEnd(sourceWidth)}  ${'SESSIONS'.padEnd(10)}${'USERS'.padEnd(8)}`)
+  console.log(`  ${'─'.repeat(dateWidth)}  ${'─'.repeat(sourceWidth)}  ${'─'.repeat(10)}${'─'.repeat(8)}`)
+  for (const row of result) {
+    console.log(
+      `  ${row.date.padEnd(dateWidth)}  ${row.source.padEnd(sourceWidth)}  ${String(row.sessions).padEnd(10)}${String(row.users).padEnd(8)}`,
+    )
   }
 }
 
