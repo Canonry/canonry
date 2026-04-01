@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { createServiceAccountJwt, fetchAiReferrals, fetchTrafficByLandingPage } from '../src/ga4-client.js'
+import { createServiceAccountJwt, fetchAiReferrals, fetchTrafficByLandingPage, getAccessToken, verifyConnectionWithToken, fetchAggregateSummary } from '../src/ga4-client.js'
 import crypto from 'node:crypto'
 
 describe('createServiceAccountJwt', () => {
@@ -191,5 +191,147 @@ describe('fetchAiReferrals', () => {
 
     expect(expressions).toContain('copilot')
     expect(expressions).not.toContain('bing')
+  })
+})
+
+describe('getAccessToken', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch')
+  })
+
+  afterEach(() => {
+    fetchSpy.mockRestore()
+  })
+
+  it('exchanges a service account JWT for an access token', async () => {
+    const { privateKey } = crypto.generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+    })
+
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ access_token: 'sa-access-token', expires_in: 3600 }), { status: 200 }),
+    )
+
+    const token = await getAccessToken('sa@project.iam.gserviceaccount.com', privateKey)
+    expect(token).toBe('sa-access-token')
+
+    const [url, init] = fetchSpy.mock.calls[0]!
+    expect(String(url)).toContain('oauth2.googleapis.com/token')
+    expect(String(init?.body ?? '')).toContain('grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer')
+  })
+
+  it('throws GA4ApiError when token exchange fails', async () => {
+    const { privateKey } = crypto.generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+    })
+
+    fetchSpy.mockResolvedValueOnce(
+      new Response('{"error":"invalid_grant"}', { status: 400 }),
+    )
+
+    await expect(() => getAccessToken('sa@project.iam.gserviceaccount.com', privateKey))
+      .rejects.toMatchObject({ name: 'GA4ApiError' })
+  })
+})
+
+describe('verifyConnectionWithToken', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch')
+  })
+
+  afterEach(() => {
+    fetchSpy.mockRestore()
+  })
+
+  it('returns true when a minimal runReport succeeds', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ rows: [], rowCount: 0 }), { status: 200 }),
+    )
+
+    const result = await verifyConnectionWithToken('valid-token', '123456789')
+    expect(result).toBe(true)
+
+    const [url, init] = fetchSpy.mock.calls[0]!
+    expect(String(url)).toContain('properties/123456789:runReport')
+    const body = JSON.parse(String(init?.body ?? '{}')) as { limit: number }
+    expect(body.limit).toBe(1)
+  })
+
+  it('throws GA4ApiError on 403 with service-disabled detail', async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(
+        JSON.stringify({ error: { status: 'SERVICE_DISABLED', message: 'API not enabled' } }),
+        { status: 403 },
+      ),
+    )
+
+    await expect(() => verifyConnectionWithToken('token', '123456789'))
+      .rejects.toMatchObject({ name: 'GA4ApiError' })
+  })
+})
+
+describe('fetchAggregateSummary', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch')
+  })
+
+  afterEach(() => {
+    fetchSpy.mockRestore()
+  })
+
+  function mockFetchResponse(body: object, status = 200) {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  it('returns aggregate totals from a batchRunReports call', async () => {
+    fetchSpy.mockImplementation(async (_input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof _input === 'string' ? _input : _input instanceof URL ? _input.href : (_input as Request).url
+      expect(url).toContain(':batchRunReports')
+      const body = JSON.parse(String(init?.body ?? '{}')) as { requests: unknown[] }
+      expect(body.requests).toHaveLength(2)
+      return mockFetchResponse({
+        reports: [
+          {
+            rows: [{ dimensionValues: [], metricValues: [{ value: '5000' }, { value: '3200' }] }],
+            rowCount: 1,
+          },
+          {
+            rows: [{ dimensionValues: [], metricValues: [{ value: '1800' }] }],
+            rowCount: 1,
+          },
+        ],
+      })
+    })
+
+    const summary = await fetchAggregateSummary('fake-token', '123456', 30)
+    expect(summary.totalSessions).toBe(5000)
+    expect(summary.totalUsers).toBe(3200)
+    expect(summary.totalOrganicSessions).toBe(1800)
+    expect(summary.periodStart).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(summary.periodEnd).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+
+  it('returns zeros when no rows are returned', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      mockFetchResponse({ reports: [{}, {}] }),
+    )
+
+    const summary = await fetchAggregateSummary('fake-token', '123456', 7)
+    expect(summary.totalSessions).toBe(0)
+    expect(summary.totalUsers).toBe(0)
+    expect(summary.totalOrganicSessions).toBe(0)
   })
 })

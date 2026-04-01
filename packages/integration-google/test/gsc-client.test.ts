@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { listSites, fetchSearchAnalytics, inspectUrl, publishUrlNotification, getUrlNotificationStatus } from '../src/gsc-client.js'
+import { listSites, listSitemaps, fetchSearchAnalytics, inspectUrl, publishUrlNotification, getUrlNotificationStatus } from '../src/gsc-client.js'
 import { GSC_API_BASE, URL_INSPECTION_API, INDEXING_API_BASE } from '../src/constants.js'
 
 describe('listSites', () => {
@@ -46,6 +46,63 @@ describe('listSites', () => {
       () => listSites('bad-token'),
     ).rejects.toThrow(/expired or revoked/)
     await expect(() => listSites('bad-token')).rejects.toMatchObject({ name: 'GoogleApiError' })
+  })
+})
+
+describe('listSitemaps', () => {
+  let originalFetch: typeof globalThis.fetch
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  it('returns parsed sitemaps for a site', async () => {
+    const mockResponse = {
+      sitemap: [
+        { path: 'https://example.com/sitemap.xml', type: 'sitemap', lastDownloaded: '2026-03-15T10:00:00Z' },
+        { path: 'https://example.com/sitemap-news.xml', type: 'sitemap', isSitemapsIndex: false },
+      ],
+    }
+
+    let capturedUrl = ''
+    globalThis.fetch = async (url: string | URL | Request) => {
+      capturedUrl = String(url)
+      return new Response(JSON.stringify(mockResponse), { status: 200 })
+    }
+
+    const sitemaps = await listSitemaps('test-token', 'https://example.com/')
+    expect(capturedUrl).toContain(`${GSC_API_BASE}/sites/`)
+    expect(capturedUrl).toContain('sitemaps')
+    expect(sitemaps.length).toBe(2)
+    expect(sitemaps[0]!.path).toBe('https://example.com/sitemap.xml')
+    expect(sitemaps[1]!.path).toBe('https://example.com/sitemap-news.xml')
+  })
+
+  it('returns empty array when no sitemaps', async () => {
+    globalThis.fetch = async () => new Response(JSON.stringify({}), { status: 200 })
+
+    const sitemaps = await listSitemaps('test-token', 'https://example.com/')
+    expect(sitemaps).toEqual([])
+  })
+
+  it('URL-encodes the site URL in the request path', async () => {
+    let capturedUrl = ''
+    globalThis.fetch = async (url: string | URL | Request) => {
+      capturedUrl = String(url)
+      return new Response(JSON.stringify({ sitemap: [] }), { status: 200 })
+    }
+
+    await listSitemaps('test-token', 'sc-domain:example.com')
+    expect(capturedUrl).toContain(encodeURIComponent('sc-domain:example.com'))
+  })
+
+  it('throws GoogleApiError on 401', async () => {
+    globalThis.fetch = async () => new Response('Unauthorized', { status: 401 })
+    await expect(() => listSitemaps('bad-token', 'https://example.com/')).rejects.toMatchObject({ name: 'GoogleApiError' })
   })
 })
 
