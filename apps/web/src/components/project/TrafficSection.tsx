@@ -397,10 +397,11 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                           const d = new Date(String(v) + 'T00:00:00')
                           return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
                         }}
-                        formatter={(value: number, name: string) => {
-                          if (name === '_totalSessions') return [value.toLocaleString(), 'Total Sessions']
-                          if (name === '_organicSessions') return [value.toLocaleString(), 'Organic Sessions']
-                          return [value.toLocaleString(), name]
+                        formatter={(value, name: string) => {
+                          const formatted = typeof value === 'number' ? value.toLocaleString() : String(value ?? 0)
+                          if (name === '_totalSessions') return [formatted, 'Total Sessions']
+                          if (name === '_organicSessions') return [formatted, 'Organic Sessions']
+                          return [formatted, name]
                         }}
                       />
                       <Legend
