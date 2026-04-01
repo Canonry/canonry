@@ -563,6 +563,85 @@ describe('GA4 routes', () => {
     credentials.delete('test-project')
   })
 
+  it('GET /ga/session-history returns error when no connection', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/test-project/ga/session-history',
+    })
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.payload)
+    expect(body.error.message).toMatch(/No GA4 connection/)
+  })
+
+  it('GET /ga/session-history returns per-date aggregates', async () => {
+    const now = new Date().toISOString()
+    credentials.set('test-project', {
+      projectName: 'test-project',
+      propertyId: '999888',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    db.delete(gaTrafficSnapshots)
+      .where(eq(gaTrafficSnapshots.projectId, projectId))
+      .run()
+
+    db.insert(gaTrafficSnapshots).values({
+      id: crypto.randomUUID(),
+      projectId,
+      date: '2026-03-17',
+      landingPage: '/alpha',
+      sessions: 10,
+      organicSessions: 4,
+      users: 8,
+      syncedAt: now,
+    }).run()
+    db.insert(gaTrafficSnapshots).values({
+      id: crypto.randomUUID(),
+      projectId,
+      date: '2026-03-17',
+      landingPage: '/beta',
+      sessions: 5,
+      organicSessions: 1,
+      users: 4,
+      syncedAt: now,
+    }).run()
+    db.insert(gaTrafficSnapshots).values({
+      id: crypto.randomUUID(),
+      projectId,
+      date: '2026-03-18',
+      landingPage: '/alpha',
+      sessions: 7,
+      organicSessions: 3,
+      users: 6,
+      syncedAt: now,
+    }).run()
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/test-project/ga/session-history',
+    })
+    expect(res.statusCode).toBe(200)
+
+    const body = JSON.parse(res.payload) as Array<{
+      date: string
+      sessions: number
+      organicSessions: number
+      users: number
+    }>
+    expect(body).toEqual([
+      { date: '2026-03-17', sessions: 15, organicSessions: 5, users: 12 },
+      { date: '2026-03-18', sessions: 7, organicSessions: 3, users: 6 },
+    ])
+
+    credentials.delete('test-project')
+    db.delete(gaTrafficSnapshots)
+      .where(eq(gaTrafficSnapshots.projectId, projectId))
+      .run()
+  })
+
   it('POST /ga/connect does not accept keyFile parameter', async () => {
     const res = await app.inject({
       method: 'POST',

@@ -189,6 +189,37 @@ export function TrafficSection({ projectName }: { projectName: string }) {
     })
   }, [traffic?.aiReferrals, referralSortKey, referralSortDir])
 
+  // Keep this above the early returns so the hook order stays stable while the
+  // component transitions from loading or disconnected to connected.
+  const { chartData, chartSources, dateRange } = useMemo(() => {
+    const sources = [...new Set(aiHistory.map((r) => r.source))]
+    const byDate = new Map<string, Record<string, number>>()
+
+    for (const row of sessionHistory) {
+      byDate.set(row.date, { _totalSessions: row.sessions, _organicSessions: row.organicSessions })
+    }
+
+    for (const row of aiHistory) {
+      let entry = byDate.get(row.date)
+      if (!entry) {
+        entry = { _totalSessions: 0, _organicSessions: 0 }
+        byDate.set(row.date, entry)
+      }
+      entry[row.source] = (entry[row.source] ?? 0) + row.sessions
+    }
+
+    const data = [...byDate.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, vals]) => ({ date, ...vals }))
+
+    const dates = data.map((d) => d.date)
+    const range = dates.length > 0
+      ? { start: dates[0], end: dates[dates.length - 1] }
+      : null
+
+    return { chartData: data, chartSources: sources, dateRange: range }
+  }, [aiHistory, sessionHistory])
+
   if (loading && !status) {
     return <p className="text-sm text-zinc-500 py-8 text-center">Loading traffic data…</p>
   }
@@ -212,41 +243,6 @@ export function TrafficSection({ projectName }: { projectName: string }) {
     : 0
   const aiSourceCount = traffic ? new Set(traffic.aiReferrals.map((referral) => referral.source.toLowerCase())).size : 0
   const topAiSource = sortedAiReferrals[0] ?? null
-
-  // Build combined chart data: total sessions per day + AI referral breakdown
-  const { chartData, chartSources, dateRange } = useMemo(() => {
-    // Collect AI referral sources
-    const sources = [...new Set(aiHistory.map((r) => r.source))]
-
-    // Build a map of all dates from both session history and AI referral history
-    const byDate = new Map<string, Record<string, number>>()
-
-    // Add total sessions per day from session history
-    for (const row of sessionHistory) {
-      byDate.set(row.date, { _totalSessions: row.sessions, _organicSessions: row.organicSessions })
-    }
-
-    // Overlay AI referral data
-    for (const row of aiHistory) {
-      let entry = byDate.get(row.date)
-      if (!entry) {
-        entry = { _totalSessions: 0, _organicSessions: 0 }
-        byDate.set(row.date, entry)
-      }
-      entry[row.source] = (entry[row.source] ?? 0) + row.sessions
-    }
-
-    const data = [...byDate.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, vals]) => ({ date, ...vals }))
-
-    const dates = data.map((d) => d.date)
-    const range = dates.length > 0
-      ? { start: dates[0], end: dates[dates.length - 1] }
-      : null
-
-    return { chartData: data, chartSources: sources, dateRange: range }
-  }, [aiHistory, sessionHistory])
 
   return (
     <>
