@@ -441,7 +441,9 @@ export function loginWithApiKey(apiKey: string): Promise<ApiSessionState> {
 }
 
 export async function fetchHealthCheck(): Promise<{ status: string }> {
-  const res = await fetch('/health')
+  const basePath = window.__CANONRY_CONFIG__?.basePath || ''
+  const url = `${basePath.replace(/\/$/, '')}/health`
+  const res = await fetch(url)
   if (!res.ok) throw new Error(`Health check failed: ${res.status}`)
   return res.json() as Promise<{ status: string }>
 }

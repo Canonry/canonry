@@ -37,13 +37,15 @@ test('buildApp registers health and API routes', async () => {
     url: '/health',
   })
   expect(healthResponse.statusCode).toBe(200)
-  expect(healthResponse.json()).toEqual({
-    service: 'aeo-platform-api',
+  expect(healthResponse.json()).toMatchObject({
+    service: 'canonry',
     status: 'ok',
     version: '0.1.0',
     port: 3000,
+    basePath: '/',
     databaseUrlConfigured: true,
   })
+  expect(healthResponse.json().lastHeartbeatAt).toBeDefined()
 
   // API routes are registered — projects endpoint is available
   const projectsResponse = await app.inject({
@@ -69,6 +71,7 @@ test('loadApiEnv delegates to shared platform config', () => {
     API_PORT: '4100',
     WORKER_PORT: '4101',
     WEB_PORT: '4173',
+    CANONRY_BASE_PATH: '/canonry',
     BOOTSTRAP_SECRET: 'secret',
     GEMINI_API_KEY: 'gemini-key',
     GEMINI_MAX_CONCURRENCY: '4',
@@ -78,6 +81,7 @@ test('loadApiEnv delegates to shared platform config', () => {
 
   expect(env.apiPort).toBe(4100)
   expect(env.workerPort).toBe(4101)
+  expect(env.basePath).toBe('/canonry')
   expect(env.bootstrapSecret).toBe('secret')
   expect(env.providers.gemini).toBeTruthy()
   expect(env.providers.gemini!.quota).toEqual({
