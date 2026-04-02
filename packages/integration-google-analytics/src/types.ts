@@ -48,7 +48,8 @@ export interface GA4TrafficRow {
   users: number
 }
 
-export type GA4SourceDimension = 'session' | 'first_user' | 'manual_utm'
+export type { GA4SourceDimension } from '@ainyc/canonry-contracts'
+import type { GA4SourceDimension } from '@ainyc/canonry-contracts'
 
 export interface GA4AiReferralRow {
   date: string

@@ -14,7 +14,9 @@ import {
   CHART_AXIS_TICK,
   CHART_GRID_STROKE,
   CHART_AXIS_STROKE,
+  CHART_SERIES_COLORS,
   formatChartDateLabel,
+  formatChartDateTick,
 } from '../shared/ChartPrimitives.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { ScoreGauge } from '../shared/ScoreGauge.js'
@@ -262,7 +264,7 @@ function AnalyticsTrendChart({ buckets, keywordChanges }: { buckets: BrandMetric
       <p className="text-[10px] text-zinc-500 mb-1 flex items-center gap-1">
         kp = key phrases tracked in this window
       </p>
-      <div className="h-40">
+      <div className="h-40" role="img" aria-label="Citation rate trend chart">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_STROKE} vertical={false} />
@@ -271,7 +273,7 @@ function AnalyticsTrendChart({ buckets, keywordChanges }: { buckets: BrandMetric
               tick={CHART_AXIS_TICK}
               tickLine={false}
               axisLine={{ stroke: CHART_AXIS_STROKE }}
-              tickFormatter={(v: string) => v.slice(5, 10)}
+              tickFormatter={formatChartDateTick}
             />
             <YAxis
               tick={CHART_AXIS_TICK}
@@ -302,12 +304,12 @@ function AnalyticsTrendChart({ buckets, keywordChanges }: { buckets: BrandMetric
             <Area
               type="monotone"
               dataKey="citationRate"
-              stroke="#34d399"
-              fill="#34d399"
+              stroke={CHART_SERIES_COLORS[0]}
+              fill={CHART_SERIES_COLORS[0]}
               fillOpacity={0.15}
               strokeWidth={2}
-              dot={{ fill: '#34d399', r: 3, strokeWidth: 0 }}
-              activeDot={{ fill: '#6ee7b7', r: 5, strokeWidth: 0 }}
+              dot={{ fill: CHART_SERIES_COLORS[0], r: 3, strokeWidth: 0 }}
+              activeDot={{ fill: CHART_SERIES_COLORS[0], r: 5, strokeWidth: 0, opacity: 0.8 }}
             />
           </ComposedChart>
         </ResponsiveContainer>

@@ -501,8 +501,15 @@ export async function fetchAiReferrals(
   for (const row of rows) {
     const key = `${row.date}::${row.source}::${row.medium}::${row.sourceDimension}`
     const existing = deduped.get(key)
-    if (!existing || row.sessions > existing.sessions) {
+    if (!existing) {
       deduped.set(key, row)
+    } else {
+      // Take the max of each metric independently to avoid discarding higher counts
+      deduped.set(key, {
+        ...existing,
+        sessions: Math.max(existing.sessions, row.sessions),
+        users: Math.max(existing.users, row.users),
+      })
     }
   }
   const dedupedRows = [...deduped.values()]
