@@ -1137,18 +1137,25 @@ export function ProjectPage({
   }
 
   async function handleExport() {
-    const data = await fetchExport(projectName)
-    const yaml = typeof data === 'string' ? data : JSON.stringify(data, null, 2)
-    const blob = new Blob([yaml], { type: 'text/yaml' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${projectName}.yaml`
-    a.click()
-    // Blob URL is revoked asynchronously — a.click() returns void with no
-    // completion signal, so revoking synchronously can break the download.
-    // The blob is small and will be GC'd when the page unloads.
-
+    try {
+      const data = await fetchExport(projectName)
+      const yaml = typeof data === 'string' ? data : JSON.stringify(data, null, 2)
+      const blob = new Blob([yaml], { type: 'text/yaml' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${projectName}.yaml`
+      a.click()
+      // Blob URL is revoked asynchronously — a.click() returns void with no
+      // completion signal, so revoking synchronously can break the download.
+      // The blob is small and will be GC'd when the page unloads.
+    } catch (err) {
+      addToast({
+        title: 'Export failed',
+        detail: err instanceof Error ? err.message : 'Could not export project YAML.',
+        tone: 'negative',
+      })
+    }
   }
 
   async function handleAddKeywords() {
