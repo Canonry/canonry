@@ -14,8 +14,10 @@ import { captureElementScreenshot } from './screenshot.js'
 import { normalizeResult as cdpNormalizeResult } from './normalize.js'
 import { CDPProviderError } from './targets/types.js'
 
-// Shared connection manager singleton (one Chrome instance, multiple targets)
-let sharedConnection: CDPConnectionManager | null = null
+// Connection pool keyed by "host:port" — one manager per distinct CDP endpoint.
+// Using a map (instead of a single shared singleton) prevents concurrent calls
+// targeting different endpoints from silently destroying each other's connection.
+const connectionPool = new Map<string, CDPConnectionManager>()
 
 function getConnection(config: ProviderConfig): CDPConnectionManager {
   if (!config.cdpEndpoint) {
@@ -30,14 +32,13 @@ function getConnection(config: ProviderConfig): CDPConnectionManager {
   if (parts.length >= 1 && parts[0]) host = parts[0]
   if (parts.length >= 2 && parts[1]) port = parseInt(parts[1], 10) || 9222
 
-  // Reuse or create connection; disconnect the old one if the endpoint changed
-  if (!sharedConnection || sharedConnection.endpoint !== `${host}:${port}`) {
-    if (sharedConnection) {
-      sharedConnection.disconnect().catch(() => { /* ignore cleanup errors */ })
-    }
-    sharedConnection = new CDPConnectionManager(host, port)
+  const key = `${host}:${port}`
+  let conn = connectionPool.get(key)
+  if (!conn) {
+    conn = new CDPConnectionManager(host, port)
+    connectionPool.set(key, conn)
   }
-  return sharedConnection
+  return conn
 }
 
 function getScreenshotDir(): string {

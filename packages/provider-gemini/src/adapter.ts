@@ -37,6 +37,7 @@ export const geminiAdapter: ProviderAdapter = {
     validationHint: 'model name must start with "gemini-" (e.g. gemini-3-flash)',
     knownModels: [
       { id: 'gemini-3.1-pro-preview', displayName: 'Gemini 3.1 Pro (Preview)', tier: 'flagship' },
+      { id: 'gemini-3-flash', displayName: 'Gemini 3 Flash', tier: 'standard' },
       { id: 'gemini-3-flash-preview', displayName: 'Gemini 3 Flash (Preview)', tier: 'standard' },
       { id: 'gemini-3.1-flash-lite-preview', displayName: 'Gemini 3.1 Flash-Lite (Preview)', tier: 'economy' },
       { id: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', tier: 'standard' },

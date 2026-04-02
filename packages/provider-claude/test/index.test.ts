@@ -31,6 +31,13 @@ test('validateConfig uses custom model when specified', () => {
   expect(result.model).toBe('claude-haiku-4-5-20251001')
 })
 
+test('validateConfig falls back to default model for non-claude model name', () => {
+  const result = validateConfig({ ...validConfig, model: 'gpt-5.4' })
+  expect(result.ok).toBe(true)
+  expect(result.model).toBe('claude-sonnet-4-6')
+  expect(result.message).toMatch(/invalid model/)
+})
+
 test('normalizeResult extracts answer text from content blocks', () => {
   const raw: ClaudeRawResult = {
     provider: 'claude',

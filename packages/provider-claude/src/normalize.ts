@@ -10,16 +10,38 @@ import type {
 } from './types.js'
 
 const DEFAULT_MODEL = 'claude-sonnet-4-6'
+const VALIDATION_PATTERN = /^claude-/
+
+/**
+ * Resolve the effective model name, validating that it is a recognised Claude
+ * model identifier (must start with "claude-"). If an invalid name is stored
+ * the default is used and a warning is logged.
+ */
+function resolveModel(config: ClaudeConfig): string {
+  const m = config.model
+  if (!m) return DEFAULT_MODEL
+  if (VALIDATION_PATTERN.test(m)) return m
+  console.warn(
+    `[provider-claude] Invalid model name "${m}" — this provider uses the Anthropic API ` +
+    `which only accepts "claude-*" model names. ` +
+    `Falling back to ${DEFAULT_MODEL}.`,
+  )
+  return DEFAULT_MODEL
+}
 
 export function validateConfig(config: ClaudeConfig): ClaudeHealthcheckResult {
   if (!config.apiKey || config.apiKey.length === 0) {
     return { ok: false, provider: 'claude', message: 'missing api key' }
   }
+  const model = resolveModel(config)
+  const warning = config.model && !VALIDATION_PATTERN.test(config.model)
+    ? ` (invalid model "${config.model}" replaced with default)`
+    : ''
   return {
     ok: true,
     provider: 'claude',
-    message: 'config valid',
-    model: config.model ?? DEFAULT_MODEL,
+    message: `config valid${warning}`,
+    model,
   }
 }
 
@@ -28,9 +50,10 @@ export async function healthcheck(config: ClaudeConfig): Promise<ClaudeHealthche
   if (!validation.ok) return validation
 
   try {
+    const model = resolveModel(config)
     const client = new Anthropic({ apiKey: config.apiKey })
     const response = await client.messages.create({
-      model: config.model ?? DEFAULT_MODEL,
+      model,
       max_tokens: 32,
       messages: [{ role: 'user', content: 'Say "ok"' }],
     })
@@ -39,20 +62,20 @@ export async function healthcheck(config: ClaudeConfig): Promise<ClaudeHealthche
       ok: text.length > 0,
       provider: 'claude',
       message: text.length > 0 ? 'claude api key verified' : 'empty response from claude',
-      model: config.model ?? DEFAULT_MODEL,
+      model,
     }
   } catch (err: unknown) {
     return {
       ok: false,
       provider: 'claude',
       message: err instanceof Error ? err.message : String(err),
-      model: config.model ?? DEFAULT_MODEL,
+      model: resolveModel(config),
     }
   }
 }
 
 export async function executeTrackedQuery(input: ClaudeTrackedQueryInput): Promise<ClaudeRawResult> {
-  const model = input.config.model ?? DEFAULT_MODEL
+  const model = resolveModel(input.config)
   const client = new Anthropic({ apiKey: input.config.apiKey })
 
   const webSearchTool: Record<string, unknown> = {
@@ -199,7 +222,7 @@ function extractDomainFromUri(uri: string): string | null {
 }
 
 export async function generateText(prompt: string, config: ClaudeConfig): Promise<string> {
-  const model = config.model ?? DEFAULT_MODEL
+  const model = resolveModel(config)
   const client = new Anthropic({ apiKey: config.apiKey })
   const response = await client.messages.create({
     model,

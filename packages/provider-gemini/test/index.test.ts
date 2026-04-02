@@ -31,6 +31,16 @@ test('validateConfig uses custom model when specified', () => {
   expect(result.model).toBe('gemini-1.5-pro')
 })
 
+test('validateConfig rejects Vertex AI config with empty project ID', () => {
+  const result = validateConfig({
+    apiKey: '',
+    quotaPolicy: validConfig.quotaPolicy,
+    vertexProject: '',
+  })
+  expect(result.ok).toBe(false)
+  expect(result.message).toMatch(/missing Vertex AI project ID/i)
+})
+
 test('validateConfig accepts Vertex AI config without API key', () => {
   const result = validateConfig({
     apiKey: '',

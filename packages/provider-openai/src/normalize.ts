@@ -122,13 +122,15 @@ function extractResponseText(response: OpenAI.Responses.Response): string {
 
 function extractGroundingSources(response: OpenAI.Responses.Response): GroundingSource[] {
   const sources: GroundingSource[] = []
+  const seen = new Set<string>()
   try {
     for (const item of response.output) {
       if (item.type === 'message') {
         for (const content of item.content) {
           if (content.type === 'output_text' && content.annotations) {
             for (const annotation of content.annotations) {
-              if (annotation.type === 'url_citation') {
+              if (annotation.type === 'url_citation' && !seen.has(annotation.url)) {
+                seen.add(annotation.url)
                 sources.push({
                   uri: annotation.url,
                   title: annotation.title ?? '',
@@ -152,7 +154,10 @@ function extractSearchQueries(response: OpenAI.Responses.Response): string[] {
   try {
     for (const item of response.output) {
       if (item.type === 'web_search_call' && 'query' in item) {
-        queries.push((item as unknown as { query: string }).query)
+        const query = (item as unknown as { query?: unknown }).query
+        if (typeof query === 'string' && query.length > 0) {
+          queries.push(query)
+        }
       }
     }
   } catch {

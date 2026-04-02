@@ -55,6 +55,13 @@ function createClient(config: GeminiConfig): GoogleGenAI {
 }
 
 export function validateConfig(config: GeminiConfig): GeminiHealthcheckResult {
+  // Check for explicitly provided (but empty) Vertex project — user intended Vertex AI
+  // but forgot to fill in the project ID. 'vertexProject' in config distinguishes
+  // "key present but empty" from "key absent" (fallback to API key auth).
+  if ('vertexProject' in config && config.vertexProject !== undefined && config.vertexProject.trim().length === 0) {
+    return { ok: false, provider: 'gemini', message: 'missing Vertex AI project ID' }
+  }
+
   if (isVertexConfig(config)) {
     const model = resolveModel(config)
     return {
