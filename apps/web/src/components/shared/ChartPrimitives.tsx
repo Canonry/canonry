@@ -70,15 +70,23 @@ export const CHART_SERIES_COLORS = [
   '#f87171', // red-400
 ] as const
 
+/** Parse a date string that may be a date-only ("2026-03-15") or full ISO timestamp. */
+function parseChartDate(value: string): Date {
+  const s = String(value)
+  // Date-only strings (no "T") need a time suffix to avoid UTC-midnight timezone shifts
+  if (!s.includes('T')) return new Date(s + 'T00:00:00')
+  return new Date(s)
+}
+
 /** Format a date label for chart tooltips (e.g. "Mar 15, 2026"). */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function formatChartDateLabel(value: any): string {
-  const d = new Date(String(value) + 'T00:00:00')
+  const d = parseChartDate(String(value))
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 /** Format a date tick for chart axes (e.g. "3/15"). */
 export function formatChartDateTick(value: string): string {
-  const d = new Date(value + 'T00:00:00')
+  const d = parseChartDate(value)
   return `${d.getMonth() + 1}/${d.getDate()}`
 }

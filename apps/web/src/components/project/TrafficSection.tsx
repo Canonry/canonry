@@ -492,7 +492,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                 ) : (
                   <div className="space-y-3">
                     <div className="grid gap-3 sm:grid-cols-3">
-                      <AttributionStat label="AI Sessions" value="0" hint="no AI referrals detected" tone="neutral" tooltip="Total sessions attributed to AI referral sources detected via GA4 sessionSource and firstUserSource dimensions." />
+                      <AttributionStat label="AI Sessions" value="0" hint="0 sessions" tone="neutral" tooltip="Total sessions attributed to AI referral sources detected via GA4 sessionSource and firstUserSource dimensions." />
                       <AttributionStat label="Share of Traffic" value="0%" hint="of total sessions" tone="neutral" tooltip="Percentage of your total site sessions that originated from AI answer engines." />
                       <AttributionStat label="Tracked Sources" value="0" hint="sources monitored: 7" tone="neutral" tooltip="Number of distinct AI referral sources detected. Monitoring: ChatGPT, Claude, Gemini, Perplexity, OpenAI, Anthropic, and Copilot." />
                     </div>
@@ -803,7 +803,7 @@ function AttributionStat({
   tooltip?: string
 }) {
   return (
-    <div className="rounded-lg border border-zinc-800/60 bg-zinc-950/40 px-4 py-3">
+    <div className="rounded-lg border border-zinc-800/60 bg-zinc-950/40 px-4 py-3 flex flex-col">
       <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1 flex items-center gap-1">
         {label}
         {tooltip && <InfoTooltip text={tooltip} />}
