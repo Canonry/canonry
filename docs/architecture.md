@@ -2,7 +2,7 @@
 
 ## Overview
 
-Canonry is a self-hosted AEO monitoring application built on the published `@ainyc/aeo-audit` npm package. It tracks how AI answer engines (Gemini, OpenAI, Claude, Perplexity, and local LLMs) cite or omit a domain for tracked keywords.
+Canonry is a self-hosted AEO monitoring application. It tracks how AI answer engines (Gemini, OpenAI, Claude, Perplexity, and local LLMs) cite or omit a domain for tracked keywords.
 
 Locations are modeled as project-scoped run context. A project can define named locations and an optional default location, while keywords remain project-wide.
 
