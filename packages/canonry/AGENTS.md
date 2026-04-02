@@ -10,7 +10,7 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 |------|------|
 | `src/cli.ts` | CLI entry point — shebang, telemetry, command dispatch |
 | `src/cli-commands.ts` | `REGISTERED_CLI_COMMANDS` array — declarative command specs |
-| `src/commands/` | Command implementations (24 files, one per domain) |
+| `src/commands/` | Command implementations (one file per domain) |
 | `src/client.ts` | `ApiClient` class + `createApiClient()` factory |
 | `src/server.ts` | Fastify server setup — mounts api-routes, serves SPA, registers providers |
 | `src/job-runner.ts` | In-process job runner for visibility sweeps |

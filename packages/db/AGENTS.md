@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Drizzle ORM schema, migrations, and database client. SQLite locally (via better-sqlite3), Postgres for cloud. Auto-migrates on startup. Contains 22 tables covering projects, runs, snapshots, integrations, and system tracking.
+Drizzle ORM schema, migrations, and database client. SQLite locally (via better-sqlite3), Postgres for cloud. Auto-migrates on startup. Tables cover projects, runs, snapshots, integrations, and system tracking.
 
 ## Key Files
 
