@@ -1,6 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RefreshCw, Unplug, Upload } from 'lucide-react'
-import { Area, ComposedChart, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts'
+import {
+  Area,
+  ComposedChart,
+  Legend,
+  RechartsTooltip,
+  ResponsiveContainer,
+  XAxis,
+  YAxis,
+  CHART_TOOLTIP_STYLE,
+  CHART_AXIS_TICK,
+  CHART_AXIS_STROKE,
+  CHART_SERIES_COLORS,
+  formatChartDateLabel,
+  formatChartDateTick,
+} from '../shared/ChartPrimitives.js'
 
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
@@ -17,16 +31,7 @@ import {
 } from '../../api.js'
 import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficPage, ApiGaTrafficReferral, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry } from '../../api.js'
 
-const SOURCE_COLORS = [
-  '#34d399', // emerald-400
-  '#60a5fa', // blue-400
-  '#f472b6', // pink-400
-  '#facc15', // yellow-400
-  '#a78bfa', // violet-400
-  '#fb923c', // orange-400
-  '#22d3ee', // cyan-400
-  '#f87171', // red-400
-]
+const SOURCE_COLORS = CHART_SERIES_COLORS
 
 type PageSortKey = 'landingPage' | 'sessions' | 'organicSessions' | 'users'
 type ReferralSortKey = 'source' | 'medium' | 'sessions' | 'users'
@@ -374,29 +379,21 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                     <ComposedChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
                       <XAxis
                         dataKey="date"
-                        tick={{ fill: '#71717a', fontSize: 11 }}
+                        tick={CHART_AXIS_TICK}
                         tickLine={false}
-                        axisLine={{ stroke: '#27272a' }}
-                        tickFormatter={(v: string) => {
-                          const d = new Date(v + 'T00:00:00')
-                          return `${d.getMonth() + 1}/${d.getDate()}`
-                        }}
+                        axisLine={{ stroke: CHART_AXIS_STROKE }}
+                        tickFormatter={formatChartDateTick}
                       />
                       <YAxis
-                        tick={{ fill: '#71717a', fontSize: 11 }}
+                        tick={CHART_AXIS_TICK}
                         tickLine={false}
                         axisLine={false}
                         allowDecimals={false}
                         width={36}
                       />
                       <RechartsTooltip
-                        contentStyle={{ backgroundColor: '#18181b', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 12 }}
-                        labelStyle={{ color: '#e4e4e7' }}
-                        itemStyle={{ color: '#a1a1aa' }}
-                        labelFormatter={(v) => {
-                          const d = new Date(String(v) + 'T00:00:00')
-                          return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-                        }}
+                        {...CHART_TOOLTIP_STYLE}
+                        labelFormatter={formatChartDateLabel}
                         formatter={(value, name) => {
                           const formatted = typeof value === 'number' ? value.toLocaleString() : String(value ?? 0)
                           const key = String(name ?? '')
@@ -457,18 +454,21 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                         value={formatCompact(aiSessions)}
                         hint={`${aiSessions.toLocaleString()} sessions`}
                         tone="positive"
+                        tooltip="Total sessions attributed to AI referral sources detected via GA4 sessionSource and firstUserSource dimensions. Includes traffic from ChatGPT, Claude, Gemini, Perplexity, OpenAI, Anthropic, and Copilot."
                       />
                       <AttributionStat
                         label="Share of Traffic"
                         value={`${aiSharePct}%`}
                         hint="of total sessions"
                         tone="neutral"
+                        tooltip="Percentage of your total site sessions that originated from AI answer engines. A higher share indicates stronger AI-driven discovery."
                       />
                       <AttributionStat
                         label="Tracked Sources"
                         value={String(aiSourceCount)}
                         hint={`${traffic.aiReferrals.length} source rows`}
                         tone="neutral"
+                        tooltip="Number of distinct AI referral sources detected. Each unique source/medium combination (e.g. chatgpt.com/referral) counts as one source row."
                       />
                     </div>
 
@@ -481,9 +481,9 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                 ) : (
                   <div className="space-y-3">
                     <div className="grid gap-3 sm:grid-cols-3">
-                      <AttributionStat label="AI Sessions" value="0" hint="no AI referrals detected" tone="neutral" />
-                      <AttributionStat label="Share of Traffic" value="0%" hint="of total sessions" tone="neutral" />
-                      <AttributionStat label="Tracked Sources" value="0" hint="sources monitored: 7" tone="neutral" />
+                      <AttributionStat label="AI Sessions" value="0" hint="no AI referrals detected" tone="neutral" tooltip="Total sessions attributed to AI referral sources detected via GA4 sessionSource and firstUserSource dimensions." />
+                      <AttributionStat label="Share of Traffic" value="0%" hint="of total sessions" tone="neutral" tooltip="Percentage of your total site sessions that originated from AI answer engines." />
+                      <AttributionStat label="Tracked Sources" value="0" hint="sources monitored: 7" tone="neutral" tooltip="Number of distinct AI referral sources detected. Monitoring: ChatGPT, Claude, Gemini, Perplexity, OpenAI, Anthropic, and Copilot." />
                     </div>
                     <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-3 text-sm text-zinc-400">
                       <p className="mb-1.5 text-zinc-300">Monitoring for AI referral traffic from:</p>
@@ -511,6 +511,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                         <tr className="text-[10px] uppercase tracking-wider text-zinc-500">
                           <SortHeader label="Source" sortKey="source" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="left" />
                           <SortHeader label="Medium" sortKey="medium" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="left" />
+                          <th className="py-1 font-medium text-left">Attribution</th>
                           <SortHeader label="Sessions" sortKey="sessions" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="right" />
                           <th className="py-1 font-medium text-right">Share</th>
                           <SortHeader label="Users" sortKey="users" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="right" />
@@ -518,7 +519,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                       </thead>
                       <tbody>
                         {sortedAiReferrals.map((referral) => (
-                          <AiReferralRow key={`${referral.source}:${referral.medium}`} referral={referral} totalSessions={aiSessions} />
+                          <AiReferralRow key={`${referral.source}:${referral.medium}:${referral.sourceDimension}`} referral={referral} totalSessions={aiSessions} />
                         ))}
                       </tbody>
                     </table>
@@ -782,15 +783,20 @@ function AttributionStat({
   label,
   hint,
   tone,
+  tooltip,
 }: {
   value: string
   label: string
   hint: string
   tone: MetricTone
+  tooltip?: string
 }) {
   return (
     <div className="rounded-lg border border-zinc-800/60 bg-zinc-950/40 px-4 py-3">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">{label}</p>
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1 flex items-center gap-1">
+        {label}
+        {tooltip && <InfoTooltip text={tooltip} />}
+      </p>
       <p className={`text-xl font-semibold tabular-nums ${toneColor[tone]}`}>{value}</p>
       <p className="text-xs text-zinc-500 mt-1">{hint}</p>
     </div>
@@ -823,6 +829,18 @@ function LandingPageRow({ page }: { page: ApiGaTrafficPage }) {
   )
 }
 
+const DIMENSION_LABELS: Record<string, string> = {
+  session: 'Session',
+  first_user: 'First Visit',
+  manual_utm: 'UTM',
+}
+
+const DIMENSION_TOOLTIPS: Record<string, string> = {
+  session: 'Detected via GA4 sessionSource (referrer or utm_source for this session)',
+  first_user: 'Detected via GA4 firstUserSource (referrer from the user\'s first-ever visit)',
+  manual_utm: 'Detected via GA4 manualSource (explicit utm_source parameter)',
+}
+
 function AiReferralRow({
   referral,
   totalSessions,
@@ -831,6 +849,8 @@ function AiReferralRow({
   totalSessions: number
 }) {
   const share = totalSessions > 0 ? ((referral.sessions / totalSessions) * 100).toFixed(1) : '0.0'
+  const dimLabel = DIMENSION_LABELS[referral.sourceDimension] ?? referral.sourceDimension
+  const dimTooltip = DIMENSION_TOOLTIPS[referral.sourceDimension] ?? ''
 
   return (
     <tr className="border-t border-zinc-800/40">
@@ -839,6 +859,14 @@ function AiReferralRow({
       </td>
       <td className="py-1.5 text-zinc-500 max-w-[180px] truncate" title={referral.medium}>
         {referral.medium}
+      </td>
+      <td className="py-1.5">
+        <span
+          className="inline-block text-[10px] px-1.5 py-0.5 rounded-full border border-zinc-700 text-zinc-400"
+          title={dimTooltip}
+        >
+          {dimLabel}
+        </span>
       </td>
       <td className="py-1.5 text-right text-emerald-400 tabular-nums">
         {referral.sessions.toLocaleString()}

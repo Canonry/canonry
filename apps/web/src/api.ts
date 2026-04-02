@@ -949,6 +949,7 @@ export interface ApiGaTrafficPage {
 export interface ApiGaTrafficReferral {
   source: string
   medium: string
+  sourceDimension: 'session' | 'first_user' | 'manual_utm'
   sessions: number
   users: number
 }

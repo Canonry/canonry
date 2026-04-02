@@ -11,6 +11,7 @@ import type {
   GA4AiReferralRow,
   GA4RunReportRequest,
   GA4RunReportResponse,
+  GA4SourceDimension,
   GA4TrafficRow,
 } from './types.js'
 import { GA4ApiError } from './types.js'
@@ -182,6 +183,11 @@ function formatDate(d: Date): string {
   return d.toISOString().split('T')[0]!
 }
 
+// AI referral source patterns matched against both sessionSource and firstUserSource.
+// sessionSource: the referrer/utm_source for the session that triggered the hit.
+// firstUserSource: the referrer/utm_source from the user's very first visit (lifetime).
+// Using both ensures we catch AI traffic whether it arrives via referrer header or
+// utm_source parameter (e.g. ?utm_source=chatgpt.com).
 const AI_REFERRAL_SOURCE_FILTERS: Array<{ matchType: 'CONTAINS' | 'EXACT'; value: string }> = [
   { matchType: 'CONTAINS', value: 'perplexity' },
   { matchType: 'CONTAINS', value: 'gemini' },
@@ -190,6 +196,9 @@ const AI_REFERRAL_SOURCE_FILTERS: Array<{ matchType: 'CONTAINS' | 'EXACT'; value
   { matchType: 'CONTAINS', value: 'claude' },
   { matchType: 'CONTAINS', value: 'anthropic' },
   { matchType: 'CONTAINS', value: 'copilot' },
+  { matchType: 'CONTAINS', value: 'phind' },
+  { matchType: 'EXACT', value: 'you.com' },
+  { matchType: 'CONTAINS', value: 'meta.ai' },
 ]
 
 /**
@@ -409,59 +418,102 @@ export async function fetchAiReferrals(
   // Use explicit AI referrer patterns only. Generic search-engine sources such as
   // plain "bing" are intentionally excluded because they would misclassify normal
   // search traffic as AI traffic.
+  //
+  // GA4 has three layers of source attribution we check:
+  //
+  // 1. sessionSource — GA4's resolved session source. Combines auto-detected
+  //    referrer headers AND utm_source parameters (utm_source takes priority).
+  //    This is the primary dimension and catches most AI traffic.
+  //
+  // 2. firstUserSource — the source from the user's very first visit (lifetime).
+  //    Catches users who first discovered the site via an AI engine but return
+  //    later through other channels.
+  //
+  // 3. manualSource — explicitly the utm_source parameter value ONLY (per the
+  //    GA4 schema: "Populated by the utm_source URL parameter"). This catches
+  //    edge cases where:
+  //    - The referrer header was stripped (browser privacy settings)
+  //    - GA4's session attribution resolved to a different source but the
+  //      utm_source was still set to an AI engine
+  //    - Custom UTM tags were used (e.g. ?utm_source=chatgpt-recommendation)
+  //
+  // Querying all three ensures comprehensive AI traffic detection regardless of
+  // whether it arrives via referrer header or utm_source parameter.
   const PAGE_SIZE = 1000
   const rows: GA4AiReferralRow[] = []
-  let offset = 0
 
-  while (true) {
-    const request: GA4RunReportRequest = {
-      dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
-      dimensions: [
-        { name: 'date' },
-        { name: 'sessionSource' },
-        { name: 'sessionMedium' },
-      ],
-      metrics: [
-        { name: 'sessions' },
-        { name: 'totalUsers' },
-      ],
-      dimensionFilter: {
-        orGroup: {
-          expressions: AI_REFERRAL_SOURCE_FILTERS.map(({ matchType, value }) => ({
-            filter: {
-              fieldName: 'sessionSource',
-              stringFilter: { matchType, value },
-            },
-          })),
+  // Each entry: [sourceDimension, mediumDimension, label for storage]
+  const dimensionPairs: Array<[string, string, GA4SourceDimension]> = [
+    ['sessionSource', 'sessionMedium', 'session'],
+    ['firstUserSource', 'firstUserMedium', 'first_user'],
+    ['manualSource', 'manualMedium', 'manual_utm'],
+  ]
+
+  for (const [sourceDim, mediumDim, dimLabel] of dimensionPairs) {
+    let offset = 0
+    while (true) {
+      const request: GA4RunReportRequest = {
+        dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
+        dimensions: [
+          { name: 'date' },
+          { name: sourceDim },
+          { name: mediumDim },
+        ],
+        metrics: [
+          { name: 'sessions' },
+          { name: 'totalUsers' },
+        ],
+        dimensionFilter: {
+          orGroup: {
+            expressions: AI_REFERRAL_SOURCE_FILTERS.map(({ matchType, value }) => ({
+              filter: {
+                fieldName: sourceDim,
+                stringFilter: { matchType, value },
+              },
+            })),
+          },
         },
-      },
-      limit: PAGE_SIZE,
-      offset,
+        limit: PAGE_SIZE,
+        offset,
+      }
+
+      const response = await runReport(accessToken, propertyId, request)
+      const pageRows: GA4AiReferralRow[] = (response.rows ?? []).map((row) => ({
+        date: row.dimensionValues[0]!.value,
+        source: row.dimensionValues[1]!.value,
+        medium: row.dimensionValues[2]!.value,
+        sessions: parseInt(row.metricValues[0]!.value, 10) || 0,
+        users: parseInt(row.metricValues[1]!.value, 10) || 0,
+        sourceDimension: dimLabel,
+      }))
+
+      rows.push(...pageRows)
+
+      const totalRows = response.rowCount ?? 0
+      offset += pageRows.length
+      if (pageRows.length < PAGE_SIZE || offset >= totalRows) break
     }
-
-    const response = await runReport(accessToken, propertyId, request)
-    const pageRows = (response.rows ?? []).map((row) => ({
-      date: row.dimensionValues[0]!.value,
-      source: row.dimensionValues[1]!.value,
-      medium: row.dimensionValues[2]!.value,
-      sessions: parseInt(row.metricValues[0]!.value, 10) || 0,
-      users: parseInt(row.metricValues[1]!.value, 10) || 0,
-    }))
-
-    rows.push(...pageRows)
-
-    const totalRows = response.rowCount ?? 0
-    offset += pageRows.length
-    if (pageRows.length < PAGE_SIZE || offset >= totalRows) break
   }
 
-  // Convert YYYYMMDD to YYYY-MM-DD
+  // Deduplicate within each dimension: if the same date+source+medium+dimension
+  // appears multiple times (shouldn't happen, but defensive), keep the higher count.
+  const deduped = new Map<string, GA4AiReferralRow>()
   for (const row of rows) {
+    const key = `${row.date}::${row.source}::${row.medium}::${row.sourceDimension}`
+    const existing = deduped.get(key)
+    if (!existing || row.sessions > existing.sessions) {
+      deduped.set(key, row)
+    }
+  }
+  const dedupedRows = [...deduped.values()]
+
+  // Convert YYYYMMDD to YYYY-MM-DD
+  for (const row of dedupedRows) {
     if (row.date.length === 8 && !row.date.includes('-')) {
       row.date = `${row.date.slice(0, 4)}-${row.date.slice(4, 6)}-${row.date.slice(6, 8)}`
     }
   }
 
-  ga4Log('info', 'fetch-ai-referrals.done', { propertyId, rowCount: rows.length })
-  return rows
+  ga4Log('info', 'fetch-ai-referrals.done', { propertyId, rowCount: dedupedRows.length })
+  return dedupedRows
 }

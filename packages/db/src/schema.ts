@@ -280,13 +280,15 @@ export const gaAiReferrals = sqliteTable('ga_ai_referrals', {
   date: text('date').notNull(),
   source: text('source').notNull(),
   medium: text('medium').notNull(),
+  /** Which GA4 dimension produced this row: 'session' | 'first_user' | 'manual_utm' */
+  sourceDimension: text('source_dimension').notNull().default('session'),
   sessions: integer('sessions').notNull().default(0),
   users: integer('users').notNull().default(0),
   syncedAt: text('synced_at').notNull(),
 }, (table) => [
   index('idx_ga_ai_ref_project_date').on(table.projectId, table.date),
   index('idx_ga_ai_ref_source').on(table.source),
-  uniqueIndex('idx_ga_ai_ref_unique').on(table.projectId, table.date, table.source, table.medium),
+  uniqueIndex('idx_ga_ai_ref_unique_v2').on(table.projectId, table.date, table.source, table.medium, table.sourceDimension),
 ])
 
 // Aggregate GA4 totals for a sync period — stores true unique user count

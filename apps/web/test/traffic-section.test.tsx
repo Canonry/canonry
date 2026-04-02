@@ -55,15 +55,15 @@ test('loads connected GA4 data without changing hook order', async () => {
           { landingPage: '/pricing', sessions: 80, organicSessions: 50, users: 60 },
         ],
         aiReferrals: [
-          { source: 'chatgpt.com', medium: 'referral', sessions: 12, users: 9 },
+          { source: 'chatgpt.com', medium: 'referral', sourceDimension: 'session', sessions: 12, users: 9 },
         ],
         lastSyncedAt: '2026-03-31T12:00:00.000Z',
       })
     }
     if (url.endsWith('/projects/test-project/ga/ai-referral-history')) {
       return jsonResponse([
-        { date: '2026-03-30', source: 'chatgpt.com', medium: 'referral', sessions: 5, users: 4 },
-        { date: '2026-03-31', source: 'chatgpt.com', medium: 'referral', sessions: 7, users: 5 },
+        { date: '2026-03-30', source: 'chatgpt.com', medium: 'referral', sourceDimension: 'session', sessions: 5, users: 4 },
+        { date: '2026-03-31', source: 'chatgpt.com', medium: 'referral', sourceDimension: 'session', sessions: 7, users: 5 },
       ])
     }
     if (url.endsWith('/projects/test-project/ga/session-history')) {

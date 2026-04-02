@@ -322,6 +322,13 @@ const MIGRATIONS = [
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_scope_period_metric ON usage_counters(scope, period, metric)`,
   `ALTER TABLE projects ADD COLUMN config_source TEXT NOT NULL DEFAULT 'cli'`,
   `ALTER TABLE projects ADD COLUMN config_revision INTEGER NOT NULL DEFAULT 1`,
+
+  // v20: Track which GA4 dimension produced each AI referral row
+  // Values: 'session' (sessionSource), 'first_user' (firstUserSource), 'manual_utm' (manualSource/utm_source)
+  `ALTER TABLE ga_ai_referrals ADD COLUMN source_dimension TEXT NOT NULL DEFAULT 'session'`,
+  // Replace old unique index with one that includes source_dimension
+  `DROP INDEX IF EXISTS idx_ga_ai_ref_unique`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_ai_ref_unique_v2 ON ga_ai_referrals(project_id, date, source, medium, source_dimension)`,
 ]
 
 export function migrate(db: DatabaseClient) {

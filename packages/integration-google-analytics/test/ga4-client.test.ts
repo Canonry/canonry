@@ -164,10 +164,10 @@ describe('fetchAiReferrals', () => {
   }
 
   it('uses explicit AI source filters and excludes generic bing traffic', async () => {
-    let requestBody: Record<string, unknown> | null = null
+    const requestBodies: Array<Record<string, unknown>> = []
 
     fetchSpy.mockImplementation(async (_input: string | URL | Request, init?: RequestInit) => {
-      requestBody = JSON.parse(init?.body as string ?? '{}') as Record<string, unknown>
+      requestBodies.push(JSON.parse(init?.body as string ?? '{}') as Record<string, unknown>)
       return mockFetchResponse({
         rows: [
           {
@@ -181,16 +181,33 @@ describe('fetchAiReferrals', () => {
 
     const rows = await fetchAiReferrals('fake-token', '123456', 7)
 
+    // Returns one row per dimension (session, first_user, manual_utm) since
+    // the mock returns the same data for all three queries
     expect(rows).toEqual([
-      { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', sessions: 12, users: 10 },
+      { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', sessions: 12, users: 10, sourceDimension: 'session' },
+      { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', sessions: 12, users: 10, sourceDimension: 'first_user' },
+      { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', sessions: 12, users: 10, sourceDimension: 'manual_utm' },
     ])
 
-    const expressions = ((requestBody?.dimensionFilter as { orGroup?: { expressions?: Array<{ filter: { stringFilter: { value: string } } }> } })
+    // Verify all three dimension pairs were queried
+    expect(requestBodies.length).toBe(3)
+
+    // Check filter patterns in the first request (sessionSource)
+    const expressions = ((requestBodies[0]?.dimensionFilter as { orGroup?: { expressions?: Array<{ filter: { stringFilter: { value: string } } }> } })
       .orGroup?.expressions ?? [])
       .map((expression) => expression.filter.stringFilter.value)
 
     expect(expressions).toContain('copilot')
+    expect(expressions).toContain('phind')
+    expect(expressions).toContain('meta.ai')
     expect(expressions).not.toContain('bing')
+
+    // Verify each query targets the correct source dimension
+    const dims = requestBodies.map((b) => {
+      const filter = b.dimensionFilter as { orGroup?: { expressions?: Array<{ filter: { fieldName: string } }> } }
+      return filter.orGroup?.expressions?.[0]?.filter.fieldName
+    })
+    expect(dims).toEqual(['sessionSource', 'firstUserSource', 'manualSource'])
   })
 })
 

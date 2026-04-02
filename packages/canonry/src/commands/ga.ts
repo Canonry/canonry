@@ -194,12 +194,14 @@ export async function gaAiReferralHistory(project: string, format?: string): Pro
 
   const dateWidth = 12
   const sourceWidth = Math.min(30, Math.max(10, ...result.map((r) => r.source.length)))
+  const attrWidth = 12
   console.log(`GA4 AI Referral History for "${project}":\n`)
-  console.log(`  ${'DATE'.padEnd(dateWidth)}  ${'SOURCE'.padEnd(sourceWidth)}  ${'SESSIONS'.padEnd(10)}${'USERS'.padEnd(8)}`)
-  console.log(`  ${'─'.repeat(dateWidth)}  ${'─'.repeat(sourceWidth)}  ${'─'.repeat(10)}${'─'.repeat(8)}`)
+  console.log(`  ${'DATE'.padEnd(dateWidth)}  ${'SOURCE'.padEnd(sourceWidth)}  ${'ATTRIBUTION'.padEnd(attrWidth)}  ${'SESSIONS'.padEnd(10)}${'USERS'.padEnd(8)}`)
+  console.log(`  ${'─'.repeat(dateWidth)}  ${'─'.repeat(sourceWidth)}  ${'─'.repeat(attrWidth)}  ${'─'.repeat(10)}${'─'.repeat(8)}`)
   for (const row of result) {
+    const dimLabel = row.sourceDimension === 'first_user' ? 'first-visit' : row.sourceDimension === 'manual_utm' ? 'utm' : 'session'
     console.log(
-      `  ${row.date.padEnd(dateWidth)}  ${row.source.padEnd(sourceWidth)}  ${String(row.sessions).padEnd(10)}${String(row.users).padEnd(8)}`,
+      `  ${row.date.padEnd(dateWidth)}  ${row.source.padEnd(sourceWidth)}  ${dimLabel.padEnd(attrWidth)}  ${String(row.sessions).padEnd(10)}${String(row.users).padEnd(8)}`,
     )
   }
 }

@@ -317,11 +317,23 @@ The web dashboard follows a dark, professional analytics aesthetic inspired by *
 - Focus-visible rings on interactive elements.
 - Screen-reader-only labels (`.sr-only`) where needed.
 
+### Charting (Critical)
+
+**Recharts is the only charting library.** All charts must use it via `ChartPrimitives.tsx` — never import `recharts` directly in page/section components and never add Chart.js, Highcharts, D3, Plotly, Nivo, or Victory. ESLint enforces this.
+
+- Import chart components and shared constants from `components/shared/ChartPrimitives.js`.
+- Use `CHART_TOOLTIP_STYLE`, `CHART_AXIS_TICK`, `CHART_GRID_STROKE`, `CHART_AXIS_STROKE`, and `CHART_SERIES_COLORS` for consistent styling.
+- Use `formatChartDateLabel` for tooltip labels and `formatChartDateTick` for axis ticks.
+- Custom SVG is allowed only for non-chart visualizations (gauges, sparklines, timelines) where Recharts is overkill.
+- If Recharts is missing a feature, extend `ChartPrimitives.tsx` rather than adding a second library.
+
 ### Don'ts
 - Don't use hero grids with large descriptive text blocks on the project page. Keep headers compact.
 - Don't put evidence or findings in card grids. Use tables.
 - Don't add decorative background gradients or glow effects.
 - Don't create new component files unless the component is reused across 3+ pages.
+- Don't import `recharts` directly — use `ChartPrimitives.js`.
+- Don't add alternative charting libraries (Highcharts, Chart.js, D3, etc.).
 
 ## Roadmap
 

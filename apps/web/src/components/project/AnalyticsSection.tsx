@@ -1,6 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, MetricsWindow, GapCategory, SourceCategory, KeywordChangeEvent } from '@ainyc/canonry-contracts'
 
+import {
+  Area,
+  CartesianGrid,
+  ComposedChart,
+  RechartsTooltip,
+  ReferenceLine,
+  ResponsiveContainer,
+  XAxis,
+  YAxis,
+  CHART_TOOLTIP_STYLE,
+  CHART_AXIS_TICK,
+  CHART_GRID_STROKE,
+  CHART_AXIS_STROKE,
+  formatChartDateLabel,
+} from '../shared/ChartPrimitives.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { ScoreGauge } from '../shared/ScoreGauge.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
@@ -225,159 +240,78 @@ export function AnalyticsSection({ projectName }: { projectName: string }) {
 }
 
 function AnalyticsTrendChart({ buckets, keywordChanges }: { buckets: BrandMetricsDto['buckets']; keywordChanges: KeywordChangeEvent[] }) {
-  const [hovered, setHovered] = useState<number | null>(null)
-  const width = 600
-  const height = 140
-  const padding = { top: 30, right: 10, bottom: 20, left: 40 }
-  const chartW = width - padding.left - padding.right
-  const chartH = height - padding.top - padding.bottom
-
-  const maxRate = 1
-
-  const bucketCoords = buckets.map((b, i) => {
-    const x = padding.left + (buckets.length > 1 ? (i / (buckets.length - 1)) * chartW : chartW / 2)
-    const y = padding.top + chartH - (b.citationRate / maxRate) * chartH
-    return { x, y }
-  })
+  const chartData = buckets.map(b => ({
+    date: b.startDate,
+    citationRate: Math.round(b.citationRate * 1000) / 10, // percentage with 1 decimal
+    keywordCount: b.keywordCount ?? 0,
+  }))
 
   const annotations = useMemo(() => {
-    if (!keywordChanges || keywordChanges.length === 0 || buckets.length < 2) return []
-    const tMin = new Date(buckets[0]!.startDate).getTime()
-    const tMax = new Date(buckets[buckets.length - 1]!.startDate).getTime()
-    const span = tMax - tMin
-    if (span <= 0) return []
-
-    return keywordChanges
-      .map(ev => {
-        const t = new Date(ev.date).getTime()
-        const ratio = (t - tMin) / span
-        if (ratio < 0 || ratio > 1) return null
-        return { ...ev, x: padding.left + ratio * chartW }
-      })
-      .filter((a): a is NonNullable<typeof a> => a !== null)
-  }, [buckets, keywordChanges, padding.left, chartW])
-
-  const points = bucketCoords.map(c => `${c.x},${c.y}`).join(' ')
+    if (!keywordChanges || keywordChanges.length === 0) return []
+    return keywordChanges.filter(ev => {
+      if (buckets.length < 2) return false
+      const t = new Date(ev.date).getTime()
+      const tMin = new Date(buckets[0]!.startDate).getTime()
+      const tMax = new Date(buckets[buckets.length - 1]!.startDate).getTime()
+      return t >= tMin && t <= tMax
+    })
+  }, [buckets, keywordChanges])
 
   return (
     <div className="surface-card rounded-lg p-3 border border-zinc-800/60">
       <p className="text-[10px] text-zinc-500 mb-1 flex items-center gap-1">
         kp = key phrases tracked in this window
       </p>
-      <svg
-        viewBox={`0 0 ${width} ${height}`}
-        className="w-full h-auto"
-        aria-label="Citation rate trend chart"
-        onMouseLeave={() => setHovered(null)}
-      >
-        {/* Y-axis labels */}
-        <text x={padding.left - 4} y={padding.top + 4} textAnchor="end" className="fill-zinc-500" fontSize="9">
-          {(maxRate * 100).toFixed(0)}%
-        </text>
-        <text x={padding.left - 4} y={padding.top + chartH + 4} textAnchor="end" className="fill-zinc-500" fontSize="9">
-          0%
-        </text>
-        {/* Grid line */}
-        <line
-          x1={padding.left} y1={padding.top + chartH}
-          x2={padding.left + chartW} y2={padding.top + chartH}
-          stroke="currentColor" className="text-zinc-800" strokeWidth="0.5"
-        />
-        {/* Line */}
-        <polyline
-          fill="none"
-          stroke="currentColor"
-          className="text-emerald-500"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          points={points}
-        />
-        {/* Keyword change annotations */}
-        {annotations.map((a, i) => (
-          <g key={`kw-change-${i}`}>
-            <line
-              x1={a.x} y1={padding.top}
-              x2={a.x} y2={padding.top + chartH}
-              stroke="currentColor"
-              className="text-zinc-600"
-              strokeWidth="0.5"
-              strokeDasharray="4 2"
+      <div className="h-40">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_STROKE} vertical={false} />
+            <XAxis
+              dataKey="date"
+              tick={CHART_AXIS_TICK}
+              tickLine={false}
+              axisLine={{ stroke: CHART_AXIS_STROKE }}
+              tickFormatter={(v: string) => v.slice(5, 10)}
             />
-            <text
-              x={a.x}
-              y={padding.top - 6}
-              textAnchor="middle"
-              className="fill-zinc-500"
-              fontSize="7"
-              fontWeight="500"
-            >
-              {a.label}
-            </text>
-          </g>
-        ))}
-        {/* Hover vertical line */}
-        {hovered !== null && (
-          <line
-            x1={bucketCoords[hovered]!.x} y1={padding.top}
-            x2={bucketCoords[hovered]!.x} y2={padding.top + chartH}
-            stroke="currentColor" className="text-zinc-600" strokeWidth="0.5" strokeDasharray="3 2"
-          />
-        )}
-        {/* Dots + hover targets */}
-        {buckets.map((b, i) => {
-          const { x, y } = bucketCoords[i]!
-          const isHovered = hovered === i
-          return (
-            <g key={i}>
-              {/* Invisible wider hit area */}
-              <circle
-                cx={x} cy={y} r="10"
-                fill="transparent"
-                onMouseEnter={() => setHovered(i)}
-                style={{ cursor: 'pointer' }}
+            <YAxis
+              tick={CHART_AXIS_TICK}
+              tickLine={false}
+              axisLine={false}
+              domain={[0, 100]}
+              tickFormatter={(v: number) => `${v}%`}
+              width={40}
+            />
+            <RechartsTooltip
+              {...CHART_TOOLTIP_STYLE}
+              labelFormatter={formatChartDateLabel}
+              formatter={(value, name) => {
+                const v = typeof value === 'number' ? value : Number(value ?? 0)
+                if (String(name) === 'citationRate') return [`${v.toFixed(1)}%`, 'Citation Rate']
+                return [String(v), String(name)]
+              }}
+            />
+            {annotations.map((a) => (
+              <ReferenceLine
+                key={a.date}
+                x={a.date}
+                stroke="#52525b"
+                strokeDasharray="4 2"
+                label={{ value: a.label, position: 'top', fill: '#71717a', fontSize: 9 }}
               />
-              <circle cx={x} cy={y} r={isHovered ? 5 : 3} className={isHovered ? 'fill-emerald-400' : 'fill-emerald-500'} />
-            </g>
-          )
-        })}
-        {/* Tooltip */}
-        {hovered !== null && (() => {
-          const b = buckets[hovered]!
-          const { x, y } = bucketCoords[hovered]!
-          const label = `${(b.citationRate * 100).toFixed(1)}%`
-          const kwLabel = b.keywordCount ? `${b.keywordCount} kp` : ''
-          const tooltipW = 56
-          const tooltipH = 30
-          const tx = Math.max(padding.left, Math.min(x - tooltipW / 2, width - padding.right - tooltipW))
-          const ty = y - tooltipH - 8
-          return (
-            <g>
-              <rect x={tx} y={ty} width={tooltipW} height={tooltipH} rx="4" className="fill-zinc-800" stroke="currentColor" strokeWidth="0.5" />
-              <text x={tx + tooltipW / 2} y={ty + 13} textAnchor="middle" className="fill-zinc-50" fontSize="11" fontWeight="600">
-                {label}
-              </text>
-              {kwLabel && (
-                <text x={tx + tooltipW / 2} y={ty + 24} textAnchor="middle" className="fill-zinc-400" fontSize="8">
-                  {kwLabel}
-                </text>
-              )}
-            </g>
-          )
-        })()}
-        {/* X-axis date labels */}
-        {buckets
-          .map((b, i) => ({ b, i }))
-          .filter(({ i }) => i === 0 || i === buckets.length - 1 || buckets.length <= 7)
-          .map(({ b, i }) => {
-            const x = bucketCoords[i]!.x
-            return (
-              <text key={i} x={x} y={height - 2} textAnchor="middle" className="fill-zinc-500" fontSize="8">
-                {b.startDate.slice(5, 10)}
-              </text>
-            )
-          })}
-      </svg>
+            ))}
+            <Area
+              type="monotone"
+              dataKey="citationRate"
+              stroke="#34d399"
+              fill="#34d399"
+              fillOpacity={0.15}
+              strokeWidth={2}
+              dot={{ fill: '#34d399', r: 3, strokeWidth: 0 }}
+              activeDot={{ fill: '#6ee7b7', r: 5, strokeWidth: 0 }}
+            />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   )
 }

@@ -48,12 +48,15 @@ export interface GA4TrafficRow {
   users: number
 }
 
+export type GA4SourceDimension = 'session' | 'first_user' | 'manual_utm'
+
 export interface GA4AiReferralRow {
   date: string
   source: string
   medium: string
   sessions: number
   users: number
+  sourceDimension: GA4SourceDimension
 }
 
 export class GA4ApiError extends Error {
