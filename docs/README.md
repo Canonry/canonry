@@ -10,15 +10,18 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | --- | --- | --- | --- |
 | [`README.md`](../README.md) | current | users, operators | Product overview, quickstart, key CLI/API entrypoints |
 | [`CONTRIBUTING.md`](../CONTRIBUTING.md) | current | contributors | Setup, workspace structure, and contribution rules |
-| [`CLAUDE.md`](../CLAUDE.md) | current | agents, maintainers | Repo operating guidance and implementation priorities |
+| [`AGENTS.md`](../AGENTS.md) | current | all AI tools | Universal repo guidance (Codex, Copilot, Cursor, etc.) |
+| [`CLAUDE.md`](../CLAUDE.md) | current | Claude Code | Claude-specific overlay (imports AGENTS.md + UI design system) |
 
 ## Current Reference And Guides
 
 | Document | Label | Audience | Purpose |
 | --- | --- | --- | --- |
-| [`architecture.md`](architecture.md) | current | engineers | Current local architecture and planned deployment shape |
+| [`architecture.md`](architecture.md) | current | engineers | System architecture, dependency graph, run lifecycle, provider system |
+| [`data-model.md`](data-model.md) | current | engineers | ER diagram, table groups, JSON column shapes |
 | [`deployment.md`](deployment.md) | current | operators | Current deployment and runtime guidance |
 | [`testing.md`](testing.md) | current | contributors | Validation and test workflow guidance |
+| [`providers/README.md`](providers/README.md) | current | engineers | Provider system overview, ProviderAdapter interface, how to add a provider |
 | [`providers/gemini.md`](providers/gemini.md) | current | engineers | Gemini provider behavior and constraints |
 | [`providers/openai.md`](providers/openai.md) | current | engineers | OpenAI provider behavior and constraints |
 | [`providers/claude.md`](providers/claude.md) | current | engineers | Claude provider behavior and constraints |
