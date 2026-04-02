@@ -31,10 +31,11 @@ export const geminiAdapter: ProviderAdapter = {
   displayName: 'Gemini',
   mode: 'api',
   keyUrl: 'https://aistudio.google.com/apikey',
+  // Upstream model list: https://ai.google.dev/gemini-api/docs/models
   modelRegistry: {
     defaultModel: 'gemini-3-flash',
-    validationPattern: /^gemini-/,
-    validationHint: 'model name must start with "gemini-" (e.g. gemini-3-flash)',
+    validationPattern: /./,
+    validationHint: 'any valid Google model name (e.g. gemini-3-flash, learnlm-1.5-pro-experimental)',
     knownModels: [
       { id: 'gemini-3.1-pro-preview', displayName: 'Gemini 3.1 Pro (Preview)', tier: 'flagship' },
       { id: 'gemini-3-flash', displayName: 'Gemini 3 Flash', tier: 'standard' },

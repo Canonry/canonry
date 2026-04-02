@@ -28,6 +28,7 @@ export const perplexityAdapter: ProviderAdapter = {
   displayName: 'Perplexity',
   mode: 'api',
   keyUrl: 'https://www.perplexity.ai/settings/api',
+  // Upstream model list: https://docs.perplexity.ai/guides/model-cards
   modelRegistry: {
     defaultModel: 'sonar',
     validationPattern: /^sonar/,

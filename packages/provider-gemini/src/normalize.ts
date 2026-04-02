@@ -9,7 +9,6 @@ import type {
 } from './types.js'
 
 const DEFAULT_MODEL = 'gemini-3-flash'
-const VALIDATION_PATTERN = /^gemini-/
 
 /**
  * Whether this config targets Vertex AI instead of AI Studio.
@@ -19,21 +18,13 @@ function isVertexConfig(config: GeminiConfig): boolean {
 }
 
 /**
- * Resolve the effective model name, validating that it is a recognised Gemini
- * model identifier (must start with "gemini-").  If an invalid name is stored
- * the default is used and a warning is logged.
+ * Resolve the effective model name.  Google model naming is not standardised
+ * to a single prefix (e.g. `learnlm-*`, `gemma-*` are valid Gemini API models),
+ * so we accept any non-empty string and let the API reject truly invalid names
+ * with a descriptive error.
  */
 function resolveModel(config: GeminiConfig): string {
-  const m = config.model
-  if (!m) return DEFAULT_MODEL
-  if (VALIDATION_PATTERN.test(m)) return m
-  const backend = isVertexConfig(config) ? 'Vertex AI' : 'AI Studio'
-  console.warn(
-    `[provider-gemini] Invalid model name "${m}" — this provider uses the Gemini ${backend} API ` +
-    `which only accepts "gemini-*" model names. ` +
-    `Falling back to ${DEFAULT_MODEL}.`,
-  )
-  return DEFAULT_MODEL
+  return config.model || DEFAULT_MODEL
 }
 
 /**
@@ -76,13 +67,10 @@ export function validateConfig(config: GeminiConfig): GeminiHealthcheckResult {
     return { ok: false, provider: 'gemini', message: 'missing api key' }
   }
   const model = resolveModel(config)
-  const warning = config.model && !VALIDATION_PATTERN.test(config.model)
-    ? ` (invalid model "${config.model}" replaced with default)`
-    : ''
   return {
     ok: true,
     provider: 'gemini',
-    message: `config valid${warning}`,
+    message: 'config valid',
     model,
   }
 }
