@@ -486,6 +486,26 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .orderBy(sql`SUM(${gaAiReferrals.sessions}) DESC`)
       .all()
 
+    // Deduplicated AI totals: sessionSource, firstUserSource, and manualSource are
+    // overlapping attribution lenses, not disjoint visits. To avoid double-counting,
+    // take MAX(sessions) per date+source+medium across dimensions, then sum.
+    const aiDeduped = app.db
+      .select({
+        sessions: sql<number>`SUM(max_sessions)`,
+        users: sql<number>`SUM(max_users)`,
+      })
+      .from(
+        sql`(
+          SELECT date, source, medium,
+                 MAX(sessions) AS max_sessions,
+                 MAX(users) AS max_users
+          FROM ga_ai_referrals
+          WHERE project_id = ${project.id}
+          GROUP BY date, source, medium
+        )`
+      )
+      .get()
+
     const latestSync = app.db
       .select({ syncedAt: gaTrafficSummaries.syncedAt })
       .from(gaTrafficSummaries)
@@ -511,6 +531,8 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         sessions: r.sessions ?? 0,
         users: r.users ?? 0,
       })),
+      aiSessionsDeduped: aiDeduped?.sessions ?? 0,
+      aiUsersDeduped: aiDeduped?.users ?? 0,
       lastSyncedAt: latestSync?.syncedAt ?? null,
     }
   })

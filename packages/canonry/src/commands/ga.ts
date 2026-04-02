@@ -144,16 +144,22 @@ export async function gaTraffic(project: string, opts?: { limit?: number; format
   console.log(`  Total Sessions:          ${result.totalSessions}`)
   console.log(`  Organic Sessions:        ${result.totalOrganicSessions}`)
   console.log(`  Total Users:             ${result.totalUsers}`)
+  if (result.aiSessionsDeduped > 0) {
+    const share = result.totalSessions > 0 ? Math.round((result.aiSessionsDeduped / result.totalSessions) * 100) : 0
+    console.log(`  AI Sessions (deduped):   ${result.aiSessionsDeduped} (${share}% of total)`)
+  }
   console.log()
 
   if (result.aiReferrals.length > 0) {
+    const attrWidth = 12
     console.log('  AI REFERRAL SOURCES')
-    console.log(`  ${'SOURCE'.padEnd(25)}  ${'MEDIUM'.padEnd(15)}  ${'SESSIONS'.padEnd(10)}${'USERS'.padEnd(8)}`)
-    console.log(`  ${'─'.repeat(25)}  ${'─'.repeat(15)}  ${'─'.repeat(10)}${'─'.repeat(8)}`)
+    console.log(`  ${'SOURCE'.padEnd(25)}  ${'MEDIUM'.padEnd(15)}  ${'ATTRIBUTION'.padEnd(attrWidth)}  ${'SESSIONS'.padEnd(10)}${'USERS'.padEnd(8)}`)
+    console.log(`  ${'─'.repeat(25)}  ${'─'.repeat(15)}  ${'─'.repeat(attrWidth)}  ${'─'.repeat(10)}${'─'.repeat(8)}`)
 
     for (const ref of result.aiReferrals) {
+      const dimLabel = ref.sourceDimension === 'first_user' ? 'first-visit' : ref.sourceDimension === 'manual_utm' ? 'utm' : 'session'
       console.log(
-        `  ${ref.source.padEnd(25)}  ${ref.medium.padEnd(15)}  ${String(ref.sessions).padEnd(10)}${String(ref.users).padEnd(8)}`,
+        `  ${ref.source.padEnd(25)}  ${ref.medium.padEnd(15)}  ${dimLabel.padEnd(attrWidth)}  ${String(ref.sessions).padEnd(10)}${String(ref.users).padEnd(8)}`,
       )
     }
     console.log()

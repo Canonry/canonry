@@ -249,14 +249,29 @@ function AnalyticsTrendChart({ buckets, keywordChanges }: { buckets: BrandMetric
   }))
 
   const annotations = useMemo(() => {
-    if (!keywordChanges || keywordChanges.length === 0) return []
-    return keywordChanges.filter(ev => {
-      if (buckets.length < 2) return false
-      const t = new Date(ev.date).getTime()
-      const tMin = new Date(buckets[0]!.startDate).getTime()
-      const tMax = new Date(buckets[buckets.length - 1]!.startDate).getTime()
-      return t >= tMin && t <= tMax
-    })
+    if (!keywordChanges || keywordChanges.length === 0 || buckets.length < 2) return []
+    const tMin = new Date(buckets[0]!.startDate).getTime()
+    const tMax = new Date(buckets[buckets.length - 1]!.startDate).getTime()
+
+    return keywordChanges
+      .filter(ev => {
+        const t = new Date(ev.date).getTime()
+        return t >= tMin && t <= tMax
+      })
+      .map(ev => {
+        // Snap to the nearest bucket startDate so ReferenceLine x= matches a category value
+        const t = new Date(ev.date).getTime()
+        let closest = buckets[0]!.startDate
+        let closestDist = Math.abs(t - new Date(closest).getTime())
+        for (const b of buckets) {
+          const dist = Math.abs(t - new Date(b.startDate).getTime())
+          if (dist < closestDist) {
+            closest = b.startDate
+            closestDist = dist
+          }
+        }
+        return { ...ev, date: closest }
+      })
   }, [buckets, keywordChanges])
 
   return (

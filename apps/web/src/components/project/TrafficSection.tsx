@@ -204,13 +204,24 @@ export function TrafficSection({ projectName }: { projectName: string }) {
       byDate.set(row.date, { _totalSessions: row.sessions, _organicSessions: row.organicSessions })
     }
 
+    // Deduplicate across attribution dimensions: sessionSource, firstUserSource,
+    // and manualSource are overlapping lenses, not disjoint visits. Take
+    // MAX(sessions) per date+source across dimensions to avoid double-counting.
+    const dedupedAi = new Map<string, number>()
     for (const row of aiHistory) {
-      let entry = byDate.get(row.date)
+      const key = `${row.date}::${row.source}`
+      const prev = dedupedAi.get(key) ?? 0
+      dedupedAi.set(key, Math.max(prev, row.sessions))
+    }
+
+    for (const [key, sessions] of dedupedAi) {
+      const [date, source] = key.split('::')
+      let entry = byDate.get(date!)
       if (!entry) {
         entry = { _totalSessions: 0, _organicSessions: 0 }
-        byDate.set(row.date, entry)
+        byDate.set(date!, entry)
       }
-      entry[row.source] = (entry[row.source] ?? 0) + row.sessions
+      entry[source!] = (entry[source!] ?? 0) + sessions
     }
 
     const data = [...byDate.entries()]
@@ -242,7 +253,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
   const organicPct = traffic && traffic.totalSessions > 0
     ? Math.round((traffic.totalOrganicSessions / traffic.totalSessions) * 100)
     : 0
-  const aiSessions = traffic?.aiReferrals.reduce((sum, referral) => sum + referral.sessions, 0) ?? 0
+  const aiSessions = traffic?.aiSessionsDeduped ?? 0
   const aiSharePct = traffic && traffic.totalSessions > 0
     ? Math.round((aiSessions / traffic.totalSessions) * 100)
     : 0

@@ -44,6 +44,10 @@ export const ga4TrafficSummaryDtoSchema = z.object({
     users: z.number(),
   })),
   aiReferrals: z.array(ga4AiReferralDtoSchema),
+  /** Deduped AI session total: MAX(sessions) per date+source+medium across attribution dimensions, then summed. */
+  aiSessionsDeduped: z.number(),
+  /** Deduped AI user total: MAX(users) per date+source+medium across attribution dimensions, then summed. */
+  aiUsersDeduped: z.number(),
   lastSyncedAt: z.string().nullable(),
 })
 export type GA4TrafficSummaryDto = z.infer<typeof ga4TrafficSummaryDtoSchema>
@@ -81,6 +85,10 @@ export interface GaTrafficResponse {
   totalUsers: number
   topPages: Array<{ landingPage: string; sessions: number; organicSessions: number; users: number }>
   aiReferrals: Array<{ source: string; medium: string; sessions: number; users: number; sourceDimension: GA4SourceDimension }>
+  /** Deduped AI session total: MAX(sessions) per date+source+medium across attribution dimensions, then summed. */
+  aiSessionsDeduped: number
+  /** Deduped AI user total: MAX(users) per date+source+medium across attribution dimensions, then summed. */
+  aiUsersDeduped: number
   lastSyncedAt: string | null
 }
 

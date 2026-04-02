@@ -960,6 +960,10 @@ export interface ApiGaTraffic {
   totalUsers: number
   topPages: ApiGaTrafficPage[]
   aiReferrals: ApiGaTrafficReferral[]
+  /** Deduped AI session total (MAX per date+source+medium across attribution dimensions). */
+  aiSessionsDeduped: number
+  /** Deduped AI user total. */
+  aiUsersDeduped: number
   lastSyncedAt: string | null
 }
 

@@ -57,6 +57,8 @@ test('loads connected GA4 data without changing hook order', async () => {
         aiReferrals: [
           { source: 'chatgpt.com', medium: 'referral', sourceDimension: 'session', sessions: 12, users: 9 },
         ],
+        aiSessionsDeduped: 12,
+        aiUsersDeduped: 9,
         lastSyncedAt: '2026-03-31T12:00:00.000Z',
       })
     }

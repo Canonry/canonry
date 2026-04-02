@@ -447,6 +447,8 @@ describe('GA4 routes', () => {
     expect(body.aiReferrals).toEqual([
       { source: 'chatgpt.com', medium: 'referral', sourceDimension: 'session', sessions: 17, users: 10 },
     ])
+    expect(body.aiSessionsDeduped).toBe(17)
+    expect(body.aiUsersDeduped).toBe(10)
     expect(body.lastSyncedAt).toBe(now)
 
     credentials.delete('test-project')
