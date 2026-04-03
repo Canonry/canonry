@@ -1,3 +1,4 @@
+import type { ProjectDto } from '@ainyc/canonry-contracts'
 import { effectiveDomains } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 
@@ -10,13 +11,13 @@ export async function createProject(
   opts: { domain: string; ownedDomains?: string[]; country: string; language: string; displayName: string; format?: string },
 ): Promise<void> {
   const client = getClient()
-  const result = await client.putProject(name, {
+  const result: ProjectDto = await client.putProject(name, {
     displayName: opts.displayName,
     canonicalDomain: opts.domain,
     ownedDomains: opts.ownedDomains ?? [],
     country: opts.country,
     language: opts.language,
-  }) as { id: string; name: string; canonicalDomain: string; country: string; language: string }
+  })
 
   if (opts.format === 'json') {
     console.log(JSON.stringify(result, null, 2))
@@ -28,13 +29,7 @@ export async function createProject(
 
 export async function listProjects(format?: string): Promise<void> {
   const client = getClient()
-  const projects = await client.listProjects() as Array<{
-    name: string
-    canonicalDomain: string
-    ownedDomains?: string[]
-    country: string
-    language: string
-  }>
+  const projects: ProjectDto[] = await client.listProjects()
 
   if (format === 'json') {
     console.log(JSON.stringify(projects, null, 2))
@@ -68,28 +63,14 @@ export async function listProjects(format?: string): Promise<void> {
 
 export async function showProject(name: string, format?: string): Promise<void> {
   const client = getClient()
-  const project = await client.getProject(name) as {
-    id: string
-    name: string
-    displayName: string
-    canonicalDomain: string
-    ownedDomains?: string[]
-    country: string
-    language: string
-    tags: string[]
-    labels: Record<string, string>
-    configSource: string
-    configRevision: number
-    createdAt: string
-    updatedAt: string
-  }
+  const project: ProjectDto = await client.getProject(name)
 
   if (format === 'json') {
     console.log(JSON.stringify(project, null, 2))
     return
   }
 
-  console.log(`Project: ${project.displayName}\n`)
+  console.log(`Project: ${project.displayName ?? project.name}\n`)
   console.log(`  Name:             ${project.name}`)
   console.log(`  ID:               ${project.id}`)
   console.log(`  Domain:           ${project.canonicalDomain}`)
@@ -104,8 +85,8 @@ export async function showProject(name: string, format?: string): Promise<void> 
   console.log(`  Tags:             ${project.tags.length > 0 ? project.tags.join(', ') : '(none)'}`)
   const labelEntries = Object.entries(project.labels)
   console.log(`  Labels:           ${labelEntries.length > 0 ? labelEntries.map(([k, v]) => `${k}=${v}`).join(', ') : '(none)'}`)
-  console.log(`  Created:          ${project.createdAt}`)
-  console.log(`  Updated:          ${project.updatedAt}`)
+  if (project.createdAt) console.log(`  Created:          ${project.createdAt}`)
+  if (project.updatedAt) console.log(`  Updated:          ${project.updatedAt}`)
 }
 
 export async function updateProjectSettings(
@@ -122,13 +103,7 @@ export async function updateProjectSettings(
   },
 ): Promise<void> {
   const client = getClient()
-  const project = await client.getProject(name) as {
-    displayName: string
-    canonicalDomain: string
-    ownedDomains?: string[]
-    country: string
-    language: string
-  }
+  const project: ProjectDto = await client.getProject(name)
 
   let ownedDomains = opts.ownedDomains ?? project.ownedDomains ?? []
   if (opts.addOwnedDomain) {
@@ -140,21 +115,13 @@ export async function updateProjectSettings(
     ownedDomains = ownedDomains.filter(d => !toRemove.has(d))
   }
 
-  const result = await client.putProject(name, {
-    displayName: opts.displayName ?? project.displayName,
+  const result: ProjectDto = await client.putProject(name, {
+    displayName: opts.displayName ?? project.displayName ?? project.name,
     canonicalDomain: opts.domain ?? project.canonicalDomain,
     ownedDomains,
     country: opts.country ?? project.country,
     language: opts.language ?? project.language,
-  }) as {
-    id: string
-    name: string
-    displayName: string
-    canonicalDomain: string
-    ownedDomains?: string[]
-    country: string
-    language: string
-  }
+  })
 
   if (opts.format === 'json') {
     console.log(JSON.stringify(result, null, 2))
@@ -244,7 +211,7 @@ export async function setDefaultLocation(project: string, label: string, format?
   const result = await client.setDefaultLocation(project, label)
 
   if (format === 'json') {
-    console.log(JSON.stringify({ project, ...(result as object) }, null, 2))
+    console.log(JSON.stringify({ project, ...result }, null, 2))
     return
   }
 

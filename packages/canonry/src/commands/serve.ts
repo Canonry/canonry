@@ -17,6 +17,17 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
   // Create and start server
   const app = await createServer({ config, db })
 
+  // Graceful shutdown on SIGTERM (sent by `canonry stop`) and SIGINT (Ctrl+C)
+  const shutdown = (): void => {
+    app.close().then(() => {
+      process.exit(0)
+    }).catch(() => {
+      process.exit(1)
+    })
+  }
+  process.on('SIGTERM', shutdown)
+  process.on('SIGINT', shutdown)
+
   try {
     await app.listen({ host, port })
     const url = `http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`

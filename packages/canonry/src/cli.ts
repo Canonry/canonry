@@ -42,10 +42,10 @@ Usage:
   canonry run --all                   Trigger runs for all projects
   canonry run show <id>               Show run details and snapshots
   canonry runs <project>              List runs for a project (--limit <n>)
-  canonry status <project>            Show project summary
-  canonry evidence <project>          Show per-phrase results
+  canonry status <project>            Show project summary [--format json]
+  canonry evidence <project>          Show per-phrase results [--format json]
   canonry analytics <project>         Show analytics (--feature metrics|gaps|sources, --window 7d|30d|90d|all)
-  canonry history <project>           Show audit trail
+  canonry history <project>           Show audit trail [--format json]
   canonry export <project>            Export project as YAML
   canonry apply <file...>              Apply declarative config (multi-doc YAML supported)
   canonry schedule set <project>      Set schedule (--preset or --cron)
