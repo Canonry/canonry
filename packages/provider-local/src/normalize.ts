@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import { withRetry } from './utils.js'
 import type {
   LocalConfig,
   LocalHealthcheckResult,
@@ -30,16 +31,19 @@ export async function healthcheck(config: LocalConfig): Promise<LocalHealthcheck
       baseURL: config.baseUrl,
       apiKey: config.apiKey || 'not-needed',
     })
-    const models = await client.models.list()
-    const modelList = []
-    for await (const m of models) {
-      modelList.push(m.id)
-      if (modelList.length >= 5) break
-    }
+    const models = await withRetry(async () => {
+      const list = await client.models.list()
+      const items = []
+      for await (const m of list) {
+        items.push(m.id)
+        if (items.length >= 5) break
+      }
+      return items
+    })
     return {
       ok: true,
       provider: 'local',
-      message: `connected, ${modelList.length} model(s) available`,
+      message: `connected, ${models.length} model(s) available`,
       model: config.model ?? DEFAULT_MODEL,
     }
   } catch (err: unknown) {
@@ -59,26 +63,33 @@ export async function executeTrackedQuery(input: LocalTrackedQueryInput): Promis
     apiKey: input.config.apiKey || 'not-needed',
   })
 
-  const response = await client.chat.completions.create({
-    model,
-    messages: [
-      {
-        role: 'system',
-        content: 'You are a helpful assistant. Provide comprehensive, factual answers. When mentioning websites or services, include their domain names.',
-      },
-      {
-        role: 'user',
-        content: buildPrompt(input.keyword, input.location),
-      },
-    ],
-  })
+  try {
+    const response = await withRetry(() =>
+      client.chat.completions.create({
+        model,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a helpful assistant. Provide comprehensive, factual answers. When mentioning websites or services, include their domain names.',
+          },
+          {
+            role: 'user',
+            content: buildPrompt(input.keyword, input.location),
+          },
+        ],
+      }),
+    )
 
-  return {
-    provider: 'local',
-    rawResponse: responseToRecord(response),
-    model,
-    groundingSources: [],
-    searchQueries: [],
+    return {
+      provider: 'local',
+      rawResponse: responseToRecord(response),
+      model,
+      groundingSources: [],
+      searchQueries: [],
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    throw new Error(`[provider-local] ${msg}`)
   }
 }
 
@@ -120,10 +131,12 @@ export async function generateText(prompt: string, config: LocalConfig): Promise
     baseURL: config.baseUrl,
     apiKey: config.apiKey || 'not-needed',
   })
-  const response = await client.chat.completions.create({
-    model,
-    messages: [{ role: 'user', content: prompt }],
-  })
+  const response = await withRetry(() =>
+    client.chat.completions.create({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  )
   return response.choices[0]?.message?.content ?? ''
 }
 

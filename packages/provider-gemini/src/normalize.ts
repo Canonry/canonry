@@ -1,4 +1,5 @@
 import { GoogleGenAI, type GenerateContentResponse } from '@google/genai'
+import { withRetry } from './utils.js'
 import type {
   GeminiConfig,
   GeminiHealthcheckResult,
@@ -82,10 +83,12 @@ export async function healthcheck(config: GeminiConfig): Promise<GeminiHealthche
   try {
     const model = resolveModel(config)
     const client = createClient(config)
-    const result = await client.models.generateContent({
-      model,
-      contents: 'Say "ok"',
-    })
+    const result = await withRetry(() =>
+      client.models.generateContent({
+        model,
+        contents: 'Say "ok"',
+      }),
+    )
     const text = result.text ?? ''
     const backend = isVertexConfig(config) ? 'vertex ai' : 'api key'
     return {
@@ -109,23 +112,30 @@ export async function executeTrackedQuery(input: GeminiTrackedQueryInput): Promi
   const prompt = buildPrompt(input.keyword, input.location)
   const client = createClient(input.config)
 
-  const result = await client.models.generateContent({
-    model,
-    contents: prompt,
-    config: {
-      tools: [{ googleSearch: {} }],
-    },
-  })
+  try {
+    const result = await withRetry(() =>
+      client.models.generateContent({
+        model,
+        contents: prompt,
+        config: {
+          tools: [{ googleSearch: {} }],
+        },
+      }),
+    )
 
-  const groundingSources = extractGroundingMetadata(result)
-  const searchQueries = extractSearchQueries(result)
+    const groundingSources = extractGroundingMetadata(result)
+    const searchQueries = extractSearchQueries(result)
 
-  return {
-    provider: 'gemini',
-    rawResponse: responseToRecord(result),
-    model,
-    groundingSources,
-    searchQueries,
+    return {
+      provider: 'gemini',
+      rawResponse: responseToRecord(result),
+      model,
+      groundingSources,
+      searchQueries,
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    throw new Error(`[provider-gemini] ${msg}`)
   }
 }
 
@@ -260,10 +270,12 @@ function extractDomainFromUri(uri: string): string | null {
 export async function generateText(prompt: string, config: GeminiConfig): Promise<string> {
   const model = resolveModel(config)
   const client = createClient(config)
-  const result = await client.models.generateContent({
-    model,
-    contents: prompt,
-  })
+  const result = await withRetry(() =>
+    client.models.generateContent({
+      model,
+      contents: prompt,
+    }),
+  )
   return result.text ?? ''
 }
 

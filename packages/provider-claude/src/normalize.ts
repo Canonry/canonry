@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { WebSearchTool20250305 } from '@anthropic-ai/sdk/resources/messages/messages.js'
+import { withRetry } from './utils.js'
 import type {
   ClaudeConfig,
   ClaudeHealthcheckResult,
@@ -52,11 +53,13 @@ export async function healthcheck(config: ClaudeConfig): Promise<ClaudeHealthche
   try {
     const model = resolveModel(config)
     const client = new Anthropic({ apiKey: config.apiKey })
-    const response = await client.messages.create({
-      model,
-      max_tokens: 32,
-      messages: [{ role: 'user', content: 'Say "ok"' }],
-    })
+    const response = await withRetry(() =>
+      client.messages.create({
+        model,
+        max_tokens: 32,
+        messages: [{ role: 'user', content: 'Say "ok"' }],
+      }),
+    )
     const text = extractTextFromResponse(response)
     return {
       ok: text.length > 0,
@@ -93,22 +96,29 @@ export async function executeTrackedQuery(input: ClaudeTrackedQueryInput): Promi
     }
   }
 
-  const response = await client.messages.create({
-    model,
-    max_tokens: 4096,
-    tools: [webSearchTool as unknown as WebSearchTool20250305],
-    messages: [{ role: 'user', content: input.keyword }],
-  })
+  try {
+    const response = await withRetry(() =>
+      client.messages.create({
+        model,
+        max_tokens: 4096,
+        tools: [webSearchTool as unknown as WebSearchTool20250305],
+        messages: [{ role: 'user', content: input.keyword }],
+      }),
+    )
 
-  const groundingSources = extractGroundingSources(response)
-  const searchQueries = extractSearchQueries(response)
+    const groundingSources = extractGroundingSources(response)
+    const searchQueries = extractSearchQueries(response)
 
-  return {
-    provider: 'claude',
-    rawResponse: responseToRecord(response),
-    model,
-    groundingSources,
-    searchQueries,
+    return {
+      provider: 'claude',
+      rawResponse: responseToRecord(response),
+      model,
+      groundingSources,
+      searchQueries,
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    throw new Error(`[provider-claude] ${msg}`)
   }
 }
 
@@ -224,11 +234,13 @@ function extractDomainFromUri(uri: string): string | null {
 export async function generateText(prompt: string, config: ClaudeConfig): Promise<string> {
   const model = resolveModel(config)
   const client = new Anthropic({ apiKey: config.apiKey })
-  const response = await client.messages.create({
-    model,
-    max_tokens: 2048,
-    messages: [{ role: 'user', content: prompt }],
-  })
+  const response = await withRetry(() =>
+    client.messages.create({
+      model,
+      max_tokens: 2048,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  )
   return extractTextFromResponse(response)
 }
 

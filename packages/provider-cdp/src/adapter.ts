@@ -103,47 +103,52 @@ export const cdpChatgptAdapter: ProviderAdapter = {
     const conn = getConnection(config)
     const target = chatgptTarget
 
-    // Navigate to a fresh conversation
-    const client = await conn.prepareForQuery(target)
-
-    // Submit the query
-    await target.submitQuery(client, input.keyword)
-
-    // Wait for the response to complete
-    await target.waitForResponse(client)
-
-    // Extract answer text
-    const answerText = await target.extractAnswer(client)
-
-    // Extract citations
-    const groundingSources = await target.extractCitations(client)
-
-    // Capture cropped screenshot of the response area
-    const screenshotId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const screenshotPath = path.join(getScreenshotDir(), `${screenshotId}.png`)
-    let capturedScreenshotPath: string | undefined
     try {
-      capturedScreenshotPath = await captureElementScreenshot(
-        client,
-        target.responseSelector,
-        screenshotPath,
-      )
-    } catch {
-      // Screenshot failure is non-fatal — we still have the text data
-    }
+      // Navigate to a fresh conversation
+      const client = await conn.prepareForQuery(target)
 
-    return {
-      provider: 'cdp:chatgpt',
-      rawResponse: {
-        answerText,
+      // Submit the query
+      await target.submitQuery(client, input.keyword)
+
+      // Wait for the response to complete
+      await target.waitForResponse(client)
+
+      // Extract answer text
+      const answerText = await target.extractAnswer(client)
+
+      // Extract citations
+      const groundingSources = await target.extractCitations(client)
+
+      // Capture cropped screenshot of the response area
+      const screenshotId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      const screenshotPath = path.join(getScreenshotDir(), `${screenshotId}.png`)
+      let capturedScreenshotPath: string | undefined
+      try {
+        capturedScreenshotPath = await captureElementScreenshot(
+          client,
+          target.responseSelector,
+          screenshotPath,
+        )
+      } catch {
+        // Screenshot failure is non-fatal — we still have the text data
+      }
+
+      return {
+        provider: 'cdp:chatgpt',
+        rawResponse: {
+          answerText,
+          groundingSources,
+          extractedAt: new Date().toISOString(),
+          targetUrl: target.newConversationUrl,
+        },
+        model: 'chatgpt-web',
         groundingSources,
-        extractedAt: new Date().toISOString(),
-        targetUrl: target.newConversationUrl,
-      },
-      model: 'chatgpt-web',
-      groundingSources,
-      searchQueries: [input.keyword],
-      screenshotPath: capturedScreenshotPath,
+        searchQueries: [input.keyword],
+        screenshotPath: capturedScreenshotPath,
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      throw new Error(`[provider-cdp] ${msg}`)
     }
   },
 
