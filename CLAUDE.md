@@ -69,11 +69,26 @@ THIS IS AN **AGENT-FIRST** PLATFORM. The CLI and API are the primary interfaces.
 3. **Ideal:** Add the UI interaction in `apps/web/` — aim to include it, but never block a release waiting for UI work.
 
 ### Agent & automation design principles
-- Every operation must be scriptable via CLI or API without human interaction.
-- CLI output must be machine-parseable (support `--format json` on all commands that produce output).
-- API responses must be self-describing and stable — external agents and scripts depend on them.
-- Prefer config-as-code (`canonry apply`) over interactive wizards.
-- Error messages must be actionable from a terminal — include the failed command, the reason, and a suggested fix.
+
+The CLI and API **are** the agent interface. No MCP layer, no virtual filesystem, no special agent SDK. If an AI agent can't do something with `canonry <command> --format json` or an HTTP call, it's a bug.
+
+#### Rules
+
+1. **No interactive prompts.** Every CLI command must be fully operable via flags and environment variables. Never import `node:readline` in command files — ESLint enforces this. If a value is sensitive (API keys, passwords), accept it via `--flag`, env var, or `config.yaml`. Prompts are allowed only in `canonry init` as a convenience; all init values must also be passable via flags.
+2. **JSON everywhere.** Every command that produces output must support `--format json`. JSON output goes to stdout. Errors go to stderr as `{ "error": { "code": "...", "message": "..." } }`. Human-readable text is the default; JSON is the machine contract.
+3. **Idempotent writes.** `canonry apply` is the model — running it twice with the same input produces the same state. New write commands must follow this pattern. `POST` endpoints that create resources (like runs) are exempt, but must return a stable identifier and handle conflicts gracefully (e.g., `runInProgress` error with the existing run ID).
+4. **Single-call reads.** If an agent needs two API calls to answer a common question, add a composite endpoint. Examples: `/projects/:name/runs/latest` (don't make agents list-then-filter), `/projects/:name/search?q=term` (don't make agents fetch all snapshots to grep). The test: can an agent get what it needs in one `curl` call?
+5. **Meaningful exit codes.** `0` = success, `1` = user error (bad input, not found, validation), `2` = system error (network, provider failure, internal). Agents use exit codes to decide whether to retry.
+6. **Stable output contracts.** JSON field names, endpoint paths, and error codes are public API. Renaming a JSON field is a breaking change. Add fields freely; never remove or rename without a version bump.
+
+#### Checklist for any new command or endpoint
+
+- [ ] Fully operable without interactive input (no readline, no prompts)
+- [ ] `--format json` supported, outputs to stdout
+- [ ] Errors output structured JSON to stderr with a code from `CliError`
+- [ ] Write operations are idempotent (or return conflict details)
+- [ ] Common read patterns achievable in a single API call
+- [ ] Exit code follows 0/1/2 convention
 
 ## Maintenance Guidance
 

@@ -1,16 +1,27 @@
 export type CliFormat = 'text' | 'json'
 
+/**
+ * Exit codes follow a convention agents can branch on:
+ *   0 = success
+ *   1 = user error (bad input, not found, validation — do not retry)
+ *   2 = system error (network, provider failure, internal — may retry)
+ */
+export const EXIT_USER_ERROR = 1
+export const EXIT_SYSTEM_ERROR = 2
+
 type CliErrorOptions = {
   code: string
   message: string
   displayMessage?: string
   details?: Record<string, unknown>
+  exitCode?: typeof EXIT_USER_ERROR | typeof EXIT_SYSTEM_ERROR
 }
 
 export class CliError extends Error {
   readonly code: string
   readonly displayMessage?: string
   readonly details?: Record<string, unknown>
+  readonly exitCode: number
 
   constructor(options: CliErrorOptions) {
     super(options.message)
@@ -18,6 +29,7 @@ export class CliError extends Error {
     this.code = options.code
     this.displayMessage = options.displayMessage
     this.details = options.details
+    this.exitCode = options.exitCode ?? EXIT_USER_ERROR
   }
 }
 
@@ -34,6 +46,22 @@ export function usageError(
     message: options?.message ?? firstLine.replace(/^Error:\s*/, ''),
     displayMessage,
     details: options?.details,
+  })
+}
+
+export function systemError(
+  message: string,
+  options?: {
+    displayMessage?: string
+    details?: Record<string, unknown>
+  },
+): CliError {
+  return new CliError({
+    code: 'CLI_SYSTEM_ERROR',
+    message,
+    displayMessage: options?.displayMessage,
+    details: options?.details,
+    exitCode: EXIT_SYSTEM_ERROR,
   })
 }
 

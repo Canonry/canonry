@@ -25,6 +25,20 @@ export default tseslint.config(
     ignores: ['dist/', 'node_modules/', 'apps/**/dist/', 'packages/**/dist/'],
   },
   {
+    // CLI commands must be fully non-interactive. readline is only allowed in
+    // init.ts as a human convenience — all init values are also passable via flags.
+    files: ['packages/canonry/src/commands/**/*.ts', 'packages/canonry/src/cli-commands/**/*.ts'],
+    ignores: ['packages/canonry/src/commands/init.ts'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        paths: [
+          { name: 'node:readline', message: 'CLI commands must be non-interactive. Accept values via flags, env vars, or config.yaml.' },
+          { name: 'readline', message: 'CLI commands must be non-interactive. Accept values via flags, env vars, or config.yaml.' },
+        ],
+      }],
+    },
+  },
+  {
     files: ['**/*.js'],
     extends: [js.configs.recommended],
     languageOptions: {

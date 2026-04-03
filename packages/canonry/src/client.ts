@@ -1,3 +1,4 @@
+import { CliError, EXIT_SYSTEM_ERROR, EXIT_USER_ERROR } from './cli-error.js'
 import { loadConfig } from './config.js'
 import type {
   ProjectDto,
@@ -137,14 +138,18 @@ export class ApiClient {
         body: serializedBody,
       })
     } catch (err) {
+      if (err instanceof CliError) throw err
       const msg = err instanceof Error ? err.message : String(err)
       if (msg.includes('fetch failed') || msg.includes('ECONNREFUSED') || msg.includes('connect ECONNREFUSED')) {
-        throw new Error(
-          `Could not connect to canonry server at ${this.baseUrl.replace('/api/v1', '')}. ` +
-          'Start it with "canonry serve" (or "canonry serve &" to run in background).',
-        )
+        throw new CliError({
+          code: 'CONNECTION_ERROR',
+          message:
+            `Could not connect to canonry server at ${this.baseUrl.replace('/api/v1', '')}. ` +
+            'Start it with "canonry serve" (or "canonry serve &" to run in background).',
+          exitCode: EXIT_SYSTEM_ERROR,
+        })
       }
-      throw err
+      throw new CliError({ code: 'CONNECTION_ERROR', message: msg, exitCode: EXIT_SYSTEM_ERROR })
     }
 
     if (!res.ok) {
@@ -154,16 +159,18 @@ export class ApiClient {
       } catch {
         errorBody = { error: { code: 'UNKNOWN', message: res.statusText } }
       }
-      const msg =
+      const errorObj =
         errorBody &&
         typeof errorBody === 'object' &&
         'error' in errorBody &&
         errorBody.error &&
-        typeof errorBody.error === 'object' &&
-        'message' in errorBody.error
-          ? String((errorBody.error as { message: string }).message)
-          : `HTTP ${res.status}: ${res.statusText}`
-      throw new Error(msg)
+        typeof errorBody.error === 'object'
+          ? (errorBody.error as { code?: string; message?: string })
+          : null
+      const msg = errorObj?.message ? String(errorObj.message) : `HTTP ${res.status}: ${res.statusText}`
+      const code = errorObj?.code ? String(errorObj.code) : 'API_ERROR'
+      const exitCode = res.status >= 500 ? EXIT_SYSTEM_ERROR : EXIT_USER_ERROR
+      throw new CliError({ code, message: msg, exitCode })
     }
 
     if (res.status === 204) {
