@@ -8,6 +8,49 @@ import type {
 } from './types.js'
 import { BingApiError } from './types.js'
 
+function validateApiKey(apiKey: string): void {
+  if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length === 0) {
+    throw new BingApiError('API key is required and must be a non-empty string', 400)
+  }
+}
+
+function validateSiteUrl(siteUrl: string): void {
+  if (!siteUrl || typeof siteUrl !== 'string' || siteUrl.trim().length === 0) {
+    throw new BingApiError('Site URL is required and must be a non-empty string', 400)
+  }
+  try {
+    const url = new URL(siteUrl)
+    if (!url.protocol.startsWith('http')) {
+      throw new BingApiError('Site URL must be an HTTP or HTTPS URL', 400)
+    }
+  } catch {
+    throw new BingApiError('Site URL must be a valid URL', 400)
+  }
+}
+
+function validateUrl(urlParam: string): void {
+  if (!urlParam || typeof urlParam !== 'string' || urlParam.trim().length === 0) {
+    throw new BingApiError('URL is required and must be a non-empty string', 400)
+  }
+  try {
+    const url = new URL(urlParam)
+    if (!url.protocol.startsWith('http')) {
+      throw new BingApiError('URL must be an HTTP or HTTPS URL', 400)
+    }
+  } catch {
+    throw new BingApiError('URL must be a valid URL', 400)
+  }
+}
+
+function validateUrls(urls: string[]): void {
+  if (!Array.isArray(urls)) {
+    throw new BingApiError('URLs must be an array', 400)
+  }
+  for (const url of urls) {
+    validateUrl(url)
+  }
+}
+
 function bingClientLog(level: 'info' | 'error', action: string, ctx?: Record<string, unknown>): void {
   const entry = { ts: new Date().toISOString(), level, module: 'BingClient', action, ...ctx }
   const stream = level === 'error' ? process.stderr : process.stdout
@@ -66,11 +109,14 @@ async function bingFetch<T>(apiKey: string, endpoint: string, opts?: { method?: 
 }
 
 export async function getSites(apiKey: string): Promise<BingSite[]> {
+  validateApiKey(apiKey)
   const data = await bingFetch<BingSite[]>(apiKey, 'GetUserSites')
   return data ?? []
 }
 
 export async function addSite(apiKey: string, siteUrl: string): Promise<void> {
+  validateApiKey(apiKey)
+  validateSiteUrl(siteUrl)
   await bingFetch<unknown>(apiKey, 'AddSite', {
     method: 'POST',
     body: { siteUrl },
@@ -78,12 +124,18 @@ export async function addSite(apiKey: string, siteUrl: string): Promise<void> {
 }
 
 export async function getUrlInfo(apiKey: string, siteUrl: string, url: string): Promise<BingUrlInfo> {
+  validateApiKey(apiKey)
+  validateSiteUrl(siteUrl)
+  validateUrl(url)
   const encodedSite = encodeURIComponent(siteUrl)
   const encodedUrl = encodeURIComponent(url)
   return bingFetch<BingUrlInfo>(apiKey, `GetUrlInfo?siteUrl=${encodedSite}&url=${encodedUrl}`)
 }
 
 export async function submitUrl(apiKey: string, siteUrl: string, url: string): Promise<void> {
+  validateApiKey(apiKey)
+  validateSiteUrl(siteUrl)
+  validateUrl(url)
   await bingFetch<unknown>(apiKey, 'SubmitUrl', {
     method: 'POST',
     body: { siteUrl, url },
@@ -91,6 +143,9 @@ export async function submitUrl(apiKey: string, siteUrl: string, url: string): P
 }
 
 export async function submitUrlBatch(apiKey: string, siteUrl: string, urls: string[]): Promise<void> {
+  validateApiKey(apiKey)
+  validateSiteUrl(siteUrl)
+  validateUrls(urls)
   // Respect the 500 URL per batch limit
   for (let i = 0; i < urls.length; i += BING_SUBMIT_URL_BATCH_LIMIT) {
     const batch = urls.slice(i, i + BING_SUBMIT_URL_BATCH_LIMIT)
@@ -102,18 +157,24 @@ export async function submitUrlBatch(apiKey: string, siteUrl: string, urls: stri
 }
 
 export async function getKeywordStats(apiKey: string, siteUrl: string): Promise<BingKeywordStats[]> {
+  validateApiKey(apiKey)
+  validateSiteUrl(siteUrl)
   const encodedSite = encodeURIComponent(siteUrl)
   const data = await bingFetch<BingKeywordStats[]>(apiKey, `GetQueryStats?siteUrl=${encodedSite}`)
   return data ?? []
 }
 
 export async function getCrawlStats(apiKey: string, siteUrl: string): Promise<BingCrawlStats[]> {
+  validateApiKey(apiKey)
+  validateSiteUrl(siteUrl)
   const encodedSite = encodeURIComponent(siteUrl)
   const data = await bingFetch<BingCrawlStats[]>(apiKey, `GetCrawlStats?siteUrl=${encodedSite}`)
   return data ?? []
 }
 
 export async function getCrawlIssues(apiKey: string, siteUrl: string): Promise<BingCrawlIssue[]> {
+  validateApiKey(apiKey)
+  validateSiteUrl(siteUrl)
   const encodedSite = encodeURIComponent(siteUrl)
   const data = await bingFetch<BingCrawlIssue[]>(apiKey, `GetCrawlIssues?siteUrl=${encodedSite}`)
   return data ?? []

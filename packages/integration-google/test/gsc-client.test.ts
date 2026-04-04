@@ -174,7 +174,7 @@ describe('fetchSearchAnalytics', () => {
     globalThis.fetch = async () => new Response('Rate limited', { status: 429 })
 
     await expect(
-      () => fetchSearchAnalytics('token', 'site', { startDate: '2024-01-01', endDate: '2024-01-31' }),
+      () => fetchSearchAnalytics('token', 'https://example.com', { startDate: '2024-01-01', endDate: '2024-01-31' }),
     ).rejects.toThrow(/rate limit/)
   })
 })

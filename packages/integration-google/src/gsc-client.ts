@@ -10,6 +10,52 @@ import type {
 } from './types.js'
 import { GoogleApiError } from './types.js'
 
+function validateAccessToken(accessToken: string): void {
+  if (!accessToken || typeof accessToken !== 'string' || accessToken.trim().length === 0) {
+    throw new GoogleApiError('Access token is required and must be a non-empty string', 400)
+  }
+}
+
+function validateSiteUrl(siteUrl: string): void {
+  if (!siteUrl || typeof siteUrl !== 'string' || siteUrl.trim().length === 0) {
+    throw new GoogleApiError('Site URL is required and must be a non-empty string', 400)
+  }
+  // Accept both https://example.com and sc-domain:example.com patterns
+  if (siteUrl.startsWith('sc-domain:')) {
+    const domain = siteUrl.slice('sc-domain:'.length)
+    if (!domain) {
+      throw new GoogleApiError('Site URL sc-domain must include a domain', 400)
+    }
+    // Domain validation: simple check for at least one dot
+    if (!domain.includes('.')) {
+      throw new GoogleApiError('Site URL sc-domain must be a valid domain', 400)
+    }
+  } else {
+    try {
+      const url = new URL(siteUrl)
+      if (!url.protocol.startsWith('http')) {
+        throw new GoogleApiError('Site URL must be an HTTP or HTTPS URL', 400)
+      }
+    } catch {
+      throw new GoogleApiError('Site URL must be a valid URL', 400)
+    }
+  }
+}
+
+function validateUrl(urlParam: string): void {
+  if (!urlParam || typeof urlParam !== 'string' || urlParam.trim().length === 0) {
+    throw new GoogleApiError('URL is required and must be a non-empty string', 400)
+  }
+  try {
+    const url = new URL(urlParam)
+    if (!url.protocol.startsWith('http')) {
+      throw new GoogleApiError('URL must be an HTTP or HTTPS URL', 400)
+    }
+  } catch {
+    throw new GoogleApiError('URL must be a valid URL', 400)
+  }
+}
+
 function gscClientLog(level: 'info' | 'error', action: string, ctx?: Record<string, unknown>): void {
   const entry = { ts: new Date().toISOString(), level, module: 'GscClient', action, ...ctx }
   const stream = level === 'error' ? process.stderr : process.stdout
@@ -52,6 +98,7 @@ async function gscFetch<T>(accessToken: string, url: string, opts?: { method?: s
 }
 
 export async function listSites(accessToken: string): Promise<GscSite[]> {
+  validateAccessToken(accessToken)
   const data = await gscFetch<{ siteEntry?: GscSite[] }>(
     accessToken,
     `${GSC_API_BASE}/sites`,
@@ -60,6 +107,8 @@ export async function listSites(accessToken: string): Promise<GscSite[]> {
 }
 
 export async function listSitemaps(accessToken: string, siteUrl: string): Promise<GscSitemap[]> {
+  validateAccessToken(accessToken)
+  validateSiteUrl(siteUrl)
   const encodedSiteUrl = encodeURIComponent(siteUrl)
   const data = await gscFetch<{ sitemap?: GscSitemap[] }>(
     accessToken,
@@ -81,6 +130,8 @@ export async function fetchSearchAnalytics(
   siteUrl: string,
   opts: FetchSearchAnalyticsOptions,
 ): Promise<GscSearchAnalyticsRow[]> {
+  validateAccessToken(accessToken)
+  validateSiteUrl(siteUrl)
   const allRows: GscSearchAnalyticsRow[] = []
   let startRow = 0
   const dimensions = opts.dimensions ?? ['query', 'page', 'country', 'device', 'date']
@@ -127,6 +178,8 @@ export async function publishUrlNotification(
   url: string,
   type: 'URL_UPDATED' | 'URL_DELETED' = 'URL_UPDATED',
 ): Promise<IndexingApiResponse> {
+  validateAccessToken(accessToken)
+  validateUrl(url)
   return gscFetch<IndexingApiResponse>(
     accessToken,
     `${INDEXING_API_BASE}/urlNotifications:publish`,
@@ -141,6 +194,8 @@ export async function getUrlNotificationStatus(
   accessToken: string,
   url: string,
 ): Promise<IndexingApiResponse> {
+  validateAccessToken(accessToken)
+  validateUrl(url)
   const encodedUrl = encodeURIComponent(url)
   return gscFetch<IndexingApiResponse>(
     accessToken,
@@ -153,6 +208,9 @@ export async function inspectUrl(
   inspectionUrl: string,
   siteUrl: string,
 ): Promise<GscUrlInspectionResult> {
+  validateAccessToken(accessToken)
+  validateUrl(inspectionUrl)
+  validateSiteUrl(siteUrl)
   return gscFetch<GscUrlInspectionResult>(
     accessToken,
     URL_INSPECTION_API,

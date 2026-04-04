@@ -16,6 +16,44 @@ import type {
 } from './types.js'
 import { GA4ApiError } from './types.js'
 
+function validateClientEmail(clientEmail: string): void {
+  if (!clientEmail || typeof clientEmail !== 'string' || clientEmail.trim().length === 0) {
+    throw new GA4ApiError('Client email is required and must be a non-empty string', 400)
+  }
+  // Simple email format check
+  if (!clientEmail.includes('@')) {
+    throw new GA4ApiError('Client email must be a valid email address', 400)
+  }
+}
+
+function validatePrivateKey(privateKey: string): void {
+  if (!privateKey || typeof privateKey !== 'string' || privateKey.trim().length === 0) {
+    throw new GA4ApiError('Private key is required and must be a non-empty string', 400)
+  }
+}
+
+function validatePropertyId(propertyId: string): void {
+  if (!propertyId || typeof propertyId !== 'string' || propertyId.trim().length === 0) {
+    throw new GA4ApiError('Property ID is required and must be a non-empty string', 400)
+  }
+  // GA4 property ID format: numeric only (GA4 property IDs are numbers)
+  if (!/^\d+$/.test(propertyId)) {
+    throw new GA4ApiError('Property ID must be a numeric string', 400)
+  }
+}
+
+function validateAccessToken(accessToken: string): void {
+  if (!accessToken || typeof accessToken !== 'string' || accessToken.trim().length === 0) {
+    throw new GA4ApiError('Access token is required and must be a non-empty string', 400)
+  }
+}
+
+function validateScope(scope: string): void {
+  if (!scope || typeof scope !== 'string' || scope.trim().length === 0) {
+    throw new GA4ApiError('Scope is required and must be a non-empty string', 400)
+  }
+}
+
 function ga4Log(level: 'info' | 'error', action: string, ctx?: Record<string, unknown>): void {
   const entry = { ts: new Date().toISOString(), level, module: 'GA4Client', action, ...ctx }
   const stream = level === 'error' ? process.stderr : process.stdout
@@ -27,6 +65,9 @@ function ga4Log(level: 'info' | 'error', action: string, ctx?: Record<string, un
  * Uses Node.js built-in crypto — no external dependencies.
  */
 export function createServiceAccountJwt(clientEmail: string, privateKey: string, scope: string): string {
+  validateClientEmail(clientEmail)
+  validatePrivateKey(privateKey)
+  validateScope(scope)
   const now = Math.floor(Date.now() / 1000)
   const header = { alg: 'RS256', typ: 'JWT' }
   const payload = {
@@ -210,6 +251,8 @@ export async function fetchTrafficByLandingPage(
   propertyId: string,
   days?: number,
 ): Promise<GA4TrafficRow[]> {
+  validateAccessToken(accessToken)
+  validatePropertyId(propertyId)
   const syncDays = Math.min(Math.max(1, days ?? GA4_DEFAULT_SYNC_DAYS), GA4_MAX_SYNC_DAYS)
   const endDate = new Date()
   const startDate = new Date()
@@ -309,6 +352,9 @@ export async function verifyConnection(
   privateKey: string,
   propertyId: string,
 ): Promise<boolean> {
+  validateClientEmail(clientEmail)
+  validatePrivateKey(privateKey)
+  validatePropertyId(propertyId)
   const accessToken = await getAccessToken(clientEmail, privateKey)
   return verifyConnectionWithToken(accessToken, propertyId)
 }
@@ -321,6 +367,8 @@ export async function verifyConnectionWithToken(
   accessToken: string,
   propertyId: string,
 ): Promise<boolean> {
+  validateAccessToken(accessToken)
+  validatePropertyId(propertyId)
   const endDate = new Date()
   const startDate = new Date()
   startDate.setDate(startDate.getDate() - 1)
@@ -353,6 +401,8 @@ export async function fetchAggregateSummary(
   propertyId: string,
   days?: number,
 ): Promise<GA4AggregateSummary> {
+  validateAccessToken(accessToken)
+  validatePropertyId(propertyId)
   const syncDays = Math.min(Math.max(1, days ?? GA4_DEFAULT_SYNC_DAYS), GA4_MAX_SYNC_DAYS)
   const endDate = new Date()
   const startDate = new Date()
@@ -408,6 +458,8 @@ export async function fetchAiReferrals(
   propertyId: string,
   days?: number,
 ): Promise<GA4AiReferralRow[]> {
+  validateAccessToken(accessToken)
+  validatePropertyId(propertyId)
   const syncDays = Math.min(Math.max(1, days ?? GA4_DEFAULT_SYNC_DAYS), GA4_MAX_SYNC_DAYS)
   const endDate = new Date()
   const startDate = new Date()

@@ -24,6 +24,48 @@ import { WordpressApiError } from './types.js'
 import type { BusinessProfile, SchemaPageEntry, SchemaProfileFile } from './schema-templates.js'
 import { generateSchema, isSupportedSchemaType, parseSchemaPageEntry } from './schema-templates.js'
 
+function validateUsername(username: string): void {
+  if (!username || typeof username !== 'string' || username.trim().length === 0) {
+    throw new WordpressApiError('AUTH_INVALID', 'Username is required and must be a non-empty string', 400)
+  }
+}
+
+function validateAppPassword(appPassword: string): void {
+  if (!appPassword || typeof appPassword !== 'string' || appPassword.trim().length === 0) {
+    throw new WordpressApiError('AUTH_INVALID', 'Application password is required and must be a non-empty string', 400)
+  }
+}
+
+function validateSiteUrl(siteUrl: string): void {
+  if (!siteUrl || typeof siteUrl !== 'string' || siteUrl.trim().length === 0) {
+    throw new WordpressApiError('AUTH_INVALID', 'Site URL is required and must be a non-empty string', 400)
+  }
+  try {
+    const url = new URL(siteUrl)
+    if (!url.protocol.startsWith('http')) {
+      throw new WordpressApiError('AUTH_INVALID', 'Site URL must be an HTTP or HTTPS URL', 400)
+    }
+    // Recommend HTTPS for security
+    if (url.protocol !== 'https:') {
+      // Log warning? Not throwing, just note.
+    }
+  } catch {
+    throw new WordpressApiError('AUTH_INVALID', 'Site URL must be a valid URL', 400)
+  }
+}
+
+function _validateSlug(slug: string): void {
+  if (!slug || typeof slug !== 'string' || slug.trim().length === 0) {
+    throw new WordpressApiError('VALIDATION', 'Slug is required and must be a non-empty string', 400)
+  }
+}
+
+function validateConnection(connection: WordpressConnectionRecord, siteUrl: string): void {
+  validateUsername(connection.username)
+  validateAppPassword(connection.appPassword)
+  validateSiteUrl(siteUrl)
+}
+
 // HTTP request timeout (30 s for authenticated REST calls, 15 s for public HTML fetches).
 // Prevents the process from hanging indefinitely on a slow or unresponsive WordPress site.
 const WP_REQUEST_TIMEOUT_MS = 30_000
@@ -350,6 +392,7 @@ export async function verifyWordpressConnection(
   connection: WordpressConnectionRecord,
 ): Promise<WordpressSiteStatusDto> {
   const site = resolveEnvironment({ ...connection, defaultEnv: 'live' }, 'live')
+  validateConnection(connection, site.siteUrl)
   const userInfo = await verifyAuthenticatedRestAccess(connection, site.siteUrl)
   const response = await fetchPageCollectionSummary(connection, site.siteUrl, { context: 'view' })
   const homeHtml = await fetchText(site.siteUrl)
@@ -368,6 +411,7 @@ export async function getSiteStatus(
   env: WordpressEnv,
 ): Promise<WordpressSiteStatusDto> {
   const site = resolveEnvironment(connection, env)
+  validateConnection(connection, site.siteUrl)
   try {
     const userInfo = await verifyAuthenticatedRestAccess(connection, site.siteUrl)
     const response = await fetchPageCollectionSummary(connection, site.siteUrl, { context: 'view' })
