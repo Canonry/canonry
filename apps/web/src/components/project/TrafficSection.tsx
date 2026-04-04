@@ -378,8 +378,11 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                   <div>
                     <p className="eyebrow eyebrow-soft">Trend</p>
                     <h3 className="text-sm font-semibold text-zinc-100">
-                      {chartSources.length > 0 ? 'AI vs. total sessions' : 'Total sessions over time'}
+                      {chartSources.length > 0 ? 'AI vs. total sessions' : 'All sessions (baseline)'}
                     </h3>
+                    {chartSources.length === 0 && (
+                      <p className="text-xs text-zinc-500 mt-0.5">AI referral sessions will be overlaid here once detected</p>
+                    )}
                   </div>
                   {chartSources.length === 0 && (
                     <p className="text-xs text-zinc-500">No AI referrals detected yet</p>

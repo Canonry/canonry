@@ -2,9 +2,9 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { runs, keywords, competitors, projects, querySnapshots, usageCounters } from '@ainyc/canonry-db'
+import { runs, keywords, competitors, projects, querySnapshots, usageCounters, parseJsonColumn } from '@ainyc/canonry-db'
 import type { ProviderName, NormalizedQueryResult, LocationContext } from '@ainyc/canonry-contracts'
 import { brandKeyFromText, determineAnswerMentioned, effectiveDomains, normalizeProjectDomain, isBrowserProvider } from '@ainyc/canonry-contracts'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
@@ -182,14 +182,14 @@ export class JobRunner {
       } else if (locationOverride) {
         runLocation = locationOverride
       } else {
-        const projectLocations = JSON.parse(project.locations || '[]') as LocationContext[]
+        const projectLocations = parseJsonColumn<LocationContext[]>(project.locations, [])
         if (project.defaultLocation && projectLocations.length > 0) {
           runLocation = projectLocations.find(l => l.label === project.defaultLocation)
         }
       }
 
       // Resolve which providers to use — honour per-run override, then project config
-      const projectProviders = providerOverride ?? (JSON.parse(project.providers || '[]') as ProviderName[])
+      const projectProviders = providerOverride ?? parseJsonColumn<ProviderName[]>(project.providers, [])
       activeProviders = this.registry.getForProject(projectProviders)
 
       if (activeProviders.length === 0) {
@@ -215,7 +215,7 @@ export class JobRunner {
       const competitorDomains = projectCompetitors.map(c => c.domain)
       const allDomains = effectiveDomains({
         canonicalDomain: project.canonicalDomain,
-        ownedDomains: JSON.parse(project.ownedDomains || '[]') as string[],
+        ownedDomains: parseJsonColumn<string[]>(project.ownedDomains, []),
       })
       const executionContext: RunExecutionContext = {
         providerCount: activeProviders.length,
@@ -495,33 +495,20 @@ export class JobRunner {
   }
 
   private incrementUsage(scope: string, metric: string, count: number): void {
-    const now = new Date()
-    const period = now.toISOString().slice(0, 10)
-    const id = crypto.randomUUID()
+    const now = new Date().toISOString()
+    const period = now.slice(0, 10)
 
-    const existing = this.db
-      .select()
-      .from(usageCounters)
-      .where(eq(usageCounters.scope, scope))
-      .all()
-      .find(r => r.period === period && r.metric === metric)
-
-    if (existing) {
-      this.db
-        .update(usageCounters)
-        .set({ count: existing.count + count, updatedAt: now.toISOString() })
-        .where(eq(usageCounters.id, existing.id))
-        .run()
-    } else {
-      this.db.insert(usageCounters).values({
-        id,
-        scope,
-        period,
-        metric,
-        count,
-        updatedAt: now.toISOString(),
-      }).run()
-    }
+    this.db.insert(usageCounters).values({
+      id: crypto.randomUUID(),
+      scope,
+      period,
+      metric,
+      count,
+      updatedAt: now,
+    }).onConflictDoUpdate({
+      target: [usageCounters.scope, usageCounters.period, usageCounters.metric],
+      set: { count: sql`${usageCounters.count} + ${count}`, updatedAt: now },
+    }).run()
   }
 
   private flushProviderUsage(projectId: string, providerDispatchCounts: ReadonlyMap<ProviderName, number>): void {

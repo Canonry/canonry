@@ -109,7 +109,7 @@ describe('operator CLI contract', () => {
     expect(parsed.error.code).toBe('CLI_USAGE_ERROR')
     expect(parsed.error.message).toBe('project name is required')
     expect(parsed.error.details.command).toBe('status')
-    expect(parsed.error.details.usage).toBe('canonry status <project>')
+    expect(parsed.error.details.usage).toBe('canonry status <project> [--format json]')
   })
 
   it('prints project status to stdout in JSON mode', async () => {

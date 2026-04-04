@@ -115,7 +115,7 @@ describe('wordpress CLI commands', () => {
     }
   })
 
-  it('prompts for an app password when wordpress connect omits --app-password', async () => {
+  it('errors when wordpress connect omits --app-password', async () => {
     originalConfigDir = process.env.CANONRY_CONFIG_DIR
     originalFetch = globalThis.fetch
 
@@ -123,81 +123,22 @@ describe('wordpress CLI commands', () => {
     closeHarness = harness.close
     process.env.CANONRY_CONFIG_DIR = harness.tmpDir
 
-    vi.resetModules()
-    vi.doMock('node:readline', () => ({
-      createInterface: () => ({
-        question: (_prompt: string, callback: (value: string) => void) => callback('interactive-app-pass'),
-        close: () => undefined,
-      }),
-    }))
+    const result = await invokeCli([
+      'wordpress',
+      'connect',
+      'test-proj',
+      '--url',
+      'https://example.com',
+      '--user',
+      'admin',
+      '--format',
+      'json',
+    ])
 
-    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      if (url.startsWith(harness.serverUrl)) {
-        return originalFetch(input, init)
-      }
-      if (url.includes('/wp-json/wp/v2/users/me?')) {
-        return jsonResponse({ id: 1, slug: 'admin' })
-      }
-      if (url.includes('/wp-json/wp/v2/plugins')) {
-        return new Response('Not found', { status: 404 })
-      }
-      if (url.includes('/wp-json/wp/v2/pages?per_page=1')) {
-        return jsonResponse([], {
-          headers: {
-            'x-wp-total': '0',
-            'x-wp-totalpages': '1',
-          },
-        })
-      }
-      if (url === 'https://example.com' || url === 'https://example.com/') {
-        return new Response('<meta name="generator" content="WordPress 6.8.1" />', { status: 200 })
-      }
-      throw new Error(`Unhandled URL: ${url}`)
-    }
-
-    const logs: string[] = []
-    const origLog = console.log
-    const origError = console.error
-    const origStderrWrite = process.stderr.write
-
-    let stdout = ''
-    try {
-      console.log = (...parts: unknown[]) => logs.push(parts.join(' '))
-      console.error = () => undefined
-      process.stderr.write = (() => true) as typeof process.stderr.write
-
-      const { runCli } = await import('../src/cli.js')
-      await runCli([
-        'wordpress',
-        'connect',
-        'test-proj',
-        '--url',
-        'https://example.com',
-        '--user',
-        'admin',
-        '--format',
-        'json',
-      ])
-      stdout = logs.join('\n')
-    } finally {
-      console.log = origLog
-      console.error = origError
-      process.stderr.write = origStderrWrite
-      vi.doUnmock('node:readline')
-    }
-
-    const body = parseJsonOutput(stdout) as { connected: boolean; defaultEnv: string }
-    expect(body.connected).toBe(true)
-    expect(body.defaultEnv).toBe('live')
-
-    const stored = parse(fs.readFileSync(harness.configPath, 'utf-8')) as {
-      wordpress?: { connections?: Array<{ username: string; appPassword: string }> }
-    }
-    expect(stored.wordpress?.connections?.[0]).toMatchObject({
-      username: 'admin',
-      appPassword: 'interactive-app-pass',
-    })
+    expect(result.exitCode).toBe(1)
+    const error = parseJsonOutput(result.stderr) as { error: { code: string; message: string } }
+    expect(error.error.code).toBe('WORDPRESS_APP_PASSWORD_REQUIRED')
+    expect(error.error.message).toContain('Application Password is required')
   })
 
   it('shows an actionable error when wordpress connect fails with invalid credentials', async () => {

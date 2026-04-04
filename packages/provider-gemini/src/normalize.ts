@@ -1,4 +1,5 @@
 import { GoogleGenAI, type GenerateContentResponse } from '@google/genai'
+import { withRetry } from './utils.js'
 import type {
   GeminiConfig,
   GeminiHealthcheckResult,
@@ -9,7 +10,6 @@ import type {
 } from './types.js'
 
 const DEFAULT_MODEL = 'gemini-3-flash'
-const VALIDATION_PATTERN = /^gemini-/
 
 /**
  * Whether this config targets Vertex AI instead of AI Studio.
@@ -19,21 +19,13 @@ function isVertexConfig(config: GeminiConfig): boolean {
 }
 
 /**
- * Resolve the effective model name, validating that it is a recognised Gemini
- * model identifier (must start with "gemini-").  If an invalid name is stored
- * the default is used and a warning is logged.
+ * Resolve the effective model name.  Google model naming is not standardised
+ * to a single prefix (e.g. `learnlm-*`, `gemma-*` are valid Gemini API models),
+ * so we accept any non-empty string and let the API reject truly invalid names
+ * with a descriptive error.
  */
 function resolveModel(config: GeminiConfig): string {
-  const m = config.model
-  if (!m) return DEFAULT_MODEL
-  if (VALIDATION_PATTERN.test(m)) return m
-  const backend = isVertexConfig(config) ? 'Vertex AI' : 'AI Studio'
-  console.warn(
-    `[provider-gemini] Invalid model name "${m}" — this provider uses the Gemini ${backend} API ` +
-    `which only accepts "gemini-*" model names. ` +
-    `Falling back to ${DEFAULT_MODEL}.`,
-  )
-  return DEFAULT_MODEL
+  return config.model || DEFAULT_MODEL
 }
 
 /**
@@ -55,6 +47,13 @@ function createClient(config: GeminiConfig): GoogleGenAI {
 }
 
 export function validateConfig(config: GeminiConfig): GeminiHealthcheckResult {
+  // Check for explicitly provided (but empty) Vertex project — user intended Vertex AI
+  // but forgot to fill in the project ID. 'vertexProject' in config distinguishes
+  // "key present but empty" from "key absent" (fallback to API key auth).
+  if ('vertexProject' in config && config.vertexProject !== undefined && config.vertexProject.trim().length === 0) {
+    return { ok: false, provider: 'gemini', message: 'missing Vertex AI project ID' }
+  }
+
   if (isVertexConfig(config)) {
     const model = resolveModel(config)
     return {
@@ -69,13 +68,10 @@ export function validateConfig(config: GeminiConfig): GeminiHealthcheckResult {
     return { ok: false, provider: 'gemini', message: 'missing api key' }
   }
   const model = resolveModel(config)
-  const warning = config.model && !VALIDATION_PATTERN.test(config.model)
-    ? ` (invalid model "${config.model}" replaced with default)`
-    : ''
   return {
     ok: true,
     provider: 'gemini',
-    message: `config valid${warning}`,
+    message: 'config valid',
     model,
   }
 }
@@ -87,10 +83,12 @@ export async function healthcheck(config: GeminiConfig): Promise<GeminiHealthche
   try {
     const model = resolveModel(config)
     const client = createClient(config)
-    const result = await client.models.generateContent({
-      model,
-      contents: 'Say "ok"',
-    })
+    const result = await withRetry(() =>
+      client.models.generateContent({
+        model,
+        contents: 'Say "ok"',
+      }),
+    )
     const text = result.text ?? ''
     const backend = isVertexConfig(config) ? 'vertex ai' : 'api key'
     return {
@@ -114,23 +112,30 @@ export async function executeTrackedQuery(input: GeminiTrackedQueryInput): Promi
   const prompt = buildPrompt(input.keyword, input.location)
   const client = createClient(input.config)
 
-  const result = await client.models.generateContent({
-    model,
-    contents: prompt,
-    config: {
-      tools: [{ googleSearch: {} }],
-    },
-  })
+  try {
+    const result = await withRetry(() =>
+      client.models.generateContent({
+        model,
+        contents: prompt,
+        config: {
+          tools: [{ googleSearch: {} }],
+        },
+      }),
+    )
 
-  const groundingSources = extractGroundingMetadata(result)
-  const searchQueries = extractSearchQueries(result)
+    const groundingSources = extractGroundingMetadata(result)
+    const searchQueries = extractSearchQueries(result)
 
-  return {
-    provider: 'gemini',
-    rawResponse: responseToRecord(result),
-    model,
-    groundingSources,
-    searchQueries,
+    return {
+      provider: 'gemini',
+      rawResponse: responseToRecord(result),
+      model,
+      groundingSources,
+      searchQueries,
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    throw new Error(`[provider-gemini] ${msg}`)
   }
 }
 
@@ -265,10 +270,12 @@ function extractDomainFromUri(uri: string): string | null {
 export async function generateText(prompt: string, config: GeminiConfig): Promise<string> {
   const model = resolveModel(config)
   const client = createClient(config)
-  const result = await client.models.generateContent({
-    model,
-    contents: prompt,
-  })
+  const result = await withRetry(() =>
+    client.models.generateContent({
+      model,
+      contents: prompt,
+    }),
+  )
   return result.text ?? ''
 }
 

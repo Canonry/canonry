@@ -23,7 +23,11 @@ export async function addCompetitors(project: string, domains: string[], format?
     return
   }
 
-  console.log(`Added ${domains.length} competitor(s) to "${project}".`)
+  if (addedDomains.length === 0) {
+    console.log(`No new competitors added to "${project}" (all already tracked).`)
+  } else {
+    console.log(`Added ${addedDomains.length} competitor(s) to "${project}".`)
+  }
 }
 
 export async function listCompetitors(project: string, format?: string): Promise<void> {

@@ -1,7 +1,7 @@
 #!/usr/bin/env node --import tsx
 import { pathToFileURL } from 'node:url'
 import { trackEvent, isTelemetryEnabled, isFirstRun, getOrCreateAnonymousId, showFirstRunNotice } from './telemetry.js'
-import { printCliError, usageError } from './cli-error.js'
+import { CliError, EXIT_SYSTEM_ERROR, EXIT_USER_ERROR, printCliError, usageError } from './cli-error.js'
 import { dispatchRegisteredCommand } from './cli-dispatch.js'
 import { REGISTERED_CLI_COMMANDS } from './cli-commands.js'
 
@@ -42,10 +42,10 @@ Usage:
   canonry run --all                   Trigger runs for all projects
   canonry run show <id>               Show run details and snapshots
   canonry runs <project>              List runs for a project (--limit <n>)
-  canonry status <project>            Show project summary
-  canonry evidence <project>          Show per-phrase results
+  canonry status <project>            Show project summary [--format json]
+  canonry evidence <project>          Show per-phrase results [--format json]
   canonry analytics <project>         Show analytics (--feature metrics|gaps|sources, --window 7d|30d|90d|all)
-  canonry history <project>           Show audit trail
+  canonry history <project>           Show audit trail [--format json]
   canonry export <project>            Export project as YAML
   canonry apply <file...>              Apply declarative config (multi-doc YAML supported)
   canonry schedule set <project>      Set schedule (--preset or --cron)
@@ -222,7 +222,7 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
     })
   } catch (err: unknown) {
     printCliError(err, format)
-    return 1
+    return err instanceof CliError ? err.exitCode : EXIT_SYSTEM_ERROR
   }
 }
 

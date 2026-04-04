@@ -11,25 +11,25 @@ import { usageError } from '../cli-error.js'
 export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['status'],
-    usage: 'canonry status <project>',
+    usage: 'canonry status <project> [--format json]',
     run: async (input) => {
-      const project = requireProject(input, 'status', 'canonry status <project>')
+      const project = requireProject(input, 'status', 'canonry status <project> [--format json]')
       await showStatus(project, input.format)
     },
   },
   {
     path: ['evidence'],
-    usage: 'canonry evidence <project>',
+    usage: 'canonry evidence <project> [--format json]',
     run: async (input) => {
-      const project = requireProject(input, 'evidence', 'canonry evidence <project>')
+      const project = requireProject(input, 'evidence', 'canonry evidence <project> [--format json]')
       await showEvidence(project, input.format)
     },
   },
   {
     path: ['history'],
-    usage: 'canonry history <project>',
+    usage: 'canonry history <project> [--format json]',
     run: async (input) => {
-      const project = requireProject(input, 'history', 'canonry history <project>')
+      const project = requireProject(input, 'history', 'canonry history <project> [--format json]')
       await showHistory(project, input.format)
     },
   },

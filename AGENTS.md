@@ -67,19 +67,34 @@ THIS IS AN **AGENT-FIRST** PLATFORM. The CLI and API are the primary interfaces.
 ### Priority order
 1. **API** — the shared backbone. Every capability must be exposed here first.
 2. **CLI** — the primary user-facing surface. Must feel complete and polished.
-3. **Web UI** — important but lower priority. Never block a release on it.
+3. **Web UI** — important but lower priority. Ideally all features have a UI, but never block a release on it.
 
 ### When adding a new feature
 1. **Required:** Add the API endpoint in `packages/api-routes/`.
 2. **Required:** Add the CLI command in `packages/canonry/src/commands/`.
-3. **Ideal:** Add the UI interaction in `apps/web/`.
+3. **Ideal:** Add the UI interaction in `apps/web/` — aim to include it, but never block a release waiting for UI work.
 
 ### Agent & automation design principles
-- Every operation must be scriptable via CLI or API without human interaction.
-- CLI output must be machine-parseable (support `--format json` on all commands that produce output).
-- API responses must be self-describing and stable — external agents and scripts depend on them.
-- Prefer config-as-code (`canonry apply`) over interactive wizards.
-- Error messages must be actionable from a terminal — include the failed command, the reason, and a suggested fix.
+
+The CLI and API **are** the agent interface. No MCP layer, no virtual filesystem, no special agent SDK. If an AI agent can't do something with `canonry <command> --format json` or an HTTP call, it's a bug.
+
+#### Rules
+
+1. **No interactive prompts.** Every CLI command must be fully operable via flags and environment variables. Never import `node:readline` in command files — ESLint enforces this. If a value is sensitive (API keys, passwords), accept it via `--flag`, env var, or `config.yaml`. Prompts are allowed only in `canonry init` as a convenience; all init values must also be passable via flags.
+2. **JSON everywhere.** Every command that produces output must support `--format json`. JSON output goes to stdout. Errors go to stderr as `{ "error": { "code": "...", "message": "..." } }`. Human-readable text is the default; JSON is the machine contract.
+3. **Idempotent writes.** `canonry apply` is the model — running it twice with the same input produces the same state. New write commands must follow this pattern. `POST` endpoints that create resources (like runs) are exempt, but must return a stable identifier and handle conflicts gracefully (e.g., `runInProgress` error with the existing run ID).
+4. **Single-call reads.** If an agent needs two API calls to answer a common question, add a composite endpoint. Examples: `/projects/:name/runs/latest` (don't make agents list-then-filter), `/projects/:name/search?q=term` (don't make agents fetch all snapshots to grep). The test: can an agent get what it needs in one `curl` call?
+5. **Meaningful exit codes.** `0` = success, `1` = user error (bad input, not found, validation), `2` = system error (network, provider failure, internal). Agents use exit codes to decide whether to retry.
+6. **Stable output contracts.** JSON field names, endpoint paths, and error codes are public API. Renaming a JSON field is a breaking change. Add fields freely; never remove or rename without a version bump.
+
+#### Checklist for any new command or endpoint
+
+- [ ] Fully operable without interactive input (no readline, no prompts)
+- [ ] `--format json` supported, outputs to stdout
+- [ ] Errors output structured JSON to stderr with a code from `CliError`
+- [ ] Write operations are idempotent (or return conflict details)
+- [ ] Common read patterns achievable in a single API call
+- [ ] Exit code follows 0/1/2 convention
 
 ## Maintenance Guidance
 
@@ -95,62 +110,148 @@ THIS IS AN **AGENT-FIRST** PLATFORM. The CLI and API are the primary interfaces.
 
 The global error handler in `packages/api-routes/src/index.ts` catches `AppError` instances and serializes them with the correct status code and JSON envelope. Route handlers must leverage this — never duplicate the serialization logic.
 
-1. **Throw `AppError` — never catch and manually reply.** Call `resolveProject(app.db, name)` directly. If the project doesn't exist it throws `notFound()`, which the global handler catches.
-2. **Always use factory functions from `@ainyc/canonry-contracts`.** Never hand-construct `{ error: { code: '...', message: '...' } }`. Use `validationError()`, `notFound()`, `authRequired()`, `providerError()`, etc.
+### Rules
+
+1. **Throw `AppError` — never catch and manually reply.** Call `resolveProject(app.db, name)` directly. If the project doesn't exist it throws `notFound()`, which the global handler catches. Do not wrap in try-catch or use a `resolveProjectSafe` helper.
+2. **Always use factory functions from `@ainyc/canonry-contracts`.** Never hand-construct `{ error: { code: '...', message: '...' } }`. Use `validationError()`, `notFound()`, `authRequired()`, `providerError()`, etc. This guarantees typed error codes and a consistent envelope.
 3. **New error codes** must be added to the `ErrorCode` union in `packages/contracts/src/errors.ts` with a corresponding factory function.
+
+### Pattern
 
 ```typescript
 // ✅ Correct — let the global handler serialize
+import { validationError, notFound } from '@ainyc/canonry-contracts'
+import { resolveProject } from './helpers.js'
+
 const project = resolveProject(app.db, request.params.name) // throws notFound on miss
 if (!body.keywords?.length) throw validationError('"keywords" must be non-empty')
 
-// ❌ Wrong — never catch and manually reply, never hand-construct error JSON
+// ❌ Wrong — duplicates global handler logic
+try {
+  const project = resolveProject(app.db, name)
+} catch (e) {
+  reply.status(e.statusCode).send(e.toJSON()) // never do this
+}
+return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: '...' } }) // never do this
 ```
 
 ## JSON Column Parsing (Critical)
 
-Many SQLite text columns store JSON. Always use the typed helper from `@ainyc/canonry-db` — never call `JSON.parse` directly on DB column values.
+Many SQLite text columns store JSON (`projects.locations`, `providers`, `tags`, `labels`, `citedDomains`, etc.). Always use the typed helper from `@ainyc/canonry-db` — never call `JSON.parse` directly on DB column values.
+
+### Rules
+
+1. **Use `parseJsonColumn(value, fallback)` from `@ainyc/canonry-db`.** It handles null, empty strings, and invalid JSON safely.
+2. **Never write `JSON.parse(row.field || '[]') as SomeType[]`** — this pattern is fragile (missing fallback = crash, wrong cast = silent corruption).
+3. `JSON.parse` is fine for HTTP request bodies, config files, and other non-DB sources.
+
+### Pattern
 
 ```typescript
 import { parseJsonColumn } from '@ainyc/canonry-db'
 
 // ✅ Correct
 const locations = parseJsonColumn<LocationContext[]>(project.locations, [])
+const labels = parseJsonColumn<Record<string, string>>(project.labels, {})
 
-// ❌ Wrong — fragile, missing fallback = crash
+// ❌ Wrong
 const locations = JSON.parse(project.locations || '[]') as LocationContext[]
 ```
-
-`JSON.parse` is fine for HTTP request bodies, config files, and other non-DB sources.
 
 ## ApiClient Type Safety
 
 All `ApiClient` methods in `packages/canonry/src/client.ts` must return typed DTOs from `@ainyc/canonry-contracts`. CLI commands must not cast API responses with `as Record<string, unknown>` or `as { ... }`.
 
+- Define response interfaces in `packages/contracts/` when they don't already exist.
+- The `request<T>()` method is already generic — specify the correct type parameter.
+- When adding a new API endpoint, add the corresponding client method with a typed return value.
+
 ## Transaction Boundaries
 
 Multi-table writes must be wrapped in a single `db.transaction()` call to ensure atomicity.
 
-1. **Do all async I/O before entering the transaction.** SQLite transactions must be synchronous (better-sqlite3 requirement).
-2. **Include audit log writes inside the transaction** — `writeAuditLog()` accepts transaction context.
-3. **Fire callbacks after the transaction commits**, not inside it.
+### Rules
+
+1. **Do all async I/O (HTTP calls, DNS lookups, validation) before entering the transaction.** SQLite transactions must be synchronous (better-sqlite3 requirement).
+2. **Include audit log writes inside the transaction** — `writeAuditLog()` accepts transaction context via its `Pick<DatabaseClient, 'insert'>` parameter.
+3. **Fire callbacks (e.g., `onScheduleUpdated`) after the transaction commits**, not inside it.
+
+### Pattern
+
+```typescript
+// Validate async work first
+const urlCheck = await resolveWebhookTarget(url)
+if (!urlCheck.ok) throw validationError(urlCheck.message)
+
+// Then do all writes atomically
+app.db.transaction((tx) => {
+  tx.update(projects).set({ ... }).where(...).run()
+  tx.delete(keywords).where(...).run()
+  for (const kw of newKeywords) {
+    tx.insert(keywords).values({ ... }).run()
+  }
+  writeAuditLog(tx, { ... })
+})
+
+// Fire callbacks after commit
+opts.onScheduleUpdated?.('upsert', projectId)
+```
 
 ## Atomic Counters
 
 Use `INSERT ... ON CONFLICT DO UPDATE` for counter increments. Never use read-then-write patterns, which lose counts under concurrent requests.
 
+### Pattern
+
+```typescript
+import { sql } from 'drizzle-orm'
+
+db.insert(usageCounters).values({
+  id: crypto.randomUUID(), scope, period, metric, count: 1, updatedAt: now,
+}).onConflictDoUpdate({
+  target: [usageCounters.scope, usageCounters.period, usageCounters.metric],
+  set: { count: sql`${usageCounters.count} + 1`, updatedAt: now },
+}).run()
+```
+
 ## Database Schema Changes (Critical)
 
 **Every new `sqliteTable(...)` in `packages/db/src/schema.ts` MUST have a corresponding migration in `packages/db/src/migrate.ts`.**
 
-1. **New table** → add `CREATE TABLE IF NOT EXISTS ...` to the `MIGRATIONS` array in `migrate.ts`. Include all indexes.
-2. **New column** → add `ALTER TABLE ... ADD COLUMN ...` to `MIGRATIONS`.
-3. **Never edit MIGRATION_SQL** (the initial block). All incremental changes go in the `MIGRATIONS` array only.
+This is not optional. If you add a table to the schema but omit the migration, the table will never be created in any existing or new database, and every query against it will throw `no such table` at runtime.
+
+### Rules
+
+1. **New table** → add `CREATE TABLE IF NOT EXISTS ...` to the `MIGRATIONS` array in `migrate.ts`. Include all indexes from the schema definition.
+2. **New column** → add `ALTER TABLE ... ADD COLUMN ...` to `MIGRATIONS`. SQLite ignores duplicate `ADD COLUMN` attempts, so these are safe to re-run.
+3. **Removed column or table** → SQLite does not support DROP COLUMN on older versions; document the intent and leave the migration as a no-op comment if needed.
+4. **Never edit MIGRATION_SQL** (the initial block at the top). That block bootstraps brand-new installs. All incremental changes go in the `MIGRATIONS` array only.
+
+### Pattern
+
+```typescript
+// In packages/db/src/migrate.ts — MIGRATIONS array:
+
+// v12: My new feature — my_new_table
+`CREATE TABLE IF NOT EXISTS my_new_table (
+  id          TEXT PRIMARY KEY,
+  project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  value       TEXT NOT NULL,
+  created_at  TEXT NOT NULL
+)`,
+`CREATE INDEX IF NOT EXISTS idx_my_new_table_project ON my_new_table(project_id)`,
+```
+
+### Checklist for any schema change
+
+- [ ] Table/column added to `schema.ts`
+- [ ] Matching migration added to `MIGRATIONS` in `migrate.ts`
+- [ ] `pnpm typecheck && pnpm lint && pnpm test` all pass before committing
 
 ## Authentication Storage
 
-- `~/.canonry/config.yaml` is the source of truth for authentication credentials.
-- Store provider API keys, OAuth credentials, and tokens in the local config file.
+- The local config file at `~/.canonry/config.yaml` is the source of truth for authentication credentials.
+- Store provider API keys, Google OAuth client credentials, and Google OAuth access/refresh tokens in the local config file.
 - Do not treat the SQLite database as the authoritative store for authentication material.
 
 ## Config-as-Code
@@ -176,7 +277,9 @@ spec:
     - openai
 ```
 
-Multiple projects can be defined in one file using `---` document separators. Apply with `canonry apply <file...>` or `POST /api/v1/apply`.
+Locations are project-scoped via `spec.locations` and `spec.defaultLocation`. Runs choose the default location, an explicit location, all configured locations, or no location. Do not model locations as keyword-owned state.
+
+Multiple projects can be defined in one file using `---` document separators. Apply with `canonry apply <file...>` (accepts multiple files) or `POST /api/v1/apply`. Applied project YAML is declarative input; runtime project/run data lives in the DB, while local authentication credentials live in `~/.canonry/config.yaml`.
 
 ## API Surface
 
@@ -189,36 +292,84 @@ All endpoints under `/api/v1/`. Auth via `Authorization: Bearer cnry_...`. Key e
 - `POST /api/v1/apply` — config-as-code apply
 - `GET /api/v1/openapi.json` — OpenAPI spec (no auth)
 
+See OpenAPI spec at `/api/v1/openapi.json` for the complete API surface.
+
 ## Base Path Awareness (Critical)
 
 Canonry supports running behind a reverse proxy with a sub-path prefix (e.g. `/canonry/`). All code that constructs URLs or registers routes **must** respect `basePath`. Failing to do so causes silent 404s in production.
 
-- **CLI commands**: Always use `createApiClient()` — never instantiate `ApiClient` directly.
-- **Server routes**: Use `routePrefix` from plugin registration — never hardcode `/api/v1`.
-- **Web UI**: Use `window.__CANONRY_CONFIG__.basePath` — never hardcode `/api/v1`.
+### CLI commands — always use `createApiClient()`
+
+Never instantiate `ApiClient` directly with `loadConfig()` in command files. Use the centralized helper:
+
+```typescript
+import { createApiClient } from '../client.js'
+
+function getClient() {
+  return createApiClient()
+}
+```
+
+`createApiClient()` (in `packages/canonry/src/client.ts`) calls `loadConfig()` which incorporates `basePath` from both `config.yaml` and the `CANONRY_BASE_PATH` env var into `apiUrl` before constructing the client.
+
+### Server routes — use `apiPrefix`
+
+All API routes in `packages/api-routes/` are registered via a Fastify plugin with a `routePrefix` that already includes `basePath`. Do not hardcode `/api/v1` in route handlers or redirects. Use the prefix passed to the plugin.
+
+### Health endpoint
+
+The `/health` endpoint exposes `basePath` in its response for auto-discovery:
+```json
+{ "status": "ok", "service": "canonry", "version": "1.26.1", "basePath": "/canonry" }
+```
+When `basePath` is not configured, the `basePath` field is omitted.
+
+### Web UI — use `window.__CANONRY_CONFIG__.basePath`
+
+The SPA receives `basePath` via an injected config object. Use it for all API fetch calls and router base paths. Do not hardcode `/api/v1`.
+
+### Checklist for any new route or CLI command
+
+- [ ] Server route registered via the plugin's `routePrefix` (not hardcoded `/api/v1`)
+- [ ] CLI command uses `createApiClient()` (not `new ApiClient(loadConfig().apiUrl, ...)`)
+- [ ] Any redirect URLs or OAuth callback URLs use `publicUrl` or `apiUrl` (which already include basePath)
+- [ ] Frontend fetch calls prepend `window.__CANONRY_CONFIG__.basePath`
 
 ## API Stability
 
-**Never change existing API endpoint paths or HTTP methods.** The CLI, UI, and external integrations depend on the published routes. Additive changes (new endpoints, new optional fields) are fine. Changing a path or method is a breaking change.
+**Never change existing API endpoint paths or HTTP methods during revisions.** The CLI, UI, and any external integrations are hard-coded to the published routes. Changing a path or method is a breaking change regardless of the reason.
+
+- Additive changes (new endpoints, new optional fields) are fine.
+- Renaming or restructuring existing routes requires a versioned migration plan and explicit user approval.
+- If a route is wrong, fix the underlying logic — not the URL.
 
 ## Versioning
 
-**Every non-documentation change must include a version bump.** Root `package.json` and `packages/canonry/package.json` versions must always be in sync. Use semver: patch for fixes, minor for features, major for breaking changes.
+**Every non-documentation change must include a version bump.** The root `package.json` and `packages/canonry/package.json` versions must always be kept in sync with each other and with the latest published version on npm (`@ainyc/canonry`).
+
+- Documentation-only changes (README, docs/, CLAUDE.md) do not require a bump.
+- All other changes — features, bug fixes, refactors, dependency updates, test additions that accompany code changes — require a semver bump in both `package.json` files.
+- Use semver: patch for fixes, minor for features, major for breaking changes.
 
 ## Testing
 
-**Every non-trivial change must include tests.**
+**Every non-trivial change must include tests.** If you are adding a feature, fixing a bug, or refactoring logic, ship tests alongside the code. Trivial changes (typo fixes, comment updates, config-only changes) are exempt.
 
-- Use **Vitest** as the test runner. Configured via `vitest.workspace.ts` at the root.
-- Tests live in `test/` directories colocated with the package.
+- Use **Vitest** as the test runner. Configured via `vitest.workspace.ts` at the root with per-package `vitest.config.ts` files.
+- Import test utilities from `vitest`: `import { test, expect, describe, it, beforeEach, afterEach, beforeAll, afterAll } from 'vitest'`.
+- Use `expect()` for assertions (e.g. `expect(value).toBe(expected)`, `expect(obj).toEqual(expected)`, `expect(fn).toThrow()`).
+- Tests live in `test/` directories colocated with the package (e.g. `packages/canonry/test/`).
 - Test the public API of each module, not internal implementation details.
-- Cover both the happy path and meaningful edge cases.
+- Cover both the happy path and meaningful edge cases (invalid input, env var overrides, error handling).
+- When testing CLI commands, capture stdout/stderr and assert on output rather than only checking side effects.
+- Use temp directories (`os.tmpdir()`) for file-system tests; clean up in `afterEach`.
 - Run `pnpm run test` to verify before committing.
 
 ## CI Guidance
 
 - Validation CI: `typecheck`, `test`, `lint` across the full workspace on PRs.
 - Keep explicit job permissions.
+- Publish workflow will be added when `packages/canonry/` is ready for npm.
 
 ## Keeping Documentation Current
 

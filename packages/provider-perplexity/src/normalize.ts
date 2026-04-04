@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import { withRetry } from './utils.js'
 import type {
   PerplexityConfig,
   PerplexityHealthcheckResult,
@@ -29,10 +30,12 @@ export async function healthcheck(config: PerplexityConfig): Promise<PerplexityH
 
   try {
     const client = new OpenAI({ apiKey: config.apiKey, baseURL: BASE_URL })
-    const response = await client.chat.completions.create({
-      model: config.model ?? DEFAULT_MODEL,
-      messages: [{ role: 'user', content: 'Say "ok"' }],
-    })
+    const response = await withRetry(() =>
+      client.chat.completions.create({
+        model: config.model ?? DEFAULT_MODEL,
+        messages: [{ role: 'user', content: 'Say "ok"' }],
+      }),
+    )
     const text = response.choices[0]?.message?.content ?? ''
     return {
       ok: text.length > 0,
@@ -56,28 +59,33 @@ export async function executeTrackedQuery(input: PerplexityTrackedQueryInput): P
 
   const prompt = buildPrompt(input.keyword, input.location)
 
-  const response = await client.chat.completions.create({
-    model,
-    messages: [
-      { role: 'user', content: prompt },
-    ],
-  })
+  try {
+    const response = await withRetry(() =>
+      client.chat.completions.create({
+        model,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    )
 
-  const rawResponse = responseToRecord(response)
+    const rawResponse = responseToRecord(response)
 
-  // Perplexity returns citations as a top-level array on the response
-  const citations = extractCitations(rawResponse)
-  const groundingSources = citations.map(url => ({
-    uri: url,
-    title: '',
-  }))
+    // Perplexity returns citations as a top-level array on the response
+    const citations = extractCitations(rawResponse)
+    const groundingSources = citations.map((url) => ({
+      uri: url,
+      title: '',
+    }))
 
-  return {
-    provider: 'perplexity',
-    rawResponse,
-    model,
-    groundingSources,
-    searchQueries: [input.keyword],
+    return {
+      provider: 'perplexity',
+      rawResponse,
+      model,
+      groundingSources,
+      searchQueries: [input.keyword],
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    throw new Error(`[provider-perplexity] ${msg}`)
   }
 }
 
@@ -162,10 +170,12 @@ function extractDomainFromUri(uri: string): string | null {
 export async function generateText(prompt: string, config: PerplexityConfig): Promise<string> {
   const model = config.model ?? DEFAULT_MODEL
   const client = new OpenAI({ apiKey: config.apiKey, baseURL: BASE_URL })
-  const response = await client.chat.completions.create({
-    model,
-    messages: [{ role: 'user', content: prompt }],
-  })
+  const response = await withRetry(() =>
+    client.chat.completions.create({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  )
   return response.choices[0]?.message?.content ?? ''
 }
 

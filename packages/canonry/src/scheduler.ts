@@ -2,7 +2,7 @@ import cron from 'node-cron'
 import { eq } from 'drizzle-orm'
 import { queueRunIfProjectIdle } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { schedules, projects } from '@ainyc/canonry-db'
+import { schedules, projects, parseJsonColumn } from '@ainyc/canonry-db'
 import type { ProviderName } from '@ainyc/canonry-contracts'
 import { createLogger } from './logger.js'
 
@@ -160,7 +160,7 @@ export class Scheduler {
       }).where(eq(schedules.id, currentSchedule.id)).run()
 
       // Resolve providers
-      const scheduleProviders = JSON.parse(currentSchedule.providers) as string[]
+      const scheduleProviders = parseJsonColumn<string[]>(currentSchedule.providers, [])
       const providers = scheduleProviders.length > 0 ? scheduleProviders as ProviderName[] : undefined
 
       log.info('run.triggered', { runId, projectName: project.name, providers: providers ?? 'all' })

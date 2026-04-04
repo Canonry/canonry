@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import { withRetry } from './utils.js'
 import type {
   OpenAIConfig,
   OpenAIHealthcheckResult,
@@ -28,10 +29,12 @@ export async function healthcheck(config: OpenAIConfig): Promise<OpenAIHealthche
 
   try {
     const client = new OpenAI({ apiKey: config.apiKey })
-    const response = await client.responses.create({
-      model: config.model ?? DEFAULT_MODEL,
-      input: 'Say "ok"',
-    })
+    const response = await withRetry(() =>
+      client.responses.create({
+        model: config.model ?? DEFAULT_MODEL,
+        input: 'Say "ok"',
+      }),
+    )
     const text = extractResponseText(response)
     return {
       ok: text.length > 0,
@@ -64,22 +67,29 @@ export async function executeTrackedQuery(input: OpenAITrackedQueryInput): Promi
     }
   }
 
-  const response = await client.responses.create({
-    model,
-    tools: [webSearchTool as { type: 'web_search_preview' }],
-    tool_choice: 'required' as never,
-    input: buildPrompt(input.keyword),
-  })
+  try {
+    const response = await withRetry(() =>
+      client.responses.create({
+        model,
+        tools: [webSearchTool as { type: 'web_search_preview' }],
+        tool_choice: 'required' as never,
+        input: buildPrompt(input.keyword),
+      }),
+    )
 
-  const groundingSources = extractGroundingSources(response)
-  const searchQueries = extractSearchQueries(response)
+    const groundingSources = extractGroundingSources(response)
+    const searchQueries = extractSearchQueries(response)
 
-  return {
-    provider: 'openai',
-    rawResponse: responseToRecord(response),
-    model,
-    groundingSources,
-    searchQueries,
+    return {
+      provider: 'openai',
+      rawResponse: responseToRecord(response),
+      model,
+      groundingSources,
+      searchQueries,
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    throw new Error(`[provider-openai] ${msg}`)
   }
 }
 
@@ -122,13 +132,15 @@ function extractResponseText(response: OpenAI.Responses.Response): string {
 
 function extractGroundingSources(response: OpenAI.Responses.Response): GroundingSource[] {
   const sources: GroundingSource[] = []
+  const seen = new Set<string>()
   try {
     for (const item of response.output) {
       if (item.type === 'message') {
         for (const content of item.content) {
           if (content.type === 'output_text' && content.annotations) {
             for (const annotation of content.annotations) {
-              if (annotation.type === 'url_citation') {
+              if (annotation.type === 'url_citation' && !seen.has(annotation.url)) {
+                seen.add(annotation.url)
                 sources.push({
                   uri: annotation.url,
                   title: annotation.title ?? '',
@@ -152,7 +164,10 @@ function extractSearchQueries(response: OpenAI.Responses.Response): string[] {
   try {
     for (const item of response.output) {
       if (item.type === 'web_search_call' && 'query' in item) {
-        queries.push((item as unknown as { query: string }).query)
+        const query = (item as unknown as { query?: unknown }).query
+        if (typeof query === 'string' && query.length > 0) {
+          queries.push(query)
+        }
       }
     }
   } catch {
@@ -209,10 +224,12 @@ function extractDomainFromUri(uri: string): string | null {
 export async function generateText(prompt: string, config: OpenAIConfig): Promise<string> {
   const model = config.model ?? DEFAULT_MODEL
   const client = new OpenAI({ apiKey: config.apiKey })
-  const response = await client.responses.create({
-    model,
-    input: prompt,
-  })
+  const response = await withRetry(() =>
+    client.responses.create({
+      model,
+      input: prompt,
+    }),
+  )
   return extractResponseText(response)
 }
 

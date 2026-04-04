@@ -1,3 +1,4 @@
+import type { ProjectDto, RunDto } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 
 function getClient() {
@@ -6,20 +7,13 @@ function getClient() {
 
 export async function showStatus(project: string, format?: string): Promise<void> {
   const client = getClient()
-  const projectData = await client.getProject(project) as {
-    id: string
-    name: string
-    displayName: string
-    canonicalDomain: string
-    country: string
-    language: string
-  }
+  const projectData: ProjectDto = await client.getProject(project)
 
-  let runs: Array<{ id: string; status: string; kind: string; createdAt: string; finishedAt: string | null }> = []
+  let runs: RunDto[] = []
   try {
-    runs = await client.listRuns(project) as typeof runs
+    runs = await client.listRuns(project)
   } catch {
-    // Runs endpoint may not be available
+    // Runs endpoint may not be available (e.g. older server)
   }
 
   if (format === 'json') {
@@ -27,13 +21,14 @@ export async function showStatus(project: string, format?: string): Promise<void
     return
   }
 
-  console.log(`Status: ${projectData.displayName} (${projectData.name})\n`)
+  console.log(`Status: ${projectData.displayName ?? projectData.name} (${projectData.name})\n`)
   console.log(`  Domain:   ${projectData.canonicalDomain}`)
   console.log(`  Country:  ${projectData.country}`)
   console.log(`  Language: ${projectData.language}`)
 
   if (runs.length > 0) {
-    const latest = runs[runs.length - 1]!
+    // listRuns returns runs in descending createdAt order (newest first)
+    const latest = runs[0]!
     console.log(`\n  Latest run:`)
     console.log(`    ID:       ${latest.id}`)
     console.log(`    Status:   ${latest.status}`)

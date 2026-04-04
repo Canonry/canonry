@@ -14,8 +14,10 @@ import { captureElementScreenshot } from './screenshot.js'
 import { normalizeResult as cdpNormalizeResult } from './normalize.js'
 import { CDPProviderError } from './targets/types.js'
 
-// Shared connection manager singleton (one Chrome instance, multiple targets)
-let sharedConnection: CDPConnectionManager | null = null
+// Connection pool keyed by "host:port" — one manager per distinct CDP endpoint.
+// Using a map (instead of a single shared singleton) prevents concurrent calls
+// targeting different endpoints from silently destroying each other's connection.
+const connectionPool = new Map<string, CDPConnectionManager>()
 
 function getConnection(config: ProviderConfig): CDPConnectionManager {
   if (!config.cdpEndpoint) {
@@ -30,14 +32,13 @@ function getConnection(config: ProviderConfig): CDPConnectionManager {
   if (parts.length >= 1 && parts[0]) host = parts[0]
   if (parts.length >= 2 && parts[1]) port = parseInt(parts[1], 10) || 9222
 
-  // Reuse or create connection; disconnect the old one if the endpoint changed
-  if (!sharedConnection || sharedConnection.endpoint !== `${host}:${port}`) {
-    if (sharedConnection) {
-      sharedConnection.disconnect().catch(() => { /* ignore cleanup errors */ })
-    }
-    sharedConnection = new CDPConnectionManager(host, port)
+  const key = `${host}:${port}`
+  let conn = connectionPool.get(key)
+  if (!conn) {
+    conn = new CDPConnectionManager(host, port)
+    connectionPool.set(key, conn)
   }
-  return sharedConnection
+  return conn
 }
 
 function getScreenshotDir(): string {
@@ -102,47 +103,52 @@ export const cdpChatgptAdapter: ProviderAdapter = {
     const conn = getConnection(config)
     const target = chatgptTarget
 
-    // Navigate to a fresh conversation
-    const client = await conn.prepareForQuery(target)
-
-    // Submit the query
-    await target.submitQuery(client, input.keyword)
-
-    // Wait for the response to complete
-    await target.waitForResponse(client)
-
-    // Extract answer text
-    const answerText = await target.extractAnswer(client)
-
-    // Extract citations
-    const groundingSources = await target.extractCitations(client)
-
-    // Capture cropped screenshot of the response area
-    const screenshotId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const screenshotPath = path.join(getScreenshotDir(), `${screenshotId}.png`)
-    let capturedScreenshotPath: string | undefined
     try {
-      capturedScreenshotPath = await captureElementScreenshot(
-        client,
-        target.responseSelector,
-        screenshotPath,
-      )
-    } catch {
-      // Screenshot failure is non-fatal — we still have the text data
-    }
+      // Navigate to a fresh conversation
+      const client = await conn.prepareForQuery(target)
 
-    return {
-      provider: 'cdp:chatgpt',
-      rawResponse: {
-        answerText,
+      // Submit the query
+      await target.submitQuery(client, input.keyword)
+
+      // Wait for the response to complete
+      await target.waitForResponse(client)
+
+      // Extract answer text
+      const answerText = await target.extractAnswer(client)
+
+      // Extract citations
+      const groundingSources = await target.extractCitations(client)
+
+      // Capture cropped screenshot of the response area
+      const screenshotId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      const screenshotPath = path.join(getScreenshotDir(), `${screenshotId}.png`)
+      let capturedScreenshotPath: string | undefined
+      try {
+        capturedScreenshotPath = await captureElementScreenshot(
+          client,
+          target.responseSelector,
+          screenshotPath,
+        )
+      } catch {
+        // Screenshot failure is non-fatal — we still have the text data
+      }
+
+      return {
+        provider: 'cdp:chatgpt',
+        rawResponse: {
+          answerText,
+          groundingSources,
+          extractedAt: new Date().toISOString(),
+          targetUrl: target.newConversationUrl,
+        },
+        model: 'chatgpt-web',
         groundingSources,
-        extractedAt: new Date().toISOString(),
-        targetUrl: target.newConversationUrl,
-      },
-      model: 'chatgpt-web',
-      groundingSources,
-      searchQueries: [input.keyword],
-      screenshotPath: capturedScreenshotPath,
+        searchQueries: [input.keyword],
+        screenshotPath: capturedScreenshotPath,
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      throw new Error(`[provider-cdp] ${msg}`)
     }
   },
 

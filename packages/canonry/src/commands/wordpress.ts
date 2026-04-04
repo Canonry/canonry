@@ -16,17 +16,6 @@ function getClient() {
   return createApiClient()
 }
 
-async function promptForAppPassword(): Promise<string> {
-  const readline = await import('node:readline')
-  const rl = readline.createInterface({ input: process.stdin, output: process.stderr })
-
-  return new Promise<string>((resolve) => {
-    rl.question('WordPress Application Password: ', (answer) => {
-      rl.close()
-      resolve(answer.trim())
-    })
-  })
-}
 
 function printJson(value: unknown): void {
   console.log(JSON.stringify(value, null, 2))
@@ -180,12 +169,12 @@ export async function wordpressConnect(
     format?: string
   },
 ): Promise<void> {
-  const appPassword = opts.appPassword ?? await promptForAppPassword()
+  const appPassword = opts.appPassword
   if (!appPassword) {
     throw new CliError({
       code: 'WORDPRESS_APP_PASSWORD_REQUIRED',
       message: 'WordPress Application Password is required',
-      displayMessage: 'Error: WordPress Application Password is required (pass --app-password or enter interactively).',
+      displayMessage: 'Error: WordPress Application Password is required. Pass --app-password <password>.',
       details: { project },
     })
   }
@@ -555,12 +544,12 @@ export async function wordpressOnboard(
     format?: string
   },
 ): Promise<void> {
-  const appPassword = opts.appPassword ?? await promptForAppPassword()
+  const appPassword = opts.appPassword
   if (!appPassword) {
     throw new CliError({
       code: 'WORDPRESS_APP_PASSWORD_REQUIRED',
       message: 'WordPress Application Password is required',
-      displayMessage: 'Error: WordPress Application Password is required (pass --app-password or enter interactively).',
+      displayMessage: 'Error: WordPress Application Password is required. Pass --app-password <password>.',
       details: { project },
     })
   }

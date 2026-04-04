@@ -6,25 +6,13 @@ function getClient() {
 }
 
 export async function bingConnect(project: string, opts?: { apiKey?: string; format?: string }): Promise<void> {
-  let apiKey = opts?.apiKey
-
-  if (!apiKey) {
-    const readline = await import('node:readline')
-    const rl = readline.createInterface({ input: process.stdin, output: process.stderr })
-
-    apiKey = await new Promise<string>((resolve) => {
-      rl.question('Bing Webmaster Tools API key: ', (answer) => {
-        rl.close()
-        resolve(answer.trim())
-      })
-    })
-  }
+  const apiKey = opts?.apiKey
 
   if (!apiKey) {
     throw new CliError({
       code: 'BING_API_KEY_REQUIRED',
-      message: 'API key is required (pass --api-key or enter interactively)',
-      displayMessage: 'Error: API key is required (pass --api-key or enter interactively)',
+      message: 'API key is required. Pass --api-key <key>.',
+      displayMessage: 'Error: API key is required. Pass --api-key <key>.',
       details: {
         project,
       },

@@ -28,10 +28,11 @@ export const openaiAdapter: ProviderAdapter = {
   displayName: 'OpenAI',
   mode: 'api',
   keyUrl: 'https://platform.openai.com/api-keys',
+  // Upstream model list: https://platform.openai.com/docs/models
   modelRegistry: {
     defaultModel: 'gpt-5.4',
-    validationPattern: /^(gpt-|o\d)/,
-    validationHint: 'expected a GPT or o-series model name (e.g. gpt-5.4, o3)',
+    validationPattern: /./,
+    validationHint: 'any valid OpenAI model name (e.g. gpt-5.4, o3, chatgpt-4o-latest)',
     knownModels: [
       { id: 'gpt-5.4', displayName: 'GPT-5.4', tier: 'flagship' },
       { id: 'gpt-5.4-pro', displayName: 'GPT-5.4 Pro', tier: 'flagship' },

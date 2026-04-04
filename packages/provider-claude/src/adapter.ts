@@ -28,6 +28,7 @@ export const claudeAdapter: ProviderAdapter = {
   displayName: 'Claude',
   mode: 'api',
   keyUrl: 'https://platform.claude.com/settings/keys',
+  // Upstream model list: https://platform.claude.com/docs/en/about-claude/models/overview
   modelRegistry: {
     defaultModel: 'claude-sonnet-4-6',
     validationPattern: /^claude-/,

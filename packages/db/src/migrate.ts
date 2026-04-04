@@ -331,6 +331,19 @@ const MIGRATIONS = [
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_ai_ref_unique_v2 ON ga_ai_referrals(project_id, date, source, medium, source_dimension)`,
 ]
 
+/**
+ * Returns true only when an error (or its cause chain) represents a SQLite
+ * "duplicate column name" error — the expected idempotency signal for
+ * ALTER TABLE ADD COLUMN statements that have already been applied.
+ */
+function isDuplicateColumnError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  if (err.message.includes('duplicate column name')) return true
+  // Drizzle wraps SqliteError in a DrizzleError; check the cause too.
+  if (err.cause instanceof Error && err.cause.message.includes('duplicate column name')) return true
+  return false
+}
+
 export function migrate(db: DatabaseClient) {
   const statements = MIGRATION_SQL.split(';')
     .map(s => s.trim())
@@ -340,13 +353,19 @@ export function migrate(db: DatabaseClient) {
     db.run(sql.raw(statement))
   }
 
-  // Run incremental migrations (safe to re-run — ALTER TABLE ADD COLUMN
-  // fails silently if the column already exists in SQLite)
+  // Run incremental migrations. Most statements use IF NOT EXISTS / IF EXISTS
+  // and are fully idempotent. The only expected failure is ALTER TABLE ADD COLUMN
+  // on an already-migrated database, where SQLite throws "duplicate column name".
+  // Drizzle wraps the raw SqliteError inside a DrizzleError, so we check both the
+  // top-level message and the cause. Any other error (syntax error, FK violation,
+  // real migration bug) must propagate so the caller can surface it rather than
+  // silently leaving the DB half-migrated.
   for (const migration of MIGRATIONS) {
     try {
       db.run(sql.raw(migration))
-    } catch {
-      // Column already exists — ignore
+    } catch (err: unknown) {
+      if (isDuplicateColumnError(err)) continue
+      throw err
     }
   }
 }
