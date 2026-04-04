@@ -143,6 +143,7 @@ const MIGRATIONS = [
   // v5b: Backfill model from rawResponse JSON for existing snapshots
   `UPDATE query_snapshots SET model = json_extract(raw_response, '$.model') WHERE model IS NULL AND raw_response IS NOT NULL AND json_extract(raw_response, '$.model') IS NOT NULL`,
   // v6: Google Search Console integration — google_connections table (domain-scoped)
+  // WARNING: access_token, refresh_token are authentication material; consider storing in config.yaml per CLAUDE.md
   `CREATE TABLE IF NOT EXISTS google_connections (
     id              TEXT PRIMARY KEY,
     domain          TEXT NOT NULL,
@@ -258,6 +259,7 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_bing_keyword_project ON bing_keyword_stats(project_id)`,
   `CREATE INDEX IF NOT EXISTS idx_bing_keyword_query ON bing_keyword_stats(query)`,
   // v13: Google Analytics 4 — ga_connections table (service account auth)
+  // WARNING: private_key is authentication material; consider storing in config.yaml per CLAUDE.md
   `CREATE TABLE IF NOT EXISTS ga_connections (
     id            TEXT PRIMARY KEY,
     project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
