@@ -56,7 +56,7 @@ function validateSiteUrl(siteUrl: string): void {
 
 function _validateSlug(slug: string): void {
   if (!slug || typeof slug !== 'string' || slug.trim().length === 0) {
-    throw new WordpressApiError('VALIDATION', 'Slug is required and must be a non-empty string', 400)
+    throw new WordpressApiError('VALIDATION_ERROR', 'Slug is required and must be a non-empty string', 400)
   }
 }
 
