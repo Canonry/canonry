@@ -398,7 +398,7 @@ export function RootLayout() {
 
         <div className="sidebar-footer">
           {docs.map((doc) => (
-            <a key={doc.href} className="sidebar-footer-link" href={doc.href} target="_blank" rel="noreferrer">
+            <a key={doc.href} className="sidebar-footer-link" href={doc.href} target="_blank" rel="noopener noreferrer">
               {doc.label}
             </a>
           ))}
@@ -523,13 +523,13 @@ export function RootLayout() {
         </main>
 
         <footer className="footer">
-          <a href="https://github.com/AINYC/canonry" target="_blank" rel="noreferrer" className="footer-brand">
+          <a href="https://github.com/AINYC/canonry" target="_blank" rel="noopener noreferrer" className="footer-brand">
             <Github className="size-3.5" />
             <span>Canonry</span>
           </a>
           <div className="footer-links">
             {docs.map((doc) => (
-              <a key={doc.href} href={doc.href} target="_blank" rel="noreferrer">
+              <a key={doc.href} href={doc.href} target="_blank" rel="noopener noreferrer">
                 {doc.label}
               </a>
             ))}
@@ -594,7 +594,7 @@ export function RootLayout() {
                         <ul className="mt-1 space-y-0.5">
                           {snap.groundingSources.map((src: { uri: string; title: string }, i: number) => (
                             <li key={i} className="text-xs text-zinc-500 truncate">
-                              <a href={src.uri} target="_blank" rel="noreferrer" className="hover:text-zinc-300">{src.title || src.uri}</a>
+                              <a href={src.uri} target="_blank" rel="noopener noreferrer" className="hover:text-zinc-300">{src.title || src.uri}</a>
                             </li>
                           ))}
                         </ul>

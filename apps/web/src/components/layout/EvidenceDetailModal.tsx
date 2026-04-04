@@ -654,7 +654,7 @@ export function EvidenceDetailModal({
                           <ul className="grid gap-0.5">
                             {display.groundingSources.map((src, i) => (
                               <li key={i} className="truncate text-sm">
-                                <a href={src.uri} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
+                                <a href={src.uri} target="_blank" rel="noopener noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
                                   {src.title || src.uri}
                                 </a>
                               </li>
@@ -669,7 +669,7 @@ export function EvidenceDetailModal({
                           <ul className="grid gap-1">
                             {display.evidenceUrls.map((url) => (
                               <li key={url} className="truncate text-sm">
-                                <a href={url} target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
+                                <a href={url} target="_blank" rel="noopener noreferrer" className="text-zinc-400 hover:text-zinc-200 transition-colors">
                                   {url}
                                 </a>
                               </li>
