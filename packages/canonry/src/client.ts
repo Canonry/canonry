@@ -88,6 +88,7 @@ export interface ExportDto {
   kind: string
   metadata: { name: string; labels?: Record<string, string> }
   spec: object
+  results?: unknown
 }
 
 /** CDP status DTO */

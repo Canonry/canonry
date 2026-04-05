@@ -15,7 +15,7 @@ export async function exportProject(
       const runs = await client.listRuns(project) as Array<{ id: string }>
       if (runs.length > 0) {
         const latestRun = await client.getRun(runs[runs.length - 1]!.id)
-        ;(data as any).results = latestRun
+        data.results = latestRun
       }
     } catch {
       // Results not available, skip
