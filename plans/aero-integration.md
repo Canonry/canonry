@@ -5,7 +5,6 @@
 Maintaining Aero as a separate package that depends on both `@ainyc/canonry` and `openclaw` is too complex — three packages to keep in sync, Docker setup is painful, and every feature touches multiple repos. Since canonry is already FSL-licensed, we're moving all Aero features into the canonry monorepo. One repo, one `npx canonry` install, one release cycle.
 
 **What moves into canonry:** Intelligence engine, agent CLI commands, OpenClaw bootstrap, agent persona/skills
-**What stays separate (future private repo):** Sync service, team management, billing
 
 ---
 
