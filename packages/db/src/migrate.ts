@@ -331,6 +331,10 @@ const MIGRATIONS = [
   // Replace old unique index with one that includes source_dimension
   `DROP INDEX IF EXISTS idx_ga_ai_ref_unique`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_ai_ref_unique_v2 ON ga_ai_referrals(project_id, date, source, medium, source_dimension)`,
+  // v21: Add missing indexes for query_snapshots filtering
+  `CREATE INDEX IF NOT EXISTS idx_snapshots_citation_state ON query_snapshots(citation_state)`,
+  `CREATE INDEX IF NOT EXISTS idx_snapshots_provider_model ON query_snapshots(provider, model)`,
+  `CREATE INDEX IF NOT EXISTS idx_snapshots_location ON query_snapshots(location)`,
 ]
 
 /**
