@@ -1,5 +1,5 @@
 import { stringify } from 'yaml'
-import { createApiClient } from '../client.js'
+import { createApiClient, type ExportDto } from '../client.js'
 
 export async function exportProject(
   project: string,
@@ -7,19 +7,7 @@ export async function exportProject(
 ): Promise<void> {
   const client = createApiClient()
 
-  const data = await client.getExport(project) as {
-    apiVersion: string
-    kind: string
-    metadata: { name: string; labels: Record<string, string> }
-    spec: {
-      displayName: string
-      canonicalDomain: string
-      country: string
-      language: string
-      keywords: string[]
-      competitors: string[]
-    }
-  }
+  const data: ExportDto = await client.getExport(project)
 
   if (opts.includeResults) {
     // Fetch latest run data and include as annotation
@@ -27,7 +15,7 @@ export async function exportProject(
       const runs = await client.listRuns(project) as Array<{ id: string }>
       if (runs.length > 0) {
         const latestRun = await client.getRun(runs[runs.length - 1]!.id)
-        ;(data as Record<string, unknown>).results = latestRun
+        ;(data as any).results = latestRun
       }
     } catch {
       // Results not available, skip

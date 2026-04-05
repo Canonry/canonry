@@ -1,5 +1,5 @@
 import { loadConfig, saveConfigPatch } from '../config.js'
-import { createApiClient } from '../client.js'
+import { createApiClient, type CdpStatusDto, type CdpScreenshotResultDto } from '../client.js'
 import { CliError } from '../cli-error.js'
 
 function getClient() {
@@ -43,13 +43,7 @@ export async function cdpConnect(opts: { host?: string; port?: string; format?: 
 export async function cdpStatus(format?: string): Promise<void> {
   const client = getClient()
   try {
-    const status = await client.getCdpStatus() as {
-      connected: boolean
-      endpoint: string
-      version?: string
-      browserVersion?: string
-      targets: { name: string; alive: boolean; lastUsed: string | null }[]
-    }
+    const status = await client.getCdpStatus()
 
     if (format === 'json') {
       console.log(JSON.stringify(status, null, 2))
@@ -126,9 +120,7 @@ export async function cdpScreenshot(query: string, opts?: { targets?: string; fo
   }
 
   try {
-    const response = await client.cdpScreenshot(query, body.targets as string[] | undefined) as {
-      results: { target: string; screenshotPath: string; answerText: string; citations: { uri: string; title: string }[] }[]
-    }
+    const response = await client.cdpScreenshot(query, body.targets as string[] | undefined)
 
     if (opts?.format === 'json') {
       console.log(JSON.stringify(response, null, 2))

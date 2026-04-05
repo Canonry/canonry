@@ -1,5 +1,4 @@
-import { createApiClient } from '../client.js'
-import type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto } from '@ainyc/canonry-contracts'
+import { createApiClient, type BrandMetricsDto, type GapAnalysisDto, type SourceBreakdownDto } from '../client.js'
 import { CliError } from '../cli-error.js'
 
 function getClient() {
@@ -18,19 +17,19 @@ export async function showAnalytics(
   for (const feature of features) {
     switch (feature) {
       case 'metrics': {
-        const data = await client.getAnalyticsMetrics(project, options.window) as BrandMetricsDto
+        const data = await client.getAnalyticsMetrics(project, options.window)
         results.metrics = data
         if (options.format !== 'json') printMetrics(data)
         break
       }
       case 'gaps': {
-        const data = await client.getAnalyticsGaps(project, options.window) as GapAnalysisDto
+        const data = await client.getAnalyticsGaps(project, options.window)
         results.gaps = data
         if (options.format !== 'json') printGaps(data)
         break
       }
       case 'sources': {
-        const data = await client.getAnalyticsSources(project, options.window) as SourceBreakdownDto
+        const data = await client.getAnalyticsSources(project, options.window)
         results.sources = data
         if (options.format !== 'json') printSources(data)
         break
@@ -64,7 +63,7 @@ function printMetrics(data: BrandMetricsDto): void {
 
   if (Object.keys(data.byProvider).length > 0) {
     console.log(`\n  By Provider:`)
-    for (const [provider, metric] of Object.entries(data.byProvider)) {
+    for (const [provider, metric] of Object.entries(data.byProvider) as [string, { cited: number; total: number; citationRate: number }][]) {
       console.log(`    ${provider.padEnd(10)} ${pct(metric.citationRate).padStart(6)} (${metric.cited}/${metric.total})`)
     }
   }
@@ -118,7 +117,7 @@ function printSources(data: SourceBreakdownDto): void {
 
   for (const cat of data.overall) {
     const pct = `${(cat.percentage * 100).toFixed(1)}%`
-    const domains = cat.topDomains.slice(0, 3).map(d => d.domain).join(', ')
+    const domains = cat.topDomains.slice(0, 3).map((d: { domain: string }) => d.domain).join(', ')
     console.log(`  ${cat.label.padEnd(20)} ${pct.padStart(6)}  (${cat.count})  ${domains}`)
   }
 }

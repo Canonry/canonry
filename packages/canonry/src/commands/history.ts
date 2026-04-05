@@ -1,4 +1,4 @@
-import { createApiClient } from '../client.js'
+import { createApiClient, type AuditLogEntry } from '../client.js'
 import { CliError } from '../cli-error.js'
 
 function getClient() {
@@ -9,14 +9,7 @@ export async function showHistory(project: string, format?: string): Promise<voi
   const client = getClient()
 
   try {
-    const entries = await client.getHistory(project) as Array<{
-      id: string
-      actor: string
-      action: string
-      entityType: string
-      entityId: string | null
-      createdAt: string
-    }>
+    const entries = await client.getHistory(project)
 
     if (format === 'json') {
       console.log(JSON.stringify(entries, null, 2))

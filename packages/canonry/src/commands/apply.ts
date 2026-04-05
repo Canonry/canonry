@@ -1,18 +1,13 @@
 import fs from 'node:fs'
 import { parseAllDocuments } from 'yaml'
-import { createApiClient } from '../client.js'
+import { createApiClient, type ApplyResultDto } from '../client.js'
 import { CliError } from '../cli-error.js'
 
-export type ApplyResult = {
-  id: string
-  name: string
-  displayName: string
-  configRevision: number
-}
+
 
 export type ApplyFileResult = {
   filePath: string
-  applied: ApplyResult[]
+  applied: ApplyResultDto[]
   errors: string[]
 }
 
@@ -45,7 +40,7 @@ export async function applyConfigFile(filePath: string): Promise<ApplyFileResult
   const client = createApiClient()
 
   const errors: string[] = []
-  const applied: ApplyResult[] = []
+  const applied: ApplyResultDto[] = []
 
   for (let i = 0; i < docs.length; i++) {
     const doc = docs[i]!
@@ -58,7 +53,7 @@ export async function applyConfigFile(filePath: string): Promise<ApplyFileResult
     if (!config || typeof config !== 'object') continue
 
     try {
-      const result = await client.apply(config) as ApplyResult
+      const result = await client.apply(config)
       applied.push(result)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)

@@ -31,7 +31,17 @@ import type {
   GaCoverageResponse,
   GA4AiReferralHistoryEntry,
   GA4SessionHistoryEntry,
+  AuditLogEntry,
+  GoogleConnectionDto,
+  GscSearchDataDto,
+  GscUrlInspectionDto,
+  GscCoverageSummaryDto,
+  GscCoverageSnapshotDto,
+  GscReasonGroup,
+  IndexingRequestResultDto,
 } from '@ainyc/canonry-contracts'
+
+export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry }
 
 /** Run detail response includes snapshots */
 export interface RunDetailDto extends RunDto {
@@ -52,6 +62,51 @@ export type ApplyResultDto = ProjectDto
 export interface TelemetryDto {
   enabled: boolean
   anonymousId?: string
+}
+
+/** Competitor DTO */
+export interface CompetitorDto {
+  id: string
+  domain: string
+  createdAt: string
+}
+
+/** Timeline DTO */
+export interface TimelineDto {
+  keyword: string
+  runs: {
+    runId: string
+    createdAt: string
+    citationState: string
+    transition: string
+  }[]
+}
+
+/** Export DTO */
+export interface ExportDto {
+  apiVersion: string
+  kind: string
+  metadata: { name: string; labels?: Record<string, string> }
+  spec: object
+}
+
+/** CDP status DTO */
+export interface CdpStatusDto {
+  connected: boolean
+  endpoint?: string
+  version?: string
+  browserVersion?: string
+  targets: Array<{ name: string; alive: boolean; lastUsed?: string }>
+}
+
+/** CDP screenshot result DTO */
+export interface CdpScreenshotResultDto {
+  results: Array<{
+    target: string
+    screenshotPath: string
+    answerText: string
+    citations: { uri: string; title: string }[]
+  }>
 }
 
 /**
@@ -216,8 +271,8 @@ export class ApiClient {
     await this.request<unknown>('PUT', `/projects/${encodeURIComponent(project)}/competitors`, { competitors })
   }
 
-  async listCompetitors(project: string): Promise<object[]> {
-    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/competitors`)
+  async listCompetitors(project: string): Promise<CompetitorDto[]> {
+    return this.request<CompetitorDto[]>('GET', `/projects/${encodeURIComponent(project)}/competitors`)
   }
 
   async triggerRun(project: string, body?: Record<string, unknown>): Promise<RunDto | RunDto[]> {
@@ -237,16 +292,16 @@ export class ApiClient {
     return this.request<RunDto>('POST', `/runs/${encodeURIComponent(id)}/cancel`)
   }
 
-  async getTimeline(project: string): Promise<object[]> {
-    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/timeline`)
+  async getTimeline(project: string): Promise<TimelineDto[]> {
+    return this.request<TimelineDto[]>('GET', `/projects/${encodeURIComponent(project)}/timeline`)
   }
 
-  async getHistory(project: string): Promise<object[]> {
-    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/history`)
+  async getHistory(project: string): Promise<AuditLogEntry[]> {
+    return this.request<AuditLogEntry[]>('GET', `/projects/${encodeURIComponent(project)}/history`)
   }
 
-  async getExport(project: string): Promise<object> {
-    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/export`)
+  async getExport(project: string): Promise<ExportDto> {
+    return this.request<ExportDto>('GET', `/projects/${encodeURIComponent(project)}/export`)
   }
 
   async apply(config: object): Promise<ApplyResultDto> {
@@ -339,8 +394,8 @@ export class ApiClient {
     return this.request<{ authUrl: string; redirectUri?: string }>('POST', `/projects/${encodeURIComponent(project)}/google/connect`, body)
   }
 
-  async googleConnections(project: string): Promise<object[]> {
-    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/google/connections`)
+  async googleConnections(project: string): Promise<GoogleConnectionDto[]> {
+    return this.request<GoogleConnectionDto[]>('GET', `/projects/${encodeURIComponent(project)}/google/connections`)
   }
 
   async googleDisconnect(project: string, type: string): Promise<void> {
@@ -351,44 +406,44 @@ export class ApiClient {
     return this.request<{ sites: Array<{ siteUrl: string; permissionLevel: string }> }>('GET', `/projects/${encodeURIComponent(project)}/google/properties`)
   }
 
-  async googleSetProperty(project: string, type: string, propertyId: string): Promise<object> {
-    return this.request<object>('PUT', `/projects/${encodeURIComponent(project)}/google/connections/${encodeURIComponent(type)}/property`, { propertyId })
+  async googleSetProperty(project: string, type: string, propertyId: string): Promise<GoogleConnectionDto> {
+    return this.request<GoogleConnectionDto>('PUT', `/projects/${encodeURIComponent(project)}/google/connections/${encodeURIComponent(type)}/property`, { propertyId })
   }
 
-  async googleSetSitemap(project: string, type: string, sitemapUrl: string): Promise<object> {
-    return this.request<object>('PUT', `/projects/${encodeURIComponent(project)}/google/connections/${encodeURIComponent(type)}/sitemap`, { sitemapUrl })
+  async googleSetSitemap(project: string, type: string, sitemapUrl: string): Promise<GoogleConnectionDto> {
+    return this.request<GoogleConnectionDto>('PUT', `/projects/${encodeURIComponent(project)}/google/connections/${encodeURIComponent(type)}/sitemap`, { sitemapUrl })
   }
 
   // GSC data
-  async gscSync(project: string, body?: { days?: number; full?: boolean }): Promise<object> {
-    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/google/gsc/sync`, body ?? {})
+  async gscSync(project: string, body?: { days?: number; full?: boolean }): Promise<RunDto> {
+    return this.request<RunDto>('POST', `/projects/${encodeURIComponent(project)}/google/gsc/sync`, body ?? {})
   }
 
-  async gscPerformance(project: string, params?: Record<string, string>): Promise<object[]> {
+  async gscPerformance(project: string, params?: Record<string, string>): Promise<GscSearchDataDto[]> {
     const qs = params ? '?' + new URLSearchParams(params).toString() : ''
-    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/performance${qs}`)
+    return this.request<GscSearchDataDto[]>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/performance${qs}`)
   }
 
-  async gscInspect(project: string, url: string): Promise<object> {
-    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/google/gsc/inspect`, { url })
+  async gscInspect(project: string, url: string): Promise<GscUrlInspectionDto> {
+    return this.request<GscUrlInspectionDto>('POST', `/projects/${encodeURIComponent(project)}/google/gsc/inspect`, { url })
   }
 
-  async gscInspections(project: string, params?: Record<string, string>): Promise<object[]> {
+  async gscInspections(project: string, params?: Record<string, string>): Promise<GscUrlInspectionDto[]> {
     const qs = params ? '?' + new URLSearchParams(params).toString() : ''
-    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/inspections${qs}`)
+    return this.request<GscUrlInspectionDto[]>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/inspections${qs}`)
   }
 
   async gscDeindexed(project: string): Promise<object[]> {
     return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/deindexed`)
   }
 
-  async gscCoverage(project: string): Promise<object> {
-    return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/coverage`)
+  async gscCoverage(project: string): Promise<GscCoverageSummaryDto> {
+    return this.request<GscCoverageSummaryDto>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/coverage`)
   }
 
-  async gscCoverageHistory(project: string, params?: { limit?: number }): Promise<object[]> {
+  async gscCoverageHistory(project: string, params?: { limit?: number }): Promise<GscCoverageSnapshotDto[]> {
     const qs = params?.limit != null ? `?limit=${params.limit}` : ''
-    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/coverage/history${qs}`)
+    return this.request<GscCoverageSnapshotDto[]>('GET', `/projects/${encodeURIComponent(project)}/google/gsc/coverage/history${qs}`)
   }
 
   async gscInspectSitemap(project: string, body?: { sitemapUrl?: string }): Promise<object> {
@@ -468,12 +523,12 @@ export class ApiClient {
   }
 
   // CDP browser provider
-  async getCdpStatus(): Promise<object> {
-    return this.request<object>('GET', '/cdp/status')
+  async getCdpStatus(): Promise<CdpStatusDto> {
+    return this.request<CdpStatusDto>('GET', '/cdp/status')
   }
 
-  async cdpScreenshot(query: string, targets?: string[]): Promise<object> {
-    return this.request<object>('POST', '/cdp/screenshot', { query, targets })
+  async cdpScreenshot(query: string, targets?: string[]): Promise<CdpScreenshotResultDto> {
+    return this.request<CdpScreenshotResultDto>('POST', '/cdp/screenshot', { query, targets })
   }
 
   async getBrowserDiff(project: string, runId: string): Promise<object> {

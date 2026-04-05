@@ -1,4 +1,4 @@
-import { createApiClient } from '../client.js'
+import { createApiClient, type CompetitorDto } from '../client.js'
 
 function getClient() {
   return createApiClient()
@@ -7,7 +7,7 @@ function getClient() {
 export async function addCompetitors(project: string, domains: string[], format?: string): Promise<void> {
   // First get existing competitors, then put the combined list
   const client = getClient()
-  const existing = await client.listCompetitors(project) as Array<{ domain: string }>
+  const existing = await client.listCompetitors(project)
   const existingDomains = existing.map(c => c.domain)
   const addedDomains = domains.filter(domain => !existingDomains.includes(domain))
   const allDomains = [...new Set([...existingDomains, ...domains])]
@@ -32,11 +32,7 @@ export async function addCompetitors(project: string, domains: string[], format?
 
 export async function listCompetitors(project: string, format?: string): Promise<void> {
   const client = getClient()
-  const comps = await client.listCompetitors(project) as Array<{
-    id: string
-    domain: string
-    createdAt: string
-  }>
+  const comps = await client.listCompetitors(project)
 
   if (format === 'json') {
     console.log(JSON.stringify(comps, null, 2))

@@ -1,16 +1,6 @@
-import { createApiClient } from '../client.js'
+import { createApiClient, type TimelineDto } from '../client.js'
 
-type TimelineEntry = {
-  keyword: string
-  runs: {
-    runId: string
-    createdAt: string
-    citationState: string
-    transition: string
-  }[]
-}
-
-type EvidenceJsonEntry = TimelineEntry & {
+type EvidenceJsonEntry = TimelineDto & {
   cited: boolean
 }
 
@@ -20,7 +10,7 @@ function getClient() {
 
 export async function showEvidence(project: string, format?: string): Promise<void> {
   const client = getClient()
-  const timeline = await client.getTimeline(project) as TimelineEntry[]
+  const timeline = await client.getTimeline(project)
 
   if (format === 'json') {
     const enriched: EvidenceJsonEntry[] = timeline.map((entry) => ({

@@ -63,15 +63,17 @@ export async function bootstrapCommand(_opts?: { force?: boolean; format?: CliFo
 
   const db = createClient(databasePath)
   migrate(db)
-  db.delete(apiKeys).where(eq(apiKeys.name, 'default')).run()
-  db.insert(apiKeys).values({
-    id: crypto.randomUUID(),
-    name: 'default',
-    keyHash,
-    keyPrefix,
-    scopes: '["*"]',
-    createdAt: new Date().toISOString(),
-  }).run()
+  db.transaction((tx) => {
+    tx.delete(apiKeys).where(eq(apiKeys.name, 'default')).run()
+    tx.insert(apiKeys).values({
+      id: crypto.randomUUID(),
+      name: 'default',
+      keyHash,
+      keyPrefix,
+      scopes: '["*"]',
+      createdAt: new Date().toISOString(),
+    }).run()
+  })
 
   saveConfig({
     apiUrl: env.apiUrl || existingConfig?.apiUrl || `http://localhost:${process.env.CANONRY_PORT || '4100'}`,
