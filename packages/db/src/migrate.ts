@@ -353,8 +353,9 @@ const MIGRATIONS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_insights_project ON insights(project_id)`,
   `CREATE INDEX IF NOT EXISTS idx_insights_created ON insights(created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_insights_keyword_provider ON insights(keyword, provider)`,
 
-  // v21: Intelligence — health_snapshots table for citation health over time
+  // v23: Intelligence — health_snapshots table for citation health over time
   `CREATE TABLE IF NOT EXISTS health_snapshots (
     id                  TEXT PRIMARY KEY,
     project_id          TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -367,7 +368,7 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_health_snapshots_project ON health_snapshots(project_id)`,
   `CREATE INDEX IF NOT EXISTS idx_health_snapshots_created ON health_snapshots(created_at)`,
 
-  // v22: Intelligence — add run_id to insights and health_snapshots for per-run correlation and idempotency
+  // v24: Intelligence — add run_id to insights and health_snapshots for per-run correlation and idempotency
   `ALTER TABLE insights ADD COLUMN run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
   `CREATE INDEX IF NOT EXISTS idx_insights_run ON insights(run_id)`,
   `ALTER TABLE health_snapshots ADD COLUMN run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,

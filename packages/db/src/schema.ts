@@ -335,6 +335,7 @@ export const insights = sqliteTable('insights', {
   index('idx_insights_project').on(table.projectId),
   index('idx_insights_run').on(table.runId),
   index('idx_insights_created').on(table.createdAt),
+  index('idx_insights_keyword_provider').on(table.keyword, table.provider),
 ])
 
 export const healthSnapshots = sqliteTable('health_snapshots', {
