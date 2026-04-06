@@ -88,7 +88,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['project', 'show'],
-    usage: 'canonry project show <name>',
+    usage: 'canonry project show <name> [--format json]',
     run: async (input) => {
       const name = requireProject(input, 'project.show', 'canonry project show <name>')
       await showProject(name, input.format)
@@ -104,7 +104,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['project', 'add-location'],
-    usage: 'canonry project add-location <name> --label <label> --city <city> --region <region> --country <country>',
+    usage: 'canonry project add-location <name> --label <label> --city <city> --region <region> --country <country> [--format json]',
     options: {
       label: stringOption(),
       city: stringOption(),
@@ -116,7 +116,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const name = requireProject(
         input,
         'project.add-location',
-        'canonry project add-location <name> --label <label> --city <city> --region <region> --country <country>',
+        'canonry project add-location <name> --label <label> --city <city> --region <region> --country <country> [--format json]',
       )
       const label = getString(input.values, 'label')
       const city = getString(input.values, 'city')
@@ -127,7 +127,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
           message: 'location label, city, region, and country are required',
           details: {
             command: 'project.add-location',
-            usage: 'canonry project add-location <name> --label <label> --city <city> --region <region> --country <country>',
+            usage: 'canonry project add-location <name> --label <label> --city <city> --region <region> --country <country> [--format json]',
             required: ['label', 'city', 'region', 'country'],
           },
         })
@@ -144,20 +144,20 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['project', 'locations'],
-    usage: 'canonry project locations <name>',
+    usage: 'canonry project locations <name> [--format json]',
     run: async (input) => {
-      const name = requireProject(input, 'project.locations', 'canonry project locations <name>')
+      const name = requireProject(input, 'project.locations', 'canonry project locations <name> [--format json]')
       await listLocations(name, input.format)
     },
   },
   {
     path: ['project', 'remove-location'],
-    usage: 'canonry project remove-location <name> <label>',
+    usage: 'canonry project remove-location <name> <label> [--format json]',
     run: async (input) => {
-      const name = requireProject(input, 'project.remove-location', 'canonry project remove-location <name> <label>')
+      const name = requireProject(input, 'project.remove-location', 'canonry project remove-location <name> <label> [--format json]')
       const label = requirePositional(input, 1, {
         command: 'project.remove-location',
-        usage: 'canonry project remove-location <name> <label>',
+        usage: 'canonry project remove-location <name> <label> [--format json]',
         message: 'project name and location label are required',
       })
       await removeLocation(name, label, input.format)
@@ -165,12 +165,12 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['project', 'set-default-location'],
-    usage: 'canonry project set-default-location <name> <label>',
+    usage: 'canonry project set-default-location <name> <label> [--format json]',
     run: async (input) => {
-      const name = requireProject(input, 'project.set-default-location', 'canonry project set-default-location <name> <label>')
+      const name = requireProject(input, 'project.set-default-location', 'canonry project set-default-location <name> <label> [--format json]')
       const label = requirePositional(input, 1, {
         command: 'project.set-default-location',
-        usage: 'canonry project set-default-location <name> <label>',
+        usage: 'canonry project set-default-location <name> <label> [--format json]',
         message: 'project name and location label are required',
       })
       await setDefaultLocation(name, label, input.format)
