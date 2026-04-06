@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 
 import { Button } from '../ui/button.js'
@@ -75,6 +75,17 @@ export function GscSection({
   const [savingSitemap, setSavingSitemap] = useState(false)
   const [setupExpanded, setSetupExpanded] = useState(false)
   const [coverageTab, setCoverageTab] = useState<'indexed' | 'notIndexed' | 'deindexed'>('indexed')
+  const [perfSort, setPerfSort] = useState<{ key: 'clicks' | 'impressions' | 'ctr' | 'position'; dir: 'asc' | 'desc' } | null>(null)
+
+  const sortedPerformance = useMemo(() => {
+    if (!perfSort) return performance
+    const { key, dir } = perfSort
+    return [...performance].sort((a, b) => {
+      const av = key === 'ctr' ? (Number.isFinite(a.ctr) ? a.ctr : 0) : a[key]
+      const bv = key === 'ctr' ? (Number.isFinite(b.ctr) ? b.ctr : 0) : b[key]
+      return dir === 'asc' ? av - bv : bv - av
+    })
+  }, [performance, perfSort])
   const [_coverageHistory, setCoverageHistory] = useState<Array<{ date: string; indexed: number; notIndexed: number; reasonBreakdown: Record<string, number> }>>([])
   const [selectedReason, setSelectedReason] = useState<string | null>(null)
   const [requestingIndexing, setRequestingIndexing] = useState(false)
@@ -1023,14 +1034,28 @@ export function GscSection({
                           <th className="text-left">Date</th>
                           <th className="text-left">Query</th>
                           <th className="text-left">Page</th>
-                          <th className="text-right">Clicks</th>
-                          <th className="text-right">Impressions</th>
-                          <th className="text-right">CTR</th>
-                          <th className="text-right">Position</th>
+                          {(['clicks', 'impressions', 'ctr', 'position'] as const).map((col) => (
+                            <th
+                              key={col}
+                              className="cursor-pointer select-none text-right hover:text-zinc-200"
+                              onClick={() =>
+                                setPerfSort((prev) =>
+                                  prev?.key === col
+                                    ? prev.dir === 'desc'
+                                      ? { key: col, dir: 'asc' }
+                                      : null
+                                    : { key: col, dir: 'desc' },
+                                )
+                              }
+                            >
+                              {col === 'ctr' ? 'CTR' : col.charAt(0).toUpperCase() + col.slice(1)}
+                              {perfSort?.key === col ? (perfSort.dir === 'desc' ? ' \u2193' : ' \u2191') : ''}
+                            </th>
+                          ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {performance.map((row, i) => (
+                        {sortedPerformance.map((row, i) => (
                           <tr key={`${row.date}:${row.query}:${row.page}:${i}`}>
                             <td className="text-zinc-400">{row.date}</td>
                             <td className="max-w-xs truncate text-zinc-200">{row.query}</td>
