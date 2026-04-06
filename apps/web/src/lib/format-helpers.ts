@@ -1,3 +1,18 @@
+/** Common search-analytics metrics shared across GSC, Bing, etc. */
+export enum SearchMetric {
+  Clicks = 'clicks',
+  Impressions = 'impressions',
+  CTR = 'ctr',
+  Position = 'position',
+}
+
+export const SEARCH_METRIC_LABELS: Record<SearchMetric, string> = {
+  [SearchMetric.Clicks]: 'Clicks',
+  [SearchMetric.Impressions]: 'Impressions',
+  [SearchMetric.CTR]: 'CTR',
+  [SearchMetric.Position]: 'Position',
+}
+
 export function formatErrorLog(error: string): string {
   // Extract the human-readable prefix and try to pretty-print any JSON within
   const bracketMatch = error.match(/^(\[.*?\])\s*(.+)/)

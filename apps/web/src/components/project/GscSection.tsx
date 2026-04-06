@@ -4,7 +4,7 @@ import { Link } from '@tanstack/react-router'
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
-import { formatTimestamp, formatBooleanState } from '../../lib/format-helpers.js'
+import { formatTimestamp, formatBooleanState, SearchMetric, SEARCH_METRIC_LABELS } from '../../lib/format-helpers.js'
 import { addToast } from '../../lib/toast-store.js'
 import {
   fetchSettings,
@@ -35,13 +35,6 @@ import {
   useTriggerGscSync,
   useTriggerInspectSitemap,
 } from '../../queries/mutations.js'
-
-const PERF_METRIC_LABELS: Record<string, string> = {
-  clicks: 'Clicks',
-  impressions: 'Impressions',
-  ctr: 'CTR',
-  position: 'Position',
-}
 
 export function GscSection({
   projectName,
@@ -82,14 +75,14 @@ export function GscSection({
   const [savingSitemap, setSavingSitemap] = useState(false)
   const [setupExpanded, setSetupExpanded] = useState(false)
   const [coverageTab, setCoverageTab] = useState<'indexed' | 'notIndexed' | 'deindexed'>('indexed')
-  const [perfSort, setPerfSort] = useState<{ key: 'clicks' | 'impressions' | 'ctr' | 'position'; dir: 'asc' | 'desc' } | null>(null)
+  const [perfSort, setPerfSort] = useState<{ key: SearchMetric; dir: 'asc' | 'desc' } | null>(null)
 
   const sortedPerformance = useMemo(() => {
     if (!perfSort) return performance
     const { key, dir } = perfSort
     return [...performance].sort((a, b) => {
-      const av = key === 'ctr' ? (Number.isFinite(a.ctr) ? a.ctr : 0) : a[key]
-      const bv = key === 'ctr' ? (Number.isFinite(b.ctr) ? b.ctr : 0) : b[key]
+      const av = key === SearchMetric.CTR ? (Number.isFinite(a.ctr) ? a.ctr : 0) : a[key]
+      const bv = key === SearchMetric.CTR ? (Number.isFinite(b.ctr) ? b.ctr : 0) : b[key]
       return dir === 'asc' ? av - bv : bv - av
     })
   }, [performance, perfSort])
@@ -1041,7 +1034,7 @@ export function GscSection({
                           <th className="text-left">Date</th>
                           <th className="text-left">Query</th>
                           <th className="text-left">Page</th>
-                          {(['clicks', 'impressions', 'ctr', 'position'] as const).map((col) => (
+                          {Object.values(SearchMetric).map((col) => (
                             <th
                               key={col}
                               className="cursor-pointer select-none text-right hover:text-zinc-200"
@@ -1055,7 +1048,7 @@ export function GscSection({
                                 )
                               }
                             >
-                              {PERF_METRIC_LABELS[col]}
+                              {SEARCH_METRIC_LABELS[col]}
                               {perfSort?.key === col ? (perfSort.dir === 'desc' ? ' \u2193' : ' \u2191') : ''}
                             </th>
                           ))}
