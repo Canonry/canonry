@@ -1037,19 +1037,25 @@ export function GscSection({
                           {Object.values(SearchMetric).map((col) => (
                             <th
                               key={col}
-                              className="cursor-pointer select-none text-right hover:text-zinc-200"
-                              onClick={() =>
-                                setPerfSort((prev) =>
-                                  prev?.key === col
-                                    ? prev.dir === 'desc'
-                                      ? { key: col, dir: 'asc' }
-                                      : null
-                                    : { key: col, dir: 'desc' },
-                                )
-                              }
+                              className="text-right"
+                              aria-sort={perfSort?.key === col ? (perfSort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
                             >
-                              {SEARCH_METRIC_LABELS[col]}
-                              {perfSort?.key === col ? (perfSort.dir === 'desc' ? ' \u2193' : ' \u2191') : ''}
+                              <button
+                                type="button"
+                                className="w-full cursor-pointer select-none text-right hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 rounded px-1 -mx-1"
+                                onClick={() =>
+                                  setPerfSort((prev) =>
+                                    prev?.key === col
+                                      ? prev.dir === 'desc'
+                                        ? { key: col, dir: 'asc' }
+                                        : null
+                                      : { key: col, dir: 'desc' },
+                                  )
+                                }
+                              >
+                                {SEARCH_METRIC_LABELS[col]}
+                                {perfSort?.key === col ? (perfSort.dir === 'desc' ? ' \u2193' : ' \u2191') : ''}
+                              </button>
                             </th>
                           ))}
                         </tr>
