@@ -2,7 +2,7 @@
 
 ## Context
 
-Canonry (v1.38.0) is an open-source agent-first AEO monitoring platform. The team wants to add an AI agent layer (persona: "Aero") on top of canonry, following the **DenchClaw distribution model** (forked OpenClaw for CRM) and the **Obsidian monetization model** (free local tool, paid sync for teams).
+Canonry (v1.39.0) is an open-source agent-first AEO monitoring platform. The team wants to add an AI agent layer (persona: "Aero") on top of canonry, following the **DenchClaw distribution model** (forked OpenClaw for CRM) and the **Obsidian monetization model** (free local tool, paid sync for teams).
 
 The team decided: **build everything inside canonry**, not a separate repo. One `npx canonry`, one release cycle.
 
@@ -31,37 +31,39 @@ Two source documents scope the work:
 **Correct:** Intelligence package structure, DB tables, CLI commands, API routes, workspace templates in assets, analyzer test structure.
 
 **Needs revision:**
-- Phase 1 is written as greenfield but intelligence already exists (package, DTOs, DB tables, migrations, routes, CLI, client methods). Must be additive, not a rewrite.
+- ~~Phase 1 is written as greenfield but intelligence already exists~~ **Resolved** — Phase 1 implemented as additive integration, not a rewrite.
 - Agent config must include `binary`, `profile` (`aero`), `autoStart`, `gatewayPort` — not just an enable flag.
 - `canonry agent setup` must be fully non-interactive.
-- Skills directory `skills/aero/` (name is fine — aero repo gets archived, name lives on as persona).
+- ~~Skills directory `skills/aero/`~~ **Done** — created at `skills/aero/` with SKILL.md and reference docs.
 
 ---
 
 ## Current State: What Already Exists
 
-### Intelligence Infrastructure (70% built, 0% integrated)
+### Intelligence Infrastructure (95% built, ~80% integrated)
+
+Phase 1 integration is largely complete. The run-completion pipeline now calls `analyzeRuns()` and persists results.
 
 | Component | Status | Location |
 |-----------|--------|----------|
-| Analysis engine (`analyzeRuns`, `detectRegressions`, `detectGains`, `computeHealth`, `analyzeCause`, `generateInsights`) | Built, **never called** | `packages/intelligence/src/` |
-| DTOs (`InsightDto`, `HealthSnapshotDto`) | Built | `packages/contracts/src/intelligence.ts` |
-| DB tables (`insights`, `health_snapshots`) | Built with v21 migrations, **always empty** | `packages/db/src/schema.ts:321` |
-| API routes (GET insights, GET health, POST dismiss) | Built, **return empty results** | `packages/api-routes/src/intelligence.ts` |
-| Client methods (`getInsights`, `getHealth`, etc.) | Built | `packages/canonry/src/client.ts:678` |
-| CLI (`canonry insights`, `canonry health`) | Built | `packages/canonry/src/cli-commands/intelligence.ts` |
-| Frontend insight rendering | Built, **uses in-memory generation** | `apps/web/src/pages/ProjectPage.tsx:907` |
+| Analysis engine (`analyzeRuns`, `detectRegressions`, `detectGains`, `computeHealth`, `analyzeCause`, `generateInsights`) | **Integrated** — called by `IntelligenceService` on every run completion | `packages/intelligence/src/` |
+| DTOs (`InsightDto`, `HealthSnapshotDto`) | Built, includes `runId` field | `packages/contracts/src/intelligence.ts` |
+| DB tables (`insights`, `health_snapshots`) | **Populated** — v21 migrations create tables, v22 adds `runId` column | `packages/db/src/schema.ts` |
+| API routes (GET insights, GET/filter by runId, GET health, POST dismiss) | **Functional** — returns real DB-backed results | `packages/api-routes/src/intelligence.ts` |
+| Client methods (`getInsights`, `getHealth`, `dismissInsight`, etc.) | Built | `packages/canonry/src/client.ts` |
+| CLI (`canonry insights`, `canonry insights dismiss`, `canonry health`) | **Built + dismiss command** | `packages/canonry/src/cli-commands/intelligence.ts` |
+| `RunCoordinator` | **Built** — failure-isolated post-run orchestrator | `packages/canonry/src/run-coordinator.ts` |
+| `IntelligenceService` | **Built** — DB read/write layer, idempotent via runId | `packages/canonry/src/intelligence-service.ts` |
+| Frontend insight rendering | Built, **still uses in-memory generation** | `apps/web/src/pages/ProjectPage.tsx:907` |
 
-### The Gap
+### Remaining Gap
 
-The run completion call chain is: `JobRunner.executeRun()` → `onRunCompleted` callback → `Notifier.onRunCompleted()` → webhooks.
-
-**What's missing:**
-1. Nobody calls `analyzeRuns()` after a run completes
-2. Nobody writes to the `insights` or `health_snapshots` tables
-3. The `Notifier` short-circuits at line 32 when no notifications are enabled — if intelligence were wired into notifier, projects without webhooks would never get insights
-4. The frontend builds insights client-side in `build-dashboard.ts:635` using its own logic, completely independent of the `@ainyc/canonry-intelligence` package
-5. The intelligence package is **not listed as a dependency** of `@ainyc/canonry`
+1. ~~Nobody calls `analyzeRuns()` after a run completes~~ **Done** — `RunCoordinator` → `IntelligenceService` → `analyzeRuns()`
+2. ~~Nobody writes to the `insights` or `health_snapshots` tables~~ **Done** — `IntelligenceService.analyzeAndPersist()`
+3. ~~The `Notifier` short-circuits when no notifications are enabled~~ **Done** — `RunCoordinator` runs intelligence independently of notifier
+4. The frontend builds insights client-side in `build-dashboard.ts:635` using its own logic, completely independent of the `@ainyc/canonry-intelligence` package — **still open (Phase 1C)**
+5. ~~The intelligence package is not listed as a dependency of `@ainyc/canonry`~~ **Done** — added to `package.json` + `tsup.config.ts`
+6. Tests for `RunCoordinator` and `IntelligenceService` in `packages/canonry/` — **still open (Phase 1D)**
 
 ### Notification Events (today)
 
@@ -133,97 +135,37 @@ Aero has full local system access via OpenClaw:
 
 The intelligence package exists. The gap is wiring: run completion → analysis → DB persistence → frontend consumption from DB. All changes are **additive** to existing contracts.
 
-#### 1A. Schema migration: add `runId` + idempotency
+> **Status: ~80% complete.** Steps 1A, 1B, and 1E are done. 1C (frontend migration) and 1D (canonry-package tests) remain.
 
-The current `insights` and `health_snapshots` tables have no `runId` column and no uniqueness constraint. Without these, `analyzeAndPersist(runId)` can't be safely re-run (duplicate insights on retry) and Phase 2 can't correlate insights to the triggering run.
+#### 1A. Schema migration: add `runId` + idempotency ✅ DONE
 
-**Modify `packages/db/src/schema.ts`:**
-- `insights` table: add `runId: text('run_id').references(() => runs.id, { onDelete: 'cascade' })` (nullable for backcompat with any manually-inserted rows)
-- `health_snapshots` table: add `runId: text('run_id').references(() => runs.id, { onDelete: 'cascade' })` (nullable)
-
-**Modify `packages/db/src/migrate.ts`** — add incremental migrations:
-```sql
-ALTER TABLE insights ADD COLUMN run_id TEXT REFERENCES runs(id) ON DELETE CASCADE
-CREATE INDEX IF NOT EXISTS idx_insights_run ON insights(run_id)
-ALTER TABLE health_snapshots ADD COLUMN run_id TEXT REFERENCES runs(id) ON DELETE CASCADE
-CREATE INDEX IF NOT EXISTS idx_health_run ON health_snapshots(run_id)
-```
+Tables created in v21 migration. `runId` column added in v22 migration. Both `insights` and `health_snapshots` have `runId` with cascade delete and indexes.
 
 **Idempotency strategy:** `IntelligenceService.analyzeAndPersist()` deletes existing insights/health_snapshots for the given `runId` before inserting, inside a transaction. This makes re-runs safe (same result, no duplicates).
 
-#### 1B. Run-completion coordinator (the critical missing piece)
+#### 1B. Run-completion coordinator + Intelligence service ✅ DONE
 
-The `Notifier` is the wrong place — it short-circuits when no notifications are enabled (line 32). Intelligence analysis must run for **every** completed run, regardless of webhook config.
+**Created:** `packages/canonry/src/run-coordinator.ts` — post-run orchestrator with failure isolation. Intelligence runs first (so insights are persisted before webhooks fire), then notifier. Each step has independent try/catch.
 
-**Create:** `packages/canonry/src/run-coordinator.ts`
+**Created:** `packages/canonry/src/intelligence-service.ts` — DB integration layer. Fetches the two most recent completed/partial runs, converts snapshots to `RunData` format, calls `analyzeRuns()`, persists results in a transaction.
 
-A post-run orchestrator with **failure isolation** — one subscriber failing must not starve the others. `JobRunner` fire-and-forgets `onRunCompleted` (line 445), so the coordinator must catch independently:
-
+**Wired in `server.ts`:**
 ```typescript
-export class RunCoordinator {
-  constructor(
-    private db: DatabaseClient,
-    private notifier: Notifier,
-    private intelligenceService: IntelligenceService,
-  ) {}
-
-  async onRunCompleted(runId: string, projectId: string): Promise<void> {
-    // 1. Intelligence — always runs, catches its own errors
-    try {
-      await this.intelligenceService.analyzeAndPersist(runId, projectId)
-    } catch (err) {
-      log.error('intelligence.failed', { runId, error: err instanceof Error ? err.message : String(err) })
-    }
-
-    // 2. Notifications — may short-circuit, catches its own errors
-    try {
-      await this.notifier.onRunCompleted(runId, projectId)
-    } catch (err) {
-      log.error('notifier.failed', { runId, error: err instanceof Error ? err.message : String(err) })
-    }
-  }
-}
+const intelligenceService = new IntelligenceService(opts.db)
+const runCoordinator = new RunCoordinator(notifier, intelligenceService)
+jobRunner.onRunCompleted = (runId, projectId) => runCoordinator.onRunCompleted(runId, projectId)
 ```
 
-**Modify:** `packages/canonry/src/server.ts` (line 237) — replace direct notifier wiring:
-```typescript
-// Before: jobRunner.onRunCompleted = (runId, projectId) => notifier.onRunCompleted(runId, projectId)
-// After:
-const coordinator = new RunCoordinator(opts.db, notifier, intelligenceService)
-jobRunner.onRunCompleted = (runId, projectId) => coordinator.onRunCompleted(runId, projectId)
-```
+**Also completed:**
+- `InsightDto` and `HealthSnapshotDto` include `runId: string | null`
+- `GET /projects/:name/insights?runId=` filter parameter works
+- `@ainyc/canonry-intelligence` added to `package.json` + `tsup.config.ts`
+- `canonry insights dismiss` CLI command added (was missing from original implementation)
+- API routes use `throw notFound()` factory (not hand-constructed error JSON)
+- `packages/intelligence/` has `AGENTS.md` + `CLAUDE.md`
+- Documentation updated: api-routes AGENTS.md, canonry AGENTS.md, skills CLI reference
 
-#### 1B. Intelligence service + run-scoped read contract
-
-**Create:** `packages/canonry/src/intelligence-service.ts`
-
-Owns the DB interaction. The intelligence package stays pure. Returns the analysis result so the coordinator can use it for webhook dispatch.
-
-```typescript
-export class IntelligenceService {
-  async analyzeAndPersist(runId: string, projectId: string): Promise<AnalysisResult> {
-    // 1. Query DB for current + previous run snapshots
-    // 2. Convert to intelligence package's RunData format
-    // 3. Call analyzeRuns(currentRun, previousRun)
-    // 4. Delete existing insights/health_snapshots for this runId (idempotency)
-    // 5. Persist AnalysisResult.insights → insights table (with runId)
-    // 6. Persist AnalysisResult.health → health_snapshots table (with runId)
-    // 7. Return AnalysisResult for coordinator to inspect
-  }
-}
-```
-
-**Modify `packages/contracts/src/intelligence.ts`** — add `runId: string | null` to both `InsightDto` and `HealthSnapshotDto`. Field is nullable for backcompat with any pre-existing rows. This is an additive field change (allowed per API stability rules).
-
-**Modify `packages/api-routes/src/intelligence.ts`** — add `?runId=` query parameter to `GET /projects/:name/insights`. When present, filters insights to that run. This gives the agent (or any webhook consumer) a deterministic way to fetch the exact insights that triggered an `insight.critical` webhook:
-```
-GET /projects/mysite/insights?runId=run_abc123 --format json
-```
-
-**Modify:** `packages/canonry/package.json` — add `@ainyc/canonry-intelligence` to `devDependencies` as `"workspace:*"` (follows the existing pattern for all internal workspace packages — see line 60-77)
-**Modify:** `packages/canonry/tsup.config.ts` — add to `noExternal` for bundling (same as other workspace packages)
-
-#### 1C. Migrate frontend from in-memory to DB-backed insights
+#### 1C. Migrate frontend from in-memory to DB-backed insights — TODO
 
 The persisted `InsightDto` (contracts) and the current UI's `ProjectInsightVm` (view-models.ts:136) have different shapes:
 
@@ -250,21 +192,21 @@ These can't be consumed directly. Need a mapper.
 
 **Modify:** `apps/web/src/build-dashboard.ts` — in `buildProjectCommandCenter()`, prefer DB-backed insights (via mapper) when available; fall back to in-memory `buildInsights()` when no persisted insights exist (first run, intelligence not yet run). This avoids a hard cutover — both paths coexist until the in-memory path can be removed.
 
-#### 1D. Testing
+#### 1D. Testing — TODO
 
 **Create:** `packages/canonry/test/run-coordinator.test.ts` — verify both intelligence and notifier are called; verify intelligence runs even when no notifications are configured
 **Create:** `packages/canonry/test/intelligence-service.test.ts` — mock DB with in-memory SQLite; verify insights + health snapshots persisted after analysis
 
-#### 1E. Workspace config
+Note: `packages/intelligence/` already has full test coverage (analyzer, regressions, gains, health, causes, insights).
 
-**Modify:** `vitest.workspace.ts` — ensure `packages/intelligence` is included (may already be)
+#### 1E. Workspace config ✅ DONE
 
-**No version bump yet** — single bump at the end of the release (see Versioning below).
+`packages/intelligence` included in vitest workspace. Version bumped to **1.39.0** (both root and `packages/canonry/package.json`).
 
 #### Parallelization
-- 1A (schema migration) first — 1B and 1C depend on `runId` existing
-- 1B and 1C can proceed in parallel after 1A
-- 1D tests depend on 1A/1B
+- ~~1A (schema migration) first — 1B and 1C depend on `runId` existing~~ Done
+- ~~1B and 1C can proceed in parallel after 1A~~ 1B done; 1C remains
+- 1C and 1D can proceed in parallel
 
 ---
 
@@ -600,9 +542,9 @@ A team "runner" is a canonry daemon on a VPS. Runs scheduled sweeps, pushes resu
 
 ## Versioning
 
-One release, one bump. Per AGENTS.md: "Every non-documentation change must include a version bump." But the three phases ship as a single minor release, not three separate bumps.
+Per AGENTS.md: "Every non-documentation change must include a version bump."
 
-**Bump:** Both root `package.json` and `packages/canonry/package.json` to **1.39.0** (minor — new features, no breaking changes to existing API surface). Applied once, after Phase 3 completes and all tests pass.
+**v1.39.0** — already applied (both root `package.json` and `packages/canonry/package.json`). Covers Phase 1 intelligence integration. Subsequent phases may warrant additional bumps depending on scope.
 
 Doc-only changes within each phase don't need their own bump — they're part of the feature work.
 
@@ -611,13 +553,14 @@ Doc-only changes within each phase don't need their own bump — they're part of
 ## Verification Plan
 
 ### Phase 1
-1. `pnpm test` — all existing tests pass + new coordinator/service tests
-2. `pnpm typecheck` + `pnpm lint` — clean
+1. ✅ `pnpm test` — all existing tests pass (intelligence package has full test coverage)
+2. ✅ `pnpm typecheck` + `pnpm lint` — clean
 3. Run a sweep on a project **with no notifications configured** → verify insights and health snapshots appear in DB
 4. Run a sweep on a project **with notifications** → verify both insights persisted AND webhooks sent
 5. `canonry insights <project> --format json` — returns real insights (not empty)
 6. `canonry health <project> --format json` — returns real health snapshot
-7. Dashboard project page shows DB-backed insights (not in-memory generated)
+7. Dashboard project page shows DB-backed insights (not in-memory generated) — **blocked on 1C**
+8. `canonry insights dismiss <project> <id>` — verify insight marked as dismissed
 
 ### Phase 2
 8. `canonry agent setup --install` — detects/installs OpenClaw, seeds workspace at `~/.openclaw-aero/`
@@ -638,25 +581,30 @@ Doc-only changes within each phase don't need their own bump — they're part of
 
 ## Critical Files Reference
 
-| File | Role | Phase |
-|------|------|-------|
-| `packages/canonry/src/server.ts:237` | Replace direct notifier wiring with RunCoordinator | 1 |
-| `packages/canonry/src/job-runner.ts:445` | onRunCompleted callback — unchanged, just receives new coordinator | 1 |
-| `packages/canonry/src/notifier.ts` | Stays as-is for webhooks; coordinator calls it AFTER intelligence | 1 |
-| `packages/intelligence/src/analyzer.ts` | Already built — `analyzeRuns()` finally gets called | 1 |
-| `packages/db/src/schema.ts:321` | Add `runId` column to insights + health_snapshots | 1 |
-| `packages/db/src/migrate.ts` | ALTER TABLE migrations for runId + indexes | 1 |
-| `packages/contracts/src/intelligence.ts` | Add `runId` to InsightDto + HealthSnapshotDto | 1 |
-| `packages/api-routes/src/intelligence.ts` | Add `?runId=` filter to GET insights route | 1 |
-| `packages/canonry/src/client.ts:678` | Client methods already exist — no changes needed in Phase 1 | 1 |
-| `apps/web/src/view-models.ts:136` | `ProjectInsightVm` — target shape for insight mapper | 1 |
-| `apps/web/src/build-dashboard.ts:635` | Prefer DB-backed insights via mapper, fallback to in-memory | 1 |
-| `packages/contracts/src/notification.ts` | Add `insight.critical` + `insight.high` events | 2 |
-| `packages/api-routes/src/notifications.ts:11` | `VALID_EVENTS` array — must include new events | 2 |
-| `packages/api-routes/src/index.ts:45` | Add `onProjectUpserted` to `ApiRoutesOptions` | 2 |
-| `packages/api-routes/src/projects.ts` | Fire `onProjectUpserted` after create/update | 2 |
-| `packages/api-routes/src/apply.ts:224` | Fire `onProjectUpserted` after apply; note: replaces all notifications | 2 |
-| `packages/canonry/src/config.ts` | Add `AgentConfigEntry` (profile: 'aero') | 2 |
-| `packages/canonry/package.json:26` | `"files"` field — assets/ must contain agent workspace | 2 |
-| `packages/canonry/assets/agent-workspace/` | SOUL.md, AGENTS.md, skills/aero/ — must be under assets/ for npm | 2 |
-| `packages/api-routes/package.json` | Add `@fastify/websocket` dependency for Phase 3 WS | 3 |
+| File | Role | Phase | Status |
+|------|------|-------|--------|
+| `packages/canonry/src/server.ts` | RunCoordinator wired into job runner | 1 | ✅ Done |
+| `packages/canonry/src/run-coordinator.ts` | Post-run orchestrator with failure isolation | 1 | ✅ Done |
+| `packages/canonry/src/intelligence-service.ts` | DB read/write layer for intelligence | 1 | ✅ Done |
+| `packages/canonry/src/job-runner.ts` | onRunCompleted callback — unchanged, receives coordinator | 1 | ✅ No change needed |
+| `packages/canonry/src/notifier.ts` | Stays as-is; coordinator calls it AFTER intelligence | 1 | ✅ No change needed |
+| `packages/intelligence/src/analyzer.ts` | `analyzeRuns()` — now called by IntelligenceService | 1 | ✅ Done |
+| `packages/db/src/schema.ts` | `insights` + `health_snapshots` tables with `runId` | 1 | ✅ Done |
+| `packages/db/src/migrate.ts` | v21 table creation + v22 ALTER TABLE for runId | 1 | ✅ Done |
+| `packages/contracts/src/intelligence.ts` | `InsightDto` + `HealthSnapshotDto` with `runId` | 1 | ✅ Done |
+| `packages/api-routes/src/intelligence.ts` | Routes with `?runId=` filter, `notFound()` factory | 1 | ✅ Done |
+| `packages/canonry/src/client.ts` | Client methods for insights + health + dismiss | 1 | ✅ Done |
+| `packages/canonry/src/cli-commands/intelligence.ts` | `insights`, `insights dismiss`, `health` commands | 1 | ✅ Done |
+| `apps/web/src/view-models.ts:136` | `ProjectInsightVm` — target shape for insight mapper | 1C | TODO |
+| `apps/web/src/build-dashboard.ts:635` | Prefer DB-backed insights via mapper, fallback to in-memory | 1C | TODO |
+| `packages/canonry/test/run-coordinator.test.ts` | Coordinator unit tests | 1D | TODO |
+| `packages/canonry/test/intelligence-service.test.ts` | Service integration tests | 1D | TODO |
+| `packages/contracts/src/notification.ts` | Add `insight.critical` + `insight.high` events | 2 | |
+| `packages/api-routes/src/notifications.ts:11` | `VALID_EVENTS` array — must include new events | 2 | |
+| `packages/api-routes/src/index.ts:45` | Add `onProjectUpserted` to `ApiRoutesOptions` | 2 | |
+| `packages/api-routes/src/projects.ts` | Fire `onProjectUpserted` after create/update | 2 | |
+| `packages/api-routes/src/apply.ts:224` | Fire `onProjectUpserted` after apply; note: replaces all notifications | 2 | |
+| `packages/canonry/src/config.ts` | Add `AgentConfigEntry` (profile: 'aero') | 2 | |
+| `packages/canonry/package.json:26` | `"files"` field — assets/ must contain agent workspace | 2 | |
+| `packages/canonry/assets/agent-workspace/` | SOUL.md, AGENTS.md, skills/aero/ — must be under assets/ for npm | 2 | |
+| `packages/api-routes/package.json` | Add `@fastify/websocket` dependency for Phase 3 WS | 3 | |
