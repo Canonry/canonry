@@ -69,7 +69,20 @@ export class IntelligenceService {
       insights: result.insights.length,
     })
 
-    // 5. Persist — idempotent: delete existing for this runId, then insert
+    // 5. Persist — idempotent: capture dismissed state, delete existing, reinsert
+    //    Preserve user dismissals across reprocessing by matching on keyword+provider+type
+    const previouslyDismissed = new Set<string>()
+    const existingInsights = this.db
+      .select({ keyword: insights.keyword, provider: insights.provider, type: insights.type, dismissed: insights.dismissed })
+      .from(insights)
+      .where(eq(insights.runId, runId))
+      .all()
+    for (const row of existingInsights) {
+      if (row.dismissed) {
+        previouslyDismissed.add(`${row.keyword}:${row.provider}:${row.type}`)
+      }
+    }
+
     this.db.transaction((tx) => {
       tx.delete(insights).where(eq(insights.runId, runId)).run()
       tx.delete(healthSnapshots).where(eq(healthSnapshots.runId, runId)).run()
@@ -77,6 +90,7 @@ export class IntelligenceService {
       const now = new Date().toISOString()
 
       for (const insight of result.insights) {
+        const wasDismissed = previouslyDismissed.has(`${insight.keyword}:${insight.provider}:${insight.type}`)
         tx.insert(insights).values({
           id: insight.id,
           projectId,
@@ -88,7 +102,7 @@ export class IntelligenceService {
           provider: insight.provider,
           recommendation: insight.recommendation ? JSON.stringify(insight.recommendation) : null,
           cause: insight.cause ? JSON.stringify(insight.cause) : null,
-          dismissed: false,
+          dismissed: wasDismissed,
           createdAt: insight.createdAt,
         }).run()
       }
@@ -117,6 +131,7 @@ export class IntelligenceService {
         provider: querySnapshots.provider,
         citationState: querySnapshots.citationState,
         citedDomains: querySnapshots.citedDomains,
+        competitorOverlap: querySnapshots.competitorOverlap,
       })
       .from(querySnapshots)
       .leftJoin(keywords, eq(querySnapshots.keywordId, keywords.id))
@@ -125,11 +140,13 @@ export class IntelligenceService {
 
     const snapshots: Snapshot[] = rows.map(r => {
       const domains = parseJsonColumn<string[]>(r.citedDomains, [])
+      const competitors = parseJsonColumn<string[]>(r.competitorOverlap, [])
       return {
         keyword: r.keyword ?? '',
         provider: r.provider,
         cited: r.citationState === 'cited',
         citationUrl: domains[0] ?? undefined,
+        competitorDomain: competitors[0] ?? undefined,
       }
     })
 

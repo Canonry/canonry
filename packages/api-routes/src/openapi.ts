@@ -2077,9 +2077,8 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['intelligence'],
     parameters: [
       nameParameter,
-      { name: 'type', in: 'query', description: 'Filter by insight type.', schema: stringSchema },
-      { name: 'run', in: 'query', description: 'Filter by run ID.', schema: stringSchema },
-      { name: 'limit', in: 'query', description: 'Max results.', schema: stringSchema },
+      { name: 'dismissed', in: 'query', description: 'Include dismissed insights (true/false).', schema: stringSchema },
+      { name: 'runId', in: 'query', description: 'Filter by run ID.', schema: stringSchema },
     ],
     responses: {
       200: { description: 'Insights returned.' },

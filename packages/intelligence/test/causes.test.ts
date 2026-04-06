@@ -12,10 +12,10 @@ describe('causes', () => {
     previousRunId: 'run_001',
   }
 
-  it('returns competitor_gain when competitor appeared', () => {
+  it('returns competitor_gain when competitor appeared in our lost-citation snapshot', () => {
     const snapshots: Snapshot[] = [
-      { keyword: 'roof repair phoenix', provider: 'chatgpt', cited: false },
-      { keyword: 'roof repair phoenix', provider: 'chatgpt', cited: true, citationUrl: 'https://roofco.com/repair', competitorDomain: 'roofco.com' },
+      // Our domain is NOT cited, but a competitor domain appeared in the response
+      { keyword: 'roof repair phoenix', provider: 'chatgpt', cited: false, competitorDomain: 'roofco.com' },
     ]
 
     const result = analyzeCause(regression, snapshots)
