@@ -1,7 +1,8 @@
-import { test, expect } from 'vitest'
+import { test, expect, describe } from 'vitest'
 
 import { buildDashboard, buildProjectCommandCenter, type ProjectData } from '../src/build-dashboard.js'
 import type { ApiSettings } from '../src/api.js'
+import type { InsightDto } from '@ainyc/canonry-contracts'
 
 test('buildDashboard maps Google settings into the dashboard view model', () => {
   const apiSettings: ApiSettings = {
@@ -463,4 +464,126 @@ test('buildProjectCommandCenter falls back to Bing coverage when Google coverage
   expect(model.indexCoverage.value).toBe('75')
   expect(model.indexCoverage.delta).toBe('Bing · 15 of 20 indexed')
   expect(model.indexCoverage.description).toMatch(/Bing Webmaster Tools/)
+})
+
+/* ── DB insight merge tests ──────────────────────────────────────────────── */
+
+function makeRegressionData(): ProjectData {
+  return {
+    project: {
+      id: 'proj_merge',
+      name: 'merge-test',
+      displayName: 'Merge Test',
+      canonicalDomain: 'merge.example',
+      ownedDomains: [],
+      country: 'US',
+      language: 'en',
+      tags: [],
+      labels: {},
+      providers: ['gemini'],
+      configSource: 'api',
+      configRevision: 1,
+      createdAt: '2026-03-10T00:00:00Z',
+      updatedAt: '2026-03-15T00:00:00Z',
+    },
+    runs: [
+      { id: 'run_2', projectId: 'proj_merge', kind: 'answer-visibility', status: 'completed', trigger: 'manual', startedAt: '2026-03-15T00:00:00Z', finishedAt: '2026-03-15T00:00:10Z', error: null, createdAt: '2026-03-15T00:00:00Z' },
+      { id: 'run_1', projectId: 'proj_merge', kind: 'answer-visibility', status: 'completed', trigger: 'manual', startedAt: '2026-03-14T00:00:00Z', finishedAt: '2026-03-14T00:00:10Z', error: null, createdAt: '2026-03-14T00:00:00Z' },
+    ],
+    keywords: [{ id: 'kw_1', keyword: 'roof repair', createdAt: '2026-03-10T00:00:00Z' }],
+    competitors: [],
+    timeline: [{
+      keyword: 'roof repair',
+      runs: [
+        { runId: 'run_1', createdAt: '2026-03-14T00:00:00Z', citationState: 'cited', transition: 'new' },
+        { runId: 'run_2', createdAt: '2026-03-15T00:00:00Z', citationState: 'not-cited', transition: 'lost' },
+      ],
+    }],
+    latestRunDetail: {
+      id: 'run_2', projectId: 'proj_merge', kind: 'answer-visibility', status: 'completed', trigger: 'manual',
+      startedAt: '2026-03-15T00:00:00Z', finishedAt: '2026-03-15T00:00:10Z', error: null, createdAt: '2026-03-15T00:00:00Z',
+      snapshots: [{
+        id: 'snap_2', runId: 'run_2', keywordId: 'kw_1', keyword: 'roof repair', provider: 'gemini', model: null,
+        citationState: 'not-cited', answerText: null, citedDomains: [], competitorOverlap: [], groundingSources: [], searchQueries: [], createdAt: '2026-03-15T00:00:00Z',
+      }],
+    },
+    previousRunDetail: {
+      id: 'run_1', projectId: 'proj_merge', kind: 'answer-visibility', status: 'completed', trigger: 'manual',
+      startedAt: '2026-03-14T00:00:00Z', finishedAt: '2026-03-14T00:00:10Z', error: null, createdAt: '2026-03-14T00:00:00Z',
+      snapshots: [{
+        id: 'snap_1', runId: 'run_1', keywordId: 'kw_1', keyword: 'roof repair', provider: 'gemini', model: null,
+        citationState: 'cited', answerText: 'Merge example cited.', citedDomains: ['merge.example'], competitorOverlap: [], groundingSources: [], searchQueries: [], createdAt: '2026-03-14T00:00:00Z',
+      }],
+    },
+  }
+}
+
+function makeDbInsight(overrides: Partial<InsightDto> = {}): InsightDto {
+  return {
+    id: 'ins_1', projectId: 'proj_merge', runId: 'run_2', type: 'regression', severity: 'high',
+    title: 'Lost citation on Gemini', keyword: 'roof repair', provider: 'gemini',
+    recommendation: { action: 'Audit content', reason: 'Page not re-indexed' },
+    cause: { cause: 'competitor displacement', details: 'rival.com now cited' },
+    dismissed: false, createdAt: '2026-04-01T00:00:00Z',
+    ...overrides,
+  }
+}
+
+describe('DB insight merge with in-memory signals', () => {
+  test('dbInsights null → pure in-memory insights (no merge)', () => {
+    const data = makeRegressionData()
+    data.dbInsights = null
+    const model = buildProjectCommandCenter(data)
+    // In-memory generates insight_lost for the regression
+    expect(model.insights.some(i => i.id === 'insight_lost')).toBe(true)
+  })
+
+  test('DB regressions replace in-memory insight_lost', () => {
+    const data = makeRegressionData()
+    data.dbInsights = [makeDbInsight()]
+    const model = buildProjectCommandCenter(data)
+    // insight_lost should be gone, replaced by DB regression
+    expect(model.insights.some(i => i.id === 'insight_lost')).toBe(false)
+    expect(model.insights.some(i => i.tone === 'negative' && i.title === 'Lost citation on Gemini')).toBe(true)
+  })
+
+  test('empty DB insights (all dismissed) does not resurrect in-memory lost signal', () => {
+    const data = makeRegressionData()
+    data.dbInsights = [] // intelligence ran, all dismissed
+    const model = buildProjectCommandCenter(data)
+    // insight_lost should be stripped since DB is authoritative, stable fallback instead
+    expect(model.insights.some(i => i.id === 'insight_lost')).toBe(false)
+    expect(model.insights.some(i => i.id === 'insight_stable')).toBe(true)
+  })
+
+  test('non-regression in-memory signals preserved alongside DB insights', () => {
+    const data = makeRegressionData()
+    // Add a first-citation signal by adding a second keyword that just appeared
+    data.keywords.push({ id: 'kw_2', keyword: 'best roofer', createdAt: '2026-03-10T00:00:00Z' })
+    data.timeline.push({
+      keyword: 'best roofer',
+      runs: [
+        { runId: 'run_2', createdAt: '2026-03-15T00:00:00Z', citationState: 'cited', transition: 'emerging' },
+      ],
+    })
+    data.latestRunDetail!.snapshots.push({
+      id: 'snap_3', runId: 'run_2', keywordId: 'kw_2', keyword: 'best roofer', provider: 'gemini', model: null,
+      citationState: 'cited', answerText: 'Best roofer cited.', citedDomains: ['merge.example'], competitorOverlap: [], groundingSources: [], searchQueries: [], createdAt: '2026-03-15T00:00:00Z',
+    })
+    data.dbInsights = [makeDbInsight()]
+    const model = buildProjectCommandCenter(data)
+    // DB regression present
+    expect(model.insights.some(i => i.tone === 'negative' && i.title === 'Lost citation on Gemini')).toBe(true)
+    // In-memory first-citation also present
+    expect(model.insights.some(i => i.id === 'insight_first_citation')).toBe(true)
+    // insight_lost removed
+    expect(model.insights.some(i => i.id === 'insight_lost')).toBe(false)
+  })
+
+  test('dbInsights undefined (field not set) → pure in-memory fallback', () => {
+    const data = makeRegressionData()
+    // dbInsights not set at all (pre-existing ProjectData without the field)
+    const model = buildProjectCommandCenter(data)
+    expect(model.insights.some(i => i.id === 'insight_lost')).toBe(true)
+  })
 })

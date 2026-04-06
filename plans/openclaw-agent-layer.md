@@ -190,9 +190,9 @@ These can't be consumed directly. Need a mapper.
 
 **Modified:** `apps/web/src/api.ts` — added `fetchInsights(project, runId?)` and `fetchLatestHealth()` API functions. `fetchInsights` accepts optional `runId` to scope results to a single run.
 
-**Modified:** `apps/web/src/queries/use-dashboard.ts` — fetches `dbInsights` scoped to `completedRuns[0]?.id` via `fetchInsights()`, and `latestHealth` via `fetchLatestHealth()`. Uses health snapshot presence to disambiguate "intelligence not yet run" from "intelligence ran with empty results".
+**Modified:** `apps/web/src/queries/use-dashboard.ts` — fetches `dbInsights` scoped to `completedRuns[0]?.id` via `fetchInsights()`. Uses array-vs-null to distinguish "intelligence ran for this run" (`[]`) from "fetch failed or no run" (`null`).
 
-**Modified:** `apps/web/src/build-dashboard.ts` — `buildProjectCommandCenter()` uses `hasIntelligence` flag (derived from health snapshot) to decide between DB-backed insights and in-memory fallback. When intelligence has run, trusts DB results even if empty. Falls back to in-memory `buildInsights()` only when no intelligence data exists.
+**Modified:** `apps/web/src/build-dashboard.ts` — `buildProjectCommandCenter()` always runs in-memory `buildInsights()` for full signal coverage (7 types). When DB insights exist for the latest run, merges via `mergeInsights()`: DB regressions/gains replace in-memory `insight_lost` (richer cause/recommendation data), all other in-memory signals preserved (first-citation, provider-pickup, persistent-gap, competitor signals, stable). Falls back to pure in-memory when `dbInsights` is null.
 
 **Modified:** `apps/web/src/pages/ProjectPage.tsx` — `InsightSignals` suppresses "View →" button for affected phrases with empty `evidenceId` (DB-backed insights have no evidence linkage). Uses stable composite key (`insight.id + index`) when evidenceId is empty.
 
