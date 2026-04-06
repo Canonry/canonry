@@ -2,6 +2,7 @@ import { eq, inArray } from 'drizzle-orm'
 import { createClient, migrate, parseJsonColumn, projects, querySnapshots, runs } from '@ainyc/canonry-db'
 import { determineAnswerMentioned, effectiveDomains } from '@ainyc/canonry-contracts'
 import { loadConfig } from '../config.js'
+import { IntelligenceService } from '../intelligence-service.js'
 import type { CliFormat } from '../cli-error.js'
 
 const SNAPSHOT_BATCH_SIZE = 500
@@ -99,4 +100,46 @@ export async function backfillAnswerVisibilityCommand(opts?: {
   console.log(`  Examined: ${examined}`)
   console.log(`  Updated:  ${updated}`)
   console.log(`  Visible:  ${visible}`)
+}
+
+export async function backfillInsightsCommand(
+  project: string,
+  opts?: { fromRun?: string; toRun?: string; format?: CliFormat },
+): Promise<void> {
+  const config = loadConfig()
+  const db = createClient(config.database)
+  migrate(db)
+
+  const service = new IntelligenceService(db)
+  const isJson = opts?.format === 'json'
+
+  if (!isJson) {
+    process.stderr.write(`Backfilling insights for "${project}"...\n`)
+  }
+
+  const result = service.backfill(project, {
+    fromRunId: opts?.fromRun,
+    toRunId: opts?.toRun,
+  }, (info) => {
+    if (!isJson) {
+      process.stderr.write(`  [${info.index}/${info.total}] ${info.runId} — ${info.insights} insights\n`)
+    }
+  })
+
+  const output = {
+    project,
+    processed: result.processed,
+    skipped: result.skipped,
+    totalInsights: result.totalInsights,
+  }
+
+  if (isJson) {
+    console.log(JSON.stringify(output, null, 2))
+    return
+  }
+
+  console.log(`\nBackfill complete.`)
+  console.log(`  Processed: ${result.processed}`)
+  console.log(`  Skipped:   ${result.skipped}`)
+  console.log(`  Insights:  ${result.totalInsights}`)
 }

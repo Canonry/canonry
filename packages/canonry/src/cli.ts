@@ -13,6 +13,7 @@ Usage:
   canonry init --gemini-key <key>     Initialize non-interactively (also reads env vars)
   canonry bootstrap [--force]          Bootstrap config/database from env vars
   canonry backfill answer-visibility   Backfill answer-level visibility from stored answers
+  canonry backfill insights <project>  Backfill intelligence insights [--from-run <id>] [--to-run <id>]
   canonry serve                       Start the local server (foreground)
   canonry start                       Start the server as a background daemon
   canonry stop                        Stop the background daemon

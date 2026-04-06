@@ -103,6 +103,8 @@ canonry health <project>                          # latest citation health snaps
 canonry health <project> --history                # health trend over time
 canonry health <project> --history --limit 10     # limit history entries
 canonry health <project> --format json            # JSON output
+canonry backfill insights <project>              # backfill insights for all completed runs
+canonry backfill insights <project> --from-run <id> --to-run <id>  # backfill a range
 ```
 
 ## Keywords & Competitors

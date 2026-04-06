@@ -1,6 +1,6 @@
-import { eq, desc, and, or } from 'drizzle-orm'
+import { eq, desc, asc, and, or } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { runs, querySnapshots, keywords, insights, healthSnapshots, parseJsonColumn } from '@ainyc/canonry-db'
+import { projects, runs, querySnapshots, keywords, insights, healthSnapshots, parseJsonColumn } from '@ainyc/canonry-db'
 import { analyzeRuns } from '@ainyc/canonry-intelligence'
 import type { RunData, Snapshot, AnalysisResult } from '@ainyc/canonry-intelligence'
 import crypto from 'node:crypto'
@@ -69,8 +69,110 @@ export class IntelligenceService {
       insights: result.insights.length,
     })
 
-    // 5. Persist — idempotent: capture dismissed state, delete existing, reinsert
-    //    Preserve user dismissals across reprocessing by matching on keyword+provider+type
+    // 5. Persist — idempotent via shared persistResult
+    this.persistResult(result, runId, projectId)
+
+    return result
+  }
+
+  /**
+   * Analyze a single run given an explicit previous run (or null for first run).
+   * Used by backfill where we control the run ordering.
+   */
+  analyzeRunWithPrevious(
+    runRecord: { id: string; projectId: string; finishedAt: string | null; createdAt: string },
+    previousRunRecord: { id: string; projectId: string; finishedAt: string | null; createdAt: string } | null,
+  ): AnalysisResult | null {
+    const currentRun = this.buildRunData(runRecord.id, runRecord.projectId, runRecord.finishedAt ?? runRecord.createdAt)
+
+    if (currentRun.snapshots.length === 0) {
+      return null
+    }
+
+    const previousRun = previousRunRecord
+      ? this.buildRunData(previousRunRecord.id, previousRunRecord.projectId, previousRunRecord.finishedAt ?? previousRunRecord.createdAt)
+      : null
+
+    const result = previousRun
+      ? analyzeRuns(currentRun, previousRun)
+      : analyzeRuns(currentRun, { ...currentRun, snapshots: [] })
+
+    this.persistResult(result, runRecord.id, runRecord.projectId)
+
+    return result
+  }
+
+  /**
+   * Backfill intelligence for all completed/partial runs of a project.
+   * Processes runs in chronological order so each run compares against its predecessor.
+   */
+  backfill(
+    projectName: string,
+    opts?: { fromRunId?: string; toRunId?: string },
+    onProgress?: (info: { runId: string; index: number; total: number; insights: number }) => void,
+  ): { processed: number; skipped: number; totalInsights: number } {
+    const project = this.db
+      .select()
+      .from(projects)
+      .where(eq(projects.name, projectName))
+      .get()
+    if (!project) {
+      throw new Error(`Project "${projectName}" not found`)
+    }
+
+    const allRuns = this.db
+      .select()
+      .from(runs)
+      .where(
+        and(
+          eq(runs.projectId, project.id),
+          or(eq(runs.status, 'completed'), eq(runs.status, 'partial')),
+        ),
+      )
+      .orderBy(asc(runs.finishedAt))
+      .all()
+
+    // Apply --from-run / --to-run range
+    let startIdx = 0
+    let endIdx = allRuns.length
+    if (opts?.fromRunId) {
+      const idx = allRuns.findIndex(r => r.id === opts.fromRunId)
+      if (idx === -1) throw new Error(`Run "${opts.fromRunId}" not found in project`)
+      startIdx = idx
+    }
+    if (opts?.toRunId) {
+      const idx = allRuns.findIndex(r => r.id === opts.toRunId)
+      if (idx === -1) throw new Error(`Run "${opts.toRunId}" not found in project`)
+      endIdx = idx + 1
+    }
+
+    const targetRuns = allRuns.slice(startIdx, endIdx)
+    let processed = 0
+    let skipped = 0
+    let totalInsights = 0
+
+    for (let i = 0; i < targetRuns.length; i++) {
+      const run = targetRuns[i]!
+      // Previous run is the one before this in the full list (not just the target slice)
+      const globalIdx = allRuns.indexOf(run)
+      const previousRun = globalIdx > 0 ? allRuns[globalIdx - 1]! : null
+
+      const result = this.analyzeRunWithPrevious(run, previousRun)
+
+      if (result) {
+        processed++
+        totalInsights += result.insights.length
+        onProgress?.({ runId: run.id, index: i + 1, total: targetRuns.length, insights: result.insights.length })
+      } else {
+        skipped++
+        onProgress?.({ runId: run.id, index: i + 1, total: targetRuns.length, insights: 0 })
+      }
+    }
+
+    return { processed, skipped, totalInsights }
+  }
+
+  private persistResult(result: AnalysisResult, runId: string, projectId: string): void {
     const previouslyDismissed = new Set<string>()
     const existingInsights = this.db
       .select({ keyword: insights.keyword, provider: insights.provider, type: insights.type, dismissed: insights.dismissed })
@@ -120,8 +222,6 @@ export class IntelligenceService {
     })
 
     log.info('intelligence.persisted', { runId, insights: result.insights.length })
-
-    return result
   }
 
   private buildRunData(runId: string, projectId: string, completedAt: string): RunData {
