@@ -170,7 +170,6 @@ function isBlockedIpv4(address: string): boolean {
   return (
     first === 0 ||
     first === 10 ||
-    first === 127 ||
     (first === 100 && second >= 64 && second <= 127) ||
     (first === 169 && second === 254) ||
     (first === 172 && second >= 16 && second <= 31) ||
@@ -181,7 +180,8 @@ function isBlockedIpv4(address: string): boolean {
 
 function isBlockedIpv6(address: string): boolean {
   const normalized = address.split('%')[0]!.toLowerCase()
-  if (normalized === '::' || normalized === '::1') {
+  // Block unspecified (::) but allow loopback (::1)
+  if (normalized === '::') {
     return true
   }
 
