@@ -1,4 +1,4 @@
-import type { ProjectDto } from '@ainyc/canonry-contracts'
+import type { ProjectDto, InsightDto } from '@ainyc/canonry-contracts'
 import type {
   ApiCompetitor,
   ApiBingCoverageSummary,
@@ -27,6 +27,7 @@ import type {
   RunListItemVm,
   ScoreSummaryVm,
 } from './view-models.js'
+import { mapInsightDtosToVms } from './mappers/insight-mapper.js'
 
 function toProjectDto(p: ApiProject): ProjectDto {
   return {
@@ -884,6 +885,7 @@ export interface ProjectData {
   previousRunDetail: ApiRunDetail | null
   gscCoverage?: ApiGscCoverageSummary | null
   bingCoverage?: ApiBingCoverageSummary | null
+  dbInsights?: InsightDto[] | null
 }
 
 export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCenterVm {
@@ -894,7 +896,8 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
   const gapKeyPhrases = buildGapKeyPhraseSummary(snapshots)
   const indexCoverage = buildIndexCoverageSummary(data.gscCoverage, data.bingCoverage)
   const pressure = computeCompetitorPressure(snapshots, data.competitors.map(c => c.domain))
-  const insights = buildInsights({
+  const dbMapped = data.dbInsights?.length ? mapInsightDtosToVms(data.dbInsights) : null
+  const insights = dbMapped ?? buildInsights({
     evidence,
     timeline: data.timeline,
     latestSnapshots: data.latestRunDetail?.snapshots ?? [],

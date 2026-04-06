@@ -61,9 +61,9 @@ Phase 1 integration is largely complete. The run-completion pipeline now calls `
 1. ~~Nobody calls `analyzeRuns()` after a run completes~~ **Done** — `RunCoordinator` → `IntelligenceService` → `analyzeRuns()`
 2. ~~Nobody writes to the `insights` or `health_snapshots` tables~~ **Done** — `IntelligenceService.analyzeAndPersist()`
 3. ~~The `Notifier` short-circuits when no notifications are enabled~~ **Done** — `RunCoordinator` runs intelligence independently of notifier
-4. The frontend builds insights client-side in `build-dashboard.ts:635` using its own logic, completely independent of the `@ainyc/canonry-intelligence` package — **still open (Phase 1C)**
+4. ~~The frontend builds insights client-side in `build-dashboard.ts:635`~~ **Done** — `buildProjectCommandCenter()` prefers DB-backed insights via mapper, falls back to in-memory
 5. ~~The intelligence package is not listed as a dependency of `@ainyc/canonry`~~ **Done** — added to `package.json` + `tsup.config.ts`
-6. Tests for `RunCoordinator` and `IntelligenceService` in `packages/canonry/` — **still open (Phase 1D)**
+6. ~~Tests for `RunCoordinator` and `IntelligenceService`~~ **Done** — full coverage in `packages/canonry/test/` + mapper tests in `apps/web/test/`
 
 ### Notification Events (today)
 
@@ -135,7 +135,7 @@ Aero has full local system access via OpenClaw:
 
 The intelligence package exists. The gap is wiring: run completion → analysis → DB persistence → frontend consumption from DB. All changes are **additive** to existing contracts.
 
-> **Status: ~80% complete.** Steps 1A, 1B, and 1E are done. 1C (frontend migration) and 1D (canonry-package tests) remain.
+> **Status: Complete.** All steps (1A–1E) are done.
 
 #### 1A. Schema migration: add `runId` + idempotency ✅ DONE
 
@@ -165,7 +165,7 @@ jobRunner.onRunCompleted = (runId, projectId) => runCoordinator.onRunCompleted(r
 - `packages/intelligence/` has `AGENTS.md` + `CLAUDE.md`
 - Documentation updated: api-routes AGENTS.md, canonry AGENTS.md, skills CLI reference
 
-#### 1C. Migrate frontend from in-memory to DB-backed insights — TODO
+#### 1C. Migrate frontend from in-memory to DB-backed insights ✅ DONE
 
 The persisted `InsightDto` (contracts) and the current UI's `ProjectInsightVm` (view-models.ts:136) have different shapes:
 
@@ -181,21 +181,24 @@ The persisted `InsightDto` (contracts) and the current UI's `ProjectInsightVm` (
 
 These can't be consumed directly. Need a mapper.
 
-**Create:** `apps/web/src/mappers/insight-mapper.ts` — `mapInsightDtoToVm(dto: InsightDto): ProjectInsightVm`
+**Created:** `apps/web/src/mappers/insight-mapper.ts` — `mapInsightDtoToVm(dto: InsightDto): ProjectInsightVm` and `mapInsightDtosToVms()` (filters dismissed).
 - `type` → `tone`: regression→negative, gain→positive, opportunity→caution
 - `keyword` + `provider` → single-element `affectedPhrases[]` with `citationState` derived from type
-- `recommendation.action` → `actionLabel`
+- `recommendation.action` → `actionLabel` (fallback: type name)
 - `cause.details` or `cause.cause` → `detail`
-- `evidenceId` → look up from latest evidence by keyword match (or omit if unavailable)
+- `evidenceId` omitted (no evidence linkage from DB insights)
 
-**Modify:** `apps/web/src/queries/use-dashboard.ts` — add query for `GET /projects/:name/insights` and `GET /projects/:name/health/latest`
+**Modified:** `apps/web/src/api.ts` — added `fetchInsights()` and `fetchLatestHealth()` API functions.
 
-**Modify:** `apps/web/src/build-dashboard.ts` — in `buildProjectCommandCenter()`, prefer DB-backed insights (via mapper) when available; fall back to in-memory `buildInsights()` when no persisted insights exist (first run, intelligence not yet run). This avoids a hard cutover — both paths coexist until the in-memory path can be removed.
+**Modified:** `apps/web/src/queries/use-dashboard.ts` — fetches `dbInsights` via `fetchInsights()` in the per-project detail query. Gracefully falls back to `null` on error.
 
-#### 1D. Testing — TODO
+**Modified:** `apps/web/src/build-dashboard.ts` — `buildProjectCommandCenter()` prefers DB-backed insights (via mapper) when available; falls back to in-memory `buildInsights()` when no persisted insights exist. Both paths coexist.
 
-**Create:** `packages/canonry/test/run-coordinator.test.ts` — verify both intelligence and notifier are called; verify intelligence runs even when no notifications are configured
-**Create:** `packages/canonry/test/intelligence-service.test.ts` — mock DB with in-memory SQLite; verify insights + health snapshots persisted after analysis
+#### 1D. Testing ✅ DONE
+
+**Exists:** `packages/canonry/test/run-coordinator.test.ts` — verifies both intelligence and notifier are called; verifies intelligence runs even when notifications fail; verifies execution order.
+**Exists:** `packages/canonry/test/intelligence-service.test.ts` — real SQLite DB; verifies insights + health snapshots persisted after analysis; covers idempotency, regression detection, backfill, edge cases.
+**Created:** `apps/web/test/insight-mapper.test.ts` — 20 tests covering tone mapping, affected phrases, actionLabel/detail derivation, dismissed filtering.
 
 Note: `packages/intelligence/` already has full test coverage (analyzer, regressions, gains, health, causes, insights).
 
@@ -205,8 +208,8 @@ Note: `packages/intelligence/` already has full test coverage (analyzer, regress
 
 #### Parallelization
 - ~~1A (schema migration) first — 1B and 1C depend on `runId` existing~~ Done
-- ~~1B and 1C can proceed in parallel after 1A~~ 1B done; 1C remains
-- 1C and 1D can proceed in parallel
+- ~~1B and 1C can proceed in parallel after 1A~~ All done
+- ~~1C and 1D can proceed in parallel~~ All done
 
 ---
 
@@ -559,7 +562,7 @@ Doc-only changes within each phase don't need their own bump — they're part of
 4. Run a sweep on a project **with notifications** → verify both insights persisted AND webhooks sent
 5. `canonry insights <project> --format json` — returns real insights (not empty)
 6. `canonry health <project> --format json` — returns real health snapshot
-7. Dashboard project page shows DB-backed insights (not in-memory generated) — **blocked on 1C**
+7. Dashboard project page shows DB-backed insights (not in-memory generated) — **wired, needs manual verification**
 8. `canonry insights dismiss <project> <id>` — verify insight marked as dismissed
 
 ### Phase 2
@@ -595,10 +598,14 @@ Doc-only changes within each phase don't need their own bump — they're part of
 | `packages/api-routes/src/intelligence.ts` | Routes with `?runId=` filter, `notFound()` factory | 1 | ✅ Done |
 | `packages/canonry/src/client.ts` | Client methods for insights + health + dismiss | 1 | ✅ Done |
 | `packages/canonry/src/cli-commands/intelligence.ts` | `insights`, `insights dismiss`, `health` commands | 1 | ✅ Done |
-| `apps/web/src/view-models.ts:136` | `ProjectInsightVm` — target shape for insight mapper | 1C | TODO |
-| `apps/web/src/build-dashboard.ts:635` | Prefer DB-backed insights via mapper, fallback to in-memory | 1C | TODO |
-| `packages/canonry/test/run-coordinator.test.ts` | Coordinator unit tests | 1D | TODO |
-| `packages/canonry/test/intelligence-service.test.ts` | Service integration tests | 1D | TODO |
+| `apps/web/src/view-models.ts:136` | `ProjectInsightVm` — target shape for insight mapper | 1C | ✅ Done |
+| `apps/web/src/mappers/insight-mapper.ts` | `mapInsightDtoToVm` + `mapInsightDtosToVms` | 1C | ✅ Done |
+| `apps/web/src/build-dashboard.ts:898` | Prefer DB-backed insights via mapper, fallback to in-memory | 1C | ✅ Done |
+| `apps/web/src/queries/use-dashboard.ts` | Fetches `dbInsights` via `fetchInsights()` | 1C | ✅ Done |
+| `apps/web/src/api.ts` | `fetchInsights()` + `fetchLatestHealth()` API functions | 1C | ✅ Done |
+| `packages/canonry/test/run-coordinator.test.ts` | Coordinator unit tests (4 tests) | 1D | ✅ Done |
+| `packages/canonry/test/intelligence-service.test.ts` | Service integration tests (9 tests) | 1D | ✅ Done |
+| `apps/web/test/insight-mapper.test.ts` | Mapper unit tests (20 tests) | 1C | ✅ Done |
 | `packages/contracts/src/notification.ts` | Add `insight.critical` + `insight.high` events | 2 | |
 | `packages/api-routes/src/notifications.ts:11` | `VALID_EVENTS` array — must include new events | 2 | |
 | `packages/api-routes/src/index.ts:45` | Add `onProjectUpserted` to `ApiRoutesOptions` | 2 | |

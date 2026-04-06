@@ -10,6 +10,7 @@ import {
   fetchTimeline,
   fetchRunDetail,
   fetchBingCoverage,
+  fetchInsights,
 } from '../api.js'
 import { buildDashboard } from '../build-dashboard.js'
 import type { ProjectData } from '../build-dashboard.js'
@@ -58,7 +59,7 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
       return {
         queryKey: queryKeys.projects.detail(project.id, completedRuns[0]?.id),
         queryFn: async (): Promise<ProjectData> => {
-          const [kws, comps, timeline, latestRunDetail, previousRunDetail, gscCoverage, bingCoverage] = await Promise.all([
+          const [kws, comps, timeline, latestRunDetail, previousRunDetail, gscCoverage, bingCoverage, dbInsights] = await Promise.all([
             fetchKeywords(project.name).catch(() => []),
             fetchCompetitors(project.name).catch(() => []),
             fetchTimeline(project.name).catch(() => []),
@@ -66,6 +67,7 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
             completedRuns[1] ? fetchRunDetail(completedRuns[1].id).catch(() => null) : Promise.resolve(null),
             fetchGscCoverage(project.name).catch(() => null),
             fetchBingCoverage(project.name).catch(() => null),
+            fetchInsights(project.name).catch(() => null),
           ])
 
           return {
@@ -78,6 +80,7 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
             previousRunDetail,
             gscCoverage,
             bingCoverage,
+            dbInsights,
           }
         },
         enabled: !effectiveInitial && projectsQuery.isSuccess && runsQuery.isSuccess,
