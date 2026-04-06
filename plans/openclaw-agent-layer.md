@@ -139,7 +139,7 @@ The intelligence package exists. The gap is wiring: run completion → analysis 
 
 #### 1A. Schema migration: add `runId` + idempotency ✅ DONE
 
-Tables created in v21 migration. `runId` column added in v22 migration. Both `insights` and `health_snapshots` have `runId` with cascade delete and indexes.
+Query snapshot indexes preserved from v21. Intelligence tables created in v22. `runId` column added in v23. Both `insights` and `health_snapshots` have `runId` with cascade delete and indexes.
 
 **Idempotency strategy:** `IntelligenceService.analyzeAndPersist()` deletes existing insights/health_snapshots for the given `runId` before inserting, inside a transaction. This makes re-runs safe (same result, no duplicates).
 

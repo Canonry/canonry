@@ -332,7 +332,12 @@ const MIGRATIONS = [
   `DROP INDEX IF EXISTS idx_ga_ai_ref_unique`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_ai_ref_unique_v2 ON ga_ai_referrals(project_id, date, source, medium, source_dimension)`,
 
-  // v21: Intelligence — insights table for regression/gain/opportunity tracking
+  // v21: Add missing indexes for query_snapshots filtering
+  `CREATE INDEX IF NOT EXISTS idx_snapshots_citation_state ON query_snapshots(citation_state)`,
+  `CREATE INDEX IF NOT EXISTS idx_snapshots_provider_model ON query_snapshots(provider, model)`,
+  `CREATE INDEX IF NOT EXISTS idx_snapshots_location ON query_snapshots(location)`,
+
+  // v22: Intelligence — insights table for regression/gain/opportunity tracking
   `CREATE TABLE IF NOT EXISTS insights (
     id              TEXT PRIMARY KEY,
     project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
