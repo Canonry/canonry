@@ -12,8 +12,12 @@ erDiagram
   projects ||--o| schedules : "has (1:1)"
   projects ||--o{ notifications : has
   projects ||--o{ audit_log : has
+  projects ||--o{ insights : has
+  projects ||--o{ health_snapshots : has
 
   runs ||--o{ query_snapshots : contains
+  runs ||--o{ insights : "analyzed in"
+  runs ||--o{ health_snapshots : "scored in"
   keywords ||--o{ query_snapshots : "tracked in"
 
   projects ||--o| ga_connections : "has (1:1)"
@@ -70,6 +74,13 @@ erDiagram
 | **ga_traffic_summaries** | Aggregated traffic summaries |
 | **ga_ai_referrals** | AI engine referral tracking. Unique: `(projectId, date, source, medium, sourceDimension)` |
 
+### Intelligence
+
+| Table | Purpose |
+|-------|---------|
+| **insights** | Per-run analysis insights (regressions, gains). FK: projectId → projects, runId → runs |
+| **health_snapshots** | Citation health snapshots per run. FK: projectId → projects, runId → runs |
+
 ### System
 
 | Table | Purpose |
@@ -90,6 +101,10 @@ Several text columns store serialized JSON. Always use `parseJsonColumn()` from 
 | `projects.ownedDomains` | `string[]` |
 | `query_snapshots.citedDomains` | `string[]` |
 | `query_snapshots.groundingSources` | `GroundingSource[]` |
+| `query_snapshots.competitorOverlap` | `string[]` |
+| `insights.recommendation` | `{ action: string; detail?: string }` |
+| `insights.cause` | `{ category: string; detail?: string }` |
+| `health_snapshots.providerBreakdown` | `Record<string, { total: number; cited: number; rate: number }>` |
 
 ## Conventions
 

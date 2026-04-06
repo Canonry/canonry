@@ -134,7 +134,8 @@ export async function intelligenceRoutes(app: FastifyInstance) {
     Querystring: { limit?: string }
   }>('/projects/:name/health/history', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
-    const limit = request.query.limit ? Math.min(Number(request.query.limit), 100) : 30
+    const parsed = request.query.limit ? parseInt(request.query.limit, 10) : NaN
+    const limit = Number.isNaN(parsed) ? 30 : Math.min(Math.max(parsed, 1), 100)
 
     const rows = app.db
       .select()

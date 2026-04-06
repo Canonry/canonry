@@ -56,10 +56,22 @@ export class IntelligenceService {
       ? this.buildRunData(previousRunRecord.id, projectId, previousRunRecord.finishedAt ?? previousRunRecord.createdAt)
       : null
 
-    // 4. Run analysis
-    const result = previousRun
-      ? analyzeRuns(currentRun, previousRun)
-      : analyzeRuns(currentRun, { ...currentRun, snapshots: [] })
+    // 4. Run analysis — skip transition detection on first run (no baseline to compare)
+    if (!previousRun) {
+      const result = analyzeRuns(currentRun, currentRun)
+      log.info('intelligence.analyzed', {
+        runId,
+        regressions: 0,
+        gains: 0,
+        citedRate: result.health.overallCitedRate,
+        insights: 0,
+      })
+      // Persist only the health snapshot, no transition insights
+      this.persistResult({ ...result, insights: [], regressions: [], gains: [] }, runId, projectId)
+      return result
+    }
+
+    const result = analyzeRuns(currentRun, previousRun)
 
     log.info('intelligence.analyzed', {
       runId,
@@ -93,9 +105,14 @@ export class IntelligenceService {
       ? this.buildRunData(previousRunRecord.id, previousRunRecord.projectId, previousRunRecord.finishedAt ?? previousRunRecord.createdAt)
       : null
 
-    const result = previousRun
-      ? analyzeRuns(currentRun, previousRun)
-      : analyzeRuns(currentRun, { ...currentRun, snapshots: [] })
+    // Skip transition detection on first run (no baseline to compare)
+    if (!previousRun) {
+      const result = analyzeRuns(currentRun, currentRun)
+      this.persistResult({ ...result, insights: [], regressions: [], gains: [] }, runRecord.id, runRecord.projectId)
+      return result
+    }
+
+    const result = analyzeRuns(currentRun, previousRun)
 
     this.persistResult(result, runRecord.id, runRecord.projectId)
 

@@ -72,6 +72,7 @@ flowchart TD
     contracts["packages/contracts"]
     db["packages/db"]
     config["packages/config"]
+    intelligence["packages/intelligence"]
   end
 
   subgraph Providers
@@ -100,6 +101,7 @@ flowchart TD
   canonry --> db
   canonry --> config
   canonry --> contracts
+  canonry --> intelligence
   canonry --> gemini & openai & claude & local & perplexity & cdp
 
   routes --> db

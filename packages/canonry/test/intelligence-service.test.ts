@@ -163,6 +163,27 @@ describe('IntelligenceService', () => {
       }
     })
 
+    it('does not produce false gain insights on first run', () => {
+      const { db } = createTempDb('intel-first-run-')
+      const projectId = seedProject(db)
+      const kwId = seedKeyword(db, projectId, 'roof repair')
+      const runId = seedRun(db, projectId, 'completed')
+      seedSnapshot(db, runId, kwId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+
+      const service = new IntelligenceService(db)
+      const result = service.analyzeAndPersist(runId, projectId)
+
+      expect(result).not.toBeNull()
+      // Health snapshot should be persisted
+      const savedHealth = db.select().from(healthSnapshots).all()
+      expect(savedHealth).toHaveLength(1)
+      expect(savedHealth[0]!.totalPairs).toBe(1)
+      expect(savedHealth[0]!.citedPairs).toBe(1)
+      // No transition insights on first run — there is no baseline to compare against
+      const savedInsights = db.select().from(insights).all()
+      expect(savedInsights).toHaveLength(0)
+    })
+
     it('detects regressions between two runs', () => {
       const { db } = createTempDb('intel-regression-')
       const projectId = seedProject(db)
