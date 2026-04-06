@@ -18,7 +18,7 @@ import { BingSummaryMetric } from '../components/project/BingSummaryMetric.js'
 import { AnalyticsSection } from '../components/project/AnalyticsSection.js'
 import { TrafficSection } from '../components/project/TrafficSection.js'
 import { GscSection } from '../components/project/GscSection.js'
-import { formatTimestamp } from '../lib/format-helpers.js'
+import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric } from '../lib/format-helpers.js'
 import { addToast } from '../lib/toast-store.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
 import { ScheduleSection } from '../components/project/ScheduleSection.js'
@@ -612,10 +612,10 @@ function BingSection({
                   <thead>
                     <tr className="border-b border-zinc-800">
                       <th className="text-left py-1.5 px-3 text-zinc-500 font-medium">Query</th>
-                      <th className="text-right py-1.5 px-3 text-zinc-500 font-medium w-16">Clicks</th>
-                      <th className="text-right py-1.5 px-3 text-zinc-500 font-medium w-16">Impr</th>
-                      <th className="text-right py-1.5 px-3 text-zinc-500 font-medium w-14">CTR</th>
-                      <th className="text-right py-1.5 px-3 text-zinc-500 font-medium w-14">Pos</th>
+                      <th className="text-right py-1.5 px-3 text-zinc-500 font-medium w-16">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Clicks]}</th>
+                      <th className="text-right py-1.5 px-3 text-zinc-500 font-medium w-16">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Impressions]}</th>
+                      <th className="text-right py-1.5 px-3 text-zinc-500 font-medium w-14">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.CTR]}</th>
+                      <th className="text-right py-1.5 px-3 text-zinc-500 font-medium w-14">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Position]}</th>
                     </tr>
                   </thead>
                   <tbody>

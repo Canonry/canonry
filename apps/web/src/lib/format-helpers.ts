@@ -13,6 +13,13 @@ export const SEARCH_METRIC_LABELS: Record<SearchMetric, string> = {
   [SearchMetric.Position]: 'Position',
 }
 
+export const SEARCH_METRIC_SHORT_LABELS: Record<SearchMetric, string> = {
+  [SearchMetric.Clicks]: 'Clicks',
+  [SearchMetric.Impressions]: 'Impr',
+  [SearchMetric.CTR]: 'CTR',
+  [SearchMetric.Position]: 'Pos',
+}
+
 export function formatErrorLog(error: string): string {
   // Extract the human-readable prefix and try to pretty-print any JSON within
   const bracketMatch = error.match(/^(\[.*?\])\s*(.+)/)
