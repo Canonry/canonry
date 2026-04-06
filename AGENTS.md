@@ -226,6 +226,7 @@ This is not optional. If you add a table to the schema but omit the migration, t
 2. **New column** → add `ALTER TABLE ... ADD COLUMN ...` to `MIGRATIONS`. SQLite ignores duplicate `ADD COLUMN` attempts, so these are safe to re-run.
 3. **Removed column or table** → SQLite does not support DROP COLUMN on older versions; document the intent and leave the migration as a no-op comment if needed.
 4. **Never edit MIGRATION_SQL** (the initial block at the top). That block bootstraps brand-new installs. All incremental changes go in the `MIGRATIONS` array only.
+5. **Check the last version number** in the `MIGRATIONS` array before adding a new entry. Comments use `// vN:` prefixes — find the highest N and increment by 1. Duplicate or out-of-order version numbers cause confusion and have led to bugs.
 
 ### Pattern
 
