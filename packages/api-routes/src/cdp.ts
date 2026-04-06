@@ -25,6 +25,8 @@ export interface CDPRoutesOptions {
   }[]>
   /** Callback to configure the CDP endpoint (host + port) */
   onCdpConfigure?: (host: string, port: number) => Promise<void> | void
+  /** API route prefix (default: '/api/v1') */
+  routePrefix?: string
 }
 
 function getScreenshotDir(): string {
@@ -234,7 +236,7 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
             citationState: browser.citationState,
             citedDomains: JSON.parse(browser.citedDomains || '[]'),
             groundingSources: parseGroundingSources(browser),
-            screenshotUrl: browser.screenshotPath ? `/api/v1/screenshots/${browser.id}` : undefined,
+            screenshotUrl: browser.screenshotPath ? `${opts.routePrefix ?? '/api/v1'}/screenshots/${browser.id}` : undefined,
           } : null,
           agreement,
         }

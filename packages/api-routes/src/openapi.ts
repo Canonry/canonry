@@ -4,6 +4,8 @@ export interface OpenApiInfo {
   title?: string
   version?: string
   description?: string
+  /** API route prefix (default: '/api/v1') */
+  routePrefix?: string
 }
 
 type HttpMethod = 'get' | 'post' | 'put' | 'delete'
@@ -2141,7 +2143,12 @@ const routeCatalog: OpenApiOperation[] = [
 ]
 
 export function buildOpenApiDocument(info: OpenApiInfo = {}) {
+  const BASE_PREFIX = '/api/v1'
+  const prefix = info.routePrefix ?? BASE_PREFIX
   const paths = routeCatalog.reduce<Record<string, Record<string, unknown>>>((acc, route) => {
+    // Strip the hardcoded prefix from the route path, then prepend the configured prefix
+    const subpath = route.path.startsWith(BASE_PREFIX) ? route.path.slice(BASE_PREFIX.length) : route.path
+    const fullPath = prefix + subpath
     const operation: Record<string, unknown> = {
       summary: route.summary,
       tags: route.tags,
@@ -2154,9 +2161,9 @@ export function buildOpenApiDocument(info: OpenApiInfo = {}) {
     if (route.requestBody) operation.requestBody = route.requestBody
     if (route.auth === false) operation.security = []
 
-    const pathItem = acc[route.path] ?? {}
+    const pathItem = acc[fullPath] ?? {}
     pathItem[route.method] = operation
-    acc[route.path] = pathItem
+    acc[fullPath] = pathItem
     return acc
   }, {})
 

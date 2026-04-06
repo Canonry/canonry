@@ -50,6 +50,8 @@ export interface GoogleRoutesOptions {
   publicUrl?: string
   onGscSyncRequested?: (runId: string, projectId: string, opts?: { days?: number; full?: boolean }) => void
   onInspectSitemapRequested?: (runId: string, projectId: string, opts?: { sitemapUrl?: string }) => void
+  /** API route prefix (default: '/api/v1') */
+  routePrefix?: string
 }
 
 function signState(payload: string, secret: string): string {
@@ -166,15 +168,15 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     let redirectUri: string
     if (publicUrl) {
       // CLI override — use the provided public URL as the base
-      redirectUri = publicUrl.replace(/\/$/, '') + '/api/v1/google/callback'
+      redirectUri = publicUrl.replace(/\/$/, '') + (opts.routePrefix ?? '/api/v1') + '/google/callback'
     } else if (opts.publicUrl) {
       // Config-level publicUrl — use for all OAuth redirects
-      redirectUri = opts.publicUrl.replace(/\/$/, '') + '/api/v1/google/callback'
+      redirectUri = opts.publicUrl.replace(/\/$/, '') + (opts.routePrefix ?? '/api/v1') + '/google/callback'
     } else {
       // Auto-detect from request headers — use legacy per-project URI for backward compat
       const proto = request.headers['x-forwarded-proto'] ?? 'http'
       const host = request.headers.host ?? 'localhost:4100'
-      redirectUri = `${proto}://${host}/api/v1/projects/${encodeURIComponent(request.params.name)}/google/callback`
+      redirectUri = `${proto}://${host}${opts.routePrefix ?? '/api/v1'}/projects/${encodeURIComponent(request.params.name)}/google/callback`
     }
 
     const scopes = type === 'gsc' ? [GSC_SCOPE, INDEXING_SCOPE] : [GA4_SCOPE]
