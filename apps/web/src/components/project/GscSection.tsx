@@ -36,6 +36,13 @@ import {
   useTriggerInspectSitemap,
 } from '../../queries/mutations.js'
 
+const PERF_METRIC_LABELS: Record<string, string> = {
+  clicks: 'Clicks',
+  impressions: 'Impressions',
+  ctr: 'CTR',
+  position: 'Position',
+}
+
 export function GscSection({
   projectName,
 }: {
@@ -1048,7 +1055,7 @@ export function GscSection({
                                 )
                               }
                             >
-                              {col === 'ctr' ? 'CTR' : col.charAt(0).toUpperCase() + col.slice(1)}
+                              {PERF_METRIC_LABELS[col]}
                               {perfSort?.key === col ? (perfSort.dir === 'desc' ? ' \u2193' : ' \u2191') : ''}
                             </th>
                           ))}
