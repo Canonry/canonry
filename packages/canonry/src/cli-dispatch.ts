@@ -77,17 +77,35 @@ export async function dispatchRegisteredCommand(
 ): Promise<boolean> {
   // Handle `canonry <command> --help` — show contextual help
   if (args.length >= 1 && (args.includes('--help') || args.includes('-h'))) {
-    const group = args[0]!
-    const groupSpecs = specs.filter(s => s.path[0] === group && s.path.length > 1)
-    if (groupSpecs.length > 0) {
-      printGroupHelp(group, specs)
+    // Strip --help/-h from args for path matching
+    const argsWithoutHelp = args.filter(a => a !== '--help' && a !== '-h')
+
+    // Try longest-path match first so `canonry run show --help` shows the
+    // specific subcommand usage, not the group help.
+    const exactMatch = [...specs]
+      .sort((a, b) => b.path.length - a.path.length)
+      .find(candidate => matchesPath(argsWithoutHelp, candidate.path))
+
+    if (exactMatch && exactMatch.path.length > 1) {
+      // Specific subcommand — show its usage
+      console.log(`\nUsage:  ${exactMatch.usage}\n`)
       return true
     }
-    // Single command — show its usage string
-    const single = specs.find(s => s.path.length === 1 && s.path[0] === group)
-    if (single) {
-      console.log(`\nUsage:  ${single.usage}\n`)
-      return true
+
+    // Fall back to group help for `canonry <group> --help`
+    const group = argsWithoutHelp[0]
+    if (group) {
+      const groupSpecs = specs.filter(s => s.path[0] === group && s.path.length > 1)
+      if (groupSpecs.length > 0) {
+        printGroupHelp(group, specs)
+        return true
+      }
+      // Single command — show its usage string
+      const single = specs.find(s => s.path.length === 1 && s.path[0] === group)
+      if (single) {
+        console.log(`\nUsage:  ${single.usage}\n`)
+        return true
+      }
     }
   }
 

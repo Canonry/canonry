@@ -82,23 +82,38 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
   const command = args[0]!
   const format = extractFormat(args)
 
+  // Skip telemetry entirely for help requests — the user is just reading usage
+  const isHelpRequest = args.includes('--help') || args.includes('-h')
+
   // First-run telemetry notice (shown once, to stderr).
   // Skip for the `telemetry` command itself — the user may be about to disable it,
   // and we should not create an anonymousId before they get the chance to opt out.
-  if (command !== 'telemetry' && command !== 'init' && isTelemetryEnabled() && isFirstRun()) {
+  if (!isHelpRequest && command !== 'telemetry' && command !== 'init' && isTelemetryEnabled() && isFirstRun()) {
     showFirstRunNotice()
     getOrCreateAnonymousId()
   }
 
   // Resolve command name for telemetry (e.g. "project.create", "run")
-  const SUBCOMMAND_COMMANDS = new Set(['backfill', 'project', 'keyword', 'competitor', 'schedule', 'notify', 'settings', 'telemetry', 'google', 'bing', 'wordpress', 'cdp', 'insights'])
-  const resolvedCommand = SUBCOMMAND_COMMANDS.has(command) && args[1] && !args[1].startsWith('-')
-    ? `${command}.${args[1]}`
-    : command
+  // Only include subcommand when it is a known subcommand name, not a positional arg
+  // like a project name. Commands where arg[1] is always a subcommand (never a positional):
+  const SUBCOMMAND_COMMANDS = new Set(['backfill', 'project', 'keyword', 'competitor', 'schedule', 'notify', 'settings', 'telemetry', 'google', 'bing', 'wordpress', 'cdp'])
+  // Commands where arg[1] is usually a positional but has known subcommands:
+  const MIXED_SUBCOMMANDS: Record<string, Set<string>> = {
+    insights: new Set(['dismiss']),
+    run: new Set(['show', 'cancel']),
+  }
+  let resolvedCommand: string
+  if (SUBCOMMAND_COMMANDS.has(command) && args[1] && !args[1].startsWith('-')) {
+    resolvedCommand = `${command}.${args[1]}`
+  } else if (MIXED_SUBCOMMANDS[command] && args[1] && MIXED_SUBCOMMANDS[command].has(args[1])) {
+    resolvedCommand = `${command}.${args[1]}`
+  } else {
+    resolvedCommand = command
+  }
 
   // Track CLI command usage (fire-and-forget).
-  // Skip for `telemetry` commands — don't track the opt-out flow itself.
-  if (command !== 'telemetry') {
+  // Skip for `telemetry` commands and help requests.
+  if (!isHelpRequest && command !== 'telemetry') {
     trackEvent('cli.command', { command: resolvedCommand })
   }
 
