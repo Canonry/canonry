@@ -13,6 +13,7 @@ import { applyRoutes } from './apply.js'
 import type { ApplyRoutesOptions } from './apply.js'
 import { historyRoutes } from './history.js'
 import { analyticsRoutes } from './analytics.js'
+import { intelligenceRoutes } from './intelligence.js'
 import { openApiRoutes } from './openapi.js'
 import type { OpenApiInfo } from './openapi.js'
 import { settingsRoutes } from './settings.js'
@@ -180,6 +181,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     } satisfies ApplyRoutesOptions)
     await api.register(historyRoutes)
     await api.register(analyticsRoutes)
+    await api.register(intelligenceRoutes)
     await api.register(settingsRoutes, {
       providerSummary: opts.providerSummary,
       providerAdapters: opts.providerAdapters,

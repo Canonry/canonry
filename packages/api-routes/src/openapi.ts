@@ -2068,6 +2068,77 @@ const routeCatalog: OpenApiOperation[] = [
       404: { description: 'Project not found.' },
     },
   },
+
+  // Intelligence
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/insights',
+    summary: 'List intelligence insights for a project',
+    tags: ['intelligence'],
+    parameters: [
+      nameParameter,
+      { name: 'type', in: 'query', description: 'Filter by insight type.', schema: stringSchema },
+      { name: 'run', in: 'query', description: 'Filter by run ID.', schema: stringSchema },
+      { name: 'limit', in: 'query', description: 'Max results.', schema: stringSchema },
+    ],
+    responses: {
+      200: { description: 'Insights returned.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/insights/{id}',
+    summary: 'Get a single insight',
+    tags: ['intelligence'],
+    parameters: [
+      nameParameter,
+      { name: 'id', in: 'path', required: true, description: 'Insight ID.', schema: stringSchema },
+    ],
+    responses: {
+      200: { description: 'Insight returned.' },
+      404: { description: 'Insight not found.' },
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/insights/{id}/dismiss',
+    summary: 'Dismiss an insight',
+    tags: ['intelligence'],
+    parameters: [
+      nameParameter,
+      { name: 'id', in: 'path', required: true, description: 'Insight ID.', schema: stringSchema },
+    ],
+    responses: {
+      200: { description: 'Insight dismissed.' },
+      404: { description: 'Insight not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/health/latest',
+    summary: 'Get latest health snapshot',
+    tags: ['intelligence'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'Health snapshot returned.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/health/history',
+    summary: 'Get health trend over time',
+    tags: ['intelligence'],
+    parameters: [
+      nameParameter,
+      { name: 'limit', in: 'query', description: 'Max results.', schema: stringSchema },
+    ],
+    responses: {
+      200: { description: 'Health history returned.' },
+      404: { description: 'Project not found.' },
+    },
+  },
 ]
 
 export function buildOpenApiDocument(info: OpenApiInfo = {}) {

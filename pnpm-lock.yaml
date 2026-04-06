@@ -260,6 +260,9 @@ importers:
       '@ainyc/canonry-integration-wordpress':
         specifier: workspace:*
         version: link:../integration-wordpress
+      '@ainyc/canonry-intelligence':
+        specifier: workspace:*
+        version: link:../intelligence
       '@ainyc/canonry-provider-cdp':
         specifier: workspace:*
         version: link:../provider-cdp
@@ -345,6 +348,8 @@ importers:
       '@ainyc/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
+
+  packages/intelligence: {}
 
   packages/provider-cdp:
     dependencies:

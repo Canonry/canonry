@@ -92,6 +92,19 @@ canonry analytics <project> --feature sources     # source breakdown by category
 canonry analytics <project> --window 7d           # time window: 7d, 30d, 90d, all
 ```
 
+## Intelligence
+
+```bash
+canonry insights <project>                        # list active insights (regressions, gains, opportunities)
+canonry insights <project> --dismissed            # include dismissed insights
+canonry insights <project> --format json          # JSON output
+canonry insights dismiss <project> <id>           # dismiss an insight
+canonry health <project>                          # latest citation health snapshot
+canonry health <project> --history                # health trend over time
+canonry health <project> --history --limit 10     # limit history entries
+canonry health <project> --format json            # JSON output
+```
+
 ## Keywords & Competitors
 
 ```bash

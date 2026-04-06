@@ -31,6 +31,7 @@ export default defineConfig({
     '@ainyc/canonry-contracts',
     '@ainyc/canonry-config',
     '@ainyc/canonry-db',
+    '@ainyc/canonry-intelligence',
     '@ainyc/canonry-api-routes',
     '@ainyc/canonry-provider-gemini',
     '@ainyc/canonry-provider-openai',

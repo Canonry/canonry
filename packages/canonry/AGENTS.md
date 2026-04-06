@@ -17,6 +17,10 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/provider-registry.ts` | `ProviderRegistry` — manages provider adapters |
 | `src/scheduler.ts` | Cron-based schedule runner |
 | `src/snapshot-service.ts` | Snapshot creation and diff logic |
+| `src/intelligence-service.ts` | Runs analysis after sweeps, persists insights + health snapshots |
+| `src/run-coordinator.ts` | Post-run orchestrator — dispatches to intelligence + notifications |
+| `src/commands/insights.ts` | `insights` and `insights dismiss` command implementations |
+| `src/commands/health-cmd.ts` | `health` command implementation |
 
 ## Patterns
 

@@ -45,6 +45,9 @@ Usage:
   canonry status <project>            Show project summary [--format json]
   canonry evidence <project>          Show per-phrase results [--format json]
   canonry analytics <project>         Show analytics (--feature metrics|gaps|sources, --window 7d|30d|90d|all)
+  canonry insights <project>           Show intelligence insights [--dismissed] [--format json]
+  canonry insights dismiss <project> <id>  Dismiss an insight [--format json]
+  canonry health <project>             Show citation health [--history] [--limit <n>] [--format json]
   canonry history <project>           Show audit trail [--format json]
   canonry export <project>            Export project as YAML
   canonry apply <file...>              Apply declarative config (multi-doc YAML supported)
