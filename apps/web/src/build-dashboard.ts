@@ -886,6 +886,7 @@ export interface ProjectData {
   gscCoverage?: ApiGscCoverageSummary | null
   bingCoverage?: ApiBingCoverageSummary | null
   dbInsights?: InsightDto[] | null
+  hasIntelligence?: boolean
 }
 
 export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCenterVm {
@@ -896,7 +897,7 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
   const gapKeyPhrases = buildGapKeyPhraseSummary(snapshots)
   const indexCoverage = buildIndexCoverageSummary(data.gscCoverage, data.bingCoverage)
   const pressure = computeCompetitorPressure(snapshots, data.competitors.map(c => c.domain))
-  const dbMapped = data.dbInsights?.length ? mapInsightDtosToVms(data.dbInsights) : null
+  const dbMapped = data.hasIntelligence ? mapInsightDtosToVms(data.dbInsights ?? []) : null
   const insights = dbMapped ?? buildInsights({
     evidence,
     timeline: data.timeline,

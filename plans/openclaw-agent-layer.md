@@ -188,11 +188,13 @@ These can't be consumed directly. Need a mapper.
 - `cause.details` or `cause.cause` → `detail`
 - `evidenceId` omitted (no evidence linkage from DB insights)
 
-**Modified:** `apps/web/src/api.ts` — added `fetchInsights()` and `fetchLatestHealth()` API functions.
+**Modified:** `apps/web/src/api.ts` — added `fetchInsights(project, runId?)` and `fetchLatestHealth()` API functions. `fetchInsights` accepts optional `runId` to scope results to a single run.
 
-**Modified:** `apps/web/src/queries/use-dashboard.ts` — fetches `dbInsights` via `fetchInsights()` in the per-project detail query. Gracefully falls back to `null` on error.
+**Modified:** `apps/web/src/queries/use-dashboard.ts` — fetches `dbInsights` scoped to `completedRuns[0]?.id` via `fetchInsights()`, and `latestHealth` via `fetchLatestHealth()`. Uses health snapshot presence to disambiguate "intelligence not yet run" from "intelligence ran with empty results".
 
-**Modified:** `apps/web/src/build-dashboard.ts` — `buildProjectCommandCenter()` prefers DB-backed insights (via mapper) when available; falls back to in-memory `buildInsights()` when no persisted insights exist. Both paths coexist.
+**Modified:** `apps/web/src/build-dashboard.ts` — `buildProjectCommandCenter()` uses `hasIntelligence` flag (derived from health snapshot) to decide between DB-backed insights and in-memory fallback. When intelligence has run, trusts DB results even if empty. Falls back to in-memory `buildInsights()` only when no intelligence data exists.
+
+**Modified:** `apps/web/src/pages/ProjectPage.tsx` — `InsightSignals` suppresses "View →" button for affected phrases with empty `evidenceId` (DB-backed insights have no evidence linkage). Uses stable composite key (`insight.id + index`) when evidenceId is empty.
 
 #### 1D. Testing ✅ DONE
 

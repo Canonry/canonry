@@ -943,9 +943,9 @@ function InsightSignals({
             </div>
             {isExpanded && (
               <div className="divide-y divide-zinc-800/20">
-                {insight.affectedPhrases.map((ap) => (
+                {insight.affectedPhrases.map((ap, i) => (
                   <div
-                    key={ap.evidenceId}
+                    key={ap.evidenceId || `${insight.id}-${i}`}
                     className="flex items-center justify-between gap-3 px-4 py-2 pl-9 bg-zinc-900/40"
                   >
                     <div className="flex items-center gap-2 min-w-0">
@@ -955,13 +955,15 @@ function InsightSignals({
                         {ap.provider && <ProviderBadge provider={ap.provider} />}
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      className="text-xs text-zinc-400 hover:text-zinc-200 whitespace-nowrap transition-colors"
-                      onClick={(e) => { e.stopPropagation(); openEvidence(ap.evidenceId) }}
-                    >
-                      View &rarr;
-                    </button>
+                    {ap.evidenceId && (
+                      <button
+                        type="button"
+                        className="text-xs text-zinc-400 hover:text-zinc-200 whitespace-nowrap transition-colors"
+                        onClick={(e) => { e.stopPropagation(); openEvidence(ap.evidenceId) }}
+                      >
+                        View &rarr;
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>

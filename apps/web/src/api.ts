@@ -1017,8 +1017,9 @@ export function disconnectGa(project: string): Promise<void> {
 
 // ── Intelligence ────────────────────────────────────────────────────────────
 
-export function fetchInsights(project: string): Promise<InsightDto[]> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/insights`)
+export function fetchInsights(project: string, runId?: string): Promise<InsightDto[]> {
+  const qs = runId ? `?runId=${encodeURIComponent(runId)}` : ''
+  return apiFetch(`/projects/${encodeURIComponent(project)}/insights${qs}`)
 }
 
 export function fetchLatestHealth(project: string): Promise<HealthSnapshotDto> {
