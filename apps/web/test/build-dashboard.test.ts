@@ -587,3 +587,149 @@ describe('DB insight merge with in-memory signals', () => {
     expect(model.insights.some(i => i.id === 'insight_lost')).toBe(true)
   })
 })
+
+/* ── Run kind differentiation (#269) ──────────────────────────────────── */
+
+describe('run kind differentiation in Command Center', () => {
+  function makeProjectWithMixedRuns(): ProjectData {
+    return {
+      project: {
+        id: 'proj_mixed',
+        name: 'mixed-runs',
+        displayName: 'Mixed Runs',
+        canonicalDomain: 'mixed.example',
+        ownedDomains: [],
+        country: 'US',
+        language: 'en',
+        tags: [],
+        labels: {},
+        providers: ['gemini'],
+        configSource: 'api',
+        configRevision: 1,
+        createdAt: '2026-03-10T00:00:00Z',
+        updatedAt: '2026-03-15T00:00:00Z',
+      },
+      runs: [
+        // gsc-sync is the absolute latest run
+        {
+          id: 'run_gsc',
+          projectId: 'proj_mixed',
+          kind: 'gsc-sync',
+          status: 'completed',
+          trigger: 'scheduled',
+          startedAt: '2026-03-17T00:00:00Z',
+          finishedAt: '2026-03-17T00:00:05Z',
+          error: null,
+          createdAt: '2026-03-17T00:00:00Z',
+        },
+        // answer-visibility run is older
+        {
+          id: 'run_vis',
+          projectId: 'proj_mixed',
+          kind: 'answer-visibility',
+          status: 'completed',
+          trigger: 'manual',
+          startedAt: '2026-03-15T00:00:00Z',
+          finishedAt: '2026-03-15T00:00:10Z',
+          error: null,
+          createdAt: '2026-03-15T00:00:00Z',
+        },
+      ],
+      keywords: [{ id: 'kw_1', keyword: 'test keyword', createdAt: '2026-03-10T00:00:00Z' }],
+      competitors: [],
+      timeline: [{
+        keyword: 'test keyword',
+        runs: [
+          { runId: 'run_vis', createdAt: '2026-03-15T00:00:00Z', citationState: 'cited', transition: 'new' },
+        ],
+      }],
+      latestRunDetail: {
+        id: 'run_vis',
+        projectId: 'proj_mixed',
+        kind: 'answer-visibility',
+        status: 'completed',
+        trigger: 'manual',
+        startedAt: '2026-03-15T00:00:00Z',
+        finishedAt: '2026-03-15T00:00:10Z',
+        error: null,
+        createdAt: '2026-03-15T00:00:00Z',
+        snapshots: [{
+          id: 'snap_1',
+          runId: 'run_vis',
+          keywordId: 'kw_1',
+          keyword: 'test keyword',
+          provider: 'gemini',
+          model: null,
+          citationState: 'cited',
+          answerText: 'Test cited.',
+          citedDomains: ['mixed.example'],
+          competitorOverlap: [],
+          groundingSources: [],
+          searchQueries: [],
+          createdAt: '2026-03-15T00:00:00Z',
+        }],
+      },
+      previousRunDetail: null,
+    }
+  }
+
+  test('runStatus pins to latest answer-visibility run, not gsc-sync', () => {
+    const data = makeProjectWithMixedRuns()
+    const model = buildProjectCommandCenter(data)
+
+    // Run Status should reflect the visibility run, not the gsc-sync
+    expect(model.runStatus.value).toBe('Healthy')
+    expect(model.runStatus.description).toMatch(/Answer visibility sweep/)
+    expect(model.runStatus.description).not.toMatch(/gsc-sync/)
+  })
+
+  test('runStatus delta shows sweep and sync counts', () => {
+    const data = makeProjectWithMixedRuns()
+    const model = buildProjectCommandCenter(data)
+
+    expect(model.runStatus.delta).toBe('1 sweeps · 1 syncs')
+  })
+
+  test('visibility metrics use answer-visibility snapshots, not gsc-sync', () => {
+    const data = makeProjectWithMixedRuns()
+    const model = buildProjectCommandCenter(data)
+
+    // Should show 100% visibility from the visibility run, not 0% from gsc-sync
+    expect(model.visibilitySummary.value).toBe('100')
+    expect(model.keywordCounts.cited).toBe(1)
+  })
+
+  test('stale visibility warning when sync is >1 day newer than visibility run', () => {
+    const data = makeProjectWithMixedRuns()
+    // Push the gsc-sync 2 days after visibility
+    data.runs[0]!.createdAt = '2026-03-17T00:00:00Z'
+    const model = buildProjectCommandCenter(data)
+
+    expect(model.insights.some(i => i.id === 'insight_stale_visibility')).toBe(true)
+    const staleInsight = model.insights.find(i => i.id === 'insight_stale_visibility')!
+    expect(staleInsight.tone).toBe('caution')
+    expect(staleInsight.title).toBe('Stale visibility data')
+  })
+
+  test('no stale warning when sync is within 1 day of visibility run', () => {
+    const data = makeProjectWithMixedRuns()
+    // gsc-sync only 1 hour after visibility
+    data.runs[0]!.createdAt = '2026-03-15T01:00:00Z'
+    const model = buildProjectCommandCenter(data)
+
+    expect(model.insights.some(i => i.id === 'insight_stale_visibility')).toBe(false)
+  })
+
+  test('recentRuns shows all run kinds with proper labels', () => {
+    const data = makeProjectWithMixedRuns()
+    const model = buildProjectCommandCenter(data)
+
+    const gscRun = model.recentRuns.find(r => r.id === 'run_gsc')
+    const visRun = model.recentRuns.find(r => r.id === 'run_vis')
+
+    expect(gscRun?.kindLabel).toBe('GSC sync')
+    expect(gscRun?.summary).toBe('GSC sync completed')
+    expect(visRun?.kindLabel).toBe('Answer visibility sweep')
+    expect(visRun?.summary).toBe('Answer visibility sweep completed')
+  })
+})

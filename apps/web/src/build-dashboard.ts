@@ -71,7 +71,13 @@ function formatDuration(startedAt: string | null, finishedAt: string | null): st
 }
 
 function kindLabel(kind: string): string {
-  return kind === 'answer-visibility' ? 'Answer visibility sweep' : kind
+  switch (kind) {
+    case 'answer-visibility': return 'Answer visibility sweep'
+    case 'gsc-sync': return 'GSC sync'
+    case 'inspect-sitemap': return 'Sitemap inspection'
+    case 'site-audit': return 'Site audit'
+    default: return kind
+  }
 }
 
 function triggerLabel(trigger: string): string {
@@ -135,12 +141,13 @@ function statusDetailFromRun(run: ApiRun): string {
 }
 
 function summaryFromRun(run: ApiRun): string {
+  const label = kindLabel(run.kind)
   switch (run.status) {
-    case 'queued': return 'Queued for execution'
-    case 'running': return 'In progress'
-    case 'completed': return 'Visibility sweep completed'
-    case 'partial': return 'Partial completion'
-    case 'failed': return 'Run failed'
+    case 'queued': return `${label} queued`
+    case 'running': return `${label} in progress`
+    case 'completed': return `${label} completed`
+    case 'partial': return `${label} partially completed`
+    case 'failed': return `${label} failed`
     default: return run.status
   }
 }
@@ -863,8 +870,7 @@ function computeMovement(
 }
 
 function runStatusSummary(projectRuns: ApiRun[]): ScoreSummaryVm {
-  const latest = projectRuns[0]
-  if (!latest) {
+  if (projectRuns.length === 0) {
     return {
       label: 'Run Status',
       value: 'None',
@@ -875,6 +881,10 @@ function runStatusSummary(projectRuns: ApiRun[]): ScoreSummaryVm {
       trend: [],
     }
   }
+
+  // Pin Run Status to the latest answer-visibility run; fall back to the absolute latest
+  const latestVisibility = projectRuns.find(r => r.kind === 'answer-visibility')
+  const latest = latestVisibility ?? projectRuns[0]!
 
   const value = latest.status === 'completed' ? 'Healthy'
     : latest.status === 'running' ? 'Running'
@@ -887,10 +897,16 @@ function runStatusSummary(projectRuns: ApiRun[]): ScoreSummaryVm {
     : latest.status === 'partial' ? 'caution'
     : 'neutral'
 
+  const visibilityRunCount = projectRuns.filter(r => r.kind === 'answer-visibility').length
+  const syncRunCount = projectRuns.length - visibilityRunCount
+  const delta = syncRunCount > 0
+    ? `${visibilityRunCount} sweeps · ${syncRunCount} syncs`
+    : `${projectRuns.length} total runs`
+
   return {
     label: 'Run Status',
     value,
-    delta: `${projectRuns.length} total runs`,
+    delta,
     tone,
     description: `Latest: ${kindLabel(latest.kind)} — ${latest.status}`,
     tooltip: 'Current execution state of visibility sweeps. Shows the status of the most recent run and total run count.',
@@ -933,7 +949,25 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
     ? mergeInsights(inMemoryInsights, dbMapped)
     : inMemoryInsights
 
+  // Surface stale-visibility warning when integration syncs are more recent than the latest visibility run
   const sortedRuns = [...data.runs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  const latestVisibilityRun = sortedRuns.find(r => r.kind === 'answer-visibility')
+  const latestSyncRun = sortedRuns.find(r => r.kind !== 'answer-visibility')
+  if (latestVisibilityRun && latestSyncRun) {
+    const visibilityAge = new Date(latestSyncRun.createdAt).getTime() - new Date(latestVisibilityRun.createdAt).getTime()
+    const ONE_DAY = 24 * 60 * 60 * 1000
+    if (visibilityAge > ONE_DAY) {
+      insights.push({
+        id: 'insight_stale_visibility',
+        tone: 'caution',
+        title: 'Stale visibility data',
+        detail: `Last visibility sweep was ${formatDate(latestVisibilityRun.createdAt)}, but integration syncs have run since. Run a new sweep for current metrics.`,
+        actionLabel: 'Stale',
+        affectedPhrases: [],
+      })
+    }
+  }
+
   const runItems = sortedRuns.map(r => toRunListItem(r, data.project.displayName || data.project.name))
 
   // Compute per-model scores (grouped by provider+model)
@@ -1030,13 +1064,15 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
   const pressure = computeCompetitorPressure(snapshots, data.competitors.map(c => c.domain))
   const sortedRuns = [...data.runs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 
-  const latestRun = sortedRuns[0]
+  // Prefer the latest visibility run for the portfolio card
+  const latestRun = sortedRuns.find(r => r.kind === 'answer-visibility') ?? sortedRuns[0]
+  const projectLabel = data.project.displayName || data.project.name
   const runItem = latestRun
-    ? toRunListItem(latestRun, data.project.displayName || data.project.name)
+    ? toRunListItem(latestRun, projectLabel)
     : {
         id: 'none',
         projectId: data.project.id,
-        projectName: data.project.displayName || data.project.name,
+        projectName: projectLabel,
         kind: 'answer-visibility' as const,
         kindLabel: 'No runs yet',
         status: 'queued' as const,
