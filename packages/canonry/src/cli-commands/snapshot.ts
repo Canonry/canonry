@@ -1,6 +1,6 @@
 import { createSnapshotReport } from '../commands/snapshot.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
-import { getString, requirePositional, requireStringOption, stringOption } from '../cli-command-helpers.js'
+import { getBoolean, getString, requirePositional, requireStringOption, stringOption } from '../cli-command-helpers.js'
 
 function parseCsvOption(value: string | undefined): string[] | undefined {
   if (!value) return undefined
@@ -14,15 +14,17 @@ function parseCsvOption(value: string | undefined): string[] | undefined {
 export const SNAPSHOT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['snapshot'],
-    usage: 'canonry snapshot <company-name> --domain <domain> [--phrases "a,b"] [--competitors "x,y"] [--pdf <path>] [--format table|json]',
+    usage: 'canonry snapshot <company-name> --domain <domain> [--phrases "a,b"] [--competitors "x,y"] [--md] [--output <path>] [--pdf] [--format table|json]',
     options: {
       domain: stringOption(),
       phrases: stringOption(),
       competitors: stringOption(),
-      pdf: stringOption(),
+      md: { type: 'boolean' },
+      pdf: { type: 'boolean' },
+      output: stringOption(),
     },
     run: async (input) => {
-      const usage = 'canonry snapshot <company-name> --domain <domain> [--phrases "a,b"] [--competitors "x,y"] [--pdf <path>] [--format table|json]'
+      const usage = 'canonry snapshot <company-name> --domain <domain> [--phrases "a,b"] [--competitors "x,y"] [--md] [--output <path>] [--pdf] [--format table|json]'
       const companyName = requirePositional(input, 0, {
         command: 'snapshot',
         usage,
@@ -34,11 +36,17 @@ export const SNAPSHOT_CLI_COMMANDS: readonly CliCommandSpec[] = [
         message: '--domain is required',
       })
 
+      const outputPath = getString(input.values, 'output')
+      const wantsMd = getBoolean(input.values, 'md') || !!outputPath
+      const wantsPdf = getBoolean(input.values, 'pdf')
+
       await createSnapshotReport(companyName, {
         domain,
         phrases: parseCsvOption(getString(input.values, 'phrases')),
         competitors: parseCsvOption(getString(input.values, 'competitors')),
-        pdf: getString(input.values, 'pdf'),
+        md: wantsMd,
+        pdf: wantsPdf,
+        outputPath,
         format: input.format,
       })
     },

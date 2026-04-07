@@ -45,7 +45,9 @@ canonry project remove-location <name> <label>
 
 ```bash
 canonry snapshot "Acme Corp" --domain acme.example.com      # one-shot sales snapshot
-canonry snapshot "Acme Corp" --domain acme.example.com --pdf ./acme.pdf
+canonry snapshot "Acme Corp" --domain acme.example.com --md          # save markdown report
+canonry snapshot "Acme Corp" --domain acme.example.com --output report.md  # custom path
+canonry snapshot "Acme Corp" --domain acme.example.com --pdf         # save PDF report
 canonry snapshot "Acme Corp" --domain acme.example.com --format json
 
 canonry run <project>                             # sweep all configured providers
