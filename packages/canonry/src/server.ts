@@ -10,7 +10,7 @@ const { version: PKG_VERSION } = _require('../package.json') as { version: strin
 import Fastify from 'fastify'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { apiRoutes } from '@ainyc/canonry-api-routes'
-import { apiKeys, auditLog, projects, type DatabaseClient } from '@ainyc/canonry-db'
+import { apiKeys, auditLog, projects, parseJsonColumn, type DatabaseClient } from '@ainyc/canonry-db'
 import { geminiAdapter } from '@ainyc/canonry-provider-gemini'
 import { openaiAdapter } from '@ainyc/canonry-provider-openai'
 import { claudeAdapter } from '@ainyc/canonry-provider-claude'
@@ -755,12 +755,8 @@ export async function createServer(opts: {
           .from(projects)
           .all()
           .filter((project) => {
-            try {
-              const configuredProviders = JSON.parse(project.providers || '[]') as string[]
-              return configuredProviders.length === 0 || configuredProviders.includes(name)
-            } catch {
-              return false
-            }
+            const configuredProviders = parseJsonColumn<string[]>(project.providers, [])
+            return configuredProviders.length === 0 || configuredProviders.includes(name)
           })
           .map((project) => project.id)
         const targetProjectIds = affectedProjectIds.length > 0 ? affectedProjectIds : [null]
