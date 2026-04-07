@@ -37,8 +37,10 @@ export const SNAPSHOT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       })
 
       const outputPath = getString(input.values, 'output')
-      const wantsMd = getBoolean(input.values, 'md') || !!outputPath
+      const explicitMd = getBoolean(input.values, 'md')
       const wantsPdf = getBoolean(input.values, 'pdf')
+      // --output alone implies --md only when --pdf is not set
+      const wantsMd = explicitMd || (!!outputPath && !wantsPdf)
 
       await createSnapshotReport(companyName, {
         domain,
