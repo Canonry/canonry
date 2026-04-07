@@ -13,6 +13,7 @@ import {
   runs,
 } from '@ainyc/canonry-db'
 import { eq } from 'drizzle-orm'
+import { RunKinds } from '@ainyc/canonry-contracts'
 import { backfillAnswerVisibilityCommand } from '../src/commands/backfill.js'
 
 describe('backfill answer-visibility provider reparsing', () => {
@@ -339,5 +340,184 @@ describe('backfill answer-visibility provider reparsing', () => {
     expect(JSON.parse(snapshot.rawResponse!)).toMatchObject({
       groundingSources: [{ uri: 'https://canonry.ai/docs', title: 'Canonry Docs' }],
     })
+  })
+
+  it('filters to answer-visibility runs, supports direct raw api responses, and leaves unsupported providers unchanged', async () => {
+    const projectId = crypto.randomUUID()
+    const answerRunId = crypto.randomUUID()
+    const auditRunId = crypto.randomUUID()
+    const openAiKeywordId = crypto.randomUUID()
+    const auditKeywordId = crypto.randomUUID()
+    const localKeywordId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    const projectName = 'mixed-backfill'
+
+    db.insert(projects).values({
+      id: projectId,
+      name: projectName,
+      displayName: 'Canonry',
+      canonicalDomain: 'canonry.ai',
+      ownedDomains: '[]',
+      country: 'US',
+      language: 'en',
+      providers: '["openai","local"]',
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+
+    db.insert(runs).values([
+      {
+        id: answerRunId,
+        projectId,
+        kind: RunKinds['answer-visibility'],
+        status: 'completed',
+        trigger: 'manual',
+        createdAt: now,
+      },
+      {
+        id: auditRunId,
+        projectId,
+        kind: RunKinds['site-audit'],
+        status: 'completed',
+        trigger: 'manual',
+        createdAt: now,
+      },
+    ]).run()
+
+    db.insert(keywords).values([
+      { id: openAiKeywordId, projectId, keyword: 'canonry pricing', createdAt: now },
+      { id: auditKeywordId, projectId, keyword: 'site audit keyword', createdAt: now },
+      { id: localKeywordId, projectId, keyword: 'local visibility', createdAt: now },
+    ]).run()
+
+    db.insert(querySnapshots).values([
+      {
+        id: crypto.randomUUID(),
+        runId: answerRunId,
+        keywordId: openAiKeywordId,
+        provider: 'openai',
+        model: 'gpt-5.4',
+        citationState: 'not-cited',
+        answerMentioned: false,
+        answerText: '',
+        citedDomains: '[]',
+        competitorOverlap: '[]',
+        recommendedCompetitors: '[]',
+        rawResponse: JSON.stringify({
+          output: [
+            {
+              type: 'web_search_call',
+              action: {
+                type: 'search',
+                query: 'canonry pricing',
+              },
+            },
+            {
+              type: 'message',
+              content: [
+                {
+                  type: 'output_text',
+                  text: 'Canonry publishes pricing guidance.',
+                  annotations: [
+                    {
+                      type: 'url_citation',
+                      url: 'https://canonry.ai/pricing',
+                      title: 'Canonry pricing',
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+        createdAt: now,
+      },
+      {
+        id: crypto.randomUUID(),
+        runId: answerRunId,
+        keywordId: localKeywordId,
+        provider: 'local',
+        model: 'llama',
+        citationState: 'not-cited',
+        answerMentioned: false,
+        answerText: 'Local answer without provider envelope',
+        citedDomains: '[]',
+        competitorOverlap: '[]',
+        recommendedCompetitors: '[]',
+        rawResponse: JSON.stringify({ foo: 'bar' }),
+        createdAt: now,
+      },
+      {
+        id: crypto.randomUUID(),
+        runId: auditRunId,
+        keywordId: auditKeywordId,
+        provider: 'openai',
+        model: 'gpt-5.4',
+        citationState: 'not-cited',
+        answerMentioned: false,
+        answerText: '',
+        citedDomains: '[]',
+        competitorOverlap: '[]',
+        recommendedCompetitors: '[]',
+        rawResponse: JSON.stringify({
+          output: [
+            {
+              type: 'message',
+              content: [
+                {
+                  type: 'output_text',
+                  text: 'This should not be reparsed because the run kind is not answer-visibility.',
+                  annotations: [
+                    {
+                      type: 'url_citation',
+                      url: 'https://canonry.ai/should-not-change',
+                      title: 'Should not change',
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+        createdAt: now,
+      },
+    ]).run()
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    await backfillAnswerVisibilityCommand({ project: projectName, format: 'json' })
+    const output = JSON.parse(String(logSpy.mock.calls.at(-1)?.[0] ?? '{}'))
+
+    expect(output.examined).toBe(2)
+    expect(output.reparsed).toBe(1)
+
+    const answerSnapshots = db
+      .select()
+      .from(querySnapshots)
+      .where(eq(querySnapshots.runId, answerRunId))
+      .all()
+    const auditSnapshots = db
+      .select()
+      .from(querySnapshots)
+      .where(eq(querySnapshots.runId, auditRunId))
+      .all()
+
+    const openAiSnapshot = answerSnapshots.find(snapshot => snapshot.provider === 'openai')
+    expect(openAiSnapshot?.citationState).toBe('cited')
+    expect(JSON.parse(openAiSnapshot!.rawResponse!)).toMatchObject({
+      apiResponse: {
+        output: [
+          { type: 'web_search_call' },
+          { type: 'message' },
+        ],
+      },
+      groundingSources: [{ uri: 'https://canonry.ai/pricing', title: 'Canonry pricing' }],
+    })
+
+    const localSnapshot = answerSnapshots.find(snapshot => snapshot.provider === 'local')
+    expect(localSnapshot?.answerMentioned).toBe(false)
+    expect(localSnapshot?.rawResponse).toBe(JSON.stringify({ foo: 'bar' }))
+
+    expect(auditSnapshots[0]?.citationState).toBe('not-cited')
+    expect(auditSnapshots[0]?.rawResponse).toContain('should-not-change')
   })
 })

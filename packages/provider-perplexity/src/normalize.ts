@@ -85,8 +85,9 @@ export async function executeTrackedQuery(input: PerplexityTrackedQueryInput): P
 
 export function normalizeResult(raw: PerplexityRawResult): PerplexityNormalizedResult {
   const parsed = reparseStoredResult(raw.rawResponse)
-  const groundingSources = raw.groundingSources.length > 0 ? raw.groundingSources : parsed.groundingSources
-  const searchQueries = raw.searchQueries.length > 0 ? raw.searchQueries : parsed.searchQueries
+  const useParsed = hasParsedResponseContent(raw.rawResponse)
+  const groundingSources = useParsed ? parsed.groundingSources : raw.groundingSources
+  const searchQueries = useParsed ? parsed.searchQueries : raw.searchQueries
   const citedDomains = extractCitedDomains(groundingSources)
 
   return {
@@ -96,6 +97,19 @@ export function normalizeResult(raw: PerplexityRawResult): PerplexityNormalizedR
     groundingSources,
     searchQueries,
   }
+}
+
+function hasParsedResponseContent(rawResponse: Record<string, unknown>): boolean {
+  if (Array.isArray(rawResponse.choices) && rawResponse.choices.length > 0) return true
+  if (Array.isArray(rawResponse.search_results) && rawResponse.search_results.length > 0) return true
+  if (Array.isArray(rawResponse.citations) && rawResponse.citations.length > 0) return true
+  const nestedResponse = extractNestedApiResponse(rawResponse)
+  if (!nestedResponse) return false
+  return (
+    (Array.isArray(nestedResponse.choices) && nestedResponse.choices.length > 0)
+    || (Array.isArray(nestedResponse.search_results) && nestedResponse.search_results.length > 0)
+    || (Array.isArray(nestedResponse.citations) && nestedResponse.citations.length > 0)
+  )
 }
 
 export function reparseStoredResult(rawResponse: Record<string, unknown>): PerplexityNormalizedResult {

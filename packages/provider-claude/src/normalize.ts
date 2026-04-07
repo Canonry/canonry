@@ -127,8 +127,9 @@ export async function executeTrackedQuery(input: ClaudeTrackedQueryInput): Promi
 
 export function normalizeResult(raw: ClaudeRawResult): ClaudeNormalizedResult {
   const parsed = reparseStoredResult(raw.rawResponse)
-  const groundingSources = raw.groundingSources.length > 0 ? raw.groundingSources : parsed.groundingSources
-  const searchQueries = raw.searchQueries.length > 0 ? raw.searchQueries : parsed.searchQueries
+  const useParsed = hasParsedResponseContent(raw.rawResponse)
+  const groundingSources = useParsed ? parsed.groundingSources : raw.groundingSources
+  const searchQueries = useParsed ? parsed.searchQueries : raw.searchQueries
   const citedDomains = extractCitedDomainsFromSources(groundingSources)
 
   return {
@@ -138,6 +139,10 @@ export function normalizeResult(raw: ClaudeRawResult): ClaudeNormalizedResult {
     groundingSources,
     searchQueries,
   }
+}
+
+function hasParsedResponseContent(rawResponse: Record<string, unknown>): boolean {
+  return Array.isArray(rawResponse.content) && rawResponse.content.length > 0
 }
 
 export function reparseStoredResult(

@@ -44,8 +44,33 @@ test('normalizeResult extracts answer text from content blocks', () => {
     model: 'claude-sonnet-4-6',
     rawResponse: {
       content: [
-        { type: 'text', text: 'Answer engine optimization is ' },
-        { type: 'text', text: 'the practice of optimizing for AI answers.' },
+        {
+          type: 'server_tool_use',
+          name: 'web_search',
+          input: { query: 'answer engine optimization' },
+        },
+        {
+          type: 'text',
+          text: 'Answer engine optimization is ',
+          citations: [
+            {
+              type: 'web_search_result_location',
+              url: 'https://www.example.com/page',
+              title: 'Example Page',
+            },
+          ],
+        },
+        {
+          type: 'text',
+          text: 'the practice of optimizing for AI answers.',
+          citations: [
+            {
+              type: 'web_search_result_location',
+              url: 'https://blog.ainyc.ai/aeo-guide',
+              title: 'AEO Guide',
+            },
+          ],
+        },
       ],
     },
     groundingSources: [
@@ -70,7 +95,21 @@ test('normalizeResult strips www. from domains', () => {
   const raw: ClaudeRawResult = {
     provider: 'claude',
     model: 'claude-sonnet-4-6',
-    rawResponse: { content: [] },
+    rawResponse: {
+      content: [
+        {
+          type: 'text',
+          text: 'Example',
+          citations: [
+            {
+              type: 'web_search_result_location',
+              url: 'https://www.example.com/page',
+              title: 'Example',
+            },
+          ],
+        },
+      ],
+    },
     groundingSources: [
       { uri: 'https://www.example.com/page', title: 'Example' },
     ],
@@ -85,7 +124,31 @@ test('normalizeResult deduplicates domains', () => {
   const raw: ClaudeRawResult = {
     provider: 'claude',
     model: 'claude-sonnet-4-6',
-    rawResponse: { content: [] },
+    rawResponse: {
+      content: [
+        {
+          type: 'text',
+          text: 'Pages',
+          citations: [
+            {
+              type: 'web_search_result_location',
+              url: 'https://example.com/page1',
+              title: 'Page 1',
+            },
+            {
+              type: 'web_search_result_location',
+              url: 'https://example.com/page2',
+              title: 'Page 2',
+            },
+            {
+              type: 'web_search_result_location',
+              url: 'https://other.com/page',
+              title: 'Other',
+            },
+          ],
+        },
+      ],
+    },
     groundingSources: [
       { uri: 'https://example.com/page1', title: 'Page 1' },
       { uri: 'https://example.com/page2', title: 'Page 2' },
@@ -117,7 +180,26 @@ test('normalizeResult handles invalid grounding URIs', () => {
   const raw: ClaudeRawResult = {
     provider: 'claude',
     model: 'claude-sonnet-4-6',
-    rawResponse: { content: [] },
+    rawResponse: {
+      content: [
+        {
+          type: 'text',
+          text: 'Links',
+          citations: [
+            {
+              type: 'web_search_result_location',
+              url: 'not-a-url',
+              title: 'Bad',
+            },
+            {
+              type: 'web_search_result_location',
+              url: 'https://valid.com/page',
+              title: 'Good',
+            },
+          ],
+        },
+      ],
+    },
     groundingSources: [
       { uri: 'not-a-url', title: 'Bad' },
       { uri: 'https://valid.com/page', title: 'Good' },
@@ -209,5 +291,43 @@ test('reparseStoredResult ignores raw search results when final text has no cita
 
   expect(result.groundingSources).toEqual([])
   expect(result.citedDomains).toEqual([])
+  expect(result.searchQueries).toEqual(['canonry reviews'])
+})
+
+test('normalizeResult prefers reparsed citations over stale extracted fields when content is present', () => {
+  const raw: ClaudeRawResult = {
+    provider: 'claude',
+    model: 'claude-sonnet-4-6',
+    rawResponse: {
+      content: [
+        {
+          type: 'server_tool_use',
+          name: 'web_search',
+          input: { query: 'canonry reviews' },
+        },
+        {
+          type: 'text',
+          text: 'Canonry publishes audit workflows.',
+          citations: [
+            {
+              type: 'web_search_result_location',
+              url: 'https://canonry.ai/blog/audit',
+              title: 'Canonry audit guide',
+            },
+          ],
+        },
+      ],
+    },
+    groundingSources: [
+      { uri: 'https://retrieved-only.example.com/post', title: 'Retrieved only' },
+    ],
+    searchQueries: ['stale query'],
+  }
+
+  const result = normalizeResult(raw)
+  expect(result.groundingSources).toEqual([
+    { uri: 'https://canonry.ai/blog/audit', title: 'Canonry audit guide' },
+  ])
+  expect(result.citedDomains).toEqual(['canonry.ai'])
   expect(result.searchQueries).toEqual(['canonry reviews'])
 })

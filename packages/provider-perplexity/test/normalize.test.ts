@@ -163,7 +163,7 @@ describe('normalizeResult', () => {
     expect(result.answerText).toBe('Perplexity is an AI search engine.')
     expect(result.citedDomains).toContain('perplexity.ai')
     expect(result.citedDomains).toContain('example.com')
-    expect(result.searchQueries).toEqual(['what is perplexity'])
+    expect(result.searchQueries).toEqual([])
   })
 
   it('handles empty response', () => {
@@ -178,6 +178,33 @@ describe('normalizeResult', () => {
     const result = normalizeResult(raw)
     expect(result.answerText).toBe('')
     expect(result.citedDomains).toEqual([])
+  })
+
+  it('prefers reparsed provider fields over stale extracted fields when response content is present', () => {
+    const raw: PerplexityRawResult = {
+      provider: 'perplexity',
+      rawResponse: {
+        choices: [{
+          message: { content: 'Perplexity can return web-grounded answers.' },
+        }],
+        search_results: [
+          { url: 'https://www.perplexity.ai/docs', title: 'Perplexity Docs' },
+        ],
+        citations: ['https://www.perplexity.ai/docs'],
+      },
+      model: 'sonar',
+      groundingSources: [
+        { uri: 'https://retrieved-only.example.com/post', title: 'Retrieved only' },
+      ],
+      searchQueries: ['fabricated query'],
+    }
+
+    const result = normalizeResult(raw)
+    expect(result.groundingSources).toEqual([
+      { uri: 'https://www.perplexity.ai/docs', title: 'Perplexity Docs' },
+    ])
+    expect(result.citedDomains).toEqual(['perplexity.ai'])
+    expect(result.searchQueries).toEqual([])
   })
 })
 

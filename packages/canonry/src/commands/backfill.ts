@@ -1,7 +1,7 @@
-import { eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import type { GroundingSource, NormalizedQueryResult } from '@ainyc/canonry-contracts'
 import { createClient, migrate, parseJsonColumn, competitors, projects, querySnapshots, runs } from '@ainyc/canonry-db'
-import { determineAnswerMentioned, effectiveDomains, ProviderNames } from '@ainyc/canonry-contracts'
+import { determineAnswerMentioned, effectiveDomains, ProviderNames, RunKinds } from '@ainyc/canonry-contracts'
 import { reparseStoredResult as reparseOpenAIStoredResult } from '@ainyc/canonry-provider-openai'
 import { reparseStoredResult as reparseClaudeStoredResult } from '@ainyc/canonry-provider-claude'
 import { reparseStoredResult as reparseGeminiStoredResult } from '@ainyc/canonry-provider-gemini'
@@ -40,9 +40,16 @@ export async function backfillAnswerVisibilityCommand(opts?: {
       ? db
         .select({ id: runs.id, projectId: runs.projectId })
         .from(runs)
-        .where(inArray(runs.projectId, scopedProjects.map(project => project.id)))
+        .where(and(
+          eq(runs.kind, RunKinds['answer-visibility']),
+          inArray(runs.projectId, scopedProjects.map(project => project.id)),
+        ))
         .all()
-      : db.select({ id: runs.id, projectId: runs.projectId }).from(runs).all()
+      : db
+        .select({ id: runs.id, projectId: runs.projectId })
+        .from(runs)
+        .where(eq(runs.kind, RunKinds['answer-visibility']))
+        .all()
 
     const runIdsByProject = new Map<string, string[]>()
     for (const run of runRows) {
@@ -81,6 +88,7 @@ export async function backfillAnswerVisibilityCommand(opts?: {
         }).from(querySnapshots)
           .where(inArray(querySnapshots.runId, batchRunIds))
           .all()
+        const pendingUpdates: Array<{ id: string; patch: Record<string, unknown> }> = []
 
         for (const snapshot of snapshotRows) {
           examined++
@@ -148,12 +156,20 @@ export async function backfillAnswerVisibilityCommand(opts?: {
           }
 
           if (Object.keys(nextPatch).length > 0) {
-            db.update(querySnapshots)
-              .set(nextPatch)
-              .where(eq(querySnapshots.id, snapshot.id))
-              .run()
-            updated++
+            pendingUpdates.push({ id: snapshot.id, patch: nextPatch })
           }
+        }
+
+        if (pendingUpdates.length > 0) {
+          db.transaction((tx) => {
+            for (const update of pendingUpdates) {
+              tx.update(querySnapshots)
+                .set(update.patch)
+                .where(eq(querySnapshots.id, update.id))
+                .run()
+            }
+          })
+          updated += pendingUpdates.length
         }
       }
     }

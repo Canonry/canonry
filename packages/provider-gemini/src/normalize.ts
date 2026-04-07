@@ -141,8 +141,9 @@ export async function executeTrackedQuery(input: GeminiTrackedQueryInput): Promi
 
 export function normalizeResult(raw: GeminiRawResult): GeminiNormalizedResult {
   const parsed = reparseStoredResult(raw.rawResponse)
-  const groundingSources = raw.groundingSources.length > 0 ? raw.groundingSources : parsed.groundingSources
-  const searchQueries = raw.searchQueries.length > 0 ? raw.searchQueries : parsed.searchQueries
+  const useParsed = hasParsedResponseContent(raw.rawResponse)
+  const groundingSources = useParsed ? parsed.groundingSources : raw.groundingSources
+  const searchQueries = useParsed ? parsed.searchQueries : raw.searchQueries
   const citedDomains = extractCitedDomainsFromSources(groundingSources)
 
   return {
@@ -152,6 +153,10 @@ export function normalizeResult(raw: GeminiRawResult): GeminiNormalizedResult {
     groundingSources,
     searchQueries,
   }
+}
+
+function hasParsedResponseContent(rawResponse: Record<string, unknown>): boolean {
+  return Array.isArray(rawResponse.candidates) && rawResponse.candidates.length > 0
 }
 
 export function reparseStoredResult(rawResponse: Record<string, unknown>): GeminiNormalizedResult {
