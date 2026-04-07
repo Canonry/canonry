@@ -12,7 +12,7 @@ import {
   computeCompetitorOverlap,
   determineCitationState,
   extractRecommendedCompetitors,
-} from '../job-runner.js'
+} from '../citation-utils.js'
 
 const SNAPSHOT_BATCH_SIZE = 500
 

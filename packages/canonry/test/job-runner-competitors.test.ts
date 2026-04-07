@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 
-import { extractRecommendedCompetitors } from '../src/job-runner.js'
+import { extractRecommendedCompetitors } from '../src/citation-utils.js'
 
 test('extractRecommendedCompetitors excludes headings and the target brand', () => {
   const answer = [
