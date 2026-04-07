@@ -27,8 +27,10 @@ export async function showStatus(project: string, format?: string): Promise<void
   console.log(`  Language: ${projectData.language}`)
 
   if (runs.length > 0) {
-    // listRuns returns runs in descending createdAt order (newest first)
-    const latest = runs[0]!
+    // Derive the latest run from timestamps instead of relying on API ordering.
+    const latest = runs.reduce((current, candidate) =>
+      candidate.createdAt > current.createdAt ? candidate : current,
+    )
     console.log(`\n  Latest run:`)
     console.log(`    ID:       ${latest.id}`)
     console.log(`    Status:   ${latest.status}`)

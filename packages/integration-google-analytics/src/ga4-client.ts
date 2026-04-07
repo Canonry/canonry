@@ -481,9 +481,10 @@ export async function fetchAiReferrals(
   //    Catches users who first discovered the site via an AI engine but return
   //    later through other channels.
   //
-  // 3. manualSource — explicitly the utm_source parameter value ONLY (per the
-  //    GA4 schema: "Populated by the utm_source URL parameter"). This catches
-  //    edge cases where:
+  // 3. sessionManualSource — explicitly the utm_source parameter value for the
+  //    session that led to the visit. GA4's plain manualSource/manualMedium
+  //    dimensions are key-event scoped, which can miss AI-tagged visits that
+  //    never converted. This catches edge cases where:
   //    - The referrer header was stripped (browser privacy settings)
   //    - GA4's session attribution resolved to a different source but the
   //      utm_source was still set to an AI engine
@@ -498,7 +499,7 @@ export async function fetchAiReferrals(
   const dimensionPairs: Array<[string, string, GA4SourceDimension]> = [
     ['sessionSource', 'sessionMedium', 'session'],
     ['firstUserSource', 'firstUserMedium', 'first_user'],
-    ['manualSource', 'manualMedium', 'manual_utm'],
+    ['sessionManualSource', 'sessionManualMedium', 'manual_utm'],
   ]
 
   for (const [sourceDim, mediumDim, dimLabel] of dimensionPairs) {

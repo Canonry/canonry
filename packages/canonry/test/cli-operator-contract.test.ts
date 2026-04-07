@@ -125,6 +125,36 @@ describe('operator CLI contract', () => {
     expect(parsed.runs).toBeInstanceOf(Array)
   })
 
+  it('prints the most recent run in text mode', async () => {
+    const project = await client.getProject('test-proj') as { id: string }
+    const olderRunId = crypto.randomUUID()
+    const latestRunId = crypto.randomUUID()
+
+    db.insert(runs).values({
+      id: olderRunId,
+      projectId: project.id,
+      status: 'completed',
+      createdAt: '2026-03-27T18:13:34.794Z',
+      finishedAt: '2026-03-27T18:14:11.600Z',
+    }).run()
+
+    db.insert(runs).values({
+      id: latestRunId,
+      projectId: project.id,
+      status: 'completed',
+      createdAt: '2026-04-06T23:42:40.348Z',
+      finishedAt: '2026-04-06T23:50:47.958Z',
+    }).run()
+
+    const result = await invokeCli(['status', 'test-proj'])
+
+    expect(result.exitCode).toBe(undefined)
+    expect(result.stderr).toBe('')
+    expect(result.stdout).toContain(`ID:       ${latestRunId}`)
+    expect(result.stdout).not.toContain(olderRunId)
+    expect(result.stdout).toContain('Total runs: 2')
+  })
+
   it('prints evidence to stdout in JSON mode', async () => {
     const project = await client.getProject('test-proj') as { id: string }
     const keywordId = crypto.randomUUID()
