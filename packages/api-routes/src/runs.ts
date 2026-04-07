@@ -57,8 +57,14 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
         throw validationError(`Location "${request.body.location}" not found. Configure it first.`)
       }
       resolvedLocation = loc
+    } else if (project.defaultLocation) {
+      // Auto-apply project's configured default location
+      const loc = projectLocations.find(l => l.label === project.defaultLocation)
+      if (!loc) {
+        throw validationError(`Default location "${project.defaultLocation}" not found. Update the project configuration.`)
+      }
+      resolvedLocation = loc
     }
-    // else resolvedLocation = undefined → use project default
 
     // Handle --all-locations: create one run per configured location
     // Skip the idle-check here — each location gets its own run regardless of other active runs.
