@@ -49,6 +49,8 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
         await triggerRunAll({
           provider: getString(input.values, 'provider'),
           wait: getBoolean(input.values, 'wait'),
+          allLocations: getBoolean(input.values, 'all-locations'),
+          noLocation: getBoolean(input.values, 'no-location'),
           format: input.format,
         })
         return

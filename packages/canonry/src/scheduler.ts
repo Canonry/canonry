@@ -3,13 +3,13 @@ import { eq } from 'drizzle-orm'
 import { queueRunIfProjectIdle } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { schedules, projects, parseJsonColumn } from '@ainyc/canonry-db'
-import type { ProviderName } from '@ainyc/canonry-contracts'
+import type { ProviderName, LocationContext } from '@ainyc/canonry-contracts'
 import { createLogger } from './logger.js'
 
 const log = createLogger('Scheduler')
 
 export interface SchedulerCallbacks {
-  onRunCreated: (runId: string, projectId: string, providers?: ProviderName[]) => void
+  onRunCreated: (runId: string, projectId: string, providers?: ProviderName[], location?: LocationContext | null) => void
 }
 
 export class Scheduler {
@@ -136,11 +136,20 @@ export class Scheduler {
         return
       }
 
+      // Resolve default location for this project
+      const projectLocations = parseJsonColumn<LocationContext[]>(project.locations, [])
+      let resolvedLocation: LocationContext | undefined
+      if (project.defaultLocation) {
+        resolvedLocation = projectLocations.find(l => l.label === project.defaultLocation)
+      }
+      const locationLabel = resolvedLocation?.label ?? null
+
       const queueResult = queueRunIfProjectIdle(this.db, {
         createdAt: now,
         kind: 'answer-visibility',
         projectId,
         trigger: 'scheduled',
+        location: locationLabel,
       })
 
       if (queueResult.conflict) {
@@ -164,7 +173,7 @@ export class Scheduler {
       const providers = scheduleProviders.length > 0 ? scheduleProviders as ProviderName[] : undefined
 
       log.info('run.triggered', { runId, projectName: project.name, providers: providers ?? 'all' })
-      this.callbacks.onRunCreated(runId, projectId, providers)
+      this.callbacks.onRunCreated(runId, projectId, providers, resolvedLocation)
     } catch (err: unknown) {
       log.error('trigger.error', { scheduleId, projectId, error: err instanceof Error ? err.message : String(err) })
     }

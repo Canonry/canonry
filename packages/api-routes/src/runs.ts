@@ -206,11 +206,20 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     const results = []
 
     for (const project of allProjects) {
+      // Resolve default location for this project
+      const projectLocations = parseJsonColumn<LocationContext[]>(project.locations, [])
+      let resolvedLocation: LocationContext | undefined
+      if (project.defaultLocation) {
+        resolvedLocation = projectLocations.find(l => l.label === project.defaultLocation)
+      }
+      const locationLabel = resolvedLocation?.label ?? null
+
       const queueResult = queueRunIfProjectIdle(app.db, {
         createdAt: now,
         kind,
         projectId: project.id,
         trigger: 'manual',
+        location: locationLabel,
       })
 
       if (queueResult.conflict) {
@@ -230,7 +239,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
 
       const run = app.db.select().from(runs).where(eq(runs.id, runId)).get()!
       if (opts.onRunCreated) {
-        opts.onRunCreated(runId, project.id, providers)
+        opts.onRunCreated(runId, project.id, providers, resolvedLocation)
       }
 
       results.push({ ...formatRun(run), projectName: project.name })

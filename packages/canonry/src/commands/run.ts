@@ -104,7 +104,7 @@ export async function triggerRun(project: string, opts?: { provider?: string; wa
   }
 }
 
-export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; format?: string }): Promise<void> {
+export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; format?: string; allLocations?: boolean; noLocation?: boolean }): Promise<void> {
   const client = getClient()
   const projects = await client.listProjects() as Array<{ name: string }>
 
@@ -122,6 +122,12 @@ export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; 
     const providerInputs = opts.provider.split(',').map(s => s.trim()).filter(Boolean)
     const resolved = providerInputs.flatMap(p => resolveProviderInput(p))
     body.providers = resolved.length > 0 ? resolved : providerInputs
+  }
+  if (opts?.allLocations) {
+    body.allLocations = true
+  }
+  if (opts?.noLocation) {
+    body.noLocation = true
   }
 
   const results: Array<{ project: string; runId: string; status: string; error?: string }> = []
