@@ -19,9 +19,9 @@ Makes a lightweight Anthropic API call to verify the key works. Returns ok/error
 Sends the keyword to the Anthropic Messages API with `web_search_20250305` tool enabled (`max_uses: 5`). The keyword is sent as-is. Returns:
 
 - `rawResponse` — the full Anthropic API response (content blocks, usage metadata)
-- `groundingSources` — extracted `{ uri, title }` pairs from `web_search_tool_result` blocks
+- `groundingSources` — extracted `{ uri, title }` pairs from final `text.citations` entries of type `web_search_result_location`
 - `searchQueries` — search queries extracted from `server_tool_use` blocks where `name === 'web_search'`
-- `model` — the model used (default: `claude-sonnet-4-20250514`)
+- `model` — the model used (default: `claude-sonnet-4-6`)
 
 ### `normalizeResult(raw: ClaudeRawResult): ClaudeNormalizedResult`
 
@@ -34,17 +34,22 @@ Extracts analyst-relevant fields from the raw response:
 
 ## Model
 
-Default: `claude-sonnet-4-20250514`. Configurable via `ClaudeConfig.model`.
+Default: `claude-sonnet-4-6`. Configurable via `ClaudeConfig.model`.
 
 ## Web Search & Citation Detection
 
 The provider uses Anthropic's **web search** tool (`web_search_20250305`). When enabled, the Messages API:
 
 1. Executes web searches via `server_tool_use` blocks (with `name: 'web_search'` and `input.query`)
-2. Returns search results in `web_search_tool_result` content blocks containing `web_search_result` items with URLs and titles
-3. Generates a text response synthesizing the search results
+2. Returns search results in `web_search_tool_result` content blocks
+3. Generates a text response whose `text.citations` identify which results actually support the final answer
 
-Citation detection works by extracting domains from the search result URLs in `web_search_tool_result` blocks. The job runner then matches these against the project's canonical domain and competitor domains to determine citation state.
+Citation detection works by extracting domains from the final answer's `text.citations`, not from every raw search result returned by the tool. Tool-result error payloads such as `too_many_requests` and `max_uses_exceeded` are treated as provider failures rather than silent misses.
+
+### Upstream references
+
+- Web search tool docs: <https://docs.claude.com/en/docs/agents-and-tools/tool-use/web-search-tool>
+- Messages SDK types: <https://github.com/anthropics/anthropic-sdk-typescript/blob/main/src/resources/messages/messages.ts>
 
 ### Domain extraction
 

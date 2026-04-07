@@ -77,15 +77,15 @@ export async function executeTrackedQuery(input: OpenAITrackedQueryInput): Promi
       }),
     )
 
-    const groundingSources = extractGroundingSources(response)
-    const searchQueries = extractSearchQueries(response)
+    const rawResponse = responseToRecord(response)
+    const parsed = reparseStoredResult(rawResponse)
 
     return {
       provider: 'openai',
-      rawResponse: responseToRecord(response),
+      rawResponse,
       model,
-      groundingSources,
-      searchQueries,
+      groundingSources: parsed.groundingSources,
+      searchQueries: parsed.searchQueries,
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -94,15 +94,35 @@ export async function executeTrackedQuery(input: OpenAITrackedQueryInput): Promi
 }
 
 export function normalizeResult(raw: OpenAIRawResult): OpenAINormalizedResult {
-  const answerText = extractAnswerTextFromRaw(raw.rawResponse)
-  const citedDomains = extractCitedDomains(raw)
+  const parsed = reparseStoredResult(raw.rawResponse)
+  const useParsed = hasParsedResponseContent(raw.rawResponse)
+  const groundingSources = useParsed ? parsed.groundingSources : raw.groundingSources
+  const searchQueries = useParsed ? parsed.searchQueries : raw.searchQueries
+  const citedDomains = extractCitedDomainsFromSources(groundingSources)
 
   return {
     provider: 'openai',
-    answerText,
+    answerText: parsed.answerText,
     citedDomains,
-    groundingSources: raw.groundingSources,
-    searchQueries: raw.searchQueries,
+    groundingSources,
+    searchQueries,
+  }
+}
+
+function hasParsedResponseContent(rawResponse: Record<string, unknown>): boolean {
+  return Array.isArray(rawResponse.output) && rawResponse.output.length > 0
+}
+
+export function reparseStoredResult(rawResponse: Record<string, unknown>): OpenAINormalizedResult {
+  const groundingSources = extractGroundingSourcesFromRaw(rawResponse)
+  const searchQueries = extractSearchQueriesFromRaw(rawResponse)
+
+  return {
+    provider: 'openai',
+    answerText: extractAnswerTextFromRaw(rawResponse),
+    citedDomains: extractCitedDomainsFromSources(groundingSources),
+    groundingSources,
+    searchQueries,
   }
 }
 
@@ -130,16 +150,33 @@ function extractResponseText(response: OpenAI.Responses.Response): string {
   }
 }
 
-function extractGroundingSources(response: OpenAI.Responses.Response): GroundingSource[] {
+function extractGroundingSourcesFromRaw(rawResponse: Record<string, unknown>): GroundingSource[] {
   const sources: GroundingSource[] = []
   const seen = new Set<string>()
   try {
-    for (const item of response.output) {
+    // OpenAI's web-search guide returns citations in the final message, and the official
+    // SDK types model those as `output_text.annotations` entries with `type: "url_citation"`.
+    // Docs: https://developers.openai.com/api/docs/guides/tools-web-search
+    // SDK: https://github.com/openai/openai-python/blob/main/src/openai/types/responses/response_output_text.py
+    const output = rawResponse.output as Array<{
+      type?: string
+      content?: Array<{
+        type?: string
+        annotations?: Array<{
+          type?: string
+          url?: string
+          title?: string | null
+        }>
+      }>
+    }> | undefined
+    if (!output) return []
+
+    for (const item of output) {
       if (item.type === 'message') {
-        for (const content of item.content) {
+        for (const content of item.content ?? []) {
           if (content.type === 'output_text' && content.annotations) {
             for (const annotation of content.annotations) {
-              if (annotation.type === 'url_citation' && !seen.has(annotation.url)) {
+              if (annotation.type === 'url_citation' && typeof annotation.url === 'string' && !seen.has(annotation.url)) {
                 seen.add(annotation.url)
                 sources.push({
                   uri: annotation.url,
@@ -157,23 +194,42 @@ function extractGroundingSources(response: OpenAI.Responses.Response): Grounding
   return sources
 }
 
-function extractSearchQueries(response: OpenAI.Responses.Response): string[] {
-  // OpenAI doesn't expose search queries directly in the response
-  // but we can extract from web_search_call output items if available
-  const queries: string[] = []
+function extractSearchQueriesFromRaw(rawResponse: Record<string, unknown>): string[] {
+  const queries = new Set<string>()
   try {
-    for (const item of response.output) {
-      if (item.type === 'web_search_call' && 'query' in item) {
-        const query = (item as unknown as { query?: unknown }).query
-        if (typeof query === 'string' && query.length > 0) {
-          queries.push(query)
+    // The official Responses SDK types put search telemetry on `web_search_call.action`
+    // rather than on the top-level item. `query` is deprecated in favor of `queries`, so
+    // we accept both when reparsing stored payloads.
+    // Docs: https://developers.openai.com/api/docs/guides/tools-web-search
+    // SDK: https://github.com/openai/openai-python/blob/main/src/openai/types/responses/response_function_web_search.py
+    const output = rawResponse.output as Array<{
+      type?: string
+      action?: {
+        type?: string
+        query?: unknown
+        queries?: unknown
+      }
+    }> | undefined
+    if (!output) return []
+
+    for (const item of output) {
+      if (item.type !== 'web_search_call' || !item.action) continue
+      const action = item.action
+      if (typeof action.query === 'string' && action.query.length > 0) {
+        queries.add(action.query)
+      }
+      if (Array.isArray(action.queries)) {
+        for (const query of action.queries) {
+          if (typeof query === 'string' && query.length > 0) {
+            queries.add(query)
+          }
         }
       }
     }
   } catch {
     // Ignore extraction errors
   }
-  return queries
+  return [...queries]
 }
 
 function extractAnswerTextFromRaw(rawResponse: Record<string, unknown>): string {
@@ -201,10 +257,10 @@ function extractAnswerTextFromRaw(rawResponse: Record<string, unknown>): string 
   }
 }
 
-function extractCitedDomains(raw: OpenAIRawResult): string[] {
+function extractCitedDomainsFromSources(groundingSources: GroundingSource[]): string[] {
   const domains = new Set<string>()
 
-  for (const source of raw.groundingSources) {
+  for (const source of groundingSources) {
     const domain = extractDomainFromUri(source.uri)
     if (domain) domains.add(domain)
   }

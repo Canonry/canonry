@@ -932,7 +932,8 @@ export interface ProjectData {
 export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCenterVm {
   const dto = toProjectDto(data.project)
   const evidence = buildEvidenceFromTimeline(dto.name, data.timeline, data.latestRunDetail, data.keywords)
-  const snapshots = data.latestRunDetail?.snapshots ?? []
+  const latestVisibilityRunMetrics = data.runs.filter(r => r.kind === RunKinds['answer-visibility']).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  const snapshots = (latestVisibilityRunMetrics && data.latestRunDetail?.id === latestVisibilityRunMetrics.id) ? data.latestRunDetail.snapshots : []
   const kwVis = computeKeywordVisibility(snapshots)
   const gapKeyPhrases = buildGapKeyPhraseSummary(snapshots)
   const indexCoverage = buildIndexCoverageSummary(data.gscCoverage, data.bingCoverage)
@@ -953,17 +954,17 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
 
   // Surface stale-visibility warning when integration syncs are more recent than the latest visibility run
   const sortedRuns = [...data.runs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-  const latestVisibilityRun = sortedRuns.find(r => r.kind === RunKinds['answer-visibility'])
+  const latestVisibilityRunStale = sortedRuns.find(r => r.kind === RunKinds['answer-visibility'])
   const latestSyncRun = sortedRuns.find(r => r.kind !== RunKinds['answer-visibility'])
-  if (latestVisibilityRun && latestSyncRun) {
-    const visibilityAge = new Date(latestSyncRun.createdAt).getTime() - new Date(latestVisibilityRun.createdAt).getTime()
+  if (latestVisibilityRunStale && latestSyncRun) {
+    const visibilityAge = new Date(latestSyncRun.createdAt).getTime() - new Date(latestVisibilityRunStale.createdAt).getTime()
     const ONE_DAY = 24 * 60 * 60 * 1000
     if (visibilityAge > ONE_DAY) {
       insights.push({
         id: 'insight_stale_visibility',
         tone: 'caution',
         title: 'Stale visibility data',
-        detail: `Last visibility sweep was ${formatDate(latestVisibilityRun.createdAt)}, but integration syncs have run since. Run a new sweep for current metrics.`,
+        detail: `Last visibility sweep was ${formatDate(latestVisibilityRunStale.createdAt)}, but integration syncs have run since. Run a new sweep for current metrics.`,
         actionLabel: 'Stale',
         affectedPhrases: [],
       })
@@ -1061,7 +1062,8 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
 
 export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
   const dto = toProjectDto(data.project)
-  const snapshots = data.latestRunDetail?.snapshots ?? []
+  const latestVisibilityRun = data.runs.filter(r => r.kind === RunKinds['answer-visibility']).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  const snapshots = (latestVisibilityRun && data.latestRunDetail?.id === latestVisibilityRun.id) ? data.latestRunDetail.snapshots : []
   const kwVis = computeKeywordVisibility(snapshots)
   const pressure = computeCompetitorPressure(snapshots, data.competitors.map(c => c.domain))
   const sortedRuns = [...data.runs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))

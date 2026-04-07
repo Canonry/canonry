@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest'
 
-import { validateConfig, normalizeResult } from '../src/index.js'
+import { validateConfig, normalizeResult, reparseStoredResult } from '../src/index.js'
 import type { GeminiRawResult } from '../src/index.js'
 
 const validConfig = {
@@ -88,6 +88,14 @@ test('normalizeResult extracts answer text from candidates', () => {
               { text: 'the practice of optimizing for AI answers.' },
             ],
           },
+          groundingMetadata: {
+            webSearchQueries: ['answer engine optimization'],
+            groundingChunks: [
+              { web: { uri: 'https://www.example.com/page', title: 'Example Page' } },
+              { web: { uri: 'https://blog.ainyc.ai/aeo-guide', title: 'AEO Guide' } },
+            ],
+            groundingSupports: [{ groundingChunkIndices: [0, 1] }],
+          },
         },
       ],
     },
@@ -113,7 +121,18 @@ test('normalizeResult strips www. from domains', () => {
   const raw: GeminiRawResult = {
     provider: 'gemini',
     model: 'gemini-2.5-flash',
-    rawResponse: { candidates: [] },
+    rawResponse: {
+      candidates: [
+        {
+          groundingMetadata: {
+            groundingChunks: [
+              { web: { uri: 'https://www.example.com/page', title: 'Example' } },
+            ],
+            groundingSupports: [{ groundingChunkIndices: [0] }],
+          },
+        },
+      ],
+    },
     groundingSources: [
       { uri: 'https://www.example.com/page', title: 'Example' },
     ],
@@ -128,7 +147,20 @@ test('normalizeResult deduplicates domains', () => {
   const raw: GeminiRawResult = {
     provider: 'gemini',
     model: 'gemini-2.5-flash',
-    rawResponse: { candidates: [] },
+    rawResponse: {
+      candidates: [
+        {
+          groundingMetadata: {
+            groundingChunks: [
+              { web: { uri: 'https://example.com/page1', title: 'Page 1' } },
+              { web: { uri: 'https://example.com/page2', title: 'Page 2' } },
+              { web: { uri: 'https://other.com/page', title: 'Other' } },
+            ],
+            groundingSupports: [{ groundingChunkIndices: [0, 1, 2] }],
+          },
+        },
+      ],
+    },
     groundingSources: [
       { uri: 'https://example.com/page1', title: 'Page 1' },
       { uri: 'https://example.com/page2', title: 'Page 2' },
@@ -160,7 +192,19 @@ test('normalizeResult handles invalid grounding URIs', () => {
   const raw: GeminiRawResult = {
     provider: 'gemini',
     model: 'gemini-2.5-flash',
-    rawResponse: { candidates: [] },
+    rawResponse: {
+      candidates: [
+        {
+          groundingMetadata: {
+            groundingChunks: [
+              { web: { uri: 'not-a-url', title: 'Bad' } },
+              { web: { uri: 'https://valid.com/page', title: 'Good' } },
+            ],
+            groundingSupports: [{ groundingChunkIndices: [0, 1] }],
+          },
+        },
+      ],
+    },
     groundingSources: [
       { uri: 'not-a-url', title: 'Bad' },
       { uri: 'https://valid.com/page', title: 'Good' },
@@ -170,4 +214,91 @@ test('normalizeResult handles invalid grounding URIs', () => {
 
   const result = normalizeResult(raw)
   expect(result.citedDomains).toEqual(['valid.com'])
+})
+
+test('reparseStoredResult prefers grounding supports over all retrieved chunks', () => {
+  const result = reparseStoredResult({
+    candidates: [
+      {
+        content: {
+          parts: [{ text: 'Canonry is often recommended for answer visibility.' }],
+        },
+        groundingMetadata: {
+          webSearchQueries: ['answer visibility software'],
+          groundingChunks: [
+            { web: { uri: 'https://retrieved-only.example.com/post', title: 'Retrieved only' } },
+            { web: { uri: 'https://canonry.ai/docs', title: 'Canonry Docs' } },
+          ],
+          groundingSupports: [
+            { groundingChunkIndices: [1] },
+          ],
+        },
+      },
+    ],
+  })
+
+  expect(result.groundingSources).toEqual([
+    { uri: 'https://canonry.ai/docs', title: 'Canonry Docs' },
+  ])
+  expect(result.citedDomains).toEqual(['canonry.ai'])
+  expect(result.searchQueries).toEqual(['answer visibility software'])
+})
+
+test('reparseStoredResult falls back to all grounding chunks when supports are absent', () => {
+  const result = reparseStoredResult({
+    candidates: [
+      {
+        content: {
+          parts: [{ text: 'Canonry and another vendor were both retrieved.' }],
+        },
+        groundingMetadata: {
+          webSearchQueries: ['answer visibility software'],
+          groundingChunks: [
+            { web: { uri: 'https://canonry.ai/docs', title: 'Canonry Docs' } },
+            { web: { uri: 'https://other.example.com/post', title: 'Other source' } },
+          ],
+        },
+      },
+    ],
+  })
+
+  expect(result.groundingSources).toEqual([
+    { uri: 'https://canonry.ai/docs', title: 'Canonry Docs' },
+    { uri: 'https://other.example.com/post', title: 'Other source' },
+  ])
+  expect(result.citedDomains).toEqual(['canonry.ai', 'other.example.com'])
+})
+
+test('normalizeResult prefers reparsed grounding metadata over stale extracted fields when candidates are present', () => {
+  const raw: GeminiRawResult = {
+    provider: 'gemini',
+    model: 'gemini-3-flash',
+    rawResponse: {
+      candidates: [
+        {
+          content: {
+            parts: [{ text: 'Canonry is often recommended.' }],
+          },
+          groundingMetadata: {
+            webSearchQueries: ['answer visibility software'],
+            groundingChunks: [
+              { web: { uri: 'https://canonry.ai/docs', title: 'Canonry Docs' } },
+            ],
+            groundingSupports: [{ groundingChunkIndices: [0] }],
+          },
+        },
+      ],
+    },
+    groundingSources: [
+      { uri: 'https://retrieved-only.example.com/post', title: 'Retrieved only' },
+    ],
+    searchQueries: ['stale query'],
+  }
+
+  const result = normalizeResult(raw)
+  expect(result.groundingSources).toEqual([
+    { uri: 'https://canonry.ai/docs', title: 'Canonry Docs' },
+  ])
+  expect(result.citedDomains).toEqual(['canonry.ai'])
+  expect(result.searchQueries).toEqual(['answer visibility software'])
 })

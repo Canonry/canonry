@@ -16,6 +16,14 @@ export type ProviderQuotaPolicy = z.infer<typeof providerQuotaPolicySchema>
  * but are NOT the source of truth — each adapter self-declares its name.
  */
 export const PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'perplexity', 'local', 'cdp:chatgpt'] as const
+export const ProviderNames = {
+  gemini: 'gemini',
+  openai: 'openai',
+  claude: 'claude',
+  perplexity: 'perplexity',
+  local: 'local',
+  cdpChatgpt: 'cdp:chatgpt',
+} as const
 export const providerNameSchema = z.string().min(1)
 export type ProviderName = string
 

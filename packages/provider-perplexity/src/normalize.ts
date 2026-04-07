@@ -68,20 +68,14 @@ export async function executeTrackedQuery(input: PerplexityTrackedQueryInput): P
     )
 
     const rawResponse = responseToRecord(response)
-
-    // Perplexity returns citations as a top-level array on the response
-    const citations = extractCitations(rawResponse)
-    const groundingSources = citations.map((url) => ({
-      uri: url,
-      title: '',
-    }))
+    const parsed = reparseStoredResult(rawResponse)
 
     return {
       provider: 'perplexity',
       rawResponse,
       model,
-      groundingSources,
-      searchQueries: [input.keyword],
+      groundingSources: parsed.groundingSources,
+      searchQueries: parsed.searchQueries,
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -90,15 +84,46 @@ export async function executeTrackedQuery(input: PerplexityTrackedQueryInput): P
 }
 
 export function normalizeResult(raw: PerplexityRawResult): PerplexityNormalizedResult {
-  const answerText = extractAnswerText(raw.rawResponse)
-  const citedDomains = extractCitedDomains(raw.groundingSources)
+  const parsed = reparseStoredResult(raw.rawResponse)
+  const useParsed = hasParsedResponseContent(raw.rawResponse)
+  const groundingSources = useParsed ? parsed.groundingSources : raw.groundingSources
+  const searchQueries = useParsed ? parsed.searchQueries : raw.searchQueries
+  const citedDomains = extractCitedDomains(groundingSources)
 
   return {
     provider: 'perplexity',
-    answerText,
+    answerText: parsed.answerText,
     citedDomains,
-    groundingSources: raw.groundingSources,
-    searchQueries: raw.searchQueries,
+    groundingSources,
+    searchQueries,
+  }
+}
+
+function hasParsedResponseContent(rawResponse: Record<string, unknown>): boolean {
+  if (Array.isArray(rawResponse.choices) && rawResponse.choices.length > 0) return true
+  if (Array.isArray(rawResponse.search_results) && rawResponse.search_results.length > 0) return true
+  if (Array.isArray(rawResponse.citations) && rawResponse.citations.length > 0) return true
+  const nestedResponse = extractNestedApiResponse(rawResponse)
+  if (!nestedResponse) return false
+  return (
+    (Array.isArray(nestedResponse.choices) && nestedResponse.choices.length > 0)
+    || (Array.isArray(nestedResponse.search_results) && nestedResponse.search_results.length > 0)
+    || (Array.isArray(nestedResponse.citations) && nestedResponse.citations.length > 0)
+  )
+}
+
+export function reparseStoredResult(rawResponse: Record<string, unknown>): PerplexityNormalizedResult {
+  const groundingSources = extractGroundingSources(rawResponse)
+
+  return {
+    provider: 'perplexity',
+    answerText: extractAnswerText(rawResponse),
+    citedDomains: extractCitedDomains(groundingSources),
+    groundingSources,
+    // Perplexity documents `search_results` and `citations` on the response structure but
+    // does not document returned search-query telemetry, so Canonry does not synthesize it.
+    // Docs: https://docs.perplexity.ai/docs/sonar/openai-compatibility
+    searchQueries: [],
   }
 }
 
@@ -120,6 +145,7 @@ function buildPrompt(keyword: string, location?: PerplexityTrackedQueryInput['lo
  *    response under an `apiResponse` key before persisting to query_snapshots.raw_response)
  *
  * Perplexity's Sonar models return citations by default; no extra flag required.
+ * Docs: https://docs.perplexity.ai/docs/sonar/openai-compatibility
  */
 export function extractCitations(rawResponse: Record<string, unknown>): string[] {
   // Shape 1: direct API response (used at execution time)
@@ -127,9 +153,9 @@ export function extractCitations(rawResponse: Record<string, unknown>): string[]
     return rawResponse.citations.filter((c): c is string => typeof c === 'string')
   }
   // Shape 2: stored DB format — citations nested under apiResponse
-  const apiResponse = rawResponse.apiResponse
-  if (apiResponse !== null && typeof apiResponse === 'object' && !Array.isArray(apiResponse)) {
-    const nested = (apiResponse as Record<string, unknown>).citations
+  const nestedResponse = extractNestedApiResponse(rawResponse)
+  if (nestedResponse) {
+    const nested = nestedResponse.citations
     if (Array.isArray(nested)) {
       return nested.filter((c): c is string => typeof c === 'string')
     }
@@ -137,16 +163,85 @@ export function extractCitations(rawResponse: Record<string, unknown>): string[]
   return []
 }
 
+function extractGroundingSources(rawResponse: Record<string, unknown>): GroundingSource[] {
+  // Perplexity's documented response structure exposes `search_results` as the richer source
+  // metadata and `citations` as the cited URL list, so prefer `search_results` when present.
+  // Docs: https://docs.perplexity.ai/docs/sonar/openai-compatibility
+  const searchResults = extractSearchResults(rawResponse)
+  if (searchResults.length > 0) {
+    const seen = new Set<string>()
+    const sources: GroundingSource[] = []
+    for (const result of searchResults) {
+      if (seen.has(result.uri)) continue
+      seen.add(result.uri)
+      sources.push(result)
+    }
+    return sources
+  }
+
+  return extractCitations(rawResponse).map((url) => ({
+    uri: url,
+    title: '',
+  }))
+}
+
+function extractSearchResults(rawResponse: Record<string, unknown>): GroundingSource[] {
+  const direct = parseSearchResultsArray(rawResponse.search_results)
+  if (direct.length > 0) return direct
+
+  const nestedResponse = extractNestedApiResponse(rawResponse)
+  if (nestedResponse) {
+    return parseSearchResultsArray(nestedResponse.search_results)
+  }
+
+  return []
+}
+
+function parseSearchResultsArray(value: unknown): GroundingSource[] {
+  if (!Array.isArray(value)) return []
+
+  return value.flatMap((result) => {
+    if (result === null || typeof result !== 'object' || Array.isArray(result)) {
+      return []
+    }
+    const url = (result as Record<string, unknown>).url
+    if (typeof url !== 'string' || url.length === 0) {
+      return []
+    }
+    const title = (result as Record<string, unknown>).title
+    return [{
+      uri: url,
+      title: typeof title === 'string' ? title : '',
+    }]
+  })
+}
+
 function extractAnswerText(rawResponse: Record<string, unknown>): string {
   try {
-    const choices = rawResponse.choices as Array<{
+    const directChoices = rawResponse.choices as Array<{
       message?: { content?: string }
     }> | undefined
-    if (!choices?.length) return ''
-    return choices[0].message?.content ?? ''
+    if (directChoices?.length) {
+      return directChoices[0].message?.content ?? ''
+    }
+
+    const nestedResponse = extractNestedApiResponse(rawResponse)
+    const nestedChoices = nestedResponse?.choices as Array<{
+      message?: { content?: string }
+    }> | undefined
+    if (!nestedChoices?.length) return ''
+    return nestedChoices[0].message?.content ?? ''
   } catch {
     return ''
   }
+}
+
+function extractNestedApiResponse(rawResponse: Record<string, unknown>): Record<string, unknown> | null {
+  const apiResponse = rawResponse.apiResponse
+  if (apiResponse !== null && typeof apiResponse === 'object' && !Array.isArray(apiResponse)) {
+    return apiResponse as Record<string, unknown>
+  }
+  return null
 }
 
 export function extractCitedDomains(groundingSources: GroundingSource[]): string[] {

@@ -106,15 +106,18 @@ export async function executeTrackedQuery(input: ClaudeTrackedQueryInput): Promi
       }),
     )
 
-    const groundingSources = extractGroundingSources(response)
-    const searchQueries = extractSearchQueries(response)
+    const rawResponse = responseToRecord(response)
+    const parsed = reparseStoredResult(rawResponse)
+    if (parsed.providerError) {
+      throw new Error(parsed.providerError)
+    }
 
     return {
       provider: 'claude',
-      rawResponse: responseToRecord(response),
+      rawResponse,
       model,
-      groundingSources,
-      searchQueries,
+      groundingSources: parsed.groundingSources,
+      searchQueries: parsed.searchQueries,
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -123,15 +126,42 @@ export async function executeTrackedQuery(input: ClaudeTrackedQueryInput): Promi
 }
 
 export function normalizeResult(raw: ClaudeRawResult): ClaudeNormalizedResult {
-  const answerText = extractAnswerTextFromRaw(raw.rawResponse)
-  const citedDomains = extractCitedDomains(raw)
+  const parsed = reparseStoredResult(raw.rawResponse)
+  const useParsed = hasParsedResponseContent(raw.rawResponse)
+  const groundingSources = useParsed ? parsed.groundingSources : raw.groundingSources
+  const searchQueries = useParsed ? parsed.searchQueries : raw.searchQueries
+  const citedDomains = extractCitedDomainsFromSources(groundingSources)
 
   return {
     provider: 'claude',
-    answerText,
+    answerText: parsed.answerText,
     citedDomains,
-    groundingSources: raw.groundingSources,
-    searchQueries: raw.searchQueries,
+    groundingSources,
+    searchQueries,
+  }
+}
+
+function hasParsedResponseContent(rawResponse: Record<string, unknown>): boolean {
+  return Array.isArray(rawResponse.content) && rawResponse.content.length > 0
+}
+
+export function reparseStoredResult(
+  rawResponse: Record<string, unknown>,
+): ClaudeNormalizedResult & { providerError?: string } {
+  const groundingSources = extractGroundingSourcesFromRaw(rawResponse)
+  const searchQueries = extractSearchQueriesFromRaw(rawResponse)
+
+  const providerErrors = extractWebSearchToolErrors(rawResponse)
+
+  return {
+    provider: 'claude',
+    answerText: extractAnswerTextFromRaw(rawResponse),
+    citedDomains: extractCitedDomainsFromSources(groundingSources),
+    groundingSources,
+    searchQueries,
+    ...(providerErrors.length > 0
+      ? { providerError: `web_search tool error: ${providerErrors.join(', ')}` }
+      : {}),
   }
 }
 
@@ -151,16 +181,33 @@ function extractTextFromResponse(response: Anthropic.Message): string {
   }
 }
 
-function extractGroundingSources(response: Anthropic.Message): GroundingSource[] {
+function extractGroundingSourcesFromRaw(rawResponse: Record<string, unknown>): GroundingSource[] {
   const sources: GroundingSource[] = []
+  const seen = new Set<string>()
   try {
-    for (const block of response.content) {
-      if (block.type === 'web_search_tool_result' && Array.isArray(block.content)) {
-        for (const result of block.content) {
-          if (result.type === 'web_search_result') {
+    // Anthropic distinguishes retrieved `web_search_result` entries from final citations on
+    // `text.citations` entries with `type: "web_search_result_location"`, so we only count
+    // the latter as citation evidence.
+    // Docs: https://docs.claude.com/en/docs/agents-and-tools/tool-use/web-search-tool
+    // SDK: https://github.com/anthropics/anthropic-sdk-typescript/blob/main/src/resources/messages/messages.ts
+    const content = rawResponse.content as Array<{
+      type?: string
+      citations?: Array<{
+        type?: string
+        url?: string
+        title?: string | null
+      }> | null
+    }> | undefined
+    if (!content) return []
+
+    for (const block of content) {
+      if (block.type === 'text' && Array.isArray(block.citations)) {
+        for (const citation of block.citations) {
+          if (citation.type === 'web_search_result_location' && typeof citation.url === 'string' && !seen.has(citation.url)) {
+            seen.add(citation.url)
             sources.push({
-              uri: result.url,
-              title: result.title ?? '',
+              uri: citation.url,
+              title: citation.title ?? '',
             })
           }
         }
@@ -172,22 +219,41 @@ function extractGroundingSources(response: Anthropic.Message): GroundingSource[]
   return sources
 }
 
-function extractSearchQueries(response: Anthropic.Message): string[] {
-  // Extract search queries from server_tool_use blocks (web_search is a server tool)
-  const queries: string[] = []
+function extractSearchQueriesFromRaw(rawResponse: Record<string, unknown>): string[] {
+  const queries = new Set<string>()
   try {
-    for (const block of response.content) {
+    // Anthropic's web-search response examples show the executed search on the preceding
+    // `server_tool_use.input.query` block, so we recover telemetry from that block instead
+    // of from `web_search_tool_result`.
+    // Docs: https://docs.claude.com/en/docs/agents-and-tools/tool-use/web-search-tool
+    const content = rawResponse.content as Array<{
+      type?: string
+      name?: string
+      input?: {
+        query?: unknown
+        queries?: unknown
+      }
+    }> | undefined
+    if (!content) return []
+
+    for (const block of content) {
       if (block.type === 'server_tool_use' && block.name === 'web_search') {
-        const input = block.input as { query?: string }
-        if (input.query) {
-          queries.push(input.query)
+        if (typeof block.input?.query === 'string' && block.input.query.length > 0) {
+          queries.add(block.input.query)
+        }
+        if (Array.isArray(block.input?.queries)) {
+          for (const query of block.input.queries) {
+            if (typeof query === 'string' && query.length > 0) {
+              queries.add(query)
+            }
+          }
         }
       }
     }
   } catch {
     // Ignore extraction errors
   }
-  return queries
+  return [...queries]
 }
 
 function extractAnswerTextFromRaw(rawResponse: Record<string, unknown>): string {
@@ -211,10 +277,38 @@ function extractAnswerTextFromRaw(rawResponse: Record<string, unknown>): string 
   }
 }
 
-function extractCitedDomains(raw: ClaudeRawResult): string[] {
+function extractWebSearchToolErrors(rawResponse: Record<string, unknown>): string[] {
+  const errors = new Set<string>()
+  try {
+    // Anthropic documents that web-search failures can still arrive in a successful message
+    // response as `web_search_tool_result` blocks whose `content` is a
+    // `web_search_tool_result_error`.
+    // Docs: https://docs.claude.com/en/docs/agents-and-tools/tool-use/web-search-tool
+    // SDK: https://github.com/anthropics/anthropic-sdk-typescript/blob/main/src/resources/messages/messages.ts
+    const content = rawResponse.content as Array<{
+      type?: string
+      content?: unknown
+    }> | undefined
+    if (!content) return []
+
+    for (const block of content) {
+      if (block.type !== 'web_search_tool_result') continue
+      if (block.content === null || typeof block.content !== 'object' || Array.isArray(block.content)) continue
+      const errorCode = (block.content as { error_code?: unknown }).error_code
+      if (typeof errorCode === 'string' && errorCode.length > 0) {
+        errors.add(errorCode)
+      }
+    }
+  } catch {
+    // Ignore extraction errors
+  }
+  return [...errors]
+}
+
+function extractCitedDomainsFromSources(groundingSources: GroundingSource[]): string[] {
   const domains = new Set<string>()
 
-  for (const source of raw.groundingSources) {
+  for (const source of groundingSources) {
     const domain = extractDomainFromUri(source.uri)
     if (domain) domains.add(domain)
   }

@@ -21,6 +21,7 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/run-coordinator.ts` | Post-run orchestrator — dispatches to intelligence + notifications |
 | `src/commands/insights.ts` | `insights` and `insights dismiss` command implementations |
 | `src/commands/health-cmd.ts` | `health` command implementation |
+| `src/commands/backfill.ts` | Historical recomputation for answer visibility fields and insights |
 
 ## Patterns
 
@@ -56,6 +57,10 @@ All commands that produce output must support `--format json` for machine-parsea
 When a sweep finishes, the flow is: `JobRunner` → `RunCoordinator.onRunCompleted()` → `IntelligenceService.analyzeAndPersist()` then `Notifier.onRunCompleted()`. The coordinator runs intelligence first (synchronous) so insights are persisted before webhooks fire. Each subscriber is wrapped in an independent try/catch — one failing must not block the others.
 
 `IntelligenceService` reads query snapshots from the DB, calls the pure analysis functions in `packages/intelligence/`, and persists insights + health snapshots. It also provides `backfill()` for reprocessing historical runs chronologically.
+
+### Backfill behavior
+
+`canonry backfill answer-visibility` does more than recompute `answerMentioned`. It also reparses stored provider `raw_response` payloads for supported API providers (OpenAI, Claude, Gemini, Perplexity) and refreshes derived snapshot fields such as `citationState`, `citedDomains`, `groundingSources`, and `searchQueries`.
 
 ### Provider registration
 
