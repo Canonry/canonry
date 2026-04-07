@@ -39,6 +39,8 @@ import type {
   GscCoverageSnapshotDto,
   GscReasonGroup,
   IndexingRequestResultDto,
+  InsightDto,
+  HealthSnapshotDto,
 } from '@ainyc/canonry-contracts'
 
 export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry }
@@ -727,6 +729,29 @@ export class ApiClient {
 
   async wordpressStagingPush(project: string): Promise<WordpressManualAssistDto> {
     return this.request<WordpressManualAssistDto>('POST', `/projects/${encodeURIComponent(project)}/wordpress/staging/push`)
+  }
+
+  // ── Intelligence ──────────────────────────────────────────────────────
+
+  async getInsights(project: string, opts?: { dismissed?: boolean; runId?: string }): Promise<InsightDto[]> {
+    const params = new URLSearchParams()
+    if (opts?.dismissed) params.set('dismissed', 'true')
+    if (opts?.runId) params.set('runId', opts.runId)
+    const qs = params.toString()
+    return this.request<InsightDto[]>('GET', `/projects/${encodeURIComponent(project)}/insights${qs ? `?${qs}` : ''}`)
+  }
+
+  async dismissInsight(project: string, id: string): Promise<{ ok: boolean }> {
+    return this.request<{ ok: boolean }>('POST', `/projects/${encodeURIComponent(project)}/insights/${encodeURIComponent(id)}/dismiss`)
+  }
+
+  async getHealth(project: string): Promise<HealthSnapshotDto> {
+    return this.request<HealthSnapshotDto>('GET', `/projects/${encodeURIComponent(project)}/health/latest`)
+  }
+
+  async getHealthHistory(project: string, limit?: number): Promise<HealthSnapshotDto[]> {
+    const qs = limit ? `?limit=${limit}` : ''
+    return this.request<HealthSnapshotDto[]>('GET', `/projects/${encodeURIComponent(project)}/health/history${qs}`)
   }
 
 }

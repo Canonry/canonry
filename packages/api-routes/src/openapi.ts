@@ -4,6 +4,8 @@ export interface OpenApiInfo {
   title?: string
   version?: string
   description?: string
+  /** API route prefix (default: '/api/v1') */
+  routePrefix?: string
 }
 
 type HttpMethod = 'get' | 'post' | 'put' | 'delete'
@@ -2068,10 +2070,85 @@ const routeCatalog: OpenApiOperation[] = [
       404: { description: 'Project not found.' },
     },
   },
+
+  // Intelligence
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/insights',
+    summary: 'List intelligence insights for a project',
+    tags: ['intelligence'],
+    parameters: [
+      nameParameter,
+      { name: 'dismissed', in: 'query', description: 'Include dismissed insights (true/false).', schema: stringSchema },
+      { name: 'runId', in: 'query', description: 'Filter by run ID.', schema: stringSchema },
+    ],
+    responses: {
+      200: { description: 'Insights returned.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/insights/{id}',
+    summary: 'Get a single insight',
+    tags: ['intelligence'],
+    parameters: [
+      nameParameter,
+      { name: 'id', in: 'path', required: true, description: 'Insight ID.', schema: stringSchema },
+    ],
+    responses: {
+      200: { description: 'Insight returned.' },
+      404: { description: 'Insight not found.' },
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/insights/{id}/dismiss',
+    summary: 'Dismiss an insight',
+    tags: ['intelligence'],
+    parameters: [
+      nameParameter,
+      { name: 'id', in: 'path', required: true, description: 'Insight ID.', schema: stringSchema },
+    ],
+    responses: {
+      200: { description: 'Insight dismissed.' },
+      404: { description: 'Insight not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/health/latest',
+    summary: 'Get latest health snapshot',
+    tags: ['intelligence'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'Health snapshot returned.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/health/history',
+    summary: 'Get health trend over time',
+    tags: ['intelligence'],
+    parameters: [
+      nameParameter,
+      { name: 'limit', in: 'query', description: 'Max results.', schema: stringSchema },
+    ],
+    responses: {
+      200: { description: 'Health history returned.' },
+      404: { description: 'Project not found.' },
+    },
+  },
 ]
 
 export function buildOpenApiDocument(info: OpenApiInfo = {}) {
+  const BASE_PREFIX = '/api/v1'
+  const prefix = info.routePrefix ?? BASE_PREFIX
   const paths = routeCatalog.reduce<Record<string, Record<string, unknown>>>((acc, route) => {
+    // Strip the hardcoded prefix from the route path, then prepend the configured prefix
+    const subpath = route.path.startsWith(BASE_PREFIX) ? route.path.slice(BASE_PREFIX.length) : route.path
+    const fullPath = prefix + subpath
     const operation: Record<string, unknown> = {
       summary: route.summary,
       tags: route.tags,
@@ -2084,9 +2161,9 @@ export function buildOpenApiDocument(info: OpenApiInfo = {}) {
     if (route.requestBody) operation.requestBody = route.requestBody
     if (route.auth === false) operation.security = []
 
-    const pathItem = acc[route.path] ?? {}
+    const pathItem = acc[fullPath] ?? {}
     pathItem[route.method] = operation
-    acc[route.path] = pathItem
+    acc[fullPath] = pathItem
     return acc
   }, {})
 

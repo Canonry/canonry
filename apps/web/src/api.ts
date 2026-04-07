@@ -1,4 +1,4 @@
-import type { ErrorCode, GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry } from '@ainyc/canonry-contracts'
+import type { ErrorCode, GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, InsightDto, HealthSnapshotDto } from '@ainyc/canonry-contracts'
 
 export type { GroundingSource }
 
@@ -1013,6 +1013,17 @@ export function disconnectGa(project: string): Promise<void> {
     method: 'DELETE',
     body: '{}',
   })
+}
+
+// ── Intelligence ────────────────────────────────────────────────────────────
+
+export function fetchInsights(project: string, runId?: string): Promise<InsightDto[]> {
+  const qs = runId ? `?runId=${encodeURIComponent(runId)}` : ''
+  return apiFetch(`/projects/${encodeURIComponent(project)}/insights${qs}`)
+}
+
+export function fetchLatestHealth(project: string): Promise<HealthSnapshotDto> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/health/latest`)
 }
 
 // ── Health ──────────────────────────────────────────────────────────────────

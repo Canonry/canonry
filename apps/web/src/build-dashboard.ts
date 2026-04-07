@@ -1,4 +1,4 @@
-import type { ProjectDto } from '@ainyc/canonry-contracts'
+import type { ProjectDto, InsightDto } from '@ainyc/canonry-contracts'
 import type {
   ApiCompetitor,
   ApiBingCoverageSummary,
@@ -27,6 +27,7 @@ import type {
   RunListItemVm,
   ScoreSummaryVm,
 } from './view-models.js'
+import { mapInsightDtosToVms } from './mappers/insight-mapper.js'
 
 function toProjectDto(p: ApiProject): ProjectDto {
   return {
@@ -800,6 +801,29 @@ export function buildInsights(input: InsightInput): ProjectInsightVm[] {
   return insights
 }
 
+/**
+ * Merge DB-backed insights with in-memory signals.
+ * DB covers regression/gain; in-memory covers first-citation, provider-pickup,
+ * persistent-gap, competitor signals, and stable fallback.
+ * DB regressions replace in-memory insight_lost (richer cause/recommendation data).
+ */
+function mergeInsights(inMemory: ProjectInsightVm[], db: ProjectInsightVm[]): ProjectInsightVm[] {
+  // Remove in-memory lost-citation signals; DB regressions are more detailed
+  const supplemental = inMemory.filter(i => i.id !== 'insight_lost' && i.id !== 'insight_stable')
+  const merged = [...db, ...supplemental]
+  if (merged.length === 0) {
+    return [{
+      id: 'insight_stable',
+      tone: 'neutral',
+      title: 'No significant changes',
+      detail: 'Citation state is stable across all tracked key phrases.',
+      actionLabel: 'Stable',
+      affectedPhrases: [],
+    }]
+  }
+  return merged
+}
+
 /** Compare latest vs previous run to count keyword-level gains and losses. */
 function computeMovement(
   latestSnapshots: ApiRunDetail['snapshots'],
@@ -884,6 +908,7 @@ export interface ProjectData {
   previousRunDetail: ApiRunDetail | null
   gscCoverage?: ApiGscCoverageSummary | null
   bingCoverage?: ApiBingCoverageSummary | null
+  dbInsights?: InsightDto[] | null
 }
 
 export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCenterVm {
@@ -894,13 +919,19 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
   const gapKeyPhrases = buildGapKeyPhraseSummary(snapshots)
   const indexCoverage = buildIndexCoverageSummary(data.gscCoverage, data.bingCoverage)
   const pressure = computeCompetitorPressure(snapshots, data.competitors.map(c => c.domain))
-  const insights = buildInsights({
+  const inMemoryInsights = buildInsights({
     evidence,
     timeline: data.timeline,
     latestSnapshots: data.latestRunDetail?.snapshots ?? [],
     previousSnapshots: data.previousRunDetail?.snapshots ?? [],
     trackedCompetitors: data.competitors.map(c => c.domain),
   })
+  // DB insights (regression/gain) are richer than in-memory lost detection.
+  // Merge: DB insights replace insight_lost, all other in-memory signals preserved.
+  const dbMapped = data.dbInsights != null ? mapInsightDtosToVms(data.dbInsights) : null
+  const insights = dbMapped != null
+    ? mergeInsights(inMemoryInsights, dbMapped)
+    : inMemoryInsights
 
   const sortedRuns = [...data.runs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   const runItems = sortedRuns.map(r => toRunListItem(r, data.project.displayName || data.project.name))

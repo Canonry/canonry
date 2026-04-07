@@ -40,17 +40,17 @@ export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['bing', 'status'],
-    usage: 'canonry bing status <project>',
+    usage: 'canonry bing status <project> [--format json]',
     run: async (input) => {
-      const project = requireProject(input, 'bing.status', 'canonry bing status <project>')
+      const project = requireProject(input, 'bing.status', 'canonry bing status <project> [--format json]')
       await bingStatus(project, input.format)
     },
   },
   {
     path: ['bing', 'sites'],
-    usage: 'canonry bing sites <project>',
+    usage: 'canonry bing sites <project> [--format json]',
     run: async (input) => {
-      const project = requireProject(input, 'bing.sites', 'canonry bing sites <project>')
+      const project = requireProject(input, 'bing.sites', 'canonry bing sites <project> [--format json]')
       await bingSites(project, input.format)
     },
   },
@@ -69,20 +69,20 @@ export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['bing', 'coverage'],
-    usage: 'canonry bing coverage <project>',
+    usage: 'canonry bing coverage <project> [--format json]',
     run: async (input) => {
-      const project = requireProject(input, 'bing.coverage', 'canonry bing coverage <project>')
+      const project = requireProject(input, 'bing.coverage', 'canonry bing coverage <project> [--format json]')
       await bingCoverage(project, input.format)
     },
   },
   {
     path: ['bing', 'inspect'],
-    usage: 'canonry bing inspect <project> <url>',
+    usage: 'canonry bing inspect <project> <url> [--format json]',
     run: async (input) => {
-      const project = requireProject(input, 'bing.inspect', 'canonry bing inspect <project> <url>')
+      const project = requireProject(input, 'bing.inspect', 'canonry bing inspect <project> <url> [--format json]')
       const url = requirePositional(input, 1, {
         command: 'bing.inspect',
-        usage: 'canonry bing inspect <project> <url>',
+        usage: 'canonry bing inspect <project> <url> [--format json]',
         message: 'project name and URL are required',
       })
       await bingInspect(project, url, input.format)
@@ -130,9 +130,9 @@ export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['bing', 'performance'],
-    usage: 'canonry bing performance <project>',
+    usage: 'canonry bing performance <project> [--format json]',
     run: async (input) => {
-      const project = requireProject(input, 'bing.performance', 'canonry bing performance <project>')
+      const project = requireProject(input, 'bing.performance', 'canonry bing performance <project> [--format json]')
       await bingPerformance(project, input.format)
     },
   },

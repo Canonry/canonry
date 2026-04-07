@@ -1,6 +1,6 @@
-import { backfillAnswerVisibilityCommand } from '../commands/backfill.js'
+import { backfillAnswerVisibilityCommand, backfillInsightsCommand } from '../commands/backfill.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
-import { getString, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
+import { requireProject, getString, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 
 export const BACKFILL_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
@@ -18,13 +18,30 @@ export const BACKFILL_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['backfill', 'insights'],
+    usage: 'canonry backfill insights <project> [--from-run <id>] [--to-run <id>] [--format json]',
+    options: {
+      'from-run': stringOption(),
+      'to-run': stringOption(),
+    },
+    run: async (input) => {
+      const usage = 'canonry backfill insights <project> [--from-run <id>] [--to-run <id>] [--format json]'
+      const project = requireProject(input, 'backfill insights', usage)
+      await backfillInsightsCommand(project, {
+        fromRun: getString(input.values, 'from-run'),
+        toRun: getString(input.values, 'to-run'),
+        format: input.format,
+      })
+    },
+  },
+  {
     path: ['backfill'],
-    usage: 'canonry backfill <answer-visibility> [--project <name>] [--format json]',
+    usage: 'canonry backfill <answer-visibility|insights> [options]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'backfill',
-        usage: 'canonry backfill <answer-visibility> [--project <name>] [--format json]',
-        available: ['answer-visibility'],
+        usage: 'canonry backfill <answer-visibility|insights> [options]',
+        available: ['answer-visibility', 'insights'],
       })
     },
   },

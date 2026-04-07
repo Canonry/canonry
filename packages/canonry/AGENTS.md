@@ -17,6 +17,10 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/provider-registry.ts` | `ProviderRegistry` — manages provider adapters |
 | `src/scheduler.ts` | Cron-based schedule runner |
 | `src/snapshot-service.ts` | Snapshot creation and diff logic |
+| `src/intelligence-service.ts` | Runs analysis after sweeps, persists insights + health snapshots |
+| `src/run-coordinator.ts` | Post-run orchestrator — dispatches to intelligence + notifications |
+| `src/commands/insights.ts` | `insights` and `insights dismiss` command implementations |
+| `src/commands/health-cmd.ts` | `health` command implementation |
 
 ## Patterns
 
@@ -46,6 +50,12 @@ All `ApiClient` methods must return typed DTOs from `@ainyc/canonry-contracts`. 
 ### Command output
 
 All commands that produce output must support `--format json` for machine-parseable output. Use the format flag to switch between human-friendly tables and JSON.
+
+### Run completion pipeline
+
+When a sweep finishes, the flow is: `JobRunner` → `RunCoordinator.onRunCompleted()` → `IntelligenceService.analyzeAndPersist()` then `Notifier.onRunCompleted()`. The coordinator runs intelligence first (synchronous) so insights are persisted before webhooks fire. Each subscriber is wrapped in an independent try/catch — one failing must not block the others.
+
+`IntelligenceService` reads query snapshots from the DB, calls the pure analysis functions in `packages/intelligence/`, and persists insights + health snapshots. It also provides `backfill()` for reprocessing historical runs chronologically.
 
 ### Provider registration
 

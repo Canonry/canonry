@@ -24,7 +24,7 @@ export const COMPETITOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['competitor', 'list'],
-    usage: 'canonry competitor list <project>',
+    usage: 'canonry competitor list <project> [--format json]',
     run: async (input) => {
       const project = requireProject(input, 'competitor.list', 'canonry competitor list <project>')
       await listCompetitors(project, input.format)

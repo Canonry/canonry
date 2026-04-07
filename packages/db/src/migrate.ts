@@ -331,10 +331,48 @@ const MIGRATIONS = [
   // Replace old unique index with one that includes source_dimension
   `DROP INDEX IF EXISTS idx_ga_ai_ref_unique`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_ai_ref_unique_v2 ON ga_ai_referrals(project_id, date, source, medium, source_dimension)`,
+
   // v21: Add missing indexes for query_snapshots filtering
   `CREATE INDEX IF NOT EXISTS idx_snapshots_citation_state ON query_snapshots(citation_state)`,
   `CREATE INDEX IF NOT EXISTS idx_snapshots_provider_model ON query_snapshots(provider, model)`,
   `CREATE INDEX IF NOT EXISTS idx_snapshots_location ON query_snapshots(location)`,
+
+  // v22: Intelligence — insights table for regression/gain/opportunity tracking
+  `CREATE TABLE IF NOT EXISTS insights (
+    id              TEXT PRIMARY KEY,
+    project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    type            TEXT NOT NULL,
+    severity        TEXT NOT NULL,
+    title           TEXT NOT NULL,
+    keyword         TEXT NOT NULL,
+    provider        TEXT NOT NULL,
+    recommendation  TEXT,
+    cause           TEXT,
+    dismissed       INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_insights_project ON insights(project_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_insights_created ON insights(created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_insights_keyword_provider ON insights(keyword, provider)`,
+
+  // v23: Intelligence — health_snapshots table for citation health over time
+  `CREATE TABLE IF NOT EXISTS health_snapshots (
+    id                  TEXT PRIMARY KEY,
+    project_id          TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    overall_cited_rate  TEXT NOT NULL,
+    total_pairs         INTEGER NOT NULL,
+    cited_pairs         INTEGER NOT NULL,
+    provider_breakdown  TEXT NOT NULL DEFAULT '{}',
+    created_at          TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_health_snapshots_project ON health_snapshots(project_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_health_snapshots_created ON health_snapshots(created_at)`,
+
+  // v24: Intelligence — add run_id to insights and health_snapshots for per-run correlation and idempotency
+  `ALTER TABLE insights ADD COLUMN run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
+  `CREATE INDEX IF NOT EXISTS idx_insights_run ON insights(run_id)`,
+  `ALTER TABLE health_snapshots ADD COLUMN run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
+  `CREATE INDEX IF NOT EXISTS idx_health_snapshots_run ON health_snapshots(run_id)`,
 ]
 
 /**

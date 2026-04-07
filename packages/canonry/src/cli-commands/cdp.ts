@@ -21,7 +21,7 @@ export const CDP_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['cdp', 'status'],
-    usage: 'canonry cdp status',
+    usage: 'canonry cdp status [--format json]',
     allowPositionals: false,
     run: async (input) => {
       await cdpStatus(input.format)
@@ -29,7 +29,7 @@ export const CDP_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['cdp', 'targets'],
-    usage: 'canonry cdp targets',
+    usage: 'canonry cdp targets [--format json]',
     allowPositionals: false,
     run: async (input) => {
       await cdpTargets(input.format)

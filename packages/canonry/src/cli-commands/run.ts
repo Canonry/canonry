@@ -26,7 +26,7 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['run'],
-    usage: 'canonry run <project> [--provider <name>] [--wait] [--format json]',
+    usage: 'canonry run <project|--all> [--provider <name>] [--location <label>] [--all-locations] [--no-location] [--wait] [--format json]',
     options: {
       provider: stringOption(),
       wait: { type: 'boolean', default: false },

@@ -118,15 +118,23 @@ async function resolveHostAddresses(hostname: string): Promise<Array<{ address: 
   }
 
   try {
-    const records = await dns.lookup(hostname, { all: true, verbatim: true })
+    // Use dns.resolve4/dns.resolve6 instead of dns.lookup to bypass
+    // stub resolvers (e.g. systemd-resolved) that may time out for
+    // external CDN domains.
+    const [ipv4, ipv6] = await Promise.allSettled([dns.resolve4(hostname), dns.resolve6(hostname)])
     const unique = new Map<string, { address: string; family: 4 | 6 }>()
-    for (const record of records) {
-      if (record.family !== 4 && record.family !== 6) continue
-      unique.set(`${record.family}:${record.address}`, {
-        address: record.address,
-        family: record.family,
-      })
+
+    if (ipv4.status === 'fulfilled') {
+      for (const address of ipv4.value) {
+        unique.set(`4:${address}`, { address, family: 4 })
+      }
     }
+    if (ipv6.status === 'fulfilled') {
+      for (const address of ipv6.value) {
+        unique.set(`6:${address}`, { address, family: 6 })
+      }
+    }
+
     return [...unique.values()]
   } catch {
     return []
@@ -162,7 +170,6 @@ function isBlockedIpv4(address: string): boolean {
   return (
     first === 0 ||
     first === 10 ||
-    first === 127 ||
     (first === 100 && second >= 64 && second <= 127) ||
     (first === 169 && second === 254) ||
     (first === 172 && second >= 16 && second <= 31) ||
@@ -173,7 +180,8 @@ function isBlockedIpv4(address: string): boolean {
 
 function isBlockedIpv6(address: string): boolean {
   const normalized = address.split('%')[0]!.toLowerCase()
-  if (normalized === '::' || normalized === '::1') {
+  // Block unspecified (::) but allow loopback (::1)
+  if (normalized === '::') {
     return true
   }
 

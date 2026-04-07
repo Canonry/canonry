@@ -138,6 +138,7 @@ export const googleConnections = sqliteTable('google_connections', {
   connectionType: text('connection_type').notNull(),
   propertyId: text('property_id'),
   sitemapUrl: text('sitemap_url'),
+  // WARNING: Authentication material should be stored in config.yaml per CLAUDE.md
   accessToken: text('access_token'),
   refreshToken: text('refresh_token'),
   tokenExpiresAt: text('token_expires_at'),
@@ -253,6 +254,7 @@ export const gaConnections = sqliteTable('ga_connections', {
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   propertyId: text('property_id').notNull(),
   clientEmail: text('client_email').notNull(),
+  // WARNING: Authentication material should be stored in config.yaml per CLAUDE.md
   privateKey: text('private_key').notNull(),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
@@ -316,4 +318,39 @@ export const usageCounters = sqliteTable('usage_counters', {
 }, (table) => [
   uniqueIndex('idx_usage_scope_period_metric').on(table.scope, table.period, table.metric),
   index('idx_usage_scope_period').on(table.scope, table.period),
+])
+
+export const insights = sqliteTable('insights', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  runId: text('run_id').references(() => runs.id, { onDelete: 'cascade' }),
+  type: text('type').notNull(),
+  severity: text('severity').notNull(),
+  title: text('title').notNull(),
+  keyword: text('keyword').notNull(),
+  provider: text('provider').notNull(),
+  recommendation: text('recommendation'),
+  cause: text('cause'),
+  dismissed: integer('dismissed', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_insights_project').on(table.projectId),
+  index('idx_insights_run').on(table.runId),
+  index('idx_insights_created').on(table.createdAt),
+  index('idx_insights_keyword_provider').on(table.keyword, table.provider),
+])
+
+export const healthSnapshots = sqliteTable('health_snapshots', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  runId: text('run_id').references(() => runs.id, { onDelete: 'cascade' }),
+  overallCitedRate: text('overall_cited_rate').notNull(),
+  totalPairs: integer('total_pairs').notNull(),
+  citedPairs: integer('cited_pairs').notNull(),
+  providerBreakdown: text('provider_breakdown').notNull().default('{}'),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_health_snapshots_project').on(table.projectId),
+  index('idx_health_snapshots_run').on(table.runId),
+  index('idx_health_snapshots_created').on(table.createdAt),
 ])

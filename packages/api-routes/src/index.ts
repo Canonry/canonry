@@ -13,6 +13,7 @@ import { applyRoutes } from './apply.js'
 import type { ApplyRoutesOptions } from './apply.js'
 import { historyRoutes } from './history.js'
 import { analyticsRoutes } from './analytics.js'
+import { intelligenceRoutes } from './intelligence.js'
 import { openApiRoutes } from './openapi.js'
 import type { OpenApiInfo } from './openapi.js'
 import { settingsRoutes } from './settings.js'
@@ -154,7 +155,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       })
     }
 
-    await api.register(openApiRoutes, opts.openApiInfo ?? {})
+    await api.register(openApiRoutes, { ...opts.openApiInfo, routePrefix: opts.routePrefix })
     await api.register(projectRoutes, {
       onProjectDeleted: opts.onProjectDeleted,
       validProviderNames: opts.providerAdapters?.map(a => a.name),
@@ -180,6 +181,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     } satisfies ApplyRoutesOptions)
     await api.register(historyRoutes)
     await api.register(analyticsRoutes)
+    await api.register(intelligenceRoutes)
     await api.register(settingsRoutes, {
       providerSummary: opts.providerSummary,
       providerAdapters: opts.providerAdapters,
@@ -209,6 +211,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       googleConnectionStore: opts.googleConnectionStore,
       googleStateSecret: opts.googleStateSecret,
       publicUrl: opts.publicUrl,
+      routePrefix: opts.routePrefix,
       onGscSyncRequested: opts.onGscSyncRequested,
       onInspectSitemapRequested: opts.onInspectSitemapRequested,
     } satisfies GoogleRoutesOptions)
@@ -220,6 +223,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getCdpStatus: opts.getCdpStatus,
       onCdpScreenshot: opts.onCdpScreenshot,
       onCdpConfigure: opts.onCdpConfigure,
+      routePrefix: opts.routePrefix,
     } satisfies CDPRoutesOptions)
     await api.register(ga4Routes, {
       ga4CredentialStore: opts.ga4CredentialStore,

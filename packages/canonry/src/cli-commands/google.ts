@@ -63,17 +63,17 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['google', 'status'],
-    usage: 'canonry google status <project>',
+    usage: 'canonry google status <project> [--format json]',
     run: async (input) => {
-      const project = requireProject(input, 'google.status', 'canonry google status <project>')
+      const project = requireProject(input, 'google.status', 'canonry google status <project> [--format json]')
       await googleStatus(project, input.format)
     },
   },
   {
     path: ['google', 'properties'],
-    usage: 'canonry google properties <project>',
+    usage: 'canonry google properties <project> [--format json]',
     run: async (input) => {
-      const project = requireProject(input, 'google.properties', 'canonry google properties <project>')
+      const project = requireProject(input, 'google.properties', 'canonry google properties <project> [--format json]')
       await googleProperties(project, input.format)
     },
   },
@@ -105,9 +105,9 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['google', 'list-sitemaps'],
-    usage: 'canonry google list-sitemaps <project>',
+    usage: 'canonry google list-sitemaps <project> [--format json]',
     run: async (input) => {
-      const project = requireProject(input, 'google.list-sitemaps', 'canonry google list-sitemaps <project>')
+      const project = requireProject(input, 'google.list-sitemaps', 'canonry google list-sitemaps <project> [--format json]')
       await googleListSitemaps(project, { format: input.format })
     },
   },
@@ -159,12 +159,12 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['google', 'inspect'],
-    usage: 'canonry google inspect <project> <url>',
+    usage: 'canonry google inspect <project> <url> [--format json]',
     run: async (input) => {
-      const project = requireProject(input, 'google.inspect', 'canonry google inspect <project> <url>')
+      const project = requireProject(input, 'google.inspect', 'canonry google inspect <project> <url> [--format json]')
       const url = requirePositional(input, 1, {
         command: 'google.inspect',
-        usage: 'canonry google inspect <project> <url>',
+        usage: 'canonry google inspect <project> <url> [--format json]',
         message: 'project name and URL are required',
       })
       await googleInspect(project, url, input.format)
@@ -202,9 +202,9 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['google', 'coverage'],
-    usage: 'canonry google coverage <project>',
+    usage: 'canonry google coverage <project> [--format json]',
     run: async (input) => {
-      const project = requireProject(input, 'google.coverage', 'canonry google coverage <project>')
+      const project = requireProject(input, 'google.coverage', 'canonry google coverage <project> [--format json]')
       await googleCoverage(project, input.format)
     },
   },
@@ -228,9 +228,9 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['google', 'deindexed'],
-    usage: 'canonry google deindexed <project>',
+    usage: 'canonry google deindexed <project> [--format json]',
     run: async (input) => {
-      const project = requireProject(input, 'google.deindexed', 'canonry google deindexed <project>')
+      const project = requireProject(input, 'google.deindexed', 'canonry google deindexed <project> [--format json]')
       await googleDeindexed(project, input.format)
     },
   },
