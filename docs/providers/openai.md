@@ -20,8 +20,8 @@ Sends the keyword to the OpenAI Responses API with `web_search_preview` tool ena
 
 - `rawResponse` — the full OpenAI API response (output items, usage metadata)
 - `groundingSources` — extracted `{ uri, title }` pairs from URL citation annotations
-- `searchQueries` — web search queries extracted from `web_search_call` output items
-- `model` — the model used (default: `gpt-4o`)
+- `searchQueries` — web search queries extracted from `web_search_call.action.query` / `action.queries`
+- `model` — the model used (default: `gpt-5.4`)
 
 ### `normalizeResult(raw: OpenAIRawResult): OpenAINormalizedResult`
 
@@ -34,7 +34,7 @@ Extracts analyst-relevant fields from the raw response:
 
 ## Model
 
-Default: `gpt-4o`. Configurable via `OpenAIConfig.model`.
+Default: `gpt-5.4`. Configurable via `OpenAIConfig.model`.
 
 ## Web Search & Citation Detection
 
@@ -44,7 +44,13 @@ The provider uses OpenAI's **web search preview** tool (`web_search_preview`). W
 2. Generates a response with inline URL citations
 3. URL citations appear as annotations on `output_text` content blocks
 
-Citation detection works by extracting domains from URL citation annotations. The job runner then matches these against the project's canonical domain and competitor domains to determine citation state.
+Citation detection works by extracting domains from final `output_text.annotations` entries where `type === 'url_citation'`. The provider intentionally does not treat `web_search_call.action.sources` as citations, because those are retrieval/search telemetry rather than final answer citations. The job runner then matches the cited domains against the project's canonical domain and competitor domains to determine citation state.
+
+### Upstream references
+
+- Web search guide: <https://developers.openai.com/api/docs/guides/tools-web-search>
+- Responses web search type: <https://github.com/openai/openai-python/blob/main/src/openai/types/responses/response_function_web_search.py>
+- Output text annotation type: <https://github.com/openai/openai-python/blob/main/src/openai/types/responses/response_output_text.py>
 
 ### Domain extraction
 

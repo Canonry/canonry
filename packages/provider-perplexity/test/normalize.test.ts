@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractCitations, extractCitedDomains, validateConfig, normalizeResult } from '../src/normalize.js'
+import { extractCitations, extractCitedDomains, validateConfig, normalizeResult, reparseStoredResult } from '../src/normalize.js'
 import type { PerplexityRawResult, GroundingSource } from '../src/types.js'
 
 describe('extractCitations', () => {
@@ -178,5 +178,57 @@ describe('normalizeResult', () => {
     const result = normalizeResult(raw)
     expect(result.answerText).toBe('')
     expect(result.citedDomains).toEqual([])
+  })
+
+  it('reparseStoredResult does not invent search queries and prefers search result titles', () => {
+    const result = reparseStoredResult({
+      choices: [{
+        message: { content: 'Perplexity can return web-grounded answers.' },
+      }],
+      search_results: [
+        { url: 'https://www.perplexity.ai/docs', title: 'Perplexity Docs' },
+      ],
+      citations: ['https://www.perplexity.ai/docs'],
+    })
+
+    expect(result.searchQueries).toEqual([])
+    expect(result.groundingSources).toEqual([
+      { uri: 'https://www.perplexity.ai/docs', title: 'Perplexity Docs' },
+    ])
+  })
+
+  it('reparseStoredResult falls back to citations when search_results are absent', () => {
+    const result = reparseStoredResult({
+      choices: [{
+        message: { content: 'Perplexity can still return citation URLs.' },
+      }],
+      citations: ['https://www.perplexity.ai/docs'],
+    })
+
+    expect(result.searchQueries).toEqual([])
+    expect(result.groundingSources).toEqual([
+      { uri: 'https://www.perplexity.ai/docs', title: '' },
+    ])
+    expect(result.citedDomains).toEqual(['perplexity.ai'])
+  })
+
+  it('reparseStoredResult reads nested apiResponse.search_results from stored snapshot envelopes', () => {
+    const result = reparseStoredResult({
+      model: 'sonar',
+      groundingSources: [],
+      searchQueries: [],
+      apiResponse: {
+        choices: [{
+          message: { content: 'Stored snapshot response.' },
+        }],
+        search_results: [
+          { url: 'https://docs.perplexity.ai/guides', title: 'Perplexity Guides' },
+        ],
+      },
+    })
+
+    expect(result.groundingSources).toEqual([
+      { uri: 'https://docs.perplexity.ai/guides', title: 'Perplexity Guides' },
+    ])
   })
 })

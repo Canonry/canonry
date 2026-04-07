@@ -585,7 +585,7 @@ function domainMatches(domain: string, canonicalDomain: string): boolean {
   return d === normalized || d.endsWith(`.${normalized}`)
 }
 
-function determineCitationState(
+export function determineCitationState(
   normalized: NormalizedQueryResult,
   domains: string[],
 ): 'cited' | 'not-cited' {
@@ -625,7 +625,7 @@ function determineCitationState(
   return 'not-cited'
 }
 
-function computeCompetitorOverlap(
+export function computeCompetitorOverlap(
   normalized: NormalizedQueryResult,
   competitorDomains: string[],
 ): string[] {

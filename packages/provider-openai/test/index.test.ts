@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest'
 
-import { validateConfig, normalizeResult, buildPrompt } from '../src/index.js'
+import { validateConfig, normalizeResult, buildPrompt, reparseStoredResult } from '../src/index.js'
 import type { OpenAIRawResult } from '../src/index.js'
 
 const validConfig = {
@@ -130,4 +130,61 @@ test('normalizeResult handles invalid grounding URIs', () => {
 test('buildPrompt returns the keyword verbatim', () => {
   expect(buildPrompt('best crm software')).toBe('best crm software')
   expect(buildPrompt('')).toBe('')
+})
+
+test('reparseStoredResult extracts search queries from web_search_call actions', () => {
+  const result = reparseStoredResult({
+    output: [
+      {
+        type: 'web_search_call',
+        action: {
+          type: 'search',
+          query: 'best crm software',
+          queries: ['best crm software', 'crm comparison'],
+        },
+      },
+    ],
+  })
+
+  expect(result.searchQueries).toEqual(['best crm software', 'crm comparison'])
+})
+
+test('reparseStoredResult uses final url citations instead of web_search_call sources', () => {
+  const result = reparseStoredResult({
+    output: [
+      {
+        type: 'web_search_call',
+        action: {
+          type: 'search',
+          queries: ['canonry pricing'],
+          sources: [
+            { type: 'url', url: 'https://retrieved-only.example.com/post' },
+            { type: 'url', url: 'https://canonry.ai/pricing' },
+          ],
+        },
+      },
+      {
+        type: 'message',
+        content: [
+          {
+            type: 'output_text',
+            text: 'Canonry publishes pricing guidance.',
+            annotations: [
+              {
+                type: 'url_citation',
+                url: 'https://canonry.ai/pricing',
+                title: 'Canonry pricing',
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  })
+
+  expect(result.groundingSources).toEqual([
+    { uri: 'https://canonry.ai/pricing', title: 'Canonry pricing' },
+  ])
+  expect(result.citedDomains).toEqual(['canonry.ai'])
+  expect(result.searchQueries).toEqual(['canonry pricing'])
 })

@@ -68,20 +68,14 @@ export async function executeTrackedQuery(input: PerplexityTrackedQueryInput): P
     )
 
     const rawResponse = responseToRecord(response)
-
-    // Perplexity returns citations as a top-level array on the response
-    const citations = extractCitations(rawResponse)
-    const groundingSources = citations.map((url) => ({
-      uri: url,
-      title: '',
-    }))
+    const parsed = reparseStoredResult(rawResponse)
 
     return {
       provider: 'perplexity',
       rawResponse,
       model,
-      groundingSources,
-      searchQueries: [input.keyword],
+      groundingSources: parsed.groundingSources,
+      searchQueries: parsed.searchQueries,
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -90,15 +84,32 @@ export async function executeTrackedQuery(input: PerplexityTrackedQueryInput): P
 }
 
 export function normalizeResult(raw: PerplexityRawResult): PerplexityNormalizedResult {
-  const answerText = extractAnswerText(raw.rawResponse)
-  const citedDomains = extractCitedDomains(raw.groundingSources)
+  const parsed = reparseStoredResult(raw.rawResponse)
+  const groundingSources = raw.groundingSources.length > 0 ? raw.groundingSources : parsed.groundingSources
+  const searchQueries = raw.searchQueries.length > 0 ? raw.searchQueries : parsed.searchQueries
+  const citedDomains = extractCitedDomains(groundingSources)
 
   return {
     provider: 'perplexity',
-    answerText,
+    answerText: parsed.answerText,
     citedDomains,
-    groundingSources: raw.groundingSources,
-    searchQueries: raw.searchQueries,
+    groundingSources,
+    searchQueries,
+  }
+}
+
+export function reparseStoredResult(rawResponse: Record<string, unknown>): PerplexityNormalizedResult {
+  const groundingSources = extractGroundingSources(rawResponse)
+
+  return {
+    provider: 'perplexity',
+    answerText: extractAnswerText(rawResponse),
+    citedDomains: extractCitedDomains(groundingSources),
+    groundingSources,
+    // Perplexity documents `search_results` and `citations` on the response structure but
+    // does not document returned search-query telemetry, so Canonry does not synthesize it.
+    // Docs: https://docs.perplexity.ai/docs/sonar/openai-compatibility
+    searchQueries: [],
   }
 }
 
@@ -120,6 +131,7 @@ function buildPrompt(keyword: string, location?: PerplexityTrackedQueryInput['lo
  *    response under an `apiResponse` key before persisting to query_snapshots.raw_response)
  *
  * Perplexity's Sonar models return citations by default; no extra flag required.
+ * Docs: https://docs.perplexity.ai/docs/sonar/openai-compatibility
  */
 export function extractCitations(rawResponse: Record<string, unknown>): string[] {
   // Shape 1: direct API response (used at execution time)
@@ -135,6 +147,59 @@ export function extractCitations(rawResponse: Record<string, unknown>): string[]
     }
   }
   return []
+}
+
+function extractGroundingSources(rawResponse: Record<string, unknown>): GroundingSource[] {
+  // Perplexity's documented response structure exposes `search_results` as the richer source
+  // metadata and `citations` as the cited URL list, so prefer `search_results` when present.
+  // Docs: https://docs.perplexity.ai/docs/sonar/openai-compatibility
+  const searchResults = extractSearchResults(rawResponse)
+  if (searchResults.length > 0) {
+    const seen = new Set<string>()
+    const sources: GroundingSource[] = []
+    for (const result of searchResults) {
+      if (seen.has(result.uri)) continue
+      seen.add(result.uri)
+      sources.push(result)
+    }
+    return sources
+  }
+
+  return extractCitations(rawResponse).map((url) => ({
+    uri: url,
+    title: '',
+  }))
+}
+
+function extractSearchResults(rawResponse: Record<string, unknown>): GroundingSource[] {
+  const direct = parseSearchResultsArray(rawResponse.search_results)
+  if (direct.length > 0) return direct
+
+  const apiResponse = rawResponse.apiResponse
+  if (apiResponse !== null && typeof apiResponse === 'object' && !Array.isArray(apiResponse)) {
+    return parseSearchResultsArray((apiResponse as Record<string, unknown>).search_results)
+  }
+
+  return []
+}
+
+function parseSearchResultsArray(value: unknown): GroundingSource[] {
+  if (!Array.isArray(value)) return []
+
+  return value.flatMap((result) => {
+    if (result === null || typeof result !== 'object' || Array.isArray(result)) {
+      return []
+    }
+    const url = (result as Record<string, unknown>).url
+    if (typeof url !== 'string' || url.length === 0) {
+      return []
+    }
+    const title = (result as Record<string, unknown>).title
+    return [{
+      uri: url,
+      title: typeof title === 'string' ? title : '',
+    }]
+  })
 }
 
 function extractAnswerText(rawResponse: Record<string, unknown>): string {

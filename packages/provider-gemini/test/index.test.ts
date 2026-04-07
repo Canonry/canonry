@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest'
 
-import { validateConfig, normalizeResult } from '../src/index.js'
+import { validateConfig, normalizeResult, reparseStoredResult } from '../src/index.js'
 import type { GeminiRawResult } from '../src/index.js'
 
 const validConfig = {
@@ -170,4 +170,57 @@ test('normalizeResult handles invalid grounding URIs', () => {
 
   const result = normalizeResult(raw)
   expect(result.citedDomains).toEqual(['valid.com'])
+})
+
+test('reparseStoredResult prefers grounding supports over all retrieved chunks', () => {
+  const result = reparseStoredResult({
+    candidates: [
+      {
+        content: {
+          parts: [{ text: 'Canonry is often recommended for answer visibility.' }],
+        },
+        groundingMetadata: {
+          webSearchQueries: ['answer visibility software'],
+          groundingChunks: [
+            { web: { uri: 'https://retrieved-only.example.com/post', title: 'Retrieved only' } },
+            { web: { uri: 'https://canonry.ai/docs', title: 'Canonry Docs' } },
+          ],
+          groundingSupports: [
+            { groundingChunkIndices: [1] },
+          ],
+        },
+      },
+    ],
+  })
+
+  expect(result.groundingSources).toEqual([
+    { uri: 'https://canonry.ai/docs', title: 'Canonry Docs' },
+  ])
+  expect(result.citedDomains).toEqual(['canonry.ai'])
+  expect(result.searchQueries).toEqual(['answer visibility software'])
+})
+
+test('reparseStoredResult falls back to all grounding chunks when supports are absent', () => {
+  const result = reparseStoredResult({
+    candidates: [
+      {
+        content: {
+          parts: [{ text: 'Canonry and another vendor were both retrieved.' }],
+        },
+        groundingMetadata: {
+          webSearchQueries: ['answer visibility software'],
+          groundingChunks: [
+            { web: { uri: 'https://canonry.ai/docs', title: 'Canonry Docs' } },
+            { web: { uri: 'https://other.example.com/post', title: 'Other source' } },
+          ],
+        },
+      },
+    ],
+  })
+
+  expect(result.groundingSources).toEqual([
+    { uri: 'https://canonry.ai/docs', title: 'Canonry Docs' },
+    { uri: 'https://other.example.com/post', title: 'Other source' },
+  ])
+  expect(result.citedDomains).toEqual(['canonry.ai', 'other.example.com'])
 })

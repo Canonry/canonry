@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest'
 
-import { validateConfig, normalizeResult } from '../src/index.js'
+import { validateConfig, normalizeResult, reparseStoredResult } from '../src/index.js'
 import type { ClaudeRawResult } from '../src/index.js'
 
 const validConfig = {
@@ -127,4 +127,87 @@ test('normalizeResult handles invalid grounding URIs', () => {
 
   const result = normalizeResult(raw)
   expect(result.citedDomains).toEqual(['valid.com'])
+})
+
+test('reparseStoredResult uses final text citations instead of raw search results', () => {
+  const result = reparseStoredResult({
+    content: [
+      {
+        type: 'server_tool_use',
+        name: 'web_search',
+        input: { query: 'canonry reviews' },
+      },
+      {
+        type: 'web_search_tool_result',
+        content: [
+          { type: 'web_search_result', url: 'https://competitor.com/review', title: 'Competitor review' },
+        ],
+      },
+      {
+        type: 'text',
+        text: 'Canonry recommends using its own audit workflow.',
+        citations: [
+          {
+            type: 'web_search_result_location',
+            url: 'https://canonry.ai/blog/audit',
+            title: 'Canonry audit guide',
+          },
+        ],
+      },
+    ],
+  })
+
+  expect(result.groundingSources).toEqual([
+    { uri: 'https://canonry.ai/blog/audit', title: 'Canonry audit guide' },
+  ])
+  expect(result.citedDomains).toEqual(['canonry.ai'])
+  expect(result.searchQueries).toEqual(['canonry reviews'])
+})
+
+test('reparseStoredResult surfaces Claude web search tool errors', () => {
+  const result = reparseStoredResult({
+    content: [
+      {
+        type: 'web_search_tool_result',
+        content: {
+          type: 'web_search_tool_result_error',
+          error_code: 'too_many_requests',
+        },
+      },
+      {
+        type: 'text',
+        text: '',
+        citations: null,
+      },
+    ],
+  })
+
+  expect(result.providerError).toContain('too_many_requests')
+})
+
+test('reparseStoredResult ignores raw search results when final text has no citations', () => {
+  const result = reparseStoredResult({
+    content: [
+      {
+        type: 'server_tool_use',
+        name: 'web_search',
+        input: { query: 'canonry reviews' },
+      },
+      {
+        type: 'web_search_tool_result',
+        content: [
+          { type: 'web_search_result', url: 'https://competitor.com/review', title: 'Competitor review' },
+        ],
+      },
+      {
+        type: 'text',
+        text: 'I found reviews but no cited source in the final answer.',
+        citations: [],
+      },
+    ],
+  })
+
+  expect(result.groundingSources).toEqual([])
+  expect(result.citedDomains).toEqual([])
+  expect(result.searchQueries).toEqual(['canonry reviews'])
 })
