@@ -205,7 +205,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
     }
 
     // Deduplicate across attribution dimensions: sessionSource, firstUserSource,
-    // and manualSource are overlapping lenses, not disjoint visits. Take
+    // and sessionManualSource are overlapping lenses, not disjoint visits. Take
     // MAX(sessions) per date+source across dimensions to avoid double-counting.
     const dedupedAi = new Map<string, number>()
     for (const row of aiHistory) {
@@ -359,7 +359,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">AI Attribution</p>
                 <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">
                   AI Referral Sources
-                  <InfoTooltip text="Tracks sessions from known AI referrers (ChatGPT, Claude, Gemini, Perplexity, OpenAI, Copilot) detected in GA4 sessionSource. Generic search sources are excluded to avoid false positives." />
+                  <InfoTooltip text="Tracks sessions from known AI referrers and matching AI-tagged UTMs detected in GA4 sessionSource, firstUserSource, and sessionManualSource. Generic search sources are excluded to avoid false positives." />
                 </h2>
               </div>
               {dateRange && (
@@ -468,7 +468,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                         value={formatCompact(aiSessions)}
                         hint={`${aiSessions.toLocaleString()} sessions`}
                         tone="positive"
-                        tooltip="Total sessions attributed to AI referral sources detected via GA4 sessionSource and firstUserSource dimensions. Includes traffic from ChatGPT, Claude, Gemini, Perplexity, OpenAI, Anthropic, and Copilot."
+                        tooltip="Total sessions attributed to AI referral sources detected via GA4 sessionSource, firstUserSource, and sessionManualSource dimensions."
                       />
                       <AttributionStat
                         label="Share of Traffic"
@@ -495,13 +495,13 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                 ) : (
                   <div className="space-y-3">
                     <div className="grid gap-3 sm:grid-cols-3">
-                      <AttributionStat label="AI Sessions" value="0" hint="0 sessions" tone="neutral" tooltip="Total sessions attributed to AI referral sources detected via GA4 sessionSource and firstUserSource dimensions." />
+                      <AttributionStat label="AI Sessions" value="0" hint="0 sessions" tone="neutral" tooltip="Total sessions attributed to AI referral sources detected via GA4 sessionSource, firstUserSource, and sessionManualSource dimensions." />
                       <AttributionStat label="Share of Traffic" value="0%" hint="of total sessions" tone="neutral" tooltip="Percentage of your total site sessions that originated from AI answer engines." />
-                      <AttributionStat label="Tracked Sources" value="0" hint="sources monitored: 7" tone="neutral" tooltip="Number of distinct AI referral sources detected. Monitoring: ChatGPT, Claude, Gemini, Perplexity, OpenAI, Anthropic, and Copilot." />
+                      <AttributionStat label="Tracked Sources" value="0" hint="known AI sources" tone="neutral" tooltip="Number of distinct AI referral sources detected after matching known AI engine referrers and AI-tagged UTM sources." />
                     </div>
                     <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-3 text-sm text-zinc-400">
                       <p className="mb-1.5 text-zinc-300">Monitoring for AI referral traffic from:</p>
-                      <p className="text-xs text-zinc-500">ChatGPT, Claude, Gemini, Perplexity, OpenAI, Anthropic, and Copilot. Sessions will appear here once GA4 detects visits from these sources.</p>
+                      <p className="text-xs text-zinc-500">Known AI answer engines and matching UTM-tagged variants. Sessions will appear here once GA4 detects visits from tracked AI sources.</p>
                     </div>
                   </div>
                 )}
@@ -852,7 +852,7 @@ const DIMENSION_LABELS: Record<string, string> = {
 const DIMENSION_TOOLTIPS: Record<string, string> = {
   session: 'Detected via GA4 sessionSource (referrer or utm_source for this session)',
   first_user: 'Detected via GA4 firstUserSource (referrer from the user\'s first-ever visit)',
-  manual_utm: 'Detected via GA4 manualSource (explicit utm_source parameter)',
+  manual_utm: 'Detected via GA4 sessionManualSource (explicit utm_source parameter for the session)',
 }
 
 function AiReferralRow({

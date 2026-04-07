@@ -207,7 +207,13 @@ describe('fetchAiReferrals', () => {
       const filter = b.dimensionFilter as { orGroup?: { expressions?: Array<{ filter: { fieldName: string } }> } }
       return filter.orGroup?.expressions?.[0]?.filter.fieldName
     })
-    expect(dims).toEqual(['sessionSource', 'firstUserSource', 'manualSource'])
+    expect(dims).toEqual(['sessionSource', 'firstUserSource', 'sessionManualSource'])
+
+    const mediumDims = requestBodies.map((b) => {
+      const dimensions = b.dimensions as Array<{ name: string }>
+      return dimensions[2]?.name
+    })
+    expect(mediumDims).toEqual(['sessionMedium', 'firstUserMedium', 'sessionManualMedium'])
   })
 })
 
