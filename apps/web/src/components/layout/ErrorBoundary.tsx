@@ -43,7 +43,10 @@ export class ErrorBoundary extends Component<Props, State> {
               <RotateCcw className="size-3.5 mr-1.5" />
               Try again
             </Button>
-            <Button variant="secondary" size="sm" onClick={() => { window.location.href = '/' }}>
+            <Button variant="secondary" size="sm" onClick={() => {
+              const base = window.__CANONRY_CONFIG__?.basePath?.replace(/\/$/, '') ?? ''
+              window.location.href = base || '/'
+            }}>
               Go home
             </Button>
           </div>
