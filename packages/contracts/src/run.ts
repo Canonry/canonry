@@ -3,21 +3,27 @@ import { providerNameSchema } from './provider.js'
 
 export const runStatusSchema = z.enum(['queued', 'running', 'completed', 'partial', 'failed', 'cancelled'])
 export type RunStatus = z.infer<typeof runStatusSchema>
+export const RunStatuses = runStatusSchema.enum
 
 export const runKindSchema = z.enum(['answer-visibility', 'site-audit', 'gsc-sync', 'inspect-sitemap'])
 export type RunKind = z.infer<typeof runKindSchema>
+export const RunKinds = runKindSchema.enum
 
 export const runTriggerSchema = z.enum(['manual', 'scheduled', 'config-apply'])
 export type RunTrigger = z.infer<typeof runTriggerSchema>
+export const RunTriggers = runTriggerSchema.enum
 
 export const citationStateSchema = z.enum(['cited', 'not-cited'])
 export type CitationState = z.infer<typeof citationStateSchema>
+export const CitationStates = citationStateSchema.enum
 
 export const visibilityStateSchema = z.enum(['visible', 'not-visible'])
 export type VisibilityState = z.infer<typeof visibilityStateSchema>
+export const VisibilityStates = visibilityStateSchema.enum
 
 export const computedTransitionSchema = z.enum(['new', 'cited', 'lost', 'emerging', 'not-cited'])
 export type ComputedTransition = z.infer<typeof computedTransitionSchema>
+export const ComputedTransitions = computedTransitionSchema.enum
 
 export const runDtoSchema = z.object({
   id: z.string(),

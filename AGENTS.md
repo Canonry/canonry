@@ -60,6 +60,53 @@ canonry export <project>
 - `packages/canonry/` is the only publishable artifact. Internal packages are bundled via tsup.
 - All internal packages use `@ainyc/canonry-*` naming convention.
 
+## Enum Constants (Critical)
+
+**Never compare domain values as raw string literals.** Use the enum constant objects exported from `packages/contracts/src/run.ts` (re-exported via `@ainyc/canonry-contracts`).
+
+### Available constants
+
+| Constant | Type | Values |
+|----------|------|--------|
+| `RunKinds` | `RunKind` | `RunKinds['answer-visibility']`, `RunKinds['gsc-sync']`, etc. |
+| `RunStatuses` | `RunStatus` | `RunStatuses.completed`, `RunStatuses.failed`, etc. |
+| `RunTriggers` | `RunTrigger` | `RunTriggers.manual`, `RunTriggers.scheduled`, etc. |
+| `CitationStates` | `CitationState` | `CitationStates.cited`, `CitationStates['not-cited']` |
+| `VisibilityStates` | `VisibilityState` | `VisibilityStates.visible`, `VisibilityStates['not-visible']` |
+| `ComputedTransitions` | `ComputedTransition` | `ComputedTransitions.lost`, `ComputedTransitions.emerging`, etc. |
+
+### Rules
+
+1. **Import and use the constant objects** — never write `kind === 'answer-visibility'`, write `kind === RunKinds['answer-visibility']`.
+2. **Type function parameters with the union type** — use `kind: RunKind` not `kind: string`. This enables exhaustive switch checking.
+3. **Use exhaustive switches** — when all cases are covered, omit the `default` branch so TypeScript errors if a new variant is added. If a default is needed, use `default: { const _exhaustive: never = value; }` to catch missing cases at compile time.
+4. **Add new variants to the Zod schema in `packages/contracts/src/run.ts`** — the constant object is derived from it automatically via `schema.enum`.
+
+### Pattern
+
+```typescript
+import type { RunKind } from '@ainyc/canonry-contracts'
+import { RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
+
+// ✅ Correct — enum constant + typed parameter + exhaustive switch
+function kindLabel(kind: RunKind): string {
+  switch (kind) {
+    case RunKinds['answer-visibility']: return 'Answer visibility sweep'
+    case RunKinds['gsc-sync']: return 'GSC sync'
+    case RunKinds['inspect-sitemap']: return 'Sitemap inspection'
+    case RunKinds['site-audit']: return 'Site audit'
+  }
+}
+
+// ❌ Wrong — raw string literals, untyped parameter
+function kindLabel(kind: string): string {
+  switch (kind) {
+    case 'answer-visibility': return 'Answer visibility sweep'
+    default: return kind
+  }
+}
+```
+
 ## Surface Priority
 
 THIS IS AN **AGENT-FIRST** PLATFORM. The CLI and API are the primary interfaces. The web UI is a nice-to-have — it must never block or delay CLI/API work.

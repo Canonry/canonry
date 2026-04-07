@@ -1,4 +1,4 @@
-import type { ErrorCode, GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, InsightDto, HealthSnapshotDto } from '@ainyc/canonry-contracts'
+import type { ErrorCode, GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, InsightDto, HealthSnapshotDto, RunKind, RunStatus, RunTrigger, CitationState, ComputedTransition } from '@ainyc/canonry-contracts'
 
 export type { GroundingSource }
 
@@ -121,9 +121,9 @@ export interface ApiProject {
 export interface ApiRun {
   id: string
   projectId: string
-  kind: string
-  status: string
-  trigger: string
+  kind: RunKind
+  status: RunStatus
+  trigger: RunTrigger
   location: string | null
   startedAt: string | null
   finishedAt: string | null
@@ -146,7 +146,7 @@ export interface ApiSnapshot {
   keywordId: string
   keyword: string | null
   provider: string
-  citationState: string
+  citationState: CitationState
   answerMentioned?: boolean
   visibilityState?: string
   answerText: string | null

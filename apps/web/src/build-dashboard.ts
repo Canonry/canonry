@@ -1,4 +1,5 @@
-import type { ProjectDto, InsightDto } from '@ainyc/canonry-contracts'
+import type { ProjectDto, InsightDto, RunKind, RunStatus } from '@ainyc/canonry-contracts'
+import { RunKinds, RunStatuses, RunTriggers, CitationStates, ComputedTransitions } from '@ainyc/canonry-contracts'
 import type {
   ApiCompetitor,
   ApiBingCoverageSummary,
@@ -70,18 +71,17 @@ function formatDuration(startedAt: string | null, finishedAt: string | null): st
   return `${minutes}m ${secs}s`
 }
 
-function kindLabel(kind: string): string {
+function kindLabel(kind: RunKind): string {
   switch (kind) {
-    case 'answer-visibility': return 'Answer visibility sweep'
-    case 'gsc-sync': return 'GSC sync'
-    case 'inspect-sitemap': return 'Sitemap inspection'
-    case 'site-audit': return 'Site audit'
-    default: return kind
+    case RunKinds['answer-visibility']: return 'Answer visibility sweep'
+    case RunKinds['gsc-sync']: return 'GSC sync'
+    case RunKinds['inspect-sitemap']: return 'Sitemap inspection'
+    case RunKinds['site-audit']: return 'Site audit'
   }
 }
 
 function triggerLabel(trigger: string): string {
-  return trigger === 'manual' ? 'Manual' : trigger === 'scheduled' ? 'Scheduled' : trigger === 'config-apply' ? 'Config apply' : trigger
+  return trigger === RunTriggers.manual ? 'Manual' : trigger === RunTriggers.scheduled ? 'Scheduled' : trigger === RunTriggers['config-apply'] ? 'Config apply' : trigger
 }
 
 function toRunListItem(run: ApiRun, projectName: string): RunListItemVm {
@@ -131,11 +131,12 @@ function formatErrorDetail(error: string): string {
 
 function statusDetailFromRun(run: ApiRun): string {
   switch (run.status) {
-    case 'queued': return 'Waiting for execution slot.'
-    case 'running': return 'Provider queries in progress.'
-    case 'completed': return 'All key phrases checked.'
-    case 'partial': return 'Run completed with some key phrases skipped.'
-    case 'failed': return run.error ? formatErrorDetail(run.error) : 'Run failed.'
+    case RunStatuses.queued: return 'Waiting for execution slot.'
+    case RunStatuses.running: return 'Provider queries in progress.'
+    case RunStatuses.completed: return 'All key phrases checked.'
+    case RunStatuses.partial: return 'Run completed with some key phrases skipped.'
+    case RunStatuses.failed: return run.error ? formatErrorDetail(run.error) : 'Run failed.'
+    case RunStatuses.cancelled: return 'Run was cancelled.'
     default: return ''
   }
 }
@@ -143,11 +144,12 @@ function statusDetailFromRun(run: ApiRun): string {
 function summaryFromRun(run: ApiRun): string {
   const label = kindLabel(run.kind)
   switch (run.status) {
-    case 'queued': return `${label} queued`
-    case 'running': return `${label} in progress`
-    case 'completed': return `${label} completed`
-    case 'partial': return `${label} partially completed`
-    case 'failed': return `${label} failed`
+    case RunStatuses.queued: return `${label} queued`
+    case RunStatuses.running: return `${label} in progress`
+    case RunStatuses.completed: return `${label} completed`
+    case RunStatuses.partial: return `${label} partially completed`
+    case RunStatuses.failed: return `${label} failed`
+    case RunStatuses.cancelled: return `${label} cancelled`
     default: return run.status
   }
 }
@@ -883,24 +885,24 @@ function runStatusSummary(projectRuns: ApiRun[]): ScoreSummaryVm {
   }
 
   // Pin Run Status to the latest answer-visibility run; fall back to the absolute latest
-  const latestVisibility = projectRuns.find(r => r.kind === 'answer-visibility')
+  const latestVisibility = projectRuns.find(r => r.kind === RunKinds['answer-visibility'])
   const latest = latestVisibility ?? projectRuns[0]!
 
-  const value = latest.status === 'completed' ? 'Healthy'
-    : latest.status === 'running' ? 'Running'
-    : latest.status === 'queued' ? 'Queued'
-    : latest.status === 'partial' ? 'Partial'
+  const value = latest.status === RunStatuses.completed ? 'Healthy'
+    : latest.status === RunStatuses.running ? 'Running'
+    : latest.status === RunStatuses.queued ? 'Queued'
+    : latest.status === RunStatuses.partial ? 'Partial'
     : 'Failed'
 
-  const tone: MetricTone = latest.status === 'completed' ? 'positive'
-    : latest.status === 'failed' ? 'negative'
-    : latest.status === 'partial' ? 'caution'
+  const tone: MetricTone = latest.status === RunStatuses.completed ? 'positive'
+    : latest.status === RunStatuses.failed ? 'negative'
+    : latest.status === RunStatuses.partial ? 'caution'
     : 'neutral'
 
-  const visibilityRunCount = projectRuns.filter(r => r.kind === 'answer-visibility').length
+  const visibilityRunCount = projectRuns.filter(r => r.kind === RunKinds['answer-visibility']).length
   const syncRunCount = projectRuns.length - visibilityRunCount
   const delta = syncRunCount > 0
-    ? `${visibilityRunCount} sweeps · ${syncRunCount} syncs`
+    ? `${visibilityRunCount} ${visibilityRunCount === 1 ? 'sweep' : 'sweeps'} · ${syncRunCount} ${syncRunCount === 1 ? 'sync' : 'syncs'}`
     : `${projectRuns.length} total runs`
 
   return {
@@ -951,8 +953,8 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
 
   // Surface stale-visibility warning when integration syncs are more recent than the latest visibility run
   const sortedRuns = [...data.runs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-  const latestVisibilityRun = sortedRuns.find(r => r.kind === 'answer-visibility')
-  const latestSyncRun = sortedRuns.find(r => r.kind !== 'answer-visibility')
+  const latestVisibilityRun = sortedRuns.find(r => r.kind === RunKinds['answer-visibility'])
+  const latestSyncRun = sortedRuns.find(r => r.kind !== RunKinds['answer-visibility'])
   if (latestVisibilityRun && latestSyncRun) {
     const visibilityAge = new Date(latestSyncRun.createdAt).getTime() - new Date(latestVisibilityRun.createdAt).getTime()
     const ONE_DAY = 24 * 60 * 60 * 1000
@@ -1065,7 +1067,7 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
   const sortedRuns = [...data.runs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 
   // Prefer the latest visibility run for the portfolio card
-  const latestRun = sortedRuns.find(r => r.kind === 'answer-visibility') ?? sortedRuns[0]
+  const latestRun = sortedRuns.find(r => r.kind === RunKinds['answer-visibility']) ?? sortedRuns[0]
   const projectLabel = data.project.displayName || data.project.name
   const runItem = latestRun
     ? toRunListItem(latestRun, projectLabel)
@@ -1073,10 +1075,10 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
         id: 'none',
         projectId: data.project.id,
         projectName: projectLabel,
-        kind: 'answer-visibility' as const,
+        kind: RunKinds['answer-visibility'],
         kindLabel: 'No runs yet',
-        status: 'queued' as const,
-        trigger: 'manual' as const,
+        status: RunStatuses.queued,
+        trigger: RunTriggers.manual,
         createdAt: '',
         startedAt: '',
         duration: '',
@@ -1212,7 +1214,7 @@ function buildAttentionItems(projectCenters: ProjectCommandCenterVm[]) {
       })
     }
 
-    const activeRuns = pc.recentRuns.filter(r => r.status === 'running' || r.status === 'queued')
+    const activeRuns = pc.recentRuns.filter(r => r.status === RunStatuses.running || r.status === RunStatuses.queued)
     if (activeRuns.length > 0) {
       items.push({
         id: `attention_${pc.project.id}_active`,

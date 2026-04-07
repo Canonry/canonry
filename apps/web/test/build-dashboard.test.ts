@@ -687,7 +687,7 @@ describe('run kind differentiation in Command Center', () => {
     const data = makeProjectWithMixedRuns()
     const model = buildProjectCommandCenter(data)
 
-    expect(model.runStatus.delta).toBe('1 sweeps · 1 syncs')
+    expect(model.runStatus.delta).toBe('1 sweep · 1 sync')
   })
 
   test('visibility metrics use answer-visibility snapshots, not gsc-sync', () => {
