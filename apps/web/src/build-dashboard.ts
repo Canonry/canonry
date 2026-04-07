@@ -1062,8 +1062,8 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
 
 export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
   const dto = toProjectDto(data.project)
-  latestVisibilityRun = data.runs.filter(r => r.kind === RunKinds['answer-visibility']).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-  const snapshots = (latestVisibilityRunMetrics && data.latestRunDetail?.id === latestVisibilityRunMetrics.id) ? data.latestRunDetail.snapshots : []
+  const latestVisibilityRun = data.runs.filter(r => r.kind === RunKinds['answer-visibility']).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  const snapshots = (latestVisibilityRun && data.latestRunDetail?.id === latestVisibilityRun.id) ? data.latestRunDetail.snapshots : []
   const kwVis = computeKeywordVisibility(snapshots)
   const pressure = computeCompetitorPressure(snapshots, data.competitors.map(c => c.domain))
   const sortedRuns = [...data.runs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
