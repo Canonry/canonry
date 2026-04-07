@@ -1,7 +1,7 @@
 import { eq, inArray } from 'drizzle-orm'
 import type { GroundingSource, NormalizedQueryResult } from '@ainyc/canonry-contracts'
 import { createClient, migrate, parseJsonColumn, competitors, projects, querySnapshots, runs } from '@ainyc/canonry-db'
-import { determineAnswerMentioned, effectiveDomains } from '@ainyc/canonry-contracts'
+import { determineAnswerMentioned, effectiveDomains, ProviderNames } from '@ainyc/canonry-contracts'
 import { reparseStoredResult as reparseOpenAIStoredResult } from '@ainyc/canonry-provider-openai'
 import { reparseStoredResult as reparseClaudeStoredResult } from '@ainyc/canonry-provider-claude'
 import { reparseStoredResult as reparseGeminiStoredResult } from '@ainyc/canonry-provider-gemini'
@@ -190,6 +190,8 @@ export async function backfillInsightsCommand(
   project: string,
   opts?: { fromRun?: string; toRun?: string; format?: CliFormat },
 ): Promise<void> {
+  // Lazy-load the intelligence graph so `backfill answer-visibility` can run and be
+  // tested without pulling in the optional insights dependency chain.
   const { IntelligenceService } = await import('../intelligence-service.js')
   const config = loadConfig()
   const db = createClient(config.database)
@@ -246,13 +248,13 @@ function reparseProviderSnapshot(
   if (!apiResponse) return null
 
   switch (provider) {
-    case 'openai':
+    case ProviderNames.openai:
       return reparseOpenAIStoredResult(apiResponse)
-    case 'claude':
+    case ProviderNames.claude:
       return reparseClaudeStoredResult(apiResponse)
-    case 'gemini':
+    case ProviderNames.gemini:
       return reparseGeminiStoredResult(apiResponse)
-    case 'perplexity':
+    case ProviderNames.perplexity:
       return reparsePerplexityStoredResult(apiResponse)
     default:
       return null
@@ -289,6 +291,9 @@ function stringifyStoredSnapshotEnvelope(
   const apiResponse = resolveStoredApiResponse(parsed)
   const envelope = apiResponse === parsed ? {} : { ...parsed }
 
+  // Snapshot columns remain the source of truth for these derived values. The stored raw
+  // envelope only keeps provider telemetry plus the underlying API payload needed for
+  // future reparsing/debugging.
   delete envelope.answerText
   delete envelope.citedDomains
   delete envelope.competitorOverlap

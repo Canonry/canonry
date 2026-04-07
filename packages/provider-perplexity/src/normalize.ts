@@ -139,9 +139,9 @@ export function extractCitations(rawResponse: Record<string, unknown>): string[]
     return rawResponse.citations.filter((c): c is string => typeof c === 'string')
   }
   // Shape 2: stored DB format — citations nested under apiResponse
-  const apiResponse = rawResponse.apiResponse
-  if (apiResponse !== null && typeof apiResponse === 'object' && !Array.isArray(apiResponse)) {
-    const nested = (apiResponse as Record<string, unknown>).citations
+  const nestedResponse = extractNestedApiResponse(rawResponse)
+  if (nestedResponse) {
+    const nested = nestedResponse.citations
     if (Array.isArray(nested)) {
       return nested.filter((c): c is string => typeof c === 'string')
     }
@@ -175,9 +175,9 @@ function extractSearchResults(rawResponse: Record<string, unknown>): GroundingSo
   const direct = parseSearchResultsArray(rawResponse.search_results)
   if (direct.length > 0) return direct
 
-  const apiResponse = rawResponse.apiResponse
-  if (apiResponse !== null && typeof apiResponse === 'object' && !Array.isArray(apiResponse)) {
-    return parseSearchResultsArray((apiResponse as Record<string, unknown>).search_results)
+  const nestedResponse = extractNestedApiResponse(rawResponse)
+  if (nestedResponse) {
+    return parseSearchResultsArray(nestedResponse.search_results)
   }
 
   return []
@@ -204,14 +204,30 @@ function parseSearchResultsArray(value: unknown): GroundingSource[] {
 
 function extractAnswerText(rawResponse: Record<string, unknown>): string {
   try {
-    const choices = rawResponse.choices as Array<{
+    const directChoices = rawResponse.choices as Array<{
       message?: { content?: string }
     }> | undefined
-    if (!choices?.length) return ''
-    return choices[0].message?.content ?? ''
+    if (directChoices?.length) {
+      return directChoices[0].message?.content ?? ''
+    }
+
+    const nestedResponse = extractNestedApiResponse(rawResponse)
+    const nestedChoices = nestedResponse?.choices as Array<{
+      message?: { content?: string }
+    }> | undefined
+    if (!nestedChoices?.length) return ''
+    return nestedChoices[0].message?.content ?? ''
   } catch {
     return ''
   }
+}
+
+function extractNestedApiResponse(rawResponse: Record<string, unknown>): Record<string, unknown> | null {
+  const apiResponse = rawResponse.apiResponse
+  if (apiResponse !== null && typeof apiResponse === 'object' && !Array.isArray(apiResponse)) {
+    return apiResponse as Record<string, unknown>
+  }
+  return null
 }
 
 export function extractCitedDomains(groundingSources: GroundingSource[]): string[] {

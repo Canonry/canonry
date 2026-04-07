@@ -179,7 +179,9 @@ describe('normalizeResult', () => {
     expect(result.answerText).toBe('')
     expect(result.citedDomains).toEqual([])
   })
+})
 
+describe('reparseStoredResult', () => {
   it('reparseStoredResult does not invent search queries and prefers search result titles', () => {
     const result = reparseStoredResult({
       choices: [{
@@ -227,6 +229,7 @@ describe('normalizeResult', () => {
       },
     })
 
+    expect(result.answerText).toBe('Stored snapshot response.')
     expect(result.groundingSources).toEqual([
       { uri: 'https://docs.perplexity.ai/guides', title: 'Perplexity Guides' },
     ])
