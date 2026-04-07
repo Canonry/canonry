@@ -167,3 +167,113 @@ describe('POST /api/v1/projects/:name/runs — default location', () => {
     expect(body.error.message).toContain('deleted-location')
   })
 })
+
+describe('POST /api/v1/runs (bulk) — default location', () => {
+  let app: ReturnType<typeof Fastify>
+  let db: ReturnType<typeof createClient>
+  let tmpDir: string
+
+  beforeAll(async () => {
+    const ctx = buildApp()
+    app = ctx.app
+    db = ctx.db
+    tmpDir = ctx.tmpDir
+    await app.ready()
+
+    // Project with defaultLocation
+    await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/bulk-loc-proj',
+      payload: {
+        displayName: 'Bulk Location Project',
+        canonicalDomain: 'bulk-example.com',
+        country: 'US',
+        language: 'en',
+        locations: [
+          { label: 'denver', city: 'Denver', region: 'CO', country: 'US' },
+        ],
+        defaultLocation: 'denver',
+      },
+    })
+
+    // Project without defaultLocation
+    await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/bulk-no-default',
+      payload: {
+        displayName: 'Bulk No Default',
+        canonicalDomain: 'bulk-nodefault.com',
+        country: 'US',
+        language: 'en',
+      },
+    })
+  })
+
+  afterAll(async () => {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('auto-applies defaultLocation per project in bulk run', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/runs',
+      payload: {},
+    })
+    expect(res.statusCode).toBe(207)
+    const results = JSON.parse(res.payload) as Array<{ projectName: string; id: string; status: string }>
+
+    const withDefault = results.find(r => r.projectName === 'bulk-loc-proj')
+    expect(withDefault).toBeTruthy()
+    expect(withDefault!.status).not.toBe('error')
+    const run = db.select().from(runs).where(eq(runs.id, withDefault!.id)).get()
+    expect(run!.location).toBe('denver')
+
+    const noDefault = results.find(r => r.projectName === 'bulk-no-default')
+    expect(noDefault).toBeTruthy()
+    expect(noDefault!.status).not.toBe('error')
+    const run2 = db.select().from(runs).where(eq(runs.id, noDefault!.id)).get()
+    expect(run2!.location).toBeNull()
+  })
+
+  it('reports error for stale defaultLocation in bulk run', async () => {
+    // Complete existing runs
+    const allRuns = db.select().from(runs).all()
+    for (const r of allRuns) {
+      db.update(runs).set({ status: 'completed' }).where(eq(runs.id, r.id)).run()
+    }
+
+    // Create a project with a stale default
+    await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/bulk-stale',
+      payload: {
+        displayName: 'Bulk Stale',
+        canonicalDomain: 'bulk-stale.com',
+        country: 'US',
+        language: 'en',
+        locations: [
+          { label: 'boston', city: 'Boston', region: 'MA', country: 'US' },
+        ],
+        defaultLocation: 'boston',
+      },
+    })
+    db.update(projects)
+      .set({ defaultLocation: 'gone-label' })
+      .where(eq(projects.name, 'bulk-stale'))
+      .run()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/runs',
+      payload: {},
+    })
+    expect(res.statusCode).toBe(207)
+    const results = JSON.parse(res.payload) as Array<{ projectName: string; status: string; error?: string }>
+
+    const staleResult = results.find(r => r.projectName === 'bulk-stale')
+    expect(staleResult).toBeTruthy()
+    expect(staleResult!.status).toBe('error')
+    expect(staleResult!.error).toContain('gone-label')
+  })
+})

@@ -242,8 +242,8 @@ export async function createServer(opts: {
   const snapshotService = new SnapshotService(registry)
 
   const scheduler = new Scheduler(opts.db, {
-    onRunCreated: (runId, projectId, providers) => {
-      jobRunner.executeRun(runId, projectId, providers).catch((err: unknown) => {
+    onRunCreated: (runId, projectId, providers, location) => {
+      jobRunner.executeRun(runId, projectId, providers, location).catch((err: unknown) => {
         app.log.error({ runId, err }, 'Scheduled job runner failed')
       })
     },

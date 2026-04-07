@@ -210,7 +210,12 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       const projectLocations = parseJsonColumn<LocationContext[]>(project.locations, [])
       let resolvedLocation: LocationContext | undefined
       if (project.defaultLocation) {
-        resolvedLocation = projectLocations.find(l => l.label === project.defaultLocation)
+        const loc = projectLocations.find(l => l.label === project.defaultLocation)
+        if (!loc) {
+          results.push({ projectName: project.name, projectId: project.id, status: 'error', error: `Default location "${project.defaultLocation}" not found` })
+          continue
+        }
+        resolvedLocation = loc
       }
       const locationLabel = resolvedLocation?.label ?? null
 

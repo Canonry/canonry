@@ -140,7 +140,12 @@ export class Scheduler {
       const projectLocations = parseJsonColumn<LocationContext[]>(project.locations, [])
       let resolvedLocation: LocationContext | undefined
       if (project.defaultLocation) {
-        resolvedLocation = projectLocations.find(l => l.label === project.defaultLocation)
+        const loc = projectLocations.find(l => l.label === project.defaultLocation)
+        if (!loc) {
+          log.warn('default-location.stale', { scheduleId, projectId, label: project.defaultLocation })
+          return
+        }
+        resolvedLocation = loc
       }
       const locationLabel = resolvedLocation?.label ?? null
 
