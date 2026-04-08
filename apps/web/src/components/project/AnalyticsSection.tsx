@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, MetricsWindow, GapCategory, SourceCategory, KeywordChangeEvent, VisibilityMetricMode } from '@ainyc/canonry-contracts'
+import { VisibilityMetricModes } from '@ainyc/canonry-contracts'
 
 import {
   Area,
@@ -40,13 +41,13 @@ const SOURCE_CATEGORY_COLORS: Record<SourceCategory, string> = {
 }
 
 const METRIC_MODE_LABELS: Record<VisibilityMetricMode, string> = {
-  answer: 'Answer',
-  citation: 'Sources',
+  [VisibilityMetricModes.answer]: 'Answer',
+  [VisibilityMetricModes.citation]: 'Sources',
 }
 
 export function AnalyticsSection({ projectName }: { projectName: string }) {
   const [metricsWindow, setMetricsWindow] = useState<MetricsWindow>('30d')
-  const [metricMode, setMetricMode] = useState<VisibilityMetricMode>('answer')
+  const [metricMode, setMetricMode] = useState<VisibilityMetricMode>(VisibilityMetricModes.answer)
   const [metrics, setMetrics] = useState<BrandMetricsDto | null>(null)
   const [gaps, setGaps] = useState<GapAnalysisDto | null>(null)
   const [sources, setSources] = useState<SourceBreakdownDto | null>(null)
@@ -79,7 +80,7 @@ export function AnalyticsSection({ projectName }: { projectName: string }) {
     return <p className="text-sm text-zinc-500 py-8 text-center">Loading analytics…</p>
   }
 
-  const isAnswer = metricMode === 'answer'
+  const isAnswer = metricMode === VisibilityMetricModes.answer
 
   // Derive mode-aware values from metrics
   const rate = metrics ? (isAnswer ? metrics.overall.answerRate : metrics.overall.citationRate) : 0
@@ -112,7 +113,7 @@ export function AnalyticsSection({ projectName }: { projectName: string }) {
               </h2>
             </div>
             <div className="sidebar-tabs ml-2">
-              {(['answer', 'citation'] as const).map(mode => (
+              {([VisibilityMetricModes.answer, VisibilityMetricModes.citation] as const).map(mode => (
                 <button
                   key={mode}
                   type="button"
@@ -303,7 +304,7 @@ export function AnalyticsSection({ projectName }: { projectName: string }) {
 }
 
 function AnalyticsTrendChart({ buckets, keywordChanges, metricMode }: { buckets: BrandMetricsDto['buckets']; keywordChanges: KeywordChangeEvent[]; metricMode: VisibilityMetricMode }) {
-  const isAnswer = metricMode === 'answer'
+  const isAnswer = metricMode === VisibilityMetricModes.answer
   const dataKey = isAnswer ? 'answerRate' : 'citationRate'
   const dataLabel = isAnswer ? 'Answer Rate' : 'Citation Rate'
 
@@ -408,7 +409,7 @@ interface GapAnalysisTableProps {
 }
 
 function GapAnalysisTable({ citedRows, gapRows, uncitedRows, filter, metricMode }: GapAnalysisTableProps) {
-  const isAnswer = metricMode === 'answer'
+  const isAnswer = metricMode === VisibilityMetricModes.answer
 
   const rows = useMemo(() => {
     const all = [

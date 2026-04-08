@@ -1,9 +1,13 @@
+import { z } from 'zod'
 import type { SourceCategory } from './source-categories.js'
 
 export type MetricsWindow = '7d' | '30d' | '90d' | 'all'
 export type TrendDirection = 'improving' | 'declining' | 'stable'
 export type GapCategory = 'cited' | 'gap' | 'uncited'
-export type VisibilityMetricMode = 'answer' | 'citation'
+
+export const visibilityMetricModeSchema = z.enum(['answer', 'citation'])
+export type VisibilityMetricMode = z.infer<typeof visibilityMetricModeSchema>
+export const VisibilityMetricModes = visibilityMetricModeSchema.enum
 
 export interface TimeBucket {
   startDate: string
