@@ -100,7 +100,16 @@ export async function exchangeCode(
 
   if (!res.ok) {
     const body = await res.text()
-    throw new GoogleAuthError(`Token exchange failed (${res.status}): ${body}`)
+    // Sanitize: Google OAuth errors may include client_secret or redirect_uri details
+    let detail = ''
+    try {
+      const parsed = JSON.parse(body) as { error?: string; error_description?: string }
+      if (parsed.error) detail = parsed.error
+      if (parsed.error_description) detail += detail ? `: ${parsed.error_description}` : parsed.error_description
+    } catch {
+      detail = body.length <= 120 ? body : `${body.slice(0, 120)}...`
+    }
+    throw new GoogleAuthError(`Token exchange failed (${res.status}): ${detail}`)
   }
 
   return (await res.json()) as GoogleTokenResponse
@@ -128,7 +137,16 @@ export async function refreshAccessToken(
 
   if (!res.ok) {
     const body = await res.text()
-    throw new GoogleAuthError(`Token refresh failed (${res.status}): ${body}`)
+    // Sanitize: avoid leaking sensitive details from raw OAuth error responses
+    let detail = ''
+    try {
+      const parsed = JSON.parse(body) as { error?: string; error_description?: string }
+      if (parsed.error) detail = parsed.error
+      if (parsed.error_description) detail += detail ? `: ${parsed.error_description}` : parsed.error_description
+    } catch {
+      detail = body.length <= 120 ? body : `${body.slice(0, 120)}...`
+    }
+    throw new GoogleAuthError(`Token refresh failed (${res.status}): ${detail}`)
   }
 
   return (await res.json()) as GoogleTokenResponse

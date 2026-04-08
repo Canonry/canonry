@@ -6,6 +6,7 @@ import {
   GA4_DEFAULT_SYNC_DAYS,
   GA4_MAX_SYNC_DAYS,
   GA4_REQUEST_TIMEOUT_MS,
+  GA4_MAX_PAGES,
 } from './constants.js'
 import type {
   GA4AiReferralRow,
@@ -111,7 +112,9 @@ export async function getAccessToken(clientEmail: string, privateKey: string): P
   if (!res.ok) {
     const body = await res.text().catch(() => '')
     ga4Log('error', 'token.failed', { httpStatus: res.status })
-    throw new GA4ApiError(`Failed to get access token: ${body}`, res.status)
+    // Sanitize: avoid leaking private key details from OAuth error responses
+    const detail = body.length <= 200 ? body : `${body.slice(0, 200)}... [truncated]`
+    throw new GA4ApiError(`Failed to get access token: ${detail}`, res.status)
   }
 
   const data = (await res.json()) as { access_token: string; expires_in: number }
@@ -169,7 +172,8 @@ async function runReport(
   if (!res.ok) {
     const body = await res.text()
     ga4Log('error', 'report.error', { propertyId, httpStatus: res.status })
-    throw new GA4ApiError(`GA4 API error (${res.status}): ${body}`, res.status)
+    const detail = body.length <= 500 ? body : `${body.slice(0, 500)}... [truncated]`
+    throw new GA4ApiError(`GA4 API error (${res.status}): ${detail}`, res.status)
   }
 
   return (await res.json()) as GA4RunReportResponse
@@ -213,7 +217,8 @@ async function batchRunReports(
   if (!res.ok) {
     const body = await res.text()
     ga4Log('error', 'batch-report.error', { propertyId, httpStatus: res.status })
-    throw new GA4ApiError(`GA4 API error (${res.status}): ${body}`, res.status)
+    const detail = body.length <= 500 ? body : `${body.slice(0, 500)}... [truncated]`
+    throw new GA4ApiError(`GA4 API error (${res.status}): ${detail}`, res.status)
   }
 
   const data = (await res.json()) as { reports: GA4RunReportResponse[] }
@@ -266,7 +271,9 @@ export async function fetchTrafficByLandingPage(
 
   // Paginate through all results — the GA4 Data API caps each response at `limit` rows.
   // We loop until we've fetched every row reported by `rowCount`.
-  while (true) {
+  let pageCount = 0
+  while (pageCount < GA4_MAX_PAGES) {
+    pageCount++
     const request: GA4RunReportRequest = {
       dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
       dimensions: [
@@ -303,7 +310,9 @@ export async function fetchTrafficByLandingPage(
   // using a dimensionFilter on sessionDefaultChannelGrouping works for all properties.
   const organicMap = new Map<string, number>()
   let organicOffset = 0
-  while (true) {
+  let organicPageCount = 0
+  while (organicPageCount < GA4_MAX_PAGES) {
+    organicPageCount++
     const organicRequest: GA4RunReportRequest = {
       dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
       dimensions: [{ name: 'date' }, { name: 'landingPagePlusQueryString' }],
@@ -504,7 +513,9 @@ export async function fetchAiReferrals(
 
   for (const [sourceDim, mediumDim, dimLabel] of dimensionPairs) {
     let offset = 0
-    while (true) {
+    let aiRefPageCount = 0
+    while (aiRefPageCount < GA4_MAX_PAGES) {
+      aiRefPageCount++
       const request: GA4RunReportRequest = {
         dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
         dimensions: [

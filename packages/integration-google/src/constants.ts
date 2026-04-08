@@ -13,3 +13,7 @@ export const INDEXING_API_DAILY_LIMIT = 200
 // HTTP request timeout (30 s) — prevents the process from hanging indefinitely
 // on a slow or unresponsive Google API endpoint.
 export const GOOGLE_REQUEST_TIMEOUT_MS = 30_000
+
+// Safety limit: max pagination iterations to prevent infinite loops if the API
+// returns inconsistent results.
+export const GSC_MAX_PAGES = 40

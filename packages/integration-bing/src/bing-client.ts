@@ -1,4 +1,4 @@
-import { BING_WMT_API_BASE, BING_SUBMIT_URL_BATCH_LIMIT, BING_REQUEST_TIMEOUT_MS } from './constants.js'
+import { BING_WMT_API_BASE, BING_SUBMIT_URL_BATCH_LIMIT, BING_SUBMIT_URL_DAILY_LIMIT, BING_REQUEST_TIMEOUT_MS } from './constants.js'
 import type {
   BingSite,
   BingUrlInfo,
@@ -86,7 +86,9 @@ async function bingFetch<T>(apiKey: string, endpoint: string, opts?: { method?: 
   if (!res.ok) {
     const body = await res.text()
     bingClientLog('error', 'http.error', { endpoint, method, httpStatus: res.status })
-    throw new BingApiError(`Bing API error (${res.status}): ${body}`, res.status)
+    // Truncate large error bodies to avoid carrying huge payloads in thrown errors
+    const detail = body.length <= 500 ? body : `${body.slice(0, 500)}... [truncated]`
+    throw new BingApiError(`Bing API error (${res.status}): ${detail}`, res.status)
   }
 
   const text = await res.text()
@@ -144,6 +146,12 @@ export async function submitUrlBatch(apiKey: string, siteUrl: string, urls: stri
   validateApiKey(apiKey)
   validateSiteUrl(siteUrl)
   validateUrls(urls)
+  if (urls.length > BING_SUBMIT_URL_DAILY_LIMIT) {
+    throw new BingApiError(
+      `URL batch exceeds daily limit of ${BING_SUBMIT_URL_DAILY_LIMIT}. Got ${urls.length} URLs.`,
+      400,
+    )
+  }
   // Respect the 500 URL per batch limit
   for (let i = 0; i < urls.length; i += BING_SUBMIT_URL_BATCH_LIMIT) {
     const batch = urls.slice(i, i + BING_SUBMIT_URL_BATCH_LIMIT)

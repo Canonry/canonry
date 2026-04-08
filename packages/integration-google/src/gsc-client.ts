@@ -1,4 +1,4 @@
-import { GSC_API_BASE, URL_INSPECTION_API, GSC_MAX_ROWS_PER_REQUEST, INDEXING_API_BASE, GOOGLE_REQUEST_TIMEOUT_MS } from './constants.js'
+import { GSC_API_BASE, URL_INSPECTION_API, GSC_MAX_ROWS_PER_REQUEST, INDEXING_API_BASE, GOOGLE_REQUEST_TIMEOUT_MS, GSC_MAX_PAGES } from './constants.js'
 import type {
   GscSite,
   GscSitemap,
@@ -56,6 +56,19 @@ function validateUrl(urlParam: string): void {
   }
 }
 
+function validateDate(date: string, label: string): void {
+  if (!date || typeof date !== 'string' || date.trim().length === 0) {
+    throw new GoogleApiError(`${label} is required and must be a non-empty string`, 400)
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new GoogleApiError(`${label} must be in YYYY-MM-DD format, got "${date}"`, 400)
+  }
+  const parsed = new Date(`${date}T00:00:00Z`)
+  if (Number.isNaN(parsed.getTime())) {
+    throw new GoogleApiError(`${label} is not a valid date, got "${date}"`, 400)
+  }
+}
+
 function gscClientLog(level: 'info' | 'error', action: string, ctx?: Record<string, unknown>): void {
   const entry = { ts: new Date().toISOString(), level, module: 'GscClient', action, ...ctx }
   const stream = level === 'error' ? process.stderr : process.stdout
@@ -89,7 +102,9 @@ async function gscFetch<T>(accessToken: string, url: string, opts?: { method?: s
   if (!res.ok) {
     const body = await res.text()
     gscClientLog('error', 'http.error', { url, method, httpStatus: res.status })
-    throw new GoogleApiError(`GSC API error (${res.status}): ${body}`, res.status)
+    // Truncate large error bodies to avoid carrying huge payloads in thrown errors
+    const detail = body.length <= 500 ? body : `${body.slice(0, 500)}... [truncated]`
+    throw new GoogleApiError(`GSC API error (${res.status}): ${detail}`, res.status)
   }
 
   return (await res.json()) as T
@@ -130,11 +145,17 @@ export async function fetchSearchAnalytics(
 ): Promise<GscSearchAnalyticsRow[]> {
   validateAccessToken(accessToken)
   validateSiteUrl(siteUrl)
+  validateDate(opts.startDate, 'startDate')
+  validateDate(opts.endDate, 'endDate')
   const allRows: GscSearchAnalyticsRow[] = []
   let startRow = 0
   const dimensions = opts.dimensions ?? ['query', 'page', 'country', 'device', 'date']
 
   for (;;) {
+    if (startRow >= GSC_MAX_ROWS_PER_REQUEST * GSC_MAX_PAGES) {
+      gscClientLog('error', 'pagination.safety-limit', { siteUrl, startRow, maxRows: GSC_MAX_ROWS_PER_REQUEST * GSC_MAX_PAGES })
+      break
+    }
     const requestBody: GscSearchAnalyticsRequest = {
       startDate: opts.startDate,
       endDate: opts.endDate,
