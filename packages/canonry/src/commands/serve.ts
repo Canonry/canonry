@@ -18,7 +18,12 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
   const app = await createServer({ config, db })
 
   // Graceful shutdown on SIGTERM (sent by `canonry stop`) and SIGINT (Ctrl+C)
+  // Guard against double-fire: rapid Ctrl+C or concurrent SIGTERM+SIGINT
+  // would call app.close() multiple times, causing unhandled rejections.
+  let shuttingDown = false
   const shutdown = (): void => {
+    if (shuttingDown) return
+    shuttingDown = true
     app.close().then(() => {
       process.exit(0)
     }).catch(() => {
