@@ -371,6 +371,29 @@ describe('GA4 routes', () => {
       .run()
   })
 
+  it('POST /ga/sync rejects invalid only parameter', async () => {
+    const now = new Date().toISOString()
+    credentials.set('test-project', {
+      projectName: 'test-project',
+      propertyId: '999888',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/ga/sync',
+      payload: { only: 'socal' },
+    })
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.payload)
+    expect(body.error.message).toMatch(/Invalid "only" value/)
+
+    credentials.delete('test-project')
+  })
+
   it('GET /ga/traffic returns error when no connection', async () => {
     const res = await app.inject({
       method: 'GET',
@@ -468,6 +491,9 @@ describe('GA4 routes', () => {
     expect(body.socialReferrals).toEqual([])
     expect(body.socialSessions).toBe(0)
     expect(body.socialUsers).toBe(0)
+    expect(body.organicSharePct).toBe(50)
+    expect(body.aiSharePct).toBe(5)
+    expect(body.socialSharePct).toBe(0)
     expect(body.lastSyncedAt).toBe(now)
 
     credentials.delete('test-project')

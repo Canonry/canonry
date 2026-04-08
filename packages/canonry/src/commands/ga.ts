@@ -305,16 +305,15 @@ export async function gaSocialReferralSummary(project: string, opts?: { trend?: 
         socialSessions: traffic.socialSessions,
         socialUsers: traffic.socialUsers,
         totalSessions: traffic.totalSessions,
-        socialSharePct: traffic.totalSessions > 0 ? Math.round((traffic.socialSessions / traffic.totalSessions) * 100) : 0,
+        socialSharePct: traffic.socialSharePct,
         topSources: traffic.socialReferrals.slice(0, 5).map((r) => ({ source: r.source, sessions: r.sessions, channel: r.channelGroup })),
         trend: trend,
       }, null, 2))
       return
     }
 
-    const share = traffic.totalSessions > 0 ? Math.round((traffic.socialSessions / traffic.totalSessions) * 100) : 0
     console.log(`Social Traffic Summary for "${project}"\n`)
-    console.log(`  Sessions: ${traffic.socialSessions} (${share}% of ${traffic.totalSessions} total)`)
+    console.log(`  Sessions: ${traffic.socialSessions} (${traffic.socialSharePct}% of ${traffic.totalSessions} total)`)
     console.log(`  Users:    ${traffic.socialUsers}`)
     console.log()
 
@@ -342,15 +341,14 @@ export async function gaSocialReferralSummary(project: string, opts?: { trend?: 
       socialSessions: traffic.socialSessions,
       socialUsers: traffic.socialUsers,
       totalSessions: traffic.totalSessions,
-      socialSharePct: traffic.totalSessions > 0 ? Math.round((traffic.socialSessions / traffic.totalSessions) * 100) : 0,
+      socialSharePct: traffic.socialSharePct,
       topSources: traffic.socialReferrals.slice(0, 5).map((r) => ({ source: r.source, sessions: r.sessions, channel: r.channelGroup })),
     }, null, 2))
     return
   }
 
-  const share = traffic.totalSessions > 0 ? Math.round((traffic.socialSessions / traffic.totalSessions) * 100) : 0
   console.log(`Social Traffic Summary for "${project}"\n`)
-  console.log(`  Sessions: ${traffic.socialSessions} (${share}% of ${traffic.totalSessions} total)`)
+  console.log(`  Sessions: ${traffic.socialSessions} (${traffic.socialSharePct}% of ${traffic.totalSessions} total)`)
   console.log(`  Users:    ${traffic.socialUsers}`)
   if (traffic.socialReferrals.length > 0) {
     console.log()
@@ -380,9 +378,9 @@ export async function gaAttribution(project: string, opts?: { trend?: boolean; f
         aiUsers: traffic.aiUsersDeduped,
         socialSessions: traffic.socialSessions,
         socialUsers: traffic.socialUsers,
-        aiSharePct: traffic.totalSessions > 0 ? Math.round((traffic.aiSessionsDeduped / traffic.totalSessions) * 100) : 0,
-        socialSharePct: traffic.totalSessions > 0 ? Math.round((traffic.socialSessions / traffic.totalSessions) * 100) : 0,
-        organicSharePct: traffic.totalSessions > 0 ? Math.round((traffic.totalOrganicSessions / traffic.totalSessions) * 100) : 0,
+        aiSharePct: traffic.aiSharePct,
+        socialSharePct: traffic.socialSharePct,
+        organicSharePct: traffic.organicSharePct,
         aiReferrals: traffic.aiReferrals,
         socialReferrals: traffic.socialReferrals,
         trend,
@@ -395,19 +393,18 @@ export async function gaAttribution(project: string, opts?: { trend?: boolean; f
       return
     }
 
-    const pct = (n: number) => traffic.totalSessions > 0 ? Math.round((n / traffic.totalSessions) * 100) : 0
-
     console.log(`GA4 Attribution Overview for "${project}"\n`)
     console.log(`  Total Sessions:   ${traffic.totalSessions}`)
     console.log(`  Total Users:      ${traffic.totalUsers}`)
     console.log()
     console.log('  CHANNEL BREAKDOWN                  7d trend     30d trend')
-    console.log(`    Organic Search: ${String(traffic.totalOrganicSessions).padEnd(6)} (${String(pct(traffic.totalOrganicSessions)).padStart(2)}%)    ${fmtTrend(trend.organic.trend7dPct).padEnd(12)} ${fmtTrend(trend.organic.trend30dPct)}`)
-    console.log(`    AI Referrals:   ${String(traffic.aiSessionsDeduped).padEnd(6)} (${String(pct(traffic.aiSessionsDeduped)).padStart(2)}%)    ${fmtTrend(trend.ai.trend7dPct).padEnd(12)} ${fmtTrend(trend.ai.trend30dPct)}`)
-    console.log(`    Social:         ${String(traffic.socialSessions).padEnd(6)} (${String(pct(traffic.socialSessions)).padStart(2)}%)    ${fmtTrend(trend.social.trend7dPct).padEnd(12)} ${fmtTrend(trend.social.trend30dPct)}`)
+    console.log(`    Organic Search: ${String(traffic.totalOrganicSessions).padEnd(6)} (${String(traffic.organicSharePct).padStart(2)}%)    ${fmtTrend(trend.organic.trend7dPct).padEnd(12)} ${fmtTrend(trend.organic.trend30dPct)}`)
+    console.log(`    AI Referrals:   ${String(traffic.aiSessionsDeduped).padEnd(6)} (${String(traffic.aiSharePct).padStart(2)}%)    ${fmtTrend(trend.ai.trend7dPct).padEnd(12)} ${fmtTrend(trend.ai.trend30dPct)}`)
+    console.log(`    Social:         ${String(traffic.socialSessions).padEnd(6)} (${String(traffic.socialSharePct).padStart(2)}%)    ${fmtTrend(trend.social.trend7dPct).padEnd(12)} ${fmtTrend(trend.social.trend30dPct)}`)
     const otherSessions = traffic.totalSessions - traffic.totalOrganicSessions - traffic.aiSessionsDeduped - traffic.socialSessions
     if (otherSessions > 0) {
-      console.log(`    Other:          ${String(otherSessions).padEnd(6)} (${String(pct(otherSessions)).padStart(2)}%)`)
+      const otherPct = traffic.totalSessions > 0 ? Math.round((otherSessions / traffic.totalSessions) * 100) : 0
+      console.log(`    Other:          ${String(otherSessions).padEnd(6)} (${String(otherPct).padStart(2)}%)`)
     }
     console.log(`    ─────────────────────────────────────────────────────`)
     console.log(`    Total:          ${String(traffic.totalSessions).padEnd(6)}         ${fmtTrend(trend.total.trend7dPct).padEnd(12)} ${fmtTrend(trend.total.trend30dPct)}`)
@@ -436,9 +433,9 @@ export async function gaAttribution(project: string, opts?: { trend?: boolean; f
       aiUsers: traffic.aiUsersDeduped,
       socialSessions: traffic.socialSessions,
       socialUsers: traffic.socialUsers,
-      aiSharePct: traffic.totalSessions > 0 ? Math.round((traffic.aiSessionsDeduped / traffic.totalSessions) * 100) : 0,
-      socialSharePct: traffic.totalSessions > 0 ? Math.round((traffic.socialSessions / traffic.totalSessions) * 100) : 0,
-      organicSharePct: traffic.totalSessions > 0 ? Math.round((traffic.totalOrganicSessions / traffic.totalSessions) * 100) : 0,
+      aiSharePct: traffic.aiSharePct,
+      socialSharePct: traffic.socialSharePct,
+      organicSharePct: traffic.organicSharePct,
       aiReferrals: traffic.aiReferrals,
       socialReferrals: traffic.socialReferrals,
     }, null, 2))
@@ -450,19 +447,18 @@ export async function gaAttribution(project: string, opts?: { trend?: boolean; f
     return
   }
 
-  const pct = (n: number) => traffic.totalSessions > 0 ? Math.round((n / traffic.totalSessions) * 100) : 0
-
   console.log(`GA4 Attribution Overview for "${project}"\n`)
   console.log(`  Total Sessions:   ${traffic.totalSessions}`)
   console.log(`  Total Users:      ${traffic.totalUsers}`)
   console.log()
   console.log('  CHANNEL BREAKDOWN')
-  console.log(`    Organic Search: ${traffic.totalOrganicSessions} sessions (${pct(traffic.totalOrganicSessions)}%)`)
-  console.log(`    AI Referrals:   ${traffic.aiSessionsDeduped} sessions (${pct(traffic.aiSessionsDeduped)}%)`)
-  console.log(`    Social:         ${traffic.socialSessions} sessions (${pct(traffic.socialSessions)}%)`)
+  console.log(`    Organic Search: ${traffic.totalOrganicSessions} sessions (${traffic.organicSharePct}%)`)
+  console.log(`    AI Referrals:   ${traffic.aiSessionsDeduped} sessions (${traffic.aiSharePct}%)`)
+  console.log(`    Social:         ${traffic.socialSessions} sessions (${traffic.socialSharePct}%)`)
   const otherSessions = traffic.totalSessions - traffic.totalOrganicSessions - traffic.aiSessionsDeduped - traffic.socialSessions
   if (otherSessions > 0) {
-    console.log(`    Other:          ${otherSessions} sessions (${pct(otherSessions)}%)`)
+    const otherPct = traffic.totalSessions > 0 ? Math.round((otherSessions / traffic.totalSessions) * 100) : 0
+    console.log(`    Other:          ${otherSessions} sessions (${otherPct}%)`)
   }
 
   if (traffic.aiReferrals.length > 0) {

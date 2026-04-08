@@ -22,6 +22,7 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/commands/insights.ts` | `insights` and `insights dismiss` command implementations |
 | `src/commands/health-cmd.ts` | `health` command implementation |
 | `src/commands/backfill.ts` | Historical recomputation for answer visibility fields and insights |
+| `src/commands/ga.ts` | GA4 commands: `ga sync`, `ga traffic`, `ga status`, `ga social-referral-history`, `ga social-referral-summary`, `ga attribution` |
 
 ## Patterns
 

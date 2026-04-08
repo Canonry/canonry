@@ -63,6 +63,12 @@ export const ga4TrafficSummaryDtoSchema = z.object({
   socialSessions: z.number(),
   /** Total social users (session-scoped, no cross-dimension dedup needed). */
   socialUsers: z.number(),
+  /** Organic sessions as a percentage of total sessions (0–100, rounded). */
+  organicSharePct: z.number(),
+  /** Deduped AI sessions as a percentage of total sessions (0–100, rounded). */
+  aiSharePct: z.number(),
+  /** Social sessions as a percentage of total sessions (0–100, rounded). */
+  socialSharePct: z.number(),
   lastSyncedAt: z.string().nullable(),
 })
 export type GA4TrafficSummaryDto = z.infer<typeof ga4TrafficSummaryDtoSchema>
@@ -142,6 +148,12 @@ export interface GaTrafficResponse {
   socialSessions: number
   /** Total social users (session-scoped via sessionDefaultChannelGroup). */
   socialUsers: number
+  /** Organic sessions as a percentage of total sessions (0–100, rounded). */
+  organicSharePct: number
+  /** Deduped AI sessions as a percentage of total sessions (0–100, rounded). */
+  aiSharePct: number
+  /** Social sessions as a percentage of total sessions (0–100, rounded). */
+  socialSharePct: number
   lastSyncedAt: string | null
 }
 

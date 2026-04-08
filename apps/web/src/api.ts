@@ -977,6 +977,12 @@ export interface ApiGaTraffic {
   socialSessions: number
   /** Total social users (session-scoped via sessionDefaultChannelGroup). */
   socialUsers: number
+  /** Organic sessions as a percentage of total sessions (0–100, rounded). */
+  organicSharePct: number
+  /** Deduped AI sessions as a percentage of total sessions (0–100, rounded). */
+  aiSharePct: number
+  /** Social sessions as a percentage of total sessions (0–100, rounded). */
+  socialSharePct: number
   lastSyncedAt: string | null
 }
 

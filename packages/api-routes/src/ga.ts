@@ -337,6 +337,11 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     const days = request.body?.days ?? 30
     const only = request.body?.only
 
+    const validOnlyValues = ['traffic', 'ai', 'social'] as const
+    if (only !== undefined && !validOnlyValues.includes(only as typeof validOnlyValues[number])) {
+      throw validationError(`Invalid "only" value "${only}". Must be one of: ${validOnlyValues.join(', ')}`)
+    }
+
     // Determine which components to sync
     const syncTraffic = !only || only === 'traffic'
     const syncAi = !only || only === 'ai'
@@ -596,8 +601,10 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .limit(1)
       .get()
 
+    const total = summary?.totalSessions ?? 0
+
     return {
-      totalSessions: summary?.totalSessions ?? 0,
+      totalSessions: total,
       totalOrganicSessions: summary?.totalOrganicSessions ?? 0,
       totalUsers: summary?.totalUsers ?? 0,
       topPages: rows.map((r) => ({
@@ -624,6 +631,9 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       })),
       socialSessions: socialTotals?.sessions ?? 0,
       socialUsers: socialTotals?.users ?? 0,
+      organicSharePct: total > 0 ? Math.round(((summary?.totalOrganicSessions ?? 0) / total) * 100) : 0,
+      aiSharePct: total > 0 ? Math.round(((aiDeduped?.sessions ?? 0) / total) * 100) : 0,
+      socialSharePct: total > 0 ? Math.round(((socialTotals?.sessions ?? 0) / total) * 100) : 0,
       lastSyncedAt: latestSync?.syncedAt ?? null,
     }
   })

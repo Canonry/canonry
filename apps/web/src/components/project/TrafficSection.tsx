@@ -274,20 +274,14 @@ export function TrafficSection({ projectName }: { projectName: string }) {
     )
   }
 
-  const organicPct = traffic && traffic.totalSessions > 0
-    ? Math.round((traffic.totalOrganicSessions / traffic.totalSessions) * 100)
-    : 0
+  const organicPct = traffic?.organicSharePct ?? 0
   const aiSessions = traffic?.aiSessionsDeduped ?? 0
-  const aiSharePct = traffic && traffic.totalSessions > 0
-    ? Math.round((aiSessions / traffic.totalSessions) * 100)
-    : 0
+  const aiSharePct = traffic?.aiSharePct ?? 0
   const aiSourceCount = traffic ? new Set(traffic.aiReferrals.map((referral) => referral.source.toLowerCase())).size : 0
   const topAiSource = sortedAiReferrals[0] ?? null
 
   const socialSessions = traffic?.socialSessions ?? 0
-  const socialSharePct = traffic && traffic.totalSessions > 0
-    ? Math.round((socialSessions / traffic.totalSessions) * 100)
-    : 0
+  const socialSharePct = traffic?.socialSharePct ?? 0
   const socialSourceCount = traffic ? new Set(traffic.socialReferrals.map((r) => r.source.toLowerCase())).size : 0
   const topSocialSource = sortedSocialReferrals[0] ?? null
 
