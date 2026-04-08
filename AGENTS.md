@@ -121,6 +121,45 @@ THIS IS AN **AGENT-FIRST** PLATFORM. The CLI and API are the primary interfaces.
 2. **Required:** Add the CLI command in `packages/canonry/src/commands/`.
 3. **Ideal:** Add the UI interaction in `apps/web/` — aim to include it, but never block a release waiting for UI work.
 
+### UI/CLI parity (Critical)
+
+**Every dashboard view, widget, and computed metric visible in the web UI must have an equivalent API endpoint and CLI command that returns the same data.** The UI is a consumer of the API, not a privileged surface. If a user can see it in the browser, an agent must be able to read it from the CLI.
+
+#### Rules
+
+1. **No UI-only calculations.** If the UI computes a derived metric (percentages, trends, diffs, scores, roll-ups), that calculation must live in the API response — not in frontend component code. The API returns the computed value; both the UI and CLI consume it.
+2. **No UI-only state.** Every dashboard panel, section, or page that displays data must map to a CLI command. If the UI shows a "Social Referral Summary" card, there must be a `canonry ga social-referral-summary` command that returns the same information.
+3. **Mirror granularity.** If the UI shows both a summary and a detail view, the CLI must offer both. A single dump endpoint that requires agents to post-process is not equivalent.
+4. **Same data, same shape.** The JSON output of `--format json` for a CLI command should be structurally identical to the API response the UI consumes. An agent should be able to replace a UI `fetch()` call with a `canonry ... --format json` call and get the same fields.
+
+#### When adding a new UI component
+
+Before building any new dashboard section or widget:
+
+1. Confirm the backing API endpoint already exists (or add it first).
+2. Confirm the matching CLI command already exists (or add it first).
+3. Ensure all derived metrics and calculations are in the API response, not computed in the component.
+4. The UI component should only be responsible for layout and presentation — never for business logic or data aggregation.
+
+#### Anti-patterns
+
+```typescript
+// ❌ Wrong — UI computes a metric that agents can't access
+const aiShare = Math.round((traffic.aiSessions / traffic.totalSessions) * 100)
+
+// ✅ Correct — API returns the computed metric, UI just displays it
+// API response: { aiSharePct: 12 }
+<span>{traffic.aiSharePct}%</span>
+```
+
+```typescript
+// ❌ Wrong — UI aggregates raw data that the API doesn't expose as a summary
+const totalBySource = referrals.reduce((acc, r) => { ... }, {})
+
+// ✅ Correct — API has a summary endpoint, UI consumes it
+// GET /projects/:name/ga/attribution returns { channelBreakdown: [...] }
+```
+
 ### Agent & automation design principles
 
 The CLI and API **are** the agent interface. No MCP layer, no virtual filesystem, no special agent SDK. If an AI agent can't do something with `canonry <command> --format json` or an HTTP call, it's a bug.
@@ -133,6 +172,7 @@ The CLI and API **are** the agent interface. No MCP layer, no virtual filesystem
 4. **Single-call reads.** If an agent needs two API calls to answer a common question, add a composite endpoint. Examples: `/projects/:name/runs/latest` (don't make agents list-then-filter), `/projects/:name/search?q=term` (don't make agents fetch all snapshots to grep). The test: can an agent get what it needs in one `curl` call?
 5. **Meaningful exit codes.** `0` = success, `1` = user error (bad input, not found, validation), `2` = system error (network, provider failure, internal). Agents use exit codes to decide whether to retry.
 6. **Stable output contracts.** JSON field names, endpoint paths, and error codes are public API. Renaming a JSON field is a breaking change. Add fields freely; never remove or rename without a version bump.
+7. **UI/CLI parity.** Every piece of data or computed metric visible in the web UI must be retrievable via the API and CLI. If the UI shows it, an agent must be able to `curl` or `canonry ... --format json` it. Derived calculations (percentages, trends, roll-ups) belong in the API response, not in frontend code. See the "UI/CLI parity" section above for the full rules.
 
 #### Checklist for any new command or endpoint
 
@@ -142,6 +182,13 @@ The CLI and API **are** the agent interface. No MCP layer, no virtual filesystem
 - [ ] Write operations are idempotent (or return conflict details)
 - [ ] Common read patterns achievable in a single API call
 - [ ] Exit code follows 0/1/2 convention
+
+#### Checklist for any new UI component
+
+- [ ] Backing API endpoint exists and returns all data the component displays
+- [ ] Matching CLI command exists with `--format json` support
+- [ ] All derived metrics (percentages, trends, diffs) are computed in the API, not the component
+- [ ] JSON shape from CLI matches the API response the UI fetches
 
 ## Maintenance Guidance
 
@@ -435,6 +482,7 @@ This repo uses per-package `AGENTS.md` files for local context. **These must sta
 | Add a new table or column in `packages/db/src/schema.ts` | Update `docs/data-model.md` (ER diagram + table groups) |
 | Add a new API route file in `packages/api-routes/src/` | Update `packages/api-routes/AGENTS.md` key files table |
 | Add a new CLI command | Update `packages/canonry/AGENTS.md` |
+| Add a new UI dashboard section or widget | Verify backing API endpoint + CLI command exist first (UI/CLI parity rule) |
 | Add a new provider package | Update `docs/providers/README.md` and create `docs/providers/<name>.md` |
 | Add a new integration package | Create `packages/integration-<name>/AGENTS.md` |
 | Change a critical pattern (error handling, DB access, auth) | Update the relevant package's AGENTS.md patterns section |
