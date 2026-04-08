@@ -2060,6 +2060,18 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/ga/social-referral-trend',
+    summary: 'Get social referral trend (7d/30d) with biggest mover',
+    tags: ['ga4'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'Social referral trend returned.' },
+      400: { description: 'GA4 is not connected.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/ga/session-history',
     summary: 'Get total sessions per day for the project',
     tags: ['ga4'],

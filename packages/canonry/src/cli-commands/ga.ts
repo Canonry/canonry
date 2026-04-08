@@ -1,9 +1,11 @@
 import {
   gaAiReferralHistory,
+  gaAttribution,
   gaConnect,
   gaCoverage,
   gaDisconnect,
   gaSocialReferralHistory,
+  gaSocialReferralSummary,
   gaStatus,
   gaSync,
   gaTraffic,
@@ -52,16 +54,19 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['ga', 'sync'],
-    usage: 'canonry ga sync <project> [--days 30] [--format json]',
+    usage: 'canonry ga sync <project> [--days 30] [--only traffic|ai|social] [--format json]',
     options: {
       days: stringOption(),
+      only: stringOption(),
     },
     run: async (input) => {
-      const project = requireProject(input, 'ga.sync', 'canonry ga sync <project> [--days 30] [--format json]')
+      const project = requireProject(input, 'ga.sync', 'canonry ga sync <project> [--days 30] [--only traffic|ai|social] [--format json]')
       const daysStr = getString(input.values, 'days')
       const days = daysStr ? parseInt(daysStr, 10) : undefined
+      const only = getString(input.values, 'only')
       await gaSync(project, {
         days,
+        only,
         format: input.format,
       })
     },
@@ -107,13 +112,35 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['ga', 'social-referral-summary'],
+    usage: 'canonry ga social-referral-summary <project> [--trend] [--format json]',
+    options: {
+      trend: { type: 'boolean', default: false },
+    },
+    run: async (input) => {
+      const project = requireProject(input, 'ga.social-referral-summary', 'canonry ga social-referral-summary <project> [--trend] [--format json]')
+      await gaSocialReferralSummary(project, {
+        trend: input.values.trend === true,
+        format: input.format,
+      })
+    },
+  },
+  {
+    path: ['ga', 'attribution'],
+    usage: 'canonry ga attribution <project> [--format json]',
+    run: async (input) => {
+      const project = requireProject(input, 'ga.attribution', 'canonry ga attribution <project> [--format json]')
+      await gaAttribution(project, input.format)
+    },
+  },
+  {
     path: ['ga'],
-    usage: 'canonry ga <connect|disconnect|status|sync|traffic|coverage|ai-referral-history|social-referral-history> <project> [args]',
+    usage: 'canonry ga <subcommand> <project> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'ga',
-        usage: 'canonry ga <connect|disconnect|status|sync|traffic|coverage|ai-referral-history|social-referral-history> <project> [args]',
-        available: ['connect', 'disconnect', 'status', 'sync', 'traffic', 'coverage', 'ai-referral-history', 'social-referral-history'],
+        usage: 'canonry ga <subcommand> <project> [args]',
+        available: ['connect', 'disconnect', 'status', 'sync', 'traffic', 'coverage', 'ai-referral-history', 'social-referral-history', 'social-referral-summary', 'attribution'],
       })
     },
   },

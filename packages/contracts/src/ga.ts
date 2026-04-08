@@ -93,6 +93,18 @@ export interface GaSyncResponse {
   socialReferralCount: number
   days: number
   syncedAt: string
+  /** Which data components were synced (present when --only is used) */
+  syncedComponents?: string[]
+}
+
+export interface GaSocialReferralTrendResponse {
+  socialSessions7d: number
+  socialSessionsPrev7d: number
+  trend7dPct: number | null
+  socialSessions30d: number
+  socialSessionsPrev30d: number
+  trend30dPct: number | null
+  biggestMover: { source: string; sessions7d: number; sessionsPrev7d: number; changePct: number } | null
 }
 
 export interface GaTrafficResponse {
