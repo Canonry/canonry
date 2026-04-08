@@ -188,6 +188,32 @@ describe('analytics routes', () => {
       expect(body.trend).toMatch(/^(improving|declining|stable)$/)
     })
 
+    it('returns answer-mention rate metrics alongside citation rate', async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/v1/projects/test-site/analytics/metrics' })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+
+      // Answer rate fields exist
+      expect(body.overall.answerRate).toBeGreaterThanOrEqual(0)
+      expect(body.overall.answerRate).toBeLessThanOrEqual(1)
+      expect(body.overall.answerMentionedCount).toBeGreaterThanOrEqual(0)
+      expect(body.answerTrend).toMatch(/^(improving|declining|stable)$/)
+
+      // kw1/gemini has answerText 'Example.com is great...' and canonicalDomain 'example.com'
+      // so it should be resolved as mentioned
+      expect(body.overall.answerMentionedCount).toBeGreaterThan(0)
+
+      // Per-provider answer rate
+      expect(body.byProvider.gemini.answerRate).toBeGreaterThan(0)
+      expect(body.byProvider.gemini.answerMentionedCount).toBeGreaterThan(0)
+
+      // Each bucket has answer fields
+      for (const bucket of body.buckets) {
+        expect(bucket.answerRate).toBeGreaterThanOrEqual(0)
+        expect(typeof bucket.answerMentionedCount).toBe('number')
+      }
+    })
+
     it('supports window parameter', async () => {
       const res = await app.inject({ method: 'GET', url: '/api/v1/projects/test-site/analytics/metrics?window=7d' })
       expect(res.statusCode).toBe(200)
@@ -231,6 +257,32 @@ describe('analytics routes', () => {
       expect(body.uncited[0].keyword).toBe('website analytics')
 
       expect(body.runId).toBe(runId)
+    })
+
+    it('classifies keywords by answer-mention alongside citation', async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/v1/projects/test-site/analytics/gaps' })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+
+      // Answer-mention arrays exist
+      expect(body.mentionedKeywords).toBeInstanceOf(Array)
+      expect(body.mentionGap).toBeInstanceOf(Array)
+      expect(body.notMentioned).toBeInstanceOf(Array)
+
+      // kw1/gemini answerText='Example.com is great...' with canonicalDomain='example.com'
+      // → resolvedMentioned=true → mentionedKeywords
+      expect(body.mentionedKeywords.some((k: { keyword: string }) => k.keyword === 'best seo tools')).toBe(true)
+
+      // kw2 answerText='AEO monitoring is...' — does NOT mention example.com
+      // competitor.com is cited → mentionGap
+      expect(body.mentionGap.some((k: { keyword: string }) => k.keyword === 'aeo monitoring')).toBe(true)
+
+      // kw3 answerText='Website analytics are...' — no mention, no competitor → notMentioned
+      expect(body.notMentioned.some((k: { keyword: string }) => k.keyword === 'website analytics')).toBe(true)
+
+      // Consistency includes mentionedRuns
+      const mentioned = body.mentionedKeywords.find((k: { keyword: string }) => k.keyword === 'best seo tools')
+      expect(mentioned.consistency.mentionedRuns).toBeGreaterThan(0)
     })
 
     it('supports window parameter', async () => {
@@ -537,11 +589,19 @@ describe('analytics routes', () => {
 
     const metricsRes = await app.inject({ method: 'GET', url: '/api/v1/projects/empty-project/analytics/metrics' })
     expect(metricsRes.statusCode).toBe(200)
-    expect(JSON.parse(metricsRes.payload).overall.total).toBe(0)
+    const metricsBody = JSON.parse(metricsRes.payload)
+    expect(metricsBody.overall.total).toBe(0)
+    expect(metricsBody.overall.answerRate).toBe(0)
+    expect(metricsBody.overall.answerMentionedCount).toBe(0)
+    expect(metricsBody.answerTrend).toBe('stable')
 
     const gapsRes = await app.inject({ method: 'GET', url: '/api/v1/projects/empty-project/analytics/gaps' })
     expect(gapsRes.statusCode).toBe(200)
-    expect(JSON.parse(gapsRes.payload).cited).toEqual([])
+    const gapsBody = JSON.parse(gapsRes.payload)
+    expect(gapsBody.cited).toEqual([])
+    expect(gapsBody.mentionedKeywords).toEqual([])
+    expect(gapsBody.mentionGap).toEqual([])
+    expect(gapsBody.notMentioned).toEqual([])
 
     const sourcesRes = await app.inject({ method: 'GET', url: '/api/v1/projects/empty-project/analytics/sources' })
     expect(sourcesRes.statusCode).toBe(200)

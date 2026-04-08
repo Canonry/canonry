@@ -7,7 +7,7 @@ import type {
   MetricsWindow, TimeBucket, TrendDirection, GapKeyword, GapCategory,
   SourceCategory, SourceCategoryCount, ProviderMetric, KeywordChangeEvent,
 } from '@ainyc/canonry-contracts'
-import { resolveProject } from './helpers.js'
+import { resolveProject, resolveSnapshotAnswerMentioned } from './helpers.js'
 
 export async function analyticsRoutes(app: FastifyInstance) {
   // GET /projects/:name/analytics/metrics — citation rate trends
@@ -33,25 +33,34 @@ export async function analyticsRoutes(app: FastifyInstance) {
       return reply.send({
         window,
         buckets: [],
-        overall: { citationRate: 0, cited: 0, total: 0 },
+        overall: { citationRate: 0, cited: 0, total: 0, answerRate: 0, answerMentionedCount: 0 },
         byProvider: {},
         trend: 'stable',
+        answerTrend: 'stable',
         keywordChanges: [],
       } satisfies BrandMetricsDto)
     }
 
     const runIds = projectRuns.map(r => r.id)
-    const allSnapshots = app.db
+    const rawSnapshots = app.db
       .select({
         runId: querySnapshots.runId,
         keywordId: querySnapshots.keywordId,
         provider: querySnapshots.provider,
         citationState: querySnapshots.citationState,
+        answerMentioned: querySnapshots.answerMentioned,
+        answerText: querySnapshots.answerText,
         createdAt: querySnapshots.createdAt,
       })
       .from(querySnapshots)
       .where(inArray(querySnapshots.runId, runIds))
       .all()
+
+    // Resolve answerMentioned for each snapshot (handles null/legacy data)
+    const allSnapshots = rawSnapshots.map(s => ({
+      ...s,
+      resolvedMentioned: resolveSnapshotAnswerMentioned(s, project),
+    }))
 
     // Fetch keyword creation dates for normalization
     const projectKeywords = app.db
@@ -78,13 +87,14 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const bucketSize = bucketSizeForSpan(spanDays)
     const buckets = computeBuckets(allSnapshots, projectRuns, bucketSize, keywordCreatedAt)
 
-    // Trend
-    const trend = computeTrend(buckets)
+    // Trends
+    const trend = computeTrend(buckets, 'citationRate')
+    const answerTrend = computeTrend(buckets, 'answerRate')
 
     // Keyword change annotations
     const keywordChanges = computeKeywordChanges(projectKeywords, cutoff)
 
-    return reply.send({ window, buckets, overall, byProvider, trend, keywordChanges } satisfies BrandMetricsDto)
+    return reply.send({ window, buckets, overall, byProvider, trend, answerTrend, keywordChanges } satisfies BrandMetricsDto)
   })
 
   // GET /projects/:name/analytics/gaps — brand gap analysis
@@ -107,7 +117,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       .find(r => r.status === 'completed' || r.status === 'partial')
 
     if (!latestRun) {
-      return reply.send({ cited: [], gap: [], uncited: [], runId: '', window } satisfies GapAnalysisDto)
+      return reply.send({ cited: [], gap: [], uncited: [], mentionedKeywords: [], mentionGap: [], notMentioned: [], runId: '', window } satisfies GapAnalysisDto)
     }
 
     // All runs in window (for consistency signal)
@@ -122,14 +132,16 @@ export async function analyticsRoutes(app: FastifyInstance) {
 
     const windowRunIds = windowRuns.map(r => r.id)
 
-    // Consistency: for each keyword, count how many runs cited it
-    const consistencyMap = new Map<string, { citedRuns: Set<string>; totalRuns: Set<string> }>()
+    // Consistency: for each keyword, count how many runs cited/mentioned it
+    const consistencyMap = new Map<string, { citedRuns: Set<string>; totalRuns: Set<string>; mentionedRuns: Set<string> }>()
     if (windowRunIds.length > 0) {
       const allWindowSnaps = app.db
         .select({
           keywordId: querySnapshots.keywordId,
           runId: querySnapshots.runId,
           citationState: querySnapshots.citationState,
+          answerMentioned: querySnapshots.answerMentioned,
+          answerText: querySnapshots.answerText,
         })
         .from(querySnapshots)
         .where(inArray(querySnapshots.runId, windowRunIds))
@@ -138,27 +150,36 @@ export async function analyticsRoutes(app: FastifyInstance) {
       for (const s of allWindowSnaps) {
         let entry = consistencyMap.get(s.keywordId)
         if (!entry) {
-          entry = { citedRuns: new Set(), totalRuns: new Set() }
+          entry = { citedRuns: new Set(), totalRuns: new Set(), mentionedRuns: new Set() }
           consistencyMap.set(s.keywordId, entry)
         }
         entry.totalRuns.add(s.runId)
         if (s.citationState === 'cited') entry.citedRuns.add(s.runId)
+        if (resolveSnapshotAnswerMentioned(s, project)) entry.mentionedRuns.add(s.runId)
       }
     }
 
     // Latest-run snapshots (determines classification)
-    const snapshots = app.db
+    const rawSnapshots = app.db
       .select({
         keywordId: querySnapshots.keywordId,
         keyword: keywords.keyword,
         provider: querySnapshots.provider,
         citationState: querySnapshots.citationState,
+        answerMentioned: querySnapshots.answerMentioned,
+        answerText: querySnapshots.answerText,
         competitorOverlap: querySnapshots.competitorOverlap,
       })
       .from(querySnapshots)
       .leftJoin(keywords, eq(querySnapshots.keywordId, keywords.id))
       .where(eq(querySnapshots.runId, latestRun.id))
       .all()
+
+    // Resolve answer mentions
+    const snapshots = rawSnapshots.map(s => ({
+      ...s,
+      resolvedMentioned: resolveSnapshotAnswerMentioned(s, project),
+    }))
 
     // Group by keyword
     const byKeyword = new Map<string, typeof snapshots>()
@@ -172,11 +193,17 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const cited: GapKeyword[] = []
     const gap: GapKeyword[] = []
     const uncited: GapKeyword[] = []
+    const mentionedKeywords: GapKeyword[] = []
+    const mentionGap: GapKeyword[] = []
+    const notMentioned: GapKeyword[] = []
 
     for (const [keywordId, kwSnapshots] of byKeyword) {
       const keyword = kwSnapshots[0]?.keyword ?? ''
       const citedProviders = kwSnapshots
         .filter(s => s.citationState === 'cited')
+        .map(s => s.provider)
+      const mentionedProviders = kwSnapshots
+        .filter(s => s.resolvedMentioned)
         .map(s => s.provider)
       const competitorsCiting = new Set<string>()
       for (const s of kwSnapshots) {
@@ -184,6 +211,14 @@ export async function analyticsRoutes(app: FastifyInstance) {
         for (const c of overlap) competitorsCiting.add(c)
       }
 
+      const cons = consistencyMap.get(keywordId)
+      const consistency = {
+        citedRuns: cons?.citedRuns.size ?? 0,
+        totalRuns: cons?.totalRuns.size ?? 0,
+        mentionedRuns: cons?.mentionedRuns.size ?? 0,
+      }
+
+      // Citation-based classification (existing)
       let category: GapCategory
       if (citedProviders.length > 0) {
         category = 'cited'
@@ -193,30 +228,48 @@ export async function analyticsRoutes(app: FastifyInstance) {
         category = 'uncited'
       }
 
-      const cons = consistencyMap.get(keywordId)
-      const entry: GapKeyword = {
-        keyword,
-        keywordId,
-        category,
+      const citationEntry: GapKeyword = {
+        keyword, keywordId, category,
         providers: citedProviders,
         competitorsCiting: [...competitorsCiting],
-        consistency: {
-          citedRuns: cons?.citedRuns.size ?? 0,
-          totalRuns: cons?.totalRuns.size ?? 0,
-        },
+        consistency,
       }
 
-      if (category === 'cited') cited.push(entry)
-      else if (category === 'gap') gap.push(entry)
-      else uncited.push(entry)
+      if (category === 'cited') cited.push(citationEntry)
+      else if (category === 'gap') gap.push(citationEntry)
+      else uncited.push(citationEntry)
+
+      // Answer-mention classification (new)
+      let mentionCategory: GapCategory
+      if (mentionedProviders.length > 0) {
+        mentionCategory = 'cited'
+      } else if (competitorsCiting.size > 0) {
+        mentionCategory = 'gap'
+      } else {
+        mentionCategory = 'uncited'
+      }
+
+      const mentionEntry: GapKeyword = {
+        keyword, keywordId, category: mentionCategory,
+        providers: mentionedProviders,
+        competitorsCiting: [...competitorsCiting],
+        consistency,
+      }
+
+      if (mentionCategory === 'cited') mentionedKeywords.push(mentionEntry)
+      else if (mentionCategory === 'gap') mentionGap.push(mentionEntry)
+      else notMentioned.push(mentionEntry)
     }
 
     // Sort: gap by most competitors, cited/uncited alphabetically
     gap.sort((a, b) => b.competitorsCiting.length - a.competitorsCiting.length)
     cited.sort((a, b) => a.keyword.localeCompare(b.keyword))
     uncited.sort((a, b) => a.keyword.localeCompare(b.keyword))
+    mentionGap.sort((a, b) => b.competitorsCiting.length - a.competitorsCiting.length)
+    mentionedKeywords.sort((a, b) => a.keyword.localeCompare(b.keyword))
+    notMentioned.sort((a, b) => a.keyword.localeCompare(b.keyword))
 
-    return reply.send({ cited, gap, uncited, runId: latestRun.id, window } satisfies GapAnalysisDto)
+    return reply.send({ cited, gap, uncited, mentionedKeywords, mentionGap, notMentioned, runId: latestRun.id, window } satisfies GapAnalysisDto)
   })
 
   // GET /projects/:name/analytics/sources — source origin breakdown
@@ -347,16 +400,20 @@ function bucketSizeForSpan(spanDays: number): number {
 interface SnapshotLike {
   keywordId: string
   citationState: string
+  resolvedMentioned: boolean
   createdAt: string
 }
 
 function computeProviderMetric(snapshots: SnapshotLike[]): ProviderMetric {
   const total = snapshots.length
   const cited = snapshots.filter(s => s.citationState === 'cited').length
+  const answerMentionedCount = snapshots.filter(s => s.resolvedMentioned).length
   return {
     citationRate: total > 0 ? Math.round((cited / total) * 10000) / 10000 : 0,
     cited,
     total,
+    answerRate: total > 0 ? Math.round((answerMentionedCount / total) * 10000) / 10000 : 0,
+    answerMentionedCount,
   }
 }
 
@@ -405,6 +462,8 @@ function computeBuckets(
         cited: metric.cited,
         total: metric.total,
         keywordCount,
+        answerRate: metric.answerRate,
+        answerMentionedCount: metric.answerMentionedCount,
       })
     }
 
@@ -438,7 +497,7 @@ function computeKeywordChanges(
   }))
 }
 
-function computeTrend(buckets: TimeBucket[]): TrendDirection {
+function computeTrend(buckets: TimeBucket[], rateKey: 'citationRate' | 'answerRate'): TrendDirection {
   const nonEmpty = buckets.filter(b => b.total > 0)
   if (nonEmpty.length < 2) return 'stable'
 
@@ -446,8 +505,8 @@ function computeTrend(buckets: TimeBucket[]): TrendDirection {
   const firstHalf = nonEmpty.slice(0, mid)
   const secondHalf = nonEmpty.slice(mid)
 
-  const avgFirst = firstHalf.reduce((s, b) => s + b.citationRate, 0) / firstHalf.length
-  const avgSecond = secondHalf.reduce((s, b) => s + b.citationRate, 0) / secondHalf.length
+  const avgFirst = firstHalf.reduce((s, b) => s + b[rateKey], 0) / firstHalf.length
+  const avgSecond = secondHalf.reduce((s, b) => s + b[rateKey], 0) / secondHalf.length
 
   const diff = avgSecond - avgFirst
   // Threshold: 5 percentage points
