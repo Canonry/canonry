@@ -110,7 +110,7 @@ export async function getAccessToken(clientEmail: string, privateKey: string): P
 
   if (!res.ok) {
     const body = await res.text().catch(() => '')
-    ga4Log('error', 'token.failed', { httpStatus: res.status, responseBody: body })
+    ga4Log('error', 'token.failed', { httpStatus: res.status })
     throw new GA4ApiError(`Failed to get access token: ${body}`, res.status)
   }
 
@@ -154,7 +154,7 @@ async function runReport(
       // not JSON — use raw body if short enough
       if (body.length < 200) detail = ` ${body}`
     }
-    ga4Log('error', 'report.auth-failed', { propertyId, httpStatus: res.status, responseBody: body })
+    ga4Log('error', 'report.auth-failed', { propertyId, httpStatus: res.status })
     throw new GA4ApiError(
       `GA4 API authentication failed — check service account permissions.${detail}`,
       res.status,
@@ -168,7 +168,7 @@ async function runReport(
 
   if (!res.ok) {
     const body = await res.text()
-    ga4Log('error', 'report.error', { propertyId, httpStatus: res.status, responseBody: body })
+    ga4Log('error', 'report.error', { propertyId, httpStatus: res.status })
     throw new GA4ApiError(`GA4 API error (${res.status}): ${body}`, res.status)
   }
 

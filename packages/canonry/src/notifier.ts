@@ -1,7 +1,7 @@
 import { eq, desc, and, or } from 'drizzle-orm'
 import { deliverWebhook, redactNotificationUrl, resolveWebhookTarget } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { notifications, runs, querySnapshots, keywords, projects, auditLog } from '@ainyc/canonry-db'
+import { notifications, runs, querySnapshots, keywords, projects, auditLog, parseJsonColumn } from '@ainyc/canonry-db'
 import type { NotificationEvent, WebhookPayload } from '@ainyc/canonry-contracts'
 import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
@@ -72,7 +72,8 @@ export class Notifier {
 
     // Send webhooks for each notification config
     for (const notif of notifs) {
-      const config = JSON.parse(notif.config) as { url: string; events: string[] }
+      const config = parseJsonColumn<{ url: string; events: string[] }>(notif.config, { url: '', events: [] })
+      if (!config.url) continue
       const subscribedEvents = config.events as NotificationEvent[]
 
       // Filter to events this notification cares about

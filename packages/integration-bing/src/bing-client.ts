@@ -74,20 +74,18 @@ async function bingFetch<T>(apiKey: string, endpoint: string, opts?: { method?: 
   })
 
   if (res.status === 401 || res.status === 403) {
-    const body = await res.text().catch(() => '')
-    bingClientLog('error', 'http.auth-failed', { endpoint, method, httpStatus: res.status, responseBody: body })
+    bingClientLog('error', 'http.auth-failed', { endpoint, method, httpStatus: res.status })
     throw new BingApiError('Bing API key is invalid or unauthorized', res.status)
   }
 
   if (res.status === 429) {
-    const body = await res.text().catch(() => '')
-    bingClientLog('error', 'http.rate-limited', { endpoint, method, httpStatus: 429, responseBody: body })
+    bingClientLog('error', 'http.rate-limited', { endpoint, method, httpStatus: 429 })
     throw new BingApiError('Bing API rate limit exceeded', 429)
   }
 
   if (!res.ok) {
     const body = await res.text()
-    bingClientLog('error', 'http.error', { endpoint, method, httpStatus: res.status, responseBody: body })
+    bingClientLog('error', 'http.error', { endpoint, method, httpStatus: res.status })
     throw new BingApiError(`Bing API error (${res.status}): ${body}`, res.status)
   }
 

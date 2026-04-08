@@ -77,20 +77,18 @@ async function gscFetch<T>(accessToken: string, url: string, opts?: { method?: s
   })
 
   if (res.status === 401) {
-    const body = await res.text().catch(() => '')
-    gscClientLog('error', 'http.auth-expired', { url, method, httpStatus: 401, responseBody: body })
+    gscClientLog('error', 'http.auth-expired', { url, method, httpStatus: 401 })
     throw new GoogleApiError('Access token expired or revoked', 401)
   }
 
   if (res.status === 429) {
-    const body = await res.text().catch(() => '')
-    gscClientLog('error', 'http.rate-limited', { url, method, httpStatus: 429, responseBody: body })
+    gscClientLog('error', 'http.rate-limited', { url, method, httpStatus: 429 })
     throw new GoogleApiError('Google API rate limit exceeded', 429)
   }
 
   if (!res.ok) {
     const body = await res.text()
-    gscClientLog('error', 'http.error', { url, method, httpStatus: res.status, responseBody: body })
+    gscClientLog('error', 'http.error', { url, method, httpStatus: res.status })
     throw new GoogleApiError(`GSC API error (${res.status}): ${body}`, res.status)
   }
 

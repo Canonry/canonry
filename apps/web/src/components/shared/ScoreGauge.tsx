@@ -10,6 +10,7 @@ export function ScoreGauge({
   tooltip,
   isNumeric = true,
   progress,
+  providerCoverage,
 }: {
   value: string
   label: string
@@ -19,6 +20,7 @@ export function ScoreGauge({
   tooltip?: string
   isNumeric?: boolean
   progress?: number
+  providerCoverage?: string
 }) {
   const radius = 48
   const strokeWidth = 6
@@ -56,6 +58,7 @@ export function ScoreGauge({
         {tooltip && <InfoTooltip text={tooltip} />}
       </p>
       <p className="gauge-delta">{delta}</p>
+      {providerCoverage && <p className="gauge-provider-coverage">{providerCoverage}</p>}
       <p className="gauge-description">{description}</p>
     </div>
   )

@@ -28,6 +28,7 @@ export interface ScoreSummaryVm {
   tooltip?: string
   trend: number[]
   progress?: number
+  providerCoverage?: string
 }
 
 export interface AttentionItemVm {
@@ -61,6 +62,8 @@ export interface PortfolioProjectVm {
   project: ProjectDto
   visibilityScore: number
   visibilityDelta: string
+  visibilityTone: MetricTone
+  providerCoverage?: string
   lastRun: RunListItemVm
   insight: string
   trend: number[]

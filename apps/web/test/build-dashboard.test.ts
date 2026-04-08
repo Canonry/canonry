@@ -1,6 +1,6 @@
 import { test, expect, describe } from 'vitest'
 
-import { buildDashboard, buildProjectCommandCenter, type ProjectData } from '../src/build-dashboard.js'
+import { buildDashboard, buildProjectCommandCenter, buildPortfolioProject, type ProjectData } from '../src/build-dashboard.js'
 import type { ApiSettings } from '../src/api.js'
 import type { InsightDto } from '@ainyc/canonry-contracts'
 
@@ -731,5 +731,135 @@ describe('run kind differentiation in Command Center', () => {
     expect(gscRun?.summary).toBe('GSC sync completed')
     expect(visRun?.kindLabel).toBe('Answer visibility sweep')
     expect(visRun?.summary).toBe('Answer visibility sweep completed')
+  })
+})
+
+/* ── Provider coverage tests ───────────────────────────────────────────── */
+
+describe('provider coverage indicators', () => {
+  function makeMultiProviderData(
+    providers: string[],
+    snapshotProviders: string[],
+  ): ProjectData {
+    const snapshots = snapshotProviders.map((prov, i) => ({
+      id: `snap_${i}`,
+      runId: 'run_1',
+      keywordId: 'kw_1',
+      keyword: 'test keyword',
+      provider: prov,
+      model: null,
+      citationState: 'cited' as const,
+      answerText: 'Cited.',
+      citedDomains: ['test.example'],
+      competitorOverlap: [],
+      groundingSources: [],
+      searchQueries: [],
+      createdAt: '2026-03-15T00:00:00Z',
+    }))
+
+    return {
+      project: {
+        id: 'proj_cov',
+        name: 'coverage-test',
+        displayName: 'Coverage Test',
+        canonicalDomain: 'test.example',
+        ownedDomains: [],
+        country: 'US',
+        language: 'en',
+        tags: [],
+        labels: {},
+        providers,
+        configSource: 'api',
+        configRevision: 1,
+        createdAt: '2026-03-10T00:00:00Z',
+        updatedAt: '2026-03-15T00:00:00Z',
+      },
+      runs: [{
+        id: 'run_1',
+        projectId: 'proj_cov',
+        kind: 'answer-visibility',
+        status: 'completed',
+        trigger: 'manual',
+        startedAt: '2026-03-15T00:00:00Z',
+        finishedAt: '2026-03-15T00:00:10Z',
+        error: null,
+        createdAt: '2026-03-15T00:00:00Z',
+      }],
+      keywords: [{ id: 'kw_1', keyword: 'test keyword', createdAt: '2026-03-10T00:00:00Z' }],
+      competitors: [],
+      timeline: [{
+        keyword: 'test keyword',
+        runs: [{ runId: 'run_1', createdAt: '2026-03-15T00:00:00Z', citationState: 'cited', transition: 'new' }],
+      }],
+      latestRunDetail: {
+        id: 'run_1',
+        projectId: 'proj_cov',
+        kind: 'answer-visibility',
+        status: 'completed',
+        trigger: 'manual',
+        startedAt: '2026-03-15T00:00:00Z',
+        finishedAt: '2026-03-15T00:00:10Z',
+        error: null,
+        createdAt: '2026-03-15T00:00:00Z',
+        snapshots,
+      },
+      previousRunDetail: null,
+    }
+  }
+
+  test('partial provider run shows caution tone and coverage label in command center', () => {
+    const data = makeMultiProviderData(['gemini', 'openai', 'claude'], ['openai'])
+    const model = buildProjectCommandCenter(data)
+
+    expect(model.visibilitySummary.tone).toBe('caution')
+    expect(model.visibilitySummary.providerCoverage).toBe('1 of 3 providers')
+  })
+
+  test('full provider coverage uses score-based tone with no coverage label', () => {
+    const data = makeMultiProviderData(['gemini', 'openai'], ['gemini', 'openai'])
+    const model = buildProjectCommandCenter(data)
+
+    expect(model.visibilitySummary.tone).not.toBe('caution')
+    expect(model.visibilitySummary.providerCoverage).toBeUndefined()
+  })
+
+  test('single configured provider never triggers partial coverage', () => {
+    const data = makeMultiProviderData(['openai'], ['openai'])
+    const model = buildProjectCommandCenter(data)
+
+    expect(model.visibilitySummary.providerCoverage).toBeUndefined()
+  })
+
+  test('CDP providers are excluded from coverage calculation', () => {
+    const data = makeMultiProviderData(['openai', 'cdp:chatgpt'], ['openai'])
+    const model = buildProjectCommandCenter(data)
+
+    // Only 1 API provider configured, so no partial coverage
+    expect(model.visibilitySummary.providerCoverage).toBeUndefined()
+  })
+
+  test('no snapshots yields neutral tone without coverage label', () => {
+    const data = makeMultiProviderData(['gemini', 'openai'], [])
+    data.latestRunDetail = null
+    const model = buildProjectCommandCenter(data)
+
+    expect(model.visibilitySummary.tone).toBe('neutral')
+    expect(model.visibilitySummary.providerCoverage).toBeUndefined()
+  })
+
+  test('partial provider run in portfolio shows caution tone and coverage label', () => {
+    const data = makeMultiProviderData(['gemini', 'openai', 'claude'], ['openai'])
+    const portfolio = buildPortfolioProject(data)
+
+    expect(portfolio.visibilityTone).toBe('caution')
+    expect(portfolio.providerCoverage).toBe('1 of 3 providers')
+  })
+
+  test('full provider coverage in portfolio uses score-based tone', () => {
+    const data = makeMultiProviderData(['gemini', 'openai'], ['gemini', 'openai'])
+    const portfolio = buildPortfolioProject(data)
+
+    expect(portfolio.visibilityTone).not.toBe('caution')
+    expect(portfolio.providerCoverage).toBeUndefined()
   })
 })
