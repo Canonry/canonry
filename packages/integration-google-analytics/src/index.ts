@@ -4,6 +4,7 @@ export {
   fetchTrafficByLandingPage,
   fetchAggregateSummary,
   fetchAiReferrals,
+  fetchSocialReferrals,
   verifyConnection,
   verifyConnectionWithToken,
 } from './ga4-client.js'

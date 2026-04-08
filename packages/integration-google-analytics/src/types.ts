@@ -60,6 +60,15 @@ export interface GA4AiReferralRow {
   sourceDimension: GA4SourceDimension
 }
 
+export interface GA4SocialReferralRow {
+  date: string
+  source: string
+  medium: string
+  sessions: number
+  users: number
+  sourceDimension: GA4SourceDimension
+}
+
 export class GA4ApiError extends Error {
   public status: number
   constructor(message: string, status: number) {

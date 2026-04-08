@@ -9,6 +9,7 @@ import {
 } from './constants.js'
 import type {
   GA4AiReferralRow,
+  GA4SocialReferralRow,
   GA4RunReportRequest,
   GA4RunReportResponse,
   GA4SourceDimension,
@@ -575,5 +576,132 @@ export async function fetchAiReferrals(
   }
 
   ga4Log('info', 'fetch-ai-referrals.done', { propertyId, rowCount: dedupedRows.length })
+  return dedupedRows
+}
+
+// Social media referral source patterns — major social platforms.
+const SOCIAL_REFERRAL_SOURCE_FILTERS: Array<{ matchType: 'CONTAINS' | 'EXACT'; value: string }> = [
+  { matchType: 'CONTAINS', value: 'facebook' },
+  { matchType: 'EXACT', value: 'fb.com' },
+  { matchType: 'EXACT', value: 'fb.me' },
+  { matchType: 'EXACT', value: 'l.facebook.com' },
+  { matchType: 'EXACT', value: 'lm.facebook.com' },
+  { matchType: 'CONTAINS', value: 'instagram' },
+  { matchType: 'EXACT', value: 'l.instagram.com' },
+  { matchType: 'CONTAINS', value: 'twitter' },
+  { matchType: 'EXACT', value: 't.co' },
+  { matchType: 'EXACT', value: 'x.com' },
+  { matchType: 'CONTAINS', value: 'linkedin' },
+  { matchType: 'EXACT', value: 'lnkd.in' },
+  { matchType: 'CONTAINS', value: 'youtube' },
+  { matchType: 'EXACT', value: 'youtu.be' },
+  { matchType: 'CONTAINS', value: 'tiktok' },
+  { matchType: 'CONTAINS', value: 'reddit' },
+  { matchType: 'CONTAINS', value: 'pinterest' },
+  { matchType: 'CONTAINS', value: 'threads.net' },
+  { matchType: 'CONTAINS', value: 'mastodon' },
+  { matchType: 'CONTAINS', value: 'bsky.app' },
+  { matchType: 'CONTAINS', value: 'snapchat' },
+]
+
+/**
+ * Fetch traffic from social media referral sources.
+ * Mirrors the AI referral approach: queries sessionSource, firstUserSource,
+ * and sessionManualSource dimensions for social platform patterns.
+ */
+export async function fetchSocialReferrals(
+  accessToken: string,
+  propertyId: string,
+  days?: number,
+): Promise<GA4SocialReferralRow[]> {
+  validateAccessToken(accessToken)
+  validatePropertyId(propertyId)
+  const syncDays = Math.min(Math.max(1, days ?? GA4_DEFAULT_SYNC_DAYS), GA4_MAX_SYNC_DAYS)
+  const endDate = new Date()
+  const startDate = new Date()
+  startDate.setDate(startDate.getDate() - syncDays)
+
+  ga4Log('info', 'fetch-social-referrals.start', { propertyId, days: syncDays })
+
+  const PAGE_SIZE = 1000
+  const rows: GA4SocialReferralRow[] = []
+
+  const dimensionPairs: Array<[string, string, GA4SourceDimension]> = [
+    ['sessionSource', 'sessionMedium', 'session'],
+    ['firstUserSource', 'firstUserMedium', 'first_user'],
+    ['sessionManualSource', 'sessionManualMedium', 'manual_utm'],
+  ]
+
+  for (const [sourceDim, mediumDim, dimLabel] of dimensionPairs) {
+    let offset = 0
+    while (true) {
+      const request: GA4RunReportRequest = {
+        dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
+        dimensions: [
+          { name: 'date' },
+          { name: sourceDim },
+          { name: mediumDim },
+        ],
+        metrics: [
+          { name: 'sessions' },
+          { name: 'totalUsers' },
+        ],
+        dimensionFilter: {
+          orGroup: {
+            expressions: SOCIAL_REFERRAL_SOURCE_FILTERS.map(({ matchType, value }) => ({
+              filter: {
+                fieldName: sourceDim,
+                stringFilter: { matchType, value },
+              },
+            })),
+          },
+        },
+        limit: PAGE_SIZE,
+        offset,
+      }
+
+      const response = await runReport(accessToken, propertyId, request)
+      const pageRows: GA4SocialReferralRow[] = (response.rows ?? []).map((row) => ({
+        date: row.dimensionValues[0]!.value,
+        source: row.dimensionValues[1]!.value,
+        medium: row.dimensionValues[2]!.value,
+        sessions: parseInt(row.metricValues[0]!.value, 10) || 0,
+        users: parseInt(row.metricValues[1]!.value, 10) || 0,
+        sourceDimension: dimLabel,
+      }))
+
+      rows.push(...pageRows)
+
+      const totalRows = response.rowCount ?? 0
+      offset += pageRows.length
+      if (pageRows.length < PAGE_SIZE || offset >= totalRows) break
+    }
+  }
+
+  // Deduplicate within each dimension
+  const deduped = new Map<string, GA4SocialReferralRow>()
+  for (const row of rows) {
+    const key = `${row.date}::${row.source}::${row.medium}::${row.sourceDimension}`
+    const existing = deduped.get(key)
+    if (!existing) {
+      deduped.set(key, row)
+    } else {
+      deduped.set(key, {
+        ...existing,
+        sessions: Math.max(existing.sessions, row.sessions),
+        users: Math.max(existing.users, row.users),
+      })
+    }
+  }
+  const dedupedRows = [...deduped.values()]
+
+  // Convert YYYYMMDD to YYYY-MM-DD
+  for (const row of dedupedRows) {
+    if (row.date.length === 8 && !row.date.includes('-')) {
+      row.date = `${row.date.slice(0, 4)}-${row.date.slice(4, 6)}-${row.date.slice(6, 8)}`
+    }
+  }
+
+  ga4Log('info', 'fetch-social-referrals.done', { propertyId, rowCount: dedupedRows.length })
   return dedupedRows
 }

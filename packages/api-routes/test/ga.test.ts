@@ -5,7 +5,7 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { eq, inArray } from 'drizzle-orm'
-import { createClient, migrate, gaAiReferrals, gaTrafficSnapshots, gaTrafficSummaries } from '@ainyc/canonry-db'
+import { createClient, migrate, gaAiReferrals, gaSocialReferrals, gaTrafficSnapshots, gaTrafficSummaries } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialStore, Ga4CredentialRecord } from '../src/ga.js'
 
@@ -240,6 +240,9 @@ describe('GA4 routes', () => {
     const fetchAiReferralsSpy = vi.spyOn(gaModule, 'fetchAiReferrals').mockResolvedValue([
       { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', sessions: 12, users: 9, sourceDimension: 'session' },
     ])
+    const fetchSocialReferralsSpy = vi.spyOn(gaModule, 'fetchSocialReferrals').mockResolvedValue([
+      { date: '2026-03-20', source: 'facebook.com', medium: 'social', sessions: 8, users: 6, sourceDimension: 'session' },
+    ])
 
     const res = await app.inject({
       method: 'POST',
@@ -251,6 +254,7 @@ describe('GA4 routes', () => {
     expect(body.synced).toBe(true)
     expect(body.rowCount).toBe(2)
     expect(body.aiReferralCount).toBe(1)
+    expect(body.socialReferralCount).toBe(1)
 
     // Verify per-page rows were written
     const snapshots = db.select().from(gaTrafficSnapshots)
@@ -273,11 +277,18 @@ describe('GA4 routes', () => {
     expect(aiReferrals).toHaveLength(1)
     expect(aiReferrals[0]!.source).toBe('chatgpt.com')
 
+    const socialRefs = db.select().from(gaSocialReferrals)
+      .where(eq(gaSocialReferrals.projectId, projectId))
+      .all()
+    expect(socialRefs).toHaveLength(1)
+    expect(socialRefs[0]!.source).toBe('facebook.com')
+
     // Cleanup
     getAccessTokenSpy.mockRestore()
     fetchTrafficSpy.mockRestore()
     fetchAggregateSpy.mockRestore()
     fetchAiReferralsSpy.mockRestore()
+    fetchSocialReferralsSpy.mockRestore()
     credentials.delete('test-project')
     // Clean up synced data so it doesn't interfere with later tests
     db.delete(gaTrafficSnapshots)
@@ -285,6 +296,9 @@ describe('GA4 routes', () => {
       .run()
     db.delete(gaAiReferrals)
       .where(eq(gaAiReferrals.projectId, projectId))
+      .run()
+    db.delete(gaSocialReferrals)
+      .where(eq(gaSocialReferrals.projectId, projectId))
       .run()
     db.delete(gaTrafficSummaries)
       .where(eq(gaTrafficSummaries.projectId, projectId))
@@ -334,6 +348,7 @@ describe('GA4 routes', () => {
       totalUsers: 0,
     })
     const fetchAiReferralsSpy = vi.spyOn(gaModule, 'fetchAiReferrals').mockResolvedValue([])
+    const fetchSocialReferralsSpy = vi.spyOn(gaModule, 'fetchSocialReferrals').mockResolvedValue([])
 
     const res = await app.inject({
       method: 'POST',
@@ -349,6 +364,7 @@ describe('GA4 routes', () => {
     fetchTrafficSpy.mockRestore()
     fetchAggregateSpy.mockRestore()
     fetchAiReferralsSpy.mockRestore()
+    fetchSocialReferralsSpy.mockRestore()
     credentials.delete('test-project')
     db.delete(gaTrafficSummaries)
       .where(eq(gaTrafficSummaries.projectId, projectId))
@@ -449,6 +465,9 @@ describe('GA4 routes', () => {
     ])
     expect(body.aiSessionsDeduped).toBe(17)
     expect(body.aiUsersDeduped).toBe(10)
+    expect(body.socialReferrals).toEqual([])
+    expect(body.socialSessionsDeduped).toBe(0)
+    expect(body.socialUsersDeduped).toBe(0)
     expect(body.lastSyncedAt).toBe(now)
 
     credentials.delete('test-project')

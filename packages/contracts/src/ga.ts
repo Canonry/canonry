@@ -33,6 +33,15 @@ export const ga4AiReferralDtoSchema = z.object({
 })
 export type GA4AiReferralDto = z.infer<typeof ga4AiReferralDtoSchema>
 
+export const ga4SocialReferralDtoSchema = z.object({
+  source: z.string(),
+  medium: z.string(),
+  sessions: z.number(),
+  users: z.number(),
+  sourceDimension: ga4SourceDimensionSchema,
+})
+export type GA4SocialReferralDto = z.infer<typeof ga4SocialReferralDtoSchema>
+
 export const ga4TrafficSummaryDtoSchema = z.object({
   totalSessions: z.number(),
   totalOrganicSessions: z.number(),
@@ -48,6 +57,11 @@ export const ga4TrafficSummaryDtoSchema = z.object({
   aiSessionsDeduped: z.number(),
   /** Deduped AI user total: MAX(users) per date+source+medium across attribution dimensions, then summed. */
   aiUsersDeduped: z.number(),
+  socialReferrals: z.array(ga4SocialReferralDtoSchema),
+  /** Deduped social session total: MAX(sessions) per date+source+medium across attribution dimensions, then summed. */
+  socialSessionsDeduped: z.number(),
+  /** Deduped social user total: MAX(users) per date+source+medium across attribution dimensions, then summed. */
+  socialUsersDeduped: z.number(),
   lastSyncedAt: z.string().nullable(),
 })
 export type GA4TrafficSummaryDto = z.infer<typeof ga4TrafficSummaryDtoSchema>
@@ -75,6 +89,7 @@ export interface GaSyncResponse {
   synced: boolean
   rowCount: number
   aiReferralCount: number
+  socialReferralCount: number
   days: number
   syncedAt: string
 }
@@ -89,6 +104,11 @@ export interface GaTrafficResponse {
   aiSessionsDeduped: number
   /** Deduped AI user total: MAX(users) per date+source+medium across attribution dimensions, then summed. */
   aiUsersDeduped: number
+  socialReferrals: Array<{ source: string; medium: string; sessions: number; users: number; sourceDimension: GA4SourceDimension }>
+  /** Deduped social session total */
+  socialSessionsDeduped: number
+  /** Deduped social user total */
+  socialUsersDeduped: number
   lastSyncedAt: string | null
 }
 
@@ -106,6 +126,16 @@ export const ga4AiReferralHistoryEntrySchema = z.object({
   sourceDimension: ga4SourceDimensionSchema,
 })
 export type GA4AiReferralHistoryEntry = z.infer<typeof ga4AiReferralHistoryEntrySchema>
+
+export const ga4SocialReferralHistoryEntrySchema = z.object({
+  date: z.string(),
+  source: z.string(),
+  medium: z.string(),
+  sessions: z.number(),
+  users: z.number(),
+  sourceDimension: ga4SourceDimensionSchema,
+})
+export type GA4SocialReferralHistoryEntry = z.infer<typeof ga4SocialReferralHistoryEntrySchema>
 
 export const ga4SessionHistoryEntrySchema = z.object({
   date: z.string(),

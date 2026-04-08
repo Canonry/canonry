@@ -29,12 +29,13 @@ import {
   triggerGaSync,
   disconnectGa,
 } from '../../api.js'
-import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficPage, ApiGaTrafficReferral, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry } from '../../api.js'
+import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficPage, ApiGaTrafficReferral, ApiGaSocialReferral, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry } from '../../api.js'
 
 const SOURCE_COLORS = CHART_SERIES_COLORS
 
 type PageSortKey = 'landingPage' | 'sessions' | 'organicSessions' | 'users'
 type ReferralSortKey = 'source' | 'medium' | 'sessions' | 'users'
+type SocialSortKey = 'source' | 'medium' | 'sessions' | 'users'
 type SortDir = 'asc' | 'desc'
 
 function formatCompact(n: number): string {
@@ -66,6 +67,8 @@ export function TrafficSection({ projectName }: { projectName: string }) {
   const [pageSortDir, setPageSortDir] = useState<SortDir>('desc')
   const [referralSortKey, setReferralSortKey] = useState<ReferralSortKey>('sessions')
   const [referralSortDir, setReferralSortDir] = useState<SortDir>('desc')
+  const [socialSortKey, setSocialSortKey] = useState<SocialSortKey>('sessions')
+  const [socialSortDir, setSocialSortDir] = useState<SortDir>('desc')
   const [aiHistory, setAiHistory] = useState<GA4AiReferralHistoryEntry[]>([])
   const [sessionHistory, setSessionHistory] = useState<GA4SessionHistoryEntry[]>([])
 
@@ -118,7 +121,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
     setNotice(null)
     try {
       const result = await triggerGaSync(projectName)
-      setNotice(`Synced ${result.rowCount.toLocaleString()} page rows and ${result.aiReferralCount.toLocaleString()} AI referral rows (${result.days} days)`)
+      setNotice(`Synced ${result.rowCount.toLocaleString()} page rows, ${result.aiReferralCount.toLocaleString()} AI and ${result.socialReferralCount.toLocaleString()} social referral rows (${result.days} days)`)
       const [t, h, sh] = await Promise.all([
         fetchGaTraffic(projectName),
         fetchGaAiReferralHistory(projectName).catch(() => [] as GA4AiReferralHistoryEntry[]),
@@ -170,6 +173,15 @@ export function TrafficSection({ projectName }: { projectName: string }) {
     }
   }
 
+  function handleSocialSort(key: SocialSortKey) {
+    if (socialSortKey === key) {
+      setSocialSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))
+    } else {
+      setSocialSortKey(key)
+      setSocialSortDir('desc')
+    }
+  }
+
   const sortedPages = useMemo(() => {
     if (!traffic?.topPages) return []
     return [...traffic.topPages].sort((a, b) => {
@@ -193,6 +205,18 @@ export function TrafficSection({ projectName }: { projectName: string }) {
       return referralSortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number)
     })
   }, [traffic?.aiReferrals, referralSortKey, referralSortDir])
+
+  const sortedSocialReferrals = useMemo(() => {
+    if (!traffic?.socialReferrals) return []
+    return [...traffic.socialReferrals].sort((a, b) => {
+      const av = a[socialSortKey]
+      const bv = b[socialSortKey]
+      if (typeof av === 'string' && typeof bv === 'string') {
+        return socialSortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
+      }
+      return socialSortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number)
+    })
+  }, [traffic?.socialReferrals, socialSortKey, socialSortDir])
 
   // Keep this above the early returns so the hook order stays stable while the
   // component transitions from loading or disconnected to connected.
@@ -259,6 +283,13 @@ export function TrafficSection({ projectName }: { projectName: string }) {
     : 0
   const aiSourceCount = traffic ? new Set(traffic.aiReferrals.map((referral) => referral.source.toLowerCase())).size : 0
   const topAiSource = sortedAiReferrals[0] ?? null
+
+  const socialSessions = traffic?.socialSessionsDeduped ?? 0
+  const socialSharePct = traffic && traffic.totalSessions > 0
+    ? Math.round((socialSessions / traffic.totalSessions) * 100)
+    : 0
+  const socialSourceCount = traffic ? new Set(traffic.socialReferrals.map((r) => r.source.toLowerCase())).size : 0
+  const topSocialSource = sortedSocialReferrals[0] ?? null
 
   return (
     <>
@@ -552,6 +583,119 @@ export function TrafficSection({ projectName }: { projectName: string }) {
         </>
       )}
 
+      {/* Social Media Referrals */}
+      {traffic && (
+        <>
+          <div className="page-section-divider" />
+
+          <section>
+            <div className="mb-4">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">Social Attribution</p>
+              <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">
+                Social Media Traffic
+                <InfoTooltip text="Tracks sessions from social media platforms detected via GA4 sessionSource, firstUserSource, and sessionManualSource dimensions. Includes Facebook, Instagram, X/Twitter, LinkedIn, YouTube, TikTok, Reddit, Pinterest, and more." />
+              </h2>
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.5fr)]">
+              <Card className="surface-card p-5">
+                <div className="mb-4">
+                  <p className="eyebrow eyebrow-soft">Summary</p>
+                  <h3 className="text-sm font-semibold text-zinc-100">Social media visits</h3>
+                </div>
+
+                {traffic.socialReferrals.length > 0 ? (
+                  <>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <AttributionStat
+                        label="Social Sessions"
+                        value={formatCompact(socialSessions)}
+                        hint={`${socialSessions.toLocaleString()} sessions`}
+                        tone="positive"
+                        tooltip="Total sessions attributed to social media platforms detected via GA4 sessionSource, firstUserSource, and sessionManualSource dimensions."
+                      />
+                      <AttributionStat
+                        label="Share of Traffic"
+                        value={`${socialSharePct}%`}
+                        hint="of total sessions"
+                        tone="neutral"
+                        tooltip="Percentage of your total site sessions that originated from social media platforms."
+                      />
+                      <AttributionStat
+                        label="Platforms"
+                        value={String(socialSourceCount)}
+                        hint={`${traffic.socialReferrals.length} source rows`}
+                        tone="neutral"
+                        tooltip="Number of distinct social media platforms detected. Each unique source/medium combination counts as one source row."
+                      />
+                    </div>
+
+                    {topSocialSource && (
+                      <div className="mt-4 rounded-lg border border-sky-800/40 bg-sky-500/6 px-4 py-3 text-sm text-sky-100">
+                        Top social source: <span className="font-medium">{topSocialSource.source}</span> via {topSocialSource.medium}, accounting for {topSocialSource.sessions.toLocaleString()} sessions.
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <AttributionStat label="Social Sessions" value="0" hint="0 sessions" tone="neutral" tooltip="Total sessions attributed to social media platforms." />
+                      <AttributionStat label="Share of Traffic" value="0%" hint="of total sessions" tone="neutral" tooltip="Percentage of your total site sessions from social media." />
+                      <AttributionStat label="Platforms" value="0" hint="known platforms" tone="neutral" tooltip="Number of distinct social media platforms detected." />
+                    </div>
+                    <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-3 text-sm text-zinc-400">
+                      <p className="mb-1.5 text-zinc-300">Monitoring for social media traffic from:</p>
+                      <p className="text-xs text-zinc-500">Facebook, Instagram, X/Twitter, LinkedIn, YouTube, TikTok, Reddit, Pinterest, Threads, Mastodon, Bluesky, and Snapchat. Sessions will appear here once GA4 detects visits from these platforms.</p>
+                    </div>
+                  </div>
+                )}
+              </Card>
+
+              <Card className="surface-card p-5">
+                <div className="mb-4 flex items-end justify-between gap-3">
+                  <div>
+                    <p className="eyebrow eyebrow-soft">Breakdown</p>
+                    <h3 className="text-sm font-semibold text-zinc-100">Source / medium</h3>
+                  </div>
+                  <p className="text-xs text-zinc-500">
+                    {traffic.socialReferrals.length > 0 ? `${traffic.socialReferrals.length} rows` : 'No source rows'}
+                  </p>
+                </div>
+
+                {traffic.socialReferrals.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-[10px] uppercase tracking-wider text-zinc-500">
+                          <SortHeader label="Source" sortKey="source" current={socialSortKey} dir={socialSortDir} onSort={handleSocialSort} align="left" />
+                          <SortHeader label="Medium" sortKey="medium" current={socialSortKey} dir={socialSortDir} onSort={handleSocialSort} align="left" />
+                          <th className="py-1 font-medium text-left">Attribution</th>
+                          <SortHeader label="Sessions" sortKey="sessions" current={socialSortKey} dir={socialSortDir} onSort={handleSocialSort} align="right" />
+                          <th className="py-1 font-medium text-right">Share</th>
+                          <SortHeader label="Users" sortKey="users" current={socialSortKey} dir={socialSortDir} onSort={handleSocialSort} align="right" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedSocialReferrals.map((referral) => (
+                          <SocialReferralRow key={`${referral.source}:${referral.medium}:${referral.sourceDimension}`} referral={referral} totalSessions={socialSessions} />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-8 text-center">
+                    <p className="text-sm text-zinc-400 mb-2">No social media sessions detected yet</p>
+                    <p className="text-xs text-zinc-500 max-w-sm">
+                      When visitors arrive from Facebook, X/Twitter, LinkedIn, or other social platforms, their sessions will be broken down here by source and medium.
+                    </p>
+                  </div>
+                )}
+              </Card>
+            </div>
+          </section>
+        </>
+      )}
+
       {/* Top Landing Pages */}
       {traffic && traffic.topPages.length > 0 && (
         <>
@@ -595,7 +739,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
             ? `Last synced ${relativeTime(traffic.lastSyncedAt)}`
             : 'Never synced'}
         </span>
-        <span>{traffic ? `${traffic.topPages.length} pages · ${traffic.aiReferrals.length} AI rows` : ''}</span>
+        <span>{traffic ? `${traffic.topPages.length} pages · ${traffic.aiReferrals.length} AI rows · ${traffic.socialReferrals.length} social rows` : ''}</span>
       </div>
     </>
   )
@@ -883,6 +1027,46 @@ function AiReferralRow({
         </span>
       </td>
       <td className="py-1.5 text-right text-emerald-400 tabular-nums">
+        {referral.sessions.toLocaleString()}
+      </td>
+      <td className="py-1.5 text-right text-zinc-400 tabular-nums">
+        {share}%
+      </td>
+      <td className="py-1.5 text-right text-zinc-200 tabular-nums">
+        {referral.users.toLocaleString()}
+      </td>
+    </tr>
+  )
+}
+
+function SocialReferralRow({
+  referral,
+  totalSessions,
+}: {
+  referral: ApiGaSocialReferral
+  totalSessions: number
+}) {
+  const share = totalSessions > 0 ? ((referral.sessions / totalSessions) * 100).toFixed(1) : '0.0'
+  const dimLabel = DIMENSION_LABELS[referral.sourceDimension] ?? referral.sourceDimension
+  const dimTooltip = DIMENSION_TOOLTIPS[referral.sourceDimension] ?? ''
+
+  return (
+    <tr className="border-t border-zinc-800/40">
+      <td className="py-1.5 text-zinc-200 max-w-[220px] truncate" title={referral.source}>
+        {referral.source}
+      </td>
+      <td className="py-1.5 text-zinc-500 max-w-[180px] truncate" title={referral.medium}>
+        {referral.medium}
+      </td>
+      <td className="py-1.5">
+        <span
+          className="inline-block text-[10px] px-1.5 py-0.5 rounded-full border border-zinc-700 text-zinc-400"
+          title={dimTooltip}
+        >
+          {dimLabel}
+        </span>
+      </td>
+      <td className="py-1.5 text-right text-sky-400 tabular-nums">
         {referral.sessions.toLocaleString()}
       </td>
       <td className="py-1.5 text-right text-zinc-400 tabular-nums">

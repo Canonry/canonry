@@ -1,4 +1,4 @@
-import type { ErrorCode, GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, InsightDto, HealthSnapshotDto, RunKind, RunStatus, RunTrigger, CitationState, ComputedTransition } from '@ainyc/canonry-contracts'
+import type { ErrorCode, GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, HealthSnapshotDto, RunKind, RunStatus, RunTrigger, CitationState, ComputedTransition } from '@ainyc/canonry-contracts'
 
 export type { GroundingSource }
 
@@ -954,6 +954,14 @@ export interface ApiGaTrafficReferral {
   users: number
 }
 
+export interface ApiGaSocialReferral {
+  source: string
+  medium: string
+  sourceDimension: 'session' | 'first_user' | 'manual_utm'
+  sessions: number
+  users: number
+}
+
 export interface ApiGaTraffic {
   totalSessions: number
   totalOrganicSessions: number
@@ -964,6 +972,11 @@ export interface ApiGaTraffic {
   aiSessionsDeduped: number
   /** Deduped AI user total. */
   aiUsersDeduped: number
+  socialReferrals: ApiGaSocialReferral[]
+  /** Deduped social session total. */
+  socialSessionsDeduped: number
+  /** Deduped social user total. */
+  socialUsersDeduped: number
   lastSyncedAt: string | null
 }
 
@@ -971,6 +984,7 @@ export interface ApiGaSyncResult {
   synced: boolean
   rowCount: number
   aiReferralCount: number
+  socialReferralCount: number
   days: number
   syncedAt: string
 }
@@ -998,10 +1012,14 @@ export function connectGa(project: string, body: { propertyId: string; keyJson: 
   })
 }
 
-export type { GA4AiReferralHistoryEntry, GA4SessionHistoryEntry }
+export type { GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry }
 
 export function fetchGaAiReferralHistory(project: string): Promise<GA4AiReferralHistoryEntry[]> {
   return apiFetch(`/projects/${encodeURIComponent(project)}/ga/ai-referral-history`)
+}
+
+export function fetchGaSocialReferralHistory(project: string): Promise<GA4SocialReferralHistoryEntry[]> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/ga/social-referral-history`)
 }
 
 export function fetchGaSessionHistory(project: string): Promise<GA4SessionHistoryEntry[]> {

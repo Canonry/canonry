@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, desc, and, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { gaTrafficSnapshots, gaTrafficSummaries, gaAiReferrals } from '@ainyc/canonry-db'
+import { gaTrafficSnapshots, gaTrafficSummaries, gaAiReferrals, gaSocialReferrals } from '@ainyc/canonry-db'
 import { validationError, notFound } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import {
@@ -9,6 +9,7 @@ import {
   fetchTrafficByLandingPage,
   fetchAggregateSummary,
   fetchAiReferrals,
+  fetchSocialReferrals,
   verifyConnection,
   verifyConnectionWithToken,
 } from '@ainyc/canonry-integration-google-analytics'
@@ -264,7 +265,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       throw notFound('GA4 connection', project.name)
     }
 
-    // Delete traffic data, summaries, and AI referral rows along with the connection.
+    // Delete traffic data, summaries, AI and social referral rows along with the connection.
     app.db.delete(gaTrafficSnapshots)
       .where(eq(gaTrafficSnapshots.projectId, project.id))
       .run()
@@ -273,6 +274,9 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .run()
     app.db.delete(gaAiReferrals)
       .where(eq(gaAiReferrals.projectId, project.id))
+      .run()
+    app.db.delete(gaSocialReferrals)
+      .where(eq(gaSocialReferrals.projectId, project.id))
       .run()
 
     const propertyId = saConn?.propertyId ?? oauthConn?.propertyId ?? null
@@ -335,11 +339,13 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     let rows
     let summary
     let aiReferrals
+    let socialReferrals
     try {
-      ;[rows, summary, aiReferrals] = await Promise.all([
+      ;[rows, summary, aiReferrals, socialReferrals] = await Promise.all([
         fetchTrafficByLandingPage(accessToken, propertyId, days),
         fetchAggregateSummary(accessToken, propertyId, days),
         fetchAiReferrals(accessToken, propertyId, days),
+        fetchSocialReferrals(accessToken, propertyId, days),
       ])
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -404,6 +410,33 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         }
       }
 
+      // Sync social referrals
+      tx.delete(gaSocialReferrals)
+        .where(
+          and(
+            eq(gaSocialReferrals.projectId, project.id),
+            sql`${gaSocialReferrals.date} >= ${summary.periodStart}`,
+            sql`${gaSocialReferrals.date} <= ${summary.periodEnd}`,
+          ),
+        )
+        .run()
+
+      if (socialReferrals.length > 0) {
+        for (const row of socialReferrals) {
+          tx.insert(gaSocialReferrals).values({
+            id: crypto.randomUUID(),
+            projectId: project.id,
+            date: row.date,
+            source: row.source,
+            medium: row.medium,
+            sourceDimension: row.sourceDimension,
+            sessions: row.sessions,
+            users: row.users,
+            syncedAt: now,
+          }).run()
+        }
+      }
+
       // Replace aggregate summary for this project — always one row per project.
       tx.delete(gaTrafficSummaries)
         .where(eq(gaTrafficSummaries.projectId, project.id))
@@ -425,6 +458,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       projectId: project.id,
       rowCount: rows.length,
       aiReferralCount: aiReferrals.length,
+      socialReferralCount: socialReferrals.length,
       days,
       totalUsers: summary.totalUsers,
     })
@@ -433,6 +467,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       synced: true,
       rowCount: rows.length,
       aiReferralCount: aiReferrals.length,
+      socialReferralCount: socialReferrals.length,
       days,
       syncedAt: now,
     }
@@ -506,6 +541,37 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       )
       .get()
 
+    const socialReferrals = app.db
+      .select({
+        source: gaSocialReferrals.source,
+        medium: gaSocialReferrals.medium,
+        sourceDimension: gaSocialReferrals.sourceDimension,
+        sessions: sql<number>`SUM(${gaSocialReferrals.sessions})`,
+        users: sql<number>`SUM(${gaSocialReferrals.users})`,
+      })
+      .from(gaSocialReferrals)
+      .where(eq(gaSocialReferrals.projectId, project.id))
+      .groupBy(gaSocialReferrals.source, gaSocialReferrals.medium, gaSocialReferrals.sourceDimension)
+      .orderBy(sql`SUM(${gaSocialReferrals.sessions}) DESC`)
+      .all()
+
+    const socialDeduped = app.db
+      .select({
+        sessions: sql<number>`SUM(max_sessions)`,
+        users: sql<number>`SUM(max_users)`,
+      })
+      .from(
+        sql`(
+          SELECT date, source, medium,
+                 MAX(sessions) AS max_sessions,
+                 MAX(users) AS max_users
+          FROM ga_social_referrals
+          WHERE project_id = ${project.id}
+          GROUP BY date, source, medium
+        )`
+      )
+      .get()
+
     const latestSync = app.db
       .select({ syncedAt: gaTrafficSummaries.syncedAt })
       .from(gaTrafficSummaries)
@@ -533,6 +599,15 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       })),
       aiSessionsDeduped: aiDeduped?.sessions ?? 0,
       aiUsersDeduped: aiDeduped?.users ?? 0,
+      socialReferrals: socialReferrals.map((r) => ({
+        source: r.source,
+        medium: r.medium,
+        sourceDimension: r.sourceDimension,
+        sessions: r.sessions ?? 0,
+        users: r.users ?? 0,
+      })),
+      socialSessionsDeduped: socialDeduped?.sessions ?? 0,
+      socialUsersDeduped: socialDeduped?.users ?? 0,
       lastSyncedAt: latestSync?.syncedAt ?? null,
     }
   })
@@ -556,6 +631,30 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .from(gaAiReferrals)
       .where(eq(gaAiReferrals.projectId, project.id))
       .orderBy(gaAiReferrals.date)
+      .all()
+
+    return rows
+  })
+
+  // GET /projects/:name/ga/social-referral-history
+  app.get<{
+    Params: { name: string }
+  }>('/projects/:name/ga/social-referral-history', async (request, _reply) => {
+    const project = resolveProject(app.db, request.params.name)
+    requireGa4Connection(opts, project.name, project.canonicalDomain)
+
+    const rows = app.db
+      .select({
+        date: gaSocialReferrals.date,
+        source: gaSocialReferrals.source,
+        medium: gaSocialReferrals.medium,
+        sourceDimension: gaSocialReferrals.sourceDimension,
+        sessions: gaSocialReferrals.sessions,
+        users: gaSocialReferrals.users,
+      })
+      .from(gaSocialReferrals)
+      .where(eq(gaSocialReferrals.projectId, project.id))
+      .orderBy(gaSocialReferrals.date)
       .all()
 
     return rows
