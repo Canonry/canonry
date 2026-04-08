@@ -74,7 +74,7 @@ erDiagram
 | **ga_traffic_snapshots** | Traffic data snapshots |
 | **ga_traffic_summaries** | Aggregated traffic summaries |
 | **ga_ai_referrals** | AI engine referral tracking. Unique: `(projectId, date, source, medium, sourceDimension)` |
-| **ga_social_referrals** | Social media referral tracking. Unique: `(projectId, date, source, medium, sourceDimension)` |
+| **ga_social_referrals** | Social media referral tracking. Unique: `(projectId, date, source, medium, channelGroup)` |
 
 ### Intelligence
 

@@ -593,7 +593,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
               <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">Social Attribution</p>
               <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">
                 Social Media Traffic
-                <InfoTooltip text="Tracks sessions from social media platforms detected via GA4 sessionSource, firstUserSource, and sessionManualSource dimensions. Includes Facebook, Instagram, X/Twitter, LinkedIn, YouTube, TikTok, Reddit, Pinterest, and more." />
+                <InfoTooltip text="Tracks sessions classified as social traffic by GA4's default channel grouping (Organic Social and Paid Social). Google maintains the source-to-channel mapping." />
               </h2>
             </div>
 
@@ -612,7 +612,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                         value={formatCompact(socialSessions)}
                         hint={`${socialSessions.toLocaleString()} sessions`}
                         tone="positive"
-                        tooltip="Total sessions attributed to social media platforms detected via GA4 sessionSource, firstUserSource, and sessionManualSource dimensions."
+                        tooltip="Total sessions classified as Organic Social or Paid Social by GA4's default channel grouping."
                       />
                       <AttributionStat
                         label="Share of Traffic"
@@ -644,8 +644,8 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                       <AttributionStat label="Platforms" value="0" hint="known platforms" tone="neutral" tooltip="Number of distinct social media platforms detected." />
                     </div>
                     <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-3 text-sm text-zinc-400">
-                      <p className="mb-1.5 text-zinc-300">Monitoring for social media traffic from:</p>
-                      <p className="text-xs text-zinc-500">Facebook, Instagram, X/Twitter, LinkedIn, YouTube, TikTok, Reddit, Pinterest, Threads, Mastodon, Bluesky, and Snapchat. Sessions will appear here once GA4 detects visits from these platforms.</p>
+                      <p className="mb-1.5 text-zinc-300">Monitoring social media traffic via GA4 channel grouping</p>
+                      <p className="text-xs text-zinc-500">Sessions classified as Organic Social or Paid Social by GA4 will appear here. Google maintains the source-to-channel mapping, which includes Facebook, Instagram, X/Twitter, LinkedIn, Reddit, Pinterest, Snapchat, and other platforms.</p>
                     </div>
                   </div>
                 )}
