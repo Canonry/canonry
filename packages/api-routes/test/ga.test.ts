@@ -241,7 +241,7 @@ describe('GA4 routes', () => {
       { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', sessions: 12, users: 9, sourceDimension: 'session' },
     ])
     const fetchSocialReferralsSpy = vi.spyOn(gaModule, 'fetchSocialReferrals').mockResolvedValue([
-      { date: '2026-03-20', source: 'facebook.com', medium: 'social', sessions: 8, users: 6, sourceDimension: 'session' },
+      { date: '2026-03-20', source: 'facebook.com', medium: 'social', sessions: 8, users: 6, channelGroup: 'Organic Social' },
     ])
 
     const res = await app.inject({
@@ -466,8 +466,8 @@ describe('GA4 routes', () => {
     expect(body.aiSessionsDeduped).toBe(17)
     expect(body.aiUsersDeduped).toBe(10)
     expect(body.socialReferrals).toEqual([])
-    expect(body.socialSessionsDeduped).toBe(0)
-    expect(body.socialUsersDeduped).toBe(0)
+    expect(body.socialSessions).toBe(0)
+    expect(body.socialUsers).toBe(0)
     expect(body.lastSyncedAt).toBe(now)
 
     credentials.delete('test-project')

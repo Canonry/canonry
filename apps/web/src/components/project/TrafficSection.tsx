@@ -284,7 +284,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
   const aiSourceCount = traffic ? new Set(traffic.aiReferrals.map((referral) => referral.source.toLowerCase())).size : 0
   const topAiSource = sortedAiReferrals[0] ?? null
 
-  const socialSessions = traffic?.socialSessionsDeduped ?? 0
+  const socialSessions = traffic?.socialSessions ?? 0
   const socialSharePct = traffic && traffic.totalSessions > 0
     ? Math.round((socialSessions / traffic.totalSessions) * 100)
     : 0
@@ -669,7 +669,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                         <tr className="text-[10px] uppercase tracking-wider text-zinc-500">
                           <SortHeader label="Source" sortKey="source" current={socialSortKey} dir={socialSortDir} onSort={handleSocialSort} align="left" />
                           <SortHeader label="Medium" sortKey="medium" current={socialSortKey} dir={socialSortDir} onSort={handleSocialSort} align="left" />
-                          <th className="py-1 font-medium text-left">Attribution</th>
+                          <th className="py-1 font-medium text-left">Channel</th>
                           <SortHeader label="Sessions" sortKey="sessions" current={socialSortKey} dir={socialSortDir} onSort={handleSocialSort} align="right" />
                           <th className="py-1 font-medium text-right">Share</th>
                           <SortHeader label="Users" sortKey="users" current={socialSortKey} dir={socialSortDir} onSort={handleSocialSort} align="right" />
@@ -677,7 +677,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                       </thead>
                       <tbody>
                         {sortedSocialReferrals.map((referral) => (
-                          <SocialReferralRow key={`${referral.source}:${referral.medium}:${referral.sourceDimension}`} referral={referral} totalSessions={socialSessions} />
+                          <SocialReferralRow key={`${referral.source}:${referral.medium}:${referral.channelGroup}`} referral={referral} totalSessions={socialSessions} />
                         ))}
                       </tbody>
                     </table>
@@ -1047,8 +1047,7 @@ function SocialReferralRow({
   totalSessions: number
 }) {
   const share = totalSessions > 0 ? ((referral.sessions / totalSessions) * 100).toFixed(1) : '0.0'
-  const dimLabel = DIMENSION_LABELS[referral.sourceDimension] ?? referral.sourceDimension
-  const dimTooltip = DIMENSION_TOOLTIPS[referral.sourceDimension] ?? ''
+  const channelLabel = referral.channelGroup === 'Paid Social' ? 'Paid' : 'Organic'
 
   return (
     <tr className="border-t border-zinc-800/40">
@@ -1061,9 +1060,9 @@ function SocialReferralRow({
       <td className="py-1.5">
         <span
           className="inline-block text-[10px] px-1.5 py-0.5 rounded-full border border-zinc-700 text-zinc-400"
-          title={dimTooltip}
+          title={`GA4 channel group: ${referral.channelGroup}`}
         >
-          {dimLabel}
+          {channelLabel}
         </span>
       </td>
       <td className="py-1.5 text-right text-sky-400 tabular-nums">

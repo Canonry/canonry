@@ -429,7 +429,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
             date: row.date,
             source: row.source,
             medium: row.medium,
-            sourceDimension: row.sourceDimension,
+            channelGroup: row.channelGroup,
             sessions: row.sessions,
             users: row.users,
             syncedAt: now,
@@ -545,31 +545,25 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .select({
         source: gaSocialReferrals.source,
         medium: gaSocialReferrals.medium,
-        sourceDimension: gaSocialReferrals.sourceDimension,
+        channelGroup: gaSocialReferrals.channelGroup,
         sessions: sql<number>`SUM(${gaSocialReferrals.sessions})`,
         users: sql<number>`SUM(${gaSocialReferrals.users})`,
       })
       .from(gaSocialReferrals)
       .where(eq(gaSocialReferrals.projectId, project.id))
-      .groupBy(gaSocialReferrals.source, gaSocialReferrals.medium, gaSocialReferrals.sourceDimension)
+      .groupBy(gaSocialReferrals.source, gaSocialReferrals.medium, gaSocialReferrals.channelGroup)
       .orderBy(sql`SUM(${gaSocialReferrals.sessions}) DESC`)
       .all()
 
-    const socialDeduped = app.db
+    // Session-scoped totals — no cross-dimension dedup needed since we only
+    // query sessionDefaultChannelGroup (single attribution lens).
+    const socialTotals = app.db
       .select({
-        sessions: sql<number>`SUM(max_sessions)`,
-        users: sql<number>`SUM(max_users)`,
+        sessions: sql<number>`SUM(${gaSocialReferrals.sessions})`,
+        users: sql<number>`SUM(${gaSocialReferrals.users})`,
       })
-      .from(
-        sql`(
-          SELECT date, source, medium,
-                 MAX(sessions) AS max_sessions,
-                 MAX(users) AS max_users
-          FROM ga_social_referrals
-          WHERE project_id = ${project.id}
-          GROUP BY date, source, medium
-        )`
-      )
+      .from(gaSocialReferrals)
+      .where(eq(gaSocialReferrals.projectId, project.id))
       .get()
 
     const latestSync = app.db
@@ -602,12 +596,12 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       socialReferrals: socialReferrals.map((r) => ({
         source: r.source,
         medium: r.medium,
-        sourceDimension: r.sourceDimension,
+        channelGroup: r.channelGroup,
         sessions: r.sessions ?? 0,
         users: r.users ?? 0,
       })),
-      socialSessionsDeduped: socialDeduped?.sessions ?? 0,
-      socialUsersDeduped: socialDeduped?.users ?? 0,
+      socialSessions: socialTotals?.sessions ?? 0,
+      socialUsers: socialTotals?.users ?? 0,
       lastSyncedAt: latestSync?.syncedAt ?? null,
     }
   })
@@ -648,7 +642,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         date: gaSocialReferrals.date,
         source: gaSocialReferrals.source,
         medium: gaSocialReferrals.medium,
-        sourceDimension: gaSocialReferrals.sourceDimension,
+        channelGroup: gaSocialReferrals.channelGroup,
         sessions: gaSocialReferrals.sessions,
         users: gaSocialReferrals.users,
       })

@@ -375,20 +375,21 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_health_snapshots_run ON health_snapshots(run_id)`,
 
   // v25: Social media referral tracking — ga_social_referrals table
+  // Uses GA4's native sessionDefaultChannelGroup for social classification
   `CREATE TABLE IF NOT EXISTS ga_social_referrals (
-    id                TEXT PRIMARY KEY,
-    project_id        TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    date              TEXT NOT NULL,
-    source            TEXT NOT NULL,
-    medium            TEXT NOT NULL,
-    source_dimension  TEXT NOT NULL DEFAULT 'session',
-    sessions          INTEGER NOT NULL DEFAULT 0,
-    users             INTEGER NOT NULL DEFAULT 0,
-    synced_at         TEXT NOT NULL
+    id              TEXT PRIMARY KEY,
+    project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    date            TEXT NOT NULL,
+    source          TEXT NOT NULL,
+    medium          TEXT NOT NULL,
+    channel_group   TEXT NOT NULL DEFAULT 'Organic Social',
+    sessions        INTEGER NOT NULL DEFAULT 0,
+    users           INTEGER NOT NULL DEFAULT 0,
+    synced_at       TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_ga_social_ref_project_date ON ga_social_referrals(project_id, date)`,
   `CREATE INDEX IF NOT EXISTS idx_ga_social_ref_source ON ga_social_referrals(source)`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_social_ref_unique ON ga_social_referrals(project_id, date, source, medium, source_dimension)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_social_ref_unique ON ga_social_referrals(project_id, date, source, medium, channel_group)`,
 ]
 
 /**

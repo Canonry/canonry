@@ -167,19 +167,19 @@ export async function gaTraffic(project: string, opts?: { limit?: number; format
   }
 
   if (result.socialReferrals.length > 0) {
-    const attrWidth = 12
-    if (result.socialSessionsDeduped > 0) {
-      const share = result.totalSessions > 0 ? Math.round((result.socialSessionsDeduped / result.totalSessions) * 100) : 0
-      console.log(`  Social Sessions (deduped): ${result.socialSessionsDeduped} (${share}% of total)`)
+    const chanWidth = 12
+    if (result.socialSessions > 0) {
+      const share = result.totalSessions > 0 ? Math.round((result.socialSessions / result.totalSessions) * 100) : 0
+      console.log(`  Social Sessions:         ${result.socialSessions} (${share}% of total)`)
     }
     console.log('  SOCIAL REFERRAL SOURCES')
-    console.log(`  ${'SOURCE'.padEnd(25)}  ${'MEDIUM'.padEnd(15)}  ${'ATTRIBUTION'.padEnd(attrWidth)}  ${'SESSIONS'.padEnd(10)}${'USERS'.padEnd(8)}`)
-    console.log(`  ${'─'.repeat(25)}  ${'─'.repeat(15)}  ${'─'.repeat(attrWidth)}  ${'─'.repeat(10)}${'─'.repeat(8)}`)
+    console.log(`  ${'SOURCE'.padEnd(25)}  ${'MEDIUM'.padEnd(15)}  ${'CHANNEL'.padEnd(chanWidth)}  ${'SESSIONS'.padEnd(10)}${'USERS'.padEnd(8)}`)
+    console.log(`  ${'─'.repeat(25)}  ${'─'.repeat(15)}  ${'─'.repeat(chanWidth)}  ${'─'.repeat(10)}${'─'.repeat(8)}`)
 
     for (const ref of result.socialReferrals) {
-      const dimLabel = ref.sourceDimension === 'first_user' ? 'first-visit' : ref.sourceDimension === 'manual_utm' ? 'utm' : 'session'
+      const chanLabel = ref.channelGroup === 'Paid Social' ? 'paid' : 'organic'
       console.log(
-        `  ${ref.source.padEnd(25)}  ${ref.medium.padEnd(15)}  ${dimLabel.padEnd(attrWidth)}  ${String(ref.sessions).padEnd(10)}${String(ref.users).padEnd(8)}`,
+        `  ${ref.source.padEnd(25)}  ${ref.medium.padEnd(15)}  ${chanLabel.padEnd(chanWidth)}  ${String(ref.sessions).padEnd(10)}${String(ref.users).padEnd(8)}`,
       )
     }
     console.log()
@@ -248,14 +248,14 @@ export async function gaSocialReferralHistory(project: string, format?: string):
 
   const dateWidth = 12
   const sourceWidth = Math.min(30, Math.max(10, ...result.map((r) => r.source.length)))
-  const attrWidth = 12
+  const chanWidth = 12
   console.log(`GA4 Social Referral History for "${project}":\n`)
-  console.log(`  ${'DATE'.padEnd(dateWidth)}  ${'SOURCE'.padEnd(sourceWidth)}  ${'ATTRIBUTION'.padEnd(attrWidth)}  ${'SESSIONS'.padEnd(10)}${'USERS'.padEnd(8)}`)
-  console.log(`  ${'─'.repeat(dateWidth)}  ${'─'.repeat(sourceWidth)}  ${'─'.repeat(attrWidth)}  ${'─'.repeat(10)}${'─'.repeat(8)}`)
+  console.log(`  ${'DATE'.padEnd(dateWidth)}  ${'SOURCE'.padEnd(sourceWidth)}  ${'CHANNEL'.padEnd(chanWidth)}  ${'SESSIONS'.padEnd(10)}${'USERS'.padEnd(8)}`)
+  console.log(`  ${'─'.repeat(dateWidth)}  ${'─'.repeat(sourceWidth)}  ${'─'.repeat(chanWidth)}  ${'─'.repeat(10)}${'─'.repeat(8)}`)
   for (const row of result) {
-    const dimLabel = row.sourceDimension === 'first_user' ? 'first-visit' : row.sourceDimension === 'manual_utm' ? 'utm' : 'session'
+    const chanLabel = row.channelGroup === 'Paid Social' ? 'paid' : 'organic'
     console.log(
-      `  ${row.date.padEnd(dateWidth)}  ${row.source.padEnd(sourceWidth)}  ${dimLabel.padEnd(attrWidth)}  ${String(row.sessions).padEnd(10)}${String(row.users).padEnd(8)}`,
+      `  ${row.date.padEnd(dateWidth)}  ${row.source.padEnd(sourceWidth)}  ${chanLabel.padEnd(chanWidth)}  ${String(row.sessions).padEnd(10)}${String(row.users).padEnd(8)}`,
     )
   }
 }

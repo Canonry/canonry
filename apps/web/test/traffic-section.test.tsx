@@ -60,10 +60,10 @@ test('loads connected GA4 data without changing hook order', async () => {
         aiSessionsDeduped: 12,
         aiUsersDeduped: 9,
         socialReferrals: [
-          { source: 'facebook.com', medium: 'social', sourceDimension: 'session', sessions: 8, users: 6 },
+          { source: 'facebook.com', medium: 'social', channelGroup: 'Organic Social', sessions: 8, users: 6 },
         ],
-        socialSessionsDeduped: 8,
-        socialUsersDeduped: 6,
+        socialSessions: 8,
+        socialUsers: 6,
         lastSyncedAt: '2026-03-31T12:00:00.000Z',
       })
     }

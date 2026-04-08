@@ -38,7 +38,8 @@ export const ga4SocialReferralDtoSchema = z.object({
   medium: z.string(),
   sessions: z.number(),
   users: z.number(),
-  sourceDimension: ga4SourceDimensionSchema,
+  /** GA4 default channel group (e.g. 'Organic Social', 'Paid Social') */
+  channelGroup: z.string(),
 })
 export type GA4SocialReferralDto = z.infer<typeof ga4SocialReferralDtoSchema>
 
@@ -58,10 +59,10 @@ export const ga4TrafficSummaryDtoSchema = z.object({
   /** Deduped AI user total: MAX(users) per date+source+medium across attribution dimensions, then summed. */
   aiUsersDeduped: z.number(),
   socialReferrals: z.array(ga4SocialReferralDtoSchema),
-  /** Deduped social session total: MAX(sessions) per date+source+medium across attribution dimensions, then summed. */
-  socialSessionsDeduped: z.number(),
-  /** Deduped social user total: MAX(users) per date+source+medium across attribution dimensions, then summed. */
-  socialUsersDeduped: z.number(),
+  /** Total social sessions (session-scoped, no cross-dimension dedup needed). */
+  socialSessions: z.number(),
+  /** Total social users (session-scoped, no cross-dimension dedup needed). */
+  socialUsers: z.number(),
   lastSyncedAt: z.string().nullable(),
 })
 export type GA4TrafficSummaryDto = z.infer<typeof ga4TrafficSummaryDtoSchema>
@@ -104,11 +105,11 @@ export interface GaTrafficResponse {
   aiSessionsDeduped: number
   /** Deduped AI user total: MAX(users) per date+source+medium across attribution dimensions, then summed. */
   aiUsersDeduped: number
-  socialReferrals: Array<{ source: string; medium: string; sessions: number; users: number; sourceDimension: GA4SourceDimension }>
-  /** Deduped social session total */
-  socialSessionsDeduped: number
-  /** Deduped social user total */
-  socialUsersDeduped: number
+  socialReferrals: Array<{ source: string; medium: string; sessions: number; users: number; channelGroup: string }>
+  /** Total social sessions (session-scoped via sessionDefaultChannelGroup). */
+  socialSessions: number
+  /** Total social users (session-scoped via sessionDefaultChannelGroup). */
+  socialUsers: number
   lastSyncedAt: string | null
 }
 
@@ -133,7 +134,8 @@ export const ga4SocialReferralHistoryEntrySchema = z.object({
   medium: z.string(),
   sessions: z.number(),
   users: z.number(),
-  sourceDimension: ga4SourceDimensionSchema,
+  /** GA4 default channel group (e.g. 'Organic Social', 'Paid Social') */
+  channelGroup: z.string(),
 })
 export type GA4SocialReferralHistoryEntry = z.infer<typeof ga4SocialReferralHistoryEntrySchema>
 

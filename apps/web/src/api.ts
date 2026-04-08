@@ -957,7 +957,7 @@ export interface ApiGaTrafficReferral {
 export interface ApiGaSocialReferral {
   source: string
   medium: string
-  sourceDimension: 'session' | 'first_user' | 'manual_utm'
+  channelGroup: string
   sessions: number
   users: number
 }
@@ -973,10 +973,10 @@ export interface ApiGaTraffic {
   /** Deduped AI user total. */
   aiUsersDeduped: number
   socialReferrals: ApiGaSocialReferral[]
-  /** Deduped social session total. */
-  socialSessionsDeduped: number
-  /** Deduped social user total. */
-  socialUsersDeduped: number
+  /** Total social sessions (session-scoped via sessionDefaultChannelGroup). */
+  socialSessions: number
+  /** Total social users (session-scoped via sessionDefaultChannelGroup). */
+  socialUsers: number
   lastSyncedAt: string | null
 }
 

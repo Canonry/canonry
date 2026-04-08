@@ -296,22 +296,23 @@ export const gaAiReferrals = sqliteTable('ga_ai_referrals', {
   uniqueIndex('idx_ga_ai_ref_unique_v2').on(table.projectId, table.date, table.source, table.medium, table.sourceDimension),
 ])
 
-// Social media referral traffic from GA4 — mirrors gaAiReferrals for social platforms.
+// Social media referral traffic from GA4 — uses GA4's native sessionDefaultChannelGroup
+// to classify social traffic rather than hardcoded source patterns.
 export const gaSocialReferrals = sqliteTable('ga_social_referrals', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   date: text('date').notNull(),
   source: text('source').notNull(),
   medium: text('medium').notNull(),
-  /** Which GA4 dimension produced this row: 'session' | 'first_user' | 'manual_utm' */
-  sourceDimension: text('source_dimension').notNull().default('session'),
+  /** GA4 default channel group (e.g. 'Organic Social', 'Paid Social') */
+  channelGroup: text('channel_group').notNull().default('Organic Social'),
   sessions: integer('sessions').notNull().default(0),
   users: integer('users').notNull().default(0),
   syncedAt: text('synced_at').notNull(),
 }, (table) => [
   index('idx_ga_social_ref_project_date').on(table.projectId, table.date),
   index('idx_ga_social_ref_source').on(table.source),
-  uniqueIndex('idx_ga_social_ref_unique').on(table.projectId, table.date, table.source, table.medium, table.sourceDimension),
+  uniqueIndex('idx_ga_social_ref_unique').on(table.projectId, table.date, table.source, table.medium, table.channelGroup),
 ])
 
 // Aggregate GA4 totals for a sync period — stores true unique user count
