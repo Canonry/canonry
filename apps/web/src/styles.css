@@ -354,6 +354,10 @@
     @apply mt-1 text-center text-[11px] text-zinc-400;
   }
 
+  .gauge-provider-coverage {
+    @apply mt-0.5 text-center text-[10px] font-medium text-amber-400/80;
+  }
+
   .gauge-description {
     @apply mt-1.5 text-center text-[11px] leading-4 text-zinc-500 w-full;
   }

@@ -476,7 +476,7 @@ export async function fetchSchedule(project: string): Promise<ApiSchedule | null
   try {
     return await apiFetch<ApiSchedule>(`/projects/${encodeURIComponent(project)}/schedule`)
   } catch (e) {
-    if (e instanceof Error && e.message.includes('404')) return null
+    if (e instanceof ApiError && e.statusCode === 404) return null
     throw e
   }
 }

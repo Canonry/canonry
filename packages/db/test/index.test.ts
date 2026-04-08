@@ -31,6 +31,8 @@ import {
   gaTrafficSnapshots,
   gaAiReferrals,
   gaTrafficSummaries,
+  insights,
+  healthSnapshots,
 } from '../src/index.js'
 
 function createTempDb() {
@@ -118,6 +120,12 @@ test('migrate creates all tables', () => {
 
   const gaSummaryRows = db.select().from(gaTrafficSummaries).all()
   expect(gaSummaryRows).toEqual([])
+
+  const insightRows = db.select().from(insights).all()
+  expect(insightRows).toEqual([])
+
+  const healthRows = db.select().from(healthSnapshots).all()
+  expect(healthRows).toEqual([])
 })
 
 test('migrate is idempotent', () => {
