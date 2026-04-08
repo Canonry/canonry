@@ -994,6 +994,15 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
       total,
     }))
 
+  // Compute provider coverage: how many configured API providers were in the latest visibility run
+  const configuredApiProviders = data.project.providers.filter(p => !p.startsWith('cdp:'))
+  const runProviders = new Set(snapshots.map(s => s.provider))
+  const runApiProviderCount = configuredApiProviders.filter(p => runProviders.has(p)).length
+  const isPartialProviderRun = snapshots.length > 0 && configuredApiProviders.length > 1 && runApiProviderCount < configuredApiProviders.length
+  const providerCoverageLabel = isPartialProviderRun
+    ? `${runApiProviderCount} of ${configuredApiProviders.length} providers`
+    : undefined
+
   return {
     project: dto,
     dateRangeLabel: 'All time',
@@ -1002,12 +1011,15 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
       label: 'Answer Visibility',
       value: snapshots.length > 0 ? `${kwVis.score}` : 'No data',
       delta: snapshots.length > 0 ? `${kwVis.citedCount} of ${kwVis.totalCount} key phrases visible` : 'Run a sweep first',
-      tone: snapshots.length > 0 ? scoreTone(kwVis.score) : 'neutral',
+      tone: snapshots.length > 0
+        ? isPartialProviderRun ? 'caution' : scoreTone(kwVis.score)
+        : 'neutral',
       description: snapshots.length > 0
         ? `${kwVis.citedCount} of ${kwVis.totalCount} tracked key phrases found your domain in at least one AI answer engine.`
         : 'No visibility data yet. Trigger a run to start tracking.',
       tooltip: 'Percentage of tracked key phrases where your domain is cited by at least one AI answer engine. A key phrase is "visible" if any configured provider includes your site in its response.',
       trend: [],
+      providerCoverage: providerCoverageLabel,
     },
     keywordCounts: { cited: kwVis.citedCount, total: kwVis.totalCount },
     gapKeyPhrases,
@@ -1089,10 +1101,20 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
         triggerLabel: '',
       }
 
+  // Compute provider coverage for portfolio card
+  const pfConfiguredApi = data.project.providers.filter(p => !p.startsWith('cdp:'))
+  const pfRunProviders = new Set(snapshots.map(s => s.provider))
+  const pfRunApiCount = pfConfiguredApi.filter(p => pfRunProviders.has(p)).length
+  const pfIsPartial = snapshots.length > 0 && pfConfiguredApi.length > 1 && pfRunApiCount < pfConfiguredApi.length
+
   return {
     project: dto,
     visibilityScore: kwVis.score,
     visibilityDelta: snapshots.length > 0 ? `${kwVis.citedCount} of ${kwVis.totalCount} key phrases` : 'No data',
+    visibilityTone: snapshots.length > 0
+      ? pfIsPartial ? 'caution' : scoreTone(kwVis.score)
+      : 'neutral',
+    providerCoverage: pfIsPartial ? `${pfRunApiCount} of ${pfConfiguredApi.length} providers` : undefined,
     lastRun: runItem,
     insight: snapshots.length > 0
       ? `${kwVis.citedCount} of ${kwVis.totalCount} key phrases visible across ${new Set(snapshots.map(s => s.provider)).size} provider${new Set(snapshots.map(s => s.provider)).size > 1 ? 's' : ''}.`

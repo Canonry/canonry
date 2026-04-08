@@ -1364,6 +1364,7 @@ export function ProjectPage({
               tooltip={model.visibilitySummary.tooltip}
               isNumeric={isNumericScore(model.visibilitySummary.value)}
               progress={model.visibilitySummary.progress}
+              providerCoverage={model.visibilitySummary.providerCoverage}
             />
             <div className="metric-card">
               <p className="metric-card-eyebrow">
