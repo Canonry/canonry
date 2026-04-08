@@ -1,4 +1,4 @@
-import type { GaConnectResponse, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GA4AiReferralHistoryEntry } from '@ainyc/canonry-contracts'
+import type { GaConnectResponse, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GA4AiReferralHistoryEntry, GA4SocialReferralHistoryEntry } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError } from '../cli-error.js'
 
@@ -119,6 +119,7 @@ export async function gaSync(project: string, opts?: { days?: number; format?: s
   console.log(`GA4 sync complete for "${project}".`)
   console.log(`  Page rows:   ${result.rowCount}`)
   console.log(`  AI rows:     ${result.aiReferralCount}`)
+  console.log(`  Social rows: ${result.socialReferralCount}`)
   console.log(`  Period:      ${result.days} days`)
   console.log(`  Synced at:   ${result.syncedAt}`)
 }
@@ -135,7 +136,7 @@ export async function gaTraffic(project: string, opts?: { limit?: number; format
     return
   }
 
-  if (result.topPages.length === 0 && result.aiReferrals.length === 0) {
+  if (result.topPages.length === 0 && result.aiReferrals.length === 0 && result.socialReferrals.length === 0) {
     console.log('No GA4 traffic data. Run "canonry ga sync <project>" first.')
     return
   }
@@ -157,6 +158,25 @@ export async function gaTraffic(project: string, opts?: { limit?: number; format
     console.log(`  ${'─'.repeat(25)}  ${'─'.repeat(15)}  ${'─'.repeat(attrWidth)}  ${'─'.repeat(10)}${'─'.repeat(8)}`)
 
     for (const ref of result.aiReferrals) {
+      const dimLabel = ref.sourceDimension === 'first_user' ? 'first-visit' : ref.sourceDimension === 'manual_utm' ? 'utm' : 'session'
+      console.log(
+        `  ${ref.source.padEnd(25)}  ${ref.medium.padEnd(15)}  ${dimLabel.padEnd(attrWidth)}  ${String(ref.sessions).padEnd(10)}${String(ref.users).padEnd(8)}`,
+      )
+    }
+    console.log()
+  }
+
+  if (result.socialReferrals.length > 0) {
+    const attrWidth = 12
+    if (result.socialSessionsDeduped > 0) {
+      const share = result.totalSessions > 0 ? Math.round((result.socialSessionsDeduped / result.totalSessions) * 100) : 0
+      console.log(`  Social Sessions (deduped): ${result.socialSessionsDeduped} (${share}% of total)`)
+    }
+    console.log('  SOCIAL REFERRAL SOURCES')
+    console.log(`  ${'SOURCE'.padEnd(25)}  ${'MEDIUM'.padEnd(15)}  ${'ATTRIBUTION'.padEnd(attrWidth)}  ${'SESSIONS'.padEnd(10)}${'USERS'.padEnd(8)}`)
+    console.log(`  ${'─'.repeat(25)}  ${'─'.repeat(15)}  ${'─'.repeat(attrWidth)}  ${'─'.repeat(10)}${'─'.repeat(8)}`)
+
+    for (const ref of result.socialReferrals) {
       const dimLabel = ref.sourceDimension === 'first_user' ? 'first-visit' : ref.sourceDimension === 'manual_utm' ? 'utm' : 'session'
       console.log(
         `  ${ref.source.padEnd(25)}  ${ref.medium.padEnd(15)}  ${dimLabel.padEnd(attrWidth)}  ${String(ref.sessions).padEnd(10)}${String(ref.users).padEnd(8)}`,
@@ -202,6 +222,34 @@ export async function gaAiReferralHistory(project: string, format?: string): Pro
   const sourceWidth = Math.min(30, Math.max(10, ...result.map((r) => r.source.length)))
   const attrWidth = 12
   console.log(`GA4 AI Referral History for "${project}":\n`)
+  console.log(`  ${'DATE'.padEnd(dateWidth)}  ${'SOURCE'.padEnd(sourceWidth)}  ${'ATTRIBUTION'.padEnd(attrWidth)}  ${'SESSIONS'.padEnd(10)}${'USERS'.padEnd(8)}`)
+  console.log(`  ${'─'.repeat(dateWidth)}  ${'─'.repeat(sourceWidth)}  ${'─'.repeat(attrWidth)}  ${'─'.repeat(10)}${'─'.repeat(8)}`)
+  for (const row of result) {
+    const dimLabel = row.sourceDimension === 'first_user' ? 'first-visit' : row.sourceDimension === 'manual_utm' ? 'utm' : 'session'
+    console.log(
+      `  ${row.date.padEnd(dateWidth)}  ${row.source.padEnd(sourceWidth)}  ${dimLabel.padEnd(attrWidth)}  ${String(row.sessions).padEnd(10)}${String(row.users).padEnd(8)}`,
+    )
+  }
+}
+
+export async function gaSocialReferralHistory(project: string, format?: string): Promise<void> {
+  const client = getClient()
+  const result: GA4SocialReferralHistoryEntry[] = await client.gaSocialReferralHistory(project)
+
+  if (format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  if (result.length === 0) {
+    console.log('No social referral history. Run "canonry ga sync <project>" first.')
+    return
+  }
+
+  const dateWidth = 12
+  const sourceWidth = Math.min(30, Math.max(10, ...result.map((r) => r.source.length)))
+  const attrWidth = 12
+  console.log(`GA4 Social Referral History for "${project}":\n`)
   console.log(`  ${'DATE'.padEnd(dateWidth)}  ${'SOURCE'.padEnd(sourceWidth)}  ${'ATTRIBUTION'.padEnd(attrWidth)}  ${'SESSIONS'.padEnd(10)}${'USERS'.padEnd(8)}`)
   console.log(`  ${'─'.repeat(dateWidth)}  ${'─'.repeat(sourceWidth)}  ${'─'.repeat(attrWidth)}  ${'─'.repeat(10)}${'─'.repeat(8)}`)
   for (const row of result) {

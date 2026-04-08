@@ -30,6 +30,7 @@ import type {
   GaTrafficResponse,
   GaCoverageResponse,
   GA4AiReferralHistoryEntry,
+  GA4SocialReferralHistoryEntry,
   GA4SessionHistoryEntry,
   AuditLogEntry,
   GoogleConnectionDto,
@@ -566,6 +567,10 @@ export class ApiClient {
 
   async gaAiReferralHistory(project: string): Promise<GA4AiReferralHistoryEntry[]> {
     return this.request<GA4AiReferralHistoryEntry[]>('GET', `/projects/${encodeURIComponent(project)}/ga/ai-referral-history`)
+  }
+
+  async gaSocialReferralHistory(project: string): Promise<GA4SocialReferralHistoryEntry[]> {
+    return this.request<GA4SocialReferralHistoryEntry[]>('GET', `/projects/${encodeURIComponent(project)}/ga/social-referral-history`)
   }
 
   async gaSessionHistory(project: string): Promise<GA4SessionHistoryEntry[]> {

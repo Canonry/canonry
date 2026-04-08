@@ -24,6 +24,7 @@ erDiagram
   projects ||--o{ ga_traffic_snapshots : has
   projects ||--o{ ga_traffic_summaries : has
   projects ||--o{ ga_ai_referrals : has
+  projects ||--o{ ga_social_referrals : has
 
   projects ||--o{ gsc_search_data : has
   projects ||--o{ gsc_url_inspections : has
@@ -73,6 +74,7 @@ erDiagram
 | **ga_traffic_snapshots** | Traffic data snapshots |
 | **ga_traffic_summaries** | Aggregated traffic summaries |
 | **ga_ai_referrals** | AI engine referral tracking. Unique: `(projectId, date, source, medium, sourceDimension)` |
+| **ga_social_referrals** | Social media referral tracking. Unique: `(projectId, date, source, medium, sourceDimension)` |
 
 ### Intelligence
 

@@ -3,6 +3,7 @@ import {
   gaConnect,
   gaCoverage,
   gaDisconnect,
+  gaSocialReferralHistory,
   gaStatus,
   gaSync,
   gaTraffic,
@@ -98,13 +99,21 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['ga', 'social-referral-history'],
+    usage: 'canonry ga social-referral-history <project> [--format json]',
+    run: async (input) => {
+      const project = requireProject(input, 'ga.social-referral-history', 'canonry ga social-referral-history <project> [--format json]')
+      await gaSocialReferralHistory(project, input.format)
+    },
+  },
+  {
     path: ['ga'],
-    usage: 'canonry ga <connect|disconnect|status|sync|traffic|coverage|ai-referral-history> <project> [args]',
+    usage: 'canonry ga <connect|disconnect|status|sync|traffic|coverage|ai-referral-history|social-referral-history> <project> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'ga',
-        usage: 'canonry ga <connect|disconnect|status|sync|traffic|coverage|ai-referral-history> <project> [args]',
-        available: ['connect', 'disconnect', 'status', 'sync', 'traffic', 'coverage', 'ai-referral-history'],
+        usage: 'canonry ga <connect|disconnect|status|sync|traffic|coverage|ai-referral-history|social-referral-history> <project> [args]',
+        available: ['connect', 'disconnect', 'status', 'sync', 'traffic', 'coverage', 'ai-referral-history', 'social-referral-history'],
       })
     },
   },
