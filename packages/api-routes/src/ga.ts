@@ -761,6 +761,126 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     }
   })
 
+  // GET /projects/:name/ga/attribution-trend
+  app.get<{
+    Params: { name: string }
+  }>('/projects/:name/ga/attribution-trend', async (request, _reply) => {
+    const project = resolveProject(app.db, request.params.name)
+    requireGa4Connection(opts, project.name, project.canonicalDomain)
+
+    const today = new Date()
+    const fmt = (d: Date) => d.toISOString().split('T')[0]!
+    const daysAgo = (n: number) => { const d = new Date(today); d.setDate(d.getDate() - n); return fmt(d) }
+    const pct = (cur: number, prev: number) => prev === 0 ? null : Math.round(((cur - prev) / prev) * 100)
+
+    // --- Total sessions (from gaTrafficSnapshots) ---
+    const sumTotal = (from: string, to: string) => app.db
+      .select({ sessions: sql<number>`COALESCE(SUM(${gaTrafficSnapshots.sessions}), 0)` })
+      .from(gaTrafficSnapshots)
+      .where(and(eq(gaTrafficSnapshots.projectId, project.id), sql`${gaTrafficSnapshots.date} >= ${from}`, sql`${gaTrafficSnapshots.date} < ${to}`))
+      .get()
+
+    // --- Organic sessions (from gaTrafficSnapshots) ---
+    const sumOrganic = (from: string, to: string) => app.db
+      .select({ sessions: sql<number>`COALESCE(SUM(${gaTrafficSnapshots.organicSessions}), 0)` })
+      .from(gaTrafficSnapshots)
+      .where(and(eq(gaTrafficSnapshots.projectId, project.id), sql`${gaTrafficSnapshots.date} >= ${from}`, sql`${gaTrafficSnapshots.date} < ${to}`))
+      .get()
+
+    // --- AI sessions (deduped: MAX per date+source+medium across dimensions, then SUM) ---
+    const sumAi = (from: string, to: string) => app.db
+      .select({ sessions: sql<number>`COALESCE(SUM(max_sessions), 0)` })
+      .from(sql`(
+        SELECT date, source, medium, MAX(sessions) AS max_sessions
+        FROM ga_ai_referrals
+        WHERE project_id = ${project.id} AND date >= ${from} AND date < ${to}
+        GROUP BY date, source, medium
+      )`)
+      .get()
+
+    // --- Social sessions ---
+    const sumSocial = (from: string, to: string) => app.db
+      .select({ sessions: sql<number>`COALESCE(SUM(${gaSocialReferrals.sessions}), 0)` })
+      .from(gaSocialReferrals)
+      .where(and(eq(gaSocialReferrals.projectId, project.id), sql`${gaSocialReferrals.date} >= ${from}`, sql`${gaSocialReferrals.date} < ${to}`))
+      .get()
+
+    const todayStr = fmt(today)
+
+    const buildTrend = (sum: (from: string, to: string) => { sessions: number } | undefined) => {
+      const c7 = sum(daysAgo(7), todayStr)?.sessions ?? 0
+      const p7 = sum(daysAgo(14), daysAgo(7))?.sessions ?? 0
+      const c30 = sum(daysAgo(30), todayStr)?.sessions ?? 0
+      const p30 = sum(daysAgo(60), daysAgo(30))?.sessions ?? 0
+      return { sessions7d: c7, sessionsPrev7d: p7, trend7dPct: pct(c7, p7), sessions30d: c30, sessionsPrev30d: p30, trend30dPct: pct(c30, p30) }
+    }
+
+    // --- Biggest movers (AI) ---
+    const aiSourceCurrent = app.db
+      .select({ source: sql<string>`source`, sessions: sql<number>`COALESCE(SUM(max_sessions), 0)` })
+      .from(sql`(
+        SELECT date, source, medium, MAX(sessions) AS max_sessions
+        FROM ga_ai_referrals
+        WHERE project_id = ${project.id} AND date >= ${daysAgo(7)} AND date < ${todayStr}
+        GROUP BY date, source, medium
+      )`)
+      .groupBy(sql`source`)
+      .all()
+
+    const aiSourcePrev = app.db
+      .select({ source: sql<string>`source`, sessions: sql<number>`COALESCE(SUM(max_sessions), 0)` })
+      .from(sql`(
+        SELECT date, source, medium, MAX(sessions) AS max_sessions
+        FROM ga_ai_referrals
+        WHERE project_id = ${project.id} AND date >= ${daysAgo(14)} AND date < ${daysAgo(7)}
+        GROUP BY date, source, medium
+      )`)
+      .groupBy(sql`source`)
+      .all()
+
+    const findBiggestMover = (
+      current: Array<{ source: string; sessions: number }>,
+      prev: Array<{ source: string; sessions: number }>,
+    ) => {
+      const prevMap = new Map(prev.map((r) => [r.source, r.sessions]))
+      let mover: { source: string; sessions7d: number; sessionsPrev7d: number; changePct: number } | null = null
+      let maxDelta = 0
+      for (const row of current) {
+        const p = prevMap.get(row.source) ?? 0
+        const delta = Math.abs(row.sessions - p)
+        if (delta > maxDelta) {
+          maxDelta = delta
+          mover = { source: row.source, sessions7d: row.sessions, sessionsPrev7d: p, changePct: pct(row.sessions, p) ?? (row.sessions > 0 ? 100 : 0) }
+        }
+      }
+      return mover
+    }
+
+    // --- Biggest movers (Social) ---
+    const socialSourceCurrent = app.db
+      .select({ source: gaSocialReferrals.source, sessions: sql<number>`SUM(${gaSocialReferrals.sessions})` })
+      .from(gaSocialReferrals)
+      .where(and(eq(gaSocialReferrals.projectId, project.id), sql`${gaSocialReferrals.date} >= ${daysAgo(7)}`, sql`${gaSocialReferrals.date} < ${todayStr}`))
+      .groupBy(gaSocialReferrals.source)
+      .all()
+
+    const socialSourcePrev = app.db
+      .select({ source: gaSocialReferrals.source, sessions: sql<number>`SUM(${gaSocialReferrals.sessions})` })
+      .from(gaSocialReferrals)
+      .where(and(eq(gaSocialReferrals.projectId, project.id), sql`${gaSocialReferrals.date} >= ${daysAgo(14)}`, sql`${gaSocialReferrals.date} < ${daysAgo(7)}`))
+      .groupBy(gaSocialReferrals.source)
+      .all()
+
+    return {
+      total: buildTrend(sumTotal),
+      organic: buildTrend(sumOrganic),
+      ai: buildTrend(sumAi),
+      social: buildTrend(sumSocial),
+      aiBiggestMover: findBiggestMover(aiSourceCurrent, aiSourcePrev),
+      socialBiggestMover: findBiggestMover(socialSourceCurrent, socialSourcePrev),
+    }
+  })
+
   // GET /projects/:name/ga/session-history
   app.get<{
     Params: { name: string }

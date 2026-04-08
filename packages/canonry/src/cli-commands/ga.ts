@@ -127,10 +127,16 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['ga', 'attribution'],
-    usage: 'canonry ga attribution <project> [--format json]',
+    usage: 'canonry ga attribution <project> [--trend] [--format json]',
+    options: {
+      trend: { type: 'boolean', default: false },
+    },
     run: async (input) => {
-      const project = requireProject(input, 'ga.attribution', 'canonry ga attribution <project> [--format json]')
-      await gaAttribution(project, input.format)
+      const project = requireProject(input, 'ga.attribution', 'canonry ga attribution <project> [--trend] [--format json]')
+      await gaAttribution(project, {
+        trend: input.values.trend === true,
+        format: input.format,
+      })
     },
   },
   {

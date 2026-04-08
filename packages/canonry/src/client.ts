@@ -30,6 +30,7 @@ import type {
   GaTrafficResponse,
   GaCoverageResponse,
   GaSocialReferralTrendResponse,
+  GaAttributionTrendResponse,
   GA4AiReferralHistoryEntry,
   GA4SocialReferralHistoryEntry,
   GA4SessionHistoryEntry,
@@ -576,6 +577,10 @@ export class ApiClient {
 
   async gaSocialReferralTrend(project: string): Promise<GaSocialReferralTrendResponse> {
     return this.request<GaSocialReferralTrendResponse>('GET', `/projects/${encodeURIComponent(project)}/ga/social-referral-trend`)
+  }
+
+  async gaAttributionTrend(project: string): Promise<GaAttributionTrendResponse> {
+    return this.request<GaAttributionTrendResponse>('GET', `/projects/${encodeURIComponent(project)}/ga/attribution-trend`)
   }
 
   async gaSessionHistory(project: string): Promise<GA4SessionHistoryEntry[]> {

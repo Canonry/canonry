@@ -1,4 +1,4 @@
-import type { GaConnectResponse, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GaSocialReferralTrendResponse, GA4AiReferralHistoryEntry, GA4SocialReferralHistoryEntry } from '@ainyc/canonry-contracts'
+import type { GaConnectResponse, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GaSocialReferralTrendResponse, GaAttributionTrendResponse, GA4AiReferralHistoryEntry, GA4SocialReferralHistoryEntry } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError } from '../cli-error.js'
 
@@ -362,11 +362,72 @@ export async function gaSocialReferralSummary(project: string, opts?: { trend?: 
   }
 }
 
-export async function gaAttribution(project: string, format?: string): Promise<void> {
+export async function gaAttribution(project: string, opts?: { trend?: boolean; format?: string }): Promise<void> {
   const client = getClient()
   const traffic: GaTrafficResponse = await client.gaTraffic(project)
 
-  if (format === 'json') {
+  const fmtTrend = (pct: number | null) => pct === null ? 'n/a' : `${pct >= 0 ? '+' : ''}${pct}%`
+
+  if (opts?.trend) {
+    const trend: GaAttributionTrendResponse = await client.gaAttributionTrend(project)
+
+    if (opts.format === 'json') {
+      console.log(JSON.stringify({
+        totalSessions: traffic.totalSessions,
+        totalUsers: traffic.totalUsers,
+        organicSessions: traffic.totalOrganicSessions,
+        aiSessions: traffic.aiSessionsDeduped,
+        aiUsers: traffic.aiUsersDeduped,
+        socialSessions: traffic.socialSessions,
+        socialUsers: traffic.socialUsers,
+        aiSharePct: traffic.totalSessions > 0 ? Math.round((traffic.aiSessionsDeduped / traffic.totalSessions) * 100) : 0,
+        socialSharePct: traffic.totalSessions > 0 ? Math.round((traffic.socialSessions / traffic.totalSessions) * 100) : 0,
+        organicSharePct: traffic.totalSessions > 0 ? Math.round((traffic.totalOrganicSessions / traffic.totalSessions) * 100) : 0,
+        aiReferrals: traffic.aiReferrals,
+        socialReferrals: traffic.socialReferrals,
+        trend,
+      }, null, 2))
+      return
+    }
+
+    if (traffic.totalSessions === 0) {
+      console.log('No GA4 traffic data. Run "canonry ga sync <project>" first.')
+      return
+    }
+
+    const pct = (n: number) => traffic.totalSessions > 0 ? Math.round((n / traffic.totalSessions) * 100) : 0
+
+    console.log(`GA4 Attribution Overview for "${project}"\n`)
+    console.log(`  Total Sessions:   ${traffic.totalSessions}`)
+    console.log(`  Total Users:      ${traffic.totalUsers}`)
+    console.log()
+    console.log('  CHANNEL BREAKDOWN                  7d trend     30d trend')
+    console.log(`    Organic Search: ${String(traffic.totalOrganicSessions).padEnd(6)} (${String(pct(traffic.totalOrganicSessions)).padStart(2)}%)    ${fmtTrend(trend.organic.trend7dPct).padEnd(12)} ${fmtTrend(trend.organic.trend30dPct)}`)
+    console.log(`    AI Referrals:   ${String(traffic.aiSessionsDeduped).padEnd(6)} (${String(pct(traffic.aiSessionsDeduped)).padStart(2)}%)    ${fmtTrend(trend.ai.trend7dPct).padEnd(12)} ${fmtTrend(trend.ai.trend30dPct)}`)
+    console.log(`    Social:         ${String(traffic.socialSessions).padEnd(6)} (${String(pct(traffic.socialSessions)).padStart(2)}%)    ${fmtTrend(trend.social.trend7dPct).padEnd(12)} ${fmtTrend(trend.social.trend30dPct)}`)
+    const otherSessions = traffic.totalSessions - traffic.totalOrganicSessions - traffic.aiSessionsDeduped - traffic.socialSessions
+    if (otherSessions > 0) {
+      console.log(`    Other:          ${String(otherSessions).padEnd(6)} (${String(pct(otherSessions)).padStart(2)}%)`)
+    }
+    console.log(`    ─────────────────────────────────────────────────────`)
+    console.log(`    Total:          ${String(traffic.totalSessions).padEnd(6)}         ${fmtTrend(trend.total.trend7dPct).padEnd(12)} ${fmtTrend(trend.total.trend30dPct)}`)
+
+    if (trend.aiBiggestMover) {
+      const m = trend.aiBiggestMover
+      console.log(`\n  AI Mover:     ${m.source} (${m.changePct >= 0 ? '+' : ''}${m.changePct}%, ${m.sessionsPrev7d}→${m.sessions7d} sessions/7d)`)
+    }
+    if (trend.socialBiggestMover) {
+      const m = trend.socialBiggestMover
+      console.log(`  Social Mover: ${m.source} (${m.changePct >= 0 ? '+' : ''}${m.changePct}%, ${m.sessionsPrev7d}→${m.sessions7d} sessions/7d)`)
+    }
+
+    if (traffic.lastSyncedAt) {
+      console.log(`\n  Last synced: ${traffic.lastSyncedAt}`)
+    }
+    return
+  }
+
+  if (opts?.format === 'json') {
     console.log(JSON.stringify({
       totalSessions: traffic.totalSessions,
       totalUsers: traffic.totalUsers,

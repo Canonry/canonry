@@ -261,7 +261,7 @@ canonry ga coverage <project>                    # indexed pages with traffic ov
 canonry ga ai-referral-history <project>         # daily AI referral history by source
 canonry ga social-referral-history <project>     # daily social referral history by source
 canonry ga social-referral-summary <project> [--trend]  # one-line social summary + optional trend
-canonry ga attribution <project>                 # unified channel attribution overview
+canonry ga attribution <project> [--trend]        # unified channel attribution overview + optional trends
 ```
 
 ## CDP / Browser Provider

@@ -107,6 +107,26 @@ export interface GaSocialReferralTrendResponse {
   biggestMover: { source: string; sessions7d: number; sessionsPrev7d: number; changePct: number } | null
 }
 
+export interface GaChannelTrend {
+  sessions7d: number
+  sessionsPrev7d: number
+  trend7dPct: number | null
+  sessions30d: number
+  sessionsPrev30d: number
+  trend30dPct: number | null
+}
+
+export interface GaAttributionTrendResponse {
+  organic: GaChannelTrend
+  ai: GaChannelTrend
+  social: GaChannelTrend
+  total: GaChannelTrend
+  /** AI source with largest absolute session change in 7d vs prev 7d */
+  aiBiggestMover: { source: string; sessions7d: number; sessionsPrev7d: number; changePct: number } | null
+  /** Social source with largest absolute session change in 7d vs prev 7d */
+  socialBiggestMover: { source: string; sessions7d: number; sessionsPrev7d: number; changePct: number } | null
+}
+
 export interface GaTrafficResponse {
   totalSessions: number
   totalOrganicSessions: number
