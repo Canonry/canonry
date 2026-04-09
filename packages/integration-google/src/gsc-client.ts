@@ -70,7 +70,20 @@ function validateDate(date: string, label: string): void {
 }
 
 function gscClientLog(level: 'info' | 'error', action: string, ctx?: Record<string, unknown>): void {
-  const entry = { ts: new Date().toISOString(), level, module: 'GscClient', action, ...ctx }
+  const sanitizedCtx = { ...ctx }
+  if (sanitizedCtx.url && typeof sanitizedCtx.url === 'string') {
+    try {
+      const url = new URL(sanitizedCtx.url)
+      // Redact site URL from path if it matches GSC pattern
+      if (url.pathname.includes('/sites/')) {
+        url.pathname = url.pathname.replace(/\/sites\/[^/]+/, '/sites/[REDACTED]')
+      }
+      sanitizedCtx.url = url.toString()
+    } catch {
+      // Keep as is if not a valid URL
+    }
+  }
+  const entry = { ts: new Date().toISOString(), level, module: 'GscClient', action, ...sanitizedCtx }
   const stream = level === 'error' ? process.stderr : process.stdout
   stream.write(JSON.stringify(entry) + '\n')
 }

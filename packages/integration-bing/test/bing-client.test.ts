@@ -21,9 +21,9 @@ describe('getSites', () => {
       ],
     }
 
-    globalThis.fetch = async (url: string | URL | Request) => {
+    globalThis.fetch = async (url: string | URL | Request, init?: RequestInit) => {
       expect(String(url)).toContain(`${BING_WMT_API_BASE}/GetUserSites`)
-      expect(String(url)).toContain('apikey=test-key')
+      expect(init?.headers).toMatchObject({ 'ApiKey': 'test-key' })
       return new Response(JSON.stringify(mockResponse), { status: 200 })
     }
 

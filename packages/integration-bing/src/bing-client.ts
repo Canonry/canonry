@@ -52,18 +52,29 @@ function validateUrls(urls: string[]): void {
 }
 
 function bingClientLog(level: 'info' | 'error', action: string, ctx?: Record<string, unknown>): void {
-  const entry = { ts: new Date().toISOString(), level, module: 'BingClient', action, ...ctx }
+  const sanitizedCtx = { ...ctx }
+  if (sanitizedCtx.endpoint && typeof sanitizedCtx.endpoint === 'string') {
+    try {
+      const url = new URL(sanitizedCtx.endpoint, 'https://dummy.com')
+      if (url.searchParams.has('siteUrl')) url.searchParams.set('siteUrl', '[REDACTED]')
+      if (url.searchParams.has('url')) url.searchParams.set('url', '[REDACTED]')
+      sanitizedCtx.endpoint = url.pathname + url.search
+    } catch {
+      // Not a parseable URL fragment, keep as is
+    }
+  }
+  const entry = { ts: new Date().toISOString(), level, module: 'BingClient', action, ...sanitizedCtx }
   const stream = level === 'error' ? process.stderr : process.stdout
   stream.write(JSON.stringify(entry) + '\n')
 }
 
 async function bingFetch<T>(apiKey: string, endpoint: string, opts?: { method?: string; body?: unknown }): Promise<T> {
   const method = opts?.method ?? 'GET'
-  const separator = endpoint.includes('?') ? '&' : '?'
-  const url = `${BING_WMT_API_BASE}/${endpoint}${separator}apikey=${encodeURIComponent(apiKey)}`
+  const url = `${BING_WMT_API_BASE}/${endpoint}`
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json; charset=utf-8',
+    'ApiKey': apiKey,
   }
 
   const res = await fetch(url, {

@@ -134,7 +134,8 @@ async function fetchJson<T>(
   path: string,
   init?: RequestInit,
 ): Promise<{ body: T; response: Response }> {
-  const res = await fetch(`${normalizeSiteUrl(siteUrl)}${path}`, {
+  const url = `${normalizeSiteUrl(siteUrl)}${path}`
+  const res = await fetch(url, {
     ...init,
     headers: {
       'Authorization': `Basic ${encodeBasicAuth(connection.username, connection.appPassword)}`,
@@ -155,7 +156,9 @@ async function fetchJson<T>(
 
   if (!res.ok) {
     const text = await res.text().catch(() => '')
-    throw new WordpressApiError('UPSTREAM_ERROR', `WordPress API error (${res.status}): ${text || res.statusText}`, res.status)
+    // Sanitize error message to avoid leaking potentially sensitive site details from upstream
+    const truncated = text.length <= 500 ? text : `${text.slice(0, 500)}... [truncated]`
+    throw new WordpressApiError('UPSTREAM_ERROR', `WordPress API error (${res.status}): ${truncated || res.statusText}`, res.status)
   }
 
   return {
