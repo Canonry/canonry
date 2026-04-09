@@ -5,11 +5,7 @@ import type { HealthSnapshot, ServiceStatus } from '../view-models.js'
 import { queryKeys } from './query-keys.js'
 
 async function fetchHealth(): Promise<HealthSnapshot> {
-  // Use the basePath-prefixed health URL so the request hits the canonry server
-  // even when served under a sub-path (e.g. /canonry/). A hardcoded '/health'
-  // would miss the Caddy proxy rule and land on the wrong backend.
-  const healthUrl = _BASE_PREFIX ? `${_BASE_PREFIX}/health` : '/health'
-  const apiStatus = await fetchServiceStatus(healthUrl, 'API')
+  const apiStatus = await fetchServiceStatus('/health', 'API')
   const workerStatus: ServiceStatus = apiStatus.state === 'ok'
     ? { label: 'Runner', state: 'ok', detail: 'In-process job runner' }
     : { label: 'Runner', state: apiStatus.state, detail: 'Depends on API' }

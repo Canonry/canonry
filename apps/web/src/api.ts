@@ -441,11 +441,7 @@ export function loginWithApiKey(apiKey: string): Promise<ApiSessionState> {
 }
 
 export async function fetchHealthCheck(): Promise<{ status: string }> {
-  const basePath = window.__CANONRY_CONFIG__?.basePath || ''
-  const url = `${basePath.replace(/\/$/, '')}/health`
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`Health check failed: ${res.status}`)
-  return res.json() as Promise<{ status: string }>
+  return apiFetch('/health')
 }
 
 export function updateProviderConfig(provider: string, body: {
@@ -1054,19 +1050,9 @@ export function fetchLatestHealth(project: string): Promise<HealthSnapshotDto> {
 
 import type { ServiceStatus } from './view-models.js'
 
-export async function fetchServiceStatus(url: string, label: string): Promise<ServiceStatus> {
+export async function fetchServiceStatus(path: string, label: string): Promise<ServiceStatus> {
   try {
-    const response = await fetch(url)
-
-    if (!response.ok) {
-      return {
-        label,
-        state: 'error',
-        detail: `HTTP ${response.status}`,
-      }
-    }
-
-    const payload = (await response.json()) as Record<string, unknown>
+    const payload = await apiFetch<Record<string, unknown>>(path)
     const version = typeof payload.version === 'string' ? payload.version : 'unknown'
     const databaseConfigured =
       typeof payload.databaseUrlConfigured === 'boolean' ? payload.databaseUrlConfigured : undefined
