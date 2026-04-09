@@ -188,6 +188,7 @@ export class ApiClient {
     const serializedBody = body != null ? JSON.stringify(body) : undefined
     const headers: Record<string, string> = {
       'Authorization': `Bearer ${this.apiKey}`,
+      'Accept': 'application/json',
       ...(serializedBody != null ? { 'Content-Type': 'application/json' } : {}),
     }
 

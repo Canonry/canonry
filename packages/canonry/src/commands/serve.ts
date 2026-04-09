@@ -21,17 +21,21 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
   // Guard against double-fire: rapid Ctrl+C or concurrent SIGTERM+SIGINT
   // would call app.close() multiple times, causing unhandled rejections.
   let shuttingDown = false
-  const shutdown = (): void => {
+  const shutdown = (signal: string): void => {
     if (shuttingDown) return
     shuttingDown = true
+    if (format === 'text') {
+      console.log(`\nReceived ${signal}, stopping server...`)
+    }
     app.close().then(() => {
       process.exit(0)
-    }).catch(() => {
+    }).catch((err) => {
+      console.error('Error during shutdown:', err)
       process.exit(1)
     })
   }
-  process.on('SIGTERM', shutdown)
-  process.on('SIGINT', shutdown)
+  process.on('SIGTERM', () => shutdown('SIGTERM'))
+  process.on('SIGINT', () => shutdown('SIGINT'))
 
   try {
     await app.listen({ host, port })

@@ -57,13 +57,13 @@ export async function triggerRun(project: string, opts?: { provider?: string; wa
     }
 
     if (opts?.wait) {
-      const pending = locationRuns.filter(r => r.id && r.status !== 'conflict')
+      const pending = locationRuns.filter(r => r.id && r.status !== 'conflict' && !TERMINAL_STATUSES.has(r.status))
       if (pending.length > 0) {
         process.stderr.write(`Waiting for ${pending.length} run(s)`)
         await Promise.all(
           pending.map(async (r) => {
             const final = await pollRun(client, r.id)
-            r.status = (final as { status: string }).status
+            r.status = final.status
           }),
         )
         process.stderr.write('\n')
@@ -79,13 +79,24 @@ export async function triggerRun(project: string, opts?: { provider?: string; wa
 
   const run = response as { id: string; status: string; kind: string }
 
-  if (opts?.wait) {
+  if (opts?.wait && run.id && !TERMINAL_STATUSES.has(run.status)) {
     process.stderr.write(`Run ${run.id} started`)
     const result = await pollRun(client, run.id)
     if (opts?.format === 'json') {
       console.log(JSON.stringify(result, null, 2))
     } else {
       process.stderr.write('\n')
+      printRunDetail(result)
+    }
+    return
+  }
+
+  if (opts?.wait && (TERMINAL_STATUSES.has(run.status) || !run.id)) {
+    // If it's already finished or failed to start, don't poll
+    const result = run.id ? await client.getRun(run.id) : run as unknown as RunDetailDto
+    if (opts?.format === 'json') {
+      console.log(JSON.stringify(result, null, 2))
+    } else {
       printRunDetail(result)
     }
     return
@@ -148,7 +159,7 @@ export async function triggerRunAll(opts?: { provider?: string; wait?: boolean; 
       process.stderr.write(`Waiting for ${pending.length} run(s)`)
       await Promise.all(pending.map(async (r) => {
         const final = await pollRun(client, r.runId)
-        r.status = (final as { status: string }).status
+        r.status = final.status
       }))
       process.stderr.write('\n')
     }

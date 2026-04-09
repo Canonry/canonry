@@ -2,10 +2,10 @@ import { createApiClient } from '../client.js'
 
 export async function listInsights(
   project: string,
-  opts: { dismissed?: boolean; format?: string },
+  opts: { dismissed?: boolean; runId?: string; format?: string },
 ): Promise<void> {
   const client = createApiClient()
-  const insights = await client.getInsights(project, { dismissed: opts.dismissed })
+  const insights = await client.getInsights(project, { dismissed: opts.dismissed, runId: opts.runId })
 
   if (opts.format === 'json') {
     console.log(JSON.stringify(insights, null, 2))

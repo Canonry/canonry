@@ -1,20 +1,22 @@
 import { listInsights, dismissInsight } from '../commands/insights.js'
 import { showHealth } from '../commands/health-cmd.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
-import { requireProject, requirePositional, getString } from '../cli-command-helpers.js'
+import { requireProject, requirePositional, getString, parseIntegerOption } from '../cli-command-helpers.js'
 
 export const INTELLIGENCE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['insights'],
-    usage: 'canonry insights <project> [--dismissed] [--format json]',
+    usage: 'canonry insights <project> [--dismissed] [--run-id <id>] [--format json]',
     options: {
       dismissed: { type: 'boolean' },
+      'run-id': { type: 'string' },
     },
     run: async (input) => {
-      const usage = 'canonry insights <project> [--dismissed] [--format json]'
+      const usage = 'canonry insights <project> [--dismissed] [--run-id <id>] [--format json]'
       const project = requireProject(input, 'insights', usage)
       const dismissed = input.values.dismissed === true
-      await listInsights(project, { dismissed, format: input.format })
+      const runId = getString(input.values, 'run-id')
+      await listInsights(project, { dismissed, runId, format: input.format })
     },
   },
   {
@@ -39,8 +41,11 @@ export const INTELLIGENCE_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const usage = 'canonry health <project> [--history] [--limit <n>] [--format json]'
       const project = requireProject(input, 'health', usage)
       const history = input.values.history === true
-      const limitStr = getString(input.values, 'limit')
-      const limit = limitStr ? Number.parseInt(limitStr, 10) : undefined
+      const limit = parseIntegerOption(input, 'limit', {
+        command: 'health',
+        usage,
+        message: '--limit must be an integer',
+      })
       await showHealth(project, { history, limit, format: input.format })
     },
   },
