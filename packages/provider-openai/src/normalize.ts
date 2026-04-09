@@ -150,15 +150,25 @@ function extractResponseText(response: OpenAI.Responses.Response): string {
   }
 }
 
+function extractNestedApiResponse(rawResponse: Record<string, unknown>): Record<string, unknown> | null {
+  const apiResponse = rawResponse.apiResponse
+  if (apiResponse !== null && typeof apiResponse === 'object' && !Array.isArray(apiResponse)) {
+    return apiResponse as Record<string, unknown>
+  }
+  return null
+}
+
 function extractGroundingSourcesFromRaw(rawResponse: Record<string, unknown>): GroundingSource[] {
   const sources: GroundingSource[] = []
   const seen = new Set<string>()
   try {
+    const nested = extractNestedApiResponse(rawResponse)
+    const effectiveResponse = nested ?? rawResponse
     // OpenAI's web-search guide returns citations in the final message, and the official
     // SDK types model those as `output_text.annotations` entries with `type: "url_citation"`.
     // Docs: https://developers.openai.com/api/docs/guides/tools-web-search
     // SDK: https://github.com/openai/openai-python/blob/main/src/openai/types/responses/response_output_text.py
-    const output = rawResponse.output as Array<{
+    const output = effectiveResponse.output as Array<{
       type?: string
       content?: Array<{
         type?: string
@@ -197,12 +207,14 @@ function extractGroundingSourcesFromRaw(rawResponse: Record<string, unknown>): G
 function extractSearchQueriesFromRaw(rawResponse: Record<string, unknown>): string[] {
   const queries = new Set<string>()
   try {
+    const nested = extractNestedApiResponse(rawResponse)
+    const effectiveResponse = nested ?? rawResponse
     // The official Responses SDK types put search telemetry on `web_search_call.action`
     // rather than on the top-level item. `query` is deprecated in favor of `queries`, so
     // we accept both when reparsing stored payloads.
     // Docs: https://developers.openai.com/api/docs/guides/tools-web-search
     // SDK: https://github.com/openai/openai-python/blob/main/src/openai/types/responses/response_function_web_search.py
-    const output = rawResponse.output as Array<{
+    const output = effectiveResponse.output as Array<{
       type?: string
       action?: {
         type?: string
@@ -234,7 +246,9 @@ function extractSearchQueriesFromRaw(rawResponse: Record<string, unknown>): stri
 
 function extractAnswerTextFromRaw(rawResponse: Record<string, unknown>): string {
   try {
-    const output = rawResponse.output as Array<{
+    const nested = extractNestedApiResponse(rawResponse)
+    const effectiveResponse = nested ?? rawResponse
+    const output = effectiveResponse.output as Array<{
       type: string
       content?: Array<{ type: string; text?: string }>
     }> | undefined

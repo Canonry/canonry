@@ -181,9 +181,19 @@ function buildPrompt(keyword: string, location?: GeminiTrackedQueryInput['locati
   return keyword
 }
 
+function extractNestedApiResponse(rawResponse: Record<string, unknown>): Record<string, unknown> | null {
+  const apiResponse = rawResponse.apiResponse
+  if (apiResponse !== null && typeof apiResponse === 'object' && !Array.isArray(apiResponse)) {
+    return apiResponse as Record<string, unknown>
+  }
+  return null
+}
+
 function extractAnswerText(rawResponse: Record<string, unknown>): string {
   try {
-    const candidates = rawResponse.candidates as Array<{
+    const nested = extractNestedApiResponse(rawResponse)
+    const effectiveResponse = nested ?? rawResponse
+    const candidates = effectiveResponse.candidates as Array<{
       content?: { parts?: Array<{ text?: string }> }
     }> | undefined
 
@@ -200,12 +210,14 @@ function extractAnswerText(rawResponse: Record<string, unknown>): string {
 
 function extractGroundingMetadataFromRaw(rawResponse: Record<string, unknown>): GroundingSource[] {
   try {
+    const nested = extractNestedApiResponse(rawResponse)
+    const effectiveResponse = nested ?? rawResponse
     // Google documents `groundingChunks` as the pool of retrieved sources and
     // `groundingSupports` as the mapping from answer segments to
     // `groundingChunkIndices`, which is the basis for inline citations.
     // Docs: https://ai.google.dev/gemini-api/docs/google-search
     // SDK: https://github.com/googleapis/js-genai/blob/main/src/types.ts
-    const candidates = rawResponse.candidates as Array<{
+    const candidates = effectiveResponse.candidates as Array<{
       groundingMetadata?: {
         groundingChunks?: Array<{
           web?: {
@@ -259,7 +271,9 @@ function extractGroundingMetadataFromRaw(rawResponse: Record<string, unknown>): 
 
 function extractSearchQueriesFromRaw(rawResponse: Record<string, unknown>): string[] {
   try {
-    const candidates = rawResponse.candidates as Array<{
+    const nested = extractNestedApiResponse(rawResponse)
+    const effectiveResponse = nested ?? rawResponse
+    const candidates = effectiveResponse.candidates as Array<{
       groundingMetadata?: {
         webSearchQueries?: string[]
       }

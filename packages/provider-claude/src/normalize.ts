@@ -181,16 +181,26 @@ function extractTextFromResponse(response: Anthropic.Message): string {
   }
 }
 
+function extractNestedApiResponse(rawResponse: Record<string, unknown>): Record<string, unknown> | null {
+  const apiResponse = rawResponse.apiResponse
+  if (apiResponse !== null && typeof apiResponse === 'object' && !Array.isArray(apiResponse)) {
+    return apiResponse as Record<string, unknown>
+  }
+  return null
+}
+
 function extractGroundingSourcesFromRaw(rawResponse: Record<string, unknown>): GroundingSource[] {
   const sources: GroundingSource[] = []
   const seen = new Set<string>()
   try {
+    const nested = extractNestedApiResponse(rawResponse)
+    const effectiveResponse = nested ?? rawResponse
     // Anthropic distinguishes retrieved `web_search_result` entries from final citations on
     // `text.citations` entries with `type: "web_search_result_location"`, so we only count
     // the latter as citation evidence.
     // Docs: https://docs.claude.com/en/docs/agents-and-tools/tool-use/web-search-tool
     // SDK: https://github.com/anthropics/anthropic-sdk-typescript/blob/main/src/resources/messages/messages.ts
-    const content = rawResponse.content as Array<{
+    const content = effectiveResponse.content as Array<{
       type?: string
       citations?: Array<{
         type?: string
@@ -222,11 +232,13 @@ function extractGroundingSourcesFromRaw(rawResponse: Record<string, unknown>): G
 function extractSearchQueriesFromRaw(rawResponse: Record<string, unknown>): string[] {
   const queries = new Set<string>()
   try {
+    const nested = extractNestedApiResponse(rawResponse)
+    const effectiveResponse = nested ?? rawResponse
     // Anthropic's web-search response examples show the executed search on the preceding
     // `server_tool_use.input.query` block, so we recover telemetry from that block instead
     // of from `web_search_tool_result`.
     // Docs: https://docs.claude.com/en/docs/agents-and-tools/tool-use/web-search-tool
-    const content = rawResponse.content as Array<{
+    const content = effectiveResponse.content as Array<{
       type?: string
       name?: string
       input?: {
@@ -258,7 +270,9 @@ function extractSearchQueriesFromRaw(rawResponse: Record<string, unknown>): stri
 
 function extractAnswerTextFromRaw(rawResponse: Record<string, unknown>): string {
   try {
-    const content = rawResponse.content as Array<{
+    const nested = extractNestedApiResponse(rawResponse)
+    const effectiveResponse = nested ?? rawResponse
+    const content = effectiveResponse.content as Array<{
       type: string
       text?: string
     }> | undefined
@@ -280,12 +294,14 @@ function extractAnswerTextFromRaw(rawResponse: Record<string, unknown>): string 
 function extractWebSearchToolErrors(rawResponse: Record<string, unknown>): string[] {
   const errors = new Set<string>()
   try {
+    const nested = extractNestedApiResponse(rawResponse)
+    const effectiveResponse = nested ?? rawResponse
     // Anthropic documents that web-search failures can still arrive in a successful message
     // response as `web_search_tool_result` blocks whose `content` is a
     // `web_search_tool_result_error`.
     // Docs: https://docs.claude.com/en/docs/agents-and-tools/tool-use/web-search-tool
     // SDK: https://github.com/anthropics/anthropic-sdk-typescript/blob/main/src/resources/messages/messages.ts
-    const content = rawResponse.content as Array<{
+    const content = effectiveResponse.content as Array<{
       type?: string
       content?: unknown
     }> | undefined
