@@ -149,9 +149,6 @@ const MIGRATIONS = [
     domain          TEXT NOT NULL,
     connection_type TEXT NOT NULL,
     property_id     TEXT,
-    access_token    TEXT,
-    refresh_token   TEXT,
-    token_expires_at TEXT,
     scopes          TEXT NOT NULL DEFAULT '[]',
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
@@ -259,13 +256,11 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_bing_keyword_project ON bing_keyword_stats(project_id)`,
   `CREATE INDEX IF NOT EXISTS idx_bing_keyword_query ON bing_keyword_stats(query)`,
   // v13: Google Analytics 4 — ga_connections table (service account auth)
-  // WARNING: private_key is authentication material; consider storing in config.yaml per CLAUDE.md
   `CREATE TABLE IF NOT EXISTS ga_connections (
     id            TEXT PRIMARY KEY,
     project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     property_id   TEXT NOT NULL,
     client_email  TEXT NOT NULL,
-    private_key   TEXT NOT NULL,
     created_at    TEXT NOT NULL,
     updated_at    TEXT NOT NULL
   )`,
