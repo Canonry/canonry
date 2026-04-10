@@ -18,7 +18,7 @@ Drizzle ORM schema, migrations, and database client. SQLite locally (via better-
 
 - **Core domain**: projects, keywords, competitors, runs, querySnapshots, auditLog
 - **Scheduling**: schedules, notifications, webhooks
-- **Integrations**: googleConnections, gscData, urlInspections, gscCoverage, gscTraffic, bingConnections, bingUrlInspections, bingKeywordStats, ga4Connections, ga4TrafficSnapshots, ga4AiReferrals, ga4Summaries, gaSocialReferrals
+- **Integrations**: googleConnections (metadata only — credentials in config.yaml), gscData, urlInspections, gscCoverage, gscTraffic, bingConnections, bingUrlInspections, bingKeywordStats, ga4Connections (metadata only — credentials in config.yaml), ga4TrafficSnapshots, ga4AiReferrals, ga4Summaries, gaSocialReferrals
 - **System**: apiKeys, usageCounters
 
 ## Patterns

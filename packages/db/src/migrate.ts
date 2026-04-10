@@ -402,6 +402,11 @@ const MIGRATIONS = [
     created_at      TEXT NOT NULL
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_bing_coverage_snap_project_date ON bing_coverage_snapshots(project_id, date)`,
+
+  // v27: Credential columns removed from Drizzle schema — credentials now live in config.yaml.
+  // Physical columns (access_token, refresh_token, token_expires_at on google_connections;
+  // private_key on ga_connections) intentionally retained in DB for one-time migration in server.ts.
+  // SQLite does not support DROP COLUMN; no SQL to execute.
 ]
 
 /**

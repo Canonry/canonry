@@ -141,10 +141,6 @@ export const googleConnections = sqliteTable('google_connections', {
   connectionType: text('connection_type').notNull(),
   propertyId: text('property_id'),
   sitemapUrl: text('sitemap_url'),
-  // WARNING: Authentication material should be stored in config.yaml per CLAUDE.md
-  accessToken: text('access_token'),
-  refreshToken: text('refresh_token'),
-  tokenExpiresAt: text('token_expires_at'),
   scopes: text('scopes').notNull().default('[]'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
@@ -269,8 +265,6 @@ export const gaConnections = sqliteTable('ga_connections', {
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   propertyId: text('property_id').notNull(),
   clientEmail: text('client_email').notNull(),
-  // WARNING: Authentication material should be stored in config.yaml per CLAUDE.md
-  privateKey: text('private_key').notNull(),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [
