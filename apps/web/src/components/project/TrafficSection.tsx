@@ -26,10 +26,11 @@ import {
   fetchGaTraffic,
   fetchGaAiReferralHistory,
   fetchGaSessionHistory,
+  fetchGaSocialReferralHistory,
   triggerGaSync,
   disconnectGa,
 } from '../../api.js'
-import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficPage, ApiGaTrafficReferral, ApiGaSocialReferral, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry } from '../../api.js'
+import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficPage, ApiGaTrafficReferral, ApiGaSocialReferral, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry } from '../../api.js'
 
 const SOURCE_COLORS = CHART_SERIES_COLORS
 
@@ -71,6 +72,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
   const [socialSortDir, setSocialSortDir] = useState<SortDir>('desc')
   const [aiHistory, setAiHistory] = useState<GA4AiReferralHistoryEntry[]>([])
   const [sessionHistory, setSessionHistory] = useState<GA4SessionHistoryEntry[]>([])
+  const [socialHistory, setSocialHistory] = useState<GA4SocialReferralHistoryEntry[]>([])
 
   function loadData(cancelled: { current: boolean }) {
     setLoading(true)
@@ -83,6 +85,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
             fetchGaTraffic(projectName),
             fetchGaAiReferralHistory(projectName).catch(() => [] as GA4AiReferralHistoryEntry[]),
             fetchGaSessionHistory(projectName).catch(() => [] as GA4SessionHistoryEntry[]),
+            fetchGaSocialReferralHistory(projectName).catch(() => [] as GA4SocialReferralHistoryEntry[]),
           ])
         }
         return null
@@ -93,10 +96,12 @@ export function TrafficSection({ projectName }: { projectName: string }) {
           setTraffic(result[0])
           setAiHistory(result[1])
           setSessionHistory(result[2])
+          setSocialHistory(result[3])
         } else {
           setTraffic(null)
           setAiHistory([])
           setSessionHistory([])
+          setSocialHistory([])
         }
         setLoading(false)
       })
@@ -122,14 +127,16 @@ export function TrafficSection({ projectName }: { projectName: string }) {
     try {
       const result = await triggerGaSync(projectName)
       setNotice(`Synced ${result.rowCount.toLocaleString()} page rows, ${result.aiReferralCount.toLocaleString()} AI and ${result.socialReferralCount.toLocaleString()} social referral rows (${result.days} days)`)
-      const [t, h, sh] = await Promise.all([
+      const [t, h, sh, soh] = await Promise.all([
         fetchGaTraffic(projectName),
         fetchGaAiReferralHistory(projectName).catch(() => [] as GA4AiReferralHistoryEntry[]),
         fetchGaSessionHistory(projectName).catch(() => [] as GA4SessionHistoryEntry[]),
+        fetchGaSocialReferralHistory(projectName).catch(() => [] as GA4SocialReferralHistoryEntry[]),
       ])
       setTraffic(t)
       setAiHistory(h)
       setSessionHistory(sh)
+      setSocialHistory(soh)
       const s = await fetchGaStatus(projectName)
       setStatus(s)
     } catch (err) {
@@ -217,6 +224,27 @@ export function TrafficSection({ projectName }: { projectName: string }) {
       return socialSortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number)
     })
   }, [traffic?.socialReferrals, socialSortKey, socialSortDir])
+
+  const { socialChartData, socialChartSources } = useMemo(() => {
+    const sources = [...new Set(socialHistory.map((r) => r.source))]
+    const byDate = new Map<string, Record<string, number>>()
+
+    for (const row of socialHistory) {
+      let entry = byDate.get(row.date)
+      if (!entry) {
+        entry = { _socialTotal: 0 }
+        byDate.set(row.date, entry)
+      }
+      entry[row.source] = (entry[row.source] ?? 0) + row.sessions
+      entry._socialTotal = (entry._socialTotal ?? 0) + row.sessions
+    }
+
+    const data = [...byDate.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, vals]) => ({ date, ...vals }))
+
+    return { socialChartData: data, socialChartSources: sources }
+  }, [socialHistory])
 
   // Keep this above the early returns so the hook order stays stable while the
   // component transitions from loading or disconnected to connected.
@@ -590,6 +618,75 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                 <InfoTooltip text="Tracks sessions classified as social traffic by GA4's default channel grouping (Organic Social and Paid Social). Google maintains the source-to-channel mapping." />
               </h2>
             </div>
+
+            {socialChartData.length > 0 && (
+              <Card className="surface-card p-5 mb-4">
+                <div className="mb-4 flex items-end justify-between">
+                  <div>
+                    <p className="eyebrow eyebrow-soft">Trend</p>
+                    <h3 className="text-sm font-semibold text-zinc-100">Social sessions over time</h3>
+                  </div>
+                </div>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={socialChartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+                      <XAxis
+                        dataKey="date"
+                        tick={CHART_AXIS_TICK}
+                        tickLine={false}
+                        axisLine={{ stroke: CHART_AXIS_STROKE }}
+                        tickFormatter={formatChartDateTick}
+                      />
+                      <YAxis
+                        tick={CHART_AXIS_TICK}
+                        tickLine={false}
+                        axisLine={false}
+                        allowDecimals={false}
+                        width={36}
+                      />
+                      <RechartsTooltip
+                        {...CHART_TOOLTIP_STYLE}
+                        labelFormatter={formatChartDateLabel}
+                        formatter={(value, name) => {
+                          const formatted = typeof value === 'number' ? value.toLocaleString() : String(value ?? 0)
+                          const key = String(name ?? '')
+                          if (key === '_socialTotal') return [formatted, 'Total Social']
+                          return [formatted, key]
+                        }}
+                      />
+                      <Legend
+                        wrapperStyle={{ fontSize: 11, color: '#a1a1aa' }}
+                        formatter={(value: string) => {
+                          if (value === '_socialTotal') return 'Total Social'
+                          return value
+                        }}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="_socialTotal"
+                        stroke="#52525b"
+                        fill="#27272a"
+                        fillOpacity={0.4}
+                        strokeWidth={1.5}
+                        dot={false}
+                      />
+                      {socialChartSources.map((source, i) => (
+                        <Area
+                          key={source}
+                          type="monotone"
+                          dataKey={source}
+                          stackId="social"
+                          stroke={SOURCE_COLORS[i % SOURCE_COLORS.length]}
+                          fill={SOURCE_COLORS[i % SOURCE_COLORS.length]}
+                          fillOpacity={0.4}
+                          strokeWidth={1.5}
+                        />
+                      ))}
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              </Card>
+            )}
 
             <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.5fr)]">
               <Card className="surface-card p-5">
