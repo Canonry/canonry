@@ -1,8 +1,8 @@
 import crypto from 'node:crypto'
 import { eq, and, desc } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { bingUrlInspections, bingCoverageSnapshots } from '@ainyc/canonry-db'
-import { validationError, notFound } from '@ainyc/canonry-contracts'
+import { bingUrlInspections, bingCoverageSnapshots, runs } from '@ainyc/canonry-db'
+import { validationError, notFound, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import {
   getSites,
@@ -253,6 +253,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     const notIndexedUrls: typeof allInspections = []
     const unknownUrls: typeof allInspections = []
     let lastInspectedAt: string | null = null
+    let snapshotRunId: string | null = null
 
     for (const [, row] of latestByUrl) {
       if (row.inIndex === 1) {
@@ -264,6 +265,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       }
       if (!lastInspectedAt || row.inspectedAt > lastInspectedAt) {
         lastInspectedAt = row.inspectedAt
+        snapshotRunId = row.syncRunId ?? null
       }
     }
 
@@ -292,6 +294,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       app.db.insert(bingCoverageSnapshots).values({
         id: crypto.randomUUID(),
         projectId: project.id,
+        syncRunId: snapshotRunId,
         date: snapshotDate,
         indexed,
         notIndexed,
@@ -299,7 +302,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
         createdAt: now,
       }).onConflictDoUpdate({
         target: [bingCoverageSnapshots.projectId, bingCoverageSnapshots.date],
-        set: { indexed, notIndexed, unknown, createdAt: now },
+        set: { indexed, notIndexed, unknown, createdAt: now, syncRunId: snapshotRunId },
       }).run()
     }
 
@@ -406,9 +409,20 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       return reply.status(err.statusCode).send(err.toJSON())
     }
 
-    let result
+    const startedAt = new Date().toISOString()
+    const runId = crypto.randomUUID()
+    app.db.insert(runs).values({
+      id: runId,
+      projectId: project.id,
+      kind: RunKinds['bing-inspect'],
+      status: RunStatuses.running,
+      trigger: RunTriggers.manual,
+      startedAt,
+      createdAt: startedAt,
+    }).run()
+
     try {
-      result = await getUrlInfo(conn.apiKey, conn.siteUrl, url)
+      const result = await getUrlInfo(conn.apiKey, conn.siteUrl, url)
       bingLog('info', 'inspect-url.result', {
         domain: project.canonicalDomain,
         url,
@@ -417,59 +431,68 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
         documentSize: result.DocumentSize ?? null,
         lastCrawledDate: result.LastCrawledDate ?? null,
       })
+      const now = new Date().toISOString()
+      const id = crypto.randomUUID()
+      const httpCode = result.HttpStatus ?? result.HttpCode ?? null
+
+      // Bing's published GetUrlInfo contract documents UrlInfo via:
+      // https://learn.microsoft.com/en-us/dotnet/api/microsoft.bing.webmaster.api.interfaces.iwebmasterapi.geturlinfo?view=bing-webmaster-dotnet
+      // WSDL: https://ssl.bing.com/webmaster/api.svc?singleWsdl
+      // Use any explicit legacy InIndex flag if it is present. Otherwise, only a
+      // positive DocumentSize is strong enough to treat the URL as indexed.
+      // Zero-byte responses stay unknown instead of being forced to "not indexed".
+      let derivedInIndex: boolean | null = null
+      if (result.InIndex != null) {
+        derivedInIndex = result.InIndex
+      } else if (result.DocumentSize != null && result.DocumentSize > 0) {
+        derivedInIndex = true
+      }
+
+      const lastCrawledDate = parseBingDate(result.LastCrawledDate)
+      const inIndexDate = parseBingDate(result.InIndexDate)
+      const discoveryDate = parseBingDate(result.DiscoveryDate)
+
+      app.db.insert(bingUrlInspections).values({
+        id,
+        projectId: project.id,
+        url,
+        httpCode,
+        inIndex: derivedInIndex === true ? 1 : derivedInIndex === false ? 0 : null,
+        lastCrawledDate,
+        inIndexDate,
+        inspectedAt: now,
+        syncRunId: runId,
+        createdAt: now,
+        documentSize: result.DocumentSize ?? null,
+        anchorCount: result.AnchorCount ?? null,
+        discoveryDate,
+      }).run()
+
+      app.db.update(runs)
+        .set({ status: RunStatuses.completed, finishedAt: now })
+        .where(eq(runs.id, runId))
+        .run()
+
+      return {
+        id,
+        url,
+        httpCode,
+        inIndex: derivedInIndex,
+        lastCrawledDate,
+        inIndexDate,
+        inspectedAt: now,
+        documentSize: result.DocumentSize ?? null,
+        anchorCount: result.AnchorCount ?? null,
+        discoveryDate,
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       bingLog('error', 'inspect-url.failed', { domain: project.canonicalDomain, url, error: msg })
+      app.db.update(runs)
+        .set({ status: RunStatuses.failed, error: msg, finishedAt: new Date().toISOString() })
+        .where(eq(runs.id, runId))
+        .run()
       throw e
-    }
-
-    const now = new Date().toISOString()
-    const id = crypto.randomUUID()
-    const httpCode = result.HttpStatus ?? result.HttpCode ?? null
-
-    // Bing's published GetUrlInfo contract documents UrlInfo via:
-    // https://learn.microsoft.com/en-us/dotnet/api/microsoft.bing.webmaster.api.interfaces.iwebmasterapi.geturlinfo?view=bing-webmaster-dotnet
-    // WSDL: https://ssl.bing.com/webmaster/api.svc?singleWsdl
-    // Use any explicit legacy InIndex flag if it is present. Otherwise, only a
-    // positive DocumentSize is strong enough to treat the URL as indexed.
-    // Zero-byte responses stay unknown instead of being forced to "not indexed".
-    let derivedInIndex: boolean | null = null
-    if (result.InIndex != null) {
-      derivedInIndex = result.InIndex
-    } else if (result.DocumentSize != null && result.DocumentSize > 0) {
-      derivedInIndex = true
-    }
-
-    const lastCrawledDate = parseBingDate(result.LastCrawledDate)
-    const inIndexDate = parseBingDate(result.InIndexDate)
-    const discoveryDate = parseBingDate(result.DiscoveryDate)
-
-    app.db.insert(bingUrlInspections).values({
-      id,
-      projectId: project.id,
-      url,
-      httpCode,
-      inIndex: derivedInIndex === true ? 1 : derivedInIndex === false ? 0 : null,
-      lastCrawledDate,
-      inIndexDate,
-      inspectedAt: now,
-      createdAt: now,
-      documentSize: result.DocumentSize ?? null,
-      anchorCount: result.AnchorCount ?? null,
-      discoveryDate,
-    }).run()
-
-    return {
-      id,
-      url,
-      httpCode,
-      inIndex: derivedInIndex,
-      lastCrawledDate,
-      inIndexDate,
-      inspectedAt: now,
-      documentSize: result.DocumentSize ?? null,
-      anchorCount: result.AnchorCount ?? null,
-      discoveryDate,
     }
   })
 

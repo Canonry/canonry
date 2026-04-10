@@ -5,7 +5,14 @@ export const runStatusSchema = z.enum(['queued', 'running', 'completed', 'partia
 export type RunStatus = z.infer<typeof runStatusSchema>
 export const RunStatuses = runStatusSchema.enum
 
-export const runKindSchema = z.enum(['answer-visibility', 'site-audit', 'gsc-sync', 'inspect-sitemap'])
+export const runKindSchema = z.enum([
+  'answer-visibility',
+  'site-audit',
+  'gsc-sync',
+  'inspect-sitemap',
+  'ga-sync',
+  'bing-inspect',
+])
 export type RunKind = z.infer<typeof runKindSchema>
 export const RunKinds = runKindSchema.enum
 

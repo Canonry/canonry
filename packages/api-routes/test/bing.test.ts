@@ -3,8 +3,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
+import { eq } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { bingUrlInspections, bingCoverageSnapshots, createClient, migrate, projects } from '@ainyc/canonry-db'
+import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
+import { bingUrlInspections, bingCoverageSnapshots, createClient, migrate, projects, runs } from '@ainyc/canonry-db'
 import { bingRoutes } from '../src/bing.js'
 import type { BingConnectionRecord, BingConnectionStore } from '../src/bing.js'
 
@@ -131,6 +133,15 @@ describe('Bing routes', () => {
     expect(rows).toHaveLength(1)
     expect(rows[0]!.httpCode).toBe(200)
     expect(rows[0]!.inIndex).toBeNull()
+    expect(rows[0]!.syncRunId).toBeTruthy()
+
+    const inspectRuns = db.select().from(runs)
+      .where(eq(runs.kind, RunKinds['bing-inspect']))
+      .all()
+    expect(inspectRuns).toHaveLength(1)
+    expect(inspectRuns[0]!.status).toBe(RunStatuses.completed)
+    expect(inspectRuns[0]!.trigger).toBe(RunTriggers.manual)
+    expect(rows[0]!.syncRunId).toBe(inspectRuns[0]!.id)
   })
 
   it('derives indexed=true only from positive DocumentSize', async () => {
@@ -297,6 +308,17 @@ describe('Bing routes', () => {
 
   it('coverage endpoint saves a daily snapshot', async () => {
     const now = new Date().toISOString()
+    const runId = crypto.randomUUID()
+    db.insert(runs).values({
+      id: runId,
+      projectId,
+      kind: RunKinds['bing-inspect'],
+      status: RunStatuses.completed,
+      trigger: RunTriggers.manual,
+      startedAt: now,
+      finishedAt: now,
+      createdAt: now,
+    }).run()
     db.insert(bingUrlInspections).values([
       {
         id: crypto.randomUUID(),
@@ -307,6 +329,7 @@ describe('Bing routes', () => {
         lastCrawledDate: '2026-03-15T10:00:00Z',
         inIndexDate: null,
         inspectedAt: '2026-03-20T10:00:00Z',
+        syncRunId: runId,
         createdAt: now,
         documentSize: 2048,
         anchorCount: null,
@@ -321,6 +344,7 @@ describe('Bing routes', () => {
         lastCrawledDate: null,
         inIndexDate: null,
         inspectedAt: '2026-03-20T11:00:00Z',
+        syncRunId: runId,
         createdAt: now,
         documentSize: 0,
         anchorCount: null,
@@ -340,6 +364,7 @@ describe('Bing routes', () => {
     expect(snapshots[0]!.notIndexed).toBe(1)
     expect(snapshots[0]!.unknown).toBe(0)
     expect(snapshots[0]!.date).toBe(new Date().toISOString().split('T')[0])
+    expect(snapshots[0]!.syncRunId).toBe(runId)
   })
 
   it('coverage-history returns snapshots in descending date order', async () => {

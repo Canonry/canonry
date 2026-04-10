@@ -1,8 +1,8 @@
 import crypto from 'node:crypto'
 import { eq, desc, and, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { gaTrafficSnapshots, gaTrafficSummaries, gaAiReferrals, gaSocialReferrals } from '@ainyc/canonry-db'
-import { validationError, notFound } from '@ainyc/canonry-contracts'
+import { gaTrafficSnapshots, gaTrafficSummaries, gaAiReferrals, gaSocialReferrals, runs } from '@ainyc/canonry-db'
+import { validationError, notFound, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import {
   getAccessToken,
@@ -348,14 +348,25 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     const syncSocial = !only || only === 'social'
     const syncSummary = !only // always sync summary on full sync
 
-    const { accessToken, propertyId } = await resolveGa4AccessToken(opts, project.name, project.canonicalDomain)
-
-    let rows: Awaited<ReturnType<typeof fetchTrafficByLandingPage>> = []
-    let summary: Awaited<ReturnType<typeof fetchAggregateSummary>>
-    let aiReferrals: Awaited<ReturnType<typeof fetchAiReferrals>> = []
-    let socialReferrals: Awaited<ReturnType<typeof fetchSocialReferrals>> = []
+    const startedAt = new Date().toISOString()
+    const runId = crypto.randomUUID()
+    app.db.insert(runs).values({
+      id: runId,
+      projectId: project.id,
+      kind: RunKinds['ga-sync'],
+      status: RunStatuses.running,
+      trigger: RunTriggers.manual,
+      startedAt,
+      createdAt: startedAt,
+    }).run()
 
     try {
+      const { accessToken, propertyId } = await resolveGa4AccessToken(opts, project.name, project.canonicalDomain)
+
+      let rows: Awaited<ReturnType<typeof fetchTrafficByLandingPage>> = []
+      let aiReferrals: Awaited<ReturnType<typeof fetchAiReferrals>> = []
+      let socialReferrals: Awaited<ReturnType<typeof fetchSocialReferrals>> = []
+
       // Always need summary for date range (periodStart/periodEnd), even for partial sync
       const fetches: Promise<unknown>[] = [fetchAggregateSummary(accessToken, propertyId, days)]
       if (syncTraffic) fetches.push(fetchTrafficByLandingPage(accessToken, propertyId, days))
@@ -363,140 +374,154 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       if (syncSocial) fetches.push(fetchSocialReferrals(accessToken, propertyId, days))
 
       const results = await Promise.all(fetches)
-      summary = results[0] as Awaited<ReturnType<typeof fetchAggregateSummary>>
+      const summary: Awaited<ReturnType<typeof fetchAggregateSummary>> = results[0] as Awaited<ReturnType<typeof fetchAggregateSummary>>
       let idx = 1
       if (syncTraffic) { rows = results[idx++] as typeof rows }
       if (syncAi) { aiReferrals = results[idx++] as typeof aiReferrals }
       if (syncSocial) { socialReferrals = results[idx++] as typeof socialReferrals }
+
+      const now = new Date().toISOString()
+
+      // Clear old data for this project in the synced date range, then insert fresh
+      // Wrapped in a transaction to ensure atomicity — a crash mid-insert won't lose data
+      app.db.transaction((tx) => {
+        if (syncTraffic) {
+          tx.delete(gaTrafficSnapshots)
+            .where(
+              and(
+                eq(gaTrafficSnapshots.projectId, project.id),
+                sql`${gaTrafficSnapshots.date} >= ${summary.periodStart}`,
+                sql`${gaTrafficSnapshots.date} <= ${summary.periodEnd}`,
+              ),
+            )
+            .run()
+
+          for (const row of rows) {
+            tx.insert(gaTrafficSnapshots).values({
+              id: crypto.randomUUID(),
+              projectId: project.id,
+              date: row.date,
+              landingPage: row.landingPage,
+              sessions: row.sessions,
+              organicSessions: row.organicSessions,
+              users: row.users,
+              syncedAt: now,
+              syncRunId: runId,
+            }).run()
+          }
+        }
+
+        if (syncAi) {
+          tx.delete(gaAiReferrals)
+            .where(
+              and(
+                eq(gaAiReferrals.projectId, project.id),
+                sql`${gaAiReferrals.date} >= ${summary.periodStart}`,
+                sql`${gaAiReferrals.date} <= ${summary.periodEnd}`,
+              ),
+            )
+            .run()
+
+          for (const row of aiReferrals) {
+            tx.insert(gaAiReferrals).values({
+              id: crypto.randomUUID(),
+              projectId: project.id,
+              date: row.date,
+              source: row.source,
+              medium: row.medium,
+              sourceDimension: row.sourceDimension,
+              sessions: row.sessions,
+              users: row.users,
+              syncedAt: now,
+              syncRunId: runId,
+            }).run()
+          }
+        }
+
+        if (syncSocial) {
+          tx.delete(gaSocialReferrals)
+            .where(
+              and(
+                eq(gaSocialReferrals.projectId, project.id),
+                sql`${gaSocialReferrals.date} >= ${summary.periodStart}`,
+                sql`${gaSocialReferrals.date} <= ${summary.periodEnd}`,
+              ),
+            )
+            .run()
+
+          for (const row of socialReferrals) {
+            tx.insert(gaSocialReferrals).values({
+              id: crypto.randomUUID(),
+              projectId: project.id,
+              date: row.date,
+              source: row.source,
+              medium: row.medium,
+              channelGroup: row.channelGroup,
+              sessions: row.sessions,
+              users: row.users,
+              syncedAt: now,
+              syncRunId: runId,
+            }).run()
+          }
+        }
+
+        if (syncSummary) {
+          // Replace aggregate summary for this project — always one row per project.
+          tx.delete(gaTrafficSummaries)
+            .where(eq(gaTrafficSummaries.projectId, project.id))
+            .run()
+
+          tx.insert(gaTrafficSummaries).values({
+            id: crypto.randomUUID(),
+            projectId: project.id,
+            periodStart: summary.periodStart,
+            periodEnd: summary.periodEnd,
+            totalSessions: summary.totalSessions,
+            totalOrganicSessions: summary.totalOrganicSessions,
+            totalUsers: summary.totalUsers,
+            syncedAt: now,
+            syncRunId: runId,
+          }).run()
+        }
+      })
+
+      app.db.update(runs)
+        .set({ status: RunStatuses.completed, finishedAt: now })
+        .where(eq(runs.id, runId))
+        .run()
+
+      const syncedComponents = only
+        ? [only, ...(only !== 'social' && only !== 'ai' && only !== 'traffic' ? [] : [])]
+        : undefined
+
+      gaLog('info', 'sync.complete', {
+        projectId: project.id,
+        runId,
+        rowCount: rows.length,
+        aiReferralCount: aiReferrals.length,
+        socialReferralCount: socialReferrals.length,
+        days,
+        totalUsers: summary.totalUsers,
+        ...(only ? { only } : {}),
+      })
+
+      return {
+        synced: true,
+        rowCount: rows.length,
+        aiReferralCount: aiReferrals.length,
+        socialReferralCount: socialReferrals.length,
+        days,
+        syncedAt: now,
+        ...(syncedComponents ? { syncedComponents } : {}),
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      gaLog('error', 'sync.fetch-failed', { projectId: project.id, error: msg })
+      gaLog('error', 'sync.fetch-failed', { projectId: project.id, runId, error: msg })
+      app.db.update(runs)
+        .set({ status: RunStatuses.failed, error: msg, finishedAt: new Date().toISOString() })
+        .where(eq(runs.id, runId))
+        .run()
       throw e
-    }
-
-    const now = new Date().toISOString()
-
-    // Clear old data for this project in the synced date range, then insert fresh
-    // Wrapped in a transaction to ensure atomicity — a crash mid-insert won't lose data
-    app.db.transaction((tx) => {
-      if (syncTraffic) {
-        tx.delete(gaTrafficSnapshots)
-          .where(
-            and(
-              eq(gaTrafficSnapshots.projectId, project.id),
-              sql`${gaTrafficSnapshots.date} >= ${summary.periodStart}`,
-              sql`${gaTrafficSnapshots.date} <= ${summary.periodEnd}`,
-            ),
-          )
-          .run()
-
-        for (const row of rows) {
-          tx.insert(gaTrafficSnapshots).values({
-            id: crypto.randomUUID(),
-            projectId: project.id,
-            date: row.date,
-            landingPage: row.landingPage,
-            sessions: row.sessions,
-            organicSessions: row.organicSessions,
-            users: row.users,
-            syncedAt: now,
-          }).run()
-        }
-      }
-
-      if (syncAi) {
-        tx.delete(gaAiReferrals)
-          .where(
-            and(
-              eq(gaAiReferrals.projectId, project.id),
-              sql`${gaAiReferrals.date} >= ${summary.periodStart}`,
-              sql`${gaAiReferrals.date} <= ${summary.periodEnd}`,
-            ),
-          )
-          .run()
-
-        for (const row of aiReferrals) {
-          tx.insert(gaAiReferrals).values({
-            id: crypto.randomUUID(),
-            projectId: project.id,
-            date: row.date,
-            source: row.source,
-            medium: row.medium,
-            sourceDimension: row.sourceDimension,
-            sessions: row.sessions,
-            users: row.users,
-            syncedAt: now,
-          }).run()
-        }
-      }
-
-      if (syncSocial) {
-        tx.delete(gaSocialReferrals)
-          .where(
-            and(
-              eq(gaSocialReferrals.projectId, project.id),
-              sql`${gaSocialReferrals.date} >= ${summary.periodStart}`,
-              sql`${gaSocialReferrals.date} <= ${summary.periodEnd}`,
-            ),
-          )
-          .run()
-
-        for (const row of socialReferrals) {
-          tx.insert(gaSocialReferrals).values({
-            id: crypto.randomUUID(),
-            projectId: project.id,
-            date: row.date,
-            source: row.source,
-            medium: row.medium,
-            channelGroup: row.channelGroup,
-            sessions: row.sessions,
-            users: row.users,
-            syncedAt: now,
-          }).run()
-        }
-      }
-
-      if (syncSummary) {
-        // Replace aggregate summary for this project — always one row per project.
-        tx.delete(gaTrafficSummaries)
-          .where(eq(gaTrafficSummaries.projectId, project.id))
-          .run()
-
-        tx.insert(gaTrafficSummaries).values({
-          id: crypto.randomUUID(),
-          projectId: project.id,
-          periodStart: summary.periodStart,
-          periodEnd: summary.periodEnd,
-          totalSessions: summary.totalSessions,
-          totalOrganicSessions: summary.totalOrganicSessions,
-          totalUsers: summary.totalUsers,
-          syncedAt: now,
-        }).run()
-      }
-    })
-
-    const syncedComponents = only
-      ? [only, ...(only !== 'social' && only !== 'ai' && only !== 'traffic' ? [] : [])]
-      : undefined
-
-    gaLog('info', 'sync.complete', {
-      projectId: project.id,
-      rowCount: rows.length,
-      aiReferralCount: aiReferrals.length,
-      socialReferralCount: socialReferrals.length,
-      days,
-      totalUsers: summary.totalUsers,
-      ...(only ? { only } : {}),
-    })
-
-    return {
-      synced: true,
-      rowCount: rows.length,
-      aiReferralCount: aiReferrals.length,
-      socialReferralCount: socialReferrals.length,
-      days,
-      syncedAt: now,
-      ...(syncedComponents ? { syncedComponents } : {}),
     }
   })
 

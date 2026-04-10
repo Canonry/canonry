@@ -25,11 +25,13 @@ import {
   gscUrlInspections,
   gscCoverageSnapshots,
   bingConnections,
+  bingCoverageSnapshots,
   bingUrlInspections,
   bingKeywordStats,
   gaConnections,
   gaTrafficSnapshots,
   gaAiReferrals,
+  gaSocialReferrals,
   gaTrafficSummaries,
   insights,
   healthSnapshots,
@@ -106,6 +108,9 @@ test('migrate creates all tables', () => {
   const bingInspectRows = db.select().from(bingUrlInspections).all()
   expect(bingInspectRows).toEqual([])
 
+  const bingCoverageRows = db.select().from(bingCoverageSnapshots).all()
+  expect(bingCoverageRows).toEqual([])
+
   const bingKwRows = db.select().from(bingKeywordStats).all()
   expect(bingKwRows).toEqual([])
 
@@ -117,6 +122,9 @@ test('migrate creates all tables', () => {
 
   const gaAiRefRows = db.select().from(gaAiReferrals).all()
   expect(gaAiRefRows).toEqual([])
+
+  const gaSocialRefRows = db.select().from(gaSocialReferrals).all()
+  expect(gaSocialRefRows).toEqual([])
 
   const gaSummaryRows = db.select().from(gaTrafficSummaries).all()
   expect(gaSummaryRows).toEqual([])
@@ -134,6 +142,24 @@ test('migrate is idempotent', () => {
   // Running migrate again should not throw
   migrate(db)
   migrate(db)
+})
+
+test('migrate adds sync_run_id columns without reintroducing query_snapshots.default_location', () => {
+  const { dbPath, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
+
+  const sqlite = new Database(dbPath, { readonly: true })
+  onTestFinished(() => sqlite.close())
+
+  const columns = (table: string) => sqlite.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+
+  expect(columns('query_snapshots').map((column) => column.name)).not.toContain('default_location')
+  expect(columns('bing_url_inspections').map((column) => column.name)).toContain('sync_run_id')
+  expect(columns('bing_coverage_snapshots').map((column) => column.name)).toContain('sync_run_id')
+  expect(columns('ga_traffic_snapshots').map((column) => column.name)).toContain('sync_run_id')
+  expect(columns('ga_ai_referrals').map((column) => column.name)).toContain('sync_run_id')
+  expect(columns('ga_social_referrals').map((column) => column.name)).toContain('sync_run_id')
+  expect(columns('ga_traffic_summaries').map((column) => column.name)).toContain('sync_run_id')
 })
 
 test('CRUD: insert and query a project', () => {

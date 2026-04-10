@@ -426,17 +426,11 @@ const MIGRATIONS = [
   `ALTER TABLE ga_traffic_summaries ADD COLUMN sync_run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
   `CREATE INDEX IF NOT EXISTS idx_ga_summary_run ON ga_traffic_summaries(sync_run_id)`,
 
-  // v33: Fix missing column from schema.ts — default_location in query_snapshots
-  `ALTER TABLE query_snapshots ADD COLUMN default_location TEXT`,
-
-  // v34: Fix missing index in MIGRATIONS that exists in schema.ts
-  `CREATE INDEX IF NOT EXISTS idx_usage_scope_period ON usage_counters(scope, period)`,
-
-  // v35: Add sync_run_id to bing_coverage_snapshots for tracking sync correlation
+  // v33: Add sync_run_id to bing_coverage_snapshots for tracking sync correlation
   `ALTER TABLE bing_coverage_snapshots ADD COLUMN sync_run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
   `CREATE INDEX IF NOT EXISTS idx_bing_coverage_snap_run ON bing_coverage_snapshots(sync_run_id)`,
 
-  // v36: Rename unique index for bing_coverage_snapshots to follow convention
+  // v34: Rename unique index for bing_coverage_snapshots to follow convention
   `DROP INDEX IF EXISTS idx_bing_coverage_snap_project_date`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_bing_coverage_snap_project_date_unique ON bing_coverage_snapshots(project_id, date)`,
 ]

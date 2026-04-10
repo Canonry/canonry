@@ -5,7 +5,8 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { eq, inArray } from 'drizzle-orm'
-import { createClient, migrate, gaAiReferrals, gaSocialReferrals, gaTrafficSnapshots, gaTrafficSummaries } from '@ainyc/canonry-db'
+import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
+import { createClient, migrate, gaAiReferrals, gaSocialReferrals, gaTrafficSnapshots, gaTrafficSummaries, runs } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialStore, Ga4CredentialRecord } from '../src/ga.js'
 
@@ -262,6 +263,13 @@ describe('GA4 routes', () => {
       .all()
     expect(snapshots).toHaveLength(2)
 
+    const gaRuns = db.select().from(runs)
+      .where(eq(runs.kind, RunKinds['ga-sync']))
+      .all()
+    expect(gaRuns).toHaveLength(1)
+    expect(gaRuns[0]!.status).toBe(RunStatuses.completed)
+    expect(gaRuns[0]!.trigger).toBe(RunTriggers.manual)
+
     // Verify aggregate summary was written
     const summaries = db.select().from(gaTrafficSummaries)
       .where(eq(gaTrafficSummaries.projectId, projectId))
@@ -282,6 +290,10 @@ describe('GA4 routes', () => {
       .all()
     expect(socialRefs).toHaveLength(1)
     expect(socialRefs[0]!.source).toBe('facebook.com')
+    expect(snapshots.every((row) => row.syncRunId === gaRuns[0]!.id)).toBe(true)
+    expect(aiReferrals[0]!.syncRunId).toBe(gaRuns[0]!.id)
+    expect(socialRefs[0]!.syncRunId).toBe(gaRuns[0]!.id)
+    expect(summaries[0]!.syncRunId).toBe(gaRuns[0]!.id)
 
     // Cleanup
     getAccessTokenSpy.mockRestore()
