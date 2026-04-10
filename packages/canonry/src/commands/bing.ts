@@ -183,6 +183,28 @@ export async function bingCoverage(project: string, format?: string): Promise<vo
   }
 }
 
+export async function bingCoverageHistory(project: string, opts: { limit?: number; format?: string }): Promise<void> {
+  const client = getClient()
+  const rows = await client.bingCoverageHistory(project, { limit: opts.limit })
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(rows, null, 2))
+    return
+  }
+
+  if (rows.length === 0) {
+    console.log('No coverage history found. Run "canonry bing coverage" or "canonry bing refresh" first to capture a snapshot.')
+    return
+  }
+
+  console.log(`\nBing Coverage History for "${project}" (${rows.length} snapshots):\n`)
+  console.log(`  ${'DATE'.padEnd(12)}${'INDEXED'.padEnd(10)}${'NOT INDEXED'.padEnd(14)}UNKNOWN`)
+  console.log(`  ${'─'.repeat(12)}${'─'.repeat(10)}${'─'.repeat(14)}${'─'.repeat(10)}`)
+  for (const row of rows) {
+    console.log(`  ${row.date.padEnd(12)}${String(row.indexed).padEnd(10)}${String(row.notIndexed).padEnd(14)}${String(row.unknown)}`)
+  }
+}
+
 export async function bingInspect(project: string, url: string, format?: string): Promise<void> {
   const client = getClient()
   const result = await client.bingInspectUrl(project, url) as {

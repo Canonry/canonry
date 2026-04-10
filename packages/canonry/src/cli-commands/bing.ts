@@ -1,6 +1,7 @@
 import {
   bingConnect,
   bingCoverage,
+  bingCoverageHistory,
   bingDisconnect,
   bingInspect,
   bingInspections,
@@ -12,7 +13,7 @@ import {
   bingStatus,
 } from '../commands/bing.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
-import { getBoolean, getString, requirePositional, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
+import { getBoolean, getString, parseIntegerOption, requirePositional, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
 
 export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
@@ -65,6 +66,22 @@ export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
         message: 'project name and site URL are required',
       })
       await bingSetSite(project, siteUrl, input.format)
+    },
+  },
+  {
+    path: ['bing', 'coverage-history'],
+    usage: 'canonry bing coverage-history <project> [--limit <n>] [--format json]',
+    options: { limit: stringOption() },
+    run: async (input) => {
+      const project = requireProject(input, 'bing.coverage-history', 'canonry bing coverage-history <project> [--limit <n>] [--format json]')
+      await bingCoverageHistory(project, {
+        limit: parseIntegerOption(input, 'limit', {
+          command: 'bing.coverage-history',
+          message: '--limit must be a positive integer',
+          usage: 'canonry bing coverage-history <project> [--limit <n>] [--format json]',
+        }),
+        format: input.format,
+      })
     },
   },
   {
@@ -146,12 +163,12 @@ export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['bing'],
-    usage: 'canonry bing <connect|disconnect|status|sites|set-site|coverage|inspect|inspections|request-indexing|performance|refresh> <project> [args]',
+    usage: 'canonry bing <connect|disconnect|status|sites|set-site|coverage|coverage-history|inspect|inspections|request-indexing|performance|refresh> <project> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'bing',
-        usage: 'canonry bing <connect|disconnect|status|sites|set-site|coverage|inspect|inspections|request-indexing|performance|refresh> <project> [args]',
-        available: ['connect', 'disconnect', 'status', 'sites', 'set-site', 'coverage', 'inspect', 'inspections', 'request-indexing', 'performance', 'refresh'],
+        usage: 'canonry bing <connect|disconnect|status|sites|set-site|coverage|coverage-history|inspect|inspections|request-indexing|performance|refresh> <project> [args]',
+        available: ['connect', 'disconnect', 'status', 'sites', 'set-site', 'coverage', 'coverage-history', 'inspect', 'inspections', 'request-indexing', 'performance', 'refresh'],
       })
     },
   },

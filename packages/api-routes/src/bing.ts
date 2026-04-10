@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, and, desc } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { bingUrlInspections } from '@ainyc/canonry-db'
+import { bingUrlInspections, bingCoverageSnapshots } from '@ainyc/canonry-db'
 import { validationError, notFound } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import {
@@ -285,6 +285,24 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       discoveryDate: r.discoveryDate ?? null,
     })
 
+    // Save a daily coverage snapshot (idempotent per day via upsert)
+    if (total > 0) {
+      const snapshotDate = new Date().toISOString().split('T')[0]!
+      const now = new Date().toISOString()
+      app.db.insert(bingCoverageSnapshots).values({
+        id: crypto.randomUUID(),
+        projectId: project.id,
+        date: snapshotDate,
+        indexed,
+        notIndexed,
+        unknown,
+        createdAt: now,
+      }).onConflictDoUpdate({
+        target: [bingCoverageSnapshots.projectId, bingCoverageSnapshots.date],
+        set: { indexed, notIndexed, unknown, createdAt: now },
+      }).run()
+    }
+
     return {
       summary: {
         total,
@@ -298,6 +316,34 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       notIndexed: notIndexedUrls.map(formatRow),
       unknown: unknownUrls.map(formatRow),
     }
+  })
+
+  // GET /projects/:name/bing/coverage/history
+  app.get<{
+    Params: { name: string }
+    Querystring: { limit?: string }
+  }>('/projects/:name/bing/coverage/history', async (request, reply) => {
+    const store = requireConnectionStore(reply)
+    if (!store) return
+
+    const project = resolveProject(app.db, request.params.name)
+    const parsed = parseInt(request.query.limit ?? '90', 10)
+    const limit = Number.isNaN(parsed) || parsed <= 0 ? 90 : parsed
+
+    const rows = app.db
+      .select()
+      .from(bingCoverageSnapshots)
+      .where(eq(bingCoverageSnapshots.projectId, project.id))
+      .orderBy(desc(bingCoverageSnapshots.date))
+      .limit(limit)
+      .all()
+
+    return rows.map((r) => ({
+      date: r.date,
+      indexed: r.indexed,
+      notIndexed: r.notIndexed,
+      unknown: r.unknown,
+    }))
   })
 
   // GET /projects/:name/bing/inspections

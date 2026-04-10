@@ -1464,6 +1464,18 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/bing/coverage/history',
+    summary: 'Get Bing coverage history snapshots',
+    tags: ['bing'],
+    parameters: [nameParameter, limitQueryParameter],
+    responses: {
+      200: { description: 'Bing coverage history returned.' },
+      400: { description: 'Bing is not configured for this project.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/bing/inspections',
     summary: 'List Bing URL inspections',
     tags: ['bing'],

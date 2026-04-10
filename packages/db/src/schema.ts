@@ -209,6 +209,18 @@ export const gscCoverageSnapshots = sqliteTable('gsc_coverage_snapshots', {
   index('idx_gsc_coverage_snap_run').on(table.syncRunId),
 ])
 
+export const bingCoverageSnapshots = sqliteTable('bing_coverage_snapshots', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  date: text('date').notNull(),
+  indexed: integer('indexed').notNull().default(0),
+  notIndexed: integer('not_indexed').notNull().default(0),
+  unknown: integer('unknown').notNull().default(0),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_bing_coverage_snap_project_date').on(table.projectId, table.date),
+])
+
 export const bingConnections = sqliteTable('bing_connections', {
   id: text('id').primaryKey(),
   domain: text('domain').notNull(),

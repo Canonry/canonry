@@ -44,6 +44,7 @@ import type {
   IndexingRequestResultDto,
   InsightDto,
   HealthSnapshotDto,
+  BingCoverageSnapshotDto,
 } from '@ainyc/canonry-contracts'
 
 export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry }
@@ -509,6 +510,11 @@ export class ApiClient {
 
   async bingCoverage(project: string): Promise<object> {
     return this.request<object>('GET', `/projects/${encodeURIComponent(project)}/bing/coverage`)
+  }
+
+  async bingCoverageHistory(project: string, params?: { limit?: number }): Promise<BingCoverageSnapshotDto[]> {
+    const qs = params?.limit != null ? `?limit=${params.limit}` : ''
+    return this.request<BingCoverageSnapshotDto[]>('GET', `/projects/${encodeURIComponent(project)}/bing/coverage/history${qs}`)
   }
 
   async bingInspections(project: string, params?: Record<string, string>): Promise<object[]> {

@@ -48,6 +48,14 @@ export const bingKeywordStatsDtoSchema = z.object({
 })
 export type BingKeywordStatsDto = z.infer<typeof bingKeywordStatsDtoSchema>
 
+export const bingCoverageSnapshotDtoSchema = z.object({
+  date: z.string(),
+  indexed: z.number(),
+  notIndexed: z.number(),
+  unknown: z.number(),
+})
+export type BingCoverageSnapshotDto = z.infer<typeof bingCoverageSnapshotDtoSchema>
+
 export const bingSubmitResultDtoSchema = z.object({
   url: z.string(),
   status: z.enum(['success', 'error']),

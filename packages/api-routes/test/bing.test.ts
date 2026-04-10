@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { bingUrlInspections, createClient, migrate, projects } from '@ainyc/canonry-db'
+import { bingUrlInspections, bingCoverageSnapshots, createClient, migrate, projects } from '@ainyc/canonry-db'
 import { bingRoutes } from '../src/bing.js'
 import type { BingConnectionRecord, BingConnectionStore } from '../src/bing.js'
 
@@ -77,6 +77,7 @@ describe('Bing routes', () => {
 
   beforeEach(() => {
     db.delete(bingUrlInspections).run()
+    db.delete(bingCoverageSnapshots).run()
     connections.clear()
 
     const now = new Date().toISOString()
@@ -292,5 +293,94 @@ describe('Bing routes', () => {
     expect(res.statusCode).toBe(200)
     expect(submitUrlSpy).toHaveBeenCalledTimes(1)
     expect(submitUrlSpy).toHaveBeenCalledWith('test-key', 'https://example.com/', 'https://example.com/not-indexed')
+  })
+
+  it('coverage endpoint saves a daily snapshot', async () => {
+    const now = new Date().toISOString()
+    db.insert(bingUrlInspections).values([
+      {
+        id: crypto.randomUUID(),
+        projectId,
+        url: 'https://example.com/indexed',
+        httpCode: 200,
+        inIndex: 1,
+        lastCrawledDate: '2026-03-15T10:00:00Z',
+        inIndexDate: null,
+        inspectedAt: '2026-03-20T10:00:00Z',
+        createdAt: now,
+        documentSize: 2048,
+        anchorCount: null,
+        discoveryDate: null,
+      },
+      {
+        id: crypto.randomUUID(),
+        projectId,
+        url: 'https://example.com/not-indexed',
+        httpCode: 404,
+        inIndex: 0,
+        lastCrawledDate: null,
+        inIndexDate: null,
+        inspectedAt: '2026-03-20T11:00:00Z',
+        createdAt: now,
+        documentSize: 0,
+        anchorCount: null,
+        discoveryDate: null,
+      },
+    ]).run()
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/projects/test-project/bing/coverage',
+    })
+    expect(res.statusCode).toBe(200)
+
+    const snapshots = db.select().from(bingCoverageSnapshots).all()
+    expect(snapshots).toHaveLength(1)
+    expect(snapshots[0]!.indexed).toBe(1)
+    expect(snapshots[0]!.notIndexed).toBe(1)
+    expect(snapshots[0]!.unknown).toBe(0)
+    expect(snapshots[0]!.date).toBe(new Date().toISOString().split('T')[0])
+  })
+
+  it('coverage-history returns snapshots in descending date order', async () => {
+    const now = new Date().toISOString()
+    db.insert(bingCoverageSnapshots).values([
+      { id: crypto.randomUUID(), projectId, date: '2026-03-18', indexed: 5, notIndexed: 2, unknown: 1, createdAt: now },
+      { id: crypto.randomUUID(), projectId, date: '2026-03-19', indexed: 6, notIndexed: 1, unknown: 0, createdAt: now },
+      { id: crypto.randomUUID(), projectId, date: '2026-03-20', indexed: 7, notIndexed: 1, unknown: 0, createdAt: now },
+    ]).run()
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/projects/test-project/bing/coverage/history',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as Array<{ date: string; indexed: number; notIndexed: number; unknown: number }>
+    expect(body).toHaveLength(3)
+    expect(body[0]!.date).toBe('2026-03-20')
+    expect(body[0]!.indexed).toBe(7)
+    expect(body[2]!.date).toBe('2026-03-18')
+    expect(body[2]!.indexed).toBe(5)
+  })
+
+  it('coverage-history respects limit parameter', async () => {
+    const now = new Date().toISOString()
+    db.insert(bingCoverageSnapshots).values([
+      { id: crypto.randomUUID(), projectId, date: '2026-03-18', indexed: 5, notIndexed: 2, unknown: 1, createdAt: now },
+      { id: crypto.randomUUID(), projectId, date: '2026-03-19', indexed: 6, notIndexed: 1, unknown: 0, createdAt: now },
+      { id: crypto.randomUUID(), projectId, date: '2026-03-20', indexed: 7, notIndexed: 1, unknown: 0, createdAt: now },
+    ]).run()
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/projects/test-project/bing/coverage/history?limit=2',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as Array<{ date: string }>
+    expect(body).toHaveLength(2)
+    expect(body[0]!.date).toBe('2026-03-20')
+    expect(body[1]!.date).toBe('2026-03-19')
   })
 })

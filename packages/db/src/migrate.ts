@@ -390,6 +390,18 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_ga_social_ref_project_date ON ga_social_referrals(project_id, date)`,
   `CREATE INDEX IF NOT EXISTS idx_ga_social_ref_source ON ga_social_referrals(source)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_social_ref_unique ON ga_social_referrals(project_id, date, source, medium, channel_group)`,
+
+  // v26: Bing coverage snapshots for historical tracking (mirrors gsc_coverage_snapshots)
+  `CREATE TABLE IF NOT EXISTS bing_coverage_snapshots (
+    id              TEXT PRIMARY KEY,
+    project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    date            TEXT NOT NULL,
+    indexed         INTEGER NOT NULL DEFAULT 0,
+    not_indexed     INTEGER NOT NULL DEFAULT 0,
+    unknown         INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_bing_coverage_snap_project_date ON bing_coverage_snapshots(project_id, date)`,
 ]
 
 /**
