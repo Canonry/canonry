@@ -4,6 +4,7 @@ import path from 'node:path'
 import { describe, it, expect, onTestFinished } from 'vitest'
 import { createClient, migrate, projects, runs } from '@ainyc/canonry-db'
 import { eq } from 'drizzle-orm'
+import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
 import { queueRunIfProjectIdle } from '../src/run-queue.js'
 
 function createTempDb() {
@@ -43,7 +44,7 @@ describe('queueRunIfProjectIdle', () => {
 
     const queuedRuns = db.select().from(runs).where(eq(runs.projectId, 'proj_1')).all()
     expect(queuedRuns).toHaveLength(1)
-    expect(queuedRuns[0].status).toBe('queued')
+    expect(queuedRuns[0].status).toBe(RunStatuses.queued)
   })
 
   it('reports conflict when a queued run already exists', () => {
@@ -51,16 +52,16 @@ describe('queueRunIfProjectIdle', () => {
     onTestFinished(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
     seedProject(db, 'proj_1', 'test-project')
 
-    const first = queueRunIfProjectIdle(db, { projectId: 'proj_1', trigger: 'scheduled' })
+    const first = queueRunIfProjectIdle(db, { projectId: 'proj_1', trigger: RunTriggers.scheduled })
     expect(first.conflict).toBe(false)
 
-    const second = queueRunIfProjectIdle(db, { projectId: 'proj_1', trigger: 'manual' })
+    const second = queueRunIfProjectIdle(db, { projectId: 'proj_1', trigger: RunTriggers.manual })
     expect(second.conflict).toBe(true)
 
     // Only the first run was inserted
     const allRuns = db.select().from(runs).where(eq(runs.projectId, 'proj_1')).all()
     expect(allRuns).toHaveLength(1)
-    expect(allRuns[0].trigger).toBe('scheduled')
+    expect(allRuns[0].trigger).toBe(RunTriggers.scheduled)
   })
 
   it('reports conflict when a running run exists', () => {
@@ -72,7 +73,7 @@ describe('queueRunIfProjectIdle', () => {
     expect(first.conflict).toBe(false)
 
     if (!first.conflict) {
-      db.update(runs).set({ status: 'running' }).where(eq(runs.id, first.runId)).run()
+      db.update(runs).set({ status: RunStatuses.running }).where(eq(runs.id, first.runId)).run()
     }
 
     const second = queueRunIfProjectIdle(db, { projectId: 'proj_1' })
@@ -88,7 +89,7 @@ describe('queueRunIfProjectIdle', () => {
     expect(first.conflict).toBe(false)
 
     if (!first.conflict) {
-      db.update(runs).set({ status: 'completed', finishedAt: new Date().toISOString() }).where(eq(runs.id, first.runId)).run()
+      db.update(runs).set({ status: RunStatuses.completed, finishedAt: new Date().toISOString() }).where(eq(runs.id, first.runId)).run()
     }
 
     const second = queueRunIfProjectIdle(db, { projectId: 'proj_1' })
@@ -104,7 +105,7 @@ describe('queueRunIfProjectIdle', () => {
     expect(first.conflict).toBe(false)
 
     if (!first.conflict) {
-      db.update(runs).set({ status: 'cancelled', finishedAt: new Date().toISOString() }).where(eq(runs.id, first.runId)).run()
+      db.update(runs).set({ status: RunStatuses.cancelled, finishedAt: new Date().toISOString() }).where(eq(runs.id, first.runId)).run()
     }
 
     const second = queueRunIfProjectIdle(db, { projectId: 'proj_1' })
@@ -120,7 +121,7 @@ describe('queueRunIfProjectIdle', () => {
     expect(first.conflict).toBe(false)
 
     if (!first.conflict) {
-      db.update(runs).set({ status: 'failed', finishedAt: new Date().toISOString() }).where(eq(runs.id, first.runId)).run()
+      db.update(runs).set({ status: RunStatuses.failed, finishedAt: new Date().toISOString() }).where(eq(runs.id, first.runId)).run()
     }
 
     const second = queueRunIfProjectIdle(db, { projectId: 'proj_1' })
@@ -153,8 +154,8 @@ describe('queueRunIfProjectIdle', () => {
     queueRunIfProjectIdle(db, { projectId: 'proj_1' })
 
     const run = db.select().from(runs).where(eq(runs.projectId, 'proj_1')).get()!
-    expect(run.kind).toBe('answer-visibility')
-    expect(run.trigger).toBe('manual')
+    expect(run.kind).toBe(RunKinds['answer-visibility'])
+    expect(run.trigger).toBe(RunTriggers.manual)
     expect(run.createdAt).toBeTruthy()
   })
 
@@ -166,15 +167,15 @@ describe('queueRunIfProjectIdle', () => {
     const customTime = '2026-03-15T12:00:00Z'
     queueRunIfProjectIdle(db, {
       projectId: 'proj_1',
-      kind: 'gsc-sync',
-      trigger: 'scheduled',
+      kind: RunKinds['gsc-sync'],
+      trigger: RunTriggers.scheduled,
       createdAt: customTime,
       location: 'NYC',
     })
 
     const run = db.select().from(runs).where(eq(runs.projectId, 'proj_1')).get()!
-    expect(run.kind).toBe('gsc-sync')
-    expect(run.trigger).toBe('scheduled')
+    expect(run.kind).toBe(RunKinds['gsc-sync'])
+    expect(run.trigger).toBe(RunTriggers.scheduled)
     expect(run.createdAt).toBe(customTime)
     expect(run.location).toBe('NYC')
   })
