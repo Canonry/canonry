@@ -208,13 +208,15 @@ export const gscCoverageSnapshots = sqliteTable('gsc_coverage_snapshots', {
 export const bingCoverageSnapshots = sqliteTable('bing_coverage_snapshots', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'cascade' }),
   date: text('date').notNull(),
   indexed: integer('indexed').notNull().default(0),
   notIndexed: integer('not_indexed').notNull().default(0),
   unknown: integer('unknown').notNull().default(0),
   createdAt: text('created_at').notNull(),
 }, (table) => [
-  uniqueIndex('idx_bing_coverage_snap_project_date').on(table.projectId, table.date),
+  uniqueIndex('idx_bing_coverage_snap_project_date_unique').on(table.projectId, table.date),
+  index('idx_bing_coverage_snap_run').on(table.syncRunId),
 ])
 
 export const bingConnections = sqliteTable('bing_connections', {
@@ -236,6 +238,7 @@ export const bingUrlInspections = sqliteTable('bing_url_inspections', {
   lastCrawledDate: text('last_crawled_date'),
   inIndexDate: text('in_index_date'),
   inspectedAt: text('inspected_at').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'cascade' }),
   createdAt: text('created_at').notNull(),
   documentSize: integer('document_size'),
   anchorCount: integer('anchor_count'),
@@ -243,6 +246,7 @@ export const bingUrlInspections = sqliteTable('bing_url_inspections', {
 }, (table) => [
   index('idx_bing_inspect_project_url').on(table.projectId, table.url),
   index('idx_bing_inspect_url_time').on(table.url, table.inspectedAt),
+  index('idx_bing_inspect_run').on(table.syncRunId),
 ])
 
 export const bingKeywordStats = sqliteTable('bing_keyword_stats', {
@@ -280,9 +284,11 @@ export const gaTrafficSnapshots = sqliteTable('ga_traffic_snapshots', {
   organicSessions: integer('organic_sessions').notNull().default(0),
   users: integer('users').notNull().default(0),
   syncedAt: text('synced_at').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'cascade' }),
 }, (table) => [
   index('idx_ga_traffic_project_date').on(table.projectId, table.date),
   index('idx_ga_traffic_page').on(table.landingPage),
+  index('idx_ga_traffic_run').on(table.syncRunId),
 ])
 
 export const gaAiReferrals = sqliteTable('ga_ai_referrals', {
@@ -296,10 +302,12 @@ export const gaAiReferrals = sqliteTable('ga_ai_referrals', {
   sessions: integer('sessions').notNull().default(0),
   users: integer('users').notNull().default(0),
   syncedAt: text('synced_at').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'cascade' }),
 }, (table) => [
   index('idx_ga_ai_ref_project_date').on(table.projectId, table.date),
   index('idx_ga_ai_ref_source').on(table.source),
   uniqueIndex('idx_ga_ai_ref_unique_v2').on(table.projectId, table.date, table.source, table.medium, table.sourceDimension),
+  index('idx_ga_ai_ref_run').on(table.syncRunId),
 ])
 
 // Social media referral traffic from GA4 — uses GA4's native sessionDefaultChannelGroup
@@ -315,10 +323,12 @@ export const gaSocialReferrals = sqliteTable('ga_social_referrals', {
   sessions: integer('sessions').notNull().default(0),
   users: integer('users').notNull().default(0),
   syncedAt: text('synced_at').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'cascade' }),
 }, (table) => [
   index('idx_ga_social_ref_project_date').on(table.projectId, table.date),
   index('idx_ga_social_ref_source').on(table.source),
   uniqueIndex('idx_ga_social_ref_unique').on(table.projectId, table.date, table.source, table.medium, table.channelGroup),
+  index('idx_ga_social_ref_run').on(table.syncRunId),
 ])
 
 // Aggregate GA4 totals for a sync period — stores true unique user count
@@ -332,8 +342,10 @@ export const gaTrafficSummaries = sqliteTable('ga_traffic_summaries', {
   totalOrganicSessions: integer('total_organic_sessions').notNull().default(0),
   totalUsers: integer('total_users').notNull().default(0),
   syncedAt: text('synced_at').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'cascade' }),
 }, (table) => [
   index('idx_ga_summary_project').on(table.projectId),
+  index('idx_ga_summary_run').on(table.syncRunId),
 ])
 
 export const usageCounters = sqliteTable('usage_counters', {

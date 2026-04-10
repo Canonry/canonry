@@ -406,7 +406,39 @@ const MIGRATIONS = [
   // v27: Credential columns removed from Drizzle schema — credentials now live in config.yaml.
   // Physical columns (access_token, refresh_token, token_expires_at on google_connections;
   // private_key on ga_connections) intentionally retained in DB for one-time migration in server.ts.
-  // SQLite does not support DROP COLUMN; no SQL to execute.
+  // v28: Add sync_run_id to bing_url_inspections for tracking sync correlation
+  `ALTER TABLE bing_url_inspections ADD COLUMN sync_run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
+  `CREATE INDEX IF NOT EXISTS idx_bing_inspect_run ON bing_url_inspections(sync_run_id)`,
+
+  // v29: Add sync_run_id to ga_traffic_snapshots for tracking sync correlation
+  `ALTER TABLE ga_traffic_snapshots ADD COLUMN sync_run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
+  `CREATE INDEX IF NOT EXISTS idx_ga_traffic_run ON ga_traffic_snapshots(sync_run_id)`,
+
+  // v30: Add sync_run_id to ga_ai_referrals for tracking sync correlation
+  `ALTER TABLE ga_ai_referrals ADD COLUMN sync_run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
+  `CREATE INDEX IF NOT EXISTS idx_ga_ai_ref_run ON ga_ai_referrals(sync_run_id)`,
+
+  // v31: Add sync_run_id to ga_social_referrals for tracking sync correlation
+  `ALTER TABLE ga_social_referrals ADD COLUMN sync_run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
+  `CREATE INDEX IF NOT EXISTS idx_ga_social_ref_run ON ga_social_referrals(sync_run_id)`,
+
+  // v32: Add sync_run_id to ga_traffic_summaries for tracking sync correlation
+  `ALTER TABLE ga_traffic_summaries ADD COLUMN sync_run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
+  `CREATE INDEX IF NOT EXISTS idx_ga_summary_run ON ga_traffic_summaries(sync_run_id)`,
+
+  // v33: Fix missing column from schema.ts — default_location in query_snapshots
+  `ALTER TABLE query_snapshots ADD COLUMN default_location TEXT`,
+
+  // v34: Fix missing index in MIGRATIONS that exists in schema.ts
+  `CREATE INDEX IF NOT EXISTS idx_usage_scope_period ON usage_counters(scope, period)`,
+
+  // v35: Add sync_run_id to bing_coverage_snapshots for tracking sync correlation
+  `ALTER TABLE bing_coverage_snapshots ADD COLUMN sync_run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
+  `CREATE INDEX IF NOT EXISTS idx_bing_coverage_snap_run ON bing_coverage_snapshots(sync_run_id)`,
+
+  // v36: Rename unique index for bing_coverage_snapshots to follow convention
+  `DROP INDEX IF EXISTS idx_bing_coverage_snap_project_date`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_bing_coverage_snap_project_date_unique ON bing_coverage_snapshots(project_id, date)`,
 ]
 
 /**
