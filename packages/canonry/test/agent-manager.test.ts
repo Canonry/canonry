@@ -35,8 +35,10 @@ function processJsonPath() {
   return path.join(tmpDir, 'process.json')
 }
 
+const PROCESS_MARKER = 'canonry-openclaw-gateway'
+
 function writeProcessJson(data: Record<string, unknown>) {
-  fs.writeFileSync(processJsonPath(), JSON.stringify(data), 'utf-8')
+  fs.writeFileSync(processJsonPath(), JSON.stringify({ marker: PROCESS_MARKER, ...data }), 'utf-8')
 }
 
 function readProcessJson(): Record<string, unknown> | null {
@@ -105,12 +107,36 @@ describe('AgentManager.start', () => {
     // Should have called unref
     expect(mockChild.unref).toHaveBeenCalled()
 
-    // Should have written process.json
+    // Should have written process.json with marker
     const pj = readProcessJson()
     expect(pj).not.toBeNull()
     expect(pj!.pid).toBe(12345)
     expect(pj!.gatewayPort).toBe(3579)
     expect(pj!.startedAt).toBeDefined()
+    expect(pj!.marker).toBe(PROCESS_MARKER)
+  })
+
+  it('throws when spawn emits an error (binary not found)', async () => {
+    const mockChild = {
+      pid: undefined,
+      unref: vi.fn(),
+      on: vi.fn((event: string, cb: (err: Error) => void) => {
+        if (event === 'error') {
+          // Simulate async spawn error on next tick
+          setTimeout(() => cb(new Error('spawn ENOENT')), 10)
+        }
+      }),
+      stdout: null,
+      stderr: null,
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(spawn).mockReturnValueOnce(mockChild as any)
+
+    const mgr = new AgentManager(defaultConfig({ binary: '/nonexistent/openclaw' }), tmpDir)
+    await expect(mgr.start()).rejects.toThrow('Failed to start OpenClaw gateway')
+
+    // Should NOT have written process.json
+    expect(fs.existsSync(processJsonPath())).toBe(false)
   })
 
   it('is idempotent when already running', async () => {

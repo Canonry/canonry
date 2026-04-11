@@ -1,7 +1,7 @@
 import { AgentManager } from '../agent-manager.js'
-import { loadConfig } from '../config.js'
+import { loadConfig, saveConfigPatch } from '../config.js'
 import type { AgentConfigEntry } from '../config.js'
-import { detectOpenClaw, getAeroStateDir } from '../agent-bootstrap.js'
+import { detectOpenClaw, getAeroStateDir, seedWorkspace } from '../agent-bootstrap.js'
 
 function resolveStateDir(opts?: { stateDir?: string }): string {
   if (opts?.stateDir) return opts.stateDir
@@ -89,8 +89,10 @@ export async function agentReset(opts?: { format?: string; stateDir?: string }):
 export async function agentSetup(opts?: {
   gatewayPort?: number
   format?: string
+  stateDir?: string
 }): Promise<void> {
-  const detection = await detectOpenClaw(resolveConfig())
+  const existingConfig = resolveConfig()
+  const detection = await detectOpenClaw(existingConfig)
 
   if (!detection.found) {
     const msg = 'OpenClaw not found. Install it with: npm install -g openclaw'
@@ -103,14 +105,37 @@ export async function agentSetup(opts?: {
     return
   }
 
+  // Build the agent config to persist
+  const profile = existingConfig.profile ?? 'aero'
+  const gatewayPort = opts?.gatewayPort ?? existingConfig.gatewayPort ?? 3579
+  const agentConfig: AgentConfigEntry = {
+    binary: detection.path,
+    profile,
+    gatewayPort,
+    autoStart: existingConfig.autoStart,
+  }
+
+  // Persist to config.yaml
+  saveConfigPatch({ agent: agentConfig })
+
+  // Seed the workspace directory with AGENTS.md, SOUL.md, and skills
+  const stateDir = opts?.stateDir ?? getAeroStateDir(profile)
+  seedWorkspace(stateDir)
+
   if (opts?.format === 'json') {
     console.log(JSON.stringify({
       state: 'configured',
       binary: detection.path,
       version: detection.version,
+      profile,
+      gatewayPort,
+      stateDir,
     }, null, 2))
   } else {
     console.log(`OpenClaw: ${detection.path} (${detection.version})`)
+    console.log(`Profile: ${profile}`)
+    console.log(`Gateway port: ${gatewayPort}`)
+    console.log(`State dir: ${stateDir}`)
     console.log('Agent setup complete.')
   }
 }

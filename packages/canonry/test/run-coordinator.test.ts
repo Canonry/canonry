@@ -129,6 +129,32 @@ describe('RunCoordinator', () => {
     expect(healthRows).toHaveLength(1)
   })
 
+  it('awaits intelligence before calling notifier (regression: missing await)', async () => {
+    const { db } = createTempDb('coord-await-')
+    const { projectId, runId } = seedFixture(db)
+
+    let intelligenceFinished = false
+    const notifier = {
+      onRunCompleted: vi.fn().mockImplementation(async () => {
+        // At the point notifier runs, intelligence must have already completed
+        expect(intelligenceFinished).toBe(true)
+      }),
+    }
+    const service = new IntelligenceService(db)
+    vi.spyOn(service, 'analyzeAndPersist').mockImplementation(async () => {
+      // Simulate async delay — without `await` in coordinator, notifier
+      // would fire before this resolves
+      await new Promise(resolve => setTimeout(resolve, 50))
+      intelligenceFinished = true
+    })
+
+    const coordinator = new RunCoordinator(notifier as Notifier, service)
+    await coordinator.onRunCompleted(runId, projectId)
+
+    expect(notifier.onRunCompleted).toHaveBeenCalled()
+    expect(intelligenceFinished).toBe(true)
+  })
+
   it('intelligence runs before notifier', async () => {
     const { db } = createTempDb('coord-order-')
     const { projectId, runId } = seedFixture(db)

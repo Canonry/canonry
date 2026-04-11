@@ -1,9 +1,10 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { parse } from 'yaml'
 import type { AgentConfigEntry } from '../src/config.js'
-import { agentStatus } from '../src/commands/agent.js'
+import { agentStatus, agentSetup } from '../src/commands/agent.js'
 
 let tmpDir: string
 const origEnv: Record<string, string | undefined> = {}
@@ -65,8 +66,13 @@ describe('agent status', () => {
     const stateDir = path.join(tmpDir, '.openclaw-aero')
     fs.mkdirSync(stateDir, { recursive: true })
 
-    // Write process.json with our own PID (alive)
-    const processJson = { pid: process.pid, gatewayPort: 3579, startedAt: '2026-04-07T00:00:00Z' }
+    // Write process.json with our own PID (alive) and proper marker
+    const processJson = {
+      pid: process.pid,
+      gatewayPort: 3579,
+      startedAt: '2026-04-07T00:00:00Z',
+      marker: 'canonry-openclaw-gateway',
+    }
     fs.writeFileSync(path.join(stateDir, 'process.json'), JSON.stringify(processJson))
 
     const output = await captureStdout(() =>
@@ -77,6 +83,48 @@ describe('agent status', () => {
     expect(parsed.state).toBe('running')
     expect(parsed.pid).toBe(process.pid)
     expect(parsed.port).toBe(3579)
+  })
+})
+
+describe('agent setup', () => {
+  it('persists agent config to config.yaml and seeds workspace', async () => {
+    // Create a base config file so saveConfigPatch has something to merge into
+    const { stringify } = await import('yaml')
+    const { getConfigPath } = await import('../src/config.js')
+    const baseConfig = { apiUrl: 'http://localhost:4100', database: path.join(tmpDir, 'canonry.db'), apiKey: 'cnry_test' }
+    fs.writeFileSync(getConfigPath(), stringify(baseConfig), 'utf-8')
+
+    // Mock detectOpenClaw to return a found binary
+    const bootstrap = await import('../src/agent-bootstrap.js')
+    const detectSpy = vi.spyOn(bootstrap, 'detectOpenClaw').mockResolvedValue({
+      found: true,
+      path: '/usr/local/bin/openclaw',
+      version: '1.0.0',
+    })
+    const seedSpy = vi.spyOn(bootstrap, 'seedWorkspace').mockImplementation(() => {})
+
+    const stateDir = path.join(tmpDir, '.openclaw-aero')
+    const output = await captureStdout(() =>
+      agentSetup({ gatewayPort: 4000, format: 'json', stateDir }),
+    )
+
+    const parsed = JSON.parse(output)
+    expect(parsed.state).toBe('configured')
+    expect(parsed.binary).toBe('/usr/local/bin/openclaw')
+    expect(parsed.gatewayPort).toBe(4000)
+
+    // Verify config was persisted
+    const onDisk = parse(fs.readFileSync(getConfigPath(), 'utf-8')) as Record<string, unknown>
+    const agent = onDisk.agent as Record<string, unknown>
+    expect(agent.binary).toBe('/usr/local/bin/openclaw')
+    expect(agent.gatewayPort).toBe(4000)
+    expect(agent.profile).toBe('aero')
+
+    // Verify workspace was seeded
+    expect(seedSpy).toHaveBeenCalledWith(stateDir)
+
+    detectSpy.mockRestore()
+    seedSpy.mockRestore()
   })
 })
 

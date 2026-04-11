@@ -1,6 +1,8 @@
 import { execFileSync } from 'node:child_process'
+import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { AgentConfigEntry } from './config.js'
 
 export interface DetectionResult {
@@ -102,5 +104,39 @@ function findInPath(): string | null {
     return output.toString().trim().split('\n')[0] || null
   } catch {
     return null
+  }
+}
+
+/**
+ * Seed the agent workspace directory with bundled assets (AGENTS.md, SOUL.md,
+ * skills). Idempotent — overwrites existing files to ensure they stay current.
+ */
+export function seedWorkspace(stateDir: string): void {
+  const workspaceDir = path.join(stateDir, 'workspace')
+  fs.mkdirSync(workspaceDir, { recursive: true })
+
+  // Resolve the bundled agent-workspace assets directory.
+  // In the published package this is at packages/canonry/assets/agent-workspace/
+  const __dirname = path.dirname(fileURLToPath(import.meta.url))
+  const assetsDir = path.join(__dirname, '..', 'assets', 'agent-workspace')
+
+  if (!fs.existsSync(assetsDir)) {
+    // Running from source without a build — skip seeding silently
+    return
+  }
+
+  copyDirRecursive(assetsDir, workspaceDir)
+}
+
+function copyDirRecursive(src: string, dest: string): void {
+  fs.mkdirSync(dest, { recursive: true })
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const srcPath = path.join(src, entry.name)
+    const destPath = path.join(dest, entry.name)
+    if (entry.isDirectory()) {
+      copyDirRecursive(srcPath, destPath)
+    } else {
+      fs.copyFileSync(srcPath, destPath)
+    }
   }
 }
