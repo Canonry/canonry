@@ -1,0 +1,161 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import type { AgentConfigEntry } from '../src/config.js'
+
+// Mock child_process
+vi.mock('node:child_process', () => ({
+  spawn: vi.fn(),
+}))
+
+const { AgentManager } = await import('../src/agent-manager.js')
+const { spawn } = await import('node:child_process')
+
+let tmpDir: string
+
+function defaultConfig(overrides: Partial<AgentConfigEntry> = {}): AgentConfigEntry {
+  return {
+    profile: 'aero',
+    gatewayPort: 3579,
+    ...overrides,
+  }
+}
+
+beforeEach(() => {
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-agent-mgr-'))
+  vi.clearAllMocks()
+})
+
+afterEach(() => {
+  fs.rmSync(tmpDir, { recursive: true, force: true })
+})
+
+function processJsonPath() {
+  return path.join(tmpDir, 'process.json')
+}
+
+function writeProcessJson(data: Record<string, unknown>) {
+  fs.writeFileSync(processJsonPath(), JSON.stringify(data), 'utf-8')
+}
+
+function readProcessJson(): Record<string, unknown> | null {
+  const p = processJsonPath()
+  if (!fs.existsSync(p)) return null
+  return JSON.parse(fs.readFileSync(p, 'utf-8'))
+}
+
+describe('AgentManager.status', () => {
+  it('returns stopped when no process.json exists', () => {
+    const mgr = new AgentManager(defaultConfig(), tmpDir)
+    const status = mgr.status()
+    expect(status.state).toBe('stopped')
+    expect(status.pid).toBeUndefined()
+  })
+
+  it('returns stopped when process.json exists but process is dead', () => {
+    writeProcessJson({ pid: 999999, gatewayPort: 3579, startedAt: new Date().toISOString() })
+
+    const mgr = new AgentManager(defaultConfig(), tmpDir)
+    const status = mgr.status()
+    expect(status.state).toBe('stopped')
+
+    // Should clean up stale process.json
+    expect(fs.existsSync(processJsonPath())).toBe(false)
+  })
+
+  it('returns running when process.json exists and process is alive', () => {
+    // Use our own PID — it's definitely alive
+    const pid = process.pid
+    writeProcessJson({ pid, gatewayPort: 3579, startedAt: '2026-04-07T00:00:00Z' })
+
+    const mgr = new AgentManager(defaultConfig(), tmpDir)
+    const status = mgr.status()
+    expect(status.state).toBe('running')
+    expect(status.pid).toBe(pid)
+    expect(status.port).toBe(3579)
+    expect(status.startedAt).toBe('2026-04-07T00:00:00Z')
+  })
+})
+
+describe('AgentManager.start', () => {
+  it('spawns detached gateway process and writes process.json', async () => {
+    const mockChild = {
+      pid: 12345,
+      unref: vi.fn(),
+      on: vi.fn(),
+      stdout: null,
+      stderr: null,
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(spawn).mockReturnValueOnce(mockChild as any)
+
+    const mgr = new AgentManager(defaultConfig({ binary: '/usr/bin/openclaw' }), tmpDir)
+    await mgr.start()
+
+    // Should have spawned openclaw
+    expect(spawn).toHaveBeenCalledOnce()
+    const [bin, args, opts] = vi.mocked(spawn).mock.calls[0]
+    expect(bin).toBe('/usr/bin/openclaw')
+    expect(args).toContain('--profile')
+    expect(args).toContain('aero')
+    expect(opts).toMatchObject({ detached: true })
+    expect(opts.env).toMatchObject({ OPENCLAW_GATEWAY_PORT: '3579' })
+
+    // Should have called unref
+    expect(mockChild.unref).toHaveBeenCalled()
+
+    // Should have written process.json
+    const pj = readProcessJson()
+    expect(pj).not.toBeNull()
+    expect(pj!.pid).toBe(12345)
+    expect(pj!.gatewayPort).toBe(3579)
+    expect(pj!.startedAt).toBeDefined()
+  })
+
+  it('is idempotent when already running', async () => {
+    // Write process.json with our own PID (alive)
+    writeProcessJson({ pid: process.pid, gatewayPort: 3579, startedAt: new Date().toISOString() })
+
+    const mgr = new AgentManager(defaultConfig(), tmpDir)
+    await mgr.start()
+
+    // Should NOT have spawned anything
+    expect(spawn).not.toHaveBeenCalled()
+  })
+})
+
+describe('AgentManager.stop', () => {
+  it('removes process.json after shutdown', async () => {
+    // Use a PID that's definitely dead
+    writeProcessJson({ pid: 999999, gatewayPort: 3579, startedAt: new Date().toISOString() })
+
+    const mgr = new AgentManager(defaultConfig(), tmpDir)
+    await mgr.stop()
+
+    expect(fs.existsSync(processJsonPath())).toBe(false)
+  })
+
+  it('is idempotent when already stopped', async () => {
+    const mgr = new AgentManager(defaultConfig(), tmpDir)
+    // Should not throw
+    await expect(mgr.stop()).resolves.toBeUndefined()
+  })
+})
+
+describe('AgentManager.reset', () => {
+  it('stops and wipes workspace directory', async () => {
+    const workspaceDir = path.join(tmpDir, 'workspace')
+    fs.mkdirSync(workspaceDir, { recursive: true })
+    fs.writeFileSync(path.join(workspaceDir, 'test.txt'), 'hello')
+
+    // Dead PID so stop is a no-op cleanup
+    writeProcessJson({ pid: 999999, gatewayPort: 3579, startedAt: new Date().toISOString() })
+
+    const mgr = new AgentManager(defaultConfig(), tmpDir)
+    await mgr.reset()
+
+    expect(fs.existsSync(processJsonPath())).toBe(false)
+    expect(fs.existsSync(workspaceDir)).toBe(false)
+  })
+})

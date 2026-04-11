@@ -16,6 +16,7 @@ import { SNAPSHOT_CLI_COMMANDS } from './cli-commands/snapshot.js'
 import { INTELLIGENCE_CLI_COMMANDS } from './cli-commands/intelligence.js'
 import { SYSTEM_CLI_COMMANDS } from './cli-commands/system.js'
 import { WORDPRESS_CLI_COMMANDS } from './cli-commands/wordpress.js'
+import { AGENT_CLI_COMMANDS } from './cli-commands/agent.js'
 
 export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...BACKFILL_CLI_COMMANDS,
@@ -35,4 +36,5 @@ export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...CDP_CLI_COMMANDS,
   ...GA_CLI_COMMANDS,
   ...INTELLIGENCE_CLI_COMMANDS,
+  ...AGENT_CLI_COMMANDS,
 ]

@@ -50,6 +50,7 @@ canonry snapshot "Acme Corp" --domain acme.example.com --output report.md  # cus
 canonry snapshot "Acme Corp" --domain acme.example.com --pdf         # save PDF report
 canonry snapshot "Acme Corp" --domain acme.example.com --format json
 
+
 canonry run <project>                             # sweep all configured providers
 canonry run <project> --provider gemini           # single provider only
 canonry run <project> --wait                      # block until complete
@@ -66,8 +67,6 @@ Run statuses: `queued` → `running` → `completed` / `failed` / `partial`
 
 `partial` = some providers failed (usually rate limits) — successful snapshots are still saved.
 
-`snapshot` does not create a project or write to the DB. It generates category queries, runs providers, and produces a report for prospecting.
-
 ## Citation Data
 
 ```bash
@@ -75,8 +74,6 @@ canonry evidence <project>                        # per-keyword cited/not-cited
 canonry evidence <project> --format json          # JSON output
 canonry history <project>                         # audit trail
 canonry export <project> --include-results        # export as YAML
-canonry backfill answer-visibility                # recompute answer visibility from stored answers
-canonry backfill answer-visibility --project <name> --format json
 ```
 
 Output shows:
@@ -92,21 +89,6 @@ canonry analytics <project> --feature metrics     # citation rate trends
 canonry analytics <project> --feature gaps        # brand gap analysis (cited/gap/uncited)
 canonry analytics <project> --feature sources     # source breakdown by category
 canonry analytics <project> --window 7d           # time window: 7d, 30d, 90d, all
-```
-
-## Intelligence
-
-```bash
-canonry insights <project>                        # list active insights (regressions, gains, opportunities)
-canonry insights <project> --dismissed            # include dismissed insights
-canonry insights <project> --format json          # JSON output
-canonry insights dismiss <project> <id>           # dismiss an insight
-canonry health <project>                          # latest citation health snapshot
-canonry health <project> --history                # health trend over time
-canonry health <project> --history --limit 10     # limit history entries
-canonry health <project> --format json            # JSON output
-canonry backfill insights <project>              # backfill insights for all completed runs
-canonry backfill insights <project> --from-run <id> --to-run <id>  # backfill a range
 ```
 
 ## Keywords & Competitors
@@ -157,22 +139,6 @@ Available providers: `gemini`, `openai`, `claude`, `perplexity`, `local`, `cdp`
 
 If a provider hits rate limits (429 errors), the run completes as `partial`. Reduce concurrency or increase time between sweeps.
 
-### Gemini Vertex AI
-
-Gemini supports Vertex AI as an alternative to API key authentication. Use GCP Application Default Credentials (ADC) or a service account JSON key file:
-
-```bash
-# Via env vars (recommended for servers)
-export GEMINI_VERTEX_PROJECT=my-gcp-project
-export GEMINI_VERTEX_REGION=us-central1            # optional, defaults to us-central1
-export GEMINI_VERTEX_CREDENTIALS=/path/to/sa.json  # optional, falls back to ADC
-
-# Or in canonry.yaml config
-# vertexProject, vertexRegion, vertexCredentials fields under provider config
-```
-
-When Vertex AI is configured, no `GEMINI_API_KEY` is required. The provider uses the `@google-cloud/vertexai` SDK with `googleAuthOptions` for credential handling.
-
 ## Google Search Console
 
 ```bash
@@ -189,7 +155,6 @@ canonry google sync <project>                             # sync GSC data
 canonry google sync <project> --days 30 --full --wait     # full sync with wait
 
 canonry google coverage <project>                         # index coverage summary
-canonry google refresh <project>                         # force-fetch fresh GSC coverage data
 canonry google performance <project>                      # search performance data
 canonry google performance <project> --days 30 --keyword "term" --page "/url"
 
@@ -212,7 +177,6 @@ canonry bing status <project>                    # connection status
 canonry bing sites <project>                     # list verified sites
 canonry bing set-site <project> <url>            # set active site URL
 canonry bing coverage <project>                  # URL coverage data
-canonry bing refresh <project>                  # force-fetch fresh Bing coverage data
 canonry bing inspect <project> <url>             # inspect specific URL
 canonry bing inspections <project>               # inspection history
 canonry bing request-indexing <project> <url>    # submit URL for indexing
@@ -263,6 +227,7 @@ canonry ga social-referral-history <project>     # daily social referral history
 canonry ga social-referral-summary <project> [--trend]  # one-line social summary + optional trend
 canonry ga attribution <project> [--trend]        # unified channel attribution overview + optional trends
 ```
+
 
 ## CDP / Browser Provider
 

@@ -87,6 +87,17 @@ export interface WordpressConfigEntry {
   connections?: WordpressConnectionConfigEntry[]
 }
 
+export interface AgentConfigEntry {
+  /** Path to openclaw binary (auto-detected, persisted after bootstrap) */
+  binary?: string
+  /** OpenClaw profile name (default: 'aero') */
+  profile?: string
+  /** Start gateway automatically with `canonry serve` */
+  autoStart?: boolean
+  /** Gateway port (persisted so restarts reuse same port) */
+  gatewayPort?: number
+}
+
 export interface CanonryConfig {
   apiUrl: string
   publicUrl?: string
@@ -112,6 +123,8 @@ export interface CanonryConfig {
   // Telemetry (opt-out: undefined/true = enabled, false = disabled)
   telemetry?: boolean
   anonymousId?: string
+  // OpenClaw agent integration (optional — canonry works without it)
+  agent?: AgentConfigEntry
 }
 
 function normalizeGoogleConfig(config: CanonryConfig): void {

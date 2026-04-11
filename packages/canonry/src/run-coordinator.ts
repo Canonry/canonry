@@ -18,7 +18,7 @@ export class RunCoordinator {
     // 1. Intelligence — always runs, catches its own errors.
     //    Runs first so insights are persisted before webhooks fire.
     try {
-      this.intelligenceService.analyzeAndPersist(runId, projectId)
+      await this.intelligenceService.analyzeAndPersist(runId, projectId)
     } catch (err) {
       log.error('intelligence.failed', { runId, error: err instanceof Error ? err.message : String(err) })
     }

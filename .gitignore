@@ -4,4 +4,7 @@ node_modules/
 .DS_Store
 coverage/
 dist/
-packages/canonry/assets/
+# Web SPA build output (built by build-web.ts)
+packages/canonry/assets/web/
+# Build-time copies of skills from repo root (copied by copy-agent-assets.ts)
+packages/canonry/assets/agent-workspace/skills/
