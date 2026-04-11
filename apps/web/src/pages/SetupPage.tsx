@@ -16,7 +16,7 @@ import { useTriggerRun } from '../queries/mutations.js'
 import { useDashboard } from '../queries/use-dashboard.js'
 import { useHealth } from '../queries/use-health.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
-import { buildSetupModel } from '../lib/health-helpers.js'
+import { buildSetupModel, serviceStatusTooltip } from '../lib/health-helpers.js'
 
 const SETUP_STEPS = [
   { label: 'System check', description: 'Verify your instance is ready' },
@@ -251,7 +251,16 @@ export function SetupPage() {
                       </Link>
                     )}
                   </div>
-                  <ToneBadge tone={check.state === 'ready' ? 'positive' : 'caution'}>
+                  <ToneBadge
+                    tone={check.state === 'ready' ? 'positive' : 'caution'}
+                    title={
+                      check.id === 'api'
+                        ? serviceStatusTooltip(healthSnapshot.apiStatus)
+                        : check.id === 'worker'
+                          ? serviceStatusTooltip(healthSnapshot.workerStatus)
+                          : check.detail
+                    }
+                  >
                     {check.state === 'ready' ? 'Ready' : 'Attention'}
                   </ToneBadge>
                 </div>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getLaunchBlockedReason, buildSetupModel } from '../src/lib/health-helpers.js'
+import { getLaunchBlockedReason, buildSetupModel, serviceStatusTooltip } from '../src/lib/health-helpers.js'
 import type { HealthSnapshot, SettingsVm, SetupWizardVm } from '../src/view-models.js'
 
 function makeHealth(overrides?: Partial<HealthSnapshot>): HealthSnapshot {
@@ -47,6 +47,17 @@ describe('getLaunchBlockedReason', () => {
       providerStatuses: [{ name: 'gemini', state: 'not-configured', detail: '' }],
     })
     expect(getLaunchBlockedReason(makeHealth(), settings)).toContain('provider')
+  })
+})
+
+describe('serviceStatusTooltip', () => {
+  it('combines detail and troubleshooting hint for failed checks', () => {
+    expect(serviceStatusTooltip({
+      label: 'API',
+      state: 'error',
+      detail: 'API 404: Not Found',
+      hint: 'Check basePath configuration.',
+    })).toBe('API 404: Not Found\nCheck basePath configuration.')
   })
 })
 

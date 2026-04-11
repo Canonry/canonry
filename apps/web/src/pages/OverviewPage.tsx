@@ -8,7 +8,7 @@ import { StatusBadge } from '../components/shared/StatusBadge.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { toneFromRunStatus } from '../lib/tone-helpers.js'
 import { toTitleCase } from '../lib/format-helpers.js'
-import { buildSystemHealthCards } from '../lib/health-helpers.js'
+import { buildSystemHealthCards, serviceStatusTooltip } from '../lib/health-helpers.js'
 import { useDashboard } from '../queries/use-dashboard.js'
 import { useHealth } from '../queries/use-health.js'
 import { useDrawer } from '../hooks/use-drawer.js'
@@ -195,7 +195,18 @@ export function OverviewPage() {
                   <p className="eyebrow eyebrow-soft">{item.label}</p>
                   <h3>{item.detail}</h3>
                 </div>
-                <ToneBadge tone={item.tone}>{item.label}</ToneBadge>
+                <ToneBadge
+                  tone={item.tone}
+                  title={
+                    item.id === 'api'
+                      ? serviceStatusTooltip(healthSnapshot.apiStatus)
+                      : item.id === 'worker'
+                        ? serviceStatusTooltip(healthSnapshot.workerStatus)
+                        : undefined
+                  }
+                >
+                  {item.label}
+                </ToneBadge>
               </div>
               <p className="supporting-copy">{item.meta}</p>
             </Card>

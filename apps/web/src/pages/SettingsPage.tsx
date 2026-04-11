@@ -7,6 +7,7 @@ import { ProviderConfigForm } from '../components/settings/ProviderConfigForm.js
 import { GoogleOAuthConfigForm } from '../components/settings/GoogleOAuthConfigForm.js'
 import { updateBingApiKey } from '../api.js'
 import { CdpConfigCard } from '../components/settings/CdpConfigCard.js'
+import { serviceStatusTooltip } from '../lib/health-helpers.js'
 import { toneFromService } from '../lib/tone-helpers.js'
 import { addToast } from '../lib/toast-store.js'
 import { useDashboard } from '../queries/use-dashboard.js'
@@ -243,7 +244,7 @@ export function SettingsPage() {
                 <p className="run-row-title">API</p>
                 <p className="supporting-copy">{healthSnapshot.apiStatus.detail}</p>
               </div>
-              <ToneBadge tone={toneFromService(healthSnapshot.apiStatus)}>
+              <ToneBadge tone={toneFromService(healthSnapshot.apiStatus)} title={serviceStatusTooltip(healthSnapshot.apiStatus)}>
                 {healthSnapshot.apiStatus.state === 'ok' ? 'Healthy' : 'Attention'}
               </ToneBadge>
             </div>
@@ -252,7 +253,7 @@ export function SettingsPage() {
                 <p className="run-row-title">Worker</p>
                 <p className="supporting-copy">{healthSnapshot.workerStatus.detail}</p>
               </div>
-              <ToneBadge tone={toneFromService(healthSnapshot.workerStatus)}>
+              <ToneBadge tone={toneFromService(healthSnapshot.workerStatus)} title={serviceStatusTooltip(healthSnapshot.workerStatus)}>
                 {healthSnapshot.workerStatus.state === 'ok' ? 'Healthy' : 'Attention'}
               </ToneBadge>
             </div>

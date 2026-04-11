@@ -15,6 +15,7 @@ import {
 
 import { formatErrorLog } from './lib/format-helpers.js'
 import { fetchAllRuns, fetchProjects, type ApiProject, type ApiRun } from './api.js'
+import { serviceStatusTooltip } from './lib/health-helpers.js'
 import { addToast, type ToastTone } from './lib/toast-store.js'
 import {
   getRunTrackerState,
@@ -424,10 +425,16 @@ export function RootLayout() {
 
           <div className="topbar-actions">
             <div className="health-pill-row">
-              <span className={`health-pill health-pill-${healthSnapshot.apiStatus.state}`}>
+              <span
+                className={`health-pill health-pill-${healthSnapshot.apiStatus.state}`}
+                title={serviceStatusTooltip(healthSnapshot.apiStatus)}
+              >
                 API {healthSnapshot.apiStatus.state === 'ok' ? 'ok' : healthSnapshot.apiStatus.state}
               </span>
-              <span className={`health-pill health-pill-${healthSnapshot.workerStatus.state}`}>
+              <span
+                className={`health-pill health-pill-${healthSnapshot.workerStatus.state}`}
+                title={serviceStatusTooltip(healthSnapshot.workerStatus)}
+              >
                 Worker {healthSnapshot.workerStatus.state === 'ok' ? 'ok' : healthSnapshot.workerStatus.state}
               </span>
             </div>

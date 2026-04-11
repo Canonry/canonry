@@ -1,9 +1,14 @@
-import type { HealthSnapshot, MetricTone, SettingsVm, SetupWizardVm, SystemHealthCardVm } from '../view-models.js'
+import type { HealthSnapshot, MetricTone, ServiceStatus, SettingsVm, SetupWizardVm, SystemHealthCardVm } from '../view-models.js'
 import { toneFromService } from './tone-helpers.js'
 
 /** Display name comes from the API (adapter.displayName). Capitalize as fallback. */
 function providerDisplayName(p: { name: string; displayName?: string }): string {
   return p.displayName ?? p.name.charAt(0).toUpperCase() + p.name.slice(1)
+}
+
+export function serviceStatusTooltip(status: ServiceStatus): string | undefined {
+  const parts = [status.detail, status.hint].filter(Boolean)
+  return parts.length > 0 ? parts.join('\n') : undefined
 }
 
 export function buildSystemHealthCards(

@@ -42,6 +42,24 @@ function getApiBase(): string {
 
 const API_BASE = getApiBase()
 
+function getPublicBase(): string {
+  if (typeof window !== 'undefined' && window.__CANONRY_CONFIG__?.basePath) {
+    return window.__CANONRY_CONFIG__.basePath.replace(/\/$/, '')
+  }
+  return ''
+}
+
+function publicPath(path: string): string {
+  return `${getPublicBase()}${path}`
+}
+
+function healthFailureHint(path: string, statusCode: number): string | undefined {
+  if (path === '/health' && statusCode === 404) {
+    return 'Health endpoint returned 404. Check basePath or reverse-proxy configuration and make sure the dashboard reaches /health instead of an API-prefixed route.'
+  }
+  return undefined
+}
+
 function getApiKey(): string {
   return import.meta.env.VITE_API_KEY ?? ''
 }
@@ -441,7 +459,11 @@ export function loginWithApiKey(apiKey: string): Promise<ApiSessionState> {
 }
 
 export async function fetchHealthCheck(): Promise<{ status: string }> {
-  return apiFetch('/health')
+  const res = await fetch(publicPath('/health'), { credentials: 'same-origin' })
+  if (!res.ok) {
+    throw new Error(`Health check failed: ${res.status} ${res.statusText}`)
+  }
+  return res.json() as Promise<{ status: string }>
 }
 
 export function updateProviderConfig(provider: string, body: {
@@ -1051,8 +1073,21 @@ export function fetchLatestHealth(project: string): Promise<HealthSnapshotDto> {
 import type { ServiceStatus } from './view-models.js'
 
 export async function fetchServiceStatus(path: string, label: string): Promise<ServiceStatus> {
+  const requestPath = publicPath(path)
+
   try {
-    const payload = await apiFetch<Record<string, unknown>>(path)
+    const res = await fetch(requestPath, { credentials: 'same-origin' })
+    if (!res.ok) {
+      return {
+        label,
+        state: 'error',
+        detail: `${label} ${res.status}: ${res.statusText}`,
+        statusCode: res.status,
+        hint: healthFailureHint(path, res.status),
+      }
+    }
+
+    const payload = await res.json() as Record<string, unknown>
     const version = typeof payload.version === 'string' ? payload.version : 'unknown'
     const databaseConfigured =
       typeof payload.databaseUrlConfigured === 'boolean' ? payload.databaseUrlConfigured : undefined
@@ -1078,6 +1113,9 @@ export async function fetchServiceStatus(path: string, label: string): Promise<S
       label,
       state: 'error',
       detail: error instanceof Error ? error.message : 'unreachable',
+      hint: path === '/health'
+        ? `Request failed while checking ${requestPath}. If this instance is served behind a sub-path, verify the dashboard basePath and reverse-proxy rewrites.`
+        : undefined,
     }
   }
 }

@@ -1,20 +1,28 @@
-import { test, expect, onTestFinished } from 'vitest'
+import { test, expect, onTestFinished, vi } from 'vitest'
 
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 
-import { fetchServiceStatus } from '../src/api.js'
+import { fetchHealthCheck, fetchServiceStatus } from '../src/api.js'
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 
+type TestWindowConfig = {
+  __CANONRY_CONFIG__?: {
+    basePath?: string
+  }
+}
+
 async function renderApp(
   pathname: string,
   options: Parameters<typeof createDashboardFixture>[0] = {},
+  mutateFixture?: (fixture: ReturnType<typeof createDashboardFixture>) => void,
 ): Promise<string> {
   const fixture = createDashboardFixture(options)
+  mutateFixture?.(fixture)
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -147,7 +155,7 @@ test('project search console route renders the Search Engine Intelligence sectio
 
 test('fetchServiceStatus reports ok details from a health payload', async () => {
   const realFetch = globalThis.fetch
-  globalThis.fetch = (async () =>
+  const fetchMock = vi.fn(async () =>
     new Response(
       JSON.stringify({
         version: 'phase-1',
@@ -160,7 +168,8 @@ test('fetchServiceStatus reports ok details from a health payload', async () => 
           'content-type': 'application/json',
         },
       },
-    )) as typeof fetch
+    ))
+  globalThis.fetch = fetchMock as unknown as typeof fetch
 
   onTestFinished(() => {
     globalThis.fetch = realFetch
@@ -176,6 +185,7 @@ test('fetchServiceStatus reports ok details from a health payload', async () => 
     databaseConfigured: true,
     lastHeartbeatAt: '2026-03-09T00:00:00.000Z',
   })
+  expect(fetchMock).toHaveBeenCalledWith('/worker-health', { credentials: 'same-origin' })
 })
 
 test('fetchServiceStatus reports transport failures', async () => {
@@ -195,4 +205,103 @@ test('fetchServiceStatus reports transport failures', async () => {
     state: 'error',
     detail: 'connection refused',
   })
+})
+
+test('fetchServiceStatus respects basePath for public health endpoints', async () => {
+  const realFetch = globalThis.fetch
+  const originalWindow = (globalThis as typeof globalThis & { window?: TestWindowConfig }).window
+  const fetchMock = vi.fn(async () =>
+    new Response(
+      JSON.stringify({
+        version: 'phase-1',
+        databaseUrlConfigured: true,
+      }),
+      {
+        status: 200,
+        headers: {
+          'content-type': 'application/json',
+        },
+      },
+    ))
+  globalThis.fetch = fetchMock as unknown as typeof fetch
+  ;(globalThis as typeof globalThis & { window?: TestWindowConfig }).window = { __CANONRY_CONFIG__: { basePath: '/canonry/' } }
+
+  onTestFinished(() => {
+    globalThis.fetch = realFetch
+    ;(globalThis as typeof globalThis & { window?: TestWindowConfig }).window = originalWindow
+  })
+
+  await fetchServiceStatus('/health', 'API')
+
+  expect(fetchMock).toHaveBeenCalledWith('/canonry/health', { credentials: 'same-origin' })
+})
+
+test('fetchServiceStatus adds troubleshooting hint for 404 health responses', async () => {
+  const realFetch = globalThis.fetch
+  const fetchMock = vi.fn(async () =>
+    new Response(null, {
+      status: 404,
+      statusText: 'Not Found',
+    }))
+  globalThis.fetch = fetchMock as unknown as typeof fetch
+
+  onTestFinished(() => {
+    globalThis.fetch = realFetch
+  })
+
+  await expect(fetchServiceStatus('/health', 'API')).resolves.toMatchObject({
+    label: 'API',
+    state: 'error',
+    detail: 'API 404: Not Found',
+    statusCode: 404,
+    hint: expect.stringMatching(/basePath|reverse-proxy|API-prefixed route/i),
+  })
+})
+
+test('fetchHealthCheck uses the public health endpoint', async () => {
+  const realFetch = globalThis.fetch
+  const originalWindow = (globalThis as typeof globalThis & { window?: TestWindowConfig }).window
+  const fetchMock = vi.fn(async () =>
+    new Response(
+      JSON.stringify({ status: 'ok' }),
+      {
+        status: 200,
+        headers: {
+          'content-type': 'application/json',
+        },
+      },
+    ))
+  globalThis.fetch = fetchMock as unknown as typeof fetch
+  ;(globalThis as typeof globalThis & { window?: TestWindowConfig }).window = { __CANONRY_CONFIG__: { basePath: '/canonry/' } }
+
+  onTestFinished(() => {
+    globalThis.fetch = realFetch
+    ;(globalThis as typeof globalThis & { window?: TestWindowConfig }).window = originalWindow
+  })
+
+  await expect(fetchHealthCheck()).resolves.toEqual({ status: 'ok' })
+  expect(fetchMock).toHaveBeenCalledWith('/canonry/health', { credentials: 'same-origin' })
+})
+
+test('settings route exposes health failure details on the badge tooltip', async () => {
+  const html = await renderApp('/settings', {}, (fixture) => {
+    fixture.health.apiStatus = {
+      label: 'API',
+      state: 'error',
+      detail: 'API 404: Not Found',
+      statusCode: 404,
+      hint: 'Health endpoint returned 404. Check basePath configuration.',
+    }
+    fixture.health.workerStatus = {
+      label: 'Worker',
+      state: 'error',
+      detail: 'Depends on API health check · API 404: Not Found',
+      statusCode: 404,
+      hint: 'Worker status is inferred from API health in this deployment mode. Check basePath configuration.',
+    }
+  })
+
+  expect(html).toMatch(/title="API 404: Not Found/)
+  expect(html).toMatch(/Check basePath configuration/)
+  expect(html).toMatch(/Depends on API health check · API 404: Not Found/)
 })

@@ -12,6 +12,8 @@ export interface ServiceStatus {
   version?: string
   databaseConfigured?: boolean
   lastHeartbeatAt?: string
+  statusCode?: number
+  hint?: string
 }
 
 export interface HealthSnapshot {
