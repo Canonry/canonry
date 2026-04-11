@@ -694,7 +694,13 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       aiSharePct: total > 0 ? Math.round(((aiDeduped?.sessions ?? 0) / total) * 100) : 0,
       socialSharePct: total > 0 ? Math.round(((socialTotals?.sessions ?? 0) / total) * 100) : 0,
       lastSyncedAt: latestSync?.syncedAt ?? null,
-      periodStart: cutoffDate ?? summaryMeta?.periodStart ?? null,
+      periodStart: (() => {
+        const start = cutoffDate ?? summaryMeta?.periodStart ?? null
+        const end = summaryMeta?.periodEnd ?? null
+        // Clamp: if the cutoff is after the last synced date, use the synced start instead
+        if (start && end && start > end) return summaryMeta?.periodStart ?? null
+        return start
+      })(),
       periodEnd: summaryMeta?.periodEnd ?? null,
     }
   })

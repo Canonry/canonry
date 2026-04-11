@@ -574,12 +574,14 @@ export class ApiClient {
     return this.request<GaCoverageResponse>('GET', `/projects/${encodeURIComponent(project)}/ga/coverage`)
   }
 
-  async gaAiReferralHistory(project: string): Promise<GA4AiReferralHistoryEntry[]> {
-    return this.request<GA4AiReferralHistoryEntry[]>('GET', `/projects/${encodeURIComponent(project)}/ga/ai-referral-history`)
+  async gaAiReferralHistory(project: string, params?: Record<string, string>): Promise<GA4AiReferralHistoryEntry[]> {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+    return this.request<GA4AiReferralHistoryEntry[]>('GET', `/projects/${encodeURIComponent(project)}/ga/ai-referral-history${qs}`)
   }
 
-  async gaSocialReferralHistory(project: string): Promise<GA4SocialReferralHistoryEntry[]> {
-    return this.request<GA4SocialReferralHistoryEntry[]>('GET', `/projects/${encodeURIComponent(project)}/ga/social-referral-history`)
+  async gaSocialReferralHistory(project: string, params?: Record<string, string>): Promise<GA4SocialReferralHistoryEntry[]> {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+    return this.request<GA4SocialReferralHistoryEntry[]>('GET', `/projects/${encodeURIComponent(project)}/ga/social-referral-history${qs}`)
   }
 
   async gaSocialReferralTrend(project: string): Promise<GaSocialReferralTrendResponse> {
@@ -590,8 +592,9 @@ export class ApiClient {
     return this.request<GaAttributionTrendResponse>('GET', `/projects/${encodeURIComponent(project)}/ga/attribution-trend`)
   }
 
-  async gaSessionHistory(project: string): Promise<GA4SessionHistoryEntry[]> {
-    return this.request<GA4SessionHistoryEntry[]>('GET', `/projects/${encodeURIComponent(project)}/ga/session-history`)
+  async gaSessionHistory(project: string, params?: Record<string, string>): Promise<GA4SessionHistoryEntry[]> {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+    return this.request<GA4SessionHistoryEntry[]>('GET', `/projects/${encodeURIComponent(project)}/ga/session-history${qs}`)
   }
 
   async wordpressConnect(

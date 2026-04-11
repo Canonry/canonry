@@ -566,6 +566,8 @@ describe('GA4 routes', () => {
     expect(body.aiReferrals).toEqual([])
     // periodEnd still reflects full synced range
     expect(body.periodEnd).toBe('2026-03-20')
+    // periodStart is clamped: cutoff (~2026-04-04) > periodEnd, so falls back to summary start
+    expect(body.periodStart).toBe('2026-02-19')
 
     credentials.delete('test-project')
   })

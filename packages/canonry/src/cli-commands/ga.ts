@@ -4,6 +4,7 @@ import {
   gaConnect,
   gaCoverage,
   gaDisconnect,
+  gaSessionHistory,
   gaSocialReferralHistory,
   gaSocialReferralSummary,
   gaStatus,
@@ -100,18 +101,44 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['ga', 'ai-referral-history'],
-    usage: 'canonry ga ai-referral-history <project> [--format json]',
+    usage: 'canonry ga ai-referral-history <project> [--window 30d] [--format json]',
+    options: {
+      window: stringOption(),
+    },
     run: async (input) => {
-      const project = requireProject(input, 'ga.ai-referral-history', 'canonry ga ai-referral-history <project> [--format json]')
-      await gaAiReferralHistory(project, input.format)
+      const project = requireProject(input, 'ga.ai-referral-history', 'canonry ga ai-referral-history <project> [--window 30d] [--format json]')
+      await gaAiReferralHistory(project, {
+        window: getString(input.values, 'window'),
+        format: input.format,
+      })
     },
   },
   {
     path: ['ga', 'social-referral-history'],
-    usage: 'canonry ga social-referral-history <project> [--format json]',
+    usage: 'canonry ga social-referral-history <project> [--window 30d] [--format json]',
+    options: {
+      window: stringOption(),
+    },
     run: async (input) => {
-      const project = requireProject(input, 'ga.social-referral-history', 'canonry ga social-referral-history <project> [--format json]')
-      await gaSocialReferralHistory(project, input.format)
+      const project = requireProject(input, 'ga.social-referral-history', 'canonry ga social-referral-history <project> [--window 30d] [--format json]')
+      await gaSocialReferralHistory(project, {
+        window: getString(input.values, 'window'),
+        format: input.format,
+      })
+    },
+  },
+  {
+    path: ['ga', 'session-history'],
+    usage: 'canonry ga session-history <project> [--window 30d] [--format json]',
+    options: {
+      window: stringOption(),
+    },
+    run: async (input) => {
+      const project = requireProject(input, 'ga.session-history', 'canonry ga session-history <project> [--window 30d] [--format json]')
+      await gaSessionHistory(project, {
+        window: getString(input.values, 'window'),
+        format: input.format,
+      })
     },
   },
   {
@@ -149,7 +176,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
       unknownSubcommand(input.positionals[0], {
         command: 'ga',
         usage: 'canonry ga <subcommand> <project> [args]',
-        available: ['connect', 'disconnect', 'status', 'sync', 'traffic', 'coverage', 'ai-referral-history', 'social-referral-history', 'social-referral-summary', 'attribution'],
+        available: ['connect', 'disconnect', 'status', 'sync', 'traffic', 'coverage', 'ai-referral-history', 'social-referral-history', 'session-history', 'social-referral-summary', 'attribution'],
       })
     },
   },

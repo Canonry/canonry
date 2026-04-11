@@ -1,4 +1,4 @@
-import type { GaConnectResponse, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GaSocialReferralTrendResponse, GaAttributionTrendResponse, GA4AiReferralHistoryEntry, GA4SocialReferralHistoryEntry } from '@ainyc/canonry-contracts'
+import type { GaConnectResponse, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GaSocialReferralTrendResponse, GaAttributionTrendResponse, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError } from '../cli-error.js'
 
@@ -144,7 +144,11 @@ export async function gaTraffic(project: string, opts?: { limit?: number; window
   }
 
   if (result.topPages.length === 0 && result.aiReferrals.length === 0 && result.socialReferrals.length === 0) {
-    console.log('No GA4 traffic data. Run "canonry ga sync <project>" first.')
+    if (!result.lastSyncedAt) {
+      console.log('No GA4 traffic data. Run "canonry ga sync <project>" first.')
+    } else {
+      console.log(`No GA4 traffic data for the selected period.${opts?.window ? ` Try a wider window or omit --window.` : ''}`)
+    }
     return
   }
 
@@ -211,17 +215,17 @@ export async function gaTraffic(project: string, opts?: { limit?: number; window
   }
 }
 
-export async function gaAiReferralHistory(project: string, format?: string): Promise<void> {
+export async function gaAiReferralHistory(project: string, opts?: { window?: string; format?: string }): Promise<void> {
   const client = getClient()
-  const result: GA4AiReferralHistoryEntry[] = await client.gaAiReferralHistory(project)
+  const result: GA4AiReferralHistoryEntry[] = await client.gaAiReferralHistory(project, opts?.window ? { window: opts.window } : undefined)
 
-  if (format === 'json') {
+  if (opts?.format === 'json') {
     console.log(JSON.stringify(result, null, 2))
     return
   }
 
   if (result.length === 0) {
-    console.log('No AI referral history. Run "canonry ga sync <project>" first.')
+    console.log(`No AI referral history.${opts?.window ? ' Try a wider window or omit --window.' : ' Run "canonry ga sync <project>" first.'}`)
     return
   }
 
@@ -239,17 +243,17 @@ export async function gaAiReferralHistory(project: string, format?: string): Pro
   }
 }
 
-export async function gaSocialReferralHistory(project: string, format?: string): Promise<void> {
+export async function gaSocialReferralHistory(project: string, opts?: { window?: string; format?: string }): Promise<void> {
   const client = getClient()
-  const result: GA4SocialReferralHistoryEntry[] = await client.gaSocialReferralHistory(project)
+  const result: GA4SocialReferralHistoryEntry[] = await client.gaSocialReferralHistory(project, opts?.window ? { window: opts.window } : undefined)
 
-  if (format === 'json') {
+  if (opts?.format === 'json') {
     console.log(JSON.stringify(result, null, 2))
     return
   }
 
   if (result.length === 0) {
-    console.log('No social referral history. Run "canonry ga sync <project>" first.')
+    console.log(`No social referral history.${opts?.window ? ' Try a wider window or omit --window.' : ' Run "canonry ga sync <project>" first.'}`)
     return
   }
 
@@ -263,6 +267,31 @@ export async function gaSocialReferralHistory(project: string, format?: string):
     const chanLabel = row.channelGroup === 'Paid Social' ? 'paid' : 'organic'
     console.log(
       `  ${row.date.padEnd(dateWidth)}  ${row.source.padEnd(sourceWidth)}  ${chanLabel.padEnd(chanWidth)}  ${String(row.sessions).padEnd(10)}${String(row.users).padEnd(8)}`,
+    )
+  }
+}
+
+export async function gaSessionHistory(project: string, opts?: { window?: string; format?: string }): Promise<void> {
+  const client = getClient()
+  const result: GA4SessionHistoryEntry[] = await client.gaSessionHistory(project, opts?.window ? { window: opts.window } : undefined)
+
+  if (opts?.format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  if (result.length === 0) {
+    console.log(`No session history.${opts?.window ? ' Try a wider window or omit --window.' : ' Run "canonry ga sync <project>" first.'}`)
+    return
+  }
+
+  const dateWidth = 12
+  console.log(`GA4 Session History for "${project}":\n`)
+  console.log(`  ${'DATE'.padEnd(dateWidth)}  ${'SESSIONS'.padEnd(10)}${'ORGANIC'.padEnd(10)}${'USERS'.padEnd(8)}`)
+  console.log(`  ${'─'.repeat(dateWidth)}  ${'─'.repeat(10)}${'─'.repeat(10)}${'─'.repeat(8)}`)
+  for (const row of result) {
+    console.log(
+      `  ${row.date.padEnd(dateWidth)}  ${String(row.sessions).padEnd(10)}${String(row.organicSessions).padEnd(10)}${String(row.users).padEnd(8)}`,
     )
   }
 }
