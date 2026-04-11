@@ -1214,6 +1214,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'query', in: 'query', description: 'Filter by search query.', schema: stringSchema },
       { name: 'page', in: 'query', description: 'Filter by page URL.', schema: stringSchema },
       limitQueryParameter,
+      analyticsWindowParameter,
     ],
     responses: {
       200: { description: 'GSC performance rows returned.' },
@@ -2039,7 +2040,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/ga/traffic',
     summary: 'Get GA4 landing page traffic and AI referral sources',
     tags: ['ga4'],
-    parameters: [nameParameter, limitQueryParameter],
+    parameters: [nameParameter, limitQueryParameter, analyticsWindowParameter],
     responses: {
       200: { description: 'GA4 traffic data returned.' },
       400: { description: 'GA4 is not connected.' },
@@ -2051,7 +2052,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/ga/ai-referral-history',
     summary: 'Get AI referral sessions per day grouped by source',
     tags: ['ga4'],
-    parameters: [nameParameter],
+    parameters: [nameParameter, analyticsWindowParameter],
     responses: {
       200: { description: 'AI referral history returned.' },
       400: { description: 'GA4 is not connected.' },
@@ -2063,7 +2064,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/ga/social-referral-history',
     summary: 'Get social media referral sessions per day grouped by source',
     tags: ['ga4'],
-    parameters: [nameParameter],
+    parameters: [nameParameter, analyticsWindowParameter],
     responses: {
       200: { description: 'Social referral history returned.' },
       400: { description: 'GA4 is not connected.' },
@@ -2099,7 +2100,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/ga/session-history',
     summary: 'Get total sessions per day for the project',
     tags: ['ga4'],
-    parameters: [nameParameter],
+    parameters: [nameParameter, analyticsWindowParameter],
     responses: {
       200: { description: 'Session history returned.' },
       400: { description: 'GA4 is not connected.' },
