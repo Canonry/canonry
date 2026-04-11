@@ -68,9 +68,9 @@ export const KEYWORD_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['keyword', 'list'],
-    usage: 'canonry keyword list <project>',
+    usage: 'canonry keyword list <project> [--format json]',
     run: async (input) => {
-      const project = requireProject(input, 'keyword.list', 'canonry keyword list <project>')
+      const project = requireProject(input, 'keyword.list', 'canonry keyword list <project> [--format json]')
       await listKeywords(project, input.format)
     },
   },

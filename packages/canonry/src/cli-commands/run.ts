@@ -6,11 +6,11 @@ import { usageError } from '../cli-error.js'
 export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['run', 'show'],
-    usage: 'canonry run show <id>',
+    usage: 'canonry run show <id> [--format json]',
     run: async (input) => {
       const id = requirePositional(input, 0, {
         command: 'run.show',
-        usage: 'canonry run show <id>',
+        usage: 'canonry run show <id> [--format json]',
         message: 'run ID is required',
       })
       await showRun(id, input.format)
@@ -18,9 +18,9 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['run', 'cancel'],
-    usage: 'canonry run cancel <project> [run-id]',
+    usage: 'canonry run cancel <project> [run-id] [--format json]',
     run: async (input) => {
-      const project = requireProject(input, 'run.cancel', 'canonry run cancel <project> [run-id]')
+      const project = requireProject(input, 'run.cancel', 'canonry run cancel <project> [run-id] [--format json]')
       await cancelRun(project, input.positionals[1], input.format)
     },
   },

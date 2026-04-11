@@ -40,33 +40,33 @@ export const SCHEDULE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['schedule', 'show'],
-    usage: 'canonry schedule show <project>',
+    usage: 'canonry schedule show <project> [--format json]',
     run: async (input) => {
-      const project = requireProject(input, 'schedule.show', 'canonry schedule show <project>')
+      const project = requireProject(input, 'schedule.show', 'canonry schedule show <project> [--format json]')
       await showSchedule(project, input.format)
     },
   },
   {
     path: ['schedule', 'enable'],
-    usage: 'canonry schedule enable <project>',
+    usage: 'canonry schedule enable <project> [--format json]',
     run: async (input) => {
-      const project = requireProject(input, 'schedule.enable', 'canonry schedule enable <project>')
+      const project = requireProject(input, 'schedule.enable', 'canonry schedule enable <project> [--format json]')
       await enableSchedule(project, input.format)
     },
   },
   {
     path: ['schedule', 'disable'],
-    usage: 'canonry schedule disable <project>',
+    usage: 'canonry schedule disable <project> [--format json]',
     run: async (input) => {
-      const project = requireProject(input, 'schedule.disable', 'canonry schedule disable <project>')
+      const project = requireProject(input, 'schedule.disable', 'canonry schedule disable <project> [--format json]')
       await disableSchedule(project, input.format)
     },
   },
   {
     path: ['schedule', 'remove'],
-    usage: 'canonry schedule remove <project>',
+    usage: 'canonry schedule remove <project> [--format json]',
     run: async (input) => {
-      const project = requireProject(input, 'schedule.remove', 'canonry schedule remove <project>')
+      const project = requireProject(input, 'schedule.remove', 'canonry schedule remove <project> [--format json]')
       await removeSchedule(project, input.format)
     },
   },

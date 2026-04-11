@@ -120,7 +120,7 @@ describe('run lifecycle CLI contract', () => {
     expect(parsed.error.code).toBe('CLI_USAGE_ERROR')
     expect(parsed.error.message).toBe('project name is required')
     expect(parsed.error.details.command).toBe('run.cancel')
-    expect(parsed.error.details.usage).toBe('canonry run cancel <project> [run-id]')
+    expect(parsed.error.details.usage).toBe('canonry run cancel <project> [run-id] [--format json]')
   })
 
   it('prints a JSON error envelope when run cancel has no active run', async () => {

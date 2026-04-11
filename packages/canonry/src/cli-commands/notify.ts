@@ -5,9 +5,9 @@ import { requirePositional, requireProject, requireStringOption, stringOption, u
 export const NOTIFY_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['notify', 'events'],
-    usage: 'canonry notify events',
+    usage: 'canonry notify events [--format json]',
     run: async (input) => {
-      listEvents(input.format)
+      await listEvents(input.format)
     },
   },
   {
@@ -38,20 +38,20 @@ export const NOTIFY_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['notify', 'list'],
-    usage: 'canonry notify list <project>',
+    usage: 'canonry notify list <project> [--format json]',
     run: async (input) => {
-      const project = requireProject(input, 'notify.list', 'canonry notify list <project>')
+      const project = requireProject(input, 'notify.list', 'canonry notify list <project> [--format json]')
       await listNotifications(project, input.format)
     },
   },
   {
     path: ['notify', 'remove'],
-    usage: 'canonry notify remove <project> <id>',
+    usage: 'canonry notify remove <project> <id> [--format json]',
     run: async (input) => {
-      const project = requireProject(input, 'notify.remove', 'canonry notify remove <project> <id>')
+      const project = requireProject(input, 'notify.remove', 'canonry notify remove <project> <id> [--format json]')
       const id = requirePositional(input, 1, {
         command: 'notify.remove',
-        usage: 'canonry notify remove <project> <id>',
+        usage: 'canonry notify remove <project> <id> [--format json]',
         message: 'notification ID is required',
       })
       await removeNotification(project, id, input.format)
@@ -59,12 +59,12 @@ export const NOTIFY_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['notify', 'test'],
-    usage: 'canonry notify test <project> <id>',
+    usage: 'canonry notify test <project> <id> [--format json]',
     run: async (input) => {
-      const project = requireProject(input, 'notify.test', 'canonry notify test <project> <id>')
+      const project = requireProject(input, 'notify.test', 'canonry notify test <project> <id> [--format json]')
       const id = requirePositional(input, 1, {
         command: 'notify.test',
-        usage: 'canonry notify test <project> <id>',
+        usage: 'canonry notify test <project> <id> [--format json]',
         message: 'notification ID is required',
       })
       await testNotification(project, id, input.format)
