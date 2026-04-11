@@ -57,7 +57,17 @@ function validateScope(scope: string): void {
 }
 
 function ga4Log(level: 'info' | 'error', action: string, ctx?: Record<string, unknown>): void {
-  const entry = { ts: new Date().toISOString(), level, module: 'GA4Client', action, ...ctx }
+  const entry: Record<string, unknown> = {
+    ts: new Date().toISOString(),
+    level,
+    module: 'GA4Client',
+    action,
+    ...ctx,
+  }
+  // Sanitize potential secrets
+  if (entry.accessToken) entry.accessToken = '***'
+  if (entry.privateKey) entry.privateKey = '***'
+
   const stream = level === 'error' ? process.stderr : process.stdout
   stream.write(JSON.stringify(entry) + '\n')
 }

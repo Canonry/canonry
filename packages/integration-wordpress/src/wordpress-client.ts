@@ -146,7 +146,9 @@ async function fetchJson<T>(
 
   if (res.status === 401 || res.status === 403) {
     const text = await res.text().catch(() => '')
-    throw new WordpressApiError('AUTH_INVALID', buildAuthErrorMessage(res, text), res.status)
+    const errorMessage = buildAuthErrorMessage(res, text)
+    // Avoid logging raw response text if it could contain basic auth header or app passwords
+    throw new WordpressApiError('AUTH_INVALID', errorMessage, res.status)
   }
 
   if (res.status === 404) {

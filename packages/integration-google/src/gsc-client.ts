@@ -70,7 +70,16 @@ function validateDate(date: string, label: string): void {
 }
 
 function gscClientLog(level: 'info' | 'error', action: string, ctx?: Record<string, unknown>): void {
-  const entry = { ts: new Date().toISOString(), level, module: 'GscClient', action, ...ctx }
+  const entry: Record<string, unknown> = {
+    ts: new Date().toISOString(),
+    level,
+    module: 'GscClient',
+    action,
+    ...ctx,
+  }
+  // Sanitize potential secrets
+  if (entry.accessToken) entry.accessToken = '***'
+
   const stream = level === 'error' ? process.stderr : process.stdout
   stream.write(JSON.stringify(entry) + '\n')
 }

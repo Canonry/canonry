@@ -52,7 +52,17 @@ function validateUrls(urls: string[]): void {
 }
 
 function bingClientLog(level: 'info' | 'error', action: string, ctx?: Record<string, unknown>): void {
-  const entry = { ts: new Date().toISOString(), level, module: 'BingClient', action, ...ctx }
+  const entry: Record<string, unknown> = {
+    ts: new Date().toISOString(),
+    level,
+    module: 'BingClient',
+    action,
+    ...ctx,
+  }
+  // Sanitize potential secrets
+  if (entry.apiKey) entry.apiKey = '***'
+  if (entry.apikey) entry.apikey = '***'
+
   const stream = level === 'error' ? process.stderr : process.stdout
   stream.write(JSON.stringify(entry) + '\n')
 }
