@@ -76,6 +76,8 @@ function kindLabel(kind: RunKind): string {
     case RunKinds['answer-visibility']: return 'Answer visibility sweep'
     case RunKinds['gsc-sync']: return 'GSC sync'
     case RunKinds['inspect-sitemap']: return 'Sitemap inspection'
+    case RunKinds['ga-sync']: return 'GA sync'
+    case RunKinds['bing-inspect']: return 'Bing URL inspection'
     case RunKinds['site-audit']: return 'Site audit'
   }
 }

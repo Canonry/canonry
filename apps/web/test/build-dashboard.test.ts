@@ -2,6 +2,7 @@ import { test, expect, describe } from 'vitest'
 
 import { buildDashboard, buildProjectCommandCenter, buildPortfolioProject, type ProjectData } from '../src/build-dashboard.js'
 import type { ApiSettings } from '../src/api.js'
+import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
 import type { InsightDto } from '@ainyc/canonry-contracts'
 
 test('buildDashboard maps Google settings into the dashboard view model', () => {
@@ -731,6 +732,43 @@ describe('run kind differentiation in Command Center', () => {
     expect(gscRun?.summary).toBe('GSC sync completed')
     expect(visRun?.kindLabel).toBe('Answer visibility sweep')
     expect(visRun?.summary).toBe('Answer visibility sweep completed')
+  })
+
+  test('recentRuns labels GA and Bing sync runs', () => {
+    const data = makeProjectWithMixedRuns()
+    data.runs.unshift(
+      {
+        id: 'run_bing',
+        projectId: 'proj_mixed',
+        kind: RunKinds['bing-inspect'],
+        status: RunStatuses.completed,
+        trigger: RunTriggers.manual,
+        startedAt: '2026-03-18T00:00:00Z',
+        finishedAt: '2026-03-18T00:00:05Z',
+        error: null,
+        createdAt: '2026-03-18T00:00:00Z',
+      },
+      {
+        id: 'run_ga',
+        projectId: 'proj_mixed',
+        kind: RunKinds['ga-sync'],
+        status: RunStatuses.completed,
+        trigger: RunTriggers.scheduled,
+        startedAt: '2026-03-16T00:00:00Z',
+        finishedAt: '2026-03-16T00:00:05Z',
+        error: null,
+        createdAt: '2026-03-16T00:00:00Z',
+      },
+    )
+
+    const model = buildProjectCommandCenter(data)
+    const bingRun = model.recentRuns.find(r => r.id === 'run_bing')
+    const gaRun = model.recentRuns.find(r => r.id === 'run_ga')
+
+    expect(bingRun?.kindLabel).toBe('Bing URL inspection')
+    expect(bingRun?.summary).toBe('Bing URL inspection completed')
+    expect(gaRun?.kindLabel).toBe('GA sync')
+    expect(gaRun?.summary).toBe('GA sync completed')
   })
 })
 
