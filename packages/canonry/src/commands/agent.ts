@@ -87,14 +87,13 @@ export async function agentReset(opts?: { format?: string; stateDir?: string }):
 }
 
 export async function agentSetup(opts?: {
-  install?: boolean
   gatewayPort?: number
   format?: string
 }): Promise<void> {
   const detection = await detectOpenClaw(resolveConfig())
 
-  if (!detection.found && !opts?.install) {
-    const msg = 'OpenClaw not found. Run "canonry agent setup --install" to install it.'
+  if (!detection.found) {
+    const msg = 'OpenClaw not found. Install it with: npm install -g openclaw'
     if (opts?.format === 'json') {
       console.error(JSON.stringify({ error: { code: 'AGENT_NOT_FOUND', message: msg } }))
     } else {

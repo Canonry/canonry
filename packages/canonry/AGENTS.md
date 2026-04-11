@@ -23,6 +23,10 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/commands/health-cmd.ts` | `health` command implementation |
 | `src/commands/backfill.ts` | Historical recomputation for answer visibility fields and insights |
 | `src/commands/ga.ts` | GA4 commands: `ga sync`, `ga traffic`, `ga status`, `ga social-referral-history`, `ga social-referral-summary`, `ga attribution` |
+| `src/agent-bootstrap.ts` | OpenClaw binary detection and caching |
+| `src/agent-manager.ts` | OpenClaw gateway process lifecycle (start/stop/status/reset) |
+| `src/commands/agent.ts` | `agent status/start/stop/reset/setup` command implementations |
+| `src/cli-commands/agent.ts` | CLI command specs for the `agent` subcommand family |
 
 ## Patterns
 

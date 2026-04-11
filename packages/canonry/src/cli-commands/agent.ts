@@ -36,16 +36,14 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['agent', 'setup'],
-    usage: 'canonry agent setup [--install] [--gateway-port <port>] [--format json]',
+    usage: 'canonry agent setup [--gateway-port <port>] [--format json]',
     options: {
-      install: { type: 'boolean' },
       'gateway-port': { type: 'string' },
     },
     run: async (input) => {
       const portStr = input.values['gateway-port']
       const gatewayPort = typeof portStr === 'string' ? Number.parseInt(portStr, 10) : undefined
       await agentSetup({
-        install: input.values.install === true,
         gatewayPort,
         format: input.format,
       })
