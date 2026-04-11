@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
+import type { MetricsWindow } from '@ainyc/canonry-contracts'
 
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
@@ -36,6 +37,8 @@ import {
   useTriggerInspectSitemap,
 } from '../../queries/mutations.js'
 
+const GSC_WINDOWS: MetricsWindow[] = ['7d', '30d', '90d', 'all']
+
 export function GscSection({
   projectName,
 }: {
@@ -52,6 +55,7 @@ export function GscSection({
   const [inspectionUrl, setInspectionUrl] = useState('')
   const [syncDays, setSyncDays] = useState('30')
   const [fullSync, setFullSync] = useState(false)
+  const [gscWindow, setGscWindow] = useState<MetricsWindow>('30d')
   const [performanceFilters, setPerformanceFilters] = useState({
     startDate: '',
     endDate: '',
@@ -127,6 +131,7 @@ export function GscSection({
         query: performanceFilters.query || undefined,
         page: performanceFilters.page || undefined,
         limit: parseInt(performanceFilters.limit, 10) || 20,
+        window: gscWindow,
       })
       setPerformance(rows)
     } catch (err) {
@@ -303,6 +308,10 @@ export function GscSection({
     void loadSection()
   }, [projectName])
 
+  useEffect(() => {
+    void loadPerformanceRows()
+  }, [gscWindow])
+
   async function handleConnect() {
     if (!googleConfigured) {
       setError('Google OAuth app credentials are not configured yet. Set them on the Settings page first.')
@@ -418,6 +427,22 @@ export function GscSection({
           <h2>Google Search Console</h2>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex gap-1">
+            {GSC_WINDOWS.map(w => (
+              <button
+                key={w}
+                type="button"
+                className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                  gscWindow === w
+                    ? 'bg-zinc-700 border-zinc-600 text-zinc-50'
+                    : 'border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-300'
+                }`}
+                onClick={() => setGscWindow(w)}
+              >
+                {w === 'all' ? 'All' : w}
+              </button>
+            ))}
+          </div>
           {gscConn && (
             <Button type="button" variant="outline" size="sm" disabled={loadingPerformance} onClick={() => void loadPerformanceRows()}>
               {loadingPerformance ? 'Refreshing\u2026' : 'Refresh data'}

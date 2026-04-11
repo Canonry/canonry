@@ -155,6 +155,10 @@ export interface GaTrafficResponse {
   /** Social sessions as a percentage of total sessions (0–100, rounded). */
   socialSharePct: number
   lastSyncedAt: string | null
+  /** Start of the synced date range (YYYY-MM-DD), null if no data. */
+  periodStart: string | null
+  /** End of the synced date range (YYYY-MM-DD), null if no data. */
+  periodEnd: string | null
 }
 
 export interface GaCoverageResponse {

@@ -1,7 +1,7 @@
 import { eq, desc, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { querySnapshots, runs, keywords, parseJsonColumn } from '@ainyc/canonry-db'
-import { categorizeSource, categoryLabel } from '@ainyc/canonry-contracts'
+import { categorizeSource, categoryLabel, parseWindow, windowCutoff } from '@ainyc/canonry-contracts'
 import type {
   BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto,
   MetricsWindow, TimeBucket, TrendDirection, GapKeyword, GapCategory,
@@ -374,19 +374,6 @@ function parseGroundingSources(rawResponse: string | null): Array<{ uri: string;
     (s): s is { uri: string; title: string } =>
       typeof s.uri === 'string' && !isProviderInfraDomain(s.uri),
   )
-}
-
-function parseWindow(value?: string): MetricsWindow {
-  if (value === '7d' || value === '30d' || value === '90d' || value === 'all') return value
-  return 'all'
-}
-
-function windowCutoff(window: MetricsWindow): string | null {
-  if (window === 'all') return null
-  const days = window === '7d' ? 7 : window === '30d' ? 30 : 90
-  const d = new Date()
-  d.setDate(d.getDate() - days)
-  return d.toISOString()
 }
 
 function bucketSizeForSpan(spanDays: number): number {

@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { eq, desc, and, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gaTrafficSnapshots, gaTrafficSummaries, gaAiReferrals, gaSocialReferrals, runs } from '@ainyc/canonry-db'
-import { validationError, notFound, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
+import { validationError, notFound, RunKinds, RunStatuses, RunTriggers, parseWindow, windowCutoff } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import {
   getAccessToken,
@@ -528,18 +528,52 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
   // GET /projects/:name/ga/traffic
   app.get<{
     Params: { name: string }
-    Querystring: { limit?: string; days?: string }
+    Querystring: { limit?: string; days?: string; window?: string }
   }>('/projects/:name/ga/traffic', async (request, _reply) => {
     const project = resolveProject(app.db, request.params.name)
     requireGa4Connection(opts, project.name, project.canonicalDomain)
 
     const limit = Math.max(1, Math.min(parseInt(request.query.limit ?? '50', 10) || 50, 500))
+    const window = parseWindow(request.query.window)
+    const cutoff = windowCutoff(window)
+    const cutoffDate = cutoff?.slice(0, 10) ?? null
 
-    const summary = app.db
+    const snapshotConditions = [eq(gaTrafficSnapshots.projectId, project.id)]
+    if (cutoffDate) snapshotConditions.push(sql`${gaTrafficSnapshots.date} >= ${cutoffDate}`)
+
+    const aiConditions = [eq(gaAiReferrals.projectId, project.id)]
+    if (cutoffDate) aiConditions.push(sql`${gaAiReferrals.date} >= ${cutoffDate}`)
+
+    const socialConditions = [eq(gaSocialReferrals.projectId, project.id)]
+    if (cutoffDate) socialConditions.push(sql`${gaSocialReferrals.date} >= ${cutoffDate}`)
+
+    // When filtering by window, compute totals from snapshots instead of the
+    // pre-aggregated summary (which covers the full synced range).
+    const summaryRow = cutoffDate
+      ? app.db
+          .select({
+            totalSessions: sql<number>`COALESCE(SUM(${gaTrafficSnapshots.sessions}), 0)`,
+            totalOrganicSessions: sql<number>`COALESCE(SUM(${gaTrafficSnapshots.organicSessions}), 0)`,
+            totalUsers: sql<number>`COALESCE(SUM(${gaTrafficSnapshots.users}), 0)`,
+          })
+          .from(gaTrafficSnapshots)
+          .where(and(...snapshotConditions))
+          .get()
+      : app.db
+          .select({
+            totalSessions: gaTrafficSummaries.totalSessions,
+            totalOrganicSessions: gaTrafficSummaries.totalOrganicSessions,
+            totalUsers: gaTrafficSummaries.totalUsers,
+          })
+          .from(gaTrafficSummaries)
+          .where(eq(gaTrafficSummaries.projectId, project.id))
+          .get()
+
+    // Always fetch period bounds from the summary table (reflects full synced range).
+    const summaryMeta = app.db
       .select({
-        totalSessions: gaTrafficSummaries.totalSessions,
-        totalOrganicSessions: gaTrafficSummaries.totalOrganicSessions,
-        totalUsers: gaTrafficSummaries.totalUsers,
+        periodStart: gaTrafficSummaries.periodStart,
+        periodEnd: gaTrafficSummaries.periodEnd,
       })
       .from(gaTrafficSummaries)
       .where(eq(gaTrafficSummaries.projectId, project.id))
@@ -553,7 +587,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         users: sql<number>`SUM(${gaTrafficSnapshots.users})`,
       })
       .from(gaTrafficSnapshots)
-      .where(eq(gaTrafficSnapshots.projectId, project.id))
+      .where(and(...snapshotConditions))
       .groupBy(gaTrafficSnapshots.landingPage)
       .orderBy(sql`SUM(${gaTrafficSnapshots.sessions}) DESC`)
       .limit(limit)
@@ -568,7 +602,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         users: sql<number>`SUM(${gaAiReferrals.users})`,
       })
       .from(gaAiReferrals)
-      .where(eq(gaAiReferrals.projectId, project.id))
+      .where(and(...aiConditions))
       .groupBy(gaAiReferrals.source, gaAiReferrals.medium, gaAiReferrals.sourceDimension)
       .orderBy(sql`SUM(${gaAiReferrals.sessions}) DESC`)
       .all()
@@ -587,7 +621,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
                  MAX(sessions) AS max_sessions,
                  MAX(users) AS max_users
           FROM ga_ai_referrals
-          WHERE project_id = ${project.id}
+          WHERE project_id = ${project.id}${cutoffDate ? sql` AND date >= ${cutoffDate}` : sql``}
           GROUP BY date, source, medium
         )`
       )
@@ -602,7 +636,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         users: sql<number>`SUM(${gaSocialReferrals.users})`,
       })
       .from(gaSocialReferrals)
-      .where(eq(gaSocialReferrals.projectId, project.id))
+      .where(and(...socialConditions))
       .groupBy(gaSocialReferrals.source, gaSocialReferrals.medium, gaSocialReferrals.channelGroup)
       .orderBy(sql`SUM(${gaSocialReferrals.sessions}) DESC`)
       .all()
@@ -615,7 +649,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         users: sql<number>`SUM(${gaSocialReferrals.users})`,
       })
       .from(gaSocialReferrals)
-      .where(eq(gaSocialReferrals.projectId, project.id))
+      .where(and(...socialConditions))
       .get()
 
     const latestSync = app.db
@@ -626,12 +660,12 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .limit(1)
       .get()
 
-    const total = summary?.totalSessions ?? 0
+    const total = summaryRow?.totalSessions ?? 0
 
     return {
       totalSessions: total,
-      totalOrganicSessions: summary?.totalOrganicSessions ?? 0,
-      totalUsers: summary?.totalUsers ?? 0,
+      totalOrganicSessions: summaryRow?.totalOrganicSessions ?? 0,
+      totalUsers: summaryRow?.totalUsers ?? 0,
       topPages: rows.map((r) => ({
         landingPage: r.landingPage,
         sessions: r.sessions ?? 0,
@@ -656,19 +690,26 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       })),
       socialSessions: socialTotals?.sessions ?? 0,
       socialUsers: socialTotals?.users ?? 0,
-      organicSharePct: total > 0 ? Math.round(((summary?.totalOrganicSessions ?? 0) / total) * 100) : 0,
+      organicSharePct: total > 0 ? Math.round(((summaryRow?.totalOrganicSessions ?? 0) / total) * 100) : 0,
       aiSharePct: total > 0 ? Math.round(((aiDeduped?.sessions ?? 0) / total) * 100) : 0,
       socialSharePct: total > 0 ? Math.round(((socialTotals?.sessions ?? 0) / total) * 100) : 0,
       lastSyncedAt: latestSync?.syncedAt ?? null,
+      periodStart: cutoffDate ?? summaryMeta?.periodStart ?? null,
+      periodEnd: summaryMeta?.periodEnd ?? null,
     }
   })
 
   // GET /projects/:name/ga/ai-referral-history
   app.get<{
     Params: { name: string }
+    Querystring: { window?: string }
   }>('/projects/:name/ga/ai-referral-history', async (request, _reply) => {
     const project = resolveProject(app.db, request.params.name)
     requireGa4Connection(opts, project.name, project.canonicalDomain)
+
+    const cutoffDate = windowCutoff(parseWindow(request.query.window))?.slice(0, 10) ?? null
+    const conditions = [eq(gaAiReferrals.projectId, project.id)]
+    if (cutoffDate) conditions.push(sql`${gaAiReferrals.date} >= ${cutoffDate}`)
 
     const rows = app.db
       .select({
@@ -680,7 +721,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         users: gaAiReferrals.users,
       })
       .from(gaAiReferrals)
-      .where(eq(gaAiReferrals.projectId, project.id))
+      .where(and(...conditions))
       .orderBy(gaAiReferrals.date)
       .all()
 
@@ -690,9 +731,14 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
   // GET /projects/:name/ga/social-referral-history
   app.get<{
     Params: { name: string }
+    Querystring: { window?: string }
   }>('/projects/:name/ga/social-referral-history', async (request, _reply) => {
     const project = resolveProject(app.db, request.params.name)
     requireGa4Connection(opts, project.name, project.canonicalDomain)
+
+    const cutoffDate = windowCutoff(parseWindow(request.query.window))?.slice(0, 10) ?? null
+    const conditions = [eq(gaSocialReferrals.projectId, project.id)]
+    if (cutoffDate) conditions.push(sql`${gaSocialReferrals.date} >= ${cutoffDate}`)
 
     const rows = app.db
       .select({
@@ -704,7 +750,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         users: gaSocialReferrals.users,
       })
       .from(gaSocialReferrals)
-      .where(eq(gaSocialReferrals.projectId, project.id))
+      .where(and(...conditions))
       .orderBy(gaSocialReferrals.date)
       .all()
 
@@ -919,9 +965,14 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
   // GET /projects/:name/ga/session-history
   app.get<{
     Params: { name: string }
+    Querystring: { window?: string }
   }>('/projects/:name/ga/session-history', async (request, _reply) => {
     const project = resolveProject(app.db, request.params.name)
     requireGa4Connection(opts, project.name, project.canonicalDomain)
+
+    const cutoffDate = windowCutoff(parseWindow(request.query.window))?.slice(0, 10) ?? null
+    const conditions = [eq(gaTrafficSnapshots.projectId, project.id)]
+    if (cutoffDate) conditions.push(sql`${gaTrafficSnapshots.date} >= ${cutoffDate}`)
 
     const rows = app.db
       .select({
@@ -931,7 +982,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         users: sql<number>`SUM(${gaTrafficSnapshots.users})`,
       })
       .from(gaTrafficSnapshots)
-      .where(eq(gaTrafficSnapshots.projectId, project.id))
+      .where(and(...conditions))
       .groupBy(gaTrafficSnapshots.date)
       .orderBy(gaTrafficSnapshots.date)
       .all()

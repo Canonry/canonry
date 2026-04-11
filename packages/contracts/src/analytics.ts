@@ -78,3 +78,16 @@ export interface SourceBreakdownDto {
   runId: string
   window: MetricsWindow
 }
+
+export function parseWindow(value?: string): MetricsWindow {
+  if (value === '7d' || value === '30d' || value === '90d' || value === 'all') return value
+  return 'all'
+}
+
+export function windowCutoff(window: MetricsWindow): string | null {
+  if (window === 'all') return null
+  const days = window === '7d' ? 7 : window === '30d' ? 30 : 90
+  const d = new Date()
+  d.setDate(d.getDate() - days)
+  return d.toISOString()
+}

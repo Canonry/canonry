@@ -507,6 +507,8 @@ describe('GA4 routes', () => {
     expect(body.aiSharePct).toBe(5)
     expect(body.socialSharePct).toBe(0)
     expect(body.lastSyncedAt).toBe(now)
+    expect(body.periodStart).toBe('2026-02-19')
+    expect(body.periodEnd).toBe('2026-03-20')
 
     credentials.delete('test-project')
   })
@@ -534,6 +536,36 @@ describe('GA4 routes', () => {
     expect(body.totalSessions).toBe(350)
     expect(body.totalOrganicSessions).toBe(175)
     expect(body.totalUsers).toBe(270)
+
+    credentials.delete('test-project')
+  })
+
+  it('GET /ga/traffic filters by window parameter', async () => {
+    const now = new Date().toISOString()
+    credentials.set('test-project', {
+      projectName: 'test-project',
+      propertyId: '999888',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    // The existing test data has snapshots from 2026-03-19 and 2026-03-20.
+    // Query with window=7d — the cutoff will be ~7 days ago from today (2026-04-11),
+    // so all the old data from March should be excluded.
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/test-project/ga/traffic?window=7d',
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload)
+    // No snapshots within last 7 days → totals should be 0
+    expect(body.totalSessions).toBe(0)
+    expect(body.topPages).toHaveLength(0)
+    expect(body.aiReferrals).toEqual([])
+    // periodEnd still reflects full synced range
+    expect(body.periodEnd).toBe('2026-03-20')
 
     credentials.delete('test-project')
   })

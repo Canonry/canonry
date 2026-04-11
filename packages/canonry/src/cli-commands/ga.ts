@@ -73,16 +73,19 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['ga', 'traffic'],
-    usage: 'canonry ga traffic <project> [--limit 50] [--format json]',
+    usage: 'canonry ga traffic <project> [--limit 50] [--window 30d] [--format json]',
     options: {
       limit: stringOption(),
+      window: stringOption(),
     },
     run: async (input) => {
-      const project = requireProject(input, 'ga.traffic', 'canonry ga traffic <project> [--limit 50] [--format json]')
+      const project = requireProject(input, 'ga.traffic', 'canonry ga traffic <project> [--limit 50] [--window 30d] [--format json]')
       const limitStr = getString(input.values, 'limit')
       const limit = limitStr ? parseInt(limitStr, 10) : undefined
+      const window = getString(input.values, 'window')
       await gaTraffic(project, {
         limit,
+        window,
         format: input.format,
       })
     },

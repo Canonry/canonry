@@ -672,11 +672,12 @@ export function triggerGscSync(project: string, opts?: { days?: number; full?: b
 
 export function fetchGscPerformance(
   project: string,
-  params?: { startDate?: string; endDate?: string; query?: string; page?: string; limit?: number },
+  params?: { startDate?: string; endDate?: string; query?: string; page?: string; limit?: number; window?: MetricsWindow },
 ): Promise<ApiGscPerformanceRow[]> {
   const qs = new URLSearchParams()
   if (params?.startDate) qs.set('startDate', params.startDate)
   if (params?.endDate) qs.set('endDate', params.endDate)
+  if (params?.window && params.window !== 'all' && !params.startDate) qs.set('window', params.window)
   if (params?.query) qs.set('query', params.query)
   if (params?.page) qs.set('page', params.page)
   if (params?.limit !== undefined) qs.set('limit', String(params.limit))
@@ -1002,6 +1003,10 @@ export interface ApiGaTraffic {
   /** Social sessions as a percentage of total sessions (0–100, rounded). */
   socialSharePct: number
   lastSyncedAt: string | null
+  /** Start of the synced date range (YYYY-MM-DD), null if no data. */
+  periodStart: string | null
+  /** End of the synced date range (YYYY-MM-DD), null if no data. */
+  periodEnd: string | null
 }
 
 export interface ApiGaSyncResult {
@@ -1017,8 +1022,11 @@ export function fetchGaStatus(project: string): Promise<ApiGaStatus> {
   return apiFetch(`/projects/${encodeURIComponent(project)}/ga/status`)
 }
 
-export function fetchGaTraffic(project: string, limit?: number): Promise<ApiGaTraffic> {
-  const qs = limit ? `?limit=${limit}` : ''
+export function fetchGaTraffic(project: string, limit?: number, window?: MetricsWindow): Promise<ApiGaTraffic> {
+  const params = new URLSearchParams()
+  if (limit) params.set('limit', String(limit))
+  if (window && window !== 'all') params.set('window', window)
+  const qs = params.toString() ? `?${params}` : ''
   return apiFetch(`/projects/${encodeURIComponent(project)}/ga/traffic${qs}`)
 }
 
@@ -1038,16 +1046,19 @@ export function connectGa(project: string, body: { propertyId: string; keyJson: 
 
 export type { GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry }
 
-export function fetchGaAiReferralHistory(project: string): Promise<GA4AiReferralHistoryEntry[]> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/ga/ai-referral-history`)
+export function fetchGaAiReferralHistory(project: string, window?: MetricsWindow): Promise<GA4AiReferralHistoryEntry[]> {
+  const qs = window && window !== 'all' ? `?window=${window}` : ''
+  return apiFetch(`/projects/${encodeURIComponent(project)}/ga/ai-referral-history${qs}`)
 }
 
-export function fetchGaSocialReferralHistory(project: string): Promise<GA4SocialReferralHistoryEntry[]> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/ga/social-referral-history`)
+export function fetchGaSocialReferralHistory(project: string, window?: MetricsWindow): Promise<GA4SocialReferralHistoryEntry[]> {
+  const qs = window && window !== 'all' ? `?window=${window}` : ''
+  return apiFetch(`/projects/${encodeURIComponent(project)}/ga/social-referral-history${qs}`)
 }
 
-export function fetchGaSessionHistory(project: string): Promise<GA4SessionHistoryEntry[]> {
-  return apiFetch(`/projects/${encodeURIComponent(project)}/ga/session-history`)
+export function fetchGaSessionHistory(project: string, window?: MetricsWindow): Promise<GA4SessionHistoryEntry[]> {
+  const qs = window && window !== 'all' ? `?window=${window}` : ''
+  return apiFetch(`/projects/${encodeURIComponent(project)}/ga/session-history${qs}`)
 }
 
 export function disconnectGa(project: string): Promise<void> {

@@ -19,6 +19,7 @@ import {
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
+import type { MetricsWindow } from '@ainyc/canonry-contracts'
 import type { MetricTone } from '../../view-models.js'
 import {
   connectGa,
@@ -31,6 +32,8 @@ import {
   disconnectGa,
 } from '../../api.js'
 import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficPage, ApiGaTrafficReferral, ApiGaSocialReferral, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry } from '../../api.js'
+
+const TRAFFIC_WINDOWS: MetricsWindow[] = ['7d', '30d', '90d', 'all']
 
 const SOURCE_COLORS = CHART_SERIES_COLORS
 
@@ -73,6 +76,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
   const [aiHistory, setAiHistory] = useState<GA4AiReferralHistoryEntry[]>([])
   const [sessionHistory, setSessionHistory] = useState<GA4SessionHistoryEntry[]>([])
   const [socialHistory, setSocialHistory] = useState<GA4SocialReferralHistoryEntry[]>([])
+  const [trafficWindow, setTrafficWindow] = useState<MetricsWindow>('30d')
 
   function loadData(cancelled: { current: boolean }) {
     setLoading(true)
@@ -82,10 +86,10 @@ export function TrafficSection({ projectName }: { projectName: string }) {
         setStatus(s)
         if (s.connected) {
           return Promise.all([
-            fetchGaTraffic(projectName),
-            fetchGaAiReferralHistory(projectName).catch(() => [] as GA4AiReferralHistoryEntry[]),
-            fetchGaSessionHistory(projectName).catch(() => [] as GA4SessionHistoryEntry[]),
-            fetchGaSocialReferralHistory(projectName).catch(() => [] as GA4SocialReferralHistoryEntry[]),
+            fetchGaTraffic(projectName, undefined, trafficWindow),
+            fetchGaAiReferralHistory(projectName, trafficWindow).catch(() => [] as GA4AiReferralHistoryEntry[]),
+            fetchGaSessionHistory(projectName, trafficWindow).catch(() => [] as GA4SessionHistoryEntry[]),
+            fetchGaSocialReferralHistory(projectName, trafficWindow).catch(() => [] as GA4SocialReferralHistoryEntry[]),
           ])
         }
         return null
@@ -118,7 +122,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
     return () => {
       cancelled.current = true
     }
-  }, [projectName])
+  }, [projectName, trafficWindow])
 
   async function handleSync() {
     setSyncing(true)
@@ -128,10 +132,10 @@ export function TrafficSection({ projectName }: { projectName: string }) {
       const result = await triggerGaSync(projectName)
       setNotice(`Synced ${result.rowCount.toLocaleString()} page rows, ${result.aiReferralCount.toLocaleString()} AI and ${result.socialReferralCount.toLocaleString()} social referral rows (${result.days} days)`)
       const [t, h, sh, soh] = await Promise.all([
-        fetchGaTraffic(projectName),
-        fetchGaAiReferralHistory(projectName).catch(() => [] as GA4AiReferralHistoryEntry[]),
-        fetchGaSessionHistory(projectName).catch(() => [] as GA4SessionHistoryEntry[]),
-        fetchGaSocialReferralHistory(projectName).catch(() => [] as GA4SocialReferralHistoryEntry[]),
+        fetchGaTraffic(projectName, undefined, trafficWindow),
+        fetchGaAiReferralHistory(projectName, trafficWindow).catch(() => [] as GA4AiReferralHistoryEntry[]),
+        fetchGaSessionHistory(projectName, trafficWindow).catch(() => [] as GA4SessionHistoryEntry[]),
+        fetchGaSocialReferralHistory(projectName, trafficWindow).catch(() => [] as GA4SocialReferralHistoryEntry[]),
       ])
       setTraffic(t)
       setAiHistory(h)
@@ -361,12 +365,30 @@ export function TrafficSection({ projectName }: { projectName: string }) {
 
       {/* Summary gauges */}
       <section>
-        <div className="mb-4">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">Traffic Overview</p>
-          <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">
-            Site Traffic
-            <InfoTooltip text="Aggregated traffic metrics from Google Analytics 4. Sessions and users are summed across all synced dates. Organic sessions are Google organic search sessions specifically." />
-          </h2>
+        <div className="mb-4 flex items-start justify-between">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">Traffic Overview</p>
+            <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">
+              Site Traffic
+              <InfoTooltip text={`Aggregated traffic metrics from Google Analytics 4. Sessions and users are summed across the selected period.${traffic?.periodStart && traffic?.periodEnd ? ` Data available: ${new Date(traffic.periodStart + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} – ${new Date(traffic.periodEnd + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}.` : ''} Organic sessions are Google organic search sessions specifically.`} />
+            </h2>
+          </div>
+          <div className="flex gap-1">
+            {TRAFFIC_WINDOWS.map(w => (
+              <button
+                key={w}
+                type="button"
+                className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                  trafficWindow === w
+                    ? 'bg-zinc-700 border-zinc-600 text-zinc-50'
+                    : 'border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-300'
+                }`}
+                onClick={() => setTrafficWindow(w)}
+              >
+                {w === 'all' ? 'All' : w}
+              </button>
+            ))}
+          </div>
         </div>
 
         {traffic ? (

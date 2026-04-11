@@ -35,7 +35,8 @@ function jsonResponse(body: unknown, status = 200) {
 
 test('loads connected GA4 data without changing hook order', async () => {
   const restoreFetch = mockFetch((url) => {
-    if (url.endsWith('/projects/test-project/ga/status')) {
+    const urlPath = url.split('?')[0]!
+    if (urlPath.endsWith('/projects/test-project/ga/status')) {
       return jsonResponse({
         connected: true,
         propertyId: '999888',
@@ -46,7 +47,7 @@ test('loads connected GA4 data without changing hook order', async () => {
         updatedAt: '2026-03-31T12:00:00.000Z',
       })
     }
-    if (url.endsWith('/projects/test-project/ga/traffic')) {
+    if (urlPath.endsWith('/projects/test-project/ga/traffic')) {
       return jsonResponse({
         totalSessions: 120,
         totalOrganicSessions: 70,
@@ -67,17 +68,20 @@ test('loads connected GA4 data without changing hook order', async () => {
         lastSyncedAt: '2026-03-31T12:00:00.000Z',
       })
     }
-    if (url.endsWith('/projects/test-project/ga/ai-referral-history')) {
+    if (urlPath.endsWith('/projects/test-project/ga/ai-referral-history')) {
       return jsonResponse([
         { date: '2026-03-30', source: 'chatgpt.com', medium: 'referral', sourceDimension: 'session', sessions: 5, users: 4 },
         { date: '2026-03-31', source: 'chatgpt.com', medium: 'referral', sourceDimension: 'session', sessions: 7, users: 5 },
       ])
     }
-    if (url.endsWith('/projects/test-project/ga/session-history')) {
+    if (urlPath.endsWith('/projects/test-project/ga/session-history')) {
       return jsonResponse([
         { date: '2026-03-30', sessions: 50, organicSessions: 30, users: 40 },
         { date: '2026-03-31', sessions: 70, organicSessions: 40, users: 55 },
       ])
+    }
+    if (urlPath.endsWith('/projects/test-project/ga/social-referral-history')) {
+      return jsonResponse([])
     }
     throw new Error(`Unexpected fetch: ${url}`)
   })

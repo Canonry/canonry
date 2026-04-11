@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { eq, and, desc, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, runs } from '@ainyc/canonry-db'
-import { validationError, notFound, normalizeProjectDomain } from '@ainyc/canonry-contracts'
+import { validationError, notFound, normalizeProjectDomain, parseWindow, windowCutoff } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import {
   getAuthUrl,
@@ -386,13 +386,18 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   // GET /projects/:name/google/gsc/performance
   app.get<{
     Params: { name: string }
-    Querystring: { startDate?: string; endDate?: string; query?: string; page?: string; limit?: string }
+    Querystring: { startDate?: string; endDate?: string; query?: string; page?: string; limit?: string; window?: string }
   }>('/projects/:name/google/gsc/performance', async (request) => {
     const project = resolveProject(app.db, request.params.name)
     const { startDate, endDate, query, page, limit } = request.query
 
+    // Window-based filtering: when no explicit startDate is provided,
+    // use the window param to compute a cutoff date.
+    const cutoffDate = !startDate ? windowCutoff(parseWindow(request.query.window))?.slice(0, 10) ?? null : null
+
     const conditions = [eq(gscSearchData.projectId, project.id)]
     if (startDate) conditions.push(sql`${gscSearchData.date} >= ${startDate}`)
+    else if (cutoffDate) conditions.push(sql`${gscSearchData.date} >= ${cutoffDate}`)
     if (endDate) conditions.push(sql`${gscSearchData.date} <= ${endDate}`)
     if (query) conditions.push(sql`${gscSearchData.query} LIKE ${'%' + query + '%'}`)
     if (page) conditions.push(sql`${gscSearchData.page} LIKE ${'%' + page + '%'}`)

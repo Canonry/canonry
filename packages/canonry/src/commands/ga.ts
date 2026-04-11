@@ -130,10 +130,11 @@ export async function gaSync(project: string, opts?: { days?: number; only?: str
   console.log(`  Synced at:   ${result.syncedAt}`)
 }
 
-export async function gaTraffic(project: string, opts?: { limit?: number; format?: string }): Promise<void> {
+export async function gaTraffic(project: string, opts?: { limit?: number; window?: string; format?: string }): Promise<void> {
   const client = getClient()
   const params: Record<string, string> = {}
   if (opts?.limit) params.limit = String(opts.limit)
+  if (opts?.window) params.window = opts.window
 
   const result: GaTrafficResponse = await client.gaTraffic(project, Object.keys(params).length > 0 ? params : undefined)
 
@@ -418,8 +419,11 @@ export async function gaAttribution(project: string, opts?: { trend?: boolean; f
       console.log(`  Social Mover: ${m.source} (${m.changePct >= 0 ? '+' : ''}${m.changePct}%, ${m.sessionsPrev7d}→${m.sessions7d} sessions/7d)`)
     }
 
+    if (traffic.periodStart && traffic.periodEnd) {
+      console.log(`\n  Period: ${traffic.periodStart} to ${traffic.periodEnd}`)
+    }
     if (traffic.lastSyncedAt) {
-      console.log(`\n  Last synced: ${traffic.lastSyncedAt}`)
+      console.log(`  Last synced: ${traffic.lastSyncedAt}`)
     }
     return
   }
@@ -438,6 +442,8 @@ export async function gaAttribution(project: string, opts?: { trend?: boolean; f
       organicSharePct: traffic.organicSharePct,
       aiReferrals: traffic.aiReferrals,
       socialReferrals: traffic.socialReferrals,
+      periodStart: traffic.periodStart,
+      periodEnd: traffic.periodEnd,
     }, null, 2))
     return
   }
@@ -479,7 +485,10 @@ export async function gaAttribution(project: string, opts?: { trend?: boolean; f
     }
   }
 
+  if (traffic.periodStart && traffic.periodEnd) {
+    console.log(`\n  Period: ${traffic.periodStart} to ${traffic.periodEnd}`)
+  }
   if (traffic.lastSyncedAt) {
-    console.log(`\n  Last synced: ${traffic.lastSyncedAt}`)
+    console.log(`  Last synced: ${traffic.lastSyncedAt}`)
   }
 }
