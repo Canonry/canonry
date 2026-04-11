@@ -148,57 +148,64 @@ export const chatgptTarget: CDPTarget = {
     return text
   },
 
-  async extractCitations(client: CDP.Client): Promise<GroundingSource[]> {
-    const { result } = await client.Runtime.evaluate({
-      expression: `(() => {
-        const sources = [];
-        // ChatGPT shows citation pills as links within the response
-        // Multiple possible structures:
-        // 1. Inline citation links [1], [2] etc.
-        // 2. Source pills at the bottom of the response
-        // 3. "Sources" section with expandable links
+  extractCitations(client: CDP.Client): Promise<GroundingSource[]> {
+    return (async () => {
+      const { result } = await client.Runtime.evaluate({
+        expression: `(() => {
+          const sources = [];
+          const seen = new Set();
+          const turns = document.querySelectorAll('[data-message-author-role="assistant"]');
+          const last = turns.length ? turns[turns.length - 1] : null;
+          if (!last) return [];
 
-        // Collect external links from the last assistant message.
-        // :last-of-type does not work with attribute selectors (it selects
-        // by tag type), so we use JS to grab the actual last element.
-        const seen = new Set();
-        const turns = document.querySelectorAll('[data-message-author-role="assistant"]');
-        const last = turns.length ? turns[turns.length - 1] : null;
-        const links = last ? last.querySelectorAll('a[href]') : [];
-        for (const link of links) {
-          const href = link.getAttribute('href');
-          // ChatGPT appends ?utm_source=chatgpt.com to external links,
-          // so string-includes would false-positive on every citation.
-          // Parse the URL and compare the hostname instead.
-          if (!href) continue;
-          let hostname = '';
-          try { hostname = new URL(href).hostname.replace(/^www\\./, ''); } catch {}
-          if (!seen.has(href) && hostname !== 'chatgpt.com' && hostname !== 'openai.com') {
-            seen.add(href);
-            sources.push({
-              uri: href,
-              title: hostname || href,
-            });
+          const links = last.querySelectorAll('a[href]');
+          for (const link of links) {
+            const href = link.getAttribute('href');
+            if (!href) continue;
+            let hostname = '';
+            try {
+              const url = new URL(href);
+              hostname = url.hostname.replace(/^www\\./, '');
+            } catch {
+              // Check for relative links or weird protocols
+              if (href.startsWith('/') || href.startsWith('http')) {
+                 hostname = href;
+              } else {
+                 continue;
+              }
+            }
+
+            if (!seen.has(href) && hostname !== 'chatgpt.com' && hostname !== 'openai.com') {
+              seen.add(href);
+              sources.push({
+                uri: href,
+                title: hostname || href,
+              });
+            }
           }
-        }
 
-        // Also check for citation superscripts that may reference sources
-        const citeButtons = document.querySelectorAll('[data-testid="citation-button"], .citation-button');
-        for (const btn of citeButtons) {
-          const href = btn.getAttribute('data-href') || btn.closest('a')?.getAttribute('href');
-          const title = btn.getAttribute('data-title') || btn.textContent?.trim();
-          if (href && !seen.has(href)) {
-            seen.add(href);
-            sources.push({ uri: href, title: title || href });
+          // Also check for citation superscripts that may reference sources
+          const citeButtons = last.querySelectorAll('[data-testid="citation-button"], .citation-button');
+          for (const btn of citeButtons) {
+            const href = btn.getAttribute('data-href') || btn.closest('a')?.getAttribute('href');
+            const title = btn.getAttribute('data-title') || btn.textContent?.trim();
+            if (href && !seen.has(href)) {
+              let hostname = '';
+              try { hostname = new URL(href).hostname.replace(/^www\\./, ''); } catch {}
+              if (hostname !== 'chatgpt.com' && hostname !== 'openai.com') {
+                seen.add(href);
+                sources.push({ uri: href, title: title || hostname || href });
+              }
+            }
           }
-        }
 
-        return sources;
-      })()`,
-      returnByValue: true,
-    })
+          return sources;
+        })()`,
+        returnByValue: true,
+      })
 
-    return (result.value as GroundingSource[]) ?? []
+      return (result.value as GroundingSource[]) ?? []
+    })()
   },
 }
 

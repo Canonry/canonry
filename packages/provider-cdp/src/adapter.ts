@@ -78,10 +78,11 @@ export const cdpChatgptAdapter: ProviderAdapter = {
       const conn = getConnection(config)
       const health = await conn.healthcheck()
       if (!health.connected) {
+        const port = config.cdpEndpoint?.split(':').pop() || '9222'
         return {
           ok: false,
           provider: 'cdp:chatgpt',
-          message: `Chrome not reachable at ${config.cdpEndpoint}`,
+          message: `Chrome not reachable at ${config.cdpEndpoint}. Ensure Chrome is running with --remote-debugging-port=${port}`,
         }
       }
       return {
