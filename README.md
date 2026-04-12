@@ -2,9 +2,9 @@
 
 [![npm version](https://img.shields.io/npm/v/@ainyc/canonry)](https://www.npmjs.com/package/@ainyc/canonry) [![License: FSL-1.1-ALv2](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue.svg)](https://fsl.software/) [![Node.js >= 20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 
-**An AI agent that monitors and operates your visibility across answer engines.** Canonry is an agent-first AEO platform powered by [OpenClaw](https://openclaw.ai). It doesn't just track how ChatGPT, Gemini, Claude, and Perplexity cite your site -- it acts on what it finds: detecting regressions, diagnosing causes, coordinating fixes, and reporting results. The agent operates autonomously while the CLI, API, and web dashboard give humans full visibility and control.
+Canonry is an agent-first AEO platform powered by [OpenClaw](https://openclaw.ai). It tracks how ChatGPT, Gemini, Claude, and Perplexity cite your site, detects regressions, diagnoses causes, coordinates fixes, and reports results. The agent operates autonomously while the CLI, API, and web dashboard give humans full visibility and control.
 
-AEO (Answer Engine Optimization) is the practice of ensuring your content is accurately represented in AI-generated answers. As search shifts from links to synthesized responses, you need an agent that can monitor, analyze, and operate across these engines continuously -- not a dashboard you check once a week.
+AEO (Answer Engine Optimization) is about making sure your content shows up accurately in AI-generated answers. As search shifts from links to synthesized responses, you need something that can monitor, analyze, and act across these engines continuously.
 
 ![Canonry Dashboard](docs/images/dashboard.png)
 
@@ -42,25 +42,25 @@ canonry serve
 
 ## What the Agent Does
 
-The Canonry agent ("Aero") is an [OpenClaw](https://openclaw.ai)-powered operator that goes beyond monitoring:
+The Canonry agent ("Aero") is an [OpenClaw](https://openclaw.ai)-powered operator:
 
-- **Monitors** -- runs visibility sweeps across providers on schedule, tracks citation changes over time.
-- **Analyzes** -- detects regressions, identifies emerging opportunities, correlates visibility shifts with site changes.
-- **Operates** -- coordinates fixes across your content, schema markup, indexing submissions, and `llms.txt`. Generates action-oriented reports.
-- **Remembers** -- maintains client context across sessions: canonical domains, historical patterns, known issues.
+- **Monitors** visibility sweeps across providers on schedule, tracking citation changes over time
+- **Analyzes** regressions, emerging opportunities, and correlates visibility shifts with site changes
+- **Operates** across your content, schema markup, indexing submissions, and `llms.txt` to coordinate fixes and generate action-oriented reports
+- **Remembers** client context across sessions: canonical domains, historical patterns, known issues
 
-Every action the agent takes goes through the same CLI and API that humans use. No special SDK, no hidden state. If the agent can do it, you can do it from the terminal.
+Every action the agent takes goes through the same CLI and API that humans use. No special SDK, no hidden state.
 
 ## Features
 
-- **Agent-operated** -- the OpenClaw agent monitors, analyzes, and acts autonomously. Humans supervise via the dashboard.
-- **Multi-provider** -- query Gemini, OpenAI, Claude, Perplexity, and local LLMs from a single platform.
-- **Config-as-code** -- Kubernetes-style YAML files. Version control your monitoring, let agents apply changes declaratively.
-- **Self-hosted** -- runs locally with SQLite. No cloud account required.
-- **Full API parity** -- REST API and CLI cover 100% of functionality. `--format json` on every command.
-- **Integrations** -- Google Search Console, Google Analytics 4, Bing Webmaster Tools, WordPress.
-- **Location-aware** -- project-scoped locations for geo-targeted monitoring.
-- **Scheduled monitoring** -- cron-based recurring runs with webhook notifications.
+- **Agent-operated.** The OpenClaw agent monitors, analyzes, and acts autonomously. Humans supervise via the dashboard.
+- **Multi-provider.** Query Gemini, OpenAI, Claude, Perplexity, and local LLMs from a single platform.
+- **Config-as-code.** Kubernetes-style YAML files. Version control your monitoring, let agents apply changes declaratively.
+- **Self-hosted.** Runs locally with SQLite. No cloud account required.
+- **Full API parity.** REST API and CLI cover 100% of functionality. `--format json` on every command.
+- **Integrations.** Google Search Console, Google Analytics 4, Bing Webmaster Tools, WordPress.
+- **Location-aware.** Project-scoped locations for geo-targeted monitoring.
+- **Scheduled monitoring.** Cron-based recurring runs with webhook notifications.
 
 ## How It Works
 
@@ -154,7 +154,7 @@ Published images: [Docker Hub](https://hub.docker.com/repository/docker/arberx/c
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/ENziH9?referralCode=0vODBs&utm_medium=integration&utm_source=template&utm_campaign=generic)
 
-Click deploy, add a volume at `/data`, generate a domain. No env vars required to start — configure providers via the dashboard.
+Click deploy, add a volume at `/data`, generate a domain. No env vars required to start. Configure providers via the dashboard.
 
 ### Render
 
