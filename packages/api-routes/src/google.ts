@@ -167,11 +167,11 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
 
     let redirectUri: string
     if (publicUrl) {
-      // CLI override — use the provided public URL as the base
-      redirectUri = publicUrl.replace(/\/$/, '') + (opts.routePrefix ?? '/api/v1') + '/google/callback'
+      // CLI override — user-supplied URL already includes any base path
+      redirectUri = publicUrl.replace(/\/$/, '') + '/api/v1/google/callback'
     } else if (opts.publicUrl) {
-      // Config-level publicUrl — use for all OAuth redirects
-      redirectUri = opts.publicUrl.replace(/\/$/, '') + (opts.routePrefix ?? '/api/v1') + '/google/callback'
+      // Config-level publicUrl already includes any base path
+      redirectUri = opts.publicUrl.replace(/\/$/, '') + '/api/v1/google/callback'
     } else {
       // Auto-detect from request headers — use legacy per-project URI for backward compat
       const proto = request.headers['x-forwarded-proto'] ?? 'http'
