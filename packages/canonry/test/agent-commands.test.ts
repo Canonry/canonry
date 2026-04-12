@@ -87,21 +87,28 @@ describe('agent status', () => {
 })
 
 describe('agent setup', () => {
+  function mockBootstrapHelpers(bootstrap: typeof import('../src/agent-bootstrap.js')) {
+    return {
+      detect: vi.spyOn(bootstrap, 'detectOpenClaw').mockResolvedValue({
+        found: true,
+        path: '/usr/local/bin/openclaw',
+        version: '1.0.0',
+      }),
+      seed: vi.spyOn(bootstrap, 'seedWorkspace').mockImplementation(() => {}),
+      initProfile: vi.spyOn(bootstrap, 'initializeOpenClawProfile').mockImplementation(() => {}),
+      configGateway: vi.spyOn(bootstrap, 'configureOpenClawGateway').mockImplementation(() => {}),
+      setModel: vi.spyOn(bootstrap, 'setOpenClawModel').mockImplementation(() => {}),
+    }
+  }
+
   it('persists agent config to config.yaml and seeds workspace', async () => {
-    // Create a base config file so saveConfigPatch has something to merge into
     const { stringify } = await import('yaml')
     const { getConfigPath } = await import('../src/config.js')
     const baseConfig = { apiUrl: 'http://localhost:4100', database: path.join(tmpDir, 'canonry.db'), apiKey: 'cnry_test' }
     fs.writeFileSync(getConfigPath(), stringify(baseConfig), 'utf-8')
 
-    // Mock detectOpenClaw to return a found binary
     const bootstrap = await import('../src/agent-bootstrap.js')
-    const detectSpy = vi.spyOn(bootstrap, 'detectOpenClaw').mockResolvedValue({
-      found: true,
-      path: '/usr/local/bin/openclaw',
-      version: '1.0.0',
-    })
-    const seedSpy = vi.spyOn(bootstrap, 'seedWorkspace').mockImplementation(() => {})
+    const spies = mockBootstrapHelpers(bootstrap)
 
     const stateDir = path.join(tmpDir, '.openclaw-aero')
     const output = await captureStdout(() =>
@@ -120,11 +127,72 @@ describe('agent setup', () => {
     expect(agent.gatewayPort).toBe(4000)
     expect(agent.profile).toBe('aero')
 
-    // Verify workspace was seeded
-    expect(seedSpy).toHaveBeenCalledWith(stateDir)
+    // Verify bootstrap helpers were called in order
+    expect(spies.initProfile).toHaveBeenCalled()
+    expect(spies.configGateway).toHaveBeenCalledWith('/usr/local/bin/openclaw', 'aero', 4000)
+    expect(spies.seed).toHaveBeenCalledWith(stateDir)
+
+    for (const spy of Object.values(spies)) spy.mockRestore()
+  })
+
+  it('auto-installs openclaw when not found', async () => {
+    const { stringify } = await import('yaml')
+    const { getConfigPath } = await import('../src/config.js')
+    const baseConfig = { apiUrl: 'http://localhost:4100', database: path.join(tmpDir, 'canonry.db'), apiKey: 'cnry_test' }
+    fs.writeFileSync(getConfigPath(), stringify(baseConfig), 'utf-8')
+
+    const bootstrap = await import('../src/agent-bootstrap.js')
+    const spies = mockBootstrapHelpers(bootstrap)
+    spies.detect.mockReset()
+    spies.detect
+      .mockResolvedValueOnce({ found: false })
+      .mockResolvedValueOnce({ found: true, path: '/usr/local/bin/openclaw', version: '2.0.0' })
+    const installSpy = vi.spyOn(bootstrap, 'installOpenClaw').mockResolvedValue({
+      success: true,
+      detection: { found: true, path: '/usr/local/bin/openclaw', version: '2.0.0' },
+    })
+
+    const stateDir = path.join(tmpDir, '.openclaw-aero')
+    const output = await captureStdout(() =>
+      agentSetup({ format: 'json', stateDir }),
+    )
+
+    expect(installSpy).toHaveBeenCalled()
+    const parsed = JSON.parse(output)
+    expect(parsed.state).toBe('configured')
+    expect(parsed.binary).toBe('/usr/local/bin/openclaw')
+    expect(parsed.version).toBe('2.0.0')
+
+    for (const spy of Object.values(spies)) spy.mockRestore()
+    installSpy.mockRestore()
+  })
+
+  it('reports error when auto-install fails', async () => {
+    const { stringify } = await import('yaml')
+    const { getConfigPath } = await import('../src/config.js')
+    const baseConfig = { apiUrl: 'http://localhost:4100', database: path.join(tmpDir, 'canonry.db'), apiKey: 'cnry_test' }
+    fs.writeFileSync(getConfigPath(), stringify(baseConfig), 'utf-8')
+
+    const bootstrap = await import('../src/agent-bootstrap.js')
+    const detectSpy = vi.spyOn(bootstrap, 'detectOpenClaw').mockResolvedValue({ found: false })
+    const installSpy = vi.spyOn(bootstrap, 'installOpenClaw').mockResolvedValue({
+      success: false,
+      error: 'npm install failed',
+    })
+
+    const stateDir = path.join(tmpDir, '.openclaw-aero')
+    await expect(
+      agentSetup({ format: 'json', stateDir }),
+    ).rejects.toThrow('npm install failed')
+
+    expect(installSpy).toHaveBeenCalled()
+    expect(process.exitCode).toBe(1)
+
+    // Clean up exitCode
+    process.exitCode = undefined
 
     detectSpy.mockRestore()
-    seedSpy.mockRestore()
+    installSpy.mockRestore()
   })
 })
 
@@ -144,3 +212,4 @@ async function captureStdout(fn: () => Promise<void>): Promise<string> {
   }
   return chunks.join('\n')
 }
+

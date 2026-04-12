@@ -1,7 +1,21 @@
+import path from 'node:path'
 import { AgentManager } from '../agent-manager.js'
-import { loadConfig, saveConfigPatch } from '../config.js'
+import { loadConfig, saveConfigPatch, configExists } from '../config.js'
 import type { AgentConfigEntry } from '../config.js'
-import { detectOpenClaw, getAeroStateDir, seedWorkspace } from '../agent-bootstrap.js'
+import {
+  detectOpenClaw,
+  installOpenClaw,
+  getAeroStateDir,
+  seedWorkspace,
+  initializeOpenClawProfile,
+  configureOpenClawGateway,
+  setOpenClawModel,
+  providerEnvVar,
+  writeAgentEnv,
+  resolveAgentCredentials,
+} from '../agent-bootstrap.js'
+import { initCommand } from './init.js'
+import type { InitOptions } from './init.js'
 
 function resolveStateDir(opts?: { stateDir?: string }): string {
   if (opts?.stateDir) return opts.stateDir
@@ -86,42 +100,82 @@ export async function agentReset(opts?: { format?: string; stateDir?: string }):
   }
 }
 
-export async function agentSetup(opts?: {
+export interface AgentSetupOptions extends Omit<InitOptions, 'force' | 'format'> {
   gatewayPort?: number
   format?: string
   stateDir?: string
-}): Promise<void> {
-  const existingConfig = resolveConfig()
-  const detection = await detectOpenClaw(existingConfig)
+}
 
-  if (!detection.found) {
-    const msg = 'OpenClaw not found. Install it with: npm install -g openclaw'
-    if (opts?.format === 'json') {
-      console.error(JSON.stringify({ error: { code: 'AGENT_NOT_FOUND', message: msg } }))
-    } else {
-      console.error(msg)
-    }
-    process.exitCode = 1
-    return
+export async function agentSetup(opts?: AgentSetupOptions): Promise<void> {
+  // 1. Initialize canonry if not already configured
+  let agentLLM: { provider: string; key?: string; model?: string } | undefined
+  if (!configExists()) {
+    agentLLM = await initCommand({
+      format: opts?.format as InitOptions['format'],
+      geminiKey: opts?.geminiKey,
+      openaiKey: opts?.openaiKey,
+      claudeKey: opts?.claudeKey,
+      perplexityKey: opts?.perplexityKey,
+      localUrl: opts?.localUrl,
+      localModel: opts?.localModel,
+      localKey: opts?.localKey,
+      googleClientId: opts?.googleClientId,
+      googleClientSecret: opts?.googleClientSecret,
+      agentProvider: opts?.agentProvider,
+      agentKey: opts?.agentKey,
+      agentModel: opts?.agentModel,
+    }) ?? undefined
   }
 
-  // Build the agent config to persist
+  // 2. Detect or install OpenClaw
+  const existingConfig = resolveConfig()
+  let detection = await detectOpenClaw(existingConfig)
+  if (!detection.found) {
+    detection = await autoInstallOrFail(opts?.format)
+  }
+
+  // 3. Persist agent config to canonry config.yaml
   const profile = existingConfig.profile ?? 'aero'
   const gatewayPort = opts?.gatewayPort ?? existingConfig.gatewayPort ?? 3579
-  const agentConfig: AgentConfigEntry = {
-    binary: detection.path,
-    profile,
-    gatewayPort,
-    autoStart: existingConfig.autoStart,
+  const stateDir = opts?.stateDir ?? getAeroStateDir(profile)
+
+  saveConfigPatch({
+    agent: {
+      binary: detection.path,
+      profile,
+      gatewayPort,
+      autoStart: existingConfig.autoStart,
+    },
+  })
+
+  // 4. Initialize and configure OpenClaw profile
+  initializeOpenClawProfile(detection.path!, profile, path.join(stateDir, 'workspace'))
+  configureOpenClawGateway(detection.path!, profile, gatewayPort)
+
+  // 5. Configure agent LLM credentials
+  const creds = agentLLM ?? resolveAgentCredentials({
+    agentProvider: opts?.agentProvider,
+    agentKey: opts?.agentKey,
+    agentModel: opts?.agentModel,
+    stateDir,
+  })
+  if (creds.key) {
+    writeAgentEnv(stateDir, providerEnvVar(creds.provider), creds.key)
+    if (opts?.format !== 'json') {
+      console.log(`Agent LLM: ${creds.provider} credentials configured`)
+    }
+  }
+  if (creds.model) {
+    setOpenClawModel(detection.path!, profile, creds.model)
+    if (opts?.format !== 'json') {
+      console.log(`Agent model: ${creds.model}`)
+    }
   }
 
-  // Persist to config.yaml
-  saveConfigPatch({ agent: agentConfig })
-
-  // Seed the workspace directory with AGENTS.md, SOUL.md, and skills
-  const stateDir = opts?.stateDir ?? getAeroStateDir(profile)
+  // 6. Seed workspace with canonry skills
   seedWorkspace(stateDir)
 
+  // 7. Output result
   if (opts?.format === 'json') {
     console.log(JSON.stringify({
       state: 'configured',
@@ -138,4 +192,28 @@ export async function agentSetup(opts?: {
     console.log(`State dir: ${stateDir}`)
     console.log('Agent setup complete.')
   }
+}
+
+async function autoInstallOrFail(format?: string) {
+  if (format !== 'json') {
+    console.log('OpenClaw not found — installing via npm…')
+  }
+
+  const install = await installOpenClaw()
+  if (!install.success) {
+    const msg = `Failed to install OpenClaw: ${install.error}`
+    if (format === 'json') {
+      console.error(JSON.stringify({ error: { code: 'AGENT_INSTALL_FAILED', message: msg } }))
+    } else {
+      console.error(msg)
+    }
+    process.exitCode = 1
+    throw new Error(msg)
+  }
+
+  if (format !== 'json') {
+    console.log(`Installed OpenClaw ${install.detection!.version}`)
+  }
+
+  return install.detection!
 }

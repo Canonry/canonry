@@ -95,11 +95,15 @@ export class AgentManager {
     const logFile = path.join(this.stateDir, 'gateway.log')
     const logFd = fs.openSync(logFile, 'a')
 
-    const child = spawn(binary, ['--profile', profile, 'gateway', 'start'], {
+    // Load .env from state dir (agent API keys persisted by setup)
+    const dotEnv = this.loadDotEnv()
+
+    const child = spawn(binary, ['--profile', profile, 'gateway'], {
       detached: true,
       stdio: ['ignore', logFd, logFd],
       env: {
         ...process.env,
+        ...dotEnv,
         OPENCLAW_PROFILE: profile,
         OPENCLAW_GATEWAY_PORT: String(port),
         OPENCLAW_STATE_DIR: this.stateDir,
@@ -208,6 +212,21 @@ export class AgentManager {
     } catch {
       // Already gone
     }
+  }
+
+  /** Parse a simple KEY=value dotenv file from the state dir. */
+  private loadDotEnv(): Record<string, string> {
+    const envFile = path.join(this.stateDir, '.env')
+    if (!fs.existsSync(envFile)) return {}
+    const result: Record<string, string> = {}
+    for (const line of fs.readFileSync(envFile, 'utf-8').split('\n')) {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed.startsWith('#')) continue
+      const eq = trimmed.indexOf('=')
+      if (eq < 1) continue
+      result[trimmed.slice(0, eq)] = trimmed.slice(eq + 1)
+    }
+    return result
   }
 }
 

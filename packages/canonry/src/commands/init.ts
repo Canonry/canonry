@@ -40,10 +40,30 @@ export interface InitOptions {
   localKey?: string
   googleClientId?: string
   googleClientSecret?: string
+  agentProvider?: string
+  agentKey?: string
+  agentModel?: string
   format?: CliFormat
 }
 
-export async function initCommand(opts?: InitOptions): Promise<void> {
+/** Agent LLM config resolved during init — returned so agentSetup can consume it. */
+export interface ResolvedAgentLLM {
+  provider: string
+  key?: string
+  model?: string
+}
+
+const DEFAULT_AGENT_MODELS: Record<string, string> = {
+  anthropic: 'anthropic/claude-sonnet-4-6',
+  openai: 'openai/gpt-4o',
+  openrouter: 'openrouter/anthropic/claude-sonnet-4-6',
+  groq: 'groq/llama-4-scout-17b',
+  google: 'google/gemini-2.5-flash',
+  mistral: 'mistral/mistral-large-latest',
+  xai: 'xai/grok-2',
+}
+
+export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM | undefined> {
   const format = opts?.format ?? 'text'
 
   if (format !== 'json') {
@@ -57,12 +77,12 @@ export async function initCommand(opts?: InitOptions): Promise<void> {
         reason: 'config_exists',
         configPath: getConfigPath(),
       }, null, 2))
-      return
+      return undefined
     }
 
     console.log(`Config already exists at ${getConfigPath()}`)
     console.log('To reinitialize, run "canonry init --force".')
-    return
+    return undefined
   }
 
   // Create config directory
@@ -257,6 +277,35 @@ export async function initCommand(opts?: InitOptions): Promise<void> {
     console.log(`Providers: ${providerNames.join(', ')}`)
   }
 
+  // Resolve agent LLM config — from flags, or interactive prompt
+  let agentLLM: ResolvedAgentLLM | undefined
+  const agentProvider = opts?.agentProvider
+  const agentKey = opts?.agentKey
+  const agentModel = opts?.agentModel
+
+  if (agentProvider || agentKey || agentModel) {
+    // Non-interactive: use provided values
+    const provider = agentProvider ?? 'anthropic'
+    agentLLM = {
+      provider,
+      key: agentKey,
+      model: agentModel ?? DEFAULT_AGENT_MODELS[provider],
+    }
+  } else if (!nonInteractive) {
+    // Interactive: prompt for agent LLM
+    console.log('\nConfigure agent LLM (the model that powers the agent):')
+    console.log('Supported providers: anthropic, openai, openrouter, groq, mistral, xai, google, cerebras\n')
+
+    const provider = await prompt('Provider [anthropic]: ') || 'anthropic'
+    const key = await prompt('API key (press Enter to skip): ')
+    if (key) {
+      const defaultModel = DEFAULT_AGENT_MODELS[provider]
+      const modelText = defaultModel ? `Model [${defaultModel}]: ` : 'Model: '
+      const model = await prompt(modelText) || defaultModel
+      agentLLM = { provider, key, model }
+    }
+  }
+
   // Show the first-run telemetry notice during init — this is the natural
   // first command most users run, so the notice must appear here before
   // we generate the anonymousId and fire any telemetry events.
@@ -269,4 +318,6 @@ export async function initCommand(opts?: InitOptions): Promise<void> {
     providerCount: providerNames.length,
     providers: providerNames,
   })
+
+  return agentLLM
 }

@@ -29,11 +29,25 @@ if (!fs.existsSync(webDistDir)) {
   process.exit(1)
 }
 
+// Preserve agent-workspace/ across SPA rebuild
+const agentWorkspaceDir = path.join(assetsDir, 'agent-workspace')
+const agentWorkspaceTmp = path.join(dirname, '.agent-workspace-tmp')
+const hadAgentWorkspace = fs.existsSync(agentWorkspaceDir)
+if (hadAgentWorkspace) {
+  fs.cpSync(agentWorkspaceDir, agentWorkspaceTmp, { recursive: true })
+}
+
 // Remove old assets and copy fresh build
 if (fs.existsSync(assetsDir)) {
   fs.rmSync(assetsDir, { recursive: true })
 }
 
 fs.cpSync(webDistDir, assetsDir, { recursive: true })
+
+// Restore agent-workspace/
+if (hadAgentWorkspace) {
+  fs.cpSync(agentWorkspaceTmp, agentWorkspaceDir, { recursive: true })
+  fs.rmSync(agentWorkspaceTmp, { recursive: true })
+}
 
 console.log(`SPA assets copied to ${assetsDir}`)
