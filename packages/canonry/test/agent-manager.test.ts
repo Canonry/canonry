@@ -19,6 +19,9 @@ vi.mock('node:child_process', () => ({
 const { AgentManager } = await import('../src/agent-manager.js')
 const { spawn } = await import('node:child_process')
 
+// Capture original before any spying
+const _readFileSync = fs.readFileSync.bind(fs)
+
 let tmpDir: string
 
 function defaultConfig(overrides: Partial<AgentConfigEntry> = {}): AgentConfigEntry {
@@ -32,9 +35,19 @@ function defaultConfig(overrides: Partial<AgentConfigEntry> = {}): AgentConfigEn
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-agent-mgr-'))
   vi.clearAllMocks()
+  // On Linux CI, verifyProcessIdentity reads /proc/<pid>/cmdline instead of
+  // calling execFileSync('ps'). Intercept those reads so identity checks pass.
+  vi.spyOn(fs, 'readFileSync').mockImplementation((...args: Parameters<typeof fs.readFileSync>) => {
+    const filePath = args[0]
+    if (typeof filePath === 'string' && /^\/proc\/\d+\/cmdline$/.test(filePath)) {
+      return 'openclaw' as ReturnType<typeof fs.readFileSync>
+    }
+    return _readFileSync(...args)
+  })
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   fs.rmSync(tmpDir, { recursive: true, force: true })
 })
 
