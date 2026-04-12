@@ -259,7 +259,7 @@ describe('Bing routes', () => {
     expect(body[2]!.ctr).toBe(0)
   })
 
-  it('allUnindexed only submits URLs with an explicit not-indexed status', async () => {
+  it('allUnindexed submits URLs with not-indexed or unknown status', async () => {
     const now = new Date().toISOString()
     db.insert(bingUrlInspections).values([
       {
@@ -293,7 +293,7 @@ describe('Bing routes', () => {
     ]).run()
 
     const bingModule = await import('@ainyc/canonry-integration-bing')
-    const submitUrlSpy = vi.spyOn(bingModule, 'submitUrl').mockResolvedValue()
+    const submitUrlBatchSpy = vi.spyOn(bingModule, 'submitUrlBatch').mockResolvedValue()
 
     const res = await app.inject({
       method: 'POST',
@@ -302,8 +302,11 @@ describe('Bing routes', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(submitUrlSpy).toHaveBeenCalledTimes(1)
-    expect(submitUrlSpy).toHaveBeenCalledWith('test-key', 'https://example.com/', 'https://example.com/not-indexed')
+    expect(submitUrlBatchSpy).toHaveBeenCalledTimes(1)
+    const submittedUrls = submitUrlBatchSpy.mock.calls[0]![2] as string[]
+    expect(submittedUrls).toContain('https://example.com/not-indexed')
+    expect(submittedUrls).toContain('https://example.com/unknown')
+    expect(submittedUrls).not.toContain('https://example.com/indexed')
   })
 
   it('coverage endpoint saves a daily snapshot', async () => {
