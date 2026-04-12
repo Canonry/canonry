@@ -52,7 +52,42 @@ canonry run <project> --provider gemini          # single-provider run
 canonry status <project>
 canonry apply <file...>                          # multi-doc YAML + multiple files
 canonry export <project>
+
+# Agent layer (OpenClaw)
+canonry agent setup                              # full setup: init + install + configure + seed
+canonry agent setup --agent-key <key>            # non-interactive with flags
+canonry agent start                              # start gateway as background process
+canonry agent stop                               # stop gateway
+canonry agent status                             # check gateway state
+canonry agent reset                              # stop + wipe workspace
 ```
+
+## Agent Layer
+
+Canonry integrates with [OpenClaw](https://openclaw.ai) to provide an AI agent ("Aero") that orchestrates sweeps, analyzes results, and generates reports.
+
+### Setup
+
+`canonry agent setup` is the single entry point. It handles:
+
+1. Canonry initialization (if no config exists) — prompts for monitoring provider keys and agent LLM credentials, or accepts them via flags/env vars.
+2. OpenClaw installation via `npm install -g openclaw` (if not found).
+3. OpenClaw profile configuration — runs `openclaw onboard --non-interactive --accept-risk --mode local`.
+4. Gateway configuration — sets `gateway.mode=local` and `gateway.port` via `openclaw config set`.
+5. Agent LLM credentials — stored in `~/.openclaw-aero/.env` (e.g. `ANTHROPIC_API_KEY=...`), model set via `openclaw models set`.
+6. Workspace seeding — copies bundled skills to the OpenClaw workspace.
+
+Setup is idempotent — safe to re-run. For non-interactive use: `canonry agent setup --gemini-key <key> --agent-key <key> --format json`.
+
+### Runtime
+
+`canonry agent start` spawns `openclaw --profile aero gateway` as a detached process. The gateway process inherits LLM credentials from `~/.openclaw-aero/.env`. `canonry agent stop` sends SIGTERM with escalation to SIGKILL.
+
+### Key files
+
+- `packages/canonry/src/agent-bootstrap.ts` — setup helpers (detect, install, configure, seed)
+- `packages/canonry/src/agent-manager.ts` — process lifecycle (start/stop/status)
+- `packages/canonry/src/commands/agent.ts` — thin orchestrator for setup, delegates to bootstrap helpers
 
 ## Dependency Boundary
 

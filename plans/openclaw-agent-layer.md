@@ -32,8 +32,8 @@ Two source documents scope the work:
 
 **Needs revision:**
 - ~~Phase 1 is written as greenfield but intelligence already exists~~ **Resolved** — Phase 1 implemented as additive integration, not a rewrite.
-- Agent config must include `binary`, `profile` (`aero`), `autoStart`, `gatewayPort` — not just an enable flag.
-- `canonry agent setup` must be fully non-interactive.
+- ~~Agent config must include `binary`, `profile` (`aero`), `autoStart`, `gatewayPort` — not just an enable flag.~~ **Done** — `AgentConfigEntry` has all fields, persisted via `saveConfigPatch()`.
+- ~~`canonry agent setup` must be fully non-interactive.~~ **Done** — supports both interactive (prompts via `initCommand` in `init.ts`) and non-interactive (flags/env vars). Setup uses `openclaw onboard --non-interactive --accept-risk --mode local`. Agent LLM credentials stored in `~/.openclaw-aero/.env`. Gateway spawned via `openclaw --profile aero gateway` (direct mode, not launchd).
 - ~~Skills directory `skills/aero/`~~ **Done** — created at `skills/aero/` with SKILL.md and reference docs.
 
 ---

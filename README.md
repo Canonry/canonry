@@ -72,6 +72,25 @@ Canonry is designed so that AI agents and automation pipelines can drive it with
 
 Start with [docs/README.md](docs/README.md) for the full architecture, roadmap, active plans, testing, deployment, and ADR index.
 
+## Agent Layer
+
+Canonry includes a managed [OpenClaw](https://openclaw.ai) agent ("Aero") that can orchestrate sweeps, analyze citation data, and generate reports autonomously.
+
+```bash
+# Set up everything: canonry + OpenClaw + agent LLM (interactive)
+canonry agent setup
+
+# Non-interactive (for scripts, CI, or AI agents)
+canonry agent setup --gemini-key <key> --agent-key <key> --format json
+
+# Lifecycle
+canonry agent start     # start the agent gateway
+canonry agent stop      # stop it
+canonry agent status    # check if running
+```
+
+Setup handles canonry initialization, OpenClaw installation, LLM credential configuration, and workspace seeding in a single command.
+
 ## Skills for AI Agents
 
 Canonry ships with an [OpenClaw](https://clawhub.dev) skill that teaches AI agents how to use it. The skill covers CLI commands, provider setup, interpreting results, indexing workflows, and troubleshooting.

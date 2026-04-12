@@ -44,6 +44,12 @@ canonry project remove-location <name> <label>
 ## Sweeps
 
 ```bash
+canonry snapshot "Acme Corp" --domain acme.example.com      # one-shot sales snapshot
+canonry snapshot "Acme Corp" --domain acme.example.com --md          # save markdown report
+canonry snapshot "Acme Corp" --domain acme.example.com --output report.md  # custom path
+canonry snapshot "Acme Corp" --domain acme.example.com --pdf         # save PDF report
+canonry snapshot "Acme Corp" --domain acme.example.com --format json
+
 canonry run <project>                             # sweep all configured providers
 canonry run <project> --provider gemini           # single provider only
 canonry run <project> --wait                      # block until complete
@@ -60,6 +66,8 @@ Run statuses: `queued` → `running` → `completed` / `failed` / `partial`
 
 `partial` = some providers failed (usually rate limits) — successful snapshots are still saved.
 
+`snapshot` does not create a project or write to the DB. It generates category queries, runs providers, and produces a report for prospecting.
+
 ## Citation Data
 
 ```bash
@@ -67,6 +75,8 @@ canonry evidence <project>                        # per-keyword cited/not-cited
 canonry evidence <project> --format json          # JSON output
 canonry history <project>                         # audit trail
 canonry export <project> --include-results        # export as YAML
+canonry backfill answer-visibility                # recompute answer visibility from stored answers
+canonry backfill answer-visibility --project <name> --format json
 ```
 
 Output shows:
@@ -82,6 +92,21 @@ canonry analytics <project> --feature metrics     # citation rate trends
 canonry analytics <project> --feature gaps        # brand gap analysis (cited/gap/uncited)
 canonry analytics <project> --feature sources     # source breakdown by category
 canonry analytics <project> --window 7d           # time window: 7d, 30d, 90d, all
+```
+
+## Intelligence
+
+```bash
+canonry insights <project>                        # list active insights (regressions, gains, opportunities)
+canonry insights <project> --dismissed            # include dismissed insights
+canonry insights <project> --format json          # JSON output
+canonry insights dismiss <project> <id>           # dismiss an insight
+canonry health <project>                          # latest citation health snapshot
+canonry health <project> --history                # health trend over time
+canonry health <project> --history --limit 10     # limit history entries
+canonry health <project> --format json            # JSON output
+canonry backfill insights <project>              # backfill insights for all completed runs
+canonry backfill insights <project> --from-run <id> --to-run <id>  # backfill a range
 ```
 
 ## Keywords & Competitors
@@ -132,6 +157,22 @@ Available providers: `gemini`, `openai`, `claude`, `perplexity`, `local`, `cdp`
 
 If a provider hits rate limits (429 errors), the run completes as `partial`. Reduce concurrency or increase time between sweeps.
 
+### Gemini Vertex AI
+
+Gemini supports Vertex AI as an alternative to API key authentication. Use GCP Application Default Credentials (ADC) or a service account JSON key file:
+
+```bash
+# Via env vars (recommended for servers)
+export GEMINI_VERTEX_PROJECT=my-gcp-project
+export GEMINI_VERTEX_REGION=us-central1            # optional, defaults to us-central1
+export GEMINI_VERTEX_CREDENTIALS=/path/to/sa.json  # optional, falls back to ADC
+
+# Or in canonry.yaml config
+# vertexProject, vertexRegion, vertexCredentials fields under provider config
+```
+
+When Vertex AI is configured, no `GEMINI_API_KEY` is required. The provider uses the `@google-cloud/vertexai` SDK with `googleAuthOptions` for credential handling.
+
 ## Google Search Console
 
 ```bash
@@ -148,6 +189,7 @@ canonry google sync <project>                             # sync GSC data
 canonry google sync <project> --days 30 --full --wait     # full sync with wait
 
 canonry google coverage <project>                         # index coverage summary
+canonry google refresh <project>                         # force-fetch fresh GSC coverage data
 canonry google performance <project>                      # search performance data
 canonry google performance <project> --days 30 --keyword "term" --page "/url"
 
@@ -170,6 +212,7 @@ canonry bing status <project>                    # connection status
 canonry bing sites <project>                     # list verified sites
 canonry bing set-site <project> <url>            # set active site URL
 canonry bing coverage <project>                  # URL coverage data
+canonry bing refresh <project>                  # force-fetch fresh Bing coverage data
 canonry bing inspect <project> <url>             # inspect specific URL
 canonry bing inspections <project>               # inspection history
 canonry bing request-indexing <project> <url>    # submit URL for indexing
@@ -177,35 +220,49 @@ canonry bing request-indexing <project> --all-unindexed  # submit all unindexed
 canonry bing performance <project>               # search performance data
 ```
 
-## WordPress
+## WordPress Integration
 
 ```bash
-canonry wordpress connect <project> --url <url> --user <user>
-canonry wordpress disconnect <project>
-canonry wordpress status <project>
-
-canonry wordpress pages <project> [--live|--staging]
-canonry wordpress page <project> <slug> [--live|--staging]
-canonry wordpress create-page <project> --title <title> --slug <slug> [--content "<p>...</p>"|--content-file ./page.html] [--live|--staging]
-canonry wordpress update-page <project> <slug> [--title <title>] [--content "<p>...</p>"|--content-file ./page.html] [--live|--staging]
-canonry wordpress set-meta <project> <slug> [--title <title>] [--description <text>] [--noindex|--index] [--live|--staging]
-
-canonry wordpress audit <project> [--live|--staging]
-canonry wordpress diff <project> <slug>
-
-canonry wordpress schema <project> <slug> [--live|--staging]
-canonry wordpress set-schema <project> <slug> --json '{"@type":"FAQPage"}' [--type FAQPage] [--live|--staging]
-canonry wordpress llms-txt <project> [--live|--staging]
-canonry wordpress set-llms-txt <project> --content "..."
-
-canonry wordpress staging status <project>
-canonry wordpress staging push <project>
+canonry wordpress connect <project> --url <url> --user <user>   # connect (prompts for app password)
+canonry wordpress disconnect <project>                          # disconnect
+canonry wordpress status <project>                              # connection status
+canonry wordpress pages <project> [--live|--staging]            # list pages
+canonry wordpress page <project> <slug>                         # show page detail
+canonry wordpress create-page <project> --title <t> --slug <s> --content <c>  # create page
+canonry wordpress update-page <project> <slug> --content <c>   # update page
+canonry wordpress set-meta <project> <slug> --title <t>        # set SEO meta (single page)
+canonry wordpress set-meta <project> --from <file>              # bulk set SEO meta from JSON
+canonry wordpress schema <project> <slug>                       # read page JSON-LD
+canonry wordpress schema deploy <project> --profile <file>      # deploy schema from profile
+canonry wordpress schema status <project>                       # schema status per page
+canonry wordpress set-schema <project> <slug>                   # manual schema handoff
+canonry wordpress audit <project>                               # audit pages for SEO issues
+canonry wordpress diff <project> <slug>                         # compare live vs staging
+canonry wordpress staging status <project>                      # staging config status
+canonry wordpress staging push <project>                        # manual staging push handoff
+canonry wordpress llms-txt <project>                            # read /llms.txt
+canonry wordpress set-llms-txt <project>                        # manual llms.txt handoff
+canonry wordpress onboard <project> --url <url> --user <user>  # full onboarding workflow
 ```
 
-Notes:
-- `--live` / `--staging` override the project's configured `defaultEnv`
-- `set-meta` only works when the site exposes writable SEO meta fields through REST
-- `set-schema`, `set-llms-txt`, and `staging push` are manual-assist commands and do not apply the change remotely
+**Onboard** runs: connect → audit → set-meta → schema deploy → Google submit → Bing submit. Use `--skip-schema` or `--skip-submit` to skip steps. `--profile <file>` provides business data and page-to-schema mapping for schema deployment.
+
+## Google Analytics 4
+
+GA4 integration uses service account authentication (no OAuth). The service account must have Viewer access on the GA4 property.
+
+```bash
+canonry ga connect <project> --property-id <id> --key-file ./sa-key.json  # connect GA4
+canonry ga disconnect <project>                  # disconnect
+canonry ga status <project>                      # connection status
+canonry ga sync <project> [--days 30] [--only traffic|ai|social]  # pull GA4 data (selective or full)
+canonry ga traffic <project>                     # landing pages + AI/social referral sources
+canonry ga coverage <project>                    # indexed pages with traffic overlay
+canonry ga ai-referral-history <project>         # daily AI referral history by source
+canonry ga social-referral-history <project>     # daily social referral history by source
+canonry ga social-referral-summary <project> [--trend]  # one-line social summary + optional trend
+canonry ga attribution <project> [--trend]        # unified channel attribution overview + optional trends
+```
 
 ## CDP / Browser Provider
 
@@ -236,6 +293,46 @@ canonry apply file1.yaml file2.yaml               # multiple files
 canonry export <project> --include-results > project.yaml
 canonry sitemap inspect <project>
 ```
+
+## Agent (OpenClaw Integration)
+
+`canonry agent setup` is the single entry point for configuring the agent. It handles everything:
+canonry initialization, OpenClaw installation, profile setup, LLM credential configuration,
+and workspace seeding. If canonry is not yet configured, it runs the interactive init flow first
+(prompting for monitoring provider keys and agent LLM credentials).
+
+```bash
+# Full setup (interactive — prompts for provider keys + agent LLM)
+canonry agent setup
+
+# Non-interactive (flags or env vars)
+canonry agent setup --gemini-key <key> --agent-key <key>
+canonry agent setup --agent-provider openrouter --agent-key <key> --agent-model openrouter/anthropic/claude-sonnet-4-6
+GEMINI_API_KEY=<key> canonry agent setup --agent-key <key> --format json
+
+# Lifecycle
+canonry agent start                              # start OpenClaw gateway as background process
+canonry agent stop                               # stop the gateway process
+canonry agent status                             # check if gateway is running
+canonry agent status --format json               # JSON output
+canonry agent reset                              # stop gateway and wipe workspace
+
+# Setup flags
+canonry agent setup --agent-provider <id>        # LLM provider (default: anthropic)
+canonry agent setup --agent-key <key>            # API key for agent LLM
+canonry agent setup --agent-model <model>        # model id (e.g. anthropic/claude-sonnet-4-6)
+canonry agent setup --gateway-port 3579          # gateway WebSocket port
+canonry agent setup --gemini-key <key>           # monitoring provider keys (passed to init)
+canonry agent setup --openai-key <key>
+canonry agent setup --claude-key <key>
+canonry agent setup --perplexity-key <key>
+```
+
+**Setup flow:** init canonry (if needed) → install OpenClaw (if needed) → configure profile → configure gateway → set agent LLM credentials → seed workspace with skills.
+
+**Agent LLM credentials** are stored in `~/.openclaw-aero/.env` (e.g. `ANTHROPIC_API_KEY=...`) and loaded into the gateway process at start time. The model is set via `openclaw models set`.
+
+**Re-running is safe:** setup is idempotent — it skips steps that are already configured.
 
 ## Output Formats
 

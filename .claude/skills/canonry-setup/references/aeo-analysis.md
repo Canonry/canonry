@@ -40,6 +40,8 @@ Shows citation rate over time across providers. Use to identify:
 - Provider-specific performance differences
 - Impact of content/indexing changes over time
 
+**Key phrase normalization:** When new key phrases are added to a project mid-history, canonry automatically normalizes each time bucket to only include key phrases that existed before that bucket started. This prevents newly-added (typically uncited) key phrases from creating a false drop in the citation rate trend. The chart displays dashed vertical annotation lines at points where key phrases were added (e.g. "+3 kp"), and each bucket's tooltip shows the key phrase count ("kp") used for that bucket's calculation.
+
 ### Gap Analysis (`--feature gaps`)
 Categorizes keywords as cited, gap (competitor cited but you're not), or uncited (nobody cited). Priorities:
 - **Gap keywords** are highest priority — competitors are winning these

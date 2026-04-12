@@ -296,15 +296,43 @@ canonry sitemap inspect <project>
 
 ## Agent (OpenClaw Integration)
 
+`canonry agent setup` is the single entry point for configuring the agent. It handles everything:
+canonry initialization, OpenClaw installation, profile setup, LLM credential configuration,
+and workspace seeding. If canonry is not yet configured, it runs the interactive init flow first
+(prompting for monitoring provider keys and agent LLM credentials).
+
 ```bash
-canonry agent status                             # check if OpenClaw gateway is running
-canonry agent status --format json               # JSON output
+# Full setup (interactive — prompts for provider keys + agent LLM)
+canonry agent setup
+
+# Non-interactive (flags or env vars)
+canonry agent setup --gemini-key <key> --agent-key <key>
+canonry agent setup --agent-provider openrouter --agent-key <key> --agent-model openrouter/anthropic/claude-sonnet-4-6
+GEMINI_API_KEY=<key> canonry agent setup --agent-key <key> --format json
+
+# Lifecycle
 canonry agent start                              # start OpenClaw gateway as background process
 canonry agent stop                               # stop the gateway process
+canonry agent status                             # check if gateway is running
+canonry agent status --format json               # JSON output
 canonry agent reset                              # stop gateway and wipe workspace
-canonry agent setup                              # detect OpenClaw and configure
-canonry agent setup --gateway-port 3579          # configure with specific port
+
+# Setup flags
+canonry agent setup --agent-provider <id>        # LLM provider (default: anthropic)
+canonry agent setup --agent-key <key>            # API key for agent LLM
+canonry agent setup --agent-model <model>        # model id (e.g. anthropic/claude-sonnet-4-6)
+canonry agent setup --gateway-port 3579          # gateway WebSocket port
+canonry agent setup --gemini-key <key>           # monitoring provider keys (passed to init)
+canonry agent setup --openai-key <key>
+canonry agent setup --claude-key <key>
+canonry agent setup --perplexity-key <key>
 ```
+
+**Setup flow:** init canonry (if needed) → install OpenClaw (if needed) → configure profile → configure gateway → set agent LLM credentials → seed workspace with skills.
+
+**Agent LLM credentials** are stored in `~/.openclaw-aero/.env` (e.g. `ANTHROPIC_API_KEY=...`) and loaded into the gateway process at start time. The model is set via `openclaw models set`.
+
+**Re-running is safe:** setup is idempotent — it skips steps that are already configured.
 
 ## Output Formats
 
