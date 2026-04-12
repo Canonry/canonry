@@ -339,7 +339,9 @@ export async function createServer(opts: {
   jobRunner.recoverStaleRuns()
   const notifier = new Notifier(opts.db, serverUrl)
   const intelligenceService = new IntelligenceService(opts.db)
-  const runCoordinator = new RunCoordinator(notifier, intelligenceService)
+  const runCoordinator = new RunCoordinator(notifier, intelligenceService, (runId, projectId, result) =>
+    notifier.dispatchInsightWebhooks(runId, projectId, result),
+  )
   jobRunner.onRunCompleted = (runId, projectId) => runCoordinator.onRunCompleted(runId, projectId)
   const snapshotService = new SnapshotService(registry)
 
@@ -929,31 +931,35 @@ export async function createServer(opts: {
       scheduler.remove(projectId)
     },
     onProjectUpserted: agentManager ? (_projectId: string, projectName: string) => {
-      const gatewayPort = opts.config.agent?.gatewayPort ?? 3579
-      const agentUrl = `http://localhost:${gatewayPort}/hooks/canonry`
-      // Auto-attach agent webhook — check via direct DB access to avoid circular HTTP calls
-      const notifs = opts.db.select().from(notifications).where(eq(notifications.projectId, _projectId)).all()
-      const hasAgent = notifs.some(n => {
-        const cfg = parseJsonColumn<{ url: string }>(n.config, { url: '' })
-        return cfg.url === agentUrl
-      })
-      if (!hasAgent) {
-        const id = crypto.randomUUID()
-        const now = new Date().toISOString()
-        opts.db.insert(notifications).values({
-          id,
-          projectId: _projectId,
-          channel: 'webhook',
-          config: JSON.stringify({
-            url: agentUrl,
-            events: ['run.completed', 'insight.critical', 'insight.high', 'citation.gained'],
-          }),
-          enabled: 1,
-          webhookSecret: crypto.randomUUID(),
-          createdAt: now,
-          updatedAt: now,
-        }).run()
-        app.log.info({ projectName }, 'Auto-attached agent webhook')
+      try {
+        const gatewayPort = opts.config.agent?.gatewayPort ?? 3579
+        const agentUrl = `http://localhost:${gatewayPort}/hooks/canonry`
+        // Auto-attach agent webhook — check via direct DB access to avoid circular HTTP calls
+        const notifs = opts.db.select().from(notifications).where(eq(notifications.projectId, _projectId)).all()
+        const hasAgent = notifs.some(n => {
+          const cfg = parseJsonColumn<{ url: string }>(n.config, { url: '' })
+          return cfg.url === agentUrl
+        })
+        if (!hasAgent) {
+          const id = crypto.randomUUID()
+          const now = new Date().toISOString()
+          opts.db.insert(notifications).values({
+            id,
+            projectId: _projectId,
+            channel: 'webhook',
+            config: JSON.stringify({
+              url: agentUrl,
+              events: ['run.completed', 'insight.critical', 'insight.high', 'citation.gained'],
+            }),
+            enabled: 1,
+            webhookSecret: crypto.randomUUID(),
+            createdAt: now,
+            updatedAt: now,
+          }).run()
+          app.log.info({ projectName }, 'Auto-attached agent webhook')
+        }
+      } catch (err) {
+        app.log.error({ err, projectName }, 'Failed to auto-attach agent webhook')
       }
     } : undefined,
     getTelemetryStatus: () => {

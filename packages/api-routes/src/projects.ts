@@ -84,7 +84,43 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     }
 
     if (existing) {
-      app.db.update(projects).set({
+      app.db.transaction((tx) => {
+        tx.update(projects).set({
+          displayName: body.displayName,
+          canonicalDomain: body.canonicalDomain,
+          ownedDomains: JSON.stringify(body.ownedDomains ?? []),
+          country: body.country,
+          language: body.language,
+          tags: JSON.stringify(body.tags ?? []),
+          labels: JSON.stringify(body.labels ?? {}),
+          providers: JSON.stringify(body.providers ?? []),
+          locations: JSON.stringify(nextLocations),
+          defaultLocation: nextDefaultLocation,
+          configSource: body.configSource ?? 'api',
+          configRevision: existing.configRevision + 1,
+          updatedAt: now,
+        }).where(eq(projects.id, existing.id)).run()
+
+        writeAuditLog(tx, {
+          projectId: existing.id,
+          actor: 'api',
+          action: 'project.updated',
+          entityType: 'project',
+          entityId: existing.id,
+        })
+      })
+
+      opts.onProjectUpserted?.(existing.id, name)
+
+      const updated = app.db.select().from(projects).where(eq(projects.id, existing.id)).get()!
+      return reply.status(200).send(formatProject(updated))
+    }
+
+    const id = crypto.randomUUID()
+    app.db.transaction((tx) => {
+      tx.insert(projects).values({
+        id,
+        name,
         displayName: body.displayName,
         canonicalDomain: body.canonicalDomain,
         ownedDomains: JSON.stringify(body.ownedDomains ?? []),
@@ -96,50 +132,18 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         locations: JSON.stringify(nextLocations),
         defaultLocation: nextDefaultLocation,
         configSource: body.configSource ?? 'api',
-        configRevision: existing.configRevision + 1,
+        configRevision: 1,
+        createdAt: now,
         updatedAt: now,
-      }).where(eq(projects.id, existing.id)).run()
+      }).run()
 
-      writeAuditLog(app.db, {
-        projectId: existing.id,
+      writeAuditLog(tx, {
+        projectId: id,
         actor: 'api',
-        action: 'project.updated',
+        action: 'project.created',
         entityType: 'project',
-        entityId: existing.id,
+        entityId: id,
       })
-
-      opts.onProjectUpserted?.(existing.id, name)
-
-      const updated = app.db.select().from(projects).where(eq(projects.id, existing.id)).get()!
-      return reply.status(200).send(formatProject(updated))
-    }
-
-    const id = crypto.randomUUID()
-    app.db.insert(projects).values({
-      id,
-      name,
-      displayName: body.displayName,
-      canonicalDomain: body.canonicalDomain,
-      ownedDomains: JSON.stringify(body.ownedDomains ?? []),
-      country: body.country,
-      language: body.language,
-      tags: JSON.stringify(body.tags ?? []),
-      labels: JSON.stringify(body.labels ?? {}),
-      providers: JSON.stringify(body.providers ?? []),
-      locations: JSON.stringify(nextLocations),
-      defaultLocation: nextDefaultLocation,
-      configSource: body.configSource ?? 'api',
-      configRevision: 1,
-      createdAt: now,
-      updatedAt: now,
-    }).run()
-
-    writeAuditLog(app.db, {
-      projectId: id,
-      actor: 'api',
-      action: 'project.created',
-      entityType: 'project',
-      entityId: id,
     })
 
     opts.onProjectUpserted?.(id, name)

@@ -2,7 +2,8 @@ import { eq, desc, and, or } from 'drizzle-orm'
 import { deliverWebhook, redactNotificationUrl, resolveWebhookTarget } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { notifications, runs, querySnapshots, keywords, projects, auditLog, parseJsonColumn } from '@ainyc/canonry-db'
-import type { NotificationEvent, WebhookPayload } from '@ainyc/canonry-contracts'
+import type { NotificationEvent, WebhookPayload, InsightWebhookPayload } from '@ainyc/canonry-contracts'
+import type { AnalysisResult } from '@ainyc/canonry-intelligence'
 import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
 
@@ -101,6 +102,60 @@ export class Notifier {
     }
   }
 
+  /** Dispatch insight webhooks for critical/high severity insights after a run. */
+  async dispatchInsightWebhooks(runId: string, projectId: string, result: AnalysisResult): Promise<void> {
+    type InsightEvent = 'insight.critical' | 'insight.high'
+    const insightEvents: InsightEvent[] = []
+    const criticalInsights = result.insights.filter(i => i.severity === 'critical')
+    const highInsights = result.insights.filter(i => i.severity === 'high')
+    if (criticalInsights.length > 0) insightEvents.push('insight.critical')
+    if (highInsights.length > 0) insightEvents.push('insight.high')
+    if (insightEvents.length === 0) return
+
+    const notifs = this.db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.projectId, projectId))
+      .all()
+      .filter(n => n.enabled === 1)
+
+    if (notifs.length === 0) return
+
+    const run = this.db.select().from(runs).where(eq(runs.id, runId)).get()
+    if (!run) return
+
+    const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
+    if (!project) return
+
+    for (const notif of notifs) {
+      const config = parseJsonColumn<{ url: string; events: string[] }>(notif.config, { url: '', events: [] })
+      if (!config.url) continue
+      const subscribedEvents = config.events as NotificationEvent[]
+      const matchingEvents = insightEvents.filter(e => (subscribedEvents as string[]).includes(e))
+      if (matchingEvents.length === 0) continue
+
+      for (const event of matchingEvents) {
+        const relevantInsights = event === 'insight.critical' ? criticalInsights : highInsights
+        const payload: InsightWebhookPayload = {
+          source: 'canonry',
+          event,
+          project: { name: project.name, canonicalDomain: project.canonicalDomain },
+          run: { id: run.id, status: run.status, finishedAt: run.finishedAt },
+          insights: relevantInsights.map(i => ({
+            id: i.id,
+            type: i.type,
+            severity: i.severity,
+            title: i.title,
+            keyword: i.keyword,
+            provider: i.provider,
+          })),
+          dashboardUrl: `${this.serverUrl}/projects/${project.name}`,
+        }
+        await this.sendWebhook(config.url, payload, notif.id, projectId, notif.webhookSecret ?? null)
+      }
+    }
+  }
+
   private computeTransitions(runId: string, projectId: string): Array<{
     keyword: string; from: string; to: string; provider: string
   }> {
@@ -174,7 +229,7 @@ export class Notifier {
     return transitions
   }
 
-  private async sendWebhook(url: string, payload: WebhookPayload, notificationId: string, projectId: string, webhookSecret: string | null): Promise<void> {
+  private async sendWebhook(url: string, payload: WebhookPayload | InsightWebhookPayload, notificationId: string, projectId: string, webhookSecret: string | null): Promise<void> {
     const targetLabel = redactNotificationUrl(url).urlDisplay
     const targetCheck = await resolveWebhookTarget(url)
     if (!targetCheck.ok) {
