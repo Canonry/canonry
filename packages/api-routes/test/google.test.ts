@@ -356,6 +356,80 @@ describe('googleRoutes: connect uses publicUrl', () => {
   })
 })
 
+describe('googleRoutes: connect does not double basePath in redirectUri', () => {
+  let app: ReturnType<typeof Fastify>
+  let tmpDir: string
+
+  beforeAll(async () => {
+    const tmpDirPath = fs.mkdtempSync(path.join(os.tmpdir(), 'google-routes-basepath-'))
+    const dbPath = path.join(tmpDirPath, 'test.db')
+    const db = createClient(dbPath)
+    migrate(db)
+
+    const now = new Date().toISOString()
+    db.insert(projects).values({
+      id: 'p1',
+      name: 'testproj',
+      displayName: 'Test Project',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+
+    const fastify = Fastify()
+    fastify.decorate('db', db)
+    fastify.register(googleRoutes, {
+      getGoogleAuthConfig: () => ({
+        clientId: 'test-client-id',
+        clientSecret: 'test-client-secret',
+      }),
+      googleConnectionStore: {
+        listConnections: () => [],
+        getConnection: () => undefined,
+        upsertConnection: (c) => c,
+        updateConnection: () => undefined,
+        deleteConnection: () => false,
+      },
+      googleStateSecret: 'test-secret-32-bytes-long-enough!',
+      publicUrl: 'https://example.com/canonry',
+      routePrefix: '/canonry/api/v1',
+    })
+
+    app = fastify
+    tmpDir = tmpDirPath
+    await app.ready()
+  })
+
+  afterAll(async () => {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('config publicUrl with basePath does not duplicate prefix', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects/testproj/google/connect',
+      payload: { type: 'gsc' },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { authUrl: string; redirectUri: string }
+    expect(body.redirectUri).toBe('https://example.com/canonry/api/v1/google/callback')
+  })
+
+  it('CLI publicUrl with basePath does not duplicate prefix', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects/testproj/google/connect',
+      payload: { type: 'gsc', publicUrl: 'https://override.example.com/canonry' },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { authUrl: string; redirectUri: string }
+    expect(body.redirectUri).toBe('https://override.example.com/canonry/api/v1/google/callback')
+  })
+})
+
 describe('googleRoutes: connect auto-detect uses per-project URI', () => {
   let app: ReturnType<typeof Fastify>
   let tmpDir: string

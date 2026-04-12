@@ -532,13 +532,13 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
 
       const unindexedUrls: string[] = []
       for (const [url, row] of latestByUrl) {
-        if (row.inIndex === 0) {
+        if (row.inIndex === 0 || row.inIndex === null) {
           unindexedUrls.push(url)
         }
       }
 
       if (unindexedUrls.length === 0) {
-        const err = validationError('No explicitly unindexed URLs found. Run "canonry bing inspect <project> <url>" first.')
+        const err = validationError('No unindexed or unknown URLs found. Run "canonry bing inspect <project> <url>" first.')
         return reply.status(err.statusCode).send(err.toJSON())
       }
 
