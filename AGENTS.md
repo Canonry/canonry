@@ -60,6 +60,8 @@ canonry agent start                              # start gateway as background p
 canonry agent stop                               # stop gateway
 canonry agent status                             # check gateway state
 canonry agent reset                              # stop + wipe workspace
+canonry agent attach <project>                   # attach agent webhook to project
+canonry agent detach <project>                   # detach agent webhook from project
 ```
 
 ## Agent Layer
@@ -82,6 +84,14 @@ Setup is idempotent — safe to re-run. For non-interactive use: `canonry agent 
 ### Runtime
 
 `canonry agent start` spawns `openclaw --profile aero gateway` as a detached process. The gateway process inherits LLM credentials from `~/.openclaw-aero/.env`. `canonry agent stop` sends SIGTERM with escalation to SIGKILL.
+
+### Webhook lifecycle
+
+`canonry agent attach <project>` registers an agent webhook notification for the named project (idempotent — checks for existing agent webhook before creating). `canonry agent detach <project>` removes it. When `config.agent.autoStart` is true, the server auto-attaches webhooks to newly created/applied projects via the `onProjectUpserted` callback.
+
+### Notification events
+
+The notification system supports these events: `citation.lost`, `citation.gained`, `run.completed`, `run.failed`, `insight.critical`, `insight.high`. The `insight.critical` and `insight.high` events fire when the intelligence engine generates critical- or high-severity insights after a run. These are dispatched by the `RunCoordinator` after `IntelligenceService.analyzeAndPersist()` completes.
 
 ### Key files
 

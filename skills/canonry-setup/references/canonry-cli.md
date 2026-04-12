@@ -139,7 +139,9 @@ canonry notify remove <project> <id>
 canonry notify test <project> <id>
 ```
 
-Available events: `citation.lost`, `citation.gained`, `run.completed`, `run.failed`
+Available events: `citation.lost`, `citation.gained`, `run.completed`, `run.failed`, `insight.critical`, `insight.high`
+
+`insight.critical` and `insight.high` fire when the intelligence engine generates critical- or high-severity insights after a sweep completes.
 
 ## Provider Settings & Quotas
 
@@ -326,6 +328,12 @@ canonry agent setup --gemini-key <key>           # monitoring provider keys (pas
 canonry agent setup --openai-key <key>
 canonry agent setup --claude-key <key>
 canonry agent setup --perplexity-key <key>
+
+# Webhook lifecycle
+canonry agent attach <project>                   # register agent webhook for project
+canonry agent attach <project> --format json     # JSON output
+canonry agent detach <project>                   # remove agent webhook from project
+canonry agent detach <project> --format json     # JSON output
 ```
 
 **Setup flow:** init canonry (if needed) → install OpenClaw (if needed) → configure profile → configure gateway → set agent LLM credentials → seed workspace with skills.
@@ -333,6 +341,8 @@ canonry agent setup --perplexity-key <key>
 **Agent LLM credentials** are stored in `~/.openclaw-aero/.env` (e.g. `ANTHROPIC_API_KEY=...`) and loaded into the gateway process at start time. The model is set via `openclaw models set`.
 
 **Re-running is safe:** setup is idempotent — it skips steps that are already configured.
+
+**Agent webhooks:** `canonry agent attach <project>` registers a webhook notification on the project so the agent receives events (`run.completed`, `insight.critical`, `insight.high`, `citation.gained`). Idempotent — skips if an agent webhook already exists. `canonry agent detach <project>` removes the agent webhook. When `autoStart` is enabled, the server auto-attaches webhooks to newly created or applied projects.
 
 ## Output Formats
 

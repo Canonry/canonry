@@ -10,7 +10,7 @@ const { version: PKG_VERSION } = _require('../package.json') as { version: strin
 import Fastify from 'fastify'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { apiRoutes } from '@ainyc/canonry-api-routes'
-import { apiKeys, auditLog, projects, parseJsonColumn, type DatabaseClient } from '@ainyc/canonry-db'
+import { apiKeys, auditLog, projects, notifications, parseJsonColumn, type DatabaseClient } from '@ainyc/canonry-db'
 import { geminiAdapter } from '@ainyc/canonry-provider-gemini'
 import { openaiAdapter } from '@ainyc/canonry-provider-openai'
 import { claudeAdapter } from '@ainyc/canonry-provider-claude'
@@ -50,6 +50,8 @@ import { Notifier } from './notifier.js'
 import { IntelligenceService } from './intelligence-service.js'
 import { RunCoordinator } from './run-coordinator.js'
 import { SnapshotService } from './snapshot-service.js'
+import { AgentManager } from './agent-manager.js'
+import { getAeroStateDir } from './agent-bootstrap.js'
 import { fetchSiteText } from './site-fetch.js'
 import { createLogger } from './logger.js'
 
@@ -340,6 +342,21 @@ export async function createServer(opts: {
   const runCoordinator = new RunCoordinator(notifier, intelligenceService)
   jobRunner.onRunCompleted = (runId, projectId) => runCoordinator.onRunCompleted(runId, projectId)
   const snapshotService = new SnapshotService(registry)
+
+  // Agent lifecycle (optional — only when agent config exists)
+  let agentManager: AgentManager | undefined
+  if (opts.config.agent) {
+    const stateDir = getAeroStateDir(opts.config.agent.profile ?? 'aero')
+    agentManager = new AgentManager(opts.config.agent, stateDir)
+    if (opts.config.agent.autoStart) {
+      try {
+        await agentManager.start()
+        app.log.info({ pid: agentManager.status().pid }, 'Agent gateway started')
+      } catch (err) {
+        app.log.error({ err }, 'Failed to auto-start agent gateway')
+      }
+    }
+  }
 
   const scheduler = new Scheduler(opts.db, {
     onRunCreated: (runId, projectId, providers, location) => {
@@ -911,6 +928,34 @@ export async function createServer(opts: {
     onProjectDeleted: (projectId: string) => {
       scheduler.remove(projectId)
     },
+    onProjectUpserted: agentManager ? (_projectId: string, projectName: string) => {
+      const gatewayPort = opts.config.agent?.gatewayPort ?? 3579
+      const agentUrl = `http://localhost:${gatewayPort}/hooks/canonry`
+      // Auto-attach agent webhook — check via direct DB access to avoid circular HTTP calls
+      const notifs = opts.db.select().from(notifications).where(eq(notifications.projectId, _projectId)).all()
+      const hasAgent = notifs.some(n => {
+        const cfg = parseJsonColumn<{ url: string }>(n.config, { url: '' })
+        return cfg.url === agentUrl
+      })
+      if (!hasAgent) {
+        const id = crypto.randomUUID()
+        const now = new Date().toISOString()
+        opts.db.insert(notifications).values({
+          id,
+          projectId: _projectId,
+          channel: 'webhook',
+          config: JSON.stringify({
+            url: agentUrl,
+            events: ['run.completed', 'insight.critical', 'insight.high', 'citation.gained'],
+          }),
+          enabled: 1,
+          webhookSecret: crypto.randomUUID(),
+          createdAt: now,
+          updatedAt: now,
+        }).run()
+        app.log.info({ projectName }, 'Auto-attached agent webhook')
+      }
+    } : undefined,
     getTelemetryStatus: () => {
       const enabled = isTelemetryEnabled()
       return {
@@ -1099,6 +1144,13 @@ export async function createServer(opts: {
   // Graceful shutdown
   app.addHook('onClose', async () => {
     scheduler.stop()
+    if (agentManager) {
+      try {
+        await agentManager.stop()
+      } catch (err) {
+        app.log.error({ err }, 'Failed to stop agent gateway')
+      }
+    }
   })
 
   return app

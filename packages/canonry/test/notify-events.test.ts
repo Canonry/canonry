@@ -1,7 +1,7 @@
 import { it, expect } from 'vitest'
 import { listEvents } from '../src/commands/notify.js'
 
-it('listEvents prints all 4 notification event types', () => {
+it('listEvents prints all 6 notification event types', () => {
   const logs: string[] = []
   const origLog = console.log
   console.log = (...args: unknown[]) => logs.push(args.join(' '))
@@ -16,6 +16,8 @@ it('listEvents prints all 4 notification event types', () => {
   expect(output.includes('citation.gained')).toBeTruthy()
   expect(output.includes('run.completed')).toBeTruthy()
   expect(output.includes('run.failed')).toBeTruthy()
+  expect(output.includes('insight.critical')).toBeTruthy()
+  expect(output.includes('insight.high')).toBeTruthy()
 })
 
 it('listEvents outputs valid JSON with --format json', () => {
@@ -30,6 +32,6 @@ it('listEvents outputs valid JSON with --format json', () => {
 
   const parsed = JSON.parse(logs.join('\n'))
   expect(Array.isArray(parsed)).toBeTruthy()
-  expect(parsed.length).toBe(4)
+  expect(parsed.length).toBe(6)
   expect(parsed.every((e: { event: string; description: string }) => e.event && e.description)).toBeTruthy()
 })

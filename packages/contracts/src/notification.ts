@@ -5,6 +5,8 @@ export const notificationEventSchema = z.enum([
   'citation.gained',
   'run.completed',
   'run.failed',
+  'insight.critical',
+  'insight.high',
 ])
 export type NotificationEvent = z.infer<typeof notificationEventSchema>
 
@@ -23,6 +25,22 @@ export const notificationDtoSchema = z.object({
 })
 
 export type NotificationDto = z.infer<typeof notificationDtoSchema>
+
+export interface InsightWebhookPayload {
+  source: 'canonry'
+  event: 'insight.critical' | 'insight.high'
+  project: { name: string; canonicalDomain: string }
+  run: { id: string; status: string; finishedAt: string | null }
+  insights: Array<{
+    id: string
+    type: string
+    severity: string
+    title: string
+    keyword: string
+    provider: string
+  }>
+  dashboardUrl: string
+}
 
 export interface WebhookPayload {
   source: 'canonry'

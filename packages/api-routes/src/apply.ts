@@ -9,6 +9,7 @@ import { resolveWebhookTarget } from './webhooks.js'
 
 export interface ApplyRoutesOptions {
   onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string) => void
+  onProjectUpserted?: (projectId: string, projectName: string) => void
   onGoogleConnectionPropertyUpdated?: (domain: string, connectionType: 'gsc' | 'ga4', propertyId: string) => void
   /** Valid provider names from registered adapters — used to reject unknown providers */
   validProviderNames?: string[]
@@ -251,6 +252,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     if (scheduleAction) {
       opts?.onScheduleUpdated?.(scheduleAction, projectId!)
     }
+    opts?.onProjectUpserted?.(projectId!, config.metadata.name)
     if ('google' in rawSpec && config.spec.google?.gsc?.propertyUrl) {
       opts?.onGoogleConnectionPropertyUpdated?.(config.spec.canonicalDomain, 'gsc', config.spec.google.gsc.propertyUrl)
     }

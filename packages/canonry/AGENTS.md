@@ -92,6 +92,10 @@ Providers are registered at server startup in `server.ts`. Each provider adapter
 
 At runtime, `AgentManager.start()` spawns `openclaw --profile aero gateway` as a detached process, injecting `.env` values into the process environment.
 
+### Agent webhook lifecycle
+
+`canonry agent attach <project>` registers an agent webhook notification for the named project (subscribes to `run.completed`, `insight.critical`, `insight.high`, `citation.gained`). Idempotent — checks for an existing agent webhook before creating. `canonry agent detach <project>` removes the agent webhook. When `config.agent.autoStart` is true, the server auto-attaches webhooks to newly created/applied projects via the `onProjectUpserted` callback.
+
 ## See Also
 
 - `packages/api-routes/` — the route handlers this server mounts

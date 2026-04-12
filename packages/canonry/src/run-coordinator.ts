@@ -1,5 +1,6 @@
 import type { Notifier } from './notifier.js'
 import type { IntelligenceService } from './intelligence-service.js'
+import type { AnalysisResult } from '@ainyc/canonry-intelligence'
 import { createLogger } from './logger.js'
 
 const log = createLogger('RunCoordinator')
@@ -12,13 +13,26 @@ export class RunCoordinator {
   constructor(
     private notifier: Notifier,
     private intelligenceService: IntelligenceService,
+    private onInsightsGenerated?: (runId: string, projectId: string, result: AnalysisResult) => Promise<void>,
   ) {}
 
   async onRunCompleted(runId: string, projectId: string): Promise<void> {
     // 1. Intelligence — always runs, catches its own errors.
     //    Runs first so insights are persisted before webhooks fire.
     try {
-      await this.intelligenceService.analyzeAndPersist(runId, projectId)
+      const result = this.intelligenceService.analyzeAndPersist(runId, projectId)
+      if (result && this.onInsightsGenerated) {
+        const hasHighSeverity = result.insights.some(
+          i => i.severity === 'critical' || i.severity === 'high'
+        )
+        if (hasHighSeverity) {
+          try {
+            await this.onInsightsGenerated(runId, projectId, result)
+          } catch (err) {
+            log.error('insight-webhook.failed', { runId, error: err instanceof Error ? err.message : String(err) })
+          }
+        }
+      }
     } catch (err) {
       log.error('intelligence.failed', { runId, error: err instanceof Error ? err.message : String(err) })
     }

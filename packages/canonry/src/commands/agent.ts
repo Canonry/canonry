@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { AgentManager } from '../agent-manager.js'
+import { createApiClient } from '../client.js'
 import { loadConfig, saveConfigPatch, configExists } from '../config.js'
 import type { AgentConfigEntry } from '../config.js'
 import {
@@ -198,6 +199,63 @@ export async function agentSetup(opts?: AgentSetupOptions): Promise<void> {
     console.log(`Gateway port: ${gatewayPort}`)
     console.log(`State dir: ${stateDir}`)
     console.log('Agent setup complete.')
+  }
+}
+
+export async function agentAttach(opts: { project: string; format?: string }): Promise<void> {
+  const config = loadConfig()
+  const gatewayPort = config.agent?.gatewayPort ?? 3579
+  const agentUrl = `http://localhost:${gatewayPort}/hooks/canonry`
+  const client = createApiClient()
+
+  // Check if agent webhook already exists
+  const existing = await client.listNotifications(opts.project)
+  const hasAgent = existing.some(n => n.url === agentUrl)
+  if (hasAgent) {
+    if (opts.format === 'json') {
+      console.log(JSON.stringify({ status: 'already-attached', project: opts.project }))
+    } else {
+      console.log(`Agent webhook already attached to "${opts.project}"`)
+    }
+    return
+  }
+
+  const result = await client.createNotification(opts.project, {
+    channel: 'webhook',
+    url: agentUrl,
+    events: ['run.completed', 'insight.critical', 'insight.high', 'citation.gained'],
+  })
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify({ status: 'attached', project: opts.project, notificationId: result.id }))
+  } else {
+    console.log(`Agent webhook attached to "${opts.project}"`)
+  }
+}
+
+export async function agentDetach(opts: { project: string; format?: string }): Promise<void> {
+  const config = loadConfig()
+  const gatewayPort = config.agent?.gatewayPort ?? 3579
+  const agentUrl = `http://localhost:${gatewayPort}/hooks/canonry`
+  const client = createApiClient()
+
+  const existing = await client.listNotifications(opts.project)
+  const agentNotif = existing.find(n => n.url === agentUrl)
+  if (!agentNotif) {
+    if (opts.format === 'json') {
+      console.log(JSON.stringify({ status: 'not-attached', project: opts.project }))
+    } else {
+      console.log(`No agent webhook found on "${opts.project}"`)
+    }
+    return
+  }
+
+  await client.deleteNotification(opts.project, agentNotif.id)
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify({ status: 'detached', project: opts.project }))
+  } else {
+    console.log(`Agent webhook detached from "${opts.project}"`)
   }
 }
 

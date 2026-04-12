@@ -66,6 +66,8 @@ export interface ApiRoutesOptions {
   onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string) => void
   /** Callback when a project is deleted */
   onProjectDeleted?: (projectId: string) => void
+  /** Callback when a project is created or updated */
+  onProjectUpserted?: (projectId: string, projectName: string) => void
   /** Callback to generate a one-shot AI perception snapshot */
   onSnapshotRequested?: SnapshotRoutesOptions['onSnapshotRequested']
   /** Callback to generate keyword suggestions using an LLM provider */
@@ -158,6 +160,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(openApiRoutes, { ...opts.openApiInfo, routePrefix: opts.routePrefix })
     await api.register(projectRoutes, {
       onProjectDeleted: opts.onProjectDeleted,
+      onProjectUpserted: opts.onProjectUpserted,
       validProviderNames: opts.providerAdapters?.map(a => a.name),
     } satisfies ProjectRoutesOptions)
     await api.register(keywordRoutes, {
@@ -171,6 +174,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     } satisfies RunRoutesOptions)
     await api.register(applyRoutes, {
       onScheduleUpdated: opts.onScheduleUpdated,
+      onProjectUpserted: opts.onProjectUpserted,
       validProviderNames: opts.providerAdapters?.map(a => a.name),
       onGoogleConnectionPropertyUpdated: (domain, connectionType, propertyId) => {
         opts.googleConnectionStore?.updateConnection(domain, connectionType, {

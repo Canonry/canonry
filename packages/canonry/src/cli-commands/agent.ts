@@ -1,4 +1,4 @@
-import { agentStatus, agentStart, agentStop, agentReset, agentSetup } from '../commands/agent.js'
+import { agentStatus, agentStart, agentStop, agentReset, agentSetup, agentAttach, agentDetach } from '../commands/agent.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getString, stringOption } from '../cli-command-helpers.js'
 
@@ -33,6 +33,34 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     options: {},
     run: async (input) => {
       await agentReset({ format: input.format })
+    },
+  },
+  {
+    path: ['agent', 'attach'],
+    usage: 'canonry agent attach <project> [--format json]',
+    options: {},
+    run: async (input) => {
+      const project = input.positionals[0]
+      if (!project) {
+        console.error('Usage: canonry agent attach <project>')
+        process.exitCode = 1
+        return
+      }
+      await agentAttach({ project, format: input.format })
+    },
+  },
+  {
+    path: ['agent', 'detach'],
+    usage: 'canonry agent detach <project> [--format json]',
+    options: {},
+    run: async (input) => {
+      const project = input.positionals[0]
+      if (!project) {
+        console.error('Usage: canonry agent detach <project>')
+        process.exitCode = 1
+        return
+      }
+      await agentDetach({ project, format: input.format })
     },
   },
   {

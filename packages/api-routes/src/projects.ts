@@ -14,6 +14,7 @@ import { resolveProject, writeAuditLog } from './helpers.js'
 
 export interface ProjectRoutesOptions {
   onProjectDeleted?: (projectId: string) => void
+  onProjectUpserted?: (projectId: string, projectName: string) => void
   /** Valid provider names from registered adapters — used to reject unknown providers */
   validProviderNames?: string[]
 }
@@ -107,6 +108,8 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         entityId: existing.id,
       })
 
+      opts.onProjectUpserted?.(existing.id, name)
+
       const updated = app.db.select().from(projects).where(eq(projects.id, existing.id)).get()!
       return reply.status(200).send(formatProject(updated))
     }
@@ -138,6 +141,8 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       entityType: 'project',
       entityId: id,
     })
+
+    opts.onProjectUpserted?.(id, name)
 
     const created = app.db.select().from(projects).where(eq(projects.id, id)).get()!
     return reply.status(201).send(formatProject(created))

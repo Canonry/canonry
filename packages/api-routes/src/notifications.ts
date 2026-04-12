@@ -8,7 +8,7 @@ import { resolveProject, writeAuditLog } from './helpers.js'
 import { redactNotificationUrl } from './notification-redaction.js'
 import { deliverWebhook, resolveWebhookTarget } from './webhooks.js'
 
-const VALID_EVENTS: NotificationEvent[] = ['citation.lost', 'citation.gained', 'run.completed', 'run.failed']
+const VALID_EVENTS: NotificationEvent[] = ['citation.lost', 'citation.gained', 'run.completed', 'run.failed', 'insight.critical', 'insight.high']
 
 export async function notificationRoutes(app: FastifyInstance) {
   // GET /notifications/events — list valid notification event types

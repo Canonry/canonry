@@ -141,11 +141,10 @@ describe('RunCoordinator', () => {
       }),
     }
     const service = new IntelligenceService(db)
-    vi.spyOn(service, 'analyzeAndPersist').mockImplementation(async () => {
-      // Simulate async delay — without `await` in coordinator, notifier
-      // would fire before this resolves
-      await new Promise(resolve => setTimeout(resolve, 50))
+    vi.spyOn(service, 'analyzeAndPersist').mockImplementation(() => {
+      // analyzeAndPersist is synchronous — mark completion before returning
       intelligenceFinished = true
+      return null
     })
 
     const coordinator = new RunCoordinator(notifier as Notifier, service)

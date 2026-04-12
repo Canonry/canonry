@@ -87,6 +87,8 @@ const EVENT_DESCRIPTIONS: Record<string, string> = {
   'citation.gained': 'A keyword gained citation status',
   'run.completed': 'A visibility run completed successfully',
   'run.failed': 'A visibility run failed',
+  'insight.critical': 'A critical-severity insight was generated',
+  'insight.high': 'A high-severity insight was generated',
 }
 
 export function listEvents(format?: string): void {
