@@ -110,24 +110,39 @@ export class AgentManager {
       },
     })
 
-    // Capture spawn errors before unref — a missing binary or permission
-    // error fires 'error' synchronously or on next tick.
-    const spawnError = await new Promise<Error | null>((resolve) => {
-      child.on('error', (err) => resolve(err))
-      // Give the event loop one turn to deliver a synchronous spawn error,
-      // then wait a short window for early crashes (binary not found, etc.).
-      setTimeout(() => resolve(null), 200)
+    // Capture spawn errors and early exits before writing process.json.
+    // Listen for both 'error' (spawn failure) and 'exit' (immediate crash).
+    const startupResult = await new Promise<{ error?: Error; exitCode?: number | null }>((resolve) => {
+      let settled = false
+      const settle = (r: { error?: Error; exitCode?: number | null }) => {
+        if (settled) return
+        settled = true
+        resolve(r)
+      }
+      child.on('error', (err) => settle({ error: err }))
+      child.on('exit', (code) => settle({ exitCode: code }))
+      // Allow a brief window for the process to crash on startup
+      setTimeout(() => settle({}), 500)
     })
 
     child.unref()
     fs.closeSync(logFd)
 
-    if (spawnError) {
-      throw new Error(`Failed to start OpenClaw gateway: ${spawnError.message}`)
+    if (startupResult.error) {
+      throw new Error(`Failed to start OpenClaw gateway: ${startupResult.error.message}`)
+    }
+
+    if (startupResult.exitCode != null) {
+      throw new Error(`OpenClaw gateway exited immediately (code ${startupResult.exitCode}). Check ${path.join(this.stateDir, 'gateway.log')} for details.`)
     }
 
     if (child.pid == null) {
       throw new Error('Failed to start OpenClaw gateway: no PID returned by spawn')
+    }
+
+    // Verify the process is still alive before persisting state
+    if (!isProcessAlive(child.pid)) {
+      throw new Error(`OpenClaw gateway exited immediately after spawn. Check ${path.join(this.stateDir, 'gateway.log')} for details.`)
     }
 
     const processInfo: ProcessInfo = {
@@ -173,21 +188,21 @@ export class AgentManager {
 
   /**
    * Verify that the PID actually belongs to an openclaw process by checking
-   * the command line. Returns true if verification is unavailable (e.g. on
-   * platforms where /proc is missing) to avoid false negatives.
+   * the full command line. Requires "openclaw" in the args to avoid matching
+   * unrelated Node processes after PID reuse.
    */
   private verifyProcessIdentity(pid: number): boolean {
     try {
       if (process.platform === 'darwin') {
-        const out = execFileSync('ps', ['-p', String(pid), '-o', 'comm='], {
+        const out = execFileSync('ps', ['-p', String(pid), '-o', 'args='], {
           encoding: 'utf-8',
           timeout: 2000,
         }).trim()
-        return out.includes('openclaw') || out.includes('node')
+        return out.includes('openclaw')
       }
       if (process.platform === 'linux') {
         const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf-8')
-        return cmdline.includes('openclaw') || cmdline.includes('node')
+        return cmdline.includes('openclaw')
       }
       // On unsupported platforms, trust the PID (no false negatives)
       return true

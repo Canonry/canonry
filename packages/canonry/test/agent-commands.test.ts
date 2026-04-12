@@ -4,7 +4,25 @@ import path from 'node:path'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { parse } from 'yaml'
 import type { AgentConfigEntry } from '../src/config.js'
-import { agentStatus, agentSetup } from '../src/commands/agent.js'
+
+// Mock execFileSync for PID identity verification in AgentManager
+vi.mock('node:child_process', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('node:child_process')>()
+  return {
+    ...orig,
+    execFileSync: vi.fn((...args: unknown[]) => {
+      const cmd = args[0] as string
+      const cmdArgs = args[1] as string[] | undefined
+      // Intercept ps calls for identity check, return openclaw match
+      if (cmd === 'ps' && cmdArgs && cmdArgs.includes('args=')) {
+        return 'node /usr/local/bin/openclaw gateway\n'
+      }
+      return orig.execFileSync(...(args as Parameters<typeof orig.execFileSync>))
+    }),
+  }
+})
+
+const { agentStatus, agentSetup } = await import('../src/commands/agent.js')
 
 let tmpDir: string
 const origEnv: Record<string, string | undefined> = {}

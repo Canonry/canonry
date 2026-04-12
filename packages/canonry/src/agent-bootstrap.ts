@@ -118,11 +118,11 @@ export interface InstallResult {
  * Install OpenClaw globally via npm and return the detection result.
  * Resets the detection cache before re-probing.
  */
-export async function installOpenClaw(): Promise<InstallResult> {
+export async function installOpenClaw(opts?: { silent?: boolean }): Promise<InstallResult> {
   try {
     execSync('npm install -g openclaw', {
       timeout: 120_000,
-      stdio: 'inherit',
+      stdio: opts?.silent ? 'pipe' : 'inherit',
     })
   } catch (err) {
     return {

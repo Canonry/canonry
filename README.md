@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@ainyc/canonry)](https://www.npmjs.com/package/@ainyc/canonry) [![License: FSL-1.1-ALv2](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue.svg)](https://fsl.software/) [![Node.js >= 20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
 
-Canonry is an agent-first AEO platform powered by [OpenClaw](https://openclaw.ai). It tracks how ChatGPT, Gemini, Claude, and Perplexity cite your site, detects regressions, diagnoses causes, coordinates fixes, and reports results. The agent operates autonomously while the CLI, API, and web dashboard give humans full visibility and control.
+Canonry is an agent-first AEO platform powered by [OpenClaw](https://openclaw.ai). It tracks how ChatGPT, Gemini, Claude, and Perplexity cite your site, detects regressions, diagnoses causes, coordinates fixes, and reports results.
 
 AEO (Answer Engine Optimization) is about making sure your content shows up accurately in AI-generated answers. As search shifts from links to synthesized responses, you need something that can monitor, analyze, and act across these engines continuously.
 
@@ -49,7 +49,7 @@ The Canonry agent ("Aero") is an [OpenClaw](https://openclaw.ai)-powered operato
 - **Operates** across your content, schema markup, indexing submissions, and `llms.txt` to coordinate fixes and generate action-oriented reports
 - **Remembers** client context across sessions: canonical domains, historical patterns, known issues
 
-Every action the agent takes goes through the same CLI and API that humans use. No special SDK, no hidden state.
+Every action the agent takes goes through the same CLI and API available to everyone. No special SDK, no hidden state.
 
 ## Features
 

@@ -107,11 +107,13 @@ export interface AgentSetupOptions extends Omit<InitOptions, 'force' | 'format'>
 }
 
 export async function agentSetup(opts?: AgentSetupOptions): Promise<void> {
+  const isJson = opts?.format === 'json'
+
   // 1. Initialize canonry if not already configured
+  // When --format json, suppress init's own output so we emit one JSON object
   let agentLLM: { provider: string; key?: string; model?: string } | undefined
   if (!configExists()) {
-    agentLLM = await initCommand({
-      format: opts?.format as InitOptions['format'],
+    const initOpts = {
       geminiKey: opts?.geminiKey,
       openaiKey: opts?.openaiKey,
       claudeKey: opts?.claudeKey,
@@ -124,7 +126,12 @@ export async function agentSetup(opts?: AgentSetupOptions): Promise<void> {
       agentProvider: opts?.agentProvider,
       agentKey: opts?.agentKey,
       agentModel: opts?.agentModel,
-    }) ?? undefined
+    }
+    if (isJson) {
+      agentLLM = await suppressStdout(() => initCommand(initOpts)) ?? undefined
+    } else {
+      agentLLM = await initCommand(initOpts) ?? undefined
+    }
   }
 
   // 2. Detect or install OpenClaw
@@ -196,10 +203,11 @@ export async function agentSetup(opts?: AgentSetupOptions): Promise<void> {
 
 async function autoInstallOrFail(format?: string) {
   if (format !== 'json') {
-    console.log('OpenClaw not found — installing via npm…')
+    console.log('OpenClaw not found, installing via npm...')
   }
 
-  const install = await installOpenClaw()
+  const install = await installOpenClaw({ silent: format === 'json' })
+
   if (!install.success) {
     const msg = `Failed to install OpenClaw: ${install.error}`
     if (format === 'json') {
@@ -216,4 +224,15 @@ async function autoInstallOrFail(format?: string) {
   }
 
   return install.detection!
+}
+
+/** Suppress console.log during an async operation. Returns the operation's result. */
+async function suppressStdout<T>(fn: () => T | Promise<T>): Promise<T> {
+  const original = console.log
+  console.log = () => {}
+  try {
+    return await fn()
+  } finally {
+    console.log = original
+  }
 }

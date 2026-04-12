@@ -7,6 +7,13 @@ import type { AgentConfigEntry } from '../src/config.js'
 // Mock child_process
 vi.mock('node:child_process', () => ({
   spawn: vi.fn(),
+  execFileSync: vi.fn((_cmd: string, args?: string[]) => {
+    // Default: simulate ps returning an openclaw process for identity checks
+    if (args && args.includes('-o') && args.includes('args=')) {
+      return 'node /usr/local/bin/openclaw gateway\n'
+    }
+    return ''
+  }),
 }))
 
 const { AgentManager } = await import('../src/agent-manager.js')
@@ -92,6 +99,12 @@ describe('AgentManager.start', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     vi.mocked(spawn).mockReturnValueOnce(mockChild as any)
 
+    // Mock process.kill(pid, 0) to report the process as alive
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+      if (signal === 0 && pid === 12345) return true
+      throw new Error('no such process')
+    })
+
     const mgr = new AgentManager(defaultConfig({ binary: '/usr/bin/openclaw' }), tmpDir)
     await mgr.start()
 
@@ -114,6 +127,8 @@ describe('AgentManager.start', () => {
     expect(pj!.gatewayPort).toBe(3579)
     expect(pj!.startedAt).toBeDefined()
     expect(pj!.marker).toBe(PROCESS_MARKER)
+
+    killSpy.mockRestore()
   })
 
   it('throws when spawn emits an error (binary not found)', async () => {
