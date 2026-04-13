@@ -5,6 +5,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { parse } from 'yaml'
 import type { AgentConfigEntry } from '../src/config.js'
 
+// Mock the API client — agentSetup calls attachAgentWebhookToAllProjects which
+// uses createApiClient().listProjects(). In tests no server is running, so the
+// mock throws ECONNREFUSED to trigger the DB fallback path.
+vi.mock('../src/client.js', () => ({
+  createApiClient: () => ({
+    listProjects: () => { const err = new Error('fetch failed'); (err as NodeJS.ErrnoException).code = 'ECONNREFUSED'; throw err },
+    listNotifications: () => Promise.resolve([]),
+    createNotification: () => Promise.resolve({ id: 'mock-notif' }),
+    deleteNotification: () => Promise.resolve(),
+  }),
+}))
+
 // Mock execFileSync for PID identity verification in AgentManager
 vi.mock('node:child_process', async (importOriginal) => {
   const orig = await importOriginal<typeof import('node:child_process')>()
@@ -196,6 +208,68 @@ describe('agent setup', () => {
 
     for (const spy of Object.values(spies)) spy.mockRestore()
     installSpy.mockRestore()
+  })
+
+  it('bulk-attaches agent webhook to all existing projects via DB when server is offline', async () => {
+    const { stringify } = await import('yaml')
+    const { getConfigPath } = await import('../src/config.js')
+    const dbPath = path.join(tmpDir, 'canonry.db')
+    const baseConfig = { apiUrl: 'http://localhost:4100', database: dbPath, apiKey: 'cnry_test' }
+    fs.writeFileSync(getConfigPath(), stringify(baseConfig), 'utf-8')
+
+    // Seed the DB with two projects before running setup
+    const { createClient, migrate, projects: projectsTable, notifications, parseJsonColumn } = await import('@ainyc/canonry-db')
+    const seedDb = createClient(dbPath)
+    migrate(seedDb)
+    const now = new Date().toISOString()
+    for (const name of ['alpha', 'beta']) {
+      seedDb.insert(projectsTable).values({
+        id: `proj_${name}`,
+        name,
+        displayName: name,
+        canonicalDomain: `${name}.example.com`,
+        country: 'US',
+        language: 'en',
+        createdAt: now,
+        updatedAt: now,
+      }).run()
+    }
+
+    const bootstrap = await import('../src/agent-bootstrap.js')
+    const spies = mockBootstrapHelpers(bootstrap)
+
+    const stateDir = path.join(tmpDir, '.openclaw-aero')
+    const output = await captureStdout(() =>
+      agentSetup({ gatewayPort: 3579, format: 'json', stateDir }),
+    )
+
+    const parsed = JSON.parse(output)
+    expect(parsed.state).toBe('configured')
+    // Server isn't running → must fall back to DB path
+    expect(parsed.attached.path).toBe('db')
+    expect(parsed.attached.attached).toBe(2)
+    expect(parsed.attached.alreadyAttached).toBe(0)
+
+    // Verify notifications actually landed in the DB
+    const rows = seedDb.select().from(notifications).all()
+    expect(rows).toHaveLength(2)
+    for (const row of rows) {
+      const cfg = parseJsonColumn<{ url: string; events: string[] }>(row.config, { url: '', events: [] })
+      expect(cfg.url).toBe('http://localhost:3579/hooks/canonry')
+      expect(cfg.events).toContain('insight.critical')
+      expect(cfg.events).toContain('insight.high')
+    }
+
+    // Running setup a second time must be idempotent
+    const output2 = await captureStdout(() =>
+      agentSetup({ gatewayPort: 3579, format: 'json', stateDir }),
+    )
+    const parsed2 = JSON.parse(output2)
+    expect(parsed2.attached.attached).toBe(0)
+    expect(parsed2.attached.alreadyAttached).toBe(2)
+    expect(seedDb.select().from(notifications).all()).toHaveLength(2)
+
+    for (const spy of Object.values(spies)) spy.mockRestore()
   })
 
   it('reports error when auto-install fails', async () => {

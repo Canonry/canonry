@@ -70,7 +70,7 @@ describe('agentAttach', () => {
 
   it('is idempotent when webhook already exists', async () => {
     mockListNotifications.mockResolvedValue([
-      { id: 'existing-1', url: 'http://localhost:3579/hooks/canonry' },
+      { id: 'existing-1', url: 'http://localhost:3579/redacted', urlHost: 'localhost:3579' },
     ])
 
     const output = await captureStdout(() =>
@@ -98,7 +98,7 @@ describe('agentAttach', () => {
 describe('agentDetach', () => {
   it('removes the agent webhook', async () => {
     mockListNotifications.mockResolvedValue([
-      { id: 'notif-1', url: 'http://localhost:3579/hooks/canonry' },
+      { id: 'notif-1', url: 'http://localhost:3579/redacted', urlHost: 'localhost:3579' },
     ])
     mockDeleteNotification.mockResolvedValue(undefined)
 

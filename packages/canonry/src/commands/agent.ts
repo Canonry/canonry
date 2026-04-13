@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { createClient, migrate, projects as projectsTable } from '@ainyc/canonry-db'
 import { AgentManager } from '../agent-manager.js'
 import { createApiClient } from '../client.js'
 import { loadConfig, saveConfigPatch, configExists } from '../config.js'
@@ -15,6 +16,7 @@ import {
   writeAgentEnv,
   resolveAgentCredentials,
 } from '../agent-bootstrap.js'
+import { attachAgentWebhookDirect, buildAgentWebhookUrl, AGENT_WEBHOOK_EVENTS } from '../agent-webhook.js'
 import { initCommand } from './init.js'
 import type { InitOptions } from './init.js'
 
@@ -183,7 +185,10 @@ export async function agentSetup(opts?: AgentSetupOptions): Promise<void> {
   // 6. Seed workspace with canonry skills
   seedWorkspace(stateDir)
 
-  // 7. Output result
+  // 7. Attach agent webhook to all existing projects (idempotent)
+  const attachSummary = await attachAgentWebhookToAllProjects(gatewayPort)
+
+  // 8. Output result
   if (opts?.format === 'json') {
     console.log(JSON.stringify({
       state: 'configured',
@@ -192,25 +197,114 @@ export async function agentSetup(opts?: AgentSetupOptions): Promise<void> {
       profile,
       gatewayPort,
       stateDir,
+      attached: attachSummary,
     }, null, 2))
   } else {
     console.log(`OpenClaw: ${detection.path} (${detection.version})`)
     console.log(`Profile: ${profile}`)
     console.log(`Gateway port: ${gatewayPort}`)
     console.log(`State dir: ${stateDir}`)
+    if (attachSummary.attached > 0 || attachSummary.alreadyAttached > 0) {
+      console.log(
+        `Agent webhook: ${attachSummary.attached} attached, ${attachSummary.alreadyAttached} already present (via ${attachSummary.path})`,
+      )
+    }
     console.log('Agent setup complete.')
   }
+}
+
+interface BulkAttachSummary {
+  path: 'api' | 'db' | 'skipped'
+  attached: number
+  alreadyAttached: number
+}
+
+/**
+ * Attach the agent webhook to every existing project.
+ *
+ * Tries the API path first (assumes `canonry serve` is running). If that
+ * fails with a connection error, falls back to opening the SQLite DB directly
+ * — same pattern as `canonry export`, which also works offline. This keeps
+ * `canonry agent setup` usable before the server has ever been started.
+ */
+async function attachAgentWebhookToAllProjects(gatewayPort: number): Promise<BulkAttachSummary> {
+  let config: ReturnType<typeof loadConfig>
+  try {
+    config = loadConfig()
+  } catch {
+    return { path: 'skipped', attached: 0, alreadyAttached: 0 }
+  }
+
+  // Try API path first
+  try {
+    const client = createApiClient()
+    const projectList = await client.listProjects()
+    const agentHost = `localhost:${gatewayPort}`
+    const agentUrl = buildAgentWebhookUrl(gatewayPort)
+    let attached = 0
+    let alreadyAttached = 0
+    for (const project of projectList) {
+      const existing = await client.listNotifications(project.name)
+      if (existing.some(n => n.urlHost === agentHost)) {
+        alreadyAttached++
+        continue
+      }
+      await client.createNotification(project.name, {
+        channel: 'webhook',
+        url: agentUrl,
+        events: [...AGENT_WEBHOOK_EVENTS],
+      })
+      attached++
+    }
+    return { path: 'api', attached, alreadyAttached }
+  } catch (err) {
+    if (!isConnectionError(err)) throw err
+    // Server not running — fall through to direct DB path
+  }
+
+  // DB path — same pattern as `canonry export`
+  const db = createClient(config.database)
+  migrate(db)
+  const rows = db.select({ id: projectsTable.id }).from(projectsTable).all()
+  let attached = 0
+  let alreadyAttached = 0
+  for (const row of rows) {
+    const result = attachAgentWebhookDirect(db, row.id, gatewayPort)
+    if (result === 'attached') attached++
+    else alreadyAttached++
+  }
+  return { path: 'db', attached, alreadyAttached }
+}
+
+function isConnectionError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  const msg = err.message.toLowerCase()
+  const code = (err as { code?: string }).code ?? ''
+  // ApiClient wraps network failures as CliError with code 'CONNECTION_ERROR'.
+  // Raw errors from node:fetch surface as ECONNREFUSED / ENOTFOUND / "fetch failed".
+  return (
+    code === 'CONNECTION_ERROR' ||
+    code === 'ECONNREFUSED' ||
+    code === 'ENOTFOUND' ||
+    msg.includes('could not connect') ||
+    msg.includes('econnrefused') ||
+    msg.includes('fetch failed') ||
+    msg.includes('connection refused')
+  )
 }
 
 export async function agentAttach(opts: { project: string; format?: string }): Promise<void> {
   const config = loadConfig()
   const gatewayPort = config.agent?.gatewayPort ?? 3579
-  const agentUrl = `http://localhost:${gatewayPort}/hooks/canonry`
+  const agentUrl = buildAgentWebhookUrl(gatewayPort)
+  // The API redacts notification URLs to scheme://host/redacted, so match on
+  // urlHost (which is preserved) rather than the full url.
+  const agentHost = `localhost:${gatewayPort}`
   const client = createApiClient()
 
   // Check if agent webhook already exists
   const existing = await client.listNotifications(opts.project)
-  const hasAgent = existing.some(n => n.url === agentUrl)
+  const hasAgent = existing.some(n => n.urlHost === agentHost)
   if (hasAgent) {
     if (opts.format === 'json') {
       console.log(JSON.stringify({ status: 'already-attached', project: opts.project }))
@@ -223,7 +317,7 @@ export async function agentAttach(opts: { project: string; format?: string }): P
   const result = await client.createNotification(opts.project, {
     channel: 'webhook',
     url: agentUrl,
-    events: ['run.completed', 'insight.critical', 'insight.high', 'citation.gained'],
+    events: [...AGENT_WEBHOOK_EVENTS],
   })
 
   if (opts.format === 'json') {
@@ -236,11 +330,11 @@ export async function agentAttach(opts: { project: string; format?: string }): P
 export async function agentDetach(opts: { project: string; format?: string }): Promise<void> {
   const config = loadConfig()
   const gatewayPort = config.agent?.gatewayPort ?? 3579
-  const agentUrl = `http://localhost:${gatewayPort}/hooks/canonry`
+  const agentHost = `localhost:${gatewayPort}`
   const client = createApiClient()
 
   const existing = await client.listNotifications(opts.project)
-  const agentNotif = existing.find(n => n.url === agentUrl)
+  const agentNotif = existing.find(n => n.urlHost === agentHost)
   if (!agentNotif) {
     if (opts.format === 'json') {
       console.log(JSON.stringify({ status: 'not-attached', project: opts.project }))

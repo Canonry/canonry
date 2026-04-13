@@ -10,7 +10,8 @@ const { version: PKG_VERSION } = _require('../package.json') as { version: strin
 import Fastify from 'fastify'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { apiRoutes } from '@ainyc/canonry-api-routes'
-import { apiKeys, auditLog, projects, notifications, parseJsonColumn, type DatabaseClient } from '@ainyc/canonry-db'
+import { apiKeys, auditLog, projects, parseJsonColumn, type DatabaseClient } from '@ainyc/canonry-db'
+import { attachAgentWebhookDirect } from './agent-webhook.js'
 import { geminiAdapter } from '@ainyc/canonry-provider-gemini'
 import { openaiAdapter } from '@ainyc/canonry-provider-openai'
 import { claudeAdapter } from '@ainyc/canonry-provider-claude'
@@ -347,12 +348,14 @@ export async function createServer(opts: {
 
   // Agent lifecycle (optional — only when agent config exists)
   let agentManager: AgentManager | undefined
+  let agentAutoStarted = false
   if (opts.config.agent) {
     const stateDir = getAeroStateDir(opts.config.agent.profile ?? 'aero')
     agentManager = new AgentManager(opts.config.agent, stateDir)
     if (opts.config.agent.autoStart) {
       try {
         await agentManager.start()
+        agentAutoStarted = true
         app.log.info({ pid: agentManager.status().pid }, 'Agent gateway started')
       } catch (err) {
         app.log.error({ err }, 'Failed to auto-start agent gateway')
@@ -930,32 +933,11 @@ export async function createServer(opts: {
     onProjectDeleted: (projectId: string) => {
       scheduler.remove(projectId)
     },
-    onProjectUpserted: agentManager ? (_projectId: string, projectName: string) => {
+    onProjectUpserted: agentManager && opts.config.agent?.autoStart ? (_projectId: string, projectName: string) => {
       try {
         const gatewayPort = opts.config.agent?.gatewayPort ?? 3579
-        const agentUrl = `http://localhost:${gatewayPort}/hooks/canonry`
-        // Auto-attach agent webhook — check via direct DB access to avoid circular HTTP calls
-        const notifs = opts.db.select().from(notifications).where(eq(notifications.projectId, _projectId)).all()
-        const hasAgent = notifs.some(n => {
-          const cfg = parseJsonColumn<{ url: string }>(n.config, { url: '' })
-          return cfg.url === agentUrl
-        })
-        if (!hasAgent) {
-          const id = crypto.randomUUID()
-          const now = new Date().toISOString()
-          opts.db.insert(notifications).values({
-            id,
-            projectId: _projectId,
-            channel: 'webhook',
-            config: JSON.stringify({
-              url: agentUrl,
-              events: ['run.completed', 'insight.critical', 'insight.high', 'citation.gained'],
-            }),
-            enabled: 1,
-            webhookSecret: crypto.randomUUID(),
-            createdAt: now,
-            updatedAt: now,
-          }).run()
+        const result = attachAgentWebhookDirect(opts.db, _projectId, gatewayPort)
+        if (result === 'attached') {
           app.log.info({ projectName }, 'Auto-attached agent webhook')
         }
       } catch (err) {
@@ -1150,7 +1132,7 @@ export async function createServer(opts: {
   // Graceful shutdown
   app.addHook('onClose', async () => {
     scheduler.stop()
-    if (agentManager) {
+    if (agentManager && agentAutoStarted) {
       try {
         await agentManager.stop()
       } catch (err) {
