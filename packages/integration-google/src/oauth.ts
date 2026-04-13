@@ -105,7 +105,13 @@ export async function exchangeCode(
     try {
       const parsed = JSON.parse(body) as { error?: string; error_description?: string }
       if (parsed.error) detail = parsed.error
-      if (parsed.error_description) detail += detail ? `: ${parsed.error_description}` : parsed.error_description
+      if (parsed.error_description) {
+        // Redact any values from error_description that might look like secrets
+        const sanitized = parsed.error_description
+          .replace(new RegExp(escapeRegExp(clientId), 'g'), '***')
+          .replace(new RegExp(escapeRegExp(clientSecret), 'g'), '***')
+        detail += detail ? `: ${sanitized}` : sanitized
+      }
     } catch {
       detail = body.length <= 120 ? body : `${body.slice(0, 120)}...`
     }
@@ -113,6 +119,10 @@ export async function exchangeCode(
   }
 
   return (await res.json()) as GoogleTokenResponse
+}
+
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 export async function refreshAccessToken(
@@ -142,7 +152,13 @@ export async function refreshAccessToken(
     try {
       const parsed = JSON.parse(body) as { error?: string; error_description?: string }
       if (parsed.error) detail = parsed.error
-      if (parsed.error_description) detail += detail ? `: ${parsed.error_description}` : parsed.error_description
+      if (parsed.error_description) {
+        // Redact any values from error_description that might look like secrets
+        const sanitized = parsed.error_description
+          .replace(new RegExp(escapeRegExp(clientId), 'g'), '***')
+          .replace(new RegExp(escapeRegExp(clientSecret), 'g'), '***')
+        detail += detail ? `: ${sanitized}` : sanitized
+      }
     } catch {
       detail = body.length <= 120 ? body : `${body.slice(0, 120)}...`
     }

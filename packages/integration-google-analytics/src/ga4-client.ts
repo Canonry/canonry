@@ -123,13 +123,20 @@ export async function getAccessToken(clientEmail: string, privateKey: string): P
   if (!res.ok) {
     const body = await res.text().catch(() => '')
     ga4Log('error', 'token.failed', { httpStatus: res.status })
-    // Sanitize: avoid leaking private key details from OAuth error responses
+    // Sanitize: avoid leaking private key or client email details from OAuth error responses
     const detail = body.length <= 200 ? body : `${body.slice(0, 200)}... [truncated]`
-    throw new GA4ApiError(`Failed to get access token: ${detail}`, res.status)
+    const sanitizedDetail = detail
+      .replace(new RegExp(escapeRegExp(clientEmail), 'g'), '***')
+      .replace(new RegExp(escapeRegExp(privateKey.slice(0, 32)), 'g'), '***')
+    throw new GA4ApiError(`Failed to get access token: ${sanitizedDetail}`, res.status)
   }
 
   const data = (await res.json()) as { access_token: string; expires_in: number }
   return data.access_token
+}
+
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 /**
