@@ -19,11 +19,11 @@ export async function notificationRoutes(app: FastifyInstance) {
   // POST /projects/:name/notifications — create notification
   app.post<{
     Params: { name: string }
-    Body: { channel: string; url: string; events: string[] }
+    Body: { channel: string; url: string; events: string[]; source?: string }
   }>('/projects/:name/notifications', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
-    const { channel, url, events } = request.body ?? {}
+    const { channel, url, events, source } = request.body ?? {}
 
     if (channel !== 'webhook') throw validationError('Only "webhook" channel is supported')
 
@@ -45,7 +45,7 @@ export async function notificationRoutes(app: FastifyInstance) {
       id,
       projectId: project.id,
       channel: 'webhook',
-      config: JSON.stringify({ url, events }),
+      config: JSON.stringify({ url, events, ...(source ? { source } : {}) }),
       webhookSecret,
       enabled: 1,
       createdAt: now,
@@ -144,7 +144,7 @@ export async function notificationRoutes(app: FastifyInstance) {
 }
 
 function formatNotification(row: typeof notifications.$inferSelect): Omit<NotificationDto, 'webhookSecret'> {
-  const config = parseJsonColumn<{ url: string; events: NotificationEvent[] }>(row.config, { url: '', events: [] })
+  const config = parseJsonColumn<{ url: string; events: NotificationEvent[]; source?: string }>(row.config, { url: '', events: [] })
   const redacted = redactNotificationUrl(config.url)
   return {
     id: row.id,
@@ -155,6 +155,7 @@ function formatNotification(row: typeof notifications.$inferSelect): Omit<Notifi
     urlHost: redacted.urlHost,
     events: config.events,
     enabled: row.enabled === 1,
+    ...(config.source ? { source: config.source } : {}),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }

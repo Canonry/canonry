@@ -29,8 +29,8 @@ export function attachAgentWebhookDirect(
 
   const existing = db.select().from(notifications).where(eq(notifications.projectId, projectId)).all()
   const hasAgent = existing.some(n => {
-    const cfg = parseJsonColumn<{ url: string }>(n.config, { url: '' })
-    return cfg.url === agentUrl
+    const cfg = parseJsonColumn<{ source?: string }>(n.config, {})
+    return cfg.source === 'agent'
   })
   if (hasAgent) return 'already-attached'
 
@@ -42,6 +42,7 @@ export function attachAgentWebhookDirect(
     config: JSON.stringify({
       url: agentUrl,
       events: [...AGENT_WEBHOOK_EVENTS],
+      source: 'agent',
     }),
     enabled: 1,
     webhookSecret: crypto.randomUUID(),

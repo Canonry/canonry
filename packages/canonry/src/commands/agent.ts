@@ -239,13 +239,12 @@ async function attachAgentWebhookToAllProjects(gatewayPort: number): Promise<Bul
   try {
     const client = createApiClient()
     const projectList = await client.listProjects()
-    const agentHost = `localhost:${gatewayPort}`
     const agentUrl = buildAgentWebhookUrl(gatewayPort)
     let attached = 0
     let alreadyAttached = 0
     for (const project of projectList) {
       const existing = await client.listNotifications(project.name)
-      if (existing.some(n => n.urlHost === agentHost)) {
+      if (existing.some(n => n.source === 'agent')) {
         alreadyAttached++
         continue
       }
@@ -253,6 +252,7 @@ async function attachAgentWebhookToAllProjects(gatewayPort: number): Promise<Bul
         channel: 'webhook',
         url: agentUrl,
         events: [...AGENT_WEBHOOK_EVENTS],
+        source: 'agent',
       })
       attached++
     }
@@ -297,14 +297,11 @@ export async function agentAttach(opts: { project: string; format?: string }): P
   const config = loadConfig()
   const gatewayPort = config.agent?.gatewayPort ?? 3579
   const agentUrl = buildAgentWebhookUrl(gatewayPort)
-  // The API redacts notification URLs to scheme://host/redacted, so match on
-  // urlHost (which is preserved) rather than the full url.
-  const agentHost = `localhost:${gatewayPort}`
   const client = createApiClient()
 
-  // Check if agent webhook already exists
+  // Check if agent webhook already exists (match by source tag, not host)
   const existing = await client.listNotifications(opts.project)
-  const hasAgent = existing.some(n => n.urlHost === agentHost)
+  const hasAgent = existing.some(n => n.source === 'agent')
   if (hasAgent) {
     if (opts.format === 'json') {
       console.log(JSON.stringify({ status: 'already-attached', project: opts.project }))
@@ -318,6 +315,7 @@ export async function agentAttach(opts: { project: string; format?: string }): P
     channel: 'webhook',
     url: agentUrl,
     events: [...AGENT_WEBHOOK_EVENTS],
+    source: 'agent',
   })
 
   if (opts.format === 'json') {
@@ -328,13 +326,10 @@ export async function agentAttach(opts: { project: string; format?: string }): P
 }
 
 export async function agentDetach(opts: { project: string; format?: string }): Promise<void> {
-  const config = loadConfig()
-  const gatewayPort = config.agent?.gatewayPort ?? 3579
-  const agentHost = `localhost:${gatewayPort}`
   const client = createApiClient()
 
   const existing = await client.listNotifications(opts.project)
-  const agentNotif = existing.find(n => n.urlHost === agentHost)
+  const agentNotif = existing.find(n => n.source === 'agent')
   if (!agentNotif) {
     if (opts.format === 'json') {
       console.log(JSON.stringify({ status: 'not-attached', project: opts.project }))

@@ -254,8 +254,9 @@ describe('agent setup', () => {
     const rows = seedDb.select().from(notifications).all()
     expect(rows).toHaveLength(2)
     for (const row of rows) {
-      const cfg = parseJsonColumn<{ url: string; events: string[] }>(row.config, { url: '', events: [] })
+      const cfg = parseJsonColumn<{ url: string; events: string[]; source?: string }>(row.config, { url: '', events: [] })
       expect(cfg.url).toBe('http://localhost:3579/hooks/canonry')
+      expect(cfg.source).toBe('agent')
       expect(cfg.events).toContain('insight.critical')
       expect(cfg.events).toContain('insight.high')
     }

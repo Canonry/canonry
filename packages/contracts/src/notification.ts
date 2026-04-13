@@ -19,6 +19,8 @@ export const notificationDtoSchema = z.object({
   urlHost: z.string(),
   events: z.array(notificationEventSchema),
   enabled: z.boolean().default(true),
+  /** Opaque tag identifying the creator (e.g. `"agent"` for Aero webhooks). */
+  source: z.string().optional(),
   webhookSecret: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),

@@ -48,8 +48,9 @@ describe('attachAgentWebhookDirect', () => {
     expect(rows[0].enabled).toBe(1)
     expect(rows[0].webhookSecret).toBeTruthy()
 
-    const cfg = parseJsonColumn<{ url: string; events: string[] }>(rows[0].config, { url: '', events: [] })
+    const cfg = parseJsonColumn<{ url: string; events: string[]; source?: string }>(rows[0].config, { url: '', events: [] })
     expect(cfg.url).toBe('http://localhost:3579/hooks/canonry')
+    expect(cfg.source).toBe('agent')
     expect(cfg.events).toEqual([...AGENT_WEBHOOK_EVENTS])
   })
 
@@ -65,16 +66,17 @@ describe('attachAgentWebhookDirect', () => {
     expect(rows).toHaveLength(1)
   })
 
-  it('treats a different gateway port as a different webhook (inserts new row)', () => {
+  it('treats a different gateway port as already-attached (one agent webhook per project)', () => {
     const db = createClient(dbPath)
     migrate(db)
     const projectId = insertProject(db, 'gamma')
 
     expect(attachAgentWebhookDirect(db, projectId, 3579)).toBe('attached')
-    expect(attachAgentWebhookDirect(db, projectId, 4000)).toBe('attached')
+    // Source-based matching means port change is still "already attached"
+    expect(attachAgentWebhookDirect(db, projectId, 4000)).toBe('already-attached')
 
     const rows = db.select().from(notifications).all()
-    expect(rows).toHaveLength(2)
+    expect(rows).toHaveLength(1)
   })
 
   it('scopes per-project — attaching to one project does not affect another', () => {
