@@ -285,7 +285,10 @@ function extractCitedDomainsFromSources(groundingSources: GroundingSource[]): st
     // which reliably contains the domain name.
     if (source.title) {
       const titleDomain = extractDomainFromTitle(source.title)
-      if (titleDomain) domains.add(titleDomain)
+      if (titleDomain) {
+        domains.add(titleDomain)
+        continue
+      }
     }
   }
 
