@@ -1058,7 +1058,7 @@ export async function createServer(opts: {
     await app.register(fastifyStatic.default, {
       root: assetsDir,
       prefix: basePath ?? '/',
-      wildcard: false,
+      wildcard: true,
       // Don't serve index.html automatically — we handle it with config injection
       serve: true,
       index: false,
