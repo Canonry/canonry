@@ -407,6 +407,8 @@ notifications:
 
 ### Phase 3: Dashboard — Aero as Autonomous Analyst
 
+> **Superseded by [`plans/agent-tasks.md`](./agent-tasks.md).** The sketch below described a generic "build the dashboard surfaces" approach that assumed canonry would proxy task execution to OpenClaw's gateway over WebSocket. After investigating OpenClaw's actual primitives (webhook plugin task-flow registry, no built-in HTTP callback for flow completion, `requesterOrigin` is a chat target not an HTTP URL), the architecture was redesigned around a hybrid task queue with the Aero skill as the protocol adapter. The new plan covers the same UX goals (insight actions, task queue, Cmd+K, status indicators) but with concrete API/DB/skill contracts. The sections below are kept for historical context only.
+
 Aero is NOT a chatbot. It's an autonomous analyst that surfaces work. The dashboard reflects this with three interaction surfaces: **Insight Feed** (enhanced), **Task Queue**, and **Command Palette**.
 
 #### UX Principle
