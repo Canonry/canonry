@@ -107,15 +107,30 @@ canonry apply project-a.yaml project-b.yaml
 ## API
 
 All endpoints under `/api/v1/`. Authenticate with `Authorization: Bearer cnry_...`.
+The canonical, always-up-to-date surface is served at `GET /api/v1/openapi.json` (no auth required).
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `PUT` | `/api/v1/projects/{name}` | Create or update a project |
-| `POST` | `/api/v1/projects/{name}/runs` | Trigger a visibility sweep |
-| `GET` | `/api/v1/projects/{name}/timeline` | Per-keyword citation history |
-| `GET` | `/api/v1/projects/{name}/snapshots/diff` | Compare two runs |
-| `POST` | `/api/v1/apply` | Config-as-code apply |
-| `GET` | `/api/v1/openapi.json` | OpenAPI spec (no auth required) |
+Canonry is **agent-first** — every dashboard view has a matching API endpoint and CLI command. The surface is grouped by domain:
+
+| Domain | What it covers | Highlights |
+|--------|----------------|------------|
+| **Projects** | Create, read, update, delete projects; locations; export | `PUT /projects/{name}`, `GET /projects`, `GET /projects/{name}/export` |
+| **Apply** | Config-as-code — declarative multi-project upsert | `POST /apply` |
+| **Keywords / Competitors** | Per-project keyword and competitor management | `POST/DELETE /projects/{name}/keywords`, `/competitors` |
+| **Runs** | Trigger, list, cancel, and inspect visibility sweeps | `POST /projects/{name}/runs`, `GET /runs`, `POST /runs/{id}/cancel` |
+| **Schedules** | Cron-based recurring sweeps | `GET/PUT /projects/{name}/schedule` |
+| **History / Snapshots** | Timeline + run diffs + per-keyword citation state | `GET /projects/{name}/timeline`, `/snapshots/diff`, `/history` |
+| **Intelligence** | DB-backed insights + health snapshots + dismissal | `GET /projects/{name}/insights`, `/health`, `POST /insights/{id}/dismiss` |
+| **Notifications** | Webhook subscriptions per project (agent or user-defined) | `GET/POST/DELETE /projects/{name}/notifications`, `POST /.../test` |
+| **Analytics** | Aggregated dashboard analytics | `GET /projects/{name}/analytics` |
+| **Google (GSC + OAuth)** | Search Console integration, OAuth flow, property selection, URL inspection | `/google/*`, `/projects/{name}/google/*` |
+| **Google Analytics (GA4)** | Traffic, social referrals, attribution, AI referrals | `/projects/{name}/ga/*` |
+| **Bing Webmaster** | Coverage, URL inspection, keyword stats | `/projects/{name}/bing/*` |
+| **WordPress** | Content publishing + site management integration | `/projects/{name}/wordpress/*` |
+| **CDP (ChatGPT browser provider)** | Chrome DevTools Protocol health and session status | `/cdp/*` |
+| **Settings / Auth / Telemetry** | Server config, API key management, opt-in telemetry | `/settings`, `/telemetry` |
+| **OpenAPI** | Full spec | `GET /openapi.json` *(no auth)* |
+
+For the complete list of ~118 endpoints with request/response schemas, query `GET /api/v1/openapi.json` or browse the per-domain route handlers under [`packages/api-routes/src/`](packages/api-routes/src/).
 
 ## Provider Setup
 
