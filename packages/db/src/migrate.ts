@@ -433,6 +433,9 @@ const MIGRATIONS = [
   // v34: Rename unique index for bing_coverage_snapshots to follow convention
   `DROP INDEX IF EXISTS idx_bing_coverage_snap_project_date`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_bing_coverage_snap_project_date_unique ON bing_coverage_snapshots(project_id, date)`,
+
+  // v35: Add missing index for query_snapshots createdAt for time-series filtering
+  `CREATE INDEX IF NOT EXISTS idx_snapshots_created_at ON query_snapshots(created_at)`,
 ]
 
 /**

@@ -77,6 +77,7 @@ export const querySnapshots = sqliteTable('query_snapshots', {
   index('idx_snapshots_citation_state').on(table.citationState),
   index('idx_snapshots_provider_model').on(table.provider, table.model),
   index('idx_snapshots_location').on(table.location),
+  index('idx_snapshots_created_at').on(table.createdAt),
 ])
 
 export const auditLog = sqliteTable('audit_log', {
