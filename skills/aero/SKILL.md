@@ -40,3 +40,4 @@ You coordinate across three tools to deliver comprehensive AEO monitoring:
 - [memory-patterns.md](references/memory-patterns.md) — What to persist per client
 - [regression-playbook.md](references/regression-playbook.md) — Detection through response
 - [reporting.md](references/reporting.md) — Report generation templates
+- [wordpress-elementor-mcp.md](references/wordpress-elementor-mcp.md) — Elementor MCP tools for page management

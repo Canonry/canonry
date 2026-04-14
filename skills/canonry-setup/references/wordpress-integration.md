@@ -55,3 +55,7 @@ canonry wordpress staging push mysite
 - If SEO meta is not writable through REST, canonry returns an actionable error instead of guessing
 - Duplicate slug matches are returned as explicit ambiguity errors with candidate page IDs/titles
 - Authentication is verified on connect by calling `/wp/v2/users/me` — if that fails, canonry returns an actionable error message
+
+## Related: Elementor MCP
+
+For programmatic management of Elementor page layouts, widgets, and styling via MCP tools, see the aero skill reference: [`skills/aero/references/wordpress-elementor-mcp.md`](../../aero/references/wordpress-elementor-mcp.md).
