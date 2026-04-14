@@ -1,6 +1,7 @@
 import OpenAI from 'openai'
 import { withRetry } from './utils.js'
 import type {
+  GroundingSource,
   LocalConfig,
   LocalHealthcheckResult,
   LocalNormalizedResult,
@@ -96,12 +97,16 @@ export async function executeTrackedQuery(input: LocalTrackedQueryInput): Promis
 export function normalizeResult(raw: LocalRawResult): LocalNormalizedResult {
   const answerText = extractAnswerText(raw.rawResponse)
   const citedDomains = extractDomainMentions(answerText)
+  const groundingSources: GroundingSource[] = citedDomains.map(domain => ({
+    uri: `http://${domain}`,
+    title: domain
+  }))
 
   return {
     provider: 'local',
     answerText,
     citedDomains,
-    groundingSources: raw.groundingSources,
+    groundingSources,
     searchQueries: raw.searchQueries,
   }
 }
