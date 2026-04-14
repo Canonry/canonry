@@ -314,7 +314,7 @@ export class JobRunner {
               normalized.answerText,
               allDomains,
               normalized.citedDomains,
-              overlap,
+              competitorDomains,
             )
 
             // Move screenshot to canonical location if present
