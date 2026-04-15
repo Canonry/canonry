@@ -6,11 +6,30 @@
  */
 function isRetryableError(err: unknown): boolean {
   if (err != null && typeof err === 'object' && 'status' in err) {
+    // Anthropic SDK throws error objects with a `status` property.
+    // Docs: https://github.com/anthropics/anthropic-sdk-typescript/blob/main/src/error.ts
     const status = (err as { status: number }).status
     if (typeof status === 'number') {
       // 429 (rate limit) is retryable; other 4xx are not.
       // 5xx and network errors (status undefined/0) are retryable.
       return status >= 500 || status === 429
+    }
+  }
+
+  // Handle SDK-specific error types that might not have a `status` field
+  // or use different names for it.
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase()
+    // Always retry network/connection-level failures
+    if (
+      msg.includes('fetch failed') ||
+      msg.includes('econnreset') ||
+      msg.includes('etimedout') ||
+      msg.includes('enotfound') ||
+      msg.includes('econnrefused') ||
+      msg.includes('network error')
+    ) {
+      return true
     }
   }
   // No status code — likely a network/connection error, which is retryable.
