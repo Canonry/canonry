@@ -1,6 +1,6 @@
 ---
 name: canonry
-description: "AEO (Answer Engine Optimization) monitoring and analysis using canonry CLI and aeo-audit tool. Use when: (1) running citation sweeps across AI providers (Gemini, ChatGPT, Claude, Perplexity); (2) auditing technical SEO with structured data validation; (3) implementing schema markup, sitemaps, llms.txt; (4) diagnosing indexing issues via Google Search Console and Bing Webmaster Tools; (5) optimizing content for AI readability and entity consistency. NOT for: general web development, content writing, PPC campaigns, or social media management."
+description: "Agent-first AEO monitoring and operating platform."
 metadata:
   {
     "openclaw":
@@ -32,38 +32,25 @@ metadata:
 
 # Canonry
 
-Monitor and optimize site visibility across AI answer engines (Gemini, ChatGPT, Claude, Perplexity) and traditional search engines using the `canonry` CLI for AEO monitoring and `aeo-audit` for technical SEO analysis.
+Open-source AEO (Answer Engine Optimization) monitoring platform. Track how AI answer engines cite your domain across Gemini, ChatGPT, Claude, and Perplexity.
+
+**Website:** [ainyc.ai](https://ainyc.ai) | **Docs:** [github.com/AINYC/canonry](https://github.com/AINYC/canonry)
 
 ## When to Use
 
-✅ **USE this skill when:**
-
-- Tracking which keyphrases earn citations (or lose them) across AI providers
-- Running technical SEO audits with 14‑factor scoring
-- Implementing structured data (JSON‑LD: LocalBusiness, FAQPage, Service)
-- Diagnosing indexing gaps in Google Search Console / Bing Webmaster Tools
-- Optimizing `llms.txt`, `llms‑full.txt`, sitemaps, robots.txt for AI crawlers
-- Patching missing H1 tags, meta descriptions, image alt text
+- Tracking keyphrase citations across AI providers
+- Running technical SEO audits (14‑factor scoring)
+- Implementing structured data (JSON‑LD)
+- Diagnosing indexing gaps via Google Search Console / Bing Webmaster Tools
+- Optimizing `llms.txt`, sitemaps, robots.txt for AI crawlers
 - Submitting URLs to Google Indexing API and Bing IndexNow
-- Analyzing competitor citation patterns in AI answers
-
-## When NOT to Use
-
-❌ **DON'T use this skill when:**
-
-- General WordPress development (use `wordpress` skill if available)
-- Content writing or copy creation (human‑led task)
-- Paid search/SEM campaigns (different specialty)
-- Social media management or outreach
-- Local business listing management (e.g., GBP, Yelp)
-- Backlink building or outreach campaigns
+- Analyzing competitor citation patterns
 
 ## Core Philosophy
 
-- **AI models are black boxes** — Measure citation outcomes, not assume causality
-- **Position, then wait** — Site changes take weeks/months to reflect in AI indexes; canonry tells us *when* it happens, not *if*
-- **Signal‑over‑noise** — Trim keyphrase lists to high‑intent queries; avoid granular targeting until base visibility exists
-- **CLI‑native, UI‑optional** — Prefer API‑driven changes over manual CMS clicks; faster, repeatable, auditable
+- **Measure outcomes** — AI models are black boxes; track citations, don't assume causality
+- **Signal over noise** — Focus on high‑intent queries; avoid granular targeting until base visibility exists
+- **CLI‑native** — API‑driven changes over manual CMS clicks; faster, repeatable, auditable
 
 ## Toolchain
 
@@ -221,54 +208,7 @@ cat audit.json | jq -r '.factors[] | select(.score < 70) | "- \(.name): \(.score
 - **Client data stays private** — canonry repo is public; no real domains in issues
 - **Respect API rate limits** — batch operations, avoid tight loops
 
-## Output Templates
-
-### Audit Summary
-```
-## AEO/SEO Audit — https://client.com
-
-**Overall:** 66/100 (D)
-
-**Top strengths (A/A+):**
-- AI‑Readable Content (100) — llms.txt, llms‑full.txt present
-- FAQ Content (100) — FAQPage schema detected
-- AI Crawler Access (100) — robots.txt allows all bots
-
-**Critical gaps (F):**
-- Definition Blocks (0) — no "What is…" sections
-- E‑E‑A‑T Signals (45) — missing Person schema, author tags
-- Citations & Authority (44) — no external references to industry sources
-
-**Immediate actions:**
-1. Add H1 tag to homepage (Technical SEO: 60/100)
-2. Create "What is polyurea?" section on /services/ (Definition Blocks: 0/100)
-3. Submit all 5 URLs to Bing IndexNow (indexing: 2/5)
-```
-
-### Citation Report
-```
-## canonry sweep — client-project
-
-**Run:** 2026‑04‑03T13:44Z (ID: 4a45ebfc...)
-
-**Keyphrase visibility (12 tracked):**
-✅ polyurea roof coating — 3/3 providers
-✅ commercial roof coating — 2/3 providers  
-❌ polyurea roof coating Michigan — 0/3 (geo gap)
-❌ commercial roofing contractor Michigan — 0/3 (geo gap)
-
-**Changes since last sweep (2026‑03‑27):**
-- Lost `flat roof coating Michigan` on Gemini (−1)
-- Gained `industrial roof coating` on Claude (+1)
-- No change on ChatGPT (stable)
-
-**Next steps:**
-- Build Michigan location page (/michigan/)
-- Add county‑level references to llms.txt
-- Re‑sweep in 7 days
-```
-
 ---
 
 **Tools:** canonry v1.37+, @ainyc/aeo‑audit v1.3+  
-**Reference:** [AINYC AEO Methodology](https://ainyc.ai/aeo-methodology)
+**Website:** [ainyc.ai](https://ainyc.ai) | **Reference:** [AINYC AEO Methodology](https://ainyc.ai/aeo-methodology)
