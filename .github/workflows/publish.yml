@@ -109,13 +109,16 @@ jobs:
       - name: Publish canonry skill
         env:
           CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          SKILL_VERSION="${VERSION}+${SHORT_SHA}"
           clawhub login --token "$CLAWHUB_TOKEN" --no-browser
           clawhub publish ./skills/canonry-setup \
             --slug canonry \
-            --version "${{ needs.version.outputs.version }}" \
+            --version "$SKILL_VERSION" \
             --tags latest \
-            --changelog "Sync with canonry v${{ needs.version.outputs.version }}"
+            --changelog "Sync with canonry v${VERSION} (${SHORT_SHA})"
 
   publish-docker:
     needs: version
