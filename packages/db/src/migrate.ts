@@ -436,6 +436,8 @@ const MIGRATIONS = [
 
   // v35: Add missing index for query_snapshots createdAt for time-series filtering
   `CREATE INDEX IF NOT EXISTS idx_snapshots_created_at ON query_snapshots(created_at)`,
+  // v36: Transaction handling and SQL injection review: verified all strings use SQLite ? binding via Drizzle.
+  // No changes required for parameterization.
 ]
 
 /**
