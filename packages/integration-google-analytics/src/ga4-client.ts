@@ -307,6 +307,8 @@ export async function fetchTrafficByLandingPage(
     }
 
     const response = await runReport(accessToken, propertyId, request)
+    if (!response) break // Defensive check for empty or unexpected responses
+
     const pageRows = (response.rows ?? []).map((row) => ({
       date: row.dimensionValues[0]!.value,
       landingPage: row.dimensionValues[1]!.value,
@@ -345,6 +347,8 @@ export async function fetchTrafficByLandingPage(
       offset: organicOffset,
     }
     const organicResponse = await runReport(accessToken, propertyId, organicRequest)
+    if (!organicResponse) break
+
     for (const row of organicResponse.rows ?? []) {
       const key = `${row.dimensionValues[0]!.value}::${row.dimensionValues[1]!.value}`
       organicMap.set(key, parseInt(row.metricValues[0]!.value, 10) || 0)
@@ -560,6 +564,8 @@ export async function fetchAiReferrals(
       }
 
       const response = await runReport(accessToken, propertyId, request)
+      if (!response) break
+
       const pageRows: GA4AiReferralRow[] = (response.rows ?? []).map((row) => ({
         date: row.dimensionValues[0]!.value,
         source: row.dimensionValues[1]!.value,
@@ -668,6 +674,8 @@ export async function fetchSocialReferrals(
     }
 
     const response = await runReport(accessToken, propertyId, request)
+    if (!response) break
+
     const pageRows: GA4SocialReferralRow[] = (response.rows ?? []).map((row) => ({
       date: row.dimensionValues[0]!.value,
       source: row.dimensionValues[1]!.value,

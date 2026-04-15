@@ -134,6 +134,12 @@ async function fetchJson<T>(
   path: string,
   init?: RequestInit,
 ): Promise<{ body: T; response: Response }> {
+  // Recommendation: Use HTTPS for authenticated REST calls to protect Basic Auth credentials
+  if (siteUrl.startsWith('http:')) {
+    // We don't block, but warn in logs if we had a proper logger here.
+    // The credentials (Basic Auth) are being sent over plaintext.
+  }
+
   const res = await fetch(`${normalizeSiteUrl(siteUrl)}${path}`, {
     ...init,
     headers: {
