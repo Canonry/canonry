@@ -438,6 +438,11 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_snapshots_created_at ON query_snapshots(created_at)`,
   // v36: Transaction handling and SQL injection review: verified all strings use SQLite ? binding via Drizzle.
   // No changes required for parameterization.
+  // v37: Remove credential columns from ga_connections and google_connections
+  `ALTER TABLE ga_connections DROP COLUMN private_key`,
+  `ALTER TABLE google_connections DROP COLUMN access_token`,
+  `ALTER TABLE google_connections DROP COLUMN refresh_token`,
+  `ALTER TABLE google_connections DROP COLUMN token_expires_at`,
 ]
 
 /**
@@ -450,6 +455,18 @@ function isDuplicateColumnError(err: unknown): boolean {
   if (err.message.includes('duplicate column name')) return true
   // Drizzle wraps SqliteError in a DrizzleError; check the cause too.
   if (err.cause instanceof Error && err.cause.message.includes('duplicate column name')) return true
+  return false
+}
+
+/**
+ * Returns true only when an error (or its cause chain) represents a SQLite
+ * "no such column" error — the expected idempotency signal for
+ * ALTER TABLE DROP COLUMN statements that have already been applied.
+ */
+function isMissingColumnError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  if (err.message.includes('no such column')) return true
+  if (err.cause instanceof Error && err.cause.message.includes('no such column')) return true
   return false
 }
 
@@ -474,6 +491,7 @@ export function migrate(db: DatabaseClient) {
       db.run(sql.raw(migration))
     } catch (err: unknown) {
       if (isDuplicateColumnError(err)) continue
+      if (isMissingColumnError(err)) continue
       throw err
     }
   }
