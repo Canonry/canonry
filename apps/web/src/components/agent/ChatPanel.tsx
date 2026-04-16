@@ -105,7 +105,23 @@ export function ChatPanel({ open, onClose, agentStatus, messages, isStreaming, e
       if (!isStreaming) setMessages(msgs)
     },
     onMessage: (msg) => {
-      setMessages((prev: AgentTranscriptMessageDto[]) => [...prev, msg])
+      // During a local chat stream, the HTTP reader in useAgentChat is writing the assistant
+      // reply into state; ignore the SSE echo for that turn to avoid duplicate bubbles.
+      if (isStreaming && msg.role === 'assistant') return
+      setMessages((prev: AgentTranscriptMessageDto[]) => {
+        if (prev.some((m) => m.id === msg.id)) return prev
+        // Replace the matching local optimistic message (role + content) with the canonical
+        // SSE version so the stable id takes over.
+        const localIdx = prev.findIndex(
+          (m) => m.id.startsWith('local-') && m.role === msg.role && m.content === msg.content,
+        )
+        if (localIdx !== -1) {
+          const next = [...prev]
+          next[localIdx] = msg
+          return next
+        }
+        return [...prev, msg]
+      })
     },
   })
 
