@@ -39,8 +39,9 @@ function mapTranscriptMessage(entry: OpenClawTranscriptMessage): AgentTranscript
   const meta = entry.__openclaw
   const id = meta?.id ?? `seq-${meta?.seq ?? 0}`
   const seq = meta?.seq ?? 0
+  // OpenClaw stamps messages with Date.now() (milliseconds)
   const ts = entry.timestamp
-    ? new Date(typeof entry.timestamp === 'number' ? entry.timestamp * 1000 : entry.timestamp).toISOString()
+    ? new Date(entry.timestamp).toISOString()
     : new Date().toISOString()
 
   return {

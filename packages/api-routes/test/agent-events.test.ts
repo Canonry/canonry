@@ -77,9 +77,9 @@ describe('GET /agent/events', () => {
       })
 
       // Send initial history event (OpenClaw 2026.4.x+ shape)
-      res.write('event: history\ndata: {"sessionKey":"agent:aero:main","items":[{"role":"user","content":"Hello","timestamp":1713200000,"__openclaw":{"id":"entry-1","seq":1}}],"hasMore":false}\n\n')
+      res.write('event: history\ndata: {"sessionKey":"agent:aero:main","items":[{"role":"user","content":"Hello","timestamp":1713200000000,"__openclaw":{"id":"entry-1","seq":1}}],"hasMore":false}\n\n')
       // Send a live message event (OpenClaw 2026.4.x+ shape)
-      res.write('event: message\ndata: {"sessionKey":"agent:aero:main","message":{"role":"assistant","content":"Hi there!","timestamp":1713200010,"__openclaw":{"id":"msg-1","seq":2}},"messageId":"msg-1","messageSeq":2}\n\n')
+      res.write('event: message\ndata: {"sessionKey":"agent:aero:main","message":{"role":"assistant","content":"Hi there!","timestamp":1713200010000,"__openclaw":{"id":"msg-1","seq":2}},"messageId":"msg-1","messageSeq":2}\n\n')
       // Close the stream
       res.end()
     })

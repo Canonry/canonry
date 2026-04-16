@@ -94,19 +94,19 @@ describe('GET /agent/transcript', () => {
         {
           role: 'user',
           content: 'Hello',
-          timestamp: 1713200000,
+          timestamp: 1713200000000,
           __openclaw: { id: 'entry-1', seq: 1 },
         },
         {
           role: 'assistant',
           content: [{ type: 'text', text: 'Hi there! How can I help?' }],
-          timestamp: 1713200010,
+          timestamp: 1713200010000,
           __openclaw: { id: 'entry-2', seq: 2 },
         },
         {
           role: 'user',
           content: 'Run a sweep',
-          timestamp: 1713200020,
+          timestamp: 1713200020000,
           __openclaw: { id: 'entry-3', seq: 3 },
         },
       ],
@@ -173,7 +173,7 @@ describe('GET /agent/transcript', () => {
           {
             role: 'user',
             content: 'Earlier message',
-            timestamp: 1713100000,
+            timestamp: 1713100000000,
             __openclaw: { id: 'entry-old', seq: 1 },
           },
         ],
