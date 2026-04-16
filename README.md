@@ -1,6 +1,6 @@
 # Canonry <img src="apps/web/public/favicon-32.png" alt="Canonry canary icon" width="24" />
 
-[![npm version](https://img.shields.io/npm/v/@ainyc/canonry)](https://www.npmjs.com/package/@ainyc/canonry) [![License: FSL-1.1-ALv2](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue.svg)](https://fsl.software/) [![Node.js CLI >= 20 | agent >= 22.14](https://img.shields.io/badge/node-CLI_%3E%3D20_%7C_agent_%3E%3D22.14-brightgreen)](https://nodejs.org)
+[![npm version](https://img.shields.io/npm/v/@ainyc/canonry)](https://www.npmjs.com/package/@ainyc/canonry) [![License: FSL-1.1-ALv2](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue.svg)](https://fsl.software/) [![Node.js >= 22.14](https://img.shields.io/badge/node-%3E%3D22.14-brightgreen)](https://nodejs.org)
 
 Canonry is an agent-first AEO platform powered by [OpenClaw](https://openclaw.ai). It tracks how ChatGPT, Gemini, Claude, and Perplexity cite your site, detects regressions, diagnoses causes, coordinates fixes, and reports results.
 
@@ -15,9 +15,7 @@ npm install -g @ainyc/canonry
 canonry agent setup
 ```
 
-One command. It installs [OpenClaw](https://openclaw.ai), configures the agent's LLM, sets up monitoring providers, and seeds the workspace. Interactive prompts guide you through everything, or pass flags for fully automated setup:
-
-`canonry agent setup` requires Node.js `>=22.14.0` because that is the current engine floor declared by `openclaw@latest`. The monitoring-only CLI and API still support Node.js `>=20`.
+One command. It installs the pinned [OpenClaw](https://openclaw.ai) release `2026.4.14`, configures the agent's LLM, sets up monitoring providers, and seeds the workspace. Interactive prompts guide you through everything, or pass flags for fully automated setup:
 
 ```bash
 canonry agent setup --gemini-key <key> --agent-key <key> --format json
@@ -179,8 +177,7 @@ Create a Web Service with runtime Docker, attach a disk at `/data`. Health check
 
 ## Requirements
 
-- Node.js >= 20
-- Node.js >= 22.14.0 for `canonry agent setup` / OpenClaw features
+- Node.js >= 22.14.0
 - At least one provider API key (configurable after startup)
 
 If `npm install` fails with `node-gyp` errors, install build tools for `better-sqlite3`: `xcode-select --install` (macOS), `apt-get install python3 make g++` (Debian), or see the [troubleshooting guide](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/troubleshooting.md).

@@ -117,13 +117,8 @@ describe('getAeroStateDir', () => {
 })
 
 describe('installOpenClaw', () => {
-  it('installs openclaw@latest and verifies the detected version', async () => {
-    vi.mocked(execSync)
-      .mockReturnValueOnce(JSON.stringify({
-        version: '2026.4.14',
-        engines: { node: '>=20.0.0' },
-      }) as ReturnType<typeof execSync>)
-      .mockReturnValueOnce('' as ReturnType<typeof execSync>)
+  it('installs the pinned openclaw version and verifies the detected version', async () => {
+    vi.mocked(execSync).mockReturnValueOnce('' as ReturnType<typeof execSync>)
 
     vi.mocked(execFileSync)
       .mockImplementationOnce(((cmd: string) => {
@@ -141,30 +136,20 @@ describe('installOpenClaw', () => {
 
     expect(result.success).toBe(true)
     expect(result.detection?.version).toBe('2026.4.14')
-    expect(vi.mocked(execSync).mock.calls[0]?.[0]).toBe('npm view openclaw@latest version engines --json')
-    expect(vi.mocked(execSync).mock.calls[1]?.[0]).toBe('npm install -g openclaw@latest')
+    expect(vi.mocked(execSync).mock.calls[0]?.[0]).toBe('npm install -g openclaw@2026.4.14')
   })
 
-  it('fails early when the published OpenClaw engine exceeds the current Node runtime', async () => {
-    vi.mocked(execSync).mockReturnValueOnce(JSON.stringify({
-      version: '2099.1.0',
-      engines: { node: '>=99.0.0' },
-    }) as ReturnType<typeof execSync>)
-
-    const result = await installOpenClaw({ silent: true })
+  it('fails early when the runtime is below the pinned minimum node version', async () => {
+    const result = await installOpenClaw({ silent: true, nodeVersion: '22.13.0' })
 
     expect(result.success).toBe(false)
-    expect(result.error).toContain('requires Node.js >=99.0.0')
-    expect(vi.mocked(execSync).mock.calls).toHaveLength(1)
+    expect(result.error).toContain('requires Node.js >=22.14.0')
+    expect(result.error).toContain('pinned OpenClaw 2026.4.14')
+    expect(vi.mocked(execSync).mock.calls).toHaveLength(0)
   })
 
-  it('fails when the detected OpenClaw version does not match the resolved npm package version', async () => {
-    vi.mocked(execSync)
-      .mockReturnValueOnce(JSON.stringify({
-        version: '2026.4.14',
-        engines: { node: '>=20.0.0' },
-      }) as ReturnType<typeof execSync>)
-      .mockReturnValueOnce('' as ReturnType<typeof execSync>)
+  it('fails when the detected OpenClaw version does not match the pinned package version', async () => {
+    vi.mocked(execSync).mockReturnValueOnce('' as ReturnType<typeof execSync>)
 
     vi.mocked(execFileSync)
       .mockImplementationOnce(((cmd: string) => {
@@ -181,6 +166,6 @@ describe('installOpenClaw', () => {
     const result = await installOpenClaw({ silent: true })
 
     expect(result.success).toBe(false)
-    expect(result.error).toContain('npm resolved 2026.4.14')
+    expect(result.error).toContain('Canonry pinned 2026.4.14')
   })
 })

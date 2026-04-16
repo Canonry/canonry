@@ -13,7 +13,9 @@ export interface DetectionResult {
 }
 
 const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes (DenchClaw pattern)
-const OPENCLAW_PACKAGE_SPEC = 'openclaw@latest'
+const OPENCLAW_VERSION = '2026.4.14'
+const OPENCLAW_PACKAGE_SPEC = `openclaw@${OPENCLAW_VERSION}`
+const MIN_NODE_VERSION = '22.14.0'
 let cachedResult: DetectionResult | null = null
 let cachedAt = 0
 
@@ -115,20 +117,12 @@ export interface InstallResult {
   error?: string
 }
 
-interface OpenClawRegistryMetadata {
-  version?: string
-  engines?: {
-    node?: string
-  }
-}
-
 /**
  * Install OpenClaw globally via npm and return the detection result.
  * Resets the detection cache before re-probing.
  */
-export async function installOpenClaw(opts?: { silent?: boolean }): Promise<InstallResult> {
-  const metadata = readPublishedOpenClawMetadata()
-  const unsupportedNodeError = getUnsupportedNodeError(metadata)
+export async function installOpenClaw(opts?: { silent?: boolean; nodeVersion?: string }): Promise<InstallResult> {
+  const unsupportedNodeError = getUnsupportedNodeError(opts?.nodeVersion)
   if (unsupportedNodeError) {
     return {
       success: false,
@@ -159,13 +153,13 @@ export async function installOpenClaw(opts?: { silent?: boolean }): Promise<Inst
     }
   }
 
-  if (metadata?.version && detection.version) {
-    const expectedVersion = parseVersionTuple(metadata.version)
+  if (detection.version) {
+    const expectedVersion = parseVersionTuple(OPENCLAW_VERSION)
     const detectedVersion = parseVersionTuple(detection.version)
     if (expectedVersion && detectedVersion && compareVersionTuples(detectedVersion, expectedVersion) !== 0) {
       return {
         success: false,
-        error: `Installed OpenClaw binary reports version ${detection.version}, but npm resolved ${metadata.version}. A different openclaw binary may be shadowing the npm-installed package in PATH.`,
+        error: `Installed OpenClaw binary reports version ${detection.version}, but Canonry pinned ${OPENCLAW_VERSION}. A different openclaw binary may be shadowing the npm-installed package in PATH.`,
       }
     }
   }
@@ -173,46 +167,15 @@ export async function installOpenClaw(opts?: { silent?: boolean }): Promise<Inst
   return { success: true, detection }
 }
 
-function readPublishedOpenClawMetadata(): OpenClawRegistryMetadata | null {
-  try {
-    const output = execSync(`npm view ${OPENCLAW_PACKAGE_SPEC} version engines --json`, {
-      timeout: 10_000,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-    const parsed = JSON.parse(output)
-    if (!parsed || typeof parsed !== 'object') {
-      return null
-    }
-    return parsed as OpenClawRegistryMetadata
-  } catch {
-    return null
-  }
-}
-
-function getUnsupportedNodeError(metadata: OpenClawRegistryMetadata | null): string | null {
-  const nodeRange = metadata?.engines?.node?.trim()
-  const minimumNodeVersion = nodeRange ? extractMinimumVersion(nodeRange) : null
-  if (!nodeRange || !minimumNodeVersion) {
-    return null
-  }
-
-  const currentNodeVersion = normalizeVersion(process.versions.node)
-  const minimumTuple = parseVersionTuple(minimumNodeVersion)
+function getUnsupportedNodeError(currentNodeVersionOverride?: string): string | null {
+  const currentNodeVersion = normalizeVersion(currentNodeVersionOverride ?? process.versions.node)
+  const minimumTuple = parseVersionTuple(MIN_NODE_VERSION)
   const currentTuple = parseVersionTuple(currentNodeVersion)
   if (!minimumTuple || !currentTuple || compareVersionTuples(currentTuple, minimumTuple) >= 0) {
     return null
   }
 
-  const descriptor = metadata?.version
-    ? `OpenClaw ${metadata.version}`
-    : OPENCLAW_PACKAGE_SPEC
-  return `${descriptor} requires Node.js ${nodeRange}, but the current runtime is ${currentNodeVersion}. Upgrade Node.js before running "canonry agent setup".`
-}
-
-function extractMinimumVersion(range: string): string | null {
-  const match = range.match(/>=\s*v?(\d+(?:\.\d+){0,2})/)
-  return match ? normalizeVersion(match[1]) : null
+  return `Canonry requires Node.js >=${MIN_NODE_VERSION} and installs pinned OpenClaw ${OPENCLAW_VERSION}, but the current runtime is ${currentNodeVersion}. Upgrade Node.js before running "canonry agent setup".`
 }
 
 function normalizeVersion(version: string): string {
