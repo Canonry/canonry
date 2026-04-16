@@ -221,6 +221,49 @@ export function configureOpenClawGateway(binary: string, profile: string, gatewa
 }
 
 /**
+ * Configure gateway authentication for canonry → OpenClaw communication.
+ * Sets gateway.auth.mode=token and gateway.auth.token to the provided token.
+ */
+export function configureOpenClawGatewayAuth(binary: string, profile: string, token: string): void {
+  const entries: [string, string][] = [
+    ['gateway.auth.mode', 'token'],
+    ['gateway.auth.token', token],
+  ]
+  for (const [key, value] of entries) {
+    try {
+      execFileSync(binary, ['--profile', profile, 'config', 'set', key, value], {
+        timeout: 10_000,
+        stdio: 'pipe',
+      })
+    } catch (err) {
+      throw new CliError({
+        code: 'AGENT_GATEWAY_CONFIG_FAILED',
+        message: `Failed to set ${key}: ${err instanceof Error ? err.message : String(err)}`,
+        displayMessage: `Failed to configure OpenClaw gateway auth (${key}).`,
+      })
+    }
+  }
+}
+
+/**
+ * Configure OpenClaw session scope so all dashboard DMs route to the main session.
+ */
+export function configureOpenClawSessionScope(binary: string, profile: string): void {
+  try {
+    execFileSync(binary, ['--profile', profile, 'config', 'set', 'session.dmScope', 'main'], {
+      timeout: 10_000,
+      stdio: 'pipe',
+    })
+  } catch (err) {
+    throw new CliError({
+      code: 'AGENT_GATEWAY_CONFIG_FAILED',
+      message: `Failed to set session.dmScope: ${err instanceof Error ? err.message : String(err)}`,
+      displayMessage: 'Failed to configure OpenClaw session scope.',
+    })
+  }
+}
+
+/**
  * Set the default model for the OpenClaw agent.
  */
 export function setOpenClawModel(binary: string, profile: string, model: string): void {

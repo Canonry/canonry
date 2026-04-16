@@ -75,6 +75,45 @@ describe('openapi contract', () => {
     expect(normalizeSpecRoutes(body.paths)).toEqual(normalizeObservedRoutes(ctx.observedRoutes))
   })
 
+  it('documents agent routes when agent config is provided', async () => {
+    const ctx = buildObservedApp({ agentGatewayPort: 9999 })
+    contexts.push(ctx)
+    await ctx.app.ready()
+
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/openapi.json' })
+    expect(res.statusCode).toBe(200)
+
+    const body = res.json() as { paths: Record<string, Record<string, unknown>> }
+    const specRoutes = normalizeSpecRoutes(body.paths)
+    const registeredRoutes = normalizeObservedRoutes(ctx.observedRoutes)
+
+    // Agent routes should be present
+    expect(specRoutes).toContain('get /api/v1/agent/status')
+    expect(specRoutes).toContain('post /api/v1/agent/chat')
+    expect(specRoutes).toContain('get /api/v1/agent/transcript')
+
+    // Full spec should match registered routes
+    expect(specRoutes).toEqual(registeredRoutes)
+  })
+
+  it('excludes conditional agent routes when no agent config', async () => {
+    const ctx = buildObservedApp()
+    contexts.push(ctx)
+    await ctx.app.ready()
+
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/openapi.json' })
+    expect(res.statusCode).toBe(200)
+
+    const body = res.json() as { paths: Record<string, Record<string, unknown>> }
+    const specRoutes = normalizeSpecRoutes(body.paths)
+
+    // Status is always registered
+    expect(specRoutes).toContain('get /api/v1/agent/status')
+    // Chat and transcript should NOT be present
+    expect(specRoutes).not.toContain('post /api/v1/agent/chat')
+    expect(specRoutes).not.toContain('get /api/v1/agent/transcript')
+  })
+
   it('marks public unauthenticated routes with empty security requirements', async () => {
     const ctx = buildObservedApp()
     contexts.push(ctx)

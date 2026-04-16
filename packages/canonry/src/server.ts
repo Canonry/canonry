@@ -12,6 +12,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { apiRoutes } from '@ainyc/canonry-api-routes'
 import { apiKeys, auditLog, projects, parseJsonColumn, type DatabaseClient } from '@ainyc/canonry-db'
 import { attachAgentWebhookDirect } from './agent-webhook.js'
+import { resolveAgentSessionKey } from './agent-session.js'
 import { geminiAdapter } from '@ainyc/canonry-provider-gemini'
 import { openaiAdapter } from '@ainyc/canonry-provider-openai'
 import { claudeAdapter } from '@ainyc/canonry-provider-claude'
@@ -1034,6 +1035,9 @@ export async function createServer(opts: {
     onSnapshotRequested: async (input) => {
       return snapshotService.createReport(input)
     },
+    agentGatewayPort: opts.config.agent?.gatewayPort,
+    agentGatewayToken: opts.config.agent?.gatewayToken,
+    agentSessionKey: resolveAgentSessionKey(opts.config),
   })
 
   // Try to serve static SPA assets

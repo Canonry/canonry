@@ -329,6 +329,13 @@ canonry agent setup --openai-key <key>
 canonry agent setup --claude-key <key>
 canonry agent setup --perplexity-key <key>
 
+# Chat & Transcript
+canonry agent chat <message>                     # send a message to Aero
+canonry agent chat <message> --format json       # JSON output
+canonry agent transcript                         # show recent conversation history
+canonry agent transcript --limit 20              # limit number of messages
+canonry agent transcript --format json           # JSON output
+
 # Webhook lifecycle
 canonry agent attach <project>                   # register agent webhook for project
 canonry agent attach <project> --format json     # JSON output

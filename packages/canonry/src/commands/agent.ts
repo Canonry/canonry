@@ -4,6 +4,7 @@ import { AgentManager } from '../agent-manager.js'
 import { createApiClient } from '../client.js'
 import { loadConfig, saveConfigPatch, configExists } from '../config.js'
 import type { AgentConfigEntry } from '../config.js'
+import crypto from 'node:crypto'
 import {
   detectOpenClaw,
   installOpenClaw,
@@ -11,6 +12,8 @@ import {
   seedWorkspace,
   initializeOpenClawProfile,
   configureOpenClawGateway,
+  configureOpenClawGatewayAuth,
+  configureOpenClawSessionScope,
   setOpenClawModel,
   providerEnvVar,
   writeAgentEnv,
@@ -148,12 +151,16 @@ export async function agentSetup(opts?: AgentSetupOptions): Promise<void> {
   const profile = existingConfig.profile ?? 'aero'
   const gatewayPort = opts?.gatewayPort ?? existingConfig.gatewayPort ?? 3579
   const stateDir = opts?.stateDir ?? getAeroStateDir(profile)
+  const gatewayToken = existingConfig.gatewayToken ?? `oc_gw_${crypto.randomBytes(32).toString('hex')}`
+  const sessionKey = existingConfig.sessionKey ?? `agent:${profile}:main`
 
   saveConfigPatch({
     agent: {
       binary: detection.path,
       profile,
       gatewayPort,
+      gatewayToken,
+      sessionKey,
       autoStart: existingConfig.autoStart,
     },
   })
@@ -161,6 +168,11 @@ export async function agentSetup(opts?: AgentSetupOptions): Promise<void> {
   // 4. Initialize and configure OpenClaw profile
   initializeOpenClawProfile(detection.path!, profile, path.join(stateDir, 'workspace'))
   configureOpenClawGateway(detection.path!, profile, gatewayPort)
+
+  // 4b. Configure gateway auth and session scope
+  configureOpenClawGatewayAuth(detection.path!, profile, gatewayToken)
+  writeAgentEnv(stateDir, 'OPENCLAW_GATEWAY_TOKEN', gatewayToken)
+  configureOpenClawSessionScope(detection.path!, profile)
 
   // 5. Configure agent LLM credentials
   const creds = agentLLM ?? resolveAgentCredentials({
@@ -371,6 +383,40 @@ async function autoInstallOrFail(format?: string) {
   }
 
   return install.detection!
+}
+
+export async function agentChat(opts: { message: string; format?: string; context?: { page?: string; projectName?: string } }): Promise<void> {
+  const client = createApiClient()
+  const result = await client.agentChat({
+    message: opts.message,
+    context: opts.context,
+    stream: false,
+  })
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+  } else {
+    console.log(result.content)
+  }
+}
+
+export async function agentTranscript(opts?: { format?: string; limit?: number }): Promise<void> {
+  const client = createApiClient()
+  const result = await client.agentTranscript(opts?.limit ?? 50)
+
+  if (opts?.format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+  } else {
+    if (result.messages.length === 0) {
+      console.log('No conversation history.')
+      return
+    }
+    for (const msg of result.messages) {
+      const role = msg.role === 'assistant' ? 'aero' : msg.role
+      const ts = msg.timestamp ? `[${msg.timestamp}] ` : ''
+      console.log(`${ts}${role}: ${msg.content}`)
+    }
+  }
 }
 
 /** Suppress console.log during an async operation. Returns the operation's result. */

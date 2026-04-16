@@ -2191,10 +2191,92 @@ const routeCatalog: OpenApiOperation[] = [
   },
 ]
 
-export function buildOpenApiDocument(info: OpenApiInfo = {}) {
+const agentConditionalCatalog: OpenApiOperation[] = [
+  {
+    method: 'post',
+    path: '/api/v1/agent/chat',
+    summary: 'Send a message to the agent',
+    tags: ['agent'],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['message'],
+            properties: {
+              message: stringSchema,
+              context: {
+                type: 'object',
+                properties: {
+                  page: stringSchema,
+                  insightId: stringSchema,
+                  runId: stringSchema,
+                  projectName: stringSchema,
+                },
+              },
+              stream: booleanSchema,
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Chat response (JSON or SSE stream).' },
+      503: { description: 'Agent gateway unavailable.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/agent/transcript',
+    summary: 'Get agent conversation transcript',
+    tags: ['agent'],
+    parameters: [
+      { name: 'limit', in: 'query', description: 'Max messages to return (default 50).', schema: integerSchema },
+      { name: 'cursor', in: 'query', description: 'Pagination cursor from previous response.', schema: stringSchema },
+    ],
+    responses: {
+      200: { description: 'Transcript messages returned.' },
+      503: { description: 'Agent gateway unavailable.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/agent/events',
+    summary: 'Subscribe to agent session events via SSE',
+    tags: ['agent'],
+    responses: {
+      200: { description: 'SSE event stream.' },
+      503: { description: 'Agent gateway unavailable.' },
+    },
+  },
+]
+
+const agentStatusCatalog: OpenApiOperation[] = [
+  {
+    method: 'get',
+    path: '/api/v1/agent/status',
+    summary: 'Get agent configuration and runtime status',
+    tags: ['agent'],
+    responses: {
+      200: { description: 'Agent status returned.' },
+    },
+  },
+]
+
+export interface BuildOpenApiOptions {
+  agentEnabled?: boolean
+}
+
+export function buildOpenApiDocument(info: OpenApiInfo = {}, opts?: BuildOpenApiOptions) {
   const BASE_PREFIX = '/api/v1'
   const prefix = info.routePrefix ?? BASE_PREFIX
-  const paths = routeCatalog.reduce<Record<string, Record<string, unknown>>>((acc, route) => {
+  const catalog = [
+    ...routeCatalog,
+    ...agentStatusCatalog,
+    ...(opts?.agentEnabled ? agentConditionalCatalog : []),
+  ]
+  const paths = catalog.reduce<Record<string, Record<string, unknown>>>((acc, route) => {
     // Strip the hardcoded prefix from the route path, then prepend the configured prefix
     const subpath = route.path.startsWith(BASE_PREFIX) ? route.path.slice(BASE_PREFIX.length) : route.path
     const fullPath = prefix + subpath
@@ -2242,9 +2324,14 @@ export function buildOpenApiDocument(info: OpenApiInfo = {}) {
   }
 }
 
-export async function openApiRoutes(app: FastifyInstance, opts: OpenApiInfo = {}) {
+export interface OpenApiRoutesOptions extends OpenApiInfo {
+  agentEnabled?: boolean
+}
+
+export async function openApiRoutes(app: FastifyInstance, opts: OpenApiRoutesOptions = {}) {
+  const { agentEnabled, ...info } = opts
   app.get('/openapi.json', async (_request, reply) => {
-    return reply.type('application/json').send(buildOpenApiDocument(opts))
+    return reply.type('application/json').send(buildOpenApiDocument(info, { agentEnabled }))
   })
 }
 

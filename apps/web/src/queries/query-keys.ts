@@ -24,4 +24,8 @@ export const queryKeys = {
   },
   schedule: (project: string) => ['schedule', project] as const,
   notifications: (project: string) => ['notifications', project] as const,
+  agent: {
+    status: ['agent', 'status'] as const,
+    transcript: (cursor?: string) => ['agent', 'transcript', cursor] as const,
+  },
 }

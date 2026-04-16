@@ -45,7 +45,11 @@ import type {
   InsightDto,
   HealthSnapshotDto,
   BingCoverageSnapshotDto,
+  AgentStatusDto,
+  AgentChatResponseDto,
+  AgentTranscriptDto,
 } from '@ainyc/canonry-contracts'
+import type { AgentChatRequestDto } from '@ainyc/canonry-contracts'
 
 export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry }
 
@@ -777,6 +781,22 @@ export class ApiClient {
   async getHealthHistory(project: string, limit?: number): Promise<HealthSnapshotDto[]> {
     const qs = limit ? `?limit=${limit}` : ''
     return this.request<HealthSnapshotDto[]>('GET', `/projects/${encodeURIComponent(project)}/health/history${qs}`)
+  }
+
+  async agentStatus(): Promise<AgentStatusDto> {
+    return this.request<AgentStatusDto>('GET', '/agent/status')
+  }
+
+  async agentChat(body: AgentChatRequestDto): Promise<AgentChatResponseDto> {
+    return this.request<AgentChatResponseDto>('POST', '/agent/chat', { ...body, stream: false })
+  }
+
+  async agentTranscript(limit?: number, cursor?: string): Promise<AgentTranscriptDto> {
+    const params = new URLSearchParams()
+    if (limit) params.set('limit', String(limit))
+    if (cursor) params.set('cursor', cursor)
+    const qs = params.toString()
+    return this.request<AgentTranscriptDto>('GET', `/agent/transcript${qs ? `?${qs}` : ''}`)
   }
 
 }

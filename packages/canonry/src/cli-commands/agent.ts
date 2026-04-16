@@ -1,4 +1,4 @@
-import { agentStatus, agentStart, agentStop, agentReset, agentSetup, agentAttach, agentDetach } from '../commands/agent.js'
+import { agentStatus, agentStart, agentStop, agentReset, agentSetup, agentAttach, agentDetach, agentChat, agentTranscript } from '../commands/agent.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getString, stringOption } from '../cli-command-helpers.js'
 
@@ -61,6 +61,32 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
         return
       }
       await agentDetach({ project, format: input.format })
+    },
+  },
+  {
+    path: ['agent', 'chat'],
+    usage: 'canonry agent chat <message> [--format json]',
+    options: {},
+    run: async (input) => {
+      const message = input.positionals.join(' ')
+      if (!message) {
+        console.error('Usage: canonry agent chat <message>')
+        process.exitCode = 1
+        return
+      }
+      await agentChat({ message, format: input.format })
+    },
+  },
+  {
+    path: ['agent', 'transcript'],
+    usage: 'canonry agent transcript [--limit <n>] [--format json]',
+    options: {
+      'limit': stringOption(),
+    },
+    run: async (input) => {
+      const limitStr = getString(input.values, 'limit')
+      const limit = limitStr ? Number.parseInt(limitStr, 10) : undefined
+      await agentTranscript({ format: input.format, limit })
     },
   },
   {
