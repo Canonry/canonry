@@ -62,6 +62,11 @@ export async function agentChatRoutes(app: FastifyInstance, opts: AgentChatRoute
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 300_000) // 5 min timeout for long agent loops
 
+    // Abort upstream fetch when the client disconnects
+    request.raw.on('close', () => {
+      controller.abort()
+    })
+
     let gatewayRes: Response
     try {
       gatewayRes = await fetch(gatewayUrl, {

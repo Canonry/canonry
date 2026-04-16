@@ -8,35 +8,52 @@ export interface AgentTranscriptRoutesOptions {
   agentSessionKey?: string
 }
 
-interface OpenClawHistoryEntry {
-  runId?: string
-  sessionKey?: string
-  seq: number
-  state: 'delta' | 'final' | 'aborted' | 'error'
-  message?: string
-  errorKind?: string
-  usage?: Record<string, unknown>
-  stopReason?: string
+/**
+ * OpenClaw transcript message shape (2026.4.x+).
+ * Each item in `items`/`messages` is a raw transcript message with `__openclaw` metadata.
+ */
+interface OpenClawTranscriptMessage {
+  role: 'user' | 'assistant' | 'system'
+  content: string | Array<{ type: string; text?: string }>
+  timestamp?: number
+  __openclaw?: {
+    id?: string
+    seq?: number
+    kind?: string
+  }
 }
 
 interface OpenClawHistoryResponse {
   sessionKey: string
-  history: OpenClawHistoryEntry[]
+  items?: OpenClawTranscriptMessage[]
+  messages?: OpenClawTranscriptMessage[]
+  hasMore?: boolean
+  nextCursor?: string
 }
 
-function mapEntry(entry: OpenClawHistoryEntry, index: number): AgentTranscriptMessageDto {
-  // OpenClaw entries use seq for ordering. The `message` field contains the text.
-  // Role is inferred: even seq = user, odd seq = assistant (OpenClaw alternates).
-  // If OpenClaw provides richer role info in the future, map directly.
-  const role: AgentTranscriptMessageDto['role'] = index % 2 === 0 ? 'user' : 'assistant'
+function extractContent(content: string | Array<{ type: string; text?: string }>): string {
+  if (typeof content === 'string') return content
+  return content
+    .filter((block) => block.type === 'text' && block.text)
+    .map((block) => block.text!)
+    .join('\n')
+}
+
+function mapEntry(entry: OpenClawTranscriptMessage): AgentTranscriptMessageDto {
+  const meta = entry.__openclaw
+  const id = meta?.id ?? `seq-${meta?.seq ?? 0}`
+  const seq = meta?.seq ?? 0
+  const ts = entry.timestamp
+    ? new Date(typeof entry.timestamp === 'number' ? entry.timestamp * 1000 : entry.timestamp).toISOString()
+    : new Date().toISOString()
 
   return {
-    id: entry.runId ?? `seq-${entry.seq}`,
-    role,
-    content: entry.message ?? '',
-    timestamp: new Date().toISOString(), // OpenClaw history doesn't include timestamp per-entry
-    seq: entry.seq,
-    state: entry.state,
+    id,
+    role: entry.role,
+    content: extractContent(entry.content),
+    timestamp: ts,
+    seq,
+    state: 'final',
   }
 }
 
@@ -91,11 +108,14 @@ export async function agentTranscriptRoutes(app: FastifyInstance, opts: AgentTra
 
     const json = await gatewayRes.json() as OpenClawHistoryResponse
 
-    const messages: AgentTranscriptMessageDto[] = (json.history ?? []).map(mapEntry)
+    // OpenClaw returns both `items` and `messages` (alias) — prefer `items`
+    const rawItems = json.items ?? json.messages ?? []
+    const messages: AgentTranscriptMessageDto[] = rawItems.map(mapEntry)
     const lastMessage = messages.length > 0 ? messages[messages.length - 1] : undefined
 
     const result: AgentTranscriptDto = {
       messages,
+      cursor: json.nextCursor,
       lastMessageId: lastMessage?.id,
     }
 

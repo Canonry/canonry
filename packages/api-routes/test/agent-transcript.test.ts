@@ -87,14 +87,31 @@ describe('GET /agent/transcript', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('maps OpenClaw history to transcript messages', async () => {
+  it('maps OpenClaw transcript messages to canonry DTOs', async () => {
     const mockHistory = {
       sessionKey: 'agent:aero:main',
-      history: [
-        { runId: 'run-1', seq: 0, state: 'final', message: 'Hello' },
-        { runId: 'run-2', seq: 1, state: 'final', message: 'Hi there! How can I help?' },
-        { runId: 'run-3', seq: 2, state: 'final', message: 'Run a sweep' },
+      items: [
+        {
+          role: 'user',
+          content: 'Hello',
+          timestamp: 1713200000,
+          __openclaw: { id: 'entry-1', seq: 1 },
+        },
+        {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Hi there! How can I help?' }],
+          timestamp: 1713200010,
+          __openclaw: { id: 'entry-2', seq: 2 },
+        },
+        {
+          role: 'user',
+          content: 'Run a sweep',
+          timestamp: 1713200020,
+          __openclaw: { id: 'entry-3', seq: 3 },
+        },
       ],
+      messages: [], // alias — items takes precedence
+      hasMore: false,
     }
 
     let receivedUrl = ''
@@ -121,35 +138,48 @@ describe('GET /agent/transcript', () => {
     const body = res.json()
     expect(body.messages).toHaveLength(3)
 
-    // Verify role alternation
+    // Verify roles come from the message itself (not index-based)
     expect(body.messages[0].role).toBe('user')
     expect(body.messages[1].role).toBe('assistant')
     expect(body.messages[2].role).toBe('user')
 
-    // Verify content mapping
+    // Verify content mapping — including content-block extraction
     expect(body.messages[0].content).toBe('Hello')
-    expect(body.messages[0].id).toBe('run-1')
-    expect(body.messages[0].seq).toBe(0)
-    expect(body.messages[0].state).toBe('final')
+    expect(body.messages[0].id).toBe('entry-1')
+    expect(body.messages[0].seq).toBe(1)
+
+    expect(body.messages[1].content).toBe('Hi there! How can I help?')
+    expect(body.messages[1].id).toBe('entry-2')
 
     // Verify lastMessageId
-    expect(body.lastMessageId).toBe('run-3')
+    expect(body.lastMessageId).toBe('entry-3')
 
     // Verify limit was passed through to gateway
     expect(receivedUrl).toContain('limit=10')
 
-    // Verify auth header
     await app.close()
     await new Promise<void>((resolve) => mockGateway.close(() => resolve()))
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('passes cursor through to gateway', async () => {
+  it('passes cursor through to gateway and returns nextCursor', async () => {
     let receivedUrl = ''
     const mockGateway = http.createServer((req, res) => {
       receivedUrl = req.url ?? ''
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ sessionKey: 'agent:aero:main', history: [] }))
+      res.end(JSON.stringify({
+        sessionKey: 'agent:aero:main',
+        items: [
+          {
+            role: 'user',
+            content: 'Earlier message',
+            timestamp: 1713100000,
+            __openclaw: { id: 'entry-old', seq: 1 },
+          },
+        ],
+        hasMore: true,
+        nextCursor: '5',
+      }))
     })
     await new Promise<void>((resolve) => mockGateway.listen(19990, resolve))
 
@@ -160,7 +190,7 @@ describe('GET /agent/transcript', () => {
     })
     await app.ready()
 
-    await app.inject({
+    const res = await app.inject({
       method: 'GET',
       url: '/api/v1/agent/transcript?cursor=abc123&limit=25',
     })
@@ -168,16 +198,19 @@ describe('GET /agent/transcript', () => {
     expect(receivedUrl).toContain('cursor=abc123')
     expect(receivedUrl).toContain('limit=25')
 
+    const body = res.json()
+    expect(body.cursor).toBe('5')
+
     await app.close()
     await new Promise<void>((resolve) => mockGateway.close(() => resolve()))
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('generates fallback IDs when runId is missing', async () => {
+  it('generates fallback IDs when __openclaw metadata is missing', async () => {
     const mockHistory = {
       sessionKey: 'agent:aero:main',
-      history: [
-        { seq: 0, state: 'final', message: 'Hello' },
+      items: [
+        { role: 'user', content: 'Hello' },
       ],
     }
 
@@ -196,6 +229,8 @@ describe('GET /agent/transcript', () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/agent/transcript' })
     const body = res.json()
     expect(body.messages[0].id).toBe('seq-0')
+    expect(body.messages[0].role).toBe('user')
+    expect(body.messages[0].content).toBe('Hello')
 
     await app.close()
     await new Promise<void>((resolve) => mockGateway.close(() => resolve()))

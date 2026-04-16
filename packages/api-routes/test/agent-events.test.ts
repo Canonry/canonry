@@ -76,10 +76,10 @@ describe('GET /agent/events', () => {
         'Connection': 'keep-alive',
       })
 
-      // Send initial history event
-      res.write('event: history\ndata: {"sessionKey":"agent:aero:main","history":[{"seq":0,"state":"final","message":"Hello"}]}\n\n')
-      // Send a live message event
-      res.write('event: message\ndata: {"id":"msg-1","seq":1,"state":"final","message":"Hi there!"}\n\n')
+      // Send initial history event (OpenClaw 2026.4.x+ shape)
+      res.write('event: history\ndata: {"sessionKey":"agent:aero:main","items":[{"role":"user","content":"Hello","timestamp":1713200000,"__openclaw":{"id":"entry-1","seq":1}}],"hasMore":false}\n\n')
+      // Send a live message event (OpenClaw 2026.4.x+ shape)
+      res.write('event: message\ndata: {"sessionKey":"agent:aero:main","message":{"role":"assistant","content":"Hi there!","timestamp":1713200010,"__openclaw":{"id":"msg-1","seq":2}},"messageId":"msg-1","messageSeq":2}\n\n')
       // Close the stream
       res.end()
     })
@@ -102,7 +102,7 @@ describe('GET /agent/events', () => {
     expect(body).toContain('event: history')
     expect(body).toContain('"sessionKey":"agent:aero:main"')
     expect(body).toContain('event: message')
-    expect(body).toContain('"id":"msg-1"')
+    expect(body).toContain('"messageId":"msg-1"')
 
     await app.close()
     await new Promise<void>((resolve) => mockGateway.close(() => resolve()))
@@ -117,7 +117,7 @@ describe('GET /agent/events', () => {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
       })
-      res.write('event: history\ndata: {"sessionKey":"test","history":[]}\n\n')
+      res.write('event: history\ndata: {"sessionKey":"test","items":[],"hasMore":false}\n\n')
 
       // Keep connection open, detect abort
       req.on('close', () => {

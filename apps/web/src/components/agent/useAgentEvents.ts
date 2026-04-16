@@ -13,17 +13,43 @@ interface UseAgentEventsReturn {
 }
 
 /**
- * Maps an OpenClaw history entry to a transcript message DTO.
- * Mirrors the server-side `mapEntry` in `agent-transcript.ts`.
+ * OpenClaw transcript message shape (2026.4.x+).
+ * Each item has `role`, `content` (string or content blocks), `timestamp`, and `__openclaw` metadata.
  */
-function mapEntry(entry: { runId?: string; seq: number; state: string; message?: string }, index: number): AgentTranscriptMessageDto {
+interface OpenClawTranscriptMessage {
+  role: 'user' | 'assistant' | 'system'
+  content: string | Array<{ type: string; text?: string }>
+  timestamp?: number
+  __openclaw?: {
+    id?: string
+    seq?: number
+    kind?: string
+  }
+}
+
+function extractContent(content: string | Array<{ type: string; text?: string }>): string {
+  if (typeof content === 'string') return content
+  return content
+    .filter((block) => block.type === 'text' && block.text)
+    .map((block) => block.text!)
+    .join('\n')
+}
+
+function mapTranscriptMessage(entry: OpenClawTranscriptMessage): AgentTranscriptMessageDto {
+  const meta = entry.__openclaw
+  const id = meta?.id ?? `seq-${meta?.seq ?? 0}`
+  const seq = meta?.seq ?? 0
+  const ts = entry.timestamp
+    ? new Date(typeof entry.timestamp === 'number' ? entry.timestamp * 1000 : entry.timestamp).toISOString()
+    : new Date().toISOString()
+
   return {
-    id: entry.runId ?? `seq-${entry.seq}`,
-    role: index % 2 === 0 ? 'user' : 'assistant',
-    content: entry.message ?? '',
-    timestamp: new Date().toISOString(),
-    seq: entry.seq,
-    state: entry.state as AgentTranscriptMessageDto['state'],
+    id,
+    role: entry.role,
+    content: extractContent(entry.content),
+    timestamp: ts,
+    seq,
+    state: 'final',
   }
 }
 
@@ -77,21 +103,22 @@ export function useAgentEvents(enabled: boolean, opts: UseAgentEventsOptions): U
             try {
               const parsed = JSON.parse(data)
 
-              if (currentEvent === 'history' && Array.isArray(parsed.history)) {
-                const messages = parsed.history.map(mapEntry)
+              if (currentEvent === 'history') {
+                // OpenClaw sends { sessionKey, items: [...], messages: [...], hasMore }
+                const rawItems: OpenClawTranscriptMessage[] = parsed.items ?? parsed.messages ?? []
+                const messages = rawItems.map(mapTranscriptMessage)
                 onMessagesRef.current(messages)
               } else if (currentEvent === 'message') {
-                // Live message — map as a single entry
-                const msg: AgentTranscriptMessageDto = {
-                  id: parsed.id ?? `seq-${parsed.seq}`,
-                  role: parsed.role ?? 'assistant', // live messages are typically assistant
-                  content: parsed.message ?? '',
-                  timestamp: new Date().toISOString(),
-                  seq: parsed.seq,
-                  state: parsed.state ?? 'final',
-                  channel: parsed.channel,
+                // OpenClaw sends { sessionKey, message: {...}, messageId, messageSeq }
+                const rawMsg: OpenClawTranscriptMessage | undefined = parsed.message
+                if (rawMsg) {
+                  const msg: AgentTranscriptMessageDto = {
+                    ...mapTranscriptMessage(rawMsg),
+                    id: parsed.messageId ?? rawMsg.__openclaw?.id ?? `seq-${parsed.messageSeq ?? 0}`,
+                    seq: parsed.messageSeq ?? rawMsg.__openclaw?.seq ?? 0,
+                  }
+                  onMessageRef.current(msg)
                 }
-                onMessageRef.current(msg)
               }
             } catch {
               // skip malformed JSON
