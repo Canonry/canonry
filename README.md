@@ -15,7 +15,7 @@ npm install -g @ainyc/canonry
 canonry agent setup
 ```
 
-One command. It installs the pinned [OpenClaw](https://openclaw.ai) release `2026.4.14`, configures the agent's LLM, sets up monitoring providers, and seeds the workspace. Interactive prompts guide you through everything, or pass flags for fully automated setup:
+One command. It installs [OpenClaw](https://openclaw.ai), configures the agent's LLM, sets up monitoring providers, and seeds the workspace. Interactive prompts guide you through everything, or pass flags for fully automated setup:
 
 ```bash
 canonry agent setup --gemini-key <key> --agent-key <key> --format json
