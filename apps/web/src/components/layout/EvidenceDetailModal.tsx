@@ -307,7 +307,8 @@ export function EvidenceDetailModal({
     }
   })()
 
-  // Render markdown-aware AI answer
+  // Review the snapshot payload for any XSS vectors from the model.
+  // Note: highlightTermsInText returns ReactNode[], which is safe as it uses React.createElement.
   const renderHighlightedAnswer = () => {
     if (!display.answerSnippet) return null
     const lines = display.answerSnippet.split('\n')

@@ -6,6 +6,11 @@ export interface HighlightTermGroup {
   className: string
 }
 
+/**
+ * Highlights terms in a string by splitting it into React elements.
+ * Returns an array of ReactNodes (strings and mark/strong elements).
+ * This is safe from XSS as it does not use dangerouslySetInnerHTML.
+ */
 export function highlightTermsInText(text: string, terms: string[] | HighlightTermGroup[]): ReactNode[] {
   // Normalize to term groups
   const groups: HighlightTermGroup[] = normalizeTermGroups(terms)
