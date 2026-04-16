@@ -140,6 +140,9 @@ describe('agent setup', () => {
       seed: vi.spyOn(bootstrap, 'seedWorkspace').mockImplementation(() => {}),
       initProfile: vi.spyOn(bootstrap, 'initializeOpenClawProfile').mockImplementation(() => {}),
       configGateway: vi.spyOn(bootstrap, 'configureOpenClawGateway').mockImplementation(() => {}),
+      configGatewayAuth: vi.spyOn(bootstrap, 'configureOpenClawGatewayAuth').mockImplementation(() => {}),
+      configSessionScope: vi.spyOn(bootstrap, 'configureOpenClawSessionScope').mockImplementation(() => {}),
+      writeEnv: vi.spyOn(bootstrap, 'writeAgentEnv').mockImplementation(() => {}),
       setModel: vi.spyOn(bootstrap, 'setOpenClawModel').mockImplementation(() => {}),
     }
   }
@@ -169,10 +172,14 @@ describe('agent setup', () => {
     expect(agent.binary).toBe('/usr/local/bin/openclaw')
     expect(agent.gatewayPort).toBe(4000)
     expect(agent.profile).toBe('aero')
+    expect(agent.gatewayToken).toMatch(/^oc_gw_/)
+    expect(agent.sessionKey).toBe('agent:aero:main')
 
     // Verify bootstrap helpers were called in order
     expect(spies.initProfile).toHaveBeenCalled()
     expect(spies.configGateway).toHaveBeenCalledWith('/usr/local/bin/openclaw', 'aero', 4000)
+    expect(spies.configGatewayAuth).toHaveBeenCalledWith('/usr/local/bin/openclaw', 'aero', agent.gatewayToken)
+    expect(spies.configSessionScope).toHaveBeenCalledWith('/usr/local/bin/openclaw', 'aero')
     expect(spies.seed).toHaveBeenCalledWith(stateDir)
 
     for (const spy of Object.values(spies)) spy.mockRestore()

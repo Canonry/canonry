@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronRight, Download, Trash2 } from 'lucide-react'
-import { useParams, useNavigate } from '@tanstack/react-router'
+import { ChevronRight, Download, MessageCircle, Trash2 } from 'lucide-react'
+import { useParams, useNavigate, useLocation } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
 
 import { Button } from '../components/ui/button.js'
@@ -59,7 +59,8 @@ import { useTriggerRun } from '../queries/mutations.js'
 import { useDashboard } from '../queries/use-dashboard.js'
 import { useDrawer } from '../hooks/use-drawer.js'
 import { findProjectVm } from '../mock-data.js'
-import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
+import type { ProjectCommandCenterVm, ProjectInsightVm, RunHistoryPoint } from '../view-models.js'
+import { useAskAero } from '../contexts/agent-chat-context.js'
 
 export type ProjectPageTab = 'overview' | 'search-console' | 'analytics' | 'traffic'
 
@@ -904,13 +905,34 @@ function SearchConsoleSection({
   )
 }
 
+function composeInsightMessage(insight: ProjectInsightVm): string {
+  const keywords = insight.affectedPhrases.map(p => p.keyword).join(', ')
+  switch (insight.tone) {
+    case 'negative':
+      return `Investigate this regression: ${insight.title}. Affected phrases: ${keywords}`
+    case 'positive':
+      return `Tell me more about this gain: ${insight.title}. Phrases: ${keywords}`
+    case 'caution':
+      return `Explore this opportunity: ${insight.title}. Phrases: ${keywords}`
+    default:
+      return `Tell me about: ${insight.title}. Phrases: ${keywords}`
+  }
+}
+
 function InsightSignals({
   insights,
+  onAskAero,
+  agentConfigured,
+  projectName,
 }: {
   insights: ProjectCommandCenterVm['insights']
+  onAskAero?: (message: string, context: { page?: string; projectName?: string; insightId?: string }) => void
+  agentConfigured?: boolean
+  projectName?: string
 }) {
   const { openEvidence } = useDrawer()
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const location = useLocation()
 
   return (
     <div className="insight-list">
@@ -935,11 +957,24 @@ function InsightSignals({
                 <span className="text-sm font-medium text-zinc-100 truncate">{insight.title}</span>
                 <span className="hidden sm:inline text-xs text-zinc-500 truncate">{insight.detail}</span>
               </div>
-              {hasAffected && (
-                <span className="text-[11px] text-zinc-600 whitespace-nowrap">
-                  {insight.affectedPhrases.length} phrase{insight.affectedPhrases.length > 1 ? 's' : ''}
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                {agentConfigured && onAskAero && (
+                  <button
+                    className="hidden sm:inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-emerald-400 transition-colors"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onAskAero(composeInsightMessage(insight), { page: location.pathname, projectName, insightId: insight.id })
+                    }}
+                  >
+                    <MessageCircle className="size-3" /> Ask Aero
+                  </button>
+                )}
+                {hasAffected && (
+                  <span className="text-[11px] text-zinc-600 whitespace-nowrap">
+                    {insight.affectedPhrases.length} phrase{insight.affectedPhrases.length > 1 ? 's' : ''}
+                  </span>
+                )}
+              </div>
             </div>
             {isExpanded && (
               <div className="divide-y divide-zinc-800/20">
@@ -983,6 +1018,7 @@ export function ProjectPage({
   const { projectId } = useParams({ from: '/projects/$projectId' })
   const navigate = useNavigate()
   const { dashboard, isLoading, refetch } = useDashboard()
+  const { askAero, isConfigured: isAgentConfigured } = useAskAero()
 
   if (!dashboard || isLoading) {
     return (
@@ -1485,7 +1521,7 @@ export function ProjectPage({
                 <h2>Citation signals</h2>
               </div>
             </div>
-            <InsightSignals insights={model.insights} />
+            <InsightSignals insights={model.insights} onAskAero={askAero} agentConfigured={isAgentConfigured} projectName={model.project.name} />
           </section>
 
           {/* Evidence table */}

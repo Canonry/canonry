@@ -1,4 +1,4 @@
-import type { ErrorCode, GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, HealthSnapshotDto, RunKind, RunStatus, RunTrigger, CitationState, ComputedTransition } from '@ainyc/canonry-contracts'
+import type { ErrorCode, GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, HealthSnapshotDto, RunKind, RunStatus, RunTrigger, CitationState, ComputedTransition, AgentStatusDto, AgentTranscriptDto, AgentChatRequestDto } from '@ainyc/canonry-contracts'
 
 export type { GroundingSource }
 
@@ -1129,4 +1129,43 @@ export async function fetchServiceStatus(path: string, label: string): Promise<S
         : undefined,
     }
   }
+}
+
+// ── Agent API ─────────────────────────────────────────────────────
+
+export function fetchAgentStatus(): Promise<AgentStatusDto> {
+  return apiFetch<AgentStatusDto>('/agent/status')
+}
+
+export function fetchAgentTranscript(limit?: number, cursor?: string): Promise<AgentTranscriptDto> {
+  const params = new URLSearchParams()
+  if (limit) params.set('limit', String(limit))
+  if (cursor) params.set('cursor', cursor)
+  const qs = params.toString()
+  return apiFetch<AgentTranscriptDto>(`/agent/transcript${qs ? `?${qs}` : ''}`)
+}
+
+export function streamAgentChat(body: AgentChatRequestDto): Promise<Response> {
+  const key = getApiKey()
+  return fetch(`${API_BASE}/agent/chat`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(key ? { Authorization: `Bearer ${key}` } : {}),
+    },
+    body: JSON.stringify({ ...body, stream: true }),
+  })
+}
+
+export function streamAgentEvents(signal?: AbortSignal): Promise<Response> {
+  const key = getApiKey()
+  return fetch(`${API_BASE}/agent/events`, {
+    credentials: 'same-origin',
+    headers: {
+      'Accept': 'text/event-stream',
+      ...(key ? { Authorization: `Bearer ${key}` } : {}),
+    },
+    signal,
+  })
 }

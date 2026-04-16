@@ -13,6 +13,7 @@ export type ErrorCode =
   | 'NOT_IMPLEMENTED'
   | 'INTERNAL_ERROR'
   | 'DELIVERY_FAILED'
+  | 'AGENT_UNAVAILABLE'
 
 export class AppError extends Error {
   readonly code: ErrorCode
@@ -93,4 +94,8 @@ export function notImplemented(message: string): AppError {
 
 export function deliveryFailed(message: string): AppError {
   return new AppError('DELIVERY_FAILED', message, 502)
+}
+
+export function agentUnavailable(message = 'Agent gateway is not running'): AppError {
+  return new AppError('AGENT_UNAVAILABLE', message, 503)
 }

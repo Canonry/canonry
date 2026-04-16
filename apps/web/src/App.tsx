@@ -7,6 +7,7 @@ import {
   Globe,
   LayoutDashboard,
   Menu,
+  MessageCircle,
   Play,
   Rocket,
   Settings,
@@ -14,7 +15,9 @@ import {
 } from 'lucide-react'
 
 import { formatErrorLog } from './lib/format-helpers.js'
-import { fetchAllRuns, fetchProjects, type ApiProject, type ApiRun } from './api.js'
+import { fetchAgentStatus, fetchAllRuns, fetchProjects, type ApiProject, type ApiRun } from './api.js'
+import { useAgentChat } from './components/agent/useAgentChat.js'
+import { AgentChatContext } from './contexts/agent-chat-context.js'
 import { serviceStatusTooltip } from './lib/health-helpers.js'
 import { addToast, type ToastTone } from './lib/toast-store.js'
 import {
@@ -40,6 +43,7 @@ import { useRunDetail } from './queries/use-run-detail.js'
 import { useDrawer } from './hooks/use-drawer.js'
 import { useInitialDashboard } from './contexts/dashboard-context.js'
 import { Toaster } from './components/layout/Toaster.js'
+import { ChatPanel } from './components/agent/ChatPanel.js'
 import { queryKeys } from './queries/query-keys.js'
 import type {
   HealthSnapshot,
@@ -238,6 +242,25 @@ export function RootLayout() {
 
   // ── UI state ──
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
+
+  // ── Agent status ──
+  const agentStatusQuery = useQuery({
+    queryKey: queryKeys.agent.status,
+    queryFn: fetchAgentStatus,
+    refetchInterval: 10_000,
+    retry: false,
+  })
+  const agentStatus = agentStatusQuery.data
+
+  // ── Agent chat (lifted for context sharing) ──
+  const agentChat = useAgentChat()
+  const chatInputRef = useRef<HTMLTextAreaElement>(null)
+
+  const handleAskAero = useCallback((message: string, context?: { page?: string; projectName?: string; insightId?: string }) => {
+    setChatOpen(true)
+    agentChat.sendMessage(message, context)
+  }, [agentChat.sendMessage])
 
   // ── Run detail for drawer ──
   const runDetailQuery = useRunDetail(runId)
@@ -256,6 +279,19 @@ export function RootLayout() {
   useEffect(() => {
     setMobileNavOpen(false)
   }, [location.pathname])
+
+  // Cmd+K to open chat panel
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setChatOpen(true)
+        setTimeout(() => chatInputRef.current?.focus(), 150)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
 
   // Escape key closes drawer
   useEffect(() => {
@@ -303,6 +339,7 @@ export function RootLayout() {
   })()
 
   return (
+    <AgentChatContext.Provider value={{ askAero: handleAskAero, isConfigured: !!agentStatus?.configured }}>
     <div className="app-shell">
       <a className="skip-link" href="#content">
         Skip to content
@@ -424,6 +461,21 @@ export function RootLayout() {
           </div>
 
           <div className="topbar-actions">
+            {agentStatus?.configured && (
+              <button
+                onClick={() => setChatOpen(true)}
+                className="relative flex items-center gap-1.5 rounded-full border border-zinc-800/60 px-2.5 py-1 text-xs text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200"
+                aria-label="Open Aero chat"
+              >
+                <MessageCircle className="size-3.5" />
+                <span>Aero</span>
+                <span
+                  className={`size-1.5 rounded-full ${
+                    agentStatus.gatewayState === 'running' ? 'bg-emerald-400' : 'bg-zinc-600'
+                  }`}
+                />
+              </button>
+            )}
             <div className="health-pill-row">
               <span
                 className={`health-pill health-pill-${healthSnapshot.apiStatus.state}`}
@@ -648,8 +700,20 @@ export function RootLayout() {
         <EvidenceDetailModal evidence={selectedEvidenceContext.evidence} project={selectedEvidenceContext.project} onClose={closeDrawer} />
       ) : null}
 
+      <ChatPanel
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+        agentStatus={agentStatus}
+        messages={agentChat.messages}
+        isStreaming={agentChat.isStreaming}
+        error={agentChat.error}
+        sendMessage={agentChat.sendMessage}
+        setMessages={agentChat.setMessages}
+        chatInputRef={chatInputRef}
+      />
       <RunNotificationObserver />
       <Toaster />
     </div>
+    </AgentChatContext.Provider>
   )
 }

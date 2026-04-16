@@ -576,13 +576,15 @@ Doc-only changes within each phase don't need their own bump — they're part of
 11. `pnpm --filter @ainyc/canonry run build` then `npm pack --dry-run` in `packages/canonry/` — verify `assets/agent-workspace/skills/aero/SKILL.md` and `assets/agent-workspace/skills/canonry-setup/SKILL.md` appear in the output
 12. Verify new notification events (`insight.critical`, `insight.high`) accepted by `canonry notify add`
 
-### Phase 3
-13. Dashboard shows health score dots in sidebar
-14. Insight cards have action buttons that dispatch agent tasks
-15. Task queue page shows running/completed/scheduled tasks
-16. Cmd+K opens command palette, dispatches task, closes
-17. Topbar shows Aero status (working/idle/offline/not configured)
-18. BYO-agent users see insights + health but no Aero-specific UI when agent not configured
+### Phase 3 — 🚧 In Progress (Layer 1 MVP complete)
+13. ✅ Dashboard chat panel (Sheet-based, SSE streaming, transcript polling)
+14. ✅ Agent status/chat/transcript API routes + CLI commands
+15. ✅ Gateway token generation in `agent setup` + migration path (`needs-setup` state)
+16. ✅ OpenAPI conditional catalog for agent routes
+17. Insight cards have action buttons that compose messages to chat (Layer 3)
+18. Cmd+K opens chat input (Layer 3)
+19. Topbar shows Aero status (working/idle/offline/not configured) ✅
+20. BYO-agent users see insights + health but no Aero-specific UI when agent not configured ✅
 
 ---
 

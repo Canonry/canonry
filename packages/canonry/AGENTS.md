@@ -25,8 +25,9 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/commands/ga.ts` | GA4 commands: `ga sync`, `ga traffic`, `ga status`, `ga social-referral-history`, `ga social-referral-summary`, `ga attribution` |
 | `src/agent-bootstrap.ts` | OpenClaw detection, installation, profile setup, gateway config, credential resolution, workspace seeding |
 | `src/agent-manager.ts` | OpenClaw gateway process lifecycle — spawns `openclaw --profile aero gateway` directly, loads `.env` into process env |
-| `src/commands/agent.ts` | Thin orchestrator for `agent setup` + implementations for `status/start/stop/reset` |
+| `src/commands/agent.ts` | Thin orchestrator for `agent setup` + implementations for `status/start/stop/reset/chat/transcript` |
 | `src/cli-commands/agent.ts` | CLI command specs for the `agent` subcommand family |
+| `src/agent-session.ts` | Session key resolver for OpenClaw dashboard messages |
 
 ## Patterns
 

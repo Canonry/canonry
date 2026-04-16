@@ -35,6 +35,10 @@ import { ga4Routes } from './ga.js'
 import type { GA4RoutesOptions, Ga4CredentialStore } from './ga.js'
 import { wordpressRoutes } from './wordpress.js'
 import type { WordpressRoutesOptions } from './wordpress.js'
+import { agentStatusRoutes } from './agent-status.js'
+import { agentChatRoutes } from './agent-chat.js'
+import { agentTranscriptRoutes } from './agent-transcript.js'
+import { agentEventsRoutes } from './agent-events.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -97,6 +101,12 @@ export interface ApiRoutesOptions {
   onCdpConfigure?: CDPRoutesOptions['onCdpConfigure']
   /** GA4 credential store — stores service account keys in config, not DB */
   ga4CredentialStore?: Ga4CredentialStore
+  /** Agent gateway port — when set, enables agent chat + transcript routes */
+  agentGatewayPort?: number
+  /** Bearer token for canonry → OpenClaw gateway auth */
+  agentGatewayToken?: string
+  /** OpenClaw session key for dashboard messages */
+  agentSessionKey?: string
   /**
    * API route prefix (default: /api/v1).
    * Override when the server is behind a reverse proxy that does NOT strip the
@@ -157,7 +167,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       })
     }
 
-    await api.register(openApiRoutes, { ...opts.openApiInfo, routePrefix: opts.routePrefix })
+    await api.register(openApiRoutes, { ...opts.openApiInfo, routePrefix: opts.routePrefix, agentEnabled: !!opts.agentGatewayPort })
     await api.register(projectRoutes, {
       onProjectDeleted: opts.onProjectDeleted,
       onProjectUpserted: opts.onProjectUpserted,
@@ -234,6 +244,23 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       googleConnectionStore: opts.googleConnectionStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
     } satisfies GA4RoutesOptions)
+
+    // Agent routes — status is always registered; chat + transcript require agent config
+    await api.register(agentStatusRoutes, {
+      agentGatewayPort: opts.agentGatewayPort,
+      agentGatewayToken: opts.agentGatewayToken,
+      agentSessionKey: opts.agentSessionKey,
+    })
+    if (opts.agentGatewayPort) {
+      const agentOpts = {
+        agentGatewayPort: opts.agentGatewayPort,
+        agentGatewayToken: opts.agentGatewayToken,
+        agentSessionKey: opts.agentSessionKey,
+      }
+      await api.register(agentChatRoutes, agentOpts)
+      await api.register(agentTranscriptRoutes, agentOpts)
+      await api.register(agentEventsRoutes, agentOpts)
+    }
   }, { prefix: opts.routePrefix ?? '/api/v1' })
 }
 

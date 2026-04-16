@@ -96,6 +96,10 @@ export interface AgentConfigEntry {
   autoStart?: boolean
   /** Gateway port (persisted so restarts reuse same port) */
   gatewayPort?: number
+  /** Bearer token for canonry → OpenClaw gateway auth */
+  gatewayToken?: string
+  /** Session key for dashboard messages (default: agent:<profile>:main) */
+  sessionKey?: string
 }
 
 export interface CanonryConfig {
