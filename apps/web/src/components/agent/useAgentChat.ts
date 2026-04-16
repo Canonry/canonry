@@ -12,6 +12,8 @@ interface UseAgentChatReturn {
   setMessages: React.Dispatch<React.SetStateAction<AgentTranscriptMessageDto[]>>
 }
 
+let seqCounter = 0
+
 export function useAgentChat(): UseAgentChatReturn {
   const [messages, setMessages] = useState<AgentTranscriptMessageDto[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
@@ -21,12 +23,15 @@ export function useAgentChat(): UseAgentChatReturn {
   const sendMessage = useCallback(async (message: string, context?: { page?: string; projectName?: string }) => {
     setError(null)
 
+    const userSeq = seqCounter++
+    const assistantSeq = seqCounter++
+
     const userMsg: AgentTranscriptMessageDto = {
       id: `local-${Date.now()}`,
       role: 'user',
       content: message,
       timestamp: new Date().toISOString(),
-      seq: messages.length,
+      seq: userSeq,
       state: 'final',
     }
 
@@ -35,7 +40,7 @@ export function useAgentChat(): UseAgentChatReturn {
       role: 'assistant',
       content: '',
       timestamp: new Date().toISOString(),
-      seq: messages.length + 1,
+      seq: assistantSeq,
       state: 'delta',
     }
 
@@ -67,13 +72,15 @@ export function useAgentChat(): UseAgentChatReturn {
 
       const decoder = new TextDecoder()
       let accumulated = ''
+      let buffer = ''
 
       for (;;) {
         const { done, value } = await reader.read()
         if (done) break
 
-        const chunk = decoder.decode(value, { stream: true })
-        const lines = chunk.split('\n')
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
 
         for (const line of lines) {
           if (line.startsWith('data: ')) {
@@ -109,7 +116,7 @@ export function useAgentChat(): UseAgentChatReturn {
       setIsStreaming(false)
       queryClient.invalidateQueries({ queryKey: queryKeys.agent.transcript() })
     }
-  }, [messages.length, queryClient])
+  }, [queryClient])
 
   return { messages, isStreaming, error, sendMessage, setMessages }
 }

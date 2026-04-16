@@ -80,7 +80,7 @@ export async function agentChatRoutes(app: FastifyInstance, opts: AgentChatRoute
       throw agentUnavailable()
     }
 
-    if (!gatewayRes.ok && !shouldStream) {
+    if (!gatewayRes.ok) {
       clearTimeout(timeout)
       throw agentUnavailable(`Agent gateway returned ${gatewayRes.status}`)
     }
