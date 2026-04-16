@@ -7,11 +7,12 @@ import type { AgentConfigEntry } from '../src/config.js'
 // Mock child_process before importing the module under test
 vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(),
+  execSync: vi.fn(),
 }))
 
 // Lazy import so mocks are in place
-const { detectOpenClaw, getAeroStateDir } = await import('../src/agent-bootstrap.js')
-const { execFileSync } = await import('node:child_process')
+const { detectOpenClaw, getAeroStateDir, installOpenClaw } = await import('../src/agent-bootstrap.js')
+const { execFileSync, execSync } = await import('node:child_process')
 
 let tmpDir: string
 
@@ -112,5 +113,74 @@ describe('getAeroStateDir', () => {
   it('uses custom profile name when provided', () => {
     const result = getAeroStateDir('custom')
     expect(result).toBe(path.join(os.homedir(), '.openclaw-custom'))
+  })
+})
+
+describe('installOpenClaw', () => {
+  it('installs openclaw@latest and verifies the detected version', async () => {
+    vi.mocked(execSync)
+      .mockReturnValueOnce(JSON.stringify({
+        version: '2026.4.14',
+        engines: { node: '>=20.0.0' },
+      }) as ReturnType<typeof execSync>)
+      .mockReturnValueOnce('' as ReturnType<typeof execSync>)
+
+    vi.mocked(execFileSync)
+      .mockImplementationOnce(((cmd: string) => {
+        if (cmd === 'which') return '/usr/local/bin/openclaw\n'
+        throw new Error('unexpected')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any)
+      .mockImplementationOnce(((cmd: string) => {
+        if (cmd === '/usr/local/bin/openclaw') return 'openclaw 2026.4.14\n'
+        throw new Error('unexpected')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any)
+
+    const result = await installOpenClaw({ silent: true })
+
+    expect(result.success).toBe(true)
+    expect(result.detection?.version).toBe('2026.4.14')
+    expect(vi.mocked(execSync).mock.calls[0]?.[0]).toBe('npm view openclaw@latest version engines --json')
+    expect(vi.mocked(execSync).mock.calls[1]?.[0]).toBe('npm install -g openclaw@latest')
+  })
+
+  it('fails early when the published OpenClaw engine exceeds the current Node runtime', async () => {
+    vi.mocked(execSync).mockReturnValueOnce(JSON.stringify({
+      version: '2099.1.0',
+      engines: { node: '>=99.0.0' },
+    }) as ReturnType<typeof execSync>)
+
+    const result = await installOpenClaw({ silent: true })
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('requires Node.js >=99.0.0')
+    expect(vi.mocked(execSync).mock.calls).toHaveLength(1)
+  })
+
+  it('fails when the detected OpenClaw version does not match the resolved npm package version', async () => {
+    vi.mocked(execSync)
+      .mockReturnValueOnce(JSON.stringify({
+        version: '2026.4.14',
+        engines: { node: '>=20.0.0' },
+      }) as ReturnType<typeof execSync>)
+      .mockReturnValueOnce('' as ReturnType<typeof execSync>)
+
+    vi.mocked(execFileSync)
+      .mockImplementationOnce(((cmd: string) => {
+        if (cmd === 'which') return '/usr/local/bin/openclaw\n'
+        throw new Error('unexpected')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any)
+      .mockImplementationOnce(((cmd: string) => {
+        if (cmd === '/usr/local/bin/openclaw') return 'openclaw 2026.4.13\n'
+        throw new Error('unexpected')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any)
+
+    const result = await installOpenClaw({ silent: true })
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('npm resolved 2026.4.14')
   })
 })
