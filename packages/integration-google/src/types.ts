@@ -106,9 +106,11 @@ export interface IndexingApiResponse {
 }
 
 export class GoogleAuthError extends Error {
-  constructor(message: string) {
+  public statusCode?: number
+  constructor(message: string, statusCode?: number) {
     super(message)
     this.name = 'GoogleAuthError'
+    this.statusCode = statusCode
   }
 }
 

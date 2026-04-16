@@ -157,6 +157,10 @@ async function fetchJson<T>(
     throw new WordpressApiError('AUTH_INVALID', errorMessage, res.status)
   }
 
+  if (res.status === 429) {
+    throw new WordpressApiError('UPSTREAM_ERROR', 'WordPress API rate limit exceeded', 429)
+  }
+
   if (res.status === 404) {
     throw new WordpressApiError('NOT_FOUND', 'WordPress endpoint not found', 404)
   }

@@ -79,6 +79,22 @@ function gscClientLog(level: 'info' | 'error', action: string, ctx?: Record<stri
   }
   // Sanitize potential secrets
   if (entry.accessToken) entry.accessToken = '***'
+  if (typeof entry.siteUrl === 'string') {
+    // Basic sanitization if siteUrl happens to contain query params with tokens (unlikely for GSC but good practice)
+    try {
+      const url = new URL(entry.siteUrl)
+      if (url.search) {
+        url.searchParams.forEach((_, key) => {
+          if (key.toLowerCase().includes('token') || key.toLowerCase().includes('key') || key.toLowerCase().includes('auth')) {
+            url.searchParams.set(key, '***')
+          }
+        })
+        entry.siteUrl = url.toString()
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   const stream = level === 'error' ? process.stderr : process.stdout
   stream.write(JSON.stringify(entry) + '\n')

@@ -67,6 +67,10 @@ function bingClientLog(level: 'info' | 'error', action: string, ctx?: Record<str
   stream.write(JSON.stringify(entry) + '\n')
 }
 
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 async function bingFetch<T>(apiKey: string, endpoint: string, opts?: { method?: string; body?: unknown }): Promise<T> {
   const method = opts?.method ?? 'GET'
   const separator = endpoint.includes('?') ? '&' : '?'
@@ -96,8 +100,9 @@ async function bingFetch<T>(apiKey: string, endpoint: string, opts?: { method?: 
   if (!res.ok) {
     const body = await res.text()
     bingClientLog('error', 'http.error', { endpoint, method, httpStatus: res.status })
-    // Truncate large error bodies to avoid carrying huge payloads in thrown errors
-    const detail = body.length <= 500 ? body : `${body.slice(0, 500)}... [truncated]`
+    // Sanitize: avoid leaking API key from error messages if it appears in the body
+    let detail = body.length <= 500 ? body : `${body.slice(0, 500)}... [truncated]`
+    detail = detail.replace(new RegExp(escapeRegExp(apiKey), 'g'), '***')
     throw new BingApiError(`Bing API error (${res.status}): ${detail}`, res.status)
   }
 

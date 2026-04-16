@@ -98,6 +98,10 @@ export async function exchangeCode(
     signal: AbortSignal.timeout(GOOGLE_REQUEST_TIMEOUT_MS),
   })
 
+  if (res.status === 429) {
+    throw new GoogleAuthError('Google OAuth rate limit exceeded', 429)
+  }
+
   if (!res.ok) {
     const body = await res.text()
     // Sanitize: Google OAuth errors may include client_secret or redirect_uri details
@@ -110,6 +114,7 @@ export async function exchangeCode(
         const sanitized = parsed.error_description
           .replace(new RegExp(escapeRegExp(clientId), 'g'), '***')
           .replace(new RegExp(escapeRegExp(clientSecret), 'g'), '***')
+          .replace(new RegExp(escapeRegExp(code), 'g'), '***')
         detail += detail ? `: ${sanitized}` : sanitized
       }
     } catch {
@@ -145,6 +150,10 @@ export async function refreshAccessToken(
     signal: AbortSignal.timeout(GOOGLE_REQUEST_TIMEOUT_MS),
   })
 
+  if (res.status === 429) {
+    throw new GoogleAuthError('Google OAuth rate limit exceeded', 429)
+  }
+
   if (!res.ok) {
     const body = await res.text()
     // Sanitize: avoid leaking sensitive details from raw OAuth error responses
@@ -157,6 +166,7 @@ export async function refreshAccessToken(
         const sanitized = parsed.error_description
           .replace(new RegExp(escapeRegExp(clientId), 'g'), '***')
           .replace(new RegExp(escapeRegExp(clientSecret), 'g'), '***')
+          .replace(new RegExp(escapeRegExp(currentRefreshToken), 'g'), '***')
         detail += detail ? `: ${sanitized}` : sanitized
       }
     } catch {
