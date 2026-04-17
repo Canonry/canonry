@@ -90,10 +90,10 @@ function buildGetTimelineTool(ctx: ToolContext): AgentTool<typeof TimelineSchema
 }
 
 /** Read-only Aero tools — fetch canonry state. Does not mutate anything. */
-export function buildReadTools(ctx: ToolContext): AgentTool<never>[] {
+export function buildReadTools(ctx: ToolContext): AgentTool[] {
   return [
-    buildGetStatusTool(ctx) as unknown as AgentTool<never>,
-    buildGetHealthTool(ctx) as unknown as AgentTool<never>,
-    buildGetTimelineTool(ctx) as unknown as AgentTool<never>,
+    buildGetStatusTool(ctx) as unknown as AgentTool,
+    buildGetHealthTool(ctx) as unknown as AgentTool,
+    buildGetTimelineTool(ctx) as unknown as AgentTool,
   ]
 }
