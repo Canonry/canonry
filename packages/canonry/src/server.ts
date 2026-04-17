@@ -10,7 +10,7 @@ const { version: PKG_VERSION } = _require('../package.json') as { version: strin
 import Fastify from 'fastify'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { apiRoutes } from '@ainyc/canonry-api-routes'
-import { apiKeys, auditLog, projects, parseJsonColumn, extractAndDropLegacyCredentials, type DatabaseClient, type LegacyCredentialRows } from '@ainyc/canonry-db'
+import { apiKeys, auditLog, projects, parseJsonColumn, extractLegacyCredentials, dropLegacyCredentialColumns, type DatabaseClient, type LegacyCredentialRows } from '@ainyc/canonry-db'
 import { attachAgentWebhookDirect } from './agent-webhook.js'
 import { geminiAdapter } from '@ainyc/canonry-provider-gemini'
 import { openaiAdapter } from '@ainyc/canonry-provider-openai'
@@ -158,8 +158,9 @@ function serializeSessionCookie(opts: {
  * extracted from the legacy DB columns into config.yaml. Skips any connection
  * that already exists in config to avoid overwriting refreshed tokens.
  *
- * Pair with `extractAndDropLegacyCredentials(db)` from `@ainyc/canonry-db`,
- * which reads the rows out of the DB and drops the columns atomically.
+ * Pair with `extractLegacyCredentials(db)` + `dropLegacyCredentialColumns(db)`
+ * from `@ainyc/canonry-db`: extract first, call this, and only drop the columns
+ * once this returns — a failed config write must be retryable on next boot.
  */
 export function applyLegacyCredentials(rows: LegacyCredentialRows, config: CanonryConfig): void {
   let migratedGoogle = 0
@@ -244,11 +245,20 @@ export async function createServer(opts: {
     }
   }
 
-  // One-time upgrade for pre-1.45.1 installs: extract any credentials still
-  // stored in the DB, drop the legacy columns, and persist the values into
-  // config.yaml. Order matters — extraction must run before any code path
-  // that depends on the columns being absent.
-  applyLegacyCredentials(extractAndDropLegacyCredentials(opts.db), opts.config)
+  // One-time upgrade for pre-1.45.1 installs. Order is load-bearing: extract
+  // into memory, persist to config.yaml, and only then drop the legacy columns.
+  // Dropping before a successful config write would lose credentials if the
+  // disk write fails. Best-effort — any failure is logged and retried next
+  // boot rather than blocking server startup.
+  try {
+    const legacyRows = extractLegacyCredentials(opts.db)
+    applyLegacyCredentials(legacyRows, opts.config)
+    dropLegacyCredentialColumns(opts.db)
+  } catch (err) {
+    log.warn('credentials.migration.failed', {
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
 
   log.info('providers.configured', { providers: Object.keys(providers).filter(k => {
     const p = providers[k]

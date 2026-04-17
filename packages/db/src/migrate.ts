@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import type { DatabaseClient } from './client.js'
+import { parseJsonColumn } from './json.js'
 
 const MIGRATION_SQL = `
 CREATE TABLE IF NOT EXISTS projects (
@@ -439,10 +440,11 @@ const MIGRATIONS = [
   // v36: Transaction handling and SQL injection review: verified all strings use SQLite ? binding via Drizzle.
   // No changes required for parameterization.
   // v37: The legacy credential columns (private_key on ga_connections; access_token,
-  // refresh_token, token_expires_at on google_connections) are removed by
-  // extractAndDropLegacyCredentials below — that path reads any remaining values
-  // out of the DB before dropping the columns, so callers can persist them to
-  // config.yaml. Keeping the DROPs as raw SQL here would race with that read.
+  // refresh_token, token_expires_at on google_connections) are removed by the
+  // extractLegacyCredentials / dropLegacyCredentialColumns pair below. Callers
+  // read the rows, persist them to config.yaml, and only then drop the columns
+  // so a failed config write doesn't permanently lose credentials. Keeping the
+  // DROPs as raw SQL here would race with that read.
 ]
 
 /**
@@ -512,18 +514,15 @@ function dropColumnIfExists(db: DatabaseClient, table: string, column: string): 
 }
 
 /**
- * Reads any remaining credentials out of the legacy DB columns, then drops
- * those columns. Returns the extracted rows so the caller can persist them to
- * config.yaml. Idempotent: subsequent calls return empty arrays once columns
- * are gone.
+ * Reads any remaining credentials out of the legacy DB columns without
+ * mutating the schema. Idempotent: once the columns are gone (after
+ * `dropLegacyCredentialColumns`), subsequent calls return empty arrays.
  *
- * This is split out from `migrate()` so that the canonry server can write the
- * extracted rows to config.yaml between extraction and the next boot — running
- * the extraction inside `migrate()` would force every CLI command (including
- * tests) to handle credentials, and would give callers no chance to seed
- * legacy data for upgrade tests.
+ * Pair with `dropLegacyCredentialColumns(db)`. Callers should extract, persist
+ * to config.yaml, and only then drop the columns — dropping first would lose
+ * credentials if the config write fails.
  */
-export function extractAndDropLegacyCredentials(db: DatabaseClient): LegacyCredentialRows {
+export function extractLegacyCredentials(db: DatabaseClient): LegacyCredentialRows {
   const out: LegacyCredentialRows = { google: [], ga4: [] }
 
   if (columnExists(db, 'google_connections', 'access_token')) {
@@ -544,8 +543,6 @@ export function extractAndDropLegacyCredentials(db: DatabaseClient): LegacyCrede
       updated_at: string
     }>
     for (const row of rows) {
-      let scopes: string[] = []
-      try { scopes = JSON.parse(row.scopes || '[]') as string[] } catch { scopes = [] }
       out.google.push({
         domain: row.domain,
         connectionType: row.connection_type as 'gsc' | 'ga4',
@@ -554,14 +551,11 @@ export function extractAndDropLegacyCredentials(db: DatabaseClient): LegacyCrede
         accessToken: row.access_token,
         refreshToken: row.refresh_token,
         tokenExpiresAt: row.token_expires_at,
-        scopes,
+        scopes: parseJsonColumn<string[]>(row.scopes, []),
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       })
     }
-    dropColumnIfExists(db, 'google_connections', 'access_token')
-    dropColumnIfExists(db, 'google_connections', 'refresh_token')
-    dropColumnIfExists(db, 'google_connections', 'token_expires_at')
   }
 
   if (columnExists(db, 'ga_connections', 'private_key')) {
@@ -588,10 +582,29 @@ export function extractAndDropLegacyCredentials(db: DatabaseClient): LegacyCrede
         updatedAt: row.updated_at,
       })
     }
-    dropColumnIfExists(db, 'ga_connections', 'private_key')
   }
 
   return out
+}
+
+/**
+ * Drops the legacy credential columns. Idempotent — safe to run when columns
+ * are already gone. Call only after `extractLegacyCredentials` rows have been
+ * durably persisted to config.yaml.
+ */
+export function dropLegacyCredentialColumns(db: DatabaseClient): void {
+  if (columnExists(db, 'google_connections', 'access_token')) {
+    dropColumnIfExists(db, 'google_connections', 'access_token')
+  }
+  if (columnExists(db, 'google_connections', 'refresh_token')) {
+    dropColumnIfExists(db, 'google_connections', 'refresh_token')
+  }
+  if (columnExists(db, 'google_connections', 'token_expires_at')) {
+    dropColumnIfExists(db, 'google_connections', 'token_expires_at')
+  }
+  if (columnExists(db, 'ga_connections', 'private_key')) {
+    dropColumnIfExists(db, 'ga_connections', 'private_key')
+  }
 }
 
 export function migrate(db: DatabaseClient) {

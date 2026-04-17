@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { sql } from 'drizzle-orm'
-import { createClient, migrate, projects, extractAndDropLegacyCredentials } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, extractLegacyCredentials, dropLegacyCredentialColumns } from '@ainyc/canonry-db'
 import { parse } from 'yaml'
 import type { CanonryConfig } from '../src/config.js'
 import { applyLegacyCredentials } from '../src/server.js'
@@ -12,7 +12,9 @@ import { getGoogleConnection } from '../src/google-config.js'
 import { getGa4Connection } from '../src/ga4-config.js'
 
 function migrateAndApply(db: ReturnType<typeof createClient>, config: CanonryConfig): void {
-  applyLegacyCredentials(extractAndDropLegacyCredentials(db), config)
+  const rows = extractLegacyCredentials(db)
+  applyLegacyCredentials(rows, config)
+  dropLegacyCredentialColumns(db)
 }
 
 function setupDb(tmpDir: string) {
@@ -145,7 +147,7 @@ describe('legacy credential migration (extract + apply)', () => {
     expect(config.ga4).toBeUndefined()
   })
 
-  it('drops legacy columns after extraction and is idempotent', () => {
+  it('drops legacy columns on demand and is idempotent', () => {
     const tmpDir = makeTmpDir()
     vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
     const db = setupDb(tmpDir)
@@ -158,18 +160,48 @@ describe('legacy credential migration (extract + apply)', () => {
     expect(columnNames('google_connections')).toEqual(expect.arrayContaining(['access_token', 'refresh_token', 'token_expires_at']))
     expect(columnNames('ga_connections')).toEqual(expect.arrayContaining(['private_key']))
 
-    // First run drops the columns even when there are no rows to extract
-    extractAndDropLegacyCredentials(db)
+    // Extract is read-only — columns still exist after it runs
+    const first = extractLegacyCredentials(db)
+    expect(first.google).toEqual([])
+    expect(first.ga4).toEqual([])
+    expect(columnNames('google_connections')).toEqual(expect.arrayContaining(['access_token']))
 
+    // Drop removes the columns
+    dropLegacyCredentialColumns(db)
     expect(columnNames('google_connections')).not.toEqual(expect.arrayContaining(['access_token']))
     expect(columnNames('google_connections')).not.toEqual(expect.arrayContaining(['refresh_token']))
     expect(columnNames('google_connections')).not.toEqual(expect.arrayContaining(['token_expires_at']))
     expect(columnNames('ga_connections')).not.toEqual(expect.arrayContaining(['private_key']))
 
-    // Second run is a no-op
-    const second = extractAndDropLegacyCredentials(db)
+    // Second drop is a no-op
+    dropLegacyCredentialColumns(db)
+    const second = extractLegacyCredentials(db)
     expect(second.google).toEqual([])
     expect(second.ga4).toEqual([])
+  })
+
+  it('does not drop legacy columns when applyLegacyCredentials throws', () => {
+    const tmpDir = makeTmpDir()
+    vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
+    const db = setupDb(tmpDir)
+    const config = makeConfig()
+
+    db.run(sql.raw(`INSERT INTO google_connections (id, domain, connection_type, property_id, access_token, refresh_token, token_expires_at, scopes, created_at, updated_at) VALUES ('gc1', 'example.com', 'gsc', 'sc-domain:example.com', 'a', 'r', '2026-12-01T00:00:00Z', '[]', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`))
+
+    // Point the config dir at a read-only path so saveConfigPatch fails.
+    const readOnly = path.join(tmpDir, 'ro')
+    fs.mkdirSync(readOnly)
+    fs.chmodSync(readOnly, 0o500)
+    vi.stubEnv('CANONRY_CONFIG_DIR', readOnly)
+
+    const rows = extractLegacyCredentials(db)
+    expect(() => applyLegacyCredentials(rows, config)).toThrow()
+
+    // Columns must still be present so the next boot can retry.
+    const cols = (db.all(sql.raw(`SELECT name FROM pragma_table_info('google_connections')`)) as Array<{ name: string }>).map(r => r.name)
+    expect(cols).toEqual(expect.arrayContaining(['access_token', 'refresh_token', 'token_expires_at']))
+
+    fs.chmodSync(readOnly, 0o700)
   })
 
   it('does not clobber existing config.yaml content during migration', () => {
