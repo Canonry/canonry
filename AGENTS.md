@@ -53,12 +53,12 @@ canonry status <project>
 canonry apply <file...>                          # multi-doc YAML + multiple files
 canonry export <project>
 
-# Agent layer (OpenClaw)
+# Agent layer
 canonry agent setup                              # full setup: init + install + configure + seed
 canonry agent setup --agent-key <key>            # non-interactive with flags
-canonry agent start                              # start gateway as background process
-canonry agent stop                               # stop gateway
-canonry agent status                             # check gateway state
+canonry agent start                              # start agent gateway as background process
+canonry agent stop                               # stop agent gateway
+canonry agent status                             # check agent state
 canonry agent reset                              # stop + wipe workspace
 canonry agent attach <project>                   # attach agent webhook to project
 canonry agent detach <project>                   # detach agent webhook from project
@@ -66,24 +66,24 @@ canonry agent detach <project>                   # detach agent webhook from pro
 
 ## Agent Layer
 
-Canonry integrates with [OpenClaw](https://openclaw.ai) to provide an AI agent ("Aero") that orchestrates sweeps, analyzes results, and generates reports.
+Canonry ships a bundled AI agent ("Aero") that orchestrates sweeps, analyzes results, and generates reports. The agent is a consumer of the same CLI and API available to everyone — it has no privileged access or hidden surface.
 
 ### Setup
 
 `canonry agent setup` is the single entry point. It handles:
 
 1. Canonry initialization (if no config exists) — prompts for monitoring provider keys and agent LLM credentials, or accepts them via flags/env vars.
-2. OpenClaw installation via `npm install -g openclaw@2026.4.14` (if not found), with a pinned Canonry/OpenClaw Node floor of `>=22.14.0` so setup fails clearly on unsupported runtimes instead of installing the placeholder `openclaw@0.0.1`.
-3. OpenClaw profile configuration — runs `openclaw onboard --non-interactive --accept-risk --mode local`.
-4. Gateway configuration — sets `gateway.mode=local` and `gateway.port` via `openclaw config set`.
-5. Agent LLM credentials — stored in `~/.openclaw-aero/.env` (e.g. `ANTHROPIC_API_KEY=...`), model set via `openclaw models set`.
-6. Workspace seeding — copies bundled skills to the OpenClaw workspace.
+2. Agent runtime installation (if not found), with a pinned Node floor of `>=22.14.0` so setup fails clearly on unsupported runtimes.
+3. Agent profile configuration in local mode.
+4. Gateway configuration — sets the local mode and gateway port.
+5. Agent LLM credentials — stored in the agent env file (e.g. `ANTHROPIC_API_KEY=...`), model set via the agent CLI.
+6. Workspace seeding — copies bundled skills to the agent workspace.
 
 Setup is idempotent — safe to re-run. For non-interactive use: `canonry agent setup --gemini-key <key> --agent-key <key> --format json`.
 
 ### Runtime
 
-`canonry agent start` spawns `openclaw --profile aero gateway` as a detached process. The gateway process inherits LLM credentials from `~/.openclaw-aero/.env`. `canonry agent stop` sends SIGTERM with escalation to SIGKILL.
+`canonry agent start` spawns the agent gateway as a detached process. The gateway process inherits LLM credentials from the agent env file. `canonry agent stop` sends SIGTERM with escalation to SIGKILL.
 
 ### Webhook lifecycle
 

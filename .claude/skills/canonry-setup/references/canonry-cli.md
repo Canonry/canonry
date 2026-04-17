@@ -294,10 +294,10 @@ canonry export <project> --include-results > project.yaml
 canonry sitemap inspect <project>
 ```
 
-## Agent (OpenClaw Integration)
+## Agent
 
 `canonry agent setup` is the single entry point for configuring the agent. It handles everything:
-canonry initialization, OpenClaw installation, profile setup, LLM credential configuration,
+canonry initialization, agent runtime installation, profile setup, LLM credential configuration,
 and workspace seeding. If canonry is not yet configured, it runs the interactive init flow first
 (prompting for monitoring provider keys and agent LLM credentials).
 
@@ -311,7 +311,7 @@ canonry agent setup --agent-provider openrouter --agent-key <key> --agent-model 
 GEMINI_API_KEY=<key> canonry agent setup --agent-key <key> --format json
 
 # Lifecycle
-canonry agent start                              # start OpenClaw gateway as background process
+canonry agent start                              # start agent gateway as background process
 canonry agent stop                               # stop the gateway process
 canonry agent status                             # check if gateway is running
 canonry agent status --format json               # JSON output
@@ -328,9 +328,9 @@ canonry agent setup --claude-key <key>
 canonry agent setup --perplexity-key <key>
 ```
 
-**Setup flow:** init canonry (if needed) → install OpenClaw (if needed) → configure profile → configure gateway → set agent LLM credentials → seed workspace with skills.
+**Setup flow:** init canonry (if needed) → install agent runtime (if needed) → configure profile → configure gateway → set agent LLM credentials → seed workspace with skills.
 
-**Agent LLM credentials** are stored in `~/.openclaw-aero/.env` (e.g. `ANTHROPIC_API_KEY=...`) and loaded into the gateway process at start time. The model is set via `openclaw models set`.
+**Agent LLM credentials** are stored in the agent env file (e.g. `ANTHROPIC_API_KEY=...`) and loaded into the gateway process at start time. The model is set via the agent CLI.
 
 **Re-running is safe:** setup is idempotent — it skips steps that are already configured.
 

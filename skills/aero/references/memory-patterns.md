@@ -2,7 +2,7 @@
 
 ## Per-Client State Template
 
-Store in OpenClaw agent memory after each significant event:
+Store in agent memory after each significant event:
 
 ```
 Client: <business name>

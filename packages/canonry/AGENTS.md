@@ -23,8 +23,8 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/commands/health-cmd.ts` | `health` command implementation |
 | `src/commands/backfill.ts` | Historical recomputation for answer visibility fields and insights |
 | `src/commands/ga.ts` | GA4 commands: `ga sync`, `ga traffic`, `ga status`, `ga social-referral-history`, `ga social-referral-summary`, `ga attribution` |
-| `src/agent-bootstrap.ts` | OpenClaw detection, installation, profile setup, gateway config, credential resolution, workspace seeding |
-| `src/agent-manager.ts` | OpenClaw gateway process lifecycle — spawns `openclaw --profile aero gateway` directly, loads `.env` into process env |
+| `src/agent-bootstrap.ts` | Agent runtime detection, installation, profile setup, gateway config, credential resolution, workspace seeding |
+| `src/agent-manager.ts` | Agent gateway process lifecycle — spawns the gateway as a detached process, loads `.env` into process env |
 | `src/commands/agent.ts` | Thin orchestrator for `agent setup` + implementations for `status/start/stop/reset` |
 | `src/cli-commands/agent.ts` | CLI command specs for the `agent` subcommand family |
 
@@ -83,14 +83,14 @@ Providers are registered at server startup in `server.ts`. Each provider adapter
 `canonry agent setup` is the single entry point. The orchestrator in `commands/agent.ts` calls helpers from `agent-bootstrap.ts`:
 
 1. **Init canonry** — calls `initCommand()` if no `config.yaml` exists. Prompts for monitoring provider keys and agent LLM credentials (provider, key, model). Accepts all values via flags or env vars for non-interactive use.
-2. **Detect/install OpenClaw** — checks PATH, installs via `npm install -g openclaw@2026.4.14` if missing, enforces Canonry's pinned Node floor of `>=22.14.0`, and verifies that the detected binary version matches the pinned package version.
+2. **Detect/install agent runtime** — checks PATH, installs the pinned agent runtime if missing, enforces Canonry's pinned Node floor of `>=22.14.0`, and verifies that the detected binary version matches the pinned package version.
 3. **Save agent config** — persists `{binary, profile, gatewayPort}` to canonry `config.yaml` via `saveConfigPatch()`.
-4. **Initialize profile** — `initializeOpenClawProfile()` runs `openclaw onboard --non-interactive --accept-risk --mode local`.
-5. **Configure gateway** — `configureOpenClawGateway()` sets `gateway.mode=local` and `gateway.port` via `openclaw config set`.
-6. **Configure LLM** — `resolveAgentCredentials()` resolves key from flags/env/existing `.env`. `writeAgentEnv()` writes to `~/.openclaw-aero/.env`. `setOpenClawModel()` sets the model.
-7. **Seed workspace** — copies skills from `assets/agent-workspace/` into the OpenClaw workspace.
+4. **Initialize profile** — initializes the agent profile in local mode, non-interactively.
+5. **Configure gateway** — sets the local mode and gateway port.
+6. **Configure LLM** — `resolveAgentCredentials()` resolves key from flags/env/existing `.env`. `writeAgentEnv()` writes to the agent env file. The model is set via the agent CLI.
+7. **Seed workspace** — copies skills from `assets/agent-workspace/` into the agent workspace.
 
-At runtime, `AgentManager.start()` spawns `openclaw --profile aero gateway` as a detached process, injecting `.env` values into the process environment.
+At runtime, `AgentManager.start()` spawns the agent gateway as a detached process, injecting `.env` values into the process environment.
 
 ### Agent webhook lifecycle
 

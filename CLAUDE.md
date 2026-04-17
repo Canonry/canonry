@@ -64,7 +64,7 @@ The web dashboard follows a dark, professional analytics aesthetic inspired by *
 
 ## Skills Maintenance
 
-The `skills/canonry-setup/` directory contains an OpenClaw/Claude skill that documents how to install, configure, and operate canonry. **Keep this skill in sync with the codebase.**
+The `skills/canonry-setup/` directory contains a Claude skill that documents how to install, configure, and operate canonry. **Keep this skill in sync with the codebase.**
 
 ### When to update skills
 

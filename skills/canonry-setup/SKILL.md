@@ -3,7 +3,7 @@ name: canonry
 description: "Agent-first AEO monitoring and operating platform."
 metadata:
   {
-    "openclaw":
+    "agent":
       {
         "emoji": "📡",
         "requires": { "bins": ["canonry"] },

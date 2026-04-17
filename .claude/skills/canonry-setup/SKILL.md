@@ -3,7 +3,7 @@ name: canonry
 description: "AEO (Answer Engine Optimization) monitoring and analysis using canonry CLI and aeo-audit tool. Use when: (1) running citation sweeps across AI providers (Gemini, ChatGPT, Claude, Perplexity); (2) auditing technical SEO with structured data validation; (3) implementing schema markup, sitemaps, llms.txt; (4) diagnosing indexing issues via Google Search Console and Bing Webmaster Tools; (5) optimizing content for AI readability and entity consistency. NOT for: general web development, content writing, PPC campaigns, or social media management."
 metadata:
   {
-    "openclaw":
+    "agent":
       {
         "emoji": "📡",
         "requires": { "bins": ["canonry"] },

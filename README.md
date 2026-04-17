@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@ainyc/canonry)](https://www.npmjs.com/package/@ainyc/canonry) [![License: FSL-1.1-ALv2](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue.svg)](https://fsl.software/) [![Node.js >= 22.14](https://img.shields.io/badge/node-%3E%3D22.14-brightgreen)](https://nodejs.org)
 
-Canonry is an agent-first AEO platform powered by [OpenClaw](https://openclaw.ai). It tracks how ChatGPT, Gemini, Claude, and Perplexity cite your site, detects regressions, diagnoses causes, coordinates fixes, and reports results.
+Canonry is an agent-first AEO platform — CLI- and API-native, with a bundled AI agent. It tracks how ChatGPT, Gemini, Claude, and Perplexity cite your site, detects regressions, diagnoses causes, coordinates fixes, and reports results.
 
 AEO (Answer Engine Optimization) is about making sure your content shows up accurately in AI-generated answers. As search shifts from links to synthesized responses, you need something that can monitor, analyze, and act across these engines continuously.
 
@@ -15,7 +15,7 @@ npm install -g @ainyc/canonry
 canonry agent setup
 ```
 
-One command. It installs [OpenClaw](https://openclaw.ai), configures the agent's LLM, sets up monitoring providers, and seeds the workspace. Interactive prompts guide you through everything, or pass flags for fully automated setup:
+One command. It installs the agent runtime, configures the agent's LLM, sets up monitoring providers, and seeds the workspace. Interactive prompts guide you through everything, or pass flags for fully automated setup:
 
 ```bash
 canonry agent setup --gemini-key <key> --agent-key <key> --format json
@@ -42,7 +42,7 @@ canonry serve
 
 ## What the Agent Does
 
-The Canonry agent ("Aero") is an [OpenClaw](https://openclaw.ai)-powered operator:
+The Canonry agent ("Aero") is an autonomous operator:
 
 - **Monitors** visibility sweeps across providers on schedule, tracking citation changes over time
 - **Analyzes** regressions, emerging opportunities, and correlates visibility shifts with site changes
@@ -53,7 +53,7 @@ Every action the agent takes goes through the same CLI and API available to ever
 
 ## Features
 
-- **Agent-operated.** The OpenClaw agent monitors, analyzes, and acts autonomously. Humans supervise via the dashboard.
+- **Agent-operated.** The bundled agent monitors, analyzes, and acts autonomously. Humans supervise via the dashboard.
 - **Multi-provider.** Query Gemini, OpenAI, Claude, Perplexity, and local LLMs from a single platform.
 - **Config-as-code.** Kubernetes-style YAML files. Version control your monitoring, let agents apply changes declaratively.
 - **Self-hosted.** Runs locally with SQLite. No cloud account required.
@@ -148,9 +148,9 @@ Integration setup guides: [Google Search Console](docs/google-search-console-set
 
 ## Skills
 
-The agent learns how to operate canonry through bundled [OpenClaw skills](https://clawhub.dev) that cover CLI commands, provider setup, analysis workflows, and troubleshooting. Skills are seeded into the agent workspace during `canonry agent setup`.
+The agent learns how to operate canonry through bundled skills that cover CLI commands, provider setup, analysis workflows, and troubleshooting. Skills are seeded into the agent workspace during `canonry agent setup`.
 
-**Claude Code** also picks up the skill automatically from `.claude/skills/canonry-setup/` when you open this repo. **ClawHub** hosts the same skill at [clawhub.dev](https://clawhub.dev) for any MCP-equipped agent.
+**Claude Code** also picks up the skill automatically from `.claude/skills/canonry-setup/` when you open this repo.
 
 ## Deployment
 
