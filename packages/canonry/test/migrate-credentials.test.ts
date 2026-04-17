@@ -4,12 +4,16 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { sql } from 'drizzle-orm'
-import { createClient, migrate, projects } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, extractAndDropLegacyCredentials } from '@ainyc/canonry-db'
 import { parse } from 'yaml'
 import type { CanonryConfig } from '../src/config.js'
-import { migrateDbCredentialsToConfig } from '../src/server.js'
+import { applyLegacyCredentials } from '../src/server.js'
 import { getGoogleConnection } from '../src/google-config.js'
 import { getGa4Connection } from '../src/ga4-config.js'
+
+function migrateAndApply(db: ReturnType<typeof createClient>, config: CanonryConfig): void {
+  applyLegacyCredentials(extractAndDropLegacyCredentials(db), config)
+}
 
 function setupDb(tmpDir: string) {
   const dbPath = path.join(tmpDir, 'canonry.db')
@@ -26,7 +30,7 @@ function makeConfig(): CanonryConfig {
   }
 }
 
-describe('migrateDbCredentialsToConfig', () => {
+describe('legacy credential migration (extract + apply)', () => {
   const dirs: string[] = []
 
   afterEach(() => {
@@ -51,7 +55,7 @@ describe('migrateDbCredentialsToConfig', () => {
     // Insert legacy credential data via raw SQL (columns exist in migration but not Drizzle schema)
     db.run(sql.raw(`INSERT INTO google_connections (id, domain, connection_type, property_id, access_token, refresh_token, token_expires_at, scopes, created_at, updated_at) VALUES ('gc1', 'example.com', 'gsc', 'sc-domain:example.com', 'access-tok', 'refresh-tok', '2026-12-01T00:00:00Z', '["https://www.googleapis.com/auth/webmasters"]', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`))
 
-    migrateDbCredentialsToConfig(db, config)
+    migrateAndApply(db, config)
 
     const conn = getGoogleConnection(config, 'example.com', 'gsc')
     expect(conn).toBeDefined()
@@ -88,7 +92,7 @@ describe('migrateDbCredentialsToConfig', () => {
 
     db.run(sql.raw(`INSERT INTO ga_connections (id, project_id, property_id, client_email, private_key, created_at, updated_at) VALUES ('ga1', 'proj-1', '123456789', 'sa@proj.iam.gserviceaccount.com', '-----BEGIN PRIVATE KEY-----\\nMIIE...\\n-----END PRIVATE KEY-----', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`))
 
-    migrateDbCredentialsToConfig(db, config)
+    migrateAndApply(db, config)
 
     const conn = getGa4Connection(config, 'test-project')
     expect(conn).toBeDefined()
@@ -121,7 +125,7 @@ describe('migrateDbCredentialsToConfig', () => {
     // Insert older credentials in DB
     db.run(sql.raw(`INSERT INTO google_connections (id, domain, connection_type, property_id, access_token, refresh_token, token_expires_at, scopes, created_at, updated_at) VALUES ('gc1', 'example.com', 'gsc', 'sc-domain:example.com', 'old-access', 'old-refresh', '2026-01-01T00:00:00Z', '[]', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')`))
 
-    migrateDbCredentialsToConfig(db, config)
+    migrateAndApply(db, config)
 
     const conn = getGoogleConnection(config, 'example.com', 'gsc')
     expect(conn?.refreshToken).toBe('newer-refresh')
@@ -135,10 +139,37 @@ describe('migrateDbCredentialsToConfig', () => {
     const config = makeConfig()
 
     // Should not throw
-    migrateDbCredentialsToConfig(db, config)
+    migrateAndApply(db, config)
 
     expect(config.google).toBeUndefined()
     expect(config.ga4).toBeUndefined()
+  })
+
+  it('drops legacy columns after extraction and is idempotent', () => {
+    const tmpDir = makeTmpDir()
+    vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
+    const db = setupDb(tmpDir)
+
+    function columnNames(table: string): string[] {
+      const rows = db.all(sql.raw(`SELECT name FROM pragma_table_info('${table}')`)) as Array<{ name: string }>
+      return rows.map((r) => r.name)
+    }
+
+    expect(columnNames('google_connections')).toEqual(expect.arrayContaining(['access_token', 'refresh_token', 'token_expires_at']))
+    expect(columnNames('ga_connections')).toEqual(expect.arrayContaining(['private_key']))
+
+    // First run drops the columns even when there are no rows to extract
+    extractAndDropLegacyCredentials(db)
+
+    expect(columnNames('google_connections')).not.toEqual(expect.arrayContaining(['access_token']))
+    expect(columnNames('google_connections')).not.toEqual(expect.arrayContaining(['refresh_token']))
+    expect(columnNames('google_connections')).not.toEqual(expect.arrayContaining(['token_expires_at']))
+    expect(columnNames('ga_connections')).not.toEqual(expect.arrayContaining(['private_key']))
+
+    // Second run is a no-op
+    const second = extractAndDropLegacyCredentials(db)
+    expect(second.google).toEqual([])
+    expect(second.ga4).toEqual([])
   })
 
   it('does not clobber existing config.yaml content during migration', () => {
@@ -191,7 +222,7 @@ describe('migrateDbCredentialsToConfig', () => {
     // Insert legacy Google OAuth tokens in DB
     db.run(sql.raw(`INSERT INTO google_connections (id, domain, connection_type, property_id, access_token, refresh_token, token_expires_at, scopes, created_at, updated_at) VALUES ('gc1', 'example.com', 'gsc', 'sc-domain:example.com', 'migrated-access', 'migrated-refresh', '2026-12-01T00:00:00Z', '[]', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`))
 
-    migrateDbCredentialsToConfig(db, config)
+    migrateAndApply(db, config)
 
     // Verify migrated connection landed in config
     const conn = getGoogleConnection(config, 'example.com', 'gsc')

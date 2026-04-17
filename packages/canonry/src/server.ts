@@ -3,14 +3,14 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { eq, sql } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 
 const _require = createRequire(import.meta.url)
 const { version: PKG_VERSION } = _require('../package.json') as { version: string }
 import Fastify from 'fastify'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { apiRoutes } from '@ainyc/canonry-api-routes'
-import { apiKeys, auditLog, projects, parseJsonColumn, type DatabaseClient } from '@ainyc/canonry-db'
+import { apiKeys, auditLog, projects, parseJsonColumn, extractAndDropLegacyCredentials, type DatabaseClient, type LegacyCredentialRows } from '@ainyc/canonry-db'
 import { attachAgentWebhookDirect } from './agent-webhook.js'
 import { geminiAdapter } from '@ainyc/canonry-provider-gemini'
 import { openaiAdapter } from '@ainyc/canonry-provider-openai'
@@ -154,99 +154,54 @@ function serializeSessionCookie(opts: {
 }
 
 /**
- * One-time migration: move Google OAuth tokens and GA4 service account keys
- * from the DB (legacy storage) to config.yaml. The physical DB columns still
- * exist but are no longer mapped by the Drizzle schema, so we use raw SQL.
- * Skips any connection that already exists in config to avoid overwriting
- * refreshed tokens.
+ * One-time migration: persist Google OAuth tokens and GA4 service account keys
+ * extracted from the legacy DB columns into config.yaml. Skips any connection
+ * that already exists in config to avoid overwriting refreshed tokens.
+ *
+ * Pair with `extractAndDropLegacyCredentials(db)` from `@ainyc/canonry-db`,
+ * which reads the rows out of the DB and drops the columns atomically.
  */
-export function migrateDbCredentialsToConfig(db: DatabaseClient, config: CanonryConfig): void {
-  try {
-    // Migrate google_connections OAuth tokens
-    const googleColCheck = db.all(sql.raw(
-      `SELECT COUNT(*) as c FROM pragma_table_info('google_connections') WHERE name = 'access_token'`,
-    )) as Array<{ c: number }>
-    if (googleColCheck[0]?.c) {
-      const rows = db.all(sql.raw(
-        `SELECT domain, connection_type, property_id, sitemap_url, access_token, refresh_token, token_expires_at, scopes, created_at, updated_at FROM google_connections WHERE refresh_token IS NOT NULL AND refresh_token != ''`,
-      )) as Array<{
-        domain: string
-        connection_type: string
-        property_id: string | null
-        sitemap_url: string | null
-        access_token: string | null
-        refresh_token: string | null
-        token_expires_at: string | null
-        scopes: string
-        created_at: string
-        updated_at: string
-      }>
-      let migrated = 0
-      for (const row of rows) {
-        const connType = row.connection_type as 'gsc' | 'ga4'
-        const existing = getGoogleConnection(config, row.domain, connType)
-        if (existing?.refreshToken) continue
-        upsertGoogleConnection(config, {
-          domain: row.domain,
-          connectionType: connType,
-          propertyId: row.property_id ?? null,
-          sitemapUrl: row.sitemap_url ?? null,
-          accessToken: row.access_token ?? undefined,
-          refreshToken: row.refresh_token ?? null,
-          tokenExpiresAt: row.token_expires_at ?? null,
-          scopes: parseJsonColumn<string[]>(row.scopes, []),
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
-        })
-        migrated++
-      }
-      if (migrated > 0) {
-        saveConfigPatch({ google: config.google })
-        log.info('credentials.migrated', { type: 'google', count: migrated })
-      }
-    }
+export function applyLegacyCredentials(rows: LegacyCredentialRows, config: CanonryConfig): void {
+  let migratedGoogle = 0
+  for (const row of rows.google) {
+    const existing = getGoogleConnection(config, row.domain, row.connectionType)
+    if (existing?.refreshToken) continue
+    upsertGoogleConnection(config, {
+      domain: row.domain,
+      connectionType: row.connectionType,
+      propertyId: row.propertyId,
+      sitemapUrl: row.sitemapUrl,
+      accessToken: row.accessToken ?? undefined,
+      refreshToken: row.refreshToken,
+      tokenExpiresAt: row.tokenExpiresAt,
+      scopes: row.scopes,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    })
+    migratedGoogle++
+  }
+  if (migratedGoogle > 0) {
+    saveConfigPatch({ google: config.google })
+    log.info('credentials.migrated', { type: 'google', count: migratedGoogle })
+  }
 
-    // Migrate ga_connections service account keys
-    const gaColCheck = db.all(sql.raw(
-      `SELECT COUNT(*) as c FROM pragma_table_info('ga_connections') WHERE name = 'private_key'`,
-    )) as Array<{ c: number }>
-    if (gaColCheck[0]?.c) {
-      const rows = db.all(sql.raw(
-        `SELECT id, project_id, property_id, client_email, private_key, created_at, updated_at FROM ga_connections WHERE private_key IS NOT NULL AND private_key != ''`,
-      )) as Array<{
-        id: string
-        project_id: string
-        property_id: string
-        client_email: string
-        private_key: string
-        created_at: string
-        updated_at: string
-      }>
-      // We need project names, not IDs — look them up
-      let migrated = 0
-      for (const row of rows) {
-        const project = db.select({ name: projects.name }).from(projects).where(eq(projects.id, row.project_id)).get()
-        if (!project) continue
-        const existing = getGa4Connection(config, project.name)
-        if (existing?.privateKey) continue
-        upsertGa4Connection(config, {
-          projectName: project.name,
-          propertyId: row.property_id,
-          clientEmail: row.client_email,
-          privateKey: row.private_key,
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
-        })
-        migrated++
-      }
-      if (migrated > 0) {
-        saveConfigPatch({ ga4: config.ga4 })
-        log.info('credentials.migrated', { type: 'ga4', count: migrated })
-      }
-    }
-  } catch {
-    // Migration is best-effort — if the columns don't exist or the query fails,
-    // the user can re-authenticate. Don't block server startup.
+  let migratedGa4 = 0
+  for (const row of rows.ga4) {
+    const existing = getGa4Connection(config, row.projectName)
+    if (existing?.privateKey) continue
+    upsertGa4Connection(config, {
+      projectName: row.projectName,
+      propertyId: row.propertyId,
+      clientEmail: row.clientEmail,
+      privateKey: row.privateKey,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    })
+    migratedGa4++
+  }
+  if (migratedGa4 > 0) {
+    saveConfigPatch({ ga4: config.ga4 })
+    log.info('credentials.migrated', { type: 'ga4', count: migratedGa4 })
   }
 }
 
@@ -289,8 +244,11 @@ export async function createServer(opts: {
     }
   }
 
-  // Migrate credentials from DB to config.yaml (one-time upgrade for pre-1.45.1 installs)
-  migrateDbCredentialsToConfig(opts.db, opts.config)
+  // One-time upgrade for pre-1.45.1 installs: extract any credentials still
+  // stored in the DB, drop the legacy columns, and persist the values into
+  // config.yaml. Order matters — extraction must run before any code path
+  // that depends on the columns being absent.
+  applyLegacyCredentials(extractAndDropLegacyCredentials(opts.db), opts.config)
 
   log.info('providers.configured', { providers: Object.keys(providers).filter(k => {
     const p = providers[k]
