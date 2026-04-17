@@ -306,7 +306,12 @@ function extractDomainFromTitle(title: string): string | null {
 function extractDomainFromUri(uri: string): string | null {
   try {
     const url = new URL(uri)
-    const hostname = url.hostname.replace(/^www\./, '')
+    const hostname = url.hostname.replace(/^www\./, '').toLowerCase()
+
+    // Skip internal AI service domains
+    if (hostname.includes('chatgpt.com') || hostname.includes('openai.com')) {
+      return null
+    }
 
     // Gemini returns grounding sources through a Google proxy:
     // vertexaisearch.cloud.google.com/grounding-api-redirect/...

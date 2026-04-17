@@ -256,7 +256,12 @@ export function extractCitedDomains(groundingSources: GroundingSource[]): string
 function extractDomainFromUri(uri: string): string | null {
   try {
     const url = new URL(uri)
-    return url.hostname.replace(/^www\./, '').toLowerCase()
+    const hostname = url.hostname.replace(/^www\./, '').toLowerCase()
+    // Skip internal AI service domains
+    if (hostname.includes('chatgpt.com') || hostname.includes('openai.com')) {
+      return null
+    }
+    return hostname
   } catch {
     return null
   }

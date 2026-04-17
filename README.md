@@ -1,6 +1,6 @@
 # Canonry <img src="apps/web/public/favicon-32.png" alt="Canonry canary icon" width="24" />
 
-[![npm version](https://img.shields.io/npm/v/@ainyc/canonry)](https://www.npmjs.com/package/@ainyc/canonry) [![License: FSL-1.1-ALv2](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue.svg)](https://fsl.software/) [![Node.js >= 20](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
+[![npm version](https://img.shields.io/npm/v/@ainyc/canonry)](https://www.npmjs.com/package/@ainyc/canonry) [![License: FSL-1.1-ALv2](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue.svg)](https://fsl.software/) [![Node.js >= 22.14](https://img.shields.io/badge/node-%3E%3D22.14-brightgreen)](https://nodejs.org)
 
 Canonry is an agent-first AEO platform powered by [OpenClaw](https://openclaw.ai). It tracks how ChatGPT, Gemini, Claude, and Perplexity cite your site, detects regressions, diagnoses causes, coordinates fixes, and reports results.
 
@@ -177,7 +177,7 @@ Create a Web Service with runtime Docker, attach a disk at `/data`. Health check
 
 ## Requirements
 
-- Node.js >= 20
+- Node.js >= 22.14.0
 - At least one provider API key (configurable after startup)
 
 If `npm install` fails with `node-gyp` errors, install build tools for `better-sqlite3`: `xcode-select --install` (macOS), `apt-get install python3 make g++` (Debian), or see the [troubleshooting guide](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/troubleshooting.md).

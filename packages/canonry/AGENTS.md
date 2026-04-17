@@ -83,7 +83,7 @@ Providers are registered at server startup in `server.ts`. Each provider adapter
 `canonry agent setup` is the single entry point. The orchestrator in `commands/agent.ts` calls helpers from `agent-bootstrap.ts`:
 
 1. **Init canonry** — calls `initCommand()` if no `config.yaml` exists. Prompts for monitoring provider keys and agent LLM credentials (provider, key, model). Accepts all values via flags or env vars for non-interactive use.
-2. **Detect/install OpenClaw** — checks PATH, installs via `npm install -g openclaw` if missing.
+2. **Detect/install OpenClaw** — checks PATH, installs via `npm install -g openclaw@2026.4.14` if missing, enforces Canonry's pinned Node floor of `>=22.14.0`, and verifies that the detected binary version matches the pinned package version.
 3. **Save agent config** — persists `{binary, profile, gatewayPort}` to canonry `config.yaml` via `saveConfigPatch()`.
 4. **Initialize profile** — `initializeOpenClawProfile()` runs `openclaw onboard --non-interactive --accept-risk --mode local`.
 5. **Configure gateway** — `configureOpenClawGateway()` sets `gateway.mode=local` and `gateway.port` via `openclaw config set`.

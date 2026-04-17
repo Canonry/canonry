@@ -350,7 +350,7 @@ export async function agentDetach(opts: { project: string; format?: string }): P
 
 async function autoInstallOrFail(format?: string) {
   if (format !== 'json') {
-    console.log('OpenClaw not found, installing via npm...')
+    console.log('OpenClaw not found, installing pinned openclaw@2026.4.14 via npm...')
   }
 
   const install = await installOpenClaw({ silent: format === 'json' })

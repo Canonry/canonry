@@ -73,7 +73,7 @@ Canonry integrates with [OpenClaw](https://openclaw.ai) to provide an AI agent (
 `canonry agent setup` is the single entry point. It handles:
 
 1. Canonry initialization (if no config exists) — prompts for monitoring provider keys and agent LLM credentials, or accepts them via flags/env vars.
-2. OpenClaw installation via `npm install -g openclaw` (if not found).
+2. OpenClaw installation via `npm install -g openclaw@2026.4.14` (if not found), with a pinned Canonry/OpenClaw Node floor of `>=22.14.0` so setup fails clearly on unsupported runtimes instead of installing the placeholder `openclaw@0.0.1`.
 3. OpenClaw profile configuration — runs `openclaw onboard --non-interactive --accept-risk --mode local`.
 4. Gateway configuration — sets `gateway.mode=local` and `gateway.port` via `openclaw config set`.
 5. Agent LLM credentials — stored in `~/.openclaw-aero/.env` (e.g. `ANTHROPIC_API_KEY=...`), model set via `openclaw models set`.

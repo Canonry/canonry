@@ -13,6 +13,9 @@ export interface DetectionResult {
 }
 
 const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes (DenchClaw pattern)
+const OPENCLAW_VERSION = '2026.4.14'
+const OPENCLAW_PACKAGE_SPEC = `openclaw@${OPENCLAW_VERSION}`
+const MIN_NODE_VERSION = '22.14.0'
 let cachedResult: DetectionResult | null = null
 let cachedAt = 0
 
@@ -118,9 +121,17 @@ export interface InstallResult {
  * Install OpenClaw globally via npm and return the detection result.
  * Resets the detection cache before re-probing.
  */
-export async function installOpenClaw(opts?: { silent?: boolean }): Promise<InstallResult> {
+export async function installOpenClaw(opts?: { silent?: boolean; nodeVersion?: string }): Promise<InstallResult> {
+  const unsupportedNodeError = getUnsupportedNodeError(opts?.nodeVersion)
+  if (unsupportedNodeError) {
+    return {
+      success: false,
+      error: unsupportedNodeError,
+    }
+  }
+
   try {
-    execSync('npm install -g openclaw', {
+    execSync(`npm install -g ${OPENCLAW_PACKAGE_SPEC}`, {
       timeout: 120_000,
       stdio: opts?.silent ? 'pipe' : 'inherit',
     })
@@ -138,11 +149,64 @@ export async function installOpenClaw(opts?: { silent?: boolean }): Promise<Inst
   if (!detection.found) {
     return {
       success: false,
-      error: 'npm install succeeded but openclaw binary was not found in PATH',
+      error: `npm install succeeded but the ${OPENCLAW_PACKAGE_SPEC} binary was not found in PATH`,
+    }
+  }
+
+  if (detection.version) {
+    const expectedVersion = parseVersionTuple(OPENCLAW_VERSION)
+    const detectedVersion = parseVersionTuple(detection.version)
+    if (expectedVersion && detectedVersion && compareVersionTuples(detectedVersion, expectedVersion) !== 0) {
+      return {
+        success: false,
+        error: `Installed OpenClaw binary reports version ${detection.version}, but Canonry pinned ${OPENCLAW_VERSION}. A different openclaw binary may be shadowing the npm-installed package in PATH.`,
+      }
     }
   }
 
   return { success: true, detection }
+}
+
+function getUnsupportedNodeError(currentNodeVersionOverride?: string): string | null {
+  const currentNodeVersion = normalizeVersion(currentNodeVersionOverride ?? process.versions.node)
+  const minimumTuple = parseVersionTuple(MIN_NODE_VERSION)
+  const currentTuple = parseVersionTuple(currentNodeVersion)
+  if (!minimumTuple || !currentTuple || compareVersionTuples(currentTuple, minimumTuple) >= 0) {
+    return null
+  }
+
+  return `Canonry requires Node.js >=${MIN_NODE_VERSION} and installs pinned OpenClaw ${OPENCLAW_VERSION}, but the current runtime is ${currentNodeVersion}. Upgrade Node.js before running "canonry agent setup".`
+}
+
+function normalizeVersion(version: string): string {
+  const tuple = parseVersionTuple(version)
+  if (!tuple) {
+    return version.trim().replace(/^v/i, '')
+  }
+  return tuple.join('.')
+}
+
+function parseVersionTuple(version: string): [number, number, number] | null {
+  const match = version.trim().replace(/^v/i, '').match(/^(\d+)(?:\.(\d+))?(?:\.(\d+))?$/)
+  if (!match) {
+    return null
+  }
+
+  return [
+    Number(match[1]),
+    Number(match[2] ?? 0),
+    Number(match[3] ?? 0),
+  ]
+}
+
+function compareVersionTuples(left: [number, number, number], right: [number, number, number]): number {
+  for (let index = 0; index < left.length; index++) {
+    const delta = left[index] - right[index]
+    if (delta !== 0) {
+      return delta
+    }
+  }
+  return 0
 }
 
 /**
