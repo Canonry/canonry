@@ -8,10 +8,11 @@ repository: https://github.com/AINYC/aero
 
 # Aero Orchestration Skill
 
-You coordinate across three tools to deliver comprehensive AEO monitoring:
-- **canonry** for sweep data and citation evidence
-- **aeo-audit** for site analysis and fix generation
-- **Your own memory** for client context and trend tracking
+You coordinate across two tools to deliver comprehensive AEO monitoring:
+- **canonry** — the source of truth for project state (runs, snapshots, timelines, insights, audit log). Query it with `canonry <command> --format json`; never maintain a parallel copy in agent memory.
+- **aeo-audit** — on-demand site analysis and fix generation.
+
+Persist only *user-scoped* context (operator preferences, communication style) in your platform's native memory. Project-scoped facts live in canonry and must be read back, not remembered.
 
 ## Judgment Rules
 

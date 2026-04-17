@@ -88,14 +88,8 @@ export interface WordpressConfigEntry {
 }
 
 export interface AgentConfigEntry {
-  /** Path to openclaw binary (auto-detected, persisted after bootstrap) */
-  binary?: string
-  /** OpenClaw profile name (default: 'aero') */
-  profile?: string
-  /** Start gateway automatically with `canonry serve` */
-  autoStart?: boolean
-  /** Gateway port (persisted so restarts reuse same port) */
-  gatewayPort?: number
+  /** Agent mode. Only 'disabled' is valid until the native loop ships. */
+  mode?: 'disabled'
 }
 
 export interface CanonryConfig {
@@ -123,7 +117,7 @@ export interface CanonryConfig {
   // Telemetry (opt-out: undefined/true = enabled, false = disabled)
   telemetry?: boolean
   anonymousId?: string
-  // OpenClaw agent integration (optional — canonry works without it)
+  // Agent layer configuration (reserved — native loop TBD)
   agent?: AgentConfigEntry
 }
 

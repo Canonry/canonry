@@ -23,10 +23,9 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/commands/health-cmd.ts` | `health` command implementation |
 | `src/commands/backfill.ts` | Historical recomputation for answer visibility fields and insights |
 | `src/commands/ga.ts` | GA4 commands: `ga sync`, `ga traffic`, `ga status`, `ga social-referral-history`, `ga social-referral-summary`, `ga attribution` |
-| `src/agent-bootstrap.ts` | Agent runtime detection, installation, profile setup, gateway config, credential resolution, workspace seeding |
-| `src/agent-manager.ts` | Agent gateway process lifecycle — spawns the gateway as a detached process, loads `.env` into process env |
-| `src/commands/agent.ts` | Thin orchestrator for `agent setup` + implementations for `status/start/stop/reset` |
-| `src/cli-commands/agent.ts` | CLI command specs for the `agent` subcommand family |
+| `src/agent-webhook.ts` | `AGENT_WEBHOOK_EVENTS` — event list subscribed to by `canonry agent attach` |
+| `src/commands/agent.ts` | `agentAttach` / `agentDetach` — wire an external agent's webhook to a project |
+| `src/cli-commands/agent.ts` | CLI specs for `agent attach` / `agent detach` |
 
 ## Patterns
 
@@ -78,23 +77,13 @@ Providers are registered at server startup in `server.ts`. Each provider adapter
 - **Forgetting `--format json` support** — every output command needs it.
 - **Forgetting to register command in `cli-commands.ts`** — the command won't be accessible.
 
-## Agent setup flow
+## Agent layer
 
-`canonry agent setup` is the single entry point. The orchestrator in `commands/agent.ts` calls helpers from `agent-bootstrap.ts`:
-
-1. **Init canonry** — calls `initCommand()` if no `config.yaml` exists. Prompts for monitoring provider keys and agent LLM credentials (provider, key, model). Accepts all values via flags or env vars for non-interactive use.
-2. **Detect/install agent runtime** — checks PATH, installs the pinned agent runtime if missing, enforces Canonry's pinned Node floor of `>=22.14.0`, and verifies that the detected binary version matches the pinned package version.
-3. **Save agent config** — persists `{binary, profile, gatewayPort}` to canonry `config.yaml` via `saveConfigPatch()`.
-4. **Initialize profile** — initializes the agent profile in local mode, non-interactively.
-5. **Configure gateway** — sets the local mode and gateway port.
-6. **Configure LLM** — `resolveAgentCredentials()` resolves key from flags/env/existing `.env`. `writeAgentEnv()` writes to the agent env file. The model is set via the agent CLI.
-7. **Seed workspace** — copies skills from `assets/agent-workspace/` into the agent workspace.
-
-At runtime, `AgentManager.start()` spawns the agent gateway as a detached process, injecting `.env` values into the process environment.
+Canonry no longer bundles an agent runtime. External agents consume Canonry via the regular CLI/API and receive run/insight signals through the agent webhook. The native in-process loop is under active development on the `native-agent-loop` branch.
 
 ### Agent webhook lifecycle
 
-`canonry agent attach <project>` registers an agent webhook notification for the named project (subscribes to `run.completed`, `insight.critical`, `insight.high`, `citation.gained`). Idempotent — checks for an existing agent webhook before creating. `canonry agent detach <project>` removes the agent webhook. When `config.agent.autoStart` is true, the server auto-attaches webhooks to newly created/applied projects via the `onProjectUpserted` callback.
+`canonry agent attach <project> --url <webhook-url>` registers an agent webhook notification for the named project (subscribes to `run.completed`, `insight.critical`, `insight.high`, `citation.gained`). Idempotent — checks for an existing agent webhook before creating. `canonry agent detach <project>` removes it.
 
 ## See Also
 

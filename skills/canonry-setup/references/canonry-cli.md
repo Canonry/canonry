@@ -298,51 +298,17 @@ canonry sitemap inspect <project>
 
 ## Agent
 
-`canonry agent setup` is the single entry point for configuring the agent. It handles everything:
-canonry initialization, agent runtime installation, profile setup, LLM credential configuration,
-and workspace seeding. If canonry is not yet configured, it runs the interactive init flow first
-(prompting for monitoring provider keys and agent LLM credentials).
+Canonry does not bundle an agent runtime. External agents (local scripts, hosted services, or the forthcoming native loop) consume Canonry through the regular CLI/API and subscribe to run/insight events over HTTP webhooks.
 
 ```bash
-# Full setup (interactive — prompts for provider keys + agent LLM)
-canonry agent setup
-
-# Non-interactive (flags or env vars)
-canonry agent setup --gemini-key <key> --agent-key <key>
-canonry agent setup --agent-provider openrouter --agent-key <key> --agent-model openrouter/anthropic/claude-sonnet-4-6
-GEMINI_API_KEY=<key> canonry agent setup --agent-key <key> --format json
-
-# Lifecycle
-canonry agent start                              # start agent gateway as background process
-canonry agent stop                               # stop the gateway process
-canonry agent status                             # check if gateway is running
-canonry agent status --format json               # JSON output
-canonry agent reset                              # stop gateway and wipe workspace
-
-# Setup flags
-canonry agent setup --agent-provider <id>        # LLM provider (default: anthropic)
-canonry agent setup --agent-key <key>            # API key for agent LLM
-canonry agent setup --agent-model <model>        # model id (e.g. anthropic/claude-sonnet-4-6)
-canonry agent setup --gateway-port 3579          # gateway WebSocket port
-canonry agent setup --gemini-key <key>           # monitoring provider keys (passed to init)
-canonry agent setup --openai-key <key>
-canonry agent setup --claude-key <key>
-canonry agent setup --perplexity-key <key>
-
-# Webhook lifecycle
-canonry agent attach <project>                   # register agent webhook for project
-canonry agent attach <project> --format json     # JSON output
-canonry agent detach <project>                   # remove agent webhook from project
-canonry agent detach <project> --format json     # JSON output
+# Webhook lifecycle — wire an external agent to a project
+canonry agent attach <project> --url <webhook-url>        # register webhook subscription
+canonry agent attach <project> --url <url> --format json  # JSON output
+canonry agent detach <project>                            # remove the agent webhook
+canonry agent detach <project> --format json              # JSON output
 ```
 
-**Setup flow:** init canonry (if needed) → install agent runtime (if needed) → configure profile → configure gateway → set agent LLM credentials → seed workspace with skills.
-
-**Agent LLM credentials** are stored in the agent env file (e.g. `ANTHROPIC_API_KEY=...`) and loaded into the gateway process at start time. The model is set via the agent CLI.
-
-**Re-running is safe:** setup is idempotent — it skips steps that are already configured.
-
-**Agent webhooks:** `canonry agent attach <project>` registers a webhook notification on the project so the agent receives events (`run.completed`, `insight.critical`, `insight.high`, `citation.gained`). Idempotent — skips if an agent webhook already exists. `canonry agent detach <project>` removes the agent webhook. When `autoStart` is enabled, the server auto-attaches webhooks to newly created or applied projects.
+**Agent webhooks** fire on `run.completed`, `insight.critical`, `insight.high`, and `citation.gained`. The attach/detach pair is idempotent per project (one agent webhook per project, matched by source tag).
 
 ## Output Formats
 

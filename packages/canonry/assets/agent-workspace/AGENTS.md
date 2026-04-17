@@ -9,13 +9,13 @@ All data access goes through the canonry CLI. Never read the SQLite database dir
 canonry <command> --format json
 ```
 
-The canonry server must be running for most commands. Verify with:
+The canonry server must be running for most commands. Verify by hitting the health endpoint (`GET /health`) or by listing projects:
 
 ```bash
-canonry agent status
+canonry project list --format json
 ```
 
-If the server isn't running, start it with `canonry serve` (or `canonry agent start` for the gateway).
+If the server isn't running, start it with `canonry serve`.
 
 ## Key Commands
 
@@ -78,7 +78,6 @@ Provider APIs have rate limits. Follow these guidelines:
 
 Reference skills are available in `skills/` for domain-specific guidance:
 
-- `skills/aero/` -- Aero agent skill definition
 - `skills/canonry-setup/` -- Canonry installation and configuration reference
 
 ## Error Handling

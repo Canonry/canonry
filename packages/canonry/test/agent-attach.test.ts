@@ -4,7 +4,6 @@ import path from 'node:path'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { stringify } from 'yaml'
 
-// Mock the client module before importing agent commands
 const mockListNotifications = vi.fn()
 const mockCreateNotification = vi.fn()
 const mockDeleteNotification = vi.fn()
@@ -19,6 +18,8 @@ vi.mock('../src/client.js', () => ({
 
 const { agentAttach, agentDetach } = await import('../src/commands/agent.js')
 
+const TEST_URL = 'https://my-agent.example.com/hooks/canonry'
+
 let tmpDir: string
 const origConfigDir = process.env.CANONRY_CONFIG_DIR
 
@@ -26,12 +27,10 @@ beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-agent-attach-'))
   process.env.CANONRY_CONFIG_DIR = tmpDir
 
-  // Write minimal config with agent section
   const config = {
     apiUrl: 'http://localhost:4100',
     database: path.join(tmpDir, 'canonry.db'),
     apiKey: 'cnry_test',
-    agent: { binary: '/usr/local/bin/openclaw', profile: 'aero', gatewayPort: 3579 },
   }
   fs.writeFileSync(path.join(tmpDir, 'config.yaml'), stringify(config), 'utf-8')
 
@@ -53,7 +52,7 @@ describe('agentAttach', () => {
     mockCreateNotification.mockResolvedValue({ id: 'notif-1' })
 
     const output = await captureStdout(() =>
-      agentAttach({ project: 'my-project', format: 'json' }),
+      agentAttach({ project: 'my-project', url: TEST_URL, format: 'json' }),
     )
 
     const parsed = JSON.parse(output)
@@ -63,7 +62,7 @@ describe('agentAttach', () => {
 
     expect(mockCreateNotification).toHaveBeenCalledWith('my-project', {
       channel: 'webhook',
-      url: 'http://localhost:3579/hooks/canonry',
+      url: TEST_URL,
       events: ['run.completed', 'insight.critical', 'insight.high', 'citation.gained'],
       source: 'agent',
     })
@@ -71,11 +70,11 @@ describe('agentAttach', () => {
 
   it('is idempotent when webhook already exists', async () => {
     mockListNotifications.mockResolvedValue([
-      { id: 'existing-1', url: 'http://localhost:3579/redacted', urlHost: 'localhost:3579', source: 'agent' },
+      { id: 'existing-1', url: 'https://redacted', urlHost: 'redacted', source: 'agent' },
     ])
 
     const output = await captureStdout(() =>
-      agentAttach({ project: 'my-project', format: 'json' }),
+      agentAttach({ project: 'my-project', url: TEST_URL, format: 'json' }),
     )
 
     const parsed = JSON.parse(output)
@@ -88,18 +87,19 @@ describe('agentAttach', () => {
     mockCreateNotification.mockResolvedValue({ id: 'notif-2' })
 
     const output = await captureStdout(() =>
-      agentAttach({ project: 'my-project' }),
+      agentAttach({ project: 'my-project', url: TEST_URL }),
     )
 
     expect(output).toContain('Agent webhook attached')
     expect(output).toContain('my-project')
+    expect(output).toContain(TEST_URL)
   })
 })
 
 describe('agentDetach', () => {
   it('removes the agent webhook', async () => {
     mockListNotifications.mockResolvedValue([
-      { id: 'notif-1', url: 'http://localhost:3579/redacted', urlHost: 'localhost:3579', source: 'agent' },
+      { id: 'notif-1', url: 'https://redacted', urlHost: 'redacted', source: 'agent' },
     ])
     mockDeleteNotification.mockResolvedValue(undefined)
 

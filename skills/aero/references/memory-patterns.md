@@ -1,37 +1,42 @@
 # Memory Patterns
 
-## Per-Client State Template
+Canonry is the source of truth for project state. Do **not** maintain a parallel copy of project facts in agent memory — it will drift from the DB and mislead the next session.
 
-Store in agent memory after each significant event:
+## What belongs where
 
+| Scope | Examples | Home |
+|---|---|---|
+| **Project state** | Baselines, historical regressions, citation rates per keyword/provider, recent insights, sweep history, audit trail | Canonry DB — query via CLI / API |
+| **User preferences** | How the operator likes reports framed, tone, comms style, tools they already use | Platform-native memory (Claude Code auto-memory, Codex thread metadata, etc.) |
+| **Session scratch** | "I just tried X and it failed", intermediate reasoning | Platform-native memory (dies with the session) |
+
+## How to read project state from canonry
+
+Always use `--format json` for structured output:
+
+```bash
+# Current health + latest run summary
+canonry status <project> --format json
+canonry health <project> --format json
+
+# Historical trend
+canonry timeline <project> --since <YYYY-MM-DD> --format json
+canonry history <project> --format json
+
+# Insights already surfaced (don't regenerate — query)
+canonry insights <project> --format json
+
+# Raw evidence from the most recent sweep
+canonry evidence <project> --format json
+
+# Audit log — who changed what and when
+canonry audit <project> --format json
 ```
-Client: <business name>
-Domain: <domain>
-Project: <project slug>
 
-Baseline (set <date>):
-  Overall cited rate: <X>% (<N>/<total> keyword-provider pairs)
-  Best provider: <provider> (<X>% cited)
-  Worst provider: <provider> (<X>% cited)
-  Top keyword: "<keyword>" (cited on <N>/<total> providers)
-  Worst keyword: "<keyword>" (cited on <N>/<total>)
+If the data you need isn't reachable with a single CLI call, that's a bug in canonry's API surface — file it rather than working around it in memory.
 
-Competitors:
-  <domain> — <trend description>
+## Regenerate, don't remember
 
-Content strategy:
-  <page type> drives <X>% of citations
+Derived interpretations (trend summaries, correlations between events) are cheap to recompute from the underlying DB rows. Prefer running the analysis again on fresh data over recalling what you concluded last session — conclusions age, the data doesn't.
 
-Open items:
-  - <description>
-
-Sweep history summary:
-  <date>: <X>% (<note>)
-```
-
-## Update Cadence
-
-- **After each sweep:** Update cited rates, flag new regressions
-- **After each fix:** Record what was changed, set monitoring flag
-- **After each client interaction:** Update preferences, strategy notes
-- **Weekly:** Summarize trend direction, update competitor notes
+The one exception: if the operator gave you a *fact* that canonry can't observe ("the content lead is named Sarah", "they're migrating off Webflow next quarter"), persist it in platform-native memory as user-scoped context.

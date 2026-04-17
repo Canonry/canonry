@@ -11,7 +11,7 @@ import Fastify from 'fastify'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { apiRoutes } from '@ainyc/canonry-api-routes'
 import { apiKeys, auditLog, projects, parseJsonColumn, extractLegacyCredentials, dropLegacyCredentialColumns, type DatabaseClient, type LegacyCredentialRows } from '@ainyc/canonry-db'
-import { attachAgentWebhookDirect } from './agent-webhook.js'
+import os from 'node:os'
 import { geminiAdapter } from '@ainyc/canonry-provider-gemini'
 import { openaiAdapter } from '@ainyc/canonry-provider-openai'
 import { claudeAdapter } from '@ainyc/canonry-provider-claude'
@@ -51,8 +51,6 @@ import { Notifier } from './notifier.js'
 import { IntelligenceService } from './intelligence-service.js'
 import { RunCoordinator } from './run-coordinator.js'
 import { SnapshotService } from './snapshot-service.js'
-import { AgentManager } from './agent-manager.js'
-import { getAeroStateDir } from './agent-bootstrap.js'
 import { fetchSiteText } from './site-fetch.js'
 import { createLogger } from './logger.js'
 
@@ -314,21 +312,15 @@ export async function createServer(opts: {
   jobRunner.onRunCompleted = (runId, projectId) => runCoordinator.onRunCompleted(runId, projectId)
   const snapshotService = new SnapshotService(registry)
 
-  // Agent lifecycle (optional — only when agent config exists)
-  let agentManager: AgentManager | undefined
-  let agentAutoStarted = false
-  if (opts.config.agent) {
-    const stateDir = getAeroStateDir(opts.config.agent.profile ?? 'aero')
-    agentManager = new AgentManager(opts.config.agent, stateDir)
-    if (opts.config.agent.autoStart) {
-      try {
-        await agentManager.start()
-        agentAutoStarted = true
-        app.log.info({ pid: agentManager.status().pid }, 'Agent gateway started')
-      } catch (err) {
-        app.log.error({ err }, 'Failed to auto-start agent gateway')
-      }
-    }
+  // OpenClaw gateway was removed in the native-agent-loop rewrite. If the user
+  // previously ran `canonry agent setup`, warn once so they know the state dir
+  // is orphaned and safe to delete.
+  const orphanedOpenClawDir = path.join(os.homedir(), '.openclaw-aero')
+  if (fs.existsSync(orphanedOpenClawDir)) {
+    app.log.warn(
+      { path: orphanedOpenClawDir },
+      'OpenClaw gateway is no longer used. Remove ~/.openclaw-aero/ manually to reclaim the directory.',
+    )
   }
 
   const scheduler = new Scheduler(opts.db, {
@@ -901,17 +893,6 @@ export async function createServer(opts: {
     onProjectDeleted: (projectId: string) => {
       scheduler.remove(projectId)
     },
-    onProjectUpserted: agentManager && opts.config.agent?.autoStart ? (_projectId: string, projectName: string) => {
-      try {
-        const gatewayPort = opts.config.agent?.gatewayPort ?? 3579
-        const result = attachAgentWebhookDirect(opts.db, _projectId, gatewayPort)
-        if (result === 'attached') {
-          app.log.info({ projectName }, 'Auto-attached agent webhook')
-        }
-      } catch (err) {
-        app.log.error({ err, projectName }, 'Failed to auto-attach agent webhook')
-      }
-    } : undefined,
     getTelemetryStatus: () => {
       const enabled = isTelemetryEnabled()
       return {
@@ -1100,13 +1081,6 @@ export async function createServer(opts: {
   // Graceful shutdown
   app.addHook('onClose', async () => {
     scheduler.stop()
-    if (agentManager && agentAutoStarted) {
-      try {
-        await agentManager.stop()
-      } catch (err) {
-        app.log.error({ err }, 'Failed to stop agent gateway')
-      }
-    }
   })
 
   return app
