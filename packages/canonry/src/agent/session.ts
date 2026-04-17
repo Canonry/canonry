@@ -3,7 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Agent } from '@mariozechner/pi-agent-core'
 import type { AgentOptions, AgentTool } from '@mariozechner/pi-agent-core'
-import { getModel, registerBuiltInApiProviders } from '@mariozechner/pi-ai'
+import { getEnvApiKey, getModel, registerBuiltInApiProviders } from '@mariozechner/pi-ai'
 import type { Model } from '@mariozechner/pi-ai'
 import type { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
@@ -17,12 +17,13 @@ function ensureBuiltinsRegistered(): void {
   }
 }
 
-export type SupportedAgentProvider = 'anthropic' | 'openai' | 'google'
+export type SupportedAgentProvider = 'anthropic' | 'openai' | 'google' | 'zai'
 
 const DEFAULT_MODEL_IDS: Record<SupportedAgentProvider, string> = {
   anthropic: 'claude-opus-4-7',
   openai: 'gpt-5.1',
   google: 'gemini-2.5-pro',
+  zai: 'glm-5.1',
 }
 
 /** Canonry config keys for each pi-ai provider. */
@@ -30,6 +31,7 @@ const CANONRY_PROVIDER_KEY: Record<SupportedAgentProvider, string> = {
   anthropic: 'claude',
   openai: 'openai',
   google: 'gemini',
+  zai: 'zai',
 }
 
 export interface AeroSessionOptions {
@@ -67,12 +69,15 @@ export function loadAeroSystemPrompt(pkgDir?: string): string {
   throw new Error(`Aero skill not found. Searched:\n  ${candidates.join('\n  ')}`)
 }
 
-/** Pick the first configured pi-ai provider based on available API keys. */
+/** Pick the first configured pi-ai provider based on available API keys. Falls back to env-var keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, ZAI_API_KEY, etc.) when no canonry config entry is present. */
 export function detectAgentProvider(config: CanonryConfig): SupportedAgentProvider | undefined {
-  const order: SupportedAgentProvider[] = ['anthropic', 'openai', 'google']
+  const order: SupportedAgentProvider[] = ['anthropic', 'openai', 'google', 'zai']
   for (const provider of order) {
     const configKey = CANONRY_PROVIDER_KEY[provider]
     if (config.providers?.[configKey]?.apiKey) return provider
+  }
+  for (const provider of order) {
+    if (getEnvApiKey(provider)) return provider
   }
   return undefined
 }
@@ -86,11 +91,13 @@ export function resolveAeroModel(
   return getModel(provider as never, id as never) as Model<never>
 }
 
-/** Resolver used by pi's `getApiKey` callback — maps pi-ai provider → canonry config key → API key. */
+/** Resolver used by pi's `getApiKey` callback — maps pi-ai provider → canonry config key → API key, falling back to pi-ai's env-var lookup (ANTHROPIC_API_KEY, OPENAI_API_KEY, ZAI_API_KEY, etc.) when no canonry config entry is present. */
 export function buildApiKeyResolver(config: CanonryConfig): (provider: string) => string | undefined {
   return (provider: string): string | undefined => {
     const canonryKey = (CANONRY_PROVIDER_KEY as Record<string, string | undefined>)[provider] ?? provider
-    return config.providers?.[canonryKey]?.apiKey
+    const fromConfig = config.providers?.[canonryKey]?.apiKey
+    if (fromConfig) return fromConfig
+    return getEnvApiKey(provider)
   }
 }
 
@@ -100,7 +107,7 @@ export function createAeroSession(opts: AeroSessionOptions): Agent {
   const provider = opts.provider ?? detectAgentProvider(opts.config)
   if (!provider) {
     throw new Error(
-      'No agent LLM provider configured. Add an API key for one of: claude, openai, gemini in ~/.canonry/config.yaml.',
+      'No agent LLM provider configured. Add an API key for one of: claude, openai, gemini, zai in ~/.canonry/config.yaml, or export ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY / ZAI_API_KEY.',
     )
   }
 

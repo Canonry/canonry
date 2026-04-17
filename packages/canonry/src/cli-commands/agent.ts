@@ -4,7 +4,7 @@ import type { SupportedAgentProvider } from '../agent/session.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getString, stringOption } from '../cli-command-helpers.js'
 
-const AGENT_PROVIDERS: readonly SupportedAgentProvider[] = ['anthropic', 'openai', 'google']
+const AGENT_PROVIDERS: readonly SupportedAgentProvider[] = ['anthropic', 'openai', 'google', 'zai']
 
 function coerceProvider(value: string | undefined): SupportedAgentProvider | undefined {
   if (!value) return undefined
@@ -16,7 +16,7 @@ function coerceProvider(value: string | undefined): SupportedAgentProvider | und
 export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['agent', 'ask'],
-    usage: 'canonry agent ask <project> "<prompt>" [--provider anthropic|openai|google] [--model <id>] [--format json]',
+    usage: 'canonry agent ask <project> "<prompt>" [--provider anthropic|openai|google|zai] [--model <id>] [--format json]',
     options: {
       provider: stringOption(),
       model: stringOption(),
