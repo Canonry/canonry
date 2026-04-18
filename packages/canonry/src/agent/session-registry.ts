@@ -12,6 +12,7 @@ import { createLogger } from '../logger.js'
 import type { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
 import {
+  buildApiKeyResolver,
   createAeroSession,
   loadAeroSystemPrompt,
   resolveAeroModel,
@@ -22,6 +23,7 @@ import { getAgentProvider } from './providers.js'
 import { buildSkillDocTools } from './skill-tools.js'
 import { buildAllTools, buildReadTools } from './tools.js'
 import { loadRecentForHydrate } from './memory-store.js'
+import { compactMessages, shouldCompact } from './compaction.js'
 
 const log = createLogger('SessionRegistry')
 
@@ -85,6 +87,12 @@ export class SessionRegistry {
   private readonly scopes = new Map<string, 'all' | 'read-only'>()
   /** Cached resolved project id per project name, used so alignScope can rebuild tool context without a DB roundtrip. */
   private readonly projectIds = new Map<string, string>()
+  /**
+   * In-flight compaction promises keyed by project name. A second
+   * `acquireForTurn` that arrives while the first is still summarizing
+   * awaits the same promise instead of kicking off a duplicate LLM call.
+   */
+  private readonly compactions = new Map<string, Promise<void>>()
   private readonly opts: SessionRegistryOptions
 
   constructor(opts: SessionRegistryOptions) {
@@ -238,7 +246,7 @@ export class SessionRegistry {
    * Persists the new model choice to the DB row so subsequent invocations
    * stay on it unless overridden again.
    */
-  acquireForTurn(projectName: string, preferences?: SessionPreferences): Agent {
+  async acquireForTurn(projectName: string, preferences?: SessionPreferences): Promise<Agent> {
     const agent = this.getOrCreate(projectName)
     if (agent.state.isStreaming) {
       throw agentBusy(projectName)
@@ -247,7 +255,68 @@ export class SessionRegistry {
     if (preferences?.provider || preferences?.modelId) {
       this.alignModel(projectName, agent, preferences)
     }
+    await this.maybeCompact(projectName, agent)
     return agent
+  }
+
+  /**
+   * Summarize the oldest half of the transcript into a `compaction:`
+   * memory row when the transcript crosses the token/message threshold.
+   * Runs before the caller's next `agent.prompt()` so the model sees the
+   * trimmed transcript + a refreshed `<memory>` block that now includes
+   * the new summary.
+   *
+   * Races are deduped through `this.compactions`: a concurrent call for
+   * the same project awaits the in-flight promise instead of launching a
+   * duplicate summarizer run. Failures are logged and swallowed — a flaky
+   * summarizer must never block a user turn.
+   */
+  private async maybeCompact(projectName: string, agent: Agent): Promise<void> {
+    const inflight = this.compactions.get(projectName)
+    if (inflight) {
+      await inflight
+      return
+    }
+    if (!shouldCompact(agent.state.messages)) return
+
+    const promise = this.runCompaction(projectName, agent).finally(() => {
+      this.compactions.delete(projectName)
+    })
+    this.compactions.set(projectName, promise)
+    await promise
+  }
+
+  private async runCompaction(projectName: string, agent: Agent): Promise<void> {
+    const projectId = this.projectIds.get(projectName) ?? this.resolveProjectId(projectName)
+    this.projectIds.set(projectName, projectId)
+    const row = this.loadRow(projectId)
+    if (!row) return
+    try {
+      const result = await compactMessages({
+        db: this.opts.db,
+        projectId,
+        sessionId: row.id,
+        messages: agent.state.messages,
+        model: agent.state.model,
+        getApiKey: buildApiKeyResolver(this.opts.config),
+      })
+      if (!result) return
+      agent.state.messages = result.messages
+      // Rehydrate the system prompt so the just-written compaction note
+      // shows up in the `<memory>` block on the very next LLM call.
+      agent.state.systemPrompt = this.buildHydratedSystemPrompt(projectId, row.systemPrompt)
+      this.save(projectName)
+      log.info('compaction.completed', {
+        projectName,
+        removedCount: result.removedCount,
+        summaryBytes: Buffer.byteLength(result.summary, 'utf8'),
+      })
+    } catch (err) {
+      log.error('compaction.failed', {
+        projectName,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
   }
 
   private alignScope(projectName: string, agent: Agent, wantScope: 'all' | 'read-only'): void {
@@ -356,7 +425,7 @@ export class SessionRegistry {
         // acquireForTurn does the busy check in the registry — if the agent
         // is mid-stream we leave pending alone and let `agent_end` drain
         // hook pick it up. Pi's AppError surfaces as `AGENT_BUSY`.
-        agent = this.acquireForTurn(projectName, { toolScope: scope })
+        agent = await this.acquireForTurn(projectName, { toolScope: scope })
       } catch (err) {
         if ((err as { code?: string }).code === 'AGENT_BUSY') return
         throw err

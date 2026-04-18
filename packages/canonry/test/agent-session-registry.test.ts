@@ -415,7 +415,60 @@ describe('SessionRegistry', () => {
     expect(agent.state.tools.length).toBe(10) // 8 read (incl. recall) + 2 skill-doc
   })
 
-  it('acquireForTurn throws AGENT_BUSY without mutating tools when streaming', () => {
+  it('acquireForTurn compacts the transcript when it crosses the threshold, rehydrates the system prompt, and persists a compaction note', async () => {
+    const projectId = insertProject(db, 'demo')
+    const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
+    const agent = registry.getOrCreate('demo')
+    agent.state.model = faux.getModel()
+
+    // Build a transcript long enough that shouldCompact() fires via message-count cap.
+    // COMPACTION_MAX_MESSAGES (400) messages, alternating user/assistant so findSafeSplit
+    // can land on a user boundary.
+    const bulk: AgentMessage[] = []
+    for (let i = 0; i < 420; i++) {
+      bulk.push(
+        i % 2 === 0
+          ? ({ role: 'user', content: `u${i}`, timestamp: 0 } as AgentMessage)
+          : ({
+              role: 'assistant',
+              content: [{ type: 'text', text: `a${i}` }],
+              api: 'faux-api',
+              provider: 'faux',
+              model: 'faux-model',
+              usage: {
+                input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+              },
+              stopReason: 'stop',
+              timestamp: 0,
+            } as AgentMessage),
+      )
+    }
+    agent.state.messages = bulk
+
+    // Faux response feeds the summarizer's `complete()` call.
+    faux.setResponses([
+      fauxAssistantMessage('- Compacted older turns: user asked about status; agent ran sweeps.'),
+    ])
+
+    const basePrompt = agent.state.systemPrompt
+
+    await registry.acquireForTurn('demo')
+
+    // Transcript shrank — the prefix was rolled into a memory note.
+    expect(agent.state.messages.length).toBeLessThan(bulk.length)
+    // System prompt now carries the hydrated `<memory>` block with the new compaction note.
+    expect(agent.state.systemPrompt).not.toBe(basePrompt)
+    expect(agent.state.systemPrompt).toContain('<memory>')
+    expect(agent.state.systemPrompt).toContain('[compaction]')
+
+    // Persisted compaction row in agent_memory.
+    const { agentMemory } = await import('@ainyc/canonry-db')
+    const rows = db.select().from(agentMemory).where(eq(agentMemory.projectId, projectId)).all()
+    expect(rows.some((r) => r.source === 'compaction')).toBe(true)
+  })
+
+  it('acquireForTurn throws AGENT_BUSY without mutating tools when streaming', async () => {
     insertProject(db, 'demo')
     const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
     const agent = registry.getOrCreate('demo')
@@ -427,7 +480,7 @@ describe('SessionRegistry', () => {
 
     let caught: unknown
     try {
-      registry.acquireForTurn('demo', { toolScope: 'read-only' })
+      await registry.acquireForTurn('demo', { toolScope: 'read-only' })
     } catch (err) {
       caught = err
     }
@@ -438,24 +491,24 @@ describe('SessionRegistry', () => {
     expect(agent.state.tools.length).toBe(toolsBeforeLen)
   })
 
-  it('acquireForTurn aligns tool scope on cached agents when idle', () => {
+  it('acquireForTurn aligns tool scope on cached agents when idle', async () => {
     insertProject(db, 'demo')
     const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
     const agent = registry.getOrCreate('demo')
     expect(agent.state.tools.length).toBe(18) // 8 read + 8 write (incl. remember/forget) + 2 skill-doc
 
-    registry.acquireForTurn('demo', { toolScope: 'read-only' })
+    await registry.acquireForTurn('demo', { toolScope: 'read-only' })
 
     expect(agent.state.tools.length).toBe(10) // 8 read (incl. recall) + 2 skill-doc
   })
 
-  it('acquireForTurn swaps model on cached agents when preferences change', () => {
+  it('acquireForTurn swaps model on cached agents when preferences change', async () => {
     insertProject(db, 'demo')
     const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
     const agent = registry.getOrCreate('demo', { provider: 'claude' })
     const originalModelId = (agent.state.model as { id: string }).id
 
-    registry.acquireForTurn('demo', { provider: 'zai', modelId: 'glm-5.1' })
+    await registry.acquireForTurn('demo', { provider: 'zai', modelId: 'glm-5.1' })
 
     const newModelId = (agent.state.model as { id: string }).id
     expect(newModelId).not.toBe(originalModelId)

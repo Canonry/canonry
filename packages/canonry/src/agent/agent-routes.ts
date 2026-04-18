@@ -126,7 +126,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
     // scope / model mutation, so a second request against a busy Agent
     // throws `AGENT_BUSY` (409) without swapping out the in-flight turn's
     // tools or model. Safe to call concurrently from CLI + dashboard.
-    const agent = opts.sessionRegistry.acquireForTurn(project.name, {
+    const agent = await opts.sessionRegistry.acquireForTurn(project.name, {
       provider: request.body?.provider,
       modelId: request.body?.modelId,
       toolScope: requestedScope,

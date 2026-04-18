@@ -28,8 +28,11 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/commands/agent-ask.ts` | `agentAsk` — one-shot turn against the built-in Aero agent, streams events to stdout |
 | `src/cli-commands/agent.ts` | CLI specs for `agent ask / attach / detach` |
 | `src/agent/session.ts` | `createAeroSession` — constructs a pi-agent-core Agent scoped to a canonry project (composes `soul.md` + `SKILL.md` into the system prompt, wires model, tools, API-key resolver) |
-| `src/agent/session-registry.ts` | Hybrid session registry — in-memory `Map<project, Agent>` + durable `agent_sessions` row per project. Handles hydration, persistence, follow-up queueing, post-`agent_end` auto-drain, and the `<memory>` hydrate block appended to every new session's system prompt. |
+| `src/agent/session-registry.ts` | Hybrid session registry — in-memory `Map<project, Agent>` + durable `agent_sessions` row per project. Handles hydration, persistence, follow-up queueing, post-`agent_end` auto-drain, and the `<memory>` hydrate block appended to every new session's system prompt. `acquireForTurn` is async and awaits transcript compaction before returning. |
 | `src/agent/memory-store.ts` | CRUD helpers for `agent_memory`: `listMemoryEntries`, `upsertMemoryEntry`, `deleteMemoryEntry`, `loadRecentForHydrate`, `writeCompactionNote`. Enforces the 2 KB value cap and the `compaction:` reserved-prefix rule. |
+| `src/agent/compaction.ts` | Transcript compaction — `shouldCompact`, `findSafeSplit` (snaps to user-message boundaries), `runSummaryLlm` (one-shot pi-ai `complete()` call), and `compactMessages` which persists the summary as a `compaction:` memory row and returns the kept suffix. |
+| `src/agent/compaction-config.ts` | Tuning constants for compaction — token threshold, target ratio, preserved-tail size, max-messages hard cap. |
+| `src/agent/token-counter.ts` | `estimateMessageTokens` / `estimateTranscriptTokens` — chars/4 heuristic handling user/assistant/toolResult content shapes. Used only to decide when to compact, not to enforce provider limits. |
 | `src/agent/tools.ts` | 16 canonry-state `AgentTool` definitions — 8 read (`get_status`, `get_health`, `get_timeline`, `get_insights`, `list_keywords`, `list_competitors`, `get_run`, `recall`) and 8 write (`run_sweep`, `dismiss_insight`, `add_keywords`, `add_competitors`, `update_schedule`, `attach_agent_webhook`, `remember`, `forget`) |
 | `src/agent/skill-tools.ts` | 2 skill-doc tools (`list_skill_docs`, `read_skill_doc`) — progressive disclosure of bundled reference playbooks. Ride in every scope. |
 | `src/agent/skill-paths.ts` | `resolveAeroSkillDir` — finds the on-disk `skills/aero/` (prod/dev/repo candidate paths) for the prompt loader and skill-doc tools |
@@ -112,6 +115,15 @@ consume Canonry through the external-agent webhook.
   under a `<memory>` block so notes take effect immediately on next session.
   Hydrate is capped at 20 rows / 32 KB, oldest-first truncation. Keys with
   the `compaction:` prefix are reserved for summarized transcript slices.
+- **Compaction**: once a transcript crosses `COMPACTION_TOKEN_THRESHOLD` or
+  `COMPACTION_MAX_MESSAGES`, `acquireForTurn` awaits a one-shot summarizer
+  (`pi-ai` `complete()` on the session's current model) that rolls the
+  oldest half of the transcript into a `compaction:<sessionId>:<iso>`
+  memory row, removes those messages from `agent.state.messages`, and
+  rehydrates the system prompt so the next LLM call sees the summary in
+  its `<memory>` block. Splits are snapped to user-message boundaries to
+  avoid orphaning tool calls from their results. Concurrent compaction
+  runs for the same project dedupe via an in-flight promise map.
 
 Tool surface has two layers:
 - **Canonry state** (`src/agent/tools.ts`) — 8 read (status/health/timeline/
