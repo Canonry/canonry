@@ -2233,6 +2233,19 @@ const canonryLocalRouteCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'get',
+    path: '/api/v1/projects/{name}/agent/providers',
+    summary: 'List the LLM providers Aero can route to',
+    description:
+      'Returns every provider Aero knows about with its default model, whether a usable API key is configured, and where the key resolved from (`config` | `env`). `defaultProvider` is the one Aero auto-picks when a caller omits `provider` on the prompt endpoint. Path is project-scoped for auth symmetry; the response does not vary per project today.',
+    tags: ['agent'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'Providers returned.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
     method: 'post',
     path: '/api/v1/projects/{name}/agent/prompt',
     summary: 'Send a prompt to Aero and stream events back as SSE',

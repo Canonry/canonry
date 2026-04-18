@@ -1,17 +1,21 @@
 import { agentAttach, agentDetach } from '../commands/agent.js'
-import { agentAsk } from '../commands/agent-ask.js'
+import { agentAsk, type AgentAskScope } from '../commands/agent-ask.js'
+import { agentProviders } from '../commands/agent-providers.js'
 import { agentTranscript, agentTranscriptReset } from '../commands/agent-transcript.js'
 import { coerceAgentProvider, listAgentProviders } from '../agent/session.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getString, stringOption } from '../cli-command-helpers.js'
 
+const AGENT_ASK_SCOPES: readonly AgentAskScope[] = ['all', 'read-only']
+
 export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['agent', 'ask'],
-    usage: `canonry agent ask <project> "<prompt>" [--provider ${listAgentProviders().join('|')}] [--model <id>] [--format json]`,
+    usage: `canonry agent ask <project> "<prompt>" [--provider ${listAgentProviders().join('|')}] [--model <id>] [--scope all|read-only] [--format json]`,
     options: {
       provider: stringOption(),
       model: stringOption(),
+      scope: stringOption(),
     },
     run: async (input) => {
       const [project, ...rest] = input.positionals
@@ -26,13 +30,34 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
         process.exitCode = 1
         return
       }
+      const scopeInput = getString(input.values, 'scope')
+      if (scopeInput && !AGENT_ASK_SCOPES.includes(scopeInput as AgentAskScope)) {
+        console.error(`--scope must be one of: ${AGENT_ASK_SCOPES.join(', ')}`)
+        process.exitCode = 1
+        return
+      }
       await agentAsk({
         project,
         prompt: rest.join(' '),
         provider: coerceAgentProvider(providerInput),
         modelId: getString(input.values, 'model'),
+        scope: scopeInput as AgentAskScope | undefined,
         format: input.format,
       })
+    },
+  },
+  {
+    path: ['agent', 'providers'],
+    usage: 'canonry agent providers <project> [--format json]',
+    options: {},
+    run: async (input) => {
+      const project = input.positionals[0]
+      if (!project) {
+        console.error('Usage: canonry agent providers <project>')
+        process.exitCode = 1
+        return
+      }
+      await agentProviders({ project, format: input.format })
     },
   },
   {

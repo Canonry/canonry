@@ -470,7 +470,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
                   </div>
                 </div>
               )}
-              {renderTranscript(messages, projectName, providerOverride)}
+              {renderTranscript(messages, projectName, providerOverride, scope)}
               {liveTrail.length > 0 && (
                 <div className="mt-3 space-y-1.5">
                   {liveTrail.map((trail) => (
@@ -870,13 +870,16 @@ function messageKey(message: AeroMessage, fallbackIndex: number): string {
  * assistant bubble. User messages flush as standalone rows. System wake-ups
  * are hidden — they're an internal follow-up plumbing detail.
  *
- * `projectName` + `providerOverride` let user bubbles render a
- * "copy as CLI" affordance reproducing the turn via `canonry agent ask`.
+ * `projectName` + `providerOverride` + `scope` let user bubbles render a
+ * "copy as CLI" affordance reproducing the turn via `canonry agent ask` —
+ * including the current tool-scope so a pasted command cannot quietly
+ * escalate from read-only to write-capable.
  */
 function renderTranscript(
   messages: AeroMessage[],
   projectName: string,
   providerOverride: AgentProviderId | null,
+  scope: AeroToolScope,
 ): ReactNode[] {
   const nodes: ReactNode[] = []
   for (let i = 0; i < messages.length; i++) {
@@ -892,6 +895,7 @@ function renderTranscript(
           text={text}
           projectName={projectName}
           providerOverride={providerOverride}
+          scope={scope}
         />,
       )
       continue
@@ -948,16 +952,18 @@ function UserMessageRow({
   text,
   projectName,
   providerOverride,
+  scope,
 }: {
   text: string
   projectName: string
   providerOverride: AgentProviderId | null
+  scope: AeroToolScope
 }) {
   const [copied, setCopied] = useState(false)
 
   const cliCommand = useMemo(
-    () => buildAgentAskCommand(projectName, text, providerOverride),
-    [projectName, text, providerOverride],
+    () => buildAgentAskCommand(projectName, text, providerOverride, scope),
+    [projectName, text, providerOverride, scope],
   )
 
   async function handleCopy() {
@@ -1005,14 +1011,20 @@ function UserMessageRow({
  * Build the shell-safe `canonry agent ask` command that reproduces a turn.
  * Single-quoted for predictable shell behavior — any embedded single quotes
  * are escaped via the standard `'\''` POSIX trick.
+ *
+ * Emits `--scope read-only` when the UI ran in safe mode so a pasted command
+ * cannot quietly upgrade to write-capable. The CLI default (`all`) matches
+ * the server default, so we omit the flag in that case to keep pastes terse.
  */
 function buildAgentAskCommand(
   projectName: string,
   prompt: string,
   providerOverride: AgentProviderId | null,
+  scope: AeroToolScope,
 ): string {
   const parts = ['canonry', 'agent', 'ask', shellQuote(projectName), shellQuote(prompt)]
   if (providerOverride) parts.push('--provider', providerOverride)
+  if (scope === 'read-only') parts.push('--scope', 'read-only')
   return parts.join(' ')
 }
 

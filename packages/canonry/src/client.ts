@@ -45,6 +45,7 @@ import type {
   InsightDto,
   HealthSnapshotDto,
   BingCoverageSnapshotDto,
+  AgentProvidersResponse,
 } from '@ainyc/canonry-contracts'
 
 export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry }
@@ -262,6 +263,13 @@ export class ApiClient {
     await this.request<unknown>(
       'DELETE',
       `/projects/${encodeURIComponent(project)}/agent/transcript`,
+    )
+  }
+
+  async listAgentProviders(project: string): Promise<AgentProvidersResponse> {
+    return this.request<AgentProvidersResponse>(
+      'GET',
+      `/projects/${encodeURIComponent(project)}/agent/providers`,
     )
   }
 

@@ -3,11 +3,14 @@ import { CliError, EXIT_SYSTEM_ERROR, printCliError, type CliFormat } from '../c
 import { createApiClient } from '../client.js'
 import type { SupportedAgentProvider } from '../agent/session.js'
 
+export type AgentAskScope = 'all' | 'read-only'
+
 export interface AgentAskOptions {
   project: string
   prompt: string
   provider?: SupportedAgentProvider
   modelId?: string
+  scope?: AgentAskScope
   format?: string
 }
 
@@ -20,8 +23,10 @@ export interface AgentAskOptions {
  * remote or reverse-proxied servers. Now the session lives on the server
  * and the CLI is a thin stream consumer.
  *
- * Tool scope is `'all'` so the CLI keeps write-capable behavior. The
- * dashboard route intentionally defaults to `'read-only'`.
+ * Scope defaults to `'all'` (keeps the CLI write-capable, as documented).
+ * The dashboard "Copy as CLI" emits `--scope read-only` when the bar is in
+ * its default safe mode so a pasted command cannot enable writes the UI
+ * turn couldn't perform.
  */
 export async function agentAsk(opts: AgentAskOptions): Promise<void> {
   const format = (opts.format === 'json' ? 'json' : 'text') as CliFormat
@@ -41,7 +46,7 @@ export async function agentAsk(opts: AgentAskOptions): Promise<void> {
         prompt: opts.prompt,
         provider: opts.provider,
         modelId: opts.modelId,
-        scope: 'all',
+        scope: opts.scope ?? 'all',
       },
       controller.signal,
     )
