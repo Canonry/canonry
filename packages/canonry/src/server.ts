@@ -747,18 +747,17 @@ export async function createServer(opts: {
     return reply.status(204).send()
   })
 
-  registerAgentRoutes(app, {
-    db: opts.db,
-    sessionRegistry,
-    apiPrefix,
-  })
-
   await app.register(apiRoutes, {
     db: opts.db,
     routePrefix: apiPrefix,
     skipAuth: false,
     sessionCookieName: SESSION_COOKIE_NAME,
     resolveSessionApiKeyId,
+    // Local-only Aero agent routes. Registered here so they inherit api-routes'
+    // auth plugin — bare `registerAgentRoutes(app, ...)` would skip auth.
+    registerAuthenticatedRoutes: async (scope) => {
+      registerAgentRoutes(scope, { db: opts.db, sessionRegistry })
+    },
     getGoogleAuthConfig: () => getGoogleAuthConfig(opts.config),
     googleConnectionStore,
     googleStateSecret,

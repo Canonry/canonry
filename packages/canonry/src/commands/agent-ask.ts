@@ -2,7 +2,7 @@ import { createClient, migrate } from '@ainyc/canonry-db'
 import { createApiClient } from '../client.js'
 import { loadConfig } from '../config.js'
 import { SessionRegistry } from '../agent/session-registry.js'
-import type { AgentEvent } from '../agent/pi-runtime.js'
+import type { AgentEvent } from '@mariozechner/pi-agent-core'
 import type { SupportedAgentProvider } from '../agent/session.js'
 
 export interface AgentAskOptions {
@@ -27,8 +27,13 @@ export async function agentAsk(opts: AgentAskOptions): Promise<void> {
 
   const isJson = opts.format === 'json'
 
+  let sawStreamError = false
   agent.subscribe((event) => {
     renderEvent(event, isJson)
+    if (event.type === 'message_end' && event.message.role === 'assistant') {
+      const msg = event.message as { stopReason?: string; errorMessage?: string }
+      if (msg.stopReason === 'error' || msg.errorMessage) sawStreamError = true
+    }
   })
 
   // Drain any follow-ups queued while this session was idle (or persisted
@@ -42,6 +47,7 @@ export async function agentAsk(opts: AgentAskOptions): Promise<void> {
     await agent.prompt(batch)
     await agent.waitForIdle()
     registry.save(opts.project)
+    if (sawStreamError) process.exitCode = 2
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     if (isJson) {

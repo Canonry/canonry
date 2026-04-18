@@ -178,9 +178,12 @@ export class SessionRegistry {
   async drainNow(projectName: string): Promise<void> {
     try {
       const agent = this.getOrCreate(projectName)
-      if (agent.state.isStreaming) {
-        return
-      }
+      // Busy: leave the pending messages alone. The `agent_end` drain hook
+      // will fire after the current run settles and pick them up. If we
+      // consumed them here and the next prompt failed, the events would
+      // be lost with no retry path.
+      if (agent.state.isStreaming) return
+      if ((this.pending.get(projectName) ?? []).length === 0) return
       const msgs = this.consumePending(projectName)
       if (msgs.length === 0) return
       await agent.prompt(msgs)

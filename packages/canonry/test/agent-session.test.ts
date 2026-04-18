@@ -12,7 +12,7 @@ import {
 } from '../src/agent/session.js'
 import type { ApiClient, TimelineDto } from '../src/client.js'
 import type { CanonryConfig } from '../src/config.js'
-import type { AgentEvent } from '../src/agent/pi-runtime.js'
+import type { AgentEvent } from '@mariozechner/pi-agent-core'
 
 function stubClient(): ApiClient {
   const project = {

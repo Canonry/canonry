@@ -111,6 +111,13 @@ export async function promptAero({ project, prompt, signal, onEvent }: PromptAer
   const decoder = new TextDecoder()
   let buffer = ''
 
+  // Translate signal aborts into a reader.cancel() so `await reader.read()`
+  // resolves promptly instead of blocking until the server closes its half.
+  const onAbort = () => {
+    reader.cancel().catch(() => {})
+  }
+  signal?.addEventListener('abort', onAbort, { once: true })
+
   try {
     while (true) {
       const { value, done } = await reader.read()
@@ -135,6 +142,7 @@ export async function promptAero({ project, prompt, signal, onEvent }: PromptAer
       }
     }
   } finally {
+    signal?.removeEventListener('abort', onAbort)
     try {
       reader.releaseLock()
     } catch {

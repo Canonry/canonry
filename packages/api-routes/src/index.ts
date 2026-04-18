@@ -104,6 +104,13 @@ export interface ApiRoutesOptions {
    * Caddy proxies /canonry/* directly to this server without path rewriting.
    */
   routePrefix?: string
+  /**
+   * Hook for registering additional routes inside the authenticated plugin
+   * scope so they share canonry's API-key + session-cookie auth. Used by
+   * the local-only Aero agent routes, which are canonry-specific but must
+   * not bypass auth. Cloud deployments pass undefined.
+   */
+  registerAuthenticatedRoutes?: (scope: FastifyInstance) => Promise<void> | void
 }
 
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
@@ -234,6 +241,11 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       googleConnectionStore: opts.googleConnectionStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
     } satisfies GA4RoutesOptions)
+    // Local-only extension hook: canonry passes the Aero agent routes here
+    // so they live inside the authenticated scope. Cloud leaves it undefined.
+    if (opts.registerAuthenticatedRoutes) {
+      await opts.registerAuthenticatedRoutes(api)
+    }
   }, { prefix: opts.routePrefix ?? '/api/v1' })
 }
 

@@ -196,7 +196,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
                 </div>
               )}
               {messages.map((msg, i) => (
-                <MessageRow key={i} message={msg} />
+                <MessageRow key={messageKey(msg, i)} message={msg} />
               ))}
               {streaming && streamingText && (
                 <div className="mt-3 whitespace-pre-wrap text-zinc-100">{streamingText}</div>
@@ -262,6 +262,11 @@ export function AeroBar({ projectName }: AeroBarProps) {
       </div>
     </div>
   )
+}
+
+function messageKey(message: AeroMessage, fallbackIndex: number): string {
+  const ts = message.timestamp ?? 0
+  return `${message.role}:${ts}:${fallbackIndex}`
 }
 
 function MessageRow({ message }: { message: AeroMessage }) {

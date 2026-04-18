@@ -14,7 +14,6 @@ import type { SupportedAgentProvider } from './session.js'
 export interface AgentRoutesOptions {
   db: DatabaseClient
   sessionRegistry: SessionRegistry
-  apiPrefix: string
 }
 
 function resolveProject(db: DatabaseClient, name: string): { id: string; name: string } {
@@ -24,22 +23,23 @@ function resolveProject(db: DatabaseClient, name: string): { id: string; name: s
 }
 
 /**
- * Registers the built-in Aero routes under the configured api prefix:
- *   GET    /api/v1/projects/:name/agent/transcript  — the full rolling transcript
- *   POST   /api/v1/projects/:name/agent/prompt      — send a message, SSE stream back
- *   DELETE /api/v1/projects/:name/agent/transcript  — reset the conversation
+ * Registers the built-in Aero routes on the supplied Fastify scope. Callers
+ * are expected to invoke this inside the authenticated api-routes scope so
+ * these endpoints share canonry's bearer-key / session-cookie auth.
  *
- * SSE envelope: each line is `data: <JSON AgentEvent>\n\n`. Two additional
- * control events wrap the stream: `{ "type": "stream_open" }` is sent immediately
- * after headers flush so clients can show "connected" UX; `{ "type": "stream_close" }`
- * is sent just before `reply.raw.end()` so clients know the stream is intentionally
- * complete (vs. a network drop).
+ * Routes (relative paths — the scope's prefix provides /api/v1):
+ *   GET    /projects/:name/agent/transcript  — rolling transcript + model config
+ *   POST   /projects/:name/agent/prompt      — send a message, SSE stream back
+ *   DELETE /projects/:name/agent/transcript  — reset the conversation
+ *
+ * SSE envelope: each line is `data: <JSON AgentEvent>\n\n`. Two control frames
+ * wrap the stream — `stream_open` immediately after headers flush (so clients
+ * can show "connected" UX) and `stream_close` just before `reply.raw.end()`
+ * (so clients can distinguish clean closes from network drops).
  */
 export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptions): void {
-  const prefix = opts.apiPrefix
-
   app.get<{ Params: { name: string } }>(
-    prefix + '/projects/:name/agent/transcript',
+    '/projects/:name/agent/transcript',
     async (request) => {
       const project = resolveProject(opts.db, request.params.name)
       const row = opts.db.select().from(agentSessions).where(eq(agentSessions.projectId, project.id)).get()
@@ -56,7 +56,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
   )
 
   app.delete<{ Params: { name: string } }>(
-    prefix + '/projects/:name/agent/transcript',
+    '/projects/:name/agent/transcript',
     async (request) => {
       const project = resolveProject(opts.db, request.params.name)
       opts.sessionRegistry.evict(project.name)
@@ -76,7 +76,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
       provider?: SupportedAgentProvider
       modelId?: string
     }
-  }>(prefix + '/projects/:name/agent/prompt', async (request, reply) => {
+  }>('/projects/:name/agent/prompt', async (request, reply) => {
     const project = resolveProject(opts.db, request.params.name)
     const promptText = (request.body?.prompt ?? '').trim()
     if (!promptText) throw validationError('"prompt" is required')
@@ -111,8 +111,9 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
     // response raw (not the request raw) because for a POST the request
     // stream fires 'close' as soon as the body finishes uploading — long
     // before the response stream matters. Response-side 'close' fires when
-    // the underlying socket actually goes away.
-    reply.raw.on('close', () => {
+    // the underlying socket actually goes away. `once` so we don't leak a
+    // listener if the socket emits multiple close events.
+    reply.raw.once('close', () => {
       if (!reply.raw.writableEnded) {
         agent.abort()
       }
