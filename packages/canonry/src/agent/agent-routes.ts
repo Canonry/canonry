@@ -107,8 +107,12 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
       write(event)
     })
 
-    // Abort the run if the client disconnects mid-stream.
-    request.raw.on('close', () => {
+    // Abort the run if the client disconnects mid-stream. Listen on the
+    // response raw (not the request raw) because for a POST the request
+    // stream fires 'close' as soon as the body finishes uploading — long
+    // before the response stream matters. Response-side 'close' fires when
+    // the underlying socket actually goes away.
+    reply.raw.on('close', () => {
       if (!reply.raw.writableEnded) {
         agent.abort()
       }
