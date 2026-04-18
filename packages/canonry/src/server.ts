@@ -1037,9 +1037,11 @@ export async function createServer(opts: {
       if (basePath) clientConfig.basePath = basePath
 
       const configScript = `<script>window.__CANONRY_CONFIG__=${JSON.stringify(clientConfig)}</script>`
-      // Inject <base href> so relative asset paths resolve correctly at any sub-path.
-      // This must come before other resource tags in <head>.
-      const baseTag = basePath ? `<base href="${basePath}">` : ''
+      // Inject <base href> unconditionally so relative asset paths (`./assets/…`)
+      // resolve against the mount point instead of the current URL. Without this,
+      // deep-links like `/projects/ainyc` request `/projects/assets/…js`, hit the
+      // SPA fallback, and receive HTML where the browser expects JS.
+      const baseTag = `<base href="${basePath ?? '/'}">`
       return html.replace('<head>', `<head>${baseTag}`).replace('</head>', `${configScript}</head>`)
     }
 

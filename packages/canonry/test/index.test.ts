@@ -751,6 +751,84 @@ describe('canonry', () => {
     }
   })
 
+  it('SPA deep-link serves index.html with <base href> so relative assets resolve', async () => {
+    const tmpDir = path.join(os.tmpdir(), `canonry-spa-base-${crypto.randomUUID()}`)
+    fs.mkdirSync(tmpDir, { recursive: true })
+    const dbPath = path.join(tmpDir, 'test.db')
+
+    const db = createClient(dbPath)
+    migrate(db)
+
+    const rawKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
+    const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex')
+    db.insert(apiKeys).values({
+      id: crypto.randomUUID(),
+      name: 'test',
+      keyHash,
+      keyPrefix: rawKey.slice(0, 9),
+      scopes: '["*"]',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    const app = await createServer({
+      config: { apiUrl: 'http://localhost:4100', database: dbPath, apiKey: rawKey },
+      db,
+      logger: false,
+    })
+
+    try {
+      const deepRes = await app.inject({ method: 'GET', url: '/projects/ainyc' })
+      // Test only runs meaningfully when the bundled SPA is present.
+      if (deepRes.statusCode !== 200) return
+      expect(deepRes.headers['content-type']).toContain('text/html')
+      expect(deepRes.body).toContain('<base href="/">')
+    } finally {
+      await app.close()
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('SPA with basePath serves <base href> pointing at the basePath', async () => {
+    const tmpDir = path.join(os.tmpdir(), `canonry-spa-base-prefix-${crypto.randomUUID()}`)
+    fs.mkdirSync(tmpDir, { recursive: true })
+    const dbPath = path.join(tmpDir, 'test.db')
+
+    const db = createClient(dbPath)
+    migrate(db)
+
+    const rawKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
+    const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex')
+    db.insert(apiKeys).values({
+      id: crypto.randomUUID(),
+      name: 'test',
+      keyHash,
+      keyPrefix: rawKey.slice(0, 9),
+      scopes: '["*"]',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    const app = await createServer({
+      config: {
+        apiUrl: 'http://localhost:4100',
+        basePath: '/canonry/',
+        database: dbPath,
+        apiKey: rawKey,
+      },
+      db,
+      logger: false,
+    })
+
+    try {
+      const deepRes = await app.inject({ method: 'GET', url: '/canonry/projects/ainyc' })
+      if (deepRes.statusCode !== 200) return
+      expect(deepRes.headers['content-type']).toContain('text/html')
+      expect(deepRes.body).toContain('<base href="/canonry/">')
+    } finally {
+      await app.close()
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
   it('health endpoint returns ok', async () => {
     const tmpDir = path.join(os.tmpdir(), `canonry-test-${crypto.randomUUID()}`)
     fs.mkdirSync(tmpDir, { recursive: true })
