@@ -51,6 +51,7 @@ import { Notifier } from './notifier.js'
 import { IntelligenceService } from './intelligence-service.js'
 import { RunCoordinator } from './run-coordinator.js'
 import { SessionRegistry } from './agent/session-registry.js'
+import { registerAgentRoutes } from './agent/agent-routes.js'
 import { ApiClient } from './client.js'
 import { SnapshotService } from './snapshot-service.js'
 import { fetchSiteText } from './site-fetch.js'
@@ -744,6 +745,12 @@ export async function createServer(opts: {
       ttlMs: SESSION_TTL_MS,
     }))
     return reply.status(204).send()
+  })
+
+  registerAgentRoutes(app, {
+    db: opts.db,
+    sessionRegistry,
+    apiPrefix,
   })
 
   await app.register(apiRoutes, {
