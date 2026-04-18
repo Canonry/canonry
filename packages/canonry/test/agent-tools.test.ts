@@ -1,4 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import type {
   HealthSnapshotDto,
   InsightDto,
@@ -7,6 +10,7 @@ import type {
   RunDto,
   ScheduleDto,
 } from '@ainyc/canonry-contracts'
+import { createClient, migrate, type DatabaseClient } from '@ainyc/canonry-db'
 import {
   buildAllTools,
   buildReadTools,
@@ -161,12 +165,30 @@ function defaultState(): StubState {
   }
 }
 
+let sharedTmpDir: string
+let sharedDb: DatabaseClient
+
+beforeEach(() => {
+  sharedTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-tools-'))
+  sharedDb = createClient(path.join(sharedTmpDir, 'test.db'))
+  migrate(sharedDb)
+})
+
+afterEach(() => {
+  fs.rmSync(sharedTmpDir, { recursive: true, force: true })
+})
+
 function contextFor(state: StubState): ToolContext {
-  return { client: stubClient(state), projectName: 'demo' }
+  return {
+    client: stubClient(state),
+    projectName: 'demo',
+    db: sharedDb,
+    projectId: 'proj_demo',
+  }
 }
 
 describe('buildReadTools', () => {
-  it('returns 7 tools with the expected names and metadata', () => {
+  it('returns 8 tools with the expected names and metadata', () => {
     const tools = buildReadTools(contextFor(defaultState()))
     expect(tools.map((t) => t.name)).toEqual([
       'get_status',
@@ -176,6 +198,7 @@ describe('buildReadTools', () => {
       'list_keywords',
       'list_competitors',
       'get_run',
+      'recall',
     ])
     for (const tool of tools) {
       expect(tool.description.length).toBeGreaterThan(0)
@@ -290,7 +313,7 @@ describe('get_run', () => {
 })
 
 describe('buildWriteTools', () => {
-  it('returns 6 tools with the expected names', () => {
+  it('returns 8 tools with the expected names', () => {
     const tools = buildWriteTools(contextFor(defaultState()))
     expect(tools.map((t) => t.name)).toEqual([
       'run_sweep',
@@ -299,13 +322,15 @@ describe('buildWriteTools', () => {
       'add_competitors',
       'update_schedule',
       'attach_agent_webhook',
+      'remember',
+      'forget',
     ])
   })
 })
 
 describe('buildAllTools', () => {
-  it('returns 13 tools combining reads + writes', () => {
-    expect(buildAllTools(contextFor(defaultState()))).toHaveLength(13)
+  it('returns 16 tools combining reads + writes', () => {
+    expect(buildAllTools(contextFor(defaultState()))).toHaveLength(16)
   })
 })
 

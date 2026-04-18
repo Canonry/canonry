@@ -423,3 +423,26 @@ export const agentSessions = sqliteTable('agent_sessions', {
   index('idx_agent_sessions_project').on(table.projectId),
   index('idx_agent_sessions_updated').on(table.updatedAt),
 ])
+
+/**
+ * Project-scoped durable notes Aero reads/writes via `remember`, `forget`,
+ * and `recall`. Also holds compaction summaries (`source='compaction'`) so
+ * compacted transcript slices remain recoverable. Hydration reads the N
+ * most-recently-updated rows per project into the `<memory>` block of the
+ * system prompt.
+ *
+ * UNIQUE (project_id, key) — upsert is the only write path. Writing the
+ * same key replaces the prior value; `forget` deletes the row.
+ */
+export const agentMemory = sqliteTable('agent_memory', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  key: text('key').notNull(),
+  value: text('value').notNull(),
+  source: text('source').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('uniq_agent_memory_project_key').on(table.projectId, table.key),
+  index('idx_agent_memory_project_updated').on(table.projectId, table.updatedAt),
+])

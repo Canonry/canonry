@@ -369,7 +369,7 @@ describe('SessionRegistry', () => {
     agent.state.model = faux.getModel()
     faux.setResponses([fauxAssistantMessage('Acknowledged.')])
 
-    expect(agent.state.tools.length).toBe(9) // 7 read + 2 skill-doc
+    expect(agent.state.tools.length).toBe(10) // 8 read (incl. recall) + 2 skill-doc
 
     registry.queueFollowUp('demo', {
       role: 'user',
@@ -379,7 +379,7 @@ describe('SessionRegistry', () => {
 
     await registry.drainNow('demo')
 
-    expect(agent.state.tools.length).toBe(9)
+    expect(agent.state.tools.length).toBe(10)
   })
 
   it('drainNow defaults to read-only when no session scope is set yet', async () => {
@@ -412,7 +412,7 @@ describe('SessionRegistry', () => {
 
     await registry.drainNow('demo')
 
-    expect(agent.state.tools.length).toBe(9) // 7 read + 2 skill-doc
+    expect(agent.state.tools.length).toBe(10) // 8 read (incl. recall) + 2 skill-doc
   })
 
   it('acquireForTurn throws AGENT_BUSY without mutating tools when streaming', () => {
@@ -442,11 +442,11 @@ describe('SessionRegistry', () => {
     insertProject(db, 'demo')
     const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
     const agent = registry.getOrCreate('demo')
-    expect(agent.state.tools.length).toBe(15) // 13 full + 2 skill-doc
+    expect(agent.state.tools.length).toBe(18) // 8 read + 8 write (incl. remember/forget) + 2 skill-doc
 
     registry.acquireForTurn('demo', { toolScope: 'read-only' })
 
-    expect(agent.state.tools.length).toBe(9) // 7 read + 2 skill-doc
+    expect(agent.state.tools.length).toBe(10) // 8 read (incl. recall) + 2 skill-doc
   })
 
   it('acquireForTurn swaps model on cached agents when preferences change', () => {

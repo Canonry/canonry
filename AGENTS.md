@@ -58,6 +58,9 @@ canonry agent ask <project> "<prompt>"               # one-shot turn against bui
 canonry agent ask <project> "<prompt>" --provider zai --format json
 canonry agent attach <project> --url <webhook-url>   # subscribe an external agent to run/insight events
 canonry agent detach <project>                       # remove the agent webhook
+canonry agent memory list <project>                  # list Aero's durable project-scoped notes
+canonry agent memory set <project> --key <k> --value <v>    # upsert a note (2 KB max)
+canonry agent memory forget <project> --key <k>      # delete a note
 ```
 
 ## Agent Layer

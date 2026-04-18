@@ -46,6 +46,9 @@ import type {
   HealthSnapshotDto,
   BingCoverageSnapshotDto,
   AgentProvidersResponse,
+  AgentMemoryEntryDto,
+  AgentMemoryListResponse,
+  AgentMemoryUpsertRequest,
 } from '@ainyc/canonry-contracts'
 
 export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry }
@@ -270,6 +273,35 @@ export class ApiClient {
     return this.request<AgentProvidersResponse>(
       'GET',
       `/projects/${encodeURIComponent(project)}/agent/providers`,
+    )
+  }
+
+  async listAgentMemory(project: string): Promise<AgentMemoryListResponse> {
+    return this.request<AgentMemoryListResponse>(
+      'GET',
+      `/projects/${encodeURIComponent(project)}/agent/memory`,
+    )
+  }
+
+  async setAgentMemory(
+    project: string,
+    body: AgentMemoryUpsertRequest,
+  ): Promise<{ status: 'ok'; entry: AgentMemoryEntryDto }> {
+    return this.request<{ status: 'ok'; entry: AgentMemoryEntryDto }>(
+      'PUT',
+      `/projects/${encodeURIComponent(project)}/agent/memory`,
+      body,
+    )
+  }
+
+  async forgetAgentMemory(
+    project: string,
+    key: string,
+  ): Promise<{ status: 'forgotten' | 'missing'; key: string }> {
+    return this.request<{ status: 'forgotten' | 'missing'; key: string }>(
+      'DELETE',
+      `/projects/${encodeURIComponent(project)}/agent/memory`,
+      { key },
     )
   }
 

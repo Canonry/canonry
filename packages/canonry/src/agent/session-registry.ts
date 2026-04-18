@@ -21,6 +21,7 @@ import {
 import { getAgentProvider } from './providers.js'
 import { buildSkillDocTools } from './skill-tools.js'
 import { buildAllTools, buildReadTools } from './tools.js'
+import { loadRecentForHydrate } from './memory-store.js'
 
 const log = createLogger('SessionRegistry')
 
@@ -63,11 +64,27 @@ interface AgentSessionRow {
  * `drainNow` or user-driven prompt bundles the pending messages in front
  * of the next prompt so they're processed in a single turn.
  */
+/**
+ * Hydrate cap — top N most-recent memory rows injected into the system
+ * prompt `<memory>` block at session build time. Keeps the block readable
+ * and bounded against the value-byte cap.
+ */
+const MAX_HYDRATE_NOTES = 20
+
+/**
+ * Soft byte cap for the total memory block rendered into the system prompt.
+ * 20 notes × 2 KB value = 40 KB worst case; we truncate to ~32 KB so the
+ * block never dominates the prompt, dropping oldest entries first.
+ */
+const MAX_HYDRATE_BYTES = 32 * 1024
+
 export class SessionRegistry {
   private readonly live = new Map<string, Agent>()
   private readonly pending = new Map<string, AgentMessage[]>()
   /** Last tool scope used on the live Agent for a project. Read in getOrCreate to know when to swap. */
   private readonly scopes = new Map<string, 'all' | 'read-only'>()
+  /** Cached resolved project id per project name, used so alignScope can rebuild tool context without a DB roundtrip. */
+  private readonly projectIds = new Map<string, string>()
   private readonly opts: SessionRegistryOptions
 
   constructor(opts: SessionRegistryOptions) {
@@ -118,13 +135,16 @@ export class SessionRegistry {
         projectName,
         client: this.opts.client,
         config: this.opts.config,
+        db: this.opts.db,
+        projectId,
         provider: effectiveProvider,
         modelId: effectiveModelId,
-        systemPromptOverride: row.systemPrompt,
+        systemPromptOverride: this.buildHydratedSystemPrompt(projectId, row.systemPrompt),
         initialMessages: persistedMessages,
         toolScope: preferences?.toolScope,
       })
       this.scopes.set(projectName, preferences?.toolScope ?? 'all')
+      this.projectIds.set(projectName, projectId)
 
       if (queued.length > 0) {
         this.appendPending(projectName, queued)
@@ -143,15 +163,22 @@ export class SessionRegistry {
       projectName,
       client: this.opts.client,
       config: this.opts.config,
+      db: this.opts.db,
+      projectId,
       provider,
       modelId,
-      systemPromptOverride: systemPrompt,
+      // Hydrate on the fresh path too — a brand-new session may still see
+      // notes if they were seeded via CLI/API before the first prompt.
+      systemPromptOverride: this.buildHydratedSystemPrompt(projectId, systemPrompt),
       toolScope: preferences?.toolScope,
     })
     this.scopes.set(projectName, preferences?.toolScope ?? 'all')
+    this.projectIds.set(projectName, projectId)
 
     this.insertRow({
       projectId,
+      // Persist the raw (unhydrated) prompt so the DB remains canonical —
+      // the `<memory>` block is rebuilt from the notes table on every load.
       systemPrompt,
       modelProvider: provider,
       modelId,
@@ -162,6 +189,38 @@ export class SessionRegistry {
     this.live.set(projectName, agent)
     this.registerDrainHook(agent, projectName)
     return agent
+  }
+
+  /**
+   * Append the `<memory>` block to a base system prompt, sourced from the
+   * `agent_memory` table. Returns the base prompt unchanged when no notes
+   * exist — an empty block would just be prompt noise. Truncates to
+   * `MAX_HYDRATE_BYTES`, dropping oldest-first, so the block is bounded
+   * even when notes sit near their 2 KB cap.
+   */
+  buildHydratedSystemPrompt(projectId: string, basePrompt: string): string {
+    const entries = loadRecentForHydrate(this.opts.db, projectId, MAX_HYDRATE_NOTES)
+    if (entries.length === 0) return basePrompt
+
+    let totalBytes = 0
+    const kept: typeof entries = []
+    for (const entry of entries) {
+      const line = `- [${entry.source}] ${entry.key}: ${entry.value}\n`
+      const bytes = Buffer.byteLength(line, 'utf8')
+      if (totalBytes + bytes > MAX_HYDRATE_BYTES) break
+      kept.push(entry)
+      totalBytes += bytes
+    }
+    if (kept.length === 0) return basePrompt
+
+    const lines = kept.map((e) => `- [${e.source}] ${e.key}: ${e.value}`)
+    return (
+      `${basePrompt.trimEnd()}\n\n---\n\n` +
+      `<memory>\n` +
+      `Project-scoped durable notes (newest first). Use remember/forget/recall to manage. Entries tagged [compaction] are LLM-summarized transcript slices.\n\n` +
+      `${lines.join('\n')}\n` +
+      `</memory>`
+    )
   }
 
   /**
@@ -193,11 +252,12 @@ export class SessionRegistry {
 
   private alignScope(projectName: string, agent: Agent, wantScope: 'all' | 'read-only'): void {
     if (this.scopes.get(projectName) === wantScope) return
+    const projectId = this.projectIds.get(projectName) ?? this.resolveProjectId(projectName)
+    this.projectIds.set(projectName, projectId)
+    const toolCtx = { client: this.opts.client, projectName, db: this.opts.db, projectId }
     // Mirror createAeroSession: skill-doc tools ride in every scope.
     const stateTools =
-      wantScope === 'read-only'
-        ? buildReadTools({ client: this.opts.client, projectName })
-        : buildAllTools({ client: this.opts.client, projectName })
+      wantScope === 'read-only' ? buildReadTools(toolCtx) : buildAllTools(toolCtx)
     agent.state.tools = [...stateTools, ...buildSkillDocTools()]
     this.scopes.set(projectName, wantScope)
   }
@@ -333,6 +393,7 @@ export class SessionRegistry {
     this.live.delete(projectName)
     this.pending.delete(projectName)
     this.scopes.delete(projectName)
+    this.projectIds.delete(projectName)
   }
 
   /** Evict every live Agent. Durable state in DB is untouched. */

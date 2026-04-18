@@ -1,6 +1,18 @@
 import { Type } from '@sinclair/typebox'
 import type { AgentTool, AgentToolResult } from '@mariozechner/pi-agent-core'
+import type { DatabaseClient } from '@ainyc/canonry-db'
+import {
+  AGENT_MEMORY_KEY_MAX_LENGTH,
+  AGENT_MEMORY_VALUE_MAX_BYTES,
+  MemorySources,
+} from '@ainyc/canonry-contracts'
 import type { ApiClient } from '../client.js'
+import {
+  COMPACTION_KEY_PREFIX,
+  deleteMemoryEntry,
+  listMemoryEntries,
+  upsertMemoryEntry,
+} from './memory-store.js'
 
 const MAX_TOOL_RESULT_CHARS = 20_000
 
@@ -19,6 +31,8 @@ function textResult<T>(details: T): AgentToolResult<T> {
 export interface ToolContext {
   client: ApiClient
   projectName: string
+  db: DatabaseClient
+  projectId: string
 }
 
 const StatusSchema = Type.Object({
@@ -169,7 +183,31 @@ function buildGetRunTool(ctx: ToolContext): AgentTool<typeof RunDetailSchema> {
   }
 }
 
-/** Read-only Aero tools — fetch canonry state. Does not mutate anything. */
+const RecallSchema = Type.Object({
+  limit: Type.Optional(
+    Type.Number({
+      description: 'Max notes to return, ordered newest-first. Default 50. Max 100.',
+      minimum: 1,
+      maximum: 100,
+    }),
+  ),
+})
+
+function buildRecallTool(ctx: ToolContext): AgentTool<typeof RecallSchema> {
+  return {
+    name: 'recall',
+    label: 'Recall memory',
+    description:
+      'Read project-scoped durable notes Aero has stored via `remember` (plus compaction summaries). Returns entries newest-first. The N most-recent entries are also injected into the system prompt at session start, so you usually do not need to call this — reach for it when you need older context or the full note value.',
+    parameters: RecallSchema,
+    execute: async (_toolCallId, params) => {
+      const entries = listMemoryEntries(ctx.db, ctx.projectId, { limit: params.limit ?? 50 })
+      return textResult({ entries })
+    },
+  }
+}
+
+/** Read-only Aero tools — fetch canonry state + recall durable notes. Does not mutate anything. */
 export function buildReadTools(ctx: ToolContext): AgentTool[] {
   return [
     buildGetStatusTool(ctx) as unknown as AgentTool,
@@ -179,6 +217,7 @@ export function buildReadTools(ctx: ToolContext): AgentTool[] {
     buildListKeywordsTool(ctx) as unknown as AgentTool,
     buildListCompetitorsTool(ctx) as unknown as AgentTool,
     buildGetRunTool(ctx) as unknown as AgentTool,
+    buildRecallTool(ctx) as unknown as AgentTool,
   ]
 }
 
@@ -362,7 +401,65 @@ function buildAttachAgentWebhookTool(ctx: ToolContext): AgentTool<typeof AttachA
   }
 }
 
-/** Write tools — mutate canonry state. Additive-only. */
+const RememberSchema = Type.Object({
+  key: Type.String({
+    description: `Stable identifier for this note (max ${AGENT_MEMORY_KEY_MAX_LENGTH} chars). Writing the same key overwrites the prior value. Do NOT use the "${COMPACTION_KEY_PREFIX}" prefix — that namespace is reserved for transcript compaction summaries.`,
+    minLength: 1,
+    maxLength: AGENT_MEMORY_KEY_MAX_LENGTH,
+  }),
+  value: Type.String({
+    description: `Plain-text note to persist (max ${AGENT_MEMORY_VALUE_MAX_BYTES} bytes). Use for durable operator preferences, migration context, or non-obvious reasoning you'll want on a future turn. Do NOT duplicate data canonry already tracks (runs, insights, timelines) — query those instead.`,
+    minLength: 1,
+  }),
+})
+
+function buildRememberTool(ctx: ToolContext): AgentTool<typeof RememberSchema> {
+  return {
+    name: 'remember',
+    label: 'Remember',
+    description:
+      'Persist a project-scoped durable note visible to every future Aero session for this project. Upsert — writing the same key replaces the prior value. Capped at 2 KB per note.',
+    parameters: RememberSchema,
+    execute: async (_toolCallId, params) => {
+      const entry = upsertMemoryEntry(ctx.db, {
+        projectId: ctx.projectId,
+        key: params.key,
+        value: params.value,
+        source: MemorySources.aero,
+      })
+      return textResult({ status: 'remembered', entry })
+    },
+  }
+}
+
+const ForgetSchema = Type.Object({
+  key: Type.String({
+    description: 'Exact key of the note to remove. No-op (status=missing) when no note exists for that key.',
+    minLength: 1,
+    maxLength: AGENT_MEMORY_KEY_MAX_LENGTH,
+  }),
+})
+
+function buildForgetTool(ctx: ToolContext): AgentTool<typeof ForgetSchema> {
+  return {
+    name: 'forget',
+    label: 'Forget',
+    description:
+      'Delete a durable note by key. Use when a previously-remembered fact is wrong or no longer relevant.',
+    parameters: ForgetSchema,
+    execute: async (_toolCallId, params) => {
+      if (params.key.startsWith(COMPACTION_KEY_PREFIX)) {
+        throw new Error(
+          `cannot forget compaction notes directly — they are pruned automatically (key prefix "${COMPACTION_KEY_PREFIX}" is reserved)`,
+        )
+      }
+      const removed = deleteMemoryEntry(ctx.db, ctx.projectId, params.key)
+      return textResult({ status: removed ? 'forgotten' : 'missing', key: params.key })
+    },
+  }
+}
+
+/** Write tools — mutate canonry state. Additive-only (memory upsert/delete included). */
 export function buildWriteTools(ctx: ToolContext): AgentTool[] {
   return [
     buildRunSweepTool(ctx) as unknown as AgentTool,
@@ -371,6 +468,8 @@ export function buildWriteTools(ctx: ToolContext): AgentTool[] {
     buildAddCompetitorsTool(ctx) as unknown as AgentTool,
     buildUpdateScheduleTool(ctx) as unknown as AgentTool,
     buildAttachAgentWebhookTool(ctx) as unknown as AgentTool,
+    buildRememberTool(ctx) as unknown as AgentTool,
+    buildForgetTool(ctx) as unknown as AgentTool,
   ]
 }
 

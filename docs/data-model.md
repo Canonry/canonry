@@ -34,6 +34,7 @@ erDiagram
   projects ||--o{ bing_keyword_stats : has
 
   projects ||--o| agent_sessions : "has (1:1)"
+  projects ||--o{ agent_memory : has
 ```
 
 ## Table Groups
@@ -97,6 +98,7 @@ erDiagram
 | Table | Purpose |
 |-------|---------|
 | **agent_sessions** | One rolling Aero session per project. Durable half of the hybrid session registry — stores transcript, queued follow-ups, and chosen provider/model so a live pi-agent-core Agent can be rehydrated after a restart. Unique: `projectId`. FK: projectId → projects |
+| **agent_memory** | Project-scoped durable notes written by Aero (`remember`), the operator (CLI / API), or the compaction summarizer. Hydrated into every new session's system prompt under `<memory>`. Keys starting with `compaction:` are reserved for summarized transcript slices. Unique: `(projectId, key)`. FK: projectId → projects |
 
 ## JSON Columns
 

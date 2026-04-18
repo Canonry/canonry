@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import type { AgentProviderId } from './providers.js'
 
 /**
@@ -36,3 +37,50 @@ export interface AgentProvidersResponse {
    */
   defaultProvider: AgentProviderId | null
 }
+
+/**
+ * Source tag for a durable Aero note. `aero` = agent-authored via the
+ * `remember` tool; `user` = operator-authored via CLI/API; `compaction` =
+ * LLM-summarized transcript slice.
+ */
+export const memorySourceSchema = z.enum(['aero', 'user', 'compaction'])
+export type MemorySource = z.infer<typeof memorySourceSchema>
+export const MemorySources = memorySourceSchema.enum
+
+/**
+ * Hard cap on the `value` column in `agent_memory`. Enforced at every
+ * write boundary (tool, API, compaction) so the `<memory>` system-prompt
+ * block stays bounded.
+ */
+export const AGENT_MEMORY_VALUE_MAX_BYTES = 2 * 1024
+
+/**
+ * Maximum length of a memory key. 128 bytes is enough for
+ * `compaction:<uuid>:<iso-ts>` while staying short enough to keep hydrate
+ * blocks readable.
+ */
+export const AGENT_MEMORY_KEY_MAX_LENGTH = 128
+
+export interface AgentMemoryEntryDto {
+  id: string
+  key: string
+  value: string
+  source: MemorySource
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AgentMemoryListResponse {
+  entries: AgentMemoryEntryDto[]
+}
+
+export const agentMemoryUpsertRequestSchema = z.object({
+  key: z.string().min(1).max(AGENT_MEMORY_KEY_MAX_LENGTH),
+  value: z.string().min(1),
+})
+export type AgentMemoryUpsertRequest = z.infer<typeof agentMemoryUpsertRequestSchema>
+
+export const agentMemoryDeleteRequestSchema = z.object({
+  key: z.string().min(1).max(AGENT_MEMORY_KEY_MAX_LENGTH),
+})
+export type AgentMemoryDeleteRequest = z.infer<typeof agentMemoryDeleteRequestSchema>

@@ -1,3 +1,6 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
   fauxAssistantMessage,
@@ -5,6 +8,7 @@ import {
   type FauxProviderRegistration,
 } from '@mariozechner/pi-ai'
 import type { HealthSnapshotDto, ProjectDto, RunDto } from '@ainyc/canonry-contracts'
+import { createClient, migrate, type DatabaseClient } from '@ainyc/canonry-db'
 import {
   createAeroSession,
   detectAgentProvider,
@@ -100,6 +104,8 @@ describe('detectAgentProvider', () => {
 
 describe('createAeroSession — end-to-end with faux provider', () => {
   let faux: FauxProviderRegistration
+  let tmpDir: string
+  let db: DatabaseClient
 
   beforeEach(() => {
     faux = registerFauxProvider({
@@ -107,10 +113,14 @@ describe('createAeroSession — end-to-end with faux provider', () => {
       provider: 'faux',
       models: [{ id: 'faux-model' }],
     })
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-session-'))
+    db = createClient(path.join(tmpDir, 'test.db'))
+    migrate(db)
   })
 
   afterEach(() => {
     faux.unregister()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('emits lifecycle events when running a simple prompt', async () => {
@@ -120,6 +130,8 @@ describe('createAeroSession — end-to-end with faux provider', () => {
       projectName: 'demo',
       client: stubClient(),
       config: stubConfig(),
+      db,
+      projectId: 'proj_demo',
       systemPromptOverride: 'You are a test agent.',
       provider: 'claude',
       modelId: 'claude-opus-4-7',
@@ -152,6 +164,8 @@ describe('createAeroSession — end-to-end with faux provider', () => {
         projectName: 'demo',
         client: stubClient(),
         config: stubConfig({ providers: {} }),
+        db,
+        projectId: 'proj_demo',
         systemPromptOverride: 'test',
       }),
     ).toThrow(/No agent LLM provider configured/)

@@ -28,8 +28,9 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/commands/agent-ask.ts` | `agentAsk` — one-shot turn against the built-in Aero agent, streams events to stdout |
 | `src/cli-commands/agent.ts` | CLI specs for `agent ask / attach / detach` |
 | `src/agent/session.ts` | `createAeroSession` — constructs a pi-agent-core Agent scoped to a canonry project (composes `soul.md` + `SKILL.md` into the system prompt, wires model, tools, API-key resolver) |
-| `src/agent/session-registry.ts` | Hybrid session registry — in-memory `Map<project, Agent>` + durable `agent_sessions` row per project. Handles hydration, persistence, follow-up queueing, and post-`agent_end` auto-drain. |
-| `src/agent/tools.ts` | 13 canonry-state `AgentTool` definitions — 7 read (`get_status`, `get_health`, `get_timeline`, `get_insights`, `list_keywords`, `list_competitors`, `get_run`) and 6 write (`run_sweep`, `dismiss_insight`, `add_keywords`, `add_competitors`, `update_schedule`, `attach_agent_webhook`) |
+| `src/agent/session-registry.ts` | Hybrid session registry — in-memory `Map<project, Agent>` + durable `agent_sessions` row per project. Handles hydration, persistence, follow-up queueing, post-`agent_end` auto-drain, and the `<memory>` hydrate block appended to every new session's system prompt. |
+| `src/agent/memory-store.ts` | CRUD helpers for `agent_memory`: `listMemoryEntries`, `upsertMemoryEntry`, `deleteMemoryEntry`, `loadRecentForHydrate`, `writeCompactionNote`. Enforces the 2 KB value cap and the `compaction:` reserved-prefix rule. |
+| `src/agent/tools.ts` | 16 canonry-state `AgentTool` definitions — 8 read (`get_status`, `get_health`, `get_timeline`, `get_insights`, `list_keywords`, `list_competitors`, `get_run`, `recall`) and 8 write (`run_sweep`, `dismiss_insight`, `add_keywords`, `add_competitors`, `update_schedule`, `attach_agent_webhook`, `remember`, `forget`) |
 | `src/agent/skill-tools.ts` | 2 skill-doc tools (`list_skill_docs`, `read_skill_doc`) — progressive disclosure of bundled reference playbooks. Ride in every scope. |
 | `src/agent/skill-paths.ts` | `resolveAeroSkillDir` — finds the on-disk `skills/aero/` (prod/dev/repo candidate paths) for the prompt loader and skill-doc tools |
 | `src/agent/agent-routes.ts` | Fastify routes — `GET/DELETE transcript` + `POST prompt` (SSE) for the dashboard Aero bar |
@@ -105,13 +106,20 @@ consume Canonry through the external-agent webhook.
   user click.
 - **Persistence**: one `agent_sessions` row per project. Transcript + queued
   follow-ups survive `canonry serve` restarts. See `docs/data-model.md`.
+- **Memory**: durable project-scoped notes in `agent_memory` (key/value +
+  source). Written via `remember` tool (or CLI / API), read via `recall`, and
+  the N most-recent rows are injected into every new session's system prompt
+  under a `<memory>` block so notes take effect immediately on next session.
+  Hydrate is capped at 20 rows / 32 KB, oldest-first truncation. Keys with
+  the `compaction:` prefix are reserved for summarized transcript slices.
 
 Tool surface has two layers:
-- **Canonry state** (`src/agent/tools.ts`) — 7 read (status/health/timeline/
-  insights/keywords/competitors/run detail) + 6 write (run sweep / dismiss
-  insight / add keywords / add competitors / update schedule / attach webhook).
-  Project name is closed over by `ToolContext` so the LLM can't target the
-  wrong project; tools surface their intent via `tool_execution_start` events.
+- **Canonry state** (`src/agent/tools.ts`) — 8 read (status/health/timeline/
+  insights/keywords/competitors/run detail/recall) + 8 write (run sweep /
+  dismiss insight / add keywords / add competitors / update schedule /
+  attach webhook / remember / forget). Project name is closed over by
+  `ToolContext` so the LLM can't target the wrong project; tools surface
+  their intent via `tool_execution_start` events.
 - **Skill docs** (`src/agent/skill-tools.ts`) — 2 tools (`list_skill_docs`,
   `read_skill_doc`) for progressive disclosure of bundled reference playbooks.
   Ride in every scope. `SKILL.md` stays lightweight; detailed playbooks
@@ -121,6 +129,9 @@ Tool surface has two layers:
 System prompt is composed from `skills/aero/soul.md` (identity/voice/values)
 + `skills/aero/SKILL.md` (task rules). Soul is prepended so identity frames
 the task instructions. Both files ship in `assets/agent-workspace/skills/aero/`.
+The `<memory>` hydrate block is appended at session-build time by
+`SessionRegistry.buildHydratedSystemPrompt` — the DB row keeps the raw
+(unhydrated) prompt so every new session sees the latest notes.
 
 ### External agents (webhook lifecycle)
 
