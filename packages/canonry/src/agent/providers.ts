@@ -47,7 +47,7 @@ export const AGENT_PROVIDERS = {
   [AgentProviderIds.gemini]: {
     piAiProvider: 'google',
     label: 'Google (Gemini)',
-    defaultModel: 'gemini-2.5-pro',
+    defaultModel: 'gemini-2.5-flash',
     autoDetectPriority: 2,
   },
   [AgentProviderIds.zai]: {
