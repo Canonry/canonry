@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Sparkles, X, RotateCcw, ArrowUp } from 'lucide-react'
+import { Sparkles, X, RotateCcw, ArrowUp, Maximize2, Minimize2 } from 'lucide-react'
 import { useLocation } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { fetchProjects } from '../../api.js'
@@ -26,6 +26,7 @@ const STARTER_PROMPTS: Array<{ label: string; prompt: string }> = [
 
 export function AeroBar({ projectName }: AeroBarProps) {
   const [open, setOpen] = useState(false)
+  const [expanded, setExpanded] = useState(false)
   const [messages, setMessages] = useState<AeroMessage[]>([])
   const [draft, setDraft] = useState('')
   const [streaming, setStreaming] = useState(false)
@@ -34,6 +35,18 @@ export function AeroBar({ projectName }: AeroBarProps) {
   const [error, setError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const transcriptRef = useRef<HTMLDivElement | null>(null)
+
+  // Escape key collapses expanded → compact first, then closes.
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      if (expanded) setExpanded(false)
+      else setOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, expanded])
 
   // Load transcript when opened / when the project changes, and poll while
   // open so proactive turns (from RunCoordinator wake-ups) surface without a
@@ -147,11 +160,33 @@ export function AeroBar({ projectName }: AeroBarProps) {
 
   const conversationIsEmpty = messages.length === 0
 
+  // Layout classes depend on (open, expanded):
+  //   closed    → compact pill at bottom
+  //   open      → panel at bottom, max-w-3xl, ~40vh transcript
+  //   expanded  → near-fullscreen overlay with backdrop, big transcript
+  const hostClasses = open && expanded
+    ? 'pointer-events-auto fixed inset-0 z-40 flex items-stretch justify-center bg-zinc-950/70 p-4 sm:p-8 backdrop-blur-sm'
+    : 'pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center p-3'
+
+  const panelClasses = expanded
+    ? 'pointer-events-auto flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/95 shadow-2xl'
+    : 'pointer-events-auto w-full max-w-3xl'
+
+  const transcriptClasses = expanded
+    ? 'flex-1 overflow-y-auto px-6 py-5 text-sm text-zinc-200'
+    : 'max-h-[40vh] min-h-[120px] overflow-y-auto px-4 py-3 text-sm text-zinc-200'
+
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center p-3">
-      <div className="pointer-events-auto w-full max-w-3xl">
+    <div
+      className={hostClasses}
+      onClick={(e) => {
+        // Backdrop click in expanded mode collapses back to compact.
+        if (expanded && e.target === e.currentTarget) setExpanded(false)
+      }}
+    >
+      <div className={panelClasses}>
         {open ? (
-          <div className="flex flex-col overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/95 shadow-xl backdrop-blur">
+          <div className={expanded ? 'flex h-full flex-col' : 'flex flex-col overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/95 shadow-xl backdrop-blur'}>
             <div className="flex items-center justify-between gap-2 border-b border-zinc-800/70 px-4 py-2.5">
               <div className="flex items-center gap-2">
                 <Sparkles className="h-4 w-4 text-emerald-400" aria-hidden="true" />
@@ -172,7 +207,23 @@ export function AeroBar({ projectName }: AeroBarProps) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setOpen(false)}
+                  onClick={() => setExpanded((v) => !v)}
+                  className="rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-800/60 hover:text-zinc-200"
+                  aria-label={expanded ? 'Collapse' : 'Expand'}
+                  title={expanded ? 'Collapse' : 'Expand'}
+                >
+                  {expanded ? (
+                    <Minimize2 className="h-3.5 w-3.5" aria-hidden="true" />
+                  ) : (
+                    <Maximize2 className="h-3.5 w-3.5" aria-hidden="true" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExpanded(false)
+                    setOpen(false)
+                  }}
                   className="rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-800/60 hover:text-zinc-200"
                   aria-label="Close Aero"
                 >
@@ -181,10 +232,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
               </div>
             </div>
 
-            <div
-              ref={transcriptRef}
-              className="max-h-[40vh] min-h-[120px] overflow-y-auto px-4 py-3 text-sm text-zinc-200"
-            >
+            <div ref={transcriptRef} className={transcriptClasses}>
               {error && (
                 <div className="mb-2 rounded-md border border-rose-700/40 bg-rose-950/40 px-3 py-2 text-xs text-rose-200">
                   {error}
@@ -247,7 +295,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
                 }}
                 placeholder="Ask Aero…"
                 disabled={streaming}
-                rows={1}
+                rows={expanded ? 3 : 1}
                 className="flex-1 resize-none bg-transparent text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none disabled:opacity-60"
               />
               <button
