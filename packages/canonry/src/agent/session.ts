@@ -48,6 +48,8 @@ export interface AeroSessionOptions {
   streamFn?: AgentOptions['streamFn']
   /** Override tool set. Default: `buildAllTools({ client, projectName })` — reads + writes. */
   tools?: AgentTool[]
+  /** Seed initial transcript. Used by the registry when rehydrating a persisted session. */
+  initialMessages?: import('@mariozechner/pi-agent-core').AgentMessage[]
 }
 
 export function loadAeroSystemPrompt(pkgDir?: string): string {
@@ -117,8 +119,28 @@ export function createAeroSession(opts: AeroSessionOptions): Agent {
     opts.tools ?? buildAllTools({ client: opts.client, projectName: opts.projectName })
 
   return new Agent({
-    initialState: { systemPrompt, model, tools },
+    initialState: {
+      systemPrompt,
+      model,
+      tools,
+      ...(opts.initialMessages ? { messages: opts.initialMessages } : {}),
+    },
     streamFn: opts.streamFn,
     getApiKey: buildApiKeyResolver(opts.config),
   })
+}
+
+/** Exposed so the registry can persist the chosen provider/model without re-running detection. */
+export function resolveSessionProviderAndModel(
+  config: CanonryConfig,
+  opts?: { provider?: SupportedAgentProvider; modelId?: string },
+): { provider: SupportedAgentProvider; modelId: string } {
+  const provider = opts?.provider ?? detectAgentProvider(config)
+  if (!provider) {
+    throw new Error(
+      'No agent LLM provider configured. Add an API key for one of: claude, openai, gemini, zai in ~/.canonry/config.yaml, or export ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY / ZAI_API_KEY.',
+    )
+  }
+  const modelId = opts?.modelId ?? DEFAULT_MODEL_IDS[provider]
+  return { provider, modelId }
 }

@@ -395,3 +395,31 @@ export const healthSnapshots = sqliteTable('health_snapshots', {
   index('idx_health_snapshots_run').on(table.runId),
   index('idx_health_snapshots_created').on(table.createdAt),
 ])
+
+/**
+ * Per-project rolling Aero session.
+ *
+ * Durable half of the hybrid session registry: stores the transcript, any
+ * follow-up messages queued while no live Agent was alive, and the model/
+ * prompt config so a restart can rehydrate an in-memory Agent on demand.
+ * The live pi-agent-core Agent instance (listeners, AbortController) lives
+ * in memory and is reconstructed from this row after a restart.
+ *
+ * One row per project (enforced by UNIQUE on project_id). Single rolling
+ * thread per project — we intentionally do not support many concurrent
+ * threads per project (see `project_aero_ui_direction` memory).
+ */
+export const agentSessions = sqliteTable('agent_sessions', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().unique().references(() => projects.id, { onDelete: 'cascade' }),
+  systemPrompt: text('system_prompt').notNull(),
+  modelProvider: text('model_provider').notNull(),
+  modelId: text('model_id').notNull(),
+  messages: text('messages').notNull().default('[]'),
+  followUpQueue: text('follow_up_queue').notNull().default('[]'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_agent_sessions_project').on(table.projectId),
+  index('idx_agent_sessions_updated').on(table.updatedAt),
+])
