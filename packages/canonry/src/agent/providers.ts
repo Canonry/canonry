@@ -1,4 +1,5 @@
 import { getEnvApiKey, getModel, type KnownProvider, type Model } from '@mariozechner/pi-ai'
+import type { AgentProviderOption, AgentProvidersResponse } from '@ainyc/canonry-contracts'
 
 /**
  * Registry of LLM providers the built-in Aero agent can drive.
@@ -139,11 +140,52 @@ export function resolveApiKeyFor(
   providerOrPiAi: SupportedAgentProvider | string,
   config: { providers?: Record<string, { apiKey?: string } | undefined> },
 ): string | undefined {
+  const source = resolveApiKeySource(providerOrPiAi, config)
+  return source?.key
+}
+
+/**
+ * Same resolution as `resolveApiKeyFor` but also tells you whether the key
+ * came from canonry config or a pi-ai env var. UI uses this to render an
+ * onboarding hint that points to the right source of truth.
+ */
+export function resolveApiKeySource(
+  providerOrPiAi: SupportedAgentProvider | string,
+  config: { providers?: Record<string, { apiKey?: string } | undefined> },
+): { key: string; source: 'config' | 'env' } | undefined {
   const entry =
     (AGENT_PROVIDERS as Record<string, AgentProviderEntry | undefined>)[providerOrPiAi] ??
     findByPiAiProvider(providerOrPiAi)
   if (!entry) return undefined
   const fromConfig = config.providers?.[entry.canonryConfigKey]?.apiKey
-  if (fromConfig) return fromConfig
-  return getEnvApiKey(entry.piAiProvider)
+  if (fromConfig) return { key: fromConfig, source: 'config' }
+  const fromEnv = getEnvApiKey(entry.piAiProvider)
+  if (fromEnv) return { key: fromEnv, source: 'env' }
+  return undefined
+}
+
+/**
+ * Build the `AgentProvidersResponse` DTO the `/agent/providers` endpoint
+ * serves. Lives alongside the registry so the provider list and the
+ * key-source derivation stay in lockstep with `AGENT_PROVIDERS`.
+ */
+export function buildAgentProvidersResponse(config: {
+  providers?: Record<string, { apiKey?: string } | undefined>
+}): AgentProvidersResponse {
+  const providers: AgentProviderOption[] = listAgentProviders().map((id) => {
+    const entry = AGENT_PROVIDERS[id]
+    const source = resolveApiKeySource(id, config)
+    return {
+      id: id as AgentProviderOption['id'],
+      label: entry.label,
+      defaultModel: entry.defaultModel,
+      configured: source !== undefined,
+      keySource: source?.source ?? null,
+    }
+  })
+  const firstConfigured = agentProvidersByPriority().find((p) => resolveApiKeySource(p, config))
+  return {
+    providers,
+    defaultProvider: (firstConfigured as AgentProviderOption['id'] | undefined) ?? null,
+  }
 }

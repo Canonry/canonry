@@ -73,6 +73,11 @@ export class SessionRegistry {
     this.opts = opts
   }
 
+  /** Read-only access to the config snapshot the registry was built with. */
+  getConfig(): CanonryConfig {
+    return this.opts.config
+  }
+
   /**
    * Returns the live Agent for a project, hydrating from DB or creating
    * fresh. Applies caller preferences on fresh/hydrated construction. Does

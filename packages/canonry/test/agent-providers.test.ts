@@ -4,11 +4,13 @@ import {
   AGENT_PROVIDERS,
   AgentProviders,
   agentProvidersByPriority,
+  buildAgentProvidersResponse,
   coerceAgentProvider,
   findByPiAiProvider,
   getAgentProvider,
   listAgentProviders,
   resolveApiKeyFor,
+  resolveApiKeySource,
   resolveModelForProvider,
   validateAgentProviderRegistry,
   type SupportedAgentProvider,
@@ -106,5 +108,94 @@ describe('resolveApiKeyFor', () => {
 
   it('returns undefined for an unknown provider string', () => {
     expect(resolveApiKeyFor('unknown', {})).toBeUndefined()
+  })
+})
+
+describe('resolveApiKeySource', () => {
+  it('tags config-sourced keys with source="config"', () => {
+    const provider = listAgentProviders()[0] as SupportedAgentProvider
+    const entry = getAgentProvider(provider)
+    const res = resolveApiKeySource(provider, {
+      providers: { [entry.canonryConfigKey]: { apiKey: 'from-config' } },
+    })
+    expect(res).toEqual({ key: 'from-config', source: 'config' })
+  })
+
+  it('tags env-sourced keys with source="env" when config is empty', () => {
+    const provider = listAgentProviders()[0] as SupportedAgentProvider
+    const entry = getAgentProvider(provider)
+    const envName = `${entry.piAiProvider.toUpperCase()}_API_KEY`
+    const prior = process.env[envName]
+    process.env[envName] = 'from-env'
+    try {
+      const res = resolveApiKeySource(provider, {})
+      expect(res).toEqual({ key: 'from-env', source: 'env' })
+    } finally {
+      if (prior === undefined) delete process.env[envName]
+      else process.env[envName] = prior
+    }
+  })
+})
+
+describe('buildAgentProvidersResponse', () => {
+  it('lists every registered provider once', () => {
+    const res = buildAgentProvidersResponse({})
+    const ids = res.providers.map((p) => p.id).sort()
+    const expected = [...listAgentProviders()].sort()
+    expect(ids).toEqual(expected)
+  })
+
+  it('marks configured-via-config providers with keySource="config"', () => {
+    const provider = listAgentProviders()[0] as SupportedAgentProvider
+    const entry = getAgentProvider(provider)
+    const res = buildAgentProvidersResponse({
+      providers: { [entry.canonryConfigKey]: { apiKey: 'cfg' } },
+    })
+    const match = res.providers.find((p) => p.id === provider)
+    expect(match?.configured).toBe(true)
+    expect(match?.keySource).toBe('config')
+  })
+
+  it('marks providers with no key as configured=false / keySource=null', () => {
+    // Wipe all relevant env vars so detection uses config only.
+    const priors: Record<string, string | undefined> = {}
+    for (const p of listAgentProviders()) {
+      const envName = `${getAgentProvider(p).piAiProvider.toUpperCase()}_API_KEY`
+      priors[envName] = process.env[envName]
+      delete process.env[envName]
+    }
+    try {
+      const res = buildAgentProvidersResponse({})
+      for (const p of res.providers) {
+        expect(p.configured).toBe(false)
+        expect(p.keySource).toBeNull()
+      }
+      expect(res.defaultProvider).toBeNull()
+    } finally {
+      for (const [k, v] of Object.entries(priors)) {
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      }
+    }
+  })
+
+  it('defaultProvider matches the highest-priority configured entry', () => {
+    const sorted = agentProvidersByPriority()
+    // Configure the #2 priority entry; #1 must remain unconfigured.
+    const target = sorted[1] as SupportedAgentProvider
+    const lower = sorted[0] as SupportedAgentProvider
+    const lowerEnvName = `${getAgentProvider(lower).piAiProvider.toUpperCase()}_API_KEY`
+    const priorEnv = process.env[lowerEnvName]
+    delete process.env[lowerEnvName]
+    try {
+      const entry = getAgentProvider(target)
+      const res = buildAgentProvidersResponse({
+        providers: { [entry.canonryConfigKey]: { apiKey: 'cfg' } },
+      })
+      expect(res.defaultProvider).toBe(target)
+    } finally {
+      if (priorEnv === undefined) delete process.env[lowerEnvName]
+      else process.env[lowerEnvName] = priorEnv
+    }
   })
 })

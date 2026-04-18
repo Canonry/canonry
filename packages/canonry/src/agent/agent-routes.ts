@@ -10,6 +10,7 @@ import { notFound, validationError } from '@ainyc/canonry-contracts'
 import type { AgentEvent, AgentMessage } from '@mariozechner/pi-agent-core'
 import type { SessionRegistry } from './session-registry.js'
 import type { SupportedAgentProvider } from './session.js'
+import { buildAgentProvidersResponse } from './providers.js'
 
 export interface AgentRoutesOptions {
   db: DatabaseClient
@@ -52,6 +53,19 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
         modelId: row.modelId,
         updatedAt: row.updatedAt,
       }
+    },
+  )
+
+  // Provider catalog + key-resolution status. The dashboard provider picker
+  // uses this to render enabled vs. disabled entries; the CLI can consume
+  // the same shape to show `canonry agent providers`. Project-scoped path is
+  // cosmetic — the response is global today but lives on the project scope
+  // so future per-project provider overrides slot in without a URL shuffle.
+  app.get<{ Params: { name: string } }>(
+    '/projects/:name/agent/providers',
+    async (request) => {
+      resolveProject(opts.db, request.params.name)
+      return buildAgentProvidersResponse(opts.sessionRegistry.getConfig())
     },
   )
 

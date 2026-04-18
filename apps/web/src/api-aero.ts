@@ -1,4 +1,7 @@
 import { ApiError } from './api.js'
+import type { AgentProviderId, AgentProvidersResponse } from '@ainyc/canonry-contracts'
+
+export type { AgentProviderId, AgentProviderOption, AgentProvidersResponse } from '@ainyc/canonry-contracts'
 
 function getApiBase(): string {
   if (typeof window !== 'undefined' && window.__CANONRY_CONFIG__?.basePath) {
@@ -70,6 +73,21 @@ export async function fetchAeroTranscript(project: string): Promise<AeroTranscri
   return res.json()
 }
 
+export async function fetchAgentProviders(project: string): Promise<AgentProvidersResponse> {
+  const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(project)}/agent/providers`, {
+    credentials: 'include',
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new ApiError(
+      body?.error?.message ?? `providers fetch failed: ${res.status}`,
+      res.status,
+      body?.error?.code,
+    )
+  }
+  return res.json()
+}
+
 export async function resetAeroTranscript(project: string): Promise<void> {
   const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(project)}/agent/transcript`, {
     method: 'DELETE',
@@ -81,9 +99,20 @@ export async function resetAeroTranscript(project: string): Promise<void> {
   }
 }
 
+export type AeroToolScope = 'read-only' | 'all'
+
 export interface PromptAeroArgs {
   project: string
   prompt: string
+  /** Override Aero's auto-detected provider for this turn. */
+  provider?: AgentProviderId
+  /** Override the provider's default model for this turn. */
+  modelId?: string
+  /**
+   * Tool-surface scope for this turn. `read-only` (default) blocks mutating
+   * tools like run_sweep and dismiss_insight; `all` enables the full set.
+   */
+  scope?: AeroToolScope
   signal?: AbortSignal
   onEvent: (event: AeroEvent) => void
 }
@@ -94,12 +123,24 @@ export interface PromptAeroArgs {
  * response. Rejects on network errors; SSE `error` frames surface to
  * onEvent but do not reject this promise.
  */
-export async function promptAero({ project, prompt, signal, onEvent }: PromptAeroArgs): Promise<void> {
+export async function promptAero({
+  project,
+  prompt,
+  provider,
+  modelId,
+  scope,
+  signal,
+  onEvent,
+}: PromptAeroArgs): Promise<void> {
+  const body: Record<string, unknown> = { prompt }
+  if (provider) body.provider = provider
+  if (modelId) body.modelId = modelId
+  if (scope) body.scope = scope
   const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(project)}/agent/prompt`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify(body),
     signal,
   })
   if (!res.ok || !res.body) {
