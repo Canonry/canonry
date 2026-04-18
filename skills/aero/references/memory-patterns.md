@@ -1,3 +1,8 @@
+---
+name: memory-patterns
+description: What to persist vs. re-query — project state lives in canonry, only user-scoped facts go in agent memory. Read when unsure whether to remember or look up.
+---
+
 # Memory Patterns
 
 Canonry is the source of truth for project state. Do **not** maintain a parallel copy of project facts in agent memory — it will drift from the DB and mislead the next session.

@@ -1,6 +1,5 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { Agent } from '@mariozechner/pi-agent-core'
 import type { AgentOptions, AgentTool } from '@mariozechner/pi-agent-core'
 import { registerBuiltInApiProviders, type Model } from '@mariozechner/pi-ai'
@@ -15,6 +14,8 @@ import {
   validateAgentProviderRegistry,
   type SupportedAgentProvider,
 } from './providers.js'
+import { resolveAeroSkillDir } from './skill-paths.js'
+import { buildSkillDocTools } from './skill-tools.js'
 import { buildAllTools, buildReadTools } from './tools.js'
 
 export type { SupportedAgentProvider } from './providers.js'
@@ -53,23 +54,20 @@ export interface AeroSessionOptions {
   initialMessages?: import('@mariozechner/pi-agent-core').AgentMessage[]
 }
 
+export { resolveAeroSkillDir } from './skill-paths.js'
+
+/**
+ * Compose the system prompt from soul.md (identity/voice) + SKILL.md (task
+ * rules). Soul is optional — SKILL.md alone is a valid prompt — but when
+ * present it's prepended so identity frames the task instructions.
+ */
 export function loadAeroSystemPrompt(pkgDir?: string): string {
-  const here = pkgDir ?? path.dirname(fileURLToPath(import.meta.url))
-  // Search order reflects how canonry is packaged vs. run in-repo:
-  //   prod  : packages/canonry/dist/<flat bundle> → ../assets/agent-workspace/skills/aero/SKILL.md
-  //   dev   : packages/canonry/src/agent/session.ts → ../../assets/agent-workspace/skills/aero/SKILL.md
-  //   repo  : packages/canonry/src/agent/session.ts → ../../../../skills/aero/SKILL.md
-  const candidates = [
-    path.join(here, '../assets/agent-workspace/skills/aero/SKILL.md'),
-    path.join(here, '../../assets/agent-workspace/skills/aero/SKILL.md'),
-    path.join(here, '../../../../skills/aero/SKILL.md'),
-  ]
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      return fs.readFileSync(candidate, 'utf-8')
-    }
-  }
-  throw new Error(`Aero skill not found. Searched:\n  ${candidates.join('\n  ')}`)
+  const skillDir = resolveAeroSkillDir(pkgDir)
+  const skillBody = fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf-8')
+  const soulPath = path.join(skillDir, 'soul.md')
+  if (!fs.existsSync(soulPath)) return skillBody
+  const soulBody = fs.readFileSync(soulPath, 'utf-8')
+  return `${soulBody.trimEnd()}\n\n---\n\n${skillBody}`
 }
 
 function missingProviderMessage(): string {
@@ -117,10 +115,13 @@ export function createAeroSession(opts: AeroSessionOptions): Agent {
   const model = resolveAeroModel(provider, opts.modelId)
 
   const toolScope = opts.toolScope ?? 'all'
-  const defaultTools =
+  // Skill-doc tools ride in both scopes — they're pure reads of bundled
+  // assets, no project state involved.
+  const stateTools =
     toolScope === 'read-only'
       ? buildReadTools({ client: opts.client, projectName: opts.projectName })
       : buildAllTools({ client: opts.client, projectName: opts.projectName })
+  const defaultTools = [...stateTools, ...buildSkillDocTools()]
   const tools = opts.tools ?? defaultTools
 
   return new Agent({

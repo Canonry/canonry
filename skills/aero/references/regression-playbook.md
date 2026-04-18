@@ -1,3 +1,8 @@
+---
+name: regression-playbook
+description: Detection → triage → diagnosis → response for lost citations. Read when investigating why a keyword lost its citation.
+---
+
 # Regression Playbook
 
 ## Detection

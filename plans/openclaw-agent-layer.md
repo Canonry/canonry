@@ -239,9 +239,13 @@ Profile defaults to `aero` → state at `~/.openclaw-aero/`, workspace at `~/.op
 All managed-agent assets must live under `packages/canonry/assets/` to be included in the published npm package (per `"files": ["assets/"]`).
 
 **Create in `packages/canonry/assets/agent-workspace/`:**
-- `SOUL.md` — Aero analyst persona
 - `AGENTS.md` — Operational guidelines (canonry CLI usage, quota awareness)
 - `USER.md` — Empty client context template
+
+Aero's persona lives in `skills/aero/soul.md` — shared with the built-in
+agent (no duplicate workspace-root `SOUL.md`). External hosts that want a
+root-level identity file should symlink or copy from `skills/aero/soul.md`
+during workspace setup.
 
 **Create in `packages/canonry/assets/agent-workspace/skills/aero/`:**
 - `SKILL.md` — Orchestration skill definition

@@ -1,3 +1,8 @@
+---
+name: orchestration
+description: Workflow recipes — baseline, regression response, weekly review, content gap analysis. Read when planning a multi-step task or recurring review.
+---
+
 # Orchestration Workflows
 
 ## Workflow 1: New Client Baseline

@@ -60,6 +60,16 @@ describe('loadAeroSystemPrompt', () => {
     expect(content).toContain('Aero')
     expect(content.length).toBeGreaterThan(100)
   })
+
+  it('prepends soul.md before SKILL.md with a separator when both exist', () => {
+    const content = loadAeroSystemPrompt()
+    // Soul ships with a "Who You Are" heading; SKILL.md has "Judgment Rules".
+    const soulIdx = content.indexOf('Who You Are')
+    const skillIdx = content.indexOf('Judgment Rules')
+    expect(soulIdx).toBeGreaterThanOrEqual(0)
+    expect(skillIdx).toBeGreaterThan(soulIdx)
+    expect(content.slice(soulIdx, skillIdx)).toContain('---')
+  })
 })
 
 describe('detectAgentProvider', () => {

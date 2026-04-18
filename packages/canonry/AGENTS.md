@@ -27,9 +27,11 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/commands/agent.ts` | `agentAttach` / `agentDetach` — wire an external agent's webhook to a project |
 | `src/commands/agent-ask.ts` | `agentAsk` — one-shot turn against the built-in Aero agent, streams events to stdout |
 | `src/cli-commands/agent.ts` | CLI specs for `agent ask / attach / detach` |
-| `src/agent/session.ts` | `createAeroSession` — constructs a pi-agent-core Agent scoped to a canonry project (system prompt, model, tools, API-key resolver) |
+| `src/agent/session.ts` | `createAeroSession` — constructs a pi-agent-core Agent scoped to a canonry project (composes `soul.md` + `SKILL.md` into the system prompt, wires model, tools, API-key resolver) |
 | `src/agent/session-registry.ts` | Hybrid session registry — in-memory `Map<project, Agent>` + durable `agent_sessions` row per project. Handles hydration, persistence, follow-up queueing, and post-`agent_end` auto-drain. |
-| `src/agent/tools.ts` | 13 typed `AgentTool` definitions — 7 read (`get_status`, `get_health`, `get_timeline`, `get_insights`, `list_keywords`, `list_competitors`, `get_run`) and 6 write (`run_sweep`, `dismiss_insight`, `add_keywords`, `add_competitors`, `update_schedule`, `attach_agent_webhook`) |
+| `src/agent/tools.ts` | 13 canonry-state `AgentTool` definitions — 7 read (`get_status`, `get_health`, `get_timeline`, `get_insights`, `list_keywords`, `list_competitors`, `get_run`) and 6 write (`run_sweep`, `dismiss_insight`, `add_keywords`, `add_competitors`, `update_schedule`, `attach_agent_webhook`) |
+| `src/agent/skill-tools.ts` | 2 skill-doc tools (`list_skill_docs`, `read_skill_doc`) — progressive disclosure of bundled reference playbooks. Ride in every scope. |
+| `src/agent/skill-paths.ts` | `resolveAeroSkillDir` — finds the on-disk `skills/aero/` (prod/dev/repo candidate paths) for the prompt loader and skill-doc tools |
 | `src/agent/agent-routes.ts` | Fastify routes — `GET/DELETE transcript` + `POST prompt` (SSE) for the dashboard Aero bar |
 | `src/agent/pi-runtime.ts` | Thin factory re-exporting pi-agent-core types with canonry-scoped construction |
 
@@ -104,11 +106,21 @@ consume Canonry through the external-agent webhook.
 - **Persistence**: one `agent_sessions` row per project. Transcript + queued
   follow-ups survive `canonry serve` restarts. See `docs/data-model.md`.
 
-Tool surface lives in `src/agent/tools.ts` — 7 read (status/health/timeline/
-insights/keywords/competitors/run detail) + 6 write (run sweep / dismiss
-insight / add keywords / add competitors / update schedule / attach webhook).
-Project name is closed over by `ToolContext` so the LLM can't target the
-wrong project; tools surface their intent via `tool_execution_start` events.
+Tool surface has two layers:
+- **Canonry state** (`src/agent/tools.ts`) — 7 read (status/health/timeline/
+  insights/keywords/competitors/run detail) + 6 write (run sweep / dismiss
+  insight / add keywords / add competitors / update schedule / attach webhook).
+  Project name is closed over by `ToolContext` so the LLM can't target the
+  wrong project; tools surface their intent via `tool_execution_start` events.
+- **Skill docs** (`src/agent/skill-tools.ts`) — 2 tools (`list_skill_docs`,
+  `read_skill_doc`) for progressive disclosure of bundled reference playbooks.
+  Ride in every scope. `SKILL.md` stays lightweight; detailed playbooks
+  (workflows, regression diagnosis, reporting templates, integrations) load
+  on-demand via slug.
+
+System prompt is composed from `skills/aero/soul.md` (identity/voice/values)
++ `skills/aero/SKILL.md` (task rules). Soul is prepended so identity frames
+the task instructions. Both files ship in `assets/agent-workspace/skills/aero/`.
 
 ### External agents (webhook lifecycle)
 

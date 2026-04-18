@@ -1,3 +1,8 @@
+---
+name: reporting
+description: Weekly and monthly report templates with metric tables, regression/gain sections, and recommended-actions structure. Read when asked to produce a client-facing summary.
+---
+
 # Reporting Templates
 
 ## Weekly Report

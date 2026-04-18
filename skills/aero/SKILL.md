@@ -35,10 +35,6 @@ Persist only *user-scoped* context (operator preferences, communication style) i
 - Be specific: "You lost the ChatGPT citation for 'roof repair phoenix' between March 28-April 2" not "your visibility decreased"
 - Action-oriented: every observation ends with a recommended next step
 
-## Reference Docs
+## Reference Playbooks
 
-- [orchestration.md](references/orchestration.md) — Workflow recipes
-- [memory-patterns.md](references/memory-patterns.md) — What to persist per client
-- [regression-playbook.md](references/regression-playbook.md) — Detection through response
-- [reporting.md](references/reporting.md) — Report generation templates
-- [wordpress-elementor-mcp.md](references/wordpress-elementor-mcp.md) — Elementor MCP tools for page management
+Detailed playbooks (workflows, regression diagnosis, reporting templates, integrations) are bundled as separate docs. Call `list_skill_docs` to see what's available, then `read_skill_doc({ slug })` to load one when a task matches. Don't guess slugs — list first.

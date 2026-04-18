@@ -19,6 +19,7 @@ import {
   type SupportedAgentProvider,
 } from './session.js'
 import { getAgentProvider } from './providers.js'
+import { buildSkillDocTools } from './skill-tools.js'
 import { buildAllTools, buildReadTools } from './tools.js'
 
 const log = createLogger('SessionRegistry')
@@ -192,10 +193,12 @@ export class SessionRegistry {
 
   private alignScope(projectName: string, agent: Agent, wantScope: 'all' | 'read-only'): void {
     if (this.scopes.get(projectName) === wantScope) return
-    agent.state.tools =
+    // Mirror createAeroSession: skill-doc tools ride in every scope.
+    const stateTools =
       wantScope === 'read-only'
         ? buildReadTools({ client: this.opts.client, projectName })
         : buildAllTools({ client: this.opts.client, projectName })
+    agent.state.tools = [...stateTools, ...buildSkillDocTools()]
     this.scopes.set(projectName, wantScope)
   }
 

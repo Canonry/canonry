@@ -1,3 +1,8 @@
+---
+name: wordpress-elementor-mcp
+description: WordPress + Elementor MCP integration guide — prerequisites, auth, widget manipulation. Read only when the task involves editing WordPress/Elementor pages.
+---
+
 # Elementor + WordPress MCP Development Guide
 
 ## Overview
