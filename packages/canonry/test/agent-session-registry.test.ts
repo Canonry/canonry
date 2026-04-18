@@ -280,6 +280,63 @@ describe('SessionRegistry', () => {
     expect(count).toBe(1)
   })
 
+  it('drainNow preserves a read-only session scope and does not escalate to write tools', async () => {
+    // Regression: drainNow used to call acquireForTurn with no preferences,
+    // so alignScope defaulted wantScope to 'all' and silently upgraded a
+    // read-only dashboard session to the full 13-tool write surface during
+    // a system-triggered proactive drain.
+    insertProject(db, 'demo')
+    const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
+    const agent = registry.getOrCreate('demo', { toolScope: 'read-only' })
+    agent.state.model = faux.getModel()
+    faux.setResponses([fauxAssistantMessage('Acknowledged.')])
+
+    expect(agent.state.tools.length).toBe(7)
+
+    registry.queueFollowUp('demo', {
+      role: 'user',
+      content: '[system] run.completed',
+      timestamp: Date.now(),
+    } as unknown as AgentMessage)
+
+    await registry.drainNow('demo')
+
+    expect(agent.state.tools.length).toBe(7)
+  })
+
+  it('drainNow defaults to read-only when no session scope is set yet', async () => {
+    // Fail-closed: if somehow a drain fires before any user turn has
+    // established a scope, we should default to the read-only surface
+    // rather than the full write surface.
+    const projectId = insertProject(db, 'demo')
+    const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
+    // Create the row without a live agent, then seed a queued follow-up.
+    registry.getOrCreate('demo')
+    registry.evict('demo')
+
+    const now = new Date().toISOString()
+    db.update(agentSessions)
+      .set({
+        followUpQueue: JSON.stringify([
+          { role: 'user', content: '[system] run.completed', timestamp: Date.now() },
+        ]),
+        updatedAt: now,
+      })
+      .where(eq(agentSessions.projectId, projectId))
+      .run()
+
+    const agent = registry.getOrCreate('demo') // hydrates; defaults scope to 'all' in cache
+    agent.state.model = faux.getModel()
+    faux.setResponses([fauxAssistantMessage('Acknowledged.')])
+
+    // Clear the scope cache so drainNow falls through the `?? 'read-only'` branch
+    ;(registry as unknown as { scopes: Map<string, string> }).scopes.delete('demo')
+
+    await registry.drainNow('demo')
+
+    expect(agent.state.tools.length).toBe(7)
+  })
+
   it('acquireForTurn throws AGENT_BUSY without mutating tools when streaming', () => {
     insertProject(db, 'demo')
     const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })

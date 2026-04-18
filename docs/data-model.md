@@ -32,6 +32,8 @@ erDiagram
 
   projects ||--o{ bing_url_inspections : has
   projects ||--o{ bing_keyword_stats : has
+
+  projects ||--o| agent_sessions : "has (1:1)"
 ```
 
 ## Table Groups

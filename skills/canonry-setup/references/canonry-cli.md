@@ -314,6 +314,13 @@ canonry agent ask <project> "<prompt>" --provider anthropic --model claude-opus-
 canonry agent ask <project> "<prompt>" --provider zai      --model glm-5.1
 canonry agent ask <project> "<prompt>" --provider openai
 canonry agent ask <project> "<prompt>" --provider google
+
+# Restrict the tool surface. Default is --scope all (full 13-tool surface:
+# 7 read + 6 write). --scope read-only exposes only the 7 read tools and
+# is what the dashboard bar uses by default so pasted "Copy as CLI"
+# commands can't enable writes the UI turn couldn't perform.
+canonry agent ask <project> "<prompt>" --scope read-only
+canonry agent ask <project> "<prompt>" --scope all
 ```
 
 **Provider detection order** when `--provider` is omitted: `anthropic` →

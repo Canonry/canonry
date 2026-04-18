@@ -284,10 +284,15 @@ export class SessionRegistry {
     try {
       let agent: Agent
       try {
+        // Preserve the session's current scope — a proactive drain must not
+        // escalate a read-only dashboard session to the full write surface.
+        // Default to 'read-only' when no scope has been set yet, since drains
+        // are system-triggered and should fail closed.
+        const scope = this.scopes.get(projectName) ?? 'read-only'
         // acquireForTurn does the busy check in the registry — if the agent
         // is mid-stream we leave pending alone and let `agent_end` drain
         // hook pick it up. Pi's AppError surfaces as `AGENT_BUSY`.
-        agent = this.acquireForTurn(projectName)
+        agent = this.acquireForTurn(projectName, { toolScope: scope })
       } catch (err) {
         if ((err as { code?: string }).code === 'AGENT_BUSY') return
         throw err
