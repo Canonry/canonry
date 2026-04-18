@@ -93,6 +93,7 @@ export class SessionRegistry {
       }
 
       this.live.set(projectName, agent)
+      this.registerDrainHook(agent, projectName)
       return agent
     }
 
@@ -118,6 +119,7 @@ export class SessionRegistry {
     })
 
     this.live.set(projectName, agent)
+    this.registerDrainHook(agent, projectName)
     return agent
   }
 
@@ -134,17 +136,21 @@ export class SessionRegistry {
   /**
    * Enqueue a message for the next turn.
    *
-   * Always appends to the registry's pending queue. If no live Agent exists
-   * for this project, also persists to the DB follow-up queue so the message
-   * survives a restart.
+   * - Live session exists: append to the in-memory pending queue. The next
+   *   `consumePending`-backed prompt, a `drainNow` call, or the post-`agent_end`
+   *   drain hook will process it.
+   * - No live session: persist to the DB follow-up queue. The next
+   *   `getOrCreate` hydrates the agent and migrates the queue into pending.
    *
-   * Does NOT kick a run — callers either drain explicitly via `drainNow` or
-   * let the next `consumePending`-backed prompt pick them up.
+   * Crucially writes to exactly ONE of the two sinks to avoid the duplicate
+   * message we saw during the first end-to-end dogfood (run.completed fired,
+   * both the in-memory pending and the DB-queue migration produced copies).
    */
   queueFollowUp(projectName: string, message: AgentMessage): void {
-    this.appendPending(projectName, [message])
-    if (!this.live.has(projectName)) {
-      this.persistQueue(projectName, this.pending.get(projectName) ?? [])
+    if (this.live.has(projectName)) {
+      this.appendPending(projectName, [message])
+    } else {
+      this.persistQueueAppend(projectName, message)
     }
   }
 
@@ -215,22 +221,39 @@ export class SessionRegistry {
     this.pending.set(projectName, [...existing, ...messages])
   }
 
-  private persistQueue(projectName: string, messages: AgentMessage[]): void {
+  private persistQueueAppend(projectName: string, message: AgentMessage): void {
     const projectId = this.tryResolveProjectId(projectName)
     if (!projectId) return
     const row = this.loadRow(projectId)
     if (!row) {
-      // No session row yet — insert a fresh one so the queue has a home.
+      // No session row yet — insert a fresh one with this message as the first queued entry.
       this.insertRow({
         projectId,
         systemPrompt: loadAeroSystemPrompt(),
         ...resolveSessionProviderAndModel(this.opts.config),
         messages: [],
-        followUpQueue: messages,
+        followUpQueue: [message],
       })
       return
     }
-    this.updateRow(projectId, { followUpQueue: JSON.stringify(messages) })
+    const existing = parseJsonColumn<AgentMessage[]>(row.followUpQueue, [])
+    this.updateRow(projectId, { followUpQueue: JSON.stringify([...existing, message]) })
+  }
+
+  /**
+   * Subscribe to agent_end so any pending messages that landed during a run
+   * (from RunCoordinator callbacks or steered follow-ups) drain automatically
+   * after the current turn settles. Without this, a RunCoordinator event that
+   * arrives mid-CLI-turn would sit in pending until someone called drainNow.
+   */
+  private registerDrainHook(agent: Agent, projectName: string): void {
+    agent.subscribe((event) => {
+      if (event.type !== 'agent_end') return
+      if ((this.pending.get(projectName) ?? []).length === 0) return
+      // Fire-and-forget — the drain re-invokes prompt() which itself emits a
+      // new agent_end, so we stay single-threaded via pi's internal guards.
+      void this.drainNow(projectName)
+    })
   }
 
   private resolveProjectId(projectName: string): string {

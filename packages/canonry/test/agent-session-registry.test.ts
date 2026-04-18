@@ -245,4 +245,38 @@ describe('SessionRegistry', () => {
 
     expect(agent.state.messages.length).toBe(before)
   })
+
+  it('does not duplicate a message queued while idle when drainNow hydrates the session', async () => {
+    // Regression: the first end-to-end dogfood showed the [system] message
+    // appearing twice in the transcript because queueFollowUp wrote to both
+    // the in-memory pending Map AND the DB follow_up_queue, then getOrCreate
+    // migrated the DB queue INTO pending, producing a second copy.
+    insertProject(db, 'demo')
+    const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
+    // Pre-warm a session then evict so we're in the "idle with row" state
+    registry.getOrCreate('demo')
+    registry.evict('demo')
+
+    registry.queueFollowUp('demo', {
+      role: 'user',
+      content: 'only once please',
+      timestamp: Date.now(),
+    } as unknown as AgentMessage)
+
+    // drainNow internally hydrates via getOrCreate
+    const agent = registry.getOrCreate('demo')
+    agent.state.model = faux.getModel()
+    faux.setResponses([fauxAssistantMessage('Acknowledged.')])
+
+    await registry.drainNow('demo')
+
+    // Count how many times the original content appears in the agent transcript
+    const count = agent.state.messages.filter(
+      (m) =>
+        (m as { role: string }).role === 'user' &&
+        typeof (m as { content: unknown }).content === 'string' &&
+        (m as { content: string }).content === 'only once please',
+    ).length
+    expect(count).toBe(1)
+  })
 })
