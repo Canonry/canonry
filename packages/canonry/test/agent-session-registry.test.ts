@@ -246,6 +246,84 @@ describe('SessionRegistry', () => {
     expect(agent.state.messages.length).toBe(before)
   })
 
+  it('drainNow hydrates a cold session and processes DB-queued follow-ups', async () => {
+    // Regression: drainNow used to check only the in-memory pending map
+    // and bail early on cold / post-restart sessions. queueFollowUp on a
+    // cold session persists to the DB follow-up queue, so proactive
+    // wake-up after run.completed never fired until a manual prompt
+    // hydrated the session — the follow-up just sat in the DB.
+    const projectId = insertProject(db, 'demo')
+    const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
+
+    // Pre-warm the session, swap in the faux model so the subsequent drain
+    // has a usable backend, then evict WITHOUT clearing pending so the
+    // queue flows through the DB (cold-session code path).
+    const warm = registry.getOrCreate('demo')
+    warm.state.model = faux.getModel()
+    faux.setResponses([fauxAssistantMessage('Acknowledged.')])
+    registry.evict('demo')
+
+    // Cold-session enqueue — lands in DB queue (not in-memory pending).
+    registry.queueFollowUp('demo', {
+      role: 'user',
+      content: '[system] run.completed while cold',
+      timestamp: Date.now(),
+    } as unknown as AgentMessage)
+
+    expect(registry.isLive('demo')).toBe(false)
+    expect(registry.peekPending('demo')).toHaveLength(0)
+    const beforeRow = db.select().from(agentSessions).where(eq(agentSessions.projectId, projectId)).get()
+    expect(parseJsonColumn<AgentMessage[]>(beforeRow!.followUpQueue, [])).toHaveLength(1)
+
+    await registry.drainNow('demo')
+
+    // Fix: drain no longer returns early on cold sessions.
+    expect(registry.isLive('demo')).toBe(true)
+    expect(registry.peekPending('demo')).toHaveLength(0)
+    const afterRow = db.select().from(agentSessions).where(eq(agentSessions.projectId, projectId)).get()
+    expect(parseJsonColumn<AgentMessage[]>(afterRow!.followUpQueue, [])).toEqual([])
+
+    // Re-hydrated agent rebuilds with the default model, so replace it
+    // with faux before asserting a prompt landed. (The drain itself ran
+    // against a fresh agent whose default model was fine for construction;
+    // we're verifying the queue-clearing side effect here.)
+    const rehydrated = registry.getOrCreate('demo')
+    expect(
+      rehydrated.state.messages.some(
+        (m) => (m as { content: string }).content === '[system] run.completed while cold',
+      ),
+    ).toBe(true)
+  })
+
+  it('reset clears live agent, in-memory pending, and scope cache', () => {
+    // Regression: DELETE /agent/transcript wiped the DB row but called
+    // evict(), which only drops the live Agent. The in-memory pending map
+    // and scope cache survived, so a system follow-up queued on a hot
+    // session would leak into the next prompt after the reset.
+    insertProject(db, 'demo')
+    const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
+    registry.getOrCreate('demo', { toolScope: 'read-only' })
+
+    registry.queueFollowUp('demo', {
+      role: 'user',
+      content: 'queued before reset',
+      timestamp: Date.now(),
+    } as unknown as AgentMessage)
+    expect(registry.peekPending('demo')).toHaveLength(1)
+    expect(registry.isLive('demo')).toBe(true)
+    expect(
+      (registry as unknown as { scopes: Map<string, string> }).scopes.get('demo'),
+    ).toBe('read-only')
+
+    registry.reset('demo')
+
+    expect(registry.isLive('demo')).toBe(false)
+    expect(registry.peekPending('demo')).toHaveLength(0)
+    expect(
+      (registry as unknown as { scopes: Map<string, string> }).scopes.get('demo'),
+    ).toBeUndefined()
+  })
+
   it('does not duplicate a message queued while idle when drainNow hydrates the session', async () => {
     // Regression: the first end-to-end dogfood showed the [system] message
     // appearing twice in the transcript because queueFollowUp wrote to both

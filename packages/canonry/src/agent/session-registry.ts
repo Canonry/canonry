@@ -276,14 +276,15 @@ export class SessionRegistry {
    * Proactive drain — hydrate if needed, consume pending, prompt the agent.
    *
    * No-op when:
-   *   - there are no pending messages
+   *   - there are no pending messages in memory AND no persisted queue in
+   *     the DB (post-restart / never-hydrated sessions still need to wake)
    *   - the agent is currently streaming (it will pick them up on the next turn)
    *
    * Fire-and-forget safe: failures are logged, never thrown. This is what
    * RunCoordinator calls after a run completes to wake Aero unprompted.
    */
   async drainNow(projectName: string): Promise<void> {
-    if ((this.pending.get(projectName) ?? []).length === 0) return
+    if (!this.hasPendingWork(projectName)) return
     try {
       let agent: Agent
       try {
@@ -317,6 +318,23 @@ export class SessionRegistry {
     this.live.delete(projectName)
   }
 
+  /**
+   * Authoritative reset for a project's session state. Drops the live Agent,
+   * clears the in-memory pending follow-up buffer, and forgets the cached
+   * tool scope. Caller is responsible for wiping the durable row; this only
+   * touches the in-process state the registry holds.
+   *
+   * Use this (not `evict`) when the caller guarantees the conversation is
+   * being wiped — e.g. `DELETE /agent/transcript`. `evict` alone leaves any
+   * in-memory follow-ups queued on a hot session, which would leak into the
+   * next turn after the reset.
+   */
+  reset(projectName: string): void {
+    this.live.delete(projectName)
+    this.pending.delete(projectName)
+    this.scopes.delete(projectName)
+  }
+
   /** Evict every live Agent. Durable state in DB is untouched. */
   clear(): void {
     this.live.clear()
@@ -333,6 +351,21 @@ export class SessionRegistry {
   }
 
   // ──────────────────────────────────────────────────────────────────
+
+  /**
+   * True when there's in-memory pending work OR a persisted follow-up queue
+   * for this project. Checked by `drainNow` before doing any hydration work
+   * so proactive wake-up fires even on cold / post-restart sessions where
+   * the follow-up lives only in the DB row.
+   */
+  private hasPendingWork(projectName: string): boolean {
+    if ((this.pending.get(projectName) ?? []).length > 0) return true
+    const projectId = this.tryResolveProjectId(projectName)
+    if (!projectId) return false
+    const row = this.loadRow(projectId)
+    if (!row) return false
+    return parseJsonColumn<AgentMessage[]>(row.followUpQueue, []).length > 0
+  }
 
   private appendPending(projectName: string, messages: AgentMessage[]): void {
     if (messages.length === 0) return

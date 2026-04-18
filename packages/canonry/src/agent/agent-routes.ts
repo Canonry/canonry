@@ -73,7 +73,10 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
     '/projects/:name/agent/transcript',
     async (request) => {
       const project = resolveProject(opts.db, request.params.name)
-      opts.sessionRegistry.evict(project.name)
+      // `reset` (not `evict`) — wipes the in-memory pending follow-up
+      // buffer too. Otherwise a system message queued on a hot session
+      // would leak into the next prompt after this reset.
+      opts.sessionRegistry.reset(project.name)
       opts.db
         .update(agentSessions)
         .set({ messages: '[]', followUpQueue: '[]', updatedAt: new Date().toISOString() })
