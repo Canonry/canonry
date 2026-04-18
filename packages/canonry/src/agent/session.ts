@@ -7,7 +7,7 @@ import { getEnvApiKey, getModel, registerBuiltInApiProviders } from '@mariozechn
 import type { Model } from '@mariozechner/pi-ai'
 import type { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
-import { buildReadTools } from './tools.js'
+import { buildAllTools } from './tools.js'
 
 let builtinsRegistered = false
 function ensureBuiltinsRegistered(): void {
@@ -46,7 +46,7 @@ export interface AeroSessionOptions {
   systemPromptOverride?: string
   /** Override streamFn — used by tests via pi-ai's faux provider. */
   streamFn?: AgentOptions['streamFn']
-  /** Override tool set. Default: `buildReadTools({ client, projectName })`. */
+  /** Override tool set. Default: `buildAllTools({ client, projectName })` — reads + writes. */
   tools?: AgentTool[]
 }
 
@@ -114,7 +114,7 @@ export function createAeroSession(opts: AeroSessionOptions): Agent {
   const model = resolveAeroModel(provider, opts.modelId)
 
   const tools =
-    opts.tools ?? buildReadTools({ client: opts.client, projectName: opts.projectName })
+    opts.tools ?? buildAllTools({ client: opts.client, projectName: opts.projectName })
 
   return new Agent({
     initialState: { systemPrompt, model, tools },

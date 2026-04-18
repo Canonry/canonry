@@ -2,10 +2,17 @@ import { describe, it, expect } from 'vitest'
 import type {
   HealthSnapshotDto,
   InsightDto,
+  NotificationDto,
   ProjectDto,
   RunDto,
+  ScheduleDto,
 } from '@ainyc/canonry-contracts'
-import { buildReadTools, type ToolContext } from '../src/agent/tools.js'
+import {
+  buildAllTools,
+  buildReadTools,
+  buildWriteTools,
+  type ToolContext,
+} from '../src/agent/tools.js'
 import type { ApiClient, CompetitorDto, RunDetailDto, TimelineDto } from '../src/client.js'
 
 interface StubState {
@@ -17,9 +24,18 @@ interface StubState {
   keywords: { id: string; keyword: string }[]
   competitors: CompetitorDto[]
   runDetail: RunDetailDto
+  notifications: NotificationDto[]
+  schedule: ScheduleDto
+  triggerRunResult: RunDto
   lastListRunsLimit?: number
   lastInsightsOpts?: { dismissed?: boolean; runId?: string }
   lastGetRunId?: string
+  lastTriggerBody?: Record<string, unknown>
+  lastDismissId?: string
+  lastAppendedKeywords?: string[]
+  lastPutCompetitors?: string[]
+  lastPutSchedule?: Record<string, unknown>
+  lastCreatedNotification?: Record<string, unknown>
 }
 
 function stubClient(state: StubState): ApiClient {
@@ -40,6 +56,29 @@ function stubClient(state: StubState): ApiClient {
     getRun: async (id: string) => {
       state.lastGetRunId = id
       return state.runDetail
+    },
+    triggerRun: async (_project: string, body?: Record<string, unknown>) => {
+      state.lastTriggerBody = body
+      return state.triggerRunResult
+    },
+    dismissInsight: async (_project: string, id: string) => {
+      state.lastDismissId = id
+      return { ok: true }
+    },
+    appendKeywords: async (_project: string, keywords: string[]) => {
+      state.lastAppendedKeywords = keywords
+    },
+    putCompetitors: async (_project: string, competitors: string[]) => {
+      state.lastPutCompetitors = competitors
+    },
+    putSchedule: async (_project: string, body: Record<string, unknown>) => {
+      state.lastPutSchedule = body
+      return state.schedule
+    },
+    listNotifications: async () => state.notifications,
+    createNotification: async (_project: string, body: Record<string, unknown>) => {
+      state.lastCreatedNotification = body
+      return { id: 'notif-new', ...body } as unknown as NotificationDto
     },
   } as unknown as ApiClient
 }
@@ -97,6 +136,28 @@ function defaultState(): StubState {
       finishedAt: '2026-04-17T00:01:00Z',
       providers: ['claude'],
     } as RunDetailDto,
+    notifications: [],
+    schedule: {
+      id: 's1',
+      projectId: 'p1',
+      cronExpr: '0 */6 * * *',
+      preset: null,
+      timezone: 'UTC',
+      enabled: true,
+      providers: [],
+      lastRunAt: null,
+      nextRunAt: null,
+      createdAt: '2026-04-17T00:00:00Z',
+      updatedAt: '2026-04-17T00:00:00Z',
+    },
+    triggerRunResult: {
+      id: 'new-run',
+      projectId: 'p1',
+      kind: 'answer-visibility',
+      status: 'queued',
+      trigger: 'agent',
+      createdAt: '2026-04-17T00:00:00Z',
+    } as RunDto,
   }
 }
 
@@ -225,5 +286,146 @@ describe('get_run', () => {
     const details = result.details as RunDetailDto
     expect(state.lastGetRunId).toBe('r1')
     expect(details.id).toBe('r1')
+  })
+})
+
+describe('buildWriteTools', () => {
+  it('returns 6 tools with the expected names', () => {
+    const tools = buildWriteTools(contextFor(defaultState()))
+    expect(tools.map((t) => t.name)).toEqual([
+      'run_sweep',
+      'dismiss_insight',
+      'add_keywords',
+      'add_competitors',
+      'update_schedule',
+      'attach_agent_webhook',
+    ])
+  })
+})
+
+describe('buildAllTools', () => {
+  it('returns 13 tools combining reads + writes', () => {
+    expect(buildAllTools(contextFor(defaultState()))).toHaveLength(13)
+  })
+})
+
+describe('run_sweep', () => {
+  it('passes provider filter + noLocation through to triggerRun', async () => {
+    const state = defaultState()
+    const tool = buildWriteTools(contextFor(state)).find((t) => t.name === 'run_sweep')!
+    await tool.execute('call-1', { providers: ['claude', 'openai'], noLocation: true })
+    expect(state.lastTriggerBody).toEqual({ providers: ['claude', 'openai'], noLocation: true })
+  })
+
+  it('omits optional fields when not provided', async () => {
+    const state = defaultState()
+    const tool = buildWriteTools(contextFor(state)).find((t) => t.name === 'run_sweep')!
+    await tool.execute('call-1', {})
+    expect(state.lastTriggerBody).toEqual({})
+  })
+})
+
+describe('dismiss_insight', () => {
+  it('dismisses the given insight id', async () => {
+    const state = defaultState()
+    const tool = buildWriteTools(contextFor(state)).find((t) => t.name === 'dismiss_insight')!
+    const result = await tool.execute('call-1', { insightId: 'i1' })
+    expect(state.lastDismissId).toBe('i1')
+    expect(result.details).toEqual({ ok: true })
+  })
+})
+
+describe('add_keywords', () => {
+  it('appends keywords and echoes what was added', async () => {
+    const state = defaultState()
+    const tool = buildWriteTools(contextFor(state)).find((t) => t.name === 'add_keywords')!
+    const result = await tool.execute('call-1', { keywords: ['gamma', 'delta'] })
+    expect(state.lastAppendedKeywords).toEqual(['gamma', 'delta'])
+    expect(result.details).toEqual({ added: ['gamma', 'delta'] })
+  })
+})
+
+describe('add_competitors', () => {
+  it('merges new domains onto the existing list', async () => {
+    const state = defaultState()
+    const tool = buildWriteTools(contextFor(state)).find((t) => t.name === 'add_competitors')!
+    const result = await tool.execute('call-1', { domains: ['new.example.com'] })
+    expect(state.lastPutCompetitors).toEqual(['rival.example.com', 'new.example.com'])
+    expect(result.details).toEqual({ added: ['new.example.com'], alreadyTracked: [] })
+  })
+
+  it('no-ops when every domain is already tracked', async () => {
+    const state = defaultState()
+    const tool = buildWriteTools(contextFor(state)).find((t) => t.name === 'add_competitors')!
+    const result = await tool.execute('call-1', { domains: ['rival.example.com'] })
+    expect(state.lastPutCompetitors).toBeUndefined()
+    expect(result.details).toEqual({ added: [], alreadyTracked: ['rival.example.com'] })
+  })
+})
+
+describe('update_schedule', () => {
+  it('requires exactly one of cron or preset', async () => {
+    const state = defaultState()
+    const tool = buildWriteTools(contextFor(state)).find((t) => t.name === 'update_schedule')!
+
+    await expect(tool.execute('call-1', {})).rejects.toThrow(/exactly one/)
+    await expect(
+      tool.execute('call-2', { cron: '* * * * *', preset: 'daily' }),
+    ).rejects.toThrow(/exactly one/)
+  })
+
+  it('forwards the cron + options to putSchedule', async () => {
+    const state = defaultState()
+    const tool = buildWriteTools(contextFor(state)).find((t) => t.name === 'update_schedule')!
+    await tool.execute('call-1', {
+      cron: '0 */6 * * *',
+      timezone: 'America/New_York',
+      enabled: true,
+      providers: ['claude'],
+    })
+    expect(state.lastPutSchedule).toEqual({
+      cron: '0 */6 * * *',
+      timezone: 'America/New_York',
+      enabled: true,
+      providers: ['claude'],
+    })
+  })
+})
+
+describe('attach_agent_webhook', () => {
+  it('creates a webhook when none exists', async () => {
+    const state = defaultState()
+    const tool = buildWriteTools(contextFor(state)).find((t) => t.name === 'attach_agent_webhook')!
+    const result = await tool.execute('call-1', { url: 'https://agent.example.com/hook' })
+    expect(state.lastCreatedNotification).toMatchObject({
+      channel: 'webhook',
+      url: 'https://agent.example.com/hook',
+      source: 'agent',
+      events: ['run.completed', 'insight.critical', 'insight.high', 'citation.gained'],
+    })
+    expect(result.details).toMatchObject({ status: 'attached', url: 'https://agent.example.com/hook' })
+  })
+
+  it('is idempotent when an agent webhook already exists', async () => {
+    const state = defaultState()
+    state.notifications = [
+      {
+        id: 'existing',
+        projectId: 'p1',
+        channel: 'webhook',
+        url: 'https://old',
+        urlDisplay: 'old',
+        urlHost: 'old',
+        events: ['run.completed'],
+        enabled: true,
+        source: 'agent',
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      },
+    ]
+    const tool = buildWriteTools(contextFor(state)).find((t) => t.name === 'attach_agent_webhook')!
+    const result = await tool.execute('call-1', { url: 'https://agent.example.com/hook' })
+    expect(state.lastCreatedNotification).toBeUndefined()
+    expect(result.details).toEqual({ status: 'already-attached' })
   })
 })

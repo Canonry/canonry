@@ -181,3 +181,200 @@ export function buildReadTools(ctx: ToolContext): AgentTool[] {
     buildGetRunTool(ctx) as unknown as AgentTool,
   ]
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// Write tools — mutate canonry state.
+//
+// Intentionally additive-only for now: tools can create/append but not
+// delete or replace. Aero should recommend removals in prose, not enact
+// them. Write-tool calls surface via tool_execution_start events so the
+// user sees exactly what fired in CLI / UI output.
+// ═══════════════════════════════════════════════════════════════════
+
+const RunSweepSchema = Type.Object({
+  providers: Type.Optional(
+    Type.Array(Type.String(), {
+      description:
+        'Subset of providers to run. Omit to use every configured provider on the project.',
+    }),
+  ),
+  noLocation: Type.Optional(
+    Type.Boolean({
+      description: 'Run without a location context. Default: use the project default location.',
+    }),
+  ),
+})
+
+function buildRunSweepTool(ctx: ToolContext): AgentTool<typeof RunSweepSchema> {
+  return {
+    name: 'run_sweep',
+    label: 'Trigger sweep',
+    description:
+      'Trigger a new answer-visibility sweep for this project across configured AI providers. Returns the run id(s). Use when fresh citation data is needed.',
+    parameters: RunSweepSchema,
+    execute: async (_toolCallId, params) => {
+      const body: Record<string, unknown> = {}
+      if (params.providers?.length) body.providers = params.providers
+      if (params.noLocation) body.noLocation = true
+      const result = await ctx.client.triggerRun(ctx.projectName, body)
+      return textResult(result)
+    },
+  }
+}
+
+const DismissInsightSchema = Type.Object({
+  insightId: Type.String({
+    description: 'Insight id to dismiss. Obtain from get_insights details[].id.',
+  }),
+})
+
+function buildDismissInsightTool(ctx: ToolContext): AgentTool<typeof DismissInsightSchema> {
+  return {
+    name: 'dismiss_insight',
+    label: 'Dismiss insight',
+    description:
+      'Mark an insight as dismissed so it no longer surfaces in active insight lists. Reversible via the dashboard.',
+    parameters: DismissInsightSchema,
+    execute: async (_toolCallId, params) => {
+      const result = await ctx.client.dismissInsight(ctx.projectName, params.insightId)
+      return textResult(result)
+    },
+  }
+}
+
+const AddKeywordsSchema = Type.Object({
+  keywords: Type.Array(Type.String(), {
+    minItems: 1,
+    description: 'Keywords to add to the tracking list. Duplicates against existing keywords are ignored server-side.',
+  }),
+})
+
+function buildAddKeywordsTool(ctx: ToolContext): AgentTool<typeof AddKeywordsSchema> {
+  return {
+    name: 'add_keywords',
+    label: 'Add keywords',
+    description:
+      'Append keywords to the project tracking list. Additive only — existing keywords are preserved. Use exact phrasing you want tracked.',
+    parameters: AddKeywordsSchema,
+    execute: async (_toolCallId, params) => {
+      await ctx.client.appendKeywords(ctx.projectName, params.keywords)
+      return textResult({ added: params.keywords })
+    },
+  }
+}
+
+const AddCompetitorsSchema = Type.Object({
+  domains: Type.Array(Type.String(), {
+    minItems: 1,
+    description: 'Competitor domains to track. Provide bare domains (e.g. "example.com"), not URLs.',
+  }),
+})
+
+function buildAddCompetitorsTool(ctx: ToolContext): AgentTool<typeof AddCompetitorsSchema> {
+  return {
+    name: 'add_competitors',
+    label: 'Add competitors',
+    description:
+      'Append competitor domains to the project. Fetches the current set, merges with the requested domains (dedup on exact domain match), and persists the combined list.',
+    parameters: AddCompetitorsSchema,
+    execute: async (_toolCallId, params) => {
+      const existing = await ctx.client.listCompetitors(ctx.projectName)
+      const existingDomains = new Set(existing.map((c) => c.domain))
+      const newDomains = params.domains.filter((d) => !existingDomains.has(d))
+      if (newDomains.length === 0) {
+        return textResult({ added: [], alreadyTracked: params.domains })
+      }
+      const merged = [...existing.map((c) => c.domain), ...newDomains]
+      await ctx.client.putCompetitors(ctx.projectName, merged)
+      return textResult({ added: newDomains, alreadyTracked: params.domains.filter((d) => existingDomains.has(d)) })
+    },
+  }
+}
+
+const UpdateScheduleSchema = Type.Object({
+  cron: Type.Optional(
+    Type.String({ description: 'Cron expression (e.g. "0 */6 * * *"). Provide cron OR preset, not both.' }),
+  ),
+  preset: Type.Optional(
+    Type.String({ description: 'Preset keyword (e.g. "daily", "hourly"). Provide cron OR preset, not both.' }),
+  ),
+  timezone: Type.Optional(Type.String({ description: 'IANA timezone. Default: "UTC".' })),
+  enabled: Type.Optional(
+    Type.Boolean({ description: 'Whether the schedule is active. Default: true.' }),
+  ),
+  providers: Type.Optional(
+    Type.Array(Type.String(), {
+      description: 'Providers to run on each scheduled sweep. Omit to use all configured providers.',
+    }),
+  ),
+})
+
+function buildUpdateScheduleTool(ctx: ToolContext): AgentTool<typeof UpdateScheduleSchema> {
+  return {
+    name: 'update_schedule',
+    label: 'Update schedule',
+    description:
+      'Create or update the recurring sweep schedule for this project. Provide exactly one of `cron` (expression) or `preset` (keyword). Fully replaces any existing schedule.',
+    parameters: UpdateScheduleSchema,
+    execute: async (_toolCallId, params) => {
+      if ((params.cron && params.preset) || (!params.cron && !params.preset)) {
+        throw new Error('update_schedule: provide exactly one of `cron` or `preset`')
+      }
+      const body: Record<string, unknown> = {}
+      if (params.cron) body.cron = params.cron
+      if (params.preset) body.preset = params.preset
+      if (params.timezone) body.timezone = params.timezone
+      if (params.enabled !== undefined) body.enabled = params.enabled
+      if (params.providers?.length) body.providers = params.providers
+      const result = await ctx.client.putSchedule(ctx.projectName, body)
+      return textResult(result)
+    },
+  }
+}
+
+const AttachAgentWebhookSchema = Type.Object({
+  url: Type.String({
+    description: 'External agent webhook URL. Canonry will POST run.completed, insight.critical, insight.high, and citation.gained events to it.',
+  }),
+})
+
+function buildAttachAgentWebhookTool(ctx: ToolContext): AgentTool<typeof AttachAgentWebhookSchema> {
+  return {
+    name: 'attach_agent_webhook',
+    label: 'Attach agent webhook',
+    description:
+      'Register an external agent webhook for this project. Use when wiring a Claude Code / Codex / custom agent to receive canonry run and insight events. Idempotent — skips if one already exists.',
+    parameters: AttachAgentWebhookSchema,
+    execute: async (_toolCallId, params) => {
+      const existing = await ctx.client.listNotifications(ctx.projectName)
+      const hasAgent = existing.some((n) => n.source === 'agent')
+      if (hasAgent) {
+        return textResult({ status: 'already-attached' })
+      }
+      const result = await ctx.client.createNotification(ctx.projectName, {
+        channel: 'webhook',
+        url: params.url,
+        events: ['run.completed', 'insight.critical', 'insight.high', 'citation.gained'],
+        source: 'agent',
+      })
+      return textResult({ status: 'attached', notificationId: result.id, url: params.url })
+    },
+  }
+}
+
+/** Write tools — mutate canonry state. Additive-only. */
+export function buildWriteTools(ctx: ToolContext): AgentTool[] {
+  return [
+    buildRunSweepTool(ctx) as unknown as AgentTool,
+    buildDismissInsightTool(ctx) as unknown as AgentTool,
+    buildAddKeywordsTool(ctx) as unknown as AgentTool,
+    buildAddCompetitorsTool(ctx) as unknown as AgentTool,
+    buildUpdateScheduleTool(ctx) as unknown as AgentTool,
+    buildAttachAgentWebhookTool(ctx) as unknown as AgentTool,
+  ]
+}
+
+/** Full tool set — reads + writes. Use when wiring a session that should act as well as read. */
+export function buildAllTools(ctx: ToolContext): AgentTool[] {
+  return [...buildReadTools(ctx), ...buildWriteTools(ctx)]
+}
