@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Sparkles, X, RotateCcw, ArrowUp } from 'lucide-react'
 import { useLocation } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
+import { fetchProjects } from '../../api.js'
+import { queryKeys } from '../../queries/query-keys.js'
 import {
   extractAssistantText,
   fetchAeroTranscript,
@@ -309,11 +312,30 @@ function MessageRow({ message }: { message: AeroMessage }) {
  * Host component: reads the router location and renders the AeroBar only
  * when we're on a project-scoped route. Keeps the bar hidden on overview /
  * settings / setup pages where there's no project context to ask about.
+ *
+ * The `/projects/$projectId` route carries the project's UUID, not its
+ * name. Aero's server routes (and the whole agent-first API surface) key
+ * off the project name, so we resolve UUID → name via the cached project
+ * list before rendering. Accepts a name in the URL slot too — harmless
+ * fallback if the route ever changes to use slugs.
  */
 export function AeroBarHost() {
   const location = useLocation()
   const match = /^\/projects\/([^/]+)/.exec(location.pathname)
-  if (!match) return null
-  const project = decodeURIComponent(match[1])
-  return <AeroBar key={project} projectName={project} />
+  const urlSegment = match ? decodeURIComponent(match[1]) : null
+
+  const projectsQuery = useQuery({
+    queryKey: queryKeys.projects.all,
+    queryFn: fetchProjects,
+    enabled: urlSegment !== null,
+    staleTime: 60_000,
+  })
+
+  if (!urlSegment) return null
+  const projects = projectsQuery.data ?? []
+  const resolved =
+    projects.find((p) => p.id === urlSegment) ?? projects.find((p) => p.name === urlSegment)
+
+  if (!resolved) return null
+  return <AeroBar key={resolved.name} projectName={resolved.name} />
 }

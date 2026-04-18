@@ -1,5 +1,6 @@
 import type { AgentEvent, AgentMessage } from '@mariozechner/pi-agent-core'
-import { loadConfig } from '../config.js'
+import { CliError, EXIT_SYSTEM_ERROR, printCliError, type CliFormat } from '../cli-error.js'
+import { createApiClient } from '../client.js'
 import type { SupportedAgentProvider } from '../agent/session.js'
 
 export interface AgentAskOptions {
@@ -13,20 +14,18 @@ export interface AgentAskOptions {
 /**
  * Thin CLI client for the `/api/v1/projects/:name/agent/prompt` SSE route.
  *
- * The CLI used to run its own `SessionRegistry` against a local DB, which
- * broke against remote / shared canonry servers (you'd read and write a
- * different session store than the server owned). Now it posts to the HTTP
- * surface just like the dashboard does — one execution path, one session
- * store, zero drift.
+ * Routes through `createApiClient()` so the shared basePath probe + bearer
+ * auth + structured `CliError` contract are all in effect. The CLI used to
+ * run its own `SessionRegistry` against a local DB; that broke against
+ * remote or reverse-proxied servers. Now the session lives on the server
+ * and the CLI is a thin stream consumer.
  *
- * Tool scope is `'all'` so the CLI keeps its write-capable behavior. The
+ * Tool scope is `'all'` so the CLI keeps write-capable behavior. The
  * dashboard route intentionally defaults to `'read-only'`.
  */
 export async function agentAsk(opts: AgentAskOptions): Promise<void> {
-  const config = loadConfig()
-  const isJson = opts.format === 'json'
-  const apiUrl = config.apiUrl.replace(/\/$/, '')
-  const url = `${apiUrl}/api/v1/projects/${encodeURIComponent(opts.project)}/agent/prompt`
+  const format = (opts.format === 'json' ? 'json' : 'text') as CliFormat
+  const isJson = format === 'json'
 
   const controller = new AbortController()
   const onSigint = () => controller.abort()
@@ -35,38 +34,23 @@ export async function agentAsk(opts: AgentAskOptions): Promise<void> {
   let sawStreamError = false
 
   try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.apiKey}`,
-        Accept: 'text/event-stream',
-      },
-      body: JSON.stringify({
+    const client = createApiClient()
+    const res = await client.streamPost(
+      `/projects/${encodeURIComponent(opts.project)}/agent/prompt`,
+      {
         prompt: opts.prompt,
         provider: opts.provider,
         modelId: opts.modelId,
         scope: 'all',
-      }),
-      signal: controller.signal,
-    })
-
-    if (!res.ok || !res.body) {
-      const body = await res.text().catch(() => '')
-      let message = `Agent request failed: ${res.status}`
-      try {
-        const parsed = JSON.parse(body) as { error?: { message?: string } }
-        if (parsed.error?.message) message = parsed.error.message
-      } catch {
-        /* leave the default message */
-      }
-      if (isJson) {
-        console.error(JSON.stringify({ error: { code: 'AGENT_ERROR', message } }))
-      } else {
-        console.error(message)
-      }
-      process.exitCode = res.status === 409 ? 1 : 2
-      return
+      },
+      controller.signal,
+    )
+    if (!res.body) {
+      throw new CliError({
+        code: 'API_ERROR',
+        message: 'Server returned no response body',
+        exitCode: EXIT_SYSTEM_ERROR,
+      })
     }
 
     for await (const event of parseSse(res.body)) {
@@ -79,24 +63,16 @@ export async function agentAsk(opts: AgentAskOptions): Promise<void> {
       }
     }
 
-    if (sawStreamError) process.exitCode = 2
+    if (sawStreamError) process.exitCode = EXIT_SYSTEM_ERROR
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    if (isJson) {
-      console.error(JSON.stringify({ error: { code: 'AGENT_ERROR', message } }))
-    } else {
-      console.error(`Agent error: ${message}`)
-    }
-    process.exitCode = 2
+    printCliError(err, format)
+    process.exitCode =
+      err instanceof CliError ? err.exitCode : EXIT_SYSTEM_ERROR
   } finally {
     process.off('SIGINT', onSigint)
   }
 }
 
-/**
- * The AgentEvent + two server-side control frames (stream_open, stream_close).
- * Loose shape — the CLI only renders a handful of types.
- */
 type CliStreamEvent =
   | AgentEvent
   | { type: 'stream_open' }

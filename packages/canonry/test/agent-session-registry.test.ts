@@ -279,4 +279,57 @@ describe('SessionRegistry', () => {
     ).length
     expect(count).toBe(1)
   })
+
+  it('acquireForTurn throws AGENT_BUSY without mutating tools when streaming', () => {
+    insertProject(db, 'demo')
+    const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
+    const agent = registry.getOrCreate('demo')
+    // Drive it into the streaming state so the busy guard fires.
+    ;(agent.state as unknown as { isStreaming: boolean }).isStreaming = true
+
+    const toolsBefore = agent.state.tools
+    const toolsBeforeLen = toolsBefore.length
+
+    let caught: unknown
+    try {
+      registry.acquireForTurn('demo', { toolScope: 'read-only' })
+    } catch (err) {
+      caught = err
+    }
+
+    expect((caught as { code?: string })?.code).toBe('AGENT_BUSY')
+    // Critical: tools must NOT have been swapped despite the scope mismatch.
+    expect(agent.state.tools).toBe(toolsBefore)
+    expect(agent.state.tools.length).toBe(toolsBeforeLen)
+  })
+
+  it('acquireForTurn aligns tool scope on cached agents when idle', () => {
+    insertProject(db, 'demo')
+    const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
+    const agent = registry.getOrCreate('demo')
+    expect(agent.state.tools.length).toBe(13) // full toolset by default
+
+    registry.acquireForTurn('demo', { toolScope: 'read-only' })
+
+    expect(agent.state.tools.length).toBe(7) // read tools only
+  })
+
+  it('acquireForTurn swaps model on cached agents when preferences change', () => {
+    insertProject(db, 'demo')
+    const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
+    const agent = registry.getOrCreate('demo', { provider: 'anthropic' })
+    const originalModelId = (agent.state.model as { id: string }).id
+
+    registry.acquireForTurn('demo', { provider: 'zai', modelId: 'glm-5.1' })
+
+    const newModelId = (agent.state.model as { id: string }).id
+    expect(newModelId).not.toBe(originalModelId)
+    expect(newModelId).toContain('glm')
+
+    // Persisted back to the DB row
+    const projectId = db.select({ id: projects.id }).from(projects).where(eq(projects.name, 'demo')).get()!.id
+    const row = db.select().from(agentSessions).where(eq(agentSessions.projectId, projectId)).get()
+    expect(row?.modelProvider).toBe('zai')
+    expect(row?.modelId).toBe('glm-5.1')
+  })
 })

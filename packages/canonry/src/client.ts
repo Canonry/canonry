@@ -78,6 +78,14 @@ export interface CompetitorDto {
 }
 
 /** Timeline DTO */
+/** Aero transcript response from GET /projects/{name}/agent/transcript. Loose shape — messages are pi-agent-core `AgentMessage` union types which we don't re-export here. */
+export interface AgentTranscriptDto {
+  messages: Array<{ role: string; content: unknown; timestamp?: number; [k: string]: unknown }>
+  modelProvider: string | null
+  modelId: string | null
+  updatedAt: string | null
+}
+
 export interface TimelineDto {
   keyword: string
   runs: {
@@ -241,6 +249,78 @@ export class ApiClient {
     }
 
     return (await res.json()) as T
+  }
+
+  async getAgentTranscript(project: string): Promise<AgentTranscriptDto> {
+    return this.request<AgentTranscriptDto>(
+      'GET',
+      `/projects/${encodeURIComponent(project)}/agent/transcript`,
+    )
+  }
+
+  async resetAgentTranscript(project: string): Promise<void> {
+    await this.request<unknown>(
+      'DELETE',
+      `/projects/${encodeURIComponent(project)}/agent/transcript`,
+    )
+  }
+
+  /**
+   * POST a request whose response body the caller intends to consume as a
+   * stream (e.g. the Aero agent SSE endpoint). Shares the probe + auth +
+   * structured-error behavior of `request()`; the caller reads `res.body`
+   * and releases the response when done.
+   */
+  async streamPost(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
+    await this.probeBasePath()
+    const url = `${this.baseUrl}${path}`
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${this.apiKey}`,
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+    }
+
+    let res: Response
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body ?? {}),
+        signal,
+      })
+    } catch (err) {
+      if (err instanceof CliError) throw err
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes('fetch failed') || msg.includes('ECONNREFUSED') || msg.includes('connect ECONNREFUSED')) {
+        throw new CliError({
+          code: 'CONNECTION_ERROR',
+          message:
+            `Could not connect to canonry server at ${this.baseUrl.replace('/api/v1', '')}. ` +
+            'Start it with "canonry serve" (or "canonry serve &" to run in background).',
+          exitCode: EXIT_SYSTEM_ERROR,
+        })
+      }
+      throw new CliError({ code: 'CONNECTION_ERROR', message: msg, exitCode: EXIT_SYSTEM_ERROR })
+    }
+
+    if (!res.ok || !res.body) {
+      let errorBody: unknown
+      try {
+        errorBody = await res.json()
+      } catch {
+        errorBody = { error: { code: 'UNKNOWN', message: res.statusText } }
+      }
+      const errorObj =
+        errorBody && typeof errorBody === 'object' && 'error' in errorBody && errorBody.error
+          ? (errorBody.error as { code?: string; message?: string })
+          : null
+      const msg = errorObj?.message ? String(errorObj.message) : `HTTP ${res.status}: ${res.statusText}`
+      const code = errorObj?.code ? String(errorObj.code) : 'API_ERROR'
+      const exitCode = res.status >= 500 ? EXIT_SYSTEM_ERROR : EXIT_USER_ERROR
+      throw new CliError({ code, message: msg, exitCode })
+    }
+
+    return res
   }
 
   async putProject(name: string, body: object): Promise<ProjectDto> {

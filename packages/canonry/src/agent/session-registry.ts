@@ -7,15 +7,18 @@ import {
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import type { Agent, AgentMessage } from '@mariozechner/pi-agent-core'
+import { agentBusy } from '@ainyc/canonry-contracts'
 import { createLogger } from '../logger.js'
 import type { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
 import {
   createAeroSession,
   loadAeroSystemPrompt,
+  resolveAeroModel,
   resolveSessionProviderAndModel,
   type SupportedAgentProvider,
 } from './session.js'
+import { getAgentProvider } from './providers.js'
 import { buildAllTools, buildReadTools } from './tools.js'
 
 const log = createLogger('SessionRegistry')
@@ -70,25 +73,16 @@ export class SessionRegistry {
     this.opts = opts
   }
 
-  /** Returns the live Agent for a project, hydrating from DB or creating fresh. */
+  /**
+   * Returns the live Agent for a project, hydrating from DB or creating
+   * fresh. Applies caller preferences on fresh/hydrated construction. Does
+   * NOT mutate an already-cached Agent — that path goes through
+   * `acquireForTurn`, which gates scope/model changes behind a busy check
+   * so an in-flight turn can't have its tools swapped out from under it.
+   */
   getOrCreate(projectName: string, preferences?: SessionPreferences): Agent {
     const cached = this.live.get(projectName)
-    if (cached) {
-      // The cached Agent is a per-project singleton. Different callers (CLI
-      // full-tools vs dashboard read-only) share it, so re-align its tool
-      // surface to the requested scope on every lookup. Safe only when the
-      // Agent is idle — the prompt endpoint guards concurrent calls with a
-      // 409, so we won't swap tools mid-turn.
-      const wantScope = preferences?.toolScope ?? 'all'
-      if (this.scopes.get(projectName) !== wantScope) {
-        cached.state.tools =
-          wantScope === 'read-only'
-            ? buildReadTools({ client: this.opts.client, projectName })
-            : buildAllTools({ client: this.opts.client, projectName })
-        this.scopes.set(projectName, wantScope)
-      }
-      return cached
-    }
+    if (cached) return cached
 
     const projectId = this.resolveProjectId(projectName)
     const row = this.loadRow(projectId)
@@ -164,6 +158,70 @@ export class SessionRegistry {
     return agent
   }
 
+  /**
+   * Acquire the Agent for an upcoming prompt/turn.
+   *
+   * Busy-check runs FIRST, before any state mutation — if two requests race
+   * on the same project, one gets the 409 and the other's in-flight turn is
+   * untouched. Only after confirming idle do we:
+   *   - align `state.tools` to the requested scope (CLI full vs dashboard
+   *     read-only share the same cached Agent; each request re-scopes it).
+   *   - align `state.model` when the caller passes `provider` or `modelId`,
+   *     honoring `--provider` / `--model` on hot sessions (not just on
+   *     fresh/hydrated construction).
+   *
+   * Persists the new model choice to the DB row so subsequent invocations
+   * stay on it unless overridden again.
+   */
+  acquireForTurn(projectName: string, preferences?: SessionPreferences): Agent {
+    const agent = this.getOrCreate(projectName)
+    if (agent.state.isStreaming) {
+      throw agentBusy(projectName)
+    }
+    this.alignScope(projectName, agent, preferences?.toolScope ?? 'all')
+    if (preferences?.provider || preferences?.modelId) {
+      this.alignModel(projectName, agent, preferences)
+    }
+    return agent
+  }
+
+  private alignScope(projectName: string, agent: Agent, wantScope: 'all' | 'read-only'): void {
+    if (this.scopes.get(projectName) === wantScope) return
+    agent.state.tools =
+      wantScope === 'read-only'
+        ? buildReadTools({ client: this.opts.client, projectName })
+        : buildAllTools({ client: this.opts.client, projectName })
+    this.scopes.set(projectName, wantScope)
+  }
+
+  private alignModel(
+    projectName: string,
+    agent: Agent,
+    preferences: SessionPreferences,
+  ): void {
+    const projectId = this.tryResolveProjectId(projectName)
+    if (!projectId) return
+    const row = this.loadRow(projectId)
+    const currentProvider = (row?.modelProvider ?? 'anthropic') as SupportedAgentProvider
+    const currentModelId = row?.modelId
+    const nextProvider = preferences.provider ?? currentProvider
+    const nextModelId =
+      preferences.modelId ?? (preferences.provider ? getAgentProvider(nextProvider).defaultModel : currentModelId)
+    if (!nextModelId) return
+    if (nextProvider === currentProvider && nextModelId === currentModelId) return
+
+    agent.state.model = resolveAeroModel(nextProvider, nextModelId)
+    this.opts.db
+      .update(agentSessions)
+      .set({
+        modelProvider: nextProvider,
+        modelId: nextModelId,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(agentSessions.projectId, projectId))
+      .run()
+  }
+
   /** Persist a session's transcript back to the DB. Call after any run settles. */
   save(projectName: string): void {
     const agent = this.live.get(projectName)
@@ -217,14 +275,18 @@ export class SessionRegistry {
    * RunCoordinator calls after a run completes to wake Aero unprompted.
    */
   async drainNow(projectName: string): Promise<void> {
+    if ((this.pending.get(projectName) ?? []).length === 0) return
     try {
-      const agent = this.getOrCreate(projectName)
-      // Busy: leave the pending messages alone. The `agent_end` drain hook
-      // will fire after the current run settles and pick them up. If we
-      // consumed them here and the next prompt failed, the events would
-      // be lost with no retry path.
-      if (agent.state.isStreaming) return
-      if ((this.pending.get(projectName) ?? []).length === 0) return
+      let agent: Agent
+      try {
+        // acquireForTurn does the busy check in the registry — if the agent
+        // is mid-stream we leave pending alone and let `agent_end` drain
+        // hook pick it up. Pi's AppError surfaces as `AGENT_BUSY`.
+        agent = this.acquireForTurn(projectName)
+      } catch (err) {
+        if ((err as { code?: string }).code === 'AGENT_BUSY') return
+        throw err
+      }
       const msgs = this.consumePending(projectName)
       if (msgs.length === 0) return
       await agent.prompt(msgs)

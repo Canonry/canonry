@@ -6,7 +6,7 @@ import {
   projects,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
-import { agentBusy, notFound, validationError } from '@ainyc/canonry-contracts'
+import { notFound, validationError } from '@ainyc/canonry-contracts'
 import type { AgentEvent, AgentMessage } from '@mariozechner/pi-agent-core'
 import type { SessionRegistry } from './session-registry.js'
 import type { SupportedAgentProvider } from './session.js'
@@ -91,19 +91,15 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
     // radius for interactive UI, not authorization.
     const requestedScope = request.body?.scope === 'all' ? 'all' : 'read-only'
 
-    const agent = opts.sessionRegistry.getOrCreate(project.name, {
+    // acquireForTurn serializes per project: the busy check runs BEFORE any
+    // scope / model mutation, so a second request against a busy Agent
+    // throws `AGENT_BUSY` (409) without swapping out the in-flight turn's
+    // tools or model. Safe to call concurrently from CLI + dashboard.
+    const agent = opts.sessionRegistry.acquireForTurn(project.name, {
       provider: request.body?.provider,
       modelId: request.body?.modelId,
       toolScope: requestedScope,
     })
-
-    // Serialize prompts per project. Two overlapping `/agent/prompt` requests
-    // would clobber the same `Agent` instance — shared subscribers, shared
-    // abort, shared transcript. 409 the second caller so the client can retry
-    // cleanly rather than intermittently aborting the first user's turn.
-    if (agent.state.isStreaming) {
-      throw agentBusy(project.name)
-    }
 
     reply.raw.writeHead(200, {
       'Content-Type': 'text/event-stream',
