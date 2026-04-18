@@ -18,7 +18,7 @@ import {
 
 describe('agent provider registry', () => {
   it('exposes at least the expected baseline providers', () => {
-    for (const p of ['anthropic', 'openai', 'google', 'zai'] as const) {
+    for (const p of ['claude', 'openai', 'gemini', 'zai'] as const) {
       expect(AGENT_PROVIDERS).toHaveProperty(p)
     }
   })
@@ -45,7 +45,6 @@ describe('agent provider registry', () => {
       const e = getAgentProvider(provider)
       expect(e.piAiProvider).toBeTruthy()
       expect(e.label).toBeTruthy()
-      expect(e.canonryConfigKey).toBeTruthy()
       expect(e.defaultModel).toBeTruthy()
       expect(typeof e.autoDetectPriority).toBe('number')
     }
@@ -90,9 +89,8 @@ describe('agent provider registry', () => {
 describe('resolveApiKeyFor', () => {
   it('prefers canonry config over env var', () => {
     const provider = listAgentProviders()[0] as SupportedAgentProvider
-    const entry = getAgentProvider(provider)
     const key = resolveApiKeyFor(provider, {
-      providers: { [entry.canonryConfigKey]: { apiKey: 'from-config' } },
+      providers: { [provider]: { apiKey: 'from-config' } },
     })
     expect(key).toBe('from-config')
   })
@@ -101,7 +99,7 @@ describe('resolveApiKeyFor', () => {
     const provider = listAgentProviders()[0] as SupportedAgentProvider
     const entry = getAgentProvider(provider)
     const key = resolveApiKeyFor(entry.piAiProvider, {
-      providers: { [entry.canonryConfigKey]: { apiKey: 'from-config' } },
+      providers: { [provider]: { apiKey: 'from-config' } },
     })
     expect(key).toBe('from-config')
   })
@@ -114,9 +112,8 @@ describe('resolveApiKeyFor', () => {
 describe('resolveApiKeySource', () => {
   it('tags config-sourced keys with source="config"', () => {
     const provider = listAgentProviders()[0] as SupportedAgentProvider
-    const entry = getAgentProvider(provider)
     const res = resolveApiKeySource(provider, {
-      providers: { [entry.canonryConfigKey]: { apiKey: 'from-config' } },
+      providers: { [provider]: { apiKey: 'from-config' } },
     })
     expect(res).toEqual({ key: 'from-config', source: 'config' })
   })
@@ -147,9 +144,8 @@ describe('buildAgentProvidersResponse', () => {
 
   it('marks configured-via-config providers with keySource="config"', () => {
     const provider = listAgentProviders()[0] as SupportedAgentProvider
-    const entry = getAgentProvider(provider)
     const res = buildAgentProvidersResponse({
-      providers: { [entry.canonryConfigKey]: { apiKey: 'cfg' } },
+      providers: { [provider]: { apiKey: 'cfg' } },
     })
     const match = res.providers.find((p) => p.id === provider)
     expect(match?.configured).toBe(true)
@@ -188,9 +184,8 @@ describe('buildAgentProvidersResponse', () => {
     const priorEnv = process.env[lowerEnvName]
     delete process.env[lowerEnvName]
     try {
-      const entry = getAgentProvider(target)
       const res = buildAgentProvidersResponse({
-        providers: { [entry.canonryConfigKey]: { apiKey: 'cfg' } },
+        providers: { [target]: { apiKey: 'cfg' } },
       })
       expect(res.defaultProvider).toBe(target)
     } finally {

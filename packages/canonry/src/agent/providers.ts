@@ -1,33 +1,30 @@
 import { getEnvApiKey, getModel, type KnownProvider, type Model } from '@mariozechner/pi-ai'
-import type { AgentProviderOption, AgentProvidersResponse } from '@ainyc/canonry-contracts'
+import {
+  AGENT_PROVIDER_IDS,
+  AgentProviderIds,
+  isAgentProviderId,
+  type AgentProviderId,
+  type AgentProviderOption,
+  type AgentProvidersResponse,
+} from '@ainyc/canonry-contracts'
 
 /**
  * Registry of LLM providers the built-in Aero agent can drive.
  *
- * Adding a new provider = adding one entry here. Everything downstream —
- * the `SupportedAgentProvider` union, `detectAgentProvider` priority
- * ordering, CLI `--provider` validation, API-key resolution, model
- * defaulting — is derived from this table.
+ * The canonical `AgentProviderId` union lives in
+ * `@ainyc/canonry-contracts` (`providers.ts`) so both sweep and agent
+ * surfaces reference the same vocabulary. This file adds the agent-side
+ * metadata: pi-ai vendor mapping, default model, priority, label.
  *
- * Intentionally does NOT re-list sweep providers that Aero can't use (e.g.
- * `cdp:chatgpt`, `local`). Those live in the provider-registry for the
- * sweep side of canonry. The two sets can overlap (anthropic, openai,
- * google) but are distinct concepts — sweep adapters hit the LLM for
- * citation discovery, agent providers drive the Aero conversation loop.
+ * Intentionally does NOT list sweep-only providers (`perplexity`, `local`,
+ * `cdp:chatgpt`) — they can't drive an agent loop. `zai` is agent-only
+ * with no sweep adapter.
  */
 export interface AgentProviderEntry {
-  /** pi-ai provider id — what `getModel(provider, id)` and `getEnvApiKey(provider)` accept. */
+  /** pi-ai vendor id — what `getModel(provider, id)` and `getEnvApiKey(provider)` accept. */
   piAiProvider: KnownProvider
-  /** User-facing label shown in CLI help and (eventually) dashboard pickers. */
+  /** User-facing label shown in CLI help and dashboard pickers. */
   label: string
-  /**
-   * Canonry config key — `config.providers[canonryConfigKey].apiKey`.
-   * Sometimes differs from pi-ai's id because canonry's sweep side uses
-   * different naming (e.g. sweep calls Claude 'claude' while pi-ai calls
-   * it 'anthropic'). Reusing the sweep config key means users don't
-   * configure two API keys for the same provider.
-   */
-  canonryConfigKey: string
   /** Default model when the caller doesn't specify one. Validated against pi-ai's catalog at module load. */
   defaultModel: string
   /** Lower = higher priority in auto-detect. Used when no `--provider` is passed. */
@@ -35,69 +32,65 @@ export interface AgentProviderEntry {
 }
 
 export const AGENT_PROVIDERS = {
-  anthropic: {
+  [AgentProviderIds.claude]: {
     piAiProvider: 'anthropic',
     label: 'Anthropic (Claude)',
-    canonryConfigKey: 'claude',
     defaultModel: 'claude-opus-4-7',
     autoDetectPriority: 0,
   },
-  openai: {
+  [AgentProviderIds.openai]: {
     piAiProvider: 'openai',
     label: 'OpenAI',
-    canonryConfigKey: 'openai',
     defaultModel: 'gpt-5.1',
     autoDetectPriority: 1,
   },
-  google: {
+  [AgentProviderIds.gemini]: {
     piAiProvider: 'google',
     label: 'Google (Gemini)',
-    canonryConfigKey: 'gemini',
     defaultModel: 'gemini-2.5-pro',
     autoDetectPriority: 2,
   },
-  zai: {
+  [AgentProviderIds.zai]: {
     piAiProvider: 'zai',
     label: 'Z.ai (GLM)',
-    canonryConfigKey: 'zai',
     defaultModel: 'glm-5.1',
     autoDetectPriority: 3,
   },
-} as const satisfies Record<string, AgentProviderEntry>
+} as const satisfies Record<AgentProviderId, AgentProviderEntry>
 
-/** Derived from the registry — the registry IS the source of truth. */
-export type SupportedAgentProvider = keyof typeof AGENT_PROVIDERS
+/**
+ * Backwards-compatible alias for the canonical `AgentProviderId`. Existing
+ * callers can continue to use `SupportedAgentProvider`; new code should
+ * import `AgentProviderId` from `@ainyc/canonry-contracts`.
+ */
+export type SupportedAgentProvider = AgentProviderId
 
-/** Enum constant — use `AgentProviders.anthropic` instead of the literal `'anthropic'`. */
-export const AgentProviders = Object.freeze(
-  Object.fromEntries(Object.keys(AGENT_PROVIDERS).map((k) => [k, k])),
-) as { readonly [K in SupportedAgentProvider]: K }
+/** Enum constant — use `AgentProviders.claude` instead of the literal `'claude'`. */
+export const AgentProviders = AgentProviderIds
 
 /** Providers sorted by auto-detect priority (lowest number first). */
-export function agentProvidersByPriority(): readonly SupportedAgentProvider[] {
-  return (Object.keys(AGENT_PROVIDERS) as SupportedAgentProvider[])
+export function agentProvidersByPriority(): readonly AgentProviderId[] {
+  return (Object.keys(AGENT_PROVIDERS) as AgentProviderId[])
     .slice()
     .sort((a, b) => AGENT_PROVIDERS[a].autoDetectPriority - AGENT_PROVIDERS[b].autoDetectPriority)
 }
 
 /** All providers, insertion order. */
-export function listAgentProviders(): readonly SupportedAgentProvider[] {
-  return Object.keys(AGENT_PROVIDERS) as SupportedAgentProvider[]
+export function listAgentProviders(): readonly AgentProviderId[] {
+  return AGENT_PROVIDER_IDS
 }
 
-export function getAgentProvider(name: SupportedAgentProvider): AgentProviderEntry {
+export function getAgentProvider(name: AgentProviderId): AgentProviderEntry {
   return AGENT_PROVIDERS[name]
 }
 
 /** Runtime guard for user-provided strings (e.g. `--provider zai`). */
-export function coerceAgentProvider(value: string | undefined): SupportedAgentProvider | undefined {
+export function coerceAgentProvider(value: string | undefined): AgentProviderId | undefined {
   if (!value) return undefined
-  return (listAgentProviders() as readonly string[]).includes(value)
-    ? (value as SupportedAgentProvider)
-    : undefined
+  return isAgentProviderId(value) ? value : undefined
 }
 
-/** Find the registry entry for a pi-ai provider id (used by the apiKey resolver). */
+/** Find the registry entry for a pi-ai vendor id (used by the apiKey resolver). */
 export function findByPiAiProvider(piAiProvider: string): AgentProviderEntry | undefined {
   return Object.values(AGENT_PROVIDERS).find((e) => e.piAiProvider === piAiProvider)
 }
@@ -108,7 +101,7 @@ export function findByPiAiProvider(piAiProvider: string): AgentProviderEntry | u
  * between canonry and pi-ai versions at the earliest possible point).
  */
 export function resolveModelForProvider(
-  provider: SupportedAgentProvider,
+  provider: AgentProviderId,
   modelId?: string,
 ): Model<never> {
   const entry = AGENT_PROVIDERS[provider]
@@ -132,16 +125,15 @@ export function validateAgentProviderRegistry(): void {
 
 /**
  * Resolve an API key for an entry — canonry config key first, pi-ai env
- * var fallback. Accepts either a `SupportedAgentProvider` (our enum key)
- * or a raw pi-ai provider string (what pi's `getApiKey` callback receives).
- * Returns undefined when no key is available from either source.
+ * var fallback. Accepts either a canonical `AgentProviderId` or a raw pi-ai
+ * vendor string (what pi's `getApiKey` callback receives). Returns undefined
+ * when no key is available from either source.
  */
 export function resolveApiKeyFor(
-  providerOrPiAi: SupportedAgentProvider | string,
+  providerOrPiAi: AgentProviderId | string,
   config: { providers?: Record<string, { apiKey?: string } | undefined> },
 ): string | undefined {
-  const source = resolveApiKeySource(providerOrPiAi, config)
-  return source?.key
+  return resolveApiKeySource(providerOrPiAi, config)?.key
 }
 
 /**
@@ -150,17 +142,29 @@ export function resolveApiKeyFor(
  * onboarding hint that points to the right source of truth.
  */
 export function resolveApiKeySource(
-  providerOrPiAi: SupportedAgentProvider | string,
+  providerOrPiAi: AgentProviderId | string,
   config: { providers?: Record<string, { apiKey?: string } | undefined> },
 ): { key: string; source: 'config' | 'env' } | undefined {
-  const entry =
-    (AGENT_PROVIDERS as Record<string, AgentProviderEntry | undefined>)[providerOrPiAi] ??
-    findByPiAiProvider(providerOrPiAi)
-  if (!entry) return undefined
-  const fromConfig = config.providers?.[entry.canonryConfigKey]?.apiKey
+  const id = resolveAgentId(providerOrPiAi)
+  if (!id) return undefined
+  const entry = AGENT_PROVIDERS[id]
+  const fromConfig = config.providers?.[id]?.apiKey
   if (fromConfig) return { key: fromConfig, source: 'config' }
   const fromEnv = getEnvApiKey(entry.piAiProvider)
   if (fromEnv) return { key: fromEnv, source: 'env' }
+  return undefined
+}
+
+/**
+ * Accept either a canonical `AgentProviderId` (what CLI/API callers use) or
+ * a raw pi-ai vendor string (what pi's `getApiKey` callback receives). Returns
+ * the canonical id, or undefined if the input is unknown.
+ */
+function resolveAgentId(providerOrPiAi: string): AgentProviderId | undefined {
+  if (isAgentProviderId(providerOrPiAi)) return providerOrPiAi
+  for (const id of AGENT_PROVIDER_IDS) {
+    if (AGENT_PROVIDERS[id].piAiProvider === providerOrPiAi) return id
+  }
   return undefined
 }
 
@@ -176,7 +180,7 @@ export function buildAgentProvidersResponse(config: {
     const entry = AGENT_PROVIDERS[id]
     const source = resolveApiKeySource(id, config)
     return {
-      id: id as AgentProviderOption['id'],
+      id,
       label: entry.label,
       defaultModel: entry.defaultModel,
       configured: source !== undefined,
@@ -186,6 +190,6 @@ export function buildAgentProvidersResponse(config: {
   const firstConfigured = agentProvidersByPriority().find((p) => resolveApiKeySource(p, config))
   return {
     providers,
-    defaultProvider: (firstConfigured as AgentProviderOption['id'] | undefined) ?? null,
+    defaultProvider: firstConfigured ?? null,
   }
 }

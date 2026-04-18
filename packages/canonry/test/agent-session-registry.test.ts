@@ -84,7 +84,7 @@ describe('SessionRegistry', () => {
 
     const row = db.select().from(agentSessions).where(eq(agentSessions.projectId, projectId)).get()
     expect(row).toBeDefined()
-    expect(row!.modelProvider).toBe('anthropic')
+    expect(row!.modelProvider).toBe('claude')
     expect(parseJsonColumn<unknown[]>(row!.messages, [])).toEqual([])
     expect(parseJsonColumn<unknown[]>(row!.followUpQueue, [])).toEqual([])
   })
@@ -374,7 +374,7 @@ describe('SessionRegistry', () => {
   it('acquireForTurn swaps model on cached agents when preferences change', () => {
     insertProject(db, 'demo')
     const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
-    const agent = registry.getOrCreate('demo', { provider: 'anthropic' })
+    const agent = registry.getOrCreate('demo', { provider: 'claude' })
     const originalModelId = (agent.state.model as { id: string }).id
 
     registry.acquireForTurn('demo', { provider: 'zai', modelId: 'glm-5.1' })

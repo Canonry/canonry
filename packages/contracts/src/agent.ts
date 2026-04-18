@@ -1,9 +1,12 @@
+import type { AgentProviderId } from './providers.js'
+
 /**
- * Identifier of one of Aero's supported LLM providers.
- * Mirrors `SupportedAgentProvider` in `packages/canonry/src/agent/providers.ts`
- * but lives here so web/CLI consumers don't pull in the canonry package.
+ * Identifier of one of Aero's supported LLM providers. Canonical IDs live
+ * in `providers.ts` — `AgentProviderIds` is the runtime enum, this is the
+ * derived union. The agent-side mapping to pi-ai vendor names (e.g.
+ * `claude` → `anthropic`) lives in `packages/canonry/src/agent/providers.ts`.
  */
-export type AgentProviderId = 'anthropic' | 'openai' | 'google' | 'zai'
+export type { AgentProviderId } from './providers.js'
 
 export interface AgentProviderOption {
   /** Stable identifier — what clients pass back as `provider` on the prompt endpoint. */

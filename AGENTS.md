@@ -75,7 +75,7 @@ the external-agent webhook path via `canonry agent attach <url>`.
 ### Built-in Aero (native loop)
 
 - **CLI:** `canonry agent ask <project> "<prompt>"` — one-shot, streams
-  `AgentEvent`s to stdout. Supports `--provider anthropic|openai|google|zai`
+  `AgentEvent`s to stdout. Supports `--provider claude|openai|gemini|zai`
   and `--format json`.
 - **Dashboard:** the bottom command bar on every project-scoped route.
   SSE-streamed. Starter buttons cover the common ops (status, insights,

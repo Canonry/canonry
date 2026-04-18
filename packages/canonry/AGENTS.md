@@ -96,7 +96,7 @@ consume Canonry through the external-agent webhook.
 
 - **CLI**: `canonry agent ask <project> "<prompt>"` — one-shot turn. Streams
   `AgentEvent` lines to stdout (or JSON with `--format json`). Supports
-  `--provider anthropic|openai|google|zai` and `--model <id>`.
+  `--provider claude|openai|gemini|zai` and `--model <id>`.
 - **Dashboard**: bottom command bar (`AeroBar`) on every project-scoped
   route. SSE-streamed via `POST /api/v1/projects/:name/agent/prompt`.
 - **Proactive**: `RunCoordinator` enqueues a synthesized `[system]` follow-up

@@ -73,8 +73,8 @@ describe('loadAeroSystemPrompt', () => {
 })
 
 describe('detectAgentProvider', () => {
-  it('returns anthropic when claude key is configured', () => {
-    expect(detectAgentProvider(stubConfig())).toBe('anthropic')
+  it('returns claude when claude key is configured', () => {
+    expect(detectAgentProvider(stubConfig())).toBe('claude')
   })
 
   it('returns openai when only openai key is configured', () => {
@@ -85,12 +85,12 @@ describe('detectAgentProvider', () => {
     ).toBe('openai')
   })
 
-  it('returns google when only gemini key is configured', () => {
+  it('returns gemini when only gemini key is configured', () => {
     expect(
       detectAgentProvider(
         stubConfig({ providers: { gemini: { apiKey: 'gemini-key' } } }),
       ),
-    ).toBe('google')
+    ).toBe('gemini')
   })
 
   it('returns undefined when no LLM providers are configured', () => {
@@ -121,7 +121,7 @@ describe('createAeroSession — end-to-end with faux provider', () => {
       client: stubClient(),
       config: stubConfig(),
       systemPromptOverride: 'You are a test agent.',
-      provider: 'anthropic',
+      provider: 'claude',
       modelId: 'claude-opus-4-7',
     })
 

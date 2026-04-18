@@ -7,7 +7,7 @@ import {
   type DatabaseClient,
 } from '@ainyc/canonry-db'
 import type { Agent, AgentMessage } from '@mariozechner/pi-agent-core'
-import { agentBusy } from '@ainyc/canonry-contracts'
+import { agentBusy, AgentProviderIds } from '@ainyc/canonry-contracts'
 import { createLogger } from '../logger.js'
 import type { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
@@ -210,7 +210,7 @@ export class SessionRegistry {
     const projectId = this.tryResolveProjectId(projectName)
     if (!projectId) return
     const row = this.loadRow(projectId)
-    const currentProvider = (row?.modelProvider ?? 'anthropic') as SupportedAgentProvider
+    const currentProvider = (row?.modelProvider ?? AgentProviderIds.claude) as SupportedAgentProvider
     const currentModelId = row?.modelId
     const nextProvider = preferences.provider ?? currentProvider
     const nextModelId =
@@ -411,7 +411,7 @@ export class SessionRegistry {
         id: crypto.randomUUID(),
         projectId: params.projectId,
         systemPrompt: params.systemPrompt,
-        modelProvider: params.provider ?? params.modelProvider ?? 'anthropic',
+        modelProvider: params.provider ?? params.modelProvider ?? AgentProviderIds.claude,
         modelId: params.modelId ?? 'claude-opus-4-7',
         messages: JSON.stringify(params.messages),
         followUpQueue: JSON.stringify(params.followUpQueue),

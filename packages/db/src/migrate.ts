@@ -460,6 +460,13 @@ const MIGRATIONS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_agent_sessions_project ON agent_sessions(project_id)`,
   `CREATE INDEX IF NOT EXISTS idx_agent_sessions_updated ON agent_sessions(updated_at)`,
+
+  // v39: Align Aero provider IDs with sweep naming — anthropic→claude, google→gemini.
+  // Old rows predating the rename would fail to rehydrate because the canonical
+  // registry no longer recognizes 'anthropic'/'google'. Safe to re-run: the
+  // UPDATE is a no-op once the rename has been applied.
+  `UPDATE agent_sessions SET model_provider = 'claude' WHERE model_provider = 'anthropic'`,
+  `UPDATE agent_sessions SET model_provider = 'gemini' WHERE model_provider = 'google'`,
 ]
 
 /**

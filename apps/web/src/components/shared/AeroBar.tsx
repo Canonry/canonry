@@ -848,11 +848,11 @@ function SlashPalette({
 
 function envVarHint(id: AgentProviderId): string {
   switch (id) {
-    case 'anthropic':
+    case 'claude':
       return 'ANTHROPIC_API_KEY'
     case 'openai':
       return 'OPENAI_API_KEY'
-    case 'google':
+    case 'gemini':
       return 'GOOGLE_API_KEY'
     case 'zai':
       return 'ZAI_API_KEY'

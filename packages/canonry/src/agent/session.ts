@@ -71,9 +71,7 @@ export function loadAeroSystemPrompt(pkgDir?: string): string {
 }
 
 function missingProviderMessage(): string {
-  const configHints = agentProvidersByPriority()
-    .map((p) => AGENT_PROVIDERS[p].canonryConfigKey)
-    .join(', ')
+  const configHints = agentProvidersByPriority().join(', ')
   const envHints = agentProvidersByPriority()
     .map((p) => `${AGENT_PROVIDERS[p].piAiProvider.toUpperCase()}_API_KEY`)
     .join(' / ')
