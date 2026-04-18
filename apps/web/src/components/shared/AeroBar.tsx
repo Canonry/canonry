@@ -1,0 +1,303 @@
+import { useEffect, useRef, useState } from 'react'
+import { Sparkles, X, RotateCcw, ArrowUp } from 'lucide-react'
+import { useLocation } from '@tanstack/react-router'
+import {
+  extractAssistantText,
+  fetchAeroTranscript,
+  promptAero,
+  resetAeroTranscript,
+  type AeroEvent,
+  type AeroMessage,
+} from '../../api-aero.js'
+
+interface AeroBarProps {
+  projectName: string
+}
+
+const STARTER_PROMPTS: Array<{ label: string; prompt: string }> = [
+  { label: 'Status', prompt: 'Quick status overview for this project — latest runs, current health, anything unusual.' },
+  { label: 'Top insights', prompt: 'Walk me through the 3 most severe active insights and what to do about each.' },
+  { label: 'Last failed run', prompt: 'If the latest run failed, dig into it and tell me what went wrong plus how to fix it.' },
+  { label: 'Schedule', prompt: 'What is the current sweep schedule, and is it appropriate given recent volatility?' },
+]
+
+export function AeroBar({ projectName }: AeroBarProps) {
+  const [open, setOpen] = useState(false)
+  const [messages, setMessages] = useState<AeroMessage[]>([])
+  const [draft, setDraft] = useState('')
+  const [streaming, setStreaming] = useState(false)
+  const [activeTools, setActiveTools] = useState<Array<{ id: string; name: string; args: unknown }>>([])
+  const [streamingText, setStreamingText] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
+  const transcriptRef = useRef<HTMLDivElement | null>(null)
+
+  // Load transcript when opened / when the project changes.
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    setError(null)
+    fetchAeroTranscript(projectName)
+      .then((t) => {
+        if (!cancelled) setMessages(t.messages)
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load transcript')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, projectName])
+
+  // Cancel any in-flight stream when the component unmounts or project changes.
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort()
+    }
+  }, [projectName])
+
+  // Auto-scroll to the bottom on new messages / streaming tokens.
+  useEffect(() => {
+    const el = transcriptRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [messages, streamingText, activeTools])
+
+  async function send(promptText: string) {
+    const trimmed = promptText.trim()
+    if (!trimmed || streaming) return
+    setError(null)
+    setDraft('')
+    setStreaming(true)
+    setStreamingText('')
+    setActiveTools([])
+
+    const optimistic: AeroMessage = { role: 'user', content: trimmed, timestamp: Date.now() }
+    setMessages((prev) => [...prev, optimistic])
+
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
+
+    try {
+      await promptAero({
+        project: projectName,
+        prompt: trimmed,
+        signal: ctrl.signal,
+        onEvent: handleEvent,
+      })
+      // Final transcript reload ensures we're in sync with the server
+      // (covers edge cases like events landing after the last message_end).
+      const latest = await fetchAeroTranscript(projectName)
+      setMessages(latest.messages)
+    } catch (err: unknown) {
+      if ((err as Error).name !== 'AbortError') {
+        setError(err instanceof Error ? err.message : 'Prompt failed')
+      }
+    } finally {
+      setStreaming(false)
+      setStreamingText('')
+      setActiveTools([])
+      abortRef.current = null
+    }
+  }
+
+  function handleEvent(event: AeroEvent) {
+    switch (event.type) {
+      case 'message_update':
+        setStreamingText(extractAssistantText(event.message))
+        break
+      case 'message_end':
+        if (event.message.role === 'assistant') setStreamingText('')
+        break
+      case 'tool_execution_start':
+        setActiveTools((prev) => [...prev, { id: event.toolCallId, name: event.toolName, args: event.args }])
+        break
+      case 'tool_execution_end':
+        setActiveTools((prev) => prev.filter((t) => t.id !== event.toolCallId))
+        break
+      case 'error':
+        setError(event.message)
+        break
+    }
+  }
+
+  async function handleReset() {
+    abortRef.current?.abort()
+    try {
+      await resetAeroTranscript(projectName)
+      setMessages([])
+      setError(null)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Reset failed')
+    }
+  }
+
+  const conversationIsEmpty = messages.length === 0
+
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center p-3">
+      <div className="pointer-events-auto w-full max-w-3xl">
+        {open ? (
+          <div className="flex flex-col overflow-hidden rounded-2xl border border-zinc-800/80 bg-zinc-950/95 shadow-xl backdrop-blur">
+            <div className="flex items-center justify-between gap-2 border-b border-zinc-800/70 px-4 py-2.5">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-emerald-400" aria-hidden="true" />
+                <span className="text-sm font-medium text-zinc-100">Aero</span>
+                <span className="text-[10px] uppercase tracking-wider text-zinc-500">
+                  {streaming ? 'working…' : projectName}
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  className="rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-800/60 hover:text-zinc-200"
+                  aria-label="Reset conversation"
+                  title="Reset conversation"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-800/60 hover:text-zinc-200"
+                  aria-label="Close Aero"
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+
+            <div
+              ref={transcriptRef}
+              className="max-h-[40vh] min-h-[120px] overflow-y-auto px-4 py-3 text-sm text-zinc-200"
+            >
+              {error && (
+                <div className="mb-2 rounded-md border border-rose-700/40 bg-rose-950/40 px-3 py-2 text-xs text-rose-200">
+                  {error}
+                </div>
+              )}
+              {conversationIsEmpty && !streaming && (
+                <div className="flex flex-col gap-3 py-2">
+                  <p className="text-xs text-zinc-500">
+                    Ask anything about <span className="text-zinc-300">{projectName}</span>, or start with:
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {STARTER_PROMPTS.map((s) => (
+                      <button
+                        key={s.label}
+                        type="button"
+                        onClick={() => send(s.prompt)}
+                        className="rounded-full border border-zinc-800 bg-zinc-900/70 px-3 py-1 text-xs text-zinc-300 transition hover:border-zinc-700 hover:bg-zinc-800/70 hover:text-zinc-100"
+                      >
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {messages.map((msg, i) => (
+                <MessageRow key={i} message={msg} />
+              ))}
+              {streaming && streamingText && (
+                <div className="mt-3 whitespace-pre-wrap text-zinc-100">{streamingText}</div>
+              )}
+              {activeTools.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {activeTools.map((t) => (
+                    <span
+                      key={t.id}
+                      className="rounded-full border border-emerald-800/50 bg-emerald-950/40 px-2 py-0.5 text-[10px] text-emerald-300"
+                    >
+                      ⟐ {t.name}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <form
+              className="flex items-end gap-2 border-t border-zinc-800/70 bg-zinc-950/80 px-3 py-2.5"
+              onSubmit={(e) => {
+                e.preventDefault()
+                void send(draft)
+              }}
+            >
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    void send(draft)
+                  }
+                }}
+                placeholder="Ask Aero…"
+                disabled={streaming}
+                rows={1}
+                className="flex-1 resize-none bg-transparent text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none disabled:opacity-60"
+              />
+              <button
+                type="submit"
+                disabled={streaming || !draft.trim()}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-emerald-500 text-zinc-950 transition hover:bg-emerald-400 disabled:opacity-40"
+                aria-label="Send"
+              >
+                <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            </form>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="flex w-full items-center justify-between rounded-full border border-zinc-800/80 bg-zinc-950/95 px-4 py-2 text-left text-sm text-zinc-400 shadow-lg backdrop-blur transition hover:border-zinc-700 hover:bg-zinc-900/90 hover:text-zinc-200"
+          >
+            <span className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-emerald-400" aria-hidden="true" />
+              Ask Aero about {projectName}…
+            </span>
+            <span className="text-[10px] uppercase tracking-wider text-zinc-600">Enter</span>
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function MessageRow({ message }: { message: AeroMessage }) {
+  if (message.role === 'user') {
+    const text = typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+    // Skip the [system] wake-up messages in the UI — they're internal plumbing.
+    if (text.startsWith('[system]')) return null
+    return (
+      <div className="mt-3 rounded-md bg-zinc-900/60 px-3 py-2 text-zinc-200">
+        <div className="mb-0.5 text-[10px] uppercase tracking-wider text-zinc-500">You</div>
+        <div className="whitespace-pre-wrap">{text}</div>
+      </div>
+    )
+  }
+  if (message.role === 'assistant') {
+    const text = extractAssistantText(message)
+    if (!text.trim()) return null
+    return (
+      <div className="mt-3 whitespace-pre-wrap text-zinc-100">
+        <div className="mb-0.5 text-[10px] uppercase tracking-wider text-emerald-400">Aero</div>
+        {text}
+      </div>
+    )
+  }
+  return null
+}
+
+/**
+ * Host component: reads the router location and renders the AeroBar only
+ * when we're on a project-scoped route. Keeps the bar hidden on overview /
+ * settings / setup pages where there's no project context to ask about.
+ */
+export function AeroBarHost() {
+  const location = useLocation()
+  const match = /^\/projects\/([^/]+)/.exec(location.pathname)
+  if (!match) return null
+  const project = decodeURIComponent(match[1])
+  return <AeroBar key={project} projectName={project} />
+}

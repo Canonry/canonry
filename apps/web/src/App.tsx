@@ -40,6 +40,7 @@ import { useRunDetail } from './queries/use-run-detail.js'
 import { useDrawer } from './hooks/use-drawer.js'
 import { useInitialDashboard } from './contexts/dashboard-context.js'
 import { Toaster } from './components/layout/Toaster.js'
+import { AeroBarHost } from './components/shared/AeroBar.js'
 import { queryKeys } from './queries/query-keys.js'
 import type {
   HealthSnapshot,
@@ -650,6 +651,7 @@ export function RootLayout() {
 
       <RunNotificationObserver />
       <Toaster />
+      <AeroBarHost />
     </div>
   )
 }
