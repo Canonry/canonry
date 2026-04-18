@@ -283,6 +283,7 @@ export function setOpenClawModel(binary: string, profile: string, model: string)
 
 /** Map a provider id to the conventional env var OpenClaw checks. */
 export function providerEnvVar(provider: string): string {
+  const normalized = provider.toLowerCase()
   const map: Record<string, string> = {
     anthropic: 'ANTHROPIC_API_KEY',
     openai: 'OPENAI_API_KEY',
@@ -291,10 +292,11 @@ export function providerEnvVar(provider: string): string {
     groq: 'GROQ_API_KEY',
     mistral: 'MISTRAL_API_KEY',
     xai: 'XAI_API_KEY',
+    zai: 'ZAI_API_KEY',
     openrouter: 'OPENROUTER_API_KEY',
     cerebras: 'CEREBRAS_API_KEY',
   }
-  return map[provider] ?? `${provider.toUpperCase().replace(/-/g, '_')}_API_KEY`
+  return map[normalized] ?? `${normalized.toUpperCase().replace(/-/g, '_')}_API_KEY`
 }
 
 /** Upsert a KEY=value line in a dotenv file inside stateDir. */

@@ -59,6 +59,7 @@ const DEFAULT_AGENT_MODELS: Record<string, string> = {
   openrouter: 'openrouter/anthropic/claude-sonnet-4-6',
   groq: 'groq/llama-4-scout-17b',
   google: 'google/gemini-2.5-flash',
+  zai: 'zai/glm-5.1',
   mistral: 'mistral/mistral-large-latest',
   xai: 'xai/grok-2',
 }
@@ -294,7 +295,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
   } else if (!nonInteractive) {
     // Interactive: prompt for agent LLM
     console.log('\nConfigure agent LLM (the model that powers the agent):')
-    console.log('Supported providers: anthropic, openai, openrouter, groq, mistral, xai, google, cerebras\n')
+    console.log('Supported providers: anthropic, openai, openrouter, groq, mistral, xai, google, zai, cerebras\n')
 
     const provider = await prompt('Provider [anthropic]: ') || 'anthropic'
     const key = await prompt('API key (press Enter to skip): ')
