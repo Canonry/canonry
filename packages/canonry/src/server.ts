@@ -50,6 +50,8 @@ import { Scheduler } from './scheduler.js'
 import { Notifier } from './notifier.js'
 import { IntelligenceService } from './intelligence-service.js'
 import { RunCoordinator } from './run-coordinator.js'
+import { SessionRegistry } from './agent/session-registry.js'
+import { ApiClient } from './client.js'
 import { SnapshotService } from './snapshot-service.js'
 import { fetchSiteText } from './site-fetch.js'
 import { createLogger } from './logger.js'
@@ -306,8 +308,39 @@ export async function createServer(opts: {
   jobRunner.recoverStaleRuns()
   const notifier = new Notifier(opts.db, serverUrl)
   const intelligenceService = new IntelligenceService(opts.db)
-  const runCoordinator = new RunCoordinator(notifier, intelligenceService, (runId, projectId, result) =>
-    notifier.dispatchInsightWebhooks(runId, projectId, result),
+  // Build the Aero ApiClient from the in-memory server config rather than
+  // loadConfig() so tests that set CANONRY_CONFIG_DIR after spawning the
+  // server don't fail at construction time.
+  const aeroClient = new ApiClient(opts.config.apiUrl, opts.config.apiKey, { skipProbe: true })
+  const sessionRegistry = new SessionRegistry({
+    db: opts.db,
+    client: aeroClient,
+    config: opts.config,
+  })
+
+  const runCoordinator = new RunCoordinator(
+    notifier,
+    intelligenceService,
+    (runId, projectId, result) => notifier.dispatchInsightWebhooks(runId, projectId, result),
+    async ({ runId, projectId, insightCount, criticalOrHigh }) => {
+      const project = opts.db
+        .select({ name: projects.name })
+        .from(projects)
+        .where(eq(projects.id, projectId))
+        .get()
+      if (!project) return
+      sessionRegistry.queueFollowUp(project.name, {
+        role: 'user',
+        content:
+          `[system] Run ${runId} completed for project ${project.name}. ` +
+          `${insightCount} insights generated (${criticalOrHigh} critical/high). ` +
+          `Use get_run to inspect the run and get_insights to review new findings. ` +
+          `Surface anything notable briefly — skip chit-chat.`,
+        timestamp: Date.now(),
+      })
+      // Fire-and-forget drain — the registry logs drain errors internally.
+      void sessionRegistry.drainNow(project.name)
+    },
   )
   jobRunner.onRunCompleted = (runId, projectId) => runCoordinator.onRunCompleted(runId, projectId)
   const snapshotService = new SnapshotService(registry)

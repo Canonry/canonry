@@ -122,7 +122,7 @@ describe('SessionRegistry', () => {
     expect(persisted).toHaveLength(inMemoryCount)
   })
 
-  it('hydrates an evicted session from the DB, drains pending follow-ups', () => {
+  it('hydrates an evicted session from the DB and surfaces persisted queue as pending', () => {
     const projectId = insertProject(db, 'demo')
     const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
     registry.getOrCreate('demo')
@@ -150,18 +150,19 @@ describe('SessionRegistry', () => {
     const rehydrated = registry.getOrCreate('demo')
     expect(registry.isLive('demo')).toBe(true)
     expect(rehydrated.state.messages).toHaveLength(seededMessages.length)
-    expect(rehydrated.hasQueuedMessages()).toBe(true)
 
-    // DB queue cleared once drained into the live Agent
+    // Persisted queue is pulled into the registry's pending buffer, not pi's follow-up queue
+    expect(registry.peekPending('demo')).toHaveLength(1)
+
+    // DB queue cleared once pulled into pending
     const row = db.select().from(agentSessions).where(eq(agentSessions.projectId, projectId)).get()
     expect(parseJsonColumn<AgentMessage[]>(row!.followUpQueue, [])).toEqual([])
   })
 
-  it('queueFollowUp on a live session forwards directly to agent.followUp', () => {
+  it('queueFollowUp on a live session lands in pending (consumed on next prompt)', () => {
     insertProject(db, 'demo')
     const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
-    const agent = registry.getOrCreate('demo')
-    expect(agent.hasQueuedMessages()).toBe(false)
+    registry.getOrCreate('demo')
 
     registry.queueFollowUp('demo', {
       role: 'user',
@@ -169,10 +170,15 @@ describe('SessionRegistry', () => {
       timestamp: Date.now(),
     } as unknown as AgentMessage)
 
-    expect(agent.hasQueuedMessages()).toBe(true)
+    expect(registry.peekPending('demo')).toHaveLength(1)
+
+    // consumePending drains the buffer
+    const drained = registry.consumePending('demo')
+    expect(drained).toHaveLength(1)
+    expect(registry.peekPending('demo')).toHaveLength(0)
   })
 
-  it('queueFollowUp on an idle session writes to the DB queue', () => {
+  it('queueFollowUp on an idle (evicted) session writes to the DB queue', () => {
     const projectId = insertProject(db, 'demo')
     const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
     registry.getOrCreate('demo') // create the row
@@ -190,7 +196,7 @@ describe('SessionRegistry', () => {
     expect((queue[0] as { content: string }).content).toBe('queued while idle')
   })
 
-  it('queueFollowUp buffers pre-session messages until the row is created', () => {
+  it('queueFollowUp creates a session row on the fly when none exists', () => {
     const projectId = insertProject(db, 'demo')
     const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
 
@@ -200,19 +206,43 @@ describe('SessionRegistry', () => {
       timestamp: Date.now(),
     } as unknown as AgentMessage)
 
-    // No row yet → nothing in DB
-    const beforeRow = db.select().from(agentSessions).where(eq(agentSessions.projectId, projectId)).get()
-    expect(beforeRow).toBeUndefined()
-
-    // getOrCreate drains the pre-session buffer into the new row + live Agent
-    const agent = registry.getOrCreate('demo')
-    expect(agent.hasQueuedMessages()).toBe(false) // drained to Agent only if a row existed — here no row existed yet
-    // Actually here the row was freshly created; pending buffer should have been merged into the row's queue AT row insert time.
     const row = db.select().from(agentSessions).where(eq(agentSessions.projectId, projectId)).get()
+    expect(row).toBeDefined()
     const queue = parseJsonColumn<AgentMessage[]>(row!.followUpQueue, [])
-    // Row was just written with mergedQueue (pre-session drained into the row's queue),
-    // then getOrCreate did NOT re-read it for the same call — so queue stays in the row.
-    // The next getOrCreate (after evict) would drain it.
     expect(queue).toHaveLength(1)
+  })
+
+  it('drainNow prompts the live agent with pending messages and clears them', async () => {
+    insertProject(db, 'demo')
+    const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
+    const agent = registry.getOrCreate('demo')
+    agent.state.model = faux.getModel()
+    faux.setResponses([fauxAssistantMessage('Acknowledged.')])
+
+    registry.queueFollowUp('demo', {
+      role: 'user',
+      content: 'run just completed — please review',
+      timestamp: Date.now(),
+    } as unknown as AgentMessage)
+
+    expect(registry.peekPending('demo')).toHaveLength(1)
+
+    await registry.drainNow('demo')
+
+    expect(registry.peekPending('demo')).toHaveLength(0)
+    // Transcript now includes the user event + an assistant reply
+    expect(agent.state.messages.length).toBeGreaterThanOrEqual(2)
+    expect(agent.state.messages[agent.state.messages.length - 1].role).toBe('assistant')
+  })
+
+  it('drainNow is a no-op when there are no pending messages', async () => {
+    insertProject(db, 'demo')
+    const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
+    const agent = registry.getOrCreate('demo')
+    const before = agent.state.messages.length
+
+    await registry.drainNow('demo')
+
+    expect(agent.state.messages.length).toBe(before)
   })
 })

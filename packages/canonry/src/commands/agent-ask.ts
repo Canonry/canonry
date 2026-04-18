@@ -1,7 +1,9 @@
+import { createClient, migrate } from '@ainyc/canonry-db'
 import { createApiClient } from '../client.js'
 import { loadConfig } from '../config.js'
-import { createAeroSession, type SupportedAgentProvider } from '../agent/session.js'
+import { SessionRegistry } from '../agent/session-registry.js'
 import type { AgentEvent } from '../agent/pi-runtime.js'
+import type { SupportedAgentProvider } from '../agent/session.js'
 
 export interface AgentAskOptions {
   project: string
@@ -14,11 +16,11 @@ export interface AgentAskOptions {
 export async function agentAsk(opts: AgentAskOptions): Promise<void> {
   const config = loadConfig()
   const client = createApiClient()
+  const db = createClient(config.database)
+  migrate(db)
 
-  const agent = createAeroSession({
-    projectName: opts.project,
-    client,
-    config,
+  const registry = new SessionRegistry({ db, client, config })
+  const agent = registry.getOrCreate(opts.project, {
     provider: opts.provider,
     modelId: opts.modelId,
   })
@@ -29,9 +31,17 @@ export async function agentAsk(opts: AgentAskOptions): Promise<void> {
     renderEvent(event, isJson)
   })
 
+  // Drain any follow-ups queued while this session was idle (or persisted
+  // across a restart). Bundle them in front of the user's prompt so they're
+  // processed in a single turn — the user's prompt gets the context.
+  const pending = registry.consumePending(opts.project)
+  const userMessage = { role: 'user' as const, content: opts.prompt, timestamp: Date.now() }
+  const batch = pending.length > 0 ? [...pending, userMessage] : userMessage
+
   try {
-    await agent.prompt(opts.prompt)
+    await agent.prompt(batch)
     await agent.waitForIdle()
+    registry.save(opts.project)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     if (isJson) {
