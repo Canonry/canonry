@@ -13,6 +13,7 @@ export type ErrorCode =
   | 'NOT_IMPLEMENTED'
   | 'INTERNAL_ERROR'
   | 'DELIVERY_FAILED'
+  | 'AGENT_BUSY'
 
 export class AppError extends Error {
   readonly code: ErrorCode
@@ -93,4 +94,12 @@ export function notImplemented(message: string): AppError {
 
 export function deliveryFailed(message: string): AppError {
   return new AppError('DELIVERY_FAILED', message, 502)
+}
+
+export function agentBusy(projectName: string): AppError {
+  return new AppError(
+    'AGENT_BUSY',
+    `Aero is already running a turn for '${projectName}'. Retry after the current turn settles.`,
+    409,
+  )
 }

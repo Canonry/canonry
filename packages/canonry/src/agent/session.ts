@@ -7,7 +7,7 @@ import { getEnvApiKey, getModel, registerBuiltInApiProviders } from '@mariozechn
 import type { Model } from '@mariozechner/pi-ai'
 import type { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
-import { buildAllTools } from './tools.js'
+import { buildAllTools, buildReadTools } from './tools.js'
 
 let builtinsRegistered = false
 function ensureBuiltinsRegistered(): void {
@@ -48,6 +48,12 @@ export interface AeroSessionOptions {
   streamFn?: AgentOptions['streamFn']
   /** Override tool set. Default: `buildAllTools({ client, projectName })` — reads + writes. */
   tools?: AgentTool[]
+  /**
+   * Tool surface scope. 'all' exposes reads + writes (default). 'read-only'
+   * exposes only the read tools — used by the dashboard bar where we don't
+   * yet have a confirmation UX for destructive/additive actions.
+   */
+  toolScope?: 'all' | 'read-only'
   /** Seed initial transcript. Used by the registry when rehydrating a persisted session. */
   initialMessages?: import('@mariozechner/pi-agent-core').AgentMessage[]
 }
@@ -115,8 +121,12 @@ export function createAeroSession(opts: AeroSessionOptions): Agent {
 
   const model = resolveAeroModel(provider, opts.modelId)
 
-  const tools =
-    opts.tools ?? buildAllTools({ client: opts.client, projectName: opts.projectName })
+  const toolScope = opts.toolScope ?? 'all'
+  const defaultTools =
+    toolScope === 'read-only'
+      ? buildReadTools({ client: opts.client, projectName: opts.projectName })
+      : buildAllTools({ client: opts.client, projectName: opts.projectName })
+  const tools = opts.tools ?? defaultTools
 
   return new Agent({
     initialState: {

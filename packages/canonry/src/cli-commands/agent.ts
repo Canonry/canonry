@@ -1,5 +1,6 @@
 import { agentAttach, agentDetach } from '../commands/agent.js'
 import { agentAsk } from '../commands/agent-ask.js'
+import { agentTranscript, agentTranscriptReset } from '../commands/agent-transcript.js'
 import type { SupportedAgentProvider } from '../agent/session.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getString, stringOption } from '../cli-command-helpers.js'
@@ -77,6 +78,34 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
         return
       }
       await agentDetach({ project, format: input.format })
+    },
+  },
+  {
+    path: ['agent', 'transcript'],
+    usage: 'canonry agent transcript <project> [--format json]',
+    options: {},
+    run: async (input) => {
+      const project = input.positionals[0]
+      if (!project) {
+        console.error('Usage: canonry agent transcript <project>')
+        process.exitCode = 1
+        return
+      }
+      await agentTranscript({ project, format: input.format })
+    },
+  },
+  {
+    path: ['agent', 'reset'],
+    usage: 'canonry agent reset <project> [--format json]',
+    options: {},
+    run: async (input) => {
+      const project = input.positionals[0]
+      if (!project) {
+        console.error('Usage: canonry agent reset <project>')
+        process.exitCode = 1
+        return
+      }
+      await agentTranscriptReset({ project, format: input.format })
     },
   },
 ]

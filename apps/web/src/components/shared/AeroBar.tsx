@@ -32,22 +32,33 @@ export function AeroBar({ projectName }: AeroBarProps) {
   const abortRef = useRef<AbortController | null>(null)
   const transcriptRef = useRef<HTMLDivElement | null>(null)
 
-  // Load transcript when opened / when the project changes.
+  // Load transcript when opened / when the project changes, and poll while
+  // open so proactive turns (from RunCoordinator wake-ups) surface without a
+  // page refresh or a user prompt.
   useEffect(() => {
     if (!open) return
     let cancelled = false
     setError(null)
-    fetchAeroTranscript(projectName)
-      .then((t) => {
-        if (!cancelled) setMessages(t.messages)
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load transcript')
-      })
+
+    const load = () => {
+      if (cancelled || streaming) return
+      fetchAeroTranscript(projectName)
+        .then((t) => {
+          if (!cancelled) setMessages(t.messages)
+        })
+        .catch((err: unknown) => {
+          if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load transcript')
+        })
+    }
+
+    load()
+    const POLL_MS = 15_000
+    const interval = window.setInterval(load, POLL_MS)
     return () => {
       cancelled = true
+      window.clearInterval(interval)
     }
-  }, [open, projectName])
+  }, [open, projectName, streaming])
 
   // Cancel any in-flight stream when the component unmounts or project changes.
   useEffect(() => {

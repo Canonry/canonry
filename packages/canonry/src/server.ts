@@ -791,6 +791,7 @@ export async function createServer(opts: {
     openApiInfo: {
       title: 'Canonry API',
       version: PKG_VERSION,
+      includeCanonryLocal: true,
     },
     providerSummary,
     providerAdapters: [...API_ADAPTERS, ...BROWSER_ADAPTERS].map(a => ({

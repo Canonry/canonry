@@ -6,6 +6,12 @@ export interface OpenApiInfo {
   description?: string
   /** API route prefix (default: '/api/v1') */
   routePrefix?: string
+  /**
+   * Include canonry-local routes (Aero agent endpoints) in the generated
+   * spec. Set only when calling from canonry — the shared api-routes
+   * package itself doesn't register them, so the contract test omits them.
+   */
+  includeCanonryLocal?: boolean
 }
 
 type HttpMethod = 'get' | 'post' | 'put' | 'delete'
@@ -2191,10 +2197,97 @@ const routeCatalog: OpenApiOperation[] = [
   },
 ]
 
+/**
+ * Canonry-local routes not shipped by the shared api-routes package — added
+ * at server startup through `ApiRoutesOptions.registerAuthenticatedRoutes`.
+ * Surfaced here so the OpenAPI spec lists them. Consumers embedding api-routes
+ * without the local Aero plugin will see `registerAuthenticatedRoutes` as
+ * undefined and these entries will still appear in the spec, reflecting the
+ * canonical canonry deployment contract.
+ */
+const canonryLocalRouteCatalog: OpenApiOperation[] = [
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/agent/transcript',
+    summary: 'Get the rolling Aero transcript for this project',
+    description:
+      'Returns the full message history of the project-scoped Aero session plus the persisted model provider/id and last-updated timestamp. Empty messages array when the project has no session yet.',
+    tags: ['agent'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'Transcript returned.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'delete',
+    path: '/api/v1/projects/{name}/agent/transcript',
+    summary: 'Reset the Aero transcript + queued follow-ups',
+    description:
+      'Evicts any live Agent instance, clears the persisted messages and follow_up_queue. A subsequent prompt starts a fresh session.',
+    tags: ['agent'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'Session reset.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/agent/prompt',
+    summary: 'Send a prompt to Aero and stream events back as SSE',
+    description:
+      'Posts a prompt into the project\'s Aero session and streams `AgentEvent` frames as `text/event-stream`. Each frame is `data: <JSON>\\n\\n`. The server brackets the stream with `{"type":"stream_open"}` and `{"type":"stream_close"}` control frames; `{"type":"error","message":"..."}` surfaces in-stream failures without collapsing the stream. Returns 409 `AGENT_BUSY` if another turn is already in flight for this project. Body field `scope` accepts "all" | "read-only"; omitted defaults to "read-only" (safe dashboard surface). The CLI passes "all" to keep write tools available.',
+    tags: ['agent'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['prompt'],
+            properties: {
+              prompt: { type: 'string', description: "The user's message for Aero." },
+              provider: {
+                type: 'string',
+                enum: ['anthropic', 'openai', 'google', 'zai'],
+                description: 'Override the persisted LLM provider for this and subsequent turns.',
+              },
+              modelId: {
+                type: 'string',
+                description: 'Override the persisted model id for this and subsequent turns.',
+              },
+              scope: {
+                type: 'string',
+                enum: ['all', 'read-only'],
+                description: 'Tool surface scope. Default "read-only". Set "all" to enable write tools.',
+              },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'SSE stream of AgentEvent frames.' },
+      400: { description: 'Missing or empty prompt.' },
+      404: { description: 'Project not found.' },
+      409: { description: 'Another Aero turn is already in flight.' },
+    },
+  },
+]
+
 export function buildOpenApiDocument(info: OpenApiInfo = {}) {
   const BASE_PREFIX = '/api/v1'
   const prefix = info.routePrefix ?? BASE_PREFIX
-  const paths = routeCatalog.reduce<Record<string, Record<string, unknown>>>((acc, route) => {
+  // Merge canonry-local routes (Aero) into the spec iff the caller opts in.
+  // Api-routes' shared contract test builds the app without the local Aero
+  // plugin, so we don't want to surface those entries in that path. canonry's
+  // real `buildOpenApiDocument` call passes `includeCanonryLocal: true`.
+  const fullCatalog = info.includeCanonryLocal
+    ? [...routeCatalog, ...canonryLocalRouteCatalog]
+    : routeCatalog
+  const paths = fullCatalog.reduce<Record<string, Record<string, unknown>>>((acc, route) => {
     // Strip the hardcoded prefix from the route path, then prepend the configured prefix
     const subpath = route.path.startsWith(BASE_PREFIX) ? route.path.slice(BASE_PREFIX.length) : route.path
     const fullPath = prefix + subpath

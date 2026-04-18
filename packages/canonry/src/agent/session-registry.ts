@@ -16,6 +16,7 @@ import {
   resolveSessionProviderAndModel,
   type SupportedAgentProvider,
 } from './session.js'
+import { buildAllTools, buildReadTools } from './tools.js'
 
 const log = createLogger('SessionRegistry')
 
@@ -28,6 +29,8 @@ export interface SessionRegistryOptions {
 export interface SessionPreferences {
   provider?: SupportedAgentProvider
   modelId?: string
+  /** Pass 'read-only' to build a session that exposes only read tools. Default 'all'. */
+  toolScope?: 'all' | 'read-only'
 }
 
 interface AgentSessionRow {
@@ -59,6 +62,8 @@ interface AgentSessionRow {
 export class SessionRegistry {
   private readonly live = new Map<string, Agent>()
   private readonly pending = new Map<string, AgentMessage[]>()
+  /** Last tool scope used on the live Agent for a project. Read in getOrCreate to know when to swap. */
+  private readonly scopes = new Map<string, 'all' | 'read-only'>()
   private readonly opts: SessionRegistryOptions
 
   constructor(opts: SessionRegistryOptions) {
@@ -68,7 +73,22 @@ export class SessionRegistry {
   /** Returns the live Agent for a project, hydrating from DB or creating fresh. */
   getOrCreate(projectName: string, preferences?: SessionPreferences): Agent {
     const cached = this.live.get(projectName)
-    if (cached) return cached
+    if (cached) {
+      // The cached Agent is a per-project singleton. Different callers (CLI
+      // full-tools vs dashboard read-only) share it, so re-align its tool
+      // surface to the requested scope on every lookup. Safe only when the
+      // Agent is idle — the prompt endpoint guards concurrent calls with a
+      // 409, so we won't swap tools mid-turn.
+      const wantScope = preferences?.toolScope ?? 'all'
+      if (this.scopes.get(projectName) !== wantScope) {
+        cached.state.tools =
+          wantScope === 'read-only'
+            ? buildReadTools({ client: this.opts.client, projectName })
+            : buildAllTools({ client: this.opts.client, projectName })
+        this.scopes.set(projectName, wantScope)
+      }
+      return cached
+    }
 
     const projectId = this.resolveProjectId(projectName)
     const row = this.loadRow(projectId)
@@ -77,15 +97,34 @@ export class SessionRegistry {
       const persistedMessages = parseJsonColumn<AgentMessage[]>(row.messages, [])
       const queued = parseJsonColumn<AgentMessage[]>(row.followUpQueue, [])
 
+      // Explicit caller preferences override the persisted values (and are
+      // persisted back). This keeps `--provider` / `--model` flags meaningful
+      // after the first session exists instead of silently ignoring them.
+      const effectiveProvider = (preferences?.provider ?? row.modelProvider) as SupportedAgentProvider
+      const effectiveModelId = preferences?.modelId ?? row.modelId
+      if (preferences?.provider || preferences?.modelId) {
+        this.opts.db
+          .update(agentSessions)
+          .set({
+            modelProvider: effectiveProvider,
+            modelId: effectiveModelId,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(agentSessions.projectId, projectId))
+          .run()
+      }
+
       const agent = createAeroSession({
         projectName,
         client: this.opts.client,
         config: this.opts.config,
-        provider: row.modelProvider as SupportedAgentProvider,
-        modelId: row.modelId,
+        provider: effectiveProvider,
+        modelId: effectiveModelId,
         systemPromptOverride: row.systemPrompt,
         initialMessages: persistedMessages,
+        toolScope: preferences?.toolScope,
       })
+      this.scopes.set(projectName, preferences?.toolScope ?? 'all')
 
       if (queued.length > 0) {
         this.appendPending(projectName, queued)
@@ -107,7 +146,9 @@ export class SessionRegistry {
       provider,
       modelId,
       systemPromptOverride: systemPrompt,
+      toolScope: preferences?.toolScope,
     })
+    this.scopes.set(projectName, preferences?.toolScope ?? 'all')
 
     this.insertRow({
       projectId,
