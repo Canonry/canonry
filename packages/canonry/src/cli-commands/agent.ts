@@ -1,23 +1,14 @@
 import { agentAttach, agentDetach } from '../commands/agent.js'
 import { agentAsk } from '../commands/agent-ask.js'
 import { agentTranscript, agentTranscriptReset } from '../commands/agent-transcript.js'
-import type { SupportedAgentProvider } from '../agent/session.js'
+import { coerceAgentProvider, listAgentProviders } from '../agent/session.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getString, stringOption } from '../cli-command-helpers.js'
-
-const AGENT_PROVIDERS: readonly SupportedAgentProvider[] = ['anthropic', 'openai', 'google', 'zai']
-
-function coerceProvider(value: string | undefined): SupportedAgentProvider | undefined {
-  if (!value) return undefined
-  return (AGENT_PROVIDERS as readonly string[]).includes(value)
-    ? (value as SupportedAgentProvider)
-    : undefined
-}
 
 export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['agent', 'ask'],
-    usage: 'canonry agent ask <project> "<prompt>" [--provider anthropic|openai|google|zai] [--model <id>] [--format json]',
+    usage: `canonry agent ask <project> "<prompt>" [--provider ${listAgentProviders().join('|')}] [--model <id>] [--format json]`,
     options: {
       provider: stringOption(),
       model: stringOption(),
@@ -30,15 +21,15 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
         return
       }
       const providerInput = getString(input.values, 'provider')
-      if (providerInput && !coerceProvider(providerInput)) {
-        console.error(`--provider must be one of: ${AGENT_PROVIDERS.join(', ')}`)
+      if (providerInput && !coerceAgentProvider(providerInput)) {
+        console.error(`--provider must be one of: ${listAgentProviders().join(', ')}`)
         process.exitCode = 1
         return
       }
       await agentAsk({
         project,
         prompt: rest.join(' '),
-        provider: coerceProvider(providerInput),
+        provider: coerceAgentProvider(providerInput),
         modelId: getString(input.values, 'model'),
         format: input.format,
       })
