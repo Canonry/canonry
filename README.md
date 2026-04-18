@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@ainyc/canonry)](https://www.npmjs.com/package/@ainyc/canonry) [![License: FSL-1.1-ALv2](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue.svg)](https://fsl.software/) [![Node.js >= 22.14](https://img.shields.io/badge/node-%3E%3D22.14-brightgreen)](https://nodejs.org)
 
-Canonry is an agent-first AEO platform — CLI- and API-native, built so any AI agent can operate it end-to-end. It tracks how ChatGPT, Gemini, Claude, and Perplexity cite your site, detects regressions, diagnoses causes, coordinates fixes, and reports results.
+Canonry is an agent-first AEO platform. It ships a built-in AI agent — **Aero** — that reads project state, analyzes regressions, acts through a typed tool surface, and wakes up unprompted when runs complete. Users who prefer their own agent (Claude Code, Codex, custom) consume Canonry through the same CLI/API surface or subscribe via webhook. It tracks how ChatGPT, Gemini, Claude, and Perplexity cite your site, detects regressions, diagnoses causes, coordinates fixes, and reports results.
 
 AEO (Answer Engine Optimization) is about making sure your content shows up accurately in AI-generated answers. As search shifts from links to synthesized responses, you need something that can monitor, analyze, and act across these engines continuously.
 
@@ -23,17 +23,40 @@ canonry init --gemini-key <key> --openai-key <key>
 canonry serve
 ```
 
-Open [http://localhost:4100](http://localhost:4100) for the web dashboard.
+Open [http://localhost:4100](http://localhost:4100) for the web dashboard. Aero's command bar sits at the bottom of every project page.
 
-### Hooking up an agent
+### Talking to Aero (built-in agent)
 
-Canonry ships without an in-process agent runtime. To wire an external agent (your own script, a managed agent, or the native loop when it ships) to run/insight events:
+From the CLI:
+
+```bash
+# One-shot turn — Aero picks the right tools and analyzes on its own.
+canonry agent ask my-project "Why did the last run fail? Recommend a fix."
+
+# Pick a specific LLM:
+ANTHROPIC_API_KEY=... canonry agent ask my-project "…" --provider anthropic
+ZAI_API_KEY=...        canonry agent ask my-project "…" --provider zai
+```
+
+Aero uses whichever LLM has an API key configured in `~/.canonry/config.yaml`
+or exported (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`,
+`ZAI_API_KEY`). Conversations persist across invocations per project.
+
+Aero also wakes up **unprompted** after each run completes — analyzing the
+new data and writing the result back to the project's transcript so you see
+it next time you open the bar or run `canonry agent ask`.
+
+### Bringing your own agent (webhook)
+
+If you'd rather drive Canonry from Claude Code, Codex, or a custom agent,
+wire a webhook to receive run/insight events:
 
 ```bash
 canonry agent attach my-project --url https://my-agent.example.com/hooks/canonry
 ```
 
-The agent webhook receives `run.completed`, `insight.critical`, `insight.high`, and `citation.gained` notifications. Detach with `canonry agent detach my-project`.
+Your agent receives `run.completed`, `insight.critical`, `insight.high`, and
+`citation.gained` notifications. Detach with `canonry agent detach my-project`.
 
 ## How agents use Canonry
 
@@ -46,6 +69,7 @@ Canonry's CLI and API are the agent interface — no special SDK, no MCP layer, 
 
 ## Features
 
+- **Built-in AI agent (Aero).** Reads state, analyzes regressions, fires write tools (`run_sweep`, `dismiss_insight`, `update_schedule`, etc.), wakes up unprompted after runs. Backed by [`pi-agent-core`](https://github.com/badlogic/pi-mono) — 15+ LLM providers, streaming first.
 - **Agent-first.** Every CLI command supports `--format json`; every UI view has a matching API endpoint.
 - **Multi-provider.** Query Gemini, OpenAI, Claude, Perplexity, and local LLMs from a single platform.
 - **Config-as-code.** Kubernetes-style YAML files. Version control your monitoring, let agents apply changes declaratively.

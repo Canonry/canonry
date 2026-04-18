@@ -298,10 +298,37 @@ canonry sitemap inspect <project>
 
 ## Agent
 
-Canonry does not bundle an agent runtime. External agents (local scripts, hosted services, or the forthcoming native loop) consume Canonry through the regular CLI/API and subscribe to run/insight events over HTTP webhooks.
+Canonry ships the built-in **Aero** agent (backed by pi-agent-core) for users
+who don't already have one, plus a webhook integration for users who want to
+drive Canonry from Claude Code / Codex / a custom agent.
+
+### Built-in Aero (one-shot CLI)
 
 ```bash
-# Webhook lifecycle — wire an external agent to a project
+# One-shot turn — Aero picks its own tools, streams events to stdout.
+canonry agent ask <project> "<prompt>"
+canonry agent ask <project> "<prompt>" --format json      # JSON event stream
+
+# Select a specific provider / model (otherwise auto-detected from config).
+canonry agent ask <project> "<prompt>" --provider anthropic --model claude-opus-4-7
+canonry agent ask <project> "<prompt>" --provider zai      --model glm-5.1
+canonry agent ask <project> "<prompt>" --provider openai
+canonry agent ask <project> "<prompt>" --provider google
+```
+
+**Provider detection order** when `--provider` is omitted: `anthropic` →
+`openai` → `google` → `zai`, whichever has an API key present first
+(from `~/.canonry/config.yaml` providers block, or the matching env var
+`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` / `ZAI_API_KEY`).
+
+Conversations **persist per project** — `canonry agent ask` continues the
+same rolling thread each invocation. Reset with `DELETE /api/v1/projects/<name>/agent/transcript`
+or via the dashboard bar's reset button.
+
+### External agents (webhook)
+
+```bash
+# Wire an external agent webhook to a project
 canonry agent attach <project> --url <webhook-url>        # register webhook subscription
 canonry agent attach <project> --url <url> --format json  # JSON output
 canonry agent detach <project>                            # remove the agent webhook

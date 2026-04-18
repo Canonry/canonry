@@ -25,7 +25,13 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/commands/ga.ts` | GA4 commands: `ga sync`, `ga traffic`, `ga status`, `ga social-referral-history`, `ga social-referral-summary`, `ga attribution` |
 | `src/agent-webhook.ts` | `AGENT_WEBHOOK_EVENTS` — event list subscribed to by `canonry agent attach` |
 | `src/commands/agent.ts` | `agentAttach` / `agentDetach` — wire an external agent's webhook to a project |
-| `src/cli-commands/agent.ts` | CLI specs for `agent attach` / `agent detach` |
+| `src/commands/agent-ask.ts` | `agentAsk` — one-shot turn against the built-in Aero agent, streams events to stdout |
+| `src/cli-commands/agent.ts` | CLI specs for `agent ask / attach / detach` |
+| `src/agent/session.ts` | `createAeroSession` — constructs a pi-agent-core Agent scoped to a canonry project (system prompt, model, tools, API-key resolver) |
+| `src/agent/session-registry.ts` | Hybrid session registry — in-memory `Map<project, Agent>` + durable `agent_sessions` row per project. Handles hydration, persistence, follow-up queueing, and post-`agent_end` auto-drain. |
+| `src/agent/tools.ts` | 13 typed `AgentTool` definitions — 7 read (`get_status`, `get_health`, `get_timeline`, `get_insights`, `list_keywords`, `list_competitors`, `get_run`) and 6 write (`run_sweep`, `dismiss_insight`, `add_keywords`, `add_competitors`, `update_schedule`, `attach_agent_webhook`) |
+| `src/agent/agent-routes.ts` | Fastify routes — `GET/DELETE transcript` + `POST prompt` (SSE) for the dashboard Aero bar |
+| `src/agent/pi-runtime.ts` | Thin factory re-exporting pi-agent-core types with canonry-scoped construction |
 
 ## Patterns
 
@@ -77,13 +83,39 @@ Providers are registered at server startup in `server.ts`. Each provider adapter
 - **Forgetting `--format json` support** — every output command needs it.
 - **Forgetting to register command in `cli-commands.ts`** — the command won't be accessible.
 
-## Agent layer
+## Agent layer (Aero)
 
-Canonry no longer bundles an agent runtime. External agents consume Canonry via the regular CLI/API and receive run/insight signals through the agent webhook. The native in-process loop is under active development on the `native-agent-loop` branch.
+Canonry ships a built-in AI agent called **Aero**, built on
+[`@mariozechner/pi-agent-core`](https://github.com/badlogic/pi-mono). Users
+who already have their own agent (Claude Code, Codex, custom) can still
+consume Canonry through the external-agent webhook.
 
-### Agent webhook lifecycle
+### Built-in agent (native loop)
 
-`canonry agent attach <project> --url <webhook-url>` registers an agent webhook notification for the named project (subscribes to `run.completed`, `insight.critical`, `insight.high`, `citation.gained`). Idempotent — checks for an existing agent webhook before creating. `canonry agent detach <project>` removes it.
+- **CLI**: `canonry agent ask <project> "<prompt>"` — one-shot turn. Streams
+  `AgentEvent` lines to stdout (or JSON with `--format json`). Supports
+  `--provider anthropic|openai|google|zai` and `--model <id>`.
+- **Dashboard**: bottom command bar (`AeroBar`) on every project-scoped
+  route. SSE-streamed via `POST /api/v1/projects/:name/agent/prompt`.
+- **Proactive**: `RunCoordinator` enqueues a synthesized `[system]` follow-up
+  into the project's session after every `run.completed`; `SessionRegistry.drainNow`
+  wakes the agent unprompted so insights/failures get analyzed without a
+  user click.
+- **Persistence**: one `agent_sessions` row per project. Transcript + queued
+  follow-ups survive `canonry serve` restarts. See `docs/data-model.md`.
+
+Tool surface lives in `src/agent/tools.ts` — 7 read (status/health/timeline/
+insights/keywords/competitors/run detail) + 6 write (run sweep / dismiss
+insight / add keywords / add competitors / update schedule / attach webhook).
+Project name is closed over by `ToolContext` so the LLM can't target the
+wrong project; tools surface their intent via `tool_execution_start` events.
+
+### External agents (webhook lifecycle)
+
+`canonry agent attach <project> --url <webhook-url>` registers an agent
+webhook subscribing to `run.completed`, `insight.critical`, `insight.high`,
+`citation.gained`. Idempotent — skipped if one already exists on the project.
+`canonry agent detach <project>` removes it.
 
 ## See Also
 

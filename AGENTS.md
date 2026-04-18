@@ -53,22 +53,60 @@ canonry status <project>
 canonry apply <file...>                          # multi-doc YAML + multiple files
 canonry export <project>
 
-# Agent layer (webhook delivery to external agents)
+# Agent layer
+canonry agent ask <project> "<prompt>"               # one-shot turn against built-in Aero
+canonry agent ask <project> "<prompt>" --provider zai --format json
 canonry agent attach <project> --url <webhook-url>   # subscribe an external agent to run/insight events
 canonry agent detach <project>                       # remove the agent webhook
 ```
 
 ## Agent Layer
 
-Canonry no longer ships a bundled agent runtime. The `agent attach`/`agent detach` commands exist to wire an external agent (local or remote) to Canonry's run/insight notifications over HTTP webhooks. The native in-process agent loop is under active development on the `native-agent-loop` branch.
+Canonry ships a built-in AI agent called **Aero**, backed by
+[`@mariozechner/pi-agent-core`](https://github.com/badlogic/pi-mono). Aero
+is an AEO analyst: it reads project state, analyzes regressions, acts
+through a typed tool surface (runs sweeps, dismisses insights, attaches
+webhooks, updates schedules), and **wakes up unprompted** when runs
+complete — producing an analysis without a user request.
 
-### Webhook lifecycle
+Users who prefer their own agent (Claude Code, Codex, custom) still get
+the external-agent webhook path via `canonry agent attach <url>`.
 
-`canonry agent attach <project> --url <webhook-url>` registers a webhook subscription for the named project (idempotent — checks for an existing agent webhook before creating). `canonry agent detach <project>` removes it.
+### Built-in Aero (native loop)
 
-### Notification events
+- **CLI:** `canonry agent ask <project> "<prompt>"` — one-shot, streams
+  `AgentEvent`s to stdout. Supports `--provider anthropic|openai|google|zai`
+  and `--format json`.
+- **Dashboard:** the bottom command bar on every project-scoped route.
+  SSE-streamed. Starter buttons cover the common ops (status, insights,
+  last failed run, schedule).
+- **Proactive:** `RunCoordinator` fires a synthesized user message into the
+  session's follow-up queue after each `run.completed`; `SessionRegistry.drainNow`
+  wakes the agent to analyze and writes the response back to the transcript
+  before the next interaction.
+- **Persistence:** one rolling session per project in the `agent_sessions`
+  table. Transcript + queued follow-ups survive `canonry serve` restarts.
 
-The agent webhook subscribes to: `run.completed`, `insight.critical`, `insight.high`, `citation.gained`. The notification system also supports `citation.lost` and `run.failed` for other webhook consumers. `insight.critical` and `insight.high` fire when the intelligence engine generates critical- or high-severity insights after a run — dispatched by the `RunCoordinator` after `IntelligenceService.analyzeAndPersist()` completes.
+Key files:
+- `packages/canonry/src/agent/session.ts` — `createAeroSession` (pi integration)
+- `packages/canonry/src/agent/session-registry.ts` — hybrid in-memory + DB registry
+- `packages/canonry/src/agent/tools.ts` — 13 tools (7 read + 6 write)
+- `packages/canonry/src/agent/agent-routes.ts` — Fastify SSE endpoints
+- `apps/web/src/components/shared/AeroBar.tsx` — dashboard UI
+
+### External agents (webhook)
+
+`canonry agent attach <project> --url <webhook-url>` registers a webhook for
+the project. `canonry agent detach <project>` removes it. Events:
+`run.completed`, `insight.critical`, `insight.high`, `citation.gained`.
+
+### Notification events (shared)
+
+The notification system supports `citation.lost`, `citation.gained`, `run.completed`,
+`run.failed`, `insight.critical`, `insight.high`. `insight.critical` and
+`insight.high` fire when the intelligence engine generates critical- or
+high-severity insights after a run — dispatched by `RunCoordinator` after
+`IntelligenceService.analyzeAndPersist()` completes.
 
 ## Dependency Boundary
 
