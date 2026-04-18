@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { AGENT_PROVIDER_IDS } from '@ainyc/canonry-contracts'
 
 export interface OpenApiInfo {
   title?: string
@@ -2264,7 +2265,7 @@ const canonryLocalRouteCatalog: OpenApiOperation[] = [
               prompt: { type: 'string', description: "The user's message for Aero." },
               provider: {
                 type: 'string',
-                enum: ['anthropic', 'openai', 'google', 'zai'],
+                enum: [...AGENT_PROVIDER_IDS],
                 description: 'Override the persisted LLM provider for this and subsequent turns.',
               },
               modelId: {
