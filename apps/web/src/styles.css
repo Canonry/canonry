@@ -1515,4 +1515,35 @@
     @apply absolute -m-px h-px w-px overflow-hidden border-0 p-0;
     clip: rect(0 0 0 0);
   }
+
+  /* ── Aero typing indicator ── */
+
+  .aero-dot {
+    animation: aero-dot-pulse 1.2s ease-in-out infinite;
+  }
+  .aero-dot-2 {
+    animation-delay: 0.15s;
+  }
+  .aero-dot-3 {
+    animation-delay: 0.3s;
+  }
+
+  @keyframes aero-dot-pulse {
+    0%,
+    60%,
+    100% {
+      transform: translateY(0);
+      opacity: 0.6;
+    }
+    30% {
+      transform: translateY(-2px);
+      opacity: 1;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .aero-dot {
+      animation: none;
+    }
+  }
 }

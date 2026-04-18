@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Sparkles, X, RotateCcw, ArrowUp, Maximize2, Minimize2 } from 'lucide-react'
 import { useLocation } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
+import ReactMarkdown from 'react-markdown'
 import { fetchProjects } from '../../api.js'
 import { queryKeys } from '../../queries/query-keys.js'
 import {
@@ -261,7 +262,10 @@ export function AeroBar({ projectName }: AeroBarProps) {
                 <MessageRow key={messageKey(msg, i)} message={msg} />
               ))}
               {streaming && streamingText && (
-                <div className="mt-3 whitespace-pre-wrap text-zinc-100">{streamingText}</div>
+                <div className="mt-3">
+                  <div className="mb-0.5 text-[10px] uppercase tracking-wider text-emerald-400">Aero</div>
+                  <AeroMarkdown content={streamingText} />
+                </div>
               )}
               {activeTools.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
@@ -275,6 +279,7 @@ export function AeroBar({ projectName }: AeroBarProps) {
                   ))}
                 </div>
               )}
+              {streaming && !streamingText && activeTools.length === 0 && <TypingIndicator />}
             </div>
 
             <form
@@ -347,13 +352,93 @@ function MessageRow({ message }: { message: AeroMessage }) {
     const text = extractAssistantText(message)
     if (!text.trim()) return null
     return (
-      <div className="mt-3 whitespace-pre-wrap text-zinc-100">
+      <div className="mt-3">
         <div className="mb-0.5 text-[10px] uppercase tracking-wider text-emerald-400">Aero</div>
-        {text}
+        <AeroMarkdown content={text} />
       </div>
     )
   }
   return null
+}
+
+/**
+ * Markdown renderer scoped to Aero responses — react-markdown with
+ * Tailwind-styled element overrides so headings/tables/lists match the
+ * dashboard's zinc palette instead of browser defaults.
+ */
+function AeroMarkdown({ content }: { content: string }) {
+  return (
+    <div className="aero-markdown text-zinc-100">
+      <ReactMarkdown
+        components={{
+          h1: (props) => <h1 {...props} className="mt-3 mb-2 text-base font-semibold text-zinc-50" />,
+          h2: (props) => <h2 {...props} className="mt-3 mb-2 text-sm font-semibold text-zinc-50" />,
+          h3: (props) => <h3 {...props} className="mt-3 mb-1.5 text-sm font-semibold text-zinc-100" />,
+          h4: (props) => <h4 {...props} className="mt-2 mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-300" />,
+          p: (props) => <p {...props} className="mb-2 leading-relaxed" />,
+          ul: (props) => <ul {...props} className="mb-2 ml-4 list-disc space-y-1" />,
+          ol: (props) => <ol {...props} className="mb-2 ml-4 list-decimal space-y-1" />,
+          li: (props) => <li {...props} className="marker:text-zinc-600" />,
+          strong: (props) => <strong {...props} className="font-semibold text-zinc-50" />,
+          em: (props) => <em {...props} className="text-zinc-200" />,
+          code: ({ children, ...props }) => (
+            <code
+              {...props}
+              className="rounded bg-zinc-800/70 px-1 py-0.5 font-mono text-[12px] text-emerald-200"
+            >
+              {children}
+            </code>
+          ),
+          pre: (props) => (
+            <pre
+              {...props}
+              className="mb-2 overflow-x-auto rounded-md border border-zinc-800 bg-zinc-900/70 p-3 font-mono text-xs text-zinc-200"
+            />
+          ),
+          a: (props) => (
+            <a
+              {...props}
+              className="text-emerald-400 underline decoration-emerald-700 hover:decoration-emerald-400"
+              target="_blank"
+              rel="noopener noreferrer"
+            />
+          ),
+          table: (props) => (
+            <div className="mb-2 overflow-x-auto">
+              <table {...props} className="w-full border-collapse text-xs" />
+            </div>
+          ),
+          thead: (props) => <thead {...props} className="border-b border-zinc-800" />,
+          th: (props) => <th {...props} className="px-2 py-1 text-left font-semibold text-zinc-300" />,
+          tr: (props) => <tr {...props} className="border-b border-zinc-900" />,
+          td: (props) => <td {...props} className="px-2 py-1 text-zinc-200" />,
+          blockquote: (props) => (
+            <blockquote
+              {...props}
+              className="mb-2 border-l-2 border-zinc-700 pl-3 italic text-zinc-400"
+            />
+          ),
+          hr: () => <hr className="my-3 border-zinc-800" />,
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  )
+}
+
+/** Three-dot "Aero is thinking" indicator. Shown pre-first-token and between tool rounds. */
+function TypingIndicator() {
+  return (
+    <div className="mt-3 flex items-center gap-2">
+      <div className="text-[10px] uppercase tracking-wider text-emerald-400">Aero</div>
+      <div className="flex items-center gap-1" aria-label="Aero is thinking">
+        <span className="aero-dot h-1.5 w-1.5 rounded-full bg-emerald-400/80" />
+        <span className="aero-dot aero-dot-2 h-1.5 w-1.5 rounded-full bg-emerald-400/60" />
+        <span className="aero-dot aero-dot-3 h-1.5 w-1.5 rounded-full bg-emerald-400/40" />
+      </div>
+    </div>
+  )
 }
 
 /**
