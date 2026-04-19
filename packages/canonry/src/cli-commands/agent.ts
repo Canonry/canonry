@@ -10,6 +10,7 @@ import {
 import { coerceAgentProvider, listAgentProviders } from '../agent/session.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getString, stringOption } from '../cli-command-helpers.js'
+import { usageError } from '../cli-error.js'
 
 const AGENT_ASK_SCOPES: readonly AgentAskScope[] = ['all', 'read-only']
 
@@ -136,9 +137,9 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     run: async (input) => {
       const project = input.positionals[0]
       if (!project) {
-        console.error('Usage: canonry agent memory list <project>')
-        process.exitCode = 1
-        return
+        throw usageError('Usage: canonry agent memory list <project>', {
+          message: 'project name is required',
+        })
       }
       await agentMemoryList({ project, format: input.format })
     },
@@ -153,16 +154,16 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     run: async (input) => {
       const project = input.positionals[0]
       if (!project) {
-        console.error('Usage: canonry agent memory set <project> --key <k> --value <v>')
-        process.exitCode = 1
-        return
+        throw usageError('Usage: canonry agent memory set <project> --key <k> --value <v>', {
+          message: 'project name is required',
+        })
       }
       const key = getString(input.values, 'key')
       const value = getString(input.values, 'value')
       if (!key || !value) {
-        console.error('--key and --value are both required.')
-        process.exitCode = 1
-        return
+        throw usageError('--key and --value are both required.', {
+          message: '--key and --value are both required',
+        })
       }
       await agentMemorySet({ project, key, value, format: input.format })
     },
@@ -176,15 +177,15 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     run: async (input) => {
       const project = input.positionals[0]
       if (!project) {
-        console.error('Usage: canonry agent memory forget <project> --key <k>')
-        process.exitCode = 1
-        return
+        throw usageError('Usage: canonry agent memory forget <project> --key <k>', {
+          message: 'project name is required',
+        })
       }
       const key = getString(input.values, 'key')
       if (!key) {
-        console.error('--key is required.')
-        process.exitCode = 1
-        return
+        throw usageError('--key is required.', {
+          message: '--key is required',
+        })
       }
       await agentMemoryForget({ project, key, format: input.format })
     },

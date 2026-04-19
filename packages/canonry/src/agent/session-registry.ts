@@ -80,6 +80,19 @@ const MAX_HYDRATE_NOTES = 20
  */
 const MAX_HYDRATE_BYTES = 32 * 1024
 
+/**
+ * Neutralize sequences in a memory fragment that could otherwise escape
+ * the `<memory>` wrapper and persistently modify system instructions.
+ * Compaction summaries are LLM-authored and notes can be written by any
+ * operator, so values must be treated as untrusted data. We escape any
+ * `<memory>`/`</memory>` tag (case-insensitive) by inserting a zero-width
+ * non-joiner so the rendered text reads the same to a human but no longer
+ * closes the data block.
+ */
+function escapeMemoryFragment(value: string): string {
+  return value.replace(/<(\/?)memory>/gi, '<$1\u200Cmemory>')
+}
+
 export class SessionRegistry {
   private readonly live = new Map<string, Agent>()
   private readonly pending = new Map<string, AgentMessage[]>()
@@ -205,18 +218,27 @@ export class SessionRegistry {
    * exist — an empty block would just be prompt noise. Truncates to
    * `MAX_HYDRATE_BYTES`, dropping oldest-first, so the block is bounded
    * even when notes sit near their 2 KB cap.
+   *
+   * Note values come from LLM-authored compaction summaries and operator
+   * input, so they are treated as untrusted data: closing tags that could
+   * escape the `<memory>` wrapper are neutralized before interpolation.
    */
   buildHydratedSystemPrompt(projectId: string, basePrompt: string): string {
     const entries = loadRecentForHydrate(this.opts.db, projectId, MAX_HYDRATE_NOTES)
     if (entries.length === 0) return basePrompt
 
     let totalBytes = 0
-    const kept: typeof entries = []
+    const kept: Array<{ source: string; key: string; value: string }> = []
     for (const entry of entries) {
-      const line = `- [${entry.source}] ${entry.key}: ${entry.value}\n`
+      const escaped = {
+        source: escapeMemoryFragment(entry.source),
+        key: escapeMemoryFragment(entry.key),
+        value: escapeMemoryFragment(entry.value),
+      }
+      const line = `- [${escaped.source}] ${escaped.key}: ${escaped.value}\n`
       const bytes = Buffer.byteLength(line, 'utf8')
       if (totalBytes + bytes > MAX_HYDRATE_BYTES) break
-      kept.push(entry)
+      kept.push(escaped)
       totalBytes += bytes
     }
     if (kept.length === 0) return basePrompt
@@ -229,6 +251,23 @@ export class SessionRegistry {
       `${lines.join('\n')}\n` +
       `</memory>`
     )
+  }
+
+  /**
+   * Rebuild the live agent's system prompt from the latest `agent_memory`
+   * rows. Called after out-of-band memory writes (CLI/API PUT/DELETE) so
+   * the next turn on a hot session sees the updated notes without waiting
+   * for compaction or a cold restart. No-op when no live agent exists —
+   * the next `getOrCreate` will hydrate from DB anyway.
+   */
+  rehydrateLiveMemory(projectName: string): void {
+    const agent = this.live.get(projectName)
+    if (!agent) return
+    const projectId = this.tryResolveProjectId(projectName)
+    if (!projectId) return
+    const row = this.loadRow(projectId)
+    if (!row) return
+    agent.state.systemPrompt = this.buildHydratedSystemPrompt(projectId, row.systemPrompt)
   }
 
   /**

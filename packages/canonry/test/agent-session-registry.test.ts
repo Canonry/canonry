@@ -469,6 +469,36 @@ describe('SessionRegistry', () => {
     expect(rows.some((r) => r.source === MemorySources.compaction)).toBe(true)
   })
 
+  it('rehydrateLiveMemory rebuilds the live agent system prompt with the latest notes', async () => {
+    const projectId = insertProject(db, 'demo')
+    const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
+    const agent = registry.getOrCreate('demo')
+    const promptBefore = agent.state.systemPrompt
+    expect(promptBefore).not.toContain('<memory>')
+
+    const { upsertMemoryEntry } = await import('../src/agent/memory-store.js')
+    upsertMemoryEntry(db, {
+      projectId,
+      key: 'default-provider',
+      value: 'Claude',
+      source: MemorySources.user,
+    })
+
+    registry.rehydrateLiveMemory('demo')
+
+    expect(agent.state.systemPrompt).not.toBe(promptBefore)
+    expect(agent.state.systemPrompt).toContain('<memory>')
+    expect(agent.state.systemPrompt).toContain('default-provider')
+  })
+
+  it('rehydrateLiveMemory is a no-op when no live agent exists', () => {
+    insertProject(db, 'demo')
+    const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
+    // Should not throw — no live agent yet.
+    expect(() => registry.rehydrateLiveMemory('demo')).not.toThrow()
+    expect(registry.isLive('demo')).toBe(false)
+  })
+
   it('acquireForTurn throws AGENT_BUSY without mutating tools when streaming', async () => {
     insertProject(db, 'demo')
     const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })

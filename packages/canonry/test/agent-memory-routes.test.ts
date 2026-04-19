@@ -210,6 +210,31 @@ describe('agent memory HTTP routes', () => {
     expect((res.json() as { error: { code: string } }).error.code).toBe('NOT_FOUND')
   })
 
+  it('PUT and DELETE rehydrate the live session so the next turn sees the edit', async () => {
+    // Force a live agent for the project.
+    const agent = registry.getOrCreate('demo')
+    const promptBefore = agent.state.systemPrompt
+    expect(promptBefore).not.toContain('<memory>')
+
+    const put = await app.inject({
+      method: 'PUT',
+      url: '/projects/demo/agent/memory',
+      payload: { key: 'default-provider', value: 'Claude' },
+    })
+    expect(put.statusCode).toBe(200)
+    expect(agent.state.systemPrompt).not.toBe(promptBefore)
+    expect(agent.state.systemPrompt).toContain('default-provider')
+
+    const del = await app.inject({
+      method: 'DELETE',
+      url: '/projects/demo/agent/memory',
+      payload: { key: 'default-provider' },
+    })
+    expect(del.statusCode).toBe(200)
+    // After delete, the block is empty again and the prompt reverts to the base.
+    expect(agent.state.systemPrompt).not.toContain('default-provider')
+  })
+
   it('memory is project-scoped', async () => {
     const otherId = insertProject(db, 'other')
     upsertMemoryEntry(db, {

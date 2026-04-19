@@ -227,6 +227,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
         value: parsed.data.value,
         source: MemorySources.user,
       })
+      opts.sessionRegistry.rehydrateLiveMemory(project.name)
       return { status: 'ok', entry }
     },
   )
@@ -245,6 +246,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
         )
       }
       const removed = deleteMemoryEntry(opts.db, project.id, parsed.data.key)
+      if (removed) opts.sessionRegistry.rehydrateLiveMemory(project.name)
       return { status: removed ? 'forgotten' : 'missing', key: parsed.data.key }
     },
   )
