@@ -277,7 +277,8 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
       )
     }
 
-    const hasSummary = summary !== null
+    const hasSummary = summary !== null && summary.totalLinkingDomains > 0
+    const hasEmptySummary = summary !== null && summary.totalLinkingDomains === 0
     const hasReadySync = latestSync?.status === 'ready'
     const hasFailedSync = latestSync?.status === 'failed'
     const hasRunningSync = latestSync && (latestSync.status === 'downloading' || latestSync.status === 'querying' || latestSync.status === 'queued')
@@ -330,7 +331,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                   </div>
                 </>
               )}
-              {hasReadySync && !hasRunningSync && (
+              {hasReadySync && !hasRunningSync && !hasEmptySummary && (
                 <>
                   <h3 className="text-base font-semibold text-zinc-100">No backlinks yet for this project</h3>
                   <p className="text-sm text-zinc-500 mt-1">
@@ -349,6 +350,41 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                       </span>
                       <span className="mt-2 block text-zinc-400">
                         No re-download. Typically takes <span className="text-zinc-200">~5 min</span>.
+                      </span>
+                    </Hint>
+                  </div>
+                </>
+              )}
+              {hasEmptySummary && (
+                <>
+                  <h3 className="text-base font-semibold text-zinc-100">No referring domains found</h3>
+                  <p className="text-sm text-zinc-500 mt-1">
+                    The last extract against release <code className="text-zinc-300">{summary!.release}</code> found{' '}
+                    <span className="text-zinc-300">0 referring domains</span> for{' '}
+                    <code className="text-zinc-300">{summary!.targetDomain}</code>. This can happen when:
+                  </p>
+                  <ul className="mt-2 space-y-1 text-xs text-zinc-500 list-disc list-inside">
+                    <li>the domain is newer than the release&rsquo;s crawl window</li>
+                    <li>the Common Crawl snapshot didn&rsquo;t capture pages that link to it</li>
+                    <li>the extract ran against a cache that was missing or incomplete</li>
+                  </ul>
+                  <p className="text-sm text-zinc-500 mt-3">
+                    Try syncing a newer release — each Common Crawl dump is a different snapshot of the web graph.
+                  </p>
+                  <div className="mt-4 flex items-center gap-3 flex-wrap">
+                    <Button asChild type="button" size="sm">
+                      <a href={publicPath('/backlinks')}>Go to Backlinks admin</a>
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" disabled={extracting || activeRun !== null} onClick={handleExtract}>
+                      <Play className="h-4 w-4 mr-1.5" aria-hidden />
+                      {activeRun ? 'Extract running…' : extracting ? 'Queuing…' : 'Re-run extract'}
+                    </Button>
+                    <Hint label="What does Re-run extract do?">
+                      <span className="block">
+                        Re-queries the cached release for <span className="text-zinc-200">{summary!.targetDomain}</span>. Only useful if the cache files were incomplete last time.
+                      </span>
+                      <span className="mt-2 block text-zinc-400">
+                        No re-download. ~5 min. If the release genuinely has no links for your domain, this won&rsquo;t help — sync a different release instead.
                       </span>
                     </Hint>
                   </div>
