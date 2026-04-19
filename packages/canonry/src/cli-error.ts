@@ -49,6 +49,18 @@ export function usageError(
   })
 }
 
+/**
+ * Returns true if the error looks like "this endpoint doesn't exist on the server".
+ * Used by clients that want to fall back to an older API path when talking to a
+ * server predating a new composite endpoint. Narrow on 404/405 only — do NOT
+ * treat other HTTP errors (auth, 500s, network) as a fallback signal.
+ */
+export function isEndpointMissing(err: unknown): boolean {
+  if (!(err instanceof CliError)) return false
+  const status = err.details?.httpStatus
+  return status === 404 || status === 405
+}
+
 export function systemError(
   message: string,
   options?: {

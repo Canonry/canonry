@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { eq, asc, desc } from 'drizzle-orm'
+import { eq, asc, desc, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { runs, querySnapshots, keywords, projects, parseJsonColumn } from '@ainyc/canonry-db'
 import type { LocationContext } from '@ainyc/canonry-contracts'
@@ -170,23 +170,27 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   // GET /projects/:name/runs/latest — latest run plus total run count
   app.get<{ Params: { name: string } }>('/projects/:name/runs/latest', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
-    const allRuns = app.db
+    const countRow = app.db
+      .select({ count: sql<number>`count(*)` })
+      .from(runs)
+      .where(eq(runs.projectId, project.id))
+      .get()
+    const totalRuns = countRow?.count ?? 0
+
+    const latestRun = app.db
       .select()
       .from(runs)
       .where(eq(runs.projectId, project.id))
       .orderBy(desc(runs.createdAt))
-      .all()
+      .limit(1)
+      .get()
 
-    const latestRun = allRuns[0]
     if (!latestRun) {
-      return reply.send({
-        totalRuns: 0,
-        run: null,
-      })
+      return reply.send({ totalRuns: 0, run: null })
     }
 
     return reply.send({
-      totalRuns: allRuns.length,
+      totalRuns,
       run: loadRunDetail(app, latestRun),
     })
   })

@@ -1,5 +1,6 @@
 import type { ProjectDto, RunDto } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
+import { isEndpointMissing } from '../cli-error.js'
 
 function getClient() {
   return createApiClient()
@@ -51,7 +52,9 @@ async function getLatestRunSummary(
 ): Promise<{ totalRuns: number; run: RunDto | null }> {
   try {
     return await client.getLatestRun(project)
-  } catch {
+  } catch (err) {
+    if (!isEndpointMissing(err)) throw err
+    // Older server predating /runs/latest — fall back to list + client-side reduce.
     const runs = await client.listRuns(project)
     if (runs.length === 0) {
       return { totalRuns: 0, run: null }

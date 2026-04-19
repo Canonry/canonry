@@ -241,7 +241,7 @@ export class ApiClient {
       const msg = errorObj?.message ? String(errorObj.message) : `HTTP ${res.status}: ${res.statusText}`
       const code = errorObj?.code ? String(errorObj.code) : 'API_ERROR'
       const exitCode = res.status >= 500 ? EXIT_SYSTEM_ERROR : EXIT_USER_ERROR
-      throw new CliError({ code, message: msg, exitCode })
+      throw new CliError({ code, message: msg, exitCode, details: { httpStatus: res.status } })
     }
 
     if (res.status === 204) {
@@ -353,7 +353,7 @@ export class ApiClient {
       const msg = errorObj?.message ? String(errorObj.message) : `HTTP ${res.status}: ${res.statusText}`
       const code = errorObj?.code ? String(errorObj.code) : 'API_ERROR'
       const exitCode = res.status >= 500 ? EXIT_SYSTEM_ERROR : EXIT_USER_ERROR
-      throw new CliError({ code, message: msg, exitCode })
+      throw new CliError({ code, message: msg, exitCode, details: { httpStatus: res.status } })
     }
 
     return res
