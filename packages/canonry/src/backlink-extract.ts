@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import fs from 'node:fs'
 import { and, desc, eq } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import {
@@ -70,6 +71,13 @@ export async function executeBacklinkExtract(
     }
     if (!sync.vertexPath || !sync.edgesPath) {
       throw new Error(`Release ${sync.release} is missing cached file paths`)
+    }
+    if (!fs.existsSync(sync.vertexPath) || !fs.existsSync(sync.edgesPath)) {
+      throw new Error(
+        `Cache for release ${sync.release} is missing from disk (expected at ${sync.vertexPath}). ` +
+        `The sync record exists in the database, but the ~16 GB dump was deleted or never present on this machine. ` +
+        `Re-sync this release from the Backlinks admin page to restore the cache.`,
+      )
     }
 
     const duckdb = deps.loadDuckdb()

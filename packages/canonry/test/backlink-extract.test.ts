@@ -45,12 +45,17 @@ function insertRun(id: string, projectId: string, kind = 'backlink-extract'): vo
   }).run()
 }
 
-function insertReadyReleaseSync(id: string, release: string): void {
+async function insertReadyReleaseSync(id: string, release: string, { createFiles = true } = {}): Promise<void> {
   const now = new Date().toISOString()
+  const vertexPath = path.join(tmpDir, `${id}-v.txt.gz`)
+  const edgesPath = path.join(tmpDir, `${id}-e.txt.gz`)
+  if (createFiles) {
+    await fs.writeFile(vertexPath, 'stub')
+    await fs.writeFile(edgesPath, 'stub')
+  }
   db.insert(ccReleaseSyncs).values({
     id, release, status: 'ready',
-    vertexPath: path.join(tmpDir, 'v.txt.gz'),
-    edgesPath: path.join(tmpDir, 'e.txt.gz'),
+    vertexPath, edgesPath,
     vertexBytes: 100, edgesBytes: 200,
     createdAt: now, updatedAt: now,
   }).run()
@@ -109,7 +114,7 @@ describe('executeBacklinkExtract', () => {
     insertProject('p2', 'other', 'other.com')
     const runId = crypto.randomUUID()
     insertRun(runId, 'p1')
-    insertReadyReleaseSync('sync-1', 'cc-main-2026-jan-feb-mar')
+    await insertReadyReleaseSync('sync-1', 'cc-main-2026-jan-feb-mar')
 
     let capturedTargets: string[] = []
     await executeBacklinkExtract(db, runId, 'p1', {
@@ -148,7 +153,7 @@ describe('executeBacklinkExtract', () => {
 
   it('is idempotent under re-run: deletes prior (project_id, release) rows before inserting', async () => {
     insertProject('p1', 'roots', 'roots.io')
-    insertReadyReleaseSync('sync-1', 'cc-main-2026-jan-feb-mar')
+    await insertReadyReleaseSync('sync-1', 'cc-main-2026-jan-feb-mar')
 
     const run1 = crypto.randomUUID()
     insertRun(run1, 'p1')
@@ -183,14 +188,19 @@ describe('executeBacklinkExtract', () => {
   it('picks the latest ready release when --release is not specified', async () => {
     insertProject('p1', 'roots', 'roots.io')
     // Two ready releases with different createdAt.
+    const oldV = path.join(tmpDir, 'old-v.gz')
+    const oldE = path.join(tmpDir, 'old-e.gz')
+    const newV = path.join(tmpDir, 'new-v.gz')
+    const newE = path.join(tmpDir, 'new-e.gz')
+    await Promise.all([oldV, oldE, newV, newE].map((p) => fs.writeFile(p, 'stub')))
     db.insert(ccReleaseSyncs).values({
       id: 'old', release: 'cc-main-2025-oct-nov-dec', status: 'ready',
-      vertexPath: '/tmp/old-v.gz', edgesPath: '/tmp/old-e.gz',
+      vertexPath: oldV, edgesPath: oldE,
       createdAt: '2025-12-01T00:00:00.000Z', updatedAt: '2025-12-01T00:00:00.000Z',
     }).run()
     db.insert(ccReleaseSyncs).values({
       id: 'new', release: 'cc-main-2026-jan-feb-mar', status: 'ready',
-      vertexPath: '/tmp/new-v.gz', edgesPath: '/tmp/new-e.gz',
+      vertexPath: newV, edgesPath: newE,
       createdAt: '2026-03-01T00:00:00.000Z', updatedAt: '2026-03-01T00:00:00.000Z',
     }).run()
 
@@ -211,7 +221,7 @@ describe('executeBacklinkExtract', () => {
 
   it('marks the run failed and rethrows when the query throws', async () => {
     insertProject('p1', 'roots', 'roots.io')
-    insertReadyReleaseSync('sync-1', 'cc-main-2026-jan-feb-mar')
+    await insertReadyReleaseSync('sync-1', 'cc-main-2026-jan-feb-mar')
     const runId = crypto.randomUUID()
     insertRun(runId, 'p1')
 
@@ -228,8 +238,29 @@ describe('executeBacklinkExtract', () => {
     expect(run?.error).toMatch(/duckdb exploded/)
   })
 
+  it('fails with a clear message when the release is "ready" but the cached files are missing', async () => {
+    insertProject('p1', 'roots', 'roots.io')
+    await insertReadyReleaseSync('sync-1', 'cc-main-2026-jan-feb-mar', { createFiles: false })
+    const runId = crypto.randomUUID()
+    insertRun(runId, 'p1')
+
+    let duckdbCalled = false
+    await expect(
+      executeBacklinkExtract(db, runId, 'p1', {
+        deps: makeDeps({
+          queryBacklinks: async () => { duckdbCalled = true; return [] },
+        }),
+      }),
+    ).rejects.toThrow(/cache for release .+ is missing from disk/i)
+
+    expect(duckdbCalled).toBe(false)
+    const run = db.select().from(runs).where(eq(runs.id, runId)).get()
+    expect(run?.status).toBe('failed')
+    expect(run?.error).toMatch(/re-sync this release/i)
+  })
+
   it('fails when the project does not exist', async () => {
-    insertReadyReleaseSync('sync-1', 'cc-main-2026-jan-feb-mar')
+    await insertReadyReleaseSync('sync-1', 'cc-main-2026-jan-feb-mar')
     const runId = crypto.randomUUID()
     // runs.project_id has FK ON DELETE CASCADE, so we need a project first to insert a run.
     insertProject('p1', 'roots', 'roots.io')

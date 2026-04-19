@@ -161,9 +161,12 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
     return () => window.clearInterval(interval)
   }, [activeRun])
 
-  // Dismiss the "just completed" banner after 10s.
+  // Auto-dismiss the success banner after 10s. Failure stays visible until the
+  // user starts a new extract — otherwise the stale "0 domains" summary re-appears
+  // below and re-confuses them.
   useEffect(() => {
     if (!justCompletedRun) return
+    if (justCompletedRun.status === 'failed') return
     const t = window.setTimeout(() => setJustCompletedRun(null), 10_000)
     return () => window.clearTimeout(t)
   }, [justCompletedRun])
@@ -278,7 +281,8 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
     }
 
     const hasSummary = summary !== null && summary.totalLinkingDomains > 0
-    const hasEmptySummary = summary !== null && summary.totalLinkingDomains === 0
+    const justFailed = justCompletedRun?.status === 'failed'
+    const hasEmptySummary = summary !== null && summary.totalLinkingDomains === 0 && !justFailed
     const hasReadySync = latestSync?.status === 'ready'
     const hasFailedSync = latestSync?.status === 'failed'
     const hasRunningSync = latestSync && (latestSync.status === 'downloading' || latestSync.status === 'querying' || latestSync.status === 'queued')
@@ -331,7 +335,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                   </div>
                 </>
               )}
-              {hasReadySync && !hasRunningSync && !hasEmptySummary && (
+              {hasReadySync && !hasRunningSync && !hasEmptySummary && !justFailed && (
                 <>
                   <h3 className="text-base font-semibold text-zinc-100">No backlinks yet for this project</h3>
                   <p className="text-sm text-zinc-500 mt-1">
@@ -352,6 +356,20 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                         No re-download. Typically takes <span className="text-zinc-200">~5 min</span>.
                       </span>
                     </Hint>
+                  </div>
+                </>
+              )}
+              {justFailed && (
+                <>
+                  <h3 className="text-base font-semibold text-zinc-100">Last extract failed</h3>
+                  <p className="text-sm text-zinc-500 mt-1">
+                    See the error above for details. If the cache files for release{' '}
+                    <code className="text-zinc-300">{latestSync?.release}</code> are missing, re-sync the release from the Backlinks admin to restore the ~16 GB dump, then re-run the extract.
+                  </p>
+                  <div className="mt-4 flex items-center gap-3 flex-wrap">
+                    <Button asChild type="button" size="sm">
+                      <a href={publicPath('/backlinks')}>Go to Backlinks admin</a>
+                    </Button>
                   </div>
                 </>
               )}
