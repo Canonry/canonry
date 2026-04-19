@@ -7,6 +7,7 @@ import type {
   CcReleaseSyncDto,
   RunDto,
 } from '@ainyc/canonry-contracts'
+import { CcReleaseSyncStatuses, RunStatuses } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 
 function getClient() {
@@ -93,7 +94,10 @@ function formatInstallResult(result: BacklinksInstallResultDto): string {
 
 async function pollSync(id: string, format?: string): Promise<CcReleaseSyncDto> {
   const client = getClient()
-  const terminal = new Set(['ready', 'failed'])
+  const terminal = new Set<CcReleaseSyncDto['status']>([
+    CcReleaseSyncStatuses.ready,
+    CcReleaseSyncStatuses.failed,
+  ])
   while (true) {
     const syncs = await client.backlinksListSyncs()
     const row = syncs.find((s) => s.id === id)
@@ -108,7 +112,11 @@ async function pollSync(id: string, format?: string): Promise<CcReleaseSyncDto> 
 
 async function pollRun(runId: string, format?: string): Promise<RunDto> {
   const client = getClient()
-  const terminal = new Set(['completed', 'failed', 'partial'])
+  const terminal = new Set<RunDto['status']>([
+    RunStatuses.completed,
+    RunStatuses.failed,
+    RunStatuses.partial,
+  ])
   while (true) {
     const run = await client.getRun(runId)
     if (terminal.has(run.status)) return run

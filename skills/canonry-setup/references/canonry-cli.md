@@ -266,6 +266,26 @@ canonry ga social-referral-summary <project> [--trend]  # one-line social summar
 canonry ga attribution <project> [--trend]        # unified channel attribution overview + optional trends
 ```
 
+## Backlinks (Common Crawl)
+
+Workspace-level Common Crawl release sync + per-project backlink extraction. Requires DuckDB; install once with `canonry backlinks install`. Releases are downloaded once per workspace and reused across all projects.
+
+```bash
+canonry backlinks install                         # install bundled DuckDB binary
+canonry backlinks doctor                          # show install + plugin status
+canonry backlinks status                          # latest workspace release sync
+canonry backlinks releases                        # list cached releases on disk
+canonry backlinks sync --release <id>             # download + query a release (workspace-wide)
+canonry backlinks sync --release <id> --wait      # block until ready/failed
+canonry backlinks list <project>                  # top linking domains for the project
+canonry backlinks list <project> --limit 100 --release <id>
+canonry backlinks extract <project>               # re-extract this project against the latest ready release
+canonry backlinks extract <project> --release <id> --wait
+canonry backlinks cache prune --release <id>      # delete cached release files from disk
+```
+
+All commands support `--format json`. A release sync has statuses `queued` → `downloading` → `querying` → `ready` / `failed`. Per-project extract runs use the standard run statuses (`queued` → `running` → `completed` / `failed`). Projects with the `autoExtractBacklinks` setting enabled get an extract run enqueued automatically when a release sync transitions to `ready`.
+
 ## CDP / Browser Provider
 
 The CDP (Chrome DevTools Protocol) provider enables browser-based queries against AI chat interfaces (e.g., ChatGPT). This gives more accurate results than API-based providers for some use cases.

@@ -1,9 +1,50 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Download, Play, Trash2, CheckCircle2, AlertCircle, AlertTriangle } from 'lucide-react'
+import { useCallback, useEffect, useId, useState, type ReactNode } from 'react'
+import { Download, HelpCircle, Play, Trash2, CheckCircle2, AlertCircle, AlertTriangle } from 'lucide-react'
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
-import { Hint } from '../components/ui/hint.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
+
+function Hint({
+  children,
+  label = 'More info',
+  placement = 'top',
+  className,
+}: {
+  children: ReactNode
+  label?: string
+  placement?: 'top' | 'bottom'
+  className?: string
+}) {
+  const id = useId()
+  const [open, setOpen] = useState(false)
+  return (
+    <span className={`relative inline-flex ${className ?? ''}`}>
+      <button
+        type="button"
+        aria-label={label}
+        aria-describedby={open ? id : undefined}
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full text-zinc-500 hover:text-zinc-200 focus:text-zinc-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+      >
+        <HelpCircle className="h-3.5 w-3.5" aria-hidden />
+      </button>
+      {open && (
+        <span
+          id={id}
+          role="tooltip"
+          className={`absolute z-50 w-64 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-normal leading-relaxed text-zinc-200 shadow-lg ${
+            placement === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'
+          } left-1/2 -translate-x-1/2 whitespace-normal`}
+        >
+          {children}
+        </span>
+      )}
+    </span>
+  )
+}
 import {
   fetchBacklinksStatus,
   fetchCachedReleases,
@@ -201,13 +242,13 @@ export function BacklinksPage() {
             <li className="flex gap-3">
               <span className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-full border border-zinc-700 bg-zinc-900 text-xs font-semibold text-zinc-300 tabular-nums">2</span>
               <span>
-                <span className="text-zinc-200 font-medium">Query (~5 min)</span> — one DuckDB pass finds referring domains for every project&rsquo;s canonical domain. DuckDB installs on-demand into a canonry-owned plugin directory.
+                <span className="text-zinc-200 font-medium">Query (~5 min)</span> — one DuckDB pass scans the cached files and extracts referring domains for every project&rsquo;s canonical domain. DuckDB is only used to <span className="text-zinc-200">read</span> these dumps; it doesn&rsquo;t store any canonry state.
               </span>
             </li>
             <li className="flex gap-3">
               <span className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-full border border-zinc-700 bg-zinc-900 text-xs font-semibold text-zinc-300 tabular-nums">3</span>
               <span>
-                <span className="text-zinc-200 font-medium">Persist</span> — results land in SQLite. After the first sync, per-project reads (and re-run extracts against the cached release) are instant.
+                <span className="text-zinc-200 font-medium">Persist</span> — results land in the same SQLite database the rest of canonry uses. After the first sync, per-project reads (and re-run extracts against the cached release) are instant.
               </span>
             </li>
           </ol>
@@ -233,8 +274,13 @@ export function BacklinksPage() {
               DuckDB install status
               <Hint label="Why DuckDB?">
                 <span className="block">
-                  DuckDB is an embedded analytical database that queries the Common Crawl CSV files directly. It&rsquo;s installed on demand (not bundled) into{' '}
-                  <code className="text-zinc-300">~/.canonry/plugins/</code> — users who never run backlinks don&rsquo;t pay the ~40 MB install cost.
+                  DuckDB is a query engine canonry uses to scan the ~16 GB Common Crawl dumps and pull out your referring domains.
+                </span>
+                <span className="mt-2 block text-zinc-400">
+                  It does <span className="text-zinc-200">not</span> store any canonry data — your backlink results live in SQLite alongside the rest of your projects. DuckDB is purely a tool for processing the raw CSV files.
+                </span>
+                <span className="mt-2 block text-zinc-500">
+                  Installed on demand (not bundled) into <code className="text-zinc-300">~/.canonry/plugins/</code> so users who never run backlinks don&rsquo;t pay the ~40 MB install cost.
                 </span>
               </Hint>
             </h2>
@@ -264,11 +310,14 @@ export function BacklinksPage() {
               <AlertCircle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" aria-hidden />
               <div className="flex-1">
                 <p className="text-sm text-zinc-200">
-                  DuckDB is not installed. Required to run release syncs and per-project extracts.
+                  DuckDB is not installed. It&rsquo;s the query engine canonry uses to scan Common Crawl dumps — required before you can run a release sync or per-project extract.
+                </p>
+                <p className="text-xs text-zinc-500 mt-1">
+                  Installing doesn&rsquo;t touch your project data. DuckDB only reads the downloaded CSV files; backlink results are written to the same SQLite database canonry already uses.
                 </p>
                 {status && (
                   <p className="text-xs text-zinc-500 mt-1">
-                    Will be installed into <code className="text-zinc-300">{status.pluginDir}</code>
+                    Will be installed into <code className="text-zinc-300">{status.pluginDir}</code> (~40 MB).
                   </p>
                 )}
                 <div className="mt-3">
