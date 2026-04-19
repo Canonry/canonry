@@ -206,3 +206,14 @@ The same API routes, contracts, Drizzle schema, and dashboard code are used in b
 - **Technical readiness**: `@ainyc/aeo-audit` and future site-audit rollups
 
 These remain separate to avoid mixing technical readiness with live-answer visibility.
+
+## Agent Layer
+
+Canonry ships a built-in AI agent (Aero) backed by `@mariozechner/pi-agent-core`, plus a webhook path for external agents (Claude Code, Codex, custom). See `AGENTS.md` ("Agent Layer" section) for the full surface.
+
+- **Native loop:** `packages/canonry/src/agent/` (`session.ts`, `session-registry.ts`, `tools.ts`, `agent-routes.ts`).
+- **Persistence:** one rolling session per project in the `agent_sessions` table — survives `canonry serve` restarts.
+- **Proactive:** `RunCoordinator` synthesizes a follow-up message after each `run.completed`; `SessionRegistry.drainNow` wakes the agent without a user prompt.
+- **External agents:** `canonry agent attach <project> --url <webhook-url>` registers a webhook for `run.completed`, `insight.critical`, `insight.high`, `citation.gained`.
+
+The agent layer is a consumer of the same CLI/API surface — nothing in it is privileged. Per AGENTS.md, "If an AI agent can't do something with `canonry <command> --format json` or an HTTP call, it's a bug."

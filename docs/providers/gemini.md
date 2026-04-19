@@ -124,4 +124,4 @@ The `GET /runs/:id` endpoint returns snapshots enriched with grounding data:
 
 ## Implementation Status
 
-Phase 2: Live Gemini API calls implemented with Google Search grounding. The `@google/genai` SDK is used for API communication.
+Live Gemini API calls implemented with Google Search grounding. The `@google/genai` SDK is used for API communication.

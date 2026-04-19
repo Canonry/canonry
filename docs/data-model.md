@@ -32,6 +32,7 @@ erDiagram
 
   projects ||--o{ bing_url_inspections : has
   projects ||--o{ bing_keyword_stats : has
+  projects ||--o{ bing_coverage_snapshots : has
 
   projects ||--o| agent_sessions : "has (1:1)"
 ```
@@ -67,6 +68,7 @@ erDiagram
 | **bing_connections** | API credentials, domain-scoped. Unique: `domain` |
 | **bing_url_inspections** | URL inspection results from Bing |
 | **bing_keyword_stats** | Keyword performance data from Bing |
+| **bing_coverage_snapshots** | Bing index coverage snapshots |
 
 ### Integrations — Google Analytics
 

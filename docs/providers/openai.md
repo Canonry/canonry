@@ -84,4 +84,4 @@ The job runner stores the following in `query_snapshots.raw_response` as JSON:
 
 ## Implementation Status
 
-Phase 2: Live OpenAI API calls implemented with Responses API web search. The `openai` SDK is used for API communication.
+Live OpenAI API calls implemented with Responses API web search. The `openai` SDK is used for API communication.

@@ -26,6 +26,7 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | [`providers/openai.md`](providers/openai.md) | current | engineers | OpenAI provider behavior and constraints |
 | [`providers/claude.md`](providers/claude.md) | current | engineers | Claude provider behavior and constraints |
 | [`providers/local.md`](providers/local.md) | current | engineers | Local provider behavior and constraints |
+| [`providers/perplexity.md`](providers/perplexity.md) | current | engineers | Perplexity provider behavior and constraints |
 | [`google-search-console-setup.md`](google-search-console-setup.md) | current | operators | Google Search Console OAuth setup and usage |
 | [`bing-webmaster-setup.md`](bing-webmaster-setup.md) | current | operators | Bing Webmaster Tools API key setup and usage |
 | [`google-analytics-setup.md`](google-analytics-setup.md) | current | operators | Google Analytics 4 service account setup and usage |
@@ -36,8 +37,9 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | Document | Label | Audience | Purpose |
 | --- | --- | --- | --- |
 | [`roadmap.md`](roadmap.md) | roadmap | founders, maintainers | Canonical product roadmap and prioritization |
+| [`gtm.md`](gtm.md) | launch plan | founders, maintainers | GTM launch sequencing, success metrics, per-agent distribution |
 
-`docs/roadmap.md` is the only product roadmap. Do not treat plans or ADRs as substitutes for roadmap priority.
+`docs/roadmap.md` is the canonical product roadmap (feature-level priority). `docs/gtm.md` is the launch view (waves, ship gates, distribution). Do not treat plans or ADRs as substitutes for either.
 
 ## Active Plans
 
@@ -64,6 +66,6 @@ Plans describe implementation work. They are not current-behavior reference docs
 
 1. Read [`README.md`](../README.md) for product context and quickstart.
 2. Read [`architecture.md`](architecture.md) for the current shape of the system.
-3. Read [`roadmap.md`](roadmap.md) for product direction and priorities.
+3. Read [`roadmap.md`](roadmap.md) for feature-level product direction and [`gtm.md`](gtm.md) for the launch view.
 4. Use the provider, deployment, and testing docs for current implementation details.
 5. Read ADRs when you need durable architectural rationale.
