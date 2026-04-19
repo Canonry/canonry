@@ -17,6 +17,7 @@ import {
 } from '../shared/ChartPrimitives.js'
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
+import { Hint } from '../ui/hint.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { isTerminalRunStatus } from '../../lib/run-tracker-store.js'
 import {
@@ -336,14 +337,20 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                     Release <code className="text-zinc-300">{latestSync.release}</code> is ready but no backlinks have been extracted for{' '}
                     <code className="text-zinc-300">{projectName}</code>. Run an extract to populate data using the cached release.
                   </p>
-                  <div className="mt-4 flex items-center gap-3">
+                  <div className="mt-4 flex items-center gap-3 flex-wrap">
                     <Button type="button" size="sm" disabled={extracting || activeRun !== null} onClick={handleExtract}>
                       <Play className="h-4 w-4 mr-1.5" aria-hidden />
                       {activeRun ? 'Extract running…' : extracting ? 'Queuing…' : 'Run extract'}
                     </Button>
-                    <p className="text-xs text-zinc-500">
-                      Queries the cached release — no re-download. Typically ~5 min.
-                    </p>
+                    <Hint label="What does Run extract do?">
+                      <span className="block">
+                        Runs a DuckDB query against the <span className="text-zinc-200">cached release files</span> at{' '}
+                        <code className="text-zinc-300">~/.canonry/cache/commoncrawl/</code> to find referring domains for <span className="text-zinc-200">{projectName}</span>.
+                      </span>
+                      <span className="mt-2 block text-zinc-400">
+                        No re-download. Typically takes <span className="text-zinc-200">~5 min</span>.
+                      </span>
+                    </Hint>
                   </div>
                 </>
               )}
@@ -476,12 +483,18 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
             <Download className="h-4 w-4 mr-1.5" aria-hidden />
             {activeRun ? 'Extract running…' : extracting ? 'Queuing…' : 'Re-run extract'}
           </Button>
+          <Hint label="What does Re-run extract do?">
+            <span className="block">
+              Re-queries the <span className="text-zinc-200">cached release files</span> at{' '}
+              <code className="text-zinc-300">~/.canonry/cache/commoncrawl/</code> for <span className="text-zinc-200">{projectName}</span>. Replaces existing backlink rows for this project under the current release.
+            </span>
+            <span className="mt-2 block text-zinc-400">
+              <span className="text-zinc-200">No re-download</span> of the ~16 GB dump. Typically <span className="text-zinc-200">~5 min</span>.
+            </span>
+          </Hint>
           <Button asChild type="button" variant="outline" size="sm">
             <a href={publicPath('/backlinks')}>Open admin</a>
           </Button>
-          <p className="text-xs text-zinc-500">
-            Re-run re-queries the cached release — no re-download (~5 min).
-          </p>
         </div>
       </>
     )
