@@ -14,6 +14,7 @@ export type ErrorCode =
   | 'INTERNAL_ERROR'
   | 'DELIVERY_FAILED'
   | 'AGENT_BUSY'
+  | 'MISSING_DEPENDENCY'
 
 export class AppError extends Error {
   readonly code: ErrorCode
@@ -102,4 +103,8 @@ export function agentBusy(projectName: string): AppError {
     `Aero is already running a turn for '${projectName}'. Retry after the current turn settles.`,
     409,
   )
+}
+
+export function missingDependency(message: string, details?: Record<string, unknown>): AppError {
+  return new AppError('MISSING_DEPENDENCY', message, 422, details)
 }

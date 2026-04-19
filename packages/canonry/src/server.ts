@@ -45,6 +45,18 @@ import { isTelemetryEnabled, getOrCreateAnonymousId } from './telemetry.js'
 import { JobRunner } from './job-runner.js'
 import { executeGscSync } from './gsc-sync.js'
 import { executeInspectSitemap } from './gsc-inspect-sitemap.js'
+import { executeReleaseSync } from './commoncrawl-sync.js'
+import { executeBacklinkExtract } from './backlink-extract.js'
+import {
+  DUCKDB_SPEC,
+  PLUGIN_DIR,
+  installDuckdb,
+  isDuckdbInstalled,
+  listCachedReleases as listCachedReleasesFromDisk,
+  pruneCachedRelease,
+  readInstalledVersion,
+} from '@ainyc/canonry-integration-commoncrawl'
+import { ccReleaseSyncs as ccReleaseSyncsTable } from '@ainyc/canonry-db'
 import { ProviderRegistry } from './provider-registry.js'
 import { Scheduler } from './scheduler.js'
 import { Notifier } from './notifier.js'
@@ -786,6 +798,54 @@ export async function createServer(opts: {
         config: opts.config,
       }).catch((err: unknown) => {
         app.log.error({ runId, err }, 'Inspect sitemap failed')
+      })
+    },
+    getBacklinksStatus: () => ({
+      duckdbInstalled: isDuckdbInstalled(),
+      duckdbVersion: readInstalledVersion() ?? undefined,
+      duckdbSpec: DUCKDB_SPEC,
+      pluginDir: PLUGIN_DIR,
+    }),
+    onInstallBacklinks: async () => {
+      const result = await installDuckdb({ onLog: (line) => app.log.info({ line }, 'duckdb install') })
+      return {
+        installed: true,
+        version: result.version,
+        path: result.path,
+        alreadyPresent: result.alreadyPresent,
+      }
+    },
+    onReleaseSyncRequested: (syncId: string, release: string) => {
+      executeReleaseSync(opts.db, syncId, { release }).catch((err: unknown) => {
+        app.log.error({ syncId, err }, 'Common Crawl release sync failed')
+      })
+    },
+    onBacklinkExtractRequested: (runId: string, projectId: string, release?: string) => {
+      executeBacklinkExtract(opts.db, runId, projectId, { release }).catch((err: unknown) => {
+        app.log.error({ runId, err }, 'Backlink extract failed')
+      })
+    },
+    onBacklinksPruneCache: (release: string) => {
+      try {
+        pruneCachedRelease(release)
+      } catch (err) {
+        app.log.error({ release, err }, 'Failed to prune cached release')
+      }
+    },
+    listCachedReleases: () => {
+      const cached = listCachedReleasesFromDisk()
+      const syncByRelease = new Map<string, { status: string; updatedAt: string }>()
+      for (const row of opts.db.select().from(ccReleaseSyncsTable).all()) {
+        syncByRelease.set(row.release, { status: row.status, updatedAt: row.updatedAt })
+      }
+      return cached.map((entry) => {
+        const sync = syncByRelease.get(entry.release)
+        return {
+          release: entry.release,
+          syncStatus: (sync?.status ?? null) as import('@ainyc/canonry-contracts').CcCachedRelease['syncStatus'],
+          bytes: entry.bytes,
+          lastUsedAt: entry.lastUsedAt,
+        }
       })
     },
     openApiInfo: {

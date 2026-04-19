@@ -423,3 +423,60 @@ export const agentSessions = sqliteTable('agent_sessions', {
   index('idx_agent_sessions_project').on(table.projectId),
   index('idx_agent_sessions_updated').on(table.updatedAt),
 ])
+
+export const ccReleaseSyncs = sqliteTable('cc_release_syncs', {
+  id: text('id').primaryKey(),
+  release: text('release').notNull().unique(),
+  status: text('status').notNull(),
+  phaseDetail: text('phase_detail'),
+  vertexPath: text('vertex_path'),
+  edgesPath: text('edges_path'),
+  vertexSha256: text('vertex_sha256'),
+  edgesSha256: text('edges_sha256'),
+  vertexBytes: integer('vertex_bytes'),
+  edgesBytes: integer('edges_bytes'),
+  projectsProcessed: integer('projects_processed'),
+  domainsDiscovered: integer('domains_discovered'),
+  downloadStartedAt: text('download_started_at'),
+  downloadFinishedAt: text('download_finished_at'),
+  queryStartedAt: text('query_started_at'),
+  queryFinishedAt: text('query_finished_at'),
+  error: text('error'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_cc_release_syncs_status').on(table.status),
+])
+
+export const backlinkDomains = sqliteTable('backlink_domains', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  releaseSyncId: text('release_sync_id').notNull().references(() => ccReleaseSyncs.id, { onDelete: 'cascade' }),
+  release: text('release').notNull(),
+  targetDomain: text('target_domain').notNull(),
+  linkingDomain: text('linking_domain').notNull(),
+  numHosts: integer('num_hosts').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_backlink_domains_project').on(table.projectId),
+  index('idx_backlink_domains_release_sync').on(table.releaseSyncId),
+  index('idx_backlink_domains_project_release').on(table.projectId, table.release),
+  index('idx_backlink_domains_hosts').on(table.numHosts),
+  uniqueIndex('idx_backlink_domains_unique').on(table.projectId, table.release, table.linkingDomain),
+])
+
+export const backlinkSummaries = sqliteTable('backlink_summaries', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  releaseSyncId: text('release_sync_id').notNull().references(() => ccReleaseSyncs.id, { onDelete: 'cascade' }),
+  release: text('release').notNull(),
+  targetDomain: text('target_domain').notNull(),
+  totalLinkingDomains: integer('total_linking_domains').notNull(),
+  totalHosts: integer('total_hosts').notNull(),
+  top10HostsShare: text('top_10_hosts_share').notNull(),
+  queriedAt: text('queried_at').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_backlink_summaries_project_release').on(table.projectId, table.release),
+  index('idx_backlink_summaries_project').on(table.projectId),
+])

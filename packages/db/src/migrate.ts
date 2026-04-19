@@ -467,6 +467,62 @@ const MIGRATIONS = [
   // UPDATE is a no-op once the rename has been applied.
   `UPDATE agent_sessions SET model_provider = 'claude' WHERE model_provider = 'anthropic'`,
   `UPDATE agent_sessions SET model_provider = 'gemini' WHERE model_provider = 'google'`,
+
+  // v40: Common Crawl backlinks — workspace-level release syncs plus per-project
+  // backlink_domains and backlink_summaries populated in one DuckDB pass.
+  `CREATE TABLE IF NOT EXISTS cc_release_syncs (
+    id                      TEXT PRIMARY KEY,
+    release                 TEXT NOT NULL UNIQUE,
+    status                  TEXT NOT NULL,
+    phase_detail            TEXT,
+    vertex_path             TEXT,
+    edges_path              TEXT,
+    vertex_sha256           TEXT,
+    edges_sha256            TEXT,
+    vertex_bytes            INTEGER,
+    edges_bytes             INTEGER,
+    projects_processed      INTEGER,
+    domains_discovered      INTEGER,
+    download_started_at     TEXT,
+    download_finished_at    TEXT,
+    query_started_at        TEXT,
+    query_finished_at       TEXT,
+    error                   TEXT,
+    created_at              TEXT NOT NULL,
+    updated_at              TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_cc_release_syncs_status ON cc_release_syncs(status)`,
+
+  `CREATE TABLE IF NOT EXISTS backlink_domains (
+    id               TEXT PRIMARY KEY,
+    project_id       TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    release_sync_id  TEXT NOT NULL REFERENCES cc_release_syncs(id) ON DELETE CASCADE,
+    release          TEXT NOT NULL,
+    target_domain    TEXT NOT NULL,
+    linking_domain   TEXT NOT NULL,
+    num_hosts        INTEGER NOT NULL,
+    created_at       TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_backlink_domains_project ON backlink_domains(project_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_backlink_domains_release_sync ON backlink_domains(release_sync_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_backlink_domains_project_release ON backlink_domains(project_id, release)`,
+  `CREATE INDEX IF NOT EXISTS idx_backlink_domains_hosts ON backlink_domains(num_hosts)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_backlink_domains_unique ON backlink_domains(project_id, release, linking_domain)`,
+
+  `CREATE TABLE IF NOT EXISTS backlink_summaries (
+    id                       TEXT PRIMARY KEY,
+    project_id               TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    release_sync_id          TEXT NOT NULL REFERENCES cc_release_syncs(id) ON DELETE CASCADE,
+    release                  TEXT NOT NULL,
+    target_domain            TEXT NOT NULL,
+    total_linking_domains    INTEGER NOT NULL,
+    total_hosts              INTEGER NOT NULL,
+    top_10_hosts_share       TEXT NOT NULL,
+    queried_at               TEXT NOT NULL,
+    created_at               TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_backlink_summaries_project_release ON backlink_summaries(project_id, release)`,
+  `CREATE INDEX IF NOT EXISTS idx_backlink_summaries_project ON backlink_summaries(project_id)`,
 ]
 
 /**

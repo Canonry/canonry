@@ -181,6 +181,9 @@ importers:
       '@ainyc/canonry-integration-bing':
         specifier: workspace:*
         version: link:../integration-bing
+      '@ainyc/canonry-integration-commoncrawl':
+        specifier: workspace:*
+        version: link:../integration-commoncrawl
       '@ainyc/canonry-integration-google':
         specifier: workspace:*
         version: link:../integration-google
@@ -266,6 +269,9 @@ importers:
       '@ainyc/canonry-integration-bing':
         specifier: workspace:*
         version: link:../integration-bing
+      '@ainyc/canonry-integration-commoncrawl':
+        specifier: workspace:*
+        version: link:../integration-commoncrawl
       '@ainyc/canonry-integration-google':
         specifier: workspace:*
         version: link:../integration-google
@@ -342,6 +348,16 @@ importers:
       '@ainyc/canonry-contracts':
         specifier: workspace:*
         version: link:../contracts
+
+  packages/integration-commoncrawl:
+    dependencies:
+      '@ainyc/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      '@duckdb/node-api':
+        specifier: 1.4.4-r.3
+        version: 1.4.4-r.3
 
   packages/integration-google:
     dependencies:
@@ -719,6 +735,42 @@ packages:
 
   '@drizzle-team/brocli@0.10.2':
     resolution: {integrity: sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w==}
+
+  '@duckdb/node-api@1.4.4-r.3':
+    resolution: {integrity: sha512-zsTihV7WTGp+n6nI0rNY+cNamKiN9lj0YTS4jrjBMd5ESJpDIJNJOB3o0xBbBghalgGu6PZfZOIcNofUbUHAYg==}
+
+  '@duckdb/node-bindings-darwin-arm64@1.4.4-r.3':
+    resolution: {integrity: sha512-8tfUVcbkNhpCezUNFlrMOwNZL8p1XfE9jxhjlPine1zKM9mNNtKW1pwLXId6MZ/BDMpVfQmlxnu97NYtPmpgRw==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@duckdb/node-bindings-darwin-x64@1.4.4-r.3':
+    resolution: {integrity: sha512-7pqSajMX/qb2vRnCMxOaM/cNkUX4kzHKAfdfQT+7dglvuIND2xy8+7EQ4+wHzk+gkPJsWUHZF0l0n6X6tyKFEA==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@duckdb/node-bindings-linux-arm64@1.4.4-r.3':
+    resolution: {integrity: sha512-qF2/WhB+i+8is60RrpTY/5ZnywIUayuBiVXSuQ4rrRn1m1gvfKqPvjySbiDjYgQo/6OXu/fax0KC1gXnNWoLEA==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@duckdb/node-bindings-linux-x64@1.4.4-r.3':
+    resolution: {integrity: sha512-Z59zpUIcZilHBmcZpmwfFwi6/OAnKlVQCE9/NGgZCFSqYeb+3ij5HQy26hp10GIiv3HxUQGId8HVs92x2jvckQ==}
+    cpu: [x64]
+    os: [linux]
+
+  '@duckdb/node-bindings-win32-arm64@1.4.4-r.3':
+    resolution: {integrity: sha512-ejjMqDm2UbGIKq+4wBE27cqcZjxBzLnc1dniEE/xs9CVs4iYsiFP1BJLDAh4188P9pqgN9+VR3O69QfoZQ8rqQ==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@duckdb/node-bindings-win32-x64@1.4.4-r.3':
+    resolution: {integrity: sha512-5CzkI3jPkwALPYS66/vj/3wgsICxALkqRdOEJc8wHqPPlpM/Ez7jFAovI7+S8JrTaxUANkiIAcCtYYAJPElbRQ==}
+    cpu: [x64]
+    os: [win32]
+
+  '@duckdb/node-bindings@1.4.4-r.3':
+    resolution: {integrity: sha512-ucvhCF3IK60BzxTFwYTjyQao9zavEwXJ1JdGk70UEXa85JQlos3pJslEG3lIczhdtSPu0aum+hv67aBmpH21cw==}
 
   '@esbuild-kit/core-utils@3.3.2':
     resolution: {integrity: sha512-sPRAnw9CdSsRmEtnsl2WXWdyquogVpB3yZ3dgwJfe8zrOzTsV7cJvmwrKVa+0ma5BoiGJ+BoqkMvawbayKUsqQ==}
@@ -4965,6 +5017,37 @@ snapshots:
   '@csstools/css-tokenizer@4.0.0': {}
 
   '@drizzle-team/brocli@0.10.2': {}
+
+  '@duckdb/node-api@1.4.4-r.3':
+    dependencies:
+      '@duckdb/node-bindings': 1.4.4-r.3
+
+  '@duckdb/node-bindings-darwin-arm64@1.4.4-r.3':
+    optional: true
+
+  '@duckdb/node-bindings-darwin-x64@1.4.4-r.3':
+    optional: true
+
+  '@duckdb/node-bindings-linux-arm64@1.4.4-r.3':
+    optional: true
+
+  '@duckdb/node-bindings-linux-x64@1.4.4-r.3':
+    optional: true
+
+  '@duckdb/node-bindings-win32-arm64@1.4.4-r.3':
+    optional: true
+
+  '@duckdb/node-bindings-win32-x64@1.4.4-r.3':
+    optional: true
+
+  '@duckdb/node-bindings@1.4.4-r.3':
+    optionalDependencies:
+      '@duckdb/node-bindings-darwin-arm64': 1.4.4-r.3
+      '@duckdb/node-bindings-darwin-x64': 1.4.4-r.3
+      '@duckdb/node-bindings-linux-arm64': 1.4.4-r.3
+      '@duckdb/node-bindings-linux-x64': 1.4.4-r.3
+      '@duckdb/node-bindings-win32-arm64': 1.4.4-r.3
+      '@duckdb/node-bindings-win32-x64': 1.4.4-r.3
 
   '@esbuild-kit/core-utils@3.3.2':
     dependencies:

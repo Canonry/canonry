@@ -1,5 +1,6 @@
 import type { CliCommandSpec } from './cli-dispatch.js'
 import { BACKFILL_CLI_COMMANDS } from './cli-commands/backfill.js'
+import { BACKLINKS_CLI_COMMANDS } from './cli-commands/backlinks.js'
 import { BING_CLI_COMMANDS } from './cli-commands/bing.js'
 import { CDP_CLI_COMMANDS } from './cli-commands/cdp.js'
 import { GA_CLI_COMMANDS } from './cli-commands/ga.js'
@@ -20,6 +21,7 @@ import { AGENT_CLI_COMMANDS } from './cli-commands/agent.js'
 
 export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...BACKFILL_CLI_COMMANDS,
+  ...BACKLINKS_CLI_COMMANDS,
   ...SYSTEM_CLI_COMMANDS,
   ...PROJECT_CLI_COMMANDS,
   ...KEYWORD_CLI_COMMANDS,

@@ -35,6 +35,8 @@ import { ga4Routes } from './ga.js'
 import type { GA4RoutesOptions, Ga4CredentialStore } from './ga.js'
 import { wordpressRoutes } from './wordpress.js'
 import type { WordpressRoutesOptions } from './wordpress.js'
+import { backlinksRoutes } from './backlinks.js'
+import type { BacklinksRoutesOptions } from './backlinks.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -97,6 +99,13 @@ export interface ApiRoutesOptions {
   onCdpConfigure?: CDPRoutesOptions['onCdpConfigure']
   /** GA4 credential store — stores service account keys in config, not DB */
   ga4CredentialStore?: Ga4CredentialStore
+  /** Backlinks feature callbacks — see `backlinksRoutes` for details. */
+  getBacklinksStatus?: BacklinksRoutesOptions['getBacklinksStatus']
+  onInstallBacklinks?: BacklinksRoutesOptions['onInstallBacklinks']
+  onReleaseSyncRequested?: BacklinksRoutesOptions['onReleaseSyncRequested']
+  onBacklinkExtractRequested?: BacklinksRoutesOptions['onBacklinkExtractRequested']
+  onBacklinksPruneCache?: BacklinksRoutesOptions['onBacklinksPruneCache']
+  listCachedReleases?: BacklinksRoutesOptions['listCachedReleases']
   /**
    * API route prefix (default: /api/v1).
    * Override when the server is behind a reverse proxy that does NOT strip the
@@ -241,6 +250,16 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       googleConnectionStore: opts.googleConnectionStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
     } satisfies GA4RoutesOptions)
+    if (opts.getBacklinksStatus && opts.onInstallBacklinks) {
+      await api.register(backlinksRoutes, {
+        getBacklinksStatus: opts.getBacklinksStatus,
+        onInstallBacklinks: opts.onInstallBacklinks,
+        onReleaseSyncRequested: opts.onReleaseSyncRequested,
+        onBacklinkExtractRequested: opts.onBacklinkExtractRequested,
+        onBacklinksPruneCache: opts.onBacklinksPruneCache,
+        listCachedReleases: opts.listCachedReleases,
+      } satisfies BacklinksRoutesOptions)
+    }
     // Local-only extension hook: canonry passes the Aero agent routes here
     // so they live inside the authenticated scope. Cloud leaves it undefined.
     if (opts.registerAuthenticatedRoutes) {

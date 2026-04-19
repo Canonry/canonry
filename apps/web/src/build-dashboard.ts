@@ -79,6 +79,7 @@ function kindLabel(kind: RunKind): string {
     case RunKinds['ga-sync']: return 'GA sync'
     case RunKinds['bing-inspect']: return 'Bing URL inspection'
     case RunKinds['site-audit']: return 'Site audit'
+    case RunKinds['backlink-extract']: return 'Backlink extract'
   }
 }
 

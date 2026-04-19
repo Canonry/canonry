@@ -1,0 +1,25 @@
+{
+  "name": "@ainyc/canonry-integration-commoncrawl",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "FSL-1.1-ALv2",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "eslint src/ test/"
+  },
+  "dependencies": {
+    "@ainyc/canonry-contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@duckdb/node-api": "1.4.4-r.3"
+  }
+}

@@ -166,7 +166,7 @@ function contextFor(state: StubState): ToolContext {
 }
 
 describe('buildReadTools', () => {
-  it('returns 7 tools with the expected names and metadata', () => {
+  it('returns 8 tools with the expected names and metadata', () => {
     const tools = buildReadTools(contextFor(defaultState()))
     expect(tools.map((t) => t.name)).toEqual([
       'get_status',
@@ -176,6 +176,7 @@ describe('buildReadTools', () => {
       'list_keywords',
       'list_competitors',
       'get_run',
+      'list_backlinks',
     ])
     for (const tool of tools) {
       expect(tool.description.length).toBeGreaterThan(0)
@@ -304,8 +305,8 @@ describe('buildWriteTools', () => {
 })
 
 describe('buildAllTools', () => {
-  it('returns 13 tools combining reads + writes', () => {
-    expect(buildAllTools(contextFor(defaultState()))).toHaveLength(13)
+  it('returns 14 tools combining reads + writes', () => {
+    expect(buildAllTools(contextFor(defaultState()))).toHaveLength(14)
   })
 })
 

@@ -46,6 +46,13 @@ import type {
   HealthSnapshotDto,
   BingCoverageSnapshotDto,
   AgentProvidersResponse,
+  BacklinkHistoryEntry,
+  BacklinkListResponse,
+  BacklinkSummaryDto,
+  BacklinksInstallResultDto,
+  BacklinksInstallStatusDto,
+  CcCachedRelease,
+  CcReleaseSyncDto,
 } from '@ainyc/canonry-contracts'
 
 export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry }
@@ -865,6 +872,58 @@ export class ApiClient {
   async getHealthHistory(project: string, limit?: number): Promise<HealthSnapshotDto[]> {
     const qs = limit ? `?limit=${limit}` : ''
     return this.request<HealthSnapshotDto[]>('GET', `/projects/${encodeURIComponent(project)}/health/history${qs}`)
+  }
+
+  // --- Backlinks ---------------------------------------------------------
+
+  async backlinksStatus(): Promise<BacklinksInstallStatusDto> {
+    return this.request<BacklinksInstallStatusDto>('GET', '/backlinks/status')
+  }
+
+  async backlinksInstall(): Promise<BacklinksInstallResultDto> {
+    return this.request<BacklinksInstallResultDto>('POST', '/backlinks/install')
+  }
+
+  async backlinksTriggerSync(release: string): Promise<CcReleaseSyncDto> {
+    return this.request<CcReleaseSyncDto>('POST', '/backlinks/syncs', { release })
+  }
+
+  async backlinksLatestSync(): Promise<CcReleaseSyncDto | null> {
+    return this.request<CcReleaseSyncDto | null>('GET', '/backlinks/syncs/latest')
+  }
+
+  async backlinksListSyncs(): Promise<CcReleaseSyncDto[]> {
+    return this.request<CcReleaseSyncDto[]>('GET', '/backlinks/syncs')
+  }
+
+  async backlinksCachedReleases(): Promise<CcCachedRelease[]> {
+    return this.request<CcCachedRelease[]>('GET', '/backlinks/releases')
+  }
+
+  async backlinksPruneCache(release: string): Promise<{ ok: boolean }> {
+    return this.request<{ ok: boolean }>('DELETE', `/backlinks/cache/${encodeURIComponent(release)}`)
+  }
+
+  async backlinksExtract(project: string, release?: string): Promise<RunDto> {
+    return this.request<RunDto>('POST', `/projects/${encodeURIComponent(project)}/backlinks/extract`, release ? { release } : {})
+  }
+
+  async backlinksSummary(project: string, release?: string): Promise<BacklinkSummaryDto | null> {
+    const qs = release ? `?release=${encodeURIComponent(release)}` : ''
+    return this.request<BacklinkSummaryDto | null>('GET', `/projects/${encodeURIComponent(project)}/backlinks/summary${qs}`)
+  }
+
+  async backlinksDomains(project: string, opts: { limit?: number; offset?: number; release?: string } = {}): Promise<BacklinkListResponse> {
+    const qs = new URLSearchParams()
+    if (opts.limit !== undefined) qs.set('limit', String(opts.limit))
+    if (opts.offset !== undefined) qs.set('offset', String(opts.offset))
+    if (opts.release) qs.set('release', opts.release)
+    const suffix = qs.toString() ? `?${qs.toString()}` : ''
+    return this.request<BacklinkListResponse>('GET', `/projects/${encodeURIComponent(project)}/backlinks/domains${suffix}`)
+  }
+
+  async backlinksHistory(project: string): Promise<BacklinkHistoryEntry[]> {
+    return this.request<BacklinkHistoryEntry[]>('GET', `/projects/${encodeURIComponent(project)}/backlinks/history`)
   }
 
 }

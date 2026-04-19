@@ -13,6 +13,8 @@ import {
   X,
 } from 'lucide-react'
 
+import { RunKinds, type RunKind } from '@ainyc/canonry-contracts'
+
 import { formatErrorLog } from './lib/format-helpers.js'
 import { fetchAllRuns, fetchProjects, type ApiProject, type ApiRun } from './api.js'
 import { serviceStatusTooltip } from './lib/health-helpers.js'
@@ -65,10 +67,16 @@ const defaultHealthSnapshot: HealthSnapshot = {
   workerStatus: checkingStatus('Worker'),
 }
 
-function formatTrackedRunKind(kind: string) {
-  if (kind === 'gsc-sync') return 'GSC sync'
-  if (kind === 'inspect-sitemap') return 'Sitemap inspection'
-  return 'Visibility sweep'
+function formatTrackedRunKind(kind: RunKind): string {
+  switch (kind) {
+    case RunKinds['answer-visibility']: return 'Visibility sweep'
+    case RunKinds['gsc-sync']: return 'GSC sync'
+    case RunKinds['inspect-sitemap']: return 'Sitemap inspection'
+    case RunKinds['ga-sync']: return 'GA sync'
+    case RunKinds['bing-inspect']: return 'Bing URL inspection'
+    case RunKinds['site-audit']: return 'Site audit'
+    case RunKinds['backlink-extract']: return 'Backlink extract'
+  }
 }
 
 function terminalToneForRun(status: string): ToastTone {

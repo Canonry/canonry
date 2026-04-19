@@ -25,6 +25,8 @@ export default defineConfig({
     'pino-pretty',
     'zod',
     'pino',
+    // Opt-in plugin resolved at runtime via createRequire against ~/.canonry/plugins/
+    '@duckdb/node-api',
   ],
   // Workspace packages — bundle into dist/
   noExternal: [
@@ -41,5 +43,6 @@ export default defineConfig({
     '@ainyc/canonry-provider-perplexity',
     '@ainyc/canonry-integration-google',
     '@ainyc/canonry-integration-bing',
+    '@ainyc/canonry-integration-commoncrawl',
   ],
 })

@@ -20,6 +20,7 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/ga.ts` | Google Analytics 4 routes |
 | `src/intelligence.ts` | Intelligence insights and health snapshot routes |
 | `src/wordpress.ts` | WordPress integration routes |
+| `src/backlinks.ts` | Backlinks (Common Crawl sync + per-project extract/summary/domains/history) routes |
 
 ## Patterns
 
