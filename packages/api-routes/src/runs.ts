@@ -167,6 +167,30 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     return reply.send(rows.map(formatRun))
   })
 
+  // GET /projects/:name/runs/latest — latest run plus total run count
+  app.get<{ Params: { name: string } }>('/projects/:name/runs/latest', async (request, reply) => {
+    const project = resolveProject(app.db, request.params.name)
+    const allRuns = app.db
+      .select()
+      .from(runs)
+      .where(eq(runs.projectId, project.id))
+      .orderBy(desc(runs.createdAt))
+      .all()
+
+    const latestRun = allRuns[0]
+    if (!latestRun) {
+      return reply.send({
+        totalRuns: 0,
+        run: null,
+      })
+    }
+
+    return reply.send({
+      totalRuns: allRuns.length,
+      run: loadRunDetail(app, latestRun),
+    })
+  })
+
   // GET /runs — list all runs
   app.get('/runs', async (_request, reply) => {
     const rows = app.db.select().from(runs).all()
@@ -284,70 +308,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   app.get<{ Params: { id: string } }>('/runs/:id', async (request, reply) => {
     const run = app.db.select().from(runs).where(eq(runs.id, request.params.id)).get()
     if (!run) throw notFound('Run', request.params.id)
-    const project = app.db
-      .select({
-        displayName: projects.displayName,
-        canonicalDomain: projects.canonicalDomain,
-        ownedDomains: projects.ownedDomains,
-      })
-      .from(projects)
-      .where(eq(projects.id, run.projectId))
-      .get()
-
-    const snapshots = app.db
-      .select({
-        id: querySnapshots.id,
-        runId: querySnapshots.runId,
-        keywordId: querySnapshots.keywordId,
-        keyword: keywords.keyword,
-        provider: querySnapshots.provider,
-        model: querySnapshots.model,
-        citationState: querySnapshots.citationState,
-        answerMentioned: querySnapshots.answerMentioned,
-        answerText: querySnapshots.answerText,
-        citedDomains: querySnapshots.citedDomains,
-        competitorOverlap: querySnapshots.competitorOverlap,
-        recommendedCompetitors: querySnapshots.recommendedCompetitors,
-        location: querySnapshots.location,
-        rawResponse: querySnapshots.rawResponse,
-        createdAt: querySnapshots.createdAt,
-      })
-      .from(querySnapshots)
-      .leftJoin(keywords, eq(querySnapshots.keywordId, keywords.id))
-      .where(eq(querySnapshots.runId, run.id))
-      .all()
-
-    return reply.send({
-      ...formatRun(run),
-      snapshots: snapshots.map(s => {
-        const rawParsed = parseSnapshotRawResponse(s.rawResponse)
-        const answerMentioned = project
-          ? resolveSnapshotAnswerMentioned(s, project)
-          : (s.answerMentioned ?? false)
-        return {
-          id: s.id,
-          runId: s.runId,
-          keywordId: s.keywordId,
-          keyword: s.keyword,
-          provider: s.provider,
-          citationState: s.citationState,
-          answerMentioned,
-          visibilityState: project
-            ? resolveSnapshotVisibilityState(s, project)
-            : (answerMentioned ? 'visible' : 'not-visible'),
-          answerText: s.answerText,
-          citedDomains: parseJsonColumn<string[]>(s.citedDomains, []),
-          competitorOverlap: parseJsonColumn<string[]>(s.competitorOverlap, []),
-          recommendedCompetitors: parseJsonColumn<string[]>(s.recommendedCompetitors, []),
-          matchedTerms: project ? resolveSnapshotMatchedTerms(s, project) : [],
-          model: s.model ?? rawParsed.model,
-          location: s.location,
-          groundingSources: rawParsed.groundingSources,
-          searchQueries: rawParsed.searchQueries,
-          createdAt: s.createdAt,
-        }
-      }),
-    })
+    return reply.send(loadRunDetail(app, run))
   })
 }
 
@@ -387,5 +348,72 @@ function parseSnapshotRawResponse(raw: string | null): {
     groundingSources: (parsed.groundingSources as unknown[] | undefined) ?? [],
     searchQueries: (parsed.searchQueries as string[] | undefined) ?? [],
     model: (parsed.model as string | undefined) ?? null,
+  }
+}
+
+function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
+  const project = app.db
+    .select({
+      displayName: projects.displayName,
+      canonicalDomain: projects.canonicalDomain,
+      ownedDomains: projects.ownedDomains,
+    })
+    .from(projects)
+    .where(eq(projects.id, run.projectId))
+    .get()
+
+  const snapshots = app.db
+    .select({
+      id: querySnapshots.id,
+      runId: querySnapshots.runId,
+      keywordId: querySnapshots.keywordId,
+      keyword: keywords.keyword,
+      provider: querySnapshots.provider,
+      model: querySnapshots.model,
+      citationState: querySnapshots.citationState,
+      answerMentioned: querySnapshots.answerMentioned,
+      answerText: querySnapshots.answerText,
+      citedDomains: querySnapshots.citedDomains,
+      competitorOverlap: querySnapshots.competitorOverlap,
+      recommendedCompetitors: querySnapshots.recommendedCompetitors,
+      location: querySnapshots.location,
+      rawResponse: querySnapshots.rawResponse,
+      createdAt: querySnapshots.createdAt,
+    })
+    .from(querySnapshots)
+    .leftJoin(keywords, eq(querySnapshots.keywordId, keywords.id))
+    .where(eq(querySnapshots.runId, run.id))
+    .all()
+
+  return {
+    ...formatRun(run),
+    snapshots: snapshots.map(s => {
+      const rawParsed = parseSnapshotRawResponse(s.rawResponse)
+      const answerMentioned = project
+        ? resolveSnapshotAnswerMentioned(s, project)
+        : (s.answerMentioned ?? false)
+      return {
+        id: s.id,
+        runId: s.runId,
+        keywordId: s.keywordId,
+        keyword: s.keyword,
+        provider: s.provider,
+        citationState: s.citationState,
+        answerMentioned,
+        visibilityState: project
+          ? resolveSnapshotVisibilityState(s, project)
+          : (answerMentioned ? 'visible' : 'not-visible'),
+        answerText: s.answerText,
+        citedDomains: parseJsonColumn<string[]>(s.citedDomains, []),
+        competitorOverlap: parseJsonColumn<string[]>(s.competitorOverlap, []),
+        recommendedCompetitors: parseJsonColumn<string[]>(s.recommendedCompetitors, []),
+        matchedTerms: project ? resolveSnapshotMatchedTerms(s, project) : [],
+        model: s.model ?? rawParsed.model,
+        location: s.location,
+        groundingSources: rawParsed.groundingSources,
+        searchQueries: rawParsed.searchQueries,
+        createdAt: s.createdAt,
+      }
+    }),
   }
 }

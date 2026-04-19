@@ -10,15 +10,25 @@ export async function exportProject(
   const data: ExportDto = await client.getExport(project)
 
   if (opts.includeResults) {
-    // Fetch latest run data and include as annotation
+    // Fetch latest run data and include as annotation.
     try {
-      const runs = await client.listRuns(project) as Array<{ id: string }>
-      if (runs.length > 0) {
-        const latestRun = await client.getRun(runs[runs.length - 1]!.id)
-        data.results = latestRun
+      const latest = await client.getLatestRun(project)
+      if (latest.run) {
+        data.results = latest.run
       }
     } catch {
-      // Results not available, skip
+      // Fall back to older servers that do not yet expose /runs/latest.
+      try {
+        const runs = await client.listRuns(project)
+        if (runs.length > 0) {
+          const latestRun = runs.reduce((current, candidate) =>
+            candidate.createdAt > current.createdAt ? candidate : current,
+          )
+          data.results = await client.getRun(latestRun.id)
+        }
+      } catch {
+        // Results not available, skip
+      }
     }
   }
 

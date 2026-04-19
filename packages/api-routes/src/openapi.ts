@@ -507,6 +507,16 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/runs/latest',
+    summary: 'Get the latest project run',
+    tags: ['runs'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'Latest run returned.' },
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/runs',
     summary: 'List all runs',
     tags: ['runs'],

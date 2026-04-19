@@ -78,6 +78,19 @@ export const querySnapshotDtoSchema = z.object({
 
 export type QuerySnapshotDto = z.infer<typeof querySnapshotDtoSchema>
 
+export const runDetailDtoSchema = runDtoSchema.extend({
+  snapshots: z.array(querySnapshotDtoSchema).optional(),
+})
+
+export type RunDetailDto = z.infer<typeof runDetailDtoSchema>
+
+export const latestProjectRunDtoSchema = z.object({
+  totalRuns: z.number().int().nonnegative(),
+  run: runDetailDtoSchema.nullable(),
+})
+
+export type LatestProjectRunDto = z.infer<typeof latestProjectRunDtoSchema>
+
 export const auditLogEntrySchema = z.object({
   id: z.string(),
   projectId: z.string().nullable().optional(),

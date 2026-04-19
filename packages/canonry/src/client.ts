@@ -3,7 +3,8 @@ import { loadConfig } from './config.js'
 import type {
   ProjectDto,
   RunDto,
-  QuerySnapshotDto,
+  RunDetailDto,
+  LatestProjectRunDto,
   ScheduleDto,
   NotificationDto,
   SnapshotReportDto,
@@ -52,11 +53,6 @@ import type {
 } from '@ainyc/canonry-contracts'
 
 export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry }
-
-/** Run detail response includes snapshots */
-export interface RunDetailDto extends RunDto {
-  snapshots?: QuerySnapshotDto[]
-}
 
 /** Settings response from GET /settings */
 export interface SettingsDto {
@@ -410,6 +406,10 @@ export class ApiClient {
   async listRuns(project: string, limit?: number): Promise<RunDto[]> {
     const query = limit != null ? `?limit=${encodeURIComponent(String(limit))}` : ''
     return this.request<RunDto[]>('GET', `/projects/${encodeURIComponent(project)}/runs${query}`)
+  }
+
+  async getLatestRun(project: string): Promise<LatestProjectRunDto> {
+    return this.request<LatestProjectRunDto>('GET', `/projects/${encodeURIComponent(project)}/runs/latest`)
   }
 
   async getRun(id: string): Promise<RunDetailDto> {
