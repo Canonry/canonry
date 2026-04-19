@@ -62,7 +62,7 @@ import { useDrawer } from '../hooks/use-drawer.js'
 import { findProjectVm } from '../mock-data.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
-export type ProjectPageTab = 'overview' | 'search-console' | 'analytics' | 'traffic'
+export type ProjectPageTab = 'overview' | 'search-console' | 'analytics' | 'traffic' | 'inbound'
 
 type SearchConsoleWorkspace = 'google' | 'bing'
 
@@ -1229,6 +1229,7 @@ export function ProjectPage({
     { key: 'search-console', label: 'Search Engine Intelligence', href: `/projects/${model.project.id}/search-console` },
     { key: 'traffic', label: 'Traffic', href: `/projects/${model.project.id}/traffic` },
     { key: 'analytics', label: 'Visibility', href: `/projects/${model.project.id}/analytics` },
+    { key: 'inbound', label: 'Inbound', href: `/projects/${model.project.id}/inbound` },
   ]
 
   return (
@@ -1618,8 +1619,6 @@ export function ProjectPage({
             </div>
           </section>
 
-          <BacklinksSection projectName={model.project.name} />
-
           <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={handleUpdateProject} onRefresh={() => void refetch()} />
           <ScheduleSection projectName={model.project.name} />
           <NotificationsSection projectName={model.project.name} />
@@ -1628,6 +1627,8 @@ export function ProjectPage({
         <AnalyticsSection projectName={model.project.name} />
       ) : tab === 'traffic' ? (
         <TrafficSection projectName={model.project.name} />
+      ) : tab === 'inbound' ? (
+        <BacklinksSection projectName={model.project.name} />
       ) : (
         <SearchConsoleSection projectName={model.project.name} />
       )}

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link2, Play, Download } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link2, Play, Download, Loader2, CheckCircle2 } from 'lucide-react'
+import { RunKinds } from '@ainyc/canonry-contracts'
 import {
   Area,
   ComposedChart,
@@ -16,15 +17,20 @@ import {
 } from '../shared/ChartPrimitives.js'
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
+import { ToneBadge } from '../shared/ToneBadge.js'
+import { isTerminalRunStatus } from '../../lib/run-tracker-store.js'
 import {
   fetchBacklinkDomains,
   fetchBacklinkHistory,
   fetchBacklinkSummary,
   fetchLatestReleaseSync,
+  fetchProjectRuns,
+  fetchRunDetail,
   triggerBacklinkExtract,
   ApiError,
 } from '../../api.js'
 import type {
+  ApiRun,
   BacklinkDomainDto,
   BacklinkHistoryEntry,
   BacklinkListResponse,
@@ -61,22 +67,42 @@ function relativeTime(iso: string): string {
   return `${days}d ago`
 }
 
+function findActiveExtractRun(runs: ApiRun[]): ApiRun | null {
+  const inFlight = runs.filter(
+    (r) => r.kind === RunKinds['backlink-extract'] && !isTerminalRunStatus(r.status),
+  )
+  if (inFlight.length === 0) return null
+  return inFlight.reduce((a, b) => (a.createdAt > b.createdAt ? a : b))
+}
+
+function formatElapsed(startedAt: string | null, createdAt: string): string {
+  const start = new Date(startedAt ?? createdAt).getTime()
+  const secs = Math.max(0, Math.floor((Date.now() - start) / 1000))
+  if (secs < 60) return `${secs}s`
+  const mins = Math.floor(secs / 60)
+  const rem = secs % 60
+  return rem === 0 ? `${mins}m` : `${mins}m ${rem}s`
+}
+
 export function BacklinksSection({ projectName }: { projectName: string }) {
   const [summary, setSummary] = useState<BacklinkSummaryDto | null>(null)
   const [list, setList] = useState<BacklinkListResponse | null>(null)
   const [history, setHistory] = useState<BacklinkHistoryEntry[]>([])
   const [latestSync, setLatestSync] = useState<CcReleaseSyncDto | null>(null)
+  const [activeRun, setActiveRun] = useState<ApiRun | null>(null)
+  const [justCompletedRun, setJustCompletedRun] = useState<ApiRun | null>(null)
+  const [now, setNow] = useState(Date.now())
   const [offset, setOffset] = useState(0)
   const [loading, setLoading] = useState(true)
   const [extracting, setExtracting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
+  const lastActiveIdRef = useRef<string | null>(null)
 
   const loadData = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const [sync, sum, rows, hist] = await Promise.all([
+      const [sync, sum, rows, hist, runs] = await Promise.all([
         fetchLatestReleaseSync().catch(() => null),
         fetchBacklinkSummary(projectName).catch(() => null),
         fetchBacklinkDomains(projectName, { limit: PAGE_SIZE, offset })
@@ -85,11 +111,15 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
             throw err
           }),
         fetchBacklinkHistory(projectName).catch(() => [] as BacklinkHistoryEntry[]),
+        fetchProjectRuns(projectName).catch(() => [] as ApiRun[]),
       ])
       setLatestSync(sync)
       setSummary(sum)
       setList(rows)
       setHistory(hist)
+      const active = findActiveExtractRun(runs)
+      setActiveRun(active)
+      lastActiveIdRef.current = active?.id ?? null
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load backlinks')
     } finally {
@@ -99,13 +129,51 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
 
   useEffect(() => { void loadData() }, [loadData])
 
+  // Poll the active extract run until it reaches a terminal state.
+  useEffect(() => {
+    if (!activeRun) return
+    const runId = activeRun.id
+    let cancelled = false
+    const tick = async () => {
+      try {
+        const detail = await fetchRunDetail(runId)
+        if (cancelled) return
+        if (isTerminalRunStatus(detail.status)) {
+          setActiveRun(null)
+          setJustCompletedRun(detail)
+          await loadData()
+        } else {
+          setActiveRun((prev) => (prev?.id === detail.id ? { ...prev, ...detail } : prev))
+        }
+      } catch {
+        // swallow transient poll errors — next tick retries
+      }
+    }
+    const interval = window.setInterval(() => { void tick() }, 3000)
+    return () => { cancelled = true; window.clearInterval(interval) }
+  }, [activeRun, loadData])
+
+  // Clock tick for elapsed-time display while a run is in flight.
+  useEffect(() => {
+    if (!activeRun) return
+    const interval = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(interval)
+  }, [activeRun])
+
+  // Dismiss the "just completed" banner after 10s.
+  useEffect(() => {
+    if (!justCompletedRun) return
+    const t = window.setTimeout(() => setJustCompletedRun(null), 10_000)
+    return () => window.clearTimeout(t)
+  }, [justCompletedRun])
+
   async function handleExtract() {
     setExtracting(true)
     setError(null)
-    setNotice(null)
     try {
-      await triggerBacklinkExtract(projectName)
-      setNotice('Backlink extract queued — data will appear once the run completes.')
+      const run = await triggerBacklinkExtract(projectName)
+      setActiveRun(run)
+      lastActiveIdRef.current = run.id
     } catch (err) {
       if (err instanceof ApiError && err.code === 'MISSING_DEPENDENCY') {
         setError('DuckDB is not installed. Visit the Backlinks admin page to install it.')
@@ -135,11 +203,11 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
     <section className="page-section-divider">
       <div className="section-head section-head-inline">
         <div>
-          <p className="eyebrow eyebrow-soft">Off-site signal</p>
-          <h2>Backlinks</h2>
+          <p className="eyebrow eyebrow-soft">Backlinks</p>
+          <h2>Referring domains</h2>
           <p className="text-sm text-zinc-500 mt-1 max-w-2xl">
-            Referring domains extracted from the Common Crawl hyperlink graph. Updates when a workspace release sync completes —
-            no live scraping, no paid API.
+            Domains linking to {' '}
+            <span className="text-zinc-300">{projectName}</span>, extracted from the Common Crawl hyperlink graph. Updates when a release sync completes — no live scraping, no paid API.
           </p>
         </div>
       </div>
@@ -149,9 +217,49 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
           <p className="text-sm text-rose-300">{error}</p>
         </Card>
       )}
-      {notice && (
-        <Card className="surface-card p-4 mb-4 border-emerald-800/60">
-          <p className="text-sm text-emerald-300">{notice}</p>
+      {activeRun && (
+        <Card className="surface-card p-4 mb-4 border-sky-800/60">
+          <div className="flex items-start gap-3">
+            <Loader2 className="h-5 w-5 text-sky-400 animate-spin shrink-0 mt-0.5" aria-hidden />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-medium text-zinc-100">Extract running</p>
+                <ToneBadge tone="neutral">{activeRun.status}</ToneBadge>
+                <span className="text-xs text-zinc-500 tabular-nums">
+                  {formatElapsed(activeRun.startedAt, activeRun.createdAt)} elapsed · refreshing every 3s
+                </span>
+                <span className="sr-only">now={now}</span>
+              </div>
+              <p className="text-xs text-zinc-500 mt-1">
+                Re-querying the cached Common Crawl release for{' '}
+                <span className="text-zinc-300">{projectName}</span>. No re-download — the ~16&nbsp;GB dump already lives at{' '}
+                <code className="text-zinc-400">~/.canonry/cache/commoncrawl/</code>. Typically takes ~5 minutes.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
+      {justCompletedRun && !activeRun && (
+        <Card className={`surface-card p-4 mb-4 ${justCompletedRun.status === 'failed' ? 'border-rose-800/60' : 'border-emerald-800/60'}`}>
+          <div className="flex items-start gap-3">
+            {justCompletedRun.status === 'failed' ? (
+              <span className="h-5 w-5 shrink-0 mt-0.5 text-rose-400 text-lg leading-none" aria-hidden>!</span>
+            ) : (
+              <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" aria-hidden />
+            )}
+            <div className="flex-1">
+              <p className={`text-sm font-medium ${justCompletedRun.status === 'failed' ? 'text-rose-300' : 'text-emerald-300'}`}>
+                {justCompletedRun.status === 'failed'
+                  ? 'Extract failed'
+                  : 'Extract complete'}
+              </p>
+              {justCompletedRun.error
+                ? <p className="text-xs text-zinc-500 mt-1">{justCompletedRun.error}</p>
+                : justCompletedRun.status !== 'failed'
+                  ? <p className="text-xs text-zinc-500 mt-1">Backlinks refreshed from the cached release.</p>
+                  : null}
+            </div>
+          </div>
         </Card>
       )}
 
@@ -228,11 +336,14 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                     Release <code className="text-zinc-300">{latestSync.release}</code> is ready but no backlinks have been extracted for{' '}
                     <code className="text-zinc-300">{projectName}</code>. Run an extract to populate data using the cached release.
                   </p>
-                  <div className="mt-4">
-                    <Button type="button" size="sm" disabled={extracting} onClick={handleExtract}>
+                  <div className="mt-4 flex items-center gap-3">
+                    <Button type="button" size="sm" disabled={extracting || activeRun !== null} onClick={handleExtract}>
                       <Play className="h-4 w-4 mr-1.5" aria-hidden />
-                      {extracting ? 'Queuing…' : 'Run extract'}
+                      {activeRun ? 'Extract running…' : extracting ? 'Queuing…' : 'Run extract'}
                     </Button>
+                    <p className="text-xs text-zinc-500">
+                      Queries the cached release — no re-download. Typically ~5 min.
+                    </p>
                   </div>
                 </>
               )}
@@ -360,14 +471,17 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
           )}
         </div>
 
-        <div className="flex items-center gap-2 mt-4">
-          <Button type="button" variant="outline" size="sm" disabled={extracting} onClick={handleExtract}>
+        <div className="mt-4 flex items-center gap-3 flex-wrap">
+          <Button type="button" variant="outline" size="sm" disabled={extracting || activeRun !== null} onClick={handleExtract}>
             <Download className="h-4 w-4 mr-1.5" aria-hidden />
-            {extracting ? 'Queuing…' : 'Re-run extract'}
+            {activeRun ? 'Extract running…' : extracting ? 'Queuing…' : 'Re-run extract'}
           </Button>
           <Button asChild type="button" variant="outline" size="sm">
             <a href={publicPath('/backlinks')}>Open admin</a>
           </Button>
+          <p className="text-xs text-zinc-500">
+            Re-run re-queries the cached release — no re-download (~5 min).
+          </p>
         </div>
       </>
     )

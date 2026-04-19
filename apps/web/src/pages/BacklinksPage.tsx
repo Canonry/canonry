@@ -146,7 +146,7 @@ export function BacklinksPage() {
         <div className="page-header-left">
           <h1 className="page-title">Backlinks</h1>
           <p className="page-subtitle">
-            Referring domains from the Common Crawl hyperlink graph — an opt-in workspace feature that runs locally.
+            Find domains that link to your projects, computed from the open Common Crawl web graph. Runs entirely on your machine — nothing is sent to third parties.
           </p>
         </div>
       </div>
@@ -159,15 +159,32 @@ export function BacklinksPage() {
           </div>
         </div>
         <Card className="surface-card p-5">
-          <p className="text-sm text-zinc-400 leading-relaxed max-w-3xl">
-            Common Crawl publishes a free monthly domain-level hyperlink graph. A workspace release sync downloads
-            ~16 GB of vertex + edge files to <code className="text-zinc-300">~/.canonry/cache/commoncrawl/</code>,
-            runs a DuckDB query that extracts referring domains for every project's canonical domain in one pass, and
-            persists the results to SQLite. After the first sync, per-project reads are instant.
+          <p className="text-sm text-zinc-400 leading-relaxed max-w-3xl mb-4">
+            Common Crawl publishes a monthly snapshot of the public web&rsquo;s hyperlink graph. Canonry downloads one{' '}
+            <span className="text-zinc-200">release</span> at a time and extracts backlinks for every project in this
+            workspace in a single pass — so one download covers all projects, now and in the future.
           </p>
-          <p className="text-sm text-zinc-500 mt-3 max-w-3xl">
-            Nothing is sent to third parties. DuckDB is installed on-demand into a canonry-owned plugin directory.
-          </p>
+          <ol className="space-y-3 text-sm text-zinc-400 max-w-3xl">
+            <li className="flex gap-3">
+              <span className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-full border border-zinc-700 bg-zinc-900 text-xs font-semibold text-zinc-300 tabular-nums">1</span>
+              <span>
+                <span className="text-zinc-200 font-medium">Download</span> — ~16 GB of vertex + edge files, cached to{' '}
+                <code className="text-zinc-300">~/.canonry/cache/commoncrawl/</code>. Releases are immutable, so this only happens once per release.
+              </span>
+            </li>
+            <li className="flex gap-3">
+              <span className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-full border border-zinc-700 bg-zinc-900 text-xs font-semibold text-zinc-300 tabular-nums">2</span>
+              <span>
+                <span className="text-zinc-200 font-medium">Query</span> — one DuckDB pass finds referring domains for every project&rsquo;s canonical domain. DuckDB installs on-demand into a canonry-owned plugin directory.
+              </span>
+            </li>
+            <li className="flex gap-3">
+              <span className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-full border border-zinc-700 bg-zinc-900 text-xs font-semibold text-zinc-300 tabular-nums">3</span>
+              <span>
+                <span className="text-zinc-200 font-medium">Persist</span> — results land in SQLite. After the first sync, per-project reads are instant.
+              </span>
+            </li>
+          </ol>
         </Card>
       </section>
 
@@ -235,12 +252,15 @@ export function BacklinksPage() {
       <section className="page-section-divider">
         <div className="section-head section-head-inline">
           <div>
-            <p className="eyebrow eyebrow-soft">Latest release sync</p>
-            <h2>Workspace sync</h2>
+            <p className="eyebrow eyebrow-soft">Latest sync</p>
+            <h2>Release sync</h2>
           </div>
           {latest && <ToneBadge tone={syncStatusTone(latest.status)}>{latest.status}</ToneBadge>}
         </div>
         <Card className="surface-card p-5">
+          <p className="text-xs text-zinc-500 max-w-3xl mb-4">
+            A release is one Common Crawl dump (e.g. <code className="text-zinc-400">cc-main-2026-jan-feb-mar</code>). Syncing it populates backlinks for every project in this workspace.
+          </p>
           {latest ? (
             <div className="space-y-2 text-sm">
               <p className="text-zinc-200">
