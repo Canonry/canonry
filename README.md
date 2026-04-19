@@ -76,6 +76,7 @@ Canonry's CLI and API are the agent interface — no special SDK, no MCP layer, 
 - **Self-hosted.** Runs locally with SQLite. No cloud account required.
 - **Full API parity.** REST API and CLI cover 100% of functionality. `--format json` on every command.
 - **Integrations.** Google Search Console, Google Analytics 4, Bing Webmaster Tools, WordPress.
+- **Backlinks (Common Crawl).** Workspace-level release sync via DuckDB, per-project inbound-link extraction, and an opt-in auto-extract on each new release — no third-party API key required.
 - **Location-aware.** Project-scoped locations for geo-targeted monitoring.
 - **Scheduled monitoring.** Cron-based recurring runs with webhook notifications.
 
