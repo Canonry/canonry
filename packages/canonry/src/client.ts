@@ -3,7 +3,8 @@ import { loadConfig } from './config.js'
 import type {
   ProjectDto,
   RunDto,
-  QuerySnapshotDto,
+  RunDetailDto,
+  LatestProjectRunDto,
   ScheduleDto,
   NotificationDto,
   SnapshotReportDto,
@@ -53,14 +54,12 @@ import type {
   BacklinksInstallStatusDto,
   CcCachedRelease,
   CcReleaseSyncDto,
+  AgentMemoryEntryDto,
+  AgentMemoryListResponse,
+  AgentMemoryUpsertRequest,
 } from '@ainyc/canonry-contracts'
 
 export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry }
-
-/** Run detail response includes snapshots */
-export interface RunDetailDto extends RunDto {
-  snapshots?: QuerySnapshotDto[]
-}
 
 /** Settings response from GET /settings */
 export interface SettingsDto {
@@ -249,7 +248,7 @@ export class ApiClient {
       const msg = errorObj?.message ? String(errorObj.message) : `HTTP ${res.status}: ${res.statusText}`
       const code = errorObj?.code ? String(errorObj.code) : 'API_ERROR'
       const exitCode = res.status >= 500 ? EXIT_SYSTEM_ERROR : EXIT_USER_ERROR
-      throw new CliError({ code, message: msg, exitCode })
+      throw new CliError({ code, message: msg, exitCode, details: { httpStatus: res.status } })
     }
 
     if (res.status === 204) {
@@ -277,6 +276,35 @@ export class ApiClient {
     return this.request<AgentProvidersResponse>(
       'GET',
       `/projects/${encodeURIComponent(project)}/agent/providers`,
+    )
+  }
+
+  async listAgentMemory(project: string): Promise<AgentMemoryListResponse> {
+    return this.request<AgentMemoryListResponse>(
+      'GET',
+      `/projects/${encodeURIComponent(project)}/agent/memory`,
+    )
+  }
+
+  async setAgentMemory(
+    project: string,
+    body: AgentMemoryUpsertRequest,
+  ): Promise<{ status: 'ok'; entry: AgentMemoryEntryDto }> {
+    return this.request<{ status: 'ok'; entry: AgentMemoryEntryDto }>(
+      'PUT',
+      `/projects/${encodeURIComponent(project)}/agent/memory`,
+      body,
+    )
+  }
+
+  async forgetAgentMemory(
+    project: string,
+    key: string,
+  ): Promise<{ status: 'forgotten' | 'missing'; key: string }> {
+    return this.request<{ status: 'forgotten' | 'missing'; key: string }>(
+      'DELETE',
+      `/projects/${encodeURIComponent(project)}/agent/memory`,
+      { key },
     )
   }
 
@@ -332,7 +360,7 @@ export class ApiClient {
       const msg = errorObj?.message ? String(errorObj.message) : `HTTP ${res.status}: ${res.statusText}`
       const code = errorObj?.code ? String(errorObj.code) : 'API_ERROR'
       const exitCode = res.status >= 500 ? EXIT_SYSTEM_ERROR : EXIT_USER_ERROR
-      throw new CliError({ code, message: msg, exitCode })
+      throw new CliError({ code, message: msg, exitCode, details: { httpStatus: res.status } })
     }
 
     return res
@@ -385,6 +413,10 @@ export class ApiClient {
   async listRuns(project: string, limit?: number): Promise<RunDto[]> {
     const query = limit != null ? `?limit=${encodeURIComponent(String(limit))}` : ''
     return this.request<RunDto[]>('GET', `/projects/${encodeURIComponent(project)}/runs${query}`)
+  }
+
+  async getLatestRun(project: string): Promise<LatestProjectRunDto> {
+    return this.request<LatestProjectRunDto>('GET', `/projects/${encodeURIComponent(project)}/runs/latest`)
   }
 
   async getRun(id: string): Promise<RunDetailDto> {

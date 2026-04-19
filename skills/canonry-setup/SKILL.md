@@ -12,18 +12,18 @@ metadata:
             {
               "id": "npm",
               "kind": "npm",
-              "package": "canonry",
+              "package": "@ainyc/canonry",
               "bins": ["canonry"],
               "label": "Install canonry globally",
-              "command": "npm install -g canonry"
+              "command": "npm install -g @ainyc/canonry"
             },
             {
               "id": "npx",
               "kind": "npx",
-              "package": "@ainyc/aeo-audit",
-              "bins": ["aeo-audit"],
-              "label": "Use aeo-audit via npx",
-              "command": "npx @ainyc/aeo-audit@latest"
+              "package": "@ainyc/canonry",
+              "bins": ["canonry"],
+              "label": "Run canonry via npx",
+              "command": "npx @ainyc/canonry@latest init"
             }
           ],
       },

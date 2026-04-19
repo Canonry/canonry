@@ -8,3 +8,5 @@ dist/
 packages/canonry/assets/web/
 # Build-time copies of skills from repo root (copied by copy-agent-assets.ts)
 packages/canonry/assets/agent-workspace/skills/
+# Local Conductor worktree scratch dirs
+.claude/worktrees/

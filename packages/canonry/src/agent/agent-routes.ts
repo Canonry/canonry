@@ -6,11 +6,25 @@ import {
   projects,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
-import { notFound, validationError } from '@ainyc/canonry-contracts'
+import {
+  AGENT_MEMORY_VALUE_MAX_BYTES,
+  MemorySources,
+  agentMemoryDeleteRequestSchema,
+  agentMemoryUpsertRequestSchema,
+  notFound,
+  validationError,
+  type AgentMemoryListResponse,
+} from '@ainyc/canonry-contracts'
 import type { AgentEvent, AgentMessage } from '@mariozechner/pi-agent-core'
 import type { SessionRegistry } from './session-registry.js'
 import type { SupportedAgentProvider } from './session.js'
 import { buildAgentProvidersResponse } from './providers.js'
+import {
+  COMPACTION_KEY_PREFIX,
+  deleteMemoryEntry,
+  listMemoryEntries,
+  upsertMemoryEntry,
+} from './memory-store.js'
 
 export interface AgentRoutesOptions {
   db: DatabaseClient
@@ -112,7 +126,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
     // scope / model mutation, so a second request against a busy Agent
     // throws `AGENT_BUSY` (409) without swapping out the in-flight turn's
     // tools or model. Safe to call concurrently from CLI + dashboard.
-    const agent = opts.sessionRegistry.acquireForTurn(project.name, {
+    const agent = await opts.sessionRegistry.acquireForTurn(project.name, {
       provider: request.body?.provider,
       modelId: request.body?.modelId,
       toolScope: requestedScope,
@@ -176,4 +190,64 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
     // Fastify accepts this as "reply already handled" because we wrote to reply.raw.
     return reply
   })
+
+  // ──────────────────────────────────────────────────────────────────
+  // Durable memory — project-scoped notes Aero reads/writes via tools.
+  // These endpoints mirror the `remember` / `forget` / `recall` tool set
+  // so operators and external agents get full CLI/API parity.
+  // ──────────────────────────────────────────────────────────────────
+
+  app.get<{ Params: { name: string } }>(
+    '/projects/:name/agent/memory',
+    async (request): Promise<AgentMemoryListResponse> => {
+      const project = resolveProject(opts.db, request.params.name)
+      return { entries: listMemoryEntries(opts.db, project.id) }
+    },
+  )
+
+  app.put<{ Params: { name: string }; Body: unknown }>(
+    '/projects/:name/agent/memory',
+    async (request) => {
+      const project = resolveProject(opts.db, request.params.name)
+      const parsed = agentMemoryUpsertRequestSchema.safeParse(request.body)
+      if (!parsed.success) {
+        throw validationError(parsed.error.issues.map((i) => i.message).join('; '))
+      }
+      if (parsed.data.key.startsWith(COMPACTION_KEY_PREFIX)) {
+        throw validationError(
+          `key prefix "${COMPACTION_KEY_PREFIX}" is reserved for compaction notes`,
+        )
+      }
+      if (Buffer.byteLength(parsed.data.value, 'utf8') > AGENT_MEMORY_VALUE_MAX_BYTES) {
+        throw validationError(`"value" exceeds ${AGENT_MEMORY_VALUE_MAX_BYTES} bytes`)
+      }
+      const entry = upsertMemoryEntry(opts.db, {
+        projectId: project.id,
+        key: parsed.data.key,
+        value: parsed.data.value,
+        source: MemorySources.user,
+      })
+      opts.sessionRegistry.rehydrateLiveMemory(project.name)
+      return { status: 'ok', entry }
+    },
+  )
+
+  app.delete<{ Params: { name: string }; Body: unknown }>(
+    '/projects/:name/agent/memory',
+    async (request) => {
+      const project = resolveProject(opts.db, request.params.name)
+      const parsed = agentMemoryDeleteRequestSchema.safeParse(request.body)
+      if (!parsed.success) {
+        throw validationError(parsed.error.issues.map((i) => i.message).join('; '))
+      }
+      if (parsed.data.key.startsWith(COMPACTION_KEY_PREFIX)) {
+        throw validationError(
+          `key prefix "${COMPACTION_KEY_PREFIX}" is reserved; compaction notes are pruned automatically`,
+        )
+      }
+      const removed = deleteMemoryEntry(opts.db, project.id, parsed.data.key)
+      if (removed) opts.sessionRegistry.rehydrateLiveMemory(project.name)
+      return { status: removed ? 'forgotten' : 'missing', key: parsed.data.key }
+    },
+  )
 }

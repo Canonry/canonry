@@ -7,10 +7,9 @@ export interface TelemetryRoutesOptions {
 }
 
 export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoutesOptions) {
-  app.get('/telemetry', async (_request, reply) => {
+  app.get('/telemetry', async () => {
     if (!opts.getTelemetryStatus) {
-      const err = notImplemented('Telemetry status is not available in this deployment')
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw notImplemented('Telemetry status is not available in this deployment')
     }
 
     const status = opts.getTelemetryStatus()
@@ -20,16 +19,14 @@ export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoute
     }
   })
 
-  app.put<{ Body: { enabled: boolean } }>('/telemetry', async (request, reply) => {
+  app.put<{ Body: { enabled: boolean } }>('/telemetry', async (request) => {
     if (!opts.setTelemetryEnabled) {
-      const err = notImplemented('Telemetry configuration is not available in this deployment')
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw notImplemented('Telemetry configuration is not available in this deployment')
     }
 
     const { enabled } = request.body ?? {}
     if (typeof enabled !== 'boolean') {
-      const err = validationError('enabled (boolean) is required')
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError('enabled (boolean) is required')
     }
 
     opts.setTelemetryEnabled(enabled)

@@ -1,5 +1,6 @@
 import { stringify } from 'yaml'
-import { createApiClient, type ExportDto } from '../client.js'
+import { createApiClient, type ApiClient, type ExportDto } from '../client.js'
+import { isEndpointMissing } from '../cli-error.js'
 
 export async function exportProject(
   project: string,
@@ -10,16 +11,8 @@ export async function exportProject(
   const data: ExportDto = await client.getExport(project)
 
   if (opts.includeResults) {
-    // Fetch latest run data and include as annotation
-    try {
-      const runs = await client.listRuns(project) as Array<{ id: string }>
-      if (runs.length > 0) {
-        const latestRun = await client.getRun(runs[runs.length - 1]!.id)
-        data.results = latestRun
-      }
-    } catch {
-      // Results not available, skip
-    }
+    const results = await loadLatestRunForExport(client, project)
+    if (results) data.results = results
   }
 
   if (opts.format === 'json') {
@@ -28,4 +21,20 @@ export async function exportProject(
   }
 
   console.log(stringify(data))
+}
+
+async function loadLatestRunForExport(client: ApiClient, project: string): Promise<unknown | null> {
+  try {
+    const latest = await client.getLatestRun(project)
+    return latest.run ?? null
+  } catch (err) {
+    if (!isEndpointMissing(err)) throw err
+  }
+  // Older server predating /runs/latest — fall back to list + detail fetch.
+  const runs = await client.listRuns(project)
+  if (runs.length === 0) return null
+  const latestRun = runs.reduce((current, candidate) =>
+    candidate.createdAt > current.createdAt ? candidate : current,
+  )
+  return client.getRun(latestRun.id)
 }

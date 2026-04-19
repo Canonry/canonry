@@ -12,6 +12,7 @@ import { createLogger } from '../logger.js'
 import type { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
 import {
+  buildApiKeyResolver,
   createAeroSession,
   loadAeroSystemPrompt,
   resolveAeroModel,
@@ -21,6 +22,8 @@ import {
 import { getAgentProvider } from './providers.js'
 import { buildSkillDocTools } from './skill-tools.js'
 import { buildAllTools, buildReadTools } from './tools.js'
+import { loadRecentForHydrate } from './memory-store.js'
+import { compactMessages, shouldCompact } from './compaction.js'
 
 const log = createLogger('SessionRegistry')
 
@@ -63,11 +66,46 @@ interface AgentSessionRow {
  * `drainNow` or user-driven prompt bundles the pending messages in front
  * of the next prompt so they're processed in a single turn.
  */
+/**
+ * Hydrate cap — top N most-recent memory rows injected into the system
+ * prompt `<memory>` block at session build time. Keeps the block readable
+ * and bounded against the value-byte cap.
+ */
+const MAX_HYDRATE_NOTES = 20
+
+/**
+ * Soft byte cap for the total memory block rendered into the system prompt.
+ * 20 notes × 2 KB value = 40 KB worst case; we truncate to ~32 KB so the
+ * block never dominates the prompt, dropping oldest entries first.
+ */
+const MAX_HYDRATE_BYTES = 32 * 1024
+
+/**
+ * Neutralize sequences in a memory fragment that could otherwise escape
+ * the `<memory>` wrapper and persistently modify system instructions.
+ * Compaction summaries are LLM-authored and notes can be written by any
+ * operator, so values must be treated as untrusted data. We escape any
+ * `<memory>`/`</memory>` tag (case-insensitive) by inserting a zero-width
+ * non-joiner so the rendered text reads the same to a human but no longer
+ * closes the data block.
+ */
+function escapeMemoryFragment(value: string): string {
+  return value.replace(/<(\/?)memory>/gi, '<$1\u200Cmemory>')
+}
+
 export class SessionRegistry {
   private readonly live = new Map<string, Agent>()
   private readonly pending = new Map<string, AgentMessage[]>()
   /** Last tool scope used on the live Agent for a project. Read in getOrCreate to know when to swap. */
   private readonly scopes = new Map<string, 'all' | 'read-only'>()
+  /** Cached resolved project id per project name, used so alignScope can rebuild tool context without a DB roundtrip. */
+  private readonly projectIds = new Map<string, string>()
+  /**
+   * In-flight compaction promises keyed by project name. A second
+   * `acquireForTurn` that arrives while the first is still summarizing
+   * awaits the same promise instead of kicking off a duplicate LLM call.
+   */
+  private readonly compactions = new Map<string, Promise<void>>()
   private readonly opts: SessionRegistryOptions
 
   constructor(opts: SessionRegistryOptions) {
@@ -118,13 +156,16 @@ export class SessionRegistry {
         projectName,
         client: this.opts.client,
         config: this.opts.config,
+        db: this.opts.db,
+        projectId,
         provider: effectiveProvider,
         modelId: effectiveModelId,
-        systemPromptOverride: row.systemPrompt,
+        systemPromptOverride: this.buildHydratedSystemPrompt(projectId, row.systemPrompt),
         initialMessages: persistedMessages,
         toolScope: preferences?.toolScope,
       })
       this.scopes.set(projectName, preferences?.toolScope ?? 'all')
+      this.projectIds.set(projectName, projectId)
 
       if (queued.length > 0) {
         this.appendPending(projectName, queued)
@@ -143,15 +184,22 @@ export class SessionRegistry {
       projectName,
       client: this.opts.client,
       config: this.opts.config,
+      db: this.opts.db,
+      projectId,
       provider,
       modelId,
-      systemPromptOverride: systemPrompt,
+      // Hydrate on the fresh path too — a brand-new session may still see
+      // notes if they were seeded via CLI/API before the first prompt.
+      systemPromptOverride: this.buildHydratedSystemPrompt(projectId, systemPrompt),
       toolScope: preferences?.toolScope,
     })
     this.scopes.set(projectName, preferences?.toolScope ?? 'all')
+    this.projectIds.set(projectName, projectId)
 
     this.insertRow({
       projectId,
+      // Persist the raw (unhydrated) prompt so the DB remains canonical —
+      // the `<memory>` block is rebuilt from the notes table on every load.
       systemPrompt,
       modelProvider: provider,
       modelId,
@@ -162,6 +210,64 @@ export class SessionRegistry {
     this.live.set(projectName, agent)
     this.registerDrainHook(agent, projectName)
     return agent
+  }
+
+  /**
+   * Append the `<memory>` block to a base system prompt, sourced from the
+   * `agent_memory` table. Returns the base prompt unchanged when no notes
+   * exist — an empty block would just be prompt noise. Truncates to
+   * `MAX_HYDRATE_BYTES`, dropping oldest-first, so the block is bounded
+   * even when notes sit near their 2 KB cap.
+   *
+   * Note values come from LLM-authored compaction summaries and operator
+   * input, so they are treated as untrusted data: closing tags that could
+   * escape the `<memory>` wrapper are neutralized before interpolation.
+   */
+  buildHydratedSystemPrompt(projectId: string, basePrompt: string): string {
+    const entries = loadRecentForHydrate(this.opts.db, projectId, MAX_HYDRATE_NOTES)
+    if (entries.length === 0) return basePrompt
+
+    let totalBytes = 0
+    const kept: Array<{ source: string; key: string; value: string }> = []
+    for (const entry of entries) {
+      const escaped = {
+        source: escapeMemoryFragment(entry.source),
+        key: escapeMemoryFragment(entry.key),
+        value: escapeMemoryFragment(entry.value),
+      }
+      const line = `- [${escaped.source}] ${escaped.key}: ${escaped.value}\n`
+      const bytes = Buffer.byteLength(line, 'utf8')
+      if (totalBytes + bytes > MAX_HYDRATE_BYTES) break
+      kept.push(escaped)
+      totalBytes += bytes
+    }
+    if (kept.length === 0) return basePrompt
+
+    const lines = kept.map((e) => `- [${e.source}] ${e.key}: ${e.value}`)
+    return (
+      `${basePrompt.trimEnd()}\n\n---\n\n` +
+      `<memory>\n` +
+      `Project-scoped durable notes (newest first). Use remember/forget/recall to manage. Entries tagged [compaction] are LLM-summarized transcript slices.\n\n` +
+      `${lines.join('\n')}\n` +
+      `</memory>`
+    )
+  }
+
+  /**
+   * Rebuild the live agent's system prompt from the latest `agent_memory`
+   * rows. Called after out-of-band memory writes (CLI/API PUT/DELETE) so
+   * the next turn on a hot session sees the updated notes without waiting
+   * for compaction or a cold restart. No-op when no live agent exists —
+   * the next `getOrCreate` will hydrate from DB anyway.
+   */
+  rehydrateLiveMemory(projectName: string): void {
+    const agent = this.live.get(projectName)
+    if (!agent) return
+    const projectId = this.tryResolveProjectId(projectName)
+    if (!projectId) return
+    const row = this.loadRow(projectId)
+    if (!row) return
+    agent.state.systemPrompt = this.buildHydratedSystemPrompt(projectId, row.systemPrompt)
   }
 
   /**
@@ -179,7 +285,7 @@ export class SessionRegistry {
    * Persists the new model choice to the DB row so subsequent invocations
    * stay on it unless overridden again.
    */
-  acquireForTurn(projectName: string, preferences?: SessionPreferences): Agent {
+  async acquireForTurn(projectName: string, preferences?: SessionPreferences): Promise<Agent> {
     const agent = this.getOrCreate(projectName)
     if (agent.state.isStreaming) {
       throw agentBusy(projectName)
@@ -188,16 +294,78 @@ export class SessionRegistry {
     if (preferences?.provider || preferences?.modelId) {
       this.alignModel(projectName, agent, preferences)
     }
+    await this.maybeCompact(projectName, agent)
     return agent
+  }
+
+  /**
+   * Summarize the oldest half of the transcript into a `compaction:`
+   * memory row when the transcript crosses the token/message threshold.
+   * Runs before the caller's next `agent.prompt()` so the model sees the
+   * trimmed transcript + a refreshed `<memory>` block that now includes
+   * the new summary.
+   *
+   * Races are deduped through `this.compactions`: a concurrent call for
+   * the same project awaits the in-flight promise instead of launching a
+   * duplicate summarizer run. Failures are logged and swallowed — a flaky
+   * summarizer must never block a user turn.
+   */
+  private async maybeCompact(projectName: string, agent: Agent): Promise<void> {
+    const inflight = this.compactions.get(projectName)
+    if (inflight) {
+      await inflight
+      return
+    }
+    if (!shouldCompact(agent.state.messages)) return
+
+    const promise = this.runCompaction(projectName, agent).finally(() => {
+      this.compactions.delete(projectName)
+    })
+    this.compactions.set(projectName, promise)
+    await promise
+  }
+
+  private async runCompaction(projectName: string, agent: Agent): Promise<void> {
+    const projectId = this.projectIds.get(projectName) ?? this.resolveProjectId(projectName)
+    this.projectIds.set(projectName, projectId)
+    const row = this.loadRow(projectId)
+    if (!row) return
+    try {
+      const result = await compactMessages({
+        db: this.opts.db,
+        projectId,
+        sessionId: row.id,
+        messages: agent.state.messages,
+        model: agent.state.model,
+        getApiKey: buildApiKeyResolver(this.opts.config),
+      })
+      if (!result) return
+      agent.state.messages = result.messages
+      // Rehydrate the system prompt so the just-written compaction note
+      // shows up in the `<memory>` block on the very next LLM call.
+      agent.state.systemPrompt = this.buildHydratedSystemPrompt(projectId, row.systemPrompt)
+      this.save(projectName)
+      log.info('compaction.completed', {
+        projectName,
+        removedCount: result.removedCount,
+        summaryBytes: Buffer.byteLength(result.summary, 'utf8'),
+      })
+    } catch (err) {
+      log.error('compaction.failed', {
+        projectName,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
   }
 
   private alignScope(projectName: string, agent: Agent, wantScope: 'all' | 'read-only'): void {
     if (this.scopes.get(projectName) === wantScope) return
+    const projectId = this.projectIds.get(projectName) ?? this.resolveProjectId(projectName)
+    this.projectIds.set(projectName, projectId)
+    const toolCtx = { client: this.opts.client, projectName, db: this.opts.db, projectId }
     // Mirror createAeroSession: skill-doc tools ride in every scope.
     const stateTools =
-      wantScope === 'read-only'
-        ? buildReadTools({ client: this.opts.client, projectName })
-        : buildAllTools({ client: this.opts.client, projectName })
+      wantScope === 'read-only' ? buildReadTools(toolCtx) : buildAllTools(toolCtx)
     agent.state.tools = [...stateTools, ...buildSkillDocTools()]
     this.scopes.set(projectName, wantScope)
   }
@@ -296,7 +464,7 @@ export class SessionRegistry {
         // acquireForTurn does the busy check in the registry — if the agent
         // is mid-stream we leave pending alone and let `agent_end` drain
         // hook pick it up. Pi's AppError surfaces as `AGENT_BUSY`.
-        agent = this.acquireForTurn(projectName, { toolScope: scope })
+        agent = await this.acquireForTurn(projectName, { toolScope: scope })
       } catch (err) {
         if ((err as { code?: string }).code === 'AGENT_BUSY') return
         throw err
@@ -333,6 +501,7 @@ export class SessionRegistry {
     this.live.delete(projectName)
     this.pending.delete(projectName)
     this.scopes.delete(projectName)
+    this.projectIds.delete(projectName)
   }
 
   /** Evict every live Agent. Durable state in DB is untouched. */

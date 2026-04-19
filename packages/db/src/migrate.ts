@@ -468,7 +468,22 @@ const MIGRATIONS = [
   `UPDATE agent_sessions SET model_provider = 'claude' WHERE model_provider = 'anthropic'`,
   `UPDATE agent_sessions SET model_provider = 'gemini' WHERE model_provider = 'google'`,
 
-  // v40: Common Crawl backlinks — workspace-level release syncs plus per-project
+  // v40: Aero durable memory — project-scoped notes + compaction summaries.
+  `CREATE TABLE IF NOT EXISTS agent_memory (
+    id          TEXT PRIMARY KEY,
+    project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    key         TEXT NOT NULL,
+    value       TEXT NOT NULL,
+    source      TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uniq_agent_memory_project_key
+    ON agent_memory(project_id, key)`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_memory_project_updated
+    ON agent_memory(project_id, updated_at)`,
+
+  // v41: Common Crawl backlinks — workspace-level release syncs plus per-project
   // backlink_domains and backlink_summaries populated in one DuckDB pass.
   `CREATE TABLE IF NOT EXISTS cc_release_syncs (
     id                      TEXT PRIMARY KEY,

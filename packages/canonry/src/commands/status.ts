@@ -1,5 +1,6 @@
 import type { ProjectDto, RunDto } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
+import { isEndpointMissing } from '../cli-error.js'
 
 function getClient() {
   return createApiClient()
@@ -8,16 +9,21 @@ function getClient() {
 export async function showStatus(project: string, format?: string): Promise<void> {
   const client = getClient()
   const projectData: ProjectDto = await client.getProject(project)
-
-  let runs: RunDto[] = []
-  try {
-    runs = await client.listRuns(project)
-  } catch {
-    // Runs endpoint may not be available (e.g. older server)
-  }
+  const latest = await getLatestRunSummary(client, project)
 
   if (format === 'json') {
-    console.log(JSON.stringify({ project: projectData, runs }, null, 2))
+    let runs: RunDto[] = []
+    try {
+      runs = await client.listRuns(project)
+    } catch {
+      // Runs endpoint may not be available (e.g. older server)
+    }
+    console.log(JSON.stringify({
+      project: projectData,
+      runs,
+      latestRun: latest.run,
+      totalRuns: latest.totalRuns,
+    }, null, 2))
     return
   }
 
@@ -26,20 +32,39 @@ export async function showStatus(project: string, format?: string): Promise<void
   console.log(`  Country:  ${projectData.country}`)
   console.log(`  Language: ${projectData.language}`)
 
-  if (runs.length > 0) {
-    // Derive the latest run from timestamps instead of relying on API ordering.
-    const latest = runs.reduce((current, candidate) =>
-      candidate.createdAt > current.createdAt ? candidate : current,
-    )
+  if (latest.run) {
     console.log(`\n  Latest run:`)
-    console.log(`    ID:       ${latest.id}`)
-    console.log(`    Status:   ${latest.status}`)
-    console.log(`    Created:  ${latest.createdAt}`)
-    if (latest.finishedAt) {
-      console.log(`    Finished: ${latest.finishedAt}`)
+    console.log(`    ID:       ${latest.run.id}`)
+    console.log(`    Status:   ${latest.run.status}`)
+    console.log(`    Created:  ${latest.run.createdAt}`)
+    if (latest.run.finishedAt) {
+      console.log(`    Finished: ${latest.run.finishedAt}`)
     }
-    console.log(`\n  Total runs: ${runs.length}`)
+    console.log(`\n  Total runs: ${latest.totalRuns}`)
   } else {
     console.log('\n  No runs yet. Use "canonry run" to trigger one.')
+  }
+}
+
+async function getLatestRunSummary(
+  client: ReturnType<typeof getClient>,
+  project: string,
+): Promise<{ totalRuns: number; run: RunDto | null }> {
+  try {
+    return await client.getLatestRun(project)
+  } catch (err) {
+    if (!isEndpointMissing(err)) throw err
+    // Older server predating /runs/latest — fall back to list + client-side reduce.
+    const runs = await client.listRuns(project)
+    if (runs.length === 0) {
+      return { totalRuns: 0, run: null }
+    }
+    const latestRun = runs.reduce((current, candidate) =>
+      candidate.createdAt > current.createdAt ? candidate : current,
+    )
+    return {
+      totalRuns: runs.length,
+      run: latestRun,
+    }
   }
 }
