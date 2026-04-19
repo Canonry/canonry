@@ -221,6 +221,55 @@ describe('executeReleaseSync', () => {
     expect(summary[0]!.totalLinkingDomains).toBe(2)
   })
 
+  it('fans a single domain row out to every project that tracks the same canonical domain', async () => {
+    insertProject('p-us', 'site-us', 'example.com')
+    insertProject('p-uk', 'site-uk', 'example.com')
+
+    const syncId = crypto.randomUUID()
+    const release = 'cc-main-2026-jan-feb-mar'
+    insertSyncRow(syncId, release)
+
+    let duckdbTargets: string[] = []
+    await executeReleaseSync(db, syncId, {
+      release,
+      deps: makeDeps({
+        queryBacklinks: async ({ targets }) => {
+          duckdbTargets = targets
+          return [
+            { targetDomain: 'example.com', linkingDomain: 'github.com', numHosts: 100 },
+            { targetDomain: 'example.com', linkingDomain: 'reddit.com', numHosts: 50 },
+          ]
+        },
+      }),
+    })
+
+    // DuckDB should only see the domain once (dedup for cheaper scans).
+    expect(duckdbTargets).toEqual(['example.com'])
+
+    const usRows = db.select().from(backlinkDomains)
+      .where(eq(backlinkDomains.projectId, 'p-us')).all()
+    const ukRows = db.select().from(backlinkDomains)
+      .where(eq(backlinkDomains.projectId, 'p-uk')).all()
+    expect(usRows).toHaveLength(2)
+    expect(ukRows).toHaveLength(2)
+    expect(usRows.map((r) => r.linkingDomain).sort()).toEqual(['github.com', 'reddit.com'])
+    expect(ukRows.map((r) => r.linkingDomain).sort()).toEqual(['github.com', 'reddit.com'])
+
+    const usSummary = db.select().from(backlinkSummaries)
+      .where(eq(backlinkSummaries.projectId, 'p-us')).get()
+    const ukSummary = db.select().from(backlinkSummaries)
+      .where(eq(backlinkSummaries.projectId, 'p-uk')).get()
+    expect(usSummary?.totalLinkingDomains).toBe(2)
+    expect(usSummary?.totalHosts).toBe(150)
+    expect(ukSummary?.totalLinkingDomains).toBe(2)
+    expect(ukSummary?.totalHosts).toBe(150)
+
+    const syncRow = db.select().from(ccReleaseSyncs).where(eq(ccReleaseSyncs.id, syncId)).get()
+    expect(syncRow?.projectsProcessed).toBe(2)
+    // domainsDiscovered counts pre-fan-out rows, not the expanded inserts.
+    expect(syncRow?.domainsDiscovered).toBe(2)
+  })
+
   it('succeeds with zero projects — marks ready with projectsProcessed=0 and no query invocation', async () => {
     const syncId = crypto.randomUUID()
     const release = 'cc-main-2026-jan-feb-mar'

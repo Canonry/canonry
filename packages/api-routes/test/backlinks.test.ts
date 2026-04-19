@@ -32,24 +32,21 @@ function buildApp(overrides: Partial<BacklinksRoutesOptions> = {}) {
     }
     return reply.status(statusCode).send({ error: { message: error.message } })
   })
-  app.register(backlinksRoutes, {
-    getBacklinksStatus: overrides.getBacklinksStatus ?? (() => ({
+  const defaults: BacklinksRoutesOptions = {
+    getBacklinksStatus: () => ({
       duckdbInstalled: true,
       duckdbVersion: '1.4.4-r.3',
       duckdbSpec: '@duckdb/node-api@1.4.4-r.3',
       pluginDir: '/fake/.canonry/plugins',
-    })),
-    onInstallBacklinks: overrides.onInstallBacklinks ?? (async () => ({
+    }),
+    onInstallBacklinks: async () => ({
       installed: true,
       version: '1.4.4-r.3',
       path: '/fake/.canonry/plugins',
       alreadyPresent: false,
-    })),
-    onReleaseSyncRequested: overrides.onReleaseSyncRequested,
-    onBacklinkExtractRequested: overrides.onBacklinkExtractRequested,
-    onBacklinksPruneCache: overrides.onBacklinksPruneCache,
-    listCachedReleases: overrides.listCachedReleases,
-  })
+    }),
+  }
+  app.register(backlinksRoutes, { ...defaults, ...overrides })
 
   return { app, db, tmpDir }
 }
@@ -214,6 +211,26 @@ describe('Backlinks routes', () => {
       expect(body.id).toBe('new')
       expect(body.release).toBe('cc-main-2026-jan-feb-mar')
     })
+
+    it('orders by updatedAt so a re-queued older release wins over an untouched newer one', async () => {
+      db.insert(ccReleaseSyncs).values({
+        id: 'requeued',
+        release: 'cc-main-2025-oct-nov-dec',
+        status: 'downloading',
+        createdAt: '2025-12-01T00:00:00.000Z',
+        updatedAt: '2026-04-01T00:00:00.000Z',
+      }).run()
+      db.insert(ccReleaseSyncs).values({
+        id: 'stale',
+        release: 'cc-main-2026-jan-feb-mar',
+        status: 'ready',
+        createdAt: '2026-03-01T00:00:00.000Z',
+        updatedAt: '2026-03-01T00:00:00.000Z',
+      }).run()
+      const res = await app.inject({ method: 'GET', url: '/backlinks/syncs/latest' })
+      const body = res.json() as { id: string }
+      expect(body.id).toBe('requeued')
+    })
   })
 
   describe('GET /backlinks/syncs', () => {
@@ -229,6 +246,81 @@ describe('Backlinks routes', () => {
       const res = await app.inject({ method: 'GET', url: '/backlinks/syncs' })
       const body = res.json() as Array<{ id: string }>
       expect(body.map((r) => r.id)).toEqual(['b', 'a'])
+    })
+
+    it('orders by updatedAt DESC so requeued syncs surface ahead of untouched newer rows', async () => {
+      db.insert(ccReleaseSyncs).values({
+        id: 'requeued',
+        release: 'cc-main-2025-oct-nov-dec',
+        status: 'downloading',
+        createdAt: '2025-12-01T00:00:00.000Z',
+        updatedAt: '2026-04-01T00:00:00.000Z',
+      }).run()
+      db.insert(ccReleaseSyncs).values({
+        id: 'untouched',
+        release: 'cc-main-2026-jan-feb-mar',
+        status: 'ready',
+        createdAt: '2026-03-01T00:00:00.000Z',
+        updatedAt: '2026-03-01T00:00:00.000Z',
+      }).run()
+      const res = await app.inject({ method: 'GET', url: '/backlinks/syncs' })
+      const body = res.json() as Array<{ id: string }>
+      expect(body.map((r) => r.id)).toEqual(['requeued', 'untouched'])
+    })
+  })
+
+  describe('cloud deployment (no DuckDB callbacks)', () => {
+    it('mounts read routes so cached sync history is visible from /backlinks/syncs/latest', async () => {
+      const { app: cloud, db: cloudDb } = buildApp({
+        getBacklinksStatus: undefined,
+        onInstallBacklinks: undefined,
+      })
+      await cloud.ready()
+      const now = new Date().toISOString()
+      cloudDb.insert(ccReleaseSyncs).values({
+        id: 'seeded',
+        release: 'cc-main-2026-jan-feb-mar',
+        status: 'ready',
+        createdAt: now,
+        updatedAt: now,
+      }).run()
+
+      const latest = await cloud.inject({ method: 'GET', url: '/backlinks/syncs/latest' })
+      expect(latest.statusCode).toBe(200)
+      expect((latest.json() as { id: string } | null)?.id).toBe('seeded')
+
+      const list = await cloud.inject({ method: 'GET', url: '/backlinks/syncs' })
+      expect(list.statusCode).toBe(200)
+      expect((list.json() as Array<{ id: string }>).map((r) => r.id)).toEqual(['seeded'])
+
+      await cloud.close()
+    })
+
+    it('action routes throw MISSING_DEPENDENCY instead of 404 when callbacks are missing', async () => {
+      const { app: cloud, db: cloudDb } = buildApp({
+        getBacklinksStatus: undefined,
+        onInstallBacklinks: undefined,
+        onReleaseSyncRequested: undefined,
+        onBacklinkExtractRequested: undefined,
+        onBacklinksPruneCache: undefined,
+      })
+      await cloud.ready()
+      insertProject(cloudDb, 'p1', 'roots', 'roots.io')
+
+      const targets: Array<{ method: 'GET' | 'POST' | 'DELETE'; url: string; payload?: object }> = [
+        { method: 'GET', url: '/backlinks/status' },
+        { method: 'POST', url: '/backlinks/install' },
+        { method: 'POST', url: '/backlinks/syncs', payload: { release: 'cc-main-2026-jan-feb-mar' } },
+        { method: 'POST', url: '/projects/roots/backlinks/extract', payload: {} },
+        { method: 'DELETE', url: '/backlinks/cache/cc-main-2026-jan-feb-mar' },
+      ]
+      for (const { method, url, payload } of targets) {
+        const res = await cloud.inject({ method, url, payload })
+        expect(res.statusCode, `${method} ${url}`).toBe(422)
+        const body = res.json() as { error: { code: string } }
+        expect(body.error.code, `${method} ${url}`).toBe('MISSING_DEPENDENCY')
+      }
+      await cloud.close()
     })
   })
 

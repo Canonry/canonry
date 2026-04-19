@@ -29,10 +29,15 @@ import { isValidReleaseId } from '@ainyc/canonry-integration-commoncrawl'
 import { resolveProject } from './helpers.js'
 
 export interface BacklinksRoutesOptions {
-  /** Synchronous probe of whether `@duckdb/node-api` is installed in the plugin dir. */
-  getBacklinksStatus: () => BacklinksInstallStatusDto
-  /** Callback that performs the install; must be idempotent. */
-  onInstallBacklinks: () => Promise<BacklinksInstallResultDto>
+  /**
+   * Synchronous probe of whether `@duckdb/node-api` is installed in the plugin dir.
+   * Omit in environments that can't host DuckDB (e.g. the cloud API): mutating
+   * routes will then return `MISSING_DEPENDENCY`, while read routes still serve
+   * whatever sync history exists in the database.
+   */
+  getBacklinksStatus?: () => BacklinksInstallStatusDto
+  /** Callback that performs the install; must be idempotent. Optional in cloud. */
+  onInstallBacklinks?: () => Promise<BacklinksInstallResultDto>
   /** Fired after a `cc_release_syncs` row is created or re-queued. */
   onReleaseSyncRequested?: (syncId: string, release: string) => void
   /** Fired after a `runs` row with `kind='backlink-extract'` is created. */
@@ -42,6 +47,9 @@ export interface BacklinksRoutesOptions {
   /** Reports cached-release metadata from the filesystem. */
   listCachedReleases?: () => CcCachedRelease[]
 }
+
+const BACKLINKS_UNSUPPORTED_MESSAGE =
+  'Backlinks sync and install are only available from a local canonry install. Run `canonry backlinks install` locally to use this feature.'
 
 const NON_TERMINAL_SYNC_STATUSES: ReadonlySet<CcReleaseSyncStatus> = new Set([
   CcReleaseSyncStatuses.queued,
@@ -120,10 +128,16 @@ function latestSummaryForProject(
 
 export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoutesOptions) {
   app.get('/backlinks/status', async (_request, reply) => {
+    if (!opts.getBacklinksStatus) {
+      throw missingDependency(BACKLINKS_UNSUPPORTED_MESSAGE)
+    }
     return reply.send(opts.getBacklinksStatus())
   })
 
   app.post('/backlinks/install', async (_request, reply) => {
+    if (!opts.onInstallBacklinks) {
+      throw missingDependency(BACKLINKS_UNSUPPORTED_MESSAGE)
+    }
     const result = await opts.onInstallBacklinks()
     return reply.status(200).send(result)
   })
@@ -132,6 +146,10 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
     const release = request.body?.release
     if (!release || !isValidReleaseId(release)) {
       throw validationError('Invalid release id. Expected form: cc-main-YYYY-{jan-feb-mar,apr-may-jun,jul-aug-sep,oct-nov-dec}')
+    }
+
+    if (!opts.getBacklinksStatus || !opts.onReleaseSyncRequested) {
+      throw missingDependency(BACKLINKS_UNSUPPORTED_MESSAGE)
     }
 
     if (!opts.getBacklinksStatus().duckdbInstalled) {
@@ -158,7 +176,7 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
         error: null,
         updatedAt: now,
       }).where(eq(ccReleaseSyncs.id, existing.id)).run()
-      opts.onReleaseSyncRequested?.(existing.id, release)
+      opts.onReleaseSyncRequested(existing.id, release)
       const refreshed = app.db
         .select()
         .from(ccReleaseSyncs)
@@ -175,7 +193,7 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
       createdAt: now,
       updatedAt: now,
     }).run()
-    opts.onReleaseSyncRequested?.(id, release)
+    opts.onReleaseSyncRequested(id, release)
     const inserted = app.db
       .select()
       .from(ccReleaseSyncs)
@@ -188,7 +206,7 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
     const row = app.db
       .select()
       .from(ccReleaseSyncs)
-      .orderBy(desc(ccReleaseSyncs.createdAt))
+      .orderBy(desc(ccReleaseSyncs.updatedAt))
       .limit(1)
       .get()
     return reply.send(row ? mapSyncRow(row) : null)
@@ -198,7 +216,7 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
     const rows = app.db
       .select()
       .from(ccReleaseSyncs)
-      .orderBy(desc(ccReleaseSyncs.createdAt))
+      .orderBy(desc(ccReleaseSyncs.updatedAt))
       .all()
     return reply.send(rows.map(mapSyncRow))
   })
@@ -213,7 +231,10 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
     if (!isValidReleaseId(release)) {
       throw validationError('Invalid release id')
     }
-    opts.onBacklinksPruneCache?.(release)
+    if (!opts.onBacklinksPruneCache) {
+      throw missingDependency(BACKLINKS_UNSUPPORTED_MESSAGE)
+    }
+    opts.onBacklinksPruneCache(release)
     return reply.send({ ok: true })
   })
 
@@ -222,6 +243,10 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
     Body: { release?: string }
   }>('/projects/:name/backlinks/extract', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
+
+    if (!opts.getBacklinksStatus || !opts.onBacklinkExtractRequested) {
+      throw missingDependency(BACKLINKS_UNSUPPORTED_MESSAGE)
+    }
 
     if (!opts.getBacklinksStatus().duckdbInstalled) {
       throw missingDependency(
@@ -245,7 +270,7 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
       createdAt: now,
     }).run()
 
-    opts.onBacklinkExtractRequested?.(runId, project.id, release)
+    opts.onBacklinkExtractRequested(runId, project.id, release)
 
     const run = app.db.select().from(runs).where(eq(runs.id, runId)).get()
     return reply.status(201).send(mapRunRow(run!))

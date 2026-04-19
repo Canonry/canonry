@@ -2206,6 +2206,175 @@ const routeCatalog: OpenApiOperation[] = [
       404: { description: 'Project not found.' },
     },
   },
+  {
+    method: 'get',
+    path: '/api/v1/backlinks/status',
+    summary: 'Get the Common Crawl DuckDB plugin install status',
+    description:
+      'Reports whether @duckdb/node-api is installed in the local plugin dir. Returns MISSING_DEPENDENCY (422) on deployments that cannot host the plugin (e.g. the cloud API).',
+    tags: ['backlinks'],
+    responses: {
+      200: { description: 'Install status returned.' },
+      422: { description: 'Backlinks feature is not available on this deployment.' },
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/backlinks/install',
+    summary: 'Install the @duckdb/node-api plugin',
+    description:
+      'Idempotently installs DuckDB into the canonry plugin dir. Returns MISSING_DEPENDENCY (422) when the host cannot perform the install.',
+    tags: ['backlinks'],
+    responses: {
+      200: { description: 'Installed (or already present).' },
+      422: { description: 'Backlinks feature is not available on this deployment.' },
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/backlinks/syncs',
+    summary: 'Queue a workspace-wide Common Crawl release sync',
+    description:
+      'Creates a `cc_release_syncs` row and fires the sync callback. Idempotent: an existing in-flight row for the same release is returned.',
+    tags: ['backlinks'],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['release'],
+            properties: {
+              release: stringSchema,
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Existing in-flight sync returned.' },
+      201: { description: 'Sync queued.' },
+      400: { description: 'Invalid release id.' },
+      422: { description: 'Backlinks feature is not available on this deployment.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/backlinks/syncs',
+    summary: 'List Common Crawl release syncs',
+    description: 'Returns syncs ordered by updatedAt DESC — re-queued rows surface ahead of untouched newer rows.',
+    tags: ['backlinks'],
+    responses: {
+      200: { description: 'Sync history returned.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/backlinks/syncs/latest',
+    summary: 'Get the most recently-updated Common Crawl release sync',
+    tags: ['backlinks'],
+    responses: {
+      200: { description: 'Latest sync returned, or null when no sync exists.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/backlinks/releases',
+    summary: 'List cached Common Crawl releases on the local filesystem',
+    tags: ['backlinks'],
+    responses: {
+      200: { description: 'Cached release metadata returned.' },
+    },
+  },
+  {
+    method: 'delete',
+    path: '/api/v1/backlinks/cache/{release}',
+    summary: 'Prune a cached Common Crawl release',
+    tags: ['backlinks'],
+    parameters: [
+      {
+        name: 'release',
+        in: 'path',
+        required: true,
+        description: 'Release id (e.g. cc-main-2026-jan-feb-mar).',
+        schema: stringSchema,
+      },
+    ],
+    responses: {
+      200: { description: 'Cache pruned.' },
+      400: { description: 'Invalid release id.' },
+      422: { description: 'Backlinks feature is not available on this deployment.' },
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/backlinks/extract',
+    summary: 'Extract backlinks for a single project from a cached release',
+    description:
+      'Creates a `runs` row with kind="backlink-extract" and fires the extract callback. Defaults to the most recent ready release when `release` is omitted.',
+    tags: ['backlinks'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: false,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            properties: {
+              release: stringSchema,
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      201: { description: 'Extract run queued.' },
+      400: { description: 'Invalid release id.' },
+      404: { description: 'Project not found.' },
+      422: { description: 'Backlinks feature is not available on this deployment.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/backlinks/summary',
+    summary: 'Get the latest backlink summary for a project',
+    tags: ['backlinks'],
+    parameters: [
+      nameParameter,
+      { name: 'release', in: 'query', description: 'Release id filter.', schema: stringSchema },
+    ],
+    responses: {
+      200: { description: 'Summary returned, or null when no backlinks exist.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/backlinks/domains',
+    summary: 'Paginate backlink domains for a project',
+    tags: ['backlinks'],
+    parameters: [
+      nameParameter,
+      { name: 'release', in: 'query', description: 'Release id filter.', schema: stringSchema },
+      { name: 'limit', in: 'query', description: 'Max results (1-500).', schema: stringSchema },
+      { name: 'offset', in: 'query', description: 'Pagination offset.', schema: stringSchema },
+    ],
+    responses: {
+      200: { description: 'Domain list returned.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/backlinks/history',
+    summary: 'Get per-release backlink summaries for a project',
+    tags: ['backlinks'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'History returned oldest-first by queriedAt.' },
+      404: { description: 'Project not found.' },
+    },
+  },
 ]
 
 /**

@@ -93,7 +93,9 @@ export async function executeReleaseSync(
     }).where(eq(ccReleaseSyncs.id, syncId)).run()
 
     const allProjects = db.select().from(projects).all()
-    const targets = allProjects.map((p) => p.canonicalDomain)
+    // Deduplicate domains for the DuckDB query so we don't scan for the same
+    // target twice, but keep each project around for fan-out on insert.
+    const targets = Array.from(new Set(allProjects.map((p) => p.canonicalDomain)))
 
     let rows: BacklinkRow[] = []
     if (targets.length > 0) {
@@ -101,8 +103,15 @@ export async function executeReleaseSync(
       rows = await deps.queryBacklinks({ vertexPath, edgesPath, targets, duckdb })
     }
 
-    const projectByDomain = new Map<string, string>()
-    for (const p of allProjects) projectByDomain.set(p.canonicalDomain, p.id)
+    // A single canonical domain can be tracked by multiple projects (e.g., a
+    // US/EN project and a UK/EN project for the same marketing site). Fan out
+    // each backlink row to every project on that domain so none get zero data.
+    const projectsByDomain = new Map<string, string[]>()
+    for (const p of allProjects) {
+      const ids = projectsByDomain.get(p.canonicalDomain) ?? []
+      ids.push(p.id)
+      projectsByDomain.set(p.canonicalDomain, ids)
+    }
 
     const queriedAt = deps.now().toISOString()
 
@@ -110,28 +119,39 @@ export async function executeReleaseSync(
       tx.delete(backlinkDomains).where(eq(backlinkDomains.releaseSyncId, syncId)).run()
       tx.delete(backlinkSummaries).where(eq(backlinkSummaries.releaseSyncId, syncId)).run()
 
-      for (let i = 0; i < rows.length; i += INSERT_CHUNK_SIZE) {
-        const chunk = rows.slice(i, i + INSERT_CHUNK_SIZE)
-        const values = chunk
-          .map((r) => {
-            const projectId = projectByDomain.get(r.targetDomain)
-            if (!projectId) return null
-            return {
-              id: crypto.randomUUID(),
-              projectId,
-              releaseSyncId: syncId,
-              release,
-              targetDomain: r.targetDomain,
-              linkingDomain: r.linkingDomain,
-              numHosts: r.numHosts,
-              createdAt: queriedAt,
-            }
+      // Fan a single backlink row out to one insert per matching project.
+      const expanded: Array<{
+        id: string
+        projectId: string
+        releaseSyncId: string
+        release: string
+        targetDomain: string
+        linkingDomain: string
+        numHosts: number
+        createdAt: string
+      }> = []
+      for (const r of rows) {
+        const projectIds = projectsByDomain.get(r.targetDomain)
+        if (!projectIds) continue
+        for (const projectId of projectIds) {
+          expanded.push({
+            id: crypto.randomUUID(),
+            projectId,
+            releaseSyncId: syncId,
+            release,
+            targetDomain: r.targetDomain,
+            linkingDomain: r.linkingDomain,
+            numHosts: r.numHosts,
+            createdAt: queriedAt,
           })
-          .filter((v): v is NonNullable<typeof v> => v !== null)
-        if (values.length > 0) tx.insert(backlinkDomains).values(values).run()
+        }
+      }
+      for (let i = 0; i < expanded.length; i += INSERT_CHUNK_SIZE) {
+        const chunk = expanded.slice(i, i + INSERT_CHUNK_SIZE)
+        if (chunk.length > 0) tx.insert(backlinkDomains).values(chunk).run()
       }
 
-      const rowsByProject = groupByProject(rows, projectByDomain)
+      const rowsByProject = groupByProject(rows, projectsByDomain)
       for (const p of allProjects) {
         const projectRows = rowsByProject.get(p.id) ?? []
         const summary = computeSummary(projectRows)
@@ -190,14 +210,19 @@ export async function executeReleaseSync(
   }
 }
 
-function groupByProject(rows: BacklinkRow[], projectByDomain: Map<string, string>): Map<string, BacklinkRow[]> {
+function groupByProject(
+  rows: BacklinkRow[],
+  projectsByDomain: Map<string, string[]>,
+): Map<string, BacklinkRow[]> {
   const out = new Map<string, BacklinkRow[]>()
   for (const row of rows) {
-    const projectId = projectByDomain.get(row.targetDomain)
-    if (!projectId) continue
-    const bucket = out.get(projectId) ?? []
-    bucket.push(row)
-    out.set(projectId, bucket)
+    const projectIds = projectsByDomain.get(row.targetDomain)
+    if (!projectIds) continue
+    for (const projectId of projectIds) {
+      const bucket = out.get(projectId) ?? []
+      bucket.push(row)
+      out.set(projectId, bucket)
+    }
   }
   return out
 }

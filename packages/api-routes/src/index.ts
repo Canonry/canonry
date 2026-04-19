@@ -250,16 +250,19 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       googleConnectionStore: opts.googleConnectionStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
     } satisfies GA4RoutesOptions)
-    if (opts.getBacklinksStatus && opts.onInstallBacklinks) {
-      await api.register(backlinksRoutes, {
-        getBacklinksStatus: opts.getBacklinksStatus,
-        onInstallBacklinks: opts.onInstallBacklinks,
-        onReleaseSyncRequested: opts.onReleaseSyncRequested,
-        onBacklinkExtractRequested: opts.onBacklinkExtractRequested,
-        onBacklinksPruneCache: opts.onBacklinksPruneCache,
-        listCachedReleases: opts.listCachedReleases,
-      } satisfies BacklinksRoutesOptions)
-    }
+    // Always mount the backlinks routes so read endpoints (summary, domains,
+    // history, sync list) work off the shared DB. Action routes (install,
+    // sync, extract, cache prune) throw MISSING_DEPENDENCY when the host
+    // doesn't supply the required callback — cloud returns a meaningful
+    // error instead of 404.
+    await api.register(backlinksRoutes, {
+      getBacklinksStatus: opts.getBacklinksStatus,
+      onInstallBacklinks: opts.onInstallBacklinks,
+      onReleaseSyncRequested: opts.onReleaseSyncRequested,
+      onBacklinkExtractRequested: opts.onBacklinkExtractRequested,
+      onBacklinksPruneCache: opts.onBacklinksPruneCache,
+      listCachedReleases: opts.listCachedReleases,
+    } satisfies BacklinksRoutesOptions)
     // Local-only extension hook: canonry passes the Aero agent routes here
     // so they live inside the authenticated scope. Cloud leaves it undefined.
     if (opts.registerAuthenticatedRoutes) {
