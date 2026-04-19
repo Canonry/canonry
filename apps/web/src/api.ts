@@ -1,4 +1,5 @@
-import type { ErrorCode, GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, HealthSnapshotDto, RunKind, RunStatus, RunTrigger, CitationState, ComputedTransition } from '@ainyc/canonry-contracts'
+import type { ErrorCode, GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, HealthSnapshotDto, RunKind, RunStatus, RunTrigger, CitationState, ComputedTransition, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcCachedRelease, CcReleaseSyncDto } from '@ainyc/canonry-contracts'
+export type { BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcCachedRelease, CcReleaseSyncDto }
 
 export type { GroundingSource }
 
@@ -130,6 +131,7 @@ export interface ApiProject {
   providers: string[]
   locations: ApiLocation[]
   defaultLocation: string | null
+  autoExtractBacklinks: boolean
   configSource: string
   configRevision: number
   createdAt: string
@@ -287,6 +289,7 @@ export function createProject(name: string, body: {
   providers?: string[]
   locations?: ApiLocation[]
   defaultLocation?: string | null
+  autoExtractBacklinks?: boolean
 }): Promise<ApiProject> {
   return apiFetch(`/projects/${encodeURIComponent(name)}`, {
     method: 'PUT',
@@ -1129,4 +1132,67 @@ export async function fetchServiceStatus(path: string, label: string): Promise<S
         : undefined,
     }
   }
+}
+
+// --- Backlinks (Common Crawl) ---
+
+export function fetchBacklinksStatus(): Promise<BacklinksInstallStatusDto> {
+  return apiFetch('/backlinks/status')
+}
+
+export function installBacklinks(): Promise<BacklinksInstallResultDto> {
+  return apiFetch('/backlinks/install', { method: 'POST' })
+}
+
+export function fetchLatestReleaseSync(): Promise<CcReleaseSyncDto | null> {
+  return apiFetch('/backlinks/syncs/latest')
+}
+
+export function fetchReleaseSyncs(): Promise<CcReleaseSyncDto[]> {
+  return apiFetch('/backlinks/syncs')
+}
+
+export function triggerReleaseSync(release: string): Promise<CcReleaseSyncDto> {
+  return apiFetch('/backlinks/syncs', {
+    method: 'POST',
+    body: JSON.stringify({ release }),
+  })
+}
+
+export function fetchCachedReleases(): Promise<CcCachedRelease[]> {
+  return apiFetch('/backlinks/releases')
+}
+
+export function pruneCachedRelease(release: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/backlinks/cache/${encodeURIComponent(release)}`, {
+    method: 'DELETE',
+  })
+}
+
+export function fetchBacklinkSummary(projectName: string, release?: string): Promise<BacklinkSummaryDto | null> {
+  const qs = release ? `?release=${encodeURIComponent(release)}` : ''
+  return apiFetch(`/projects/${encodeURIComponent(projectName)}/backlinks/summary${qs}`)
+}
+
+export function fetchBacklinkDomains(
+  projectName: string,
+  opts: { limit?: number; offset?: number; release?: string } = {},
+): Promise<BacklinkListResponse> {
+  const params = new URLSearchParams()
+  if (opts.limit !== undefined) params.set('limit', String(opts.limit))
+  if (opts.offset !== undefined) params.set('offset', String(opts.offset))
+  if (opts.release) params.set('release', opts.release)
+  const qs = params.toString()
+  return apiFetch(`/projects/${encodeURIComponent(projectName)}/backlinks/domains${qs ? `?${qs}` : ''}`)
+}
+
+export function fetchBacklinkHistory(projectName: string): Promise<BacklinkHistoryEntry[]> {
+  return apiFetch(`/projects/${encodeURIComponent(projectName)}/backlinks/history`)
+}
+
+export function triggerBacklinkExtract(projectName: string, release?: string): Promise<ApiRun> {
+  return apiFetch(`/projects/${encodeURIComponent(projectName)}/backlinks/extract`, {
+    method: 'POST',
+    body: JSON.stringify({ release: release ?? undefined }),
+  })
 }

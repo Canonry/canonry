@@ -38,6 +38,7 @@ export const projectUpsertRequestSchema = z.object({
   providers: z.array(providerNameSchema).optional(),
   locations: z.array(locationContextSchema).optional(),
   defaultLocation: z.string().nullable().optional(),
+  autoExtractBacklinks: z.boolean().optional(),
   configSource: configSourceSchema.optional(),
 })
 
@@ -55,6 +56,7 @@ export const projectDtoSchema = z.object({
   labels: z.record(z.string(), z.string()).default({}),
   locations: z.array(locationContextSchema).default([]),
   defaultLocation: z.string().nullable().optional(),
+  autoExtractBacklinks: z.boolean().default(false),
   configSource: configSourceSchema.default('cli'),
   configRevision: z.number().int().positive().default(1),
   createdAt: z.string().optional(),

@@ -18,6 +18,7 @@ import { BingSummaryMetric } from '../components/project/BingSummaryMetric.js'
 import { AnalyticsSection } from '../components/project/AnalyticsSection.js'
 import { TrafficSection } from '../components/project/TrafficSection.js'
 import { GscSection } from '../components/project/GscSection.js'
+import { BacklinksSection } from '../components/project/BacklinksSection.js'
 import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric } from '../lib/format-helpers.js'
 import { addToast } from '../lib/toast-store.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
@@ -1616,6 +1617,8 @@ export function ProjectPage({
               ))}
             </div>
           </section>
+
+          <BacklinksSection projectName={model.project.name} />
 
           <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={handleUpdateProject} onRefresh={() => void refetch()} />
           <ScheduleSection projectName={model.project.name} />

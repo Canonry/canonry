@@ -50,6 +50,7 @@ export const configSpecSchema = z.object({
   schedule: configScheduleSchema,
   notifications: z.array(configNotificationSchema).optional().default([]),
   google: configGoogleSchema,
+  autoExtractBacklinks: z.boolean().optional().default(false),
 }).superRefine((spec, ctx) => {
   const duplicateLabels = findDuplicateLocationLabels(spec.locations)
   if (duplicateLabels.length > 0) {

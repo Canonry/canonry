@@ -10,7 +10,7 @@ const { version: PKG_VERSION } = _require('../package.json') as { version: strin
 import Fastify from 'fastify'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { apiRoutes } from '@ainyc/canonry-api-routes'
-import { apiKeys, auditLog, projects, parseJsonColumn, extractLegacyCredentials, dropLegacyCredentialColumns, type DatabaseClient, type LegacyCredentialRows } from '@ainyc/canonry-db'
+import { apiKeys, auditLog, projects, runs, parseJsonColumn, extractLegacyCredentials, dropLegacyCredentialColumns, type DatabaseClient, type LegacyCredentialRows } from '@ainyc/canonry-db'
 import os from 'node:os'
 import { geminiAdapter } from '@ainyc/canonry-provider-gemini'
 import { openaiAdapter } from '@ainyc/canonry-provider-openai'
@@ -18,7 +18,7 @@ import { claudeAdapter } from '@ainyc/canonry-provider-claude'
 import { localAdapter } from '@ainyc/canonry-provider-local'
 import { cdpChatgptAdapter } from '@ainyc/canonry-provider-cdp'
 import { perplexityAdapter } from '@ainyc/canonry-provider-perplexity'
-import { authInvalid, validationError, type ProviderAdapter } from '@ainyc/canonry-contracts'
+import { authInvalid, validationError, RunKinds, RunStatuses, RunTriggers, type ProviderAdapter } from '@ainyc/canonry-contracts'
 import type { CanonryConfig, ProviderConfigEntry } from './config.js'
 import { saveConfigPatch, loadConfig } from './config.js'
 import {
@@ -816,7 +816,26 @@ export async function createServer(opts: {
       }
     },
     onReleaseSyncRequested: (syncId: string, release: string) => {
-      executeReleaseSync(opts.db, syncId, { release }).catch((err: unknown) => {
+      executeReleaseSync(opts.db, syncId, {
+        release,
+        deps: {
+          enqueueAutoExtract: ({ projectId, release: r }) => {
+            const now = new Date().toISOString()
+            const runId = crypto.randomUUID()
+            opts.db.insert(runs).values({
+              id: runId,
+              projectId,
+              kind: RunKinds['backlink-extract'],
+              status: RunStatuses.queued,
+              trigger: RunTriggers.scheduled,
+              createdAt: now,
+            }).run()
+            executeBacklinkExtract(opts.db, runId, projectId, { release: r }).catch((err: unknown) => {
+              app.log.error({ runId, projectId, err }, 'Auto backlink extract failed')
+            })
+          },
+        },
+      }).catch((err: unknown) => {
         app.log.error({ syncId, err }, 'Common Crawl release sync failed')
       })
     },

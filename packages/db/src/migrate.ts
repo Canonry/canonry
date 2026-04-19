@@ -538,6 +538,11 @@ const MIGRATIONS = [
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_backlink_summaries_project_release ON backlink_summaries(project_id, release)`,
   `CREATE INDEX IF NOT EXISTS idx_backlink_summaries_project ON backlink_summaries(project_id)`,
+
+  // v42: Per-project auto-extract toggle — when a release sync transitions
+  // to ready, projects with this flag get a backlink-extract run enqueued.
+  // Stored as INTEGER (0/1) to match SQLite boolean convention.
+  `ALTER TABLE projects ADD COLUMN auto_extract_backlinks INTEGER NOT NULL DEFAULT 0`,
 ]
 
 /**

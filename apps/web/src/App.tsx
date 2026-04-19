@@ -6,6 +6,7 @@ import {
   Github,
   Globe,
   LayoutDashboard,
+  Link2,
   Menu,
   Play,
   Rocket,
@@ -298,6 +299,7 @@ export function RootLayout() {
     if (path === '/runs') return 'Runs'
     if (path === '/settings') return 'Settings'
     if (path === '/setup') return 'Setup'
+    if (path === '/backlinks') return 'Backlinks'
     if (path.startsWith('/projects/')) {
       // Try to find project name
       const segments = path.split('/').filter(Boolean)
@@ -350,6 +352,15 @@ export function RootLayout() {
           >
             <Play className="sidebar-icon" />
             <span>Runs</span>
+          </Link>
+          <Link
+            to="/backlinks"
+            className="sidebar-link"
+            activeProps={{ className: 'sidebar-link sidebar-link-active' }}
+            activeOptions={{ exact: true }}
+          >
+            <Link2 className="sidebar-icon" />
+            <span>Backlinks</span>
           </Link>
           <Link
             to="/settings"

@@ -35,14 +35,16 @@ function makeDeps(overrides: Partial<ReleaseSyncDeps> = {}): ReleaseSyncDeps {
     loadDuckdb: overrides.loadDuckdb ?? (() => ({ DuckDBInstance: {} })),
     now,
     cacheDir: overrides.cacheDir ?? path.join(tmpDir, 'cache'),
+    enqueueAutoExtract: overrides.enqueueAutoExtract,
   }
 }
 
-function insertProject(id: string, name: string, domain: string): void {
+function insertProject(id: string, name: string, domain: string, opts: { autoExtractBacklinks?: boolean } = {}): void {
   const now = new Date().toISOString()
   db.insert(projects).values({
     id, name, displayName: name, canonicalDomain: domain,
     country: 'US', language: 'en', providers: '[]',
+    autoExtractBacklinks: opts.autoExtractBacklinks ? 1 : 0,
     createdAt: now, updatedAt: now,
   }).run()
 }
@@ -268,6 +270,51 @@ describe('executeReleaseSync', () => {
     expect(syncRow?.projectsProcessed).toBe(2)
     // domainsDiscovered counts pre-fan-out rows, not the expanded inserts.
     expect(syncRow?.domainsDiscovered).toBe(2)
+  })
+
+  it('fires enqueueAutoExtract only for projects with autoExtractBacklinks=1', async () => {
+    insertProject('p-on', 'alpha', 'alpha.com', { autoExtractBacklinks: true })
+    insertProject('p-off', 'beta', 'beta.com')
+
+    const syncId = crypto.randomUUID()
+    const release = 'cc-main-2026-jan-feb-mar'
+    insertSyncRow(syncId, release)
+
+    const calls: Array<{ projectId: string; release: string }> = []
+    await executeReleaseSync(db, syncId, {
+      release,
+      deps: makeDeps({
+        queryBacklinks: async () => [],
+        enqueueAutoExtract: (info) => calls.push(info),
+      }),
+    })
+
+    expect(calls).toEqual([{ projectId: 'p-on', release }])
+  })
+
+  it('swallows enqueueAutoExtract callback errors so one failure does not break the sync', async () => {
+    insertProject('p-a', 'alpha', 'alpha.com', { autoExtractBacklinks: true })
+    insertProject('p-b', 'beta', 'beta.com', { autoExtractBacklinks: true })
+
+    const syncId = crypto.randomUUID()
+    const release = 'cc-main-2026-jan-feb-mar'
+    insertSyncRow(syncId, release)
+
+    const seen: string[] = []
+    await executeReleaseSync(db, syncId, {
+      release,
+      deps: makeDeps({
+        queryBacklinks: async () => [],
+        enqueueAutoExtract: ({ projectId }) => {
+          seen.push(projectId)
+          if (projectId === 'p-a') throw new Error('enqueue boom')
+        },
+      }),
+    })
+
+    expect(seen.sort()).toEqual(['p-a', 'p-b'])
+    const row = db.select().from(ccReleaseSyncs).where(eq(ccReleaseSyncs.id, syncId)).get()
+    expect(row?.status).toBe('ready')
   })
 
   it('succeeds with zero projects — marks ready with projectsProcessed=0 and no query invocation', async () => {

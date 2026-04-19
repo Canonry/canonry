@@ -13,6 +13,7 @@ export const projects = sqliteTable('projects', {
   providers: text('providers').notNull().default('[]'),
   locations: text('locations').notNull().default('[]'),
   defaultLocation: text('default_location'),
+  autoExtractBacklinks: integer('auto_extract_backlinks').notNull().default(0),
   configSource: text('config_source').notNull().default('cli'),
   configRevision: integer('config_revision').notNull().default(1),
   createdAt: text('created_at').notNull(),

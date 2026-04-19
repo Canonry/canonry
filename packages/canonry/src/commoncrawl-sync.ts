@@ -28,6 +28,7 @@ export interface ReleaseSyncDeps {
   loadDuckdb: () => unknown
   now: () => Date
   cacheDir: string
+  enqueueAutoExtract?: (info: { projectId: string; release: string }) => void
 }
 
 export interface ExecuteReleaseSyncOptions {
@@ -196,6 +197,20 @@ export async function executeReleaseSync(
       projectsProcessed: allProjects.length,
       domainsDiscovered: rows.length,
     })
+
+    if (deps.enqueueAutoExtract) {
+      const autoExtractProjects = allProjects.filter((p) => p.autoExtractBacklinks === 1)
+      for (const p of autoExtractProjects) {
+        try {
+          deps.enqueueAutoExtract({ projectId: p.id, release })
+        } catch (err) {
+          log.error('auto-extract.enqueue-failed', {
+            syncId, release, projectId: p.id,
+            error: err instanceof Error ? err.message : String(err),
+          })
+        }
+      }
+    }
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err)
     const finishedAt = deps.now().toISOString()

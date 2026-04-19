@@ -34,6 +34,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       providers?: string[]
       locations?: LocationContext[]
       defaultLocation?: string | null
+      autoExtractBacklinks?: boolean
       configSource?: string
     }
   }>('/projects/:name', async (request, reply) => {
@@ -83,6 +84,10 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       })
     }
 
+    const nextAutoExtractBacklinks = body.autoExtractBacklinks !== undefined
+      ? (body.autoExtractBacklinks ? 1 : 0)
+      : existing?.autoExtractBacklinks ?? 0
+
     if (existing) {
       app.db.transaction((tx) => {
         tx.update(projects).set({
@@ -96,6 +101,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
           providers: JSON.stringify(body.providers ?? []),
           locations: JSON.stringify(nextLocations),
           defaultLocation: nextDefaultLocation,
+          autoExtractBacklinks: nextAutoExtractBacklinks,
           configSource: body.configSource ?? 'api',
           configRevision: existing.configRevision + 1,
           updatedAt: now,
@@ -131,6 +137,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         providers: JSON.stringify(body.providers ?? []),
         locations: JSON.stringify(nextLocations),
         defaultLocation: nextDefaultLocation,
+        autoExtractBacklinks: nextAutoExtractBacklinks,
         configSource: body.configSource ?? 'api',
         configRevision: 1,
         createdAt: now,
@@ -324,6 +331,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         providers: parseJsonColumn<string[]>(project.providers, []),
         locations: parseJsonColumn<LocationContext[]>(project.locations, []),
         ...(project.defaultLocation ? { defaultLocation: project.defaultLocation } : {}),
+        ...(project.autoExtractBacklinks === 1 ? { autoExtractBacklinks: true } : {}),
         notifications: notificationRows.map((row) => {
           const cfg = parseJsonColumn<{ url: string; events: string[] }>(row.config, { url: '', events: [] })
           return {
@@ -359,6 +367,7 @@ function formatProject(row: {
   providers: string
   locations: string
   defaultLocation: string | null
+  autoExtractBacklinks: number
   configSource: string
   configRevision: number
   createdAt: string
@@ -377,6 +386,7 @@ function formatProject(row: {
     providers: parseJsonColumn<string[]>(row.providers, []),
     locations: parseJsonColumn<LocationContext[]>(row.locations, []),
     defaultLocation: row.defaultLocation,
+    autoExtractBacklinks: row.autoExtractBacklinks === 1,
     configSource: row.configSource,
     configRevision: row.configRevision,
     createdAt: row.createdAt,

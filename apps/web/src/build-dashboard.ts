@@ -43,6 +43,7 @@ function toProjectDto(p: ApiProject): ProjectDto {
     labels: p.labels,
     locations: p.locations ?? [],
     defaultLocation: p.defaultLocation ?? null,
+    autoExtractBacklinks: p.autoExtractBacklinks ?? false,
     configSource: p.configSource as ProjectDto['configSource'],
     configRevision: p.configRevision,
     createdAt: p.createdAt,

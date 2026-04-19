@@ -89,6 +89,7 @@ export function SetupPage() {
   const [domain, setDomain] = useState('')
   const [country, setCountry] = useState('US')
   const [language, setLanguage] = useState('en')
+  const [autoExtractBacklinks, setAutoExtractBacklinks] = useState(false)
   const [createdProjectName, setCreatedProjectName] = useState<string | null>(null)
   const [createdProjectId, setCreatedProjectId] = useState<string | null>(null)
   const [projectError, setProjectError] = useState<string | null>(null)
@@ -130,6 +131,7 @@ export function SetupPage() {
         canonicalDomain: domain,
         country,
         language,
+        autoExtractBacklinks,
       })
       setCreatedProjectName(slug)
       setCreatedProjectId(project.id)
@@ -318,6 +320,23 @@ export function SetupPage() {
                     <input id="language" className="setup-input" type="text" placeholder="en" maxLength={5} value={language} onChange={(e) => setLanguage(e.target.value.toLowerCase())} />
                   </div>
                 </div>
+                <label className="flex items-start gap-3 rounded-md border border-zinc-800/60 bg-zinc-900/30 p-3 cursor-pointer hover:border-zinc-700">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 rounded border-zinc-700 bg-zinc-950"
+                    checked={autoExtractBacklinks}
+                    onChange={(e) => setAutoExtractBacklinks(e.target.checked)}
+                  />
+                  <span className="flex-1">
+                    <span className="block text-sm text-zinc-100">Auto-extract backlinks</span>
+                    <span className="block text-xs text-zinc-500 mt-0.5">
+                      When a new Common Crawl release syncs, automatically extract backlinks for this project.{' '}
+                      <Link to="/backlinks" className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2">
+                        Manage backlinks
+                      </Link>
+                    </span>
+                  </span>
+                </label>
                 {projectError ? <p className="text-rose-400 text-sm">{projectError}</p> : null}
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={goBack}>Back</Button>
