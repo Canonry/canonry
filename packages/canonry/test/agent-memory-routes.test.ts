@@ -10,7 +10,7 @@ import {
   projects,
   type DatabaseClient,
 } from '@ainyc/canonry-db'
-import { AppError } from '@ainyc/canonry-contracts'
+import { AppError, MemorySources } from '@ainyc/canonry-contracts'
 import { registerAgentRoutes } from '../src/agent/agent-routes.js'
 import { SessionRegistry } from '../src/agent/session-registry.js'
 import {
@@ -96,14 +96,14 @@ describe('agent memory HTTP routes', () => {
     const putBody = put.json() as { status: string; entry: { key: string; source: string; value: string } }
     expect(putBody.status).toBe('ok')
     expect(putBody.entry.key).toBe('operator-pref')
-    expect(putBody.entry.source).toBe('user')
+    expect(putBody.entry.source).toBe(MemorySources.user)
 
     const list = await app.inject({ method: 'GET', url: '/projects/demo/agent/memory' })
     const body = list.json() as { entries: Array<{ key: string; value: string; source: string }> }
     expect(body.entries).toHaveLength(1)
     expect(body.entries[0].key).toBe('operator-pref')
     expect(body.entries[0].value).toBe('EU-first reporting')
-    expect(body.entries[0].source).toBe('user')
+    expect(body.entries[0].source).toBe(MemorySources.user)
   })
 
   it('PUT is idempotent — writing the same key replaces the value', async () => {
@@ -216,7 +216,7 @@ describe('agent memory HTTP routes', () => {
       projectId: otherId,
       key: 'other-only',
       value: 'secret',
-      source: 'user',
+      source: MemorySources.user,
     })
 
     const res = await app.inject({ method: 'GET', url: '/projects/demo/agent/memory' })

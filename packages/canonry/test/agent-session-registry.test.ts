@@ -18,6 +18,7 @@ import {
 } from '@mariozechner/pi-ai'
 import { eq } from 'drizzle-orm'
 import type { AgentMessage } from '@mariozechner/pi-agent-core'
+import { MemorySources } from '@ainyc/canonry-contracts'
 import { SessionRegistry } from '../src/agent/session-registry.js'
 import type { ApiClient } from '../src/client.js'
 import type { CanonryConfig } from '../src/config.js'
@@ -465,7 +466,7 @@ describe('SessionRegistry', () => {
     // Persisted compaction row in agent_memory.
     const { agentMemory } = await import('@ainyc/canonry-db')
     const rows = db.select().from(agentMemory).where(eq(agentMemory.projectId, projectId)).all()
-    expect(rows.some((r) => r.source === 'compaction')).toBe(true)
+    expect(rows.some((r) => r.source === MemorySources.compaction)).toBe(true)
   })
 
   it('acquireForTurn throws AGENT_BUSY without mutating tools when streaming', async () => {
