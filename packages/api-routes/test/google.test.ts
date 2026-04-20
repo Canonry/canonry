@@ -5,6 +5,7 @@ import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
 import { createClient, migrate, projects, runs, gscCoverageSnapshots, gscUrlInspections } from '@ainyc/canonry-db'
+import { AppError } from '@ainyc/canonry-contracts'
 import { googleRoutes } from '../src/google.js'
 
 // Reproduce state signing functions from google.ts to verify behavior
@@ -48,6 +49,12 @@ function buildApp(opts: { googleClientId?: string; googleClientSecret?: string; 
 
   const app = Fastify()
   app.decorate('db', db)
+  app.setErrorHandler((error, _request, reply) => {
+    if (error instanceof AppError) {
+      return reply.status(error.statusCode).send(error.toJSON())
+    }
+    throw error
+  })
   app.register(googleRoutes, {
     getGoogleAuthConfig: () => ({
       clientId: opts.googleClientId,
@@ -304,6 +311,12 @@ describe('googleRoutes: connect uses publicUrl', () => {
     }).run()
 
     const fastify = Fastify()
+    fastify.setErrorHandler((error, _request, reply) => {
+      if (error instanceof AppError) {
+        return reply.status(error.statusCode).send(error.toJSON())
+      }
+      throw error
+    })
     fastify.decorate('db', db)
     fastify.register(googleRoutes, {
       getGoogleAuthConfig: () => ({
@@ -379,6 +392,12 @@ describe('googleRoutes: connect does not double basePath in redirectUri', () => 
     }).run()
 
     const fastify = Fastify()
+    fastify.setErrorHandler((error, _request, reply) => {
+      if (error instanceof AppError) {
+        return reply.status(error.statusCode).send(error.toJSON())
+      }
+      throw error
+    })
     fastify.decorate('db', db)
     fastify.register(googleRoutes, {
       getGoogleAuthConfig: () => ({
@@ -453,6 +472,12 @@ describe('googleRoutes: connect auto-detect uses per-project URI', () => {
     }).run()
 
     const fastify = Fastify()
+    fastify.setErrorHandler((error, _request, reply) => {
+      if (error instanceof AppError) {
+        return reply.status(error.statusCode).send(error.toJSON())
+      }
+      throw error
+    })
     fastify.decorate('db', db)
     fastify.register(googleRoutes, {
       getGoogleAuthConfig: () => ({
@@ -548,6 +573,12 @@ describe('googleRoutes: GET /projects/:name/google/gsc/coverage/history', () => 
     }).run()
 
     const fastify = Fastify()
+    fastify.setErrorHandler((error, _request, reply) => {
+      if (error instanceof AppError) {
+        return reply.status(error.statusCode).send(error.toJSON())
+      }
+      throw error
+    })
     fastify.decorate('db', db)
     fastify.register(googleRoutes, {
       getGoogleAuthConfig: () => ({ clientId: undefined, clientSecret: undefined }),
@@ -683,6 +714,12 @@ describe('googleRoutes: coverage snapshot deduplication', () => {
     }).run()
 
     const fastify = Fastify()
+    fastify.setErrorHandler((error, _request, reply) => {
+      if (error instanceof AppError) {
+        return reply.status(error.statusCode).send(error.toJSON())
+      }
+      throw error
+    })
     fastify.decorate('db', db)
     fastify.register(googleRoutes, {
       getGoogleAuthConfig: () => ({ clientId: undefined, clientSecret: undefined }),
@@ -828,6 +865,12 @@ describe('googleRoutes: POST /projects/:name/google/indexing/request', () => {
     const tokenExpires = new Date(Date.now() + 3600 * 1000).toISOString()
 
     const fastify = Fastify()
+    fastify.setErrorHandler((error, _request, reply) => {
+      if (error instanceof AppError) {
+        return reply.status(error.statusCode).send(error.toJSON())
+      }
+      throw error
+    })
     fastify.decorate('db', db)
     fastify.register(googleRoutes, {
       getGoogleAuthConfig: () => ({

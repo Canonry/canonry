@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { keywords } from '@ainyc/canonry-db'
-import { validationError, notImplemented } from '@ainyc/canonry-contracts'
+import { validationError, notImplemented, internalError } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 
 export interface KeywordRoutesOptions {
@@ -192,12 +192,7 @@ export async function keywordRoutes(app: FastifyInstance, opts: KeywordRoutesOpt
       return reply.send({ keywords: generated, provider })
     } catch (err) {
       request.log.error({ err }, 'Key phrase generation failed')
-      return reply.status(500).send({
-        error: {
-          code: 'INTERNAL_ERROR',
-          message: err instanceof Error ? err.message : 'Failed to generate key phrases',
-        },
-      })
+      throw internalError(err instanceof Error ? err.message : 'Failed to generate key phrases')
     }
   })
 }

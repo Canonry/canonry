@@ -108,3 +108,7 @@ export function agentBusy(projectName: string): AppError {
 export function missingDependency(message: string, details?: Record<string, unknown>): AppError {
   return new AppError('MISSING_DEPENDENCY', message, 422, details)
 }
+
+export function internalError(message: string, details?: Record<string, unknown>): AppError {
+  return new AppError('INTERNAL_ERROR', message, 500, details)
+}

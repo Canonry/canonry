@@ -3,6 +3,7 @@ import type { ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
 import {
   validationError,
   notImplemented,
+  internalError,
 } from '@ainyc/canonry-contracts'
 
 export interface ProviderSummaryEntry {
@@ -54,84 +55,68 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
   app.put<{
     Params: { name: string }
     Body: { apiKey?: string; baseUrl?: string; model?: string; quota?: Partial<ProviderQuotaPolicy> }
-  }>('/settings/providers/:name', async (request, reply) => {
+  }>('/settings/providers/:name', async (request) => {
     const { apiKey, baseUrl, model, quota } = request.body ?? {}
     const name = request.params.name
 
-    // Validate against registered API adapters (browser/CDP adapters are
-    // configured separately and cannot be updated through this endpoint)
     const adapters = opts.providerAdapters ?? []
     const apiAdapters = adapters.filter(a => a.mode === 'api')
     const adapterInfo = apiAdapters.find(a => a.name === name)
     if (!adapterInfo) {
       const validNames = apiAdapters.map(a => a.name)
-      const err = validationError(`Invalid provider: ${name}. Must be one of: ${validNames.join(', ')}`, {
+      throw validationError(`Invalid provider: ${name}. Must be one of: ${validNames.join(', ')}`, {
         provider: name,
         validProviders: validNames,
       })
-      return reply.status(err.statusCode).send(err.toJSON())
     }
 
-    // Local provider requires baseUrl; others require apiKey (except gemini which
-    // can be configured via Vertex AI project in config file / env vars instead)
     if (name === 'local') {
       if (!baseUrl || typeof baseUrl !== 'string') {
-        const err = validationError('baseUrl is required for local provider')
-        return reply.status(err.statusCode).send(err.toJSON())
+        throw validationError('baseUrl is required for local provider')
       }
     } else if (name === 'gemini' && !apiKey) {
-      // Gemini allows empty apiKey only when Vertex AI is already configured
       const geminiSummary = (opts.providerSummary ?? []).find(p => p.name === 'gemini')
       if (!geminiSummary?.vertexConfigured) {
-        const err = validationError(
+        throw validationError(
           'apiKey is required for Gemini unless Vertex AI is configured ' +
           '(set GEMINI_VERTEX_PROJECT env var or vertexProject in config file)',
         )
-        return reply.status(err.statusCode).send(err.toJSON())
       }
     } else {
       if (!apiKey || typeof apiKey !== 'string') {
-        const err = validationError('apiKey is required')
-        return reply.status(err.statusCode).send(err.toJSON())
+        throw validationError('apiKey is required')
       }
     }
 
     if (model !== undefined) {
       if (!adapterInfo.modelValidationPattern.test(model)) {
-        return reply.status(400).send({
-          error: { code: 'VALIDATION_ERROR', message: `Invalid model "${model}" for provider "${name}" — ${adapterInfo.modelValidationHint}` },
-        })
+        throw validationError(
+          `Invalid model "${model}" for provider "${name}" — ${adapterInfo.modelValidationHint}`,
+        )
       }
     }
 
     if (!opts.onProviderUpdate) {
-      const err = notImplemented('Provider configuration updates are not supported in this deployment')
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw notImplemented('Provider configuration updates are not supported in this deployment')
     }
 
-    // Validate quota fields if provided
     if (quota !== undefined) {
       if (typeof quota !== 'object' || quota === null) {
-        return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: 'quota must be an object' } })
+        throw validationError('quota must be an object')
       }
       for (const [key, val] of Object.entries(quota)) {
         if (!['maxConcurrency', 'maxRequestsPerMinute', 'maxRequestsPerDay'].includes(key)) {
-          return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: `Unknown quota field: ${key}` } })
+          throw validationError(`Unknown quota field: ${key}`)
         }
         if (typeof val !== 'number' || !Number.isInteger(val) || val <= 0) {
-          return reply.status(400).send({ error: { code: 'VALIDATION_ERROR', message: `${key} must be a positive integer` } })
+          throw validationError(`${key} must be a positive integer`)
         }
       }
     }
 
     const result = opts.onProviderUpdate(name, apiKey ?? '', model, baseUrl, quota)
     if (!result) {
-      return reply.status(500).send({
-        error: {
-          code: 'INTERNAL_ERROR',
-          message: 'Failed to update provider configuration',
-        },
-      })
+      throw internalError('Failed to update provider configuration')
     }
 
     return result
@@ -139,28 +124,20 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
 
   app.put<{
     Body: { clientId?: string; clientSecret?: string }
-  }>('/settings/google', async (request, reply) => {
+  }>('/settings/google', async (request) => {
     const { clientId, clientSecret } = request.body ?? {}
 
     if (!clientId || typeof clientId !== 'string' || !clientSecret || typeof clientSecret !== 'string') {
-      return reply.status(400).send({
-        error: { code: 'VALIDATION_ERROR', message: 'clientId and clientSecret are required' },
-      })
+      throw validationError('clientId and clientSecret are required')
     }
 
     if (!opts.onGoogleUpdate) {
-      const err = notImplemented('Google OAuth configuration updates are not supported in this deployment')
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw notImplemented('Google OAuth configuration updates are not supported in this deployment')
     }
 
     const result = opts.onGoogleUpdate(clientId, clientSecret)
     if (!result) {
-      return reply.status(500).send({
-        error: {
-          code: 'INTERNAL_ERROR',
-          message: 'Failed to update Google OAuth configuration',
-        },
-      })
+      throw internalError('Failed to update Google OAuth configuration')
     }
 
     return result
@@ -168,28 +145,20 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
 
   app.put<{
     Body: { apiKey?: string }
-  }>('/settings/bing', async (request, reply) => {
+  }>('/settings/bing', async (request) => {
     const { apiKey } = request.body ?? {}
 
     if (!apiKey || typeof apiKey !== 'string') {
-      return reply.status(400).send({
-        error: { code: 'VALIDATION_ERROR', message: 'apiKey is required' },
-      })
+      throw validationError('apiKey is required')
     }
 
     if (!opts.onBingUpdate) {
-      const err = notImplemented('Bing configuration updates are not supported in this deployment')
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw notImplemented('Bing configuration updates are not supported in this deployment')
     }
 
     const result = opts.onBingUpdate(apiKey)
     if (!result) {
-      return reply.status(500).send({
-        error: {
-          code: 'INTERNAL_ERROR',
-          message: 'Failed to update Bing configuration',
-        },
-      })
+      throw internalError('Failed to update Bing configuration')
     }
 
     return result

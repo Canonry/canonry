@@ -58,19 +58,15 @@ export interface BingRoutesOptions {
 }
 
 export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) {
-  function requireConnectionStore(reply: { status: (code: number) => { send: (body: unknown) => unknown } }) {
+  function requireConnectionStore(): BingConnectionStore {
     if (opts.bingConnectionStore) return opts.bingConnectionStore
-    const err = validationError('Bing connection storage is not configured for this deployment')
-    reply.status(err.statusCode).send(err.toJSON())
-    return null
+    throw validationError('Bing connection storage is not configured for this deployment')
   }
 
-  function requireConnection(store: BingConnectionStore, domain: string, reply: { status: (code: number) => { send: (body: unknown) => unknown } }) {
+  function requireConnection(store: BingConnectionStore, domain: string): BingConnectionRecord {
     const conn = store.getConnection(domain)
     if (!conn) {
-      const err = validationError('No Bing connection found for this domain. Run "canonry bing connect <project>" first.')
-      reply.status(err.statusCode).send(err.toJSON())
-      return null
+      throw validationError('No Bing connection found for this domain. Run "canonry bing connect <project>" first.')
     }
     return conn
   }
@@ -79,14 +75,12 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
   app.post<{
     Params: { name: string }
     Body: { apiKey: string }
-  }>('/projects/:name/bing/connect', async (request, reply) => {
-    const store = requireConnectionStore(reply)
-    if (!store) return
+  }>('/projects/:name/bing/connect', async (request) => {
+    const store = requireConnectionStore()
 
     const { apiKey } = request.body ?? {}
     if (!apiKey || typeof apiKey !== 'string') {
-      const err = validationError('apiKey is required')
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError('apiKey is required')
     }
 
     const project = resolveProject(app.db, request.params.name)
@@ -99,8 +93,7 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       bingLog('error', 'connect.verify-key-failed', { domain: project.canonicalDomain, error: msg })
-      const err = validationError(`Failed to verify Bing API key: ${msg}`)
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError(`Failed to verify Bing API key: ${msg}`)
     }
 
     const now = new Date().toISOString()
@@ -131,14 +124,12 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
 
   // DELETE /projects/:name/bing/disconnect
   app.delete<{ Params: { name: string } }>('/projects/:name/bing/disconnect', async (request, reply) => {
-    const store = requireConnectionStore(reply)
-    if (!store) return
+    const store = requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
     const deleted = store.deleteConnection(project.canonicalDomain)
     if (!deleted) {
-      const err = notFound('Bing connection', project.canonicalDomain)
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw notFound('Bing connection', project.canonicalDomain)
     }
 
     writeAuditLog(app.db, {
@@ -153,9 +144,8 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
   })
 
   // GET /projects/:name/bing/status
-  app.get<{ Params: { name: string } }>('/projects/:name/bing/status', async (request, reply) => {
-    const store = requireConnectionStore(reply)
-    if (!store) return
+  app.get<{ Params: { name: string } }>('/projects/:name/bing/status', async (request) => {
+    const store = requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
     const conn = store.getConnection(project.canonicalDomain)
@@ -170,13 +160,11 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
   })
 
   // GET /projects/:name/bing/sites
-  app.get<{ Params: { name: string } }>('/projects/:name/bing/sites', async (request, reply) => {
-    const store = requireConnectionStore(reply)
-    if (!store) return
+  app.get<{ Params: { name: string } }>('/projects/:name/bing/sites', async (request) => {
+    const store = requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
-    const conn = requireConnection(store, project.canonicalDomain, reply)
-    if (!conn) return
+    const conn = requireConnection(store, project.canonicalDomain)
 
     const sites = await getSites(conn.apiKey)
     return { sites: sites.map((s) => ({ url: s.Url, verified: s.Verified ?? false })) }
@@ -186,18 +174,15 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
   app.post<{
     Params: { name: string }
     Body: { siteUrl: string }
-  }>('/projects/:name/bing/set-site', async (request, reply) => {
-    const store = requireConnectionStore(reply)
-    if (!store) return
+  }>('/projects/:name/bing/set-site', async (request) => {
+    const store = requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
-    const conn = requireConnection(store, project.canonicalDomain, reply)
-    if (!conn) return
+    requireConnection(store, project.canonicalDomain)
 
     const { siteUrl } = request.body ?? {}
     if (!siteUrl || typeof siteUrl !== 'string') {
-      const err = validationError('siteUrl is required')
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError('siteUrl is required')
     }
 
     store.updateConnection(project.canonicalDomain, {
@@ -209,13 +194,11 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
   })
 
   // GET /projects/:name/bing/coverage
-  app.get<{ Params: { name: string } }>('/projects/:name/bing/coverage', async (request, reply) => {
-    const store = requireConnectionStore(reply)
-    if (!store) return
+  app.get<{ Params: { name: string } }>('/projects/:name/bing/coverage', async (request) => {
+    const store = requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
-    const conn = requireConnection(store, project.canonicalDomain, reply)
-    if (!conn) return
+    requireConnection(store, project.canonicalDomain)
 
     // Get latest inspection per URL
     const allInspections = app.db
@@ -325,9 +308,8 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
   app.get<{
     Params: { name: string }
     Querystring: { limit?: string }
-  }>('/projects/:name/bing/coverage/history', async (request, reply) => {
-    const store = requireConnectionStore(reply)
-    if (!store) return
+  }>('/projects/:name/bing/coverage/history', async (request) => {
+    requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
     const parsed = parseInt(request.query.limit ?? '90', 10)
@@ -353,9 +335,8 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
   app.get<{
     Params: { name: string }
     Querystring: { url?: string; limit?: string }
-  }>('/projects/:name/bing/inspections', async (request, reply) => {
-    const store = requireConnectionStore(reply)
-    if (!store) return
+  }>('/projects/:name/bing/inspections', async (request) => {
+    requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
     const { url, limit } = request.query
@@ -390,23 +371,19 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
   app.post<{
     Params: { name: string }
     Body: { url: string }
-  }>('/projects/:name/bing/inspect-url', async (request, reply) => {
-    const store = requireConnectionStore(reply)
-    if (!store) return
+  }>('/projects/:name/bing/inspect-url', async (request) => {
+    const store = requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
-    const conn = requireConnection(store, project.canonicalDomain, reply)
-    if (!conn) return
+    const conn = requireConnection(store, project.canonicalDomain)
 
     if (!conn.siteUrl) {
-      const err = validationError('No Bing site configured. Run "canonry bing set-site <project> <url>" first.')
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError('No Bing site configured. Run "canonry bing set-site <project> <url>" first.')
     }
 
     const { url } = request.body ?? {}
     if (!url) {
-      const err = validationError('url is required')
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError('url is required')
     }
 
     const startedAt = new Date().toISOString()
@@ -500,17 +477,14 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
   app.post<{
     Params: { name: string }
     Body: { urls?: string[]; allUnindexed?: boolean }
-  }>('/projects/:name/bing/request-indexing', async (request, reply) => {
-    const store = requireConnectionStore(reply)
-    if (!store) return
+  }>('/projects/:name/bing/request-indexing', async (request) => {
+    const store = requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
-    const conn = requireConnection(store, project.canonicalDomain, reply)
-    if (!conn) return
+    const conn = requireConnection(store, project.canonicalDomain)
 
     if (!conn.siteUrl) {
-      const err = validationError('No Bing site configured. Run "canonry bing set-site <project> <url>" first.')
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError('No Bing site configured. Run "canonry bing set-site <project> <url>" first.')
     }
 
     let urlsToSubmit: string[] = request.body?.urls ?? []
@@ -538,21 +512,18 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       }
 
       if (unindexedUrls.length === 0) {
-        const err = validationError('No unindexed or unknown URLs found. Run "canonry bing inspect <project> <url>" first.')
-        return reply.status(err.statusCode).send(err.toJSON())
+        throw validationError('No unindexed or unknown URLs found. Run "canonry bing inspect <project> <url>" first.')
       }
 
       urlsToSubmit = unindexedUrls
     }
 
     if (urlsToSubmit.length === 0) {
-      const err = validationError('At least one URL is required (or use allUnindexed: true)')
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError('At least one URL is required (or use allUnindexed: true)')
     }
 
     if (urlsToSubmit.length > BING_SUBMIT_URL_DAILY_LIMIT) {
-      const err = validationError(`Cannot submit more than ${BING_SUBMIT_URL_DAILY_LIMIT} URLs per day (got ${urlsToSubmit.length})`)
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError(`Cannot submit more than ${BING_SUBMIT_URL_DAILY_LIMIT} URLs per day (got ${urlsToSubmit.length})`)
     }
 
     const results: Array<{
@@ -613,17 +584,14 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
   app.get<{
     Params: { name: string }
     Querystring: { limit?: string }
-  }>('/projects/:name/bing/performance', async (request, reply) => {
-    const store = requireConnectionStore(reply)
-    if (!store) return
+  }>('/projects/:name/bing/performance', async (request) => {
+    const store = requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
-    const conn = requireConnection(store, project.canonicalDomain, reply)
-    if (!conn) return
+    const conn = requireConnection(store, project.canonicalDomain)
 
     if (!conn.siteUrl) {
-      const err = validationError('No Bing site configured. Run "canonry bing set-site <project> <url>" first.')
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError('No Bing site configured. Run "canonry bing set-site <project> <url>" first.')
     }
 
     const stats = await getKeywordStats(conn.apiKey, conn.siteUrl)

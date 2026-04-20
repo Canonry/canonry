@@ -46,7 +46,7 @@ function parseCookies(header: string | undefined): Record<string, string> {
 }
 
 export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions = {}) {
-  app.addHook('onRequest', async (request, reply) => {
+  app.addHook('onRequest', async (request) => {
     const url = request.url.split('?')[0]!
     if (shouldSkipAuth(url)) return
 
@@ -56,8 +56,7 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
     if (header) {
       const parts = header.split(' ')
       if (parts.length !== 2 || parts[0] !== 'Bearer') {
-        const err = authRequired()
-        return reply.status(err.statusCode).send(err.toJSON())
+        throw authRequired()
       }
 
       const token = parts[1]!
@@ -70,8 +69,7 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
         .get()
 
       if (!key || key.revokedAt) {
-        const err = authInvalid()
-        return reply.status(err.statusCode).send(err.toJSON())
+        throw authInvalid()
       }
     } else if (opts.resolveSessionApiKeyId && opts.sessionCookieName) {
       const sessionId = parseCookies(request.headers.cookie)[opts.sessionCookieName]
@@ -87,12 +85,10 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
       }
 
       if (!key || key.revokedAt) {
-        const err = authRequired()
-        return reply.status(err.statusCode).send(err.toJSON())
+        throw authRequired()
       }
     } else {
-      const err = authRequired()
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw authRequired()
     }
 
     app.db

@@ -97,6 +97,33 @@ class ProviderExecutionGate {
   }
 }
 
+export async function runWithConcurrency<T>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  if (items.length === 0) return
+  const cap = Math.max(1, Math.min(limit, items.length))
+  let cursor = 0
+  const next = async (): Promise<void> => {
+    while (true) {
+      const idx = cursor++
+      if (idx >= items.length) return
+      await worker(items[idx]!)
+    }
+  }
+  await Promise.all(Array.from({ length: cap }, next))
+}
+
+const PROVIDER_FANOUT_DEFAULT = 8
+
+function resolveProviderFanout(): number {
+  const raw = process.env.CANONRY_PROVIDER_FANOUT
+  if (!raw) return PROVIDER_FANOUT_DEFAULT
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : PROVIDER_FANOUT_DEFAULT
+}
+
 type RunExecutionContext = {
   providerCount: number
   providers: ProviderName[]
@@ -390,11 +417,11 @@ export class JobRunner {
         }
       }
 
-      await Promise.all(apiProviders.map(async (registeredProvider) => {
+      await runWithConcurrency(apiProviders, resolveProviderFanout(), async (registeredProvider) => {
         await Promise.all(projectKeywords.map(async (kw) => {
           await processKeywordForProvider(registeredProvider, kw)
         }))
-      }))
+      })
 
       // Browser providers still run keyword-by-keyword to preserve tab reuse semantics.
       for (const registeredProvider of browserProviders) {

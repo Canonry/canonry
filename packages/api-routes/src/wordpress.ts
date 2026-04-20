@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyReply } from 'fastify'
+import type { FastifyInstance } from 'fastify'
 import { AppError, notFound, providerError, validationError } from '@ainyc/canonry-contracts'
 import type { WordpressEnv } from '@ainyc/canonry-contracts'
 import {
@@ -53,63 +53,40 @@ function parseEnvInput(
   return env
 }
 
-function sendWordpressError(reply: FastifyReply, error: unknown): boolean {
-  if (!(error instanceof WordpressApiError)) return false
-
-  let appError: AppError
+function toAppError(error: WordpressApiError): AppError {
   switch (error.code) {
     case 'AUTH_INVALID':
-      appError = new AppError('AUTH_INVALID', error.message, error.statusCode)
-      break
+      return new AppError('AUTH_INVALID', error.message, error.statusCode)
     case 'NOT_FOUND':
-      appError = new AppError('NOT_FOUND', error.message, error.statusCode)
-      break
-    case 'UPSTREAM_ERROR':
-      appError = providerError(error.message, { statusCode: error.statusCode })
-      break
+      return new AppError('NOT_FOUND', error.message, error.statusCode)
     case 'UNSUPPORTED':
     case 'VALIDATION_ERROR':
-      appError = validationError(error.message)
-      break
+      return validationError(error.message)
+    case 'UPSTREAM_ERROR':
     default:
-      appError = providerError(error.message, { statusCode: error.statusCode })
-      break
+      return providerError(error.message, { statusCode: error.statusCode })
   }
-
-  reply.status(appError.statusCode).send(appError.toJSON())
-  return true
 }
 
-async function withWordpressErrorHandling<T>(
-  reply: FastifyReply,
-  handler: () => Promise<T>,
-): Promise<T | void> {
+async function withWordpressErrorHandling<T>(handler: () => Promise<T>): Promise<T> {
   try {
     return await handler()
   } catch (error) {
-    if (sendWordpressError(reply, error)) return
+    if (error instanceof WordpressApiError) throw toAppError(error)
     throw error
   }
 }
 
 export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoutesOptions) {
-  function requireStore(reply: { status: (code: number) => { send: (body: unknown) => unknown } }) {
+  function requireStore(): WordpressConnectionStore {
     if (opts.wordpressConnectionStore) return opts.wordpressConnectionStore
-    const err = validationError('WordPress connection storage is not configured for this deployment')
-    reply.status(err.statusCode).send(err.toJSON())
-    return null
+    throw validationError('WordPress connection storage is not configured for this deployment')
   }
 
-  function requireConnection(
-    store: WordpressConnectionStore,
-    projectName: string,
-    reply: { status: (code: number) => { send: (body: unknown) => unknown } },
-  ) {
+  function requireConnection(store: WordpressConnectionStore, projectName: string): WordpressConnectionRecord {
     const connection = store.getConnection(projectName)
     if (!connection) {
-      const err = validationError(`No WordPress connection found for project "${projectName}". Run "canonry wordpress connect ${projectName}" first.`)
-      reply.status(err.statusCode).send(err.toJSON())
-      return null
+      throw validationError(`No WordPress connection found for project "${projectName}". Run "canonry wordpress connect ${projectName}" first.`)
     }
     return connection
   }
@@ -123,23 +100,20 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
       appPassword: string
       defaultEnv?: WordpressEnv
     }
-  }>('/projects/:name/wordpress/connect', async (request, reply) => {
-    return withWordpressErrorHandling(reply, async () => {
-      const store = requireStore(reply)
-      if (!store) return
+  }>('/projects/:name/wordpress/connect', async (request) => {
+    return withWordpressErrorHandling(async () => {
+      const store = requireStore()
 
       const project = resolveProject(app.db, request.params.name)
       const { url, stagingUrl, username, appPassword } = request.body ?? {}
       if (!url || !username || !appPassword) {
-        const err = validationError('url, username, and appPassword are required')
-        return reply.status(err.statusCode).send(err.toJSON())
+        throw validationError('url, username, and appPassword are required')
       }
 
       const defaultEnv = parseEnvInput(request.body?.defaultEnv, 'defaultEnv')
         ?? (stagingUrl ? 'staging' : 'live')
       if (defaultEnv === 'staging' && !stagingUrl) {
-        const err = validationError('defaultEnv "staging" requires stagingUrl')
-        return reply.status(err.statusCode).send(err.toJSON())
+        throw validationError('defaultEnv "staging" requires stagingUrl')
       }
 
       const now = new Date().toISOString()
@@ -180,14 +154,12 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
   })
 
   app.delete<{ Params: { name: string } }>('/projects/:name/wordpress/disconnect', async (request, reply) => {
-    const store = requireStore(reply)
-    if (!store) return
+    const store = requireStore()
 
     const project = resolveProject(app.db, request.params.name)
     const deleted = store.deleteConnection(project.name)
     if (!deleted) {
-      const err = notFound('WordPress connection', project.name)
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw notFound('WordPress connection', project.name)
     }
 
     writeAuditLog(app.db, {
@@ -230,13 +202,11 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
   app.get<{
     Params: { name: string }
     Querystring: { env?: string }
-  }>('/projects/:name/wordpress/pages', async (request, reply) => {
-    return withWordpressErrorHandling(reply, async () => {
-      const store = requireStore(reply)
-      if (!store) return
+  }>('/projects/:name/wordpress/pages', async (request) => {
+    return withWordpressErrorHandling(async () => {
+      const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
-      const connection = requireConnection(store, project.name, reply)
-      if (!connection) return
+      const connection = requireConnection(store, project.name)
       const env = parseEnvInput(request.query?.env)
       return {
         env: env ?? connection.defaultEnv,
@@ -248,17 +218,14 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
   app.get<{
     Params: { name: string }
     Querystring: { slug?: string; env?: string }
-  }>('/projects/:name/wordpress/page', async (request, reply) => {
-    return withWordpressErrorHandling(reply, async () => {
-      const store = requireStore(reply)
-      if (!store) return
+  }>('/projects/:name/wordpress/page', async (request) => {
+    return withWordpressErrorHandling(async () => {
+      const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
-      const connection = requireConnection(store, project.name, reply)
-      if (!connection) return
+      const connection = requireConnection(store, project.name)
       const slug = request.query?.slug?.trim()
       if (!slug) {
-        const err = validationError('slug is required')
-        return reply.status(err.statusCode).send(err.toJSON())
+        throw validationError('slug is required')
       }
       const env = parseEnvInput(request.query?.env)
       return getPageDetail(connection, slug, env)
@@ -268,18 +235,15 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
   app.post<{
     Params: { name: string }
     Body: { title: string; slug: string; content: string; status?: string; env?: WordpressEnv }
-  }>('/projects/:name/wordpress/pages', async (request, reply) => {
-    return withWordpressErrorHandling(reply, async () => {
-      const store = requireStore(reply)
-      if (!store) return
+  }>('/projects/:name/wordpress/pages', async (request) => {
+    return withWordpressErrorHandling(async () => {
+      const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
-      const connection = requireConnection(store, project.name, reply)
-      if (!connection) return
+      const connection = requireConnection(store, project.name)
       const { title, slug, content, status } = request.body ?? {}
       const env = parseEnvInput(request.body?.env)
       if (!title || !slug || !content) {
-        const err = validationError('title, slug, and content are required')
-        return reply.status(err.statusCode).send(err.toJSON())
+        throw validationError('title, slug, and content are required')
       }
       const created = await createPage(connection, { title, slug, content, status }, env)
       writeAuditLog(app.db, {
@@ -296,17 +260,14 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
   app.put<{
     Params: { name: string }
     Body: { currentSlug: string; title?: string; slug?: string; content?: string; status?: string; env?: WordpressEnv }
-  }>('/projects/:name/wordpress/page', async (request, reply) => {
-    return withWordpressErrorHandling(reply, async () => {
-      const store = requireStore(reply)
-      if (!store) return
+  }>('/projects/:name/wordpress/page', async (request) => {
+    return withWordpressErrorHandling(async () => {
+      const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
-      const connection = requireConnection(store, project.name, reply)
-      if (!connection) return
+      const connection = requireConnection(store, project.name)
       const currentSlug = request.body?.currentSlug?.trim()
       if (!currentSlug) {
-        const err = validationError('currentSlug is required')
-        return reply.status(err.statusCode).send(err.toJSON())
+        throw validationError('currentSlug is required')
       }
       const env = parseEnvInput(request.body?.env)
       const updated = await updatePageBySlug(connection, currentSlug, {
@@ -329,17 +290,14 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
   app.post<{
     Params: { name: string }
     Body: { slug: string; title?: string; description?: string; noindex?: boolean; env?: WordpressEnv }
-  }>('/projects/:name/wordpress/page/meta', async (request, reply) => {
-    return withWordpressErrorHandling(reply, async () => {
-      const store = requireStore(reply)
-      if (!store) return
+  }>('/projects/:name/wordpress/page/meta', async (request) => {
+    return withWordpressErrorHandling(async () => {
+      const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
-      const connection = requireConnection(store, project.name, reply)
-      if (!connection) return
+      const connection = requireConnection(store, project.name)
       const slug = request.body?.slug?.trim()
       if (!slug) {
-        const err = validationError('slug is required')
-        return reply.status(err.statusCode).send(err.toJSON())
+        throw validationError('slug is required')
       }
       const env = parseEnvInput(request.body?.env)
       const updated = await setSeoMeta(connection, slug, {
@@ -364,22 +322,18 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
       entries: Array<{ slug: string; title?: string; description?: string; noindex?: boolean }>
       env?: WordpressEnv
     }
-  }>('/projects/:name/wordpress/pages/meta/bulk', async (request, reply) => {
-    return withWordpressErrorHandling(reply, async () => {
-      const store = requireStore(reply)
-      if (!store) return
+  }>('/projects/:name/wordpress/pages/meta/bulk', async (request) => {
+    return withWordpressErrorHandling(async () => {
+      const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
-      const connection = requireConnection(store, project.name, reply)
-      if (!connection) return
+      const connection = requireConnection(store, project.name)
       const entries = request.body?.entries
       if (!Array.isArray(entries) || entries.length === 0) {
-        const err = validationError('entries array is required and must not be empty')
-        return reply.status(err.statusCode).send(err.toJSON())
+        throw validationError('entries array is required and must not be empty')
       }
       for (const entry of entries) {
         if (!entry.slug?.trim()) {
-          const err = validationError('each entry must have a slug')
-          return reply.status(err.statusCode).send(err.toJSON())
+          throw validationError('each entry must have a slug')
         }
       }
       const env = parseEnvInput(request.body?.env)
@@ -401,17 +355,14 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
   app.get<{
     Params: { name: string }
     Querystring: { slug?: string; env?: string }
-  }>('/projects/:name/wordpress/schema', async (request, reply) => {
-    return withWordpressErrorHandling(reply, async () => {
-      const store = requireStore(reply)
-      if (!store) return
+  }>('/projects/:name/wordpress/schema', async (request) => {
+    return withWordpressErrorHandling(async () => {
+      const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
-      const connection = requireConnection(store, project.name, reply)
-      if (!connection) return
+      const connection = requireConnection(store, project.name)
       const slug = request.query?.slug?.trim()
       if (!slug) {
-        const err = validationError('slug is required')
-        return reply.status(err.statusCode).send(err.toJSON())
+        throw validationError('slug is required')
       }
       const env = parseEnvInput(request.query?.env)
       return getPageSchema(connection, slug, env)
@@ -421,18 +372,15 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
   app.post<{
     Params: { name: string }
     Body: { slug: string; type?: string; json: string; env?: WordpressEnv }
-  }>('/projects/:name/wordpress/schema/manual', async (request, reply) => {
-    return withWordpressErrorHandling(reply, async () => {
-      const store = requireStore(reply)
-      if (!store) return
+  }>('/projects/:name/wordpress/schema/manual', async (request) => {
+    return withWordpressErrorHandling(async () => {
+      const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
-      const connection = requireConnection(store, project.name, reply)
-      if (!connection) return
+      const connection = requireConnection(store, project.name)
       const slug = request.body?.slug?.trim()
       const json = request.body?.json
       if (!slug || !json) {
-        const err = validationError('slug and json are required')
-        return reply.status(err.statusCode).send(err.toJSON())
+        throw validationError('slug and json are required')
       }
       const env = parseEnvInput(request.body?.env)
       return buildManualSchemaUpdate(connection, slug, { type: request.body?.type, json }, env)
@@ -442,17 +390,14 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
   app.post<{
     Params: { name: string }
     Body: { profile: SchemaProfileFile; env?: WordpressEnv }
-  }>('/projects/:name/wordpress/schema/deploy', async (request, reply) => {
-    return withWordpressErrorHandling(reply, async () => {
-      const store = requireStore(reply)
-      if (!store) return
+  }>('/projects/:name/wordpress/schema/deploy', async (request) => {
+    return withWordpressErrorHandling(async () => {
+      const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
-      const connection = requireConnection(store, project.name, reply)
-      if (!connection) return
+      const connection = requireConnection(store, project.name)
       const profile = request.body?.profile
       if (!profile?.business?.name || !profile?.pages || Object.keys(profile.pages).length === 0) {
-        const err = validationError('profile with business.name and non-empty pages is required')
-        return reply.status(err.statusCode).send(err.toJSON())
+        throw validationError('profile with business.name and non-empty pages is required')
       }
       const env = parseEnvInput(request.body?.env)
       return deploySchemaFromProfile(connection, profile, env)
@@ -462,13 +407,11 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
   app.get<{
     Params: { name: string }
     Querystring: { env?: string }
-  }>('/projects/:name/wordpress/schema/status', async (request, reply) => {
-    return withWordpressErrorHandling(reply, async () => {
-      const store = requireStore(reply)
-      if (!store) return
+  }>('/projects/:name/wordpress/schema/status', async (request) => {
+    return withWordpressErrorHandling(async () => {
+      const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
-      const connection = requireConnection(store, project.name, reply)
-      if (!connection) return
+      const connection = requireConnection(store, project.name)
       const env = parseEnvInput(request.query?.env)
       return getSchemaStatus(connection, env)
     })
@@ -477,13 +420,11 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
   app.get<{
     Params: { name: string }
     Querystring: { env?: string }
-  }>('/projects/:name/wordpress/llms-txt', async (request, reply) => {
-    return withWordpressErrorHandling(reply, async () => {
-      const store = requireStore(reply)
-      if (!store) return
+  }>('/projects/:name/wordpress/llms-txt', async (request) => {
+    return withWordpressErrorHandling(async () => {
+      const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
-      const connection = requireConnection(store, project.name, reply)
-      if (!connection) return
+      const connection = requireConnection(store, project.name)
       const env = parseEnvInput(request.query?.env)
       return getLlmsTxt(connection, env)
     })
@@ -492,17 +433,14 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
   app.post<{
     Params: { name: string }
     Body: { content: string; env?: WordpressEnv }
-  }>('/projects/:name/wordpress/llms-txt/manual', async (request, reply) => {
-    return withWordpressErrorHandling(reply, async () => {
-      const store = requireStore(reply)
-      if (!store) return
+  }>('/projects/:name/wordpress/llms-txt/manual', async (request) => {
+    return withWordpressErrorHandling(async () => {
+      const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
-      const connection = requireConnection(store, project.name, reply)
-      if (!connection) return
+      const connection = requireConnection(store, project.name)
       const content = request.body?.content
       if (!content) {
-        const err = validationError('content is required')
-        return reply.status(err.statusCode).send(err.toJSON())
+        throw validationError('content is required')
       }
       const env = parseEnvInput(request.body?.env)
       return buildManualLlmsTxtUpdate(connection, content, env)
@@ -512,41 +450,34 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
   app.get<{
     Params: { name: string }
     Querystring: { env?: string }
-  }>('/projects/:name/wordpress/audit', async (request, reply) => {
-    return withWordpressErrorHandling(reply, async () => {
-      const store = requireStore(reply)
-      if (!store) return
+  }>('/projects/:name/wordpress/audit', async (request) => {
+    return withWordpressErrorHandling(async () => {
+      const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
-      const connection = requireConnection(store, project.name, reply)
-      if (!connection) return
+      const connection = requireConnection(store, project.name)
       const env = parseEnvInput(request.query?.env)
       return runAudit(connection, env)
     })
   })
 
-  app.get<{ Params: { name: string }; Querystring: { slug?: string } }>('/projects/:name/wordpress/diff', async (request, reply) => {
-    return withWordpressErrorHandling(reply, async () => {
-      const store = requireStore(reply)
-      if (!store) return
+  app.get<{ Params: { name: string }; Querystring: { slug?: string } }>('/projects/:name/wordpress/diff', async (request) => {
+    return withWordpressErrorHandling(async () => {
+      const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
-      const connection = requireConnection(store, project.name, reply)
-      if (!connection) return
+      const connection = requireConnection(store, project.name)
       const slug = request.query?.slug?.trim()
       if (!slug) {
-        const err = validationError('slug is required')
-        return reply.status(err.statusCode).send(err.toJSON())
+        throw validationError('slug is required')
       }
       return diffPageAcrossEnvironments(connection, slug)
     })
   })
 
-  app.get<{ Params: { name: string } }>('/projects/:name/wordpress/staging/status', async (request, reply) => {
-    return withWordpressErrorHandling(reply, async () => {
-      const store = requireStore(reply)
-      if (!store) return
+  app.get<{ Params: { name: string } }>('/projects/:name/wordpress/staging/status', async (request) => {
+    return withWordpressErrorHandling(async () => {
+      const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
-      const connection = requireConnection(store, project.name, reply)
-      if (!connection) return
+      const connection = requireConnection(store, project.name)
 
       const plugins = await listActivePlugins(connection, 'live')
       return {
@@ -558,16 +489,13 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
     })
   })
 
-  app.post<{ Params: { name: string } }>('/projects/:name/wordpress/staging/push', async (request, reply) => {
-    return withWordpressErrorHandling(reply, async () => {
-      const store = requireStore(reply)
-      if (!store) return
+  app.post<{ Params: { name: string } }>('/projects/:name/wordpress/staging/push', async (request) => {
+    return withWordpressErrorHandling(async () => {
+      const store = requireStore()
       const project = resolveProject(app.db, request.params.name)
-      const connection = requireConnection(store, project.name, reply)
-      if (!connection) return
+      const connection = requireConnection(store, project.name)
       if (!connection.stagingUrl) {
-        const err = validationError('No staging URL configured for this project. Reconnect with --staging-url before using staging push.')
-        return reply.status(err.statusCode).send(err.toJSON())
+        throw validationError('No staging URL configured for this project. Reconnect with --staging-url before using staging push.')
       }
       return buildManualStagingPush(connection)
     })
@@ -586,25 +514,22 @@ export async function wordpressRoutes(app: FastifyInstance, opts: WordpressRoute
       skipSchema?: boolean
       skipSubmit?: boolean
     }
-  }>('/projects/:name/wordpress/onboard', async (request, reply) => {
-    return withWordpressErrorHandling(reply, async () => {
-    const store = requireStore(reply)
-    if (!store) return
+  }>('/projects/:name/wordpress/onboard', async (request) => {
+    return withWordpressErrorHandling(async () => {
+    const store = requireStore()
 
     const project = resolveProject(app.db, request.params.name)
     const { url, username, appPassword, stagingUrl, profile, skipSchema, skipSubmit } = request.body ?? {}
 
     if (!url || !username || !appPassword) {
-      const err = validationError('url, username, and appPassword are required')
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError('url, username, and appPassword are required')
     }
 
     const defaultEnv = parseEnvInput(request.body?.defaultEnv, 'defaultEnv')
       ?? (stagingUrl ? 'staging' : 'live')
 
     if (defaultEnv === 'staging' && !stagingUrl) {
-      const err = validationError('defaultEnv "staging" requires stagingUrl')
-      return reply.status(err.statusCode).send(err.toJSON())
+      throw validationError('defaultEnv "staging" requires stagingUrl')
     }
 
     type StepResult = { name: string; status: 'completed' | 'skipped' | 'failed'; summary?: string; error?: string }
