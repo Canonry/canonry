@@ -16,8 +16,10 @@ export interface BingUrlInfo {
   HttpStatus?: number
   TotalChildUrlCount?: number
   // Legacy/undocumented fields observed in older integrations. Keep as fallbacks.
+  // Note: `InIndex` was retired from the public UrlInfo contract — Microsoft's
+  // current schema (https://learn.microsoft.com/en-us/dotnet/api/microsoft.bing.webmaster.api.interfaces.urlinfo)
+  // lists only the eight crawl-related properties above.
   HttpCode?: number
-  InIndex?: boolean
   InIndexDate?: string
   CacheDate?: string
 }

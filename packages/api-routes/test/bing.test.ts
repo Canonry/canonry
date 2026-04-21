@@ -7,7 +7,7 @@ import { eq } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
 import { bingUrlInspections, bingCoverageSnapshots, createClient, migrate, projects, runs } from '@ainyc/canonry-db'
-import { bingRoutes } from '../src/bing.js'
+import { bingRoutes, __resetBingCrawlIssuesCacheForTest } from '../src/bing.js'
 import type { BingConnectionRecord, BingConnectionStore } from '../src/bing.js'
 
 function buildApp() {
@@ -77,10 +77,11 @@ describe('Bing routes', () => {
     }).run()
   })
 
-  beforeEach(() => {
+  beforeEach(async () => {
     db.delete(bingUrlInspections).run()
     db.delete(bingCoverageSnapshots).run()
     connections.clear()
+    __resetBingCrawlIssuesCacheForTest()
 
     const now = new Date().toISOString()
     connections.set('example.com', {
@@ -90,6 +91,10 @@ describe('Bing routes', () => {
       createdAt: now,
       updatedAt: now,
     })
+
+    // Default: no crawl issues. Individual tests override with mockResolvedValue.
+    const bingModule = await import('@ainyc/canonry-integration-bing')
+    vi.spyOn(bingModule, 'getCrawlIssues').mockResolvedValue([])
   })
 
   afterEach(() => {
@@ -101,14 +106,13 @@ describe('Bing routes', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('maps HttpStatus into httpCode and keeps zero-byte DocumentSize as unknown', async () => {
+  it('maps HttpStatus into httpCode and leaves inIndex null when Bing returns no crawl or discovery signals', async () => {
     const bingModule = await import('@ainyc/canonry-integration-bing')
     vi.spyOn(bingModule, 'getUrlInfo').mockResolvedValue({
       Url: 'https://example.com/page',
       HttpStatus: 200,
       DocumentSize: 0,
       IsPage: true,
-      LastCrawledDate: '2026-03-15T10:00:00Z',
     })
 
     const res = await app.inject({
@@ -144,7 +148,7 @@ describe('Bing routes', () => {
     expect(rows[0]!.syncRunId).toBe(inspectRuns[0]!.id)
   })
 
-  it('derives indexed=true only from positive DocumentSize', async () => {
+  it('derives indexed=true from positive DocumentSize', async () => {
     const bingModule = await import('@ainyc/canonry-integration-bing')
     vi.spyOn(bingModule, 'getUrlInfo').mockResolvedValue({
       Url: 'https://example.com/indexed',
@@ -165,6 +169,171 @@ describe('Bing routes', () => {
     const body = res.json() as { inIndex: boolean | null; httpCode: number | null }
     expect(body.httpCode).toBe(200)
     expect(body.inIndex).toBe(true)
+  })
+
+  it('derives indexed=true from LastCrawledDate when DocumentSize=0 and HttpStatus is missing/zero', async () => {
+    // Regression for issue #342: Bing's modern GetUrlInfo often returns
+    // DocumentSize=0 and an absent or zero HttpStatus for URLs that are clearly
+    // indexed in the Bing UI, as long as LastCrawledDate/DiscoveryDate are set.
+    const lastCrawledMs = new Date('2026-03-12T17:37:29Z').getTime()
+    const discoveryMs = new Date('2026-03-12T07:00:00Z').getTime()
+    const bingModule = await import('@ainyc/canonry-integration-bing')
+    vi.spyOn(bingModule, 'getUrlInfo').mockResolvedValue({
+      Url: 'https://example.com/indexed-zero-size',
+      HttpStatus: 0,
+      DocumentSize: 0,
+      LastCrawledDate: `/Date(${lastCrawledMs})/`,
+      DiscoveryDate: `/Date(${discoveryMs})/`,
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects/test-project/bing/inspect-url',
+      payload: { url: 'https://example.com/indexed-zero-size' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as {
+      inIndex: boolean | null
+      httpCode: number | null
+      lastCrawledDate: string | null
+    }
+    expect(body.httpCode).toBe(0)
+    expect(body.inIndex).toBe(true)
+    expect(body.lastCrawledDate).toBe('2026-03-12T17:37:29.000Z')
+  })
+
+  it('derives indexed=false when a crawled URL returned a 4xx HttpStatus', async () => {
+    const lastCrawledMs = new Date('2026-03-20T10:00:00Z').getTime()
+    const bingModule = await import('@ainyc/canonry-integration-bing')
+    vi.spyOn(bingModule, 'getUrlInfo').mockResolvedValue({
+      Url: 'https://example.com/broken',
+      HttpStatus: 404,
+      DocumentSize: 0,
+      LastCrawledDate: `/Date(${lastCrawledMs})/`,
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects/test-project/bing/inspect-url',
+      payload: { url: 'https://example.com/broken' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { inIndex: boolean | null; httpCode: number | null }
+    expect(body.httpCode).toBe(404)
+    expect(body.inIndex).toBe(false)
+  })
+
+  it('derives indexed=false when Bing has discovered a URL but not yet crawled it', async () => {
+    const discoveryMs = new Date('2026-03-18T07:00:00Z').getTime()
+    const bingModule = await import('@ainyc/canonry-integration-bing')
+    vi.spyOn(bingModule, 'getUrlInfo').mockResolvedValue({
+      Url: 'https://example.com/discovered-only',
+      HttpStatus: 0,
+      DocumentSize: 0,
+      DiscoveryDate: `/Date(${discoveryMs})/`,
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects/test-project/bing/inspect-url',
+      payload: { url: 'https://example.com/discovered-only' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { inIndex: boolean | null; lastCrawledDate: string | null; discoveryDate: string | null }
+    expect(body.inIndex).toBe(false)
+    expect(body.lastCrawledDate).toBeNull()
+    expect(body.discoveryDate).toBe('2026-03-18T07:00:00.000Z')
+  })
+
+  it('demotes an indexed URL to not-indexed when GetCrawlIssues flags a blocking issue', async () => {
+    const lastCrawledMs = new Date('2026-03-20T10:00:00Z').getTime()
+    const bingModule = await import('@ainyc/canonry-integration-bing')
+    vi.spyOn(bingModule, 'getUrlInfo').mockResolvedValue({
+      Url: 'https://example.com/blocked',
+      HttpStatus: 200,
+      DocumentSize: 2048,
+      LastCrawledDate: `/Date(${lastCrawledMs})/`,
+    })
+    vi.spyOn(bingModule, 'getCrawlIssues').mockResolvedValue([
+      { Url: 'https://example.com/blocked', HttpCode: 200, Date: '2026-03-20', IssueType: 'Blocked' },
+    ])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects/test-project/bing/inspect-url',
+      payload: { url: 'https://example.com/blocked' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { inIndex: boolean | null }
+    expect(body.inIndex).toBe(false)
+  })
+
+  it('keeps indexed classification when GetCrawlIssues only flags SEO-only concerns', async () => {
+    const lastCrawledMs = new Date('2026-03-20T10:00:00Z').getTime()
+    const bingModule = await import('@ainyc/canonry-integration-bing')
+    vi.spyOn(bingModule, 'getUrlInfo').mockResolvedValue({
+      Url: 'https://example.com/seo-warn',
+      HttpStatus: 200,
+      DocumentSize: 2048,
+      LastCrawledDate: `/Date(${lastCrawledMs})/`,
+    })
+    vi.spyOn(bingModule, 'getCrawlIssues').mockResolvedValue([
+      { Url: 'https://example.com/seo-warn', HttpCode: 200, Date: '2026-03-20', IssueType: 'SeoIssues' },
+    ])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects/test-project/bing/inspect-url',
+      payload: { url: 'https://example.com/seo-warn' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { inIndex: boolean | null }
+    expect(body.inIndex).toBe(true)
+  })
+
+  it('keeps indexed classification when GetCrawlIssues lookup fails', async () => {
+    const lastCrawledMs = new Date('2026-03-20T10:00:00Z').getTime()
+    const bingModule = await import('@ainyc/canonry-integration-bing')
+    vi.spyOn(bingModule, 'getUrlInfo').mockResolvedValue({
+      Url: 'https://example.com/ok',
+      HttpStatus: 200,
+      DocumentSize: 2048,
+      LastCrawledDate: `/Date(${lastCrawledMs})/`,
+    })
+    vi.spyOn(bingModule, 'getCrawlIssues').mockRejectedValue(new Error('rate limited'))
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects/test-project/bing/inspect-url',
+      payload: { url: 'https://example.com/ok' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { inIndex: boolean | null }
+    expect(body.inIndex).toBe(true)
+  })
+
+  it('caches GetCrawlIssues across sequential inspections within the TTL', async () => {
+    const lastCrawledMs = new Date('2026-03-20T10:00:00Z').getTime()
+    const bingModule = await import('@ainyc/canonry-integration-bing')
+    vi.spyOn(bingModule, 'getUrlInfo').mockImplementation(async (_apiKey, _siteUrl, url) => ({
+      Url: url,
+      HttpStatus: 200,
+      DocumentSize: 1024,
+      LastCrawledDate: `/Date(${lastCrawledMs})/`,
+    }))
+    const crawlIssuesSpy = vi.spyOn(bingModule, 'getCrawlIssues').mockResolvedValue([])
+
+    await app.inject({ method: 'POST', url: '/projects/test-project/bing/inspect-url', payload: { url: 'https://example.com/a' } })
+    await app.inject({ method: 'POST', url: '/projects/test-project/bing/inspect-url', payload: { url: 'https://example.com/b' } })
+    await app.inject({ method: 'POST', url: '/projects/test-project/bing/inspect-url', payload: { url: 'https://example.com/c' } })
+
+    expect(crawlIssuesSpy).toHaveBeenCalledTimes(1)
   })
 
   it('coverage includes unknown rows in total for percentage calculation', async () => {

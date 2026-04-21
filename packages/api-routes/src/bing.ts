@@ -7,6 +7,7 @@ import { resolveProject, writeAuditLog } from './helpers.js'
 import {
   getSites,
   getUrlInfo,
+  getCrawlIssues,
   submitUrl,
   submitUrlBatch,
   getKeywordStats,
@@ -33,6 +34,47 @@ function bingLog(level: 'info' | 'warn' | 'error', action: string, ctx?: Record<
   const entry = { ts: new Date().toISOString(), level, module: 'BingRoutes', action, ...ctx }
   const stream = level === 'error' ? process.stderr : process.stdout
   stream.write(JSON.stringify(entry) + '\n')
+}
+
+// GetCrawlIssues cross-check — cache the list of URLs Bing has flagged with a
+// blocking crawl issue (robots, HTTP errors, DNS, malware, noindex) per site
+// for a short TTL so a bulk refresh of N URLs doesn't trigger N lookups.
+const CRAWL_ISSUES_CACHE_TTL_MS = 60_000
+const crawlIssuesCache = new Map<string, { blockedUrls: Set<string>; fetchedAt: number }>()
+
+export function __resetBingCrawlIssuesCacheForTest(): void {
+  crawlIssuesCache.clear()
+}
+
+// Bing's `IssueType` is a space-separated list of `CrawlIssueCategory` flag
+// names. Anything other than None / SeoIssues prevents the URL from being
+// served in search — downgrade those, but keep SEO-only warnings indexed.
+function isBlockingIssueType(issueType: string | null | undefined): boolean {
+  if (!issueType) return true
+  const trimmed = issueType.trim()
+  if (!trimmed) return true
+  return trimmed.split(/\s+/).some((flag) => !/^(None|Seo(Issues|Concerns))$/i.test(flag))
+}
+
+async function loadBlockingCrawlIssues(
+  apiKey: string,
+  siteUrl: string,
+  domain: string,
+): Promise<Set<string>> {
+  const now = Date.now()
+  const cached = crawlIssuesCache.get(domain)
+  if (cached && now - cached.fetchedAt < CRAWL_ISSUES_CACHE_TTL_MS) {
+    return cached.blockedUrls
+  }
+  const issues = await getCrawlIssues(apiKey, siteUrl)
+  const blockedUrls = new Set<string>()
+  for (const issue of issues) {
+    if (issue.Url && isBlockingIssueType(issue.IssueType ?? null)) {
+      blockedUrls.add(issue.Url)
+    }
+  }
+  crawlIssuesCache.set(domain, { blockedUrls, fetchedAt: now })
+  return blockedUrls
 }
 
 export interface BingConnectionRecord {
@@ -404,30 +446,53 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
         domain: project.canonicalDomain,
         url,
         httpStatus: result.HttpStatus ?? result.HttpCode ?? null,
-        inIndex: result.InIndex ?? null,
         documentSize: result.DocumentSize ?? null,
         lastCrawledDate: result.LastCrawledDate ?? null,
+        discoveryDate: result.DiscoveryDate ?? null,
       })
       const now = new Date().toISOString()
       const id = crypto.randomUUID()
       const httpCode = result.HttpStatus ?? result.HttpCode ?? null
 
-      // Bing's published GetUrlInfo contract documents UrlInfo via:
-      // https://learn.microsoft.com/en-us/dotnet/api/microsoft.bing.webmaster.api.interfaces.iwebmasterapi.geturlinfo?view=bing-webmaster-dotnet
-      // WSDL: https://ssl.bing.com/webmaster/api.svc?singleWsdl
-      // Use any explicit legacy InIndex flag if it is present. Otherwise, only a
-      // positive DocumentSize is strong enough to treat the URL as indexed.
-      // Zero-byte responses stay unknown instead of being forced to "not indexed".
-      let derivedInIndex: boolean | null = null
-      if (result.InIndex != null) {
-        derivedInIndex = result.InIndex
-      } else if (result.DocumentSize != null && result.DocumentSize > 0) {
-        derivedInIndex = true
-      }
-
       const lastCrawledDate = parseBingDate(result.LastCrawledDate)
       const inIndexDate = parseBingDate(result.InIndexDate)
       const discoveryDate = parseBingDate(result.DiscoveryDate)
+
+      // Bing's GetUrlInfo (https://learn.microsoft.com/en-us/dotnet/api/microsoft.bing.webmaster.api.interfaces.iwebmasterapi.geturlinfo)
+      // no longer ships an `InIndex` flag and routinely returns DocumentSize=0
+      // for URLs that the Webmaster UI clearly lists as indexed. LastCrawledDate
+      // is the only positive signal the current contract exposes — treat a
+      // recorded crawl timestamp as "indexed" unless the crawl itself came back
+      // with a 4xx/5xx.
+      let derivedInIndex: boolean | null = null
+      if (result.DocumentSize != null && result.DocumentSize > 0) {
+        derivedInIndex = true
+      } else if (lastCrawledDate != null) {
+        const httpStatus = result.HttpStatus ?? result.HttpCode
+        derivedInIndex = httpStatus != null && httpStatus >= 400 ? false : true
+      } else if (discoveryDate != null) {
+        derivedInIndex = false
+      }
+
+      // Cross-reference GetCrawlIssues: if Bing has flagged this URL with a
+      // blocking issue (robots, HTTP errors, DNS failures, malware, noindex),
+      // downgrade to not-indexed regardless of the crawl timestamp. This is the
+      // only public mechanism for catching URLs that were crawled but excluded.
+      // Fail open — crawl-issue lookup errors must not poison the primary
+      // inspection result.
+      if (derivedInIndex === true) {
+        try {
+          const blockedUrls = await loadBlockingCrawlIssues(conn.apiKey, conn.siteUrl, project.canonicalDomain)
+          if (blockedUrls.has(url)) {
+            derivedInIndex = false
+          }
+        } catch (e) {
+          bingLog('warn', 'inspect-url.crawl-issues-lookup-failed', {
+            domain: project.canonicalDomain,
+            error: e instanceof Error ? e.message : String(e),
+          })
+        }
+      }
 
       app.db.insert(bingUrlInspections).values({
         id,
