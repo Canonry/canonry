@@ -144,6 +144,92 @@ test('migrate is idempotent', () => {
   migrate(db)
 })
 
+test('migrate v43 backfills bing_url_inspections.in_index from stored crawl signals', () => {
+  const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
+  const now = new Date().toISOString()
+
+  db.insert(projects).values({
+    id: 'proj_1',
+    name: 'test-project',
+    displayName: 'Test Project',
+    canonicalDomain: 'example.com',
+    country: 'US',
+    language: 'en',
+    createdAt: now,
+    updatedAt: now,
+  }).run()
+
+  const legacyCreatedAt = '2026-01-01T00:00:00Z'
+  const futureCreatedAt = '2026-05-01T00:00:00Z'
+
+  db.insert(bingUrlInspections).values([
+    // Legacy row: DocumentSize=0 but a LastCrawledDate — stale in_index=null,
+    // new logic should set in_index=1.
+    {
+      id: 'insp_crawled_zero_size',
+      projectId: 'proj_1',
+      url: 'https://example.com/a',
+      httpCode: 0,
+      inIndex: null,
+      documentSize: 0,
+      lastCrawledDate: '2026-03-12T17:37:29.000Z',
+      discoveryDate: null,
+      inspectedAt: legacyCreatedAt,
+      createdAt: legacyCreatedAt,
+    },
+    // Legacy row: 4xx status on a crawled URL — new logic sets in_index=0.
+    {
+      id: 'insp_broken',
+      projectId: 'proj_1',
+      url: 'https://example.com/broken',
+      httpCode: 404,
+      inIndex: 1,
+      documentSize: 0,
+      lastCrawledDate: '2026-03-20T10:00:00Z',
+      discoveryDate: null,
+      inspectedAt: legacyCreatedAt,
+      createdAt: legacyCreatedAt,
+    },
+    // Legacy row: discovery-only — new logic sets in_index=0.
+    {
+      id: 'insp_discovered',
+      projectId: 'proj_1',
+      url: 'https://example.com/discovered',
+      httpCode: 0,
+      inIndex: null,
+      documentSize: 0,
+      lastCrawledDate: null,
+      discoveryDate: '2026-03-18T07:00:00Z',
+      inspectedAt: legacyCreatedAt,
+      createdAt: legacyCreatedAt,
+    },
+    // Post-cutoff row: written with new code (crawl-issues demotion applied).
+    // Backfill must NOT un-demote this.
+    {
+      id: 'insp_demoted',
+      projectId: 'proj_1',
+      url: 'https://example.com/demoted',
+      httpCode: 200,
+      inIndex: 0,
+      documentSize: 2048,
+      lastCrawledDate: '2026-05-01T10:00:00Z',
+      discoveryDate: null,
+      inspectedAt: futureCreatedAt,
+      createdAt: futureCreatedAt,
+    },
+  ]).run()
+
+  migrate(db)
+
+  const rows = db.select().from(bingUrlInspections).all()
+  const byId = Object.fromEntries(rows.map((row) => [row.id, row]))
+  expect(byId.insp_crawled_zero_size.inIndex).toBe(1)
+  expect(byId.insp_broken.inIndex).toBe(0)
+  expect(byId.insp_discovered.inIndex).toBe(0)
+  expect(byId.insp_demoted.inIndex).toBe(0)
+})
+
 test('migrate adds sync_run_id columns without reintroducing query_snapshots.default_location', () => {
   const { dbPath, tmpDir } = createTempDb()
   onTestFinished(() => cleanup(tmpDir))

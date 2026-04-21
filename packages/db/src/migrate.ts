@@ -543,6 +543,22 @@ const MIGRATIONS = [
   // to ready, projects with this flag get a backlink-extract run enqueued.
   // Stored as INTEGER (0/1) to match SQLite boolean convention.
   `ALTER TABLE projects ADD COLUMN auto_extract_backlinks INTEGER NOT NULL DEFAULT 0`,
+
+  // v43: Backfill bing_url_inspections.in_index using the new crawl-signal
+  // decision tree. Legacy rows were classified with the retired Bing `InIndex`
+  // flag plus a DocumentSize>0 check, which mis-classifies URLs that modern
+  // Bing returns with DocumentSize=0 but a valid LastCrawledDate. Use a
+  // created_at cutoff so rows written by the new code (which applies a live
+  // GetCrawlIssues demotion that can't be replayed offline) are preserved.
+  `UPDATE bing_url_inspections
+   SET in_index = CASE
+     WHEN document_size IS NOT NULL AND document_size > 0 THEN 1
+     WHEN last_crawled_date IS NOT NULL AND http_code IS NOT NULL AND http_code >= 400 THEN 0
+     WHEN last_crawled_date IS NOT NULL THEN 1
+     WHEN discovery_date IS NOT NULL THEN 0
+     ELSE NULL
+   END
+   WHERE created_at < '2026-04-22T00:00:00Z'`,
 ]
 
 /**
