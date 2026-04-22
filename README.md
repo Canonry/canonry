@@ -166,7 +166,17 @@ Integration setup guides: [Google Search Console](docs/google-search-console-set
 
 ## Skills
 
-Canonry ships a bundled `canonry-setup` skill that documents the CLI commands, provider setup, analysis workflows, and troubleshooting patterns an agent needs to operate the platform. **Claude Code** picks up the skill automatically from `.claude/skills/canonry-setup/` when you open this repo.
+Canonry ships a bundled `canonry-setup` skill that turns Aero (or any Claude-powered agent) into an AEO/SEO operator. **Claude Code** picks it up automatically from `.claude/skills/canonry-setup/` when you open this repo; the same content lives under [`skills/canonry-setup/`](skills/canonry-setup/) for portable use with other harnesses.
+
+The skill covers the end-to-end answer-engine optimization loop:
+
+- **AEO monitoring.** Running citation sweeps across Gemini, ChatGPT, Claude, and Perplexity via `canonry run` / `canonry evidence` / `canonry status`, including how to interpret per-phrase citation state and regressions.
+- **Technical SEO audits.** Driving the companion [`@ainyc/aeo-audit`](https://www.npmjs.com/package/@ainyc/aeo-audit) CLI for 14-factor scoring — structured data (JSON-LD), content depth, AI-readable files (`llms.txt`, `llms-full.txt`), E-E-A-T signals, FAQ blocks, definition blocks, H1/alt/meta hygiene.
+- **Indexing diagnosis.** Google Search Console and Bing Webmaster Tools coverage, URL inspection, and one-shot submissions via `canonry google request-indexing` / `canonry bing request-indexing`.
+- **Schema & content execution.** Patterns for injecting LocalBusiness/FAQPage JSON-LD, writing `llms.txt` with service-area detail, trimming keyphrase lists to high-intent queries, and handling WordPress/Elementor specifics (REST API, Application Passwords, Elementor Custom Code).
+- **Diagnose → prioritize → execute → monitor → report workflow.** Opinionated defaults for new sites (0 citations), regressions on established sites, and county-level targeting — with guardrails like "never fabricate citation data" and "back up `~/.canonry/config.yaml` before editing".
+
+See [`skills/canonry-setup/SKILL.md`](skills/canonry-setup/SKILL.md) plus the reference files under [`skills/canonry-setup/references/`](skills/canonry-setup/references/) (`canonry-cli.md`, `aeo-analysis.md`, `indexing.md`, `wordpress-integration.md`) for the full playbook. Aero loads the same material natively, so anything an external agent can do through the skill, Aero can do from the CLI or dashboard command bar.
 
 ## Deployment
 
