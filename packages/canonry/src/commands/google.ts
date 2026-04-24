@@ -1,6 +1,11 @@
-import type { IndexingRequestResultDto } from '@ainyc/canonry-contracts'
+import type { GscUrlInspectionDto, IndexingRequestResultDto } from '@ainyc/canonry-contracts'
 import { type ApiClient, createApiClient } from '../client.js'
 import { CliError } from '../cli-error.js'
+
+const INDEXING_API_SCOPE_NOTICE =
+  "Note: Google's Indexing API officially supports only pages with JobPosting or BroadcastEvent (livestream VideoObject) structured data. " +
+  'For other URL types, submissions are accepted (HTTP 200) but not guaranteed to be prioritized for crawling. ' +
+  'For general pages, submit a sitemap and use URL Inspection to monitor status.'
 
 function getClient() {
   return createApiClient()
@@ -604,6 +609,10 @@ export async function googleRequestIndexing(project: string, opts: {
   allUnindexed?: boolean
   wait?: boolean
   format?: string
+  /** @internal timing overrides for tests; not exposed to the CLI. */
+  waitTimeoutMs?: number
+  /** @internal timing overrides for tests; not exposed to the CLI. */
+  waitPollIntervalMs?: number
 }): Promise<void> {
   const client = getClient()
 
@@ -621,35 +630,39 @@ export async function googleRequestIndexing(project: string, opts: {
     })
   }
 
+  if (opts.format !== 'json') {
+    console.error(INDEXING_API_SCOPE_NOTICE)
+    console.error()
+  }
+
   const result = await client.googleRequestIndexing(project, body) as {
     summary: { total: number; succeeded: number; failed: number }
     results: IndexingRequestResultDto[]
   }
 
   let indexingConfirmed = false
+  const lastInspection = new Map<string, GscUrlInspectionDto>()
   if (opts.wait && result.results.some((r) => r.status === 'success')) {
     const successUrls = result.results.filter((r) => r.status === 'success').map((r) => r.url)
-    const timeout = 10 * 60 * 1000
+    const timeout = opts.waitTimeoutMs ?? 10 * 60 * 1000
+    const pollInterval = opts.waitPollIntervalMs ?? 10_000
     const start = Date.now()
-    process.stderr.write('Waiting for indexing confirmation')
+    process.stderr.write('Polling URL Inspection for indexed verdict')
 
     while (Date.now() - start < timeout) {
-      await new Promise((r) => setTimeout(r, 10000))
+      await new Promise((r) => setTimeout(r, pollInterval))
       process.stderr.write('.')
 
       let allIndexed = true
       for (const url of successUrls) {
         try {
-          const inspection = await client.gscInspect(project, url) as {
-            indexingState?: string
-          }
-          if (inspection.indexingState !== 'INDEXING_ALLOWED') {
+          const inspection = await client.gscInspect(project, url)
+          lastInspection.set(url, inspection)
+          if (inspection.verdict !== 'PASS') {
             allIndexed = false
-            break
           }
         } catch {
           allIndexed = false
-          break
         }
       }
 
@@ -662,13 +675,25 @@ export async function googleRequestIndexing(project: string, opts: {
 
     if (!indexingConfirmed) {
       process.stderr.write('\n')
+      const observed = successUrls.map((url) => {
+        const i = lastInspection.get(url)
+        return {
+          url,
+          verdict: i?.verdict ?? null,
+          coverageState: i?.coverageState ?? null,
+          indexingState: i?.indexingState ?? null,
+        }
+      })
       throw new CliError({
         code: 'GOOGLE_INDEXING_CONFIRMATION_TIMEOUT',
-        message: 'Timed out waiting for indexing confirmation. URLs may still be processing.',
-        displayMessage: 'Timed out waiting for indexing confirmation. URLs may still be processing.',
+        message:
+          "Timed out waiting for Google to report verdict=PASS. Google typically takes hours to days to index new URLs, so this is expected and does not mean the submission failed. Re-check later with `canonry google gsc inspect <url>`.",
+        displayMessage:
+          "Timed out waiting for Google to report verdict=PASS. Google typically takes hours to days to index new URLs — this is not a failure. Re-check later with `canonry google gsc inspect <url>`.",
         details: {
           project,
           urls: successUrls,
+          lastObserved: observed,
         },
       })
     }
@@ -697,7 +722,7 @@ export async function googleRequestIndexing(project: string, opts: {
   }
 
   if (indexingConfirmed) {
-    console.log('All requested URLs are now indexed.')
+    console.log('URL Inspection now reports verdict=PASS for the requested URLs (indexed in Google Search).')
   }
 }
 

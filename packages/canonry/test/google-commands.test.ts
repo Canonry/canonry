@@ -393,4 +393,158 @@ describe('google CLI commands', () => {
     const { googleRequestIndexing } = await import('../src/commands/google.js')
     await expect(() => googleRequestIndexing('test-proj', {})).rejects.toThrow('provide a URL or use --all-unindexed')
   })
+
+  it('googleRequestIndexing prints the Indexing-API scope notice to stderr', async () => {
+    await client.putProject('test-proj', {
+      displayName: 'Test',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+    })
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('indexing.googleapis.com')) {
+        return new Response(JSON.stringify({
+          urlNotificationMetadata: {
+            url: 'https://example.com/page',
+            latestUpdate: {
+              url: 'https://example.com/page',
+              type: 'URL_UPDATED',
+              notifyTime: '2026-03-17T12:00:00Z',
+            },
+          },
+        }), { status: 200 })
+      }
+      return originalFetch(input, init)
+    }
+
+    const { googleRequestIndexing } = await import('../src/commands/google.js')
+    const errors: string[] = []
+    const origErr = console.error
+    console.error = (...args: unknown[]) => errors.push(args.join(' '))
+    try {
+      await googleRequestIndexing('test-proj', { url: 'https://example.com/page' })
+    } finally {
+      console.error = origErr
+      globalThis.fetch = originalFetch
+    }
+
+    expect(errors.join('\n')).toMatch(/JobPosting or BroadcastEvent/)
+  })
+
+  it('googleRequestIndexing --wait confirms indexing when URL Inspection returns verdict=PASS', async () => {
+    await client.putProject('test-proj', {
+      displayName: 'Test',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+    })
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('indexing.googleapis.com')) {
+        return new Response(JSON.stringify({
+          urlNotificationMetadata: {
+            url: 'https://example.com/page',
+            latestUpdate: {
+              url: 'https://example.com/page',
+              type: 'URL_UPDATED',
+              notifyTime: '2026-03-17T12:00:00Z',
+            },
+          },
+        }), { status: 200 })
+      }
+      if (url.includes('searchconsole.googleapis.com') && url.includes('urlInspection')) {
+        return new Response(JSON.stringify({
+          inspectionResult: {
+            indexStatusResult: {
+              verdict: 'PASS',
+              coverageState: 'Submitted and indexed',
+              indexingState: 'INDEXING_ALLOWED',
+              googleCanonical: 'https://example.com/page',
+            },
+          },
+        }), { status: 200 })
+      }
+      return originalFetch(input, init)
+    }
+
+    const { googleRequestIndexing } = await import('../src/commands/google.js')
+    const logs: string[] = []
+    const origLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      await googleRequestIndexing('test-proj', {
+        url: 'https://example.com/page',
+        wait: true,
+        waitTimeoutMs: 3_000,
+        waitPollIntervalMs: 50,
+      })
+    } finally {
+      console.log = origLog
+      globalThis.fetch = originalFetch
+    }
+
+    const output = logs.join('\n')
+    expect(output).toMatch(/verdict=PASS/)
+    expect(output).toMatch(/indexed in Google Search/)
+  })
+
+  it('googleRequestIndexing --wait does NOT confirm when only indexingState=INDEXING_ALLOWED (verdict missing)', async () => {
+    await client.putProject('test-proj', {
+      displayName: 'Test',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+    })
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.includes('indexing.googleapis.com')) {
+        return new Response(JSON.stringify({
+          urlNotificationMetadata: {
+            url: 'https://example.com/page',
+            latestUpdate: {
+              url: 'https://example.com/page',
+              type: 'URL_UPDATED',
+              notifyTime: '2026-03-17T12:00:00Z',
+            },
+          },
+        }), { status: 200 })
+      }
+      if (url.includes('searchconsole.googleapis.com') && url.includes('urlInspection')) {
+        // Regression guard: returning INDEXING_ALLOWED alone (no PASS verdict)
+        // previously made canonry declare "indexed" — it must now keep waiting
+        // and eventually time out.
+        return new Response(JSON.stringify({
+          inspectionResult: {
+            indexStatusResult: {
+              indexingState: 'INDEXING_ALLOWED',
+              verdict: 'NEUTRAL',
+              coverageState: 'Crawled - currently not indexed',
+            },
+          },
+        }), { status: 200 })
+      }
+      return originalFetch(input, init)
+    }
+
+    const { googleRequestIndexing } = await import('../src/commands/google.js')
+    try {
+      await expect(() =>
+        googleRequestIndexing('test-proj', {
+          url: 'https://example.com/page',
+          wait: true,
+          waitTimeoutMs: 500,
+          waitPollIntervalMs: 50,
+        }),
+      ).rejects.toThrow(/Timed out waiting for Google to report verdict=PASS/)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
 })
