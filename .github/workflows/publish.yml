@@ -90,6 +90,35 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+  publish-homebrew:
+    needs: [version, publish-npm]
+    if: github.ref_name == github.event.repository.default_branch && github.event_name == 'push' && needs.version.outputs.version_changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check Homebrew tap dispatch token
+        id: check-token
+        env:
+          TOKEN: ${{ secrets.HOMEBREW_TAP_DISPATCH_TOKEN }}
+        shell: bash
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "HOMEBREW_TAP_DISPATCH_TOKEN not configured, skipping tap bump"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Notify Homebrew tap
+        if: steps.check-token.outputs.configured == 'true'
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_DISPATCH_TOKEN }}
+          repository: AINYC/homebrew-canonry
+          event-type: canonry-published
+          client-payload: '{"version": "${{ needs.version.outputs.version }}"}'
+
   publish-clawhub:
     needs: version
     if: github.ref_name == github.event.repository.default_branch && github.event_name == 'push'
