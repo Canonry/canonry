@@ -1,0 +1,16 @@
+{
+  "name": "@ainyc/canonry-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Canonry desktop app — Tauri shell that wraps `canonry serve` and the SPA",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "test": "cd src-tauri && cargo test",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.7.0"
+  }
+}
