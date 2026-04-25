@@ -1,6 +1,6 @@
 ---
 name: canonry
-description: "AEO (Answer Engine Optimization) monitoring and analysis using canonry CLI and aeo-audit tool. Use when: (1) running citation sweeps across AI providers (Gemini, ChatGPT, Claude, Perplexity); (2) auditing technical SEO with structured data validation; (3) implementing schema markup, sitemaps, llms.txt; (4) diagnosing indexing issues via Google Search Console and Bing Webmaster Tools; (5) optimizing content for AI readability and entity consistency. NOT for: general web development, content writing, PPC campaigns, or social media management."
+description: "Agent-first AEO (Answer Engine Optimization) operating platform using canonry CLI and aeo-audit tool. Use when: (1) running citation sweeps across AI providers (Gemini, ChatGPT, Claude, Perplexity); (2) auditing technical SEO with structured data validation; (3) implementing schema markup, sitemaps, llms.txt; (4) diagnosing indexing issues via Google Search Console and Bing Webmaster Tools; (5) optimizing content for AI readability and entity consistency. NOT for: general web development, content writing, PPC campaigns, or social media management."
 metadata:
   {
     "agent":
@@ -32,7 +32,7 @@ metadata:
 
 # Canonry
 
-Monitor and optimize site visibility across AI answer engines (Gemini, ChatGPT, Claude, Perplexity) and traditional search engines using the `canonry` CLI for AEO monitoring and `aeo-audit` for technical SEO analysis.
+Agent-first AEO operating platform — track and act on site visibility across AI answer engines (Gemini, ChatGPT, Claude, Perplexity) and traditional search engines using the `canonry` CLI and `aeo-audit` for technical SEO analysis.
 
 ## When to Use
 
@@ -67,7 +67,7 @@ Monitor and optimize site visibility across AI answer engines (Gemini, ChatGPT, 
 
 ## Toolchain
 
-### canonry (AEO Monitoring)
+### canonry (AEO Operating Platform)
 ```bash
 # List projects
 canonry project list

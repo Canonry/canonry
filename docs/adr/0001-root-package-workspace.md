@@ -2,13 +2,13 @@
 
 ## Decision
 
-The monitoring application must consume the published `@ainyc/aeo-audit` npm package instead of sharing a repository with the audit package source.
+The canonry application must consume the published `@ainyc/aeo-audit` npm package instead of sharing a repository with the audit package source.
 
 ## Why
 
 - keeps repository responsibilities clear
-- allows the audit package and monitoring app to release independently
-- ensures the monitoring app uses the same public contract as external consumers
+- allows the audit package and canonry app to release independently
+- ensures the canonry app uses the same public contract as external consumers
 
 ## Consequences
 

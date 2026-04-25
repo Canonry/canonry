@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-`canonry` is an open-source **agent-first** AEO monitoring platform that tracks how AI answer engines cite a domain for tracked keywords. Published as `@ainyc/canonry` on npm. The CLI and API are the primary interfaces — the web dashboard is supplementary.
+`canonry` is an **agent-first** open-source AEO operating platform that tracks how AI answer engines cite a domain for tracked keywords and acts on the signal through the content engine and integrations. Published as `@ainyc/canonry` on npm. The CLI and API are the primary interfaces — the web dashboard is supplementary.
 
 ## Workspace Map
 
@@ -254,7 +254,7 @@ The CLI and API **are** the agent interface. No MCP layer, no virtual filesystem
 - Keep provider logic in `packages/provider-*/`.
 - Keep API route plugins in `packages/api-routes` (no app-level concerns).
 - Keep API handlers thin.
-- Keep the monitoring app independent from the audit package repo except for the published npm dependency.
+- Keep the canonry app independent from the audit package repo except for the published npm dependency.
 - Raw observation snapshots only (`cited`/`not-cited`); transitions computed at query time.
 
 ## Error Handling in API Routes (Critical)

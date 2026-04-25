@@ -2,7 +2,7 @@
 
 ## Context
 
-Canonry (v1.39.0) is an open-source agent-first AEO monitoring platform. The team wants to add an AI agent layer (persona: "Aero") on top of canonry, following the **DenchClaw distribution model** (forked OpenClaw for CRM) and the **Obsidian monetization model** (free local tool, paid sync for teams).
+Canonry (v1.39.0) is an agent-first open-source AEO operating platform. The team wants to add an AI agent layer (persona: "Aero") on top of canonry, following the **DenchClaw distribution model** (forked OpenClaw for CRM) and the **Obsidian monetization model** (free local tool, paid sync for teams).
 
 The team decided: **build everything inside canonry**, not a separate repo. One `npx canonry`, one release cycle.
 

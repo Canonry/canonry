@@ -2,7 +2,7 @@
 
 ## Current State
 
-Canonry is a fully functional open-source AEO monitoring tool with the following capabilities:
+Canonry is a fully functional agent-first open-source AEO operating platform with the following capabilities:
 
 - **Multi-provider visibility runs**: Gemini, OpenAI, Claude, and local LLM (OpenAI-compatible API)
 - **CLI / API / UI surface parity**: Every feature accessible through all three surfaces

@@ -1,6 +1,6 @@
 ---
 name: canonry
-description: "Agent-first AEO monitoring and operating platform."
+description: "Agent-first AEO operating platform."
 metadata:
   {
     "agent":
@@ -32,7 +32,7 @@ metadata:
 
 # Canonry
 
-Open-source AEO (Answer Engine Optimization) monitoring platform. Track how AI answer engines cite your domain across Gemini, ChatGPT, Claude, and Perplexity.
+Agent-first open-source AEO (Answer Engine Optimization) operating platform. Track how AI answer engines cite your domain across Gemini, ChatGPT, Claude, and Perplexity, then act on the signal through the content engine and integrations.
 
 **Website:** [ainyc.ai](https://ainyc.ai) | **Docs:** [github.com/AINYC/canonry](https://github.com/AINYC/canonry)
 
@@ -54,7 +54,7 @@ Open-source AEO (Answer Engine Optimization) monitoring platform. Track how AI a
 
 ## Toolchain
 
-### canonry (AEO Monitoring)
+### canonry (AEO Operating Platform)
 ```bash
 # List projects
 canonry project list

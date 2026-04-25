@@ -157,7 +157,7 @@ Create `/etc/systemd/system/canonry.service`:
 
 ```ini
 [Unit]
-Description=Canonry AEO monitoring server
+Description=Canonry — agent-first AEO operating platform
 After=network.target
 
 [Service]
