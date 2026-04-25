@@ -1,0 +1,25 @@
+{
+  "$schema": "https://schema.tauri.app/config/2.0.0",
+  "productName": "Canonry",
+  "version": "0.1.0",
+  "identifier": "ai.ainyc.canonry.desktop",
+  "build": {
+    "frontendDist": "../public"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon.png"
+    ],
+    "category": "DeveloperTool",
+    "shortDescription": "Canonry — AEO monitoring",
+    "longDescription": "Open-source AEO monitoring tool — track how AI answer engines cite your domain."
+  }
+}

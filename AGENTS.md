@@ -10,6 +10,7 @@
 apps/api/                        Cloud API entry point (imports packages/api-routes)
 apps/worker/                     Cloud worker entry point
 apps/web/                        Vite SPA source (bundled into packages/canonry/assets/)
+apps/desktop/                    Tauri 2 shell that wraps `canonry serve` + the SPA (POC)
 packages/canonry/                Publishable npm package (CLI + server + bundled SPA)
 packages/api-routes/             Shared Fastify route plugins
 packages/contracts/              DTOs, enums, config-schema, error codes
