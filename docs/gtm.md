@@ -45,7 +45,7 @@ Build on `SetupPage.tsx`, don't replace it.
 
 #### Path B — CLI/agent setup (power users, agent-driven)
 
-Same capabilities exposed for users who say "Claude, install canonry and set me up for stripe.com."
+Same capabilities exposed for users who say "Claude, install canonry and set me up for example.com."
 
 - **`canonry skill install [--for claude-code|codex|cursor|generic]`** — drops the canonry-setup skill into the right location (`~/.claude/skills/`, Codex config, Cursor rules, or prints markdown for a generic README).
 - **`canonry init` handoff step:** after setup, detect installed agent tooling and print the one-line install. "Claude Code detected — run `canonry skill install --for claude-code` to give it full context."
@@ -94,11 +94,11 @@ Same capabilities exposed for users who say "Claude, install canonry and set me 
 
 Plus the `competitors` table (`packages/db/src/schema.ts:32`), `competitorOverlap` / `recommendedCompetitors` on health snapshots (lines 68-69), and the intelligence package (`packages/intelligence/src/regressions.ts`, `gains.ts`, `causes.ts`) which already computes *why* citations move.
 
-This is **URL-level competitive intel, not just domain-level.** Canonry knows not only "stripe.com is cited for payment processing," but "the LLM pulled from `stripe.com/guides/payment-processing` with title X, and also searched for these related queries." **What's missing is turning that signal into "here's what to write next."**
+This is **URL-level competitive intel, not just domain-level.** Canonry knows not only "competitor-a.com is cited for [topic]," but "the LLM pulled from `competitor-a.com/guides/[topic]` with title X, and also searched for these related queries." **What's missing is turning that signal into "here's what to write next."**
 
 This is the highest-leverage feature on the list, for two reasons:
 1. AEO buyers ultimately want **outcomes** (more citations), not observation. Content is the lever that moves the metric.
-2. It's the perfect agent-driven loop: canonry says what to write → agent (Claude Code / Codex / Aero) drafts it → user publishes → next sweep measures the impact. Closes the observation-to-action loop that Profound and Semrush AEO leave open.
+2. It's the perfect agent-driven loop: canonry says what to write → agent (Claude Code / Codex / Aero) drafts it → user publishes → next sweep measures the impact. Closes the observation-to-action loop that incumbent paid AEO observability tools leave open.
 
 **Product framing:** Canonry identifies **citation-driven content *opportunities*** and packages them as actionable briefs. The unit of value is a **recommended action on a specific page or query**, not a topic. Drafting is deliberately not the product — briefs are.
 
@@ -288,7 +288,7 @@ The boundary canonry preserves is "no silent external mutation." Internal ledger
 **Demo synergy:** `canonry demo` and the hosted sandbox should highlight this loop. "Watch canonry tell you exactly what blog post to write next based on what your competitors are getting cited for" is a much stronger demo moment than a static dashboard tour. Bake this into the Wave 1 demo script.
 
 **Why this is a GTM differentiator:**
-- Profound and Semrush AEO observe; they don't generate. This closes the loop.
+- Incumbent paid AEO tools observe; they don't generate. This closes the loop.
 - URL-level grounding-source intel is a signal most AEO tools don't expose — "here's the exact page your competitor wrote that earned the citation" beats "your competitor is cited more than you."
 - Aligns 1:1 with the agent-first thesis: agents are excellent at writing; canonry is excellent at signal. Don't blur the lines.
 - Has SEO value beyond AEO — the same gap analysis helps with traditional Google search.
@@ -302,7 +302,7 @@ The boundary canonry preserves is "no silent external mutation." Internal ledger
 
 Today users must bring Gemini/OpenAI/Claude keys *before* seeing anything. Huge funnel drop.
 
-- **`canonry demo`** — installs a sample project (e.g. "stripe.com / payment processing") with pre-recorded snapshots, fake citations, populated insights. Users see the dashboard before paying any provider cost.
+- **`canonry demo`** — installs a sample project (e.g. a generic SaaS company tracking a payment-processing topic) with pre-recorded snapshots, fake citations, populated insights. Users see the dashboard before paying any provider cost.
 - **Hosted sandbox** at a public URL — read-only public dashboard so prospects click around without installing. Same data as `canonry demo`.
 - **`packages/provider-mock/`** — deterministic replayable provider for CI, demos, and offline dev. Half-implied by `provider-local`; formalize it.
 
@@ -348,7 +348,7 @@ Shipped agent guidance is stale enough that an agent following it hits dead ends
 
 Only a GitHub README today. `ainyc.ai` is referenced but there's no landing, no docs site. **GTM marketing site lives at `canonry.ai`** (separate from `ainyc.ai` which remains the telemetry/backend domain).
 
-- Landing page at `canonry.ai`: positioning, one-line install, comparison table vs Profound / Semrush AEO / Ahrefs Brand Radar.
+- Landing page at `canonry.ai`: positioning, one-line install, categorical comparison vs incumbent paid AEO observability tools and SEO-suite AEO add-ons (no per-vendor name-and-shame).
 - **"How to use canonry with Claude Code, Codex, Hermes, OpenClaw"** — dedicated pages per agent. This is the distribution story.
 - "Compete vs X" SEO pages — eat branded search.
 - 90-second Loom showing agent-driven workflow end-to-end, leading with the content-loop demo (#3a).
@@ -536,7 +536,7 @@ Track against a funnel dashboard powered by `packages/canonry/src/telemetry.ts`:
 ### OpenClaw
 
 - **Install:** `canonry skill install --for openclaw` writes OpenClaw skill bundle.
-- **Example prompt:** "Set up canonry for stripe.com and run the first sweep."
+- **Example prompt:** "Set up canonry for example.com and run the first sweep."
 - **Expected workflow:** OpenClaw drives `canonry init` → `canonry project create` → `canonry keyword add` → `canonry run` → `canonry insights list` end-to-end.
 
 ### Generic fallback

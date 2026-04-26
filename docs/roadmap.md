@@ -23,19 +23,17 @@ Published as `@ainyc/canonry` on npm.
 
 ---
 
-## Competitive Landscape
+## Market Position
 
-Canonry competes with paid AEO monitoring tools:
+Canonry sits in the AEO observability and optimization category. The market today is split across three shapes:
 
-| Tool | Price | Key Differentiator |
-|------|-------|--------------------|
-| Profound | $499+/mo | AEO Content Score, prompt volumes, enterprise SOV |
-| Otterly | $29-989/mo | Daily snapshots, GEO Audit SWOT, per-prompt pricing |
-| Peec | ~99-530+/mo | Looker Studio integration, per-platform add-ons |
-| Scrunch | $250+/mo | Shadow sites for AI optimization, enterprise RBAC |
-| HubSpot AEO Grader | Free | Brand positioning only, no deep tracking |
+| Category | Typical pricing | Typical strengths | Typical limits |
+|---|---|---|---|
+| Hosted paid AEO observability tools | $250–$1000+/mo | AEO content scoring, prompt volumes, enterprise SOV, daily snapshots | Closed source, per-prompt or per-seat pricing, no data ownership, single-perspective queries from cloud DCs |
+| AEO add-ons inside large SEO suites | bundled in SEO seats | BI-tool integration, per-platform add-ons, established UX | Tied to suite pricing/lock-in; AEO is a secondary feature |
+| Free brand-positioning graders | $0 | Awareness / lead-gen entry point | Brand positioning only; no deep tracking |
 
-**Canonry's structural advantages**: open-source, local-first, API-first, config-as-code, no vendor lock-in, no per-prompt pricing, full data ownership.
+**Canonry's structural advantages**: open-source, local-first, API-first, config-as-code, no vendor lock-in, no per-prompt pricing, full data ownership. Where incumbents observe from one cloud perspective, canonry's local-first architecture enables a distributed sensing network capturing localized, audience-specific perspectives (see [ADR 0005](adr/0005-distributed-node-hub-architecture.md)).
 
 ---
 
@@ -44,17 +42,17 @@ Canonry competes with paid AEO monitoring tools:
 These build on existing infrastructure with minimal schema/architecture changes.
 
 ### Citation Position & Prominence Tracking
-**Gap**: Canonry records binary `cited`/`not-cited`. Profound tracks "prominence" (where in the answer your brand appears). Otterly tracks citation ordering.
+**Gap**: Canonry records binary `cited`/`not-cited`. Hosted incumbents track "prominence" (where in the answer your brand appears) and citation ordering.
 **Implementation**: When normalizing provider results, record the *index* of your domain in `groundingSources[]` and whether the domain appears in the first paragraph of `answerText`. Add `citationPosition` (int, nullable) and `prominenceScore` (float 0-1) to `querySnapshots`.
 **Impact**: Transforms flat binary tracking into ranked visibility — "you're cited, but dropping from position 1 to position 4."
 
 ### Share of Voice (SOV) Metrics
-**Gap**: Every competitor (Profound, Otterly, Peec) offers SOV. Canonry doesn't compute it.
+**Gap**: Every paid AEO incumbent offers SOV. Canonry doesn't compute it.
 **Implementation**: SOV = (runs where cited / total runs) as a percentage, computed per keyword and aggregated per project. Pure query-time computation over existing `querySnapshots` data — no schema changes needed. Add `GET /api/v1/projects/:name/sov` endpoint. Show on dashboard as a primary metric gauge.
 **Impact**: The single most-requested AEO metric. Makes Canonry dashboards immediately comparable to paid tools.
 
 ### Sentiment Classification of Mentions
-**Gap**: Profound and Otterly classify mentions as positive/neutral/negative. Canonry stores `answerText` but doesn't analyze tone.
+**Gap**: Hosted incumbents classify mentions as positive/neutral/negative. Canonry stores `answerText` but doesn't analyze tone.
 **Implementation**: Use a cheap model (Haiku/GPT-4o-mini) to classify sentiment of how the domain is mentioned. Add `sentimentTone` ('positive'|'neutral'|'negative') and `sentimentSnippet` (the relevant excerpt) to `querySnapshots`. Run as a post-processing step after the main query.
 **Impact**: Distinguishes "Brand X is the industry leader" from "Brand X has been criticized for..."
 
@@ -64,7 +62,7 @@ These build on existing infrastructure with minimal schema/architecture changes.
 **Impact**: Answers "who's winning the AI answer war for this keyword?"
 
 ### Results CSV/JSON Export
-**Gap**: Otterly highlights CSV export. Canonry's `canonry export` exports config YAML, not results data.
+**Gap**: Some paid incumbents highlight CSV export as a key feature. Canonry's `canonry export` exports config YAML, not results data.
 **Implementation**: Add `canonry export <project> --format csv --include-results` that exports snapshot data as CSV. Add corresponding `GET /api/v1/projects/:name/export?format=csv&include=results` endpoint.
 **Impact**: Enables BI tool integration (Excel, Looker Studio, Tableau) without API coding.
 
@@ -78,22 +76,22 @@ These build on existing infrastructure with minimal schema/architecture changes.
 **Impact**: Completes the "monitor + optimize" loop. Two score families give Canonry a unique dual-lens view.
 
 ### Perplexity Provider
-**Gap**: Profound tracks 5+ engines. Perplexity is the #2 most-requested engine after ChatGPT.
+**Gap**: Paid incumbents track 5+ engines. Perplexity is the #2 most-requested engine after ChatGPT.
 **Implementation**: New `packages/provider-perplexity/` adapter using Perplexity's OpenAI-compatible API with `web_search` focus. Minimal work given existing OpenAI adapter as template.
 **Impact**: Engine coverage from 3 to 4+ puts Canonry ahead of most mid-market tools.
 
 ### Answer Snapshots & Diff Viewer
 **Gap**: No tool shows exactly *how* AI answers changed over time for the same query.
 **Implementation**: Canonry already stores `answerText`. Build a side-by-side diff view in the UI comparing answer text across runs for the same keyword. Highlight added/removed citations and text changes.
-**Impact**: Unique feature — even Profound doesn't show full answer diffs.
+**Impact**: Unique feature — paid incumbents don't show full answer diffs.
 
 ### Prompt-to-Topic Clustering
-**Gap**: Profound offers "prompt-level analytics" grouping queries by topic.
+**Gap**: Hosted incumbents offer "prompt-level analytics" grouping queries by topic.
 **Implementation**: Use an LLM call to cluster keywords into topic groups (e.g., "pricing", "comparison", "how-to"). Store topic assignments in a new `keywordTopics` table. Aggregate SOV and sentiment by topic on the dashboard.
-**Impact**: Analysts think by topic, not keyword-by-keyword. This is how Profound justifies $499/mo.
+**Impact**: Analysts think by topic, not keyword-by-keyword. This is how hosted incumbents justify their high SaaS pricing tiers.
 
 ### Citation-Driven Content Opportunities + Action Outcome Ledger (LEAD WAVE-0 INVESTMENT)
-**Gap**: Profound's "AEO Content Score" is their most differentiated feature. No open-source tool offers an action-typed, deterministic recommendation engine paired with closed-loop outcome tracking.
+**Gap**: An "AEO Content Score" is the most differentiated feature offered by hosted incumbents. No open-source tool offers an action-typed, deterministic recommendation engine paired with closed-loop outcome tracking.
 **Implementation**: See `docs/gtm.md` §3a for the full product spec and `docs/adr/0009-content-action-outcome-ledger-and-publish-boundary.md` for the architectural contract. Canonical artifacts:
 - `canonry content targets` — ranked, action-typed (`create | expand | refresh | add-schema`) opportunity list with deterministic AEO-first classifier and additive two-branch scorer (`demand_score + competitor_score`) so zero-GSC `create` opportunities still rank.
 - `canonry content brief` — JSON-canonical structured brief with explicit `evidenceLedger`, `knownFields`, `unknownFields[]` (the load-bearing anti-hallucination guarantee).
@@ -109,13 +107,13 @@ These build on existing infrastructure with minimal schema/architecture changes.
 **Impact**: AI agents get natural-language access to Canonry through existing surfaces.
 
 ### Crawl Health Monitoring
-**Gap**: Profound tracks AI crawler frequency. Sites that block AI crawlers get worse citations.
+**Gap**: Hosted incumbents track AI crawler frequency. Sites that block AI crawlers get worse citations.
 **Existing asset**: `@ainyc/aeo-audit` already checks per-bot `robots.txt` rules for GPTBot, ClaudeBot, PerplexityBot as its "AI Crawler Access" factor.
 **Implementation**: Run a single-factor audit (`runAeoAudit(url, { factors: ['ai-crawler-access'] })`) or add a dedicated `GET /api/v1/projects/:name/crawl-health` endpoint.
 **Impact**: Answers "can AI engines even access my content?" Near-zero new code thanks to `aeo-audit`.
 
 ### Anomaly Detection & Smart Alerts
-**Gap**: Profound offers "anomaly detection." Current Canonry webhooks fire on every citation change.
+**Gap**: Hosted incumbents offer "anomaly detection." Current Canonry webhooks fire on every citation change.
 **Implementation**: Track rolling SOV averages. Alert only when SOV drops/spikes beyond a configurable threshold. Add alert rules: `citation.anomaly`, `sov.drop`, `sov.spike`.
 **Impact**: Reduces alert noise. Analysts get signal, not every fluctuation.
 
