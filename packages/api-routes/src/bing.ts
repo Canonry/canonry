@@ -97,6 +97,11 @@ export interface BingConnectionStore {
 
 export interface BingRoutesOptions {
   bingConnectionStore?: BingConnectionStore
+  onInspectSitemapRequested?: (
+    runId: string,
+    projectId: string,
+    opts?: { sitemapUrl?: string },
+  ) => void
 }
 
 export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) {
@@ -536,6 +541,42 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
         .run()
       throw e
     }
+  })
+
+  // POST /projects/:name/bing/inspect-sitemap
+  app.post<{
+    Params: { name: string }
+    Body: { sitemapUrl?: string }
+  }>('/projects/:name/bing/inspect-sitemap', async (request) => {
+    const store = requireConnectionStore()
+
+    const project = resolveProject(app.db, request.params.name)
+    const conn = requireConnection(store, project.canonicalDomain)
+
+    if (!conn.siteUrl) {
+      throw validationError('No Bing site configured. Run "canonry bing set-site <project> <url>" first.')
+    }
+
+    const now = new Date().toISOString()
+    const runId = crypto.randomUUID()
+    app.db.insert(runs).values({
+      id: runId,
+      projectId: project.id,
+      kind: RunKinds['bing-inspect-sitemap'],
+      status: RunStatuses.queued,
+      trigger: RunTriggers.manual,
+      createdAt: now,
+    }).run()
+
+    const { sitemapUrl } = request.body ?? {}
+    if (opts.onInspectSitemapRequested) {
+      opts.onInspectSitemapRequested(runId, project.id, { sitemapUrl: sitemapUrl ?? undefined })
+    } else {
+      bingLog('warn', 'inspect-sitemap.no-callback', { domain: project.canonicalDomain, runId })
+    }
+
+    const run = app.db.select().from(runs).where(eq(runs.id, runId)).get()
+    return run
   })
 
   // POST /projects/:name/bing/request-indexing

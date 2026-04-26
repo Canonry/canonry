@@ -91,6 +91,7 @@ export interface ApiRoutesOptions {
   /** Bing settings summary for settings endpoint */
   bingSettingsSummary?: SettingsRoutesOptions['bing']
   onBingSettingsUpdate?: SettingsRoutesOptions['onBingUpdate']
+  onBingInspectSitemapRequested?: BingRoutesOptions['onInspectSitemapRequested']
   /** WordPress connection store */
   wordpressConnectionStore?: WordpressRoutesOptions['wordpressConnectionStore']
   /** CDP browser provider callbacks */
@@ -225,6 +226,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     } satisfies TelemetryRoutesOptions)
     await api.register(bingRoutes, {
       bingConnectionStore: opts.bingConnectionStore,
+      onInspectSitemapRequested: opts.onBingInspectSitemapRequested,
     } satisfies BingRoutesOptions)
     await api.register(googleRoutes, {
       getGoogleAuthConfig: opts.getGoogleAuthConfig,

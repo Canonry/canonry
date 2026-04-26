@@ -216,6 +216,8 @@ canonry bing set-site <project> <url>            # set active site URL
 canonry bing coverage <project>                  # URL coverage data
 canonry bing refresh <project>                  # force-fetch fresh Bing coverage data
 canonry bing inspect <project> <url>             # inspect specific URL
+canonry bing inspect-sitemap <project>           # discover sitemap URLs and inspect each via Bing
+canonry bing inspect-sitemap <project> --sitemap-url <url> --wait  # explicit sitemap, wait for run
 canonry bing inspections <project>               # inspection history
 canonry bing request-indexing <project> <url>    # submit URL for indexing
 canonry bing request-indexing <project> --all-unindexed  # submit all unindexed

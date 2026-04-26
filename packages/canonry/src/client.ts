@@ -653,6 +653,10 @@ export class ApiClient {
     return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/bing/inspect-url`, { url })
   }
 
+  async bingInspectSitemap(project: string, body?: { sitemapUrl?: string }): Promise<object> {
+    return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/bing/inspect-sitemap`, body ?? {})
+  }
+
   async bingRequestIndexing(project: string, body: { urls?: string[]; allUnindexed?: boolean }): Promise<object> {
     return this.request<object>('POST', `/projects/${encodeURIComponent(project)}/bing/request-indexing`, body)
   }

@@ -1,8 +1,58 @@
-import { createApiClient } from '../client.js'
+import type { RunDetailDto } from '@ainyc/canonry-contracts'
+import { type ApiClient, createApiClient } from '../client.js'
 import { CliError } from '../cli-error.js'
 
 function getClient() {
   return createApiClient()
+}
+
+async function waitForRunStatus(
+  client: ApiClient,
+  runId: string,
+  config: {
+    timeoutMs: number
+    intervalMs: number
+    progressLabel: string
+    successStatuses: string[]
+    failureStatuses: string[]
+    timeoutCode: string
+    failureCode: string
+    timeoutMessage: string
+    failureMessage: string
+    details?: Record<string, unknown>
+  },
+): Promise<RunDetailDto> {
+  const start = Date.now()
+  process.stderr.write(config.progressLabel)
+
+  while (Date.now() - start < config.timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, config.intervalMs))
+    const current = await client.getRun(runId)
+    process.stderr.write('.')
+
+    if (config.successStatuses.includes(current.status)) {
+      process.stderr.write('\n')
+      return current
+    }
+
+    if (config.failureStatuses.includes(current.status)) {
+      process.stderr.write('\n')
+      throw new CliError({
+        code: config.failureCode,
+        message: config.failureMessage,
+        displayMessage: config.failureMessage,
+        details: { runId, status: current.status, ...(config.details ?? {}) },
+      })
+    }
+  }
+
+  process.stderr.write('\n')
+  throw new CliError({
+    code: config.timeoutCode,
+    message: config.timeoutMessage,
+    displayMessage: config.timeoutMessage,
+    details: { runId, ...(config.details ?? {}) },
+  })
 }
 
 export async function bingConnect(project: string, opts?: { apiKey?: string; format?: string }): Promise<void> {
@@ -372,6 +422,53 @@ export async function bingRequestIndexing(project: string, opts: {
 
   if (result.results.length > 1) {
     console.log(`Summary: ${result.summary.succeeded} succeeded, ${result.summary.failed} failed (${result.summary.total} total)`)
+  }
+}
+
+export async function bingInspectSitemap(project: string, opts: {
+  sitemapUrl?: string
+  wait?: boolean
+  format?: string
+}): Promise<void> {
+  const client = getClient()
+  const run = await client.bingInspectSitemap(project, {
+    sitemapUrl: opts.sitemapUrl,
+  }) as { id: string; status: string; kind: string }
+
+  if (!opts.wait && opts.format === 'json') {
+    console.log(JSON.stringify(run, null, 2))
+    return
+  }
+
+  if (opts.format !== 'json') {
+    console.log(`Bing sitemap inspection started (run ${run.id})`)
+  }
+
+  if (opts.wait) {
+    const current = await waitForRunStatus(client, run.id, {
+      timeoutMs: 30 * 60 * 1000,
+      intervalMs: 3000,
+      progressLabel: 'Waiting for Bing sitemap inspection to complete',
+      successStatuses: ['completed', 'partial'],
+      failureStatuses: ['failed'],
+      timeoutCode: 'BING_INSPECT_SITEMAP_TIMEOUT',
+      failureCode: 'BING_INSPECT_SITEMAP_FAILED',
+      timeoutMessage: 'Timed out waiting for Bing sitemap inspection to complete.',
+      failureMessage: 'Bing sitemap inspection failed.',
+      details: { project },
+    })
+
+    if (opts.format === 'json') {
+      console.log(JSON.stringify(current, null, 2))
+      return
+    }
+
+    if (current.status === 'partial') {
+      console.log('Bing sitemap inspection completed with some errors.')
+      return
+    }
+
+    console.log('Bing sitemap inspection completed successfully.')
   }
 }
 

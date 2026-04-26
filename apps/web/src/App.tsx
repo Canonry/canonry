@@ -75,6 +75,7 @@ function formatTrackedRunKind(kind: RunKind): string {
     case RunKinds['inspect-sitemap']: return 'Sitemap inspection'
     case RunKinds['ga-sync']: return 'GA sync'
     case RunKinds['bing-inspect']: return 'Bing URL inspection'
+    case RunKinds['bing-inspect-sitemap']: return 'Bing sitemap inspection'
     case RunKinds['site-audit']: return 'Site audit'
     case RunKinds['backlink-extract']: return 'Backlink extract'
   }

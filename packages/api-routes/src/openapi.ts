@@ -1532,6 +1532,31 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'post',
+    path: '/api/v1/projects/{name}/bing/inspect-sitemap',
+    summary: 'Inspect every URL in a sitemap through Bing Webmaster Tools',
+    tags: ['bing'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: false,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            properties: {
+              sitemapUrl: stringSchema,
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Sitemap inspection run queued.' },
+      400: { description: 'Bing is not configured for this project.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'post',
     path: '/api/v1/projects/{name}/bing/request-indexing',
     summary: 'Submit URLs to Bing for indexing',
     tags: ['bing'],

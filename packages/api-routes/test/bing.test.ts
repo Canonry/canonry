@@ -561,6 +561,89 @@ describe('Bing routes', () => {
     expect(body[2]!.indexed).toBe(5)
   })
 
+  it('inspect-sitemap creates a queued run and invokes the callback with the sitemap URL', async () => {
+    const callback = vi.fn()
+
+    const inspectApp = Fastify()
+    inspectApp.decorate('db', db)
+    inspectApp.register(bingRoutes, {
+      bingConnectionStore: {
+        getConnection: () => connections.get('example.com'),
+        upsertConnection: (c) => { connections.set(c.domain, c); return c },
+        updateConnection: (d, p) => {
+          const e = connections.get(d); if (!e) return undefined
+          const n = { ...e, ...p }; connections.set(d, n); return n
+        },
+        deleteConnection: (d) => connections.delete(d),
+      },
+      onInspectSitemapRequested: callback,
+    })
+    await inspectApp.ready()
+
+    try {
+      const res = await inspectApp.inject({
+        method: 'POST',
+        url: '/projects/test-project/bing/inspect-sitemap',
+        payload: { sitemapUrl: 'https://example.com/custom-sitemap.xml' },
+      })
+
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as { id: string; kind: string; status: string }
+      expect(body.kind).toBe(RunKinds['bing-inspect-sitemap'])
+      expect(body.status).toBe(RunStatuses.queued)
+
+      expect(callback).toHaveBeenCalledTimes(1)
+      const [runIdArg, projectIdArg, optsArg] = callback.mock.calls[0]!
+      expect(runIdArg).toBe(body.id)
+      expect(projectIdArg).toBe(projectId)
+      expect(optsArg).toEqual({ sitemapUrl: 'https://example.com/custom-sitemap.xml' })
+
+      const stored = db.select().from(runs).where(eq(runs.id, body.id)).get()
+      expect(stored?.kind).toBe(RunKinds['bing-inspect-sitemap'])
+      expect(stored?.status).toBe(RunStatuses.queued)
+      expect(stored?.trigger).toBe(RunTriggers.manual)
+    } finally {
+      await inspectApp.close()
+    }
+  })
+
+  it('inspect-sitemap rejects with 400 when no Bing site is configured', async () => {
+    connections.set('example.com', {
+      domain: 'example.com',
+      apiKey: 'test-key',
+      siteUrl: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+
+    const inspectApp = Fastify()
+    inspectApp.decorate('db', db)
+    inspectApp.register(bingRoutes, {
+      bingConnectionStore: {
+        getConnection: () => connections.get('example.com'),
+        upsertConnection: (c) => { connections.set(c.domain, c); return c },
+        updateConnection: (d, p) => {
+          const e = connections.get(d); if (!e) return undefined
+          const n = { ...e, ...p }; connections.set(d, n); return n
+        },
+        deleteConnection: (d) => connections.delete(d),
+      },
+      onInspectSitemapRequested: vi.fn(),
+    })
+    await inspectApp.ready()
+
+    try {
+      const res = await inspectApp.inject({
+        method: 'POST',
+        url: '/projects/test-project/bing/inspect-sitemap',
+        payload: {},
+      })
+      expect(res.statusCode).toBe(400)
+    } finally {
+      await inspectApp.close()
+    }
+  })
+
   it('coverage-history respects limit parameter', async () => {
     const now = new Date().toISOString()
     db.insert(bingCoverageSnapshots).values([

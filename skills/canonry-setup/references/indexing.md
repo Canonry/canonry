@@ -90,6 +90,14 @@ canonry bing inspect <project> <url>
 canonry bing inspections <project>
 ```
 
+### Inspect every URL in your sitemap
+```bash
+canonry bing inspect-sitemap <project>                       # default https://<domain>/sitemap.xml
+canonry bing inspect-sitemap <project> --sitemap-url <url>   # explicit sitemap or sitemap index
+canonry bing inspect-sitemap <project> --wait                # block until the run finishes
+```
+Bing has no native sitemap inspection API — this command fetches the sitemap, diffs against the tracked URL set, then calls `GetUrlInfo` for each discovered URL so coverage reflects the full sitemap rather than only previously inspected pages.
+
 ### Submit URLs for indexing
 ```bash
 canonry bing request-indexing <project> <url>

@@ -45,6 +45,7 @@ import { isTelemetryEnabled, getOrCreateAnonymousId } from './telemetry.js'
 import { JobRunner } from './job-runner.js'
 import { executeGscSync } from './gsc-sync.js'
 import { executeInspectSitemap } from './gsc-inspect-sitemap.js'
+import { executeBingInspectSitemap } from './bing-inspect-sitemap.js'
 import { executeReleaseSync } from './commoncrawl-sync.js'
 import { executeBacklinkExtract } from './backlink-extract.js'
 import {
@@ -883,6 +884,14 @@ export async function createServer(opts: {
     googleSettingsSummary,
     bingSettingsSummary,
     bingConnectionStore,
+    onBingInspectSitemapRequested: (runId: string, projectId: string, inspectOpts?: { sitemapUrl?: string }) => {
+      executeBingInspectSitemap(opts.db, runId, projectId, {
+        ...inspectOpts,
+        config: opts.config,
+      }).catch((err: unknown) => {
+        app.log.error({ runId, err }, 'Bing inspect sitemap failed')
+      })
+    },
     wordpressConnectionStore,
     ga4CredentialStore,
     onRunCreated: (runId: string, projectId: string, providers?: string[], location?: import('@ainyc/canonry-contracts').LocationContext | null) => {

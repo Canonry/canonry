@@ -4,6 +4,7 @@ import {
   bingCoverageHistory,
   bingDisconnect,
   bingInspect,
+  bingInspectSitemap,
   bingInspections,
   bingPerformance,
   bingRefresh,
@@ -120,6 +121,22 @@ export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['bing', 'inspect-sitemap'],
+    usage: 'canonry bing inspect-sitemap <project> [--sitemap-url <url>] [--wait] [--format json]',
+    options: {
+      'sitemap-url': stringOption(),
+      wait: { type: 'boolean', default: false },
+    },
+    run: async (input) => {
+      const project = requireProject(input, 'bing.inspect-sitemap', 'canonry bing inspect-sitemap <project> [--sitemap-url <url>] [--wait] [--format json]')
+      await bingInspectSitemap(project, {
+        sitemapUrl: getString(input.values, 'sitemap-url'),
+        wait: getBoolean(input.values, 'wait'),
+        format: input.format,
+      })
+    },
+  },
+  {
     path: ['bing', 'request-indexing'],
     usage: 'canonry bing request-indexing <project> [url] [--all-unindexed] [--format json]',
     options: {
@@ -163,12 +180,12 @@ export const BING_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['bing'],
-    usage: 'canonry bing <connect|disconnect|status|sites|set-site|coverage|coverage-history|inspect|inspections|request-indexing|performance|refresh> <project> [args]',
+    usage: 'canonry bing <connect|disconnect|status|sites|set-site|coverage|coverage-history|inspect|inspect-sitemap|inspections|request-indexing|performance|refresh> <project> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'bing',
-        usage: 'canonry bing <connect|disconnect|status|sites|set-site|coverage|coverage-history|inspect|inspections|request-indexing|performance|refresh> <project> [args]',
-        available: ['connect', 'disconnect', 'status', 'sites', 'set-site', 'coverage', 'coverage-history', 'inspect', 'inspections', 'request-indexing', 'performance', 'refresh'],
+        usage: 'canonry bing <connect|disconnect|status|sites|set-site|coverage|coverage-history|inspect|inspect-sitemap|inspections|request-indexing|performance|refresh> <project> [args]',
+        available: ['connect', 'disconnect', 'status', 'sites', 'set-site', 'coverage', 'coverage-history', 'inspect', 'inspect-sitemap', 'inspections', 'request-indexing', 'performance', 'refresh'],
       })
     },
   },
