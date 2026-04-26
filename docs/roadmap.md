@@ -92,10 +92,16 @@ These build on existing infrastructure with minimal schema/architecture changes.
 **Implementation**: Use an LLM call to cluster keywords into topic groups (e.g., "pricing", "comparison", "how-to"). Store topic assignments in a new `keywordTopics` table. Aggregate SOV and sentiment by topic on the dashboard.
 **Impact**: Analysts think by topic, not keyword-by-keyword. This is how Profound justifies $499/mo.
 
-### Content Optimization Recommendations
-**Gap**: Profound's "AEO Content Score" is their most differentiated feature. No open-source tool offers this.
-**Implementation**: For keywords where the domain is `not-cited`, analyze the AI answer to extract: (a) what sources *were* cited and why, (b) what content format the answer favors, (c) structured data the cited pages use. Generate actionable recommendations. Store in a `recommendations` table linked to snapshots.
-**Impact**: Moves Canonry from "monitoring" to "optimization."
+### Citation-Driven Content Opportunities + Action Outcome Ledger (LEAD WAVE-0 INVESTMENT)
+**Gap**: Profound's "AEO Content Score" is their most differentiated feature. No open-source tool offers an action-typed, deterministic recommendation engine paired with closed-loop outcome tracking.
+**Implementation**: See `docs/gtm.md` §3a for the full product spec and `docs/adr/0009-content-action-outcome-ledger-and-publish-boundary.md` for the architectural contract. Canonical artifacts:
+- `canonry content targets` — ranked, action-typed (`create | expand | refresh | add-schema`) opportunity list with deterministic AEO-first classifier and additive two-branch scorer (`demand_score + competitor_score`) so zero-GSC `create` opportunities still rank.
+- `canonry content brief` — JSON-canonical structured brief with explicit `evidenceLedger`, `knownFields`, `unknownFields[]` (the load-bearing anti-hallucination guarantee).
+- `canonry content publish-payload` — pure CMS-shaped payload generation (no mutation); pluggable transformers for WordPress, Ghost, Next.js MDX, generic. Other CMSes via transformer payload + agent-executed HTTP.
+- `canonry wordpress create-draft` — the one full CMS mutation (WP only, audit-logged). All other publishing executed by agent with its own credentials.
+- **`content_actions` ledger** — every recommended action becomes a tracked experiment with baseline + lifecycle states (`briefed → payload-generated → published → validated`, plus `dismissed`) + computed outcome (`improved | unchanged | regressed | inconclusive`). Foundation for future per-domain ranker learning.
+- **Drafting deliberately out of scope** for canonry — external agents (Claude Code, Codex, Aero) write the prose from brief + their own URL retrieval.
+**Impact**: Closes the loop from observation → action → measurement. Generates the training data for "did `add-schema` work better than `expand` for this site?" — the foundation for outcome-weighted ranking, no ML required in v1. Most differentiated content surface in the open-source AEO category.
 
 ### Claude Code Skill
 **Gap**: AI agents need a way to interact with Canonry data.
@@ -188,7 +194,7 @@ Project grouping ("workspaces" or "organizations"), cross-project dashboards, te
 | Persona-framed queries | Medium | Very High | **P1** |
 | Site audit / tech readiness | Low-Medium (uses `@ainyc/aeo-audit`) | High | **P2** |
 | Prompt-to-topic clustering | Medium | High | **P2** |
-| Content optimization recs | Medium | Very High | **P2** |
+| **Citation-driven content opportunities + action ledger (lead Wave 0)** | Medium-Large | Very High | **P0** |
 | Anomaly detection alerts | Medium | Medium | **P2** |
 | Claude Code skill | Low-Medium | High | **P2** |
 | Crawl health monitoring | Low (uses `@ainyc/aeo-audit`) | Medium | **P2** |

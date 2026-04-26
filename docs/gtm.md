@@ -8,7 +8,7 @@ Canonry is **CLI/API-first, any-agent**. AGENTS.md is explicit: "No MCP layer, n
 
 That reframes the GTM feature set: the question isn't "what can Aero do?" It's **"how fast can any agent become productive with canonry?"** Everything below is oriented around that.
 
-**Lead investment:** the content engine (`canonry content gaps|sources|suggest|brief|draft` + WordPress publish). It is the launch headliner, the demo moment, and the feature that closes the loop from observation to outcome.
+**Lead investment:** the citation-driven content opportunity engine — `canonry content targets → content brief (JSON) → external agent draft → content publish-payload → optional wordpress create-draft`. It is the launch headliner, the demo moment, and the feature that closes the loop from observation to outcome. **Drafting itself is out of scope for canonry** (external agent only); the rest of the ladder is.
 
 ## Target Users & Agents
 
@@ -100,16 +100,190 @@ This is the highest-leverage feature on the list, for two reasons:
 1. AEO buyers ultimately want **outcomes** (more citations), not observation. Content is the lever that moves the metric.
 2. It's the perfect agent-driven loop: canonry says what to write → agent (Claude Code / Codex / Aero) drafts it → user publishes → next sweep measures the impact. Closes the observation-to-action loop that Profound and Semrush AEO leave open.
 
+**Product framing:** Canonry identifies **citation-driven content *opportunities*** and packages them as actionable briefs. The unit of value is a **recommended action on a specific page or query**, not a topic. Drafting is deliberately not the product — briefs are.
+
 **New CLI commands (extend the manual-assist pattern from #2):**
-- `canonry content gaps <project> --format json` — queries where competitors are cited but you're not, ranked by frequency and competitor count. Reuses `competitor_overlap` data; pure DB query, no LLM.
-- `canonry content sources <project> [--query "..."] [--competitor <domain>] --format json` — the grounding URLs the LLM used, grouped by query and cited domain. "For this query, the LLM pulled from these 4 URLs with these titles" — a reference map the agent (or user) can read to understand what earns a citation. Pure DB query, no LLM, no third-party fetch (canonry surfaces URLs; the agent decides whether to read them).
-- `canonry content suggest <project> [--limit N]` — prioritized topic recommendations with reasoning ("3 competitors cited for 'best CRM for SaaS', you're missing — grounding sources suggest long-form comparison posts earn citations here"). Enriched by `searchQueries` (shows the LLM's internal related angles) and `groundingSources` (shows competitive depth).
-- `canonry content brief <project> "<topic>" --format md` — full content brief: target query, **top grounding URLs cited for this query** (so the agent knows what to match/exceed), the LLM's internal `searchQueries` as related-angle coverage, competitor citation patterns, suggested H2s/entities, schema to include, target length, supporting stats. Single LLM call using the grounding signal as context.
-- `canonry content draft <project> "<topic>" --provider <name> --format md` — full draft using the project's configured provider. Outputs markdown the user/agent commits to their repo, or pipes into the WordPress integration for a draft post. The agent is expected to fetch the grounding URLs itself (via its own WebFetch / browser tool) for source material — canonry surfaces the URLs but never scrapes them (respects ToS, keeps canonry on the "signal, not execution" side).
+- `canonry content gaps <project> [--provider <p>] --format json` — queries where competitors are cited but you're not. Pure DB query, no LLM.
+- `canonry content sources <project> [--query "..."] [--competitor <domain>] --format json` — the grounding URLs the LLM used, grouped by query and cited domain. URL-level competitive map. Pure DB query, no LLM, no third-party fetch (canonry surfaces URLs; the agent decides whether to read them).
+- `canonry content targets <project> [--sort score] [--limit N] [--include-in-progress] --format json` — **the ranked action-typed opportunity list.** Each row: `{query, action ∈ create|expand|refresh|add-schema, ourBestPage?, winningCompetitor, score, scoreBreakdown, drivers[], demandSource, actionConfidence, existingAction?}`. Deterministic scorer, additive two-branch (GSC demand + competitor evidence) so zero-GSC `create` opportunities still rank. No reasoning prose — auditable score breakdowns only.
 
-**New Aero tools:** `get_content_gaps`, `get_grounding_sources`, `suggest_content_topics`, `generate_content_brief`. Same scope rules as existing tools (gaps/sources always-on since they're DB reads; draft generation only via explicit user invocation since it spends provider tokens).
+  **Existing-action awareness:** if a target already has an in-flight action (`briefed`, `payload-generated`, `draft-created`, or `published-not-yet-validated`) for the same `(query, action, targetPage)` triple, the row carries `existingAction: { actionId, state, lastUpdated }`. **By default the CLI/UI hides these rows** (so users don't keep seeing work they already started); `--include-in-progress` includes them annotated. `dismissed` and `validated` actions never reappear by default; pass `--include-validated` for retrospection.
 
-**WordPress synergy:** `canonry wordpress publish-draft <project> --content-file <md>` extends the existing manual-assist pattern (`docs/wordpress-setup.md:44-54`) — generates the WP draft post, stops short of publishing. Same "advise + payload, never silently mutate" principle.
+  **Classifier is AEO-first**, not SEO-first: AI citation status is checked before SEO rank. A page ranking #25 in Google but cited by an LLM is a *win* (`add-schema` to lock it in), not an `expand` candidate. SEO rank acts only as triage when AEO is failing.
+
+  | Page state | Action |
+  |---|---|
+  | No page (or page ranks > 30) | `create` |
+  | Cited by LLM, no schema | `add-schema` (lock in the win) |
+  | Cited by LLM, has schema | skip (already winning) |
+  | Not cited, ranks ≤ 10 in GSC | `refresh` (SEO works, AEO doesn't — restructure for LLM consumption) |
+  | Not cited, ranks 11–30 in GSC | `expand` (thin/stale on both fronts) |
+
+  `add-schema` fires only on first-party schema audit evidence (WordPress audit today; a generic `inspect-schema` HTTP fetch + JSON-LD parse can extend this universally later, ~50 LOC). Competitor-schema comparison is deferred until a retrieval layer exists.
+- `canonry content brief <project> --target-ref <id> [--format json|md]` (preferred) **or** `--topic "<q>"` (exploratory, degraded) — **JSON canonical, structured brief with explicit known/unknown fields and an evidence ledger.** Markdown is a renderer of the JSON, never the source of truth (don't edit md and re-import). Single LLM call. Persisted to `contentBriefs` and assigned a stable `briefId`.
+
+  **Two modes:**
+  - **`--target-ref <id>` (evidence-grounded, default path):** the brief inherits the full scored context, evidence ledger, and confidence rating from `content targets`. `briefMode = 'evidence-grounded'`.
+  - **`--topic "<q>"` (exploratory, degraded):** for queries the user has in mind that haven't yet ranked or been classified. The command first attempts to resolve the topic to an existing target — if a match exists, behaves identically to `--target-ref`. Otherwise emits an `briefMode = 'exploratory'` brief with `actionConfidence: 'low'`, an enlarged `unknownFields[]`, and an empty `evidenceLedger.gscEvidence`. The brief explicitly warns that it lacks ranking/citation grounding. **This is the only path to brief generation without an evidence-backed target — and it's marked as such.**
+
+  **Action ledger integration:** generating a brief creates (or reuses) a tracked action in `content_actions` and returns its `actionId` alongside the `briefId`. The action is the durable unit; the brief is its first artifact. See "Content Action Outcome Ledger" below.
+
+  `ContentBriefDto` shape:
+  - **Lifecycle:** `briefId` (stable handle), `actionId` (the parent action — durable across the whole experiment), `targetRef` (nullable in exploratory mode), `sourceRunId` (the `runs.id` whose data backed this brief), `generatedAt` (ISO timestamp), `briefMode ∈ { 'evidence-grounded' | 'exploratory' }`
+  - **Content:** `primaryQuery`, `secondaryQueries[]`, `pageType`, `searchIntent`, `recommendedAction`, `schemaRecommendation`
+  - **`evidenceLedger`:** `{ winningCompetitorUrls[], gscEvidence, citationHistory }` — provenance for every claim; URLs/titles preserved byte-identical from `content sources`
+  - **`knownFields`:** values derived from canonry's own data (counts, URLs, GSC stats, citation rates)
+  - **`unknownFields[]`:** fields the LLM was instructed *not* to invent (e.g., `competitor_h2_structure`, `competitor_word_count`) — `null` with a `whyUnknown` reason rather than guessed. **Load-bearing anti-hallucination guarantee.**
+  - **`acceptanceCriteria[]`:** measurable bars ("covers entities X, Y, Z", "includes FAQPage schema", "≥ 1500 words")
+  - **`requiredSections[]`:** `[{ heading, mustCoverEntities[] }]`
+  - **`risks[]`:** short labels ("competitor page is 5,000 words — depth match is significant", "highly contested SERP")
+  - **`successMetric`:** `{ target, baseline, measuredBy }`
+
+  **No drafting in canonry, ever.** Brief generation is the ceiling of canonry's content surface. See "Generation boundary" below.
+- `canonry content publish-payload <project> --action-id <id> --content-file draft.md --target wordpress|ghost|next-mdx|generic [--format json]` — emits a `ContentPublishPayloadDto` keyed to a specific tracked action. The payload is tied to the action's brief, evidence ledger, sourceRunId, and recommendedAction; a payload generated against action v1 cannot be confused with one against action v2 even if the target query is unchanged. **Pure payload generation, no mutation.** Updates action state to `payload-generated`. Returns `{ actionId, briefId, target, execution: { method, url, headers, body }, metadata: { evidenceLedger, sourceRunId, generatedAt }, credentialHints, nextSteps, successValidation }`. See "Content Action Outcome Ledger" + "Generation boundary" + "Publish boundary" below.
+
+**Composite API contract (up-front):** routes live in `packages/api-routes/src/content.ts`; scorer lives in `packages/intelligence/src/content-targets.ts`. CLI/UI/Aero all consume the same DTOs byte-for-byte.
+
+| Route | DTO |
+|---|---|
+| `GET /projects/:name/content/gaps` | `ContentGapsResponseDto` |
+| `GET /projects/:name/content/sources` | `ContentSourcesResponseDto` |
+| `GET /projects/:name/content/targets` | `ContentTargetsResponseDto` (with `ContentTargetRowDto[]`) |
+| `POST /projects/:name/content/briefs` | `ContentBriefDto` (creates/reuses action; returns `briefId` + `actionId`; idempotent by `(query, action, targetPage)`) |
+| `POST /projects/:name/content/publish-payload` | `ContentPublishPayloadDto` (no mutation; updates action state to `payload-generated`) |
+| `GET  /projects/:name/content/actions` | `ContentActionsResponseDto` — list tracked actions, filterable by state/action |
+| `GET  /projects/:name/content/actions/:actionId` | `ContentActionDto` — single action + computed outcome |
+| `POST /projects/:name/content/actions/:actionId/mark-published` | mutation: records `publishedUrl` + `publishedAt`; transitions to `published` |
+| `POST /projects/:name/content/actions/:actionId/dismiss` | mutation: terminal state |
+| `POST /projects/:name/wordpress/create-draft` | mutation: returns `WordpressDraftCreatedDto`; transitions action state to `published`. The only WP-touching mutation in the surface. |
+
+**New Aero tools:**
+- **Read-only, always-on** (DB reads): `get_content_gaps`, `get_grounding_sources`, `get_content_targets`, `list_content_actions` (filter by state/action), `get_content_action` (single action + outcome)
+- **Write, explicit invocation:** `generate_content_brief` (spends LLM tokens; auto-creates the action), `dismiss_content_action` (terminal state change)
+
+Drafting is deliberately *not* an Aero tool. `mark_published` is also intentionally CLI/API-only — agents typically don't know the user's published URL; that's a user-side fact.
+
+**How competitor data drives recommendations:** competitor signal is the primary lever distinguishing canonry's content engine from generic SEO content tools. We use it four ways:
+
+1. **Demand inference** — the `competitor_score` branch fires when GSC has zero impressions, so `create` opportunities still rank for queries Google doesn't yet recognize as demand. This is what unblocks the recommendation engine for early-stage / niche / emerging-topic queries.
+2. **Page-type and intent inference** — competitor URL patterns and titles (`/compare/`, `/best-`, `/vs/`, `/guides/`, `/glossary/`) populate `pageType` and `searchIntent` in the brief without an LLM call.
+3. **The evidence map (`winningCompetitorUrls[]`)** — every brief carries the exact competitor URLs + titles + citation counts the agent needs to read, beat, or differentiate against. Canonry surfaces; the agent fetches via its own WebFetch.
+4. **Trend signals** — newly-appearing competitor citations (`recommendedCompetitors`, recent-run deltas) feed `recent_miss_rate` and surface as `drivers[]` (e.g., "competitor X gained citation in last 30 days"). Catches rising threats before they consolidate.
+
+**What canonry never reads:** competitor *page bodies*. Only URLs, titles, citation patterns, and per-provider citation history. Body content is the agent's job (its WebFetch tool, its bandwidth, its rate-limit obligations). Keeps canonry firmly on the signal side.
+
+**Content Action Outcome Ledger (V1):** every recommended action becomes a **tracked experiment** with a durable lifecycle and computed outcome. This is what turns canonry from "recommendation generator" into "recommendation system that learns from its own past advice." It is the foundation for future per-domain action ranking — *no ML required in v1*, just the data that would eventually feed it.
+
+**The lifecycle states** (persisted in `content_actions` table):
+
+```
+proposed → briefed → payload-generated → draft-created → published → validated
+                                                ↓             ↓
+                                              published      (skip draft-
+                                              (non-WP path:   created — was
+                                              mark-published  always going
+                                              or agent)       direct)
+                                                ↓
+                                          dismissed (terminal, any state)
+```
+
+`proposed` is optional (a user "claiming" a target before generating a brief); the common path begins at `briefed`. **`draft-created` is a WP-only intermediate state** — a WordPress draft is *not* published content; it's a draft sitting in WP admin awaiting user review. Non-WP paths skip it entirely (going directly `payload-generated → published` via `mark-published` or agent confirmation).
+
+**Each action record carries:**
+- **Identity:** `actionId` (stable handle), `projectId`, `query`, `action ∈ {create|expand|refresh|add-schema}`, `targetPage?` (nullable for `create` actions), `state`, `createdAt`, `updatedAt`
+- **Promotion context:** `scoreAtPromotion`, `driversAtPromotion[]`, `sourceRunId` (the run whose data justified this action) — frozen at creation
+- **Baseline (frozen at creation):** `baselineCitedRate`, `baselineProviderBreakdown`, `baselineGscStats { impressions, position, ctr }`, `baselineCompetitorOverlap[]`, **`baselineObservationSet { providers[], models[], locations[] }`** — the "before" snapshot, plus the exact observation surface that produced it
+- **Lifecycle artifacts:** `briefId?`, `payloadGeneratedAt?`, **`wpDraftId?`, `wpDraftUrl?`, `draftCreatedAt?`** (WP only), `publishedUrl?`, `publishedAt?`, `dismissedAt?`, `dismissedReason?`
+- **Outcome (computed lazily after publish, refined as more runs accumulate):** `outcomeResult ∈ {improved|unchanged|regressed|inconclusive}` + `firstMeasurement` (computed on first post-publish run) + full computed payload — see below
+
+**Outcome computation** (pure given action + post-publish snapshots; lives in `intelligence/`):
+
+```
+// Comparison happens only over the intersection of baseline observation set
+// AND post-publish observation set — like-for-like, never cross-category.
+observationSet         = intersect(baselineObservationSet, postPublishObservationSet)
+
+citationRateBefore     = baselineCitedRate over observationSet
+citationRateAfter      = latest-run cited rate over observationSet
+citationGained[]       = (provider, model) pairs where we became cited post-publish (within observationSet only)
+citationLost[]         = (provider, model) pairs where we lost (within observationSet only)
+providersImproved[]    = providers in observationSet with cited-rate increase
+competitorDisplacement = competitors that lost share for this query post-publish
+timeToFirstCitation    = days from publishedAt to first cited snapshot in observationSet
+newEvidence[]          = providers/models/locations added AFTER publish — surfaced separately,
+                          NOT folded into result (would be a category error)
+result                 = 'improved' | 'unchanged' | 'regressed' | 'inconclusive'
+```
+
+**Validation threshold** (when `published → validated` fires): the transition only happens when ≥ **3 eligible post-publish runs** OR ≥ **14 days** have elapsed since `publishedAt` (whichever comes first). Until then, the action stays in `published` with `firstMeasurement` populated and `result = 'inconclusive'`. AI citation results are noisy; a single post-publish snapshot is not enough evidence to call an action validated — and the ledger is training data, so false positives would corrupt future per-domain ranking. Eligible runs are those whose observation set has non-empty intersection with `baselineObservationSet`.
+
+**Idempotency contract:** at most one *in-progress* (non-`dismissed`, non-`validated`) action per `(projectId, query, action, targetPage)` triple. `content brief --target-ref <id>` creates a new action OR reuses an existing in-progress one for the same triple. Re-running `content targets` does not duplicate actions.
+
+**New CLI commands for the ledger:**
+- `canonry content actions <project> [--state ...] [--action ...] [--limit N] --format json` — list tracked actions; filter by lifecycle state and/or action type
+- `canonry content action <project> <action-id> --format json` — single action, includes computed outcome if `published`
+- `canonry content mark-published <project> --action-id <id> --url <published-url> [--published-at <iso-date>]` — explicit publish confirmation; transitions to `published`. Records URL + timestamp; does not mutate baseline or evidence.
+- `canonry content dismiss <project> --action-id <id> [--reason <text>]` — terminal dismissal; excludes from future `content targets` ranking by default
+
+**State transitions and the surrounding commands:**
+
+| Command / signal | State transition | External mutation? | Determinism | Notes |
+|---|---|---|---|---|
+| `content brief --target-ref <id>` | `(none)` → `briefed` (creates action) **OR** reuses existing in-progress action | No (local ledger only) | Deterministic | Idempotent per `(query, action, targetPage)` |
+| `content publish-payload --action-id <id>` | `briefed` → `payload-generated` | No (local ledger only) | Deterministic | Records `payloadGeneratedAt` |
+| `wordpress create-draft --action-id <id>` | `payload-generated` → `draft-created` (WP only) | **Yes** (creates WP draft post) | Deterministic | Records `wpDraftId`, `wpDraftUrl`, `draftCreatedAt`. **Does not transition to `published`** — a WP draft is not published content, just a draft awaiting user review. Audit-logged. |
+| WP poll detects `wpDraftId` status changed to `publish` | `draft-created` → `published` | No (canonry observing WP) | Deterministic | Only fires when WP API confirms the draft is now `status: publish`. Records `publishedUrl` + `publishedAt` from WP response. |
+| Agent calls `content mark-published` as last workflow step | `payload-generated` → `published` | No (local ledger only) | Deterministic | Agent-mediated zero-friction path (Claude Code, Codex). Skips `draft-created` — non-WP path doesn't have a draft state. |
+| `content mark-published --action-id <id>` (user-initiated) | `payload-generated` or `draft-created` → `published` | No (local ledger only) | Deterministic | Explicit fallback. From `draft-created`: confirms the WP draft was promoted to publish without waiting for poll. |
+| Sitemap-inspection diff finds a new URL whose slug overlaps with the action's `primaryQuery` | (no state change — surfaces a candidate prompt) | No | **Heuristic — surfaces in dashboard for user confirmation, never auto-transitions** | Slug match alone cannot prove the new URL is the post we briefed. Dashboard shows "looks like you published X — confirm?" with one-tap yes/no. |
+| `content dismiss --action-id <id>` | any → `dismissed` | No (local ledger only) | Deterministic | Terminal; excluded from default `content targets` ranking |
+| (post-publish runs accumulate) | `published` → `validated` | No (local ledger only) | Deterministic (outcome) | **Threshold:** ≥3 eligible post-publish runs OR ≥14 days since `publishedAt`, whichever first. Eligible run = its observation set intersects `baselineObservationSet`. Until threshold, stays in `published` with `result = 'inconclusive'` and `firstMeasurement` populated. **Not a publish-detection signal** — outcome only fires once `publishedAt` is already set. |
+
+**Detection vs verification (load-bearing distinction):** canonry does **not** verify that a published post matches the brief. We don't read user page bodies any more than we read competitor page bodies — the body-reading boundary holds for both. What canonry does:
+
+- **Deterministic detection** (WP poll, agent-mediated, manual): records the URL with confidence
+- **Heuristic candidate suggestion** (sitemap diff): surfaces "is this you?" in the dashboard, requires user confirmation
+- **Outcome measurement** (citation appearance, displacement, time-to-first-citation): computed deterministically from snapshot history *after* publish is confirmed
+
+What canonry does *not* do:
+- ❌ Fetch the user's published URL and check entities
+- ❌ Auto-mark `published` on slug match alone
+- ❌ Treat citation appearance as evidence the user *published* (it's evidence of *outcome*, two different states)
+
+The honest UX: WP and agent flows are zero-effort end-to-end; pure-manual users either tap a confirmation in the dashboard when canonry surfaces a candidate, or run `mark-published` explicitly. No persona is asked to "remember to come back to canonry."
+
+**Why this matters (and why it's V1, not deferred):** without this ledger, canonry can generate good briefs but cannot answer "did `add-schema` work better than `expand` for this site?" With it, the next iteration of the ranker can weight action types by observed per-domain outcome — the foundation for learning, without ML in v1. Building the ledger AFTER actions are already shipping means losing the training data we'd most want.
+
+**Generation boundary (the ladder):** every layer below has a single canonical artifact. Higher layers consume lower-layer output verbatim; canonry never invents to fill gaps. Each step is also a state transition in the action ledger above.
+
+| # | Surface | Produces | Mutation? |
+|---|---|---|---|
+| 1 | `content targets` | Ranked actions (no prose) | none |
+| 2 | `content sources` | Evidence map (URLs/titles/counts only) | none |
+| 3 | `content brief --format json` | Canonical structured brief w/ evidence ledger | none |
+| 4 | `content brief --format md` | Human-readable render of the JSON | none |
+| 5 | (drafting) | **Out of scope. External agent only.** | n/a |
+| 6 | `content publish-payload` | CMS-shaped payload, credential placeholders | none |
+| 7 | `wordpress create-draft` | **Explicit external mutation** — creates WP draft post (`payload-generated → draft-created`); does **not** mark as published | yes (WP only) |
+| 8 | WP poll OR `mark-published` | Records `publishedUrl` + `publishedAt`, transitions to `published` | no (canonry observes / records) |
+
+**Drafting is explicitly not a canonry surface.** External agents fetch the brief's cited URLs (their own WebFetch / browser tool / rate-limit obligations), produce the draft, and either commit it to the user's repo or hand it back to canonry's payload/mutation layers. This boundary is what prevents canonry from hallucinating source material it never fetched. The brief's `unknownFields[]` makes this contract enforceable per-field.
+
+**Mutation gate — two layers, not one:**
+
+- **External mutation** (writes to systems outside canonry): `wordpress create-draft` is the **only** command in the content surface that touches external state. Renamed from `publish-draft` to make this explicit. WP-only, gated, audit-logged via existing audit-log infrastructure.
+- **Local ledger mutation** (writes to canonry's own DB): `content brief`, `content publish-payload`, `content mark-published`, `content dismiss` all create or transition rows in the `content_actions` and `contentBriefs` tables. These are not external mutations — they're durable lifecycle tracking inside canonry.
+
+The boundary canonry preserves is "no silent external mutation." Internal ledger writes are how the system stays accountable to the user, not a violation of the boundary. Conflating the two would either let canonry silently mutate external systems (bad) or stop tracking the recommendation lifecycle entirely (also bad).
+
+**Publish boundary — transformers, not adapters:** the agent takes a brief + draft and publishes. Canonry's role ends at **preparing a CMS-shaped payload**; the agent calls the CMS's API with its own credentials.
+
+- **Transformers are pure functions** in a new `packages/publish-transformers/`: `(brief, draft, targetMeta) → ContentPublishPayloadDto`. No HTTP, no auth, no runtime deps. 100% unit-testable. Ship `wordpress`, `ghost`, `next-mdx`, `generic` at launch; add Webflow/Hugo/Sanity/Contentful on user demand.
+- **WordPress stays as the one full adapter.** `integration-wordpress/` already owns auth + live execution + audit. `canonry wordpress create-draft` (the mutation gate, see "Generation boundary" above) is a thin wrapper: run the WP transformer → call the existing `createPage({status: 'draft'})`. Earns its keep because the target audience (solo AEO analysts, SEO consultants, in-house SEO) has heavy WP overlap. **Gutenberg quirk:** WP's block editor auto-converts pasted markdown, so the WP transformer can emit minimal block JSON + a `core/html` fallback and let Gutenberg do the rest — dramatically shrinks the transformer's surface.
+- **Other CMSes: transformer only.** Agent substitutes credentials from its env (placeholders like `${GHOST_ADMIN_KEY}` in the payload) and executes the HTTP call itself. Canonry never sees non-WP secrets.
+- **No adapter maintenance treadmill.** The agent already has HTTP + credential resolution; canonry adding a live client per CMS duplicates that work and exposes us to auth/rate-limit/API-drift churn.
+
+**Why this is the right boundary:** aligns 1:1 with AGENTS.md ("canonry surfaces, agent acts"). Keeps canonry's unique value concentrated on what only it can do — producing CMS-shaped payloads from the brief schema, page type, and metadata. Research confirmed no off-the-shelf library covers this space (Micropub has limited CMS coverage — no Ghost/Webflow/core-WP; headless-CMS libraries like Contentlayer face inward to the user's own site); composing `remark`/`rehype` + per-target transformers (~100–150 LOC each) is the right build.
 
 **Demo synergy:** `canonry demo` and the hosted sandbox should highlight this loop. "Watch canonry tell you exactly what blog post to write next based on what your competitors are getting cited for" is a much stronger demo moment than a static dashboard tour. Bake this into the Wave 1 demo script.
 
@@ -205,14 +379,27 @@ Would embarrass, not block:
 Content is the lead investment. It's the differentiator, the demo headliner, and the feature that closes the loop from observation to outcome. Everything else in Wave 0 is supporting hardening that runs in parallel.
 
 **Lead — content engine (#3a, full scope):**
-- **`canonry content gaps`** — DB-only query: which queries do competitors win that you don't?
-- **`canonry content sources`** — DB-only query: the grounding URLs the LLM used per query/competitor (URL-level competitive map).
-- **`canonry content suggest`** — prioritized topic recommendations enriched by `searchQueries` and `groundingSources`.
-- **`canonry content brief`** — full content brief: target query + top grounding URLs + LLM internal queries + suggested H2s/entities/schema. Single LLM call.
-- **`canonry content draft`** — full draft via the project's configured provider; emits markdown the user/agent commits to their repo.
-- **`canonry wordpress publish-draft`** — closes the WordPress loop; generates draft post via existing manual-assist pattern.
-- **Aero tools:** `get_content_gaps`, `get_grounding_sources`, `suggest_content_topics`, `generate_content_brief` (draft generation gated to explicit user invocation).
-- **Demo fixtures highlight the content loop** — sample project's `canonry demo` data shows a clear "your competitor is cited via this URL → here's the brief → here's the draft" walkthrough.
+
+*PR 1 — deterministic read layer (no LLM, no persistence):*
+- **`canonry content gaps / sources / targets`** — DB-only reads; `targets` is the ranked action-typed opportunity list (additive two-branch scorer so `create` opportunities with zero GSC still rank).
+- **Contracts:** `ContentTargetRowDto` + response DTOs in `packages/contracts/src/content.ts` (canonical for CLI + API + UI).
+- **API routes:** `/projects/:name/content/{gaps,sources,targets}` — composite reads so agents never client-side-join.
+- **Scorer + action classifier:** `packages/intelligence/src/content-targets.ts` — pure function, unit-tested with fixture snapshots.
+- **Aero read tools:** `get_content_gaps`, `get_grounding_sources`, `get_content_targets`.
+
+*PR 3 — brief + transformers + publish loop:*
+- **`canonry content brief --target-ref <id>`** — structured JSON (canonical) with markdown renderer. Single LLM call. `POST /content/briefs` idempotent by `(query, action, targetPage)`. **Auto-creates / reuses a tracked action** (see ledger below); returns `{ briefId, actionId, ... }`.
+- **`canonry content publish-payload --action-id <id>`** — emits `ContentPublishPayloadDto`; ships `wordpress`, `ghost`, `next-mdx`, `generic` transformers at launch. **Pure payload generation, no mutation.** Transitions action state to `payload-generated`.
+- **`canonry wordpress create-draft --action-id <id>`** — **explicit external mutation**: runs the WP transformer + calls existing `createPage({status:'draft'})`. Records `wpDraftId`, `wpDraftUrl`, `draftCreatedAt` on the action; transitions state to **`draft-created`** (NOT `published` — a WP draft is awaiting user review, not yet live). Audit-logged. WP poll then watches the draft for status change to `publish`, transitioning to `published` only at that point.
+- **`canonry content actions / action / mark-published / dismiss`** — action ledger CLI surface (see "Content Action Outcome Ledger" in §3a).
+- **Content Action Outcome Ledger** — new `content_actions` table + state machine + outcome computation (lazy, post-publish). The durable lifecycle is the unit of value, not just the brief.
+- **Aero write tool:** `generate_content_brief`, `dismiss_content_action`. Plus read tools: `list_content_actions`, `get_content_action`.
+- **New package:** `packages/publish-transformers/` — pure per-target transformers (`remark`/`rehype`-backed), no runtime deps.
+- **Persistence:** `contentBriefs` table (artifacts) + `content_actions` table (durable lifecycle) + outcome computation in `packages/intelligence/src/content-outcomes.ts`.
+
+*PR 2 — UI surfacing (moves to Wave 1 under content surfacing below).*
+
+*Demo fixtures highlight the content loop* — sample project's `canonry demo` data shows "competitor wins query X via URL Y → here's the action-typed target → here's the brief → agent publishes via transformer payload" end-to-end.
 
 **Parallel — launch hardening:**
 - **Credential encryption — full secret scope** (#5): provider keys, Vertex creds, Google OAuth + tokens, Bing keys, GA4 private keys, WordPress app passwords, local API key.
@@ -226,7 +413,7 @@ Content is the lead investment. It's the differentiator, the demo headliner, and
 
 - **Extend the existing `/setup` wizard** (#1, Path A): inline provider step before system check, integrations step (GSC/GA4/Bing/WordPress), final "Connect your AI editor" step.
 - **Persistent setup checklist** independent of the one-shot wizard (since `routes.tsx:108-113` redirects users away once a project exists) (#1, Path A).
-- **Content surfacing in the dashboard** — gaps/sources/suggest results visible in the project page, not only in the CLI. Same UI/CLI parity rule as the rest of the dashboard.
+- **Content surfacing in the dashboard** (content engine PR 2) — gaps/sources/targets results visible in the project page, consuming the same DTOs as the CLI. Action-type filters (`create|expand|refresh|add-schema`) and score-driver chips. Same UI/CLI parity rule as the rest of the dashboard.
 - **Empty-state polish** sweep across remaining dashboard views (#1, Path A).
 - `canonry skill install --for <agent>` + agent-guide doc surface (#1, Path B) — backs the UI panel and the CLI path.
 - `canonry init` detects + recommends agent integration (#1, Path B).
@@ -261,8 +448,25 @@ Track against a funnel dashboard powered by `packages/canonry/src/telemetry.ts`:
 - `init_completed` rate (vs `init_started`).
 - `first_run_completed` rate (vs `init_completed`).
 - `skill_installed` rate (which agent breakdown).
-- `content_brief_generated` rate (Wave 0 lead-feature adoption).
-- `content_draft_published` rate (closed-loop validation).
+- `content_action_promoted` rate — first time a target is brought into the ledger (when brief is generated).
+- `content_brief_generated` rate (per-action; one event per brief artifact).
+- `content_publish_payload_generated` rate (agent-driven publish flows).
+- `wp_draft_created` rate (WP-specific mutation; transitions to `draft-created`).
+- `wp_draft_published` rate (WP poll detects draft → publish; transitions to `published`).
+- `content_published_marked` rate — explicit user confirmation via `mark-published`.
+- `content_action_first_measured` rate — first post-publish run with eligible snapshot data; `firstMeasurement` populated, `result` still `inconclusive`.
+- `content_action_validated` rate — outcome reached the validation threshold (≥3 eligible runs OR ≥14 days); `result` resolved.
+- `content_action_dismissed` rate.
+- `external_publish_confirmed` rate — derived from transitions into `published` state. **Confirmation paths, ordered by determinism:**
+  - **Deterministic auto (two-step for WP):** `wordpress create-draft` transitions action to `draft-created` (not `published`). WP poll watches the draft's `wpDraftId` for `status: publish`. When it flips, action transitions to `published`. Two distinct events: `wp_draft_created` and `wp_draft_published`.
+  - **Deterministic agent-mediated** — agent (Claude Code, Codex) calls `canonry content mark-published` as the last step of its workflow. Skips the WP draft state for non-WP flows.
+  - **Deterministic manual** — user runs `canonry content mark-published --url <u>` (or clicks the equivalent in the dashboard).
+  - **Heuristic candidate (NOT auto-confirm)** — sitemap-inspection diff finds a new URL with slug overlap to the action's `primaryQuery`. Surfaces in the dashboard as "looks like you published X — confirm?" Requires one-tap user confirmation; never transitions state on its own. Slug match alone cannot prove the URL is the post we briefed.
+
+  **Outcome confirmation is a separate signal** — citation appearance in `groundingSources` is OUTCOME evidence (`published → validated`), not publish evidence. It only fires once `publishedAt` is already set via one of the paths above.
+
+  v1 ships the WP-auto, agent-mediated, and manual paths. The heuristic candidate UI lands once site-inventory diffing is wired up (PR 1 inventory layer feeds this). Outcome computation lands in PR 3.
+- **Per-action-type outcome rates** — `improved | unchanged | regressed | inconclusive` rates broken down by `action ∈ {create|expand|refresh|add-schema}`. The training data for future per-domain ranker improvements.
 - 7-day retention on dashboard.
 - Demo → install conversion (hosted sandbox to local install).
 
@@ -270,6 +474,21 @@ Track against a funnel dashboard powered by `packages/canonry/src/telemetry.ts`:
 
 ### Wave 0 ship gate
 - [ ] All `canonry content` subcommands ship with `--format json` parity and tests.
+- [ ] **`ContentBriefDto` JSON schema exists in `packages/contracts/` before any prompt-template work begins** (schema-first, prompt-second).
+- [ ] **Every generated brief includes a populated `evidenceLedger` with provenance for each grounded field.**
+- [ ] **`unknownFields[]` is non-empty whenever any LLM-inferable field could not be grounded; tests assert no inferred values leak into `knownFields`.**
+- [ ] **Tests assert grounding URLs + titles survive byte-identical from `content sources` → `content brief.evidenceLedger` → `content publish-payload.metadata.evidenceLedger`.** Body content may be transformed (markdown links, HTML encoding); the structured-metadata ledger is the preservation contract.
+- [ ] **`wordpress create-draft` is the only command that mutates *external* systems (WP API write); test via a network-call interceptor that no other content command opens an outbound HTTP socket to a CMS.** All other lifecycle commands (`brief`, `publish-payload`, `mark-published`, `dismiss`) mutate only canonry's local ledger (DB rows in `content_actions` / `contentBriefs`).
+- [ ] **`content_actions` table exists with all required columns**: identity, baseline (frozen at creation), promotion context, lifecycle artifacts, outcome (lazy).
+- [ ] **Idempotency test passes:** generating a brief twice for the same `(query, action, targetPage)` reuses the existing in-progress action; re-running `content targets` does not duplicate in-progress actions.
+- [ ] **`mark-published` records URL + timestamp without modifying baseline, evidenceLedger, scoreAtPromotion, or driversAtPromotion** (test via diff of action record before/after).
+- [ ] **State machine precision:** `wordpress create-draft` transitions to `draft-created`, never directly to `published`. WP poll detecting `status: publish` (or `mark-published`) is the only path from `draft-created` to `published`. Test asserts these transitions in isolation.
+- [ ] **Validation threshold enforced:** `published → validated` only fires after ≥3 eligible post-publish runs OR ≥14 days. Test fixture verifies that 1 post-publish run leaves the action in `published` with `result='inconclusive'` + `firstMeasurement` populated; 3 runs (or 14d) transitions it to `validated` with full result.
+- [ ] **Observation-set scoping:** baseline records `baselineObservationSet { providers, models, locations }`. Outcome compares like-for-like only; providers/models/locations added after publish are surfaced in `newEvidence[]` separately, not folded into the result. Test fixture covers both cases.
+- [ ] **Outcome computation test:** given an action in `published` state and a fixture run dated after `publishedAt` with snapshot data, `firstMeasurement` and `outcomeResult` are populated correctly. After threshold, action transitions to `validated`.
+- [ ] **`content targets` hides in-progress actions by default:** test asserts a query with an existing `briefed` action does not appear in the default `content targets` response, but appears with `existingAction: { state: 'briefed', ... }` when `--include-in-progress` is passed.
+- [ ] **Dismissed actions are excluded from `content targets` default ranking** (assertable in fixture test).
+- [ ] Telemetry distinguishes the full action-lifecycle events: `content_action_promoted`, `brief_generated`, `publish_payload_generated`, `wp_draft_created`, `content_published_marked`, `content_action_validated`, `content_action_dismissed`, `external_publish_confirmed` — distinct events, not collapsed.
 - [ ] All seven secret types in `config.ts` migrated to keychain. Zero plaintext secrets in fresh `~/.canonry/config.yaml`.
 - [ ] CI lint asserts every doc-referenced `canonry <verb>` invocation is registered. `canonry timeline` ships or all references removed.
 - [ ] `canonry demo` boots a working sample project with content-loop data on a clean machine in under 60 seconds.
@@ -278,7 +497,7 @@ Track against a funnel dashboard powered by `packages/canonry/src/telemetry.ts`:
 ### Wave 1 ship gate
 - [ ] `/setup` wizard covers provider, integrations, agent-connect.
 - [ ] Persistent setup checklist surfaces post-redirect.
-- [ ] Content gaps/sources/suggest visible in dashboard with API/CLI parity.
+- [ ] Content gaps/sources/targets visible in dashboard with API/CLI parity.
 - [ ] `canonry skill install` works for Claude Code, Codex, Hermes, OpenClaw.
 - [ ] Hosted sandbox live at canonry.ai subdomain with demo fixtures.
 - [ ] Landing page at canonry.ai with content-loop demo video.
@@ -296,7 +515,11 @@ Track against a funnel dashboard powered by `packages/canonry/src/telemetry.ts`:
 
 - **Install:** `canonry skill install --for claude-code` drops skill into `~/.claude/skills/`.
 - **Example prompt:** "Use canonry to find queries where my competitors are cited but I'm not, then write a brief for the highest-priority topic."
-- **Expected workflow:** `canonry content gaps --format json` → pick top result → `canonry content brief "<topic>" --format md` → Claude Code writes draft and commits to user repo → `canonry run` next sweep validates impact.
+- **Expected workflow:** `canonry content targets --sort score --limit 5 --format json` (defaults hide already-in-progress actions) → pick a `targetRef` → `canonry content brief --target-ref <id> --format json` (returns `briefId` + `actionId`; action now `briefed`) → Claude Code fetches the brief's `evidenceLedger.winningCompetitorUrls` via WebFetch, drafts the post in the user's repo → `canonry content publish-payload --action-id <id> --content-file draft.md --target wordpress|next-mdx|...` (action now `payload-generated`) → agent applies the payload, then either:
+  - **WP users:** `canonry wordpress create-draft --action-id <id>` → action `draft-created` (WP draft sits in admin awaiting user review). User publishes in WP. Canonry polls and auto-transitions to `published`. **Or** the agent calls `canonry content mark-published` to skip the polling delay.
+  - **Other:** `canonry content mark-published --action-id <id> --url <published-url>` → action `published`.
+
+  After publish: each subsequent `canonry run` accumulates evidence. After ≥3 eligible runs OR ≥14 days, action auto-transitions `published → validated` with computed outcome (`improved | unchanged | regressed | inconclusive`). Until then, `firstMeasurement` populated and `result = 'inconclusive'`.
 
 ### Codex
 
@@ -308,7 +531,7 @@ Track against a funnel dashboard powered by `packages/canonry/src/telemetry.ts`:
 
 - **Install:** `canonry skill install --for hermes` writes Hermes-format guidance.
 - **Example prompt:** "Plan a content roadmap based on canonry's competitive intel for this domain."
-- **Expected workflow:** `canonry content suggest --limit 10 --format json` → Hermes synthesizes editorial calendar → user approves → Hermes drives `canonry content draft` for each topic.
+- **Expected workflow:** `canonry content targets --sort score --limit 10 --format json` → Hermes synthesizes editorial calendar → user approves → Hermes drives `canonry content brief --target-ref <id>` per target and drafts into the user's repo.
 
 ### OpenClaw
 
@@ -328,9 +551,8 @@ Track against a funnel dashboard powered by `packages/canonry/src/telemetry.ts`:
 
 | Wave | Area | Files |
 |------|------|-------|
-| 0 (lead) | Content gaps + sources + suggest | new `packages/canonry/src/commands/content.ts` (gaps, sources, suggest subcommands); reads `groundingSources` + `searchQueries` + `competitorOverlap` fields on `QuerySnapshotDto` (`packages/contracts/src/run.ts:57-77`); reuses `competitors` table + health-snapshot fields (`packages/db/src/schema.ts:32,68`); reuses `packages/intelligence/src/causes.ts` |
-| 0 (lead) | Content brief + draft | extend `packages/canonry/src/commands/content.ts`, new `packages/intelligence/src/content-prompts.ts` for brief + draft prompt templates, new Aero tools in `packages/canonry/src/agent/tools.ts` |
-| 0 (lead) | WordPress draft publish | extend `packages/integration-wordpress/src/wordpress-client.ts` (draft post creation), new CLI subcommand in `packages/canonry/src/cli-commands/wordpress.ts` |
+| 0 (lead, PR 1) | Content targets + gaps + sources (read layer) | new `packages/contracts/src/content.ts` (`ContentTargetRowDto`, `ContentTargetsResponseDto`, `ContentGapsResponseDto`, `ContentSourcesResponseDto`); new `packages/intelligence/src/content-targets.ts` (scorer + action classifier, pure); new `packages/api-routes/src/content.ts` (composite `/content/{gaps,sources,targets}` routes); new `packages/canonry/src/commands/content.ts` + `cli-commands/content.ts`; new Aero read tools in `packages/canonry/src/agent/tools.ts`; reads `groundingSources` + `competitorOverlap` via `rawResponse`, `gscSearchData`, `gaTrafficSnapshots` (per-page organic only — no per-page AI, see note), project-level `gaAiReferrals` |
+| 0 (lead, PR 3) | Content brief + publish transformers + **action ledger** | extend `packages/canonry/src/commands/content.ts` (brief, publish-payload, actions, action, mark-published, dismiss subcommands); new `packages/intelligence/src/content-prompts.ts` (must include `unknownFields` discipline); new `packages/intelligence/src/content-outcomes.ts` (pure outcome computation); **new `packages/publish-transformers/` package** with `wordpress`, `ghost`, `next-mdx`, `generic` transformers; **new `contentBriefs` + `content_actions` tables + migrations** (see DB rules in `AGENTS.md`); extend `packages/canonry/src/agent/tools.ts` with `generate_content_brief`, `list_content_actions`, `get_content_action`, `dismiss_content_action`; new `canonry wordpress create-draft` mutation command (renamed from `publish-draft`) wraps the WP transformer + existing `createPage()` in `packages/integration-wordpress/src/wordpress-client.ts`, audit-logged, transitions action state |
 | 0 | Credential encryption | `packages/canonry/src/config.ts` (all secret fields lines 10, 19, 33-34, 43, 49, 56, 64, 80, 101), `packages/canonry/src/commands/init.ts`, new `packages/canonry/src/keychain.ts`, migration in `packages/canonry/src/config-migrate.ts` |
 | 0 | Agent-docs accuracy | `packages/canonry/assets/agent-workspace/AGENTS.md`, `skills/aero/references/memory-patterns.md`, `skills/canonry-setup/`, new CI lint comparing doc invocations to `packages/canonry/src/cli-commands.ts` |
 | 0 | `canonry timeline` CLI wrapper | new `packages/canonry/src/commands/timeline.ts` wrapping the existing `/timeline` API route, register in `packages/canonry/src/cli-commands/run.ts` (or new `cli-commands/timeline.ts`) |
