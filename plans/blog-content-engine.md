@@ -117,19 +117,19 @@ packages/canonry/src/cli-commands.ts                    [EXTEND]   (register spe
 
 `packages/api-routes/test/fixtures/seed.ts` — single canonical fixture covering every classifier branch + the query-shape filter + site-inventory behavior. Re-exported for use by `intelligence/test/`, `canonry/test/`. **All tests below use this seed.**
 
-Project `acme.com` with:
+Project `example.com` with:
 
 ```
 6 keywords / queries:
-  Q1 "best crm for saas"          → no page anywhere       (CREATE, competitor-evidence)
-  Q2 "stripe vs square"            → page /blog/stripe-vs-square pos #4, NOT cited (REFRESH)
-  Q3 "what is mrr"                 → page /glossary/mrr pos #22 (EXPAND)
-  Q4 "saas billing guide"          → page /blog/saas-billing pos #6, IS cited, no schema (ADD-SCHEMA)
-  Q5 "stripe pricing"              → transactional → FILTERED OUT by query-shape
-  Q6 "best payment processor"      → no GSC row, but inventory has /blog/payment-processor-guide
-                                       → semantic match → REFRESH (not CREATE)
+  Q1 "best crm for saas"               → no page anywhere       (CREATE, competitor-evidence)
+  Q2 "best email marketing software"   → page /blog/email-marketing-comparison pos #4, NOT cited (REFRESH)
+  Q3 "what is mrr"                     → page /glossary/mrr pos #22 (EXPAND)
+  Q4 "saas billing guide"              → page /blog/saas-billing pos #6, IS cited, no schema (ADD-SCHEMA)
+  Q5 "buy crm software"                → transactional → FILTERED OUT by query-shape
+  Q6 "best payment processor"          → no GSC row, but inventory has /blog/payment-processor-guide
+                                           → semantic match → REFRESH (not CREATE)
 
-3 competitors: stripe.com, hubspot.com, salesforce.com
+3 competitors: competitor-a.com, competitor-b.com, competitor-c.com
 
 Snapshot data (last 5 runs) on (gemini-2.5-pro US, openai-gpt-4o US):
   Q1: 3 competitor citations, our domain absent
@@ -139,12 +139,12 @@ Snapshot data (last 5 runs) on (gemini-2.5-pro US, openai-gpt-4o US):
   Q6: 2 competitor citations, our domain absent
 
 GSC rows:
-  (Q2, /blog/stripe-vs-square, pos=4, impr=2400)
+  (Q2, /blog/email-marketing-comparison, pos=4, impr=2400)
   (Q3, /glossary/mrr, pos=22, impr=800)
   (Q4, /blog/saas-billing, pos=6, impr=1200)
 
 GA4 traffic per page (gaTrafficSnapshots):
-  /blog/stripe-vs-square: 340 sessions
+  /blog/email-marketing-comparison: 340 sessions
   /blog/saas-billing: 580 sessions
   /blog/payment-processor-guide: 50 sessions
   /glossary/mrr: 110 sessions
@@ -154,7 +154,7 @@ GA4 project-level (gaAiReferrals):
 
 WP audit:
   /blog/saas-billing: hasSchema=false  (the add-schema case)
-  /blog/stripe-vs-square: hasSchema=true
+  /blog/email-marketing-comparison: hasSchema=true
   others: hasSchema=true
 
 Inventory sources for Q6 match:
@@ -225,16 +225,16 @@ export const ContentTargetsResponseDto = z.object({
 1. **RED:** `query-shape.test.ts` — table-driven:
 
 ```
-"best crm for saas"        → blog-shaped ✓
-"how to set up stripe"     → blog-shaped ✓
-"stripe vs square"         → blog-shaped ✓
-"what is mrr"              → blog-shaped ✓
-"saas billing guide"       → blog-shaped ✓
-"stripe pricing"           → not blog-shaped ✗ (transactional)
-"stripe.com"               → not blog-shaped ✗ (navigational)
-"stripe login"             → not blog-shaped ✗ (navigational)
-"buy stripe subscription"  → not blog-shaped ✗ (transactional)
-"contact stripe"           → not blog-shaped ✗ (navigational)
+"best crm for saas"            → blog-shaped ✓
+"how to set up a payment api"  → blog-shaped ✓
+"best email marketing software" → blog-shaped ✓
+"what is mrr"                  → blog-shaped ✓
+"saas billing guide"           → blog-shaped ✓
+"buy crm software"             → not blog-shaped ✗ (transactional)
+"example.com"                  → not blog-shaped ✗ (navigational)
+"crm software login"           → not blog-shaped ✗ (navigational)
+"buy enterprise subscription"  → not blog-shaped ✗ (transactional)
+"contact sales"                → not blog-shaped ✗ (navigational)
 ```
 
 2. **GREEN:** implement `isBlogShapedQuery(query: string): boolean` in `intelligence/src/query-shape.ts`. Conservative regex/keyword heuristic; explicit transactional/navigational/branded patterns excluded; everything else passes.
@@ -273,7 +273,7 @@ buildInventory(projectId) returns SitePage[] where each row is
   { url, source: 'gsc'|'ga4'|'sitemap'|'wp', firstSeenAt }
 
 Acme inventory should include:
-  /blog/stripe-vs-square (from GSC + GA4)
+  /blog/email-marketing-comparison (from GSC + GA4)
   /blog/saas-billing (from GSC + GA4 + WP audit)
   /glossary/mrr (from GSC + GA4)
   /blog/payment-processor-guide (from GA4 only — no GSC ranking yet)
@@ -383,7 +383,7 @@ resolveOurBestPage(projectId, "what is mrr") returns /glossary/mrr (GSC source)
 resolveOurBestPage(projectId, "best payment processor") returns /blog/payment-processor-guide (inventory source)
 resolveOurBestPage(projectId, "best crm for saas") returns null
 listGroundingSourcesByQuery(projectId, "best crm for saas") returns 3 competitor URLs
-listWpSchemaAudit(projectId) returns map { '/blog/saas-billing': false, '/blog/stripe-vs-square': true, ... }
+listWpSchemaAudit(projectId) returns map { '/blog/saas-billing': false, '/blog/email-marketing-comparison': true, ... }
 listGaTrafficByPage(projectId, '/blog/saas-billing') returns 580
 getProjectAiReferralAggregate(projectId) returns 142
 listInProgressActions(projectId) returns the existingAction map (empty in fixture; populates when test creates one)
