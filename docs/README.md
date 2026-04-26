@@ -47,6 +47,7 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | --- | --- | --- | --- |
 | [`../plans/deployment-parity.md`](../plans/deployment-parity.md) | active plan | engineers, operators | Bring local, Docker, and hosted deployment paths into parity |
 | [`../plans/optimize-ai-calls.md`](../plans/optimize-ai-calls.md) | active plan | engineers | Reduce provider cost and unnecessary repeat calls |
+| [`../plans/blog-content-engine.md`](../plans/blog-content-engine.md) | active plan | engineers | TDD-phased implementation of the citation-driven blog content opportunity engine (Wave 0 lead) — see [`gtm.md`](gtm.md) §3a + [`adr/0009-...md`](adr/0009-content-action-outcome-ledger-and-publish-boundary.md) |
 
 Plans describe implementation work. They are not current-behavior reference docs.
 
