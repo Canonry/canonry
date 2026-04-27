@@ -1,16 +1,21 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { createCanonryMcpServer, type CanonryMcpScope } from './server.js'
 
-export const HELP_TEXT = `Usage: canonry-mcp [--read-only | --scope=<all|read-only>]
+export const HELP_TEXT = `Usage: canonry-mcp [--read-only | --scope=<all|read-only>] [--eager]
 
 Stdio MCP adapter over the Canonry public API. Inherits config from
 ~/.canonry/config.yaml (or $CANONRY_CONFIG_DIR/config.yaml).
 
 Flags:
-  --read-only          Expose read tools only (33 of 48)
+  --read-only          Expose read tools only
   --scope=<all|read-only>
                        Same as --read-only when "read-only"
+  --eager              Load all toolkits at start (skip progressive discovery)
   --help, -h           Show this message
+
+Environment variables:
+  CANONRY_MCP_SCOPE    "all" (default) or "read-only"
+  CANONRY_MCP_EAGER    "1" / "true" / "yes" to enable eager mode
 `
 
 export class HelpRequested extends Error {
@@ -20,10 +25,15 @@ export class HelpRequested extends Error {
   }
 }
 
+export interface CanonryMcpCliOptions {
+  scope: CanonryMcpScope
+  eager: boolean
+}
+
 export async function main(argv = process.argv.slice(2)): Promise<void> {
-  let scope: CanonryMcpScope
+  let options: CanonryMcpCliOptions
   try {
-    scope = parseScope(argv)
+    options = parseCliOptions(argv)
   } catch (error) {
     if (error instanceof HelpRequested) {
       process.stderr.write(HELP_TEXT)
@@ -31,21 +41,30 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     }
     throw error
   }
-  const server = createCanonryMcpServer({ scope })
+  const server = createCanonryMcpServer({ scope: options.scope, eager: options.eager })
   await server.connect(new StdioServerTransport())
 }
 
-export function parseScope(argv: readonly string[], envScope = process.env.CANONRY_MCP_SCOPE): CanonryMcpScope {
-  // Honor --help / -h before consulting envScope so users with a misconfigured
+export function parseCliOptions(
+  argv: readonly string[],
+  env: NodeJS.ProcessEnv = process.env,
+): CanonryMcpCliOptions {
+  // Honor --help / -h before consulting env so users with a misconfigured
   // CANONRY_MCP_SCOPE can still recover via `canonry-mcp --help`.
   if (argv.includes('--help') || argv.includes('-h')) {
     throw new HelpRequested()
   }
-  let scope = normalizeScope(envScope)
+  let scope = normalizeScope(env.CANONRY_MCP_SCOPE)
+  let eager = parseEagerEnv(env.CANONRY_MCP_EAGER)
+
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     if (arg === '--read-only') {
       scope = 'read-only'
+      continue
+    }
+    if (arg === '--eager') {
+      eager = true
       continue
     }
     if (arg === '--scope') {
@@ -61,13 +80,19 @@ export function parseScope(argv: readonly string[], envScope = process.env.CANON
     }
     throw new Error(`Unknown canonry-mcp argument: ${arg}`)
   }
-  return scope
+  return { scope, eager }
 }
 
 function normalizeScope(value: string | undefined): CanonryMcpScope {
   if (!value || value === 'all') return 'all'
   if (value === 'read-only') return 'read-only'
   throw new Error(`Invalid MCP scope "${value}". Expected "all" or "read-only".`)
+}
+
+function parseEagerEnv(value: string | undefined): boolean {
+  if (!value) return false
+  const normalized = value.trim().toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes'
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

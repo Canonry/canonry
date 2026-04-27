@@ -1,38 +1,51 @@
 import { describe, expect, it } from 'vitest'
-import { HelpRequested, HELP_TEXT, main, parseScope } from '../src/mcp/cli.js'
+import { HelpRequested, HELP_TEXT, main, parseCliOptions } from '../src/mcp/cli.js'
 
-describe('parseScope', () => {
-  it('defaults to "all" with no flags or env', () => {
-    expect(parseScope([], undefined)).toBe('all')
+const emptyEnv = {} as NodeJS.ProcessEnv
+const envWith = (entries: Record<string, string>) => entries as unknown as NodeJS.ProcessEnv
+
+describe('parseCliOptions', () => {
+  it('defaults to scope:"all" eager:false with no flags or env', () => {
+    expect(parseCliOptions([], emptyEnv)).toEqual({ scope: 'all', eager: false })
   })
 
   it('honors --read-only', () => {
-    expect(parseScope(['--read-only'], undefined)).toBe('read-only')
+    expect(parseCliOptions(['--read-only'], emptyEnv)).toEqual({ scope: 'read-only', eager: false })
   })
 
   it('honors --scope=read-only', () => {
-    expect(parseScope(['--scope=read-only'], undefined)).toBe('read-only')
+    expect(parseCliOptions(['--scope=read-only'], emptyEnv)).toEqual({ scope: 'read-only', eager: false })
+  })
+
+  it('honors --eager', () => {
+    expect(parseCliOptions(['--eager'], emptyEnv)).toEqual({ scope: 'all', eager: true })
   })
 
   it('reads CANONRY_MCP_SCOPE when no flag is passed', () => {
-    expect(parseScope([], 'read-only')).toBe('read-only')
+    expect(parseCliOptions([], envWith({ CANONRY_MCP_SCOPE: 'read-only' }))).toEqual({ scope: 'read-only', eager: false })
+  })
+
+  it('reads CANONRY_MCP_EAGER from env', () => {
+    expect(parseCliOptions([], envWith({ CANONRY_MCP_EAGER: '1' }))).toEqual({ scope: 'all', eager: true })
+    expect(parseCliOptions([], envWith({ CANONRY_MCP_EAGER: 'true' }))).toEqual({ scope: 'all', eager: true })
+    expect(parseCliOptions([], envWith({ CANONRY_MCP_EAGER: 'no' }))).toEqual({ scope: 'all', eager: false })
   })
 
   it('throws HelpRequested for --help', () => {
-    expect(() => parseScope(['--help'], undefined)).toThrow(HelpRequested)
+    expect(() => parseCliOptions(['--help'], emptyEnv)).toThrow(HelpRequested)
   })
 
   it('throws HelpRequested for -h', () => {
-    expect(() => parseScope(['-h'], undefined)).toThrow(HelpRequested)
+    expect(() => parseCliOptions(['-h'], emptyEnv)).toThrow(HelpRequested)
   })
 
   it('honors --help even when CANONRY_MCP_SCOPE is invalid', () => {
-    expect(() => parseScope(['--help'], 'bogus')).toThrow(HelpRequested)
-    expect(() => parseScope(['-h'], 'bogus')).toThrow(HelpRequested)
+    expect(() => parseCliOptions(['--help'], envWith({ CANONRY_MCP_SCOPE: 'bogus' }))).toThrow(HelpRequested)
+    expect(() => parseCliOptions(['-h'], envWith({ CANONRY_MCP_SCOPE: 'bogus' }))).toThrow(HelpRequested)
   })
 
   it('throws on unknown arguments', () => {
-    expect(() => parseScope(['--bogus'], undefined)).toThrow(/Unknown canonry-mcp argument/)
+    expect(() => parseCliOptions(['--bogus'], emptyEnv)).toThrow(/Unknown canonry-mcp argument/)
   })
 })
 
@@ -48,6 +61,7 @@ describe('canonry-mcp main', () => {
     expect(HELP_TEXT).toContain('canonry-mcp')
     expect(HELP_TEXT).toContain('--read-only')
     expect(HELP_TEXT).toContain('--scope=')
+    expect(HELP_TEXT).toContain('--eager')
   })
 
   it('writes HELP_TEXT to stderr when -h is passed', async () => {

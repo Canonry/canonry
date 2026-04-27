@@ -1,14 +1,23 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { z } from 'zod'
 import { createApiClient, type ApiClient } from '../client.js'
 import { PACKAGE_VERSION } from '../package-version.js'
 import { canonryMcpTools, type CanonryMcpTool } from './tool-registry.js'
 import { withToolErrors } from './results.js'
+import { DynamicToolCatalog, type DynamicCatalogEntry } from './dynamic-catalog.js'
+import { CANONRY_MCP_TOOLKIT_NAMES } from './toolkits.js'
 
 export type CanonryMcpScope = 'all' | 'read-only'
 
 export interface CanonryMcpServerOptions {
   clientFactory?: () => ApiClient
   scope?: CanonryMcpScope
+  eager?: boolean
+}
+
+export interface CreateCanonryMcpServerResult {
+  server: McpServer
+  catalog: DynamicToolCatalog
 }
 
 // The MCP SDK's default Zod validation throws an `McpError(InvalidParams, ...)`
@@ -18,6 +27,10 @@ export interface CanonryMcpServerOptions {
 type WithValidate = { validateToolInput: (tool: unknown, args: unknown) => Promise<unknown> }
 
 export function createCanonryMcpServer(options: CanonryMcpServerOptions = {}): McpServer {
+  return createCanonryMcpServerWithCatalog(options).server
+}
+
+export function createCanonryMcpServerWithCatalog(options: CanonryMcpServerOptions = {}): CreateCanonryMcpServerResult {
   const clientFactory = options.clientFactory ?? createApiClient
   const client = clientFactory()
   const scope = options.scope ?? 'all'
@@ -28,10 +41,11 @@ export function createCanonryMcpServer(options: CanonryMcpServerOptions = {}): M
 
   ;(server as unknown as WithValidate).validateToolInput = async (_tool, args) => args
 
+  const entries: DynamicCatalogEntry[] = []
   for (const registryTool of getCanonryMcpTools(scope)) {
     const tool = registryTool as CanonryMcpTool
     const handler = tool.handler as (client: ApiClient, input: unknown) => Promise<unknown>
-    server.registerTool(
+    const registered = server.registerTool(
       tool.name,
       {
         title: tool.title,
@@ -44,9 +58,46 @@ export function createCanonryMcpServer(options: CanonryMcpServerOptions = {}): M
         return handler(client, parsed)
       }),
     )
+    entries.push({ tool, registered })
   }
 
-  return server
+  const catalog = new DynamicToolCatalog(entries, scope, { eager: options.eager })
+  catalog.applyInitialEnablement()
+
+  registerMetaTools(server, catalog)
+
+  return { server, catalog }
+}
+
+const loadToolkitInputSchema = z.object({
+  name: z.enum(CANONRY_MCP_TOOLKIT_NAMES).describe('Toolkit name. List options with canonry_help.'),
+})
+
+function registerMetaTools(server: McpServer, catalog: DynamicToolCatalog): void {
+  server.registerTool(
+    'canonry_help',
+    {
+      title: 'List Canonry MCP toolkits',
+      description: 'List available toolkits and which are loaded. Call before canonry_load_toolkit if unsure which to load.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => withToolErrors(async () => catalog.helpResult()),
+  )
+
+  server.registerTool(
+    'canonry_load_toolkit',
+    {
+      title: 'Load a Canonry MCP toolkit',
+      description: 'Register a toolkit\'s tools for this session and emit notifications/tools/list_changed. Idempotent. Loaded toolkits remain loaded for the rest of the session.',
+      inputSchema: loadToolkitInputSchema.shape,
+      annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: false },
+    },
+    async (input: unknown) => withToolErrors(async () => {
+      const parsed = loadToolkitInputSchema.parse(input ?? {})
+      return catalog.loadToolkit(parsed.name)
+    }),
+  )
 }
 
 export function getCanonryMcpTools(scope: CanonryMcpScope = 'all') {
