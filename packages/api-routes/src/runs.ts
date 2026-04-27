@@ -3,7 +3,16 @@ import { eq, asc, desc, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { runs, querySnapshots, keywords, projects, parseJsonColumn } from '@ainyc/canonry-db'
 import type { LocationContext } from '@ainyc/canonry-contracts'
-import { unsupportedKind, runInProgress, runNotCancellable, notFound, validationError } from '@ainyc/canonry-contracts'
+import {
+  RunKinds,
+  RunTriggers,
+  runTriggerRequestSchema,
+  unsupportedKind,
+  runInProgress,
+  runNotCancellable,
+  notFound,
+  validationError,
+} from '@ainyc/canonry-contracts'
 import { resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotVisibilityState, resolveSnapshotMatchedTerms, writeAuditLog } from './helpers.js'
 import { queueRunIfProjectIdle } from './run-queue.js'
 
@@ -20,13 +29,12 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     Body: { kind?: string; trigger?: string; providers?: string[]; location?: string; allLocations?: boolean; noLocation?: boolean }
   }>('/projects/:name/runs', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
-
-    const kind = request.body?.kind ?? 'answer-visibility'
-    if (kind !== 'answer-visibility') throw unsupportedKind(kind)
+    const body = parseRunTriggerRequest(request.body ?? {})
 
     const now = new Date().toISOString()
-    const trigger = request.body?.trigger ?? 'manual'
-    const rawProviders = request.body?.providers
+    const kind = body.kind ?? RunKinds['answer-visibility']
+    const trigger = body.trigger ?? RunTriggers.manual
+    const rawProviders = body.providers
     if (rawProviders?.length) {
       const normalized = rawProviders.map(p => p.trim().toLowerCase()).filter(Boolean)
       const validNames = opts.validProviderNames ?? []
@@ -47,14 +55,14 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     let resolvedLocation: LocationContext | null | undefined
     const projectLocations = parseJsonColumn<LocationContext[]>(project.locations, [])
 
-    if (request.body?.noLocation) {
+    if (body.noLocation) {
       resolvedLocation = null // explicitly no location
-    } else if (request.body?.allLocations) {
+    } else if (body.allLocations) {
       // allLocations triggers one run per location — handled below
-    } else if (request.body?.location) {
-      const loc = projectLocations.find(l => l.label === request.body.location)
+    } else if (body.location) {
+      const loc = projectLocations.find(l => l.label === body.location)
       if (!loc) {
-        throw validationError(`Location "${request.body.location}" not found. Configure it first.`)
+        throw validationError(`Location "${body.location}" not found. Configure it first.`)
       }
       resolvedLocation = loc
     } else if (project.defaultLocation) {
@@ -68,7 +76,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
 
     // Handle --all-locations: create one run per configured location
     // Skip the idle-check here — each location gets its own run regardless of other active runs.
-    if (request.body?.allLocations) {
+    if (body.allLocations) {
       if (projectLocations.length === 0) {
         throw validationError('No locations configured for this project')
       }
@@ -314,6 +322,12 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     if (!run) throw notFound('Run', request.params.id)
     return reply.send(loadRunDetail(app, run))
   })
+}
+
+function parseRunTriggerRequest(value: unknown) {
+  const result = runTriggerRequestSchema.safeParse(value)
+  if (result.success) return result.data
+  throw validationError('Invalid run trigger request', { issues: result.error.issues })
 }
 
 function formatRun(row: {

@@ -74,7 +74,7 @@ export const keywordDtoSchema = z.object({
 export type KeywordDto = z.infer<typeof keywordDtoSchema>
 
 export const keywordBatchRequestSchema = z.object({
-  keywords: z.array(z.string().min(1)).min(1),
+  keywords: z.array(z.string().trim().min(1)).min(1),
 })
 
 export type KeywordBatchRequest = z.infer<typeof keywordBatchRequestSchema>
@@ -88,7 +88,7 @@ export const competitorDtoSchema = z.object({
 export type CompetitorDto = z.infer<typeof competitorDtoSchema>
 
 export const competitorBatchRequestSchema = z.object({
-  competitors: z.array(z.string().min(1)).min(1),
+  competitors: z.array(z.string().trim().min(1)).min(1),
 })
 
 export type CompetitorBatchRequest = z.infer<typeof competitorBatchRequestSchema>

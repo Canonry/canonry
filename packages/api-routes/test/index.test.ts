@@ -195,6 +195,19 @@ describe('api-routes', () => {
     expect(res.statusCode).toBe(409)
   })
 
+  it('POST /api/v1/projects/:name/runs rejects non-manual trigger metadata', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/my-site/runs',
+      payload: { trigger: 'scheduled' },
+    })
+
+    expect(res.statusCode).toBe(400)
+    const body = JSON.parse(res.payload)
+    expect(body.error.code).toBe('VALIDATION_ERROR')
+    expect(body.error.message).toBe('Invalid run trigger request')
+  })
+
   it('GET /api/v1/projects/:name/runs respects the limit query', async () => {
     const project = db.select().from(projects).all().find(row => row.name === 'my-site')
     expect(project).toBeDefined()

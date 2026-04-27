@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { createApiClient, type ApiClient } from '../client.js'
+import { PACKAGE_VERSION } from '../package-version.js'
 import { canonryMcpTools, type CanonryMcpTool } from './tool-registry.js'
 import { withToolErrors } from './results.js'
 
@@ -12,10 +13,11 @@ export interface CanonryMcpServerOptions {
 
 export function createCanonryMcpServer(options: CanonryMcpServerOptions = {}): McpServer {
   const clientFactory = options.clientFactory ?? createApiClient
+  const client = clientFactory()
   const scope = options.scope ?? 'all'
   const server = new McpServer({
     name: 'canonry',
-    version: '2.6.0',
+    version: PACKAGE_VERSION,
   })
 
   for (const registryTool of getCanonryMcpTools(scope)) {
@@ -29,7 +31,7 @@ export function createCanonryMcpServer(options: CanonryMcpServerOptions = {}): M
         inputSchema: tool.inputSchema,
         annotations: tool.annotations,
       },
-      async (input: unknown) => withToolErrors(() => handler(clientFactory(), input)),
+      async (input: unknown) => withToolErrors(() => handler(client, input)),
     )
   }
 

@@ -64,7 +64,7 @@ const runTriggerInputSchema = z.object({
 
 const runsListInputSchema = z.object({
   project: projectNameSchema,
-  limit: z.number().int().positive().optional(),
+  limit: z.number().int().positive().max(500).optional(),
 })
 
 const runGetInputSchema = z.object({
@@ -78,7 +78,7 @@ const timelineInputSchema = z.object({
 
 const snapshotsListInputSchema = z.object({
   project: projectNameSchema,
-  limit: z.number().int().positive().optional(),
+  limit: z.number().int().positive().max(500).optional(),
   offset: z.number().int().nonnegative().optional(),
   location: z.string().optional().describe('Location label. Use an empty string for locationless results.'),
 })
@@ -111,19 +111,19 @@ const gscPerformanceInputSchema = z.object({
   endDate: z.string().optional(),
   query: z.string().optional(),
   page: z.string().optional(),
-  limit: z.number().int().positive().optional(),
+  limit: z.number().int().positive().max(500).optional(),
   window: analyticsWindowSchema.optional(),
 })
 
 const gscInspectionsInputSchema = z.object({
   project: projectNameSchema,
   url: z.string().optional(),
-  limit: z.number().int().positive().optional(),
+  limit: z.number().int().positive().max(500).optional(),
 })
 
 const gscCoverageHistoryInputSchema = z.object({
   project: projectNameSchema,
-  limit: z.number().int().positive().optional(),
+  limit: z.number().int().positive().max(500).optional(),
 })
 
 const gaWindowInputSchema = z.object({
@@ -132,7 +132,7 @@ const gaWindowInputSchema = z.object({
 })
 
 const gaTrafficInputSchema = gaWindowInputSchema.extend({
-  limit: z.number().int().positive().optional(),
+  limit: z.number().int().positive().max(500).optional(),
 })
 
 const keywordsInputSchema = z.object({

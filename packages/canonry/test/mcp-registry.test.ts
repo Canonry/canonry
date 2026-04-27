@@ -9,7 +9,7 @@ import {
   canonryMcpTools,
 } from '../src/mcp/tool-registry.js'
 import { MCP_OPENAPI_OPERATION_CLASSIFICATIONS } from '../src/mcp/openapi-classification.js'
-import { getCanonryMcpTools } from '../src/mcp/server.js'
+import { createCanonryMcpServer, getCanonryMcpTools } from '../src/mcp/server.js'
 import { withToolErrors } from '../src/mcp/results.js'
 
 const expectedToolNames = [
@@ -89,6 +89,11 @@ describe('MCP tool registry', () => {
     expect(schemaProperty(runTriggerRequest, 'trigger')).toMatchObject({ const: 'manual' })
     expect(runTriggerRequest.required ?? []).not.toContain('kind')
     expect(runTriggerRequest.required ?? []).not.toContain('trigger')
+
+    expect(schemaProperty(inputSchemaFor('canonry_runs_list'), 'limit')).toMatchObject({
+      type: 'integer',
+      maximum: 500,
+    })
   })
 
   it('limits MCP run trigger input to manual answer-visibility runs', () => {
@@ -98,6 +103,36 @@ describe('MCP tool registry', () => {
     expect(() => tool!.inputSchema.parse({ project: 'acme', request: { kind: 'ga-sync' } })).toThrow()
     expect(() => tool!.inputSchema.parse({ project: 'acme', request: { trigger: 'scheduled' } })).toThrow()
     expect(() => tool!.inputSchema.parse({ project: 'acme', request: { kind: 'answer-visibility', trigger: 'manual' } })).not.toThrow()
+  })
+
+  it('trims batch write strings before handlers receive them', () => {
+    const keywordsTool = canonryMcpTools.find(candidate => candidate.name === 'canonry_keywords_add')
+    const competitorsTool = canonryMcpTools.find(candidate => candidate.name === 'canonry_competitors_add')
+    expect(keywordsTool).toBeTruthy()
+    expect(competitorsTool).toBeTruthy()
+
+    expect(keywordsTool!.inputSchema.parse({ project: 'acme', request: { keywords: [' alpha '] } })).toEqual({
+      project: 'acme',
+      request: { keywords: ['alpha'] },
+    })
+    expect(() => keywordsTool!.inputSchema.parse({ project: 'acme', request: { keywords: ['  '] } })).toThrow()
+    expect(competitorsTool!.inputSchema.parse({ project: 'acme', request: { competitors: [' rival.example.com '] } })).toEqual({
+      project: 'acme',
+      request: { competitors: ['rival.example.com'] },
+    })
+  })
+
+  it('creates one API client per MCP server instance', () => {
+    const calls: Array<{ method: string; args: unknown[] }> = []
+    let factoryCalls = 0
+    createCanonryMcpServer({
+      clientFactory: () => {
+        factoryCalls += 1
+        return makeClient(calls)
+      },
+    })
+
+    expect(factoryCalls).toBe(1)
   })
 
   it('sets write annotations from the audit table', () => {
@@ -265,6 +300,7 @@ type JsonSchemaObject = {
   description?: string
   enum?: unknown[]
   const?: unknown
+  maximum?: number
   required?: string[]
   properties?: Record<string, JsonSchemaObject>
 }

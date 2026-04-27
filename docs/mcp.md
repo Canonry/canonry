@@ -68,6 +68,8 @@ v1 is curated for client usability: 43 tools total, 33 read tools in read-only m
 
 Deferred from v1: Aero ask SSE, OAuth callbacks, raw screenshots, project create/update/delete, `apply`, snapshot generation, broad admin/provider writes, Google/Bing/GA connect/sync/inspect/indexing writes, WordPress writes, CDP screenshot, generic notifications, backlinks, raw OpenAPI, and raw HTTP escape hatches.
 
+Some write tools compose existing API calls rather than using a native atomic endpoint. `canonry_competitors_add` and the agent webhook attach/detach tools are best-effort under concurrent calls until the public API grows narrower append/remove operations for those domains.
+
 ## Safety Rules
 
 MCP uses stdio, so any normal stdout write breaks the protocol. Code under `packages/canonry/src/mcp/` must not use `console.log`, `process.stdout.write`, CLI dispatch, telemetry, logger imports, DB imports, route imports, or job-runner imports. Tool handlers call `createApiClient()` only.
