@@ -28,13 +28,15 @@ import type { SitePage } from './site-inventory.js'
 
 // ─── Per-query evidence (output of data layer / aggregator) ─────────────────
 
-export interface CompetitorGroundingUrl {
+export interface GroundingUrlEvidence {
   uri: string
   title: string
   domain: string
   citationCount: number
   providers: ProviderName[]
 }
+
+export type CompetitorGroundingUrl = GroundingUrlEvidence
 
 export interface CandidateQuery {
   query: string
@@ -48,11 +50,18 @@ export interface CandidateQuery {
 
   // Snapshot-derived signal
   ourCitedRate: number
+  /**
+   * True iff our domain was cited in any provider's snapshot of the most
+   * recent answer-visibility run for this query. Distinct from
+   * `ourGroundingUrls.length > 0`, which unions across the whole window —
+   * intermittent old citations should not suppress current targets.
+   */
+  ourCitedInLatestRun: boolean
   competitorDomains: string[]
   competitorCitationCount: number
   recentMissRate: number
-  ourGroundingUrls: string[]
-  competitorGroundingUrls: CompetitorGroundingUrl[]
+  ourGroundingUrls: GroundingUrlEvidence[]
+  competitorGroundingUrls: GroundingUrlEvidence[]
   runsOfHistory: number
 }
 
@@ -94,7 +103,7 @@ export function buildContentTargetRows(input: OrchestratorInput): ContentTargetR
 
   for (const cq of input.candidateQueries) {
     const ourPage = resolveOurPage(cq, input.inventory)
-    const ourPageInGroundingSources = cq.ourGroundingUrls.length > 0
+    const ourPageInGroundingSources = cq.ourCitedInLatestRun
     const ourPageHasSchema = ourPage ? input.wpSchemaAudit.get(ourPage.url) ?? null : null
 
     const action = classifyContentAction({
@@ -134,7 +143,6 @@ export function buildContentTargetRows(input: OrchestratorInput): ContentTargetR
       query: cq.query,
       action,
       targetPage: ourPage?.url ?? null,
-      latestRunId: input.latestRunId,
     })
 
     const winningCompetitor = pickTopCompetitor(cq.competitorGroundingUrls)
@@ -172,14 +180,14 @@ export function buildContentSourceRows(input: OrchestratorInput): ContentSourceR
   return input.candidateQueries.map((cq) => ({
     query: cq.query,
     groundingSources: [
-      ...cq.ourGroundingUrls.map((uri) => ({
-        uri,
-        title: '',
-        domain: input.ownDomain,
+      ...cq.ourGroundingUrls.map((g) => ({
+        uri: g.uri,
+        title: g.title,
+        domain: g.domain,
         isOurDomain: true,
         isCompetitor: false,
-        citationCount: 1,
-        providers: [] as ProviderName[],
+        citationCount: g.citationCount,
+        providers: g.providers,
       })),
       ...cq.competitorGroundingUrls.map((g) => ({
         uri: g.uri,
@@ -280,11 +288,10 @@ function computeTargetRef(input: {
   query: string
   action: string
   targetPage: string | null
-  latestRunId: string
 }): string {
-  const key = [input.projectId, input.query, input.action, input.targetPage ?? '', input.latestRunId].join(
-    '|',
-  )
+  // Intentionally excludes run-level fields so the ref is stable across runs
+  // and can be matched against persisted content-action records (PR 3).
+  const key = [input.projectId, input.query, input.action, input.targetPage ?? ''].join('|')
   // Stable hash — same inputs produce the same ref. Not a security boundary,
   // just a deterministic identifier for client-side reference.
   let hash = 0

@@ -24,13 +24,18 @@ import type { DatabaseClient } from '@ainyc/canonry-db'
 import {
   buildInventory,
   type CandidateQuery,
-  type CompetitorGroundingUrl,
+  type GroundingUrlEvidence,
   type ExistingActionRef,
   type OrchestratorInput,
   type SitePage,
   isBlogShapedQuery,
 } from '@ainyc/canonry-intelligence'
-import { RunKinds, type GroundingSource, type ProviderName } from '@ainyc/canonry-contracts'
+import {
+  RunKinds,
+  RunStatuses,
+  type GroundingSource,
+  type ProviderName,
+} from '@ainyc/canonry-contracts'
 
 const RECENT_RUNS_WINDOW = 5
 
@@ -61,6 +66,7 @@ export function loadOrchestratorInput(db: DatabaseClient, project: ProjectRow): 
     projectId,
     candidateQueryStrings,
     recentRunIds,
+    latestRunId,
     ourDomains,
     competitorSet,
   })
@@ -118,7 +124,16 @@ function listRecentAnswerVisibilityRunIds(
   const rows = db
     .select({ id: runs.id })
     .from(runs)
-    .where(and(eq(runs.projectId, projectId), eq(runs.kind, RunKinds['answer-visibility'])))
+    .where(
+      and(
+        eq(runs.projectId, projectId),
+        eq(runs.kind, RunKinds['answer-visibility']),
+        // Queued/running/failed/cancelled runs may have partial or no
+        // snapshots; including them risks pointing latestRunId at a run with
+        // no usable evidence.
+        inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
+      ),
+    )
     .orderBy(desc(runs.createdAt))
     .limit(limit)
     .all()
@@ -183,6 +198,7 @@ interface BuildCandidateQueriesOpts {
   projectId: string
   candidateQueryStrings: string[]
   recentRunIds: string[]
+  latestRunId: string
   ourDomains: Set<string>
   competitorSet: Set<string>
 }
@@ -234,6 +250,7 @@ function buildCandidateQueries(opts: BuildCandidateQueriesOpts): CandidateQuery[
       gsc,
       ourDomains: opts.ourDomains,
       competitorSet: opts.competitorSet,
+      latestRunId: opts.latestRunId,
     })
   })
 }
@@ -287,6 +304,7 @@ interface AggregateCandidateOpts {
   gsc: AggregateGscEntry | null
   ourDomains: Set<string>
   competitorSet: Set<string>
+  latestRunId: string
 }
 
 function aggregateCandidate(opts: AggregateCandidateOpts): CandidateQuery {
@@ -307,10 +325,12 @@ function aggregateCandidate(opts: AggregateCandidateOpts): CandidateQuery {
   const recentMissRate = 1 - ourCitedRate
 
   const competitorTally = new Map<string, number>()
-  const competitorGroundingTally = new Map<string, CompetitorGroundingUrl>()
-  const ourGroundingUrls = new Set<string>()
+  const competitorGroundingTally = new Map<string, GroundingUrlEvidence>()
+  const ourGroundingTally = new Map<string, GroundingUrlEvidence>()
+  let ourCitedInLatestRun = false
 
   for (const snap of opts.snapshots) {
+    const isLatestRun = snap.runId === opts.latestRunId
     const competitorOverlap = parseJsonColumn<string[]>(snap.competitorOverlap, [])
     for (const domain of competitorOverlap) {
       const normalized = normalizeDomain(domain)
@@ -323,25 +343,12 @@ function aggregateCandidate(opts: AggregateCandidateOpts): CandidateQuery {
       const domain = normalizeDomain(extractHostFromUri(g.uri))
       if (!domain) continue
       if (opts.ourDomains.has(domain)) {
-        ourGroundingUrls.add(g.uri)
+        if (isLatestRun) ourCitedInLatestRun = true
+        recordGroundingHit(ourGroundingTally, g, domain, snap.provider)
         continue
       }
       if (!opts.competitorSet.has(domain)) continue
-      const existing = competitorGroundingTally.get(g.uri)
-      if (existing) {
-        existing.citationCount += 1
-        if (snap.provider && !existing.providers.includes(snap.provider as ProviderName)) {
-          existing.providers.push(snap.provider as ProviderName)
-        }
-      } else {
-        competitorGroundingTally.set(g.uri, {
-          uri: g.uri,
-          title: g.title,
-          domain,
-          citationCount: 1,
-          providers: snap.provider ? [snap.provider as ProviderName] : [],
-        })
-      }
+      recordGroundingHit(competitorGroundingTally, g, domain, snap.provider)
     }
   }
 
@@ -353,13 +360,37 @@ function aggregateCandidate(opts: AggregateCandidateOpts): CandidateQuery {
     gscClicks: opts.gsc?.clicks ?? 0,
     gscCtr: opts.gsc?.ctr ?? 0,
     ourCitedRate,
+    ourCitedInLatestRun,
     competitorDomains: Array.from(competitorTally.keys()),
     competitorCitationCount: Array.from(competitorTally.values()).reduce((a, b) => a + b, 0),
     recentMissRate,
-    ourGroundingUrls: Array.from(ourGroundingUrls),
+    ourGroundingUrls: Array.from(ourGroundingTally.values()),
     competitorGroundingUrls: Array.from(competitorGroundingTally.values()),
     runsOfHistory: totalSnaps,
   }
+}
+
+function recordGroundingHit(
+  tally: Map<string, GroundingUrlEvidence>,
+  g: GroundingSource,
+  domain: string,
+  provider: string | null,
+): void {
+  const existing = tally.get(g.uri)
+  if (existing) {
+    existing.citationCount += 1
+    if (provider && !existing.providers.includes(provider as ProviderName)) {
+      existing.providers.push(provider as ProviderName)
+    }
+    return
+  }
+  tally.set(g.uri, {
+    uri: g.uri,
+    title: g.title,
+    domain,
+    citationCount: 1,
+    providers: provider ? [provider as ProviderName] : [],
+  })
 }
 
 function emptyCandidate(query: string): CandidateQuery {
@@ -371,6 +402,7 @@ function emptyCandidate(query: string): CandidateQuery {
     gscClicks: 0,
     gscCtr: 0,
     ourCitedRate: 0,
+    ourCitedInLatestRun: false,
     competitorDomains: [],
     competitorCitationCount: 0,
     recentMissRate: 0,

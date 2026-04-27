@@ -34,6 +34,7 @@ function emptyCandidate(overrides: Partial<CandidateQuery> = {}): CandidateQuery
     gscClicks: 0,
     gscCtr: 0,
     ourCitedRate: 0,
+    ourCitedInLatestRun: false,
     competitorDomains: [],
     competitorCitationCount: 0,
     recentMissRate: 0,
@@ -41,6 +42,22 @@ function emptyCandidate(overrides: Partial<CandidateQuery> = {}): CandidateQuery
     competitorGroundingUrls: [],
     runsOfHistory: 0,
     ...overrides,
+  }
+}
+
+function ownGrounding(uri: string, providers: string[] = ['gemini']): {
+  uri: string
+  title: string
+  domain: string
+  citationCount: number
+  providers: string[]
+} {
+  return {
+    uri,
+    title: '',
+    domain: 'example.com',
+    citationCount: 1,
+    providers,
   }
 }
 
@@ -138,8 +155,9 @@ describe('buildContentTargetRows', () => {
             gscPage: '/blog/saas-billing',
             gscPosition: 6,
             gscImpressions: 1200,
-            ourGroundingUrls: ['https://example.com/blog/saas-billing'],
+            ourGroundingUrls: [ownGrounding('https://example.com/blog/saas-billing')],
             ourCitedRate: 0.6,
+            ourCitedInLatestRun: true,
             runsOfHistory: 5,
           }),
         ],
@@ -158,7 +176,8 @@ describe('buildContentTargetRows', () => {
             query: 'q',
             gscPage: '/blog/q',
             gscPosition: 4,
-            ourGroundingUrls: ['https://example.com/blog/q'],
+            ourGroundingUrls: [ownGrounding('https://example.com/blog/q')],
+            ourCitedInLatestRun: true,
           }),
         ],
         wpSchemaAudit: new Map([['/blog/q', true]]),
@@ -286,19 +305,29 @@ describe('buildContentSourceRows', () => {
     expect(rows.map((r) => r.query)).toEqual(['q1', 'q2'])
   })
 
-  it('includes our domain grounding URLs marked isOurDomain', () => {
+  it('includes our domain grounding URLs marked isOurDomain with citationCount + providers', () => {
     const rows = buildContentSourceRows(
       emptyInput({
         candidateQueries: [
           emptyCandidate({
             query: 'q',
-            ourGroundingUrls: ['https://example.com/blog/x'],
+            ourGroundingUrls: [
+              {
+                uri: 'https://example.com/blog/x',
+                title: 'Our Post',
+                domain: 'example.com',
+                citationCount: 4,
+                providers: ['gemini', 'openai'],
+              },
+            ],
           }),
         ],
       }),
     )
     expect(rows[0].groundingSources[0].isOurDomain).toBe(true)
     expect(rows[0].groundingSources[0].domain).toBe('example.com')
+    expect(rows[0].groundingSources[0].citationCount).toBe(4)
+    expect(rows[0].groundingSources[0].providers).toEqual(['gemini', 'openai'])
   })
 
   it('includes competitor grounding URLs marked isCompetitor', () => {

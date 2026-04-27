@@ -4,6 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
+import { and, eq } from 'drizzle-orm'
 import {
   createClient,
   migrate,
@@ -481,6 +482,248 @@ describe('content routes', () => {
       expect(row).toBeDefined()
       expect(row.ourBestPage.url).toBe(path)
       expect(row.ourBestPage.organicSessions).toBe(222)
+    })
+  })
+
+  describe('regression: cited-state reflects the latest run, not the window union', () => {
+    it('still surfaces a target when an older run cited us but the latest run misses', async () => {
+      // Seed a project from scratch so we control every run + snapshot.
+      const projectId = crypto.randomUUID()
+      const now = new Date()
+      const isoNow = now.toISOString()
+      db.insert(projects).values({
+        id: projectId,
+        name: 'staletest',
+        displayName: 'Stale',
+        canonicalDomain: 'example.com',
+        country: 'US',
+        language: 'en',
+        createdAt: isoNow,
+        updatedAt: isoNow,
+      }).run()
+      db.insert(competitors).values({
+        id: crypto.randomUUID(),
+        projectId,
+        domain: 'competitor-a.com',
+        createdAt: isoNow,
+      }).run()
+      const kwId = crypto.randomUUID()
+      db.insert(keywords).values({
+        id: kwId,
+        projectId,
+        keyword: 'best api gateway',
+        createdAt: isoNow,
+      }).run()
+
+      // Older run: cited (we appear in groundingSources).
+      const olderRunId = crypto.randomUUID()
+      const older = new Date(now.getTime() - 60_000).toISOString()
+      db.insert(runs).values({
+        id: olderRunId,
+        projectId,
+        kind: 'answer-visibility',
+        status: 'completed',
+        trigger: 'manual',
+        createdAt: older,
+      }).run()
+      db.insert(querySnapshots).values({
+        id: crypto.randomUUID(),
+        runId: olderRunId,
+        keywordId: kwId,
+        provider: 'gemini',
+        citationState: 'cited',
+        competitorOverlap: JSON.stringify([]),
+        rawResponse: JSON.stringify({
+          groundingSources: [{ uri: 'https://example.com/blog/api-gateway', title: 'Old' }],
+        }),
+        createdAt: older,
+      }).run()
+
+      // Newer run: not cited (only competitors appear).
+      const newerRunId = crypto.randomUUID()
+      db.insert(runs).values({
+        id: newerRunId,
+        projectId,
+        kind: 'answer-visibility',
+        status: 'completed',
+        trigger: 'manual',
+        createdAt: isoNow,
+      }).run()
+      db.insert(querySnapshots).values({
+        id: crypto.randomUUID(),
+        runId: newerRunId,
+        keywordId: kwId,
+        provider: 'gemini',
+        citationState: 'not-cited',
+        competitorOverlap: JSON.stringify(['competitor-a.com']),
+        rawResponse: JSON.stringify({
+          groundingSources: [{ uri: 'https://competitor-a.com/api', title: 'Comp' }],
+        }),
+        createdAt: isoNow,
+      }).run()
+      db.insert(gscSearchData).values({
+        id: crypto.randomUUID(),
+        projectId,
+        syncRunId: newerRunId,
+        date: '2026-04-01',
+        query: 'best api gateway',
+        page: '/blog/api-gateway',
+        impressions: 1500,
+        clicks: 30,
+        ctr: '0.02',
+        position: '6',
+        createdAt: isoNow,
+      }).run()
+
+      const res = await app.inject({ method: 'GET', url: '/projects/staletest/content/targets' })
+      const body = JSON.parse(res.payload)
+      const row = body.targets.find((t: { query: string }) => t.query === 'best api gateway')
+      // Old behavior would set ourPageInGroundingSources=true (any-window union)
+      // and, with empty wpSchemaAudit, classifier returns null → no row.
+      // New behavior: latest run misses → REFRESH (position 6, not currently cited).
+      expect(row).toBeDefined()
+      expect(row.action).toBe('refresh')
+    })
+  })
+
+  describe('regression: targetRef does not include latestRunId', () => {
+    it('produces the same targetRef across two runs with identical query/action/page', async () => {
+      const { projectId } = seedProject(db)
+
+      const firstRes = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const firstBody = JSON.parse(firstRes.payload)
+      const firstRow = firstBody.targets.find(
+        (t: { query: string }) => t.query === 'best email marketing software',
+      )
+      expect(firstRow).toBeDefined()
+      const firstRef = firstRow.targetRef
+
+      // Insert a fresh AV run with the same evidence shape; should not change targetRef.
+      const newRunId = crypto.randomUUID()
+      const later = new Date(Date.now() + 90_000).toISOString()
+      db.insert(runs).values({
+        id: newRunId,
+        projectId,
+        kind: 'answer-visibility',
+        status: 'completed',
+        trigger: 'manual',
+        createdAt: later,
+      }).run()
+      const kwForQuery = db
+        .select({ id: keywords.id })
+        .from(keywords)
+        .where(and(eq(keywords.projectId, projectId), eq(keywords.keyword, 'best email marketing software')))
+        .get()
+      db.insert(querySnapshots).values({
+        id: crypto.randomUUID(),
+        runId: newRunId,
+        keywordId: kwForQuery!.id,
+        provider: 'gemini',
+        citationState: 'not-cited',
+        competitorOverlap: JSON.stringify(['competitor-a.com', 'competitor-b.com']),
+        rawResponse: JSON.stringify({
+          groundingSources: [
+            { uri: 'https://competitor-a.com/blog/email', title: 'Email' },
+          ],
+        }),
+        createdAt: later,
+      }).run()
+
+      const secondRes = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const secondBody = JSON.parse(secondRes.payload)
+      const secondRow = secondBody.targets.find(
+        (t: { query: string }) => t.query === 'best email marketing software',
+      )
+      expect(secondRow).toBeDefined()
+      expect(secondRow.targetRef).toBe(firstRef)
+      expect(secondBody.contextMetrics.latestRunId).toBe(newRunId)
+    })
+  })
+
+  describe('regression: filters by run status (no queued/failed runs become latest)', () => {
+    it('latestRunId points at a completed run even when a queued run is newer', async () => {
+      const { latestRunId, projectId } = seedProject(db)
+      const queuedRunId = crypto.randomUUID()
+      const later = new Date(Date.now() + 120_000).toISOString()
+      db.insert(runs).values({
+        id: queuedRunId,
+        projectId,
+        kind: 'answer-visibility',
+        status: 'queued',
+        trigger: 'manual',
+        createdAt: later,
+      }).run()
+
+      const res = await app.inject({ method: 'GET', url: '/projects/example/content/targets' })
+      const body = JSON.parse(res.payload)
+      expect(body.contextMetrics.latestRunId).toBe(latestRunId)
+    })
+  })
+
+  describe('regression: own-domain grounding tally preserves citationCount + providers', () => {
+    it('aggregates our domain URL across providers the same way it does for competitors', async () => {
+      // New project to control snapshot count.
+      const projectId = crypto.randomUUID()
+      const isoNow = new Date().toISOString()
+      db.insert(projects).values({
+        id: projectId,
+        name: 'tally',
+        displayName: 'Tally',
+        canonicalDomain: 'example.com',
+        country: 'US',
+        language: 'en',
+        createdAt: isoNow,
+        updatedAt: isoNow,
+      }).run()
+      db.insert(competitors).values({
+        id: crypto.randomUUID(),
+        projectId,
+        domain: 'competitor-a.com',
+        createdAt: isoNow,
+      }).run()
+      const kwId = crypto.randomUUID()
+      db.insert(keywords).values({
+        id: kwId,
+        projectId,
+        keyword: 'observability platform',
+        createdAt: isoNow,
+      }).run()
+      const runId = crypto.randomUUID()
+      db.insert(runs).values({
+        id: runId,
+        projectId,
+        kind: 'answer-visibility',
+        status: 'completed',
+        trigger: 'manual',
+        createdAt: isoNow,
+      }).run()
+
+      // Two snapshots — same own URL cited from gemini and openai.
+      for (const provider of ['gemini', 'openai']) {
+        db.insert(querySnapshots).values({
+          id: crypto.randomUUID(),
+          runId,
+          keywordId: kwId,
+          provider,
+          citationState: 'cited',
+          competitorOverlap: JSON.stringify([]),
+          rawResponse: JSON.stringify({
+            groundingSources: [
+              { uri: 'https://example.com/blog/observability', title: 'Observability' },
+            ],
+          }),
+          createdAt: isoNow,
+        }).run()
+      }
+
+      const res = await app.inject({ method: 'GET', url: '/projects/tally/content/sources' })
+      const body = JSON.parse(res.payload)
+      const row = body.sources.find((s: { query: string }) => s.query === 'observability platform')
+      expect(row).toBeDefined()
+      const ours = row.groundingSources.filter((g: { isOurDomain: boolean }) => g.isOurDomain)
+      expect(ours).toHaveLength(1)
+      expect(ours[0].citationCount).toBe(2)
+      expect(ours[0].providers.sort()).toEqual(['gemini', 'openai'])
     })
   })
 })
