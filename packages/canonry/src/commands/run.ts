@@ -289,7 +289,14 @@ function printRunDetail(run: RunDetailDto): void {
   if (run.startedAt) console.log(`  Started:  ${run.startedAt}`)
   if (run.finishedAt) console.log(`  Finished: ${run.finishedAt}`)
   if (run.createdAt) console.log(`  Created:  ${run.createdAt}`)
-  if (run.error) console.log(`  Error:    ${run.error}`)
+  if (run.error) {
+    if (run.error.message) console.log(`  Error:    ${run.error.message}`)
+    if (run.error.providers) {
+      for (const [provider, detail] of Object.entries(run.error.providers)) {
+        console.log(`  Error (${provider}): ${detail.message}`)
+      }
+    }
+  }
   if (run.snapshots && run.snapshots.length > 0) {
     console.log(`\n  Snapshots: ${run.snapshots.length}`)
     for (const s of run.snapshots) {

@@ -6,7 +6,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { runs, keywords, competitors, projects, querySnapshots, usageCounters, parseJsonColumn } from '@ainyc/canonry-db'
 import type { ProviderName, NormalizedQueryResult, LocationContext } from '@ainyc/canonry-contracts'
-import { determineAnswerMentioned, effectiveDomains, isBrowserProvider } from '@ainyc/canonry-contracts'
+import { buildRunErrorFromMessages, determineAnswerMentioned, effectiveDomains, isBrowserProvider, serializeRunError } from '@ainyc/canonry-contracts'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
 import { createLogger } from './logger.js'
@@ -437,14 +437,14 @@ export class JobRunner {
       const someFailed = providerErrors.size > 0
 
       if (allFailed) {
-        const errorDetail = JSON.stringify(Object.fromEntries(providerErrors))
+        const errorDetail = serializeRunError(buildRunErrorFromMessages(providerErrors))
         this.db
           .update(runs)
           .set({ status: 'failed', finishedAt: new Date().toISOString(), error: errorDetail })
           .where(eq(runs.id, runId))
           .run()
       } else if (someFailed) {
-        const errorDetail = JSON.stringify(Object.fromEntries(providerErrors))
+        const errorDetail = serializeRunError(buildRunErrorFromMessages(providerErrors))
         this.db
           .update(runs)
           .set({ status: 'partial', finishedAt: new Date().toISOString(), error: errorDetail })

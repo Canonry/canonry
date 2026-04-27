@@ -69,7 +69,7 @@ describe('POST /api/v1/runs/:id/cancel', () => {
     const cancelled = JSON.parse(cancelRes.payload)
     expect(cancelled.status).toBe('cancelled')
     expect(cancelled.finishedAt).toBeTruthy()
-    expect(cancelled.error).toBe('Cancelled by user')
+    expect(cancelled.error).toEqual({ message: 'Cancelled by user' })
   })
 
   it('cancels a running run', async () => {
