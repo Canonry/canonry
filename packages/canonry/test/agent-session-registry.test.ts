@@ -370,7 +370,7 @@ describe('SessionRegistry', () => {
     agent.state.model = faux.getModel()
     faux.setResponses([fauxAssistantMessage('Acknowledged.')])
 
-    expect(agent.state.tools.length).toBe(11) // 9 read (incl. recall + list_backlinks) + 2 skill-doc
+    expect(agent.state.tools.length).toBe(14) // 12 read (incl. recall + list_backlinks + 3 content) + 2 skill-doc
 
     registry.queueFollowUp('demo', {
       role: 'user',
@@ -380,7 +380,7 @@ describe('SessionRegistry', () => {
 
     await registry.drainNow('demo')
 
-    expect(agent.state.tools.length).toBe(11)
+    expect(agent.state.tools.length).toBe(14)
   })
 
   it('drainNow defaults to read-only when no session scope is set yet', async () => {
@@ -413,7 +413,7 @@ describe('SessionRegistry', () => {
 
     await registry.drainNow('demo')
 
-    expect(agent.state.tools.length).toBe(11) // 9 read (incl. recall + list_backlinks) + 2 skill-doc
+    expect(agent.state.tools.length).toBe(14) // 12 read (incl. recall + list_backlinks + 3 content) + 2 skill-doc
   })
 
   it('acquireForTurn compacts the transcript when it crosses the threshold, rehydrates the system prompt, and persists a compaction note', async () => {
@@ -526,11 +526,11 @@ describe('SessionRegistry', () => {
     insertProject(db, 'demo')
     const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
     const agent = registry.getOrCreate('demo')
-    expect(agent.state.tools.length).toBe(19) // 9 read + 8 write + 2 skill-doc
+    expect(agent.state.tools.length).toBe(22) // 12 read + 8 write + 2 skill-doc
 
     await registry.acquireForTurn('demo', { toolScope: 'read-only' })
 
-    expect(agent.state.tools.length).toBe(11) // 9 read (incl. recall + list_backlinks) + 2 skill-doc
+    expect(agent.state.tools.length).toBe(14) // 12 read (incl. recall + list_backlinks + 3 content) + 2 skill-doc
   })
 
   it('acquireForTurn swaps model on cached agents when preferences change', async () => {

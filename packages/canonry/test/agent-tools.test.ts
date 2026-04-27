@@ -84,6 +84,16 @@ function stubClient(state: StubState): ApiClient {
       state.lastCreatedNotification = body
       return { id: 'notif-new', ...body } as unknown as NotificationDto
     },
+    getContentTargets: async () => ({
+      targets: [],
+      contextMetrics: {
+        totalAiReferralSessions: 0,
+        latestRunId: 'run-1',
+        runTimestamp: '2026-04-26T00:00:00.000Z',
+      },
+    }),
+    getContentSources: async () => ({ sources: [], latestRunId: 'run-1' }),
+    getContentGaps: async () => ({ gaps: [], latestRunId: 'run-1' }),
   } as unknown as ApiClient
 }
 
@@ -188,7 +198,7 @@ function contextFor(state: StubState): ToolContext {
 }
 
 describe('buildReadTools', () => {
-  it('returns 9 tools with the expected names and metadata', () => {
+  it('returns the expected 12 tools with the expected names and metadata', () => {
     const tools = buildReadTools(contextFor(defaultState()))
     expect(tools.map((t) => t.name)).toEqual([
       'get_status',
@@ -200,6 +210,9 @@ describe('buildReadTools', () => {
       'get_run',
       'recall',
       'list_backlinks',
+      'get_content_targets',
+      'get_grounding_sources',
+      'get_content_gaps',
     ])
     for (const tool of tools) {
       expect(tool.description.length).toBeGreaterThan(0)
@@ -330,8 +343,8 @@ describe('buildWriteTools', () => {
 })
 
 describe('buildAllTools', () => {
-  it('returns 17 tools combining reads + writes', () => {
-    expect(buildAllTools(contextFor(defaultState()))).toHaveLength(17)
+  it('returns 20 tools combining reads + writes (12 read + 8 write)', () => {
+    expect(buildAllTools(contextFor(defaultState()))).toHaveLength(20)
   })
 })
 

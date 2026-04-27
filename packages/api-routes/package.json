@@ -19,6 +19,7 @@
   "dependencies": {
     "@ainyc/canonry-contracts": "workspace:*",
     "@ainyc/canonry-db": "workspace:*",
+    "@ainyc/canonry-intelligence": "workspace:*",
     "@ainyc/canonry-integration-bing": "workspace:*",
     "@ainyc/canonry-integration-google": "workspace:*",
     "@ainyc/canonry-integration-commoncrawl": "workspace:*",
