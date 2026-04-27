@@ -68,6 +68,11 @@ canonry agent memory forget <project> --key <k>      # delete a note
 # MCP adapter (separate bin, stdio only)
 canonry-mcp                                          # all 48 tools
 canonry-mcp --read-only                              # the 33 read tools only
+
+# MCP client install helpers (operate on local client config files)
+canonry mcp install --client claude-desktop          # merges a canonry entry into the config
+canonry mcp install --client cursor --read-only      # scope to the 33 read tools
+canonry mcp config  --client codex                   # print snippet for clients without auto-install
 ```
 
 ## Agent Layer

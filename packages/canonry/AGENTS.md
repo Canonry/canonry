@@ -13,6 +13,8 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/commands/` | Command implementations (one file per domain) |
 | `src/commands/competitor.ts` | Competitor commands: `competitor add`, `remove`/`delete`, `list` |
 | `src/commands/keyword.ts` | Keyword commands: `keyword add`, `replace`, `remove`/`delete`, `list`, `import`, `generate` |
+| `src/commands/mcp.ts` | MCP client install helpers: `mcp install`, `mcp config` (writes to client config files only — separate from the `canonry-mcp` stdio bin) |
+| `src/mcp-clients.ts` | Registry of supported MCP clients (Claude Desktop, Cursor, Codex) — config-path resolvers and format hints used by `mcp install`/`mcp config` |
 | `src/client.ts` | `ApiClient` class + `createApiClient()` factory |
 | `src/mcp/` | `canonry-mcp` stdio adapter over `createApiClient()` |
 | `src/server.ts` | Fastify server setup — mounts api-routes, serves SPA, registers providers |

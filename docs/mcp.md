@@ -18,7 +18,15 @@ The package exposes one MCP executable:
 canonry-mcp
 ```
 
-There is no `canonry mcp` wrapper. Keeping MCP out of the main CLI avoids telemetry, help text, first-run hints, or command output paths that could pollute stdio.
+`canonry-mcp` itself stays out of the main CLI to keep stdio clean — telemetry, help text, or stray logs would corrupt the protocol. The main CLI does ship two read/write *helpers* that operate on client config files only:
+
+```bash
+canonry mcp install --client claude-desktop
+canonry mcp install --client cursor --read-only
+canonry mcp config  --client codex            # print snippet for clients without auto-install
+```
+
+`install` merges a `canonry` MCP server entry into the client's config (creating the file if needed, backing up the original to `<config>.canonry.bak`). It is idempotent — re-running with the same flags is a no-op. `config` prints the snippet to stdout for copy-paste or use in unsupported clients (currently Codex CLI, since it uses TOML). Both helpers accept `--name <server>` to install under a custom key, `--read-only` to scope to the 33 read tools, `--dry-run` (install only), and `--format json` for machine-readable output.
 
 ## Auth
 

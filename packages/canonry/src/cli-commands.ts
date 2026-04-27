@@ -7,6 +7,7 @@ import { GA_CLI_COMMANDS } from './cli-commands/ga.js'
 import { COMPETITOR_CLI_COMMANDS } from './cli-commands/competitor.js'
 import { GOOGLE_CLI_COMMANDS } from './cli-commands/google.js'
 import { KEYWORD_CLI_COMMANDS } from './cli-commands/keyword.js'
+import { MCP_CLI_COMMANDS } from './cli-commands/mcp.js'
 import { NOTIFY_CLI_COMMANDS } from './cli-commands/notify.js'
 import { OPERATOR_CLI_COMMANDS } from './cli-commands/operator.js'
 import { PROJECT_CLI_COMMANDS } from './cli-commands/project.js'
@@ -39,4 +40,5 @@ export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...GA_CLI_COMMANDS,
   ...INTELLIGENCE_CLI_COMMANDS,
   ...AGENT_CLI_COMMANDS,
+  ...MCP_CLI_COMMANDS,
 ]

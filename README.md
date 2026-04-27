@@ -60,22 +60,24 @@ Your agent receives `run.completed`, `insight.critical`, `insight.high`, and
 
 ### Bringing your own agent (MCP)
 
-For MCP clients like Claude Desktop, Codex, or custom shells that prefer a
-typed tool catalog over shell commands, Canonry ships a stdio adapter:
+For MCP clients like Claude Desktop, Cursor, Codex, or custom shells that
+prefer a typed tool catalog over shell commands, Canonry ships a stdio
+adapter. The fastest path is the `canonry mcp install` helper:
 
-```json
-{
-  "mcpServers": {
-    "canonry": { "command": "canonry-mcp", "args": [] }
-  }
-}
+```bash
+canonry mcp install --client claude-desktop      # or: cursor
+canonry mcp install --client claude-desktop --read-only  # 33 read tools only
+canonry mcp config  --client codex               # print snippet for unsupported clients
 ```
+
+`install` merges a `canonry` entry into the client's config, backs up the
+original, and is idempotent. Restart the client after install to pick it up.
 
 The adapter exposes 48 tools — projects, runs, snapshots, insights, health,
 keyword and competitor management, schedules, GSC and GA reads, and the
-config-as-code apply path. Add `--read-only` to expose the 33 read tools.
-Auth and configuration are inherited from `~/.canonry/config.yaml`. See
-[`docs/mcp.md`](docs/mcp.md) for the full surface and safety rules.
+config-as-code apply path. Auth and configuration are inherited from
+`~/.canonry/config.yaml`. See [`docs/mcp.md`](docs/mcp.md) for the full
+surface and safety rules.
 
 ## How agents use Canonry
 
