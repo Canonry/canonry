@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applyServerEnv } from '../src/cli-commands/system.js'
+import { resolveServePort } from '../src/commands/serve.js'
 
 const KEYS = ['CANONRY_PORT', 'CANONRY_HOST', 'CANONRY_BASE_PATH'] as const
 
@@ -49,5 +50,23 @@ describe('applyServerEnv', () => {
     applyServerEnv({ host: '127.0.0.1', 'base-path': '/x' })
     expect(process.env.CANONRY_HOST).toBe('127.0.0.1')
     expect(process.env.CANONRY_BASE_PATH).toBe('/x')
+  })
+})
+
+describe('resolveServePort', () => {
+  it('honors CANONRY_PORT when set', () => {
+    expect(resolveServePort('4101', undefined)).toBe(4101)
+    expect(resolveServePort('4101', 5000)).toBe(4101)
+  })
+
+  it('falls back to config.port when env is unset or blank', () => {
+    expect(resolveServePort(undefined, 5000)).toBe(5000)
+    expect(resolveServePort('', 5000)).toBe(5000)
+    expect(resolveServePort('   ', 5000)).toBe(5000)
+  })
+
+  it('uses 4100 default when neither env nor config provides a port', () => {
+    expect(resolveServePort(undefined, undefined)).toBe(4100)
+    expect(resolveServePort('', undefined)).toBe(4100)
   })
 })

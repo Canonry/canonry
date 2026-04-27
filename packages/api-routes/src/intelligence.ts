@@ -4,6 +4,21 @@ import { insights, healthSnapshots, parseJsonColumn } from '@ainyc/canonry-db'
 import { notFound, type InsightDto, type HealthSnapshotDto } from '@ainyc/canonry-contracts'
 import { resolveProject } from './helpers.js'
 
+function emptyHealthSnapshot(projectId: string): HealthSnapshotDto {
+  return {
+    id: `no-data:${projectId}`,
+    projectId,
+    runId: null,
+    overallCitedRate: 0,
+    totalPairs: 0,
+    citedPairs: 0,
+    providerBreakdown: {},
+    createdAt: '',
+    status: 'no-data',
+    reason: 'no-runs-yet',
+  }
+}
+
 function mapInsightRow(r: typeof insights.$inferSelect): InsightDto {
   return {
     id: r.id,
@@ -31,6 +46,7 @@ function mapHealthRow(r: typeof healthSnapshots.$inferSelect): HealthSnapshotDto
     citedPairs: r.citedPairs,
     providerBreakdown: parseJsonColumn<HealthSnapshotDto['providerBreakdown']>(r.providerBreakdown, {}),
     createdAt: r.createdAt,
+    status: 'ready',
   }
 }
 
@@ -121,8 +137,11 @@ export async function intelligenceRoutes(app: FastifyInstance) {
       .limit(1)
       .get()
 
+    // "No data yet" is a normal lifecycle state for newly-created projects,
+    // not an error. Return a structured sentinel so agents can detect it
+    // without catching 404s.
     if (!row) {
-      throw notFound('Health data for project', request.params.name)
+      return reply.send(emptyHealthSnapshot(project.id))
     }
 
     return reply.send(mapHealthRow(row))

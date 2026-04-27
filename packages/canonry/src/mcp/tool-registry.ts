@@ -307,7 +307,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_health_latest',
     title: 'Get latest health',
-    description: 'Get the latest health snapshot for a Canonry project.',
+    description: 'Get the latest health snapshot for a Canonry project. Always returns a snapshot once the project exists: real data carries `status: "ready"`; newly-created projects (or projects with only failed runs) carry `status: "no-data"` with `reason: "no-runs-yet"` and zeroed metrics.',
     access: 'read',
     inputSchema: projectInputSchema,
     annotations: readAnnotations(),

@@ -37,6 +37,11 @@ export async function showHealth(
     return
   }
 
+  if (health.status === 'no-data') {
+    console.log('No health data yet — run a sweep first (canonry run <project>).')
+    return
+  }
+
   const rate = (health.overallCitedRate * 100).toFixed(1)
   console.log(`Health: ${rate}% cited (${health.citedPairs}/${health.totalPairs} pairs)`)
   console.log('')

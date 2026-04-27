@@ -2260,10 +2260,12 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/health/latest',
     summary: 'Get latest health snapshot',
+    description:
+      'Returns the latest health snapshot. Always 200 once the project exists: when no snapshot exists yet (newly-created project, or only failed runs), the response carries `status: "no-data"` with `reason: "no-runs-yet"` and zeroed metrics. Real snapshots carry `status: "ready"`.',
     tags: ['intelligence'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Health snapshot returned.' },
+      200: { description: 'Health snapshot or no-data sentinel returned.' },
       404: { description: 'Project not found.' },
     },
   },

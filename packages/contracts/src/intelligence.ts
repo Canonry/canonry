@@ -30,4 +30,13 @@ export interface HealthSnapshotDto {
   citedPairs: number
   providerBreakdown: Record<string, { citedRate: number; cited: number; total: number }>
   createdAt: string
+  /**
+   * `'ready'` when the snapshot reflects real data; `'no-data'` for the
+   * sentinel returned by `/health/latest` when a project has no health
+   * snapshots yet (newly created, or only failed runs). Numeric fields are
+   * zero and `providerBreakdown` is `{}` in the no-data case.
+   */
+  status: 'ready' | 'no-data'
+  /** Reason for `status === 'no-data'`. Absent when `status === 'ready'`. */
+  reason?: 'no-runs-yet'
 }
