@@ -145,13 +145,13 @@ describe('MCP tool registry', () => {
     expect(annotations.canonry_run_trigger).toMatchObject({ idempotentHint: false, destructiveHint: false })
     expect(annotations.canonry_run_cancel).toMatchObject({ idempotentHint: false, destructiveHint: true })
     expect(annotations.canonry_keywords_add).toMatchObject({ idempotentHint: true, destructiveHint: false })
-    expect(annotations.canonry_keywords_remove).toMatchObject({ idempotentHint: false, destructiveHint: true })
+    expect(annotations.canonry_keywords_remove).toMatchObject({ idempotentHint: true, destructiveHint: true })
     expect(annotations.canonry_competitors_add).toMatchObject({ idempotentHint: true, destructiveHint: false })
     expect(annotations.canonry_schedule_set).toMatchObject({ idempotentHint: true, destructiveHint: false })
     expect(annotations.canonry_schedule_delete).toMatchObject({ idempotentHint: false, destructiveHint: true })
     expect(annotations.canonry_insight_dismiss).toMatchObject({ idempotentHint: true, destructiveHint: false })
     expect(annotations.canonry_agent_webhook_attach).toMatchObject({ idempotentHint: true, destructiveHint: false })
-    expect(annotations.canonry_agent_webhook_detach).toMatchObject({ idempotentHint: false, destructiveHint: true })
+    expect(annotations.canonry_agent_webhook_detach).toMatchObject({ idempotentHint: true, destructiveHint: true })
   })
 
   it('classifies every OpenAPI operation for MCP coverage drift', () => {

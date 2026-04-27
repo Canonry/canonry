@@ -535,7 +535,7 @@ export const canonryMcpTools = [
     description: 'Remove tracked keywords from a Canonry project.',
     access: 'write',
     inputSchema: keywordsInputSchema,
-    annotations: writeAnnotations({ idempotentHint: false, destructiveHint: true }),
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
     openApiOperations: ['DELETE /api/v1/projects/{name}/keywords'],
     handler: async (client, input) => {
       await client.deleteKeywords(input.project, uniqueStrings(input.request.keywords))
@@ -617,7 +617,7 @@ export const canonryMcpTools = [
     description: 'Detach the external agent webhook for a Canonry project.',
     access: 'write',
     inputSchema: projectInputSchema,
-    annotations: writeAnnotations({ idempotentHint: false, destructiveHint: true }),
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
     openApiOperations: ['GET /api/v1/projects/{name}/notifications', 'DELETE /api/v1/projects/{name}/notifications/{id}'],
     handler: async (client, input) => {
       const existing = await client.listNotifications(input.project)
