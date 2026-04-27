@@ -26,6 +26,11 @@ describe('parseScope', () => {
     expect(() => parseScope(['-h'], undefined)).toThrow(HelpRequested)
   })
 
+  it('honors --help even when CANONRY_MCP_SCOPE is invalid', () => {
+    expect(() => parseScope(['--help'], 'bogus')).toThrow(HelpRequested)
+    expect(() => parseScope(['-h'], 'bogus')).toThrow(HelpRequested)
+  })
+
   it('throws on unknown arguments', () => {
     expect(() => parseScope(['--bogus'], undefined)).toThrow(/Unknown canonry-mcp argument/)
   })

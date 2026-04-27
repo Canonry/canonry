@@ -36,12 +36,14 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 }
 
 export function parseScope(argv: readonly string[], envScope = process.env.CANONRY_MCP_SCOPE): CanonryMcpScope {
+  // Honor --help / -h before consulting envScope so users with a misconfigured
+  // CANONRY_MCP_SCOPE can still recover via `canonry-mcp --help`.
+  if (argv.includes('--help') || argv.includes('-h')) {
+    throw new HelpRequested()
+  }
   let scope = normalizeScope(envScope)
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
-    if (arg === '--help' || arg === '-h') {
-      throw new HelpRequested()
-    }
     if (arg === '--read-only') {
       scope = 'read-only'
       continue
