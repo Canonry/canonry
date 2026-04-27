@@ -527,9 +527,10 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_apply_config',
     title: 'Apply project config',
-    description: 'Apply one Canonry config-as-code project document. Replaces the project to match the config — fields omitted from the spec are reset to defaults. Loop and call once per project to apply multi-doc configs.',
+    description: 'Apply one Canonry config-as-code project document. Replaces the project to match the config — fields omitted from the spec are reset to defaults. For multi-document YAML, call this tool once per project document.',
     access: 'write',
     inputSchema: applyConfigInputSchema,
+    // Declarative apply is safe to repeat, but it replaces configured child state.
     annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
     openApiOperations: ['POST /api/v1/apply'],
     handler: (client, input) => client.apply(input.config),
@@ -537,7 +538,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_keywords_generate',
     title: 'Generate keyword suggestions',
-    description: 'Generate candidate key phrases for a Canonry project using a configured provider.',
+    description: 'Generate candidate key phrases using a configured provider. Returns suggestions only; use canonry_keywords_add to persist them.',
     access: 'write',
     inputSchema: keywordGenerateInputSchema,
     annotations: writeAnnotations({ idempotentHint: false, openWorldHint: true }),

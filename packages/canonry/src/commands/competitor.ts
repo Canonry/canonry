@@ -9,13 +9,15 @@ export async function addCompetitors(project: string, domains: string[], format?
   const existing = await client.listCompetitors(project)
   const existingDomains = existing.map(c => c.domain)
   const existingSet = new Set(existingDomains)
-  const addedDomains = [...new Set(domains.filter(domain => !existingSet.has(domain)))]
+  const requested = new Set(uniqueStrings(domains))
   const current = await client.appendCompetitors(project, domains)
+  const currentDomains = current.map(c => c.domain)
+  const addedDomains = currentDomains.filter(domain => requested.has(domain) && !existingSet.has(domain))
 
   if (format === 'json') {
     console.log(JSON.stringify({
       project,
-      domains: current.map(c => c.domain),
+      domains: currentDomains,
       addedDomains,
       addedCount: addedDomains.length,
     }, null, 2))
@@ -32,9 +34,11 @@ export async function addCompetitors(project: string, domains: string[], format?
 export async function removeCompetitors(project: string, domains: string[], format?: string): Promise<void> {
   const client = getClient()
   const existing = await client.listCompetitors(project)
-  const existingSet = new Set(existing.map(c => c.domain))
-  const removedDomains = [...new Set(domains.filter(domain => existingSet.has(domain)))]
+  const existingDomains = existing.map(c => c.domain)
+  const requested = new Set(uniqueStrings(domains))
   const current = await client.deleteCompetitors(project, domains)
+  const currentSet = new Set(current.map(c => c.domain))
+  const removedDomains = existingDomains.filter(domain => requested.has(domain) && !currentSet.has(domain))
 
   if (format === 'json') {
     console.log(JSON.stringify({
@@ -47,6 +51,17 @@ export async function removeCompetitors(project: string, domains: string[], form
   }
 
   console.log(`Removed ${removedDomains.length} competitor(s) from "${project}".`)
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const value of values) {
+    if (seen.has(value)) continue
+    seen.add(value)
+    result.push(value)
+  }
+  return result
 }
 
 export async function listCompetitors(project: string, format?: string): Promise<void> {
