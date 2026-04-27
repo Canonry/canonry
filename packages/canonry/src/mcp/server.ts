@@ -11,6 +11,12 @@ export interface CanonryMcpServerOptions {
   scope?: CanonryMcpScope
 }
 
+// The MCP SDK's default Zod validation throws an `McpError(InvalidParams, ...)`
+// whose message is rendered to the client as a free-text "MCP error -32602:
+// Input validation error: ..." dump. Bypass it so withToolErrors can re-parse
+// with the same schema and surface a structured Canonry VALIDATION_ERROR envelope.
+type WithValidate = { validateToolInput: (tool: unknown, args: unknown) => Promise<unknown> }
+
 export function createCanonryMcpServer(options: CanonryMcpServerOptions = {}): McpServer {
   const clientFactory = options.clientFactory ?? createApiClient
   const client = clientFactory()
@@ -19,6 +25,8 @@ export function createCanonryMcpServer(options: CanonryMcpServerOptions = {}): M
     name: 'canonry',
     version: PACKAGE_VERSION,
   })
+
+  ;(server as unknown as WithValidate).validateToolInput = async (_tool, args) => args
 
   for (const registryTool of getCanonryMcpTools(scope)) {
     const tool = registryTool as CanonryMcpTool
@@ -31,7 +39,10 @@ export function createCanonryMcpServer(options: CanonryMcpServerOptions = {}): M
         inputSchema: tool.inputSchema,
         annotations: tool.annotations,
       },
-      async (input: unknown) => withToolErrors(() => handler(client, input)),
+      async (input: unknown) => withToolErrors(async () => {
+        const parsed = tool.inputSchema.parse(input ?? {})
+        return handler(client, parsed)
+      }),
     )
   }
 

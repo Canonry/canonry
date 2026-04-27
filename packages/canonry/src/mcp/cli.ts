@@ -1,8 +1,37 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { createCanonryMcpServer, type CanonryMcpScope } from './server.js'
 
+export const HELP_TEXT = `Usage: canonry-mcp [--read-only | --scope=<all|read-only>]
+
+Stdio MCP adapter over the Canonry public API. Inherits config from
+~/.canonry/config.yaml (or $CANONRY_CONFIG_DIR/config.yaml).
+
+Flags:
+  --read-only          Expose read tools only (33 of 48)
+  --scope=<all|read-only>
+                       Same as --read-only when "read-only"
+  --help, -h           Show this message
+`
+
+export class HelpRequested extends Error {
+  constructor() {
+    super('canonry-mcp --help requested')
+    this.name = 'HelpRequested'
+  }
+}
+
 export async function main(argv = process.argv.slice(2)): Promise<void> {
-  const server = createCanonryMcpServer({ scope: parseScope(argv) })
+  let scope: CanonryMcpScope
+  try {
+    scope = parseScope(argv)
+  } catch (error) {
+    if (error instanceof HelpRequested) {
+      process.stderr.write(HELP_TEXT)
+      return
+    }
+    throw error
+  }
+  const server = createCanonryMcpServer({ scope })
   await server.connect(new StdioServerTransport())
 }
 
@@ -10,6 +39,9 @@ export function parseScope(argv: readonly string[], envScope = process.env.CANON
   let scope = normalizeScope(envScope)
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
+    if (arg === '--help' || arg === '-h') {
+      throw new HelpRequested()
+    }
     if (arg === '--read-only') {
       scope = 'read-only'
       continue

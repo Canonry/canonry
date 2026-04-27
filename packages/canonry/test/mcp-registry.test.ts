@@ -1,5 +1,6 @@
 import { createServer, type ServerResponse } from 'node:http'
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import { buildOpenApiDocument } from '../../api-routes/src/openapi.js'
 import { CliError } from '../src/cli-error.js'
 import { ApiClient as RealApiClient, type ApiClient } from '../src/client.js'
@@ -197,6 +198,26 @@ describe('MCP tool registry', () => {
         details: { field: 'project' },
       },
     })
+  })
+
+  it('maps ZodErrors to VALIDATION_ERROR envelopes', async () => {
+    const schema = z.object({
+      project: z.string().min(1),
+      request: z.object({ keywords: z.array(z.string()).min(1) }),
+    })
+    const result = await withToolErrors(async () => {
+      schema.parse({ project: 'acme', request: { keywords: [] } })
+      return { ok: true }
+    })
+
+    expect(result.isError).toBe(true)
+    const envelope = JSON.parse(result.content[0]!.type === 'text' ? result.content[0]!.text : '{}') as {
+      error: { code: string; message: string; details: { issues: Array<{ path: string; message: string }> } }
+    }
+    expect(envelope.error.code).toBe('VALIDATION_ERROR')
+    expect(envelope.error.details.issues).toHaveLength(1)
+    expect(envelope.error.details.issues[0]!.path).toBe('request.keywords')
+    expect(envelope.error.message).toContain('request.keywords')
   })
 
   it('preserves API error details in MCP tool errors', async () => {

@@ -70,6 +70,20 @@ describe('canonry-mcp stdio', () => {
     expect(addKeywords.isError).not.toBe(true)
     expect(jsonText(addKeywords)).toEqual({ ok: true })
 
+    const invalid = await client.callTool({
+      name: 'canonry_keywords_add',
+      arguments: { project: 'acme', request: { keywords: [] } },
+    })
+    expect(invalid.isError).toBe(true)
+    const text = invalid.content?.[0]
+    expect(text && text.type === 'text').toBe(true)
+    expect((text as { text: string }).text).not.toContain('MCP error -32602')
+    const envelope = JSON.parse((text as { text: string }).text) as {
+      error: { code: string; message: string; details?: { issues?: unknown[] } }
+    }
+    expect(envelope.error.code).toBe('VALIDATION_ERROR')
+    expect(envelope.error.details?.issues).toBeTruthy()
+
     expect(stderrChunks.join('')).toBe('')
   })
 })
