@@ -175,7 +175,7 @@ export async function keywordRoutes(app: FastifyInstance, opts: KeywordRoutesOpt
         validProviders: validNames,
       })
     }
-    const count = Math.min(Math.max(body.count ?? 5, 1), 20)
+    const count = body.count ?? 5
 
     if (!opts.onGenerateKeywords) {
       throw notImplemented('Key phrase generation is not supported in this deployment')

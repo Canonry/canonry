@@ -403,10 +403,6 @@ export class ApiClient {
     await this.request<unknown>('POST', `/projects/${encodeURIComponent(project)}/keywords`, { keywords })
   }
 
-  async putCompetitors(project: string, competitors: string[]): Promise<void> {
-    await this.request<unknown>('PUT', `/projects/${encodeURIComponent(project)}/competitors`, { competitors })
-  }
-
   async listCompetitors(project: string): Promise<CompetitorDto[]> {
     return this.request<CompetitorDto[]>('GET', `/projects/${encodeURIComponent(project)}/competitors`)
   }

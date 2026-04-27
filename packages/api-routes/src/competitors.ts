@@ -62,36 +62,38 @@ export async function competitorRoutes(app: FastifyInstance) {
     const body = parseCompetitorBatch(request.body)
 
     const now = new Date().toISOString()
-    const existing = app.db
-      .select()
-      .from(competitors)
-      .where(eq(competitors.projectId, project.id))
-      .all()
-    const existingSet = new Set(existing.map(c => c.domain))
-    const added = uniqueStrings(body.competitors).filter(domain => !existingSet.has(domain))
+    const requested = uniqueStrings(body.competitors)
 
-    if (added.length > 0) {
-      app.db.transaction((tx) => {
-        for (const domain of added) {
-          tx.insert(competitors).values({
-            id: crypto.randomUUID(),
-            projectId: project.id,
-            domain,
-            createdAt: now,
-          }).onConflictDoNothing({
-            target: [competitors.projectId, competitors.domain],
-          }).run()
-        }
+    app.db.transaction((tx) => {
+      const existing = tx
+        .select()
+        .from(competitors)
+        .where(eq(competitors.projectId, project.id))
+        .all()
+      const existingSet = new Set(existing.map(c => c.domain))
+      const added = requested.filter(domain => !existingSet.has(domain))
 
-        writeAuditLog(tx, {
+      if (added.length === 0) return
+
+      for (const domain of added) {
+        tx.insert(competitors).values({
+          id: crypto.randomUUID(),
           projectId: project.id,
-          actor: 'api',
-          action: 'competitors.appended',
-          entityType: 'competitor',
-          diff: { added },
-        })
+          domain,
+          createdAt: now,
+        }).onConflictDoNothing({
+          target: [competitors.projectId, competitors.domain],
+        }).run()
+      }
+
+      writeAuditLog(tx, {
+        projectId: project.id,
+        actor: 'api',
+        action: 'competitors.appended',
+        entityType: 'competitor',
+        diff: { added },
       })
-    }
+    })
 
     const rows = app.db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
     return reply.send(rows.map(r => ({ id: r.id, domain: r.domain, createdAt: r.createdAt })))
@@ -105,30 +107,30 @@ export async function competitorRoutes(app: FastifyInstance) {
     const project = resolveProject(app.db, request.params.name)
     const body = parseCompetitorBatch(request.body)
 
-    const existing = app.db
-      .select()
-      .from(competitors)
-      .where(eq(competitors.projectId, project.id))
-      .all()
+    const requested = new Set(uniqueStrings(body.competitors))
 
-    const toDelete = new Set(uniqueStrings(body.competitors))
-    const rowsToDelete = existing.filter(c => toDelete.has(c.domain))
+    app.db.transaction((tx) => {
+      const existing = tx
+        .select()
+        .from(competitors)
+        .where(eq(competitors.projectId, project.id))
+        .all()
+      const rowsToDelete = existing.filter(c => requested.has(c.domain))
 
-    if (rowsToDelete.length > 0) {
-      app.db.transaction((tx) => {
-        for (const row of rowsToDelete) {
-          tx.delete(competitors).where(eq(competitors.id, row.id)).run()
-        }
+      if (rowsToDelete.length === 0) return
 
-        writeAuditLog(tx, {
-          projectId: project.id,
-          actor: 'api',
-          action: 'competitors.deleted',
-          entityType: 'competitor',
-          diff: { deleted: rowsToDelete.map(row => row.domain) },
-        })
+      for (const row of rowsToDelete) {
+        tx.delete(competitors).where(eq(competitors.id, row.id)).run()
+      }
+
+      writeAuditLog(tx, {
+        projectId: project.id,
+        actor: 'api',
+        action: 'competitors.deleted',
+        entityType: 'competitor',
+        diff: { deleted: rowsToDelete.map(row => row.domain) },
       })
-    }
+    })
 
     const rows = app.db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
     return reply.send(rows.map(r => ({ id: r.id, domain: r.domain, createdAt: r.createdAt })))

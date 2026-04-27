@@ -516,8 +516,8 @@ export const canonryMcpTools = [
   }),
   defineTool({
     name: 'canonry_project_upsert',
-    title: 'Create or update project',
-    description: 'Create or update a Canonry project through the public project API.',
+    title: 'Create or replace project',
+    description: 'Create or replace a Canonry project. PUT semantics — fields not in the request are reset to their defaults. Provide the full intended project shape.',
     access: 'write',
     inputSchema: projectUpsertInputSchema,
     annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
@@ -527,7 +527,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_apply_config',
     title: 'Apply project config',
-    description: 'Apply one Canonry config-as-code project document.',
+    description: 'Apply one Canonry config-as-code project document. Replaces the project to match the config — fields omitted from the spec are reset to defaults. Loop and call once per project to apply multi-doc configs.',
     access: 'write',
     inputSchema: applyConfigInputSchema,
     annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),

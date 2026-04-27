@@ -81,7 +81,7 @@ export type KeywordBatchRequest = z.infer<typeof keywordBatchRequestSchema>
 
 export const keywordGenerateRequestSchema = z.object({
   provider: providerNameSchema,
-  count: z.number().int().optional(),
+  count: z.number().int().min(1).max(20).optional(),
 })
 
 export type KeywordGenerateRequest = z.infer<typeof keywordGenerateRequestSchema>

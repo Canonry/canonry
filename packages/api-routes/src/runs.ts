@@ -327,7 +327,12 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
 function parseRunTriggerRequest(value: unknown) {
   const result = runTriggerRequestSchema.safeParse(value)
   if (result.success) return result.data
-  throw validationError('Invalid run trigger request', { issues: result.error.issues })
+  throw validationError('Invalid run trigger request', {
+    issues: result.error.issues.map(issue => ({
+      path: issue.path.join('.'),
+      message: issue.message,
+    })),
+  })
 }
 
 function formatRun(row: {
