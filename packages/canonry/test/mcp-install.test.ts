@@ -190,6 +190,91 @@ describe('canonry mcp install (claude-desktop)', () => {
       binPath: '/usr/local/bin/canonry-mcp',
     })).rejects.toBeInstanceOf(CliError)
   })
+
+  it('treats an existing entry without args as args: []', async () => {
+    const configPath = configFile()
+    fs.writeFileSync(configPath, JSON.stringify({
+      mcpServers: {
+        canonry: { command: '/usr/local/bin/canonry-mcp' },
+      },
+    }, null, 2))
+
+    const result = await installMcp({
+      client: 'claude-desktop',
+      configPath,
+      binPath: '/usr/local/bin/canonry-mcp',
+    })
+
+    expect(result.status).toBe('already-installed')
+  })
+
+  it('updates when an existing entry without args differs in flags', async () => {
+    const configPath = configFile()
+    fs.writeFileSync(configPath, JSON.stringify({
+      mcpServers: {
+        canonry: { command: '/usr/local/bin/canonry-mcp' },
+      },
+    }, null, 2))
+
+    const result = await installMcp({
+      client: 'claude-desktop',
+      configPath,
+      binPath: '/usr/local/bin/canonry-mcp',
+      readOnly: true,
+    })
+
+    expect(result.status).toBe('updated')
+    const written = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+    expect(written.mcpServers.canonry.args).toEqual(['--read-only'])
+  })
+
+  it('wraps a .mjs target in node when installing on Windows', async () => {
+    const configPath = configFile()
+    const result = await installMcp({
+      client: 'claude-desktop',
+      configPath,
+      binPath: 'C:\\Program Files\\nodejs\\canonry\\bin\\canonry-mcp.mjs',
+      readOnly: true,
+      platform: 'win32',
+    })
+
+    expect(result.entry).toEqual({
+      command: 'node',
+      args: ['C:\\Program Files\\nodejs\\canonry\\bin\\canonry-mcp.mjs', '--read-only'],
+    })
+    const written = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+    expect(written.mcpServers.canonry.command).toBe('node')
+  })
+
+  it('leaves a non-.mjs target unwrapped on Windows', async () => {
+    const configPath = configFile()
+    const result = await installMcp({
+      client: 'claude-desktop',
+      configPath,
+      binPath: 'C:\\npm\\canonry-mcp.cmd',
+      platform: 'win32',
+    })
+
+    expect(result.entry).toEqual({
+      command: 'C:\\npm\\canonry-mcp.cmd',
+      args: [],
+    })
+  })
+
+  it('does not wrap .mjs paths on non-Windows platforms', async () => {
+    const configPath = configFile()
+    const result = await installMcp({
+      client: 'claude-desktop',
+      configPath,
+      binPath: '/usr/local/lib/node_modules/@ainyc/canonry/bin/canonry-mcp.mjs',
+      platform: 'darwin',
+    })
+
+    expect(result.entry).toEqual({
+      command: '/usr/local/lib/node_modules/@ainyc/canonry/bin/canonry-mcp.mjs',
+      args: [],
+    })
+  })
 })
 
 describe('canonry mcp config', () => {

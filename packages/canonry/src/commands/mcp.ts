@@ -17,6 +17,7 @@ export interface McpInstallOptions {
   binPath?: string
   dryRun?: boolean
   format?: string
+  platform?: NodeJS.Platform
 }
 
 export interface McpConfigOptions {
@@ -25,6 +26,7 @@ export interface McpConfigOptions {
   readOnly?: boolean
   binPath?: string
   format?: string
+  platform?: NodeJS.Platform
 }
 
 export interface McpServerEntry {
@@ -60,14 +62,27 @@ function resolveCanonryMcpBin(): string {
   return path.resolve(packageRoot, relativeBin)
 }
 
-function buildEntry(opts: { binPath?: string; readOnly?: boolean }): McpServerEntry {
-  const command = opts.binPath ?? resolveCanonryMcpBin()
-  const args = opts.readOnly ? ['--read-only'] : []
-  return { command, args }
+function buildEntry(opts: { binPath?: string; readOnly?: boolean; platform?: NodeJS.Platform }): McpServerEntry {
+  const target = opts.binPath ?? resolveCanonryMcpBin()
+  const flagArgs = opts.readOnly ? ['--read-only'] : []
+  const platform = opts.platform ?? process.platform
+  // Windows can't spawn a `.mjs` file directly via shebang — wrap it in `node` so the
+  // command line MCP clients write resolves to a real executable across platforms.
+  if (platform === 'win32' && target.toLowerCase().endsWith('.mjs')) {
+    return { command: 'node', args: [target, ...flagArgs] }
+  }
+  return { command: target, args: flagArgs }
+}
+
+function entryArgs(entry: McpServerEntry): string[] {
+  return Array.isArray(entry.args) ? entry.args : []
 }
 
 function entriesEqual(a: McpServerEntry, b: McpServerEntry): boolean {
-  return a.command === b.command && a.args.length === b.args.length && a.args.every((arg, i) => arg === b.args[i])
+  if (a.command !== b.command) return false
+  const aArgs = entryArgs(a)
+  const bArgs = entryArgs(b)
+  return aArgs.length === bArgs.length && aArgs.every((arg, i) => arg === bArgs[i])
 }
 
 function renderJsonSnippet(serverName: string, entry: McpServerEntry, format: McpClientFormat): string {
@@ -134,7 +149,7 @@ export async function installMcp(opts: McpInstallOptions): Promise<McpInstallRes
   const client = findClientOrThrow(opts.client)
   const serverName = opts.name?.trim() || 'canonry'
   const configPath = opts.configPath ?? client.configPath()
-  const entry = buildEntry({ binPath: opts.binPath, readOnly: opts.readOnly })
+  const entry = buildEntry({ binPath: opts.binPath, readOnly: opts.readOnly, platform: opts.platform })
 
   if (!client.installSupported) {
     const snippet = renderClientSnippet(client, serverName, entry)
@@ -208,7 +223,7 @@ export async function installMcp(opts: McpInstallOptions): Promise<McpInstallRes
 export async function printMcpConfig(opts: McpConfigOptions): Promise<void> {
   const client = findClientOrThrow(opts.client)
   const serverName = opts.name?.trim() || 'canonry'
-  const entry = buildEntry({ binPath: opts.binPath, readOnly: opts.readOnly })
+  const entry = buildEntry({ binPath: opts.binPath, readOnly: opts.readOnly, platform: opts.platform })
   const snippet = renderClientSnippet(client, serverName, entry)
 
   if (opts.format === 'json') {
