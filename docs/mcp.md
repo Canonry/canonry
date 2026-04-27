@@ -72,7 +72,7 @@ args = []
 
 ## Tool Surface
 
-v1 is curated for client usability: 48 tools total, 33 read tools in read-only mode. It covers projects, config apply, runs, snapshots, insights, health, keyword generation and replacement, competitor add/remove, schedules, settings, GSC reads, GA reads, run trigger/cancel, schedule updates, insight dismiss, and agent webhook attach/detach.
+v1 is curated for client usability: 48 API tools (33 read in `--read-only`) plus two meta-tools (`canonry_help`, `canonry_load_toolkit`). It covers projects, config apply, runs, snapshots, insights, health, keyword generation and replacement, competitor add/remove, schedules, settings, GSC reads, GA reads, run trigger/cancel, schedule updates, insight dismiss, and agent webhook attach/detach.
 
 `canonry_apply_config` accepts one config-as-code project document per call. For multi-document YAML or multiple project files, agents should call the tool once per project document. `canonry_keywords_generate` returns suggestions only; persist accepted suggestions with `canonry_keywords_add` or replace the tracked set with `canonry_keywords_replace`.
 
@@ -81,6 +81,49 @@ Deferred from v1: Aero ask SSE, OAuth callbacks, raw screenshots, project delete
 Some write tools compose existing API calls rather than using a native atomic endpoint. The agent webhook attach/detach tools are best-effort under concurrent calls until the public API grows narrower attach/detach operations for that domain.
 
 `canonry_project_upsert` and `canonry_apply_config` use PUT semantics — fields omitted from the request are reset to their defaults. Pass the full intended project shape. `canonry_apply_config` accepts one project document per call; loop on the client side for multi-project configs.
+
+## Progressive Tool Discovery
+
+The full 48-tool catalog costs roughly 12k tokens of definitions every session. Most sessions touch a handful of tools, so `canonry-mcp` defaults to a small **core tier** (~9 tools, ~2.5k tokens) and registers the rest on demand via `notifications/tools/list_changed`.
+
+Core tier (always loaded):
+
+- `canonry_help` — list available toolkits and which are loaded
+- `canonry_load_toolkit` — register a toolkit's tools for the rest of the session
+- `canonry_projects_list`, `canonry_project_get`
+- `canonry_settings_get`
+- `canonry_apply_config`, `canonry_run_trigger`, `canonry_run_cancel`
+- `canonry_agent_webhook_attach`
+
+Toolkits (loaded on demand):
+
+| Toolkit | What's in it | When to load |
+| --- | --- | --- |
+| `monitoring` | runs list/latest/get, project history, timeline, snapshots list/diff, insights list/get, health latest/history | Investigating regressions, comparing runs, reviewing insights/health |
+| `setup` | project export/upsert, keywords list/add/remove/replace/generate, competitors list/add/remove, schedule get/set/delete, insight dismiss | Onboarding a project, editing keywords/competitors/schedules |
+| `gsc` | google connections list, GSC performance, inspections, coverage, coverage history, sitemaps, deindexed | Indexing, coverage, sitemap analysis from Google Search Console |
+| `ga` | GA status, traffic, coverage, AI/social referral history, social/attribution trends, session history | Traffic, referral, attribution data from Google Analytics 4 |
+| `agent` | agent webhook detach | Removing an agent webhook subscription |
+
+Loading a toolkit is idempotent and persists for the rest of the session; there is no unload. `canonry_load_toolkit` returns `{ status: 'loaded' \| 'already-loaded' \| 'empty', name, tools }`. After it returns, the server emits `notifications/tools/list_changed` and the client refetches the catalog.
+
+### Eager mode
+
+Power-user environments (scripts, Aero, telemetry harnesses) that want the flat 50-tool catalog at startup can opt back in with `--eager` (or `CANONRY_MCP_EAGER=1`):
+
+```json
+{
+  "mcpServers": {
+    "canonry": { "command": "canonry-mcp", "args": ["--eager"] }
+  }
+}
+```
+
+`--eager` and `--read-only` compose: `canonry-mcp --eager --read-only` registers every read tool eagerly.
+
+### Read-only scope and toolkits
+
+`--read-only` filters out write tools before the catalog is built, so toolkits that only contain write tools (currently `agent`) appear as `empty` from `canonry_load_toolkit`. The setup toolkit still exposes its read tools (`canonry_project_export`, `canonry_keywords_list`, `canonry_competitors_list`, `canonry_schedule_get`) under the read-only scope.
 
 ## Safety Rules
 

@@ -52,16 +52,38 @@ describe('canonry-mcp stdio', () => {
     await client.connect(transport)
 
     const list = await client.listTools()
-    expect(list.tools).toHaveLength(48)
-    expect(list.tools.map(tool => tool.name)).toContain('canonry_projects_list')
+    expect(list.tools).toHaveLength(9)
+    const listedNames = list.tools.map(tool => tool.name)
+    expect(listedNames).toContain('canonry_projects_list')
+    expect(listedNames).toContain('canonry_help')
+    expect(listedNames).toContain('canonry_load_toolkit')
+    expect(listedNames).not.toContain('canonry_insights_list')
+
+    const help = await client.callTool({ name: 'canonry_help', arguments: {} })
+    expect(help.isError).not.toBe(true)
+    const helpPayload = jsonText(help) as { toolkits: Array<{ name: string; toolCount: number }> }
+    expect(helpPayload.toolkits.map(t => t.name)).toEqual(['monitoring', 'setup', 'gsc', 'ga', 'agent'])
 
     const projects = await client.callTool({ name: 'canonry_projects_list', arguments: {} })
     expect(projects.isError).not.toBe(true)
     expect(jsonText(projects)).toEqual([{ name: 'acme', canonicalDomain: 'acme.example.com', country: 'US', language: 'en' }])
 
+    const beforeLoad = await client.callTool({ name: 'canonry_insights_list', arguments: { project: 'acme' } })
+    expect(beforeLoad.isError).toBe(true)
+
+    const loaded = await client.callTool({ name: 'canonry_load_toolkit', arguments: { name: 'monitoring' } })
+    expect(loaded.isError).not.toBe(true)
+    expect(jsonText(loaded)).toMatchObject({ status: 'loaded', name: 'monitoring' })
+
+    const expandedList = await client.listTools()
+    expect(expandedList.tools.map(tool => tool.name)).toContain('canonry_insights_list')
+
     const insights = await client.callTool({ name: 'canonry_insights_list', arguments: { project: 'acme' } })
     expect(insights.isError).not.toBe(true)
     expect(jsonText(insights)).toEqual([])
+
+    const setupLoad = await client.callTool({ name: 'canonry_load_toolkit', arguments: { name: 'setup' } })
+    expect(setupLoad.isError).not.toBe(true)
 
     const addKeywords = await client.callTool({
       name: 'canonry_keywords_add',
@@ -71,6 +93,41 @@ describe('canonry-mcp stdio', () => {
     expect(jsonText(addKeywords)).toEqual({ ok: true })
 
     expect(stderrChunks.join('')).toBe('')
+  })
+
+  it('loads every toolkit at startup when --eager is passed', async () => {
+    const api = await startStubApi()
+    servers.push(api)
+
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-mcp-eager-'))
+    fs.writeFileSync(path.join(configDir, 'config.yaml'), [
+      `apiUrl: ${api.origin}`,
+      'database: /tmp/canonry-mcp-eager.sqlite',
+      'apiKey: cnry_test',
+      '',
+    ].join('\n'))
+
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [tsxCli, mcpCli, '--eager'],
+      cwd: packageRoot,
+      env: {
+        ...stringEnv(),
+        CANONRY_CONFIG_DIR: configDir,
+        CANONRY_BASE_PATH: '',
+      },
+      stderr: 'pipe',
+    })
+
+    const client = new Client({ name: 'canonry-mcp-eager-test', version: '0.0.0' })
+    clients.push(client)
+    await client.connect(transport)
+
+    const list = await client.listTools()
+    expect(list.tools).toHaveLength(50)
+    const names = list.tools.map(tool => tool.name)
+    expect(names).toContain('canonry_insights_list')
+    expect(names).toContain('canonry_help')
   })
 })
 
