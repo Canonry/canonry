@@ -12,6 +12,7 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/cli-commands.ts` | `REGISTERED_CLI_COMMANDS` array — declarative command specs |
 | `src/commands/` | Command implementations (one file per domain) |
 | `src/client.ts` | `ApiClient` class + `createApiClient()` factory |
+| `src/mcp/` | `canonry-mcp` stdio adapter over `createApiClient()` |
 | `src/server.ts` | Fastify server setup — mounts api-routes, serves SPA, registers providers |
 | `src/job-runner.ts` | In-process job runner for visibility sweeps |
 | `src/provider-registry.ts` | `ProviderRegistry` — manages provider adapters |
@@ -66,6 +67,10 @@ function getClient() {
 ```
 
 All `ApiClient` methods must return typed DTOs from `@ainyc/canonry-contracts`. Never cast responses with `as Record<string, unknown>`.
+
+### MCP adapter
+
+`canonry-mcp` is the only MCP executable. It is allowed only as a stdio adapter over `createApiClient()` and must not import DB modules, API routes, job runners, CLI command dispatch, telemetry, or loggers. It must never write to stdout except MCP protocol frames. Add tools only when the same capability already exists through the public API/CLI, and keep input schemas tied to `packages/contracts` Zod schemas.
 
 ### Command output
 

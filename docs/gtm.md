@@ -4,7 +4,7 @@
 
 ## Launch Thesis
 
-Canonry is **CLI/API-first, any-agent**. AGENTS.md is explicit: "No MCP layer, no virtual filesystem, no special agent SDK. If an AI agent can't do something with `canonry <command> --format json` or an HTTP call, it's a bug." Aero is a **convenience** — one built-in agent for users who don't already have one. The real win is that Claude Code, Codex, Hermes, OpenClaw, or any custom agent can drive canonry natively through the CLI + API, given the right guidance.
+Canonry is **CLI/API-first, any-agent**. AGENTS.md is explicit: MCP is allowed only as an adapter over the public API client, not as a parallel surface, and must not introduce capabilities unavailable through API/CLI. Aero is a **convenience** — one built-in agent for users who don't already have one. The real win is that Claude Code, Codex, Hermes, OpenClaw, or any custom agent can drive canonry natively through the CLI + API, with MCP available for clients where a tool catalog is the natural integration path.
 
 That reframes the GTM feature set: the question isn't "what can Aero do?" It's **"how fast can any agent become productive with canonry?"** Everything below is oriented around that.
 

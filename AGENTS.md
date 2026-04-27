@@ -219,7 +219,7 @@ const totalBySource = referrals.reduce((acc, r) => { ... }, {})
 
 ### Agent & automation design principles
 
-The CLI and API **are** the agent interface. No MCP layer, no virtual filesystem, no special agent SDK. If an AI agent can't do something with `canonry <command> --format json` or an HTTP call, it's a bug.
+The CLI and API **are** the agent interface. MCP is allowed only as an adapter over the public API client. It is not a parallel surface and must not introduce capabilities unavailable through API/CLI. No virtual filesystem, no privileged agent SDK. If an AI agent can't do something with `canonry <command> --format json` or an HTTP call, it's a bug.
 
 #### Rules
 
@@ -230,6 +230,7 @@ The CLI and API **are** the agent interface. No MCP layer, no virtual filesystem
 5. **Meaningful exit codes.** `0` = success, `1` = user error (bad input, not found, validation), `2` = system error (network, provider failure, internal). Agents use exit codes to decide whether to retry.
 6. **Stable output contracts.** JSON field names, endpoint paths, and error codes are public API. Renaming a JSON field is a breaking change. Add fields freely; never remove or rename without a version bump.
 7. **UI/CLI parity.** Every piece of data or computed metric visible in the web UI must be retrievable via the API and CLI. If the UI shows it, an agent must be able to `curl` or `canonry ... --format json` it. Derived calculations (percentages, trends, roll-ups) belong in the API response, not in frontend code. See the "UI/CLI parity" section above for the full rules.
+8. **MCP adapter boundary.** `canonry-mcp` may call `createApiClient()` and public client methods only. It must not import DB modules, API routes, job runners, CLI dispatch, telemetry, or loggers, and it must never write non-MCP data to stdout.
 
 #### Checklist for any new command or endpoint
 
