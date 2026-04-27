@@ -64,6 +64,10 @@ canonry agent detach <project>                       # remove the agent webhook
 canonry agent memory list <project>                  # list Aero's durable project-scoped notes
 canonry agent memory set <project> --key <k> --value <v>    # upsert a note (2 KB max)
 canonry agent memory forget <project> --key <k>      # delete a note
+
+# MCP adapter (separate bin, stdio only)
+canonry-mcp                                          # all 48 tools
+canonry-mcp --read-only                              # the 33 read tools only
 ```
 
 ## Agent Layer
@@ -105,6 +109,30 @@ Key files:
 `canonry agent attach <project> --url <webhook-url>` registers a webhook for
 the project. `canonry agent detach <project>` removes it. Events:
 `run.completed`, `insight.critical`, `insight.high`, `citation.gained`.
+
+### MCP clients (stdio adapter)
+
+For MCP clients such as Claude Desktop, Codex, or custom agent shells that
+prefer a typed tool catalog over shell or HTTP, the package ships a separate
+`canonry-mcp` bin. It is a thin stdio adapter over `createApiClient()` — not
+a parallel surface. v1 exposes 48 curated tools (33 read, 15 write); pass
+`--read-only` to surface only the read tools. Auth is inherited from
+`~/.canonry/config.yaml`.
+
+Key files:
+- `packages/canonry/src/mcp/server.ts` — `createCanonryMcpServer` (one client per server instance)
+- `packages/canonry/src/mcp/cli.ts` — stdio entrypoint + scope flag parsing
+- `packages/canonry/src/mcp/tool-registry.ts` — single source of truth for all 48 tools
+- `packages/canonry/src/mcp/openapi-classification.ts` — drift table; every published OpenAPI op is `included`, `deferred`, or `excluded-protocol`
+- `packages/canonry/src/mcp/results.ts` — `withToolErrors` wrapper, `CliError` → MCP error envelope mapping
+- `packages/canonry/bin/canonry-mcp.mjs` — published bin shim
+- `docs/mcp.md` — install, auth, client config, safety rules, and v1 limitations
+
+The MCP adapter must follow the boundary rules in `Surface Priority → Agent
+& automation design principles → MCP adapter boundary` (rule 8 in this
+file): no DB, route, job-runner, telemetry, or logger imports; never write
+non-MCP data to stdout. Every new MCP tool must already exist as a public
+API endpoint and CLI command — MCP is not a place to add capabilities.
 
 ### Notification events (shared)
 
@@ -543,6 +571,7 @@ This repo uses per-package `AGENTS.md` files for local context. **These must sta
 | Add a new table or column in `packages/db/src/schema.ts` | Update `docs/data-model.md` (ER diagram + table groups) |
 | Add a new API route file in `packages/api-routes/src/` | Update `packages/api-routes/AGENTS.md` key files table |
 | Add a new CLI command | Update `packages/canonry/AGENTS.md` |
+| Add or change an MCP tool | Update `packages/canonry/src/mcp/tool-registry.ts`, `openapi-classification.ts`, `docs/mcp.md`, and the `mcp-registry`/`mcp-stdio` tests |
 | Add a new UI dashboard section or widget | Verify backing API endpoint + CLI command exist first (UI/CLI parity rule) |
 | Add a new provider package | Update `docs/providers/README.md` and create `docs/providers/<name>.md` |
 | Add a new integration package | Create `packages/integration-<name>/AGENTS.md` |
