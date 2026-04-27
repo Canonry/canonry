@@ -37,7 +37,7 @@ interface StubState {
   lastTriggerBody?: Record<string, unknown>
   lastDismissId?: string
   lastAppendedKeywords?: string[]
-  lastPutCompetitors?: string[]
+  lastAppendedCompetitors?: string[]
   lastPutSchedule?: Record<string, unknown>
   lastCreatedNotification?: Record<string, unknown>
 }
@@ -72,8 +72,8 @@ function stubClient(state: StubState): ApiClient {
     appendKeywords: async (_project: string, keywords: string[]) => {
       state.lastAppendedKeywords = keywords
     },
-    putCompetitors: async (_project: string, competitors: string[]) => {
-      state.lastPutCompetitors = competitors
+    appendCompetitors: async (_project: string, competitors: string[]) => {
+      state.lastAppendedCompetitors = competitors
     },
     putSchedule: async (_project: string, body: Record<string, unknown>) => {
       state.lastPutSchedule = body
@@ -376,7 +376,7 @@ describe('add_competitors', () => {
     const state = defaultState()
     const tool = buildWriteTools(contextFor(state)).find((t) => t.name === 'add_competitors')!
     const result = await tool.execute('call-1', { domains: ['new.example.com'] })
-    expect(state.lastPutCompetitors).toEqual(['rival.example.com', 'new.example.com'])
+    expect(state.lastAppendedCompetitors).toEqual(['new.example.com'])
     expect(result.details).toEqual({ added: ['new.example.com'], alreadyTracked: [] })
   })
 
@@ -384,7 +384,7 @@ describe('add_competitors', () => {
     const state = defaultState()
     const tool = buildWriteTools(contextFor(state)).find((t) => t.name === 'add_competitors')!
     const result = await tool.execute('call-1', { domains: ['rival.example.com'] })
-    expect(state.lastPutCompetitors).toBeUndefined()
+    expect(state.lastAppendedCompetitors).toBeUndefined()
     expect(result.details).toEqual({ added: [], alreadyTracked: ['rival.example.com'] })
   })
 })

@@ -174,6 +174,105 @@ describe('api-routes', () => {
     expect(body).toHaveLength(2)
   })
 
+  it('POST /api/v1/projects/:name/keywords/generate returns provider suggestions', async () => {
+    const ctx = buildApp({
+      validProviderNames: ['gemini'],
+      onGenerateKeywords: async (provider, count, project) => {
+        expect(provider).toBe('gemini')
+        expect(count).toBe(3)
+        expect(project.domain).toBe('example.com')
+        return ['answer visibility software', 'ai citation tracking']
+      },
+    })
+    try {
+      await ctx.app.ready()
+      await ctx.app.inject({
+        method: 'PUT',
+        url: '/api/v1/projects/generator',
+        payload: {
+          displayName: 'Generator',
+          canonicalDomain: 'example.com',
+          country: 'US',
+          language: 'en',
+        },
+      })
+
+      const res = await ctx.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/generator/keywords/generate',
+        payload: { provider: 'gemini', count: 3 },
+      })
+
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.payload)).toEqual({
+        provider: 'gemini',
+        keywords: ['answer visibility software', 'ai citation tracking'],
+      })
+    } finally {
+      await ctx.app.close()
+      fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('POST /api/v1/projects/:name/competitors appends competitors idempotently', async () => {
+    await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/competitor-append',
+      payload: {
+        displayName: 'Competitor Append',
+        canonicalDomain: 'append.example.com',
+        country: 'US',
+        language: 'en',
+      },
+    })
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/competitor-append/competitors',
+      payload: { competitors: ['rival.example.com', 'rival.example.com'] },
+    })
+    expect(first.statusCode).toBe(200)
+    expect(JSON.parse(first.payload).map((row: { domain: string }) => row.domain)).toEqual(['rival.example.com'])
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/competitor-append/competitors',
+      payload: { competitors: ['rival.example.com', 'other.example.com'] },
+    })
+    expect(second.statusCode).toBe(200)
+    expect(JSON.parse(second.payload).map((row: { domain: string }) => row.domain).sort()).toEqual([
+      'other.example.com',
+      'rival.example.com',
+    ])
+  })
+
+  it('DELETE /api/v1/projects/:name/competitors removes specific competitors', async () => {
+    await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/competitor-delete',
+      payload: {
+        displayName: 'Competitor Delete',
+        canonicalDomain: 'delete.example.com',
+        country: 'US',
+        language: 'en',
+      },
+    })
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/competitor-delete/competitors',
+      payload: { competitors: ['rival.example.com', 'other.example.com'] },
+    })
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/api/v1/projects/competitor-delete/competitors',
+      payload: { competitors: ['rival.example.com', 'missing.example.com'] },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.payload).map((row: { domain: string }) => row.domain)).toEqual(['other.example.com'])
+  })
+
   it('POST /api/v1/projects/:name/runs triggers a run', async () => {
     const res = await app.inject({
       method: 'POST',

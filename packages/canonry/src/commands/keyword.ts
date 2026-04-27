@@ -22,6 +22,22 @@ export async function addKeywords(project: string, keywords: string[], format?: 
   console.log(`Added ${keywords.length} key phrase(s) to "${project}".`)
 }
 
+export async function replaceKeywords(project: string, keywords: string[], format?: string): Promise<void> {
+  const client = getClient()
+  await client.putKeywords(project, keywords)
+
+  if (format === 'json') {
+    console.log(JSON.stringify({
+      project,
+      keywords,
+      replacedCount: keywords.length,
+    }, null, 2))
+    return
+  }
+
+  console.log(`Set ${keywords.length} key phrase(s) for "${project}".`)
+}
+
 export async function removeKeywords(project: string, keywords: string[], format?: string): Promise<void> {
   const client = getClient()
   const existing = await client.listKeywords(project) as Array<{ keyword: string }>

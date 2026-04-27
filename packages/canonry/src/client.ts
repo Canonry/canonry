@@ -411,6 +411,14 @@ export class ApiClient {
     return this.request<CompetitorDto[]>('GET', `/projects/${encodeURIComponent(project)}/competitors`)
   }
 
+  async appendCompetitors(project: string, competitors: string[]): Promise<CompetitorDto[]> {
+    return this.request<CompetitorDto[]>('POST', `/projects/${encodeURIComponent(project)}/competitors`, { competitors })
+  }
+
+  async deleteCompetitors(project: string, competitors: string[]): Promise<CompetitorDto[]> {
+    return this.request<CompetitorDto[]>('DELETE', `/projects/${encodeURIComponent(project)}/competitors`, { competitors })
+  }
+
   async triggerRun(project: string, body?: Record<string, unknown>): Promise<RunDto | RunDto[]> {
     return this.request<RunDto | RunDto[]>('POST', `/projects/${encodeURIComponent(project)}/runs`, body ?? {})
   }

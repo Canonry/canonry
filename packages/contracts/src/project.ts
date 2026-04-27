@@ -79,6 +79,13 @@ export const keywordBatchRequestSchema = z.object({
 
 export type KeywordBatchRequest = z.infer<typeof keywordBatchRequestSchema>
 
+export const keywordGenerateRequestSchema = z.object({
+  provider: providerNameSchema,
+  count: z.number().int().optional(),
+})
+
+export type KeywordGenerateRequest = z.infer<typeof keywordGenerateRequestSchema>
+
 export const competitorDtoSchema = z.object({
   id: z.string(),
   domain: z.string(),

@@ -1,9 +1,12 @@
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import {
   competitorBatchRequestSchema,
+  keywordGenerateRequestSchema,
   keywordBatchRequestSchema,
   notificationCreateRequestSchema,
   notificationEventSchema,
+  projectConfigSchema,
+  projectUpsertRequestSchema,
   runTriggerRequestSchema,
   scheduleUpsertRequestSchema,
   type NotificationEvent,
@@ -140,9 +143,23 @@ const keywordsInputSchema = z.object({
   request: keywordBatchRequestSchema,
 })
 
-const competitorsAddInputSchema = z.object({
+const keywordGenerateInputSchema = z.object({
+  project: projectNameSchema,
+  request: keywordGenerateRequestSchema,
+})
+
+const competitorsInputSchema = z.object({
   project: projectNameSchema,
   request: competitorBatchRequestSchema,
+})
+
+const projectUpsertInputSchema = z.object({
+  project: projectNameSchema,
+  request: projectUpsertRequestSchema,
+})
+
+const applyConfigInputSchema = z.object({
+  config: projectConfigSchema,
 })
 
 const scheduleSetInputSchema = z.object({
@@ -498,6 +515,48 @@ export const canonryMcpTools = [
     handler: (client, input) => client.gaSessionHistory(input.project, compactStringParams(input, ['window'])),
   }),
   defineTool({
+    name: 'canonry_project_upsert',
+    title: 'Create or update project',
+    description: 'Create or update a Canonry project through the public project API.',
+    access: 'write',
+    inputSchema: projectUpsertInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
+    openApiOperations: ['PUT /api/v1/projects/{name}'],
+    handler: (client, input) => client.putProject(input.project, input.request),
+  }),
+  defineTool({
+    name: 'canonry_apply_config',
+    title: 'Apply project config',
+    description: 'Apply one Canonry config-as-code project document.',
+    access: 'write',
+    inputSchema: applyConfigInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
+    openApiOperations: ['POST /api/v1/apply'],
+    handler: (client, input) => client.apply(input.config),
+  }),
+  defineTool({
+    name: 'canonry_keywords_generate',
+    title: 'Generate keyword suggestions',
+    description: 'Generate candidate key phrases for a Canonry project using a configured provider.',
+    access: 'write',
+    inputSchema: keywordGenerateInputSchema,
+    annotations: writeAnnotations({ idempotentHint: false, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/keywords/generate'],
+    handler: (client, input) => client.generateKeywords(input.project, input.request.provider, input.request.count),
+  }),
+  defineTool({
+    name: 'canonry_keywords_replace',
+    title: 'Replace keywords',
+    description: 'Replace the tracked keyword set for a Canonry project.',
+    access: 'write',
+    inputSchema: keywordsInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
+    openApiOperations: ['PUT /api/v1/projects/{name}/keywords'],
+    handler: async (client, input) => {
+      await client.putKeywords(input.project, uniqueStrings(input.request.keywords))
+    },
+  }),
+  defineTool({
     name: 'canonry_run_trigger',
     title: 'Trigger run',
     description: 'Trigger an answer-visibility run for a Canonry project.',
@@ -546,13 +605,23 @@ export const canonryMcpTools = [
     title: 'Add competitors',
     description: 'Add tracked competitor domains to a Canonry project.',
     access: 'write',
-    inputSchema: competitorsAddInputSchema,
+    inputSchema: competitorsInputSchema,
     annotations: writeAnnotations({ idempotentHint: true }),
-    openApiOperations: ['GET /api/v1/projects/{name}/competitors', 'PUT /api/v1/projects/{name}/competitors'],
+    openApiOperations: ['POST /api/v1/projects/{name}/competitors'],
     handler: async (client, input) => {
-      const existing = await client.listCompetitors(input.project)
-      const merged = uniqueStrings([...existing.map(c => c.domain), ...input.request.competitors])
-      await client.putCompetitors(input.project, merged)
+      await client.appendCompetitors(input.project, uniqueStrings(input.request.competitors))
+    },
+  }),
+  defineTool({
+    name: 'canonry_competitors_remove',
+    title: 'Remove competitors',
+    description: 'Remove tracked competitor domains from a Canonry project.',
+    access: 'write',
+    inputSchema: competitorsInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
+    openApiOperations: ['DELETE /api/v1/projects/{name}/competitors'],
+    handler: async (client, input) => {
+      await client.deleteCompetitors(input.project, uniqueStrings(input.request.competitors))
     },
   }),
   defineTool({

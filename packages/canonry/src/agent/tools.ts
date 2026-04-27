@@ -347,7 +347,7 @@ function buildAddCompetitorsTool(ctx: ToolContext): AgentTool<typeof AddCompetit
     name: 'add_competitors',
     label: 'Add competitors',
     description:
-      'Append competitor domains to the project. Fetches the current set, merges with the requested domains (dedup on exact domain match), and persists the combined list.',
+      'Append competitor domains to the project. Existing competitors are skipped by the API.',
     parameters: AddCompetitorsSchema,
     execute: async (_toolCallId, params) => {
       const existing = await ctx.client.listCompetitors(ctx.projectName)
@@ -356,8 +356,7 @@ function buildAddCompetitorsTool(ctx: ToolContext): AgentTool<typeof AddCompetit
       if (newDomains.length === 0) {
         return textResult({ added: [], alreadyTracked: params.domains })
       }
-      const merged = [...existing.map((c) => c.domain), ...newDomains]
-      await ctx.client.putCompetitors(ctx.projectName, merged)
+      await ctx.client.appendCompetitors(ctx.projectName, newDomains)
       return textResult({ added: newDomains, alreadyTracked: params.domains.filter((d) => existingDomains.has(d)) })
     },
   }

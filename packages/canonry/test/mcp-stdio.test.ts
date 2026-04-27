@@ -52,7 +52,7 @@ describe('canonry-mcp stdio', () => {
     await client.connect(transport)
 
     const list = await client.listTools()
-    expect(list.tools).toHaveLength(43)
+    expect(list.tools).toHaveLength(48)
     expect(list.tools.map(tool => tool.name)).toContain('canonry_projects_list')
 
     const projects = await client.callTool({ name: 'canonry_projects_list', arguments: {} })

@@ -125,6 +125,46 @@ describe('operator CLI contract', () => {
     expect(parsed.runs).toBeInstanceOf(Array)
   })
 
+  it('supports JSON output for keyword replace and competitor remove', async () => {
+    const replaceResult = await invokeCli([
+      'keyword',
+      'replace',
+      'test-proj',
+      'answer visibility',
+      'ai citations',
+      '--format',
+      'json',
+    ])
+
+    expect(replaceResult.exitCode).toBe(undefined)
+    expect(replaceResult.stderr).toBe('')
+    expect(JSON.parse(replaceResult.stdout)).toMatchObject({
+      project: 'test-proj',
+      keywords: ['answer visibility', 'ai citations'],
+      replacedCount: 2,
+    })
+    expect((await client.listKeywords('test-proj')).map(row => row.keyword).sort()).toEqual(['ai citations', 'answer visibility'])
+
+    await client.appendCompetitors('test-proj', ['rival.example.com', 'other.example.com'])
+    const removeResult = await invokeCli([
+      'competitor',
+      'remove',
+      'test-proj',
+      'rival.example.com',
+      '--format',
+      'json',
+    ])
+
+    expect(removeResult.exitCode).toBe(undefined)
+    expect(removeResult.stderr).toBe('')
+    expect(JSON.parse(removeResult.stdout)).toMatchObject({
+      project: 'test-proj',
+      domains: ['other.example.com'],
+      removedDomains: ['rival.example.com'],
+      removedCount: 1,
+    })
+  })
+
   it('prints the most recent run in text mode', async () => {
     const project = await client.getProject('test-proj') as { id: string }
     const olderRunId = crypto.randomUUID()

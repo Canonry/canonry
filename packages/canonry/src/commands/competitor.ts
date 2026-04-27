@@ -1,22 +1,21 @@
-import { createApiClient, type CompetitorDto } from '../client.js'
+import { createApiClient } from '../client.js'
 
 function getClient() {
   return createApiClient()
 }
 
 export async function addCompetitors(project: string, domains: string[], format?: string): Promise<void> {
-  // First get existing competitors, then put the combined list
   const client = getClient()
   const existing = await client.listCompetitors(project)
   const existingDomains = existing.map(c => c.domain)
-  const addedDomains = domains.filter(domain => !existingDomains.includes(domain))
-  const allDomains = [...new Set([...existingDomains, ...domains])]
-  await client.putCompetitors(project, allDomains)
+  const existingSet = new Set(existingDomains)
+  const addedDomains = [...new Set(domains.filter(domain => !existingSet.has(domain)))]
+  const current = await client.appendCompetitors(project, domains)
 
   if (format === 'json') {
     console.log(JSON.stringify({
       project,
-      domains: allDomains,
+      domains: current.map(c => c.domain),
       addedDomains,
       addedCount: addedDomains.length,
     }, null, 2))
@@ -28,6 +27,26 @@ export async function addCompetitors(project: string, domains: string[], format?
   } else {
     console.log(`Added ${addedDomains.length} competitor(s) to "${project}".`)
   }
+}
+
+export async function removeCompetitors(project: string, domains: string[], format?: string): Promise<void> {
+  const client = getClient()
+  const existing = await client.listCompetitors(project)
+  const existingSet = new Set(existing.map(c => c.domain))
+  const removedDomains = [...new Set(domains.filter(domain => existingSet.has(domain)))]
+  const current = await client.deleteCompetitors(project, domains)
+
+  if (format === 'json') {
+    console.log(JSON.stringify({
+      project,
+      domains: current.map(c => c.domain),
+      removedDomains,
+      removedCount: removedDomains.length,
+    }, null, 2))
+    return
+  }
+
+  console.log(`Removed ${removedDomains.length} competitor(s) from "${project}".`)
 }
 
 export async function listCompetitors(project: string, format?: string): Promise<void> {

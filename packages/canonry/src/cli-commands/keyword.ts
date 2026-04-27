@@ -1,4 +1,4 @@
-import { addKeywords, generateKeywords, importKeywords, listKeywords, removeKeywords } from '../commands/keyword.js'
+import { addKeywords, generateKeywords, importKeywords, listKeywords, removeKeywords, replaceKeywords } from '../commands/keyword.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import {
   getBoolean,
@@ -28,6 +28,24 @@ export const KEYWORD_CLI_COMMANDS: readonly CliCommandSpec[] = [
         })
       }
       await addKeywords(project, keywords, input.format)
+    },
+  },
+  {
+    path: ['keyword', 'replace'],
+    usage: 'canonry keyword replace <project> <kw...> [--format json]',
+    run: async (input) => {
+      const project = requireProject(input, 'keyword.replace', 'canonry keyword replace <project> <kw...> [--format json]')
+      const keywords = input.positionals.slice(1)
+      if (keywords.length === 0) {
+        throw usageError('Error: project name and at least one key phrase required\nUsage: canonry keyword replace <project> <kw...> [--format json]', {
+          message: 'project name and at least one key phrase required',
+          details: {
+            command: 'keyword.replace',
+            usage: 'canonry keyword replace <project> <kw...> [--format json]',
+          },
+        })
+      }
+      await replaceKeywords(project, keywords, input.format)
     },
   },
   {
@@ -119,12 +137,12 @@ export const KEYWORD_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['keyword'],
-    usage: 'canonry keyword <add|remove|delete|list|import|generate> <project> [args]',
+    usage: 'canonry keyword <add|replace|remove|delete|list|import|generate> <project> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'keyword',
-        usage: 'canonry keyword <add|remove|delete|list|import|generate> <project> [args]',
-        available: ['add', 'remove', 'delete', 'list', 'import', 'generate'],
+        usage: 'canonry keyword <add|replace|remove|delete|list|import|generate> <project> [args]',
+        available: ['add', 'replace', 'remove', 'delete', 'list', 'import', 'generate'],
       })
     },
   },

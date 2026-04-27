@@ -469,6 +469,56 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'post',
+    path: '/api/v1/projects/{name}/competitors',
+    summary: 'Append competitors',
+    tags: ['competitors'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['competitors'],
+            properties: {
+              competitors: stringArraySchema,
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Competitors appended.' },
+      400: { description: 'Invalid competitor append request.' },
+    },
+  },
+  {
+    method: 'delete',
+    path: '/api/v1/projects/{name}/competitors',
+    summary: 'Delete specific competitors',
+    tags: ['competitors'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['competitors'],
+            properties: {
+              competitors: stringArraySchema,
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Remaining competitors returned.' },
+      400: { description: 'Invalid competitor delete request.' },
+    },
+  },
+  {
+    method: 'post',
     path: '/api/v1/projects/{name}/runs',
     summary: 'Trigger a project run',
     tags: ['runs'],
