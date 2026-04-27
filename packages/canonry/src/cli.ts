@@ -18,8 +18,8 @@ Setup:
 
 Projects:
   project               Create, update, list, show, delete projects
-  keyword               Add, remove, list, import, generate key phrases
-  competitor            Add, list competitors
+  keyword               Add, replace, remove, list, import, generate key phrases
+  competitor            Add, remove, list competitors
 
 Monitoring:
   run                   Trigger visibility sweeps

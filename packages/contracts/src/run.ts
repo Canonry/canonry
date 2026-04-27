@@ -34,6 +34,20 @@ export const computedTransitionSchema = z.enum(['new', 'cited', 'lost', 'emergin
 export type ComputedTransition = z.infer<typeof computedTransitionSchema>
 export const ComputedTransitions = computedTransitionSchema.enum
 
+export const runTriggerRequestSchema = z.object({
+  kind: z.literal(RunKinds['answer-visibility']).optional(),
+  trigger: z.literal(RunTriggers.manual).optional(),
+  providers: z.array(providerNameSchema).optional(),
+  location: z.string().min(1).optional(),
+  allLocations: z.boolean().optional(),
+  noLocation: z.boolean().optional(),
+}).refine(
+  (data) => Number(Boolean(data.location)) + Number(Boolean(data.allLocations)) + Number(Boolean(data.noLocation)) <= 1,
+  { message: 'Only one of "location", "allLocations", or "noLocation" may be provided' },
+)
+
+export type RunTriggerRequest = z.infer<typeof runTriggerRequestSchema>
+
 export const runDtoSchema = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -79,6 +93,36 @@ export const querySnapshotDtoSchema = z.object({
 })
 
 export type QuerySnapshotDto = z.infer<typeof querySnapshotDtoSchema>
+
+export const snapshotListResponseSchema = z.object({
+  snapshots: z.array(querySnapshotDtoSchema),
+  total: z.number().int().nonnegative(),
+})
+
+export type SnapshotListResponse = z.infer<typeof snapshotListResponseSchema>
+
+export const snapshotDiffRowSchema = z.object({
+  keywordId: z.string().nullable(),
+  keyword: z.string().nullable(),
+  run1State: citationStateSchema.nullable(),
+  run2State: citationStateSchema.nullable(),
+  run1AnswerMentioned: z.boolean().nullable(),
+  run2AnswerMentioned: z.boolean().nullable(),
+  run1VisibilityState: visibilityStateSchema.nullable(),
+  run2VisibilityState: visibilityStateSchema.nullable(),
+  changed: z.boolean(),
+  visibilityChanged: z.boolean(),
+})
+
+export type SnapshotDiffRow = z.infer<typeof snapshotDiffRowSchema>
+
+export const snapshotDiffResponseSchema = z.object({
+  run1: z.string(),
+  run2: z.string(),
+  diff: z.array(snapshotDiffRowSchema),
+})
+
+export type SnapshotDiffResponse = z.infer<typeof snapshotDiffResponseSchema>
 
 export const runDetailDtoSchema = runDtoSchema.extend({
   snapshots: z.array(querySnapshotDtoSchema).optional(),

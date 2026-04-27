@@ -5,6 +5,8 @@ import type {
   RunDto,
   RunDetailDto,
   LatestProjectRunDto,
+  SnapshotDiffResponse,
+  SnapshotListResponse,
   ScheduleDto,
   NotificationDto,
   SnapshotReportDto,
@@ -60,9 +62,11 @@ import type {
   ContentTargetsResponseDto,
   ContentSourcesResponseDto,
   ContentGapsResponseDto,
+  CompetitorDto,
+  KeywordDto,
 } from '@ainyc/canonry-contracts'
 
-export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry }
+export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry, CompetitorDto, KeywordDto }
 
 /** Settings response from GET /settings */
 export interface SettingsDto {
@@ -78,13 +82,6 @@ export type ApplyResultDto = ProjectDto
 export interface TelemetryDto {
   enabled: boolean
   anonymousId?: string
-}
-
-/** Competitor DTO */
-export interface CompetitorDto {
-  id: string
-  domain: string
-  createdAt: string
 }
 
 /** Timeline DTO */
@@ -246,12 +243,20 @@ export class ApiClient {
         'error' in errorBody &&
         errorBody.error &&
         typeof errorBody.error === 'object'
-          ? (errorBody.error as { code?: string; message?: string })
+          ? (errorBody.error as { code?: string; message?: string; details?: Record<string, unknown> })
           : null
       const msg = errorObj?.message ? String(errorObj.message) : `HTTP ${res.status}: ${res.statusText}`
       const code = errorObj?.code ? String(errorObj.code) : 'API_ERROR'
       const exitCode = res.status >= 500 ? EXIT_SYSTEM_ERROR : EXIT_USER_ERROR
-      throw new CliError({ code, message: msg, exitCode, details: { httpStatus: res.status } })
+      throw new CliError({
+        code,
+        message: msg,
+        exitCode,
+        details: {
+          ...(errorObj?.details ?? {}),
+          httpStatus: res.status,
+        },
+      })
     }
 
     if (res.status === 204) {
@@ -389,8 +394,8 @@ export class ApiClient {
     await this.request<unknown>('PUT', `/projects/${encodeURIComponent(project)}/keywords`, { keywords })
   }
 
-  async listKeywords(project: string): Promise<object[]> {
-    return this.request<object[]>('GET', `/projects/${encodeURIComponent(project)}/keywords`)
+  async listKeywords(project: string): Promise<KeywordDto[]> {
+    return this.request<KeywordDto[]>('GET', `/projects/${encodeURIComponent(project)}/keywords`)
   }
 
   async deleteKeywords(project: string, keywords: string[]): Promise<void> {
@@ -401,12 +406,16 @@ export class ApiClient {
     await this.request<unknown>('POST', `/projects/${encodeURIComponent(project)}/keywords`, { keywords })
   }
 
-  async putCompetitors(project: string, competitors: string[]): Promise<void> {
-    await this.request<unknown>('PUT', `/projects/${encodeURIComponent(project)}/competitors`, { competitors })
-  }
-
   async listCompetitors(project: string): Promise<CompetitorDto[]> {
     return this.request<CompetitorDto[]>('GET', `/projects/${encodeURIComponent(project)}/competitors`)
+  }
+
+  async appendCompetitors(project: string, competitors: string[]): Promise<CompetitorDto[]> {
+    return this.request<CompetitorDto[]>('POST', `/projects/${encodeURIComponent(project)}/competitors`, { competitors })
+  }
+
+  async deleteCompetitors(project: string, competitors: string[]): Promise<CompetitorDto[]> {
+    return this.request<CompetitorDto[]>('DELETE', `/projects/${encodeURIComponent(project)}/competitors`, { competitors })
   }
 
   async triggerRun(project: string, body?: Record<string, unknown>): Promise<RunDto | RunDto[]> {
@@ -430,12 +439,27 @@ export class ApiClient {
     return this.request<RunDto>('POST', `/runs/${encodeURIComponent(id)}/cancel`)
   }
 
-  async getTimeline(project: string): Promise<TimelineDto[]> {
-    return this.request<TimelineDto[]>('GET', `/projects/${encodeURIComponent(project)}/timeline`)
+  async getTimeline(project: string, location?: string): Promise<TimelineDto[]> {
+    const qs = location != null ? `?location=${encodeURIComponent(location)}` : ''
+    return this.request<TimelineDto[]>('GET', `/projects/${encodeURIComponent(project)}/timeline${qs}`)
   }
 
   async getHistory(project: string): Promise<AuditLogEntry[]> {
     return this.request<AuditLogEntry[]>('GET', `/projects/${encodeURIComponent(project)}/history`)
+  }
+
+  async getSnapshots(project: string, opts?: { limit?: number; offset?: number; location?: string }): Promise<SnapshotListResponse> {
+    const params = new URLSearchParams()
+    if (opts?.limit != null) params.set('limit', String(opts.limit))
+    if (opts?.offset != null) params.set('offset', String(opts.offset))
+    if (opts?.location != null) params.set('location', opts.location)
+    const qs = params.toString()
+    return this.request<SnapshotListResponse>('GET', `/projects/${encodeURIComponent(project)}/snapshots${qs ? `?${qs}` : ''}`)
+  }
+
+  async getSnapshotDiff(project: string, run1: string, run2: string): Promise<SnapshotDiffResponse> {
+    const params = new URLSearchParams({ run1, run2 })
+    return this.request<SnapshotDiffResponse>('GET', `/projects/${encodeURIComponent(project)}/snapshots/diff?${params.toString()}`)
   }
 
   async getExport(project: string): Promise<ExportDto> {
@@ -898,6 +922,10 @@ export class ApiClient {
     if (opts?.runId) params.set('runId', opts.runId)
     const qs = params.toString()
     return this.request<InsightDto[]>('GET', `/projects/${encodeURIComponent(project)}/insights${qs ? `?${qs}` : ''}`)
+  }
+
+  async getInsight(project: string, id: string): Promise<InsightDto> {
+    return this.request<InsightDto>('GET', `/projects/${encodeURIComponent(project)}/insights/${encodeURIComponent(id)}`)
   }
 
   async dismissInsight(project: string, id: string): Promise<{ ok: boolean }> {

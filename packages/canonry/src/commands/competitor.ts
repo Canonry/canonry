@@ -1,22 +1,23 @@
-import { createApiClient, type CompetitorDto } from '../client.js'
+import { createApiClient } from '../client.js'
 
 function getClient() {
   return createApiClient()
 }
 
 export async function addCompetitors(project: string, domains: string[], format?: string): Promise<void> {
-  // First get existing competitors, then put the combined list
   const client = getClient()
   const existing = await client.listCompetitors(project)
   const existingDomains = existing.map(c => c.domain)
-  const addedDomains = domains.filter(domain => !existingDomains.includes(domain))
-  const allDomains = [...new Set([...existingDomains, ...domains])]
-  await client.putCompetitors(project, allDomains)
+  const existingSet = new Set(existingDomains)
+  const requested = new Set(uniqueStrings(domains))
+  const current = await client.appendCompetitors(project, domains)
+  const currentDomains = current.map(c => c.domain)
+  const addedDomains = currentDomains.filter(domain => requested.has(domain) && !existingSet.has(domain))
 
   if (format === 'json') {
     console.log(JSON.stringify({
       project,
-      domains: allDomains,
+      domains: currentDomains,
       addedDomains,
       addedCount: addedDomains.length,
     }, null, 2))
@@ -28,6 +29,39 @@ export async function addCompetitors(project: string, domains: string[], format?
   } else {
     console.log(`Added ${addedDomains.length} competitor(s) to "${project}".`)
   }
+}
+
+export async function removeCompetitors(project: string, domains: string[], format?: string): Promise<void> {
+  const client = getClient()
+  const existing = await client.listCompetitors(project)
+  const existingDomains = existing.map(c => c.domain)
+  const requested = new Set(uniqueStrings(domains))
+  const current = await client.deleteCompetitors(project, domains)
+  const currentSet = new Set(current.map(c => c.domain))
+  const removedDomains = existingDomains.filter(domain => requested.has(domain) && !currentSet.has(domain))
+
+  if (format === 'json') {
+    console.log(JSON.stringify({
+      project,
+      domains: current.map(c => c.domain),
+      removedDomains,
+      removedCount: removedDomains.length,
+    }, null, 2))
+    return
+  }
+
+  console.log(`Removed ${removedDomains.length} competitor(s) from "${project}".`)
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const value of values) {
+    if (seen.has(value)) continue
+    seen.add(value)
+    result.push(value)
+  }
+  return result
 }
 
 export async function listCompetitors(project: string, format?: string): Promise<void> {

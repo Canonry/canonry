@@ -58,9 +58,30 @@ canonry agent attach my-project --url https://my-agent.example.com/hooks/canonry
 Your agent receives `run.completed`, `insight.critical`, `insight.high`, and
 `citation.gained` notifications. Detach with `canonry agent detach my-project`.
 
+### Bringing your own agent (MCP)
+
+For MCP clients like Claude Desktop, Cursor, Codex, or custom shells that
+prefer a typed tool catalog over shell commands, Canonry ships a stdio
+adapter. The fastest path is the `canonry mcp install` helper:
+
+```bash
+canonry mcp install --client claude-desktop      # or: cursor
+canonry mcp install --client claude-desktop --read-only  # 33 read tools only
+canonry mcp config  --client codex               # print snippet for unsupported clients
+```
+
+`install` merges a `canonry` entry into the client's config, backs up the
+original, and is idempotent. Restart the client after install to pick it up.
+
+The adapter exposes 48 tools — projects, runs, snapshots, insights, health,
+keyword and competitor management, schedules, GSC and GA reads, and the
+config-as-code apply path. Auth and configuration are inherited from
+`~/.canonry/config.yaml`. See [`docs/mcp.md`](docs/mcp.md) for the full
+surface and safety rules.
+
 ## How agents use Canonry
 
-Canonry's CLI and API are the agent interface — no special SDK, no MCP layer, no virtual filesystem. Every command supports `--format json`; every dashboard view has a matching API endpoint.
+Canonry's CLI and API are the agent interface. The optional `canonry-mcp` adapter is a thin wrapper over the same public API client — no parallel surface, no virtual filesystem, no privileged SDK. Every CLI command supports `--format json`; every dashboard view has a matching API endpoint.
 
 - **Monitor** visibility sweeps across providers on a schedule, tracking citation changes over time
 - **Analyze** regressions, emerging opportunities, and correlations with site changes
@@ -70,7 +91,7 @@ Canonry's CLI and API are the agent interface — no special SDK, no MCP layer, 
 ## Features
 
 - **Built-in AI agent (Aero).** Reads state, analyzes regressions, fires write tools (`run_sweep`, `dismiss_insight`, `update_schedule`, etc.), wakes up unprompted after runs. Backed by [`pi-agent-core`](https://github.com/badlogic/pi-mono) — 15+ LLM providers, streaming first.
-- **Agent-first.** Every CLI command supports `--format json`; every UI view has a matching API endpoint.
+- **Agent-first.** Every CLI command supports `--format json`; every UI view has a matching API endpoint. An optional `canonry-mcp` stdio adapter exposes 48 tools to MCP clients like Claude Desktop and Codex.
 - **Multi-provider.** Query Gemini, OpenAI, Claude, Perplexity, and local LLMs from a single platform.
 - **Config-as-code.** Kubernetes-style YAML files. Version control your monitoring, let agents apply changes declaratively.
 - **Self-hosted.** Runs locally with SQLite. No cloud account required.

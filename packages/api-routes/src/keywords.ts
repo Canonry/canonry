@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { keywords } from '@ainyc/canonry-db'
-import { validationError, notImplemented, internalError } from '@ainyc/canonry-contracts'
+import { keywordGenerateRequestSchema, validationError, notImplemented, internalError } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 
 export interface KeywordRoutesOptions {
@@ -156,11 +156,17 @@ export async function keywordRoutes(app: FastifyInstance, opts: KeywordRoutesOpt
   }>('/projects/:name/keywords/generate', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
-    const body = request.body
-    if (!body?.provider || typeof body.provider !== 'string') {
-      throw validationError('Body must contain a "provider" string')
+    const parsed = keywordGenerateRequestSchema.safeParse(request.body)
+    if (!parsed.success) {
+      throw validationError('Invalid keyword generation request', {
+        issues: parsed.error.issues.map(issue => ({
+          path: issue.path.join('.'),
+          message: issue.message,
+        })),
+      })
     }
 
+    const body = parsed.data
     const provider = body.provider.trim().toLowerCase()
     const validNames = opts.validProviderNames ?? []
     if (validNames.length && !validNames.includes(provider)) {
@@ -169,10 +175,7 @@ export async function keywordRoutes(app: FastifyInstance, opts: KeywordRoutesOpt
         validProviders: validNames,
       })
     }
-    if (body.count !== undefined && (typeof body.count !== 'number' || !Number.isFinite(body.count) || !Number.isInteger(body.count))) {
-      throw validationError('"count" must be an integer')
-    }
-    const count = Math.min(Math.max(body.count ?? 5, 1), 20)
+    const count = body.count ?? 5
 
     if (!opts.onGenerateKeywords) {
       throw notImplemented('Key phrase generation is not supported in this deployment')

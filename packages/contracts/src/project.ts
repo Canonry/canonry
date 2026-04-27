@@ -65,6 +65,41 @@ export const projectDtoSchema = z.object({
 
 export type ProjectDto = z.infer<typeof projectDtoSchema>
 
+export const keywordDtoSchema = z.object({
+  id: z.string(),
+  keyword: z.string(),
+  createdAt: z.string(),
+})
+
+export type KeywordDto = z.infer<typeof keywordDtoSchema>
+
+export const keywordBatchRequestSchema = z.object({
+  keywords: z.array(z.string().trim().min(1)).min(1),
+})
+
+export type KeywordBatchRequest = z.infer<typeof keywordBatchRequestSchema>
+
+export const keywordGenerateRequestSchema = z.object({
+  provider: providerNameSchema,
+  count: z.number().int().min(1).max(20).optional(),
+})
+
+export type KeywordGenerateRequest = z.infer<typeof keywordGenerateRequestSchema>
+
+export const competitorDtoSchema = z.object({
+  id: z.string(),
+  domain: z.string(),
+  createdAt: z.string(),
+})
+
+export type CompetitorDto = z.infer<typeof competitorDtoSchema>
+
+export const competitorBatchRequestSchema = z.object({
+  competitors: z.array(z.string().trim().min(1)).min(1),
+})
+
+export type CompetitorBatchRequest = z.infer<typeof competitorBatchRequestSchema>
+
 /** Normalize a user-supplied project domain for matching and deduplication. */
 export function normalizeProjectDomain(input: string): string {
   let domain = input.trim().toLowerCase()
