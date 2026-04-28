@@ -93,6 +93,7 @@ Canonry's CLI and API are the agent interface. The optional `canonry-mcp` adapte
 - **Built-in AI agent (Aero).** Reads state, analyzes regressions, fires write tools (`run_sweep`, `dismiss_insight`, `update_schedule`, etc.), wakes up unprompted after runs. Backed by [`pi-agent-core`](https://github.com/badlogic/pi-mono) — 15+ LLM providers, streaming first.
 - **Agent-first.** Every CLI command supports `--format json`; every UI view has a matching API endpoint. An optional `canonry-mcp` stdio adapter exposes 48 tools to MCP clients like Claude Desktop and Codex.
 - **Multi-provider.** Query Gemini, OpenAI, Claude, Perplexity, and local LLMs from a single platform.
+- **Content opportunity engine.** Per-query recommendations typed by action (`create` / `expand` / `refresh` / `add-schema`) with auditable score breakdowns, drivers, and demand-source labels. Combines GSC ranking signals with competitor citation evidence so zero-traffic gaps still surface. Available via `canonry content targets / gaps / sources`, the matching API endpoints, and Aero's tool surface.
 - **Config-as-code.** Kubernetes-style YAML files. Version control your monitoring, let agents apply changes declaratively.
 - **Self-hosted.** Runs locally with SQLite. No cloud account required.
 - **Full API parity.** REST API and CLI cover 100% of functionality. `--format json` on every command.
@@ -111,6 +112,7 @@ canonry run my-project --wait --format json       # sweep all providers
 canonry evidence my-project --format json         # inspect citation evidence
 canonry insights my-project --format json         # DB-backed insight analysis
 canonry health my-project --format json           # visibility health snapshot
+canonry content targets my-project --format json  # ranked content opportunities
 ```
 
 Schedule cron-based sweeps with `canonry schedule` and subscribe an agent webhook via `canonry agent attach` to act on results as they land.
@@ -159,6 +161,7 @@ Canonry is **agent-first** — every dashboard view has a matching API endpoint 
 | **Schedules** | Cron-based recurring sweeps | `GET/PUT /projects/{name}/schedule` |
 | **History / Snapshots** | Timeline + run diffs + per-keyword citation state | `GET /projects/{name}/timeline`, `/snapshots/diff`, `/history` |
 | **Intelligence** | DB-backed insights + health snapshots + dismissal | `GET /projects/{name}/insights`, `/health`, `POST /insights/{id}/dismiss` |
+| **Content** | Action-typed content opportunities, gaps, and grounding-source map | `GET /projects/{name}/content/targets`, `/gaps`, `/sources` |
 | **Notifications** | Webhook subscriptions per project (agent or user-defined) | `GET/POST/DELETE /projects/{name}/notifications`, `POST /.../test` |
 | **Analytics** | Aggregated dashboard analytics | `GET /projects/{name}/analytics` |
 | **Google (GSC + OAuth)** | Search Console integration, OAuth flow, property selection, URL inspection | `/google/*`, `/projects/{name}/google/*` |
