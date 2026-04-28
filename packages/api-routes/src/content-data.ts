@@ -31,6 +31,7 @@ import {
   isBlogShapedQuery,
 } from '@ainyc/canonry-intelligence'
 import {
+  CitationStates,
   RunKinds,
   RunStatuses,
   type GroundingSource,
@@ -320,7 +321,7 @@ function aggregateCandidate(opts: AggregateCandidateOpts): CandidateQuery {
     }
   }
 
-  const citedCount = opts.snapshots.filter((s) => s.citationState === 'cited').length
+  const citedCount = opts.snapshots.filter((s) => s.citationState === CitationStates.cited).length
   const ourCitedRate = citedCount / totalSnaps
   const recentMissRate = 1 - ourCitedRate
 
@@ -366,7 +367,7 @@ function aggregateCandidate(opts: AggregateCandidateOpts): CandidateQuery {
     recentMissRate,
     ourGroundingUrls: Array.from(ourGroundingTally.values()),
     competitorGroundingUrls: Array.from(competitorGroundingTally.values()),
-    runsOfHistory: totalSnaps,
+    runsOfHistory: new Set(opts.snapshots.map((s) => s.runId)).size,
   }
 }
 

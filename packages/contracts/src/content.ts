@@ -45,7 +45,8 @@ const ourBestPageSchema = z.object({
   url: z.string(),
   gscImpressions: z.number().nonnegative(),
   gscClicks: z.number().nonnegative(),
-  gscAvgPosition: z.number().nonnegative(),
+  // Null when the page came from the inventory fallback (no GSC ranking data).
+  gscAvgPosition: z.number().nonnegative().nullable(),
   organicSessions: z.number().nonnegative(),
 })
 

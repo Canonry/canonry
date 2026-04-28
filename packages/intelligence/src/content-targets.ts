@@ -114,6 +114,14 @@ export function buildContentTargetRows(input: OrchestratorInput): ContentTargetR
 
     if (!action) continue
 
+    // Skip rows with no demand signal at all — recommending a target with
+    // zero GSC traffic, zero competitor citations, and no AI citation of
+    // our own gives the scorer nothing to anchor `demandSource` on and
+    // produces a misleading row at score 0.
+    const hasGsc = cq.gscImpressions > 0
+    const hasCompetitor = cq.competitorDomains.length > 0
+    if (!hasGsc && !hasCompetitor && !cq.ourCitedInLatestRun) continue
+
     const aiReferralFactor = computeAiReferralFactor(
       input.totalAiReferralSessions,
       cq.competitorCitationCount,
@@ -151,7 +159,7 @@ export function buildContentTargetRows(input: OrchestratorInput): ContentTargetR
           url: ourPage.url,
           gscImpressions: cq.gscImpressions,
           gscClicks: cq.gscClicks,
-          gscAvgPosition: cq.gscPosition ?? 0,
+          gscAvgPosition: cq.gscPosition,
           organicSessions: input.gaTrafficByPage.get(ourPage.url) ?? 0,
         }
       : null

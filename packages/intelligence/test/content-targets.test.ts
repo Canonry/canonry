@@ -68,6 +68,22 @@ describe('buildContentTargetRows', () => {
     expect(buildContentTargetRows(emptyInput())).toEqual([])
   })
 
+  it('skips queries with no demand signal at all (no GSC, no competitor, not cited)', () => {
+    const rows = buildContentTargetRows(
+      emptyInput({
+        candidateQueries: [
+          emptyCandidate({
+            query: 'tracked but silent',
+            // No GSC, no competitors, not cited — classifier would still
+            // return 'create' for the no-page case but we have nothing
+            // to base a recommendation on.
+          }),
+        ],
+      }),
+    )
+    expect(rows).toEqual([])
+  })
+
   it('produces a CREATE row for a query with no page and competitor evidence', () => {
     const rows = buildContentTargetRows(
       emptyInput({
@@ -203,7 +219,10 @@ describe('buildContentTargetRows', () => {
     )
     expect(rows).toHaveLength(1)
     expect(rows[0].ourBestPage?.url).toBe('/blog/payment-processor-guide')
-    // pos=100 (worst-case for inventory match) → no SEO ranking → CREATE
+    // Inventory match has no GSC ranking — gscAvgPosition is null so the
+    // DTO doesn't masquerade as a #1 ranking on the way out.
+    expect(rows[0].ourBestPage?.gscAvgPosition).toBeNull()
+    // Classifier still treats it as effectively invisible → CREATE.
     expect(rows[0].action).toBe('create')
   })
 

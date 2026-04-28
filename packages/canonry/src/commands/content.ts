@@ -34,7 +34,11 @@ export async function listContentTargets(project: string, opts: TargetsOpts): Pr
     const conf = target.actionConfidence.padEnd(6)
     console.log(`${action} ${score}  conf=${conf}  ${target.query}`)
     if (target.ourBestPage) {
-      console.log(`            our page: ${target.ourBestPage.url} (pos #${target.ourBestPage.gscAvgPosition})`)
+      const posLabel =
+        target.ourBestPage.gscAvgPosition !== null
+          ? `pos #${target.ourBestPage.gscAvgPosition}`
+          : 'no GSC ranking'
+      console.log(`            our page: ${target.ourBestPage.url} (${posLabel})`)
     }
     if (target.winningCompetitor) {
       console.log(`            winning:  ${target.winningCompetitor.url} (${target.winningCompetitor.citationCount}× cited)`)

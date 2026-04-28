@@ -177,6 +177,22 @@ describe('contentTargetRowDtoSchema', () => {
     expect(parsed.ourBestPage?.gscAvgPosition).toBe(4)
   })
 
+  it('accepts null gscAvgPosition for inventory-matched pages with no GSC ranking', () => {
+    const parsed = contentTargetRowDtoSchema.parse({
+      ...completeRow,
+      action: 'create',
+      ourBestPage: {
+        url: '/blog/payment-processor-guide',
+        gscImpressions: 0,
+        gscClicks: 0,
+        gscAvgPosition: null,
+        organicSessions: 120,
+      },
+      demandSource: 'competitor-evidence',
+    })
+    expect(parsed.ourBestPage?.gscAvgPosition).toBeNull()
+  })
+
   it('parses a row with an existingAction annotation', () => {
     const parsed = contentTargetRowDtoSchema.parse({
       ...completeRow,
