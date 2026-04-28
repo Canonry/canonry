@@ -89,7 +89,7 @@ function registerMetaTools(server: McpServer, catalog: DynamicToolCatalog): void
     'canonry_load_toolkit',
     {
       title: 'Load a Canonry MCP toolkit',
-      description: 'Register a toolkit\'s tools for this session and emit one notifications/tools/list_changed. Idempotent. Loaded toolkits remain loaded for the rest of the session. Wait for this call to return before calling any newly enabled tool — pipelining the call with a tools/call on the same connection can race the registration and fail with "Tool ... disabled".',
+      description: 'Register a toolkit\'s tools for this session and emit one notifications/tools/list_changed. Idempotent. Loaded toolkits remain loaded for the rest of the session. Wait for this call to return before calling any newly enabled tool — pipelining the call with a tools/call on the same connection can race the registration and fail with "MCP error -32602: Tool ... disabled".',
       inputSchema: loadToolkitInputSchema.shape,
       annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: false },
     },

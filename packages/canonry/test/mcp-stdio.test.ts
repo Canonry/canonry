@@ -72,6 +72,13 @@ describe('canonry-mcp stdio', () => {
 
     const beforeLoad = await client.callTool({ name: 'canonry_insights_list', arguments: { project: 'acme' } })
     expect(beforeLoad.isError).toBe(true)
+    const beforeLoadText = (beforeLoad.content?.[0] as { text?: string } | undefined)?.text ?? ''
+    // The pipelining caveat documented on canonry_load_toolkit and in docs/mcp.md must match
+    // the error wording the MCP SDK actually emits. If the SDK changes its message, both the
+    // tool description and the docs need to be updated together.
+    expect(beforeLoadText).toMatch(/MCP error -32602: Tool canonry_insights_list disabled/)
+    const loadToolkitTool = list.tools.find(tool => tool.name === 'canonry_load_toolkit')
+    expect(loadToolkitTool?.description ?? '').toContain('Tool ... disabled')
 
     const loaded = await client.callTool({ name: 'canonry_load_toolkit', arguments: { name: 'monitoring' } })
     expect(loaded.isError).not.toBe(true)
@@ -109,6 +116,12 @@ describe('canonry-mcp stdio', () => {
     expect(envelope.error.details?.issues).toBeTruthy()
 
     expect(stderrChunks.join('')).toBe('')
+  })
+
+  it('docs/mcp.md documents the same pipelining error wording the SDK emits', () => {
+    const docsPath = path.resolve(repoRoot, 'docs', 'mcp.md')
+    const docs = fs.readFileSync(docsPath, 'utf8')
+    expect(docs).toContain('MCP error -32602: Tool ... disabled')
   })
 
   it('loads every toolkit at startup when --eager is passed', async () => {
