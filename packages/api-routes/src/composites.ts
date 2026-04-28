@@ -10,6 +10,7 @@ import {
   runs,
 } from '@ainyc/canonry-db'
 import {
+  parseRunError,
   type CitationState,
   type HealthSnapshotDto,
   type InsightDto,
@@ -212,7 +213,7 @@ function summarizeRun(run: typeof runs.$inferSelect): RunDetailDto {
     location: run.location,
     startedAt: run.startedAt,
     finishedAt: run.finishedAt,
-    error: run.error,
+    error: parseRunError(run.error),
     createdAt: run.createdAt,
   }
 }
@@ -346,6 +347,7 @@ function mapHealthRow(r: typeof healthSnapshots.$inferSelect): HealthSnapshotDto
     citedPairs: r.citedPairs,
     providerBreakdown: parseJsonColumn<HealthSnapshotDto['providerBreakdown']>(r.providerBreakdown, {}),
     createdAt: r.createdAt,
+    status: 'ready',
   }
 }
 

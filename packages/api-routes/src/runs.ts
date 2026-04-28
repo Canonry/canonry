@@ -12,6 +12,8 @@ import {
   runNotCancellable,
   notFound,
   validationError,
+  parseRunError,
+  serializeRunError,
 } from '@ainyc/canonry-contracts'
 import { resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotVisibilityState, resolveSnapshotMatchedTerms, writeAuditLog } from './helpers.js'
 import { queueRunIfProjectIdle } from './run-queue.js'
@@ -300,7 +302,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     const now = new Date().toISOString()
     app.db
       .update(runs)
-      .set({ status: 'cancelled', finishedAt: now, error: 'Cancelled by user' })
+      .set({ status: 'cancelled', finishedAt: now, error: serializeRunError({ message: 'Cancelled by user' }) })
       .where(eq(runs.id, run.id))
       .run()
 
@@ -356,7 +358,7 @@ function formatRun(row: {
     location: row.location,
     startedAt: row.startedAt,
     finishedAt: row.finishedAt,
-    error: row.error,
+    error: parseRunError(row.error),
     createdAt: row.createdAt,
   }
 }

@@ -48,6 +48,24 @@ export const runTriggerRequestSchema = z.object({
 
 export type RunTriggerRequest = z.infer<typeof runTriggerRequestSchema>
 
+export const runProviderErrorSchema = z.object({
+  /** Human-readable error message (best-effort extracted from `raw.error.message` / `raw.message`, otherwise the raw text with any `[provider-X]` prefix stripped). */
+  message: z.string(),
+  /** Original provider response payload, if the underlying error body parsed as JSON. Use this for structured fields like HTTP status, error code, etc. */
+  raw: z.unknown().optional(),
+})
+
+export type RunProviderErrorDto = z.infer<typeof runProviderErrorSchema>
+
+export const runErrorSchema = z.object({
+  /** Top-level message for runs that failed without a per-provider error (e.g. user cancellation, internal scheduling failures). */
+  message: z.string().optional(),
+  /** Per-provider errors for visibility-sweep runs that had at least one provider fail. */
+  providers: z.record(z.string(), runProviderErrorSchema).optional(),
+})
+
+export type RunErrorDto = z.infer<typeof runErrorSchema>
+
 export const runDtoSchema = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -57,11 +75,97 @@ export const runDtoSchema = z.object({
   location: z.string().nullable().optional(),
   startedAt: z.string().nullable().optional(),
   finishedAt: z.string().nullable().optional(),
-  error: z.string().nullable().optional(),
+  error: runErrorSchema.nullable().optional(),
   createdAt: z.string(),
 })
 
 export type RunDto = z.infer<typeof runDtoSchema>
+
+const PROVIDER_PREFIX = /^\[provider-[a-zA-Z0-9_-]+\]\s+/
+
+/** Parse one provider's error message into a structured form. Strips any `[provider-X] ` prefix and attempts to parse the body as JSON. */
+export function parseProviderErrorMessage(msg: string): RunProviderErrorDto {
+  const stripped = msg.replace(PROVIDER_PREFIX, '')
+  try {
+    const raw: unknown = JSON.parse(stripped)
+    if (raw && typeof raw === 'object') {
+      const inner = raw as { error?: { message?: unknown }; message?: unknown }
+      const fromErrorMessage = typeof inner.error?.message === 'string' ? inner.error.message : undefined
+      const fromMessage = typeof inner.message === 'string' ? inner.message : undefined
+      return { message: fromErrorMessage ?? fromMessage ?? stripped, raw }
+    }
+  } catch {
+    // not JSON — fall through to plain message
+  }
+  return { message: stripped }
+}
+
+/**
+ * Parse the `runs.error` DB column into the structured `RunErrorDto`.
+ * Handles four shapes for back-compat:
+ *   1. New per-provider:    `{"providers":{"gemini":{"message":"...","raw":{...}}}}`
+ *   2. New top-level:       `{"message":"Cancelled by user"}`
+ *   3. Legacy double-string: `{"gemini":"[provider-gemini] {...}"}`
+ *   4. Plain string:         `Cancelled by user` (pre-structured cancellations)
+ */
+export function parseRunError(raw: string | null | undefined): RunErrorDto | null {
+  if (!raw) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return { message: raw }
+  }
+  if (!parsed || typeof parsed !== 'object') {
+    return { message: raw }
+  }
+  const obj = parsed as Record<string, unknown>
+  const hasProviders = obj.providers && typeof obj.providers === 'object'
+  const hasMessage = typeof obj.message === 'string'
+  if (hasProviders || hasMessage) {
+    return parsed as RunErrorDto
+  }
+  // Legacy: { providerName: "[provider-X] msg..." }
+  const providers: Record<string, RunProviderErrorDto> = {}
+  for (const [name, val] of Object.entries(obj)) {
+    providers[name] = parseProviderErrorMessage(typeof val === 'string' ? val : JSON.stringify(val))
+  }
+  return { providers }
+}
+
+/** Build a `RunErrorDto` from a map of provider → raw error message (the writer-side shape used in the job runner). */
+export function buildRunErrorFromMessages(messages: Iterable<readonly [string, string]>): RunErrorDto {
+  const providers: Record<string, RunProviderErrorDto> = {}
+  for (const [name, msg] of messages) {
+    providers[name] = parseProviderErrorMessage(msg)
+  }
+  return { providers }
+}
+
+/** Serialize a `RunErrorDto` for the `runs.error` DB column. */
+export function serializeRunError(err: RunErrorDto): string {
+  return JSON.stringify(err)
+}
+
+/**
+ * One-line, human-readable summary of a `RunErrorDto`.
+ * Use this anywhere a single string slot displays an error (CLI status
+ * lines, toast notifications, table cells) so the structured shape never
+ * leaks as `[object Object]`.
+ */
+export function formatRunErrorOneLine(err: RunErrorDto): string {
+  if (err.providers) {
+    const entries = Object.entries(err.providers)
+    if (entries.length === 1) {
+      const [provider, detail] = entries[0]!
+      return `${provider}: ${detail.message}`
+    }
+    if (entries.length > 1) {
+      return entries.map(([p, d]) => `${p}: ${d.message}`).join(' • ')
+    }
+  }
+  return err.message ?? 'Run failed.'
+}
 
 export const groundingSourceSchema = z.object({
   uri: z.string(),

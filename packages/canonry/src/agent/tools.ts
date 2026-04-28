@@ -69,7 +69,7 @@ function buildGetHealthTool(ctx: ToolContext): AgentTool<typeof HealthSchema> {
     name: 'get_health',
     label: 'Get health',
     description:
-      'Latest visibility health snapshot including overall cited rate, pair counts, and per-provider breakdown.',
+      'Latest visibility health snapshot including overall cited rate, pair counts, and per-provider breakdown. Returns `status: "no-data"` with `reason: "no-runs-yet"` and zeroed metrics for projects with no successful runs yet.',
     parameters: HealthSchema,
     execute: async () => {
       const health = await ctx.client.getHealth(ctx.projectName)

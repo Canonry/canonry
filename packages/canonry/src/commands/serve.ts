@@ -4,9 +4,19 @@ import { createServer } from '../server.js'
 import { trackEvent } from '../telemetry.js'
 import { CliError, type CliFormat } from '../cli-error.js'
 
+/**
+ * Precedence: `CANONRY_PORT` env var (also set by `--port`) > config.yaml `port:` > 4100.
+ * Exported for tests; `serveCommand` is the only caller.
+ */
+export function resolveServePort(envPort: string | undefined, configPort: number | undefined): number {
+  const trimmed = envPort?.trim()
+  if (trimmed) return parseInt(trimmed, 10)
+  return configPort ?? 4100
+}
+
 export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
   const config = loadConfig()
-  const port = parseInt(process.env.CANONRY_PORT ?? '4100', 10)
+  const port = resolveServePort(process.env.CANONRY_PORT, config.port)
   const host = process.env.CANONRY_HOST ?? '127.0.0.1'
   config.port = port
 

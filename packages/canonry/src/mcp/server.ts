@@ -20,6 +20,12 @@ export interface CreateCanonryMcpServerResult {
   catalog: DynamicToolCatalog
 }
 
+// The MCP SDK's default Zod validation throws an `McpError(InvalidParams, ...)`
+// whose message is rendered to the client as a free-text "MCP error -32602:
+// Input validation error: ..." dump. Bypass it so withToolErrors can re-parse
+// with the same schema and surface a structured Canonry VALIDATION_ERROR envelope.
+type WithValidate = { validateToolInput: (tool: unknown, args: unknown) => Promise<unknown> }
+
 export function createCanonryMcpServer(options: CanonryMcpServerOptions = {}): McpServer {
   return createCanonryMcpServerWithCatalog(options).server
 }
@@ -33,6 +39,8 @@ export function createCanonryMcpServerWithCatalog(options: CanonryMcpServerOptio
     version: PACKAGE_VERSION,
   })
 
+  ;(server as unknown as WithValidate).validateToolInput = async (_tool, args) => args
+
   const entries: DynamicCatalogEntry[] = []
   for (const registryTool of getCanonryMcpTools(scope)) {
     const tool = registryTool as CanonryMcpTool
@@ -45,7 +53,10 @@ export function createCanonryMcpServerWithCatalog(options: CanonryMcpServerOptio
         inputSchema: tool.inputSchema,
         annotations: tool.annotations,
       },
-      async (input: unknown) => withToolErrors(() => handler(client, input)),
+      async (input: unknown) => withToolErrors(async () => {
+        const parsed = tool.inputSchema.parse(input ?? {})
+        return handler(client, parsed)
+      }),
     )
     entries.push({ tool, registered })
   }
@@ -57,6 +68,10 @@ export function createCanonryMcpServerWithCatalog(options: CanonryMcpServerOptio
 
   return { server, catalog }
 }
+
+const loadToolkitInputSchema = z.object({
+  name: z.enum(CANONRY_MCP_TOOLKIT_NAMES).describe('Toolkit name. List options with canonry_help.'),
+})
 
 function registerMetaTools(server: McpServer, catalog: DynamicToolCatalog): void {
   server.registerTool(
@@ -75,12 +90,13 @@ function registerMetaTools(server: McpServer, catalog: DynamicToolCatalog): void
     {
       title: 'Load a Canonry MCP toolkit',
       description: 'Register a toolkit\'s tools for this session and emit one notifications/tools/list_changed. Idempotent. Loaded toolkits remain loaded for the rest of the session. Wait for this call to return before calling any newly enabled tool — pipelining the call with a tools/call on the same connection can race the registration and fail with "Tool ... disabled".',
-      inputSchema: {
-        name: z.enum(CANONRY_MCP_TOOLKIT_NAMES).describe('Toolkit name. List options with canonry_help.'),
-      },
+      inputSchema: loadToolkitInputSchema.shape,
       annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: false },
     },
-    async ({ name }: { name: string }) => withToolErrors(async () => catalog.loadToolkit(name)),
+    async (input: unknown) => withToolErrors(async () => {
+      const parsed = loadToolkitInputSchema.parse(input ?? {})
+      return catalog.loadToolkit(parsed.name)
+    }),
   )
 }
 

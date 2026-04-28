@@ -14,6 +14,7 @@ import {
   RunStatuses,
   RunTriggers,
   missingDependency,
+  parseRunError,
   validationError,
   type BacklinkHistoryEntry,
   type BacklinkListResponse,
@@ -103,7 +104,7 @@ function mapRunRow(row: typeof runs.$inferSelect): RunDto {
     location: row.location ?? null,
     startedAt: row.startedAt ?? null,
     finishedAt: row.finishedAt ?? null,
-    error: row.error ?? null,
+    error: parseRunError(row.error),
     createdAt: row.createdAt,
   }
 }

@@ -135,4 +135,4 @@ Power-user environments (scripts, Aero, telemetry harnesses) that want the flat 
 
 MCP uses stdio, so any normal stdout write breaks the protocol. Code under `packages/canonry/src/mcp/` must not use `console.log`, `process.stdout.write`, CLI dispatch, telemetry, logger imports, DB imports, route imports, or job-runner imports. Tool handlers call `createApiClient()` only.
 
-Tool input schemas are Zod schemas tied to `packages/contracts` and exposed as JSON Schema for MCP clients. Canonry API/client errors return MCP tool results with `isError: true` and a structured `{ "error": { "code", "message", "details" } }` envelope. Malformed JSON-RPC, unknown tools, and invalid tool arguments remain MCP protocol errors.
+Tool input schemas are Zod schemas tied to `packages/contracts` and exposed as JSON Schema for MCP clients. Canonry API/client errors and Zod input-validation errors return MCP tool results with `isError: true` and a structured `{ "error": { "code", "message", "details" } }` envelope (`VALIDATION_ERROR` for bad input, with `details.issues` listing the per-field problems). Malformed JSON-RPC and unknown tools remain MCP protocol errors.

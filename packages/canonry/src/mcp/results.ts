@@ -1,4 +1,5 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
+import { ZodError, type ZodIssue } from 'zod'
 import { CliError } from '../cli-error.js'
 
 type CanonryErrorEnvelope = {
@@ -42,6 +43,16 @@ export async function withToolErrors(handler: () => Promise<unknown>): Promise<C
 }
 
 export function toCanonryErrorEnvelope(error: unknown): CanonryErrorEnvelope {
+  if (error instanceof ZodError) {
+    return {
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: zodErrorMessage(error),
+        details: { issues: error.issues.map(formatZodIssue) },
+      },
+    }
+  }
+
   if (error instanceof CliError) {
     return {
       error: {
@@ -83,4 +94,15 @@ function hasErrorEnvelope(value: unknown): value is { error: { code?: unknown; m
   if (!value || typeof value !== 'object' || !('error' in value)) return false
   const error = (value as { error?: unknown }).error
   return Boolean(error && typeof error === 'object')
+}
+
+function formatZodIssue(issue: ZodIssue): { path: string; message: string } {
+  return { path: issue.path.map(String).join('.'), message: issue.message }
+}
+
+function zodErrorMessage(error: ZodError): string {
+  const first = error.issues[0]
+  if (!first) return 'Input validation failed'
+  const path = first.path.map(String).join('.')
+  return path ? `${path}: ${first.message}` : first.message
 }
