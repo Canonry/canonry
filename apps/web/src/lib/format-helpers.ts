@@ -1,3 +1,5 @@
+import { formatRunErrorOneLine, type RunErrorDto } from '@ainyc/canonry-contracts'
+
 /** Common search-analytics metrics shared across GSC, Bing, etc. */
 export enum SearchMetric {
   Clicks = 'clicks',
@@ -20,33 +22,23 @@ export const SEARCH_METRIC_SHORT_LABELS: Record<SearchMetric, string> = {
   [SearchMetric.Position]: 'Pos',
 }
 
-export function formatErrorLog(error: string): string {
-  // Extract the human-readable prefix and try to pretty-print any JSON within
-  const bracketMatch = error.match(/^(\[.*?\])\s*(.+)/)
-  if (bracketMatch) {
-    const prefix = bracketMatch[1]
-    const rest = bracketMatch[2]
-    // Try to find and pretty-print embedded JSON
-    const jsonStart = rest.indexOf('{')
-    if (jsonStart >= 0) {
-      const message = rest.slice(0, jsonStart).trim()
-      const jsonPart = rest.slice(jsonStart)
-      try {
-        const parsed = JSON.parse(jsonPart)
-        return `${prefix} ${message}\n\n${JSON.stringify(parsed, null, 2)}`
-      } catch {
-        // Not valid JSON, just format the text
+/** One-line summary of a `RunErrorDto`, suitable for tight UI surfaces. */
+export const summarizeRunError = formatRunErrorOneLine
+
+export function formatErrorLog(error: RunErrorDto): string {
+  const sections: string[] = []
+  if (error.message) sections.push(error.message)
+  if (error.providers) {
+    for (const [provider, detail] of Object.entries(error.providers)) {
+      const head = `[${provider}] ${detail.message}`
+      if (detail.raw !== undefined) {
+        sections.push(`${head}\n\n${JSON.stringify(detail.raw, null, 2)}`)
+      } else {
+        sections.push(head)
       }
     }
-    return `${prefix}\n${rest}`
   }
-  // Try to pretty-print the whole thing as JSON
-  try {
-    const parsed = JSON.parse(error)
-    return JSON.stringify(parsed, null, 2)
-  } catch {
-    return error
-  }
+  return sections.length > 0 ? sections.join('\n\n') : 'Run failed.'
 }
 
 export function toTitleCase(value: string): string {

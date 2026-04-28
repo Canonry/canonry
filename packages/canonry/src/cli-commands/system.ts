@@ -6,16 +6,14 @@ import { telemetryCommand } from '../commands/telemetry.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 
-function applyServerEnv(values: Record<string, unknown>): void {
+export function applyServerEnv(values: Record<string, unknown>): void {
   const port = typeof values.port === 'string' ? values.port : undefined
   const host = typeof values.host === 'string' ? values.host : undefined
   const basePath = typeof values['base-path'] === 'string' ? values['base-path'] : undefined
 
-  process.env.CANONRY_PORT = port ?? '4100'
+  if (port) process.env.CANONRY_PORT = port
   if (host) process.env.CANONRY_HOST = host
-  else delete process.env.CANONRY_HOST
   if (basePath) process.env.CANONRY_BASE_PATH = basePath
-  else delete process.env.CANONRY_BASE_PATH
 }
 
 export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [

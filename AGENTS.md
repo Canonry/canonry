@@ -66,8 +66,9 @@ canonry agent memory set <project> --key <k> --value <v>    # upsert a note (2 K
 canonry agent memory forget <project> --key <k>      # delete a note
 
 # MCP adapter (separate bin, stdio only)
-canonry-mcp                                          # all 48 tools
-canonry-mcp --read-only                              # the 33 read tools only
+canonry-mcp                                          # core tier (~9 tools); load toolkits on demand
+canonry-mcp --read-only                              # core read tier; toolkits load read-only tools only
+canonry-mcp --eager                                  # register all 48 tools at startup (legacy flat catalog)
 
 # MCP client install helpers (operate on local client config files)
 canonry mcp install --client claude-desktop          # merges a canonry entry into the config
@@ -120,18 +121,24 @@ the project. `canonry agent detach <project>` removes it. Events:
 For MCP clients such as Claude Desktop, Codex, or custom agent shells that
 prefer a typed tool catalog over shell or HTTP, the package ships a separate
 `canonry-mcp` bin. It is a thin stdio adapter over `createApiClient()` — not
-a parallel surface. v1 exposes 48 curated tools (33 read, 15 write); pass
-`--read-only` to surface only the read tools. Auth is inherited from
-`~/.canonry/config.yaml`.
+a parallel surface. v1 exposes 48 curated tools (33 read, 15 write); the
+catalog is split across a small **core tier** (always loaded) and five
+**toolkits** (`monitoring`, `setup`, `gsc`, `ga`, `agent`) that the client
+loads on demand via `canonry_load_toolkit`. Pass `--read-only` to surface
+only the read tools, or `--eager` (or `CANONRY_MCP_EAGER=1`) to register
+every tool at startup like the previous flat catalog. Auth is inherited
+from `~/.canonry/config.yaml`.
 
 Key files:
-- `packages/canonry/src/mcp/server.ts` — `createCanonryMcpServer` (one client per server instance)
-- `packages/canonry/src/mcp/cli.ts` — stdio entrypoint + scope flag parsing
-- `packages/canonry/src/mcp/tool-registry.ts` — single source of truth for all 48 tools
+- `packages/canonry/src/mcp/server.ts` — `createCanonryMcpServer` (one client per server instance, registers core tier + meta tools)
+- `packages/canonry/src/mcp/cli.ts` — stdio entrypoint + scope/eager flag parsing
+- `packages/canonry/src/mcp/tool-registry.ts` — single source of truth for all 48 tools, each tagged with a `tier`
+- `packages/canonry/src/mcp/toolkits.ts` — toolkit catalog (`monitoring`, `setup`, `gsc`, `ga`, `agent`) consumed by `canonry_help`
+- `packages/canonry/src/mcp/dynamic-catalog.ts` — `DynamicToolCatalog`: enables tools on `canonry_load_toolkit`, drives `canonry_help`
 - `packages/canonry/src/mcp/openapi-classification.ts` — drift table; every published OpenAPI op is `included`, `deferred`, or `excluded-protocol`
 - `packages/canonry/src/mcp/results.ts` — `withToolErrors` wrapper, `CliError` → MCP error envelope mapping
 - `packages/canonry/bin/canonry-mcp.mjs` — published bin shim
-- `docs/mcp.md` — install, auth, client config, safety rules, and v1 limitations
+- `docs/mcp.md` — install, auth, client config, safety rules, tier system, and v1 limitations
 
 The MCP adapter must follow the boundary rules in `Surface Priority → Agent
 & automation design principles → MCP adapter boundary` (rule 8 in this
@@ -576,7 +583,8 @@ This repo uses per-package `AGENTS.md` files for local context. **These must sta
 | Add a new table or column in `packages/db/src/schema.ts` | Update `docs/data-model.md` (ER diagram + table groups) |
 | Add a new API route file in `packages/api-routes/src/` | Update `packages/api-routes/AGENTS.md` key files table |
 | Add a new CLI command | Update `packages/canonry/AGENTS.md` |
-| Add or change an MCP tool | Update `packages/canonry/src/mcp/tool-registry.ts`, `openapi-classification.ts`, `docs/mcp.md`, and the `mcp-registry`/`mcp-stdio` tests |
+| Add or change an MCP tool | Update `packages/canonry/src/mcp/tool-registry.ts` (tag with a `tier`), `openapi-classification.ts`, `docs/mcp.md`, and the `mcp-registry`/`mcp-stdio` tests |
+| Add a new MCP toolkit | Add the toolkit name to `packages/canonry/src/mcp/toolkits.ts`, tag the relevant tools with the new tier, and update the toolkit table in `docs/mcp.md` |
 | Add a new UI dashboard section or widget | Verify backing API endpoint + CLI command exist first (UI/CLI parity rule) |
 | Add a new provider package | Update `docs/providers/README.md` and create `docs/providers/<name>.md` |
 | Add a new integration package | Create `packages/integration-<name>/AGENTS.md` |

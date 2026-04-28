@@ -17,6 +17,11 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/mcp-clients.ts` | Registry of supported MCP clients (Claude Desktop, Cursor, Codex) — config-path resolvers and format hints used by `mcp install`/`mcp config` |
 | `src/client.ts` | `ApiClient` class + `createApiClient()` factory |
 | `src/mcp/` | `canonry-mcp` stdio adapter over `createApiClient()` |
+| `src/mcp/server.ts` | `createCanonryMcpServer` — registers all API tools, then disables non-core tiers unless `--eager` |
+| `src/mcp/tool-registry.ts` | All 48 API tools, each tagged with a `tier` (`core` or one of the toolkit names) |
+| `src/mcp/toolkits.ts` | Toolkit catalog (`monitoring`, `setup`, `gsc`, `ga`, `agent`) — name, title, description, when-to-load |
+| `src/mcp/dynamic-catalog.ts` | `DynamicToolCatalog` — drives `canonry_help` and `canonry_load_toolkit` (enables tools, emits `tools/list_changed`) |
+| `src/mcp/cli.ts` | `canonry-mcp` stdio entrypoint — parses `--read-only`, `--eager`, `--scope`, plus `CANONRY_MCP_*` env |
 | `src/server.ts` | Fastify server setup — mounts api-routes, serves SPA, registers providers |
 | `src/job-runner.ts` | In-process job runner for visibility sweeps |
 | `src/provider-registry.ts` | `ProviderRegistry` — manages provider adapters |

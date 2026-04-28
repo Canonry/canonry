@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { summarizeRunError } from '../../lib/format-helpers.js'
 import { HelpCircle, Link2, Play, Download, Loader2, CheckCircle2 } from 'lucide-react'
 import { RunKinds } from '@ainyc/canonry-contracts'
 import {
@@ -299,7 +300,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                   : 'Extract complete'}
               </p>
               {justCompletedRun.error
-                ? <p className="text-xs text-zinc-500 mt-1">{justCompletedRun.error}</p>
+                ? <p className="text-xs text-zinc-500 mt-1">{summarizeRunError(justCompletedRun.error)}</p>
                 : justCompletedRun.status !== 'failed'
                   ? <p className="text-xs text-zinc-500 mt-1">Backlinks refreshed from the cached release.</p>
                   : null}

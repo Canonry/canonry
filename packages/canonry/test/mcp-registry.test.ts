@@ -1,16 +1,19 @@
 import { createServer, type ServerResponse } from 'node:http'
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import { buildOpenApiDocument } from '../../api-routes/src/openapi.js'
 import { CliError } from '../src/cli-error.js'
 import { ApiClient as RealApiClient, type ApiClient } from '../src/client.js'
 import {
+  CANONRY_MCP_CORE_TOOL_COUNT,
   CANONRY_MCP_READ_TOOL_COUNT,
   CANONRY_MCP_TOOL_COUNT,
   canonryMcpTools,
 } from '../src/mcp/tool-registry.js'
 import { MCP_OPENAPI_OPERATION_CLASSIFICATIONS } from '../src/mcp/openapi-classification.js'
-import { createCanonryMcpServer, getCanonryMcpTools } from '../src/mcp/server.js'
+import { createCanonryMcpServer, createCanonryMcpServerWithCatalog, getCanonryMcpTools } from '../src/mcp/server.js'
 import { withToolErrors } from '../src/mcp/results.js'
+import { CANONRY_MCP_TIERS, CANONRY_MCP_TOOLKITS } from '../src/mcp/toolkits.js'
 
 const expectedToolNames = [
   'canonry_projects_list',
@@ -69,6 +72,40 @@ describe('MCP tool registry', () => {
     expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(33)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(expectedToolNames.slice(0, 33))
+  })
+
+  it('tags every tool with a tier from the published list', () => {
+    for (const tool of canonryMcpTools) {
+      expect(CANONRY_MCP_TIERS).toContain(tool.tier)
+    }
+    expect(CANONRY_MCP_CORE_TOOL_COUNT).toBe(7)
+    const coreNames = canonryMcpTools.filter(tool => tool.tier === 'core').map(tool => tool.name)
+    expect(coreNames).toEqual([
+      'canonry_projects_list',
+      'canonry_project_get',
+      'canonry_settings_get',
+      'canonry_apply_config',
+      'canonry_run_trigger',
+      'canonry_run_cancel',
+      'canonry_agent_webhook_attach',
+    ])
+  })
+
+  it('covers every non-core tool with a known toolkit', () => {
+    const toolkitNames = new Set(CANONRY_MCP_TOOLKITS.map(toolkit => toolkit.name))
+    for (const tool of canonryMcpTools) {
+      if (tool.tier === 'core') continue
+      expect(toolkitNames.has(tool.tier), `${tool.name} → ${tool.tier}`).toBe(true)
+    }
+    const counts = new Map<string, number>()
+    for (const tool of canonryMcpTools) {
+      counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
+    }
+    expect(counts.get('monitoring')).toBe(11)
+    expect(counts.get('setup')).toBe(14)
+    expect(counts.get('gsc')).toBe(7)
+    expect(counts.get('ga')).toBe(8)
+    expect(counts.get('agent')).toBe(1)
   })
 
   it('generates JSON schema from every Zod input schema', () => {
@@ -199,6 +236,26 @@ describe('MCP tool registry', () => {
     })
   })
 
+  it('maps ZodErrors to VALIDATION_ERROR envelopes', async () => {
+    const schema = z.object({
+      project: z.string().min(1),
+      request: z.object({ keywords: z.array(z.string()).min(1) }),
+    })
+    const result = await withToolErrors(async () => {
+      schema.parse({ project: 'acme', request: { keywords: [] } })
+      return { ok: true }
+    })
+
+    expect(result.isError).toBe(true)
+    const envelope = JSON.parse(result.content[0]!.type === 'text' ? result.content[0]!.text : '{}') as {
+      error: { code: string; message: string; details: { issues: Array<{ path: string; message: string }> } }
+    }
+    expect(envelope.error.code).toBe('VALIDATION_ERROR')
+    expect(envelope.error.details.issues).toHaveLength(1)
+    expect(envelope.error.details.issues[0]!.path).toBe('request.keywords')
+    expect(envelope.error.message).toContain('request.keywords')
+  })
+
   it('preserves API error details in MCP tool errors', async () => {
     const api = await startErrorApi()
     try {
@@ -233,6 +290,68 @@ describe('MCP tool handlers', () => {
       await tool!.handler(client, testCase.input)
       expect(calls.map(call => call.method)).toEqual(testCase.methods)
     }
+  })
+})
+
+describe('Dynamic tool catalog', () => {
+  it('disables non-core tools by default and enables them on toolkit load', async () => {
+    const calls: Array<{ method: string; args: unknown[] }> = []
+    const { catalog } = createCanonryMcpServerWithCatalog({
+      clientFactory: () => makeClient(calls),
+    })
+
+    const help = catalog.helpResult()
+    expect(help.eager).toBe(false)
+    expect(help.loadedToolkits).toEqual([])
+    expect(help.coreTools).toEqual([
+      'canonry_projects_list',
+      'canonry_project_get',
+      'canonry_settings_get',
+      'canonry_apply_config',
+      'canonry_run_trigger',
+      'canonry_run_cancel',
+      'canonry_agent_webhook_attach',
+    ])
+    expect(help.toolkits.map(t => t.name)).toEqual(['monitoring', 'setup', 'gsc', 'ga', 'agent'])
+    expect(help.toolkits.every(t => !t.loaded)).toBe(true)
+
+    const monitoringFirst = catalog.loadToolkit('monitoring')
+    expect(monitoringFirst.status).toBe('loaded')
+    expect(monitoringFirst.tools).toContain('canonry_runs_latest')
+
+    const monitoringSecond = catalog.loadToolkit('monitoring')
+    expect(monitoringSecond.status).toBe('already-loaded')
+
+    expect(() => catalog.loadToolkit('not-a-toolkit')).toThrow(/Unknown toolkit/)
+
+    const refreshedHelp = catalog.helpResult()
+    expect(refreshedHelp.loadedToolkits).toEqual(['monitoring'])
+    expect(refreshedHelp.toolkits.find(t => t.name === 'monitoring')?.loaded).toBe(true)
+  })
+
+  it('respects --eager mode by marking every toolkit loaded', () => {
+    const calls: Array<{ method: string; args: unknown[] }> = []
+    const { catalog } = createCanonryMcpServerWithCatalog({
+      clientFactory: () => makeClient(calls),
+      eager: true,
+    })
+
+    const help = catalog.helpResult()
+    expect(help.eager).toBe(true)
+    expect(help.loadedToolkits.sort()).toEqual(['agent', 'ga', 'gsc', 'monitoring', 'setup'])
+    expect(help.toolkits.every(t => t.loaded)).toBe(true)
+  })
+
+  it('reports an empty toolkit when read-only scope filters out all of its tools', () => {
+    const calls: Array<{ method: string; args: unknown[] }> = []
+    const { catalog } = createCanonryMcpServerWithCatalog({
+      clientFactory: () => makeClient(calls),
+      scope: 'read-only',
+    })
+
+    const result = catalog.loadToolkit('agent')
+    expect(result.status).toBe('empty')
+    expect(result.tools).toEqual([])
   })
 })
 

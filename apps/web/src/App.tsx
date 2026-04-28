@@ -14,7 +14,7 @@ import {
   X,
 } from 'lucide-react'
 
-import { RunKinds, type RunKind } from '@ainyc/canonry-contracts'
+import { RunKinds, formatRunErrorOneLine, type RunKind } from '@ainyc/canonry-contracts'
 
 import { formatErrorLog } from './lib/format-helpers.js'
 import { fetchAllRuns, fetchProjects, type ApiProject, type ApiRun } from './api.js'
@@ -97,7 +97,7 @@ function terminalTitleForRun(run: ApiRun) {
 
 function terminalDetailForRun(run: ApiRun, projectLabel: string) {
   if (run.error) {
-    return `${projectLabel}: ${run.error}`
+    return `${projectLabel}: ${formatRunErrorOneLine(run.error)}`
   }
   if (run.location) {
     return `${projectLabel} · ${run.location}`
