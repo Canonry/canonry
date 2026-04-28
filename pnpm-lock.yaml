@@ -193,6 +193,9 @@ importers:
       '@ainyc/canonry-integration-wordpress':
         specifier: workspace:*
         version: link:../integration-wordpress
+      '@ainyc/canonry-intelligence':
+        specifier: workspace:*
+        version: link:../intelligence
       drizzle-orm:
         specifier: ^0.45.1
         version: 0.45.1(@types/better-sqlite3@7.6.13)(better-sqlite3@12.6.2)
@@ -380,7 +383,11 @@ importers:
         specifier: workspace:*
         version: link:../contracts
 
-  packages/intelligence: {}
+  packages/intelligence:
+    dependencies:
+      '@ainyc/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
   packages/provider-cdp:
     dependencies:

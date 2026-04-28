@@ -163,6 +163,68 @@ function buildListCompetitorsTool(ctx: ToolContext): AgentTool<typeof Competitor
   }
 }
 
+const ContentTargetsSchema = Type.Object({
+  limit: Type.Optional(
+    Type.Number({
+      description: 'Max rows. Defaults to all. Use a small number (3–10) when summarizing for the user.',
+    }),
+  ),
+  includeInProgress: Type.Optional(
+    Type.Boolean({
+      description: 'Include rows that already have an in-flight tracked action. Default false.',
+    }),
+  ),
+})
+
+function buildGetContentTargetsTool(ctx: ToolContext): AgentTool<typeof ContentTargetsSchema> {
+  return {
+    name: 'get_content_targets',
+    label: 'Get content targets',
+    description:
+      'Ranked, action-typed content opportunities. Each row is `{query, action ∈ create|expand|refresh|add-schema, ourBestPage?, winningCompetitor?, score, scoreBreakdown, drivers[], demandSource, actionConfidence}`. Use this to recommend which post the user should write/refresh next.',
+    parameters: ContentTargetsSchema,
+    execute: async (_toolCallId, params) => {
+      const response = await ctx.client.getContentTargets(ctx.projectName, {
+        limit: params.limit,
+        includeInProgress: params.includeInProgress === true,
+      })
+      return textResult(response)
+    },
+  }
+}
+
+const ContentSourcesSchema = Type.Object({})
+
+function buildGetContentSourcesTool(ctx: ToolContext): AgentTool<typeof ContentSourcesSchema> {
+  return {
+    name: 'get_grounding_sources',
+    label: 'Get grounding sources',
+    description:
+      'URL-level competitive grounding-source map. Per query, lists every URL the LLM cited (our domain vs competitors), with citation count and providers. Read this to understand what specific competitor URL is winning a query.',
+    parameters: ContentSourcesSchema,
+    execute: async () => {
+      const response = await ctx.client.getContentSources(ctx.projectName)
+      return textResult(response)
+    },
+  }
+}
+
+const ContentGapsSchema = Type.Object({})
+
+function buildGetContentGapsTool(ctx: ToolContext): AgentTool<typeof ContentGapsSchema> {
+  return {
+    name: 'get_content_gaps',
+    label: 'Get content gaps',
+    description:
+      'Queries where competitors are cited but our domain is not. Ranked by miss rate. The blunt-instrument view of "what competitors are winning that we are not." Use `get_content_targets` for action-typed recommendations on the same data.',
+    parameters: ContentGapsSchema,
+    execute: async () => {
+      const response = await ctx.client.getContentGaps(ctx.projectName)
+      return textResult(response)
+    },
+  }
+}
+
 const RunDetailSchema = Type.Object({
   runId: Type.String({
     description: 'Run id (UUID) to fetch. Typically obtained from get_status runs[].id.',
@@ -251,6 +313,9 @@ export function buildReadTools(ctx: ToolContext): AgentTool[] {
     buildGetRunTool(ctx) as unknown as AgentTool,
     buildRecallTool(ctx) as unknown as AgentTool,
     buildListBacklinksTool(ctx) as unknown as AgentTool,
+    buildGetContentTargetsTool(ctx) as unknown as AgentTool,
+    buildGetContentSourcesTool(ctx) as unknown as AgentTool,
+    buildGetContentGapsTool(ctx) as unknown as AgentTool,
   ]
 }
 

@@ -2283,6 +2283,52 @@ const routeCatalog: OpenApiOperation[] = [
       404: { description: 'Project not found.' },
     },
   },
+
+  // Content opportunity engine
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/content/targets',
+    summary: 'Ranked, action-typed content opportunities',
+    description:
+      'Returns the canonical opportunity list. Each row is `{query, action, ourBestPage?, winningCompetitor?, score, scoreBreakdown, drivers[], demandSource, actionConfidence, existingAction?}`. Hides rows with in-progress actions by default; pass `?include-in-progress=true` to include them annotated.',
+    tags: ['content'],
+    parameters: [
+      nameParameter,
+      { name: 'limit', in: 'query', description: 'Max rows returned.', schema: stringSchema },
+      { name: 'include-in-progress', in: 'query', description: 'Include rows with in-flight tracked actions.', schema: stringSchema },
+    ],
+    responses: {
+      200: { description: 'Targets returned.' },
+      400: { description: 'Invalid limit.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/content/sources',
+    summary: 'URL-level competitive grounding-source map per query',
+    description:
+      'Returns one row per blog-shaped query containing the grounding URLs the LLM cited. Distinguishes our domain (isOurDomain) from competitor URLs (isCompetitor). Pure DB read — canonry surfaces URLs but never fetches them.',
+    tags: ['content'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'Sources returned.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/content/gaps',
+    summary: 'Queries where competitors are cited but you are not',
+    description:
+      'Returns gap rows ranked by miss rate then by competitor count. Excludes queries with no competitor citations and queries where our cited rate is 100%.',
+    tags: ['content'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'Gaps returned.' },
+      404: { description: 'Project not found.' },
+    },
+  },
   {
     method: 'get',
     path: '/api/v1/projects/{name}/overview',

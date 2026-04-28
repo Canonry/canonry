@@ -59,6 +59,9 @@ import type {
   AgentMemoryEntryDto,
   AgentMemoryListResponse,
   AgentMemoryUpsertRequest,
+  ContentTargetsResponseDto,
+  ContentSourcesResponseDto,
+  ContentGapsResponseDto,
   CompetitorDto,
   KeywordDto,
   ProjectOverviewDto,
@@ -929,6 +932,36 @@ export class ApiClient {
 
   async dismissInsight(project: string, id: string): Promise<{ ok: boolean }> {
     return this.request<{ ok: boolean }>('POST', `/projects/${encodeURIComponent(project)}/insights/${encodeURIComponent(id)}/dismiss`)
+  }
+
+  // ── Content ──────────────────────────────────────────────────────────
+
+  async getContentTargets(
+    project: string,
+    opts?: { limit?: number; includeInProgress?: boolean },
+  ): Promise<ContentTargetsResponseDto> {
+    const params = new URLSearchParams()
+    if (opts?.limit !== undefined) params.set('limit', String(opts.limit))
+    if (opts?.includeInProgress) params.set('include-in-progress', 'true')
+    const qs = params.toString()
+    return this.request<ContentTargetsResponseDto>(
+      'GET',
+      `/projects/${encodeURIComponent(project)}/content/targets${qs ? `?${qs}` : ''}`,
+    )
+  }
+
+  async getContentSources(project: string): Promise<ContentSourcesResponseDto> {
+    return this.request<ContentSourcesResponseDto>(
+      'GET',
+      `/projects/${encodeURIComponent(project)}/content/sources`,
+    )
+  }
+
+  async getContentGaps(project: string): Promise<ContentGapsResponseDto> {
+    return this.request<ContentGapsResponseDto>(
+      'GET',
+      `/projects/${encodeURIComponent(project)}/content/gaps`,
+    )
   }
 
   async getHealth(project: string): Promise<HealthSnapshotDto> {
