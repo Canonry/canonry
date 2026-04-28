@@ -17,6 +17,8 @@ import { CANONRY_MCP_TIERS, CANONRY_MCP_TOOLKITS } from '../src/mcp/toolkits.js'
 const expectedToolNames = [
   'canonry_projects_list',
   'canonry_project_get',
+  'canonry_project_overview',
+  'canonry_search',
   'canonry_project_export',
   'canonry_project_history',
   'canonry_runs_list',
@@ -67,21 +69,23 @@ const expectedToolNames = [
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(48)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(33)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(50)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(35)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
-    expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(expectedToolNames.slice(0, 33))
+    expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(expectedToolNames.slice(0, 35))
   })
 
   it('tags every tool with a tier from the published list', () => {
     for (const tool of canonryMcpTools) {
       expect(CANONRY_MCP_TIERS).toContain(tool.tier)
     }
-    expect(CANONRY_MCP_CORE_TOOL_COUNT).toBe(7)
+    expect(CANONRY_MCP_CORE_TOOL_COUNT).toBe(9)
     const coreNames = canonryMcpTools.filter(tool => tool.tier === 'core').map(tool => tool.name)
     expect(coreNames).toEqual([
       'canonry_projects_list',
       'canonry_project_get',
+      'canonry_project_overview',
+      'canonry_search',
       'canonry_settings_get',
       'canonry_apply_config',
       'canonry_run_trigger',
@@ -285,6 +289,8 @@ describe('Dynamic tool catalog', () => {
     expect(help.coreTools).toEqual([
       'canonry_projects_list',
       'canonry_project_get',
+      'canonry_project_overview',
+      'canonry_search',
       'canonry_settings_get',
       'canonry_apply_config',
       'canonry_run_trigger',
@@ -332,6 +338,30 @@ describe('Dynamic tool catalog', () => {
     expect(result.status).toBe('empty')
     expect(result.tools).toEqual([])
   })
+
+  it('emits exactly one tools/list_changed per loadToolkit batch', () => {
+    const calls: Array<{ method: string; args: unknown[] }> = []
+    const { server, catalog } = createCanonryMcpServerWithCatalog({
+      clientFactory: () => makeClient(calls),
+    })
+
+    let listChangedCount = 0
+    const host = server as unknown as { sendToolListChanged(): void }
+    const original = host.sendToolListChanged.bind(host)
+    host.sendToolListChanged = () => {
+      listChangedCount += 1
+      original()
+    }
+
+    expect(catalog.loadToolkit('monitoring').status).toBe('loaded')
+    expect(listChangedCount).toBe(1)
+
+    expect(catalog.loadToolkit('monitoring').status).toBe('already-loaded')
+    expect(listChangedCount).toBe(1)
+
+    expect(catalog.loadToolkit('setup').status).toBe('loaded')
+    expect(listChangedCount).toBe(2)
+  })
 })
 
 type HandlerCase = {
@@ -346,6 +376,8 @@ const projectInput = { project: 'acme' }
 const handlerCases: HandlerCase[] = [
   { tool: 'canonry_projects_list', input: {}, methods: ['listProjects'] },
   { tool: 'canonry_project_get', input: projectInput, methods: ['getProject'] },
+  { tool: 'canonry_project_overview', input: projectInput, methods: ['getProjectOverview'] },
+  { tool: 'canonry_search', input: { project: 'acme', q: 'rival' }, methods: ['searchProject'] },
   { tool: 'canonry_project_export', input: projectInput, methods: ['getExport'] },
   { tool: 'canonry_project_history', input: projectInput, methods: ['getHistory'] },
   { tool: 'canonry_runs_list', input: { project: 'acme', limit: 5 }, methods: ['listRuns'] },

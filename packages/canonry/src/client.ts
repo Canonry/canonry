@@ -61,6 +61,8 @@ import type {
   AgentMemoryUpsertRequest,
   CompetitorDto,
   KeywordDto,
+  ProjectOverviewDto,
+  ProjectSearchResponseDto,
 } from '@ainyc/canonry-contracts'
 
 export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry, CompetitorDto, KeywordDto }
@@ -931,6 +933,19 @@ export class ApiClient {
 
   async getHealth(project: string): Promise<HealthSnapshotDto> {
     return this.request<HealthSnapshotDto>('GET', `/projects/${encodeURIComponent(project)}/health/latest`)
+  }
+
+  async getProjectOverview(project: string): Promise<ProjectOverviewDto> {
+    return this.request<ProjectOverviewDto>('GET', `/projects/${encodeURIComponent(project)}/overview`)
+  }
+
+  async searchProject(project: string, opts: { q: string; limit?: number }): Promise<ProjectSearchResponseDto> {
+    const params = new URLSearchParams({ q: opts.q })
+    if (opts.limit !== undefined) params.set('limit', String(opts.limit))
+    return this.request<ProjectSearchResponseDto>(
+      'GET',
+      `/projects/${encodeURIComponent(project)}/search?${params.toString()}`,
+    )
   }
 
   async getHealthHistory(project: string, limit?: number): Promise<HealthSnapshotDto[]> {

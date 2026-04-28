@@ -66,13 +66,13 @@ canonry agent memory set <project> --key <k> --value <v>    # upsert a note (2 K
 canonry agent memory forget <project> --key <k>      # delete a note
 
 # MCP adapter (separate bin, stdio only)
-canonry-mcp                                          # core tier (~9 tools); load toolkits on demand
+canonry-mcp                                          # core tier (~11 tools); load toolkits on demand
 canonry-mcp --read-only                              # core read tier; toolkits load read-only tools only
-canonry-mcp --eager                                  # register all 48 tools at startup (legacy flat catalog)
+canonry-mcp --eager                                  # register all 50 API tools at startup (legacy flat catalog)
 
 # MCP client install helpers (operate on local client config files)
 canonry mcp install --client claude-desktop          # merges a canonry entry into the config
-canonry mcp install --client cursor --read-only      # scope to the 33 read tools
+canonry mcp install --client cursor --read-only      # scope to the 35 read tools
 canonry mcp config  --client codex                   # print snippet for clients without auto-install
 ```
 
@@ -121,10 +121,13 @@ the project. `canonry agent detach <project>` removes it. Events:
 For MCP clients such as Claude Desktop, Codex, or custom agent shells that
 prefer a typed tool catalog over shell or HTTP, the package ships a separate
 `canonry-mcp` bin. It is a thin stdio adapter over `createApiClient()` — not
-a parallel surface. v1 exposes 48 curated tools (33 read, 15 write); the
+a parallel surface. v1 exposes 50 curated tools (35 read, 15 write) — including
+the `canonry_project_overview` and `canonry_search` core composites; the
 catalog is split across a small **core tier** (always loaded) and five
 **toolkits** (`monitoring`, `setup`, `gsc`, `ga`, `agent`) that the client
-loads on demand via `canonry_load_toolkit`. Pass `--read-only` to surface
+loads on demand via `canonry_load_toolkit`. The catalog coalesces enable
+side effects so each `canonry_load_toolkit` call emits exactly one
+`notifications/tools/list_changed`. Pass `--read-only` to surface
 only the read tools, or `--eager` (or `CANONRY_MCP_EAGER=1`) to register
 every tool at startup like the previous flat catalog. Auth is inherited
 from `~/.canonry/config.yaml`.
@@ -132,7 +135,7 @@ from `~/.canonry/config.yaml`.
 Key files:
 - `packages/canonry/src/mcp/server.ts` — `createCanonryMcpServer` (one client per server instance, registers core tier + meta tools)
 - `packages/canonry/src/mcp/cli.ts` — stdio entrypoint + scope/eager flag parsing
-- `packages/canonry/src/mcp/tool-registry.ts` — single source of truth for all 48 tools, each tagged with a `tier`
+- `packages/canonry/src/mcp/tool-registry.ts` — single source of truth for all 50 tools, each tagged with a `tier`
 - `packages/canonry/src/mcp/toolkits.ts` — toolkit catalog (`monitoring`, `setup`, `gsc`, `ga`, `agent`) consumed by `canonry_help`
 - `packages/canonry/src/mcp/dynamic-catalog.ts` — `DynamicToolCatalog`: enables tools on `canonry_load_toolkit`, drives `canonry_help`
 - `packages/canonry/src/mcp/openapi-classification.ts` — drift table; every published OpenAPI op is `included`, `deferred`, or `excluded-protocol`

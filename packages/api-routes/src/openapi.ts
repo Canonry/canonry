@@ -2283,6 +2283,37 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/overview',
+    summary: 'Get a composite overview of project health',
+    description:
+      'Bundles project info, latest run, top undismissed insights, the latest health snapshot, keyword cited rate, per-provider breakdown, and transitions vs. the previous run. Designed for the "how is project X doing?" question so agents can answer in one call.',
+    tags: ['intelligence'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'Overview returned.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/search',
+    summary: 'Search query snapshots and insights for text',
+    description:
+      'Returns the most recent snapshots and insights whose answer text, cited domains, raw response, or insight title/keyword/recommendation/cause matches the query. Use to find anything mentioning a competitor, term, or URL without paginating snapshots.',
+    tags: ['intelligence'],
+    parameters: [
+      nameParameter,
+      { name: 'q', in: 'query', required: true, description: 'Search term (>= 2 chars).', schema: stringSchema },
+      { name: 'limit', in: 'query', description: 'Max combined hits (1-50, default 25).', schema: stringSchema },
+    ],
+    responses: {
+      200: { description: 'Search hits returned.' },
+      400: { description: 'Query string missing or too short.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/backlinks/status',
     summary: 'Get the Common Crawl DuckDB plugin install status',
     description:

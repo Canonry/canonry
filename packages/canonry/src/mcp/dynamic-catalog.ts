@@ -1,4 +1,4 @@
-import type { RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { McpServer, RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CanonryMcpTool } from './tool-registry.js'
 import {
   CANONRY_MCP_TOOLKITS,
@@ -41,13 +41,22 @@ export interface HelpResult {
   usage: string
 }
 
+type NotifierHost = { sendToolListChanged(): void }
+
 export class DynamicToolCatalog {
   private readonly entries: DynamicCatalogEntry[]
   private readonly loaded = new Set<CanonryMcpToolkitName>()
   private readonly eager: boolean
   private readonly scope: 'all' | 'read-only'
+  private readonly server: McpServer
 
-  constructor(entries: DynamicCatalogEntry[], scope: 'all' | 'read-only', options: DynamicToolCatalogOptions = {}) {
+  constructor(
+    server: McpServer,
+    entries: DynamicCatalogEntry[],
+    scope: 'all' | 'read-only',
+    options: DynamicToolCatalogOptions = {},
+  ) {
+    this.server = server
     this.entries = entries
     this.scope = scope
     this.eager = Boolean(options.eager)
@@ -62,9 +71,11 @@ export class DynamicToolCatalog {
 
   applyInitialEnablement(): void {
     if (this.eager) return
-    for (const entry of this.entries) {
-      if (entry.tool.tier !== 'core') entry.registered.disable()
-    }
+    this.batchListChanged(() => {
+      for (const entry of this.entries) {
+        if (entry.tool.tier !== 'core') entry.registered.disable()
+      }
+    })
   }
 
   loadToolkit(rawName: string): ToolkitLoadResult {
@@ -80,9 +91,11 @@ export class DynamicToolCatalog {
     if (this.loaded.has(name)) {
       return { status: 'already-loaded', name, tools: matches.map(entry => entry.tool.name) }
     }
-    for (const entry of matches) {
-      entry.registered.enable()
-    }
+    this.batchListChanged(() => {
+      for (const entry of matches) {
+        entry.registered.enable()
+      }
+    })
     this.loaded.add(name)
     return { status: 'loaded', name, tools: matches.map(entry => entry.tool.name) }
   }
@@ -96,7 +109,7 @@ export class DynamicToolCatalog {
         .filter(entry => entry.tool.tier === 'core')
         .map(entry => entry.tool.name),
       toolkits: CANONRY_MCP_TOOLKITS.map(toolkit => this.toolkitEntry(toolkit)).filter(entry => entry.toolCount > 0),
-      usage: 'Call canonry_load_toolkit with one of the toolkit names listed in `toolkits[].name` to register its tools for the rest of this session.',
+      usage: 'Call canonry_load_toolkit with one of the toolkit names listed in `toolkits[].name` to register its tools for the rest of this session. Wait for its response before calling any newly enabled tool.',
     }
   }
 
@@ -117,5 +130,25 @@ export class DynamicToolCatalog {
     return this.entries
       .filter(entry => entry.tool.tier === name)
       .map(entry => entry.tool.name)
+  }
+
+  // RegisteredTool.enable/disable each call sendToolListChanged on the McpServer
+  // we registered with. Loading an 11-tool toolkit emits 11 notifications under
+  // that contract, which a spec-compliant client will treat as 11 catalog
+  // refetches. Coalesce them into one notification per batch by intercepting
+  // the SDK's sender for the duration of the batch.
+  private batchListChanged(fn: () => void): void {
+    const host = this.server as unknown as NotifierHost
+    const original = host.sendToolListChanged
+    let suppressed = false
+    host.sendToolListChanged = () => {
+      suppressed = true
+    }
+    try {
+      fn()
+    } finally {
+      host.sendToolListChanged = original
+    }
+    if (suppressed) original.call(host)
   }
 }

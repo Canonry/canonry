@@ -26,7 +26,7 @@ canonry mcp install --client cursor --read-only
 canonry mcp config  --client codex            # print snippet for clients without auto-install
 ```
 
-`install` merges a `canonry` MCP server entry into the client's config (creating the file if needed, backing up the original to `<config>.canonry.bak`). It is idempotent — re-running with the same flags is a no-op. `config` prints the snippet to stdout for copy-paste or use in unsupported clients (currently Codex CLI, since it uses TOML). Both helpers accept `--name <server>` to install under a custom key, `--read-only` to scope to the 33 read tools, `--dry-run` (install only), and `--format json` for machine-readable output.
+`install` merges a `canonry` MCP server entry into the client's config (creating the file if needed, backing up the original to `<config>.canonry.bak`). It is idempotent — re-running with the same flags is a no-op. `config` prints the snippet to stdout for copy-paste or use in unsupported clients (currently Codex CLI, since it uses TOML). Both helpers accept `--name <server>` to install under a custom key, `--read-only` to scope to the 35 read tools, `--dry-run` (install only), and `--format json` for machine-readable output.
 
 ## Auth
 
@@ -72,7 +72,7 @@ args = []
 
 ## Tool Surface
 
-v1 is curated for client usability: 48 API tools (33 read in `--read-only`) plus two meta-tools (`canonry_help`, `canonry_load_toolkit`). It covers projects, config apply, runs, snapshots, insights, health, keyword generation and replacement, competitor add/remove, schedules, settings, GSC reads, GA reads, run trigger/cancel, schedule updates, insight dismiss, and agent webhook attach/detach.
+v1 is curated for client usability: 50 API tools (35 read in `--read-only`) plus two meta-tools (`canonry_help`, `canonry_load_toolkit`). It covers projects, project-overview and search composites, config apply, runs, snapshots, insights, health, keyword generation and replacement, competitor add/remove, schedules, settings, GSC reads, GA reads, run trigger/cancel, schedule updates, insight dismiss, and agent webhook attach/detach.
 
 `canonry_apply_config` accepts one config-as-code project document per call. For multi-document YAML or multiple project files, agents should call the tool once per project document. `canonry_keywords_generate` returns suggestions only; persist accepted suggestions with `canonry_keywords_add` or replace the tracked set with `canonry_keywords_replace`.
 
@@ -84,13 +84,15 @@ Some write tools compose existing API calls rather than using a native atomic en
 
 ## Progressive Tool Discovery
 
-The full 48-tool catalog costs roughly 12k tokens of definitions every session. Most sessions touch a handful of tools, so `canonry-mcp` defaults to a small **core tier** (~9 tools, ~2.5k tokens) and registers the rest on demand via `notifications/tools/list_changed`.
+The full 50-tool catalog costs roughly 12k tokens of definitions every session. Most sessions touch a handful of tools, so `canonry-mcp` defaults to a small **core tier** (~11 tools, ~3k tokens) and registers the rest on demand via `notifications/tools/list_changed`.
 
 Core tier (always loaded):
 
 - `canonry_help` — list available toolkits and which are loaded
 - `canonry_load_toolkit` — register a toolkit's tools for the rest of the session
 - `canonry_projects_list`, `canonry_project_get`
+- `canonry_project_overview` — composite read for "how is project X doing?"
+- `canonry_search` — composite text search across snapshots and insights
 - `canonry_settings_get`
 - `canonry_apply_config`, `canonry_run_trigger`, `canonry_run_cancel`
 - `canonry_agent_webhook_attach`
@@ -105,11 +107,15 @@ Toolkits (loaded on demand):
 | `ga` | GA status, traffic, coverage, AI/social referral history, social/attribution trends, session history | Traffic, referral, attribution data from Google Analytics 4 |
 | `agent` | agent webhook detach | Removing an agent webhook subscription |
 
-Loading a toolkit is idempotent and persists for the rest of the session; there is no unload. `canonry_load_toolkit` returns `{ status: 'loaded' \| 'already-loaded' \| 'empty', name, tools }`. After it returns, the server emits `notifications/tools/list_changed` and the client refetches the catalog.
+Loading a toolkit is idempotent and persists for the rest of the session; there is no unload. `canonry_load_toolkit` returns `{ status: 'loaded' \| 'already-loaded' \| 'empty', name, tools }`. The server coalesces all enable/disable side effects into one `notifications/tools/list_changed` per call, fired just before the response — so a single call refreshes the client's catalog once regardless of how many tools the toolkit contains.
+
+#### Wait for the response before pipelining
+
+`canonry_load_toolkit` runs the enable side effect synchronously inside the call's handler, but the newly registered tools only become callable after the response is returned to the client. Always await the response before issuing a `tools/call` for a tool that the toolkit just enabled. Pipelining the two requests on the same connection (sending `tools/call` for `canonry_insights_list` immediately after `canonry_load_toolkit` without awaiting the load response) can race the registration and produce `MCP error -32602: Tool ... disabled`. Sequenced clients (Claude Desktop, Cursor, Codex) already wait by default; only batch test harnesses or custom clients risk this.
 
 ### Eager mode
 
-Power-user environments (scripts, Aero, telemetry harnesses) that want the flat 50-tool catalog at startup can opt back in with `--eager` (or `CANONRY_MCP_EAGER=1`):
+Power-user environments (scripts, Aero, telemetry harnesses) that want the flat 52-tool catalog at startup can opt back in with `--eager` (or `CANONRY_MCP_EAGER=1`):
 
 ```json
 {

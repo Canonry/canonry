@@ -50,7 +50,7 @@ export function createCanonryMcpServerWithCatalog(options: CanonryMcpServerOptio
     entries.push({ tool, registered })
   }
 
-  const catalog = new DynamicToolCatalog(entries, scope, { eager: options.eager })
+  const catalog = new DynamicToolCatalog(server, entries, scope, { eager: options.eager })
   catalog.applyInitialEnablement()
 
   registerMetaTools(server, catalog)
@@ -74,7 +74,7 @@ function registerMetaTools(server: McpServer, catalog: DynamicToolCatalog): void
     'canonry_load_toolkit',
     {
       title: 'Load a Canonry MCP toolkit',
-      description: 'Register a toolkit\'s tools for this session and emit notifications/tools/list_changed. Idempotent. Loaded toolkits remain loaded for the rest of the session.',
+      description: 'Register a toolkit\'s tools for this session and emit one notifications/tools/list_changed. Idempotent. Loaded toolkits remain loaded for the rest of the session. Wait for this call to return before calling any newly enabled tool — pipelining the call with a tools/call on the same connection can race the registration and fail with "Tool ... disabled".',
       inputSchema: {
         name: z.enum(CANONRY_MCP_TOOLKIT_NAMES).describe('Toolkit name. List options with canonry_help.'),
       },
