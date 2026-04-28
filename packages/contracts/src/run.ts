@@ -147,6 +147,26 @@ export function serializeRunError(err: RunErrorDto): string {
   return JSON.stringify(err)
 }
 
+/**
+ * One-line, human-readable summary of a `RunErrorDto`.
+ * Use this anywhere a single string slot displays an error (CLI status
+ * lines, toast notifications, table cells) so the structured shape never
+ * leaks as `[object Object]`.
+ */
+export function formatRunErrorOneLine(err: RunErrorDto): string {
+  if (err.providers) {
+    const entries = Object.entries(err.providers)
+    if (entries.length === 1) {
+      const [provider, detail] = entries[0]!
+      return `${provider}: ${detail.message}`
+    }
+    if (entries.length > 1) {
+      return entries.map(([p, d]) => `${p}: ${d.message}`).join(' • ')
+    }
+  }
+  return err.message ?? 'Run failed.'
+}
+
 export const groundingSourceSchema = z.object({
   uri: z.string(),
   title: z.string(),

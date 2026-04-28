@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildRunErrorFromMessages,
+  formatRunErrorOneLine,
   parseProviderErrorMessage,
   parseRunError,
   serializeRunError,
@@ -89,5 +90,34 @@ describe('runErrorSchema', () => {
     const err = { providers: { gemini: { message: 'boom', raw: { error: { code: 500 } } } } }
     const serialized = serializeRunError(err)
     expect(parseRunError(serialized)).toEqual(err)
+  })
+})
+
+describe('formatRunErrorOneLine', () => {
+  it('formats a single provider as "name: message"', () => {
+    expect(formatRunErrorOneLine({ providers: { gemini: { message: 'API key not valid' } } }))
+      .toBe('gemini: API key not valid')
+  })
+
+  it('joins multiple providers with bullet separators', () => {
+    expect(formatRunErrorOneLine({
+      providers: {
+        gemini: { message: 'API key not valid' },
+        openai: { message: 'timeout' },
+      },
+    })).toBe('gemini: API key not valid • openai: timeout')
+  })
+
+  it('uses message for top-level errors (cancellation, internal failures)', () => {
+    expect(formatRunErrorOneLine({ message: 'Cancelled by user' })).toBe('Cancelled by user')
+  })
+
+  it('falls back to a default when neither providers nor message is present', () => {
+    expect(formatRunErrorOneLine({})).toBe('Run failed.')
+  })
+
+  it('never returns "[object Object]"', () => {
+    const err = { providers: { gemini: { message: 'boom', raw: { weird: { circular: 1 } } } } }
+    expect(formatRunErrorOneLine(err)).not.toContain('[object Object]')
   })
 })

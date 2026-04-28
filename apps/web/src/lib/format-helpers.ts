@@ -1,4 +1,4 @@
-import type { RunErrorDto } from '@ainyc/canonry-contracts'
+import { formatRunErrorOneLine, type RunErrorDto } from '@ainyc/canonry-contracts'
 
 /** Common search-analytics metrics shared across GSC, Bing, etc. */
 export enum SearchMetric {
@@ -23,14 +23,7 @@ export const SEARCH_METRIC_SHORT_LABELS: Record<SearchMetric, string> = {
 }
 
 /** One-line summary of a `RunErrorDto`, suitable for tight UI surfaces. */
-export function summarizeRunError(error: RunErrorDto): string {
-  if (error.providers) {
-    const entries = Object.entries(error.providers)
-    if (entries.length === 1) return `${entries[0]![0]}: ${entries[0]![1].message}`
-    if (entries.length > 1) return entries.map(([p, d]) => `${p}: ${d.message}`).join(' • ')
-  }
-  return error.message ?? 'Run failed.'
-}
+export const summarizeRunError = formatRunErrorOneLine
 
 export function formatErrorLog(error: RunErrorDto): string {
   const sections: string[] = []

@@ -7,7 +7,7 @@ import type {
   CcReleaseSyncDto,
   RunDto,
 } from '@ainyc/canonry-contracts'
-import { CcReleaseSyncStatuses, RunStatuses } from '@ainyc/canonry-contracts'
+import { CcReleaseSyncStatuses, RunStatuses, formatRunErrorOneLine } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 
 function getClient() {
@@ -209,7 +209,7 @@ export async function backlinksExtract(opts: FormatOptions & {
     return
   }
   if (opts.wait) process.stderr.write('\n')
-  console.log(`Run ${final.id} (${final.status})${final.error ? ' — ' + final.error : ''}`)
+  console.log(`Run ${final.id} (${final.status})${final.error ? ' — ' + formatRunErrorOneLine(final.error) : ''}`)
 }
 
 export async function backlinksCachePrune(opts: FormatOptions & {

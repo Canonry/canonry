@@ -1,5 +1,5 @@
 import type { ProjectDto, InsightDto, RunErrorDto, RunKind, RunStatus } from '@ainyc/canonry-contracts'
-import { RunKinds, RunStatuses, RunTriggers, CitationStates, ComputedTransitions } from '@ainyc/canonry-contracts'
+import { RunKinds, RunStatuses, RunTriggers, CitationStates, ComputedTransitions, formatRunErrorOneLine } from '@ainyc/canonry-contracts'
 import type {
   ApiCompetitor,
   ApiBingCoverageSummary,
@@ -109,22 +109,8 @@ function toRunListItem(run: ApiRun, projectName: string): RunListItemVm {
 }
 
 function formatRunError(error: RunErrorDto): string {
-  if (error.providers) {
-    const entries = Object.entries(error.providers)
-    if (entries.length === 1) {
-      const [provider, detail] = entries[0]!
-      return truncateErrorMessage(`${provider}: ${detail.message}`)
-    }
-    if (entries.length > 1) {
-      return truncateErrorMessage(entries.map(([p, d]) => `${p}: ${d.message}`).join(' • '))
-    }
-  }
-  if (error.message) return truncateErrorMessage(error.message)
-  return 'Run failed.'
-}
-
-function truncateErrorMessage(msg: string): string {
-  return msg.length > 200 ? msg.slice(0, 200) + '…' : msg
+  const summary = formatRunErrorOneLine(error)
+  return summary.length > 200 ? summary.slice(0, 200) + '…' : summary
 }
 
 function statusDetailFromRun(run: ApiRun): string {
