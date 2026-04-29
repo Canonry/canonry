@@ -65,10 +65,15 @@ canonry agent memory list <project>                  # list Aero's durable proje
 canonry agent memory set <project> --key <k> --value <v>    # upsert a note (2 KB max)
 canonry agent memory forget <project> --key <k>      # delete a note
 
+# Doctor — health checks (extensible registry: google.auth.*, ga.auth.*, config.providers, …)
+canonry doctor                                                # global checks (provider keys, etc.)
+canonry doctor --project <name>                               # project-scoped checks (Google/GA auth, redirect URI, scopes)
+canonry doctor --project <name> --check google.auth.* --format json   # filter by id/wildcard, JSON output
+
 # MCP adapter (separate bin, stdio only)
-canonry-mcp                                          # core tier (~11 tools); load toolkits on demand
+canonry-mcp                                          # core tier (~12 tools); load toolkits on demand
 canonry-mcp --read-only                              # core read tier; toolkits load read-only tools only
-canonry-mcp --eager                                  # register all 50 API tools at startup (legacy flat catalog)
+canonry-mcp --eager                                  # register all 51 API tools at startup (legacy flat catalog)
 
 # MCP client install helpers (operate on local client config files)
 canonry mcp install --client claude-desktop          # merges a canonry entry into the config
@@ -115,6 +120,32 @@ Key files:
 `canonry agent attach <project> --url <webhook-url>` registers a webhook for
 the project. `canonry agent detach <project>` removes it. Events:
 `run.completed`, `insight.critical`, `insight.high`, `citation.gained`.
+
+## Doctor
+
+`canonry doctor` runs an extensible set of health checks across global config and project-scoped integrations. Each check has a stable dotted ID (`google.auth.connection`, `ga.auth.connection`, `config.providers`, …) so an agent or skill can filter via `--check <id>` / `?check=<id>` and react to specific failures programmatically.
+
+- **CLI:** `canonry doctor [--project <name>] [--check <id>...] [--format json]`
+- **API:** `GET /api/v1/doctor` (global), `GET /api/v1/projects/:name/doctor` (project-scoped). Both accept `?check=<comma-separated ids or wildcards>`.
+- **MCP:** `canonry_doctor` (core tier) — passes `project` + `checks[]` straight through.
+
+Each check returns `status: ok | warn | fail | skipped`, a stable machine-readable `code`, a `summary`, optional `remediation`, and structured `details`. v1 ships:
+
+| Category | ID | Scope | Purpose |
+|----------|----|-------|---------|
+| auth | `google.auth.connection` | project | OAuth credentials present, refresh token works |
+| auth | `google.auth.property-access` | project | Authorized principal can list the selected GSC site |
+| auth | `google.auth.redirect-uri` | project | `publicUrl`-derived redirect URI is valid + advertised |
+| auth | `google.auth.scopes` | project | Granted GSC + Indexing scopes match what's stored |
+| auth | `ga.auth.connection` | project | GA4 service account verifies against the configured property |
+| providers | `config.providers` | global | At least one provider key configured |
+
+### Adding a new check
+
+1. Implement a `CheckDefinition` in `packages/api-routes/src/doctor/checks/<topic>.ts`. Use `@ainyc/canonry-contracts` `CheckStatuses` / `CheckCategories` / `CheckScopes` enums — never raw strings.
+2. Register it in `packages/api-routes/src/doctor/registry.ts` (`ALL_CHECKS`).
+3. Add a `<topic>.ts` test under `packages/api-routes/test/doctor-*` covering the happy path + each `code` value the check can emit.
+4. Both the CLI and MCP tool surface the new check automatically — no additional wiring required.
 
 ### MCP clients (stdio adapter)
 
@@ -587,6 +618,7 @@ This repo uses per-package `AGENTS.md` files for local context. **These must sta
 | Add a new API route file in `packages/api-routes/src/` | Update `packages/api-routes/AGENTS.md` key files table |
 | Add a new CLI command | Update `packages/canonry/AGENTS.md` |
 | Add or change an MCP tool | Update `packages/canonry/src/mcp/tool-registry.ts` (tag with a `tier`), `openapi-classification.ts`, `docs/mcp.md`, and the `mcp-registry`/`mcp-stdio` tests |
+| Add a new doctor check | Add a `CheckDefinition` in `packages/api-routes/src/doctor/checks/<topic>.ts`, register in `doctor/registry.ts`, add tests in `packages/api-routes/test/doctor-*`, document the new check ID in `AGENTS.md`'s "Doctor" section |
 | Add a new MCP toolkit | Add the toolkit name to `packages/canonry/src/mcp/toolkits.ts`, tag the relevant tools with the new tier, and update the toolkit table in `docs/mcp.md` |
 | Add a new UI dashboard section or widget | Verify backing API endpoint + CLI command exist first (UI/CLI parity rule) |
 | Add a new provider package | Update `docs/providers/README.md` and create `docs/providers/<name>.md` |

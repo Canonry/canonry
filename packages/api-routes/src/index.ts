@@ -39,6 +39,7 @@ import { wordpressRoutes } from './wordpress.js'
 import type { WordpressRoutesOptions } from './wordpress.js'
 import { backlinksRoutes } from './backlinks.js'
 import type { BacklinksRoutesOptions } from './backlinks.js'
+import { doctorRoutes } from './doctor.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -269,6 +270,14 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onBacklinksPruneCache: opts.onBacklinksPruneCache,
       listCachedReleases: opts.listCachedReleases,
     } satisfies BacklinksRoutesOptions)
+    await api.register(doctorRoutes, {
+      googleConnectionStore: opts.googleConnectionStore,
+      ga4CredentialStore: opts.ga4CredentialStore,
+      getGoogleAuthConfig: opts.getGoogleAuthConfig,
+      publicUrl: opts.publicUrl,
+      routePrefix: opts.routePrefix,
+      providerSummary: opts.providerSummary,
+    })
     // Local-only extension hook: canonry passes the Aero agent routes here
     // so they live inside the authenticated scope. Cloud leaves it undefined.
     if (opts.registerAuthenticatedRoutes) {

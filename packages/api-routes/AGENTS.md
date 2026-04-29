@@ -21,6 +21,10 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/intelligence.ts` | Intelligence insights and health snapshot routes |
 | `src/wordpress.ts` | WordPress integration routes |
 | `src/backlinks.ts` | Backlinks (Common Crawl sync + per-project extract/summary/domains/history) routes |
+| `src/doctor.ts` | `GET /doctor` and `GET /projects/:name/doctor` — runs check registry, returns `DoctorReport` |
+| `src/doctor/registry.ts` | `ALL_CHECKS` — single source of truth for the doctor check catalog |
+| `src/doctor/runner.ts` | `runChecks()` and `matchesCheckId()` — execute filtered checks, build the report |
+| `src/doctor/checks/*.ts` | Individual `CheckDefinition`s (google-auth, ga-auth, providers) |
 
 ## Patterns
 

@@ -174,6 +174,11 @@ const agentWebhookAttachInputSchema = z.object({
   url: z.string().url(),
 })
 
+const doctorInputSchema = z.object({
+  project: projectNameSchema.optional().describe('Project name to scope project-level checks. Omit to run global checks (provider keys, config, etc.).'),
+  checks: z.array(z.string().min(1)).optional().describe('Optional check IDs or wildcard prefixes (e.g. "google.auth.*", "config.providers"). Empty/omitted runs all matching checks for the chosen scope.'),
+})
+
 const AGENT_WEBHOOK_EVENTS = [
   notificationEventSchema.enum['run.completed'],
   notificationEventSchema.enum['insight.critical'],
@@ -229,6 +234,18 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/search'],
     handler: (client, input) => client.searchProject(input.project, { q: input.q, limit: input.limit }),
+  }),
+  defineTool({
+    name: 'canonry_doctor',
+    title: 'Run health checks',
+    description:
+      'Run canonry health checks. With `project`, runs project-scoped checks (Google/GA auth, redirect URI, scopes, property access). Without `project`, runs global checks (provider keys, etc.). Use `checks` to filter by exact ID or wildcard prefix (e.g. ["google.auth.*"]). Returns a structured DoctorReport with per-check status, code, summary, remediation, and details — use this to diagnose Google auth failures (401/403/redirect-mismatch/principal-mismatch) without parsing logs.',
+    access: 'read',
+    tier: 'core',
+    inputSchema: doctorInputSchema,
+    annotations: readAnnotations(true),
+    openApiOperations: ['GET /api/v1/doctor', 'GET /api/v1/projects/{name}/doctor'],
+    handler: (client, input) => client.runDoctor({ project: input.project, checkIds: input.checks }),
   }),
   defineTool({
     name: 'canonry_project_export',

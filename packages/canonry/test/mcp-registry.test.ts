@@ -20,6 +20,7 @@ const expectedToolNames = [
   'canonry_project_get',
   'canonry_project_overview',
   'canonry_search',
+  'canonry_doctor',
   'canonry_project_export',
   'canonry_project_history',
   'canonry_runs_list',
@@ -70,23 +71,24 @@ const expectedToolNames = [
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(50)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(35)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(51)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(36)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
-    expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(expectedToolNames.slice(0, 35))
+    expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(expectedToolNames.slice(0, 36))
   })
 
   it('tags every tool with a tier from the published list', () => {
     for (const tool of canonryMcpTools) {
       expect(CANONRY_MCP_TIERS).toContain(tool.tier)
     }
-    expect(CANONRY_MCP_CORE_TOOL_COUNT).toBe(9)
+    expect(CANONRY_MCP_CORE_TOOL_COUNT).toBe(10)
     const coreNames = canonryMcpTools.filter(tool => tool.tier === 'core').map(tool => tool.name)
     expect(coreNames).toEqual([
       'canonry_projects_list',
       'canonry_project_get',
       'canonry_project_overview',
       'canonry_search',
+      'canonry_doctor',
       'canonry_settings_get',
       'canonry_apply_config',
       'canonry_run_trigger',
@@ -312,6 +314,7 @@ describe('Dynamic tool catalog', () => {
       'canonry_project_get',
       'canonry_project_overview',
       'canonry_search',
+      'canonry_doctor',
       'canonry_settings_get',
       'canonry_apply_config',
       'canonry_run_trigger',

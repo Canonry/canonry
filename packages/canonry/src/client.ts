@@ -66,6 +66,7 @@ import type {
   KeywordDto,
   ProjectOverviewDto,
   ProjectSearchResponseDto,
+  DoctorReportDto,
 } from '@ainyc/canonry-contracts'
 
 export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry, CompetitorDto, KeywordDto }
@@ -979,6 +980,16 @@ export class ApiClient {
       'GET',
       `/projects/${encodeURIComponent(project)}/search?${params.toString()}`,
     )
+  }
+
+  async runDoctor(opts: { project?: string; checkIds?: string[] } = {}): Promise<DoctorReportDto> {
+    const qs = opts.checkIds && opts.checkIds.length > 0
+      ? `?check=${encodeURIComponent(opts.checkIds.join(','))}`
+      : ''
+    const path = opts.project
+      ? `/projects/${encodeURIComponent(opts.project)}/doctor${qs}`
+      : `/doctor${qs}`
+    return this.request<DoctorReportDto>('GET', path)
   }
 
   async getHealthHistory(project: string, limit?: number): Promise<HealthSnapshotDto[]> {

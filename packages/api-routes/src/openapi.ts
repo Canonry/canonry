@@ -2362,6 +2362,46 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/doctor',
+    summary: 'Run global health checks',
+    description:
+      'Runs all global-scope checks (provider keys, etc.). Use ?check=<id> or ?check=<prefix>* (comma-separated) to filter. Returns a structured DoctorReport with per-check status, code, summary, remediation, and details.',
+    tags: ['doctor'],
+    parameters: [
+      {
+        name: 'check',
+        in: 'query',
+        description: 'Optional comma-separated list of check IDs or wildcard prefixes (e.g. "config.*").',
+        schema: stringSchema,
+      },
+    ],
+    responses: {
+      200: { description: 'Doctor report returned.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/doctor',
+    summary: 'Run project health checks',
+    description:
+      'Runs project-scoped checks (Google auth, GA auth, etc.). Use ?check=<id> or ?check=<prefix>* (comma-separated) to filter — e.g. ?check=google.* for just Google auth checks. Returns a structured DoctorReport.',
+    tags: ['doctor'],
+    parameters: [
+      nameParameter,
+      {
+        name: 'check',
+        in: 'query',
+        description: 'Optional comma-separated list of check IDs or wildcard prefixes (e.g. "google.auth.*").',
+        schema: stringSchema,
+      },
+    ],
+    responses: {
+      200: { description: 'Doctor report returned.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/backlinks/status',
     summary: 'Get the Common Crawl DuckDB plugin install status',
     description:

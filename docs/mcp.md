@@ -72,7 +72,7 @@ args = []
 
 ## Tool Surface
 
-v1 is curated for client usability: 50 API tools (35 read in `--read-only`) plus two meta-tools (`canonry_help`, `canonry_load_toolkit`). It covers projects, project-overview and search composites, config apply, runs, snapshots, insights, health, keyword generation and replacement, competitor add/remove, schedules, settings, GSC reads, GA reads, run trigger/cancel, schedule updates, insight dismiss, and agent webhook attach/detach.
+v1 is curated for client usability: 51 API tools (36 read in `--read-only`) plus two meta-tools (`canonry_help`, `canonry_load_toolkit`). It covers projects, project-overview and search composites, config apply, runs, snapshots, insights, health, keyword generation and replacement, competitor add/remove, schedules, settings, GSC reads, GA reads, the doctor health-check (Google/GA auth diagnostics), run trigger/cancel, schedule updates, insight dismiss, and agent webhook attach/detach.
 
 `canonry_apply_config` accepts one config-as-code project document per call. For multi-document YAML or multiple project files, agents should call the tool once per project document. `canonry_keywords_generate` returns suggestions only; persist accepted suggestions with `canonry_keywords_add` or replace the tracked set with `canonry_keywords_replace`.
 
@@ -84,7 +84,7 @@ Some write tools compose existing API calls rather than using a native atomic en
 
 ## Progressive Tool Discovery
 
-The full 50-tool catalog costs roughly 12k tokens of definitions every session. Most sessions touch a handful of tools, so `canonry-mcp` defaults to a small **core tier** (~11 tools, ~3k tokens) and registers the rest on demand via `notifications/tools/list_changed`.
+The full 51-tool catalog costs roughly 12k tokens of definitions every session. Most sessions touch a handful of tools, so `canonry-mcp` defaults to a small **core tier** (~12 tools, ~3k tokens) and registers the rest on demand via `notifications/tools/list_changed`.
 
 Core tier (always loaded):
 
@@ -93,6 +93,7 @@ Core tier (always loaded):
 - `canonry_projects_list`, `canonry_project_get`
 - `canonry_project_overview` — composite read for "how is project X doing?"
 - `canonry_search` — composite text search across snapshots and insights
+- `canonry_doctor` — run health checks (Google/GA auth, redirect URI, scopes, providers); filter by check id or wildcard
 - `canonry_settings_get`
 - `canonry_apply_config`, `canonry_run_trigger`, `canonry_run_cancel`
 - `canonry_agent_webhook_attach`
@@ -115,7 +116,7 @@ Loading a toolkit is idempotent and persists for the rest of the session; there 
 
 ### Eager mode
 
-Power-user environments (scripts, Aero, telemetry harnesses) that want the flat 52-tool catalog at startup can opt back in with `--eager` (or `CANONRY_MCP_EAGER=1`):
+Power-user environments (scripts, Aero, telemetry harnesses) that want the flat 53-tool catalog at startup can opt back in with `--eager` (or `CANONRY_MCP_EAGER=1`):
 
 ```json
 {

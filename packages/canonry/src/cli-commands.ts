@@ -3,6 +3,7 @@ import { BACKFILL_CLI_COMMANDS } from './cli-commands/backfill.js'
 import { BACKLINKS_CLI_COMMANDS } from './cli-commands/backlinks.js'
 import { BING_CLI_COMMANDS } from './cli-commands/bing.js'
 import { CDP_CLI_COMMANDS } from './cli-commands/cdp.js'
+import { DOCTOR_CLI_COMMANDS } from './cli-commands/doctor.js'
 import { GA_CLI_COMMANDS } from './cli-commands/ga.js'
 import { COMPETITOR_CLI_COMMANDS } from './cli-commands/competitor.js'
 import { GOOGLE_CLI_COMMANDS } from './cli-commands/google.js'
@@ -42,5 +43,6 @@ export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...INTELLIGENCE_CLI_COMMANDS,
   ...CONTENT_CLI_COMMANDS,
   ...AGENT_CLI_COMMANDS,
+  ...DOCTOR_CLI_COMMANDS,
   ...MCP_CLI_COMMANDS,
 ]

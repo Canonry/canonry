@@ -31,6 +31,8 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/run-coordinator.ts` | Post-run orchestrator — dispatches to intelligence + notifications |
 | `src/commands/insights.ts` | `insights` and `insights dismiss` command implementations |
 | `src/commands/health-cmd.ts` | `health` command implementation |
+| `src/commands/doctor.ts` | `canonry doctor` — runs the doctor check registry via `ApiClient.runDoctor` |
+| `src/cli-commands/doctor.ts` | CLI spec for `canonry doctor [--project <name>] [--check <id>...]` |
 | `src/commands/backfill.ts` | Historical recomputation for answer visibility fields and insights |
 | `src/commands/ga.ts` | GA4 commands: `ga sync`, `ga traffic`, `ga status`, `ga social-referral-history`, `ga social-referral-summary`, `ga attribution` |
 | `src/commands/backlinks.ts` | Backlinks commands: `backlinks install`, `doctor`, `status`, `sync`, `list`, `extract`, `releases`, `cache prune` |
