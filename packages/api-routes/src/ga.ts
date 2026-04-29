@@ -405,6 +405,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
               landingPageNormalized: normalizeUrlPath(row.landingPage),
               sessions: row.sessions,
               organicSessions: row.organicSessions,
+              directSessions: row.directSessions,
               users: row.users,
               syncedAt: now,
               syncRunId: runId,
@@ -570,6 +571,18 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
           .where(eq(gaTrafficSummaries.projectId, project.id))
           .get()
 
+    // Direct-channel total. Always sourced from gaTrafficSnapshots since
+    // gaTrafficSummaries doesn't carry a direct_sessions column. Returns
+    // 0 when no rows match (e.g., a project that hasn't synced yet, or
+    // legacy rows with null direct_sessions).
+    const directTotalRow = app.db
+      .select({
+        totalDirectSessions: sql<number>`COALESCE(SUM(${gaTrafficSnapshots.directSessions}), 0)`,
+      })
+      .from(gaTrafficSnapshots)
+      .where(and(...snapshotConditions))
+      .get()
+
     // Always fetch period bounds from the summary table (reflects full synced range).
     const summaryMeta = app.db
       .select({
@@ -588,6 +601,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         landingPage: sql<string>`COALESCE(${gaTrafficSnapshots.landingPageNormalized}, ${gaTrafficSnapshots.landingPage})`,
         sessions: sql<number>`SUM(${gaTrafficSnapshots.sessions})`,
         organicSessions: sql<number>`SUM(${gaTrafficSnapshots.organicSessions})`,
+        directSessions: sql<number>`COALESCE(SUM(${gaTrafficSnapshots.directSessions}), 0)`,
         users: sql<number>`SUM(${gaTrafficSnapshots.users})`,
       })
       .from(gaTrafficSnapshots)
@@ -665,15 +679,18 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .get()
 
     const total = summaryRow?.totalSessions ?? 0
+    const totalDirectSessions = directTotalRow?.totalDirectSessions ?? 0
 
     return {
       totalSessions: total,
       totalOrganicSessions: summaryRow?.totalOrganicSessions ?? 0,
+      totalDirectSessions,
       totalUsers: summaryRow?.totalUsers ?? 0,
       topPages: rows.map((r) => ({
         landingPage: r.landingPage,
         sessions: r.sessions ?? 0,
         organicSessions: r.organicSessions ?? 0,
+        directSessions: r.directSessions ?? 0,
         users: r.users ?? 0,
       })),
       aiReferrals: aiReferrals.map((r) => ({
@@ -696,6 +713,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       socialUsers: socialTotals?.users ?? 0,
       organicSharePct: total > 0 ? Math.round(((summaryRow?.totalOrganicSessions ?? 0) / total) * 100) : 0,
       aiSharePct: total > 0 ? Math.round(((aiDeduped?.sessions ?? 0) / total) * 100) : 0,
+      directSharePct: total > 0 ? Math.round((totalDirectSessions / total) * 100) : 0,
       socialSharePct: total > 0 ? Math.round(((socialTotals?.sessions ?? 0) / total) * 100) : 0,
       lastSyncedAt: latestSync?.syncedAt ?? null,
       periodStart: (() => {

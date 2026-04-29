@@ -45,6 +45,15 @@ export interface GA4TrafficRow {
   landingPage: string
   sessions: number
   organicSessions: number
+  /**
+   * Sessions whose `sessionDefaultChannelGrouping` is `Direct` — i.e., GA4
+   * couldn't attribute a source. The dark-traffic bucket lives here on
+   * deep pages with no UTM, which is also where AI-driven traffic
+   * (referrer-stripped) lands. Captured via a separate filtered Reports
+   * API pass; defaults to 0 for landing pages absent from the Direct
+   * channel response.
+   */
+  directSessions: number
   users: number
 }
 

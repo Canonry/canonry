@@ -46,11 +46,15 @@ export type GA4SocialReferralDto = z.infer<typeof ga4SocialReferralDtoSchema>
 export const ga4TrafficSummaryDtoSchema = z.object({
   totalSessions: z.number(),
   totalOrganicSessions: z.number(),
+  /** Direct-channel sessions (sessions with no source — bookmarks, typed URLs, AI-driven traffic with stripped referrer). 0 for legacy rows from before the column was added. */
+  totalDirectSessions: z.number(),
   totalUsers: z.number(),
   topPages: z.array(z.object({
     landingPage: z.string(),
     sessions: z.number(),
     organicSessions: z.number(),
+    /** Per-page Direct-channel sessions. 0 for legacy rows. */
+    directSessions: z.number(),
     users: z.number(),
   })),
   aiReferrals: z.array(ga4AiReferralDtoSchema),
@@ -67,6 +71,8 @@ export const ga4TrafficSummaryDtoSchema = z.object({
   organicSharePct: z.number(),
   /** Deduped AI sessions as a percentage of total sessions (0–100, rounded). */
   aiSharePct: z.number(),
+  /** Direct-channel sessions as a percentage of total sessions (0–100, rounded). */
+  directSharePct: z.number(),
   /** Social sessions as a percentage of total sessions (0–100, rounded). */
   socialSharePct: z.number(),
   lastSyncedAt: z.string().nullable(),
@@ -136,8 +142,10 @@ export interface GaAttributionTrendResponse {
 export interface GaTrafficResponse {
   totalSessions: number
   totalOrganicSessions: number
+  /** Direct-channel sessions (sessions with no source — bookmarks, typed URLs, AI-driven traffic with stripped referrer). 0 for legacy rows from before the column was added. */
+  totalDirectSessions: number
   totalUsers: number
-  topPages: Array<{ landingPage: string; sessions: number; organicSessions: number; users: number }>
+  topPages: Array<{ landingPage: string; sessions: number; organicSessions: number; directSessions: number; users: number }>
   aiReferrals: Array<{ source: string; medium: string; sessions: number; users: number; sourceDimension: GA4SourceDimension }>
   /** Deduped AI session total: MAX(sessions) per date+source+medium across attribution dimensions, then summed. */
   aiSessionsDeduped: number
@@ -152,6 +160,8 @@ export interface GaTrafficResponse {
   organicSharePct: number
   /** Deduped AI sessions as a percentage of total sessions (0–100, rounded). */
   aiSharePct: number
+  /** Direct-channel sessions as a percentage of total sessions (0–100, rounded). */
+  directSharePct: number
   /** Social sessions as a percentage of total sessions (0–100, rounded). */
   socialSharePct: number
   lastSyncedAt: string | null

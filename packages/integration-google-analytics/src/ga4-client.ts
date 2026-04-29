@@ -314,6 +314,7 @@ export async function fetchTrafficByLandingPage(
       landingPage: row.dimensionValues[1]!.value,
       sessions: parseInt(row.metricValues[0]!.value, 10) || 0,
       organicSessions: 0, // populated by organic-only pass below
+      directSessions: 0, // populated by direct-only pass below
       users: parseInt(row.metricValues[1]!.value, 10) || 0,
     }))
 
@@ -358,10 +359,45 @@ export async function fetchTrafficByLandingPage(
     if ((organicResponse.rows ?? []).length < 10000 || organicOffset >= total) break
   }
 
-  // Merge organic session counts back into the rows
+  // Third pass: direct-only report filtered to "Direct" channel.
+  // GA4's Direct channel is everything with no source — bookmarks,
+  // typed URLs, untagged email, in-app browsers, and (the reason this
+  // pass exists) AI-driven traffic that lost its referrer header.
+  const directMap = new Map<string, number>()
+  let directOffset = 0
+  let directPageCount = 0
+  while (directPageCount < GA4_MAX_PAGES) {
+    directPageCount++
+    const directRequest: GA4RunReportRequest = {
+      dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
+      dimensions: [{ name: 'date' }, { name: 'landingPagePlusQueryString' }],
+      metrics: [{ name: 'sessions' }],
+      dimensionFilter: {
+        filter: {
+          fieldName: 'sessionDefaultChannelGrouping',
+          stringFilter: { matchType: 'EXACT', value: 'Direct' },
+        },
+      },
+      limit: 10000,
+      offset: directOffset,
+    }
+    const directResponse = await runReport(accessToken, propertyId, directRequest)
+    if (!directResponse) break
+
+    for (const row of directResponse.rows ?? []) {
+      const key = `${row.dimensionValues[0]!.value}::${row.dimensionValues[1]!.value}`
+      directMap.set(key, parseInt(row.metricValues[0]!.value, 10) || 0)
+    }
+    const total = directResponse.rowCount ?? 0
+    directOffset += (directResponse.rows ?? []).length
+    if ((directResponse.rows ?? []).length < 10000 || directOffset >= total) break
+  }
+
+  // Merge organic and direct session counts back into the rows
   for (const row of rows) {
     const key = `${row.date}::${row.landingPage}`
     row.organicSessions = organicMap.get(key) ?? 0
+    row.directSessions = directMap.get(key) ?? 0
   }
 
   // Convert YYYYMMDD to YYYY-MM-DD

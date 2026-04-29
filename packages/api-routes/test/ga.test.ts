@@ -572,6 +572,114 @@ describe('GA4 routes', () => {
     credentials.delete('test-project')
   })
 
+  it('GET /ga/traffic exposes per-page directSessions and totalDirectSessions', async () => {
+    const now = new Date().toISOString()
+    const today = now.slice(0, 10)
+    credentials.set('test-project', {
+      projectName: 'test-project',
+      propertyId: '999888',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    // Seed two pages with explicit Direct counts at today's date so they
+    // fall inside any window filter. Use unique landingPage paths so the
+    // shared-DB coverage test downstream isn't polluted.
+    const idA = crypto.randomUUID()
+    const idB = crypto.randomUUID()
+    db.insert(gaTrafficSnapshots).values({
+      id: idA,
+      projectId,
+      date: today,
+      landingPage: '/__direct-test-pricing',
+      sessions: 60,
+      organicSessions: 10,
+      directSessions: 40,
+      users: 50,
+      syncedAt: now,
+    }).run()
+    db.insert(gaTrafficSnapshots).values({
+      id: idB,
+      projectId,
+      date: today,
+      landingPage: '/__direct-test-about',
+      sessions: 10,
+      organicSessions: 8,
+      directSessions: 1,
+      users: 9,
+      syncedAt: now,
+    }).run()
+
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/ga/traffic?window=7d',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(body.totalDirectSessions).toBe(41)
+      const pricing = body.topPages.find(
+        (p: { landingPage: string }) => p.landingPage === '/__direct-test-pricing',
+      )
+      expect(pricing.directSessions).toBe(40)
+      const about = body.topPages.find(
+        (p: { landingPage: string }) => p.landingPage === '/__direct-test-about',
+      )
+      expect(about.directSessions).toBe(1)
+      // 41 / 70 ≈ 59% ; total here is 60 + 10 = 70
+      expect(body.directSharePct).toBe(59)
+    } finally {
+      db.delete(gaTrafficSnapshots).where(inArray(gaTrafficSnapshots.id, [idA, idB])).run()
+      credentials.delete('test-project')
+    }
+  })
+
+  it('GET /ga/traffic returns directSessions=0 for legacy rows with null direct_sessions', async () => {
+    const now = new Date().toISOString()
+    const today = now.slice(0, 10)
+    credentials.set('test-project', {
+      projectName: 'test-project',
+      propertyId: '999888',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const id = crypto.randomUUID()
+    db.insert(gaTrafficSnapshots).values({
+      id,
+      projectId,
+      date: today,
+      landingPage: '/__direct-test-legacy',
+      sessions: 10,
+      organicSessions: 0,
+      // direct_sessions intentionally omitted (legacy row)
+      users: 8,
+      syncedAt: now,
+    }).run()
+
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/ga/traffic?window=7d',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(body.totalDirectSessions).toBe(0)
+      expect(body.directSharePct).toBe(0)
+      const legacy = body.topPages.find(
+        (p: { landingPage: string }) => p.landingPage === '/__direct-test-legacy',
+      )
+      expect(legacy.directSessions).toBe(0)
+    } finally {
+      db.delete(gaTrafficSnapshots).where(eq(gaTrafficSnapshots.id, id)).run()
+      credentials.delete('test-project')
+    }
+  })
+
   it('GET /ga/coverage returns all pages', async () => {
     const now = new Date().toISOString()
     credentials.set('test-project', {

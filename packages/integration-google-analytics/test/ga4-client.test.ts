@@ -143,6 +143,66 @@ describe('fetchTrafficByLandingPage', () => {
     expect(rows[0]!.sessions).toBe(100)
     expect(mainCallCount).toBe(1)
   })
+
+  it('populates directSessions per page from a Direct-channel pass', async () => {
+    // Main pass: two pages with sessions; organic pass returns one page;
+    // direct pass returns a different page with a session count.
+    const mainResponse = {
+      rows: [
+        { dimensionValues: [{ value: '20260320' }, { value: '/' }], metricValues: [{ value: '100' }, { value: '60' }] },
+        { dimensionValues: [{ value: '20260320' }, { value: '/about' }], metricValues: [{ value: '20' }, { value: '15' }] },
+      ],
+      rowCount: 2,
+    }
+    const organicResponse = {
+      rows: [
+        { dimensionValues: [{ value: '20260320' }, { value: '/' }], metricValues: [{ value: '12' }] },
+      ],
+      rowCount: 1,
+    }
+    const directResponse = {
+      rows: [
+        { dimensionValues: [{ value: '20260320' }, { value: '/' }], metricValues: [{ value: '70' }] },
+        { dimensionValues: [{ value: '20260320' }, { value: '/about' }], metricValues: [{ value: '5' }] },
+      ],
+      rowCount: 2,
+    }
+
+    fetchSpy.mockImplementation(async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(init?.body as string ?? '{}')
+      const filterValue = body?.dimensionFilter?.filter?.stringFilter?.value
+      if (filterValue === 'Organic Search') return mockFetchResponse(organicResponse)
+      if (filterValue === 'Direct') return mockFetchResponse(directResponse)
+      return mockFetchResponse(mainResponse)
+    })
+
+    const rows = await fetchTrafficByLandingPage('fake-token', '123456', 1)
+    const byPage = new Map(rows.map((r) => [r.landingPage, r]))
+
+    expect(byPage.get('/')?.sessions).toBe(100)
+    expect(byPage.get('/')?.organicSessions).toBe(12)
+    expect(byPage.get('/')?.directSessions).toBe(70)
+    expect(byPage.get('/about')?.sessions).toBe(20)
+    expect(byPage.get('/about')?.organicSessions).toBe(0)
+    expect(byPage.get('/about')?.directSessions).toBe(5)
+  })
+
+  it('directSessions is 0 when the Direct pass has no rows for that page', async () => {
+    const mainResponse = {
+      rows: [
+        { dimensionValues: [{ value: '20260320' }, { value: '/lonely' }], metricValues: [{ value: '5' }, { value: '4' }] },
+      ],
+      rowCount: 1,
+    }
+    fetchSpy.mockImplementation(async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(init?.body as string ?? '{}')
+      if (body?.dimensionFilter) return mockFetchResponse({ rows: [], rowCount: 0 })
+      return mockFetchResponse(mainResponse)
+    })
+
+    const rows = await fetchTrafficByLandingPage('fake-token', '123456', 1)
+    expect(rows[0]!.directSessions).toBe(0)
+  })
 })
 
 describe('fetchAiReferrals', () => {
