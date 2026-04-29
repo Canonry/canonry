@@ -202,15 +202,75 @@ export async function backfillAnswerVisibilityCommand(opts?: {
   console.log(`  Errors:   ${providerErrors}`)
 }
 
+export interface NormalizedPathsBackfillResult {
+  examined: number
+  updated: number
+  unchanged: number
+}
+
 /**
- * Backfills `ga_traffic_snapshots.landing_page_normalized` for rows where it
- * is currently null. Idempotent: only touches rows with null normalized; new
- * GA4 sync writes populate the column going forward, so each row is filled
- * in exactly once.
+ * Pure helper: backfill `ga_traffic_snapshots.landing_page_normalized` for
+ * rows where it is currently null, using whatever DB client the caller has
+ * already opened. Idempotent — only touches rows with null normalized.
  *
- * Read queries `GROUP BY COALESCE(landing_page_normalized, landing_page)`
- * so dashboards work correctly even before this is run — backfill is a
- * cosmetic improvement that lets historical rows collapse with new ones.
+ * Used by both the CLI command (`canonry backfill normalized-paths`) and
+ * the server startup path (`canonry serve` runs it post-migrate so users
+ * never need to remember the manual command after upgrading).
+ *
+ * Read queries `GROUP BY COALESCE(landing_page_normalized, landing_page)`,
+ * but COALESCE only collapses legacy rows whose raw path already equals
+ * the canonical form. Click-ID-fragmented variants (e.g. `/?fbclid=A` vs
+ * `/?fbclid=B`) only collapse after this backfill runs.
+ */
+export function backfillNormalizedPaths(
+  db: ReturnType<typeof createClient>,
+  opts?: { projectId?: string },
+): NormalizedPathsBackfillResult {
+  const baseConditions = [isNull(gaTrafficSnapshots.landingPageNormalized)]
+  if (opts?.projectId) {
+    baseConditions.push(eq(gaTrafficSnapshots.projectId, opts.projectId))
+  }
+
+  const rows = db
+    .select({
+      id: gaTrafficSnapshots.id,
+      landingPage: gaTrafficSnapshots.landingPage,
+    })
+    .from(gaTrafficSnapshots)
+    .where(and(...baseConditions))
+    .all()
+
+  let updated = 0
+  let unchanged = 0
+
+  if (rows.length > 0) {
+    db.transaction((tx) => {
+      for (const row of rows) {
+        const next = normalizeUrlPath(row.landingPage)
+        // Even if `next` is null (e.g., row.landingPage was "(not set)"),
+        // we still skip the write — leaving the column null is fine. The
+        // tradeoff: those rows stay candidates for future backfill runs,
+        // but the work is bounded (a row only stays null after we've seen
+        // it once if it can't be canonicalized, which is rare).
+        if (next === null) {
+          unchanged++
+          continue
+        }
+        tx.update(gaTrafficSnapshots)
+          .set({ landingPageNormalized: next })
+          .where(eq(gaTrafficSnapshots.id, row.id))
+          .run()
+        updated++
+      }
+    })
+  }
+
+  return { examined: rows.length, updated, unchanged }
+}
+
+/**
+ * CLI entrypoint. Loads config, opens the DB, runs migrations, calls the
+ * pure helper, and prints a human or JSON summary.
  */
 export async function backfillNormalizedPathsCommand(opts?: {
   project?: string
@@ -221,8 +281,7 @@ export async function backfillNormalizedPathsCommand(opts?: {
   migrate(db)
 
   const projectFilter = opts?.project?.trim()
-
-  const baseConditions = [isNull(gaTrafficSnapshots.landingPageNormalized)]
+  let projectId: string | undefined
   if (projectFilter) {
     const project = db
       .select({ id: projects.id })
@@ -243,45 +302,14 @@ export async function backfillNormalizedPathsCommand(opts?: {
       console.log(`Backfill normalized-paths: project "${projectFilter}" not found.`)
       return
     }
-    baseConditions.push(eq(gaTrafficSnapshots.projectId, project.id))
+    projectId = project.id
   }
 
-  const rows = db
-    .select({
-      id: gaTrafficSnapshots.id,
-      landingPage: gaTrafficSnapshots.landingPage,
-    })
-    .from(gaTrafficSnapshots)
-    .where(and(...baseConditions))
-    .all()
-
-  let updated = 0
-  let unchanged = 0
-
-  if (rows.length > 0) {
-    db.transaction((tx) => {
-      for (const row of rows) {
-        const next = normalizeUrlPath(row.landingPage)
-        // Even if `next` is null (e.g., row.landingPage was "(not set)"),
-        // we still write so future runs treat it as backfilled rather than
-        // re-examining it. SQLite treats NULL = NULL as unknown so
-        // isNull() check would still match — accept that idempotency cost.
-        if (next === null) {
-          unchanged++
-          continue
-        }
-        tx.update(gaTrafficSnapshots)
-          .set({ landingPageNormalized: next })
-          .where(eq(gaTrafficSnapshots.id, row.id))
-          .run()
-        updated++
-      }
-    })
-  }
+  const { examined, updated, unchanged } = backfillNormalizedPaths(db, { projectId })
 
   const result = {
     project: projectFilter ?? null,
-    examined: rows.length,
+    examined,
     updated,
     unchanged,
   }
@@ -293,7 +321,7 @@ export async function backfillNormalizedPathsCommand(opts?: {
 
   console.log('Normalized-path backfill complete.\n')
   if (projectFilter) console.log(`  Project:   ${projectFilter}`)
-  console.log(`  Examined:  ${rows.length}`)
+  console.log(`  Examined:  ${examined}`)
   console.log(`  Updated:   ${updated}`)
   console.log(`  Unchanged: ${unchanged}`)
 }

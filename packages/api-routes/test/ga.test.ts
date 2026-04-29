@@ -595,6 +595,97 @@ describe('GA4 routes', () => {
     credentials.delete('test-project')
   })
 
+  it('GET /ga/coverage collapses click-ID variants via landing_page_normalized', async () => {
+    const now = new Date().toISOString()
+    credentials.set('test-project', {
+      projectName: 'test-project',
+      propertyId: '999888',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    // Three rows that should collapse to a single canonical "/__cov-test-root"
+    // page once the COALESCE-on-normalized path is applied. A fourth row
+    // (different page) is kept distinct.
+    const ids = [
+      crypto.randomUUID(),
+      crypto.randomUUID(),
+      crypto.randomUUID(),
+      crypto.randomUUID(),
+    ]
+    db.insert(gaTrafficSnapshots).values([
+      {
+        id: ids[0]!,
+        projectId,
+        date: '2026-03-22',
+        landingPage: '/__cov-test-root?fbclid=A',
+        landingPageNormalized: '/__cov-test-root',
+        sessions: 5,
+        organicSessions: 0,
+        users: 5,
+        syncedAt: now,
+      },
+      {
+        id: ids[1]!,
+        projectId,
+        date: '2026-03-22',
+        landingPage: '/__cov-test-root?fbclid=B',
+        landingPageNormalized: '/__cov-test-root',
+        sessions: 2,
+        organicSessions: 0,
+        users: 2,
+        syncedAt: now,
+      },
+      {
+        id: ids[2]!,
+        projectId,
+        date: '2026-03-22',
+        landingPage: '/__cov-test-root',
+        landingPageNormalized: '/__cov-test-root',
+        sessions: 50,
+        organicSessions: 10,
+        users: 40,
+        syncedAt: now,
+      },
+      {
+        id: ids[3]!,
+        projectId,
+        date: '2026-03-22',
+        landingPage: '/__cov-test-other',
+        landingPageNormalized: '/__cov-test-other',
+        sessions: 4,
+        organicSessions: 1,
+        users: 4,
+        syncedAt: now,
+      },
+    ]).run()
+
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/ga/coverage',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      const root = body.pages.find(
+        (p: { landingPage: string }) => p.landingPage === '/__cov-test-root',
+      )
+      expect(root).toBeDefined()
+      expect(root.sessions).toBe(57) // 5 + 2 + 50
+      // Raw fragment variants must not appear separately
+      expect(
+        body.pages.some(
+          (p: { landingPage: string }) => p.landingPage.includes('fbclid='),
+        ),
+      ).toBe(false)
+    } finally {
+      db.delete(gaTrafficSnapshots).where(inArray(gaTrafficSnapshots.id, ids)).run()
+      credentials.delete('test-project')
+    }
+  })
+
   it('GET /ga/ai-referral-history returns error when no connection', async () => {
     const res = await app.inject({
       method: 'GET',

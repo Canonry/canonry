@@ -1012,16 +1012,20 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     const project = resolveProject(app.db, request.params.name)
     requireGa4Connection(opts, project.name, project.canonicalDomain)
 
+    // Group by COALESCE(normalized, raw) so click-ID-fragmented variants of
+    // the same page collapse — same identity rule as /ga/traffic. Mirrored
+    // here so `canonry ga coverage` and the MCP `canonry_ga_coverage` tool
+    // see the same canonicalized page list as the dashboard.
     const trafficPages = app.db
       .select({
-        landingPage: gaTrafficSnapshots.landingPage,
+        landingPage: sql<string>`COALESCE(${gaTrafficSnapshots.landingPageNormalized}, ${gaTrafficSnapshots.landingPage})`,
         sessions: sql<number>`SUM(${gaTrafficSnapshots.sessions})`,
         organicSessions: sql<number>`SUM(${gaTrafficSnapshots.organicSessions})`,
         users: sql<number>`SUM(${gaTrafficSnapshots.users})`,
       })
       .from(gaTrafficSnapshots)
       .where(eq(gaTrafficSnapshots.projectId, project.id))
-      .groupBy(gaTrafficSnapshots.landingPage)
+      .groupBy(sql`COALESCE(${gaTrafficSnapshots.landingPageNormalized}, ${gaTrafficSnapshots.landingPage})`)
       .orderBy(sql`SUM(${gaTrafficSnapshots.sessions}) DESC`)
       .all()
 

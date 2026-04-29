@@ -3,6 +3,7 @@ import { createClient, migrate } from '@ainyc/canonry-db'
 import { createServer } from '../server.js'
 import { trackEvent } from '../telemetry.js'
 import { CliError, type CliFormat } from '../cli-error.js'
+import { backfillNormalizedPaths } from './backfill.js'
 
 /**
  * Precedence: `CANONRY_PORT` env var (also set by `--port`) > config.yaml `port:` > 4100.
@@ -23,6 +24,27 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
   // Create DB client and run migrations
   const db = createClient(config.database)
   migrate(db)
+
+  // Auto-backfill landing_page_normalized for any rows still null after
+  // migration v44. Idempotent: only touches rows with null normalized,
+  // returns immediately when there's nothing to do. Without this, click-
+  // ID-fragmented historical rows in ga_traffic_snapshots would only
+  // collapse in dashboards after the user manually ran
+  // `canonry backfill normalized-paths`.
+  try {
+    const result = backfillNormalizedPaths(db)
+    if (result.updated > 0 && format === 'text') {
+      console.log(
+        `Migrated ${result.updated} GA landing-page row${result.updated === 1 ? '' : 's'} to canonical form.`,
+      )
+    }
+  } catch (err) {
+    // Don't block startup on backfill failure — the manual CLI command
+    // remains available, and the dashboards remain partially correct
+    // via COALESCE for non-fragmented legacy rows.
+    const msg = err instanceof Error ? err.message : String(err)
+    process.stderr.write(`warning: normalized-path backfill skipped: ${msg}\n`)
+  }
 
   // Create and start server
   const app = await createServer({ config, db })
