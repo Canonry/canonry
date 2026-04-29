@@ -76,7 +76,7 @@ erDiagram
 | Table | Purpose |
 |-------|---------|
 | **ga_connections** | GA4 property connection (1:1 with project) |
-| **ga_traffic_snapshots** | Traffic data snapshots |
+| **ga_traffic_snapshots** | Per-page daily traffic snapshots. Includes `sessions`, `organic_sessions`, and `direct_sessions` (nullable; populated by GA4 sync) — supports per-channel landing-page breakdowns. |
 | **ga_traffic_summaries** | Aggregated traffic summaries |
 | **ga_ai_referrals** | AI engine referral tracking. Unique: `(projectId, date, source, medium, sourceDimension)` |
 | **ga_social_referrals** | Social media referral tracking. Unique: `(projectId, date, source, medium, channelGroup)` |

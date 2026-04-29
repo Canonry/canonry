@@ -292,6 +292,13 @@ export const gaTrafficSnapshots = sqliteTable('ga_traffic_snapshots', {
   landingPageNormalized: text('landing_page_normalized'),
   sessions: integer('sessions').notNull().default(0),
   organicSessions: integer('organic_sessions').notNull().default(0),
+  /**
+   * Per-page Direct channel sessions. Nullable so existing rows survive
+   * the migration; new GA4 sync writes populate it. Distinct from
+   * `sessions - organicSessions` because that residual lumps Direct
+   * together with social, referral, paid, and email.
+   */
+  directSessions: integer('direct_sessions'),
   users: integer('users').notNull().default(0),
   syncedAt: text('synced_at').notNull(),
   syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'cascade' }),

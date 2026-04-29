@@ -570,6 +570,13 @@ const MIGRATIONS = [
   `ALTER TABLE ga_traffic_snapshots ADD COLUMN landing_page_normalized TEXT`,
   `CREATE INDEX IF NOT EXISTS idx_ga_traffic_page_normalized
      ON ga_traffic_snapshots(project_id, date, landing_page_normalized)`,
+
+  // v45: Per-page Direct channel sessions on ga_traffic_snapshots. Nullable
+  // so existing rows survive; populated by the GA4 sync writer in a
+  // separate commit. Unblocks an honest channel breakdown for the project
+  // dashboard (organic / social / direct / known-AI) — see
+  // plans/ai-attribution-research.md scope A.
+  `ALTER TABLE ga_traffic_snapshots ADD COLUMN direct_sessions INTEGER`,
 ]
 
 /**
