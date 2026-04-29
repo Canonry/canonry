@@ -114,6 +114,51 @@ describe('Backlinks routes', () => {
     })
   })
 
+  describe('GET /backlinks/latest-release', () => {
+    it('returns the discovered release from the callback', async () => {
+      const probe = vi.fn(async () => ({
+        release: 'cc-main-2026-jan-feb-mar',
+        vertexUrl: 'https://example.test/v.gz',
+        edgesUrl: 'https://example.test/e.gz',
+        vertexBytes: 4_000_000_000,
+        edgesBytes: 13_000_000_000,
+        lastModified: 'Wed, 15 Apr 2026 12:00:00 GMT',
+      }))
+      const { app: custom } = buildApp({ discoverLatestRelease: probe })
+      await custom.ready()
+
+      const res = await custom.inject({ method: 'GET', url: '/backlinks/latest-release' })
+      expect(res.statusCode).toBe(200)
+      expect(probe).toHaveBeenCalledOnce()
+      const body = res.json() as { release: string; vertexBytes: number }
+      expect(body.release).toBe('cc-main-2026-jan-feb-mar')
+      expect(body.vertexBytes).toBe(4_000_000_000)
+      await custom.close()
+    })
+
+    it('returns null when nothing was discovered', async () => {
+      const { app: custom } = buildApp({ discoverLatestRelease: async () => null })
+      await custom.ready()
+      const res = await custom.inject({ method: 'GET', url: '/backlinks/latest-release' })
+      expect(res.statusCode).toBe(200)
+      expect(res.json()).toBeNull()
+      await custom.close()
+    })
+
+    it('throws MISSING_DEPENDENCY when discoverLatestRelease is not wired (cloud)', async () => {
+      const { app: cloud } = buildApp({
+        getBacklinksStatus: undefined,
+        discoverLatestRelease: undefined,
+      })
+      await cloud.ready()
+      const res = await cloud.inject({ method: 'GET', url: '/backlinks/latest-release' })
+      expect(res.statusCode).toBe(422)
+      const body = res.json() as { error: { code: string } }
+      expect(body.error.code).toBe('MISSING_DEPENDENCY')
+      await cloud.close()
+    })
+  })
+
   describe('POST /backlinks/syncs', () => {
     it('rejects an invalid release id', async () => {
       const res = await app.inject({
@@ -122,6 +167,60 @@ describe('Backlinks routes', () => {
         payload: { release: 'not-a-release' },
       })
       expect(res.statusCode).toBe(400)
+    })
+
+    it('auto-discovers the release when body.release is omitted', async () => {
+      const probe = vi.fn(async () => ({
+        release: 'cc-main-2026-jan-feb-mar',
+        vertexUrl: 'https://example.test/v.gz',
+        edgesUrl: 'https://example.test/e.gz',
+        vertexBytes: null,
+        edgesBytes: null,
+        lastModified: null,
+      }))
+      const sync = vi.fn()
+      const { app: custom } = buildApp({
+        discoverLatestRelease: probe,
+        onReleaseSyncRequested: sync,
+      })
+      await custom.ready()
+
+      const res = await custom.inject({ method: 'POST', url: '/backlinks/syncs', payload: {} })
+      expect(res.statusCode).toBe(201)
+      expect(probe).toHaveBeenCalledOnce()
+      const body = res.json() as { release: string; status: string }
+      expect(body.release).toBe('cc-main-2026-jan-feb-mar')
+      expect(body.status).toBe('queued')
+      expect(sync).toHaveBeenCalledWith(expect.any(String), 'cc-main-2026-jan-feb-mar')
+      await custom.close()
+    })
+
+    it('returns a clear error when auto-discovery fails to find a release', async () => {
+      const { app: custom } = buildApp({
+        discoverLatestRelease: async () => null,
+        onReleaseSyncRequested: vi.fn(),
+      })
+      await custom.ready()
+      const res = await custom.inject({ method: 'POST', url: '/backlinks/syncs', payload: {} })
+      expect(res.statusCode).toBe(400)
+      const body = res.json() as { error: { code: string; message: string } }
+      expect(body.error.code).toBe('VALIDATION_ERROR')
+      expect(body.error.message).toMatch(/auto-discover/i)
+      await custom.close()
+    })
+
+    it('returns a clear error when no release is provided and auto-discovery is unavailable', async () => {
+      const { app: custom } = buildApp({
+        discoverLatestRelease: undefined,
+        onReleaseSyncRequested: vi.fn(),
+      })
+      await custom.ready()
+      const res = await custom.inject({ method: 'POST', url: '/backlinks/syncs', payload: {} })
+      expect(res.statusCode).toBe(400)
+      const body = res.json() as { error: { code: string; message: string } }
+      expect(body.error.code).toBe('VALIDATION_ERROR')
+      expect(body.error.message).toMatch(/auto-discovery is unavailable/i)
+      await custom.close()
     })
 
     it('rejects when DuckDB is not installed', async () => {

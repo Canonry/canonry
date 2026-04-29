@@ -417,6 +417,18 @@ export const canonryMcpTools = [
     handler: (client, input) => client.getSchedule(input.project),
   }),
   defineTool({
+    name: 'canonry_backlinks_latest_release',
+    title: 'Discover latest Common Crawl release',
+    description:
+      'Probes Common Crawl to find the latest published hyperlinkgraph release. Returns the release id and file URLs/sizes ready to feed into a backlinks sync (or null if no candidate slug responded).',
+    access: 'read',
+    tier: 'setup',
+    inputSchema: emptyInputSchema,
+    annotations: readAnnotations(true),
+    openApiOperations: ['GET /api/v1/backlinks/latest-release'],
+    handler: (client) => client.backlinksLatestRelease(),
+  }),
+  defineTool({
     name: 'canonry_settings_get',
     title: 'Get settings',
     description: 'Get Canonry API settings and configured provider status.',

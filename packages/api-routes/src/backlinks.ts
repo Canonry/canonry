@@ -21,6 +21,7 @@ import {
   type BacklinkSummaryDto,
   type BacklinksInstallResultDto,
   type BacklinksInstallStatusDto,
+  type CcAvailableRelease,
   type CcCachedRelease,
   type CcReleaseSyncDto,
   type CcReleaseSyncStatus,
@@ -47,6 +48,12 @@ export interface BacklinksRoutesOptions {
   onBacklinksPruneCache?: (release: string) => void
   /** Reports cached-release metadata from the filesystem. */
   listCachedReleases?: () => CcCachedRelease[]
+  /**
+   * Probes Common Crawl upstream to discover the latest published release.
+   * Implementations should cache the result for a few minutes — this fires on
+   * page loads. Returns `null` when no candidate slug responds 200.
+   */
+  discoverLatestRelease?: () => Promise<CcAvailableRelease | null>
 }
 
 const BACKLINKS_UNSUPPORTED_MESSAGE =
@@ -144,8 +151,22 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
   })
 
   app.post<{ Body: { release?: string } }>('/backlinks/syncs', async (request, reply) => {
-    const release = request.body?.release
-    if (!release || !isValidReleaseId(release)) {
+    let release = request.body?.release
+    if (!release) {
+      if (!opts.discoverLatestRelease) {
+        throw validationError(
+          'No `release` provided and auto-discovery is unavailable on this deployment. Pass an explicit release id (e.g., cc-main-2026-jan-feb-mar).',
+        )
+      }
+      const discovered = await opts.discoverLatestRelease()
+      if (!discovered) {
+        throw validationError(
+          'Could not auto-discover the latest Common Crawl release. Pass an explicit `release` body parameter.',
+        )
+      }
+      release = discovered.release
+    }
+    if (!isValidReleaseId(release)) {
       throw validationError('Invalid release id. Expected form: cc-main-YYYY-{jan-feb-mar,apr-may-jun,jul-aug-sep,oct-nov-dec}')
     }
 
@@ -225,6 +246,14 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
   app.get('/backlinks/releases', async (_request, reply) => {
     const releases = opts.listCachedReleases?.() ?? []
     return reply.send(releases)
+  })
+
+  app.get('/backlinks/latest-release', async (_request, reply) => {
+    if (!opts.discoverLatestRelease) {
+      throw missingDependency(BACKLINKS_UNSUPPORTED_MESSAGE)
+    }
+    const discovered = await opts.discoverLatestRelease()
+    return reply.send(discovered)
   })
 
   app.delete<{ Params: { release: string } }>('/backlinks/cache/:release', async (request, reply) => {

@@ -1,5 +1,5 @@
-import type { ErrorCode, GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, HealthSnapshotDto, RunKind, RunStatus, RunTrigger, RunErrorDto, CitationState, ComputedTransition, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcCachedRelease, CcReleaseSyncDto } from '@ainyc/canonry-contracts'
-export type { BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcCachedRelease, CcReleaseSyncDto }
+import type { ErrorCode, GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, HealthSnapshotDto, RunKind, RunStatus, RunTrigger, RunErrorDto, CitationState, ComputedTransition, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto } from '@ainyc/canonry-contracts'
+export type { BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto }
 
 export type { GroundingSource }
 
@@ -71,11 +71,12 @@ export function hasExplicitBrowserApiKey(): boolean {
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const key = getApiKey()
+  const hasBody = options?.body != null
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     credentials: options?.credentials ?? 'same-origin',
     headers: {
-      'Content-Type': 'application/json',
+      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
       ...(key ? { Authorization: `Bearer ${key}` } : {}),
       ...options?.headers,
     },
@@ -1152,15 +1153,19 @@ export function fetchReleaseSyncs(): Promise<CcReleaseSyncDto[]> {
   return apiFetch('/backlinks/syncs')
 }
 
-export function triggerReleaseSync(release: string): Promise<CcReleaseSyncDto> {
+export function triggerReleaseSync(release?: string): Promise<CcReleaseSyncDto> {
   return apiFetch('/backlinks/syncs', {
     method: 'POST',
-    body: JSON.stringify({ release }),
+    body: JSON.stringify(release ? { release } : {}),
   })
 }
 
 export function fetchCachedReleases(): Promise<CcCachedRelease[]> {
   return apiFetch('/backlinks/releases')
+}
+
+export function fetchLatestAvailableRelease(): Promise<CcAvailableRelease | null> {
+  return apiFetch('/backlinks/latest-release')
 }
 
 export function pruneCachedRelease(release: string): Promise<{ ok: boolean }> {

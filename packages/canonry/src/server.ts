@@ -54,6 +54,7 @@ import {
   installDuckdb,
   isDuckdbInstalled,
   listCachedReleases as listCachedReleasesFromDisk,
+  probeLatestRelease,
   pruneCachedRelease,
   readInstalledVersion,
 } from '@ainyc/canonry-integration-commoncrawl'
@@ -760,6 +761,31 @@ export async function createServer(opts: {
     return reply.status(204).send()
   })
 
+  const LATEST_RELEASE_TTL_MS = 5 * 60 * 1000
+  let latestReleaseCache: { value: import('@ainyc/canonry-contracts').CcAvailableRelease | null; expiresAt: number } | null = null
+  const discoverLatestRelease = async (): Promise<import('@ainyc/canonry-contracts').CcAvailableRelease | null> => {
+    const now = Date.now()
+    if (latestReleaseCache && latestReleaseCache.expiresAt > now) {
+      return latestReleaseCache.value
+    }
+    const probed = await probeLatestRelease().catch((err: unknown) => {
+      app.log.warn({ err }, 'Common Crawl latest-release probe failed')
+      return null
+    })
+    const value = probed
+      ? {
+          release: probed.release,
+          vertexUrl: probed.vertexUrl,
+          edgesUrl: probed.edgesUrl,
+          vertexBytes: probed.vertexBytes,
+          edgesBytes: probed.edgesBytes,
+          lastModified: probed.lastModified,
+        }
+      : null
+    latestReleaseCache = { value, expiresAt: now + LATEST_RELEASE_TTL_MS }
+    return value
+  }
+
   await app.register(apiRoutes, {
     db: opts.db,
     routePrefix: apiPrefix,
@@ -868,6 +894,7 @@ export async function createServer(opts: {
         }
       })
     },
+    discoverLatestRelease,
     openApiInfo: {
       title: 'Canonry API',
       version: PKG_VERSION,

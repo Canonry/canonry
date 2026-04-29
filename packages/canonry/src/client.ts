@@ -54,6 +54,7 @@ import type {
   BacklinkSummaryDto,
   BacklinksInstallResultDto,
   BacklinksInstallStatusDto,
+  CcAvailableRelease,
   CcCachedRelease,
   CcReleaseSyncDto,
   AgentMemoryEntryDto,
@@ -1007,8 +1008,12 @@ export class ApiClient {
     return this.request<BacklinksInstallResultDto>('POST', '/backlinks/install')
   }
 
-  async backlinksTriggerSync(release: string): Promise<CcReleaseSyncDto> {
-    return this.request<CcReleaseSyncDto>('POST', '/backlinks/syncs', { release })
+  async backlinksTriggerSync(release?: string): Promise<CcReleaseSyncDto> {
+    return this.request<CcReleaseSyncDto>('POST', '/backlinks/syncs', release ? { release } : undefined)
+  }
+
+  async backlinksLatestRelease(): Promise<CcAvailableRelease | null> {
+    return this.request<CcAvailableRelease | null>('GET', '/backlinks/latest-release')
   }
 
   async backlinksLatestSync(): Promise<CcReleaseSyncDto | null> {

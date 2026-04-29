@@ -36,6 +36,7 @@ const expectedToolNames = [
   'canonry_keywords_list',
   'canonry_competitors_list',
   'canonry_schedule_get',
+  'canonry_backlinks_latest_release',
   'canonry_settings_get',
   'canonry_google_connections_list',
   'canonry_gsc_performance',
@@ -71,10 +72,10 @@ const expectedToolNames = [
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(51)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(36)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(52)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(37)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
-    expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(expectedToolNames.slice(0, 36))
+    expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(expectedToolNames.slice(0, 37))
   })
 
   it('tags every tool with a tier from the published list', () => {
@@ -108,7 +109,7 @@ describe('MCP tool registry', () => {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
     expect(counts.get('monitoring')).toBe(11)
-    expect(counts.get('setup')).toBe(14)
+    expect(counts.get('setup')).toBe(15)
     expect(counts.get('gsc')).toBe(7)
     expect(counts.get('ga')).toBe(8)
     expect(counts.get('agent')).toBe(1)
@@ -417,6 +418,7 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_keywords_list', input: projectInput, methods: ['listKeywords'] },
   { tool: 'canonry_competitors_list', input: projectInput, methods: ['listCompetitors'] },
   { tool: 'canonry_schedule_get', input: projectInput, methods: ['getSchedule'] },
+  { tool: 'canonry_backlinks_latest_release', input: {}, methods: ['backlinksLatestRelease'] },
   { tool: 'canonry_settings_get', input: {}, methods: ['getSettings'] },
   { tool: 'canonry_google_connections_list', input: projectInput, methods: ['googleConnections'] },
   { tool: 'canonry_gsc_performance', input: { project: 'acme', window: '30d' }, methods: ['gscPerformance'] },

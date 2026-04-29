@@ -136,6 +136,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/backlinks/syncs': 'deferred',
   'GET /api/v1/backlinks/syncs/latest': 'deferred',
   'GET /api/v1/backlinks/releases': 'deferred',
+  'GET /api/v1/backlinks/latest-release': 'included',
   'DELETE /api/v1/backlinks/cache/{release}': 'deferred',
   'POST /api/v1/projects/{name}/backlinks/extract': 'deferred',
   'GET /api/v1/projects/{name}/backlinks/summary': 'deferred',

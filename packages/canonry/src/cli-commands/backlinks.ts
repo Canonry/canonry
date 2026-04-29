@@ -3,6 +3,7 @@ import {
   backlinksDoctor,
   backlinksExtract,
   backlinksInstall,
+  backlinksLatestRelease,
   backlinksList,
   backlinksReleases,
   backlinksStatus,
@@ -37,19 +38,14 @@ export const BACKLINKS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['backlinks', 'sync'],
-    usage: 'canonry backlinks sync --release <id> [--wait] [--format json]',
+    usage: 'canonry backlinks sync [--release <id>] [--wait] [--format json]',
     options: {
       release: stringOption(),
       wait: { type: 'boolean' },
     },
     run: async (input) => {
-      const release = requireStringOption(input, 'release', {
-        message: '--release is required',
-        usage: 'canonry backlinks sync --release <id> [--wait]',
-        command: 'backlinks sync',
-      })
       await backlinksSync({
-        release,
+        release: getString(input.values, 'release'),
         wait: getBoolean(input.values, 'wait'),
         format: input.format,
       })
@@ -92,6 +88,14 @@ export const BACKLINKS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     options: {},
     run: async (input) => {
       await backlinksReleases({ format: input.format })
+    },
+  },
+  {
+    path: ['backlinks', 'releases', 'latest'],
+    usage: 'canonry backlinks releases latest [--format json]',
+    options: {},
+    run: async (input) => {
+      await backlinksLatestRelease({ format: input.format })
     },
   },
   {

@@ -2429,15 +2429,14 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/backlinks/syncs',
     summary: 'Queue a workspace-wide Common Crawl release sync',
     description:
-      'Creates a `cc_release_syncs` row and fires the sync callback. Idempotent: an existing in-flight row for the same release is returned.',
+      'Creates a `cc_release_syncs` row and fires the sync callback. Idempotent: an existing in-flight row for the same release is returned. When `release` is omitted, the server auto-discovers the latest available Common Crawl release.',
     tags: ['backlinks'],
     requestBody: {
-      required: true,
+      required: false,
       content: {
         'application/json': {
           schema: {
             type: 'object',
-            required: ['release'],
             properties: {
               release: stringSchema,
             },
@@ -2478,6 +2477,18 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['backlinks'],
     responses: {
       200: { description: 'Cached release metadata returned.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/backlinks/latest-release',
+    summary: 'Auto-discover the latest available Common Crawl hyperlinkgraph release',
+    description:
+      'Probes Common Crawl by HEAD-checking quarterly release slugs and returns the newest one published. The local server caches the result for ~5 minutes so repeated calls do not hammer Common Crawl.',
+    tags: ['backlinks'],
+    responses: {
+      200: { description: 'Latest available release, or null when no candidate slug responded.' },
+      422: { description: 'Backlinks feature is not available on this deployment.' },
     },
   },
   {

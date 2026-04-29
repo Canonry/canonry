@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useState, type ReactNode } from 'react'
-import { Download, HelpCircle, Play, Trash2, CheckCircle2, AlertCircle, AlertTriangle } from 'lucide-react'
+import { Download, ExternalLink, HelpCircle, Play, Trash2, CheckCircle2, AlertCircle, AlertTriangle } from 'lucide-react'
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
@@ -48,6 +48,7 @@ function Hint({
 import {
   fetchBacklinksStatus,
   fetchCachedReleases,
+  fetchLatestAvailableRelease,
   fetchLatestReleaseSync,
   fetchReleaseSyncs,
   installBacklinks,
@@ -57,9 +58,12 @@ import {
 } from '../api.js'
 import type {
   BacklinksInstallStatusDto,
+  CcAvailableRelease,
   CcCachedRelease,
   CcReleaseSyncDto,
 } from '../api.js'
+
+const COMMON_CRAWL_RELEASES_URL = 'https://commoncrawl.org/web-graphs'
 
 function formatBytes(n: number | null | undefined): string {
   if (n === null || n === undefined) return '—'
@@ -98,10 +102,12 @@ export function BacklinksPage() {
   const [latest, setLatest] = useState<CcReleaseSyncDto | null>(null)
   const [history, setHistory] = useState<CcReleaseSyncDto[]>([])
   const [cached, setCached] = useState<CcCachedRelease[]>([])
+  const [latestAvailable, setLatestAvailable] = useState<CcAvailableRelease | null>(null)
   const [loading, setLoading] = useState(true)
   const [installing, setInstalling] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [releaseInput, setReleaseInput] = useState('')
+  const [showOverride, setShowOverride] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -109,16 +115,18 @@ export function BacklinksPage() {
     setLoading(true)
     setError(null)
     try {
-      const [st, lat, hist, cac] = await Promise.all([
+      const [st, lat, hist, cac, avail] = await Promise.all([
         fetchBacklinksStatus(),
         fetchLatestReleaseSync().catch(() => null),
         fetchReleaseSyncs().catch(() => [] as CcReleaseSyncDto[]),
         fetchCachedReleases().catch(() => [] as CcCachedRelease[]),
+        fetchLatestAvailableRelease().catch(() => null),
       ])
       setStatus(st)
       setLatest(lat)
       setHistory(hist)
       setCached(cac)
+      setLatestAvailable(avail)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load backlinks status')
     } finally {
@@ -146,18 +154,19 @@ export function BacklinksPage() {
   }
 
   async function handleSync() {
-    const release = releaseInput.trim()
-    if (!release) {
-      setError('Enter a release id (e.g., cc-main-2026-jan-feb-mar).')
-      return
-    }
+    const release = releaseInput.trim() || undefined
     setSyncing(true)
     setError(null)
     setNotice(null)
     try {
-      await triggerReleaseSync(release)
-      setNotice(`Queued sync for ${release}. Download + query runs in the background.`)
+      const sync = await triggerReleaseSync(release)
+      setNotice(
+        release
+          ? `Queued sync for ${sync.release}. Download + query runs in the background.`
+          : `Queued sync for auto-discovered release ${sync.release}. Download + query runs in the background.`,
+      )
       setReleaseInput('')
+      setShowOverride(false)
       await reload()
     } catch (err) {
       if (err instanceof ApiError && err.code === 'MISSING_DEPENDENCY') {
@@ -401,33 +410,85 @@ export function BacklinksPage() {
               </div>
             </div>
           )}
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <input
-              type="text"
-              className="flex-1 min-w-[240px] rounded border border-zinc-700 bg-transparent px-2.5 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-              placeholder="cc-main-2026-jan-feb-mar"
-              value={releaseInput}
-              onChange={(e) => setReleaseInput(e.target.value)}
-              disabled={syncing}
-            />
-            <Button
-              type="button"
-              size="sm"
-              disabled={syncing || !status?.duckdbInstalled}
-              onClick={handleSync}
-            >
-              <Play className="h-4 w-4 mr-1.5" aria-hidden />
-              {syncing ? 'Queuing…' : 'Run sync'}
-            </Button>
-            <Hint label="What does Run sync do?">
-              <span className="block">
-                Downloads the named Common Crawl release (~16 GB) to{' '}
-                <code className="text-zinc-300">~/.canonry/cache/commoncrawl/</code>, then runs a single DuckDB query that extracts referring domains for every project in this workspace.
-              </span>
-              <span className="mt-2 block text-zinc-400">
-                First time for a release: <span className="text-zinc-200">~10–20 min download + ~5 min query</span>. Re-running the same release later: <span className="text-zinc-200">skips download, just re-queries</span> (~5 min).
-              </span>
-            </Hint>
+          <div className="mt-4 rounded border border-zinc-800 bg-zinc-900/40 p-3">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-zinc-500">
+                  Auto-detected release
+                </p>
+                {latestAvailable ? (
+                  <p className="text-sm text-zinc-200 mt-0.5">
+                    <code className="text-zinc-100">{latestAvailable.release}</code>
+                    <span className="ml-2 text-xs text-zinc-500">
+                      — vertex {formatBytes(latestAvailable.vertexBytes)}, edges {formatBytes(latestAvailable.edgesBytes)}
+                    </span>
+                  </p>
+                ) : (
+                  <p className="text-sm text-zinc-500 mt-0.5">
+                    {loading ? 'Probing Common Crawl…' : 'Could not auto-detect — pass an explicit release below.'}
+                  </p>
+                )}
+                <a
+                  href={COMMON_CRAWL_RELEASES_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 inline-flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-200 focus:text-zinc-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 rounded"
+                >
+                  Browse all Common Crawl web-graph releases
+                  <ExternalLink className="h-3 w-3" aria-hidden />
+                </a>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={syncing || !status?.duckdbInstalled || (!latestAvailable && !releaseInput.trim())}
+                  onClick={handleSync}
+                >
+                  <Play className="h-4 w-4 mr-1.5" aria-hidden />
+                  {syncing ? 'Queuing…' : 'Run sync'}
+                </Button>
+                <Hint label="What does Run sync do?">
+                  <span className="block">
+                    Downloads the auto-detected (or chosen) Common Crawl release (~16 GB) to{' '}
+                    <code className="text-zinc-300">~/.canonry/cache/commoncrawl/</code>, then runs a single DuckDB query that extracts referring domains for every project in this workspace.
+                  </span>
+                  <span className="mt-2 block text-zinc-400">
+                    First time for a release: <span className="text-zinc-200">~10–20 min download + ~5 min query</span>. Re-running the same release later: <span className="text-zinc-200">skips download, just re-queries</span> (~5 min).
+                  </span>
+                </Hint>
+              </div>
+            </div>
+            {!showOverride ? (
+              <button
+                type="button"
+                className="text-xs text-zinc-500 hover:text-zinc-300 focus:text-zinc-300 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 rounded"
+                onClick={() => setShowOverride(true)}
+                disabled={syncing}
+              >
+                Use a different release →
+              </button>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  className="flex-1 min-w-[240px] rounded border border-zinc-700 bg-transparent px-2.5 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+                  placeholder="cc-main-2026-jan-feb-mar"
+                  value={releaseInput}
+                  onChange={(e) => setReleaseInput(e.target.value)}
+                  disabled={syncing}
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  className="text-xs text-zinc-500 hover:text-zinc-300 focus:text-zinc-300 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500 rounded"
+                  onClick={() => { setReleaseInput(''); setShowOverride(false) }}
+                  disabled={syncing}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
           </div>
           {!status?.duckdbInstalled && (
             <p className="text-xs text-zinc-600 mt-2">Install DuckDB first to enable sync.</p>

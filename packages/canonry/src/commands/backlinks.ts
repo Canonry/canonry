@@ -3,6 +3,7 @@ import type {
   BacklinkSummaryDto,
   BacklinksInstallResultDto,
   BacklinksInstallStatusDto,
+  CcAvailableRelease,
   CcCachedRelease,
   CcReleaseSyncDto,
   RunDto,
@@ -145,7 +146,7 @@ export async function backlinksDoctor(opts: FormatOptions = {}): Promise<void> {
   console.log(formatInstallStatus(status))
 }
 
-export async function backlinksSync(opts: FormatOptions & { release: string; wait?: boolean }): Promise<void> {
+export async function backlinksSync(opts: FormatOptions & { release?: string; wait?: boolean }): Promise<void> {
   const client = getClient()
   const sync = await client.backlinksTriggerSync(opts.release)
   const final = opts.wait ? await pollSync(sync.id, opts.format) : sync
@@ -154,7 +155,39 @@ export async function backlinksSync(opts: FormatOptions & { release: string; wai
     return
   }
   if (opts.wait) process.stderr.write('\n')
+  if (!opts.release) {
+    process.stderr.write(`Auto-discovered release: ${sync.release}\n`)
+  }
   console.log(formatSync(final))
+}
+
+function formatBytesShort(n: number | null): string {
+  if (n === null) return '—'
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)} GB`
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)} MB`
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)} KB`
+  return `${n} B`
+}
+
+export function formatLatestRelease(result: CcAvailableRelease | null): string {
+  if (!result) return 'No release discovered (Common Crawl probe returned no candidates).'
+  const lines: string[] = []
+  lines.push(`Release: ${result.release}`)
+  lines.push(`Vertex:  ${result.vertexUrl}`)
+  lines.push(`         ${formatBytesShort(result.vertexBytes)}`)
+  lines.push(`Edges:   ${result.edgesUrl}`)
+  lines.push(`         ${formatBytesShort(result.edgesBytes)}`)
+  if (result.lastModified) lines.push(`Last modified: ${result.lastModified}`)
+  return lines.join('\n')
+}
+
+export async function backlinksLatestRelease(opts: FormatOptions = {}): Promise<void> {
+  const result = await getClient().backlinksLatestRelease()
+  if (opts.format === 'json') {
+    printJson(result)
+    return
+  }
+  console.log(formatLatestRelease(result))
 }
 
 export async function backlinksStatus(opts: FormatOptions = {}): Promise<void> {

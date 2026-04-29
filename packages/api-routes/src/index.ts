@@ -110,6 +110,7 @@ export interface ApiRoutesOptions {
   onBacklinkExtractRequested?: BacklinksRoutesOptions['onBacklinkExtractRequested']
   onBacklinksPruneCache?: BacklinksRoutesOptions['onBacklinksPruneCache']
   listCachedReleases?: BacklinksRoutesOptions['listCachedReleases']
+  discoverLatestRelease?: BacklinksRoutesOptions['discoverLatestRelease']
   /**
    * API route prefix (default: /api/v1).
    * Override when the server is behind a reverse proxy that does NOT strip the
@@ -269,6 +270,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onBacklinkExtractRequested: opts.onBacklinkExtractRequested,
       onBacklinksPruneCache: opts.onBacklinksPruneCache,
       listCachedReleases: opts.listCachedReleases,
+      discoverLatestRelease: opts.discoverLatestRelease,
     } satisfies BacklinksRoutesOptions)
     await api.register(doctorRoutes, {
       googleConnectionStore: opts.googleConnectionStore,
