@@ -282,6 +282,14 @@ export const gaTrafficSnapshots = sqliteTable('ga_traffic_snapshots', {
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   date: text('date').notNull(),
   landingPage: text('landing_page').notNull(),
+  /**
+   * Canonicalized form of `landingPage` produced by `normalizeUrlPath()` in
+   * `@ainyc/canonry-contracts`. Nullable so existing rows survive migration;
+   * new GA4 sync writes populate it. Per-page aggregations should
+   * `GROUP BY COALESCE(landing_page_normalized, landing_page)` so
+   * partially-backfilled state still aggregates correctly.
+   */
+  landingPageNormalized: text('landing_page_normalized'),
   sessions: integer('sessions').notNull().default(0),
   organicSessions: integer('organic_sessions').notNull().default(0),
   users: integer('users').notNull().default(0),
@@ -290,6 +298,7 @@ export const gaTrafficSnapshots = sqliteTable('ga_traffic_snapshots', {
 }, (table) => [
   index('idx_ga_traffic_project_date').on(table.projectId, table.date),
   index('idx_ga_traffic_page').on(table.landingPage),
+  index('idx_ga_traffic_page_normalized').on(table.projectId, table.date, table.landingPageNormalized),
   index('idx_ga_traffic_run').on(table.syncRunId),
 ])
 

@@ -1,7 +1,7 @@
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, isNull } from 'drizzle-orm'
 import type { GroundingSource, NormalizedQueryResult } from '@ainyc/canonry-contracts'
-import { createClient, migrate, parseJsonColumn, competitors, projects, querySnapshots, runs } from '@ainyc/canonry-db'
-import { determineAnswerMentioned, effectiveDomains, ProviderNames, RunKinds } from '@ainyc/canonry-contracts'
+import { createClient, gaTrafficSnapshots, migrate, parseJsonColumn, competitors, projects, querySnapshots, runs } from '@ainyc/canonry-db'
+import { determineAnswerMentioned, effectiveDomains, normalizeUrlPath, ProviderNames, RunKinds } from '@ainyc/canonry-contracts'
 import { reparseStoredResult as reparseOpenAIStoredResult } from '@ainyc/canonry-provider-openai'
 import { reparseStoredResult as reparseClaudeStoredResult } from '@ainyc/canonry-provider-claude'
 import { reparseStoredResult as reparseGeminiStoredResult } from '@ainyc/canonry-provider-gemini'
@@ -200,6 +200,102 @@ export async function backfillAnswerVisibilityCommand(opts?: {
   console.log(`  Visible:  ${visible}`)
   console.log(`  Reparsed: ${reparsed}`)
   console.log(`  Errors:   ${providerErrors}`)
+}
+
+/**
+ * Backfills `ga_traffic_snapshots.landing_page_normalized` for rows where it
+ * is currently null. Idempotent: only touches rows with null normalized; new
+ * GA4 sync writes populate the column going forward, so each row is filled
+ * in exactly once.
+ *
+ * Read queries `GROUP BY COALESCE(landing_page_normalized, landing_page)`
+ * so dashboards work correctly even before this is run — backfill is a
+ * cosmetic improvement that lets historical rows collapse with new ones.
+ */
+export async function backfillNormalizedPathsCommand(opts?: {
+  project?: string
+  format?: CliFormat
+}): Promise<void> {
+  const config = loadConfig()
+  const db = createClient(config.database)
+  migrate(db)
+
+  const projectFilter = opts?.project?.trim()
+
+  const baseConditions = [isNull(gaTrafficSnapshots.landingPageNormalized)]
+  if (projectFilter) {
+    const project = db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(eq(projects.name, projectFilter))
+      .get()
+    if (!project) {
+      const result = {
+        project: projectFilter,
+        examined: 0,
+        updated: 0,
+        unchanged: 0,
+      }
+      if (opts?.format === 'json') {
+        console.log(JSON.stringify(result, null, 2))
+        return
+      }
+      console.log(`Backfill normalized-paths: project "${projectFilter}" not found.`)
+      return
+    }
+    baseConditions.push(eq(gaTrafficSnapshots.projectId, project.id))
+  }
+
+  const rows = db
+    .select({
+      id: gaTrafficSnapshots.id,
+      landingPage: gaTrafficSnapshots.landingPage,
+    })
+    .from(gaTrafficSnapshots)
+    .where(and(...baseConditions))
+    .all()
+
+  let updated = 0
+  let unchanged = 0
+
+  if (rows.length > 0) {
+    db.transaction((tx) => {
+      for (const row of rows) {
+        const next = normalizeUrlPath(row.landingPage)
+        // Even if `next` is null (e.g., row.landingPage was "(not set)"),
+        // we still write so future runs treat it as backfilled rather than
+        // re-examining it. SQLite treats NULL = NULL as unknown so
+        // isNull() check would still match — accept that idempotency cost.
+        if (next === null) {
+          unchanged++
+          continue
+        }
+        tx.update(gaTrafficSnapshots)
+          .set({ landingPageNormalized: next })
+          .where(eq(gaTrafficSnapshots.id, row.id))
+          .run()
+        updated++
+      }
+    })
+  }
+
+  const result = {
+    project: projectFilter ?? null,
+    examined: rows.length,
+    updated,
+    unchanged,
+  }
+
+  if (opts?.format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  console.log('Normalized-path backfill complete.\n')
+  if (projectFilter) console.log(`  Project:   ${projectFilter}`)
+  console.log(`  Examined:  ${rows.length}`)
+  console.log(`  Updated:   ${updated}`)
+  console.log(`  Unchanged: ${unchanged}`)
 }
 
 export async function backfillInsightsCommand(

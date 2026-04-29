@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { eq, desc, and, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gaTrafficSnapshots, gaTrafficSummaries, gaAiReferrals, gaSocialReferrals, runs } from '@ainyc/canonry-db'
-import { validationError, notFound, RunKinds, RunStatuses, RunTriggers, parseWindow, windowCutoff } from '@ainyc/canonry-contracts'
+import { validationError, notFound, RunKinds, RunStatuses, RunTriggers, parseWindow, windowCutoff, normalizeUrlPath } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import {
   getAccessToken,
@@ -402,6 +402,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
               projectId: project.id,
               date: row.date,
               landingPage: row.landingPage,
+              landingPageNormalized: normalizeUrlPath(row.landingPage),
               sessions: row.sessions,
               organicSessions: row.organicSessions,
               users: row.users,
@@ -579,16 +580,19 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .where(eq(gaTrafficSummaries.projectId, project.id))
       .get()
 
+    // Group by COALESCE(normalized, raw) so click-ID-fragmented variants
+    // of the same page collapse, and partially-backfilled state (where
+    // older rows have null normalized) still aggregates correctly.
     const rows = app.db
       .select({
-        landingPage: gaTrafficSnapshots.landingPage,
+        landingPage: sql<string>`COALESCE(${gaTrafficSnapshots.landingPageNormalized}, ${gaTrafficSnapshots.landingPage})`,
         sessions: sql<number>`SUM(${gaTrafficSnapshots.sessions})`,
         organicSessions: sql<number>`SUM(${gaTrafficSnapshots.organicSessions})`,
         users: sql<number>`SUM(${gaTrafficSnapshots.users})`,
       })
       .from(gaTrafficSnapshots)
       .where(and(...snapshotConditions))
-      .groupBy(gaTrafficSnapshots.landingPage)
+      .groupBy(sql`COALESCE(${gaTrafficSnapshots.landingPageNormalized}, ${gaTrafficSnapshots.landingPage})`)
       .orderBy(sql`SUM(${gaTrafficSnapshots.sessions}) DESC`)
       .limit(limit)
       .all()

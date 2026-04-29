@@ -559,6 +559,17 @@ const MIGRATIONS = [
      ELSE NULL
    END
    WHERE created_at < '2026-04-22T00:00:00Z'`,
+
+  // v44: Canonicalized landing-page column for ga_traffic_snapshots.
+  // Populated by GA4 sync via normalizeUrlPath() in
+  // @ainyc/canonry-contracts. Nullable; existing rows are filled in by
+  // `canonry backfill normalized-paths`. Read queries should
+  // `GROUP BY COALESCE(landing_page_normalized, landing_page)` so
+  // partially-backfilled state still aggregates correctly.
+  // See plans/ai-attribution-research.md "Step 1 — data hygiene".
+  `ALTER TABLE ga_traffic_snapshots ADD COLUMN landing_page_normalized TEXT`,
+  `CREATE INDEX IF NOT EXISTS idx_ga_traffic_page_normalized
+     ON ga_traffic_snapshots(project_id, date, landing_page_normalized)`,
 ]
 
 /**

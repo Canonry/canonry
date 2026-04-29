@@ -1,4 +1,4 @@
-import { backfillAnswerVisibilityCommand, backfillInsightsCommand } from '../commands/backfill.js'
+import { backfillAnswerVisibilityCommand, backfillInsightsCommand, backfillNormalizedPathsCommand } from '../commands/backfill.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { requireProject, getString, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 
@@ -35,13 +35,27 @@ export const BACKFILL_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['backfill', 'normalized-paths'],
+    usage: 'canonry backfill normalized-paths [--project <name>] [--format json]',
+    options: {
+      project: stringOption(),
+    },
+    allowPositionals: false,
+    run: async (input) => {
+      await backfillNormalizedPathsCommand({
+        project: getString(input.values, 'project'),
+        format: input.format,
+      })
+    },
+  },
+  {
     path: ['backfill'],
-    usage: 'canonry backfill <answer-visibility|insights> [options]',
+    usage: 'canonry backfill <answer-visibility|insights|normalized-paths> [options]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'backfill',
-        usage: 'canonry backfill <answer-visibility|insights> [options]',
-        available: ['answer-visibility', 'insights'],
+        usage: 'canonry backfill <answer-visibility|insights|normalized-paths> [options]',
+        available: ['answer-visibility', 'insights', 'normalized-paths'],
       })
     },
   },
