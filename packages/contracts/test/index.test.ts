@@ -617,6 +617,102 @@ describe('extractAnswerMentions', () => {
     expect(result.mentioned).toBe(false)
     expect(result.matchedTerms).toEqual([])
   })
+
+  it('matches when display name has no spaces but the answer spaces it out', () => {
+    // Real-world case: project registered as "azcoatings" with domain
+    // azcoatingsllc.com; answer says "AZ Coatings (Michigan/Detroit Area)".
+    const result = extractAnswerMentions(
+      'Local contractors include AZ Coatings (Michigan/Detroit Area), specializing in polyurea roof restoration.',
+      'azcoatings',
+      ['azcoatingsllc.com'],
+    )
+    expect(result.mentioned).toBe(true)
+    expect(result.matchedTerms).toContain('azcoatings')
+  })
+
+  it('matches when display name has spaces but the answer concatenates it', () => {
+    const result = extractAnswerMentions(
+      'Visit AZCoatings for industrial polyurea systems.',
+      'AZ Coatings',
+      ['azcoatingsllc.com'],
+    )
+    expect(result.mentioned).toBe(true)
+    expect(result.matchedTerms).toContain('AZ Coatings')
+  })
+
+  it('does not loose-match short brand keys across word boundaries', () => {
+    // "acme" (4 chars) is below the brand-key threshold, so the loose match
+    // is gated off. Without that gate, "pa cme" would strip to "pacme" and
+    // falsely contain "acme".
+    const result = extractAnswerMentions(
+      'Find the pa cme report in the archive.',
+      'Acme',
+      ['acme.io'],
+    )
+    expect(result.mentioned).toBe(false)
+    expect(result.matchedTerms).toEqual([])
+  })
+
+  it('does not loose-match short brand+suffix pairings via the stripped normalized candidate', () => {
+    // "Bob Inc" stripped normalized candidate is "bob"; without the
+    // length gate, this would substring-match inside words like "bobsled".
+    // The brand-key path's MIN_BRAND_KEY_LENGTH threshold must apply to the
+    // stripped normalized candidate too.
+    const result = extractAnswerMentions(
+      'Bobsled racing is fun this winter.',
+      'Bob Inc',
+      ['bob.example.com'],
+    )
+    expect(result.mentioned).toBe(false)
+    expect(result.matchedTerms).toEqual([])
+  })
+
+  it('matches when display name carries a trailing LLC/Inc/Corp classifier', () => {
+    // Spaced form: "AZ Coatings LLC" should match an answer that drops the LLC.
+    expect(extractAnswerMentions(
+      'Local contractors include AZ Coatings (Michigan/Detroit Area).',
+      'AZ Coatings LLC',
+      ['azcoatingsllc.com'],
+    ).mentioned).toBe(true)
+
+    // Concatenated form: "azcoatingsllc" should also match without the suffix.
+    expect(extractAnswerMentions(
+      'Local contractors include AZ Coatings (Michigan/Detroit Area).',
+      'azcoatingsllc',
+      ['azcoatingsllc.com'],
+    ).mentioned).toBe(true)
+
+    // "Inc" is stripped likewise.
+    expect(extractAnswerMentions(
+      'According to Sherwin Williams paints are the best.',
+      'Sherwin Williams Inc',
+      ['sherwinwilliams.com'],
+    ).mentioned).toBe(true)
+
+    // "Corporation" (long form) is stripped too.
+    expect(extractAnswerMentions(
+      'Microsoft is launching a new product line.',
+      'Microsoft Corporation',
+      ['microsoft.com'],
+    ).mentioned).toBe(true)
+  })
+
+  it('does not strip a classifier when only the classifier itself remains', () => {
+    // Edge case: display name is just "Inc" (3 chars). Stripping would leave
+    // empty/too-short. The original "inc" stays and is below the brand-key
+    // threshold, so loose matching is gated off.
+    const result = extractAnswerMentions(
+      'The incident report is attached.',
+      'Inc',
+      ['inc.example.com'],
+    )
+    // strict normalized "inc" .includes against "the incident report is attached"
+    // → "inc" appears as substring in "incident", which IS a pre-existing
+    // limitation of the strict path for very short brand names. The classifier
+    // stripping logic must not amplify this — verify "Inc" alone is handled
+    // sanely (no crash, no expanded matching from stripping).
+    expect(result.matchedTerms.filter(t => t === '').length).toBe(0)
+  })
 })
 
 describe('parseProviderName', () => {

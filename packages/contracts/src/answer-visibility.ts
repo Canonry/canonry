@@ -20,6 +20,34 @@ const GENERIC_TOKENS = new Set([
   'tech',
 ])
 
+// Minimum length of the whitespace-stripped brand key required to allow a
+// "loose" match across word boundaries (e.g. registered "azcoatings" matching
+// "AZ Coatings" in answer text). Below this, fall back to the strict
+// space-preserving comparison so short names like "Acme" don't false-match
+// adjacent words.
+const MIN_BRAND_KEY_LENGTH = 6
+
+// Trailing legal/corporate classifiers stripped from a registered brand name
+// before matching, so a project named "AZ Coatings LLC" (or "azcoatingsllc")
+// matches an answer that mentions just "AZ Coatings". Sorted longest-first so
+// "incorporated" is tried before "inc". Stricter than GENERIC_TOKENS — only
+// classifiers that are unambiguous suffixes, never industry words like "tech".
+const BUSINESS_SUFFIXES = [
+  'incorporated',
+  'corporation',
+  'limited',
+  'company',
+  'gmbh',
+  'pllc',
+  'corp',
+  'group',
+  'llp',
+  'plc',
+  'llc',
+  'inc',
+  'ltd',
+]
+
 export interface AnswerMentionResult {
   mentioned: boolean
   matchedTerms: string[]
@@ -43,8 +71,15 @@ export function extractAnswerMentions(
     }
   }
 
-  const normalizedDisplayName = normalizeText(displayName)
-  if (normalizedDisplayName && normalizeText(answerText).includes(normalizedDisplayName)) {
+  const answerNormalized = normalizeText(answerText)
+  const answerBrandKey = brandKeyFromText(answerText)
+  const normalizedCandidates = brandNormalizedCandidates(displayName)
+  const brandKeyCandidates = brandKeyCandidatesForMatch(displayName)
+  const matchesNormalized = normalizedCandidates.some(c => answerNormalized.includes(c))
+  const matchesBrandKey = brandKeyCandidates.some(
+    c => c.length >= MIN_BRAND_KEY_LENGTH && answerBrandKey.includes(c),
+  )
+  if (matchesNormalized || matchesBrandKey) {
     matchedTerms.push(displayName)
   }
 
@@ -140,6 +175,39 @@ function isDistinctiveToken(token: string): boolean {
 
 function normalizeText(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+}
+
+function brandNormalizedCandidates(displayName: string): string[] {
+  const original = normalizeText(displayName)
+  if (!original) return []
+  const stripped = stripBusinessSuffix(original, ' ')
+  if (!stripped || stripped === original) return [original]
+  // Apply the same MIN_BRAND_KEY_LENGTH guard as the brand-key path: a stripped
+  // candidate like "bob" (from "Bob Inc") would otherwise substring-match inside
+  // unrelated words such as "bobsled".
+  if (brandKeyFromText(stripped).length < MIN_BRAND_KEY_LENGTH) return [original]
+  return [original, stripped]
+}
+
+function brandKeyCandidatesForMatch(displayName: string): string[] {
+  const original = brandKeyFromText(displayName)
+  if (!original) return []
+  const stripped = stripBusinessSuffix(original, '')
+  return stripped && stripped !== original ? [original, stripped] : [original]
+}
+
+// Strip a trailing business classifier (LLC/Inc/Corp/…) from a normalized brand
+// string. `separator` is `' '` for space-separated normalized text and `''` for
+// the whitespace-stripped brand key. Requires ≥3 chars to remain so a name
+// that is only a classifier (e.g. "Inc") is left untouched.
+function stripBusinessSuffix(value: string, separator: string): string {
+  for (const suffix of BUSINESS_SUFFIXES) {
+    const trailing = `${separator}${suffix}`
+    if (value.endsWith(trailing) && value.length - trailing.length >= 3) {
+      return value.slice(0, -trailing.length)
+    }
+  }
+  return value
 }
 
 function escapeRegExp(value: string): string {
