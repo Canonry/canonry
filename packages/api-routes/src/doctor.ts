@@ -13,8 +13,6 @@ export interface DoctorRoutesOptions {
   getGoogleAuthConfig?: () => { clientId?: string; clientSecret?: string }
   /** Used to derive the redirect URI displayed by the redirect-uri check. */
   publicUrl?: string
-  /** API route prefix (default: '/api/v1') — used to construct the redirect URI. */
-  routePrefix?: string
   providerSummary?: ProviderSummaryEntry[]
 }
 
@@ -28,9 +26,10 @@ function parseCheckIds(raw: string | undefined): string[] {
 
 function resolveRedirectUri(opts: DoctorRoutesOptions): string | undefined {
   if (!opts.publicUrl) return undefined
-  const base = opts.publicUrl.replace(/\/$/, '')
-  const prefix = opts.routePrefix ?? '/api/v1'
-  return `${base}${prefix}/google/callback`
+  // Mirror the OAuth flow in `google.ts`, which appends `/api/v1/google/callback`
+  // to publicUrl. publicUrl already includes any configured basePath, so the
+  // route-plugin prefix must NOT be reused here — that would double the basePath.
+  return `${opts.publicUrl.replace(/\/$/, '')}/api/v1/google/callback`
 }
 
 export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptions) {

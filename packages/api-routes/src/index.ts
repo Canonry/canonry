@@ -275,7 +275,6 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       ga4CredentialStore: opts.ga4CredentialStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
       publicUrl: opts.publicUrl,
-      routePrefix: opts.routePrefix,
       providerSummary: opts.providerSummary,
     })
     // Local-only extension hook: canonry passes the Aero agent routes here

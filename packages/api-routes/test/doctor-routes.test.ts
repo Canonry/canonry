@@ -169,6 +169,33 @@ describe('GET /api/v1/projects/:name/doctor', () => {
     expect(body.checks.length).toBeGreaterThanOrEqual(4)
     await app.close()
   })
+
+  it('builds redirect URI from publicUrl alone, ignoring routePrefix basePath', async () => {
+    refreshAccessTokenMock.mockResolvedValue({ access_token: 'tok', expires_in: 3600 })
+    listSitesMock.mockResolvedValue([{ siteUrl: 'sc-domain:example.com', permissionLevel: 'siteOwner' }])
+    // Simulate a deployment behind a basePath proxy: publicUrl already includes
+    // the basePath, and routePrefix also includes it. The redirect URI must
+    // match what google.ts uses (publicUrl + /api/v1/google/callback) — not
+    // double the basePath.
+    const { app } = buildApp({
+      googleConnectionStore: makeStore({}),
+      getGoogleAuthConfig: () => ({ clientId: 'client', clientSecret: 'secret' }),
+      publicUrl: 'https://example.com/canonry',
+      routePrefix: '/canonry/api/v1',
+    })
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/canonry/api/v1/projects/demo/doctor?check=google.auth.redirect-uri',
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload) as DoctorReportDto
+    expect(body.checks).toHaveLength(1)
+    expect(body.checks[0]!.details).toMatchObject({
+      redirectUri: 'https://example.com/canonry/api/v1/google/callback',
+    })
+    await app.close()
+  })
 })
 
 describe('GET /api/v1/doctor', () => {

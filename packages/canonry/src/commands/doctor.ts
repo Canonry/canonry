@@ -1,5 +1,5 @@
 import type { CheckResultDto, DoctorReportDto } from '@ainyc/canonry-contracts'
-import { CheckStatuses } from '@ainyc/canonry-contracts'
+import { CheckScopes, CheckStatuses } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError, EXIT_USER_ERROR } from '../cli-error.js'
 
@@ -46,7 +46,7 @@ function statusBadge(status: CheckResultDto['status']): string {
 }
 
 function printHumanReport(report: DoctorReportDto): void {
-  const header = report.scope === 'project' && report.project
+  const header = report.scope === CheckScopes.project && report.project
     ? `canonry doctor — project "${report.project}"`
     : 'canonry doctor — global'
   console.log(`\n${header}`)
