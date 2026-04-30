@@ -107,15 +107,15 @@ describe('backfill normalized-paths', () => {
     expect(readNormalized('s4')).toBeNull() // (not set) normalizes to null
   })
 
-  it('does not touch rows where landing_page_normalized is already populated', async () => {
-    insertSnapshot({ id: 's_already', landingPage: '/old', landingPageNormalized: '/sentinel' })
+  it('repairs stale normalized values and fills missing ones', async () => {
+    insertSnapshot({ id: 's_stale', landingPage: '/about/', landingPageNormalized: '/sentinel' })
     insertSnapshot({ id: 's_null', landingPage: '/about/' })
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     await backfillNormalizedPathsCommand({ format: 'json' })
     logSpy.mockRestore()
 
-    expect(readNormalized('s_already')).toBe('/sentinel')
+    expect(readNormalized('s_stale')).toBe('/about')
     expect(readNormalized('s_null')).toBe('/about')
   })
 
@@ -133,7 +133,7 @@ describe('backfill normalized-paths', () => {
     const secondCall = logSpy.mock.calls.at(-1)?.[0] as string
     const secondResult = JSON.parse(secondCall)
     expect(secondResult.updated).toBe(0)
-    expect(secondResult.examined).toBe(0)
+    expect(secondResult.examined).toBe(1)
 
     logSpy.mockRestore()
   })

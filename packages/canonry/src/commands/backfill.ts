@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import type { GroundingSource, NormalizedQueryResult } from '@ainyc/canonry-contracts'
 import { createClient, gaTrafficSnapshots, migrate, parseJsonColumn, competitors, projects, querySnapshots, runs } from '@ainyc/canonry-db'
 import { determineAnswerMentioned, effectiveDomains, normalizeUrlPath, ProviderNames, RunKinds } from '@ainyc/canonry-contracts'
@@ -226,7 +226,7 @@ export function backfillNormalizedPaths(
   db: ReturnType<typeof createClient>,
   opts?: { projectId?: string },
 ): NormalizedPathsBackfillResult {
-  const baseConditions = [isNull(gaTrafficSnapshots.landingPageNormalized)]
+  const baseConditions = []
   if (opts?.projectId) {
     baseConditions.push(eq(gaTrafficSnapshots.projectId, opts.projectId))
   }
@@ -235,9 +235,10 @@ export function backfillNormalizedPaths(
     .select({
       id: gaTrafficSnapshots.id,
       landingPage: gaTrafficSnapshots.landingPage,
+      landingPageNormalized: gaTrafficSnapshots.landingPageNormalized,
     })
     .from(gaTrafficSnapshots)
-    .where(and(...baseConditions))
+    .where(baseConditions.length > 0 ? and(...baseConditions) : undefined)
     .all()
 
   let updated = 0
@@ -247,12 +248,15 @@ export function backfillNormalizedPaths(
     db.transaction((tx) => {
       for (const row of rows) {
         const next = normalizeUrlPath(row.landingPage)
-        // Even if `next` is null (e.g., row.landingPage was "(not set)"),
-        // we still skip the write — leaving the column null is fine. The
-        // tradeoff: those rows stay candidates for future backfill runs,
-        // but the work is bounded (a row only stays null after we've seen
-        // it once if it can't be canonicalized, which is rare).
+        // If normalization still can't produce a canonical path, leave the
+        // row as-is. Otherwise, rewrite whenever the stored normalized value
+        // is missing or stale, so improved normalization logic can repair
+        // older rows after upgrades.
         if (next === null) {
+          unchanged++
+          continue
+        }
+        if (row.landingPageNormalized === next) {
           unchanged++
           continue
         }
