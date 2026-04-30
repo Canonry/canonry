@@ -274,6 +274,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     } satisfies BacklinksRoutesOptions)
     await api.register(doctorRoutes, {
       googleConnectionStore: opts.googleConnectionStore,
+      bingConnectionStore: opts.bingConnectionStore,
       ga4CredentialStore: opts.ga4CredentialStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
       publicUrl: opts.publicUrl,

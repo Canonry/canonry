@@ -1,6 +1,7 @@
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import type { CheckCategory, CheckResultDto, CheckScope, CheckStatus } from '@ainyc/canonry-contracts'
 import type { GoogleConnectionStore } from '../google.js'
+import type { BingConnectionStore } from '../bing.js'
 import type { Ga4CredentialStore } from '../ga.js'
 import type { ProviderSummaryEntry } from '../settings.js'
 
@@ -9,6 +10,7 @@ export interface DoctorContext {
   /** When the check is project-scoped, this resolves to the project row. */
   project: ProjectInfo | null
   googleConnectionStore?: GoogleConnectionStore
+  bingConnectionStore?: BingConnectionStore
   ga4CredentialStore?: Ga4CredentialStore
   getGoogleAuthConfig?: () => { clientId?: string; clientSecret?: string }
   /** Resolved redirect URI (publicUrl + /api/v1/google/callback) used by the OAuth flow. */

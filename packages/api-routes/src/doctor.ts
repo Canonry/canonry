@@ -3,12 +3,14 @@ import { ALL_CHECKS } from './doctor/registry.js'
 import { runChecks } from './doctor/runner.js'
 import type { DoctorContext } from './doctor/types.js'
 import type { GoogleConnectionStore } from './google.js'
+import type { BingConnectionStore } from './bing.js'
 import type { Ga4CredentialStore } from './ga.js'
 import type { ProviderSummaryEntry } from './settings.js'
 import { resolveProject } from './helpers.js'
 
 export interface DoctorRoutesOptions {
   googleConnectionStore?: GoogleConnectionStore
+  bingConnectionStore?: BingConnectionStore
   ga4CredentialStore?: Ga4CredentialStore
   getGoogleAuthConfig?: () => { clientId?: string; clientSecret?: string }
   /** Used to derive the redirect URI displayed by the redirect-uri check. */
@@ -42,6 +44,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       db: app.db,
       project: null,
       googleConnectionStore: opts.googleConnectionStore,
+      bingConnectionStore: opts.bingConnectionStore,
       ga4CredentialStore: opts.ga4CredentialStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
       redirectUri,
@@ -66,6 +69,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
         displayName: project.displayName,
       },
       googleConnectionStore: opts.googleConnectionStore,
+      bingConnectionStore: opts.bingConnectionStore,
       ga4CredentialStore: opts.ga4CredentialStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
       redirectUri,
