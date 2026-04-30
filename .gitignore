@@ -10,3 +10,4 @@ packages/canonry/assets/web/
 packages/canonry/assets/agent-workspace/skills/
 # Local Conductor worktree scratch dirs
 .claude/worktrees/
+packages/canonry/assets/assets/
