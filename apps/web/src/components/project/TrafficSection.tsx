@@ -427,7 +427,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
         )}
       </section>
 
-      {/* AI Referrals */}
+      {/* Traffic channel attribution */}
       {traffic && (
         <>
           <div className="page-section-divider" />
@@ -435,10 +435,10 @@ export function TrafficSection({ projectName }: { projectName: string }) {
           <section>
             <div className="mb-4 flex items-end justify-between">
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">AI Attribution</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">Traffic Attribution</p>
                 <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">
-                  AI Referral Sources
-                  <InfoTooltip text="Tracks sessions from known AI referrers and matching AI-tagged UTMs detected in GA4 sessionSource, firstUserSource, and sessionManualSource. Generic search sources are excluded to avoid false positives." />
+                  Traffic by channel
+                  <InfoTooltip text="Decomposes GA4 sessions into four disjoint channels — organic search, social, direct, and known AI referrers. The AI cell is rendered separately so AI-driven traffic never inflates the Direct count. Detected via sessionDefaultChannelGrouping plus AI-source matching on sessionSource/firstUserSource/sessionManualSource (generic search sources excluded)." />
                 </h2>
               </div>
               {dateRange && (
