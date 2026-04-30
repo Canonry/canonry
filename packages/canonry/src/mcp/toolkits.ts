@@ -38,9 +38,9 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
   },
   {
     name: 'agent',
-    title: 'Agent webhook lifecycle',
-    description: 'Detach the configured external-agent webhook from a project.',
-    whenToLoad: 'Load when removing an agent webhook subscription. (Attach lives in the core tier.)',
+    title: 'Aero agent lifecycle and memory',
+    description: 'Manage the built-in Aero agent: durable project-scoped memory (list/set/forget), clear the rolling transcript, and detach the external-agent webhook.',
+    whenToLoad: 'Load when reading or writing project-scoped Aero notes, clearing a stuck conversation, or removing an external agent webhook.',
   },
 ] as const
 

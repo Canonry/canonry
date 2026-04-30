@@ -77,13 +77,13 @@ describe('normalizeUrlPath', () => {
   })
 
   describe('strip-list policy', () => {
-    it('does NOT strip the v= cache-buster (conservative policy)', () => {
-      // trailing slash collapses regardless of query; v= survives
-      expect(normalizeUrlPath('/michigan/?v=3')).toBe('/michigan?v=3')
+    it('strips the v= cache-buster and versioning noise', () => {
+      // trailing slash collapses regardless of query; v= now stripped
+      expect(normalizeUrlPath('/michigan/?v=3')).toBe('/michigan')
     })
 
-    it('strips the click ID but preserves the v= param', () => {
-      expect(normalizeUrlPath('/michigan/?fbclid=foo&v=3')).toBe('/michigan?v=3')
+    it('strips the click ID and the v= param', () => {
+      expect(normalizeUrlPath('/michigan/?fbclid=foo&v=3')).toBe('/michigan')
     })
 
     it('strips all utm_* keys', () => {
@@ -183,6 +183,12 @@ describe('normalizeUrlPath', () => {
       expect(normalizeUrlPath('/)&nbsp;open')).toBe('/')
       expect(normalizeUrlPath('/path.&nbsp;')).toBe('/path')
       expect(normalizeUrlPath('/path...')).toBe('/path')
+    })
+
+    it('strips CMS and versioning noise (azcoatings examples)', () => {
+      expect(normalizeUrlPath('/polyurea-roofing?preview=true&preview_id=1394&preview_nonce=abc')).toBe('/polyurea-roofing')
+      expect(normalizeUrlPath('/michigan?v=3')).toBe('/michigan')
+      expect(normalizeUrlPath('/path?ver=1.2.3')).toBe('/path')
     })
   })
 })

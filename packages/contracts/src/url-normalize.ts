@@ -17,6 +17,7 @@ const STRIP_KEYS: ReadonlySet<string> = new Set([
   'dclid',
   'gbraid',
   'wbraid',
+  'bingid',
   // Mailchimp
   'mc_cid',
   'mc_eid',
@@ -26,6 +27,15 @@ const STRIP_KEYS: ReadonlySet<string> = new Set([
   // Google Tag Manager debug
   'gtm_latency',
   'gtm_debug',
+  // WordPress internal noise
+  'preview',
+  'preview_id',
+  'preview_nonce',
+  '_thumbnail_id',
+  // Common cache-busters/versioning
+  'v',
+  'ver',
+  'version',
 ])
 
 interface QueryPair {

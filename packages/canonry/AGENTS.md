@@ -48,7 +48,8 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/agent/compaction.ts` | Transcript compaction — `shouldCompact`, `findSafeSplit` (snaps to user-message boundaries), `runSummaryLlm` (one-shot pi-ai `complete()` call), and `compactMessages` which persists the summary as a `compaction:` memory row and returns the kept suffix. |
 | `src/agent/compaction-config.ts` | Tuning constants for compaction — token threshold, target ratio, preserved-tail size, max-messages hard cap. |
 | `src/agent/token-counter.ts` | `estimateMessageTokens` / `estimateTranscriptTokens` — chars/4 heuristic handling user/assistant/toolResult content shapes. Used only to decide when to compact, not to enforce provider limits. |
-| `src/agent/tools.ts` | 17 canonry-state `AgentTool` definitions — 9 read (`get_status`, `get_health`, `get_timeline`, `get_insights`, `list_keywords`, `list_competitors`, `get_run`, `recall`, `list_backlinks`) and 8 write (`run_sweep`, `dismiss_insight`, `add_keywords`, `add_competitors`, `update_schedule`, `attach_agent_webhook`, `remember`, `forget`) |
+| `src/agent/tools.ts` | Thin wrapper around `mcp-to-agent-tool.ts` — `buildReadTools(ctx)` and `buildAllTools(ctx)` delegate to `buildMcpAgentTools(canonryMcpTools, ctx)`. Adding a new tool to `mcp/tool-registry.ts` automatically exposes it to Aero — no separate registration in this file. |
+| `src/agent/mcp-to-agent-tool.ts` | Adapter that converts every `CanonryMcpTool` into a pi-agent-core `AgentTool`. Strips `project` from the LLM-visible schema and injects `ctx.projectName` at call time. `AERO_EXCLUDED_MCP_TOOLS` lists tools that ride the registry but should not reach Aero (e.g. `canonry_agent_clear` — Aero must not erase the operator's transcript). |
 | `src/agent/skill-tools.ts` | 2 skill-doc tools (`list_skill_docs`, `read_skill_doc`) — progressive disclosure of bundled reference playbooks. Ride in every scope. |
 | `src/agent/skill-paths.ts` | `resolveAeroSkillDir` — finds the on-disk `skills/aero/` (prod/dev/repo candidate paths) for the prompt loader and skill-doc tools |
 | `src/agent/agent-routes.ts` | Fastify routes — `GET/DELETE transcript` + `POST prompt` (SSE) for the dashboard Aero bar |
@@ -145,14 +146,17 @@ consume Canonry through the external-agent webhook.
   runs for the same project dedupe via an in-flight promise map.
 
 Tool surface has two layers:
-- **Canonry state** (`src/agent/tools.ts`) — 9 read (status/health/timeline/
-  insights/keywords/competitors/run detail/recall/backlinks) + 8 write
-  (run sweep / dismiss insight / add keywords / add competitors /
-  update schedule / attach webhook / remember / forget). Project name is
-  closed over by `ToolContext` so the LLM can't target the wrong project;
-  tools surface their intent via `tool_execution_start` events.
+- **Canonry state** (`src/agent/tools.ts` → `mcp-to-agent-tool.ts`) — every
+  tool from `src/mcp/tool-registry.ts` minus the `AERO_EXCLUDED_MCP_TOOLS`
+  set, adapted into pi-agent-core `AgentTool`s. The adapter strips the
+  top-level `project` property from each tool's JSON schema and injects
+  `ctx.projectName` at call time, so the LLM never sees raw project ids and
+  cannot target the wrong project. Result: **adding a new tool to the MCP
+  registry automatically makes it available to Aero — no second
+  registration**. Tool intent surfaces via `tool_execution_start` events.
 - **Skill docs** (`src/agent/skill-tools.ts`) — 2 tools (`list_skill_docs`,
   `read_skill_doc`) for progressive disclosure of bundled reference playbooks.
+  These stay Aero-only because they read on-disk skill files, not API state.
   Ride in every scope. `SKILL.md` stays lightweight; detailed playbooks
   (workflows, regression diagnosis, reporting templates, integrations) load
   on-demand via slug.

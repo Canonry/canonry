@@ -127,6 +127,15 @@ export const AGENT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['agent', 'clear'],
+    usage: 'canonry agent clear <project> [--format json]',
+    options: {},
+    run: async (input) => {
+      const project = requireProject(input, 'agent.clear', 'canonry agent clear <project> [--format json]')
+      await agentTranscriptReset({ project, format: input.format })
+    },
+  },
+  {
     path: ['agent', 'memory', 'list'],
     usage: 'canonry agent memory list <project> [--format json]',
     options: {},

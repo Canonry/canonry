@@ -1,25 +1,25 @@
 ---
 name: memory-patterns
-description: When to remember vs. re-query — project state lives in canonry, only durable user-scoped facts go in Aero memory. Read when unsure whether to call remember or look up.
+description: When to remember vs. re-query — project state lives in canonry, only durable user-scoped facts go in Aero memory. Read when unsure whether to call canonry_memory_set or look up.
 ---
 
 # Memory Patterns
 
 Canonry is the source of truth for project state. Do **not** maintain a parallel copy of project facts in Aero memory — it will drift from the DB and mislead the next session.
 
-Aero now ships with a built-in durable notes store — the `remember`, `forget`, and `recall` tools — backed by the `agent_memory` table. The N most-recently-updated notes are injected into the system prompt at every session start, so you usually see relevant memory without calling `recall`.
+Aero ships with a built-in durable notes store — the `canonry_memory_set`, `canonry_memory_forget`, and `canonry_memory_list` tools — backed by the `agent_memory` table. The N most-recently-updated notes are injected into the system prompt at every session start, so you usually see relevant memory without calling `canonry_memory_list`.
 
 ## What belongs where
 
 | Scope | Examples | Home |
 |---|---|---|
 | **Project state** | Baselines, historical regressions, citation rates per keyword/provider, recent insights, sweep history, audit trail | Canonry DB — query via CLI / API / read tools |
-| **Operator facts** | Personal preferences, non-observable context ("content lead is Sarah", "migrating off Webflow next quarter"), tone/voice preferences the operator confirmed | Aero memory (`remember`) |
+| **Operator facts** | Personal preferences, non-observable context ("content lead is Sarah", "migrating off Webflow next quarter"), tone/voice preferences the operator confirmed | Aero memory (`canonry_memory_set`) |
 | **Session scratch** | "I just tried X and it failed", intermediate reasoning, turn-local state | Nowhere — let it die with the session |
 
 ## How to read project state from canonry
 
-Prefer Aero's read tools (`get_status`, `get_health`, `get_timeline`, `get_insights`, `list_keywords`, `list_competitors`, `get_run`) over shelling out, but the CLI exists for operators too:
+Prefer Aero's read tools (`canonry_project_overview`, `canonry_health_latest`, `canonry_timeline_get`, `canonry_insights_list`, `canonry_keywords_list`, `canonry_competitors_list`, `canonry_run_get`) over shelling out, but the CLI exists for operators too:
 
 ```bash
 canonry status <project> --format json
@@ -36,13 +36,13 @@ If the data you need isn't reachable with a single read tool or CLI call, that's
 
 Derived interpretations (trend summaries, correlations between events) are cheap to recompute from the underlying DB rows. Prefer running the analysis again on fresh data over recalling what you concluded last session — conclusions age, the data doesn't.
 
-## Using `remember` / `forget` / `recall`
+## Using `canonry_memory_set` / `canonry_memory_forget` / `canonry_memory_list`
 
-- `remember(key, value)` — upsert a project-scoped note. Capped at 2 KB per value. Same key replaces the prior value, so use stable keys (e.g. `operator-pref.reporting-tone`, not `note-2026-04-17`).
-- `forget(key)` — remove a single note. Returns `status: missing` when the key never existed (non-fatal).
-- `recall(limit?)` — read notes newest-first. Usually unnecessary — the top 20 are already in the system prompt under `<memory>`. Reach for it when you need older context or the full value of a note that's been summarized.
+- `canonry_memory_set({ key, value })` — upsert a project-scoped note. Capped at 2 KB per value. Same key replaces the prior value, so use stable keys (e.g. `operator-pref.reporting-tone`, not `note-2026-04-17`).
+- `canonry_memory_forget({ key })` — remove a single note. Returns `status: missing` when the key never existed (non-fatal).
+- `canonry_memory_list()` — read notes newest-first. Usually unnecessary — the top 20 are already in the system prompt under `<memory>`. Reach for it when you need older context or the full value of a note that's been summarized.
 
-**Reserved prefix.** Keys starting with `compaction:` are reserved for LLM-summarized transcript slices. `remember` and `forget` both reject them. Compaction notes are pruned automatically — you can `recall` them but never write or delete them by hand.
+**Reserved prefix.** Keys starting with `compaction:` are reserved for LLM-summarized transcript slices. `canonry_memory_set` and `canonry_memory_forget` both reject them. Compaction notes are pruned automatically — you can list them but never write or delete them by hand.
 
 **CLI parity.** Operators can manage memory without talking to you:
 

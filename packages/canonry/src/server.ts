@@ -349,7 +349,7 @@ export async function createServer(opts: {
         content:
           `[system] Run ${runId} completed for project ${project.name}. ` +
           `${insightCount} insights generated (${criticalOrHigh} critical/high). ` +
-          `Use get_run to inspect the run and get_insights to review new findings. ` +
+          `Use canonry_run_get to inspect the run and canonry_insights_list to review new findings. ` +
           `Surface anything notable briefly — skip chit-chat.`,
         timestamp: Date.now(),
       })

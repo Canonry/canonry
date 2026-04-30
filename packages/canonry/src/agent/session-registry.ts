@@ -156,8 +156,6 @@ export class SessionRegistry {
         projectName,
         client: this.opts.client,
         config: this.opts.config,
-        db: this.opts.db,
-        projectId,
         provider: effectiveProvider,
         modelId: effectiveModelId,
         systemPromptOverride: this.buildHydratedSystemPrompt(projectId, row.systemPrompt),
@@ -184,8 +182,6 @@ export class SessionRegistry {
       projectName,
       client: this.opts.client,
       config: this.opts.config,
-      db: this.opts.db,
-      projectId,
       provider,
       modelId,
       // Hydrate on the fresh path too — a brand-new session may still see
@@ -247,7 +243,7 @@ export class SessionRegistry {
     return (
       `${basePrompt.trimEnd()}\n\n---\n\n` +
       `<memory>\n` +
-      `Project-scoped durable notes (newest first). Use remember/forget/recall to manage. Entries tagged [compaction] are LLM-summarized transcript slices.\n\n` +
+      `Project-scoped durable notes (newest first). Use canonry_memory_set/canonry_memory_forget/canonry_memory_list to manage. Entries tagged [compaction] are LLM-summarized transcript slices.\n\n` +
       `${lines.join('\n')}\n` +
       `</memory>`
     )
@@ -362,7 +358,7 @@ export class SessionRegistry {
     if (this.scopes.get(projectName) === wantScope) return
     const projectId = this.projectIds.get(projectName) ?? this.resolveProjectId(projectName)
     this.projectIds.set(projectName, projectId)
-    const toolCtx = { client: this.opts.client, projectName, db: this.opts.db, projectId }
+    const toolCtx = { client: this.opts.client, projectName }
     // Mirror createAeroSession: skill-doc tools ride in every scope.
     const stateTools =
       wantScope === 'read-only' ? buildReadTools(toolCtx) : buildAllTools(toolCtx)
