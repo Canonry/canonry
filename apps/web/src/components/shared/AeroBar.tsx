@@ -62,18 +62,17 @@ const STARTER_PROMPTS: Array<{ label: string; prompt: string }> = [
 ]
 
 /**
- * Pre-baked prompts the composer palette surfaces when the user types `/`.
- * `prompt` is what gets sent to Aero; `command` is the shorthand the user
- * types; `label` / `hint` drive the palette UI. Keep these scoped to
- * read-only operations — write commands (`/run-sweep`) explicitly flag that
- * they'll ask Aero to invoke a tool so the user isn't surprised.
+ * Pre-baked prompts and actions the composer palette surfaces when the user
+ * types `/`. `prompt` is what gets sent to Aero; `action` (when set) runs a
+ * client-side handler instead of dispatching a prompt — used for `/clear`
+ * so picking it from the palette wipes the transcript directly. Each entry
+ * sets exactly one of `prompt` or `action`.
  */
-const SLASH_COMMANDS: Array<{
-  command: string
-  label: string
-  hint: string
-  prompt: string
-}> = [
+type SlashCommand =
+  | { command: string; label: string; hint: string; prompt: string; action?: undefined }
+  | { command: string; label: string; hint: string; action: 'clear'; prompt?: undefined }
+
+const SLASH_COMMANDS: Array<SlashCommand> = [
   {
     command: '/status',
     label: 'Status',
@@ -121,6 +120,12 @@ const SLASH_COMMANDS: Array<{
     label: 'Competitors',
     hint: 'List tracked competitors',
     prompt: 'List this project\'s tracked competitors and call out which ones are showing up in answer citations.',
+  },
+  {
+    command: '/clear',
+    label: 'Clear conversation',
+    hint: 'Wipe transcript and start fresh',
+    action: 'clear',
   },
 ]
 
@@ -505,7 +510,8 @@ export function AeroBar({ projectName }: AeroBarProps) {
                   onPick={(cmd) => {
                     setDraft('')
                     textareaRef.current?.focus()
-                    void send(cmd.prompt)
+                    if (cmd.action === 'clear') void handleReset()
+                    else void send(cmd.prompt)
                   }}
                 />
               )}
@@ -516,7 +522,8 @@ export function AeroBar({ projectName }: AeroBarProps) {
                   if (paletteMatches.length > 0) {
                     const cmd = paletteMatches[paletteIndex]
                     setDraft('')
-                    void send(cmd.prompt)
+                    if (cmd.action === 'clear') void handleReset()
+                    else void send(cmd.prompt)
                     return
                   }
                   void send(draft)
@@ -555,7 +562,8 @@ export function AeroBar({ projectName }: AeroBarProps) {
                       if (paletteMatches.length > 0) {
                         const cmd = paletteMatches[paletteIndex]
                         setDraft('')
-                        void send(cmd.prompt)
+                        if (cmd.action === 'clear') void handleReset()
+                        else void send(cmd.prompt)
                       } else {
                         void send(draft)
                       }
@@ -804,10 +812,10 @@ function SlashPalette({
   onHover,
   onPick,
 }: {
-  matches: Array<{ command: string; label: string; hint: string; prompt: string }>
+  matches: SlashCommand[]
   selectedIndex: number
   onHover: (index: number) => void
-  onPick: (cmd: { command: string; label: string; hint: string; prompt: string }) => void
+  onPick: (cmd: SlashCommand) => void
 }) {
   return (
     <div className="absolute inset-x-3 bottom-full mb-2 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/98 shadow-2xl">

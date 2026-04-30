@@ -3,7 +3,6 @@ import path from 'node:path'
 import { Agent } from '@mariozechner/pi-agent-core'
 import type { AgentOptions, AgentTool } from '@mariozechner/pi-agent-core'
 import { registerBuiltInApiProviders, type Model } from '@mariozechner/pi-ai'
-import type { DatabaseClient } from '@ainyc/canonry-db'
 import type { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
 import {
@@ -35,16 +34,6 @@ export interface AeroSessionOptions {
   projectName: string
   client: ApiClient
   config: CanonryConfig
-  /**
-   * SQLite client used by memory tools (`remember` / `forget` / `recall`).
-   * Required so tools can persist durable notes scoped to `projectId`.
-   */
-  db: DatabaseClient
-  /**
-   * Resolved project id. Passed through `ToolContext` so memory tools
-   * cannot target another project (the LLM never sees raw ids).
-   */
-  projectId: string
   /** Explicit pi-ai provider. Default: auto-detect from configured API keys. */
   provider?: SupportedAgentProvider
   /** Explicit model id within the chosen provider. Default: provider's default. */
@@ -127,8 +116,6 @@ export function createAeroSession(opts: AeroSessionOptions): Agent {
   const toolCtx = {
     client: opts.client,
     projectName: opts.projectName,
-    db: opts.db,
-    projectId: opts.projectId,
   }
   // Skill-doc tools ride in both scopes — they're pure reads of bundled
   // assets, no project state involved.

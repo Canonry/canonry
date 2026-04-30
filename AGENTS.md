@@ -111,7 +111,8 @@ the external-agent webhook path via `canonry agent attach <url>`.
 Key files:
 - `packages/canonry/src/agent/session.ts` — `createAeroSession` (pi integration)
 - `packages/canonry/src/agent/session-registry.ts` — hybrid in-memory + DB registry
-- `packages/canonry/src/agent/tools.ts` — 13 tools (7 read + 6 write)
+- `packages/canonry/src/agent/tools.ts` — thin wrapper that exposes the entire MCP tool registry to Aero via `mcp-to-agent-tool.ts`
+- `packages/canonry/src/agent/mcp-to-agent-tool.ts` — adapter; new MCP tools flow into Aero with no second registration
 - `packages/canonry/src/agent/agent-routes.ts` — Fastify SSE endpoints
 - `apps/web/src/components/shared/AeroBar.tsx` — dashboard UI
 
@@ -617,7 +618,7 @@ This repo uses per-package `AGENTS.md` files for local context. **These must sta
 | Add a new table or column in `packages/db/src/schema.ts` | Update `docs/data-model.md` (ER diagram + table groups) |
 | Add a new API route file in `packages/api-routes/src/` | Update `packages/api-routes/AGENTS.md` key files table |
 | Add a new CLI command | Update `packages/canonry/AGENTS.md` |
-| Add or change an MCP tool | Update `packages/canonry/src/mcp/tool-registry.ts` (tag with a `tier`), `openapi-classification.ts`, `docs/mcp.md`, and the `mcp-registry`/`mcp-stdio` tests |
+| Add or change an MCP tool | Update `packages/canonry/src/mcp/tool-registry.ts` (tag with a `tier`), `openapi-classification.ts`, `docs/mcp.md`, and the `mcp-registry`/`mcp-stdio` tests. The built-in Aero agent picks the new tool up automatically through `agent/mcp-to-agent-tool.ts` — no second registration in `agent/tools.ts`. Add the name to `AERO_EXCLUDED_MCP_TOOLS` only if Aero must not invoke it (e.g. `canonry_agent_clear`). |
 | Add a new doctor check | Add a `CheckDefinition` in `packages/api-routes/src/doctor/checks/<topic>.ts`, register in `doctor/registry.ts`, add tests in `packages/api-routes/test/doctor-*`, document the new check ID in `AGENTS.md`'s "Doctor" section |
 | Add a new MCP toolkit | Add the toolkit name to `packages/canonry/src/mcp/toolkits.ts`, tag the relevant tools with the new tier, and update the toolkit table in `docs/mcp.md` |
 | Add a new UI dashboard section or widget | Verify backing API endpoint + CLI command exist first (UI/CLI parity rule) |

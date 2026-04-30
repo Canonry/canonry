@@ -1,5 +1,7 @@
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import {
+  AGENT_MEMORY_KEY_MAX_LENGTH,
+  AGENT_MEMORY_VALUE_MAX_BYTES,
   competitorBatchRequestSchema,
   keywordGenerateRequestSchema,
   keywordBatchRequestSchema,
@@ -177,6 +179,29 @@ const agentWebhookAttachInputSchema = z.object({
 const doctorInputSchema = z.object({
   project: projectNameSchema.optional().describe('Project name to scope project-level checks. Omit to run global checks (provider keys, config, etc.).'),
   checks: z.array(z.string().min(1)).optional().describe('Optional check IDs or wildcard prefixes (e.g. "google.auth.*", "config.providers"). Empty/omitted runs all matching checks for the chosen scope.'),
+})
+
+const contentTargetsInputSchema = z.object({
+  project: projectNameSchema,
+  limit: z.number().int().positive().max(500).optional().describe('Max rows. Defaults to all. Use a small number (3-10) when summarizing for the user.'),
+  includeInProgress: z.boolean().optional().describe('Include rows that already have an in-flight tracked action. Default false.'),
+})
+
+const backlinksDomainsInputSchema = z.object({
+  project: projectNameSchema,
+  limit: z.number().int().positive().max(200).optional().describe('Max linking-domain rows. Default 50, max 200.'),
+  release: z.string().optional().describe('Common Crawl release id (e.g., cc-main-2026-jan-feb-mar). Omit for the most recent release with data.'),
+})
+
+const memoryUpsertInputSchema = z.object({
+  project: projectNameSchema,
+  key: z.string().min(1).max(AGENT_MEMORY_KEY_MAX_LENGTH).describe(`Stable identifier for the note (max ${AGENT_MEMORY_KEY_MAX_LENGTH} chars). Writing the same key overwrites the prior value.`),
+  value: z.string().min(1).describe(`Plain-text note body (max ${AGENT_MEMORY_VALUE_MAX_BYTES} bytes). Use for durable operator preferences, migration context, or non-obvious reasoning that should survive future sessions.`),
+})
+
+const memoryForgetInputSchema = z.object({
+  project: projectNameSchema,
+  key: z.string().min(1).max(AGENT_MEMORY_KEY_MAX_LENGTH).describe('Exact key of the note to remove. No-op (status=missing) when no note exists for that key.'),
 })
 
 const AGENT_WEBHOOK_EVENTS = [
@@ -384,6 +409,42 @@ export const canonryMcpTools = [
     handler: (client, input) => client.getHealthHistory(input.project, input.limit),
   }),
   defineTool({
+    name: 'canonry_content_targets',
+    title: 'Get content targets',
+    description: 'Ranked, action-typed content opportunities. Each row is `{query, action ∈ create|expand|refresh|add-schema, ourBestPage?, winningCompetitor?, score, scoreBreakdown, drivers[], demandSource, actionConfidence}`. Use this to recommend which post the user should write or refresh next.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: contentTargetsInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/content/targets'],
+    handler: (client, input) => client.getContentTargets(input.project, {
+      limit: input.limit,
+      includeInProgress: input.includeInProgress,
+    }),
+  }),
+  defineTool({
+    name: 'canonry_content_sources',
+    title: 'Get grounding sources',
+    description: 'URL-level competitive grounding-source map. Per query, lists every URL the LLM cited (our domain vs competitors) with citation count and providers. Read this to understand which specific competitor URL is winning a query.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: projectInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/content/sources'],
+    handler: (client, input) => client.getContentSources(input.project),
+  }),
+  defineTool({
+    name: 'canonry_content_gaps',
+    title: 'Get content gaps',
+    description: 'Queries where competitors are cited but our domain is not, ranked by miss rate. The blunt-instrument view of "what competitors are winning that we are not." Use canonry_content_targets for action-typed recommendations on the same data.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: projectInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/content/gaps'],
+    handler: (client, input) => client.getContentGaps(input.project),
+  }),
+  defineTool({
     name: 'canonry_keywords_list',
     title: 'List keywords',
     description: 'List tracked keywords for a Canonry project.',
@@ -427,6 +488,20 @@ export const canonryMcpTools = [
     annotations: readAnnotations(true),
     openApiOperations: ['GET /api/v1/backlinks/latest-release'],
     handler: (client) => client.backlinksLatestRelease(),
+  }),
+  defineTool({
+    name: 'canonry_backlinks_domains',
+    title: 'List backlink domains',
+    description: 'Backlink summary and top linking domains from the most recent ready Common Crawl release for a project. Off-site authority signal that correlates with citation likelihood. Returns null summary when no release sync has completed for this workspace.',
+    access: 'read',
+    tier: 'setup',
+    inputSchema: backlinksDomainsInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/backlinks/domains'],
+    handler: (client, input) => client.backlinksDomains(input.project, {
+      limit: input.limit ?? 50,
+      release: input.release,
+    }),
   }),
   defineTool({
     name: 'canonry_settings_get',
@@ -759,6 +834,53 @@ export const canonryMcpTools = [
     annotations: writeAnnotations({ idempotentHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/insights/{id}/dismiss'],
     handler: (client, input) => client.dismissInsight(input.project, input.insightId),
+  }),
+  defineTool({
+    name: 'canonry_memory_list',
+    title: 'List agent memory',
+    description: 'Read project-scoped durable notes Aero has stored via canonry_memory_set (plus compaction summaries). Returns entries newest-first. The N most-recent entries are also injected into the system prompt at session start, so you usually do not need to call this — reach for it when you need older context or the full note value.',
+    access: 'read',
+    tier: 'agent',
+    inputSchema: projectInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/agent/memory'],
+    handler: (client, input) => client.listAgentMemory(input.project),
+  }),
+  defineTool({
+    name: 'canonry_memory_set',
+    title: 'Upsert agent memory',
+    description: 'Persist a project-scoped durable note visible to every future Aero session for this project. Upsert — writing the same key replaces the prior value. Capped at 2 KB per note. Reserved key prefix "compaction:" is rejected.',
+    access: 'write',
+    tier: 'agent',
+    inputSchema: memoryUpsertInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['PUT /api/v1/projects/{name}/agent/memory'],
+    handler: (client, input) => client.setAgentMemory(input.project, { key: input.key, value: input.value }),
+  }),
+  defineTool({
+    name: 'canonry_memory_forget',
+    title: 'Delete agent memory',
+    description: 'Delete a durable note by key. Returns status="missing" (non-error) when the key did not exist. Reserved key prefix "compaction:" cannot be forgotten directly — those notes are pruned automatically.',
+    access: 'write',
+    tier: 'agent',
+    inputSchema: memoryForgetInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
+    openApiOperations: ['DELETE /api/v1/projects/{name}/agent/memory'],
+    handler: (client, input) => client.forgetAgentMemory(input.project, input.key),
+  }),
+  defineTool({
+    name: 'canonry_agent_clear',
+    title: 'Clear agent transcript',
+    description: 'Clear the rolling Aero conversation for a project — wipes the transcript, the in-memory pending follow-up buffer, and the persisted follow-up queue. Memory entries (canonry_memory_*) are preserved. Use when starting a fresh dialogue or when the operator wants to reset context.',
+    access: 'write',
+    tier: 'agent',
+    inputSchema: projectInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
+    openApiOperations: ['DELETE /api/v1/projects/{name}/agent/transcript'],
+    handler: async (client, input) => {
+      await client.resetAgentTranscript(input.project)
+      return { status: 'cleared' as const, project: input.project }
+    },
   }),
   defineTool({
     name: 'canonry_agent_webhook_attach',

@@ -33,10 +33,14 @@ const expectedToolNames = [
   'canonry_insight_get',
   'canonry_health_latest',
   'canonry_health_history',
+  'canonry_content_targets',
+  'canonry_content_sources',
+  'canonry_content_gaps',
   'canonry_keywords_list',
   'canonry_competitors_list',
   'canonry_schedule_get',
   'canonry_backlinks_latest_release',
+  'canonry_backlinks_domains',
   'canonry_settings_get',
   'canonry_google_connections_list',
   'canonry_gsc_performance',
@@ -66,16 +70,21 @@ const expectedToolNames = [
   'canonry_schedule_set',
   'canonry_schedule_delete',
   'canonry_insight_dismiss',
+  'canonry_memory_list',
+  'canonry_memory_set',
+  'canonry_memory_forget',
+  'canonry_agent_clear',
   'canonry_agent_webhook_attach',
   'canonry_agent_webhook_detach',
 ] as const
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(52)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(37)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(60)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(42)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
-    expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(expectedToolNames.slice(0, 37))
+    const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
+    expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
   })
 
   it('tags every tool with a tier from the published list', () => {
@@ -108,11 +117,11 @@ describe('MCP tool registry', () => {
     for (const tool of canonryMcpTools) {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
-    expect(counts.get('monitoring')).toBe(11)
-    expect(counts.get('setup')).toBe(15)
+    expect(counts.get('monitoring')).toBe(14)
+    expect(counts.get('setup')).toBe(16)
     expect(counts.get('gsc')).toBe(7)
     expect(counts.get('ga')).toBe(8)
-    expect(counts.get('agent')).toBe(1)
+    expect(counts.get('agent')).toBe(5)
   })
 
   it('generates JSON schema from every Zod input schema', () => {
@@ -352,16 +361,20 @@ describe('Dynamic tool catalog', () => {
     expect(help.toolkits.every(t => t.loaded)).toBe(true)
   })
 
-  it('reports an empty toolkit when read-only scope filters out all of its tools', () => {
+  it('still loads partial reads when read-only scope drops every write tool', () => {
     const calls: Array<{ method: string; args: unknown[] }> = []
     const { catalog } = createCanonryMcpServerWithCatalog({
       clientFactory: () => makeClient(calls),
       scope: 'read-only',
     })
 
+    // The agent toolkit has both reads (canonry_memory_list) and writes
+    // (memory_set/forget, agent_clear, webhook_detach). In read-only scope
+    // only the reads survive, so loading still reports `loaded` with the
+    // surviving subset rather than `empty`.
     const result = catalog.loadToolkit('agent')
-    expect(result.status).toBe('empty')
-    expect(result.tools).toEqual([])
+    expect(result.status).toBe('loaded')
+    expect(result.tools).toEqual(['canonry_memory_list'])
   })
 
   it('emits exactly one tools/list_changed per loadToolkit batch', () => {
@@ -476,6 +489,14 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_schedule_set', input: { project: 'acme', schedule: { preset: 'daily', timezone: 'UTC' } }, methods: ['putSchedule'] },
   { tool: 'canonry_schedule_delete', input: projectInput, methods: ['deleteSchedule'] },
   { tool: 'canonry_insight_dismiss', input: { project: 'acme', insightId: 'insight-1' }, methods: ['dismissInsight'] },
+  { tool: 'canonry_content_targets', input: { project: 'acme', limit: 5 }, methods: ['getContentTargets'] },
+  { tool: 'canonry_content_sources', input: projectInput, methods: ['getContentSources'] },
+  { tool: 'canonry_content_gaps', input: projectInput, methods: ['getContentGaps'] },
+  { tool: 'canonry_backlinks_domains', input: { project: 'acme', limit: 50 }, methods: ['backlinksDomains'] },
+  { tool: 'canonry_memory_list', input: projectInput, methods: ['listAgentMemory'] },
+  { tool: 'canonry_memory_set', input: { project: 'acme', key: 'pref', value: 'note' }, methods: ['setAgentMemory'] },
+  { tool: 'canonry_memory_forget', input: { project: 'acme', key: 'pref' }, methods: ['forgetAgentMemory'] },
+  { tool: 'canonry_agent_clear', input: projectInput, methods: ['resetAgentTranscript'] },
   { tool: 'canonry_agent_webhook_attach', input: { project: 'acme', url: 'https://agent.example.com/hook' }, methods: ['listNotifications', 'createNotification'] },
   { tool: 'canonry_agent_webhook_detach', input: projectInput, methods: ['listNotifications', 'deleteNotification'], fixture: 'agent-notification' },
 ]

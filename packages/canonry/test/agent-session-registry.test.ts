@@ -20,8 +20,21 @@ import { eq } from 'drizzle-orm'
 import type { AgentMessage } from '@mariozechner/pi-agent-core'
 import { MemorySources } from '@ainyc/canonry-contracts'
 import { SessionRegistry } from '../src/agent/session-registry.js'
+import { canonryMcpTools } from '../src/mcp/tool-registry.js'
+import { AERO_EXCLUDED_MCP_TOOLS } from '../src/agent/mcp-to-agent-tool.js'
 import type { ApiClient } from '../src/client.js'
 import type { CanonryConfig } from '../src/config.js'
+
+// Aero registers every MCP tool except the exclusion set, plus 2 bundled
+// skill-doc tools. Computing from the registry keeps the assertions stable
+// as new tools are added — the contract is "all reads + skill-docs" and
+// "all reads + writes + skill-docs", not a hardcoded count.
+const SKILL_DOC_TOOL_COUNT = 2
+const AERO_READ_TOOL_COUNT =
+  canonryMcpTools.filter((t) => t.access === 'read' && !AERO_EXCLUDED_MCP_TOOLS.has(t.name)).length +
+  SKILL_DOC_TOOL_COUNT
+const AERO_ALL_TOOL_COUNT =
+  canonryMcpTools.filter((t) => !AERO_EXCLUDED_MCP_TOOLS.has(t.name)).length + SKILL_DOC_TOOL_COUNT
 
 function stubClient(): ApiClient {
   return {} as unknown as ApiClient
@@ -370,7 +383,7 @@ describe('SessionRegistry', () => {
     agent.state.model = faux.getModel()
     faux.setResponses([fauxAssistantMessage('Acknowledged.')])
 
-    expect(agent.state.tools.length).toBe(14) // 12 read (incl. recall + list_backlinks + 3 content) + 2 skill-doc
+    expect(agent.state.tools.length).toBe(AERO_READ_TOOL_COUNT)
 
     registry.queueFollowUp('demo', {
       role: 'user',
@@ -380,7 +393,7 @@ describe('SessionRegistry', () => {
 
     await registry.drainNow('demo')
 
-    expect(agent.state.tools.length).toBe(14)
+    expect(agent.state.tools.length).toBe(AERO_READ_TOOL_COUNT)
   })
 
   it('drainNow defaults to read-only when no session scope is set yet', async () => {
@@ -413,7 +426,7 @@ describe('SessionRegistry', () => {
 
     await registry.drainNow('demo')
 
-    expect(agent.state.tools.length).toBe(14) // 12 read (incl. recall + list_backlinks + 3 content) + 2 skill-doc
+    expect(agent.state.tools.length).toBe(AERO_READ_TOOL_COUNT)
   })
 
   it('acquireForTurn compacts the transcript when it crosses the threshold, rehydrates the system prompt, and persists a compaction note', async () => {
@@ -526,11 +539,11 @@ describe('SessionRegistry', () => {
     insertProject(db, 'demo')
     const registry = new SessionRegistry({ db, client: stubClient(), config: stubConfig() })
     const agent = registry.getOrCreate('demo')
-    expect(agent.state.tools.length).toBe(22) // 12 read + 8 write + 2 skill-doc
+    expect(agent.state.tools.length).toBe(AERO_ALL_TOOL_COUNT)
 
     await registry.acquireForTurn('demo', { toolScope: 'read-only' })
 
-    expect(agent.state.tools.length).toBe(14) // 12 read (incl. recall + list_backlinks + 3 content) + 2 skill-doc
+    expect(agent.state.tools.length).toBe(AERO_READ_TOOL_COUNT)
   })
 
   it('acquireForTurn swaps model on cached agents when preferences change', async () => {

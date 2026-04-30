@@ -2619,6 +2619,76 @@ const canonryLocalRouteCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/agent/memory',
+    summary: 'List durable Aero memory entries for a project',
+    description:
+      'Returns the project-scoped agent_memory rows newest-first. Includes both operator-authored notes (source `user`/`aero`) and LLM-authored compaction summaries (source `compaction`, key prefix `compaction:`). The N most-recent rows are also injected into the system prompt at every new session start.',
+    tags: ['agent'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'Memory entries returned.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'put',
+    path: '/api/v1/projects/{name}/agent/memory',
+    summary: 'Upsert a durable Aero memory entry',
+    description:
+      'Creates or replaces a project-scoped note (max 2 KB, max 128-char key). Same key replaces the prior value. Keys with the reserved `compaction:` prefix are rejected — that namespace is owned by transcript compaction.',
+    tags: ['agent'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['key', 'value'],
+            properties: {
+              key: { type: 'string', description: 'Stable identifier for this note (max 128 chars).' },
+              value: { type: 'string', description: 'Plain-text note body (max 2 KB).' },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Entry upserted.' },
+      400: { description: 'Validation failed (key length, value size, reserved prefix).' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'delete',
+    path: '/api/v1/projects/{name}/agent/memory',
+    summary: 'Delete a durable Aero memory entry',
+    description:
+      'Removes a single project-scoped note by key. Returns `status: missing` (non-error) when the key never existed. Keys with the reserved `compaction:` prefix are rejected — those notes are pruned automatically.',
+    tags: ['agent'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['key'],
+            properties: {
+              key: { type: 'string', description: 'Exact key of the note to remove.' },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Entry removed or already absent.' },
+      400: { description: 'Validation failed (reserved prefix).' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/agent/providers',
     summary: 'List the LLM providers Aero can route to',
     description:
