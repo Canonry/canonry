@@ -145,6 +145,8 @@ describe('canonry ga attribution --format json', () => {
       source: 'chatgpt.com',
       medium: 'referral',
       sourceDimension: 'session',
+      landingPage: '/pricing?utm_source=chatgpt.com',
+      landingPageNormalized: '/pricing',
       sessions: 5,
       users: 4,
       syncedAt: now,
@@ -156,6 +158,8 @@ describe('canonry ga attribution --format json', () => {
       source: 'chatgpt.com',
       medium: 'referral',
       sourceDimension: 'first_user',
+      landingPage: '/pricing?utm_source=chatgpt.com',
+      landingPageNormalized: '/pricing',
       sessions: 12,
       users: 10,
       syncedAt: now,
@@ -178,6 +182,7 @@ describe('canonry ga attribution --format json', () => {
       aiSessionsBySession: number
       aiSharePct: number
       aiSharePctBySession: number
+      aiReferralLandingPages: Array<{ landingPage: string; source: string; sessions: number }>
       trend: { direct: { sessions7d: number; sessionsPrev7d: number; trend7dPct: number | null } }
     }
     expect(parsed.directSessions).toBeGreaterThanOrEqual(75)
@@ -186,6 +191,9 @@ describe('canonry ga attribution --format json', () => {
     expect(parsed.aiSessions).toBe(12)
     expect(parsed.aiSessionsBySession).toBe(5)
     expect(parsed.aiSharePctBySession).toBeLessThan(parsed.aiSharePct)
+    expect(parsed.aiReferralLandingPages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ landingPage: '/pricing', source: 'chatgpt.com', sessions: 12 }),
+    ]))
     expect(parsed.trend.direct).toBeDefined()
     expect(parsed.trend.direct.sessions7d).toBe(50)
     expect(parsed.trend.direct.sessionsPrev7d).toBe(25)

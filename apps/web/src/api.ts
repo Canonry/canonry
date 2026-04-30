@@ -979,6 +979,15 @@ export interface ApiGaTrafficReferral {
   users: number
 }
 
+export interface ApiGaTrafficAiLandingPage {
+  source: string
+  medium: string
+  sourceDimension: 'session' | 'first_user' | 'manual_utm'
+  landingPage: string
+  sessions: number
+  users: number
+}
+
 export interface ApiGaSocialReferral {
   source: string
   medium: string
@@ -995,6 +1004,7 @@ export interface ApiGaTraffic {
   totalUsers: number
   topPages: ApiGaTrafficPage[]
   aiReferrals: ApiGaTrafficReferral[]
+  aiReferralLandingPages: ApiGaTrafficAiLandingPage[]
   /** Deduped AI session total (MAX per date+source+medium across attribution dimensions). Cross-cutting: can overlap with Direct/Organic/Social. */
   aiSessionsDeduped: number
   /** Deduped AI user total. */

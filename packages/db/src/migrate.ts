@@ -577,6 +577,17 @@ const MIGRATIONS = [
   // dashboard (organic / social / direct / known-AI) — see
   // plans/ai-attribution-research.md scope A.
   `ALTER TABLE ga_traffic_snapshots ADD COLUMN direct_sessions INTEGER`,
+
+  // v46: Landing-page breakdown for GA4 known-AI referral rows. The raw
+  // landing_page participates in the unique key so distinct query strings can
+  // be ingested without collision; API reads group by landing_page_normalized.
+  `ALTER TABLE ga_ai_referrals ADD COLUMN landing_page TEXT NOT NULL DEFAULT '(unknown)'`,
+  `ALTER TABLE ga_ai_referrals ADD COLUMN landing_page_normalized TEXT`,
+  `DROP INDEX IF EXISTS idx_ga_ai_ref_unique_v2`,
+  `CREATE INDEX IF NOT EXISTS idx_ga_ai_ref_landing_page
+     ON ga_ai_referrals(project_id, date, landing_page_normalized)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_ai_ref_unique_v3
+     ON ga_ai_referrals(project_id, date, source, medium, source_dimension, landing_page)`,
 ]
 
 /**

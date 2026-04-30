@@ -33,6 +33,16 @@ export const ga4AiReferralDtoSchema = z.object({
 })
 export type GA4AiReferralDto = z.infer<typeof ga4AiReferralDtoSchema>
 
+export const ga4AiReferralLandingPageDtoSchema = z.object({
+  source: z.string(),
+  medium: z.string(),
+  sourceDimension: ga4SourceDimensionSchema,
+  landingPage: z.string(),
+  sessions: z.number(),
+  users: z.number(),
+})
+export type GA4AiReferralLandingPageDto = z.infer<typeof ga4AiReferralLandingPageDtoSchema>
+
 export const ga4SocialReferralDtoSchema = z.object({
   source: z.string(),
   medium: z.string(),
@@ -58,6 +68,7 @@ export const ga4TrafficSummaryDtoSchema = z.object({
     users: z.number(),
   })),
   aiReferrals: z.array(ga4AiReferralDtoSchema),
+  aiReferralLandingPages: z.array(ga4AiReferralLandingPageDtoSchema),
   /** Deduped AI session total: MAX(sessions) per date+source+medium across attribution dimensions, then summed. Cross-cutting: can overlap with Direct/Organic/Social via firstUserSource. */
   aiSessionsDeduped: z.number(),
   /** Deduped AI user total: MAX(users) per date+source+medium across attribution dimensions, then summed. */
@@ -155,6 +166,7 @@ export interface GaTrafficResponse {
   totalUsers: number
   topPages: Array<{ landingPage: string; sessions: number; organicSessions: number; directSessions: number; users: number }>
   aiReferrals: Array<{ source: string; medium: string; sessions: number; users: number; sourceDimension: GA4SourceDimension }>
+  aiReferralLandingPages: Array<{ source: string; medium: string; sourceDimension: GA4SourceDimension; landingPage: string; sessions: number; users: number }>
   /** Deduped AI session total: MAX(sessions) per date+source+medium across attribution dimensions, then summed. Cross-cutting: can overlap with Direct/Organic/Social via firstUserSource. */
   aiSessionsDeduped: number
   /** Deduped AI user total: MAX(users) per date+source+medium across attribution dimensions, then summed. */
@@ -193,6 +205,7 @@ export const ga4AiReferralHistoryEntrySchema = z.object({
   date: z.string(),
   source: z.string(),
   medium: z.string(),
+  landingPage: z.string(),
   sessions: z.number(),
   users: z.number(),
   /** Which GA4 dimension this row came from: session (sessionSource), first_user (firstUserSource), or manual_utm (utm_source parameter) */

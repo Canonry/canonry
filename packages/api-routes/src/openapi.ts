@@ -2130,7 +2130,7 @@ const routeCatalog: OpenApiOperation[] = [
   {
     method: 'get',
     path: '/api/v1/projects/{name}/ga/traffic',
-    summary: 'Get GA4 landing page traffic and AI referral sources',
+    summary: 'Get GA4 landing page traffic, channel breakdown, and AI referral landing pages',
     tags: ['ga4'],
     parameters: [nameParameter, limitQueryParameter, analyticsWindowParameter],
     responses: {
@@ -2142,7 +2142,7 @@ const routeCatalog: OpenApiOperation[] = [
   {
     method: 'get',
     path: '/api/v1/projects/{name}/ga/ai-referral-history',
-    summary: 'Get AI referral sessions per day grouped by source',
+    summary: 'Get AI referral sessions per day grouped by source and landing page',
     tags: ['ga4'],
     parameters: [nameParameter, analyticsWindowParameter],
     responses: {

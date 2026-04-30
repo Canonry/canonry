@@ -61,6 +61,9 @@ test('loads connected GA4 data without changing hook order', async () => {
         aiReferrals: [
           { source: 'chatgpt.com', medium: 'referral', sourceDimension: 'session', sessions: 12, users: 9 },
         ],
+        aiReferralLandingPages: [
+          { source: 'chatgpt.com', medium: 'referral', sourceDimension: 'session', landingPage: '/pricing', sessions: 12, users: 9 },
+        ],
         aiSessionsDeduped: 12,
         aiUsersDeduped: 9,
         aiSessionsBySession: 12,
@@ -142,6 +145,10 @@ test('renders four-channel breakdown with Organic, Social, Direct, and Known AI 
           { source: 'chatgpt.com', medium: 'referral', sourceDimension: 'session', sessions: 12, users: 9 },
           { source: 'claude.ai', medium: 'referral', sourceDimension: 'first_user', sessions: 30, users: 24 },
         ],
+        aiReferralLandingPages: [
+          { source: 'chatgpt.com', medium: 'referral', sourceDimension: 'session', landingPage: '/pricing', sessions: 12, users: 9 },
+          { source: 'claude.ai', medium: 'referral', sourceDimension: 'first_user', landingPage: '/guide', sessions: 30, users: 24 },
+        ],
         // Cross-cutting dedup includes firstUserSource → 12 + 30 = 42
         aiSessionsDeduped: 42,
         aiUsersDeduped: 33,
@@ -196,4 +203,12 @@ test('renders four-channel breakdown with Organic, Social, Direct, and Known AI 
 
   // The misleading old framing is gone: panel title "Attributable AI visits" must not appear
   expect(screen.queryByText('Attributable AI visits')).toBeNull()
+
+  expect(screen.getByText('Known AI referrers — landing pages')).toBeTruthy()
+  const row = screen.getAllByText('/pricing')
+    .map((cell) => cell.closest('tr') as HTMLElement | null)
+    .find((candidate): candidate is HTMLElement => Boolean(candidate && within(candidate).queryByText('chatgpt.com')))
+  expect(row).toBeTruthy()
+  expect(within(row).getByText('chatgpt.com')).toBeTruthy()
+  expect(within(row).getByText('12')).toBeTruthy()
 })

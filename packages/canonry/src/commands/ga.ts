@@ -143,7 +143,7 @@ export async function gaTraffic(project: string, opts?: { limit?: number; window
     return
   }
 
-  if (result.topPages.length === 0 && result.aiReferrals.length === 0 && result.socialReferrals.length === 0) {
+  if (result.topPages.length === 0 && result.aiReferrals.length === 0 && result.aiReferralLandingPages.length === 0 && result.socialReferrals.length === 0) {
     if (!result.lastSyncedAt) {
       console.log('No GA4 traffic data. Run "canonry ga sync <project>" first.')
     } else {
@@ -172,6 +172,21 @@ export async function gaTraffic(project: string, opts?: { limit?: number; window
       const dimLabel = ref.sourceDimension === 'first_user' ? 'first-visit' : ref.sourceDimension === 'manual_utm' ? 'utm' : 'session'
       console.log(
         `  ${ref.source.padEnd(25)}  ${ref.medium.padEnd(15)}  ${dimLabel.padEnd(attrWidth)}  ${String(ref.sessions).padEnd(10)}${String(ref.users).padEnd(8)}`,
+      )
+    }
+    console.log()
+  }
+
+  if (result.aiReferralLandingPages.length > 0) {
+    const attrWidth = 12
+    console.log('  AI REFERRAL LANDING PAGES')
+    console.log(`  ${'LANDING PAGE'.padEnd(30)}  ${'SOURCE'.padEnd(25)}  ${'ATTRIBUTION'.padEnd(attrWidth)}  ${'SESSIONS'.padEnd(10)}${'USERS'.padEnd(8)}`)
+    console.log(`  ${'─'.repeat(30)}  ${'─'.repeat(25)}  ${'─'.repeat(attrWidth)}  ${'─'.repeat(10)}${'─'.repeat(8)}`)
+
+    for (const row of result.aiReferralLandingPages) {
+      const dimLabel = row.sourceDimension === 'first_user' ? 'first-visit' : row.sourceDimension === 'manual_utm' ? 'utm' : 'session'
+      console.log(
+        `  ${row.landingPage.padEnd(30)}  ${row.source.padEnd(25)}  ${dimLabel.padEnd(attrWidth)}  ${String(row.sessions).padEnd(10)}${String(row.users).padEnd(8)}`,
       )
     }
     console.log()
@@ -417,6 +432,7 @@ export async function gaAttribution(project: string, opts?: { trend?: boolean; f
         organicSharePct: traffic.organicSharePct,
         directSharePct: traffic.directSharePct,
         aiReferrals: traffic.aiReferrals,
+        aiReferralLandingPages: traffic.aiReferralLandingPages,
         socialReferrals: traffic.socialReferrals,
         trend,
       }, null, 2))
@@ -481,6 +497,7 @@ export async function gaAttribution(project: string, opts?: { trend?: boolean; f
       organicSharePct: traffic.organicSharePct,
       directSharePct: traffic.directSharePct,
       aiReferrals: traffic.aiReferrals,
+      aiReferralLandingPages: traffic.aiReferralLandingPages,
       socialReferrals: traffic.socialReferrals,
       periodStart: traffic.periodStart,
       periodEnd: traffic.periodEnd,
@@ -514,6 +531,15 @@ export async function gaAttribution(project: string, opts?: { trend?: boolean; f
     for (const ref of traffic.aiReferrals.slice(0, 10)) {
       const dimLabel = ref.sourceDimension === 'first_user' ? 'first-visit' : ref.sourceDimension === 'manual_utm' ? 'utm' : 'session'
       console.log(`    ${ref.source.padEnd(25)} ${String(ref.sessions).padEnd(8)} sessions  (${dimLabel})`)
+    }
+  }
+
+  if (traffic.aiReferralLandingPages.length > 0) {
+    console.log()
+    console.log('  AI LANDING PAGES')
+    for (const row of traffic.aiReferralLandingPages.slice(0, 10)) {
+      const dimLabel = row.sourceDimension === 'first_user' ? 'first-visit' : row.sourceDimension === 'manual_utm' ? 'utm' : 'session'
+      console.log(`    ${row.landingPage.padEnd(30)} ${row.source.padEnd(22)} ${String(row.sessions).padEnd(8)} sessions  (${dimLabel})`)
     }
   }
 

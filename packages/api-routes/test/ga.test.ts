@@ -239,7 +239,7 @@ describe('GA4 routes', () => {
       totalUsers: 55,
     })
     const fetchAiReferralsSpy = vi.spyOn(gaModule, 'fetchAiReferrals').mockResolvedValue([
-      { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', sessions: 12, users: 9, sourceDimension: 'session' },
+      { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', landingPage: '/pricing?utm_source=chatgpt.com', sessions: 12, users: 9, sourceDimension: 'session' },
     ])
     const fetchSocialReferralsSpy = vi.spyOn(gaModule, 'fetchSocialReferrals').mockResolvedValue([
       { date: '2026-03-20', source: 'facebook.com', medium: 'social', sessions: 8, users: 6, channelGroup: 'Organic Social' },
@@ -284,6 +284,8 @@ describe('GA4 routes', () => {
       .all()
     expect(aiReferrals).toHaveLength(1)
     expect(aiReferrals[0]!.source).toBe('chatgpt.com')
+    expect(aiReferrals[0]!.landingPage).toBe('/pricing?utm_source=chatgpt.com')
+    expect(aiReferrals[0]!.landingPageNormalized).toBe('/pricing')
 
     const socialRefs = db.select().from(gaSocialReferrals)
       .where(eq(gaSocialReferrals.projectId, projectId))
@@ -476,6 +478,8 @@ describe('GA4 routes', () => {
       date: '2026-03-20',
       source: 'chatgpt.com',
       medium: 'referral',
+      landingPage: '/page-a?utm_source=chatgpt.com',
+      landingPageNormalized: '/page-a',
       sessions: 17,
       users: 10,
       syncedAt: now,
@@ -497,6 +501,9 @@ describe('GA4 routes', () => {
     expect(body.topPages[1].landingPage).toBe('/page-b')
     expect(body.aiReferrals).toEqual([
       { source: 'chatgpt.com', medium: 'referral', sourceDimension: 'session', sessions: 17, users: 10 },
+    ])
+    expect(body.aiReferralLandingPages).toEqual([
+      { source: 'chatgpt.com', medium: 'referral', sourceDimension: 'session', landingPage: '/page-a', sessions: 17, users: 10 },
     ])
     expect(body.aiSessionsDeduped).toBe(17)
     expect(body.aiUsersDeduped).toBe(10)
@@ -1044,6 +1051,8 @@ describe('GA4 routes', () => {
       date: '2026-03-17',
       source: 'chatgpt.com',
       medium: 'referral',
+      landingPage: '/pricing?utm_source=chatgpt.com',
+      landingPageNormalized: '/pricing',
       sessions: 3,
       users: 2,
       syncedAt: now,
@@ -1054,6 +1063,8 @@ describe('GA4 routes', () => {
       date: '2026-03-18',
       source: 'perplexity.ai',
       medium: 'referral',
+      landingPage: '/guide?utm_source=perplexity.ai',
+      landingPageNormalized: '/guide',
       sessions: 7,
       users: 6,
       syncedAt: now,
@@ -1064,11 +1075,25 @@ describe('GA4 routes', () => {
       url: '/api/v1/projects/test-project/ga/ai-referral-history',
     })
     expect(res.statusCode).toBe(200)
-    const body = JSON.parse(res.payload) as Array<{ date: string; source: string; medium: string; sessions: number; users: number }>
+    const body = JSON.parse(res.payload) as Array<{ date: string; source: string; medium: string; landingPage: string; sessions: number; users: number }>
     expect(body.length).toBeGreaterThanOrEqual(2)
     // Should be ordered by date
     const dates = body.map((r) => r.date)
     expect(dates).toEqual([...dates].sort())
+    expect(body).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        date: '2026-03-17',
+        source: 'chatgpt.com',
+        landingPage: '/pricing',
+        sessions: 3,
+      }),
+      expect.objectContaining({
+        date: '2026-03-18',
+        source: 'perplexity.ai',
+        landingPage: '/guide',
+        sessions: 7,
+      }),
+    ]))
     // Should include both sources
     const sources = body.map((r) => r.source)
     expect(sources).toContain('chatgpt.com')

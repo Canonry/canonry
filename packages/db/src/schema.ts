@@ -317,6 +317,8 @@ export const gaAiReferrals = sqliteTable('ga_ai_referrals', {
   medium: text('medium').notNull(),
   /** Which GA4 dimension produced this row: 'session' | 'first_user' | 'manual_utm' */
   sourceDimension: text('source_dimension').notNull().default('session'),
+  landingPage: text('landing_page').notNull().default('(unknown)'),
+  landingPageNormalized: text('landing_page_normalized'),
   sessions: integer('sessions').notNull().default(0),
   users: integer('users').notNull().default(0),
   syncedAt: text('synced_at').notNull(),
@@ -324,7 +326,8 @@ export const gaAiReferrals = sqliteTable('ga_ai_referrals', {
 }, (table) => [
   index('idx_ga_ai_ref_project_date').on(table.projectId, table.date),
   index('idx_ga_ai_ref_source').on(table.source),
-  uniqueIndex('idx_ga_ai_ref_unique_v2').on(table.projectId, table.date, table.source, table.medium, table.sourceDimension),
+  index('idx_ga_ai_ref_landing_page').on(table.projectId, table.date, table.landingPageNormalized),
+  uniqueIndex('idx_ga_ai_ref_unique_v3').on(table.projectId, table.date, table.source, table.medium, table.sourceDimension, table.landingPage),
   index('idx_ga_ai_ref_run').on(table.syncRunId),
 ])
 

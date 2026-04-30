@@ -432,6 +432,8 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
               source: row.source,
               medium: row.medium,
               sourceDimension: row.sourceDimension,
+              landingPage: row.landingPage,
+              landingPageNormalized: normalizeUrlPath(row.landingPage),
               sessions: row.sessions,
               users: row.users,
               syncedAt: now,
@@ -625,21 +627,49 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .orderBy(sql`SUM(${gaAiReferrals.sessions}) DESC`)
       .all()
 
+    const aiReferralLandingPages = app.db
+      .select({
+        source: gaAiReferrals.source,
+        medium: gaAiReferrals.medium,
+        sourceDimension: gaAiReferrals.sourceDimension,
+        landingPage: sql<string>`COALESCE(${gaAiReferrals.landingPageNormalized}, ${gaAiReferrals.landingPage})`,
+        sessions: sql<number>`SUM(${gaAiReferrals.sessions})`,
+        users: sql<number>`SUM(${gaAiReferrals.users})`,
+      })
+      .from(gaAiReferrals)
+      .where(and(...aiConditions))
+      .groupBy(
+        gaAiReferrals.source,
+        gaAiReferrals.medium,
+        gaAiReferrals.sourceDimension,
+        sql`COALESCE(${gaAiReferrals.landingPageNormalized}, ${gaAiReferrals.landingPage})`,
+      )
+      .orderBy(sql`SUM(${gaAiReferrals.sessions}) DESC`)
+      .limit(limit)
+      .all()
+
     // Deduplicated AI totals: sessionSource, firstUserSource, and manualSource are
     // overlapping attribution lenses, not disjoint visits. To avoid double-counting,
-    // take MAX(sessions) per date+source+medium across dimensions, then sum.
+    // first sum landing pages within each dimension, then take MAX(sessions) per
+    // date+source+medium across dimensions, then sum.
     const aiDeduped = app.db
       .select({
-        sessions: sql<number>`SUM(max_sessions)`,
-        users: sql<number>`SUM(max_users)`,
+        sessions: sql<number>`COALESCE(SUM(max_sessions), 0)`,
+        users: sql<number>`COALESCE(SUM(max_users), 0)`,
       })
       .from(
         sql`(
           SELECT date, source, medium,
-                 MAX(sessions) AS max_sessions,
-                 MAX(users) AS max_users
-          FROM ga_ai_referrals
-          WHERE project_id = ${project.id}${cutoffDate ? sql` AND date >= ${cutoffDate}` : sql``}
+                 MAX(dimension_sessions) AS max_sessions,
+                 MAX(dimension_users) AS max_users
+          FROM (
+            SELECT date, source, medium, source_dimension,
+                   SUM(sessions) AS dimension_sessions,
+                   SUM(users) AS dimension_users
+            FROM ga_ai_referrals
+            WHERE project_id = ${project.id}${cutoffDate ? sql` AND date >= ${cutoffDate}` : sql``}
+            GROUP BY date, source, medium, source_dimension
+          )
           GROUP BY date, source, medium
         )`
       )
@@ -713,6 +743,14 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         sessions: r.sessions ?? 0,
         users: r.users ?? 0,
       })),
+      aiReferralLandingPages: aiReferralLandingPages.map((r) => ({
+        source: r.source,
+        medium: r.medium,
+        sourceDimension: r.sourceDimension,
+        landingPage: r.landingPage,
+        sessions: r.sessions ?? 0,
+        users: r.users ?? 0,
+      })),
       aiSessionsDeduped: aiDeduped?.sessions ?? 0,
       aiUsersDeduped: aiDeduped?.users ?? 0,
       aiSessionsBySession: aiBySession?.sessions ?? 0,
@@ -760,12 +798,20 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         date: gaAiReferrals.date,
         source: gaAiReferrals.source,
         medium: gaAiReferrals.medium,
+        landingPage: sql<string>`COALESCE(${gaAiReferrals.landingPageNormalized}, ${gaAiReferrals.landingPage})`,
         sourceDimension: gaAiReferrals.sourceDimension,
-        sessions: gaAiReferrals.sessions,
-        users: gaAiReferrals.users,
+        sessions: sql<number>`SUM(${gaAiReferrals.sessions})`,
+        users: sql<number>`SUM(${gaAiReferrals.users})`,
       })
       .from(gaAiReferrals)
       .where(and(...conditions))
+      .groupBy(
+        gaAiReferrals.date,
+        gaAiReferrals.source,
+        gaAiReferrals.medium,
+        gaAiReferrals.sourceDimension,
+        sql`COALESCE(${gaAiReferrals.landingPageNormalized}, ${gaAiReferrals.landingPage})`,
+      )
       .orderBy(gaAiReferrals.date)
       .all()
 

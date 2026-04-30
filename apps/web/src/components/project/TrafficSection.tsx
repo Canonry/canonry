@@ -31,7 +31,7 @@ import {
   triggerGaSync,
   disconnectGa,
 } from '../../api.js'
-import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficPage, ApiGaTrafficReferral, ApiGaSocialReferral, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry } from '../../api.js'
+import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficAiLandingPage, ApiGaTrafficPage, ApiGaTrafficReferral, ApiGaSocialReferral, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry } from '../../api.js'
 
 const TRAFFIC_WINDOWS: MetricsWindow[] = ['7d', '30d', '90d', 'all']
 
@@ -216,6 +216,11 @@ export function TrafficSection({ projectName }: { projectName: string }) {
       return referralSortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number)
     })
   }, [traffic?.aiReferrals, referralSortKey, referralSortDir])
+
+  const sortedAiLandingPages = useMemo(() => {
+    if (!traffic?.aiReferralLandingPages) return []
+    return [...traffic.aiReferralLandingPages].sort((a, b) => b.sessions - a.sessions)
+  }, [traffic?.aiReferralLandingPages])
 
   const sortedSocialReferrals = useMemo(() => {
     if (!traffic?.socialReferrals) return []
@@ -576,7 +581,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
               )}
             </Card>
 
-            <Card className="surface-card p-5">
+            <Card className="surface-card p-5 mb-4">
               <div className="mb-4 flex items-end justify-between gap-3">
                 <div>
                   <p className="eyebrow eyebrow-soft">Detail</p>
@@ -612,6 +617,49 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                   <p className="text-sm text-zinc-400 mb-2">No AI referrer sessions detected yet</p>
                   <p className="text-xs text-zinc-500 max-w-sm">
                     AI engines that preserve a referrer (Perplexity, copy/paste from ChatGPT, etc.) will appear here. Most AI traffic strips the referrer — see the Direct cell above for the upper bound.
+                  </p>
+                </div>
+              )}
+            </Card>
+
+            <Card className="surface-card p-5">
+              <div className="mb-4 flex items-end justify-between gap-3">
+                <div>
+                  <p className="eyebrow eyebrow-soft">Detail</p>
+                  <h3 className="text-sm font-semibold text-zinc-100">Known AI referrers — landing pages</h3>
+                </div>
+                <p className="text-xs text-zinc-500">
+                  {sortedAiLandingPages.length > 0 ? `${sortedAiLandingPages.length} rows` : 'No landing-page rows'}
+                </p>
+              </div>
+
+              {sortedAiLandingPages.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-[10px] uppercase tracking-wider text-zinc-500">
+                        <th className="py-1 font-medium text-left">Landing Page</th>
+                        <th className="py-1 font-medium text-left">Source</th>
+                        <th className="py-1 font-medium text-left">Attribution</th>
+                        <th className="py-1 font-medium text-right">Sessions</th>
+                        <th className="py-1 font-medium text-right">Users</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedAiLandingPages.map((row) => (
+                        <AiReferralLandingPageRow
+                          key={`${row.landingPage}:${row.source}:${row.medium}:${row.sourceDimension}`}
+                          row={row}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <p className="text-sm text-zinc-400 mb-2">No AI landing pages detected yet</p>
+                  <p className="text-xs text-zinc-500 max-w-sm">
+                    Known-AI landing pages appear after a GA4 sync records visits from AI referrers.
                   </p>
                 </div>
               )}
@@ -1140,6 +1188,36 @@ function AiReferralRow({
       </td>
       <td className="py-1.5 text-right text-zinc-200 tabular-nums">
         {referral.users.toLocaleString()}
+      </td>
+    </tr>
+  )
+}
+
+function AiReferralLandingPageRow({ row }: { row: ApiGaTrafficAiLandingPage }) {
+  const dimLabel = DIMENSION_LABELS[row.sourceDimension] ?? row.sourceDimension
+  const dimTooltip = DIMENSION_TOOLTIPS[row.sourceDimension] ?? ''
+
+  return (
+    <tr className="border-t border-zinc-800/40">
+      <td className="py-1.5 text-zinc-300 max-w-[360px] truncate" title={row.landingPage}>
+        {row.landingPage}
+      </td>
+      <td className="py-1.5 text-zinc-200 max-w-[220px] truncate" title={row.source}>
+        {row.source}
+      </td>
+      <td className="py-1.5">
+        <span
+          className="inline-block text-[10px] px-1.5 py-0.5 rounded-full border border-zinc-700 text-zinc-400"
+          title={dimTooltip}
+        >
+          {dimLabel}
+        </span>
+      </td>
+      <td className="py-1.5 text-right text-emerald-400 tabular-nums">
+        {row.sessions.toLocaleString()}
+      </td>
+      <td className="py-1.5 text-right text-zinc-200 tabular-nums">
+        {row.users.toLocaleString()}
       </td>
     </tr>
   )

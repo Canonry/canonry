@@ -64,6 +64,7 @@ export interface GA4AiReferralRow {
   date: string
   source: string
   medium: string
+  landingPage: string
   sessions: number
   users: number
   sourceDimension: GA4SourceDimension
