@@ -193,24 +193,24 @@ describe('analytics routes', () => {
       expect(res.statusCode).toBe(200)
       const body = JSON.parse(res.payload)
 
-      // Answer rate fields exist
-      expect(body.overall.answerRate).toBeGreaterThanOrEqual(0)
-      expect(body.overall.answerRate).toBeLessThanOrEqual(1)
-      expect(body.overall.answerMentionedCount).toBeGreaterThanOrEqual(0)
-      expect(body.answerTrend).toMatch(/^(improving|declining|stable)$/)
+      // Mention rate fields exist
+      expect(body.overall.mentionRate).toBeGreaterThanOrEqual(0)
+      expect(body.overall.mentionRate).toBeLessThanOrEqual(1)
+      expect(body.overall.mentionedCount).toBeGreaterThanOrEqual(0)
+      expect(body.mentionTrend).toMatch(/^(improving|declining|stable)$/)
 
       // kw1/gemini has answerText 'Example.com is great...' and canonicalDomain 'example.com'
       // so it should be resolved as mentioned
-      expect(body.overall.answerMentionedCount).toBeGreaterThan(0)
+      expect(body.overall.mentionedCount).toBeGreaterThan(0)
 
-      // Per-provider answer rate
-      expect(body.byProvider.gemini.answerRate).toBeGreaterThan(0)
-      expect(body.byProvider.gemini.answerMentionedCount).toBeGreaterThan(0)
+      // Per-provider mention rate
+      expect(body.byProvider.gemini.mentionRate).toBeGreaterThan(0)
+      expect(body.byProvider.gemini.mentionedCount).toBeGreaterThan(0)
 
-      // Each bucket has answer fields
+      // Each bucket has mention fields
       for (const bucket of body.buckets) {
-        expect(bucket.answerRate).toBeGreaterThanOrEqual(0)
-        expect(typeof bucket.answerMentionedCount).toBe('number')
+        expect(bucket.mentionRate).toBeGreaterThanOrEqual(0)
+        expect(typeof bucket.mentionedCount).toBe('number')
       }
     })
 
@@ -591,9 +591,9 @@ describe('analytics routes', () => {
     expect(metricsRes.statusCode).toBe(200)
     const metricsBody = JSON.parse(metricsRes.payload)
     expect(metricsBody.overall.total).toBe(0)
-    expect(metricsBody.overall.answerRate).toBe(0)
-    expect(metricsBody.overall.answerMentionedCount).toBe(0)
-    expect(metricsBody.answerTrend).toBe('stable')
+    expect(metricsBody.overall.mentionRate).toBe(0)
+    expect(metricsBody.overall.mentionedCount).toBe(0)
+    expect(metricsBody.mentionTrend).toBe('stable')
 
     const gapsRes = await app.inject({ method: 'GET', url: '/api/v1/projects/empty-project/analytics/gaps' })
     expect(gapsRes.statusCode).toBe(200)

@@ -195,6 +195,48 @@ high-severity insights after a run — dispatched by `RunCoordinator` after
 - `packages/canonry/` is the only publishable artifact. Internal packages are bundled via tsup.
 - All internal packages use `@ainyc/canonry-*` naming convention.
 
+## Vocabulary (Critical)
+
+Canonry tracks two parallel signals for every (keyword × provider) snapshot. They are independent — a model can do either, both, or neither — and must never be conflated in code, copy, or contract field names.
+
+| Term | Meaning | Source field |
+|------|---------|--------------|
+| **mention / mentioned** | The project's brand or domain appears in the actual LLM answer text response (the prose the model returns). | `query_snapshots.answer_mentioned` (boolean) |
+| **cited** | The project's domain appears in the source links/material the LLM used to get the answer (the structured grounding / citations / search-result list returned alongside the answer). | `query_snapshots.citation_state` = `'cited'` |
+
+### Rules
+
+1. **Use `mention` / `mentioned` for answer-text presence.** Never use `answer`, `visible`, or `visibility` for new code that means the same thing — those exist as legacy terms (DB column `visibility_state`, run kind `answer-visibility`, function `visibilityStateFromAnswerMentioned`) but new APIs, fields, CLI flags, and UI labels must say `mentioned`.
+2. **Use `cited` for source-list presence.** Never use `citation` as an umbrella for both signals — citation refers specifically to the source-attribution side.
+3. **Never compute one signal from the other.** A label that says "cited" must read `citationState` (or a derived `cited: boolean`); a label that says "mentioned" must read `answerMentioned`. If you find a metric named for one signal but computed from the other, that's a bug — fix it, don't paper over it.
+4. **When you need to refer to both at once,** say "citation + mention coverage" or "visibility (cited or mentioned)" — but always disambiguate immediately.
+5. **Public API field names** must use the canonical vocabulary. Renaming a field means a version bump per the API Stability rules, so get it right the first time.
+
+### Anti-patterns
+
+```typescript
+// ❌ Wrong — name says "answer", reader can't tell which signal
+{ answerRate: 0.42 }
+
+// ✅ Correct
+{ mentionRate: 0.42 }
+
+// ❌ Wrong — "visible" is ambiguous (cited? mentioned? both?)
+let visible = 0
+if (mentioned) visible++
+
+// ✅ Correct
+let mentioned = 0
+if (answerMentioned) mentioned++
+
+// ❌ Wrong — "Citation visibility" headline that counts answer-text mentions
+"Cited by 3 of 4 engines" // computed from answerMentioned
+
+// ✅ Correct — distinct headlines for the two signals
+"Cited by 2 of 4 engines"     // citationState
+"Mentioned in 3 of 4 answers" // answerMentioned
+```
+
 ## Enum Constants (Critical)
 
 **Never compare domain values as raw string literals.** Use the enum constant objects exported from `packages/contracts/src/run.ts` (re-exported via `@ainyc/canonry-contracts`).
