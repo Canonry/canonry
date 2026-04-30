@@ -33,10 +33,10 @@ export async function analyticsRoutes(app: FastifyInstance) {
       return reply.send({
         window,
         buckets: [],
-        overall: { citationRate: 0, cited: 0, total: 0, answerRate: 0, answerMentionedCount: 0 },
+        overall: { citationRate: 0, cited: 0, total: 0, mentionRate: 0, mentionedCount: 0 },
         byProvider: {},
         trend: 'stable',
-        answerTrend: 'stable',
+        mentionTrend: 'stable',
         keywordChanges: [],
       } satisfies BrandMetricsDto)
     }
@@ -89,12 +89,12 @@ export async function analyticsRoutes(app: FastifyInstance) {
 
     // Trends
     const trend = computeTrend(buckets, 'citationRate')
-    const answerTrend = computeTrend(buckets, 'answerRate')
+    const mentionTrend = computeTrend(buckets, 'mentionRate')
 
     // Keyword change annotations
     const keywordChanges = computeKeywordChanges(projectKeywords, cutoff)
 
-    return reply.send({ window, buckets, overall, byProvider, trend, answerTrend, keywordChanges } satisfies BrandMetricsDto)
+    return reply.send({ window, buckets, overall, byProvider, trend, mentionTrend, keywordChanges } satisfies BrandMetricsDto)
   })
 
   // GET /projects/:name/analytics/gaps — brand gap analysis
@@ -394,13 +394,13 @@ interface SnapshotLike {
 function computeProviderMetric(snapshots: SnapshotLike[]): ProviderMetric {
   const total = snapshots.length
   const cited = snapshots.filter(s => s.citationState === 'cited').length
-  const answerMentionedCount = snapshots.filter(s => s.resolvedMentioned).length
+  const mentionedCount = snapshots.filter(s => s.resolvedMentioned).length
   return {
     citationRate: total > 0 ? Math.round((cited / total) * 10000) / 10000 : 0,
     cited,
     total,
-    answerRate: total > 0 ? Math.round((answerMentionedCount / total) * 10000) / 10000 : 0,
-    answerMentionedCount,
+    mentionRate: total > 0 ? Math.round((mentionedCount / total) * 10000) / 10000 : 0,
+    mentionedCount,
   }
 }
 
@@ -449,8 +449,8 @@ function computeBuckets(
         cited: metric.cited,
         total: metric.total,
         keywordCount,
-        answerRate: metric.answerRate,
-        answerMentionedCount: metric.answerMentionedCount,
+        mentionRate: metric.mentionRate,
+        mentionedCount: metric.mentionedCount,
       })
     }
 
@@ -484,7 +484,7 @@ function computeKeywordChanges(
   }))
 }
 
-function computeTrend(buckets: TimeBucket[], rateKey: 'citationRate' | 'answerRate'): TrendDirection {
+function computeTrend(buckets: TimeBucket[], rateKey: 'citationRate' | 'mentionRate'): TrendDirection {
   const nonEmpty = buckets.filter(b => b.total > 0)
   if (nonEmpty.length < 2) return 'stable'
 

@@ -32,7 +32,7 @@ export async function backfillAnswerVisibilityCommand(opts?: {
 
   let examined = 0
   let updated = 0
-  let visible = 0
+  let mentioned = 0
   let reparsed = 0
   let providerErrors = 0
   if (scopedProjects.length > 0) {
@@ -99,7 +99,7 @@ export async function backfillAnswerVisibilityCommand(opts?: {
           const answerText = reparsedResult?.answerText ?? snapshot.answerText ?? ''
           const nextValue = determineAnswerMentioned(answerText, project.displayName, projectDomains)
 
-          if (nextValue) visible++
+          if (nextValue) mentioned++
 
           const nextPatch: Record<string, unknown> = {}
 
@@ -180,7 +180,7 @@ export async function backfillAnswerVisibilityCommand(opts?: {
     projects: scopedProjects.length,
     examined,
     updated,
-    visible,
+    mentioned,
     reparsed,
     providerErrors,
   }
@@ -195,11 +195,11 @@ export async function backfillAnswerVisibilityCommand(opts?: {
     console.log(`  Project:  ${projectFilter}`)
   }
   console.log(`  Projects: ${scopedProjects.length}`)
-  console.log(`  Examined: ${examined}`)
-  console.log(`  Updated:  ${updated}`)
-  console.log(`  Visible:  ${visible}`)
-  console.log(`  Reparsed: ${reparsed}`)
-  console.log(`  Errors:   ${providerErrors}`)
+  console.log(`  Examined:  ${examined}`)
+  console.log(`  Updated:   ${updated}`)
+  console.log(`  Mentioned: ${mentioned}`)
+  console.log(`  Reparsed:  ${reparsed}`)
+  console.log(`  Errors:    ${providerErrors}`)
 }
 
 export interface NormalizedPathsBackfillResult {

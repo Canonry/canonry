@@ -5,7 +5,10 @@ export type MetricsWindow = '7d' | '30d' | '90d' | 'all'
 export type TrendDirection = 'improving' | 'declining' | 'stable'
 export type GapCategory = 'cited' | 'gap' | 'uncited'
 
-export const visibilityMetricModeSchema = z.enum(['answer', 'citation'])
+// Mode toggle for analytics views — `mentioned` = brand appears in the answer
+// prose; `cited` = domain appears in the source/grounding list. See AGENTS.md
+// "Vocabulary (Critical)" for the full distinction.
+export const visibilityMetricModeSchema = z.enum(['mentioned', 'cited'])
 export type VisibilityMetricMode = z.infer<typeof visibilityMetricModeSchema>
 export const VisibilityMetricModes = visibilityMetricModeSchema.enum
 
@@ -16,8 +19,8 @@ export interface TimeBucket {
   cited: number
   total: number
   keywordCount: number
-  answerRate: number
-  answerMentionedCount: number
+  mentionRate: number
+  mentionedCount: number
 }
 
 export interface KeywordChangeEvent {
@@ -30,8 +33,8 @@ export interface ProviderMetric {
   citationRate: number
   cited: number
   total: number
-  answerRate: number
-  answerMentionedCount: number
+  mentionRate: number
+  mentionedCount: number
 }
 
 export interface BrandMetricsDto {
@@ -40,7 +43,7 @@ export interface BrandMetricsDto {
   overall: ProviderMetric
   byProvider: Record<string, ProviderMetric>
   trend: TrendDirection
-  answerTrend: TrendDirection
+  mentionTrend: TrendDirection
   keywordChanges: KeywordChangeEvent[]
 }
 

@@ -78,7 +78,9 @@ function printCoverage(data: CitationVisibilityResponse): void {
 
   // Each cell is two glyphs: citation state then mention state. Legend printed
   // above the table so the symbols are unambiguous to scripts and humans both.
-  const cellWidth = 6
+  // Width grows with the longest provider name so headers like "perplexity"
+  // stay aligned with the 2-char cells underneath.
+  const cellWidth = Math.max(6, ...providerColumns.map(p => p.length))
   const keywordWidth = Math.max(7, ...data.byKeyword.map(r => r.keyword.length))
   const header = ['Keyword'.padEnd(keywordWidth), ...providerColumns.map(p => p.padEnd(cellWidth)), 'Cite', 'Ment'].join('  ')
   console.log('Per-keyword coverage:  (cell = [citation][mention];  C=cited c=not, M=mentioned m=not, –=no data)')

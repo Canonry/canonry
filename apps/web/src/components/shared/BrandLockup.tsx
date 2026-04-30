@@ -10,7 +10,7 @@ export function BrandLockup({ compact = false }: { compact?: boolean }) {
       <img className="brand-icon" src="./favicon.svg" alt="" aria-hidden="true" />
       <span className="brand-copy">
         <span className="brand-mark">Canonry</span>
-        {compact ? null : <span className="brand-subtitle">AEO Monitor</span>}
+        {compact ? null : <span className="brand-subtitle">AEO Operating System</span>}
       </span>
     </Link>
   )

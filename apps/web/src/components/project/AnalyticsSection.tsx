@@ -41,13 +41,13 @@ const SOURCE_CATEGORY_COLORS: Record<SourceCategory, string> = {
 }
 
 const METRIC_MODE_LABELS: Record<VisibilityMetricMode, string> = {
-  [VisibilityMetricModes.answer]: 'Answer',
-  [VisibilityMetricModes.citation]: 'Sources',
+  [VisibilityMetricModes.mentioned]: 'Mentioned',
+  [VisibilityMetricModes.cited]: 'Cited',
 }
 
 export function AnalyticsSection({ projectName }: { projectName: string }) {
   const [metricsWindow, setMetricsWindow] = useState<MetricsWindow>('30d')
-  const [metricMode, setMetricMode] = useState<VisibilityMetricMode>(VisibilityMetricModes.answer)
+  const [metricMode, setMetricMode] = useState<VisibilityMetricMode>(VisibilityMetricModes.mentioned)
   const [metrics, setMetrics] = useState<BrandMetricsDto | null>(null)
   const [gaps, setGaps] = useState<GapAnalysisDto | null>(null)
   const [sources, setSources] = useState<SourceBreakdownDto | null>(null)
@@ -80,19 +80,19 @@ export function AnalyticsSection({ projectName }: { projectName: string }) {
     return <p className="text-sm text-zinc-500 py-8 text-center">Loading analytics…</p>
   }
 
-  const isAnswer = metricMode === VisibilityMetricModes.answer
+  const isMention = metricMode === VisibilityMetricModes.mentioned
 
   // Derive mode-aware values from metrics
-  const rate = metrics ? (isAnswer ? metrics.overall.answerRate : metrics.overall.citationRate) : 0
-  const count = metrics ? (isAnswer ? metrics.overall.answerMentionedCount : metrics.overall.cited) : 0
+  const rate = metrics ? (isMention ? metrics.overall.mentionRate : metrics.overall.citationRate) : 0
+  const count = metrics ? (isMention ? metrics.overall.mentionedCount : metrics.overall.cited) : 0
   const total = metrics?.overall.total ?? 0
-  const trend = metrics ? (isAnswer ? metrics.answerTrend : metrics.trend) : 'stable'
+  const trend = metrics ? (isMention ? metrics.mentionTrend : metrics.trend) : 'stable'
   const trendTone: MetricTone = trend === 'improving' ? 'positive' : trend === 'declining' ? 'negative' : 'neutral'
 
   // Gap arrays based on mode
-  const gapCited = gaps ? (isAnswer ? gaps.mentionedKeywords : gaps.cited) : []
-  const gapGap = gaps ? (isAnswer ? gaps.mentionGap : gaps.gap) : []
-  const gapUncited = gaps ? (isAnswer ? gaps.notMentioned : gaps.uncited) : []
+  const gapCited = gaps ? (isMention ? gaps.mentionedKeywords : gaps.cited) : []
+  const gapGap = gaps ? (isMention ? gaps.mentionGap : gaps.gap) : []
+  const gapUncited = gaps ? (isMention ? gaps.notMentioned : gaps.uncited) : []
 
   return (
     <>
@@ -102,18 +102,18 @@ export function AnalyticsSection({ projectName }: { projectName: string }) {
           <div className="flex items-center gap-3">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">
-                {isAnswer ? 'Visibility Metrics' : 'Citation Metrics'}
+                {isMention ? 'Mention Metrics' : 'Citation Metrics'}
               </p>
               <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">
-                {isAnswer ? 'Answer Visibility Trends' : 'Source Citation Trends'}
-                <InfoTooltip text={isAnswer
-                  ? 'Percentage of queries where your brand is mentioned in the AI-generated answer text. A higher rate means AI engines are actively surfacing your brand when answering user questions.'
+                {isMention ? 'Answer-Mention Trends' : 'Source-Citation Trends'}
+                <InfoTooltip text={isMention
+                  ? 'Percentage of queries where your brand or domain is mentioned in the AI-generated answer text. A higher rate means AI engines are actively naming your brand in their prose when answering user questions.'
                   : 'Percentage of queries where your domain appears in the AI provider\'s source/reference links. This measures whether your pages are used as grounding sources, not whether your brand is named in the answer.'
                 } />
               </h2>
             </div>
             <div className="sidebar-tabs ml-2">
-              {([VisibilityMetricModes.answer, VisibilityMetricModes.citation] as const).map(mode => (
+              {([VisibilityMetricModes.mentioned, VisibilityMetricModes.cited] as const).map(mode => (
                 <button
                   key={mode}
                   type="button"
@@ -149,7 +149,7 @@ export function AnalyticsSection({ projectName }: { projectName: string }) {
             <div className="flex items-center gap-6">
               <ScoreGauge
                 value={`${Math.round(rate * 100)}`}
-                label={isAnswer ? 'Answer Rate' : 'Citation Rate'}
+                label={isMention ? 'Mention Rate' : 'Citation Rate'}
                 delta={`${count} / ${total}`}
                 tone={trendTone}
                 description={`Trend: ${trend}`}
@@ -170,13 +170,13 @@ export function AnalyticsSection({ projectName }: { projectName: string }) {
                       <tr className="text-[10px] uppercase tracking-wider text-zinc-500">
                         <th className="text-left py-1 font-medium">Provider</th>
                         <th className="text-right py-1 font-medium">Rate</th>
-                        <th className="text-right py-1 font-medium">{isAnswer ? 'Mentioned / Total' : 'Cited / Total'}</th>
+                        <th className="text-right py-1 font-medium">{isMention ? 'Mentioned / Total' : 'Cited / Total'}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {Object.entries(metrics.byProvider).map(([provider, m]) => {
-                        const provRate = isAnswer ? m.answerRate : m.citationRate
-                        const provCount = isAnswer ? m.answerMentionedCount : m.cited
+                        const provRate = isMention ? m.mentionRate : m.citationRate
+                        const provCount = isMention ? m.mentionedCount : m.cited
                         return (
                           <tr key={provider} className="border-t border-zinc-800/40">
                             <td className="py-1.5 text-zinc-300">{provider}</td>
@@ -206,7 +206,7 @@ export function AnalyticsSection({ projectName }: { projectName: string }) {
         <div className="flex items-center justify-between mb-4">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">Opportunity Analysis</p>
-            <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">Brand Gap Analysis <InfoTooltip text={isAnswer
+            <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">Brand Gap Analysis <InfoTooltip text={isMention
               ? 'Classification based on the most recent completed run. Mentioned: your brand was named in the AI answer text. Gap: a competitor was cited but your brand was not mentioned. Not Mentioned: your brand was not mentioned and no competitors were cited.'
               : 'Classification based on the most recent completed run. Cited: your domain appeared in the AI provider\'s source links. Gap: a competitor was cited but you were not. Not Cited: neither your domain nor competitors appeared in sources. Consistency shows how often each key phrase was cited across all runs in the selected window.'
             } /></h2>
@@ -220,8 +220,8 @@ export function AnalyticsSection({ projectName }: { projectName: string }) {
                 const filterCount = f === 'cited' ? gapCited.length : f === 'gap' ? gapGap.length : gapUncited.length
                 const active = gapFilter === f
                 const label = f === 'gap' ? 'Gap'
-                  : f === 'cited' ? (isAnswer ? 'Mentioned' : 'Cited')
-                  : (isAnswer ? 'Not Mentioned' : 'Not Cited')
+                  : f === 'cited' ? (isMention ? 'Mentioned' : 'Cited')
+                  : (isMention ? 'Not Mentioned' : 'Not Cited')
                 return (
                   <button
                     key={f}
@@ -304,13 +304,13 @@ export function AnalyticsSection({ projectName }: { projectName: string }) {
 }
 
 function AnalyticsTrendChart({ buckets, keywordChanges, metricMode }: { buckets: BrandMetricsDto['buckets']; keywordChanges: KeywordChangeEvent[]; metricMode: VisibilityMetricMode }) {
-  const isAnswer = metricMode === VisibilityMetricModes.answer
-  const dataKey = isAnswer ? 'answerRate' : 'citationRate'
-  const dataLabel = isAnswer ? 'Answer Rate' : 'Citation Rate'
+  const isMention = metricMode === VisibilityMetricModes.mentioned
+  const dataKey = isMention ? 'mentionRate' : 'citationRate'
+  const dataLabel = isMention ? 'Mention Rate' : 'Citation Rate'
 
   const chartData = buckets.map(b => ({
     date: b.startDate,
-    answerRate: Math.round(b.answerRate * 1000) / 10,
+    mentionRate: Math.round(b.mentionRate * 1000) / 10,
     citationRate: Math.round(b.citationRate * 1000) / 10,
     keywordCount: b.keywordCount ?? 0,
   }))
@@ -409,7 +409,7 @@ interface GapAnalysisTableProps {
 }
 
 function GapAnalysisTable({ citedRows, gapRows, uncitedRows, filter, metricMode }: GapAnalysisTableProps) {
-  const isAnswer = metricMode === VisibilityMetricModes.answer
+  const isMention = metricMode === VisibilityMetricModes.mentioned
 
   const rows = useMemo(() => {
     const all = [
@@ -431,7 +431,7 @@ function GapAnalysisTable({ citedRows, gapRows, uncitedRows, filter, metricMode 
         <tr className="text-[10px] uppercase tracking-wider text-zinc-500">
           <th className="text-left py-1 font-medium">Keyword</th>
           <th className="text-left py-1 font-medium">Status</th>
-          <th className="text-left py-1 font-medium">{isAnswer ? 'Providers Mentioning' : 'Providers Citing'}</th>
+          <th className="text-left py-1 font-medium">{isMention ? 'Providers Mentioning' : 'Providers Citing'}</th>
           <th className="text-left py-1 font-medium">Competitors Citing</th>
           <th className="text-right py-1 font-medium">Consistency</th>
         </tr>
@@ -440,9 +440,9 @@ function GapAnalysisTable({ citedRows, gapRows, uncitedRows, filter, metricMode 
         {rows.map(kw => {
           const tone: MetricTone = kw.category === 'cited' ? 'positive' : kw.category === 'gap' ? 'caution' : 'neutral'
           const statusLabel = kw.category === 'gap' ? 'Gap'
-            : kw.category === 'cited' ? (isAnswer ? 'Mentioned' : 'Cited')
-            : (isAnswer ? 'Not Mentioned' : 'Not Cited')
-          const consistencyCount = isAnswer ? kw.consistency.mentionedRuns : kw.consistency.citedRuns
+            : kw.category === 'cited' ? (isMention ? 'Mentioned' : 'Cited')
+            : (isMention ? 'Not Mentioned' : 'Not Cited')
+          const consistencyCount = isMention ? kw.consistency.mentionedRuns : kw.consistency.citedRuns
           return (
             <tr
               key={kw.keywordId}
