@@ -67,9 +67,30 @@ function dropTrailingSlash(path: string): string {
 
 export function normalizeUrlPath(input: string | null | undefined): string | null {
   if (input == null) return null
-  const trimmed = input.trim()
+  let trimmed = input.trim()
   if (trimmed === '') return null
+
+  // Pre-normalization artifact cleanup (GA artifacts, Slack/doc copy-paste)
+  trimmed = trimmed
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (trimmed === '' || trimmed === '/') return '/'
   if (trimmed === '(not set)') return null
+
+  // Strip trailing punctuation that likely isn't part of a slug (e.g. trailing dot or parenthesis)
+  // but only if it's not a root / and it's not preceded by another punctuation (avoid stripping actual file extensions)
+  trimmed = trimmed.replace(/([a-zA-Z0-9])([).]+)$/, '$1')
+
+  // Special case for artifacts like "/) open" -> "/"
+  if (trimmed.startsWith('/)') || trimmed.startsWith('/ ')) {
+    trimmed = '/'
+  }
+  if (trimmed.includes(' ')) {
+    trimmed = trimmed.split(' ')[0]
+  }
+  if (trimmed === '' || trimmed === '/') return '/'
 
   let pathPart: string
   let queryPart: string

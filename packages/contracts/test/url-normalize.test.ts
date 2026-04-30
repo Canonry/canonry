@@ -176,4 +176,13 @@ describe('normalizeUrlPath', () => {
       expect(normalizeUrlPath('/page?fbclid&keep=1')).toBe('/page?keep=1')
     })
   })
+
+  describe('malformed artifacts', () => {
+    it('strips common trailing garbage from GA/referrals', () => {
+      expect(normalizeUrlPath('/aeo-methodology)')).toBe('/aeo-methodology')
+      expect(normalizeUrlPath('/)&nbsp;open')).toBe('/')
+      expect(normalizeUrlPath('/path.&nbsp;')).toBe('/path')
+      expect(normalizeUrlPath('/path...')).toBe('/path')
+    })
+  })
 })
