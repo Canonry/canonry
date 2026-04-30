@@ -136,11 +136,12 @@ export interface GaChannelTrend {
 
 export interface GaAttributionTrendResponse {
   organic: GaChannelTrend
+  /** AI session trend, scoped to sessionSource-only matches so it lines up with the disjoint AI cell in the channel breakdown. */
   ai: GaChannelTrend
   social: GaChannelTrend
   direct: GaChannelTrend
   total: GaChannelTrend
-  /** AI source with largest absolute session change in 7d vs prev 7d */
+  /** AI source with largest absolute session change in 7d vs prev 7d (sessionSource only). */
   aiBiggestMover: { source: string; sessions7d: number; sessionsPrev7d: number; changePct: number } | null
   /** Social source with largest absolute session change in 7d vs prev 7d */
   socialBiggestMover: { source: string; sessions7d: number; sessionsPrev7d: number; changePct: number } | null

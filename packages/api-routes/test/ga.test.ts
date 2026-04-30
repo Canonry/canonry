@@ -743,6 +743,104 @@ describe('GA4 routes', () => {
     }
   })
 
+  it('GET /ga/attribution-trend ai channel uses sessionSource only (matches breakdown cell)', async () => {
+    const now = new Date().toISOString()
+    const daysAgo = (n: number): string => {
+      const d = new Date()
+      d.setDate(d.getDate() - n)
+      return d.toISOString().slice(0, 10)
+    }
+    credentials.set('test-project', {
+      projectName: 'test-project',
+      propertyId: '999888',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    // Current 7d window — seed at daysAgo(3).
+    // sessionSource lens: 5 sessions; firstUserSource lens: 12 sessions.
+    // Cross-dim MAX dedup would yield 12; sessionSource-only filter yields 5.
+    const idCurSession = crypto.randomUUID()
+    const idCurFirstUser = crypto.randomUUID()
+    db.insert(gaAiReferrals).values({
+      id: idCurSession,
+      projectId,
+      date: daysAgo(3),
+      source: 'chatgpt.com',
+      medium: 'referral',
+      sourceDimension: 'session',
+      sessions: 5,
+      users: 4,
+      syncedAt: now,
+    }).run()
+    db.insert(gaAiReferrals).values({
+      id: idCurFirstUser,
+      projectId,
+      date: daysAgo(3),
+      source: 'chatgpt.com',
+      medium: 'referral',
+      sourceDimension: 'first_user',
+      sessions: 12,
+      users: 10,
+      syncedAt: now,
+    }).run()
+
+    // Prev 7d window — seed at daysAgo(10).
+    // sessionSource lens: 3 sessions; firstUserSource lens: 8 sessions.
+    const idPrevSession = crypto.randomUUID()
+    const idPrevFirstUser = crypto.randomUUID()
+    db.insert(gaAiReferrals).values({
+      id: idPrevSession,
+      projectId,
+      date: daysAgo(10),
+      source: 'chatgpt.com',
+      medium: 'referral',
+      sourceDimension: 'session',
+      sessions: 3,
+      users: 2,
+      syncedAt: now,
+    }).run()
+    db.insert(gaAiReferrals).values({
+      id: idPrevFirstUser,
+      projectId,
+      date: daysAgo(10),
+      source: 'chatgpt.com',
+      medium: 'referral',
+      sourceDimension: 'first_user',
+      sessions: 8,
+      users: 6,
+      syncedAt: now,
+    }).run()
+
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/ga/attribution-trend',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      // sessionSource-only counts, NOT cross-dim MAX (which would be 12 / 8).
+      expect(body.ai.sessions7d).toBe(5)
+      expect(body.ai.sessionsPrev7d).toBe(3)
+      // (5 - 3) / 3 = 67% (rounded)
+      expect(body.ai.trend7dPct).toBe(67)
+      // aiBiggestMover should also report sessionSource-only counts.
+      expect(body.aiBiggestMover).toEqual({
+        source: 'chatgpt.com',
+        sessions7d: 5,
+        sessionsPrev7d: 3,
+        changePct: 67,
+      })
+    } finally {
+      db.delete(gaAiReferrals).where(inArray(gaAiReferrals.id, [
+        idCurSession, idCurFirstUser, idPrevSession, idPrevFirstUser,
+      ])).run()
+      credentials.delete('test-project')
+    }
+  })
+
   it('GET /ga/attribution-trend exposes direct channel 7d trend', async () => {
     const now = new Date().toISOString()
     const daysAgo = (n: number): string => {

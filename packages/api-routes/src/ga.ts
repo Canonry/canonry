@@ -919,15 +919,18 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .where(and(eq(gaTrafficSnapshots.projectId, project.id), sql`${gaTrafficSnapshots.date} >= ${from}`, sql`${gaTrafficSnapshots.date} < ${to}`))
       .get()
 
-    // --- AI sessions (deduped: MAX per date+source+medium across dimensions, then SUM) ---
+    // --- AI sessions (sessionSource only, matching the disjoint Channel Breakdown cell). ---
+    // Trend must use the same scope as the displayed AI count, otherwise the row can show
+    // 5 sessions with a trend computed off 12 cross-dimensional sessions.
     const sumAi = (from: string, to: string) => app.db
-      .select({ sessions: sql<number>`COALESCE(SUM(max_sessions), 0)` })
-      .from(sql`(
-        SELECT date, source, medium, MAX(sessions) AS max_sessions
-        FROM ga_ai_referrals
-        WHERE project_id = ${project.id} AND date >= ${from} AND date < ${to}
-        GROUP BY date, source, medium
-      )`)
+      .select({ sessions: sql<number>`COALESCE(SUM(${gaAiReferrals.sessions}), 0)` })
+      .from(gaAiReferrals)
+      .where(and(
+        eq(gaAiReferrals.projectId, project.id),
+        sql`${gaAiReferrals.date} >= ${from}`,
+        sql`${gaAiReferrals.date} < ${to}`,
+        eq(gaAiReferrals.sourceDimension, 'session'),
+      ))
       .get()
 
     // --- Social sessions ---
@@ -947,27 +950,29 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       return { sessions7d: c7, sessionsPrev7d: p7, trend7dPct: pct(c7, p7), sessions30d: c30, sessionsPrev30d: p30, trend30dPct: pct(c30, p30) }
     }
 
-    // --- Biggest movers (AI) ---
+    // --- Biggest movers (AI) — sessionSource-only to match the breakdown cell scope. ---
     const aiSourceCurrent = app.db
-      .select({ source: sql<string>`source`, sessions: sql<number>`COALESCE(SUM(max_sessions), 0)` })
-      .from(sql`(
-        SELECT date, source, medium, MAX(sessions) AS max_sessions
-        FROM ga_ai_referrals
-        WHERE project_id = ${project.id} AND date >= ${daysAgo(7)} AND date < ${todayStr}
-        GROUP BY date, source, medium
-      )`)
-      .groupBy(sql`source`)
+      .select({ source: gaAiReferrals.source, sessions: sql<number>`COALESCE(SUM(${gaAiReferrals.sessions}), 0)` })
+      .from(gaAiReferrals)
+      .where(and(
+        eq(gaAiReferrals.projectId, project.id),
+        sql`${gaAiReferrals.date} >= ${daysAgo(7)}`,
+        sql`${gaAiReferrals.date} < ${todayStr}`,
+        eq(gaAiReferrals.sourceDimension, 'session'),
+      ))
+      .groupBy(gaAiReferrals.source)
       .all()
 
     const aiSourcePrev = app.db
-      .select({ source: sql<string>`source`, sessions: sql<number>`COALESCE(SUM(max_sessions), 0)` })
-      .from(sql`(
-        SELECT date, source, medium, MAX(sessions) AS max_sessions
-        FROM ga_ai_referrals
-        WHERE project_id = ${project.id} AND date >= ${daysAgo(14)} AND date < ${daysAgo(7)}
-        GROUP BY date, source, medium
-      )`)
-      .groupBy(sql`source`)
+      .select({ source: gaAiReferrals.source, sessions: sql<number>`COALESCE(SUM(${gaAiReferrals.sessions}), 0)` })
+      .from(gaAiReferrals)
+      .where(and(
+        eq(gaAiReferrals.projectId, project.id),
+        sql`${gaAiReferrals.date} >= ${daysAgo(14)}`,
+        sql`${gaAiReferrals.date} < ${daysAgo(7)}`,
+        eq(gaAiReferrals.sourceDimension, 'session'),
+      ))
+      .groupBy(gaAiReferrals.source)
       .all()
 
     const findBiggestMover = (
