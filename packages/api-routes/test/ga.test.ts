@@ -500,6 +500,10 @@ describe('GA4 routes', () => {
     ])
     expect(body.aiSessionsDeduped).toBe(17)
     expect(body.aiUsersDeduped).toBe(10)
+    // Only sessionSource-attributed rows seeded, so bySession matches dedup here.
+    expect(body.aiSessionsBySession).toBe(17)
+    expect(body.aiUsersBySession).toBe(10)
+    expect(body.aiSharePctBySession).toBe(5)
     expect(body.socialReferrals).toEqual([])
     expect(body.socialSessions).toBe(0)
     expect(body.socialUsers).toBe(0)
@@ -676,6 +680,126 @@ describe('GA4 routes', () => {
       expect(legacy.directSessions).toBe(0)
     } finally {
       db.delete(gaTrafficSnapshots).where(eq(gaTrafficSnapshots.id, id)).run()
+      credentials.delete('test-project')
+    }
+  })
+
+  it('GET /ga/traffic exposes aiSessionsBySession disjoint from firstUserSource overlap', async () => {
+    const now = new Date().toISOString()
+    credentials.set('test-project', {
+      projectName: 'test-project',
+      propertyId: '999888',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    // Seed two AI referral rows on a unique date for the same source/medium:
+    // - sessionSource lens reports 6 (current-session referrals)
+    // - firstUserSource lens reports 14 (returning users whose lifetime first
+    //   source was AI; 6 of these are also in sessionSource, the other 8 are
+    //   currently arriving via Direct/Organic/Social and would be double-counted)
+    const sessionRowId = crypto.randomUUID()
+    const firstUserRowId = crypto.randomUUID()
+    const distinctDate = '2025-12-31'
+    db.insert(gaAiReferrals).values({
+      id: sessionRowId,
+      projectId,
+      date: distinctDate,
+      source: 'claude.ai',
+      medium: 'referral',
+      sourceDimension: 'session',
+      sessions: 6,
+      users: 5,
+      syncedAt: now,
+    }).run()
+    db.insert(gaAiReferrals).values({
+      id: firstUserRowId,
+      projectId,
+      date: distinctDate,
+      source: 'claude.ai',
+      medium: 'referral',
+      sourceDimension: 'first_user',
+      sessions: 14,
+      users: 12,
+      syncedAt: now,
+    }).run()
+
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/ga/traffic',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      // Pre-existing chatgpt.com row contributes 17 to both lenses.
+      // claude.ai contributes: dedup MAX(6, 14) = 14, bySession only the 6.
+      expect(body.aiSessionsDeduped).toBe(17 + 14)
+      expect(body.aiSessionsBySession).toBe(17 + 6)
+    } finally {
+      db.delete(gaAiReferrals).where(inArray(gaAiReferrals.id, [sessionRowId, firstUserRowId])).run()
+      credentials.delete('test-project')
+    }
+  })
+
+  it('GET /ga/attribution-trend exposes direct channel 7d trend', async () => {
+    const now = new Date().toISOString()
+    const daysAgo = (n: number): string => {
+      const d = new Date()
+      d.setDate(d.getDate() - n)
+      return d.toISOString().slice(0, 10)
+    }
+    credentials.set('test-project', {
+      projectName: 'test-project',
+      propertyId: '999888',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    // Current 7d window: daysAgo(7) inclusive → today exclusive. Seed at daysAgo(3).
+    // Prev 7d window: daysAgo(14) inclusive → daysAgo(7) exclusive. Seed at daysAgo(10).
+    const idCurrent = crypto.randomUUID()
+    const idPrev = crypto.randomUUID()
+    db.insert(gaTrafficSnapshots).values({
+      id: idCurrent,
+      projectId,
+      date: daysAgo(3),
+      landingPage: '/__direct-trend-current',
+      sessions: 60,
+      organicSessions: 0,
+      directSessions: 50,
+      users: 50,
+      syncedAt: now,
+    }).run()
+    db.insert(gaTrafficSnapshots).values({
+      id: idPrev,
+      projectId,
+      date: daysAgo(10),
+      landingPage: '/__direct-trend-prev',
+      sessions: 30,
+      organicSessions: 0,
+      directSessions: 25,
+      users: 25,
+      syncedAt: now,
+    }).run()
+
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/ga/attribution-trend',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(body.direct).toBeDefined()
+      expect(body.direct.sessions7d).toBe(50)
+      expect(body.direct.sessionsPrev7d).toBe(25)
+      // (50 - 25) / 25 = 100%
+      expect(body.direct.trend7dPct).toBe(100)
+    } finally {
+      db.delete(gaTrafficSnapshots).where(inArray(gaTrafficSnapshots.id, [idCurrent, idPrev])).run()
       credentials.delete('test-project')
     }
   })

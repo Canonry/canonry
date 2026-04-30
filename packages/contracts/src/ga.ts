@@ -58,10 +58,14 @@ export const ga4TrafficSummaryDtoSchema = z.object({
     users: z.number(),
   })),
   aiReferrals: z.array(ga4AiReferralDtoSchema),
-  /** Deduped AI session total: MAX(sessions) per date+source+medium across attribution dimensions, then summed. */
+  /** Deduped AI session total: MAX(sessions) per date+source+medium across attribution dimensions, then summed. Cross-cutting: can overlap with Direct/Organic/Social via firstUserSource. */
   aiSessionsDeduped: z.number(),
   /** Deduped AI user total: MAX(users) per date+source+medium across attribution dimensions, then summed. */
   aiUsersDeduped: z.number(),
+  /** AI sessions whose CURRENT sessionSource matched an AI engine. Disjoint from Direct/Organic/Social — safe for the channel breakdown. */
+  aiSessionsBySession: z.number(),
+  /** AI users whose CURRENT sessionSource matched an AI engine. Disjoint from Direct/Organic/Social — safe for the channel breakdown. */
+  aiUsersBySession: z.number(),
   socialReferrals: z.array(ga4SocialReferralDtoSchema),
   /** Total social sessions (session-scoped, no cross-dimension dedup needed). */
   socialSessions: z.number(),
@@ -69,8 +73,10 @@ export const ga4TrafficSummaryDtoSchema = z.object({
   socialUsers: z.number(),
   /** Organic sessions as a percentage of total sessions (0–100, rounded). */
   organicSharePct: z.number(),
-  /** Deduped AI sessions as a percentage of total sessions (0–100, rounded). */
+  /** Deduped AI sessions as a percentage of total sessions (0–100, rounded). Cross-cutting: can overlap with Direct/Organic/Social. */
   aiSharePct: z.number(),
+  /** Session-source-only AI sessions as a percentage of total sessions (0–100, rounded). Disjoint from Direct/Organic/Social. */
+  aiSharePctBySession: z.number(),
   /** Direct-channel sessions as a percentage of total sessions (0–100, rounded). */
   directSharePct: z.number(),
   /** Social sessions as a percentage of total sessions (0–100, rounded). */
@@ -132,6 +138,7 @@ export interface GaAttributionTrendResponse {
   organic: GaChannelTrend
   ai: GaChannelTrend
   social: GaChannelTrend
+  direct: GaChannelTrend
   total: GaChannelTrend
   /** AI source with largest absolute session change in 7d vs prev 7d */
   aiBiggestMover: { source: string; sessions7d: number; sessionsPrev7d: number; changePct: number } | null
@@ -147,10 +154,14 @@ export interface GaTrafficResponse {
   totalUsers: number
   topPages: Array<{ landingPage: string; sessions: number; organicSessions: number; directSessions: number; users: number }>
   aiReferrals: Array<{ source: string; medium: string; sessions: number; users: number; sourceDimension: GA4SourceDimension }>
-  /** Deduped AI session total: MAX(sessions) per date+source+medium across attribution dimensions, then summed. */
+  /** Deduped AI session total: MAX(sessions) per date+source+medium across attribution dimensions, then summed. Cross-cutting: can overlap with Direct/Organic/Social via firstUserSource. */
   aiSessionsDeduped: number
   /** Deduped AI user total: MAX(users) per date+source+medium across attribution dimensions, then summed. */
   aiUsersDeduped: number
+  /** AI sessions whose CURRENT sessionSource matched an AI engine. Disjoint from Direct/Organic/Social — safe for the channel breakdown. */
+  aiSessionsBySession: number
+  /** AI users whose CURRENT sessionSource matched an AI engine. Disjoint from Direct/Organic/Social — safe for the channel breakdown. */
+  aiUsersBySession: number
   socialReferrals: Array<{ source: string; medium: string; sessions: number; users: number; channelGroup: string }>
   /** Total social sessions (session-scoped via sessionDefaultChannelGroup). */
   socialSessions: number
@@ -158,8 +169,10 @@ export interface GaTrafficResponse {
   socialUsers: number
   /** Organic sessions as a percentage of total sessions (0–100, rounded). */
   organicSharePct: number
-  /** Deduped AI sessions as a percentage of total sessions (0–100, rounded). */
+  /** Deduped AI sessions as a percentage of total sessions (0–100, rounded). Cross-cutting: can overlap with Direct/Organic/Social. */
   aiSharePct: number
+  /** Session-source-only AI sessions as a percentage of total sessions (0–100, rounded). Disjoint from Direct/Organic/Social. */
+  aiSharePctBySession: number
   /** Direct-channel sessions as a percentage of total sessions (0–100, rounded). */
   directSharePct: number
   /** Social sessions as a percentage of total sessions (0–100, rounded). */

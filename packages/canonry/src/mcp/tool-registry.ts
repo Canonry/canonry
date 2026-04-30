@@ -585,7 +585,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_ga_attribution_trend',
     title: 'Get GA attribution trend',
-    description: 'Get per-channel attribution trends for organic, AI, social, and total sessions.',
+    description: 'Get per-channel attribution trends for organic, AI, social, direct, and total sessions.',
     access: 'read',
     tier: 'ga',
     inputSchema: projectInputSchema,

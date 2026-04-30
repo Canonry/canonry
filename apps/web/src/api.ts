@@ -966,6 +966,8 @@ export interface ApiGaTrafficPage {
   landingPage: string
   sessions: number
   organicSessions: number
+  /** Direct-channel sessions for this landing page (sessions with no source). 0 for legacy rows. */
+  directSessions: number
   users: number
 }
 
@@ -988,13 +990,19 @@ export interface ApiGaSocialReferral {
 export interface ApiGaTraffic {
   totalSessions: number
   totalOrganicSessions: number
+  /** Total Direct-channel sessions across the synced window. */
+  totalDirectSessions: number
   totalUsers: number
   topPages: ApiGaTrafficPage[]
   aiReferrals: ApiGaTrafficReferral[]
-  /** Deduped AI session total (MAX per date+source+medium across attribution dimensions). */
+  /** Deduped AI session total (MAX per date+source+medium across attribution dimensions). Cross-cutting: can overlap with Direct/Organic/Social. */
   aiSessionsDeduped: number
   /** Deduped AI user total. */
   aiUsersDeduped: number
+  /** AI sessions whose CURRENT sessionSource matched an AI engine. Disjoint from Direct/Organic/Social — used by the channel breakdown. */
+  aiSessionsBySession: number
+  /** AI users whose CURRENT sessionSource matched an AI engine. */
+  aiUsersBySession: number
   socialReferrals: ApiGaSocialReferral[]
   /** Total social sessions (session-scoped via sessionDefaultChannelGroup). */
   socialSessions: number
@@ -1002,10 +1010,14 @@ export interface ApiGaTraffic {
   socialUsers: number
   /** Organic sessions as a percentage of total sessions (0–100, rounded). */
   organicSharePct: number
-  /** Deduped AI sessions as a percentage of total sessions (0–100, rounded). */
+  /** Deduped AI sessions as a percentage of total sessions (0–100, rounded). Cross-cutting: can overlap with Direct/Organic/Social. */
   aiSharePct: number
+  /** Session-source-only AI sessions as a percentage of total sessions (0–100, rounded). Disjoint from Direct/Organic/Social. */
+  aiSharePctBySession: number
   /** Social sessions as a percentage of total sessions (0–100, rounded). */
   socialSharePct: number
+  /** Direct sessions as a percentage of total sessions (0–100, rounded). */
+  directSharePct: number
   lastSyncedAt: string | null
   /** Start of the synced date range (YYYY-MM-DD), null if no data. */
   periodStart: string | null

@@ -645,6 +645,19 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       )
       .get()
 
+    // Session-source-only AI total: sessions whose CURRENT sessionSource matched
+    // an AI engine. Disjoint from sessionDefaultChannelGrouping = 'Direct' (those
+    // sessions have no source by definition), so it's safe to display alongside
+    // Organic/Social/Direct in a four-channel breakdown without overlap.
+    const aiBySession = app.db
+      .select({
+        sessions: sql<number>`COALESCE(SUM(${gaAiReferrals.sessions}), 0)`,
+        users: sql<number>`COALESCE(SUM(${gaAiReferrals.users}), 0)`,
+      })
+      .from(gaAiReferrals)
+      .where(and(...aiConditions, eq(gaAiReferrals.sourceDimension, 'session')))
+      .get()
+
     const socialReferrals = app.db
       .select({
         source: gaSocialReferrals.source,
@@ -702,6 +715,8 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       })),
       aiSessionsDeduped: aiDeduped?.sessions ?? 0,
       aiUsersDeduped: aiDeduped?.users ?? 0,
+      aiSessionsBySession: aiBySession?.sessions ?? 0,
+      aiUsersBySession: aiBySession?.users ?? 0,
       socialReferrals: socialReferrals.map((r) => ({
         source: r.source,
         medium: r.medium,
@@ -713,6 +728,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       socialUsers: socialTotals?.users ?? 0,
       organicSharePct: total > 0 ? Math.round(((summaryRow?.totalOrganicSessions ?? 0) / total) * 100) : 0,
       aiSharePct: total > 0 ? Math.round(((aiDeduped?.sessions ?? 0) / total) * 100) : 0,
+      aiSharePctBySession: total > 0 ? Math.round(((aiBySession?.sessions ?? 0) / total) * 100) : 0,
       directSharePct: total > 0 ? Math.round((totalDirectSessions / total) * 100) : 0,
       socialSharePct: total > 0 ? Math.round(((socialTotals?.sessions ?? 0) / total) * 100) : 0,
       lastSyncedAt: latestSync?.syncedAt ?? null,
@@ -896,6 +912,13 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .where(and(eq(gaTrafficSnapshots.projectId, project.id), sql`${gaTrafficSnapshots.date} >= ${from}`, sql`${gaTrafficSnapshots.date} < ${to}`))
       .get()
 
+    // --- Direct sessions (from gaTrafficSnapshots.directSessions) ---
+    const sumDirect = (from: string, to: string) => app.db
+      .select({ sessions: sql<number>`COALESCE(SUM(${gaTrafficSnapshots.directSessions}), 0)` })
+      .from(gaTrafficSnapshots)
+      .where(and(eq(gaTrafficSnapshots.projectId, project.id), sql`${gaTrafficSnapshots.date} >= ${from}`, sql`${gaTrafficSnapshots.date} < ${to}`))
+      .get()
+
     // --- AI sessions (deduped: MAX per date+source+medium across dimensions, then SUM) ---
     const sumAi = (from: string, to: string) => app.db
       .select({ sessions: sql<number>`COALESCE(SUM(max_sessions), 0)` })
@@ -985,6 +1008,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       organic: buildTrend(sumOrganic),
       ai: buildTrend(sumAi),
       social: buildTrend(sumSocial),
+      direct: buildTrend(sumDirect),
       aiBiggestMover: findBiggestMover(aiSourceCurrent, aiSourcePrev),
       socialBiggestMover: findBiggestMover(socialSourceCurrent, socialSourcePrev),
     }

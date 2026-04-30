@@ -307,10 +307,14 @@ export function TrafficSection({ projectName }: { projectName: string }) {
   }
 
   const organicPct = traffic?.organicSharePct ?? 0
+  const organicSessions = traffic?.totalOrganicSessions ?? 0
   const aiSessions = traffic?.aiSessionsDeduped ?? 0
-  const aiSharePct = traffic?.aiSharePct ?? 0
+  const aiSessionsBySession = traffic?.aiSessionsBySession ?? 0
+  const aiSharePctBySession = traffic?.aiSharePctBySession ?? 0
   const aiSourceCount = traffic ? new Set(traffic.aiReferrals.map((referral) => referral.source.toLowerCase())).size : 0
   const topAiSource = sortedAiReferrals[0] ?? null
+  const directSessions = traffic?.totalDirectSessions ?? 0
+  const directSharePct = traffic?.directSharePct ?? 0
 
   const socialSessions = traffic?.socialSessions ?? 0
   const socialSharePct = traffic?.socialSharePct ?? 0
@@ -528,101 +532,90 @@ export function TrafficSection({ projectName }: { projectName: string }) {
               </Card>
             )}
 
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.5fr)]">
-              <Card className="surface-card p-5">
-                <div className="mb-4">
-                  <p className="eyebrow eyebrow-soft">Summary</p>
-                  <h3 className="text-sm font-semibold text-zinc-100">Attributable AI visits</h3>
+            <Card className="surface-card p-5 mb-4">
+              <div className="mb-4">
+                <p className="eyebrow eyebrow-soft">Summary</p>
+                <h3 className="text-sm font-semibold text-zinc-100">Channel breakdown</h3>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <AttributionStat
+                  label="Organic"
+                  value={`${organicPct}%`}
+                  hint={`${organicSessions.toLocaleString()} sessions`}
+                  tone="positive"
+                  tooltip="Sessions from Google organic search (sessionDefaultChannelGrouping = 'Organic Search')."
+                />
+                <AttributionStat
+                  label="Social"
+                  value={`${socialSharePct}%`}
+                  hint={`${socialSessions.toLocaleString()} sessions`}
+                  tone="neutral"
+                  tooltip="Sessions from social platforms (sessionDefaultChannelGrouping = 'Organic Social' or 'Paid Social')."
+                />
+                <AttributionStat
+                  label="Direct"
+                  value={`${directSharePct}%`}
+                  hint={`${directSessions.toLocaleString()} sessions`}
+                  tone="neutral"
+                  tooltip="Sessions with no source — bookmarks, typed URLs, untagged email, in-app browsers, and AI-driven traffic whose referrer header was stripped."
+                />
+                <AttributionStat
+                  label="Known AI referrers (lower bound)"
+                  value={`${aiSharePctBySession}%`}
+                  hint={`${aiSessionsBySession.toLocaleString()} sessions`}
+                  tone="positive"
+                  tooltip="Sessions whose current sessionSource matched a known AI engine (e.g. chatgpt.com, claude.ai, gemini.google.com). Disjoint from Direct/Organic/Social. This is a strict lower bound: most AI traffic strips the referrer and falls into Direct, so the true AI share is typically higher than what's shown here. The detail table below also surfaces firstUserSource and UTM-tagged AI signals."
+                />
+              </div>
+
+              {topAiSource && (
+                <div className="mt-4 rounded-lg border border-emerald-800/40 bg-emerald-500/6 px-4 py-3 text-sm text-emerald-100">
+                  Top AI referrer: <span className="font-medium">{topAiSource.source}</span> via {topAiSource.medium}, accounting for {topAiSource.sessions.toLocaleString()} sessions.
                 </div>
+              )}
+            </Card>
 
-                {traffic.aiReferrals.length > 0 ? (
-                  <>
-                    <div className="grid gap-3 sm:grid-cols-3">
-                      <AttributionStat
-                        label="AI Sessions"
-                        value={formatCompact(aiSessions)}
-                        hint={`${aiSessions.toLocaleString()} sessions`}
-                        tone="positive"
-                        tooltip="Total sessions attributed to AI referral sources detected via GA4 sessionSource, firstUserSource, and sessionManualSource dimensions."
-                      />
-                      <AttributionStat
-                        label="Share of Traffic"
-                        value={`${aiSharePct}%`}
-                        hint="of total sessions"
-                        tone="neutral"
-                        tooltip="Percentage of your total site sessions that originated from AI answer engines. A higher share indicates stronger AI-driven discovery."
-                      />
-                      <AttributionStat
-                        label="Tracked Sources"
-                        value={String(aiSourceCount)}
-                        hint={`${traffic.aiReferrals.length} source rows`}
-                        tone="neutral"
-                        tooltip="Number of distinct AI referral sources detected. Each unique source/medium combination (e.g. chatgpt.com/referral) counts as one source row."
-                      />
-                    </div>
+            <Card className="surface-card p-5">
+              <div className="mb-4 flex items-end justify-between gap-3">
+                <div>
+                  <p className="eyebrow eyebrow-soft">Detail</p>
+                  <h3 className="text-sm font-semibold text-zinc-100">Known AI referrers — sources detected</h3>
+                </div>
+                <p className="text-xs text-zinc-500">
+                  {traffic.aiReferrals.length > 0 ? `${aiSourceCount} unique sources, ${traffic.aiReferrals.length} rows` : 'No source rows'}
+                </p>
+              </div>
 
-                    {topAiSource && (
-                      <div className="mt-4 rounded-lg border border-emerald-800/40 bg-emerald-500/6 px-4 py-3 text-sm text-emerald-100">
-                        Top AI referrer: <span className="font-medium">{topAiSource.source}</span> via {topAiSource.medium}, accounting for {topAiSource.sessions.toLocaleString()} sessions.
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="grid gap-3 sm:grid-cols-3">
-                      <AttributionStat label="AI Sessions" value="0" hint="0 sessions" tone="neutral" tooltip="Total sessions attributed to AI referral sources detected via GA4 sessionSource, firstUserSource, and sessionManualSource dimensions." />
-                      <AttributionStat label="Share of Traffic" value="0%" hint="of total sessions" tone="neutral" tooltip="Percentage of your total site sessions that originated from AI answer engines." />
-                      <AttributionStat label="Tracked Sources" value="0" hint="known AI sources" tone="neutral" tooltip="Number of distinct AI referral sources detected after matching known AI engine referrers and AI-tagged UTM sources." />
-                    </div>
-                    <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-4 py-3 text-sm text-zinc-400">
-                      <p className="mb-1.5 text-zinc-300">Monitoring for AI referral traffic from:</p>
-                      <p className="text-xs text-zinc-500">Known AI answer engines and matching UTM-tagged variants. Sessions will appear here once GA4 detects visits from tracked AI sources.</p>
-                    </div>
-                  </div>
-                )}
-              </Card>
-
-              <Card className="surface-card p-5">
-                <div className="mb-4 flex items-end justify-between gap-3">
-                  <div>
-                    <p className="eyebrow eyebrow-soft">Breakdown</p>
-                    <h3 className="text-sm font-semibold text-zinc-100">Source / medium</h3>
-                  </div>
-                  <p className="text-xs text-zinc-500">
-                    {traffic.aiReferrals.length > 0 ? `${traffic.aiReferrals.length} rows` : 'No source rows'}
+              {traffic.aiReferrals.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-[10px] uppercase tracking-wider text-zinc-500">
+                        <SortHeader label="Source" sortKey="source" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="left" />
+                        <SortHeader label="Medium" sortKey="medium" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="left" />
+                        <th className="py-1 font-medium text-left">Attribution</th>
+                        <SortHeader label="Sessions" sortKey="sessions" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="right" />
+                        <th className="py-1 font-medium text-right">Share</th>
+                        <SortHeader label="Users" sortKey="users" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="right" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedAiReferrals.map((referral) => (
+                        <AiReferralRow key={`${referral.source}:${referral.medium}:${referral.sourceDimension}`} referral={referral} totalSessions={aiSessions} />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <p className="text-sm text-zinc-400 mb-2">No AI referrer sessions detected yet</p>
+                  <p className="text-xs text-zinc-500 max-w-sm">
+                    AI engines that preserve a referrer (Perplexity, copy/paste from ChatGPT, etc.) will appear here. Most AI traffic strips the referrer — see the Direct cell above for the upper bound.
                   </p>
                 </div>
-
-                {traffic.aiReferrals.length > 0 ? (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-[10px] uppercase tracking-wider text-zinc-500">
-                          <SortHeader label="Source" sortKey="source" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="left" />
-                          <SortHeader label="Medium" sortKey="medium" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="left" />
-                          <th className="py-1 font-medium text-left">Attribution</th>
-                          <SortHeader label="Sessions" sortKey="sessions" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="right" />
-                          <th className="py-1 font-medium text-right">Share</th>
-                          <SortHeader label="Users" sortKey="users" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="right" />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sortedAiReferrals.map((referral) => (
-                          <AiReferralRow key={`${referral.source}:${referral.medium}:${referral.sourceDimension}`} referral={referral} totalSessions={aiSessions} />
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-8 text-center">
-                    <p className="text-sm text-zinc-400 mb-2">No AI referrer sessions detected yet</p>
-                    <p className="text-xs text-zinc-500 max-w-sm">
-                      When visitors arrive from ChatGPT, Claude, Gemini, or other AI platforms, their sessions will be broken down here by source and medium.
-                    </p>
-                  </div>
-                )}
-              </Card>
-            </div>
+              )}
+            </Card>
           </section>
         </>
       )}
