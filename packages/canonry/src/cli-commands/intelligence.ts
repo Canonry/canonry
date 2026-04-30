@@ -2,6 +2,7 @@ import { listInsights, dismissInsight } from '../commands/insights.js'
 import { showHealth } from '../commands/health-cmd.js'
 import { showOverview } from '../commands/overview.js'
 import { searchProject } from '../commands/search.js'
+import { showCitationVisibility } from '../commands/citations.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { requireProject, requirePositional, getString, parseIntegerOption } from '../cli-command-helpers.js'
 
@@ -77,6 +78,16 @@ export const INTELLIGENCE_CLI_COMMANDS: readonly CliCommandSpec[] = [
         message: '--limit must be an integer',
       })
       await searchProject(project, { query, limit, format: input.format })
+    },
+  },
+  {
+    path: ['citations', 'visibility'],
+    usage: 'canonry citations visibility <project> [--format json]',
+    options: {},
+    run: async (input) => {
+      const usage = 'canonry citations visibility <project> [--format json]'
+      const project = requireProject(input, 'citations visibility', usage)
+      await showCitationVisibility(project, { format: input.format })
     },
   },
 ]

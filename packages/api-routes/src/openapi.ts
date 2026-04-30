@@ -2283,6 +2283,19 @@ const routeCatalog: OpenApiOperation[] = [
       404: { description: 'Project not found.' },
     },
   },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/citations/visibility',
+    summary: 'Citation visibility headline (cited by N of M engines)',
+    description:
+      'Single-call read for the AI citation surface. Returns project headline (`providersConfigured`/`providersCiting`/keyword coverage counts), per-keyword engine coverage rows from the latest snapshot per (keyword × provider), and a competitor-gap list (keywords where the project is not cited but a configured competitor is). Status `no-data` with `reason: "no-runs-yet"` or `"no-keywords"` when the project lacks the inputs.',
+    tags: ['intelligence'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'Citation visibility report or no-data sentinel returned.' },
+      404: { description: 'Project not found.' },
+    },
+  },
 
   // Content opportunity engine
   {

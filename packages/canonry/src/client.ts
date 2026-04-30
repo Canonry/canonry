@@ -47,6 +47,7 @@ import type {
   IndexingRequestResultDto,
   InsightDto,
   HealthSnapshotDto,
+  CitationVisibilityResponse,
   BingCoverageSnapshotDto,
   AgentProvidersResponse,
   BacklinkHistoryEntry,
@@ -996,6 +997,13 @@ export class ApiClient {
   async getHealthHistory(project: string, limit?: number): Promise<HealthSnapshotDto[]> {
     const qs = limit ? `?limit=${limit}` : ''
     return this.request<HealthSnapshotDto[]>('GET', `/projects/${encodeURIComponent(project)}/health/history${qs}`)
+  }
+
+  async getCitationVisibility(project: string): Promise<CitationVisibilityResponse> {
+    return this.request<CitationVisibilityResponse>(
+      'GET',
+      `/projects/${encodeURIComponent(project)}/citations/visibility`,
+    )
   }
 
   // --- Backlinks ---------------------------------------------------------

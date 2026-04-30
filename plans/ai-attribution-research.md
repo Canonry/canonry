@@ -2,9 +2,12 @@
 
 ## Status
 
-Research complete; **Step 1 (data hygiene / path normalization) is the active deliverable**. Step 2 (better AI traffic capture using existing integrations) is designed at the option level here but not yet broken into commits — a separate design pass is required before building it. This doc preserves the reasoning behind both so a future session picks up cold.
+- **Step 1 (URL/path normalization): COMPLETE.** Shipped in #373, #375, #376. Backfill runs on `canonry serve` startup.
+- **Step 2A (four-channel breakdown panel): COMPLETE.** Shipped in #374, #377. Replaces the broken "Attributable AI visits" card with organic / direct / social / known-AI cells; the AI cell is rendered disjoint from Direct so known AI sources never inflate the Direct count.
+- **Step 2B (citation visibility headline): NEXT — designed below.** Surfaces "cited by N of M engines per keyword" + a competitor-gap list as the headline AI metric.
+- **Step 2C (citation-to-traffic gap), Step 2D (GSC ⨝ AI citation overlap): DEFERRED.** Re-scoped after 2B lands and we have a baseline citation-visibility view to extend.
 
-Last updated: 2026-04-29.
+Last updated: 2026-04-29 (after #377).
 
 ## Original goal
 
@@ -77,57 +80,95 @@ What BQ Export still buys (in order of value):
 
 Decision: **defer BQ Export**. Build with Reports API only. The constraint for Step 2 is "integrations we already have" — BQ Export is a new integration.
 
-## The two-step plan
+## What's been shipped
 
-### Step 1 — Data hygiene (active)
+### Step 1 — Data hygiene (#373, #375, #376)
 
-URL/path normalization across the GA layer. Specs in detail above the conversation; summary:
+- `normalizeUrlPath()` in [`packages/contracts/src/url-normalize.ts`](../packages/contracts/src/url-normalize.ts) with 44 unit tests in [`packages/contracts/test/url-normalize.test.ts`](../packages/contracts/test/url-normalize.test.ts). Strip-list as specified (`fbclid, gclid, msclkid, ttclid, li_fat_id, igshid, yclid, dclid, gbraid, wbraid, mc_cid, mc_eid, _ga, _gl, gtm_latency, gtm_debug, utm_*`); trailing slash collapse (root excepted); `/index.html` and `/index.php` collapse to `/`; case preserved; remaining query params canonicalized.
+- `landing_page_normalized` column on `ga_traffic_snapshots`, indexed `(project_id, date, landing_page_normalized)`. Migration in [`packages/db/src/migrate.ts:570`](../packages/db/src/migrate.ts).
+- Read-side `COALESCE(landing_page_normalized, landing_page)` in [`packages/api-routes/src/ga.ts:580, 604, 706`](../packages/api-routes/src/ga.ts) so dashboards never see broken state during backfill.
+- `canonry backfill normalized-paths` (idempotent) — runs automatically on `canonry serve` startup; safe to re-run via the CLI.
+- `(not set)` handling and malformed-artifact recovery (#376) — guards against `&nbsp;` and other paste-introduced noise.
 
-- New shared util `packages/contracts/src/url-normalize.ts` (pure function + golden-file tests)
-- `landing_page_normalized TEXT` column on `ga_traffic_snapshots`
-- New index `(project_id, date, landing_page_normalized)`
-- Read-side `COALESCE(landing_page_normalized, landing_page)` so dashboards never enter a broken state during migration
-- `canonry backfill normalized-paths` CLI command (idempotent)
-- Conservative strip-list: `fbclid, gclid, msclkid, ttclid, li_fat_id, igshid, yclid, dclid, gbraid, wbraid, mc_cid, mc_eid, _ga, _gl, gtm_latency, gtm_debug, utm_*`
-- Trailing slash collapsed (root `/` excepted)
-- `/index.html`, `/index.php` collapse to `/`
-- Case preserved
-- `(not set)` normalized to NULL, surfaced in UI as `(unknown)` (not silently filtered)
+Visible win confirmed: per-page tables collapse the fbclid-fragmented homepage rows down to one entry. Total session counts unchanged.
 
-Visible win: per-page tables stop being polluted (the test project goes from ~17 fragmented homepage rows to one). Total session counts unchanged.
+### Step 2A — Four-channel breakdown panel (#374, #377)
 
-Foundation laid: stable URL identity for everything downstream including the deferred citation URL retention change.
+- `fetchTrafficByLandingPage()` in [`packages/integration-google-analytics/src/ga4-client.ts:272–412`](../packages/integration-google-analytics/src/ga4-client.ts) now makes three GA4 Data API passes (total / organic-only / direct-only) and returns `directSessions` per row.
+- `direct_sessions` column on `ga_traffic_snapshots`; the API endpoint `/projects/:name/ga/traffic` returns it.
+- [`apps/web/src/components/project/TrafficSection.tsx:535–577`](../apps/web/src/components/project/TrafficSection.tsx) shows a four-stat "Channel breakdown": organic / social / direct / known AI referrers. The AI cell is **disjoint** — known AI sources are counted separately and never lumped into Direct, so the Direct number is honest.
 
-### Step 2 — Better AI traffic capture (next, separate design)
+What 2A intentionally did not do: it shows that "Direct" exists as a measurable bucket, but it does not tell the user whether their Direct traffic correlates with AI citation activity. That correlation is 2C — and only worth building once 2B gives us a credible citation-visibility surface to correlate against.
 
-**Constraint**: only existing integrations. No BQ Export, no Cloudflare, no server-side log ingestion. Squeeze more signal out of GA4 Reports + GSC + `query_snapshots` + Bing Webmaster.
+## Step 2B — Citation visibility headline (next)
 
-Four candidate scopes, in rough order of leverage:
+### Why this next
 
-**A. Replace the broken "Attributable AI visits" panel with an honest channel breakdown.** Today it shows 0/0%/0 on small projects, which a user reads as a measurement when it's really "we have nothing to show". Replace with a complete decomposition: organic / social / direct-to-homepage / direct-to-deep-pages / known-AI-referrals. Requires extending `fetchTrafficByLandingPage()` ([`packages/integration-google-analytics/src/ga4-client.ts:272`](../packages/integration-google-analytics/src/ga4-client.ts)) to fetch per-page Direct sessions. ~30 LOC GA client + ~150 LOC UI changes in [`apps/web/src/components/project/TrafficSection.tsx`](../apps/web/src/components/project/TrafficSection.tsx).
+Plan finding 3 (volume floor) said: *"The product story for small sites must lead with citation visibility (which works at any volume) rather than traffic attribution."* Step 2A laid the GA-side groundwork; 2B delivers on the product story by surfacing what actually works at small volume — citation coverage and competitor gaps — as the headline AI metric. Every project gets value from this regardless of session volume.
 
-**B. Citation visibility as the headline AI metric.** Works at any volume; doesn't depend on GA at all. "Cited by N of 4 engines for these queries" plus the queries where competitors are cited but this site isn't. Most of the data already exists in `query_snapshots` and `intelligence-service.ts` analyses — needs surfacing more prominently.
+### Scope
 
-**C. Citation-to-traffic gap.** For each citation event, is there measurable traffic? At small volume the gap itself is the insight: "8 Gemini citations in 30 days → 0 detectable AI clicks" tells the user their citations aren't converting, which is actionable. Requires joining `query_snapshots` (citation events) to `ga_traffic_snapshots` (per-day traffic to the cited domain's pages) — but only at domain level until the URL-retention change ships.
+Three outputs surfaced as one cohesive section:
 
-**D. GSC ⨝ AI citation overlap.** Queries the site ranks organically for (in `gsc_search_data`) vs queries Canonry tracks for AI citation (in `query_snapshots` + keywords). Divergence is strategically meaningful: "you rank #3 organically for X but Gemini doesn't cite you for the same query".
+1. **Per-project headline.** "Cited by X of N configured engines this period" — top-of-section metric, equivalent prominence to the channel breakdown. Pulls from existing project-level data; the work is making it prominent, not new computation.
 
-Step 2 has not been broken into commits. A separate design pass is needed once Step 1 lands.
+2. **Per-keyword engine coverage table.** For each tracked keyword, show which configured engines cite the domain in the latest run. Shape: `keyword | gemini ✓ | claude ✗ | openai ✗ | perplexity ✓ | coverage 2/4`. Drives the "which engine needs work" decision.
+
+3. **Competitor gap list.** Keywords where the project is *not* cited but at least one configured competitor *is*. Derived from `query_snapshots.citedDomains` ∩ `projects.competitors` for not-cited rows. Most actionable surface: each row maps to a content/SEO task.
+
+### What's already in place
+
+- `query_snapshots` already stores `citationState`, `citedDomains`, `competitorOverlap`, `provider`. No schema change needed.
+- Project-level "cited by N" is computed in [`packages/intelligence/src/health.ts`](../packages/intelligence/src/health.ts) and exposed as `HealthSnapshotDto.providerBreakdown` via `/projects/:name/health/latest` — but only as a project aggregate, buried inside the overview composite.
+- [`apps/web/src/components/project/CitationTimeline.tsx`](../apps/web/src/components/project/CitationTimeline.tsx) already renders per-keyword cited/not-cited dots over time.
+
+### What's missing
+
+- A per-keyword "engine coverage" rollup. Today an agent can list all snapshots and compute it client-side, but the "single-call reads" principle says it should be one API call.
+- A competitor-gap query path. The data exists in `competitorOverlap` JSON, but no endpoint aggregates "for these queries, competitors are cited but we aren't".
+- Prominent UI placement. Project-level providerBreakdown is buried; per-keyword and competitor-gap views don't exist at all.
+
+### Implementation plan
+
+| Layer | File(s) | Change |
+|-------|---------|--------|
+| Contracts | `packages/contracts/src/citations.ts` (new) | `CitationCoverageRow`, `CompetitorGapRow`, `CitationVisibilityResponse` DTOs + Zod schemas |
+| API | `packages/api-routes/src/citations.ts` (new) | `GET /projects/:name/citations/visibility` — single endpoint returning `{ summary, byKeyword[], competitorGaps[] }`, computed from latest snapshot per (keyword × provider) |
+| CLI | `packages/canonry/src/commands/citations.ts` (new) + dispatch in `packages/canonry/src/cli-commands/` | `canonry citations visibility <project> [--format json]` |
+| Client | `packages/canonry/src/client.ts` | Add `getCitationVisibility(projectName)` returning the typed DTO |
+| MCP | `packages/canonry/src/mcp/tool-registry.ts` | Register `canonry_citations_visibility` under the `monitoring` toolkit |
+| UI | `apps/web/src/components/project/CitationVisibilitySection.tsx` (new) | Three-block layout, inserted into the project page near `TrafficSection` |
+| Tests | `packages/contracts/test/citations.test.ts`, `packages/api-routes/test/citations-route.test.ts`, `packages/canonry/test/cli-citations.test.ts` | Contract round-trip; API happy path + competitor overlap edge cases; CLI output assertions |
+
+Estimated size: ~600 LOC across the layers. No DB migrations.
+
+### Open question deferred to 2C
+
+Whether (and how) to correlate per-keyword coverage with per-page Direct traffic from #374. Plan: ship 2B headlines first, then re-scope 2C against a real citation-visibility view rather than against speculation.
+
+## Step 2C / 2D — Deferred until 2B lands
+
+**2C (citation-to-traffic gap):** for each citation event, is there measurable traffic? At small volume the gap *is* the insight: "8 Gemini citations in 30 days → 0 detectable AI clicks" tells the user their citations aren't converting. Requires joining `query_snapshots` (citation events) to `ga_traffic_snapshots` (per-day traffic to the cited domain's pages) — but only at domain level until URL retention ships.
+
+**2D (GSC ⨝ AI citation overlap):** queries the site ranks organically for (in `gsc_search_data`) vs queries Canonry tracks for AI citation (in `query_snapshots` + keywords). Divergence is strategically meaningful: "you rank #3 organically for X but Gemini doesn't cite you for the same query."
+
+Re-scope after 2B is in production. The 2B view will likely shape the column layout and table semantics for 2C and 2D so they feel like extensions, not bolt-ons.
 
 ## What was considered and rejected
 
 - **T0-windowed lift attribution** (Model A in conversation). Anchored on `query_snapshots.created_at` as the citation start time. Rejected: that timestamp is sweep cadence, not citation start. Would fit noise to noise.
 - **Custom JS embed on customer sites for client-side AI detection.** Rejected: high friction, doesn't catch the bot ingestion layer (ChatGPT-User, PerplexityBot don't run JS), better signal lives server-side anyway.
 - **BigQuery Export as a v1 prerequisite.** Demoted to v1.1+ optional; see finding 5 above.
-- **Provider URL retention as a prerequisite for Step 1.** Deferred to a separate change — useful but not load-bearing for path normalization or for Step 2 candidate scopes A–D at their initial granularity. Will become important when scope C is tightened to per-URL precision.
-- **Cloudflare logs / Tier 2+ adapters.** Not in scope until a customer asks. Documented in original architecture brief as a future tier.
+- **Provider URL retention as a prerequisite for Step 1.** Deferred to a separate change — useful but not load-bearing for path normalization or for the 2A panel. Will become important when 2C tightens to per-URL precision.
+- **Cloudflare logs / Tier 2+ adapters.** Not in scope until a customer asks. Documented in the original architecture brief as a future tier.
 
 ## Open questions for future sessions
 
-1. **Sweep cadence per project.** `node-cron` and a `schedules` table exist but the cadences currently configured weren't audited. This sets the error bar on `first_observed` if/when Step 2 scope C tightens. Worth a `SELECT cron, kind, project_id FROM schedules WHERE kind = 'answer-visibility'` survey.
-2. **Citation persistence distribution.** For each (provider, query, domain) tuple, how many consecutive sweeps does the citation persist? Determines whether presence-window models (Step 2 future) get stable signal. Distribution analysis on existing `query_snapshots` would answer this in <100 LOC.
-3. **Higher-volume validation site.** The projects currently available for testing are below the volume floor for any traffic-side AI attribution model. Step 2 scopes A and C will produce empty/flat outputs on these. Either onboard a site with ≥3,000 sessions/month, or accept that Step 2 ships without empirical validation against real signal.
-4. **Bing Webmaster integration overlap.** [`packages/integration-bing`](../packages/integration-bing) is wired but the data it persists wasn't audited. If it captures Bing Chat / Copilot citation data, that's a fifth provider to fold into citation visibility (scope B).
+1. **Sweep cadence per project.** `node-cron` and a `schedules` table exist but the cadences currently configured weren't audited. This sets the error bar on `first_observed` if/when 2C tightens. Worth a `SELECT cron, kind, project_id FROM schedules WHERE kind = 'answer-visibility'` survey.
+2. **Citation persistence distribution.** For each (provider, query, domain) tuple, how many consecutive sweeps does the citation persist? Determines whether presence-window models get stable signal. Distribution analysis on existing `query_snapshots` would answer this in <100 LOC.
+3. **Higher-volume validation site.** The projects currently available for testing are below the volume floor for any traffic-side AI attribution model. 2C will produce empty/flat outputs on these. Either onboard a site with ≥3,000 sessions/month, or accept that 2C ships without empirical validation against real signal. (2B is volume-independent and does not have this problem.)
+4. **Bing Webmaster integration overlap.** [`packages/integration-bing`](../packages/integration-bing) is wired but the data it persists wasn't audited. If it captures Bing Chat / Copilot citation data, that's a fifth provider to fold into the 2B coverage view.
+5. **URL retention for non-Gemini providers.** Deferred change still pending. Becomes load-bearing for 2C when we want per-URL precision (vs domain-level only).
 
 ## Live data appendix (anonymized, ~30-day window in late April 2026)
 
@@ -157,15 +198,31 @@ Citations:
   perplexity  0 cited / ~138 sweeps
 ```
 
+This appendix is now baseline. After 2B lands, the citation-visibility view should make the gemini-only coverage immediately obvious to the user without an ad-hoc SQL run.
+
 Diagnostic methodology: ad-hoc Node scripts using `better-sqlite3` against the canonry SQLite database to inspect `ga_traffic_snapshots`, `ga_ai_referrals`, `query_snapshots`, and the raw provider responses stored on `query_snapshots.raw_response`. The scripts can be reconstructed from the schema; they're not committed.
 
 ## Files referenced
 
-- [`packages/integration-google-analytics/src/ga4-client.ts`](../packages/integration-google-analytics/src/ga4-client.ts) — `fetchAiReferrals` (line 487), `fetchTrafficByLandingPage` (line 272)
-- [`packages/api-routes/src/ga.ts`](../packages/api-routes/src/ga.ts) — sync endpoint (line 373), traffic read endpoint (line 529), attribution-trend (line 851)
-- [`packages/db/src/schema.ts`](../packages/db/src/schema.ts) — `ga_traffic_snapshots`, `ga_ai_referrals`, `query_snapshots`
-- [`packages/db/src/migrate.ts`](../packages/db/src/migrate.ts) — `MIGRATIONS` array (where Step 1 schema migration lands)
+### Step 1 + 2A (shipped)
+
+- [`packages/contracts/src/url-normalize.ts`](../packages/contracts/src/url-normalize.ts) — `normalizeUrlPath()`
+- [`packages/db/src/schema.ts`](../packages/db/src/schema.ts) — `ga_traffic_snapshots` (`landing_page_normalized`, `direct_sessions` columns)
+- [`packages/db/src/migrate.ts`](../packages/db/src/migrate.ts) — `MIGRATIONS` array (Step 1 schema + index, Step 2A direct_sessions column)
+- [`packages/integration-google-analytics/src/ga4-client.ts`](../packages/integration-google-analytics/src/ga4-client.ts) — `fetchTrafficByLandingPage` (line 272), `fetchAiReferrals` (line 487)
+- [`packages/api-routes/src/ga.ts`](../packages/api-routes/src/ga.ts) — sync, traffic read (line 534), attribution-trend
+- [`packages/canonry/src/commands/backfill.ts`](../packages/canonry/src/commands/backfill.ts) — `backfill normalized-paths` (idempotent)
+- [`apps/web/src/components/project/TrafficSection.tsx`](../apps/web/src/components/project/TrafficSection.tsx) — Channel breakdown (line 535)
+
+### Step 2B (next)
+
+- [`packages/db/src/schema.ts`](../packages/db/src/schema.ts) — `query_snapshots` (already has `citationState`, `citedDomains`, `competitorOverlap`, `provider`)
+- [`packages/intelligence/src/health.ts`](../packages/intelligence/src/health.ts) — existing `computeHealth()`; reuse the per-provider rollup logic
+- [`packages/api-routes/src/intelligence.ts`](../packages/api-routes/src/intelligence.ts) — existing `/health/latest` endpoint; new endpoint sits next to it
+- [`apps/web/src/components/project/CitationTimeline.tsx`](../apps/web/src/components/project/CitationTimeline.tsx) — adjacent component; new section sits near it
+
+### Provider URL retention (deferred)
+
 - [`packages/provider-gemini/src/normalize.ts`](../packages/provider-gemini/src/normalize.ts) — opaque redirect handling (line 298–338)
-- [`packages/provider-claude/src/normalize.ts`](../packages/provider-claude/src/normalize.ts), [`packages/provider-openai/src/normalize.ts`](../packages/provider-openai/src/normalize.ts), [`packages/provider-perplexity/src/normalize.ts`](../packages/provider-perplexity/src/normalize.ts) — sibling normalizers, all currently domain-only
-- [`apps/web/src/components/project/TrafficSection.tsx`](../apps/web/src/components/project/TrafficSection.tsx) — "Attributable AI visits" panel (line 535)
+- [`packages/provider-claude/src/normalize.ts`](../packages/provider-claude/src/normalize.ts), [`packages/provider-openai/src/normalize.ts`](../packages/provider-openai/src/normalize.ts), [`packages/provider-perplexity/src/normalize.ts`](../packages/provider-perplexity/src/normalize.ts) — sibling normalizers
 - [`packages/contracts/src/run.ts`](../packages/contracts/src/run.ts) — `groundingSourceSchema` (`{ uri, title }`)

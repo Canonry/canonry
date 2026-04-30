@@ -19,6 +19,7 @@ import { AnalyticsSection } from '../components/project/AnalyticsSection.js'
 import { TrafficSection } from '../components/project/TrafficSection.js'
 import { GscSection } from '../components/project/GscSection.js'
 import { BacklinksSection } from '../components/project/BacklinksSection.js'
+import { CitationVisibilitySection } from '../components/project/CitationVisibilitySection.js'
 import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric } from '../lib/format-helpers.js'
 import { addToast } from '../lib/toast-store.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
@@ -1437,6 +1438,8 @@ export function ProjectPage({
               </p>
             </div>
           </section>
+
+          <CitationVisibilitySection projectName={model.project.name} />
 
           {/* Per-provider visibility breakdown */}
           {model.providerScores.length > 1 && (

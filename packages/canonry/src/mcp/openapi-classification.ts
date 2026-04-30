@@ -126,6 +126,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/projects/{name}/insights/{id}/dismiss': 'included',
   'GET /api/v1/projects/{name}/health/latest': 'included',
   'GET /api/v1/projects/{name}/health/history': 'included',
+  'GET /api/v1/projects/{name}/citations/visibility': 'included',
   'GET /api/v1/projects/{name}/overview': 'included',
   'GET /api/v1/projects/{name}/search': 'included',
   'GET /api/v1/doctor': 'included',
