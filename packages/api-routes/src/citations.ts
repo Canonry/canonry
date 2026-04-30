@@ -21,6 +21,7 @@ interface SnapshotRow {
   citationState: string
   citedDomains: string
   competitorOverlap: string
+  answerMentioned: boolean | null
   createdAt: string
   runCreatedAt: string
 }
@@ -66,6 +67,7 @@ export async function citationRoutes(app: FastifyInstance) {
         citationState: querySnapshots.citationState,
         citedDomains: querySnapshots.citedDomains,
         competitorOverlap: querySnapshots.competitorOverlap,
+        answerMentioned: querySnapshots.answerMentioned,
         createdAt: querySnapshots.createdAt,
       })
       .from(querySnapshots)
@@ -136,49 +138,66 @@ export function computeCitationVisibility(input: ComputeInput): CitationVisibili
     ? Array.from(new Set(configuredProviders))
     : Array.from(observedProviders).sort()
 
-  // byKeyword — every project keyword gets a row, even ones with no snapshots
-  // yet. Providers within a row are sorted by the configured order so the UI
-  // can render columns deterministically.
-  const byKeyword: CitationCoverageRow[] = []
   const providersCitingTracker = new Set<string>()
-  let keywordsCited = 0
-  let keywordsFullyCovered = 0
-  let keywordsUncovered = 0
+  const providersMentioningTracker = new Set<string>()
+
+  // Cross-tab buckets at the keyword level. A keyword lands in exactly one
+  // bucket: cited+mentioned > cited-only > mentioned-only > invisible.
+  // Keywords with zero snapshots fall through and are not counted in any
+  // bucket — total - sum(buckets) = "no data yet".
+  let keywordsCitedAndMentioned = 0
+  let keywordsCitedOnly = 0
+  let keywordsMentionedOnly = 0
+  let keywordsInvisible = 0
+
+  const byKeyword: CitationCoverageRow[] = []
 
   for (const kw of kws) {
     const providers: CitationCoverageProvider[] = []
     let citedCount = 0
+    let mentionedCount = 0
 
     for (const provider of providerUniverse) {
       const snap = latestByPair.get(`${kw.id}::${provider}`)
       if (!snap) continue
       const state = snap.citationState as CitationState
       const cited = citationStateToCited(state)
+      // null answer_mentioned (legacy snapshot before the column existed) is
+      // treated as "not mentioned" — we only credit explicit positives.
+      const mentioned = snap.answerMentioned === true
       if (cited) {
         citedCount++
         providersCitingTracker.add(provider)
+      }
+      if (mentioned) {
+        mentionedCount++
+        providersMentioningTracker.add(provider)
       }
       providers.push({
         provider,
         citationState: state,
         cited,
+        mentioned,
         runId: snap.runId,
         runCreatedAt: snap.runCreatedAt,
       })
     }
 
-    if (citedCount > 0) keywordsCited++
-    // Fully covered = cited by every configured provider. A keyword missing
-    // a snapshot for any provider in providerUniverse is not yet fully covered,
-    // even if every observed provider cites it.
-    if (providerUniverse.length > 0 && citedCount === providerUniverse.length) keywordsFullyCovered++
-    if (providers.length > 0 && citedCount === 0) keywordsUncovered++
+    if (providers.length > 0) {
+      const anyCited = citedCount > 0
+      const anyMentioned = mentionedCount > 0
+      if (anyCited && anyMentioned) keywordsCitedAndMentioned++
+      else if (anyCited) keywordsCitedOnly++
+      else if (anyMentioned) keywordsMentionedOnly++
+      else keywordsInvisible++
+    }
 
     byKeyword.push({
       keywordId: kw.id,
       keyword: kw.keyword,
       providers,
       citedCount,
+      mentionedCount,
       totalProviders: providers.length,
     })
   }
@@ -231,10 +250,12 @@ export function computeCitationVisibility(input: ComputeInput): CitationVisibili
   const summary: CitationVisibilitySummary = {
     providersConfigured: providerUniverse.length,
     providersCiting: providersCitingTracker.size,
+    providersMentioning: providersMentioningTracker.size,
     totalKeywords: kws.length,
-    keywordsCited,
-    keywordsFullyCovered,
-    keywordsUncovered,
+    keywordsCitedAndMentioned,
+    keywordsCitedOnly,
+    keywordsMentionedOnly,
+    keywordsInvisible,
     latestRunId,
     latestRunAt,
   }

@@ -77,6 +77,7 @@ function insertSnapshot(
     keywordId: string
     provider: string
     citationState: 'cited' | 'not-cited'
+    answerMentioned?: boolean | null
     citedDomains?: string[]
     competitorOverlap?: string[]
     createdAt: string
@@ -88,6 +89,7 @@ function insertSnapshot(
     keywordId: args.keywordId,
     provider: args.provider,
     citationState: args.citationState,
+    answerMentioned: args.answerMentioned ?? null,
     citedDomains: JSON.stringify(args.citedDomains ?? []),
     competitorOverlap: JSON.stringify(args.competitorOverlap ?? []),
     recommendedCompetitors: '[]',
@@ -141,17 +143,17 @@ test('ready response computes coverage from latest snapshot per (keyword × prov
   const oldRun = insertRun(ctx.db, projectId, '2026-04-20T00:00:00Z')
   const newRun = insertRun(ctx.db, projectId, '2026-04-28T00:00:00Z')
 
-  // Old run — both providers, both keywords, all not-cited
-  insertSnapshot(ctx.db, { runId: oldRun, keywordId: kwA, provider: 'gemini', citationState: 'not-cited', createdAt: '2026-04-20T00:00:01Z' })
-  insertSnapshot(ctx.db, { runId: oldRun, keywordId: kwA, provider: 'claude', citationState: 'not-cited', createdAt: '2026-04-20T00:00:01Z' })
-  insertSnapshot(ctx.db, { runId: oldRun, keywordId: kwB, provider: 'gemini', citationState: 'not-cited', createdAt: '2026-04-20T00:00:01Z' })
-  insertSnapshot(ctx.db, { runId: oldRun, keywordId: kwB, provider: 'claude', citationState: 'not-cited', createdAt: '2026-04-20T00:00:01Z' })
+  // Old run — both providers, both keywords, all not-cited and not-mentioned
+  insertSnapshot(ctx.db, { runId: oldRun, keywordId: kwA, provider: 'gemini', citationState: 'not-cited', answerMentioned: false, createdAt: '2026-04-20T00:00:01Z' })
+  insertSnapshot(ctx.db, { runId: oldRun, keywordId: kwA, provider: 'claude', citationState: 'not-cited', answerMentioned: false, createdAt: '2026-04-20T00:00:01Z' })
+  insertSnapshot(ctx.db, { runId: oldRun, keywordId: kwB, provider: 'gemini', citationState: 'not-cited', answerMentioned: false, createdAt: '2026-04-20T00:00:01Z' })
+  insertSnapshot(ctx.db, { runId: oldRun, keywordId: kwB, provider: 'claude', citationState: 'not-cited', answerMentioned: false, createdAt: '2026-04-20T00:00:01Z' })
 
-  // New run — gemini cites kwA only; claude still cites neither
-  insertSnapshot(ctx.db, { runId: newRun, keywordId: kwA, provider: 'gemini', citationState: 'cited', createdAt: '2026-04-28T00:00:01Z' })
-  insertSnapshot(ctx.db, { runId: newRun, keywordId: kwA, provider: 'claude', citationState: 'not-cited', createdAt: '2026-04-28T00:00:01Z' })
-  insertSnapshot(ctx.db, { runId: newRun, keywordId: kwB, provider: 'gemini', citationState: 'not-cited', createdAt: '2026-04-28T00:00:01Z' })
-  insertSnapshot(ctx.db, { runId: newRun, keywordId: kwB, provider: 'claude', citationState: 'not-cited', createdAt: '2026-04-28T00:00:01Z' })
+  // New run — gemini cites kwA only; claude still cites neither but now mentions kwA in prose
+  insertSnapshot(ctx.db, { runId: newRun, keywordId: kwA, provider: 'gemini', citationState: 'cited', answerMentioned: true, createdAt: '2026-04-28T00:00:01Z' })
+  insertSnapshot(ctx.db, { runId: newRun, keywordId: kwA, provider: 'claude', citationState: 'not-cited', answerMentioned: true, createdAt: '2026-04-28T00:00:01Z' })
+  insertSnapshot(ctx.db, { runId: newRun, keywordId: kwB, provider: 'gemini', citationState: 'not-cited', answerMentioned: false, createdAt: '2026-04-28T00:00:01Z' })
+  insertSnapshot(ctx.db, { runId: newRun, keywordId: kwB, provider: 'claude', citationState: 'not-cited', answerMentioned: false, createdAt: '2026-04-28T00:00:01Z' })
 
   await ctx.app.ready()
   const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/live/citations/visibility' })
@@ -161,28 +163,38 @@ test('ready response computes coverage from latest snapshot per (keyword × prov
   expect(body.status).toBe('ready')
   expect(body.summary.providersConfigured).toBe(2)
   expect(body.summary.providersCiting).toBe(1)
+  expect(body.summary.providersMentioning).toBe(2)
   expect(body.summary.totalKeywords).toBe(2)
-  expect(body.summary.keywordsCited).toBe(1)
-  expect(body.summary.keywordsFullyCovered).toBe(0)
-  expect(body.summary.keywordsUncovered).toBe(1)
+  // keyword A: cited (gemini) AND mentioned (gemini + claude) → cited+mentioned bucket
+  // keyword B: nothing → invisible bucket
+  expect(body.summary.keywordsCitedAndMentioned).toBe(1)
+  expect(body.summary.keywordsCitedOnly).toBe(0)
+  expect(body.summary.keywordsMentionedOnly).toBe(0)
+  expect(body.summary.keywordsInvisible).toBe(1)
   expect(body.summary.latestRunId).toBe(newRun)
 
   const rowA = body.byKeyword.find(r => r.keyword === 'keyword A')!
   expect(rowA.citedCount).toBe(1)
+  expect(rowA.mentionedCount).toBe(2)
   expect(rowA.totalProviders).toBe(2)
-  expect(rowA.providers.find(p => p.provider === 'gemini')!.cited).toBe(true)
-  expect(rowA.providers.find(p => p.provider === 'gemini')!.runId).toBe(newRun)
-  expect(rowA.providers.find(p => p.provider === 'claude')!.cited).toBe(false)
+  const rowAGemini = rowA.providers.find(p => p.provider === 'gemini')!
+  expect(rowAGemini.cited).toBe(true)
+  expect(rowAGemini.mentioned).toBe(true)
+  expect(rowAGemini.runId).toBe(newRun)
+  const rowAClaude = rowA.providers.find(p => p.provider === 'claude')!
+  expect(rowAClaude.cited).toBe(false)
+  expect(rowAClaude.mentioned).toBe(true)
 
   const rowB = body.byKeyword.find(r => r.keyword === 'keyword B')!
   expect(rowB.citedCount).toBe(0)
+  expect(rowB.mentionedCount).toBe(0)
 })
 
 test('uses observed providers when project.providers is empty', async () => {
   const projectId = insertProject(ctx.db, 'no-config', [])
   const kw = insertKeyword(ctx.db, projectId, 'keyword X')
   const run = insertRun(ctx.db, projectId, '2026-04-28T00:00:00Z')
-  insertSnapshot(ctx.db, { runId: run, keywordId: kw, provider: 'perplexity', citationState: 'cited', createdAt: '2026-04-28T00:00:01Z' })
+  insertSnapshot(ctx.db, { runId: run, keywordId: kw, provider: 'perplexity', citationState: 'cited', answerMentioned: false, createdAt: '2026-04-28T00:00:01Z' })
 
   await ctx.app.ready()
   const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/no-config/citations/visibility' })
@@ -275,37 +287,76 @@ test('does not surface a gap when project has no configured competitors', async 
   expect(body.competitorGaps).toHaveLength(0)
 })
 
-test('keywordsFullyCovered counts keywords cited by every configured provider', async () => {
-  const projectId = insertProject(ctx.db, 'full', ['gemini', 'claude'])
-  const kw = insertKeyword(ctx.db, projectId, 'keyword Y')
+test('cross-tab buckets are mutually exclusive over keywords with snapshots', async () => {
+  // Four keywords, one per bucket. Single configured provider so the tests
+  // are unambiguous about which bucket each keyword lands in.
+  const projectId = insertProject(ctx.db, 'crosstab', ['gemini'])
+  const kwBoth = insertKeyword(ctx.db, projectId, 'cited and mentioned')
+  const kwCitedOnly = insertKeyword(ctx.db, projectId, 'cited only')
+  const kwMentionedOnly = insertKeyword(ctx.db, projectId, 'mentioned only')
+  const kwInvisible = insertKeyword(ctx.db, projectId, 'invisible')
+  // Fifth keyword has no snapshots — should not count toward any bucket.
+  insertKeyword(ctx.db, projectId, 'no data yet')
+
   const run = insertRun(ctx.db, projectId, '2026-04-28T00:00:00Z')
-  insertSnapshot(ctx.db, { runId: run, keywordId: kw, provider: 'gemini', citationState: 'cited', createdAt: '2026-04-28T00:00:01Z' })
-  insertSnapshot(ctx.db, { runId: run, keywordId: kw, provider: 'claude', citationState: 'cited', createdAt: '2026-04-28T00:00:01Z' })
+  insertSnapshot(ctx.db, { runId: run, keywordId: kwBoth, provider: 'gemini', citationState: 'cited', answerMentioned: true, createdAt: '2026-04-28T00:00:01Z' })
+  insertSnapshot(ctx.db, { runId: run, keywordId: kwCitedOnly, provider: 'gemini', citationState: 'cited', answerMentioned: false, createdAt: '2026-04-28T00:00:01Z' })
+  insertSnapshot(ctx.db, { runId: run, keywordId: kwMentionedOnly, provider: 'gemini', citationState: 'not-cited', answerMentioned: true, createdAt: '2026-04-28T00:00:01Z' })
+  insertSnapshot(ctx.db, { runId: run, keywordId: kwInvisible, provider: 'gemini', citationState: 'not-cited', answerMentioned: false, createdAt: '2026-04-28T00:00:01Z' })
 
   await ctx.app.ready()
-  const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/full/citations/visibility' })
+  const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/crosstab/citations/visibility' })
   const body = JSON.parse(res.body) as CitationVisibilityResponse
-  expect(body.summary.keywordsFullyCovered).toBe(1)
-  expect(body.summary.keywordsCited).toBe(1)
-  expect(body.summary.providersCiting).toBe(2)
+
+  expect(body.summary.totalKeywords).toBe(5)
+  expect(body.summary.keywordsCitedAndMentioned).toBe(1)
+  expect(body.summary.keywordsCitedOnly).toBe(1)
+  expect(body.summary.keywordsMentionedOnly).toBe(1)
+  expect(body.summary.keywordsInvisible).toBe(1)
+  // Sum of buckets = 4, total = 5 — the no-data keyword is excluded
+  const sum =
+    body.summary.keywordsCitedAndMentioned +
+    body.summary.keywordsCitedOnly +
+    body.summary.keywordsMentionedOnly +
+    body.summary.keywordsInvisible
+  expect(sum).toBe(4)
 })
 
-test('keywordsFullyCovered does not count keywords missing snapshots from configured providers', async () => {
-  // Project configures gemini + claude + openai but only gemini + claude have run.
-  // Both observed providers cite, but openai has no snapshot — keyword is NOT
-  // fully covered by the configured set.
-  const projectId = insertProject(ctx.db, 'partial-coverage', ['gemini', 'claude', 'openai'])
-  const kw = insertKeyword(ctx.db, projectId, 'keyword Z')
+test('cited-and-mentioned bucket counts a keyword when different engines provide each signal', async () => {
+  // Gemini cites but does not mention; OpenAI mentions but does not cite.
+  // Keyword should land in cited+mentioned because we count "any engine" per
+  // dimension at the keyword level.
+  const projectId = insertProject(ctx.db, 'split-signals', ['gemini', 'openai'])
+  const kw = insertKeyword(ctx.db, projectId, 'split keyword')
   const run = insertRun(ctx.db, projectId, '2026-04-28T00:00:00Z')
-  insertSnapshot(ctx.db, { runId: run, keywordId: kw, provider: 'gemini', citationState: 'cited', createdAt: '2026-04-28T00:00:01Z' })
-  insertSnapshot(ctx.db, { runId: run, keywordId: kw, provider: 'claude', citationState: 'cited', createdAt: '2026-04-28T00:00:01Z' })
+  insertSnapshot(ctx.db, { runId: run, keywordId: kw, provider: 'gemini', citationState: 'cited', answerMentioned: false, createdAt: '2026-04-28T00:00:01Z' })
+  insertSnapshot(ctx.db, { runId: run, keywordId: kw, provider: 'openai', citationState: 'not-cited', answerMentioned: true, createdAt: '2026-04-28T00:00:01Z' })
 
   await ctx.app.ready()
-  const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/partial-coverage/citations/visibility' })
+  const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/split-signals/citations/visibility' })
   const body = JSON.parse(res.body) as CitationVisibilityResponse
-  expect(body.summary.providersConfigured).toBe(3)
-  expect(body.summary.keywordsCited).toBe(1)
-  expect(body.summary.keywordsFullyCovered).toBe(0)
+
+  expect(body.summary.keywordsCitedAndMentioned).toBe(1)
+  expect(body.summary.keywordsCitedOnly).toBe(0)
+  expect(body.summary.keywordsMentionedOnly).toBe(0)
+  expect(body.summary.providersCiting).toBe(1)
+  expect(body.summary.providersMentioning).toBe(1)
+})
+
+test('legacy snapshots with null answer_mentioned count as not mentioned', async () => {
+  const projectId = insertProject(ctx.db, 'legacy', ['gemini'])
+  const kw = insertKeyword(ctx.db, projectId, 'old keyword')
+  const run = insertRun(ctx.db, projectId, '2026-04-28T00:00:00Z')
+  insertSnapshot(ctx.db, { runId: run, keywordId: kw, provider: 'gemini', citationState: 'cited', answerMentioned: null, createdAt: '2026-04-28T00:00:01Z' })
+
+  await ctx.app.ready()
+  const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/legacy/citations/visibility' })
+  const body = JSON.parse(res.body) as CitationVisibilityResponse
+
+  expect(body.summary.providersMentioning).toBe(0)
+  expect(body.summary.keywordsCitedAndMentioned).toBe(0)
+  expect(body.summary.keywordsCitedOnly).toBe(1)
+  expect(body.byKeyword[0]!.providers[0]!.mentioned).toBe(false)
 })
 
 test('competitor matching normalizes www. and protocol on both sides', async () => {

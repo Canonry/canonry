@@ -32,15 +32,28 @@ export async function showCitationVisibility(
 }
 
 function printSummary(data: CitationVisibilityResponse): void {
-  const { providersCiting, providersConfigured, totalKeywords, keywordsCited, keywordsFullyCovered, keywordsUncovered } = data.summary
-  console.log(`Citation visibility — cited by ${providersCiting}/${providersConfigured} engines`)
+  const {
+    providersCiting,
+    providersMentioning,
+    providersConfigured,
+    totalKeywords,
+    keywordsCitedAndMentioned,
+    keywordsCitedOnly,
+    keywordsMentionedOnly,
+    keywordsInvisible,
+  } = data.summary
+  console.log('Citation visibility')
   if (data.summary.latestRunAt) {
-    console.log(`Latest run:        ${data.summary.latestRunAt}`)
+    console.log(`Latest run:           ${data.summary.latestRunAt}`)
   }
-  console.log(`Keywords:          ${totalKeywords}`)
-  console.log(`  cited (any):     ${keywordsCited}`)
-  console.log(`  fully covered:   ${keywordsFullyCovered}`)
-  console.log(`  uncovered:       ${keywordsUncovered}`)
+  console.log(`Cited in sources:     ${providersCiting}/${providersConfigured} engines`)
+  console.log(`Mentioned in answers: ${providersMentioning}/${providersConfigured} engines`)
+  console.log('')
+  console.log(`Keywords (${totalKeywords} total):`)
+  console.log(`  cited + mentioned:  ${keywordsCitedAndMentioned}`)
+  console.log(`  cited only:         ${keywordsCitedOnly}`)
+  console.log(`  mentioned only:     ${keywordsMentionedOnly}`)
+  console.log(`  invisible:          ${keywordsInvisible}`)
 }
 
 function printCoverage(data: CitationVisibilityResponse): void {
@@ -63,19 +76,25 @@ function printCoverage(data: CitationVisibilityResponse): void {
     return
   }
 
+  // Each cell is two glyphs: citation state then mention state. Legend printed
+  // above the table so the symbols are unambiguous to scripts and humans both.
+  const cellWidth = 6
   const keywordWidth = Math.max(7, ...data.byKeyword.map(r => r.keyword.length))
-  const header = ['Keyword'.padEnd(keywordWidth), ...providerColumns.map(p => p.padEnd(10)), 'Coverage'].join('  ')
-  console.log('Per-keyword coverage:')
+  const header = ['Keyword'.padEnd(keywordWidth), ...providerColumns.map(p => p.padEnd(cellWidth)), 'Cite', 'Ment'].join('  ')
+  console.log('Per-keyword coverage:  (cell = [citation][mention];  C=cited c=not, M=mentioned m=not, –=no data)')
   console.log(header)
   console.log('─'.repeat(header.length))
   for (const row of data.byKeyword) {
     const cells = providerColumns.map(p => {
       const provider = row.providers.find(x => x.provider === p)
-      if (!provider) return '–'.padEnd(10)
-      return (provider.cited ? '✓' : '✗').padEnd(10)
+      if (!provider) return '–'.padEnd(cellWidth)
+      const citationGlyph = provider.cited ? 'C' : 'c'
+      const mentionGlyph = provider.mentioned ? 'M' : 'm'
+      return `${citationGlyph}${mentionGlyph}`.padEnd(cellWidth)
     })
-    const coverage = `${row.citedCount}/${row.totalProviders}`
-    console.log([row.keyword.padEnd(keywordWidth), ...cells, coverage].join('  '))
+    const citeCol = `${row.citedCount}/${row.totalProviders}`
+    const mentCol = `${row.mentionedCount}/${row.totalProviders}`
+    console.log([row.keyword.padEnd(keywordWidth), ...cells, citeCol, mentCol].join('  '))
   }
 }
 

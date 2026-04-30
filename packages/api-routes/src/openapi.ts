@@ -2286,9 +2286,9 @@ const routeCatalog: OpenApiOperation[] = [
   {
     method: 'get',
     path: '/api/v1/projects/{name}/citations/visibility',
-    summary: 'Citation visibility headline (cited by N of M engines)',
+    summary: 'Citation visibility headline (citation + answer-mention, by engine + keyword)',
     description:
-      'Single-call read for the AI citation surface. Returns project headline (`providersConfigured`/`providersCiting`/keyword coverage counts), per-keyword engine coverage rows from the latest snapshot per (keyword × provider), and a competitor-gap list (keywords where the project is not cited but a configured competitor is). Status `no-data` with `reason: "no-runs-yet"` or `"no-keywords"` when the project lacks the inputs.',
+      'Single-call read for the AI citation surface. Returns two parallel headline metrics (`providersCiting` = engines that cite the project in their grounding/source list, `providersMentioning` = engines that name the project in answer prose), per-keyword cross-tab buckets (`keywordsCitedAndMentioned` / `keywordsCitedOnly` / `keywordsMentionedOnly` / `keywordsInvisible` — mutually exclusive over keywords that have at least one snapshot), per-keyword engine coverage rows from the latest snapshot per (keyword × provider) with both `cited` and `mentioned` flags, and a competitor-gap list (keywords where the project is not cited but a configured competitor is). Status `no-data` with `reason: "no-runs-yet"` or `"no-keywords"` when the project lacks the inputs.',
     tags: ['intelligence'],
     parameters: [nameParameter],
     responses: {

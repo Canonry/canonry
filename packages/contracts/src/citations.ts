@@ -5,6 +5,7 @@ export const citationCoverageProviderSchema = z.object({
   provider: z.string(),
   citationState: citationStateSchema,
   cited: z.boolean(),
+  mentioned: z.boolean(),
   runId: z.string(),
   runCreatedAt: z.string(),
 })
@@ -15,6 +16,7 @@ export const citationCoverageRowSchema = z.object({
   keyword: z.string(),
   providers: z.array(citationCoverageProviderSchema),
   citedCount: z.number().int().nonnegative(),
+  mentionedCount: z.number().int().nonnegative(),
   totalProviders: z.number().int().nonnegative(),
 })
 export type CitationCoverageRow = z.infer<typeof citationCoverageRowSchema>
@@ -32,10 +34,15 @@ export type CompetitorGapRow = z.infer<typeof competitorGapRowSchema>
 export const citationVisibilitySummarySchema = z.object({
   providersConfigured: z.number().int().nonnegative(),
   providersCiting: z.number().int().nonnegative(),
+  providersMentioning: z.number().int().nonnegative(),
   totalKeywords: z.number().int().nonnegative(),
-  keywordsCited: z.number().int().nonnegative(),
-  keywordsFullyCovered: z.number().int().nonnegative(),
-  keywordsUncovered: z.number().int().nonnegative(),
+  // Cross-tab buckets — each tracked keyword with at least one snapshot lands
+  // in exactly one of these. Keywords with zero snapshots are not counted in
+  // any bucket; (sum of buckets) ≤ totalKeywords.
+  keywordsCitedAndMentioned: z.number().int().nonnegative(),
+  keywordsCitedOnly: z.number().int().nonnegative(),
+  keywordsMentionedOnly: z.number().int().nonnegative(),
+  keywordsInvisible: z.number().int().nonnegative(),
   latestRunId: z.string().nullable(),
   latestRunAt: z.string().nullable(),
 })
@@ -55,10 +62,12 @@ export function emptyCitationVisibility(reason: 'no-runs-yet' | 'no-keywords'): 
     summary: {
       providersConfigured: 0,
       providersCiting: 0,
+      providersMentioning: 0,
       totalKeywords: 0,
-      keywordsCited: 0,
-      keywordsFullyCovered: 0,
-      keywordsUncovered: 0,
+      keywordsCitedAndMentioned: 0,
+      keywordsCitedOnly: 0,
+      keywordsMentionedOnly: 0,
+      keywordsInvisible: 0,
       latestRunId: null,
       latestRunAt: null,
     },

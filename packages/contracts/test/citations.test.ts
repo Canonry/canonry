@@ -8,15 +8,16 @@ import {
 } from '../src/citations.js'
 
 describe('citationCoverageRowSchema', () => {
-  it('accepts a row with mixed citation states', () => {
+  it('accepts a row with mixed citation + mention states', () => {
     const row = {
       keywordId: 'kw-1',
       keyword: 'best CRM',
       providers: [
-        { provider: 'gemini', citationState: 'cited' as const, cited: true, runId: 'run-1', runCreatedAt: '2026-04-29T00:00:00Z' },
-        { provider: 'claude', citationState: 'not-cited' as const, cited: false, runId: 'run-1', runCreatedAt: '2026-04-29T00:00:00Z' },
+        { provider: 'gemini', citationState: 'cited' as const, cited: true, mentioned: true, runId: 'run-1', runCreatedAt: '2026-04-29T00:00:00Z' },
+        { provider: 'claude', citationState: 'not-cited' as const, cited: false, mentioned: true, runId: 'run-1', runCreatedAt: '2026-04-29T00:00:00Z' },
       ],
       citedCount: 1,
+      mentionedCount: 2,
       totalProviders: 2,
     }
     expect(() => citationCoverageRowSchema.parse(row)).not.toThrow()
@@ -26,11 +27,24 @@ describe('citationCoverageRowSchema', () => {
     const bad = {
       keywordId: 'kw-1',
       keyword: 'foo',
-      providers: [{ provider: 'gemini', citationState: 'pending', cited: false, runId: 'r', runCreatedAt: 't' }],
+      providers: [{ provider: 'gemini', citationState: 'pending', cited: false, mentioned: false, runId: 'r', runCreatedAt: 't' }],
       citedCount: 0,
+      mentionedCount: 0,
       totalProviders: 1,
     }
     expect(() => citationCoverageRowSchema.parse(bad)).toThrow()
+  })
+
+  it('requires the mentioned flag on each provider', () => {
+    const missing = {
+      keywordId: 'kw-1',
+      keyword: 'foo',
+      providers: [{ provider: 'gemini', citationState: 'cited', cited: true, runId: 'r', runCreatedAt: 't' }],
+      citedCount: 1,
+      mentionedCount: 0,
+      totalProviders: 1,
+    }
+    expect(() => citationCoverageRowSchema.parse(missing)).toThrow()
   })
 })
 
@@ -49,15 +63,17 @@ describe('competitorGapRowSchema', () => {
 })
 
 describe('citationVisibilityResponseSchema', () => {
-  it('round-trips a ready response', () => {
+  it('round-trips a ready response with cross-tab buckets', () => {
     const response = {
       summary: {
         providersConfigured: 4,
         providersCiting: 1,
+        providersMentioning: 2,
         totalKeywords: 10,
-        keywordsCited: 3,
-        keywordsFullyCovered: 0,
-        keywordsUncovered: 7,
+        keywordsCitedAndMentioned: 1,
+        keywordsCitedOnly: 2,
+        keywordsMentionedOnly: 1,
+        keywordsInvisible: 6,
         latestRunId: 'run-1',
         latestRunAt: '2026-04-29T00:00:00Z',
       },
@@ -67,6 +83,8 @@ describe('citationVisibilityResponseSchema', () => {
     }
     const parsed = citationVisibilityResponseSchema.parse(response)
     expect(parsed.summary.providersCiting).toBe(1)
+    expect(parsed.summary.providersMentioning).toBe(2)
+    expect(parsed.summary.keywordsCitedAndMentioned).toBe(1)
     expect(parsed.status).toBe('ready')
   })
 
@@ -76,6 +94,8 @@ describe('citationVisibilityResponseSchema', () => {
     expect(parsed.status).toBe('no-data')
     expect(parsed.reason).toBe('no-runs-yet')
     expect(parsed.summary.totalKeywords).toBe(0)
+    expect(parsed.summary.providersMentioning).toBe(0)
+    expect(parsed.summary.keywordsInvisible).toBe(0)
   })
 })
 

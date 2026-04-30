@@ -159,9 +159,15 @@ describe('citation visibility CLI + parity', () => {
     expect(parsed.competitorGaps).toHaveLength(1)
   })
 
-  it('human output includes the headline + per-keyword table', async () => {
+  it('human output includes both headlines, cross-tab buckets, and the per-keyword table', async () => {
     const out = await captureStdout(() => showCitationVisibility('example', {}))
     expect(out).toContain('Citation visibility')
+    expect(out).toContain('Cited in sources:')
+    expect(out).toContain('Mentioned in answers:')
+    expect(out).toContain('cited + mentioned:')
+    expect(out).toContain('cited only:')
+    expect(out).toContain('mentioned only:')
+    expect(out).toContain('invisible:')
     expect(out).toContain('keyword A')
     expect(out).toContain('keyword B')
     expect(out).toContain('Per-keyword coverage')
