@@ -25,7 +25,14 @@ function gaLog(level: 'info' | 'warn' | 'error', action: string, ctx?: Record<st
 // Format a session-share as a display string. Returns "<1%" for non-zero shares
 // that round below 1%, so 18 AI sessions out of 6000 reads "<1%" instead of
 // "0%" — the display matches the integer pct field exactly otherwise.
+//
+// When the numerator is positive but the total is zero, the share is
+// undefined — typically a partial-sync state where social/AI referral rows
+// exist but the traffic snapshots/summary that drive the denominator have not
+// been synced. We return "—" rather than "0%" so the UI doesn't claim a 0%
+// share for 1.3K social sessions.
 function formatSharePct(numerator: number, total: number): string {
+  if (numerator > 0 && total <= 0) return '—'
   if (total <= 0 || numerator <= 0) return '0%'
   const pct = (numerator / total) * 100
   const rounded = Math.round(pct)
@@ -337,8 +344,15 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
   })
 
   // POST /projects/:name/ga/sync
-  // Supports `only` field to selectively sync a subset of data (e.g. "social").
-  // Valid components: "traffic", "ai", "social". Omit for full sync.
+  // The `only` field opts out of AI or social channel breakdowns. The
+  // traffic snapshots and aggregate summary are always refreshed regardless
+  // — they're the denominator for every share metric in the dashboard, so
+  // letting them go stale would make `socialSharePct` etc. compare social
+  // sessions in the requested window with a total from a different (older)
+  // window. See `share denominator` discussion below.
+  //
+  // Valid `only` values: "traffic" (foundation only), "ai" (foundation + AI),
+  // "social" (foundation + social). Omit for the full set.
   app.post<{
     Params: { name: string }
     Body: { days?: number; only?: string }
@@ -353,11 +367,14 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       throw validationError(`Invalid "only" value "${only}". Must be one of: ${validOnlyValues.join(', ')}`)
     }
 
-    // Determine which components to sync
-    const syncTraffic = !only || only === 'traffic'
+    // Foundation (traffic snapshots + aggregate summary) always syncs — share
+    // metrics depend on a denominator that covers the same window as the
+    // social/AI numerators. The `only` flag controls which channel
+    // breakdowns are also refreshed.
+    const syncTraffic = true
+    const syncSummary = true
     const syncAi = !only || only === 'ai'
     const syncSocial = !only || only === 'social'
-    const syncSummary = !only // always sync summary on full sync
 
     const startedAt = new Date().toISOString()
     const runId = crypto.randomUUID()
@@ -505,8 +522,16 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         .where(eq(runs.id, runId))
         .run()
 
+      // List every component that was actually written this run. Foundation
+      // (traffic + summary) always syncs, so it always appears when `only`
+      // is set; the requested channel breakdown is appended.
       const syncedComponents = only
-        ? [only, ...(only !== 'social' && only !== 'ai' && only !== 'traffic' ? [] : [])]
+        ? [
+            ...(syncTraffic ? ['traffic'] : []),
+            ...(syncSummary ? ['summary'] : []),
+            ...(syncAi ? ['ai'] : []),
+            ...(syncSocial ? ['social'] : []),
+          ]
         : undefined
 
       gaLog('info', 'sync.complete', {

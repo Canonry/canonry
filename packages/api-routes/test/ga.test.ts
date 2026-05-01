@@ -385,6 +385,119 @@ describe('GA4 routes', () => {
       .run()
   })
 
+  it('POST /ga/sync with only=social still refreshes traffic snapshots and summary so share metrics stay valid', async () => {
+    // The traffic foundation (gaTrafficSnapshots + gaTrafficSummaries) is the
+    // denominator for every share metric. Letting it go stale during a
+    // partial sync is what produced the "1.3K social sessions / 0% share"
+    // bug, so `only=social` must still refresh the foundation — only
+    // `gaAiReferrals` is skipped here.
+    const now = new Date().toISOString()
+    const today = now.slice(0, 10)
+    const projRes = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/only-social-foundation',
+      payload: {
+        displayName: 'Only Social Foundation',
+        canonicalDomain: 'only-social.example',
+        country: 'US',
+        language: 'en',
+      },
+    })
+    const partialProjectId = JSON.parse(projRes.payload).id
+
+    credentials.set('only-social-foundation', {
+      projectName: 'only-social-foundation',
+      propertyId: '999111',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const gaModule = await import('@ainyc/canonry-integration-google-analytics')
+    const getAccessTokenSpy = vi.spyOn(gaModule, 'getAccessToken').mockResolvedValue('mock-token')
+    const fetchTrafficSpy = vi.spyOn(gaModule, 'fetchTrafficByLandingPage').mockResolvedValue([
+      { date: today, landingPage: '/foundation', sessions: 30000, organicSessions: 12000, directSessions: 5000, users: 22000 },
+    ])
+    const fetchAggregateSpy = vi.spyOn(gaModule, 'fetchAggregateSummary').mockResolvedValue({
+      periodStart: today,
+      periodEnd: today,
+      totalSessions: 30000,
+      totalOrganicSessions: 12000,
+      totalUsers: 22000,
+    })
+    const fetchAiReferralsSpy = vi.spyOn(gaModule, 'fetchAiReferrals').mockResolvedValue([])
+    const fetchSocialReferralsSpy = vi.spyOn(gaModule, 'fetchSocialReferrals').mockResolvedValue([
+      { date: today, source: 'facebook.com', medium: 'referral', sessions: 1273, users: 900, channelGroup: 'Organic Social' },
+    ])
+
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/only-social-foundation/ga/sync',
+        payload: { days: 30, only: 'social' },
+      })
+      expect(res.statusCode).toBe(200)
+
+      // The sync response must reflect the foundation write so callers
+      // (CLI `Components:` line, agents reading `syncedComponents`) don't
+      // think only social was refreshed.
+      const syncBody = JSON.parse(res.payload)
+      expect(syncBody.syncedComponents).toEqual(['traffic', 'summary', 'social'])
+
+      // Foundation must be refreshed even though the caller asked for
+      // `only=social` — fetchTrafficByLandingPage + fetchAggregateSummary
+      // were called and rows landed in both tables.
+      expect(fetchTrafficSpy).toHaveBeenCalled()
+      expect(fetchAggregateSpy).toHaveBeenCalled()
+
+      const snapshots = db.select().from(gaTrafficSnapshots)
+        .where(eq(gaTrafficSnapshots.projectId, partialProjectId))
+        .all()
+      expect(snapshots).toHaveLength(1)
+      expect(snapshots[0]!.sessions).toBe(30000)
+
+      const summaries = db.select().from(gaTrafficSummaries)
+        .where(eq(gaTrafficSummaries.projectId, partialProjectId))
+        .all()
+      expect(summaries).toHaveLength(1)
+      expect(summaries[0]!.totalSessions).toBe(30000)
+
+      const socialRefs = db.select().from(gaSocialReferrals)
+        .where(eq(gaSocialReferrals.projectId, partialProjectId))
+        .all()
+      expect(socialRefs).toHaveLength(1)
+      expect(socialRefs[0]!.sessions).toBe(1273)
+
+      // AI was the channel breakdown the caller asked to skip — and it was.
+      expect(fetchAiReferralsSpy).not.toHaveBeenCalled()
+      const aiRefs = db.select().from(gaAiReferrals)
+        .where(eq(gaAiReferrals.projectId, partialProjectId))
+        .all()
+      expect(aiRefs).toHaveLength(0)
+
+      // End-to-end: GET /ga/traffic now returns a real share, not 0% or "—".
+      const trafficRes = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/only-social-foundation/ga/traffic?window=30d',
+      })
+      const traffic = JSON.parse(trafficRes.payload)
+      // 1273 / 30000 = 4.24% → 4%
+      expect(traffic.socialSharePct).toBe(4)
+      expect(traffic.socialSharePctDisplay).toBe('4%')
+    } finally {
+      getAccessTokenSpy.mockRestore()
+      fetchTrafficSpy.mockRestore()
+      fetchAggregateSpy.mockRestore()
+      fetchAiReferralsSpy.mockRestore()
+      fetchSocialReferralsSpy.mockRestore()
+      credentials.delete('only-social-foundation')
+      db.delete(gaTrafficSnapshots).where(eq(gaTrafficSnapshots.projectId, partialProjectId)).run()
+      db.delete(gaTrafficSummaries).where(eq(gaTrafficSummaries.projectId, partialProjectId)).run()
+      db.delete(gaSocialReferrals).where(eq(gaSocialReferrals.projectId, partialProjectId)).run()
+    }
+  })
+
   it('POST /ga/sync rejects invalid only parameter', async () => {
     const now = new Date().toISOString()
     credentials.set('test-project', {
@@ -611,6 +724,67 @@ describe('GA4 routes', () => {
       db.delete(gaAiReferrals).where(eq(gaAiReferrals.id, aiId)).run()
       db.delete(gaTrafficSnapshots).where(eq(gaTrafficSnapshots.id, snapshotId)).run()
       credentials.delete('sub-one-pct')
+    }
+  })
+
+  it('GET /ga/traffic returns "—" share display when social rows exist but no traffic snapshots/summary do', async () => {
+    // Defensive case: if any process inserts social rows without the
+    // corresponding traffic foundation (data corruption, manual SQL, a
+    // test/seed flow that bypasses the sync endpoint), the share denominator
+    // is 0 and a literal "0%" would falsely claim social is 0% of traffic.
+    // Surface the data gap honestly with "—" instead. Under the normal sync
+    // flow (which always refreshes traffic+summary) this state shouldn't
+    // arise.
+    const now = new Date().toISOString()
+    const today = now.slice(0, 10)
+    const projRes = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/no-summary',
+      payload: {
+        displayName: 'No Summary',
+        canonicalDomain: 'no-summary.example',
+        country: 'US',
+        language: 'en',
+      },
+    })
+    const noSummaryProjectId = JSON.parse(projRes.payload).id
+
+    credentials.set('no-summary', {
+      projectName: 'no-summary',
+      propertyId: '111444',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const socialId = crypto.randomUUID()
+    db.insert(gaSocialReferrals).values({
+      id: socialId,
+      projectId: noSummaryProjectId,
+      date: today,
+      source: 'facebook.com',
+      medium: 'referral',
+      channelGroup: 'Organic Social',
+      sessions: 1273,
+      users: 900,
+      syncedAt: now,
+    }).run()
+
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/no-summary/ga/traffic?window=30d',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(body.socialSessions).toBe(1273)
+      expect(body.socialSharePct).toBe(0)
+      // No summary, no snapshots — surface the data gap honestly.
+      expect(body.socialSharePctDisplay).toBe('—')
+    } finally {
+      db.delete(gaSocialReferrals).where(eq(gaSocialReferrals.id, socialId)).run()
+      credentials.delete('no-summary')
     }
   })
 

@@ -92,15 +92,15 @@ export const ga4TrafficSummaryDtoSchema = z.object({
   directSharePct: z.number(),
   /** Social sessions as a percentage of total sessions (0–100, rounded). */
   socialSharePct: z.number(),
-  /** Display string for organicSharePct ('10%' or '<1%' when there are sessions but the rounded pct is 0). */
+  /** Display string for organicSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   organicSharePctDisplay: z.string(),
-  /** Display string for aiSharePct ('5%' or '<1%' when there are sessions but the rounded pct is 0). */
+  /** Display string for aiSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   aiSharePctDisplay: z.string(),
-  /** Display string for aiSharePctBySession ('5%' or '<1%' when there are sessions but the rounded pct is 0). */
+  /** Display string for aiSharePctBySession: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   aiSharePctBySessionDisplay: z.string(),
-  /** Display string for directSharePct ('20%' or '<1%' when there are sessions but the rounded pct is 0). */
+  /** Display string for directSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   directSharePctDisplay: z.string(),
-  /** Display string for socialSharePct ('15%' or '<1%' when there are sessions but the rounded pct is 0). */
+  /** Display string for socialSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   socialSharePctDisplay: z.string(),
   lastSyncedAt: z.string().nullable(),
 })
@@ -132,7 +132,11 @@ export interface GaSyncResponse {
   socialReferralCount: number
   days: number
   syncedAt: string
-  /** Which data components were synced (present when --only is used) */
+  /**
+   * Components that were written this run. Present when `only` is set.
+   * Always includes `traffic` and `summary` (the share denominator) plus
+   * the requested channel breakdown — `ai` and/or `social`.
+   */
   syncedComponents?: string[]
 }
 
@@ -200,15 +204,15 @@ export interface GaTrafficResponse {
   directSharePct: number
   /** Social sessions as a percentage of total sessions (0–100, rounded). */
   socialSharePct: number
-  /** Display string for organicSharePct ('10%' or '<1%' when there are sessions but the rounded pct is 0). */
+  /** Display string for organicSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   organicSharePctDisplay: string
-  /** Display string for aiSharePct ('5%' or '<1%' when there are sessions but the rounded pct is 0). */
+  /** Display string for aiSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   aiSharePctDisplay: string
-  /** Display string for aiSharePctBySession ('5%' or '<1%' when there are sessions but the rounded pct is 0). */
+  /** Display string for aiSharePctBySession: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   aiSharePctBySessionDisplay: string
-  /** Display string for directSharePct ('20%' or '<1%' when there are sessions but the rounded pct is 0). */
+  /** Display string for directSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   directSharePctDisplay: string
-  /** Display string for socialSharePct ('15%' or '<1%' when there are sessions but the rounded pct is 0). */
+  /** Display string for socialSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   socialSharePctDisplay: string
   lastSyncedAt: string | null
   /** Start of the synced date range (YYYY-MM-DD), null if no data. */
