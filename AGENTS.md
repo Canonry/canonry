@@ -494,25 +494,31 @@ This is not optional. If you add a table to the schema but omit the migration, t
 
 ### Rules
 
-1. **New table** → add `CREATE TABLE IF NOT EXISTS ...` to the `MIGRATIONS` array in `migrate.ts`. Include all indexes from the schema definition.
-2. **New column** → add `ALTER TABLE ... ADD COLUMN ...` to `MIGRATIONS`. SQLite ignores duplicate `ADD COLUMN` attempts, so these are safe to re-run.
-3. **Removed column or table** → SQLite does not support DROP COLUMN on older versions; document the intent and leave the migration as a no-op comment if needed.
-4. **Never edit MIGRATION_SQL** (the initial block at the top). That block bootstraps brand-new installs. All incremental changes go in the `MIGRATIONS` array only.
-5. **Check the last version number** in the `MIGRATIONS` array before adding a new entry. Comments use `// vN:` prefixes — find the highest N and increment by 1. Duplicate or out-of-order version numbers cause confusion and have led to bugs.
+1. **New table** → append a `MIGRATION_VERSIONS` entry in `migrate.ts` with `CREATE TABLE IF NOT EXISTS ...` plus every index from the schema definition.
+2. **New column** → append a `MIGRATION_VERSIONS` entry with `ALTER TABLE ... ADD COLUMN ...`. The runner swallows the SQLite "duplicate column name" error so the statement is safe to re-run.
+3. **Removed column or table** → SQLite does not support `DROP COLUMN` on older versions; document the intent and leave the entry's `statements[]` as a comment-only no-op if needed.
+4. **Never edit `MIGRATION_SQL`** (the initial block at the top). That block bootstraps brand-new installs and creates the `_migrations` tracking table. All incremental changes go in `MIGRATION_VERSIONS` only.
+5. **Pick the next version number.** Find the highest existing `version` in `MIGRATION_VERSIONS` and add the next integer. Versions are recorded in the `_migrations` table on success; duplicate or out-of-order `version` values break the skip-already-applied logic.
+6. **Never edit a previously-shipped version's `statements[]`.** Old DBs have already recorded that version as applied and will skip it on next boot — your edit will silently never run. Add a new version that fixes things up forward.
+7. **Make every statement idempotent.** Each version commits in a single transaction; a non-recoverable failure mid-version rolls back and the next boot retries. Idempotent forms: `CREATE … IF NOT EXISTS`, `DROP … IF EXISTS`, `ALTER TABLE ADD COLUMN` (duplicate-column error swallowed), `UPDATE … WHERE` with a guard that becomes false after first apply.
 
 ### Pattern
 
 ```typescript
-// In packages/db/src/migrate.ts — MIGRATIONS array:
-
-// v12: My new feature — my_new_table
-`CREATE TABLE IF NOT EXISTS my_new_table (
-  id          TEXT PRIMARY KEY,
-  project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  value       TEXT NOT NULL,
-  created_at  TEXT NOT NULL
-)`,
-`CREATE INDEX IF NOT EXISTS idx_my_new_table_project ON my_new_table(project_id)`,
+// In packages/db/src/migrate.ts — append to MIGRATION_VERSIONS:
+{
+  version: 47,
+  name: 'my-new-feature',
+  statements: [
+    `CREATE TABLE IF NOT EXISTS my_new_table (
+      id          TEXT PRIMARY KEY,
+      project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      value       TEXT NOT NULL,
+      created_at  TEXT NOT NULL
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_my_new_table_project ON my_new_table(project_id)`,
+  ],
+},
 ```
 
 ### Checklist for any schema change

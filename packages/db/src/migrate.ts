@@ -130,467 +130,680 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_prefix ON api_keys(key_prefix);
 CREATE INDEX IF NOT EXISTS idx_usage_scope_period ON usage_counters(scope, period);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_schedules_project ON schedules(project_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_project ON notifications(project_id);
+
+-- Migration tracking: records which version has been applied.
+-- On boot only versions > max applied version are run.
+CREATE TABLE IF NOT EXISTS _migrations (
+  version     INTEGER PRIMARY KEY,
+  name        TEXT NOT NULL,
+  applied_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 `
 
-const MIGRATIONS = [
-  // v2: Add providers column to projects for multi-provider support
-  `ALTER TABLE projects ADD COLUMN providers TEXT NOT NULL DEFAULT '[]'`,
-  // v3: Add webhook_secret column to notifications for HMAC signing
-  `ALTER TABLE notifications ADD COLUMN webhook_secret TEXT`,
-  // v4: Add owned_domains column to projects for multi-domain citation matching
-  `ALTER TABLE projects ADD COLUMN owned_domains TEXT NOT NULL DEFAULT '[]'`,
-  // v5: Add model column to query_snapshots for per-model scoring
-  `ALTER TABLE query_snapshots ADD COLUMN model TEXT`,
-  // v5b: Backfill model from rawResponse JSON for existing snapshots
-  `UPDATE query_snapshots SET model = json_extract(raw_response, '$.model') WHERE model IS NULL AND raw_response IS NOT NULL AND json_extract(raw_response, '$.model') IS NOT NULL`,
-  // v6: Google Search Console integration — google_connections table (domain-scoped)
-  // WARNING: access_token, refresh_token are authentication material; consider storing in config.yaml per CLAUDE.md
-  `CREATE TABLE IF NOT EXISTS google_connections (
-    id              TEXT PRIMARY KEY,
-    domain          TEXT NOT NULL,
-    connection_type TEXT NOT NULL,
-    property_id     TEXT,
-    access_token    TEXT,
-    refresh_token   TEXT,
-    token_expires_at TEXT,
-    scopes          TEXT NOT NULL DEFAULT '[]',
-    created_at      TEXT NOT NULL,
-    updated_at      TEXT NOT NULL
-  )`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_google_conn_domain_type ON google_connections(domain, connection_type)`,
-  // v6: Google Search Console integration — gsc_search_data table
-  `CREATE TABLE IF NOT EXISTS gsc_search_data (
-    id            TEXT PRIMARY KEY,
-    project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    sync_run_id   TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-    date          TEXT NOT NULL,
-    query         TEXT NOT NULL,
-    page          TEXT NOT NULL,
-    country       TEXT,
-    device        TEXT,
-    clicks        INTEGER NOT NULL DEFAULT 0,
-    impressions   INTEGER NOT NULL DEFAULT 0,
-    ctr           TEXT NOT NULL DEFAULT '0',
-    position      TEXT NOT NULL DEFAULT '0',
-    created_at    TEXT NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_gsc_search_project_date ON gsc_search_data(project_id, date)`,
-  `CREATE INDEX IF NOT EXISTS idx_gsc_search_query ON gsc_search_data(query)`,
-  `CREATE INDEX IF NOT EXISTS idx_gsc_search_run ON gsc_search_data(sync_run_id)`,
-  // v6: Google Search Console integration — gsc_url_inspections table
-  `CREATE TABLE IF NOT EXISTS gsc_url_inspections (
-    id                TEXT PRIMARY KEY,
-    project_id        TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    sync_run_id       TEXT REFERENCES runs(id) ON DELETE CASCADE,
-    url               TEXT NOT NULL,
-    indexing_state    TEXT,
-    verdict           TEXT,
-    coverage_state    TEXT,
-    page_fetch_state  TEXT,
-    robots_txt_state  TEXT,
-    crawl_time        TEXT,
-    last_crawl_result TEXT,
-    is_mobile_friendly INTEGER,
-    rich_results      TEXT NOT NULL DEFAULT '[]',
-    referring_urls    TEXT NOT NULL DEFAULT '[]',
-    inspected_at      TEXT NOT NULL,
-    created_at        TEXT NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_gsc_inspect_project_url ON gsc_url_inspections(project_id, url)`,
-  `CREATE INDEX IF NOT EXISTS idx_gsc_inspect_run ON gsc_url_inspections(sync_run_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_gsc_inspect_url_time ON gsc_url_inspections(url, inspected_at)`,
-  // v7: GSC coverage snapshots for historical tracking
-  `CREATE TABLE IF NOT EXISTS gsc_coverage_snapshots (
-    id              TEXT PRIMARY KEY,
-    project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    sync_run_id     TEXT REFERENCES runs(id) ON DELETE CASCADE,
-    date            TEXT NOT NULL,
-    indexed         INTEGER NOT NULL DEFAULT 0,
-    not_indexed     INTEGER NOT NULL DEFAULT 0,
-    reason_breakdown TEXT NOT NULL DEFAULT '{}',
-    created_at      TEXT NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_gsc_coverage_snap_project_date ON gsc_coverage_snapshots(project_id, date)`,
-  `CREATE INDEX IF NOT EXISTS idx_gsc_coverage_snap_run ON gsc_coverage_snapshots(sync_run_id)`,
-  // v8: Location-aware sweeps — project locations + snapshot location tag
-  `ALTER TABLE projects ADD COLUMN locations TEXT NOT NULL DEFAULT '[]'`,
-  `ALTER TABLE projects ADD COLUMN default_location TEXT`,
-  `ALTER TABLE query_snapshots ADD COLUMN location TEXT`,
-  // v9: Add location column to runs for per-location run tracking
-  `ALTER TABLE runs ADD COLUMN location TEXT`,
-  // v10: Add sitemapUrl to google_connections for persistent sitemap storage
-  `ALTER TABLE google_connections ADD COLUMN sitemap_url TEXT`,
-  // v11: CDP browser provider — screenshot path for captured evidence
-  `ALTER TABLE query_snapshots ADD COLUMN screenshot_path TEXT`,
-  // v12: Bing Webmaster Tools — bing_connections table
-  `CREATE TABLE IF NOT EXISTS bing_connections (
-    id          TEXT PRIMARY KEY,
-    domain      TEXT NOT NULL,
-    site_url    TEXT,
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
-  )`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_bing_conn_domain ON bing_connections(domain)`,
-  // v12: Bing Webmaster Tools — bing_url_inspections table
-  `CREATE TABLE IF NOT EXISTS bing_url_inspections (
-    id                TEXT PRIMARY KEY,
-    project_id        TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    url               TEXT NOT NULL,
-    http_code         INTEGER,
-    in_index          INTEGER,
-    last_crawled_date TEXT,
-    in_index_date     TEXT,
-    inspected_at      TEXT NOT NULL,
-    created_at        TEXT NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_bing_inspect_project_url ON bing_url_inspections(project_id, url)`,
-  `CREATE INDEX IF NOT EXISTS idx_bing_inspect_url_time ON bing_url_inspections(url, inspected_at)`,
-  // v12: Bing Webmaster Tools — bing_keyword_stats table
-  `CREATE TABLE IF NOT EXISTS bing_keyword_stats (
-    id               TEXT PRIMARY KEY,
-    project_id       TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    query            TEXT NOT NULL,
-    impressions      INTEGER NOT NULL DEFAULT 0,
-    clicks           INTEGER NOT NULL DEFAULT 0,
-    ctr              TEXT NOT NULL DEFAULT '0',
-    average_position TEXT NOT NULL DEFAULT '0',
-    synced_at        TEXT NOT NULL,
-    created_at       TEXT NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_bing_keyword_project ON bing_keyword_stats(project_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_bing_keyword_query ON bing_keyword_stats(query)`,
-  // v13: Google Analytics 4 — ga_connections table (service account auth)
-  // WARNING: private_key is authentication material; consider storing in config.yaml per CLAUDE.md
-  `CREATE TABLE IF NOT EXISTS ga_connections (
-    id            TEXT PRIMARY KEY,
-    project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    property_id   TEXT NOT NULL,
-    client_email  TEXT NOT NULL,
-    private_key   TEXT NOT NULL,
-    created_at    TEXT NOT NULL,
-    updated_at    TEXT NOT NULL
-  )`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_conn_project ON ga_connections(project_id)`,
-  // v13: Google Analytics 4 — ga_traffic_snapshots table
-  `CREATE TABLE IF NOT EXISTS ga_traffic_snapshots (
-    id               TEXT PRIMARY KEY,
-    project_id       TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    date             TEXT NOT NULL,
-    landing_page     TEXT NOT NULL,
-    sessions         INTEGER NOT NULL DEFAULT 0,
-    organic_sessions INTEGER NOT NULL DEFAULT 0,
-    users            INTEGER NOT NULL DEFAULT 0,
-    synced_at        TEXT NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_ga_traffic_project_date ON ga_traffic_snapshots(project_id, date)`,
-  `CREATE INDEX IF NOT EXISTS idx_ga_traffic_page ON ga_traffic_snapshots(landing_page)`,
-  // v14: GA4 aggregate summaries — stores true unique user count per sync period
-  `CREATE TABLE IF NOT EXISTS ga_traffic_summaries (
-    id                     TEXT PRIMARY KEY,
-    project_id             TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    period_start           TEXT NOT NULL,
-    period_end             TEXT NOT NULL,
-    total_sessions         INTEGER NOT NULL DEFAULT 0,
-    total_organic_sessions INTEGER NOT NULL DEFAULT 0,
-    total_users            INTEGER NOT NULL DEFAULT 0,
-    synced_at              TEXT NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_ga_summary_project ON ga_traffic_summaries(project_id)`,
-  // v15: Bing URL inspections — document_size, anchor_count, discovery_date columns
-  `ALTER TABLE bing_url_inspections ADD COLUMN document_size INTEGER`,
-  `ALTER TABLE bing_url_inspections ADD COLUMN anchor_count INTEGER`,
-  `ALTER TABLE bing_url_inspections ADD COLUMN discovery_date TEXT`,
-  // v16: Recommended competitor names extracted from run answers
-  `ALTER TABLE query_snapshots ADD COLUMN recommended_competitors TEXT NOT NULL DEFAULT '[]'`,
-  // v17: GA4 AI referral tracking — ga_ai_referrals table
-  `CREATE TABLE IF NOT EXISTS ga_ai_referrals (
-    id          TEXT PRIMARY KEY,
-    project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    date        TEXT NOT NULL,
-    source      TEXT NOT NULL,
-    medium      TEXT NOT NULL,
-    sessions    INTEGER NOT NULL DEFAULT 0,
-    users       INTEGER NOT NULL DEFAULT 0,
-    synced_at   TEXT NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_ga_ai_ref_project_date ON ga_ai_referrals(project_id, date)`,
-  `CREATE INDEX IF NOT EXISTS idx_ga_ai_ref_source ON ga_ai_referrals(source)`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_ai_ref_unique ON ga_ai_referrals(project_id, date, source, medium)`,
-  // v18: Answer-level visibility derived from answer text
-  `ALTER TABLE query_snapshots ADD COLUMN answer_mentioned INTEGER`,
-  // v19: Add named unique indexes and missing columns from early tables
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_keywords_project_keyword ON keywords(project_id, keyword)`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_competitors_project_domain ON competitors(project_id, domain)`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_schedules_project ON schedules(project_id)`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_scope_period_metric ON usage_counters(scope, period, metric)`,
-  `ALTER TABLE projects ADD COLUMN config_source TEXT NOT NULL DEFAULT 'cli'`,
-  `ALTER TABLE projects ADD COLUMN config_revision INTEGER NOT NULL DEFAULT 1`,
+/**
+ * Each entry describes one migration version.  Statements are run in order
+ * within the version; if any fail the version is not recorded, leaving it
+ * pending for the next boot.  Long-running statements (e.g. large UPDATEs)
+ * should be idempotent so they produce no side-effects on re-run.
+ */
+interface MigrationVersion {
+  version: number
+  name: string
+  statements: string[]
+}
 
-  // v20: Track which GA4 dimension produced each AI referral row
-  // Values: 'session' (sessionSource), 'first_user' (firstUserSource), 'manual_utm' (manualSource/utm_source)
-  `ALTER TABLE ga_ai_referrals ADD COLUMN source_dimension TEXT NOT NULL DEFAULT 'session'`,
-  // Replace old unique index with one that includes source_dimension
-  `DROP INDEX IF EXISTS idx_ga_ai_ref_unique`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_ai_ref_unique_v2 ON ga_ai_referrals(project_id, date, source, medium, source_dimension)`,
-
-  // v21: Add missing indexes for query_snapshots filtering
-  `CREATE INDEX IF NOT EXISTS idx_snapshots_citation_state ON query_snapshots(citation_state)`,
-  `CREATE INDEX IF NOT EXISTS idx_snapshots_provider_model ON query_snapshots(provider, model)`,
-  `CREATE INDEX IF NOT EXISTS idx_snapshots_location ON query_snapshots(location)`,
-
-  // v22: Intelligence — insights table for regression/gain/opportunity tracking
-  `CREATE TABLE IF NOT EXISTS insights (
-    id              TEXT PRIMARY KEY,
-    project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    type            TEXT NOT NULL,
-    severity        TEXT NOT NULL,
-    title           TEXT NOT NULL,
-    keyword         TEXT NOT NULL,
-    provider        TEXT NOT NULL,
-    recommendation  TEXT,
-    cause           TEXT,
-    dismissed       INTEGER NOT NULL DEFAULT 0,
-    created_at      TEXT NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_insights_project ON insights(project_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_insights_created ON insights(created_at)`,
-  `CREATE INDEX IF NOT EXISTS idx_insights_keyword_provider ON insights(keyword, provider)`,
-
-  // v23: Intelligence — health_snapshots table for citation health over time
-  `CREATE TABLE IF NOT EXISTS health_snapshots (
-    id                  TEXT PRIMARY KEY,
-    project_id          TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    overall_cited_rate  TEXT NOT NULL,
-    total_pairs         INTEGER NOT NULL,
-    cited_pairs         INTEGER NOT NULL,
-    provider_breakdown  TEXT NOT NULL DEFAULT '{}',
-    created_at          TEXT NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_health_snapshots_project ON health_snapshots(project_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_health_snapshots_created ON health_snapshots(created_at)`,
-
-  // v24: Intelligence — add run_id to insights and health_snapshots for per-run correlation and idempotency
-  `ALTER TABLE insights ADD COLUMN run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
-  `CREATE INDEX IF NOT EXISTS idx_insights_run ON insights(run_id)`,
-  `ALTER TABLE health_snapshots ADD COLUMN run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
-  `CREATE INDEX IF NOT EXISTS idx_health_snapshots_run ON health_snapshots(run_id)`,
-
-  // v25: Social media referral tracking — ga_social_referrals table
-  // Uses GA4's native sessionDefaultChannelGroup for social classification
-  `CREATE TABLE IF NOT EXISTS ga_social_referrals (
-    id              TEXT PRIMARY KEY,
-    project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    date            TEXT NOT NULL,
-    source          TEXT NOT NULL,
-    medium          TEXT NOT NULL,
-    channel_group   TEXT NOT NULL DEFAULT 'Organic Social',
-    sessions        INTEGER NOT NULL DEFAULT 0,
-    users           INTEGER NOT NULL DEFAULT 0,
-    synced_at       TEXT NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_ga_social_ref_project_date ON ga_social_referrals(project_id, date)`,
-  `CREATE INDEX IF NOT EXISTS idx_ga_social_ref_source ON ga_social_referrals(source)`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_social_ref_unique ON ga_social_referrals(project_id, date, source, medium, channel_group)`,
-
-  // v26: Bing coverage snapshots for historical tracking (mirrors gsc_coverage_snapshots)
-  `CREATE TABLE IF NOT EXISTS bing_coverage_snapshots (
-    id              TEXT PRIMARY KEY,
-    project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    date            TEXT NOT NULL,
-    indexed         INTEGER NOT NULL DEFAULT 0,
-    not_indexed     INTEGER NOT NULL DEFAULT 0,
-    unknown         INTEGER NOT NULL DEFAULT 0,
-    created_at      TEXT NOT NULL
-  )`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_bing_coverage_snap_project_date ON bing_coverage_snapshots(project_id, date)`,
-
-  // v27: Credential columns removed from Drizzle schema — credentials now live in config.yaml.
-  // Physical columns (access_token, refresh_token, token_expires_at on google_connections;
-  // private_key on ga_connections) intentionally retained in DB for one-time migration in server.ts.
-  // v28: Add sync_run_id to bing_url_inspections for tracking sync correlation
-  `ALTER TABLE bing_url_inspections ADD COLUMN sync_run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
-  `CREATE INDEX IF NOT EXISTS idx_bing_inspect_run ON bing_url_inspections(sync_run_id)`,
-
-  // v29: Add sync_run_id to ga_traffic_snapshots for tracking sync correlation
-  `ALTER TABLE ga_traffic_snapshots ADD COLUMN sync_run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
-  `CREATE INDEX IF NOT EXISTS idx_ga_traffic_run ON ga_traffic_snapshots(sync_run_id)`,
-
-  // v30: Add sync_run_id to ga_ai_referrals for tracking sync correlation
-  `ALTER TABLE ga_ai_referrals ADD COLUMN sync_run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
-  `CREATE INDEX IF NOT EXISTS idx_ga_ai_ref_run ON ga_ai_referrals(sync_run_id)`,
-
-  // v31: Add sync_run_id to ga_social_referrals for tracking sync correlation
-  `ALTER TABLE ga_social_referrals ADD COLUMN sync_run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
-  `CREATE INDEX IF NOT EXISTS idx_ga_social_ref_run ON ga_social_referrals(sync_run_id)`,
-
-  // v32: Add sync_run_id to ga_traffic_summaries for tracking sync correlation
-  `ALTER TABLE ga_traffic_summaries ADD COLUMN sync_run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
-  `CREATE INDEX IF NOT EXISTS idx_ga_summary_run ON ga_traffic_summaries(sync_run_id)`,
-
-  // v33: Add sync_run_id to bing_coverage_snapshots for tracking sync correlation
-  `ALTER TABLE bing_coverage_snapshots ADD COLUMN sync_run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
-  `CREATE INDEX IF NOT EXISTS idx_bing_coverage_snap_run ON bing_coverage_snapshots(sync_run_id)`,
-
-  // v34: Rename unique index for bing_coverage_snapshots to follow convention
-  `DROP INDEX IF EXISTS idx_bing_coverage_snap_project_date`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_bing_coverage_snap_project_date_unique ON bing_coverage_snapshots(project_id, date)`,
-
-  // v35: Add missing index for query_snapshots createdAt for time-series filtering
-  `CREATE INDEX IF NOT EXISTS idx_snapshots_created_at ON query_snapshots(created_at)`,
-  // v36: Transaction handling and SQL injection review: verified all strings use SQLite ? binding via Drizzle.
-  // No changes required for parameterization.
-  // v37: The legacy credential columns (private_key on ga_connections; access_token,
-  // refresh_token, token_expires_at on google_connections) are removed by the
-  // extractLegacyCredentials / dropLegacyCredentialColumns pair below. Callers
-  // read the rows, persist them to config.yaml, and only then drop the columns
-  // so a failed config write doesn't permanently lose credentials. Keeping the
-  // DROPs as raw SQL here would race with that read.
-
-  // v38: Aero session registry — one rolling session per project.
-  `CREATE TABLE IF NOT EXISTS agent_sessions (
-    id                TEXT PRIMARY KEY,
-    project_id        TEXT NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
-    system_prompt     TEXT NOT NULL,
-    model_provider    TEXT NOT NULL,
-    model_id          TEXT NOT NULL,
-    messages          TEXT NOT NULL DEFAULT '[]',
-    follow_up_queue   TEXT NOT NULL DEFAULT '[]',
-    created_at        TEXT NOT NULL,
-    updated_at        TEXT NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_agent_sessions_project ON agent_sessions(project_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_agent_sessions_updated ON agent_sessions(updated_at)`,
-
-  // v39: Align Aero provider IDs with sweep naming — anthropic→claude, google→gemini.
-  // Old rows predating the rename would fail to rehydrate because the canonical
-  // registry no longer recognizes 'anthropic'/'google'. Safe to re-run: the
-  // UPDATE is a no-op once the rename has been applied.
-  `UPDATE agent_sessions SET model_provider = 'claude' WHERE model_provider = 'anthropic'`,
-  `UPDATE agent_sessions SET model_provider = 'gemini' WHERE model_provider = 'google'`,
-
-  // v40: Aero durable memory — project-scoped notes + compaction summaries.
-  `CREATE TABLE IF NOT EXISTS agent_memory (
-    id          TEXT PRIMARY KEY,
-    project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    key         TEXT NOT NULL,
-    value       TEXT NOT NULL,
-    source      TEXT NOT NULL,
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
-  )`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS uniq_agent_memory_project_key
-    ON agent_memory(project_id, key)`,
-  `CREATE INDEX IF NOT EXISTS idx_agent_memory_project_updated
-    ON agent_memory(project_id, updated_at)`,
-
-  // v41: Common Crawl backlinks — workspace-level release syncs plus per-project
-  // backlink_domains and backlink_summaries populated in one DuckDB pass.
-  `CREATE TABLE IF NOT EXISTS cc_release_syncs (
-    id                      TEXT PRIMARY KEY,
-    release                 TEXT NOT NULL UNIQUE,
-    status                  TEXT NOT NULL,
-    phase_detail            TEXT,
-    vertex_path             TEXT,
-    edges_path              TEXT,
-    vertex_sha256           TEXT,
-    edges_sha256            TEXT,
-    vertex_bytes            INTEGER,
-    edges_bytes             INTEGER,
-    projects_processed      INTEGER,
-    domains_discovered      INTEGER,
-    download_started_at     TEXT,
-    download_finished_at    TEXT,
-    query_started_at        TEXT,
-    query_finished_at       TEXT,
-    error                   TEXT,
-    created_at              TEXT NOT NULL,
-    updated_at              TEXT NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_cc_release_syncs_status ON cc_release_syncs(status)`,
-
-  `CREATE TABLE IF NOT EXISTS backlink_domains (
-    id               TEXT PRIMARY KEY,
-    project_id       TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    release_sync_id  TEXT NOT NULL REFERENCES cc_release_syncs(id) ON DELETE CASCADE,
-    release          TEXT NOT NULL,
-    target_domain    TEXT NOT NULL,
-    linking_domain   TEXT NOT NULL,
-    num_hosts        INTEGER NOT NULL,
-    created_at       TEXT NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_backlink_domains_project ON backlink_domains(project_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_backlink_domains_release_sync ON backlink_domains(release_sync_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_backlink_domains_project_release ON backlink_domains(project_id, release)`,
-  `CREATE INDEX IF NOT EXISTS idx_backlink_domains_hosts ON backlink_domains(num_hosts)`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_backlink_domains_unique ON backlink_domains(project_id, release, linking_domain)`,
-
-  `CREATE TABLE IF NOT EXISTS backlink_summaries (
-    id                       TEXT PRIMARY KEY,
-    project_id               TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    release_sync_id          TEXT NOT NULL REFERENCES cc_release_syncs(id) ON DELETE CASCADE,
-    release                  TEXT NOT NULL,
-    target_domain            TEXT NOT NULL,
-    total_linking_domains    INTEGER NOT NULL,
-    total_hosts              INTEGER NOT NULL,
-    top_10_hosts_share       TEXT NOT NULL,
-    queried_at               TEXT NOT NULL,
-    created_at               TEXT NOT NULL
-  )`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_backlink_summaries_project_release ON backlink_summaries(project_id, release)`,
-  `CREATE INDEX IF NOT EXISTS idx_backlink_summaries_project ON backlink_summaries(project_id)`,
-
-  // v42: Per-project auto-extract toggle — when a release sync transitions
-  // to ready, projects with this flag get a backlink-extract run enqueued.
-  // Stored as INTEGER (0/1) to match SQLite boolean convention.
-  `ALTER TABLE projects ADD COLUMN auto_extract_backlinks INTEGER NOT NULL DEFAULT 0`,
-
-  // v43: Backfill bing_url_inspections.in_index using the new crawl-signal
-  // decision tree. Legacy rows were classified with the retired Bing `InIndex`
-  // flag plus a DocumentSize>0 check, which mis-classifies URLs that modern
-  // Bing returns with DocumentSize=0 but a valid LastCrawledDate. Use a
-  // created_at cutoff so rows written by the new code (which applies a live
-  // GetCrawlIssues demotion that can't be replayed offline) are preserved.
-  `UPDATE bing_url_inspections
-   SET in_index = CASE
-     WHEN document_size IS NOT NULL AND document_size > 0 THEN 1
-     WHEN last_crawled_date IS NOT NULL AND http_code IS NOT NULL AND http_code >= 400 THEN 0
-     WHEN last_crawled_date IS NOT NULL THEN 1
-     WHEN discovery_date IS NOT NULL THEN 0
-     ELSE NULL
-   END
-   WHERE created_at < '2026-04-22T00:00:00Z'`,
-
-  // v44: Canonicalized landing-page column for ga_traffic_snapshots.
-  // Populated by GA4 sync via normalizeUrlPath() in
-  // @ainyc/canonry-contracts. Nullable; existing rows are filled in by
-  // `canonry backfill normalized-paths`. Read queries should
-  // `GROUP BY COALESCE(landing_page_normalized, landing_page)` so
-  // partially-backfilled state still aggregates correctly.
-  // See plans/ai-attribution-research.md "Step 1 — data hygiene".
-  `ALTER TABLE ga_traffic_snapshots ADD COLUMN landing_page_normalized TEXT`,
-  `CREATE INDEX IF NOT EXISTS idx_ga_traffic_page_normalized
-     ON ga_traffic_snapshots(project_id, date, landing_page_normalized)`,
-
-  // v45: Per-page Direct channel sessions on ga_traffic_snapshots. Nullable
-  // so existing rows survive; populated by the GA4 sync writer in a
-  // separate commit. Unblocks an honest channel breakdown for the project
-  // dashboard (organic / social / direct / known-AI) — see
-  // plans/ai-attribution-research.md scope A.
-  `ALTER TABLE ga_traffic_snapshots ADD COLUMN direct_sessions INTEGER`,
-
-  // v46: Landing-page breakdown for GA4 known-AI referral rows. The raw
-  // landing_page participates in the unique key so distinct query strings can
-  // be ingested without collision; API reads group by landing_page_normalized.
-  // Default '(not set)' matches GA4's own sentinel for missing dimension
-  // values, so legacy rows surface as the same bucket new ingestion uses
-  // when GA4 returns nothing.
-  `ALTER TABLE ga_ai_referrals ADD COLUMN landing_page TEXT NOT NULL DEFAULT '(not set)'`,
-  `ALTER TABLE ga_ai_referrals ADD COLUMN landing_page_normalized TEXT`,
-  `DROP INDEX IF EXISTS idx_ga_ai_ref_unique_v2`,
-  `CREATE INDEX IF NOT EXISTS idx_ga_ai_ref_landing_page
-     ON ga_ai_referrals(project_id, date, landing_page_normalized)`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_ai_ref_unique_v3
-     ON ga_ai_referrals(project_id, date, source, medium, source_dimension, landing_page)`,
+export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
+  {
+    version: 2,
+    name: 'add-providers-column',
+    statements: [
+      `ALTER TABLE projects ADD COLUMN providers TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
+  {
+    version: 3,
+    name: 'add-webhook-secret',
+    statements: [
+      `ALTER TABLE notifications ADD COLUMN webhook_secret TEXT`,
+    ],
+  },
+  {
+    version: 4,
+    name: 'add-owned-domains',
+    statements: [
+      `ALTER TABLE projects ADD COLUMN owned_domains TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
+  {
+    version: 5,
+    name: 'add-snapshot-model',
+    statements: [
+      `ALTER TABLE query_snapshots ADD COLUMN model TEXT`,
+      `UPDATE query_snapshots SET model = json_extract(raw_response, '$.model') WHERE model IS NULL AND raw_response IS NOT NULL AND json_extract(raw_response, '$.model') IS NOT NULL`,
+    ],
+  },
+  {
+    version: 6,
+    name: 'gsc-integration',
+    statements: [
+      // google_connections (domain-scoped)
+      // WARNING: access_token, refresh_token are authentication material; consider storing in config.yaml per CLAUDE.md
+      `CREATE TABLE IF NOT EXISTS google_connections (
+        id              TEXT PRIMARY KEY,
+        domain          TEXT NOT NULL,
+        connection_type TEXT NOT NULL,
+        property_id     TEXT,
+        access_token    TEXT,
+        refresh_token   TEXT,
+        token_expires_at TEXT,
+        scopes          TEXT NOT NULL DEFAULT '[]',
+        created_at      TEXT NOT NULL,
+        updated_at      TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_google_conn_domain_type ON google_connections(domain, connection_type)`,
+      // gsc_search_data
+      `CREATE TABLE IF NOT EXISTS gsc_search_data (
+        id            TEXT PRIMARY KEY,
+        project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        sync_run_id   TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        date          TEXT NOT NULL,
+        query         TEXT NOT NULL,
+        page          TEXT NOT NULL,
+        country       TEXT,
+        device        TEXT,
+        clicks        INTEGER NOT NULL DEFAULT 0,
+        impressions   INTEGER NOT NULL DEFAULT 0,
+        ctr           TEXT NOT NULL DEFAULT '0',
+        position      TEXT NOT NULL DEFAULT '0',
+        created_at    TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_gsc_search_project_date ON gsc_search_data(project_id, date)`,
+      `CREATE INDEX IF NOT EXISTS idx_gsc_search_query ON gsc_search_data(query)`,
+      `CREATE INDEX IF NOT EXISTS idx_gsc_search_run ON gsc_search_data(sync_run_id)`,
+      // gsc_url_inspections
+      `CREATE TABLE IF NOT EXISTS gsc_url_inspections (
+        id                TEXT PRIMARY KEY,
+        project_id        TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        sync_run_id       TEXT REFERENCES runs(id) ON DELETE CASCADE,
+        url               TEXT NOT NULL,
+        indexing_state    TEXT,
+        verdict           TEXT,
+        coverage_state    TEXT,
+        page_fetch_state  TEXT,
+        robots_txt_state  TEXT,
+        crawl_time        TEXT,
+        last_crawl_result TEXT,
+        is_mobile_friendly INTEGER,
+        rich_results      TEXT NOT NULL DEFAULT '[]',
+        referring_urls    TEXT NOT NULL DEFAULT '[]',
+        inspected_at      TEXT NOT NULL,
+        created_at        TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_gsc_inspect_project_url ON gsc_url_inspections(project_id, url)`,
+      `CREATE INDEX IF NOT EXISTS idx_gsc_inspect_run ON gsc_url_inspections(sync_run_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_gsc_inspect_url_time ON gsc_url_inspections(url, inspected_at)`,
+    ],
+  },
+  {
+    version: 7,
+    name: 'gsc-coverage-snapshots',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS gsc_coverage_snapshots (
+        id              TEXT PRIMARY KEY,
+        project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        sync_run_id     TEXT REFERENCES runs(id) ON DELETE CASCADE,
+        date            TEXT NOT NULL,
+        indexed         INTEGER NOT NULL DEFAULT 0,
+        not_indexed     INTEGER NOT NULL DEFAULT 0,
+        reason_breakdown TEXT NOT NULL DEFAULT '{}',
+        created_at      TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_gsc_coverage_snap_project_date ON gsc_coverage_snapshots(project_id, date)`,
+      `CREATE INDEX IF NOT EXISTS idx_gsc_coverage_snap_run ON gsc_coverage_snapshots(sync_run_id)`,
+    ],
+  },
+  {
+    version: 8,
+    name: 'location-aware-sweeps',
+    statements: [
+      `ALTER TABLE projects ADD COLUMN locations TEXT NOT NULL DEFAULT '[]'`,
+      `ALTER TABLE projects ADD COLUMN default_location TEXT`,
+      `ALTER TABLE query_snapshots ADD COLUMN location TEXT`,
+    ],
+  },
+  {
+    version: 9,
+    name: 'add-run-location',
+    statements: [
+      `ALTER TABLE runs ADD COLUMN location TEXT`,
+    ],
+  },
+  {
+    version: 10,
+    name: 'add-sitemap-url',
+    statements: [
+      `ALTER TABLE google_connections ADD COLUMN sitemap_url TEXT`,
+    ],
+  },
+  {
+    version: 11,
+    name: 'add-screenshot-path',
+    statements: [
+      `ALTER TABLE query_snapshots ADD COLUMN screenshot_path TEXT`,
+    ],
+  },
+  {
+    version: 12,
+    name: 'bing-wmt-integration',
+    statements: [
+      // bing_connections
+      `CREATE TABLE IF NOT EXISTS bing_connections (
+        id          TEXT PRIMARY KEY,
+        domain      TEXT NOT NULL,
+        site_url    TEXT,
+        created_at  TEXT NOT NULL,
+        updated_at  TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_bing_conn_domain ON bing_connections(domain)`,
+      // bing_url_inspections
+      `CREATE TABLE IF NOT EXISTS bing_url_inspections (
+        id                TEXT PRIMARY KEY,
+        project_id        TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        url               TEXT NOT NULL,
+        http_code         INTEGER,
+        in_index          INTEGER,
+        last_crawled_date TEXT,
+        in_index_date     TEXT,
+        inspected_at      TEXT NOT NULL,
+        created_at        TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_bing_inspect_project_url ON bing_url_inspections(project_id, url)`,
+      `CREATE INDEX IF NOT EXISTS idx_bing_inspect_url_time ON bing_url_inspections(url, inspected_at)`,
+      // bing_keyword_stats
+      `CREATE TABLE IF NOT EXISTS bing_keyword_stats (
+        id               TEXT PRIMARY KEY,
+        project_id       TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        query            TEXT NOT NULL,
+        impressions      INTEGER NOT NULL DEFAULT 0,
+        clicks           INTEGER NOT NULL DEFAULT 0,
+        ctr              TEXT NOT NULL DEFAULT '0',
+        average_position TEXT NOT NULL DEFAULT '0',
+        synced_at        TEXT NOT NULL,
+        created_at       TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_bing_keyword_project ON bing_keyword_stats(project_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_bing_keyword_query ON bing_keyword_stats(query)`,
+    ],
+  },
+  {
+    version: 13,
+    name: 'ga4-integration',
+    statements: [
+      // ga_connections
+      // WARNING: private_key is authentication material; consider storing in config.yaml per CLAUDE.md
+      `CREATE TABLE IF NOT EXISTS ga_connections (
+        id            TEXT PRIMARY KEY,
+        project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        property_id   TEXT NOT NULL,
+        client_email  TEXT NOT NULL,
+        private_key   TEXT NOT NULL,
+        created_at    TEXT NOT NULL,
+        updated_at    TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_conn_project ON ga_connections(project_id)`,
+      // ga_traffic_snapshots
+      `CREATE TABLE IF NOT EXISTS ga_traffic_snapshots (
+        id               TEXT PRIMARY KEY,
+        project_id       TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        date             TEXT NOT NULL,
+        landing_page     TEXT NOT NULL,
+        sessions         INTEGER NOT NULL DEFAULT 0,
+        organic_sessions INTEGER NOT NULL DEFAULT 0,
+        users            INTEGER NOT NULL DEFAULT 0,
+        synced_at        TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_traffic_project_date ON ga_traffic_snapshots(project_id, date)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_traffic_page ON ga_traffic_snapshots(landing_page)`,
+    ],
+  },
+  {
+    version: 14,
+    name: 'ga4-traffic-summaries',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS ga_traffic_summaries (
+        id                     TEXT PRIMARY KEY,
+        project_id             TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        period_start           TEXT NOT NULL,
+        period_end             TEXT NOT NULL,
+        total_sessions         INTEGER NOT NULL DEFAULT 0,
+        total_organic_sessions INTEGER NOT NULL DEFAULT 0,
+        total_users            INTEGER NOT NULL DEFAULT 0,
+        synced_at              TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_summary_project ON ga_traffic_summaries(project_id)`,
+    ],
+  },
+  {
+    version: 15,
+    name: 'bing-inspect-columns',
+    statements: [
+      `ALTER TABLE bing_url_inspections ADD COLUMN document_size INTEGER`,
+      `ALTER TABLE bing_url_inspections ADD COLUMN anchor_count INTEGER`,
+      `ALTER TABLE bing_url_inspections ADD COLUMN discovery_date TEXT`,
+    ],
+  },
+  {
+    version: 16,
+    name: 'recommended-competitors',
+    statements: [
+      `ALTER TABLE query_snapshots ADD COLUMN recommended_competitors TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
+  {
+    version: 17,
+    name: 'ga4-ai-referrals',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS ga_ai_referrals (
+        id          TEXT PRIMARY KEY,
+        project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        date        TEXT NOT NULL,
+        source      TEXT NOT NULL,
+        medium      TEXT NOT NULL,
+        sessions    INTEGER NOT NULL DEFAULT 0,
+        users       INTEGER NOT NULL DEFAULT 0,
+        synced_at   TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_ai_ref_project_date ON ga_ai_referrals(project_id, date)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_ai_ref_source ON ga_ai_referrals(source)`,
+    ],
+  },
+  {
+    version: 18,
+    name: 'answer-mentioned',
+    statements: [
+      `ALTER TABLE query_snapshots ADD COLUMN answer_mentioned INTEGER`,
+    ],
+  },
+  {
+    version: 19,
+    name: 'named-unique-indexes',
+    statements: [
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_keywords_project_keyword ON keywords(project_id, keyword)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_competitors_project_domain ON competitors(project_id, domain)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_schedules_project ON schedules(project_id)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_scope_period_metric ON usage_counters(scope, period, metric)`,
+      `ALTER TABLE projects ADD COLUMN config_source TEXT NOT NULL DEFAULT 'cli'`,
+      `ALTER TABLE projects ADD COLUMN config_revision INTEGER NOT NULL DEFAULT 1`,
+    ],
+  },
+  {
+    version: 20,
+    name: 'ga4-source-dimension',
+    statements: [
+      // Values: 'session' (sessionSource), 'first_user' (firstUserSource), 'manual_utm' (manualSource/utm_source)
+      `ALTER TABLE ga_ai_referrals ADD COLUMN source_dimension TEXT NOT NULL DEFAULT 'session'`,
+      // Adopt the widened unique key (now including source_dimension). This
+      // version intentionally does NOT drop the prior narrow index
+      // idx_ga_ai_ref_unique — the original v17 + v20 pair did, but replaying
+      // that pair on a DB where data has since accumulated duplicates on the
+      // narrow key would crash (the bug this PR fixes). Any DB that ran the
+      // historical v20 once already has the narrow index gone; brand-new DBs
+      // never create it because v17 was rewritten to omit it. Anything else
+      // is repaired by v46, which drops idx_ga_ai_ref_unique_v2 and lands on
+      // the final (…, source_dimension, landing_page) index.
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_ai_ref_unique_v2 ON ga_ai_referrals(project_id, date, source, medium, source_dimension)`,
+    ],
+  },
+  {
+    version: 21,
+    name: 'snapshot-filtering-indexes',
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_snapshots_citation_state ON query_snapshots(citation_state)`,
+      `CREATE INDEX IF NOT EXISTS idx_snapshots_provider_model ON query_snapshots(provider, model)`,
+      `CREATE INDEX IF NOT EXISTS idx_snapshots_location ON query_snapshots(location)`,
+    ],
+  },
+  {
+    version: 22,
+    name: 'insights-table',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS insights (
+        id              TEXT PRIMARY KEY,
+        project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        type            TEXT NOT NULL,
+        severity        TEXT NOT NULL,
+        title           TEXT NOT NULL,
+        keyword         TEXT NOT NULL,
+        provider        TEXT NOT NULL,
+        recommendation  TEXT,
+        cause           TEXT,
+        dismissed       INTEGER NOT NULL DEFAULT 0,
+        created_at      TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_insights_project ON insights(project_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_insights_created ON insights(created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_insights_keyword_provider ON insights(keyword, provider)`,
+    ],
+  },
+  {
+    version: 23,
+    name: 'health-snapshots-table',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS health_snapshots (
+        id                  TEXT PRIMARY KEY,
+        project_id          TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        overall_cited_rate  TEXT NOT NULL,
+        total_pairs         INTEGER NOT NULL,
+        cited_pairs         INTEGER NOT NULL,
+        provider_breakdown  TEXT NOT NULL DEFAULT '{}',
+        created_at          TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_health_snapshots_project ON health_snapshots(project_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_health_snapshots_created ON health_snapshots(created_at)`,
+    ],
+  },
+  {
+    version: 24,
+    name: 'intelligence-run-id',
+    statements: [
+      `ALTER TABLE insights ADD COLUMN run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
+      `CREATE INDEX IF NOT EXISTS idx_insights_run ON insights(run_id)`,
+      `ALTER TABLE health_snapshots ADD COLUMN run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
+      `CREATE INDEX IF NOT EXISTS idx_health_snapshots_run ON health_snapshots(run_id)`,
+    ],
+  },
+  {
+    version: 25,
+    name: 'ga4-social-referrals',
+    statements: [
+      // Uses GA4's native sessionDefaultChannelGroup for social classification
+      `CREATE TABLE IF NOT EXISTS ga_social_referrals (
+        id              TEXT PRIMARY KEY,
+        project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        date            TEXT NOT NULL,
+        source          TEXT NOT NULL,
+        medium          TEXT NOT NULL,
+        channel_group   TEXT NOT NULL DEFAULT 'Organic Social',
+        sessions        INTEGER NOT NULL DEFAULT 0,
+        users           INTEGER NOT NULL DEFAULT 0,
+        synced_at       TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_social_ref_project_date ON ga_social_referrals(project_id, date)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_social_ref_source ON ga_social_referrals(source)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_social_ref_unique ON ga_social_referrals(project_id, date, source, medium, channel_group)`,
+    ],
+  },
+  {
+    version: 26,
+    name: 'bing-coverage-snapshots',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS bing_coverage_snapshots (
+        id              TEXT PRIMARY KEY,
+        project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        date            TEXT NOT NULL,
+        indexed         INTEGER NOT NULL DEFAULT 0,
+        not_indexed     INTEGER NOT NULL DEFAULT 0,
+        unknown         INTEGER NOT NULL DEFAULT 0,
+        created_at      TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_bing_coverage_snap_project_date ON bing_coverage_snapshots(project_id, date)`,
+    ],
+  },
+  {
+    version: 27,
+    name: 'credential-columns-removed-from-schema',
+    statements: [
+      // Credential columns removed from Drizzle schema — credentials now live in config.yaml.
+      // Physical columns intentionally retained for one-time migration by server.ts.
+      // No DDL statements needed.
+    ],
+  },
+  {
+    version: 28,
+    name: 'sync-run-id-bing-inspect',
+    statements: [
+      `ALTER TABLE bing_url_inspections ADD COLUMN sync_run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
+      `CREATE INDEX IF NOT EXISTS idx_bing_inspect_run ON bing_url_inspections(sync_run_id)`,
+    ],
+  },
+  {
+    version: 29,
+    name: 'sync-run-id-ga-traffic',
+    statements: [
+      `ALTER TABLE ga_traffic_snapshots ADD COLUMN sync_run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_traffic_run ON ga_traffic_snapshots(sync_run_id)`,
+    ],
+  },
+  {
+    version: 30,
+    name: 'sync-run-id-ga-ai-ref',
+    statements: [
+      `ALTER TABLE ga_ai_referrals ADD COLUMN sync_run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_ai_ref_run ON ga_ai_referrals(sync_run_id)`,
+    ],
+  },
+  {
+    version: 31,
+    name: 'sync-run-id-ga-social-ref',
+    statements: [
+      `ALTER TABLE ga_social_referrals ADD COLUMN sync_run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_social_ref_run ON ga_social_referrals(sync_run_id)`,
+    ],
+  },
+  {
+    version: 32,
+    name: 'sync-run-id-ga-summary',
+    statements: [
+      `ALTER TABLE ga_traffic_summaries ADD COLUMN sync_run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_summary_run ON ga_traffic_summaries(sync_run_id)`,
+    ],
+  },
+  {
+    version: 33,
+    name: 'sync-run-id-bing-coverage',
+    statements: [
+      `ALTER TABLE bing_coverage_snapshots ADD COLUMN sync_run_id TEXT REFERENCES runs(id) ON DELETE CASCADE`,
+      `CREATE INDEX IF NOT EXISTS idx_bing_coverage_snap_run ON bing_coverage_snapshots(sync_run_id)`,
+    ],
+  },
+  {
+    version: 34,
+    name: 'bing-coverage-index-rename',
+    statements: [
+      `DROP INDEX IF EXISTS idx_bing_coverage_snap_project_date`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_bing_coverage_snap_project_date_unique ON bing_coverage_snapshots(project_id, date)`,
+    ],
+  },
+  {
+    version: 35,
+    name: 'snapshot-created-at-index',
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_snapshots_created_at ON query_snapshots(created_at)`,
+    ],
+  },
+  {
+    version: 36,
+    name: 'sql-injection-review',
+    statements: [
+      // Transaction handling and SQL injection review: verified all strings
+      // use SQLite ? binding via Drizzle. No parameterization changes needed.
+    ],
+  },
+  {
+    version: 37,
+    name: 'legacy-credential-cleanup',
+    statements: [
+      // The legacy credential columns (private_key on ga_connections; access_token,
+      // refresh_token, token_expires_at on google_connections) are removed by the
+      // extractLegacyCredentials / dropLegacyCredentialColumns pair.
+      // Callers read the rows, persist them to config.yaml, and only then drop
+      // the columns so a failed config write doesn't permanently lose credentials.
+      // No DDL statements here — columns are dropped via exported functions below.
+    ],
+  },
+  {
+    version: 38,
+    name: 'agent-sessions',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS agent_sessions (
+        id                TEXT PRIMARY KEY,
+        project_id        TEXT NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
+        system_prompt     TEXT NOT NULL,
+        model_provider    TEXT NOT NULL,
+        model_id          TEXT NOT NULL,
+        messages          TEXT NOT NULL DEFAULT '[]',
+        follow_up_queue   TEXT NOT NULL DEFAULT '[]',
+        created_at        TEXT NOT NULL,
+        updated_at        TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_agent_sessions_project ON agent_sessions(project_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_agent_sessions_updated ON agent_sessions(updated_at)`,
+    ],
+  },
+  {
+    version: 39,
+    name: 'aero-provider-rename',
+    statements: [
+      // Align Aero provider IDs with sweep naming — anthropic→claude, google→gemini.
+      // Idempotent: the UPDATE is a no-op once the rename has been applied.
+      `UPDATE agent_sessions SET model_provider = 'claude' WHERE model_provider = 'anthropic'`,
+      `UPDATE agent_sessions SET model_provider = 'gemini' WHERE model_provider = 'google'`,
+    ],
+  },
+  {
+    version: 40,
+    name: 'agent-memory',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS agent_memory (
+        id          TEXT PRIMARY KEY,
+        project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        key         TEXT NOT NULL,
+        value       TEXT NOT NULL,
+        source      TEXT NOT NULL,
+        created_at  TEXT NOT NULL,
+        updated_at  TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS uniq_agent_memory_project_key
+        ON agent_memory(project_id, key)`,
+      `CREATE INDEX IF NOT EXISTS idx_agent_memory_project_updated
+        ON agent_memory(project_id, updated_at)`,
+    ],
+  },
+  {
+    version: 41,
+    name: 'common-crawl-backlinks',
+    statements: [
+      // cc_release_syncs
+      `CREATE TABLE IF NOT EXISTS cc_release_syncs (
+        id                      TEXT PRIMARY KEY,
+        release                 TEXT NOT NULL UNIQUE,
+        status                  TEXT NOT NULL,
+        phase_detail            TEXT,
+        vertex_path             TEXT,
+        edges_path              TEXT,
+        vertex_sha256           TEXT,
+        edges_sha256            TEXT,
+        vertex_bytes            INTEGER,
+        edges_bytes             INTEGER,
+        projects_processed      INTEGER,
+        domains_discovered      INTEGER,
+        download_started_at     TEXT,
+        download_finished_at    TEXT,
+        query_started_at        TEXT,
+        query_finished_at       TEXT,
+        error                   TEXT,
+        created_at              TEXT NOT NULL,
+        updated_at              TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_cc_release_syncs_status ON cc_release_syncs(status)`,
+      // backlink_domains
+      `CREATE TABLE IF NOT EXISTS backlink_domains (
+        id               TEXT PRIMARY KEY,
+        project_id       TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        release_sync_id  TEXT NOT NULL REFERENCES cc_release_syncs(id) ON DELETE CASCADE,
+        release          TEXT NOT NULL,
+        target_domain    TEXT NOT NULL,
+        linking_domain   TEXT NOT NULL,
+        num_hosts        INTEGER NOT NULL,
+        created_at       TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_backlink_domains_project ON backlink_domains(project_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_backlink_domains_release_sync ON backlink_domains(release_sync_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_backlink_domains_project_release ON backlink_domains(project_id, release)`,
+      `CREATE INDEX IF NOT EXISTS idx_backlink_domains_hosts ON backlink_domains(num_hosts)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_backlink_domains_unique ON backlink_domains(project_id, release, linking_domain)`,
+      // backlink_summaries
+      `CREATE TABLE IF NOT EXISTS backlink_summaries (
+        id                       TEXT PRIMARY KEY,
+        project_id               TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        release_sync_id          TEXT NOT NULL REFERENCES cc_release_syncs(id) ON DELETE CASCADE,
+        release                  TEXT NOT NULL,
+        target_domain            TEXT NOT NULL,
+        total_linking_domains    INTEGER NOT NULL,
+        total_hosts              INTEGER NOT NULL,
+        top_10_hosts_share       TEXT NOT NULL,
+        queried_at               TEXT NOT NULL,
+        created_at               TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_backlink_summaries_project_release ON backlink_summaries(project_id, release)`,
+      `CREATE INDEX IF NOT EXISTS idx_backlink_summaries_project ON backlink_summaries(project_id)`,
+    ],
+  },
+  {
+    version: 42,
+    name: 'auto-extract-backlinks',
+    statements: [
+      `ALTER TABLE projects ADD COLUMN auto_extract_backlinks INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    version: 43,
+    name: 'backfill-bing-in-index',
+    statements: [
+      // Backfill bing_url_inspections.in_index using the new crawl-signal
+      // decision tree. Uses a created_at cutoff so rows written by the new
+      // code (which applies a live GetCrawlIssues demotion that can't be
+      // replayed offline) are preserved.
+      `UPDATE bing_url_inspections
+       SET in_index = CASE
+         WHEN document_size IS NOT NULL AND document_size > 0 THEN 1
+         WHEN last_crawled_date IS NOT NULL AND http_code IS NOT NULL AND http_code >= 400 THEN 0
+         WHEN last_crawled_date IS NOT NULL THEN 1
+         WHEN discovery_date IS NOT NULL THEN 0
+         ELSE NULL
+       END
+       WHERE created_at < '2026-04-22T00:00:00Z'`,
+    ],
+  },
+  {
+    version: 44,
+    name: 'ga-traffic-landing-normalized',
+    statements: [
+      `ALTER TABLE ga_traffic_snapshots ADD COLUMN landing_page_normalized TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_traffic_page_normalized
+         ON ga_traffic_snapshots(project_id, date, landing_page_normalized)`,
+    ],
+  },
+  {
+    version: 45,
+    name: 'ga-traffic-direct-sessions',
+    statements: [
+      `ALTER TABLE ga_traffic_snapshots ADD COLUMN direct_sessions INTEGER`,
+    ],
+  },
+  {
+    version: 46,
+    name: 'ga-ai-landing-page',
+    statements: [
+      `ALTER TABLE ga_ai_referrals ADD COLUMN landing_page TEXT NOT NULL DEFAULT '(not set)'`,
+      `ALTER TABLE ga_ai_referrals ADD COLUMN landing_page_normalized TEXT`,
+      `DROP INDEX IF EXISTS idx_ga_ai_ref_unique_v2`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_ai_ref_landing_page
+         ON ga_ai_referrals(project_id, date, landing_page_normalized)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_ai_ref_unique_v3
+         ON ga_ai_referrals(project_id, date, source, medium, source_dimension, landing_page)`,
+    ],
+  },
 ]
 
 /**
@@ -649,8 +862,6 @@ function dropColumnIfExists(db: DatabaseClient, table: string, column: string): 
     const msg = err.message
     const causeMsg = err.cause instanceof Error ? err.cause.message : ''
     // SQLite throws "no such column: <name>" when the column is already gone.
-    // Match the specific column name so unrelated migrations that mention a
-    // missing column are not silently swallowed.
     const expected = `no such column: "${column}"`
     const expectedAlt = `no such column: ${column}`
     if (msg.includes(expected) || msg.includes(expectedAlt)) return
@@ -753,7 +964,33 @@ export function dropLegacyCredentialColumns(db: DatabaseClient): void {
   }
 }
 
+/**
+ * Returns the highest applied migration version, or 0 if none.
+ */
+function getAppliedVersion(db: DatabaseClient): number {
+  const rows = db.all(sql`SELECT MAX(version) as max_version FROM _migrations`) as Array<{
+    max_version: number | null
+  }>
+  return rows[0]?.max_version ?? 0
+}
+
+/**
+ * Records a migration version as successfully applied. Uses Drizzle's
+ * tagged-template binding so version/name are passed as bound parameters,
+ * not interpolated into SQL.
+ */
+function recordMigration(
+  db: Pick<DatabaseClient, 'run'>,
+  version: number,
+  name: string,
+): void {
+  db.run(sql`INSERT OR IGNORE INTO _migrations (version, name) VALUES (${version}, ${name})`)
+}
+
 export function migrate(db: DatabaseClient) {
+  // Phase 1: base schema (idempotent — all CREATE IF NOT EXISTS).
+  // Includes the _migrations table itself, so subsequent reads from
+  // getAppliedVersion always succeed.
   const statements = MIGRATION_SQL.split(';')
     .map(s => s.trim())
     .filter(s => s.length > 0)
@@ -762,19 +999,30 @@ export function migrate(db: DatabaseClient) {
     db.run(sql.raw(statement))
   }
 
-  // Run incremental migrations. Most statements use IF NOT EXISTS / IF EXISTS
-  // and are fully idempotent. The only expected failure is ALTER TABLE ADD COLUMN
-  // on an already-migrated database, where SQLite throws "duplicate column name".
-  // Drizzle wraps the raw SqliteError inside a DrizzleError, so we check both the
-  // top-level message and the cause. Any other error (syntax error, FK violation,
-  // real migration bug) must propagate so the caller can surface it rather than
-  // silently leaving the DB half-migrated.
-  for (const migration of MIGRATIONS) {
-    try {
-      db.run(sql.raw(migration))
-    } catch (err: unknown) {
-      if (isDuplicateColumnError(err)) continue
-      throw err
-    }
+  // Phase 2: incremental migrations with version tracking.
+  // Only run versions that haven't been applied yet. On first deploy of this
+  // code over an existing DB, _migrations is empty so appliedVersion=0 and
+  // every version is replayed once — that replay is safe because every
+  // statement is either CREATE/INDEX IF NOT EXISTS, an idempotent UPDATE,
+  // or an ALTER TABLE ADD COLUMN whose duplicate-column error we swallow.
+  const appliedVersion = getAppliedVersion(db)
+
+  for (const mv of MIGRATION_VERSIONS) {
+    if (mv.version <= appliedVersion) continue
+
+    // Each version's statements + its row in _migrations commit atomically.
+    // If a non-recoverable error fires mid-version, the whole version is
+    // rolled back and not recorded, so the next boot retries it cleanly.
+    db.transaction((tx) => {
+      for (const statement of mv.statements) {
+        try {
+          tx.run(sql.raw(statement))
+        } catch (err: unknown) {
+          if (isDuplicateColumnError(err)) continue
+          throw err
+        }
+      }
+      recordMigration(tx, mv.version, mv.name)
+    })
   }
 }

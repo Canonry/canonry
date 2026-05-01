@@ -4,12 +4,13 @@ import os from 'node:os'
 import path from 'node:path'
 
 import Database from 'better-sqlite3'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
 import * as schema from '../src/schema.js'
 import {
   createClient,
   migrate,
+  MIGRATION_VERSIONS,
   projects,
   keywords,
   competitors,
@@ -219,6 +220,10 @@ test('migrate v43 backfills bing_url_inspections.in_index from stored crawl sign
       createdAt: futureCreatedAt,
     },
   ]).run()
+
+  // With version tracking, migrations don't replay.  Delete v43+
+  // records so only the backfill (v43) and later versions re-run.
+  db.run(sql.raw(`DELETE FROM _migrations WHERE version >= 43`))
 
   migrate(db)
 
@@ -620,4 +625,94 @@ test('v4 migration adds owned_domains column to existing DB', () => {
   const [project] = db.select().from(projects).where(eq(projects.name, 'test-project')).all()
   expect(project.canonicalDomain).toBe('example.com')
   expect(project.ownedDomains).toBe('[]')
+})
+
+test('migrate records applied versions and skips them on replay', () => {
+  const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
+
+  // First migrate — should apply all versions
+  migrate(db)
+
+  // Query the _migrations table
+  const sqlite = new Database(path.join(tmpDir, 'test.db'), { readonly: true })
+  onTestFinished(() => sqlite.close())
+
+  const versions = sqlite.prepare('SELECT version, name FROM _migrations ORDER BY version').all() as Array<{ version: number; name: string }>
+  // Every entry in MIGRATION_VERSIONS should be recorded after a fresh boot,
+  // and the names must match — keying off the source of truth so adding a new
+  // migration doesn't require touching this test.
+  expect(versions.map(v => v.version)).toEqual(MIGRATION_VERSIONS.map(mv => mv.version))
+  expect(versions.map(v => v.name)).toEqual(MIGRATION_VERSIONS.map(mv => mv.name))
+
+  // All tables should exist
+  const tables = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as Array<{ name: string }>
+  const tableNames = tables.map(t => t.name)
+  expect(tableNames).toContain('_migrations')
+  expect(tableNames).toContain('ga_ai_referrals')
+  expect(tableNames).toContain('ga_social_referrals')
+  expect(tableNames).toContain('insights')
+  expect(tableNames).toContain('health_snapshots')
+  expect(tableNames).toContain('bing_coverage_snapshots')
+  expect(tableNames).toContain('agent_sessions')
+  expect(tableNames).toContain('agent_memory')
+  expect(tableNames).toContain('cc_release_syncs')
+  expect(tableNames).toContain('backlink_domains')
+  expect(tableNames).toContain('backlink_summaries')
+})
+
+test('migrate is safe to replay after intermediate-state data is inserted', () => {
+  // Reproduces the production crash: ga_ai_referrals table exists with
+  // rows that have the same (project_id, date, source, medium) but
+  // different source_dimension values.  On replay, the old code tried to
+  // create a UNIQUE index on (project_id, date, source, medium) which
+  // fails.  With version tracking, the old migration is skipped so the
+  // replay succeeds.
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-test-'))
+  const dbPath = path.join(tmpDir, 'test.db')
+  onTestFinished(() => cleanup(tmpDir))
+
+  // Run the full migration once
+  const db1 = createClient(dbPath)
+  migrate(db1)
+
+  // Insert a project so FK constraint is satisfied
+  const now = new Date().toISOString()
+  db1.run(sql.raw(`INSERT INTO projects (id, name, display_name, canonical_domain, country, language, created_at, updated_at)
+    VALUES ('proj-test', 'test-proj', 'Test Project', 'example.com', 'US', 'en', '${now}', '${now}')`))
+
+  // Insert rows that ARE duplicates on the narrower v1 key but unique on the v3 key
+  db1.run(sql.raw(`INSERT INTO ga_ai_referrals (id, project_id, date, source, medium, source_dimension, landing_page, sessions, users, synced_at)
+    VALUES ('ref-1', 'proj-test', '2026-04-01', 'chatgpt.com', 'referral', 'session', '(not set)', 10, 5, '${now}')`))
+  db1.run(sql.raw(`INSERT INTO ga_ai_referrals (id, project_id, date, source, medium, source_dimension, landing_page, sessions, users, synced_at)
+    VALUES ('ref-2', 'proj-test', '2026-04-01', 'chatgpt.com', 'referral', 'first_user', '(not set)', 8, 3, '${now}')`))
+  db1.run(sql.raw(`INSERT INTO ga_ai_referrals (id, project_id, date, source, medium, source_dimension, landing_page, sessions, users, synced_at)
+    VALUES ('ref-3', 'proj-test', '2026-04-01', 'chatgpt.com', 'referral', 'manual_utm', '(not set)', 2, 1, '${now}')`))
+
+  // Now close and simulate a server restart by creating a fresh client
+  // and calling migrate() again.  This MUST NOT throw.
+  const db2 = createClient(dbPath)
+  expect(() => migrate(db2)).not.toThrow()
+
+  // Verify data survived
+  const rows = db2.all(sql.raw(`SELECT COUNT(*) as cnt FROM ga_ai_referrals`)) as Array<{ cnt: number }>
+  expect(rows[0]?.cnt).toBe(3)
+
+  // The v3 unique index should be in place
+  const sqlite = new Database(dbPath, { readonly: true })
+  onTestFinished(() => sqlite.close())
+  const indexes = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_ga_ai_ref_unique%'").all() as Array<{ name: string }>
+  const indexNames = indexes.map(i => i.name)
+  expect(indexNames).toContain('idx_ga_ai_ref_unique_v3')
+})
+
+test('_migrations table is created on first migrate', () => {
+  const { tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
+
+  const sqlite = new Database(path.join(tmpDir, 'test.db'), { readonly: true })
+  onTestFinished(() => sqlite.close())
+
+  const tableInfo = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='_migrations'").all()
+  expect(tableInfo.length).toBe(1)
 })
