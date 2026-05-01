@@ -392,6 +392,7 @@ describe('GA4 routes', () => {
     // bug, so `only=social` must still refresh the foundation — only
     // `gaAiReferrals` is skipped here.
     const now = new Date().toISOString()
+    const today = now.slice(0, 10)
     const projRes = await app.inject({
       method: 'PUT',
       url: '/api/v1/projects/only-social-foundation',
@@ -416,18 +417,18 @@ describe('GA4 routes', () => {
     const gaModule = await import('@ainyc/canonry-integration-google-analytics')
     const getAccessTokenSpy = vi.spyOn(gaModule, 'getAccessToken').mockResolvedValue('mock-token')
     const fetchTrafficSpy = vi.spyOn(gaModule, 'fetchTrafficByLandingPage').mockResolvedValue([
-      { date: '2026-04-15', landingPage: '/foundation', sessions: 30000, organicSessions: 12000, directSessions: 5000, users: 22000 },
+      { date: today, landingPage: '/foundation', sessions: 30000, organicSessions: 12000, directSessions: 5000, users: 22000 },
     ])
     const fetchAggregateSpy = vi.spyOn(gaModule, 'fetchAggregateSummary').mockResolvedValue({
-      periodStart: '2026-04-01',
-      periodEnd: '2026-04-30',
+      periodStart: today,
+      periodEnd: today,
       totalSessions: 30000,
       totalOrganicSessions: 12000,
       totalUsers: 22000,
     })
     const fetchAiReferralsSpy = vi.spyOn(gaModule, 'fetchAiReferrals').mockResolvedValue([])
     const fetchSocialReferralsSpy = vi.spyOn(gaModule, 'fetchSocialReferrals').mockResolvedValue([
-      { date: '2026-04-15', source: 'facebook.com', medium: 'referral', sessions: 1273, users: 900, channelGroup: 'Organic Social' },
+      { date: today, source: 'facebook.com', medium: 'referral', sessions: 1273, users: 900, channelGroup: 'Organic Social' },
     ])
 
     try {
@@ -437,6 +438,12 @@ describe('GA4 routes', () => {
         payload: { days: 30, only: 'social' },
       })
       expect(res.statusCode).toBe(200)
+
+      // The sync response must reflect the foundation write so callers
+      // (CLI `Components:` line, agents reading `syncedComponents`) don't
+      // think only social was refreshed.
+      const syncBody = JSON.parse(res.payload)
+      expect(syncBody.syncedComponents).toEqual(['traffic', 'summary', 'social'])
 
       // Foundation must be refreshed even though the caller asked for
       // `only=social` — fetchTrafficByLandingPage + fetchAggregateSummary

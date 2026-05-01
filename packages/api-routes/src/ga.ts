@@ -522,8 +522,16 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         .where(eq(runs.id, runId))
         .run()
 
+      // List every component that was actually written this run. Foundation
+      // (traffic + summary) always syncs, so it always appears when `only`
+      // is set; the requested channel breakdown is appended.
       const syncedComponents = only
-        ? [only, ...(only !== 'social' && only !== 'ai' && only !== 'traffic' ? [] : [])]
+        ? [
+            ...(syncTraffic ? ['traffic'] : []),
+            ...(syncSummary ? ['summary'] : []),
+            ...(syncAi ? ['ai'] : []),
+            ...(syncSocial ? ['social'] : []),
+          ]
         : undefined
 
       gaLog('info', 'sync.complete', {

@@ -132,7 +132,11 @@ export interface GaSyncResponse {
   socialReferralCount: number
   days: number
   syncedAt: string
-  /** Which data components were synced (present when --only is used) */
+  /**
+   * Components that were written this run. Present when `only` is set.
+   * Always includes `traffic` and `summary` (the share denominator) plus
+   * the requested channel breakdown — `ai` and/or `social`.
+   */
   syncedComponents?: string[]
 }
 
