@@ -92,6 +92,16 @@ export const ga4TrafficSummaryDtoSchema = z.object({
   directSharePct: z.number(),
   /** Social sessions as a percentage of total sessions (0–100, rounded). */
   socialSharePct: z.number(),
+  /** Display string for organicSharePct ('10%' or '<1%' when there are sessions but the rounded pct is 0). */
+  organicSharePctDisplay: z.string(),
+  /** Display string for aiSharePct ('5%' or '<1%' when there are sessions but the rounded pct is 0). */
+  aiSharePctDisplay: z.string(),
+  /** Display string for aiSharePctBySession ('5%' or '<1%' when there are sessions but the rounded pct is 0). */
+  aiSharePctBySessionDisplay: z.string(),
+  /** Display string for directSharePct ('20%' or '<1%' when there are sessions but the rounded pct is 0). */
+  directSharePctDisplay: z.string(),
+  /** Display string for socialSharePct ('15%' or '<1%' when there are sessions but the rounded pct is 0). */
+  socialSharePctDisplay: z.string(),
   lastSyncedAt: z.string().nullable(),
 })
 export type GA4TrafficSummaryDto = z.infer<typeof ga4TrafficSummaryDtoSchema>
@@ -190,6 +200,16 @@ export interface GaTrafficResponse {
   directSharePct: number
   /** Social sessions as a percentage of total sessions (0–100, rounded). */
   socialSharePct: number
+  /** Display string for organicSharePct ('10%' or '<1%' when there are sessions but the rounded pct is 0). */
+  organicSharePctDisplay: string
+  /** Display string for aiSharePct ('5%' or '<1%' when there are sessions but the rounded pct is 0). */
+  aiSharePctDisplay: string
+  /** Display string for aiSharePctBySession ('5%' or '<1%' when there are sessions but the rounded pct is 0). */
+  aiSharePctBySessionDisplay: string
+  /** Display string for directSharePct ('20%' or '<1%' when there are sessions but the rounded pct is 0). */
+  directSharePctDisplay: string
+  /** Display string for socialSharePct ('15%' or '<1%' when there are sessions but the rounded pct is 0). */
+  socialSharePctDisplay: string
   lastSyncedAt: string | null
   /** Start of the synced date range (YYYY-MM-DD), null if no data. */
   periodStart: string | null

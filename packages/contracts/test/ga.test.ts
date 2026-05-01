@@ -35,6 +35,11 @@ describe('GA contracts', () => {
       aiSharePctBySession: 12,
       directSharePct: 20,
       socialSharePct: 0,
+      organicSharePctDisplay: '30%',
+      aiSharePctDisplay: '12%',
+      aiSharePctBySessionDisplay: '12%',
+      directSharePctDisplay: '20%',
+      socialSharePctDisplay: '0%',
       lastSyncedAt: null,
     })
 

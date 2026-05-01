@@ -165,6 +165,11 @@ test('renders four-channel breakdown with Organic, Social, Direct, and Known AI 
         aiSharePctBySession: 10,
         directSharePct: 25,
         socialSharePct: 7,
+        organicSharePctDisplay: '58%',
+        aiSharePctDisplay: '35%',
+        aiSharePctBySessionDisplay: '10%',
+        directSharePctDisplay: '25%',
+        socialSharePctDisplay: '7%',
         lastSyncedAt: '2026-03-31T12:00:00.000Z',
       })
     }

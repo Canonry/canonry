@@ -330,18 +330,18 @@ export function TrafficSection({ projectName }: { projectName: string }) {
     )
   }
 
-  const organicPct = traffic?.organicSharePct ?? 0
+  const organicPctDisplay = traffic?.organicSharePctDisplay ?? '0%'
   const organicSessions = traffic?.totalOrganicSessions ?? 0
   const aiSessions = traffic?.aiSessionsDeduped ?? 0
   const aiSessionsBySession = traffic?.aiSessionsBySession ?? 0
-  const aiSharePctBySession = traffic?.aiSharePctBySession ?? 0
+  const aiSharePctBySessionDisplay = traffic?.aiSharePctBySessionDisplay ?? '0%'
   const aiSourceCount = traffic ? new Set(traffic.aiReferrals.map((referral) => referral.source.toLowerCase())).size : 0
   const topAiSource = sortedAiReferrals[0] ?? null
   const directSessions = traffic?.totalDirectSessions ?? 0
-  const directSharePct = traffic?.directSharePct ?? 0
+  const directSharePctDisplay = traffic?.directSharePctDisplay ?? '0%'
 
   const socialSessions = traffic?.socialSessions ?? 0
-  const socialSharePct = traffic?.socialSharePct ?? 0
+  const socialSharePctDisplay = traffic?.socialSharePctDisplay ?? '0%'
   const socialSourceCount = traffic ? new Set(traffic.socialReferrals.map((r) => r.source.toLowerCase())).size : 0
   const topSocialSource = sortedSocialReferrals[0] ?? null
 
@@ -430,7 +430,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
             <TrafficMetric
               value={formatCompact(traffic.totalOrganicSessions)}
               label="Organic Sessions"
-              subtitle={`${organicPct}% of total`}
+              subtitle={`${organicPctDisplay} of total`}
               tone="positive"
             />
             <TrafficMetric
@@ -565,28 +565,28 @@ export function TrafficSection({ projectName }: { projectName: string }) {
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <AttributionStat
                   label="Organic"
-                  value={`${organicPct}%`}
+                  value={organicPctDisplay}
                   hint={`${organicSessions.toLocaleString()} sessions`}
                   tone="positive"
                   tooltip="Sessions from Google organic search (sessionDefaultChannelGrouping = 'Organic Search')."
                 />
                 <AttributionStat
                   label="Social"
-                  value={`${socialSharePct}%`}
+                  value={socialSharePctDisplay}
                   hint={`${socialSessions.toLocaleString()} sessions`}
                   tone="neutral"
                   tooltip="Sessions from social platforms (sessionDefaultChannelGrouping = 'Organic Social' or 'Paid Social')."
                 />
                 <AttributionStat
                   label="Direct"
-                  value={`${directSharePct}%`}
+                  value={directSharePctDisplay}
                   hint={`${directSessions.toLocaleString()} sessions`}
                   tone="neutral"
                   tooltip="Sessions with no source — bookmarks, typed URLs, untagged email, in-app browsers, and AI-driven traffic whose referrer header was stripped."
                 />
                 <AttributionStat
                   label="Known AI referrers (lower bound)"
-                  value={`${aiSharePctBySession}%`}
+                  value={aiSharePctBySessionDisplay}
                   hint={`${aiSessionsBySession.toLocaleString()} sessions`}
                   tone="positive"
                   tooltip="Sessions whose current sessionSource matched a known AI engine (e.g. chatgpt.com, claude.ai, gemini.google.com). Disjoint from Direct/Organic/Social. This is a strict lower bound: most AI traffic strips the referrer and falls into Direct, so the true AI share is typically higher than what's shown here. The detail table below also surfaces firstUserSource and UTM-tagged AI signals."
@@ -789,7 +789,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                       />
                       <AttributionStat
                         label="Share of Traffic"
-                        value={`${socialSharePct}%`}
+                        value={socialSharePctDisplay}
                         hint="of total sessions"
                         tone="neutral"
                         tooltip="Percentage of your total site sessions that originated from social media platforms."

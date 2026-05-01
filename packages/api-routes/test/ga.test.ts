@@ -517,11 +517,101 @@ describe('GA4 routes', () => {
     expect(body.organicSharePct).toBe(50)
     expect(body.aiSharePct).toBe(5)
     expect(body.socialSharePct).toBe(0)
+    expect(body.organicSharePctDisplay).toBe('50%')
+    expect(body.aiSharePctDisplay).toBe('5%')
+    expect(body.aiSharePctBySessionDisplay).toBe('5%')
+    expect(body.socialSharePctDisplay).toBe('0%')
+    expect(body.directSharePctDisplay).toBe('0%')
     expect(body.lastSyncedAt).toBe(now)
     expect(body.periodStart).toBe('2026-02-19')
     expect(body.periodEnd).toBe('2026-03-20')
 
     credentials.delete('test-project')
+  })
+
+  it('GET /ga/traffic returns "<1%" display when AI sessions are present but rounded pct is 0', async () => {
+    // Seed a fresh project so we don't pollute the shared row counts.
+    const now = new Date().toISOString()
+    const today = now.slice(0, 10)
+    const projRes = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/sub-one-pct',
+      payload: {
+        displayName: 'Sub One Pct',
+        canonicalDomain: 'sub-one.example',
+        country: 'US',
+        language: 'en',
+      },
+    })
+    const subProjectId = JSON.parse(projRes.payload).id
+
+    credentials.set('sub-one-pct', {
+      projectName: 'sub-one-pct',
+      propertyId: '111222',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    // 6,000 total sessions, 18 AI referrals → 0.3%, which Math.round flattens to 0%.
+    const snapshotId = crypto.randomUUID()
+    db.insert(gaTrafficSnapshots).values({
+      id: snapshotId,
+      projectId: subProjectId,
+      date: today,
+      landingPage: '/sub-one-page',
+      sessions: 6000,
+      organicSessions: 600,
+      directSessions: 1000,
+      users: 4500,
+      syncedAt: now,
+    }).run()
+    db.insert(gaTrafficSummaries).values({
+      id: crypto.randomUUID(),
+      projectId: subProjectId,
+      periodStart: today,
+      periodEnd: today,
+      totalSessions: 6000,
+      totalOrganicSessions: 600,
+      totalUsers: 4500,
+      syncedAt: now,
+    }).run()
+    const aiId = crypto.randomUUID()
+    db.insert(gaAiReferrals).values({
+      id: aiId,
+      projectId: subProjectId,
+      date: today,
+      source: 'chatgpt.com',
+      medium: 'referral',
+      landingPage: '/sub-one-page',
+      sessions: 18,
+      users: 13,
+      syncedAt: now,
+    }).run()
+
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/sub-one-pct/ga/traffic',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(body.aiSessionsBySession).toBe(18)
+      // The integer pct still rounds to 0, preserved for back-compat...
+      expect(body.aiSharePctBySession).toBe(0)
+      // ...but the display string surfaces the non-zero share as "<1%".
+      expect(body.aiSharePctBySessionDisplay).toBe('<1%')
+      expect(body.aiSharePctDisplay).toBe('<1%')
+      // Channels with truly zero sessions still render "0%" (no false "<1%").
+      expect(body.socialSharePctDisplay).toBe('0%')
+      // 600 / 6000 = 10%
+      expect(body.organicSharePctDisplay).toBe('10%')
+    } finally {
+      db.delete(gaAiReferrals).where(eq(gaAiReferrals.id, aiId)).run()
+      db.delete(gaTrafficSnapshots).where(eq(gaTrafficSnapshots.id, snapshotId)).run()
+      credentials.delete('sub-one-pct')
+    }
   })
 
   it('GET /ga/traffic respects limit parameter and computes totals across all pages', async () => {

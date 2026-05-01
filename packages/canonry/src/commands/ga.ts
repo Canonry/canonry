@@ -433,6 +433,11 @@ export async function gaAttribution(project: string, opts?: { trend?: boolean; f
         socialSharePct: traffic.socialSharePct,
         organicSharePct: traffic.organicSharePct,
         directSharePct: traffic.directSharePct,
+        organicSharePctDisplay: traffic.organicSharePctDisplay,
+        aiSharePctDisplay: traffic.aiSharePctDisplay,
+        aiSharePctBySessionDisplay: traffic.aiSharePctBySessionDisplay,
+        socialSharePctDisplay: traffic.socialSharePctDisplay,
+        directSharePctDisplay: traffic.directSharePctDisplay,
         aiReferrals: traffic.aiReferrals,
         aiReferralLandingPages: traffic.aiReferralLandingPages,
         socialReferrals: traffic.socialReferrals,
@@ -451,10 +456,10 @@ export async function gaAttribution(project: string, opts?: { trend?: boolean; f
     console.log(`  Total Users:      ${traffic.totalUsers}`)
     console.log()
     console.log('  CHANNEL BREAKDOWN                  7d trend     30d trend')
-    console.log(`    Organic Search: ${String(traffic.totalOrganicSessions).padEnd(6)} (${String(traffic.organicSharePct).padStart(2)}%)    ${fmtTrend(trend.organic.trend7dPct).padEnd(12)} ${fmtTrend(trend.organic.trend30dPct)}`)
-    console.log(`    Social:         ${String(traffic.socialSessions).padEnd(6)} (${String(traffic.socialSharePct).padStart(2)}%)    ${fmtTrend(trend.social.trend7dPct).padEnd(12)} ${fmtTrend(trend.social.trend30dPct)}`)
-    console.log(`    Direct:         ${String(traffic.totalDirectSessions).padEnd(6)} (${String(traffic.directSharePct).padStart(2)}%)    ${fmtTrend(trend.direct.trend7dPct).padEnd(12)} ${fmtTrend(trend.direct.trend30dPct)}`)
-    console.log(`    AI Referrals:   ${String(traffic.aiSessionsBySession).padEnd(6)} (${String(traffic.aiSharePctBySession).padStart(2)}%)    ${fmtTrend(trend.ai.trend7dPct).padEnd(12)} ${fmtTrend(trend.ai.trend30dPct)}  (lower bound — sessionSource only; referrer-stripped traffic falls under Direct)`)
+    console.log(`    Organic Search: ${String(traffic.totalOrganicSessions).padEnd(6)} (${traffic.organicSharePctDisplay.padStart(4)})    ${fmtTrend(trend.organic.trend7dPct).padEnd(12)} ${fmtTrend(trend.organic.trend30dPct)}`)
+    console.log(`    Social:         ${String(traffic.socialSessions).padEnd(6)} (${traffic.socialSharePctDisplay.padStart(4)})    ${fmtTrend(trend.social.trend7dPct).padEnd(12)} ${fmtTrend(trend.social.trend30dPct)}`)
+    console.log(`    Direct:         ${String(traffic.totalDirectSessions).padEnd(6)} (${traffic.directSharePctDisplay.padStart(4)})    ${fmtTrend(trend.direct.trend7dPct).padEnd(12)} ${fmtTrend(trend.direct.trend30dPct)}`)
+    console.log(`    AI Referrals:   ${String(traffic.aiSessionsBySession).padEnd(6)} (${traffic.aiSharePctBySessionDisplay.padStart(4)})    ${fmtTrend(trend.ai.trend7dPct).padEnd(12)} ${fmtTrend(trend.ai.trend30dPct)}  (lower bound — sessionSource only; referrer-stripped traffic falls under Direct)`)
     const otherSessions = traffic.totalSessions - traffic.totalOrganicSessions - traffic.aiSessionsBySession - traffic.socialSessions - traffic.totalDirectSessions
     if (otherSessions > 0) {
       const otherPct = traffic.totalSessions > 0 ? Math.round((otherSessions / traffic.totalSessions) * 100) : 0
@@ -498,6 +503,11 @@ export async function gaAttribution(project: string, opts?: { trend?: boolean; f
       socialSharePct: traffic.socialSharePct,
       organicSharePct: traffic.organicSharePct,
       directSharePct: traffic.directSharePct,
+      organicSharePctDisplay: traffic.organicSharePctDisplay,
+      aiSharePctDisplay: traffic.aiSharePctDisplay,
+      aiSharePctBySessionDisplay: traffic.aiSharePctBySessionDisplay,
+      socialSharePctDisplay: traffic.socialSharePctDisplay,
+      directSharePctDisplay: traffic.directSharePctDisplay,
       aiReferrals: traffic.aiReferrals,
       aiReferralLandingPages: traffic.aiReferralLandingPages,
       socialReferrals: traffic.socialReferrals,
@@ -517,10 +527,10 @@ export async function gaAttribution(project: string, opts?: { trend?: boolean; f
   console.log(`  Total Users:      ${traffic.totalUsers}`)
   console.log()
   console.log('  CHANNEL BREAKDOWN')
-  console.log(`    Organic Search: ${traffic.totalOrganicSessions} sessions (${traffic.organicSharePct}%)`)
-  console.log(`    Social:         ${traffic.socialSessions} sessions (${traffic.socialSharePct}%)`)
-  console.log(`    Direct:         ${traffic.totalDirectSessions} sessions (${traffic.directSharePct}%)`)
-  console.log(`    AI Referrals:   ${traffic.aiSessionsBySession} sessions (${traffic.aiSharePctBySession}%)  (lower bound — sessionSource only; referrer-stripped traffic falls under Direct)`)
+  console.log(`    Organic Search: ${traffic.totalOrganicSessions} sessions (${traffic.organicSharePctDisplay})`)
+  console.log(`    Social:         ${traffic.socialSessions} sessions (${traffic.socialSharePctDisplay})`)
+  console.log(`    Direct:         ${traffic.totalDirectSessions} sessions (${traffic.directSharePctDisplay})`)
+  console.log(`    AI Referrals:   ${traffic.aiSessionsBySession} sessions (${traffic.aiSharePctBySessionDisplay})  (lower bound — sessionSource only; referrer-stripped traffic falls under Direct)`)
   const otherSessions = traffic.totalSessions - traffic.totalOrganicSessions - traffic.aiSessionsBySession - traffic.socialSessions - traffic.totalDirectSessions
   if (otherSessions > 0) {
     const otherPct = traffic.totalSessions > 0 ? Math.round((otherSessions / traffic.totalSessions) * 100) : 0
