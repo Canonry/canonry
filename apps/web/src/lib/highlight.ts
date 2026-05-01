@@ -1,9 +1,25 @@
 import type { ReactNode } from 'react'
 import React from 'react'
+import { brandKeyFromText } from '@ainyc/canonry-contracts'
 
 export interface HighlightTermGroup {
   terms: string[]
   className: string
+}
+
+const SEPARATOR_CHARS = /[\s\-_]+/
+
+/**
+ * Convert a term into a regex source that tolerates separator drift between
+ * the term and the answer text. A stored term `demand-iq` should highlight
+ * "Demand IQ" in prose; "AZ Coatings" should highlight "AZCoatings". Each run
+ * of space/hyphen/underscore in the term becomes `[\s\-_]*` (zero or more
+ * separators) in the regex. Returns `null` if the term reduces to nothing.
+ */
+function termToRegexSource(term: string): string | null {
+  const parts = term.split(SEPARATOR_CHARS).filter(Boolean)
+  if (parts.length === 0) return null
+  return parts.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s\\-_]*')
 }
 
 /**
@@ -34,17 +50,30 @@ export function highlightTermsInText(text: string, terms: string[] | HighlightTe
     ).filter(Boolean) as ReactNode[]
   }
 
-  // Build a single regex from all terms (longest first to avoid partial matches)
+  // Build a single regex from all terms (longest first to avoid partial matches).
+  // Each term becomes a separator-tolerant alternative so a slug like
+  // `demand-iq` still matches the spaced "Demand IQ" form in answer prose.
   const sorted = [...allTerms].sort((a, b) => b.length - a.length)
-  const escaped = sorted.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-  const regex = new RegExp(`(${escaped.join('|')})`, 'gi')
+  const sources = sorted
+    .map(termToRegexSource)
+    .filter((s): s is string => Boolean(s))
+  if (sources.length === 0) {
+    return segments.map((seg, i) =>
+      seg.type === 'bold'
+        ? React.createElement('strong', { key: `b-${i}`, className: 'text-zinc-200 font-semibold' }, seg.value)
+        : seg.value,
+    ).filter(Boolean) as ReactNode[]
+  }
+  const regex = new RegExp(`(${sources.join('|')})`, 'gi')
 
-  // Build a lookup: lowercase term → className (first group wins)
+  // Build a lookup keyed by brand-key (alphanumeric-only lowercase) so a
+  // matched span like "Demand IQ" reverse-maps to a term registered as
+  // `demand-iq` (both produce key `demandiq`).
   const termClassMap = new Map<string, string>()
   for (const group of groups) {
     for (const term of group.terms) {
-      const key = term.toLowerCase()
-      if (!termClassMap.has(key)) {
+      const key = brandKeyFromText(term)
+      if (key && !termClassMap.has(key)) {
         termClassMap.set(key, group.className)
       }
     }
@@ -56,7 +85,7 @@ export function highlightTermsInText(text: string, terms: string[] | HighlightTe
       if (!part) return null
       const isMatch = pi % 2 === 1
       if (isMatch) {
-        const cls = termClassMap.get(part.toLowerCase()) ?? 'answer-highlight'
+        const cls = termClassMap.get(brandKeyFromText(part)) ?? 'answer-highlight'
         return seg.type === 'bold'
           ? React.createElement('mark', { key: `hl-${si}-${pi}`, className: cls },
               React.createElement('strong', { className: 'text-zinc-200 font-semibold' }, part))

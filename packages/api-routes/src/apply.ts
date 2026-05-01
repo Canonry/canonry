@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { projects, keywords, competitors, schedules, notifications, parseJsonColumn } from '@ainyc/canonry-db'
-import { projectConfigSchema, validationError } from '@ainyc/canonry-contracts'
+import { normalizeProjectDomain, projectConfigSchema, registrableDomain, validationError } from '@ainyc/canonry-contracts'
 import { writeAuditLog } from './helpers.js'
 import { resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
 import { resolveWebhookTarget } from './webhooks.js'
@@ -173,7 +173,8 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       })
 
       tx.delete(competitors).where(eq(competitors.projectId, projectId)).run()
-      for (const domain of config.spec.competitors) {
+      const normalizedCompetitors = normalizeCompetitorList(config.spec.competitors)
+      for (const domain of normalizedCompetitors) {
         tx.insert(competitors).values({
           id: crypto.randomUUID(),
           projectId,
@@ -187,7 +188,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         actor: 'api',
         action: 'competitors.replaced',
         entityType: 'competitor',
-        diff: { competitors: config.spec.competitors },
+        diff: { competitors: normalizedCompetitors },
       })
 
       // Handle schedule
@@ -282,4 +283,21 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       updatedAt: project.updatedAt,
     })
   })
+}
+
+// Reduce competitor domains to their registrable form (eTLD+1) and dedupe.
+// Mirrors the helper in `competitors.ts` so both the YAML apply path and the
+// REST endpoints store competitors uniformly without subdomain noise.
+function normalizeCompetitorList(domains: readonly string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const raw of domains) {
+    const trimmed = raw?.trim()
+    if (!trimmed) continue
+    const normalized = registrableDomain(trimmed) || normalizeProjectDomain(trimmed)
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    result.push(normalized)
+  }
+  return result
 }

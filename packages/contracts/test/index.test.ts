@@ -25,6 +25,8 @@ import {
   notificationEventSchema,
   effectiveDomains,
   normalizeProjectDomain,
+  registrableDomain,
+  brandLabelFromDomain,
   locationContextSchema,
 } from '../src/index.js'
 
@@ -47,6 +49,60 @@ test('projectDtoSchema applies defaults for tags, labels, configSource, configRe
 test('normalizeProjectDomain strips scheme and www prefix', () => {
   expect(normalizeProjectDomain('https://www.Docs.Example.com/path')).toBe('docs.example.com')
   expect(normalizeProjectDomain('WWW.example.com')).toBe('example.com')
+})
+
+describe('registrableDomain', () => {
+  it('returns the eTLD+1 for a subdomained host', () => {
+    expect(registrableDomain('offers.roofle.com')).toBe('roofle.com')
+    expect(registrableDomain('app.example.io')).toBe('example.io')
+    expect(registrableDomain('blog.news.example.org')).toBe('example.org')
+  })
+
+  it('returns the input unchanged when there is no subdomain', () => {
+    expect(registrableDomain('roofle.com')).toBe('roofle.com')
+    expect(registrableDomain('example.ai')).toBe('example.ai')
+  })
+
+  it('strips scheme, port, path, and www prefix before parsing', () => {
+    expect(registrableDomain('https://www.offers.Roofle.com/foo?x=1')).toBe('roofle.com')
+    expect(registrableDomain('http://api.example.com:8080/v1')).toBe('example.com')
+  })
+
+  it('keeps the third label for known multi-label public suffixes', () => {
+    expect(registrableDomain('bbc.co.uk')).toBe('bbc.co.uk')
+    expect(registrableDomain('news.bbc.co.uk')).toBe('bbc.co.uk')
+    expect(registrableDomain('shop.example.com.au')).toBe('example.com.au')
+    expect(registrableDomain('foo.bar.example.co.jp')).toBe('example.co.jp')
+  })
+
+  it('returns empty string for empty or single-label input', () => {
+    expect(registrableDomain('')).toBe('')
+    expect(registrableDomain('localhost')).toBe('')
+    expect(registrableDomain('   ')).toBe('')
+  })
+
+  it('is idempotent', () => {
+    expect(registrableDomain(registrableDomain('offers.roofle.com'))).toBe('roofle.com')
+    expect(registrableDomain(registrableDomain('news.bbc.co.uk'))).toBe('bbc.co.uk')
+  })
+})
+
+describe('brandLabelFromDomain', () => {
+  it('returns the leftmost label of the registrable domain', () => {
+    expect(brandLabelFromDomain('offers.roofle.com')).toBe('roofle')
+    expect(brandLabelFromDomain('roofle.com')).toBe('roofle')
+    expect(brandLabelFromDomain('app.acme.io')).toBe('acme')
+  })
+
+  it('handles multi-label public suffixes', () => {
+    expect(brandLabelFromDomain('news.bbc.co.uk')).toBe('bbc')
+    expect(brandLabelFromDomain('bbc.co.uk')).toBe('bbc')
+  })
+
+  it('returns empty string when there is no registrable domain', () => {
+    expect(brandLabelFromDomain('')).toBe('')
+    expect(brandLabelFromDomain('localhost')).toBe('')
+  })
 })
 
 test('effectiveDomains deduplicates canonical and owned domain variants', () => {
@@ -695,6 +751,28 @@ describe('extractAnswerMentions', () => {
       'Microsoft Corporation',
       ['microsoft.com'],
     ).mentioned).toBe(true)
+  })
+
+  it('does not match the leftmost subdomain label as a brand token', () => {
+    // Regression: a project with own domain `offers.example.com` must not
+    // word-boundary match the literal word "offers" in the answer prose. Only
+    // the registrable domain's brand label (`example`) is a valid token.
+    const result = extractAnswerMentions(
+      'Energy Design Systems offers a white-label lead generation tool.',
+      'Demand IQ',
+      ['offers.example.com'],
+    )
+    expect(result.mentioned).toBe(false)
+    expect(result.matchedTerms).toEqual([])
+  })
+
+  it('still matches the registrable brand of a subdomained own domain', () => {
+    const result = extractAnswerMentions(
+      'Brokers turn to Roofle when they need quick install quotes.',
+      'Roofle',
+      ['offers.roofle.com'],
+    )
+    expect(result.mentioned).toBe(true)
   })
 
   it('does not strip a classifier when only the classifier itself remains', () => {

@@ -145,12 +145,12 @@ describe('operator CLI contract', () => {
     })
     expect((await client.listKeywords('test-proj')).map(row => row.keyword).sort()).toEqual(['ai citations', 'answer visibility'])
 
-    await client.appendCompetitors('test-proj', ['rival.example.com', 'other.example.com'])
+    await client.appendCompetitors('test-proj', ['rival.com', 'other-rival.com'])
     const removeResult = await invokeCli([
       'competitor',
       'remove',
       'test-proj',
-      'rival.example.com',
+      'rival.com',
       '--format',
       'json',
     ])
@@ -159,8 +159,8 @@ describe('operator CLI contract', () => {
     expect(removeResult.stderr).toBe('')
     expect(JSON.parse(removeResult.stdout)).toMatchObject({
       project: 'test-proj',
-      domains: ['other.example.com'],
-      removedDomains: ['rival.example.com'],
+      domains: ['other-rival.com'],
+      removedDomains: ['rival.com'],
       removedCount: 1,
     })
   })

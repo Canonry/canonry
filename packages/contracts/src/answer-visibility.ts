@@ -1,4 +1,4 @@
-import { normalizeProjectDomain } from './project.js'
+import { brandLabelFromDomain, normalizeProjectDomain, registrableDomain } from './project.js'
 import type { VisibilityState } from './run.js'
 
 const GENERIC_TOKENS = new Set([
@@ -152,11 +152,17 @@ function collectDistinctiveTokens(displayName: string, domains: string[]): strin
   }
 
   for (const domain of domains) {
-    const hostname = normalizeProjectDomain(domain).split('/')[0] ?? ''
-    for (const label of hostname.split('.').filter(Boolean)) {
-      const token = label.replace(/[^a-z0-9]/gi, '').toLowerCase()
-      if (isDistinctiveToken(token)) tokens.add(token)
-    }
+    // Use only the registrable domain's brand label as a token — never the
+    // subdomain. Otherwise an owned domain like `app.example.com` would
+    // contribute `app` as a word-boundary token and false-match every "app"
+    // in the answer text. Falls back to the hostname's leftmost label when
+    // the input has no recognizable TLD (e.g. `localhost`).
+    const reg = registrableDomain(domain)
+    const brand = reg
+      ? brandLabelFromDomain(reg)
+      : (normalizeProjectDomain(domain).split('/')[0]?.split('.')[0] ?? '')
+    const token = brand.replace(/[^a-z0-9]/gi, '').toLowerCase()
+    if (isDistinctiveToken(token)) tokens.add(token)
   }
 
   return [...tokens]

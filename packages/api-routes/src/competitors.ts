@@ -2,8 +2,33 @@ import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { competitors } from '@ainyc/canonry-db'
-import { competitorBatchRequestSchema, validationError } from '@ainyc/canonry-contracts'
+import { competitorBatchRequestSchema, normalizeProjectDomain, registrableDomain, validationError } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
+
+// Reduce a competitor domain to its registrable form (eTLD+1) so that
+// arbitrary subdomain labels like `offers` in `offers.roofle.com` cannot
+// leak into brand-token matching against answer text. Falls back to the
+// normalized hostname when the input has no recognizable TLD (e.g. invalid
+// domains or single-label hostnames) — let downstream matching handle those.
+function normalizeCompetitor(domain: string): string {
+  const reg = registrableDomain(domain)
+  if (reg) return reg
+  return normalizeProjectDomain(domain)
+}
+
+function normalizeCompetitorList(domains: readonly string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const raw of domains) {
+    const trimmed = raw?.trim()
+    if (!trimmed) continue
+    const normalized = normalizeCompetitor(trimmed)
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    result.push(normalized)
+  }
+  return result
+}
 
 export async function competitorRoutes(app: FastifyInstance) {
   // GET /projects/:name/competitors
@@ -26,12 +51,13 @@ export async function competitorRoutes(app: FastifyInstance) {
     }
 
     const now = new Date().toISOString()
+    const normalizedCompetitors = normalizeCompetitorList(body.competitors)
 
     // Atomic replace: delete + insert in a single transaction
     app.db.transaction((tx) => {
       tx.delete(competitors).where(eq(competitors.projectId, project.id)).run()
 
-      for (const domain of body.competitors) {
+      for (const domain of normalizedCompetitors) {
         tx.insert(competitors).values({
           id: crypto.randomUUID(),
           projectId: project.id,
@@ -45,7 +71,7 @@ export async function competitorRoutes(app: FastifyInstance) {
         actor: 'api',
         action: 'competitors.replaced',
         entityType: 'competitor',
-        diff: { competitors: body.competitors },
+        diff: { competitors: normalizedCompetitors },
       })
     })
 
@@ -62,7 +88,7 @@ export async function competitorRoutes(app: FastifyInstance) {
     const body = parseCompetitorBatch(request.body)
 
     const now = new Date().toISOString()
-    const requested = uniqueStrings(body.competitors)
+    const requested = normalizeCompetitorList(body.competitors)
 
     app.db.transaction((tx) => {
       const existing = tx
@@ -107,7 +133,10 @@ export async function competitorRoutes(app: FastifyInstance) {
     const project = resolveProject(app.db, request.params.name)
     const body = parseCompetitorBatch(request.body)
 
-    const requested = new Set(uniqueStrings(body.competitors))
+    // Normalize delete targets so callers can pass either the original or the
+    // subdomain form (e.g. `offers.roofle.com`) and still hit the stored
+    // registrable form (`roofle.com`).
+    const requested = new Set(normalizeCompetitorList(body.competitors))
 
     app.db.transaction((tx) => {
       const existing = tx
@@ -146,15 +175,4 @@ function parseCompetitorBatch(value: unknown) {
       message: issue.message,
     })),
   })
-}
-
-function uniqueStrings(values: readonly string[]): string[] {
-  const seen = new Set<string>()
-  const result: string[] = []
-  for (const value of values) {
-    if (seen.has(value)) continue
-    seen.add(value)
-    result.push(value)
-  }
-  return result
 }

@@ -229,21 +229,80 @@ describe('api-routes', () => {
     const first = await app.inject({
       method: 'POST',
       url: '/api/v1/projects/competitor-append/competitors',
-      payload: { competitors: ['rival.example.com', 'rival.example.com'] },
+      payload: { competitors: ['rival.com', 'rival.com'] },
     })
     expect(first.statusCode).toBe(200)
-    expect(JSON.parse(first.payload).map((row: { domain: string }) => row.domain)).toEqual(['rival.example.com'])
+    expect(JSON.parse(first.payload).map((row: { domain: string }) => row.domain)).toEqual(['rival.com'])
 
     const second = await app.inject({
       method: 'POST',
       url: '/api/v1/projects/competitor-append/competitors',
-      payload: { competitors: ['rival.example.com', 'other.example.com'] },
+      payload: { competitors: ['rival.com', 'other-rival.com'] },
     })
     expect(second.statusCode).toBe(200)
     expect(JSON.parse(second.payload).map((row: { domain: string }) => row.domain).sort()).toEqual([
-      'other.example.com',
-      'rival.example.com',
+      'other-rival.com',
+      'rival.com',
     ])
+  })
+
+  it('POST /api/v1/projects/:name/competitors strips subdomains and dedupes', async () => {
+    await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/competitor-normalize',
+      payload: {
+        displayName: 'Competitor Normalize',
+        canonicalDomain: 'normalize.example.com',
+        country: 'US',
+        language: 'en',
+      },
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/competitor-normalize/competitors',
+      payload: {
+        competitors: [
+          'offers.roofle.com',
+          'https://www.Roofle.com/pricing',
+          'app.acme.io',
+        ],
+      },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.payload).map((row: { domain: string }) => row.domain).sort()).toEqual([
+      'acme.io',
+      'roofle.com',
+    ])
+  })
+
+  it('DELETE /api/v1/projects/:name/competitors normalizes the request before matching', async () => {
+    await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/competitor-delete-normalized',
+      payload: {
+        displayName: 'Competitor Delete Normalized',
+        canonicalDomain: 'delete-normalized.example.com',
+        country: 'US',
+        language: 'en',
+      },
+    })
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/competitor-delete-normalized/competitors',
+      payload: { competitors: ['offers.roofle.com'] },
+    })
+
+    // Caller passes the original subdomain form; server normalizes and finds
+    // the stored `roofle.com` row.
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/api/v1/projects/competitor-delete-normalized/competitors',
+      payload: { competitors: ['offers.roofle.com'] },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.payload)).toEqual([])
   })
 
   it('DELETE /api/v1/projects/:name/competitors removes specific competitors', async () => {
@@ -260,17 +319,17 @@ describe('api-routes', () => {
     await app.inject({
       method: 'POST',
       url: '/api/v1/projects/competitor-delete/competitors',
-      payload: { competitors: ['rival.example.com', 'other.example.com'] },
+      payload: { competitors: ['rival.com', 'other-rival.com'] },
     })
 
     const res = await app.inject({
       method: 'DELETE',
       url: '/api/v1/projects/competitor-delete/competitors',
-      payload: { competitors: ['rival.example.com', 'missing.example.com'] },
+      payload: { competitors: ['rival.com', 'missing-rival.com'] },
     })
 
     expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.payload).map((row: { domain: string }) => row.domain)).toEqual(['other.example.com'])
+    expect(JSON.parse(res.payload).map((row: { domain: string }) => row.domain)).toEqual(['other-rival.com'])
   })
 
   it('POST /api/v1/projects/:name/runs triggers a run', async () => {

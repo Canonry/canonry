@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
-import { brandKeyFromText, effectiveDomains, normalizeProjectDomain } from '@ainyc/canonry-contracts'
+import { brandKeyFromText, brandLabelFromDomain, effectiveDomains, normalizeProjectDomain } from '@ainyc/canonry-contracts'
 
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { highlightTermsInText, type HighlightTermGroup } from '../../lib/highlight.js'
@@ -146,11 +146,14 @@ export function EvidenceDetailModal({
     ...display.matchedTerms,
   ].filter(t => t.trim().length > 2)
 
-  // Build competitor highlight terms from overlap domains + recommended competitor names
+  // Build competitor highlight terms from overlap domains + recommended competitor names.
+  // Source the brand from the registrable domain — taking the leftmost label of
+  // a stored subdomain (e.g. `offers.roofle.com` → `offers`) would highlight
+  // arbitrary words like "offers" in the prose. Use `roofle` instead.
   const competitorHighlightTerms = [
     ...display.competitorDomains.flatMap(d => {
-      const brand = d.split('.')[0]
-      return brand && brand.length >= 4 ? [brand] : []
+      const brand = brandLabelFromDomain(d)
+      return brand.length >= 4 ? [brand] : []
     }),
     ...display.recommendedCompetitors,
   ].filter(t => t.trim().length > 2)

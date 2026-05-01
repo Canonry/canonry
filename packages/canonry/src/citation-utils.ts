@@ -1,5 +1,5 @@
 import type { NormalizedQueryResult } from '@ainyc/canonry-contracts'
-import { brandKeyFromText, normalizeProjectDomain } from '@ainyc/canonry-contracts'
+import { brandKeyFromText, brandLabelFromDomain, normalizeProjectDomain, registrableDomain } from '@ainyc/canonry-contracts'
 
 function domainMatches(domain: string, canonicalDomain: string): boolean {
   const normalized = normalizeProjectDomain(canonicalDomain)
@@ -69,14 +69,22 @@ export function computeCompetitorOverlap(
       if (lowerAnswer.includes(cd.toLowerCase())) {
         overlapSet.add(cd)
       }
-      const brand = cd.split('.')[0]
-      if (brand && brand.length >= 4 && new RegExp(`\\b${brand}\\b`, 'i').test(lowerAnswer)) {
+      // Use the registrable domain's brand label (eTLD+1's leftmost label) so
+      // a stored competitor like `offers.roofle.com` is matched against the
+      // brand `roofle`, not the subdomain `offers` — otherwise the literal
+      // word "offers" in the answer prose would falsely flag the competitor.
+      const brand = brandLabelFromDomain(cd)
+      if (brand.length >= 4 && new RegExp(`\\b${escapeRegExp(brand)}\\b`, 'i').test(lowerAnswer)) {
         overlapSet.add(cd)
       }
     }
   }
 
   return [...overlapSet]
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 /**
@@ -169,18 +177,21 @@ function cleanCandidateName(candidate: string): string {
 }
 
 function collectBrandKeysFromDomain(domain: string): string[] {
-  const hostname = normalizeProjectDomain(domain).split('/')[0] ?? ''
-  const labels = hostname.split('.').filter(Boolean)
-  const keys = new Set<string>()
-
-  const hostnameKey = hostname.replace(/[^a-z0-9]/gi, '').toLowerCase()
-  if (hostnameKey.length >= 4) keys.add(hostnameKey)
-
-  for (const label of labels) {
-    const key = label.replace(/[^a-z0-9]/gi, '').toLowerCase()
-    if (key.length >= 4) keys.add(key)
+  // Source brand keys from the registrable domain only — never from
+  // subdomain labels — so a competitor `offers.roofle.com` does not contribute
+  // `offers` as a brand key (which would let the answer-text word "offers"
+  // false-match in extractRecommendedCompetitors).
+  const reg = registrableDomain(domain)
+  if (!reg) {
+    const hostname = normalizeProjectDomain(domain).split('/')[0] ?? ''
+    const fallback = hostname.replace(/[^a-z0-9]/gi, '').toLowerCase()
+    return fallback.length >= 4 ? [fallback] : []
   }
-
+  const keys = new Set<string>()
+  const fullKey = reg.replace(/[^a-z0-9]/gi, '').toLowerCase()
+  if (fullKey.length >= 4) keys.add(fullKey)
+  const brand = brandLabelFromDomain(reg).replace(/[^a-z0-9]/gi, '').toLowerCase()
+  if (brand.length >= 4) keys.add(brand)
   return [...keys]
 }
 
