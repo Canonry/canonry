@@ -27,6 +27,7 @@ interface Args {
   tokenEnv: string
   useGcloud: boolean
   narrowBots: boolean
+  urlContains: string[]
   fixture?: string
   out?: string
   json: boolean
@@ -56,6 +57,7 @@ function usage(): string {
     '  --token-env <name>           Env var containing token. Default: GOOGLE_CLOUD_ACCESS_TOKEN',
     '  --use-gcloud                 Resolve token via `gcloud auth print-access-token`',
     '  --narrow-bots                Add UA filters for known AI crawlers. Misses human AI referrals.',
+    '  --url-contains <value>       Add request URL substring filter. Repeatable.',
     '  --out <path>                 Write JSON report to a file',
     '  --json                       Print full JSON report to stdout',
     '  --help                       Show this help',
@@ -70,6 +72,7 @@ function parseArgs(argv: string[]): Args {
     tokenEnv: 'GOOGLE_CLOUD_ACCESS_TOKEN',
     useGcloud: false,
     narrowBots: false,
+    urlContains: [],
     json: false,
     help: false,
   }
@@ -116,6 +119,9 @@ function parseArgs(argv: string[]): Args {
         break
       case '--narrow-bots':
         args.narrowBots = true
+        break
+      case '--url-contains':
+        args.urlContains.push(next())
         break
       case '--fixture':
         args.fixture = next()
@@ -241,6 +247,7 @@ async function pullFromCloudLogging(args: Args, startTime: string, endTime: stri
     pageSize: args.pageSize,
     maxPages: args.maxPages,
     userAgentSubstrings: args.narrowBots ? DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS : undefined,
+    requestUrlSubstrings: args.urlContains.length > 0 ? args.urlContains : undefined,
   })
 }
 
@@ -308,6 +315,7 @@ async function main(): Promise<void> {
       pageSize: args.pageSize,
       maxPages: args.maxPages,
       narrowBots: args.narrowBots,
+      urlContains: args.urlContains,
       rawEntryCount: pull.rawEntryCount,
       normalizedEventCount: events.length,
       skippedEntryCount: pull.skippedEntryCount,

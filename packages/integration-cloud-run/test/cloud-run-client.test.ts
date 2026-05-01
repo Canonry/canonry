@@ -25,10 +25,12 @@ describe('buildCloudRunLogFilter', () => {
     const filter = buildCloudRunLogFilter({
       serviceName: 'web"quoted',
       userAgentSubstrings: ['GPTBot/', 'ClaudeBot/'],
+      requestUrlSubstrings: ['ainyc.ai'],
     })
 
     expect(filter).toContain('resource.labels.service_name="web\\"quoted"')
     expect(filter).toContain('(httpRequest.userAgent:"GPTBot/" OR httpRequest.userAgent:"ClaudeBot/")')
+    expect(filter).toContain('(httpRequest.requestUrl:"ainyc.ai")')
   })
 })
 

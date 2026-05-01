@@ -50,5 +50,16 @@ export function buildCloudRunLogFilter(options: CloudRunLogFilterOptions = {}): 
     clauses.push(`(${uaClauses.join(' OR ')})`)
   }
 
+  const requestUrlSubstrings = (options.requestUrlSubstrings ?? [])
+    .map((pattern) => pattern.trim())
+    .filter(Boolean)
+
+  if (requestUrlSubstrings.length > 0) {
+    const urlClauses = requestUrlSubstrings.map((pattern) => (
+      `httpRequest.requestUrl:${quoteLogFilterValue(pattern)}`
+    ))
+    clauses.push(`(${urlClauses.join(' OR ')})`)
+  }
+
   return clauses.join(' AND ')
 }

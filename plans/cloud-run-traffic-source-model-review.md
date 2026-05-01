@@ -126,6 +126,7 @@ pnpm tsx scripts/test-cloud-run-traffic-pull.ts \
   --service <cloud-run-service> \
   --location <region> \
   --since 6h \
+  --url-contains ainyc.ai \
   --use-gcloud \
   --out .tmp/cloud-run-traffic-report.json
 ```

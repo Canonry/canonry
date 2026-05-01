@@ -6,6 +6,7 @@ export interface CloudRunLogFilterOptions {
   startTime?: string | Date
   endTime?: string | Date
   userAgentSubstrings?: string[]
+  requestUrlSubstrings?: string[]
 }
 
 export interface CloudRunHttpRequest {
