@@ -1028,15 +1028,15 @@ export interface ApiGaTraffic {
   socialSharePct: number
   /** Direct sessions as a percentage of total sessions (0–100, rounded). */
   directSharePct: number
-  /** Display string for organicSharePct ('10%' or '<1%' when there are sessions but the rounded pct is 0). */
+  /** Display string for organicSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   organicSharePctDisplay: string
-  /** Display string for aiSharePct ('5%' or '<1%' when there are sessions but the rounded pct is 0). */
+  /** Display string for aiSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   aiSharePctDisplay: string
-  /** Display string for aiSharePctBySession ('5%' or '<1%' when there are sessions but the rounded pct is 0). */
+  /** Display string for aiSharePctBySession: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   aiSharePctBySessionDisplay: string
-  /** Display string for socialSharePct ('15%' or '<1%' when there are sessions but the rounded pct is 0). */
+  /** Display string for socialSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   socialSharePctDisplay: string
-  /** Display string for directSharePct ('20%' or '<1%' when there are sessions but the rounded pct is 0). */
+  /** Display string for directSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   directSharePctDisplay: string
   lastSyncedAt: string | null
   /** Start of the synced date range (YYYY-MM-DD), null if no data. */
