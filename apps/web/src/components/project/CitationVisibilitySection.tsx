@@ -1,26 +1,23 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Minus } from 'lucide-react'
 import type { CitationCoverageProvider, CitationVisibilityResponse } from '@ainyc/canonry-contracts'
 import { fetchCitationVisibility } from '../../api.js'
+import { STATIC_VISIBILITY_STALE_MS } from '../../queries/query-client.js'
+import { queryKeys } from '../../queries/query-keys.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { ProviderBadge } from '../shared/ProviderBadge.js'
 
 export function CitationVisibilitySection({ projectName }: { projectName: string }) {
-  const [data, setData] = useState<CitationVisibilityResponse | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const visibilityQuery = useQuery({
+    queryKey: queryKeys.citationVisibility(projectName),
+    queryFn: () => fetchCitationVisibility(projectName),
+    staleTime: STATIC_VISIBILITY_STALE_MS,
+  })
+  const data = visibilityQuery.data ?? null
+  const error = visibilityQuery.error
 
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    fetchCitationVisibility(projectName)
-      .then(res => { if (!cancelled) setData(res) })
-      .catch(err => { if (!cancelled) setError(err instanceof Error ? err.message : String(err)) })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [projectName])
-
-  if (loading && !data) return null
+  if (visibilityQuery.isLoading && !data) return null
   if (error) {
     return (
       <section className="page-section-divider">
@@ -30,7 +27,7 @@ export function CitationVisibilitySection({ projectName }: { projectName: string
             <h2>Citation + answer-mention coverage</h2>
           </div>
         </div>
-        <p className="text-sm text-rose-400">{error}</p>
+        <p className="text-sm text-rose-400">{error instanceof Error ? error.message : String(error)}</p>
       </section>
     )
   }

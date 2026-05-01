@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, Download, Trash2 } from 'lucide-react'
 import { useParams, useNavigate } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
+import { useQueryClient } from '@tanstack/react-query'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
@@ -58,6 +59,8 @@ import {
   type ApiGscCoverageSummary,
 } from '../api.js'
 import { useTriggerRun } from '../queries/mutations.js'
+import { GSC_STALE_MS } from '../queries/query-client.js'
+import { queryKeys } from '../queries/query-keys.js'
 import { useDashboard } from '../queries/use-dashboard.js'
 import { useDrawer } from '../hooks/use-drawer.js'
 import { findProjectVm } from '../mock-data.js'
@@ -74,6 +77,7 @@ function BingSection({
   projectName: string
   refreshNonce: number
 }) {
+  const queryClient = useQueryClient()
   const [connection, setConnection] = useState<ApiBingConnection | null>(null)
   const [sites, setSites] = useState<ApiBingSite[]>([])
   const [coverage, setCoverage] = useState<ApiBingCoverageSummary | null>(null)
@@ -96,15 +100,37 @@ function BingSection({
     setLoading(true)
     setError(null)
     try {
-      const status = await fetchBingStatus(projectName)
+      const status = await queryClient.fetchQuery({
+        queryKey: queryKeys.bing.status(projectName),
+        queryFn: () => fetchBingStatus(projectName),
+        staleTime: GSC_STALE_MS,
+      })
       setConnection(status)
 
       if (status.connected) {
         const [coverageData, inspectionData, perfData, siteData] = await Promise.all([
-          fetchBingCoverage(projectName).catch(() => null),
-          fetchBingInspections(projectName).catch(() => []),
-          fetchBingPerformance(projectName).catch(() => []),
-          !status.siteUrl ? fetchBingSites(projectName).then((result) => result.sites).catch(() => []) : Promise.resolve([]),
+          queryClient.fetchQuery({
+            queryKey: queryKeys.bing.coverage(projectName),
+            queryFn: () => fetchBingCoverage(projectName).catch(() => null),
+            staleTime: GSC_STALE_MS,
+          }),
+          queryClient.fetchQuery({
+            queryKey: queryKeys.bing.inspections(projectName),
+            queryFn: () => fetchBingInspections(projectName).catch(() => []),
+            staleTime: GSC_STALE_MS,
+          }),
+          queryClient.fetchQuery({
+            queryKey: queryKeys.bing.performance(projectName),
+            queryFn: () => fetchBingPerformance(projectName).catch(() => []),
+            staleTime: GSC_STALE_MS,
+          }),
+          !status.siteUrl
+            ? queryClient.fetchQuery({
+                queryKey: queryKeys.bing.sites(projectName),
+                queryFn: () => fetchBingSites(projectName).then((result) => result.sites).catch(() => []),
+                staleTime: GSC_STALE_MS,
+              })
+            : Promise.resolve([]),
         ])
         setCoverage(coverageData)
         setInspections(inspectionData)
@@ -128,6 +154,7 @@ function BingSection({
     setError(null)
     try {
       const result = await apiBingConnect(projectName, apiKeyInput.trim())
+      await queryClient.invalidateQueries({ queryKey: queryKeys.bing.project(projectName) })
       setApiKeyInput('')
       if (result.availableSites.length > 0) {
         setSites(result.availableSites)
@@ -141,6 +168,7 @@ function BingSection({
   async function handleDisconnect() {
     try {
       await apiBingDisconnect(projectName)
+      await queryClient.invalidateQueries({ queryKey: queryKeys.bing.project(projectName) })
       setConnection(null)
       setSites([])
       setCoverage(null)
@@ -158,6 +186,7 @@ function BingSection({
     if (!selectedSite) return
     try {
       await apiBingSetSite(projectName, selectedSite)
+      await queryClient.invalidateQueries({ queryKey: queryKeys.bing.project(projectName) })
       await loadData()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to set site')
@@ -168,6 +197,7 @@ function BingSection({
     if (!inspectionUrl.trim()) return
     try {
       const result = await inspectBingUrl(projectName, inspectionUrl.trim())
+      await queryClient.invalidateQueries({ queryKey: queryKeys.bing.project(projectName) })
       setInspectionResult(result)
       setInspections((prev) => [result, ...prev])
     } catch (e) {
@@ -646,6 +676,7 @@ function SearchConsoleSection({
 }: {
   projectName: string
 }) {
+  const queryClient = useQueryClient()
   const [workspace, setWorkspace] = useState<SearchConsoleWorkspace>('google')
   const [loading, setLoading] = useState(true)
   const [refreshState, setRefreshState] = useState<'idle' | 'syncing' | 'reloading'>('idle')
@@ -666,8 +697,16 @@ function SearchConsoleSection({
     try {
       const [settings, connections, bingStatus] = await Promise.all([
         fetchSettings().catch(() => null),
-        fetchGoogleConnections(projectName).catch(() => [] as ApiGoogleConnection[]),
-        fetchBingStatus(projectName).catch(() => null),
+        queryClient.fetchQuery({
+          queryKey: queryKeys.gsc.connections(projectName),
+          queryFn: () => fetchGoogleConnections(projectName).catch(() => [] as ApiGoogleConnection[]),
+          staleTime: GSC_STALE_MS,
+        }),
+        queryClient.fetchQuery({
+          queryKey: queryKeys.bing.status(projectName),
+          queryFn: () => fetchBingStatus(projectName).catch(() => null),
+          staleTime: GSC_STALE_MS,
+        }),
       ])
 
       const gscConnection = connections.find((connection) => connection.connectionType === 'gsc') ?? null
@@ -677,8 +716,20 @@ function SearchConsoleSection({
       setBingConnection(bingStatus)
 
       const [googleCoverageData, bingCoverageData] = await Promise.all([
-        gscConnection ? fetchGscCoverage(projectName).catch(() => null) : Promise.resolve(null),
-        bingStatus?.connected ? fetchBingCoverage(projectName).catch(() => null) : Promise.resolve(null),
+        gscConnection
+          ? queryClient.fetchQuery({
+              queryKey: queryKeys.gsc.coverage(projectName),
+              queryFn: () => fetchGscCoverage(projectName).catch(() => null),
+              staleTime: GSC_STALE_MS,
+            })
+          : Promise.resolve(null),
+        bingStatus?.connected
+          ? queryClient.fetchQuery({
+              queryKey: queryKeys.bing.coverage(projectName),
+              queryFn: () => fetchBingCoverage(projectName).catch(() => null),
+              staleTime: GSC_STALE_MS,
+            })
+          : Promise.resolve(null),
       ])
 
       setGoogleCoverage(googleCoverageData)
@@ -758,6 +809,10 @@ function SearchConsoleSection({
 
       // Reload both coverage summaries from fresh DB values
       setRefreshState('reloading')
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.gsc.project(projectName) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.bing.project(projectName) }),
+      ])
       await loadSummary(true)
       setWorkspaceRefreshNonce((current) => current + 1)
 

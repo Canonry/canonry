@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
+import { useQueryClient } from '@tanstack/react-query'
 import type { MetricsWindow } from '@ainyc/canonry-contracts'
 
 import { Button } from '../ui/button.js'
@@ -36,6 +37,8 @@ import {
   useTriggerGscSync,
   useTriggerInspectSitemap,
 } from '../../queries/mutations.js'
+import { GSC_STALE_MS } from '../../queries/query-client.js'
+import { queryKeys } from '../../queries/query-keys.js'
 
 const GSC_WINDOWS: MetricsWindow[] = ['7d', '30d', '90d', 'all']
 
@@ -44,6 +47,7 @@ export function GscSection({
 }: {
   projectName: string
 }) {
+  const queryClient = useQueryClient()
   const [googleConfigured, setGoogleConfigured] = useState(false)
   const [connections, setConnections] = useState<ApiGoogleConnection[]>([])
   const [properties, setProperties] = useState<ApiGoogleProperty[]>([])
@@ -111,7 +115,11 @@ export function GscSection({
 
     setPropertiesLoading(true)
     try {
-      const { sites } = await fetchGoogleProperties(projectName)
+      const { sites } = await queryClient.fetchQuery({
+        queryKey: queryKeys.gsc.properties(projectName),
+        queryFn: () => fetchGoogleProperties(projectName),
+        staleTime: GSC_STALE_MS,
+      })
       setProperties(sites)
       setSelectedProperty(currentConn.propertyId ?? sites[0]?.siteUrl ?? '')
     } catch (err) {
@@ -125,13 +133,25 @@ export function GscSection({
   async function loadPerformanceRows() {
     setLoadingPerformance(true)
     try {
-      const rows = await fetchGscPerformance(projectName, {
-        startDate: performanceFilters.startDate || undefined,
-        endDate: performanceFilters.endDate || undefined,
-        query: performanceFilters.query || undefined,
-        page: performanceFilters.page || undefined,
-        limit: parseInt(performanceFilters.limit, 10) || 20,
+      const filters = {
+        startDate: performanceFilters.startDate,
+        endDate: performanceFilters.endDate,
+        query: performanceFilters.query,
+        page: performanceFilters.page,
+        limit: performanceFilters.limit,
         window: gscWindow,
+      }
+      const rows = await queryClient.fetchQuery({
+        queryKey: queryKeys.gsc.performance(projectName, filters),
+        queryFn: () => fetchGscPerformance(projectName, {
+          startDate: performanceFilters.startDate || undefined,
+          endDate: performanceFilters.endDate || undefined,
+          query: performanceFilters.query || undefined,
+          page: performanceFilters.page || undefined,
+          limit: parseInt(performanceFilters.limit, 10) || 20,
+          window: gscWindow,
+        }),
+        staleTime: GSC_STALE_MS,
       })
       setPerformance(rows)
     } catch (err) {
@@ -145,12 +165,21 @@ export function GscSection({
   async function loadInspectionHistory() {
     setLoadingInspections(true)
     try {
+      const filterUrl = inspectionFilterUrl.trim() || undefined
       const [history, deindexedRows] = await Promise.all([
-        fetchGscInspections(projectName, {
-          url: inspectionFilterUrl.trim() || undefined,
-          limit: 20,
+        queryClient.fetchQuery({
+          queryKey: queryKeys.gsc.inspections(projectName, filterUrl),
+          queryFn: () => fetchGscInspections(projectName, {
+            url: filterUrl,
+            limit: 20,
+          }),
+          staleTime: GSC_STALE_MS,
         }),
-        fetchGscDeindexed(projectName),
+        queryClient.fetchQuery({
+          queryKey: queryKeys.gsc.deindexed(projectName),
+          queryFn: () => fetchGscDeindexed(projectName),
+          staleTime: GSC_STALE_MS,
+        }),
       ])
       setInspections(history)
       setDeindexed(deindexedRows)
@@ -167,8 +196,16 @@ export function GscSection({
     setLoadingCoverage(true)
     try {
       const [data, history] = await Promise.all([
-        fetchGscCoverage(projectName),
-        fetchGscCoverageHistory(projectName).catch(() => []),
+        queryClient.fetchQuery({
+          queryKey: queryKeys.gsc.coverage(projectName),
+          queryFn: () => fetchGscCoverage(projectName),
+          staleTime: GSC_STALE_MS,
+        }),
+        queryClient.fetchQuery({
+          queryKey: queryKeys.gsc.coverageHistory(projectName),
+          queryFn: () => fetchGscCoverageHistory(projectName).catch(() => []),
+          staleTime: GSC_STALE_MS,
+        }),
       ])
       setCoverage(data)
       setCoverageHistory(history)
@@ -231,6 +268,7 @@ export function GscSection({
     setError(null)
     try {
       await saveSitemapUrl(projectName, 'gsc', sitemapUrlInput.trim())
+      await queryClient.invalidateQueries({ queryKey: queryKeys.gsc.project(projectName) })
       setConnections((prev) => prev.map((c) => (
         c.connectionType === 'gsc' ? { ...c, sitemapUrl: sitemapUrlInput.trim() } : c
       )))
@@ -270,6 +308,7 @@ export function GscSection({
     setError(null)
     try {
       const result = await fetchGscSitemaps(projectName)
+      queryClient.setQueryData(queryKeys.gsc.sitemaps(projectName), result)
       setDiscoveredSitemaps(result.sitemaps)
       if (result.sitemaps.length === 0) {
         setNotice('No sitemaps found in this GSC property. Submit a sitemap in Google Search Console first.')
@@ -287,7 +326,11 @@ export function GscSection({
     try {
       const [settings, conns] = await Promise.all([
         fetchSettings().catch(() => null),
-        fetchGoogleConnections(projectName).catch(() => [] as ApiGoogleConnection[]),
+        queryClient.fetchQuery({
+          queryKey: queryKeys.gsc.connections(projectName),
+          queryFn: () => fetchGoogleConnections(projectName).catch(() => [] as ApiGoogleConnection[]),
+          staleTime: GSC_STALE_MS,
+        }),
       ])
       setGoogleConfigured(Boolean(settings?.google?.configured))
       setConnections(conns)
@@ -337,6 +380,7 @@ export function GscSection({
         if (popup.closed) {
           window.clearInterval(timer)
           setNotice(null)
+          void queryClient.invalidateQueries({ queryKey: queryKeys.gsc.project(projectName) })
           void loadSection()
         }
       }, 1000)
@@ -352,6 +396,7 @@ export function GscSection({
     setNotice(null)
     try {
       await googleDisconnect(projectName, 'gsc')
+      await queryClient.invalidateQueries({ queryKey: queryKeys.gsc.project(projectName) })
       setConnections((prev) => prev.filter((c) => c.connectionType !== 'gsc'))
       setProperties([])
       setSelectedProperty('')
@@ -366,6 +411,7 @@ export function GscSection({
     setError(null)
     try {
       await saveGoogleProperty(projectName, 'gsc', selectedProperty)
+      await queryClient.invalidateQueries({ queryKey: queryKeys.gsc.project(projectName) })
       setConnections((prev) => prev.map((connection) => (
         connection.connectionType === 'gsc'
           ? { ...connection, propertyId: selectedProperty }
@@ -397,6 +443,7 @@ export function GscSection({
           full: fullSync || undefined,
         },
       })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.gsc.project(projectName) })
     } catch {
       // Mutation hook handles the toast-only failure path for queued syncs.
     }
@@ -409,6 +456,7 @@ export function GscSection({
     setNotice(null)
     try {
       const result = await inspectGscUrl(projectName, inspectionUrl.trim())
+      await queryClient.invalidateQueries({ queryKey: queryKeys.gsc.project(projectName) })
       setInspectionResult(result)
       setInspectionUrl('')
       await loadInspectionHistory()
