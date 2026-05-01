@@ -80,8 +80,8 @@
     @apply text-[14px];
   }
 
-  .brand-subtitle {
-    @apply text-[10px] uppercase tracking-[0.2em] text-zinc-500;
+  .brand-version {
+    @apply mt-0.5 font-mono text-[11px] tracking-tight text-zinc-500;
   }
 
   .sidebar-nav {
@@ -129,11 +129,11 @@
   }
 
   .sidebar-footer {
-    @apply border-t border-zinc-800/60 px-3 py-3;
+    @apply flex items-center gap-1 border-t border-zinc-800/60 px-4 py-3;
   }
 
-  .sidebar-footer-link {
-    @apply block rounded-lg px-2.5 py-1.5 text-[12px] text-zinc-600 transition hover:text-zinc-400;
+  .sidebar-footer-icon {
+    @apply inline-flex size-7 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-800/40 hover:text-zinc-200;
   }
 
   .main-area {
@@ -1023,15 +1023,19 @@
   }
 
   .footer-brand {
-    @apply flex items-center gap-1.5 text-zinc-600 transition hover:text-zinc-300;
+    @apply flex items-center gap-2 text-zinc-500;
+  }
+
+  .footer-version {
+    @apply font-mono text-[11px] tracking-tight text-zinc-600;
   }
 
   .footer-links {
-    @apply flex flex-wrap gap-4;
+    @apply flex flex-wrap items-center gap-1;
   }
 
-  .footer-links a {
-    @apply text-zinc-600 transition hover:text-zinc-300;
+  .footer-icon {
+    @apply inline-flex size-7 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-800/40 hover:text-zinc-200;
   }
 
   /* ── Drawer ── */

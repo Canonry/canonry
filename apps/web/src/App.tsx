@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import { useQuery } from '@tanstack/react-query'
 
 import {
+  BookOpen,
   ChevronRight,
+  FileText,
   Github,
   Globe,
   LayoutDashboard,
@@ -12,6 +14,7 @@ import {
   Rocket,
   Settings,
   X,
+  type LucideIcon,
 } from 'lucide-react'
 
 import { RunKinds, formatRunErrorOneLine, type RunKind } from '@ainyc/canonry-contracts'
@@ -52,9 +55,10 @@ import type {
 
 import { Outlet, Link, useLocation } from '@tanstack/react-router'
 
-const docs = [
-  { label: 'Architecture', href: 'https://github.com/AINYC/canonry/blob/main/docs/architecture.md' },
-  { label: 'Testing Guide', href: 'https://github.com/AINYC/canonry/blob/main/docs/testing.md' },
+const resources: { label: string; href: string; Icon: LucideIcon }[] = [
+  { label: 'GitHub', href: 'https://github.com/AINYC/canonry', Icon: Github },
+  { label: 'Docs', href: 'https://github.com/AINYC/canonry/tree/main/docs', Icon: BookOpen },
+  { label: 'Changelog', href: 'https://github.com/AINYC/canonry/releases', Icon: FileText },
 ]
 
 const checkingStatus = (label: string): ServiceStatus => ({
@@ -323,7 +327,7 @@ export function RootLayout() {
       {/* ── Sidebar (desktop) ── */}
       <aside className="sidebar" aria-label="Primary navigation">
         <div className="sidebar-brand">
-          <BrandLockup />
+          <BrandLockup version={healthSnapshot.apiStatus.version} />
         </div>
 
         <nav className="sidebar-nav">
@@ -419,9 +423,17 @@ export function RootLayout() {
         </nav>
 
         <div className="sidebar-footer">
-          {docs.map((doc) => (
-            <a key={doc.href} className="sidebar-footer-link" href={doc.href} target="_blank" rel="noopener noreferrer">
-              {doc.label}
+          {resources.map(({ label, href, Icon }) => (
+            <a
+              key={href}
+              className="sidebar-footer-icon"
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={label}
+              aria-label={label}
+            >
+              <Icon className="size-4" />
             </a>
           ))}
         </div>
@@ -551,14 +563,24 @@ export function RootLayout() {
         </main>
 
         <footer className="footer">
-          <a href="https://github.com/AINYC/canonry" target="_blank" rel="noopener noreferrer" className="footer-brand">
-            <Github className="size-3.5" />
+          <span className="footer-brand">
             <span>Canonry</span>
-          </a>
+            {healthSnapshot.apiStatus.version && healthSnapshot.apiStatus.version !== 'unknown' ? (
+              <span className="footer-version">v{healthSnapshot.apiStatus.version}</span>
+            ) : null}
+          </span>
           <div className="footer-links">
-            {docs.map((doc) => (
-              <a key={doc.href} href={doc.href} target="_blank" rel="noopener noreferrer">
-                {doc.label}
+            {resources.map(({ label, href, Icon }) => (
+              <a
+                key={href}
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={label}
+                aria-label={label}
+                className="footer-icon"
+              >
+                <Icon className="size-3.5" />
               </a>
             ))}
           </div>

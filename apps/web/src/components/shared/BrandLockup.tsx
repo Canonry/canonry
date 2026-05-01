@@ -1,6 +1,12 @@
 import { Link } from '@tanstack/react-router'
 
-export function BrandLockup({ compact = false }: { compact?: boolean }) {
+interface BrandLockupProps {
+  compact?: boolean
+  version?: string
+}
+
+export function BrandLockup({ compact = false, version }: BrandLockupProps) {
+  const showVersion = !compact && version && version !== 'unknown'
   return (
     <Link
       to="/"
@@ -10,7 +16,7 @@ export function BrandLockup({ compact = false }: { compact?: boolean }) {
       <img className="brand-icon" src="./favicon.svg" alt="" aria-hidden="true" />
       <span className="brand-copy">
         <span className="brand-mark">Canonry</span>
-        {compact ? null : <span className="brand-subtitle">AEO Operating System</span>}
+        {showVersion ? <span className="brand-version">v{version}</span> : null}
       </span>
     </Link>
   )
