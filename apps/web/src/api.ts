@@ -1200,19 +1200,26 @@ export function pruneCachedRelease(release: string): Promise<{ ok: boolean }> {
   })
 }
 
-export function fetchBacklinkSummary(projectName: string, release?: string): Promise<BacklinkSummaryDto | null> {
-  const qs = release ? `?release=${encodeURIComponent(release)}` : ''
-  return apiFetch(`/projects/${encodeURIComponent(projectName)}/backlinks/summary${qs}`)
+export function fetchBacklinkSummary(
+  projectName: string,
+  opts: { release?: string; excludeCrawlers?: boolean } = {},
+): Promise<BacklinkSummaryDto | null> {
+  const params = new URLSearchParams()
+  if (opts.release) params.set('release', opts.release)
+  if (opts.excludeCrawlers) params.set('excludeCrawlers', '1')
+  const qs = params.toString()
+  return apiFetch(`/projects/${encodeURIComponent(projectName)}/backlinks/summary${qs ? `?${qs}` : ''}`)
 }
 
 export function fetchBacklinkDomains(
   projectName: string,
-  opts: { limit?: number; offset?: number; release?: string } = {},
+  opts: { limit?: number; offset?: number; release?: string; excludeCrawlers?: boolean } = {},
 ): Promise<BacklinkListResponse> {
   const params = new URLSearchParams()
   if (opts.limit !== undefined) params.set('limit', String(opts.limit))
   if (opts.offset !== undefined) params.set('offset', String(opts.offset))
   if (opts.release) params.set('release', opts.release)
+  if (opts.excludeCrawlers) params.set('excludeCrawlers', '1')
   const qs = params.toString()
   return apiFetch(`/projects/${encodeURIComponent(projectName)}/backlinks/domains${qs ? `?${qs}` : ''}`)
 }

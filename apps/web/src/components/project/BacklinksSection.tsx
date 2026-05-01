@@ -147,12 +147,15 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
     try {
       const [sync, sum, rows, hist, runs] = await Promise.all([
         fetchLatestReleaseSync().catch(() => null),
-        fetchBacklinkSummary(projectName).catch(() => null),
-        fetchBacklinkDomains(projectName, { limit: PAGE_SIZE, offset })
-          .catch((err: unknown) => {
-            if (err instanceof ApiError && err.code === 'NOT_FOUND') return null
-            throw err
-          }),
+        fetchBacklinkSummary(projectName, { excludeCrawlers: true }).catch(() => null),
+        fetchBacklinkDomains(projectName, {
+          limit: PAGE_SIZE,
+          offset,
+          excludeCrawlers: true,
+        }).catch((err: unknown) => {
+          if (err instanceof ApiError && err.code === 'NOT_FOUND') return null
+          throw err
+        }),
         fetchBacklinkHistory(projectName).catch(() => [] as BacklinkHistoryEntry[]),
         fetchProjectRuns(projectName).catch(() => [] as ApiRun[]),
       ])
@@ -241,9 +244,16 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
       }))
   }, [history])
 
-  const canPage = list && list.total > PAGE_SIZE
+  const pageRows = list?.rows ?? []
+  const visibleTotal = list?.total ?? 0
+  const hiddenCount = summary?.excludedLinkingDomains ?? 0
+  const canPage = visibleTotal > PAGE_SIZE
   const page = Math.floor(offset / PAGE_SIZE) + 1
-  const totalPages = list ? Math.max(1, Math.ceil(list.total / PAGE_SIZE)) : 1
+  const totalPages = Math.max(1, Math.ceil(visibleTotal / PAGE_SIZE))
+
+  useEffect(() => {
+    if (offset > 0 && offset >= visibleTotal) setOffset(0)
+  }, [offset, visibleTotal])
 
   return (
     <section className="page-section-divider">
@@ -484,6 +494,9 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
 
         <p className="text-xs text-zinc-600 mt-2">
           Release <code className="text-zinc-400">{summary.release}</code> · queried {relativeTime(summary.queriedAt)}
+          {hiddenCount > 0 && (
+            <> · <span className="text-zinc-500">{hiddenCount} crawler/proxy domain{hiddenCount === 1 ? '' : 's'} hidden</span></>
+          )}
         </p>
 
         {chartData.length >= 2 && (
@@ -525,7 +538,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
             <p className="eyebrow eyebrow-soft">Top referring domains</p>
             {canPage && (
               <p className="text-xs text-zinc-600">
-                Page {page} of {totalPages} · {formatNumber(list!.total)} total
+                Page {page} of {totalPages} · {formatNumber(visibleTotal)} total
               </p>
             )}
           </div>
@@ -538,14 +551,18 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                 </tr>
               </thead>
               <tbody>
-                {(list?.rows ?? []).map((row: BacklinkDomainDto) => (
+                {pageRows.map((row: BacklinkDomainDto) => (
                   <tr key={row.linkingDomain} className="border-b border-zinc-900 last:border-0">
                     <td className="px-4 py-2 text-zinc-200">{row.linkingDomain}</td>
                     <td className="px-4 py-2 text-right text-zinc-400 tabular-nums">{formatNumber(row.numHosts)}</td>
                   </tr>
                 ))}
-                {list?.rows.length === 0 && (
-                  <tr><td className="px-4 py-4 text-sm text-zinc-500" colSpan={2}>No referring domains in this release.</td></tr>
+                {pageRows.length === 0 && (
+                  <tr><td className="px-4 py-4 text-sm text-zinc-500" colSpan={2}>
+                    {hiddenCount > 0 && visibleTotal === 0
+                      ? `Every referring domain in this release was a crawler/proxy host (${hiddenCount} hidden).`
+                      : 'No referring domains in this release.'}
+                  </td></tr>
                 )}
               </tbody>
             </table>
@@ -565,7 +582,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={offset + PAGE_SIZE >= (list?.total ?? 0)}
+                disabled={offset + PAGE_SIZE >= visibleTotal}
                 onClick={() => setOffset((v) => v + PAGE_SIZE)}
               >
                 Next

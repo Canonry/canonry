@@ -1044,16 +1044,26 @@ export class ApiClient {
     return this.request<RunDto>('POST', `/projects/${encodeURIComponent(project)}/backlinks/extract`, release ? { release } : {})
   }
 
-  async backlinksSummary(project: string, release?: string): Promise<BacklinkSummaryDto | null> {
-    const qs = release ? `?release=${encodeURIComponent(release)}` : ''
-    return this.request<BacklinkSummaryDto | null>('GET', `/projects/${encodeURIComponent(project)}/backlinks/summary${qs}`)
+  async backlinksSummary(
+    project: string,
+    opts: { release?: string; excludeCrawlers?: boolean } = {},
+  ): Promise<BacklinkSummaryDto | null> {
+    const qs = new URLSearchParams()
+    if (opts.release) qs.set('release', opts.release)
+    if (opts.excludeCrawlers) qs.set('excludeCrawlers', '1')
+    const suffix = qs.toString() ? `?${qs.toString()}` : ''
+    return this.request<BacklinkSummaryDto | null>('GET', `/projects/${encodeURIComponent(project)}/backlinks/summary${suffix}`)
   }
 
-  async backlinksDomains(project: string, opts: { limit?: number; offset?: number; release?: string } = {}): Promise<BacklinkListResponse> {
+  async backlinksDomains(
+    project: string,
+    opts: { limit?: number; offset?: number; release?: string; excludeCrawlers?: boolean } = {},
+  ): Promise<BacklinkListResponse> {
     const qs = new URLSearchParams()
     if (opts.limit !== undefined) qs.set('limit', String(opts.limit))
     if (opts.offset !== undefined) qs.set('offset', String(opts.offset))
     if (opts.release) qs.set('release', opts.release)
+    if (opts.excludeCrawlers) qs.set('excludeCrawlers', '1')
     const suffix = qs.toString() ? `?${qs.toString()}` : ''
     return this.request<BacklinkListResponse>('GET', `/projects/${encodeURIComponent(project)}/backlinks/domains${suffix}`)
   }

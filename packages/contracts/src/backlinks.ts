@@ -41,6 +41,11 @@ export const backlinkSummaryDtoSchema = z.object({
   totalHosts: z.number().int(),
   top10HostsShare: z.string(),
   queriedAt: z.string(),
+  // Populated when the response is filtered (e.g. ?excludeCrawlers=1).
+  // Counts the rows omitted from totalLinkingDomains/totalHosts so callers
+  // can show "N hidden" hints without re-deriving them.
+  excludedLinkingDomains: z.number().int().optional(),
+  excludedHosts: z.number().int().optional(),
 })
 export type BacklinkSummaryDto = z.infer<typeof backlinkSummaryDtoSchema>
 

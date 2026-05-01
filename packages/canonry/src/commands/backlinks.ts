@@ -63,6 +63,9 @@ export function formatSummaryAndDomains(
   lines.push(`Linking domains: ${s.totalLinkingDomains}`)
   lines.push(`Total hosts:     ${s.totalHosts}`)
   lines.push(`Top-10 share:    ${s.top10HostsShare}`)
+  if (s.excludedLinkingDomains !== undefined && s.excludedLinkingDomains > 0) {
+    lines.push(`Excluded:        ${s.excludedLinkingDomains} crawler/proxy domains (${s.excludedHosts ?? 0} hosts)`)
+  }
   if (response.rows.length > 0) {
     lines.push('')
     lines.push(`Top ${response.rows.length} linking domains (of ${response.total}):`)
@@ -207,11 +210,13 @@ export async function backlinksList(opts: FormatOptions & {
   project: string
   limit?: number
   release?: string
+  excludeCrawlers?: boolean
 }): Promise<void> {
   const client = getClient()
   const response = await client.backlinksDomains(opts.project, {
     limit: opts.limit ?? 50,
     release: opts.release,
+    excludeCrawlers: opts.excludeCrawlers,
   })
   if (opts.format === 'json') {
     printJson(response)

@@ -29,6 +29,7 @@ import {
 } from '@ainyc/canonry-contracts'
 import { isValidReleaseId } from '@ainyc/canonry-integration-commoncrawl'
 import { resolveProject } from './helpers.js'
+import { backlinkCrawlerExclusionClause } from './backlinks-filter.js'
 
 export interface BacklinksRoutesOptions {
   /**
@@ -132,6 +133,72 @@ function latestSummaryForProject(
     .orderBy(desc(backlinkSummaries.queriedAt))
     .limit(1)
     .get()
+}
+
+function parseExcludeCrawlers(value: string | undefined): boolean {
+  if (!value) return false
+  const lower = value.toLowerCase()
+  return lower === '1' || lower === 'true' || lower === 'yes'
+}
+
+// Recomputes a project+release summary over the rows that survive the crawler
+// filter. Queries the domains table directly (rather than subtracting from the
+// stored summary) so excluded counts stay consistent if the stored summary
+// drifts from the underlying rows.
+function computeFilteredSummary(
+  db: DatabaseClient,
+  base: typeof backlinkSummaries.$inferSelect,
+): BacklinkSummaryDto {
+  const baseDomainCondition = and(
+    eq(backlinkDomains.projectId, base.projectId),
+    eq(backlinkDomains.release, base.release),
+  )
+  const filteredCondition = and(baseDomainCondition, backlinkCrawlerExclusionClause())
+
+  const unfilteredAgg = db
+    .select({
+      count: sql<number>`count(*)`,
+      total: sql<number>`coalesce(sum(${backlinkDomains.numHosts}), 0)`,
+    })
+    .from(backlinkDomains)
+    .where(baseDomainCondition)
+    .get()
+
+  const filteredAgg = db
+    .select({
+      count: sql<number>`count(*)`,
+      total: sql<number>`coalesce(sum(${backlinkDomains.numHosts}), 0)`,
+    })
+    .from(backlinkDomains)
+    .where(filteredCondition)
+    .get()
+
+  const top10Rows = db
+    .select({ numHosts: backlinkDomains.numHosts })
+    .from(backlinkDomains)
+    .where(filteredCondition)
+    .orderBy(desc(backlinkDomains.numHosts))
+    .limit(10)
+    .all()
+
+  const totalLinkingDomains = Number(filteredAgg?.count ?? 0)
+  const totalHosts = Number(filteredAgg?.total ?? 0)
+  const unfilteredLinkingDomains = Number(unfilteredAgg?.count ?? 0)
+  const unfilteredHosts = Number(unfilteredAgg?.total ?? 0)
+  const top10Sum = top10Rows.reduce((sum, r) => sum + r.numHosts, 0)
+  const top10Share = totalHosts > 0 ? top10Sum / totalHosts : 0
+
+  return {
+    projectId: base.projectId,
+    release: base.release,
+    targetDomain: base.targetDomain,
+    totalLinkingDomains,
+    totalHosts,
+    top10HostsShare: top10Share.toFixed(6),
+    queriedAt: base.queriedAt,
+    excludedLinkingDomains: Math.max(0, unfilteredLinkingDomains - totalLinkingDomains),
+    excludedHosts: Math.max(0, unfilteredHosts - totalHosts),
+  }
 }
 
 export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoutesOptions) {
@@ -306,18 +373,23 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
     return reply.status(201).send(mapRunRow(run!))
   })
 
-  app.get<{ Params: { name: string }; Querystring: { release?: string } }>(
+  app.get<{
+    Params: { name: string }
+    Querystring: { release?: string; excludeCrawlers?: string }
+  }>(
     '/projects/:name/backlinks/summary',
     async (request, reply) => {
       const project = resolveProject(app.db, request.params.name)
       const row = latestSummaryForProject(app.db, project.id, request.query.release)
-      return reply.send(row ? mapSummaryRow(row) : null)
+      if (!row) return reply.send(null)
+      const excludeCrawlers = parseExcludeCrawlers(request.query.excludeCrawlers)
+      return reply.send(excludeCrawlers ? computeFilteredSummary(app.db, row) : mapSummaryRow(row))
     },
   )
 
   app.get<{
     Params: { name: string }
-    Querystring: { limit?: string; offset?: string; release?: string }
+    Querystring: { limit?: string; offset?: string; release?: string; excludeCrawlers?: string }
   }>('/projects/:name/backlinks/domains', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
@@ -331,11 +403,15 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
 
     const limit = Math.min(Math.max(parseInt(request.query.limit ?? '50', 10) || 50, 1), 500)
     const offset = Math.max(parseInt(request.query.offset ?? '0', 10) || 0, 0)
+    const excludeCrawlers = parseExcludeCrawlers(request.query.excludeCrawlers)
 
-    const domainCondition = and(
+    const baseDomainCondition = and(
       eq(backlinkDomains.projectId, project.id),
       eq(backlinkDomains.release, targetRelease),
     )
+    const domainCondition = excludeCrawlers
+      ? and(baseDomainCondition, backlinkCrawlerExclusionClause())
+      : baseDomainCondition
 
     const totalRow = app.db
       .select({ count: sql<number>`count(*)` })
@@ -355,8 +431,13 @@ export async function backlinksRoutes(app: FastifyInstance, opts: BacklinksRoute
       .offset(offset)
       .all()
 
+    let summary: BacklinkSummaryDto | null = null
+    if (summaryRow) {
+      summary = excludeCrawlers ? computeFilteredSummary(app.db, summaryRow) : mapSummaryRow(summaryRow)
+    }
+
     const response: BacklinkListResponse = {
-      summary: summaryRow ? mapSummaryRow(summaryRow) : null,
+      summary,
       total: Number(totalRow?.count ?? 0),
       rows,
     }

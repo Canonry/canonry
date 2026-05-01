@@ -61,14 +61,15 @@ export const BACKLINKS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['backlinks', 'list'],
-    usage: 'canonry backlinks list <project> [--limit <n>] [--release <id>] [--format json]',
+    usage: 'canonry backlinks list <project> [--limit <n>] [--release <id>] [--exclude-crawlers] [--format json]',
     options: {
       limit: stringOption(),
       release: stringOption(),
+      'exclude-crawlers': { type: 'boolean' },
     },
     run: async (input) => {
       const project = requireProject(input, 'backlinks list',
-        'canonry backlinks list <project> [--limit <n>] [--release <id>]')
+        'canonry backlinks list <project> [--limit <n>] [--release <id>] [--exclude-crawlers]')
       const limit = parseIntegerOption(input, 'limit', {
         message: '--limit must be an integer',
         usage: 'canonry backlinks list <project> --limit <n>',
@@ -78,6 +79,7 @@ export const BACKLINKS_CLI_COMMANDS: readonly CliCommandSpec[] = [
         project,
         limit,
         release: getString(input.values, 'release'),
+        excludeCrawlers: getBoolean(input.values, 'exclude-crawlers'),
         format: input.format,
       })
     },

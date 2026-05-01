@@ -503,6 +503,72 @@ describe('Backlinks routes', () => {
       expect(body.totalLinkingDomains).toBe(5)
       expect(body.targetDomain).toBe('roots.io')
     })
+
+    it('?excludeCrawlers=1 recomputes totals and exposes excluded counts', async () => {
+      insertProject(db, 'p1', 'roots', 'roots.io')
+      const now = new Date().toISOString()
+      db.insert(ccReleaseSyncs).values({
+        id: 'sync-1', release: 'cc-main-2026-jan-feb-mar', status: 'ready',
+        createdAt: now, updatedAt: now,
+      }).run()
+      db.insert(backlinkSummaries).values({
+        id: crypto.randomUUID(), projectId: 'p1',
+        releaseSyncId: 'sync-1', release: 'cc-main-2026-jan-feb-mar',
+        targetDomain: 'roots.io',
+        // Stored summary covers ALL rows (3 editorial + 2 crawler/proxy = 5)
+        totalLinkingDomains: 5, totalHosts: 41_360, top10HostsShare: '0.999900',
+        queriedAt: now, createdAt: now,
+      }).run()
+      const rows: Array<[string, number]> = [
+        ['google.com', 41_000],
+        ['translate.google.com', 200],
+        ['news-publication.example', 100],
+        ['industry-blog.example', 50],
+        ['developer-mag.example', 10],
+      ]
+      for (const [domain, hosts] of rows) {
+        db.insert(backlinkDomains).values({
+          id: crypto.randomUUID(), projectId: 'p1',
+          releaseSyncId: 'sync-1', release: 'cc-main-2026-jan-feb-mar',
+          targetDomain: 'roots.io', linkingDomain: domain, numHosts: hosts,
+          createdAt: now,
+        }).run()
+      }
+
+      const res = await app.inject({ method: 'GET', url: '/projects/roots/backlinks/summary?excludeCrawlers=1' })
+      const body = res.json() as {
+        totalLinkingDomains: number
+        totalHosts: number
+        top10HostsShare: string
+        excludedLinkingDomains: number
+        excludedHosts: number
+      }
+      expect(body.totalLinkingDomains).toBe(3)
+      expect(body.totalHosts).toBe(160)
+      expect(body.excludedLinkingDomains).toBe(2)
+      expect(body.excludedHosts).toBe(41_200)
+      expect(Number(body.top10HostsShare)).toBeCloseTo(1, 6)
+    })
+
+    it('without excludeCrawlers returns the stored summary unchanged', async () => {
+      insertProject(db, 'p1', 'roots', 'roots.io')
+      const now = new Date().toISOString()
+      db.insert(ccReleaseSyncs).values({
+        id: 'sync-1', release: 'cc-main-2026-jan-feb-mar', status: 'ready',
+        createdAt: now, updatedAt: now,
+      }).run()
+      db.insert(backlinkSummaries).values({
+        id: crypto.randomUUID(), projectId: 'p1',
+        releaseSyncId: 'sync-1', release: 'cc-main-2026-jan-feb-mar',
+        targetDomain: 'roots.io',
+        totalLinkingDomains: 5, totalHosts: 41_360, top10HostsShare: '0.999900',
+        queriedAt: now, createdAt: now,
+      }).run()
+      const res = await app.inject({ method: 'GET', url: '/projects/roots/backlinks/summary' })
+      const body = res.json() as { totalLinkingDomains: number; excludedLinkingDomains?: number }
+      expect(body.totalLinkingDomains).toBe(5)
+      expect(body.excludedLinkingDomains).toBeUndefined()
+    })
   })
 
   describe('GET /projects/:name/backlinks/domains', () => {
@@ -537,6 +603,62 @@ describe('Backlinks routes', () => {
       expect(body.rows[0]!.linkingDomain).toBe('b.com')
       expect(body.rows[0]!.numHosts).toBe(30)
       expect(body.rows[1]!.linkingDomain).toBe('c.com')
+    })
+
+    it('?excludeCrawlers=1 filters apex + subdomain rows and recomputes totals', async () => {
+      insertProject(db, 'p1', 'roots', 'roots.io')
+      const now = new Date().toISOString()
+      db.insert(ccReleaseSyncs).values({
+        id: 'sync-1', release: 'cc-main-2026-jan-feb-mar', status: 'ready',
+        createdAt: now, updatedAt: now,
+      }).run()
+      db.insert(backlinkSummaries).values({
+        id: crypto.randomUUID(), projectId: 'p1',
+        releaseSyncId: 'sync-1', release: 'cc-main-2026-jan-feb-mar',
+        targetDomain: 'roots.io',
+        totalLinkingDomains: 5, totalHosts: 41_360, top10HostsShare: '0.999900',
+        queriedAt: now, createdAt: now,
+      }).run()
+      const rows: Array<[string, number]> = [
+        ['google.com', 41_000],
+        ['scholar.google.com', 200],
+        ['notgoogle.com', 80],
+        ['news-publication.example', 100],
+        ['industry-blog.example', 50],
+      ]
+      for (const [domain, hosts] of rows) {
+        db.insert(backlinkDomains).values({
+          id: crypto.randomUUID(), projectId: 'p1',
+          releaseSyncId: 'sync-1', release: 'cc-main-2026-jan-feb-mar',
+          targetDomain: 'roots.io', linkingDomain: domain, numHosts: hosts,
+          createdAt: now,
+        }).run()
+      }
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/projects/roots/backlinks/domains?limit=10&excludeCrawlers=1',
+      })
+      const body = res.json() as {
+        total: number
+        summary: {
+          totalLinkingDomains: number
+          totalHosts: number
+          excludedLinkingDomains: number
+          excludedHosts: number
+        }
+        rows: Array<{ linkingDomain: string; numHosts: number }>
+      }
+      expect(body.total).toBe(3)
+      expect(body.rows.map((r) => r.linkingDomain)).toEqual([
+        'news-publication.example',
+        'notgoogle.com',
+        'industry-blog.example',
+      ])
+      expect(body.summary.totalLinkingDomains).toBe(3)
+      expect(body.summary.totalHosts).toBe(230)
+      expect(body.summary.excludedLinkingDomains).toBe(2)
+      expect(body.summary.excludedHosts).toBe(41_200)
     })
   })
 
