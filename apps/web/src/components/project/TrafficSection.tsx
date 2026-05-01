@@ -35,10 +35,21 @@ import {
 import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficAiLandingPage, ApiGaTrafficPage, ApiGaTrafficReferral, ApiGaSocialReferral, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry } from '../../api.js'
 import { TRAFFIC_STALE_MS } from '../../queries/query-client.js'
 import { queryKeys } from '../../queries/query-keys.js'
+import {
+  SOCIAL_OTHER_KEY,
+  SOCIAL_TOTAL_KEY,
+  aggregateSocialChartData,
+  decodeSocialSourceLabel,
+  truncateLabel,
+} from '../../lib/social-chart-helpers.js'
 
 const TRAFFIC_WINDOWS: MetricsWindow[] = ['7d', '30d', '90d', 'all']
 
 const SOURCE_COLORS = CHART_SERIES_COLORS
+
+const SOCIAL_OTHER_COLOR = '#71717a'
+const SOCIAL_TOTAL_COLOR = '#52525b'
+const SOCIAL_TABLE_DEFAULT_LIMIT = 25
 
 type PageSortKey = 'landingPage' | 'sessions' | 'organicSessions' | 'users'
 type ReferralSortKey = 'source' | 'medium' | 'sessions' | 'users'
@@ -83,6 +94,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
   const [aiHistory, setAiHistory] = useState<GA4AiReferralHistoryEntry[]>([])
   const [sessionHistory, setSessionHistory] = useState<GA4SessionHistoryEntry[]>([])
   const [socialHistory, setSocialHistory] = useState<GA4SocialReferralHistoryEntry[]>([])
+  const [socialTableExpanded, setSocialTableExpanded] = useState(false)
   const [trafficWindow, setTrafficWindow] = useState<MetricsWindow>('30d')
 
   async function loadData(cancelled: { current: boolean }) {
@@ -266,25 +278,13 @@ export function TrafficSection({ projectName }: { projectName: string }) {
     })
   }, [traffic?.socialReferrals, socialSortKey, socialSortDir])
 
-  const { socialChartData, socialChartSources } = useMemo(() => {
-    const sources = [...new Set(socialHistory.map((r) => r.source))]
-    const byDate = new Map<string, Record<string, number>>()
-
-    for (const row of socialHistory) {
-      let entry = byDate.get(row.date)
-      if (!entry) {
-        entry = { _socialTotal: 0 }
-        byDate.set(row.date, entry)
-      }
-      entry[row.source] = (entry[row.source] ?? 0) + row.sessions
-      entry._socialTotal = (entry._socialTotal ?? 0) + row.sessions
+  const { socialChartData, socialChartSources, socialOtherCount } = useMemo(() => {
+    const agg = aggregateSocialChartData(socialHistory)
+    return {
+      socialChartData: agg.data,
+      socialChartSources: agg.sources,
+      socialOtherCount: agg.otherCount,
     }
-
-    const data = [...byDate.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, vals]) => ({ date, ...vals }))
-
-    return { socialChartData: data, socialChartSources: sources }
   }, [socialHistory])
 
   // Keep this above the early returns so the hook order stays stable while the
@@ -348,18 +348,18 @@ export function TrafficSection({ projectName }: { projectName: string }) {
     )
   }
 
-  const organicPct = traffic?.organicSharePct ?? 0
+  const organicPctDisplay = traffic?.organicSharePctDisplay ?? '0%'
   const organicSessions = traffic?.totalOrganicSessions ?? 0
   const aiSessions = traffic?.aiSessionsDeduped ?? 0
   const aiSessionsBySession = traffic?.aiSessionsBySession ?? 0
-  const aiSharePctBySession = traffic?.aiSharePctBySession ?? 0
+  const aiSharePctBySessionDisplay = traffic?.aiSharePctBySessionDisplay ?? '0%'
   const aiSourceCount = traffic ? new Set(traffic.aiReferrals.map((referral) => referral.source.toLowerCase())).size : 0
   const topAiSource = sortedAiReferrals[0] ?? null
   const directSessions = traffic?.totalDirectSessions ?? 0
-  const directSharePct = traffic?.directSharePct ?? 0
+  const directSharePctDisplay = traffic?.directSharePctDisplay ?? '0%'
 
   const socialSessions = traffic?.socialSessions ?? 0
-  const socialSharePct = traffic?.socialSharePct ?? 0
+  const socialSharePctDisplay = traffic?.socialSharePctDisplay ?? '0%'
   const socialSourceCount = traffic ? new Set(traffic.socialReferrals.map((r) => r.source.toLowerCase())).size : 0
   const topSocialSource = sortedSocialReferrals[0] ?? null
 
@@ -448,7 +448,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
             <TrafficMetric
               value={formatCompact(traffic.totalOrganicSessions)}
               label="Organic Sessions"
-              subtitle={`${organicPct}% of total`}
+              subtitle={`${organicPctDisplay} of total`}
               tone="positive"
             />
             <TrafficMetric
@@ -583,28 +583,28 @@ export function TrafficSection({ projectName }: { projectName: string }) {
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <AttributionStat
                   label="Organic"
-                  value={`${organicPct}%`}
+                  value={organicPctDisplay}
                   hint={`${organicSessions.toLocaleString()} sessions`}
                   tone="positive"
                   tooltip="Sessions from Google organic search (sessionDefaultChannelGrouping = 'Organic Search')."
                 />
                 <AttributionStat
                   label="Social"
-                  value={`${socialSharePct}%`}
+                  value={socialSharePctDisplay}
                   hint={`${socialSessions.toLocaleString()} sessions`}
                   tone="neutral"
                   tooltip="Sessions from social platforms (sessionDefaultChannelGrouping = 'Organic Social' or 'Paid Social')."
                 />
                 <AttributionStat
                   label="Direct"
-                  value={`${directSharePct}%`}
+                  value={directSharePctDisplay}
                   hint={`${directSessions.toLocaleString()} sessions`}
                   tone="neutral"
                   tooltip="Sessions with no source — bookmarks, typed URLs, untagged email, in-app browsers, and AI-driven traffic whose referrer header was stripped."
                 />
                 <AttributionStat
                   label="Known AI referrers (lower bound)"
-                  value={`${aiSharePctBySession}%`}
+                  value={aiSharePctBySessionDisplay}
                   hint={`${aiSessionsBySession.toLocaleString()} sessions`}
                   tone="positive"
                   tooltip="Sessions whose current sessionSource matched a known AI engine (e.g. chatgpt.com, claude.ai, gemini.google.com). Disjoint from Direct/Organic/Social. This is a strict lower bound: most AI traffic strips the referrer and falls into Direct, so the true AI share is typically higher than what's shown here. The detail table below also surfaces firstUserSource and UTM-tagged AI signals."
@@ -721,11 +721,16 @@ export function TrafficSection({ projectName }: { projectName: string }) {
 
             {socialChartData.length > 0 && (
               <Card className="surface-card p-5 mb-4">
-                <div className="mb-4 flex items-end justify-between">
+                <div className="mb-4 flex items-end justify-between gap-3">
                   <div>
                     <p className="eyebrow eyebrow-soft">Trend</p>
                     <h3 className="text-sm font-semibold text-zinc-100">Social sessions over time</h3>
                   </div>
+                  {socialOtherCount > 0 && (
+                    <p className="text-xs text-zinc-500">
+                      Showing top {socialChartSources.length - 1} sources · {socialOtherCount} more grouped as Other
+                    </p>
+                  )}
                 </div>
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
@@ -750,41 +755,44 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                         formatter={(value, name) => {
                           const formatted = typeof value === 'number' ? value.toLocaleString() : String(value ?? 0)
                           const key = String(name ?? '')
-                          if (key === '_socialTotal') return [formatted, 'Total Social']
-                          return [formatted, key]
-                        }}
-                      />
-                      <Legend
-                        wrapperStyle={{ fontSize: 11, color: '#a1a1aa' }}
-                        formatter={(value: string) => {
-                          if (value === '_socialTotal') return 'Total Social'
-                          return value
+                          if (key === SOCIAL_TOTAL_KEY) return [formatted, 'Total Social']
+                          if (key === SOCIAL_OTHER_KEY) {
+                            const label = `Other (${socialOtherCount} source${socialOtherCount === 1 ? '' : 's'})`
+                            return [formatted, label]
+                          }
+                          return [formatted, decodeSocialSourceLabel(key)]
                         }}
                       />
                       <Area
                         type="monotone"
-                        dataKey="_socialTotal"
-                        stroke="#52525b"
+                        dataKey={SOCIAL_TOTAL_KEY}
+                        stroke={SOCIAL_TOTAL_COLOR}
                         fill="#27272a"
                         fillOpacity={0.4}
                         strokeWidth={1.5}
                         dot={false}
                       />
-                      {socialChartSources.map((source, i) => (
-                        <Area
-                          key={source}
-                          type="monotone"
-                          dataKey={source}
-                          stackId="social"
-                          stroke={SOURCE_COLORS[i % SOURCE_COLORS.length]}
-                          fill={SOURCE_COLORS[i % SOURCE_COLORS.length]}
-                          fillOpacity={0.4}
-                          strokeWidth={1.5}
-                        />
-                      ))}
+                      {socialChartSources.map((source, i) => {
+                        const isOther = source === SOCIAL_OTHER_KEY
+                        const color = isOther ? SOCIAL_OTHER_COLOR : SOURCE_COLORS[i % SOURCE_COLORS.length]
+                        return (
+                          <Area
+                            key={source}
+                            type="monotone"
+                            dataKey={source}
+                            stackId="social"
+                            stroke={color}
+                            fill={color}
+                            fillOpacity={0.4}
+                            strokeWidth={1.5}
+                          />
+                        )
+                      })}
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>
+
+                <SocialChartLegend sources={socialChartSources} otherCount={socialOtherCount} />
               </Card>
             )}
 
@@ -807,7 +815,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                       />
                       <AttributionStat
                         label="Share of Traffic"
-                        value={`${socialSharePct}%`}
+                        value={socialSharePctDisplay}
                         hint="of total sessions"
                         tone="neutral"
                         tooltip="Percentage of your total site sessions that originated from social media platforms."
@@ -823,7 +831,16 @@ export function TrafficSection({ projectName }: { projectName: string }) {
 
                     {topSocialSource && (
                       <div className="mt-4 rounded-lg border border-sky-800/40 bg-sky-500/6 px-4 py-3 text-sm text-sky-100">
-                        Top social source: <span className="font-medium">{topSocialSource.source}</span> via {topSocialSource.medium}, accounting for {topSocialSource.sessions.toLocaleString()} sessions.
+                        <p className="text-xs uppercase tracking-wider text-sky-300/70 mb-1">Top social source</p>
+                        <p
+                          className="font-medium truncate"
+                          title={`${topSocialSource.source} via ${topSocialSource.medium}`}
+                        >
+                          {truncateLabel(decodeSocialSourceLabel(topSocialSource.source), 64)}
+                        </p>
+                        <p className="text-xs text-sky-200/70 mt-0.5 truncate" title={topSocialSource.medium}>
+                          via {decodeSocialSourceLabel(topSocialSource.medium)} · {topSocialSource.sessions.toLocaleString()} sessions
+                        </p>
                       </div>
                     )}
                   </>
@@ -849,30 +866,61 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                     <h3 className="text-sm font-semibold text-zinc-100">Source / medium</h3>
                   </div>
                   <p className="text-xs text-zinc-500">
-                    {traffic.socialReferrals.length > 0 ? `${traffic.socialReferrals.length} rows` : 'No source rows'}
+                    {traffic.socialReferrals.length > 0
+                      ? sortedSocialReferrals.length > SOCIAL_TABLE_DEFAULT_LIMIT && !socialTableExpanded
+                        ? `Top ${SOCIAL_TABLE_DEFAULT_LIMIT} of ${sortedSocialReferrals.length}`
+                        : `${sortedSocialReferrals.length} rows`
+                      : 'No source rows'}
                   </p>
                 </div>
 
                 {traffic.socialReferrals.length > 0 ? (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-[10px] uppercase tracking-wider text-zinc-500">
-                          <SortHeader label="Source" sortKey="source" current={socialSortKey} dir={socialSortDir} onSort={handleSocialSort} align="left" />
-                          <SortHeader label="Medium" sortKey="medium" current={socialSortKey} dir={socialSortDir} onSort={handleSocialSort} align="left" />
-                          <th className="py-1 font-medium text-left">Channel</th>
-                          <SortHeader label="Sessions" sortKey="sessions" current={socialSortKey} dir={socialSortDir} onSort={handleSocialSort} align="right" />
-                          <th className="py-1 font-medium text-right">Share</th>
-                          <SortHeader label="Users" sortKey="users" current={socialSortKey} dir={socialSortDir} onSort={handleSocialSort} align="right" />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sortedSocialReferrals.map((referral) => (
-                          <SocialReferralRow key={`${referral.source}:${referral.medium}:${referral.channelGroup}`} referral={referral} totalSessions={socialSessions} />
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm table-fixed">
+                        <colgroup>
+                          <col className="w-[40%]" />
+                          <col className="w-[28%]" />
+                          <col className="w-[12%]" />
+                          <col className="w-[8%]" />
+                          <col className="w-[6%]" />
+                          <col className="w-[6%]" />
+                        </colgroup>
+                        <thead>
+                          <tr className="text-[10px] uppercase tracking-wider text-zinc-500">
+                            <SortHeader label="Source" sortKey="source" current={socialSortKey} dir={socialSortDir} onSort={handleSocialSort} align="left" />
+                            <SortHeader label="Medium" sortKey="medium" current={socialSortKey} dir={socialSortDir} onSort={handleSocialSort} align="left" />
+                            <th className="py-1 font-medium text-left">Channel</th>
+                            <SortHeader label="Sessions" sortKey="sessions" current={socialSortKey} dir={socialSortDir} onSort={handleSocialSort} align="right" />
+                            <th className="py-1 font-medium text-right">Share</th>
+                            <SortHeader label="Users" sortKey="users" current={socialSortKey} dir={socialSortDir} onSort={handleSocialSort} align="right" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(socialTableExpanded
+                            ? sortedSocialReferrals
+                            : sortedSocialReferrals.slice(0, SOCIAL_TABLE_DEFAULT_LIMIT)
+                          ).map((referral) => (
+                            <SocialReferralRow key={`${referral.source}:${referral.medium}:${referral.channelGroup}`} referral={referral} totalSessions={socialSessions} />
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {sortedSocialReferrals.length > SOCIAL_TABLE_DEFAULT_LIMIT && (
+                      <div className="mt-3 flex justify-center">
+                        <button
+                          type="button"
+                          onClick={() => setSocialTableExpanded((v) => !v)}
+                          className="text-xs text-zinc-400 hover:text-zinc-200 px-3 py-1 rounded-full border border-zinc-800 hover:border-zinc-700 transition-colors"
+                        >
+                          {socialTableExpanded
+                            ? `Show top ${SOCIAL_TABLE_DEFAULT_LIMIT}`
+                            : `Show all ${sortedSocialReferrals.length} sources`}
+                        </button>
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-8 text-center">
                     <p className="text-sm text-zinc-400 mb-2">No social media sessions detected yet</p>
@@ -1269,16 +1317,18 @@ function SocialReferralRow({
 }) {
   const share = totalSessions > 0 ? ((referral.sessions / totalSessions) * 100).toFixed(1) : '0.0'
   const channelLabel = referral.channelGroup === 'Paid Social' ? 'Paid' : 'Organic'
+  const sourceDisplay = decodeSocialSourceLabel(referral.source)
+  const mediumDisplay = decodeSocialSourceLabel(referral.medium)
 
   return (
     <tr className="border-t border-zinc-800/40">
-      <td className="py-1.5 text-zinc-200 max-w-[220px] truncate" title={referral.source}>
-        {referral.source}
+      <td className="py-1.5 pr-3 text-zinc-200 truncate" title={referral.source}>
+        {sourceDisplay}
       </td>
-      <td className="py-1.5 text-zinc-500 max-w-[180px] truncate" title={referral.medium}>
-        {referral.medium}
+      <td className="py-1.5 pr-3 text-zinc-500 truncate" title={referral.medium}>
+        {mediumDisplay}
       </td>
-      <td className="py-1.5">
+      <td className="py-1.5 pr-3">
         <span
           className="inline-block text-[10px] px-1.5 py-0.5 rounded-full border border-zinc-700 text-zinc-400"
           title={`GA4 channel group: ${referral.channelGroup}`}
@@ -1296,5 +1346,61 @@ function SocialReferralRow({
         {referral.users.toLocaleString()}
       </td>
     </tr>
+  )
+}
+
+function SocialChartLegend({
+  sources,
+  otherCount,
+}: {
+  sources: string[]
+  otherCount: number
+}) {
+  const items: Array<{ key: string; color: string; label: string; tooltip: string }> = [
+    {
+      key: SOCIAL_TOTAL_KEY,
+      color: SOCIAL_TOTAL_COLOR,
+      label: 'Total',
+      tooltip: 'All social sessions across every source.',
+    },
+  ]
+
+  for (let i = 0; i < sources.length; i++) {
+    const source = sources[i]!
+    if (source === SOCIAL_OTHER_KEY) {
+      items.push({
+        key: SOCIAL_OTHER_KEY,
+        color: SOCIAL_OTHER_COLOR,
+        label: `Other (${otherCount})`,
+        tooltip: `${otherCount} smaller source${otherCount === 1 ? '' : 's'} grouped together`,
+      })
+    } else {
+      const decoded = decodeSocialSourceLabel(source)
+      items.push({
+        key: source,
+        color: SOURCE_COLORS[i % SOURCE_COLORS.length] ?? SOCIAL_OTHER_COLOR,
+        label: truncateLabel(decoded, 32),
+        tooltip: decoded,
+      })
+    }
+  }
+
+  return (
+    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] text-zinc-400">
+      {items.map((item) => (
+        <div
+          key={item.key}
+          className="flex items-center gap-1.5 min-w-0 max-w-[260px]"
+          title={item.tooltip}
+        >
+          <span
+            className="inline-block w-2.5 h-2.5 rounded-sm shrink-0"
+            style={{ backgroundColor: item.color }}
+            aria-hidden="true"
+          />
+          <span className="truncate">{item.label}</span>
+        </div>
+      ))}
+    </div>
   )
 }

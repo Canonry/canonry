@@ -22,6 +22,17 @@ function gaLog(level: 'info' | 'warn' | 'error', action: string, ctx?: Record<st
   stream.write(JSON.stringify(entry) + '\n')
 }
 
+// Format a session-share as a display string. Returns "<1%" for non-zero shares
+// that round below 1%, so 18 AI sessions out of 6000 reads "<1%" instead of
+// "0%" — the display matches the integer pct field exactly otherwise.
+function formatSharePct(numerator: number, total: number): string {
+  if (total <= 0 || numerator <= 0) return '0%'
+  const pct = (numerator / total) * 100
+  const rounded = Math.round(pct)
+  if (rounded === 0) return '<1%'
+  return `${rounded}%`
+}
+
 export interface Ga4CredentialRecord {
   projectName: string
   propertyId: string
@@ -768,6 +779,11 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       aiSharePctBySession: total > 0 ? Math.round(((aiBySession?.sessions ?? 0) / total) * 100) : 0,
       directSharePct: total > 0 ? Math.round((totalDirectSessions / total) * 100) : 0,
       socialSharePct: total > 0 ? Math.round(((socialTotals?.sessions ?? 0) / total) * 100) : 0,
+      organicSharePctDisplay: formatSharePct(summaryRow?.totalOrganicSessions ?? 0, total),
+      aiSharePctDisplay: formatSharePct(aiDeduped?.sessions ?? 0, total),
+      aiSharePctBySessionDisplay: formatSharePct(aiBySession?.sessions ?? 0, total),
+      directSharePctDisplay: formatSharePct(totalDirectSessions, total),
+      socialSharePctDisplay: formatSharePct(socialTotals?.sessions ?? 0, total),
       lastSyncedAt: latestSync?.syncedAt ?? null,
       periodStart: (() => {
         const start = cutoffDate ?? summaryMeta?.periodStart ?? null
