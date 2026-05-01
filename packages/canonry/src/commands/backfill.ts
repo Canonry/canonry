@@ -439,6 +439,189 @@ export async function backfillAiReferralPathsCommand(opts?: {
   console.log(`  Unchanged: ${unchanged}`)
 }
 
+/**
+ * Lighter sibling of `backfillAnswerVisibilityCommand` — recomputes only the
+ * three fields affected by the brand-token matching fix (`answerMentioned`,
+ * `competitorOverlap`, `recommendedCompetitors`) using the snapshot's stored
+ * `answerText` + `citedDomains` and the `groundingSources` already cached in
+ * the `rawResponse` envelope. No provider-specific reparse, so it covers
+ * snapshots from providers without a reparse adapter (cdp, local, ...) and
+ * is fast enough to re-run after any future matching-logic change.
+ *
+ * Does not touch `citationState`, `citedDomains`, or `rawResponse` — those
+ * are computed by domain-to-domain matching, which this PR did not change.
+ */
+export async function backfillAnswerMentionsCommand(opts?: {
+  project?: string
+  format?: CliFormat
+}): Promise<void> {
+  const config = loadConfig()
+  const db = createClient(config.database)
+  migrate(db)
+
+  const projectFilter = opts?.project?.trim()
+
+  const scopedProjects = projectFilter
+    ? db.select().from(projects).where(eq(projects.name, projectFilter)).all()
+    : db.select().from(projects).all()
+
+  let examined = 0
+  let updated = 0
+  let mentioned = 0
+
+  if (scopedProjects.length > 0) {
+    const runRows = projectFilter
+      ? db
+        .select({ id: runs.id, projectId: runs.projectId })
+        .from(runs)
+        .where(and(
+          eq(runs.kind, RunKinds['answer-visibility']),
+          inArray(runs.projectId, scopedProjects.map(project => project.id)),
+        ))
+        .all()
+      : db
+        .select({ id: runs.id, projectId: runs.projectId })
+        .from(runs)
+        .where(eq(runs.kind, RunKinds['answer-visibility']))
+        .all()
+
+    const runIdsByProject = new Map<string, string[]>()
+    for (const run of runRows) {
+      const existing = runIdsByProject.get(run.projectId)
+      if (existing) existing.push(run.id)
+      else runIdsByProject.set(run.projectId, [run.id])
+    }
+
+    for (const project of scopedProjects) {
+      const competitorDomains = db
+        .select({ domain: competitors.domain })
+        .from(competitors)
+        .where(eq(competitors.projectId, project.id))
+        .all()
+        .map(row => row.domain)
+      const runIds = runIdsByProject.get(project.id) ?? []
+      if (runIds.length === 0) continue
+
+      const projectDomains = effectiveDomains({
+        canonicalDomain: project.canonicalDomain,
+        ownedDomains: parseJsonColumn<string[]>(project.ownedDomains, []),
+      })
+
+      for (let offset = 0; offset < runIds.length; offset += SNAPSHOT_BATCH_SIZE) {
+        const batchRunIds = runIds.slice(offset, offset + SNAPSHOT_BATCH_SIZE)
+        const snapshotRows = db.select({
+          id: querySnapshots.id,
+          provider: querySnapshots.provider,
+          answerMentioned: querySnapshots.answerMentioned,
+          answerText: querySnapshots.answerText,
+          citedDomains: querySnapshots.citedDomains,
+          competitorOverlap: querySnapshots.competitorOverlap,
+          recommendedCompetitors: querySnapshots.recommendedCompetitors,
+          rawResponse: querySnapshots.rawResponse,
+        }).from(querySnapshots)
+          .where(inArray(querySnapshots.runId, batchRunIds))
+          .all()
+        const pendingUpdates: Array<{ id: string; patch: Record<string, unknown> }> = []
+
+        for (const snapshot of snapshotRows) {
+          examined++
+
+          const answerText = snapshot.answerText ?? ''
+          const nextAnswerMentioned = determineAnswerMentioned(answerText, project.displayName, projectDomains)
+          if (nextAnswerMentioned) mentioned++
+
+          const citedDomains = parseJsonColumn<string[]>(snapshot.citedDomains, [])
+          const groundingSources = readStoredGroundingSources(snapshot.rawResponse)
+
+          const normalized: NormalizedQueryResult = {
+            provider: snapshot.provider,
+            answerText,
+            citedDomains,
+            groundingSources,
+            searchQueries: [],
+          }
+
+          const nextCompetitorOverlap = JSON.stringify(
+            computeCompetitorOverlap(normalized, competitorDomains),
+          )
+          const nextRecommendedCompetitors = JSON.stringify(
+            extractRecommendedCompetitors(
+              answerText,
+              projectDomains,
+              citedDomains,
+              competitorDomains,
+            ),
+          )
+
+          const nextPatch: Record<string, unknown> = {}
+          if (snapshot.answerMentioned !== nextAnswerMentioned) {
+            nextPatch.answerMentioned = nextAnswerMentioned
+          }
+          if (snapshot.competitorOverlap !== nextCompetitorOverlap) {
+            nextPatch.competitorOverlap = nextCompetitorOverlap
+          }
+          if (snapshot.recommendedCompetitors !== nextRecommendedCompetitors) {
+            nextPatch.recommendedCompetitors = nextRecommendedCompetitors
+          }
+
+          if (Object.keys(nextPatch).length > 0) {
+            pendingUpdates.push({ id: snapshot.id, patch: nextPatch })
+          }
+        }
+
+        if (pendingUpdates.length > 0) {
+          db.transaction((tx) => {
+            for (const update of pendingUpdates) {
+              tx.update(querySnapshots)
+                .set(update.patch)
+                .where(eq(querySnapshots.id, update.id))
+                .run()
+            }
+          })
+          updated += pendingUpdates.length
+        }
+      }
+    }
+  }
+
+  const result = {
+    project: projectFilter ?? null,
+    projects: scopedProjects.length,
+    examined,
+    updated,
+    mentioned,
+  }
+
+  if (opts?.format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  console.log('Answer mentions backfill complete.\n')
+  if (projectFilter) console.log(`  Project:   ${projectFilter}`)
+  console.log(`  Projects:  ${scopedProjects.length}`)
+  console.log(`  Examined:  ${examined}`)
+  console.log(`  Updated:   ${updated}`)
+  console.log(`  Mentioned: ${mentioned}`)
+}
+
+function readStoredGroundingSources(rawResponse: string | null): GroundingSource[] {
+  const envelope = parseJsonColumn<Record<string, unknown>>(rawResponse, {})
+  const sources = envelope.groundingSources
+  if (!Array.isArray(sources)) return []
+  const result: GroundingSource[] = []
+  for (const source of sources) {
+    if (source && typeof source === 'object') {
+      const uri = (source as { uri?: unknown }).uri
+      const title = (source as { title?: unknown }).title
+      if (typeof uri === 'string') {
+        result.push({ uri, title: typeof title === 'string' ? title : '' })
+      }
+    }
+  }
+  return result
+}
+
 export async function backfillInsightsCommand(
   project: string,
   opts?: { fromRun?: string; toRun?: string; format?: CliFormat },
