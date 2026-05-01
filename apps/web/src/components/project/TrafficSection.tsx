@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, Unplug, Upload } from 'lucide-react'
 import {
   Area,
@@ -32,6 +33,8 @@ import {
   disconnectGa,
 } from '../../api.js'
 import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficAiLandingPage, ApiGaTrafficPage, ApiGaTrafficReferral, ApiGaSocialReferral, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry } from '../../api.js'
+import { TRAFFIC_STALE_MS } from '../../queries/query-client.js'
+import { queryKeys } from '../../queries/query-keys.js'
 
 const TRAFFIC_WINDOWS: MetricsWindow[] = ['7d', '30d', '90d', 'all']
 
@@ -61,6 +64,7 @@ function relativeTime(iso: string): string {
 }
 
 export function TrafficSection({ projectName }: { projectName: string }) {
+  const queryClient = useQueryClient()
   const [status, setStatus] = useState<ApiGaStatus | null>(null)
   const [traffic, setTraffic] = useState<ApiGaTraffic | null>(null)
   const [loading, setLoading] = useState(true)
@@ -81,51 +85,69 @@ export function TrafficSection({ projectName }: { projectName: string }) {
   const [socialHistory, setSocialHistory] = useState<GA4SocialReferralHistoryEntry[]>([])
   const [trafficWindow, setTrafficWindow] = useState<MetricsWindow>('30d')
 
-  function loadData(cancelled: { current: boolean }) {
+  async function loadData(cancelled: { current: boolean }) {
     setLoading(true)
-    fetchGaStatus(projectName)
-      .then((s) => {
-        if (cancelled.current) return
-        setStatus(s)
-        if (s.connected) {
-          return Promise.all([
-            fetchGaTraffic(projectName, undefined, trafficWindow),
-            fetchGaAiReferralHistory(projectName, trafficWindow).catch(() => [] as GA4AiReferralHistoryEntry[]),
-            fetchGaSessionHistory(projectName, trafficWindow).catch(() => [] as GA4SessionHistoryEntry[]),
-            fetchGaSocialReferralHistory(projectName, trafficWindow).catch(() => [] as GA4SocialReferralHistoryEntry[]),
-          ])
-        }
-        return null
+    setError(null)
+    try {
+      const s = await queryClient.fetchQuery({
+        queryKey: queryKeys.traffic.status(projectName),
+        queryFn: () => fetchGaStatus(projectName),
+        staleTime: TRAFFIC_STALE_MS,
       })
-      .then((result) => {
-        if (cancelled.current) return
-        if (Array.isArray(result)) {
-          setTraffic(result[0])
-          setAiHistory(result[1])
-          setSessionHistory(result[2])
-          setSocialHistory(result[3])
-        } else {
-          setTraffic(null)
-          setAiHistory([])
-          setSessionHistory([])
-          setSocialHistory([])
-        }
+      if (cancelled.current) return
+      setStatus(s)
+
+      if (!s.connected) {
+        setTraffic(null)
+        setAiHistory([])
+        setSessionHistory([])
+        setSocialHistory([])
         setLoading(false)
-      })
-      .catch((err) => {
-        if (cancelled.current) return
-        setError(err instanceof Error ? err.message : 'Failed to load GA4 data')
-        setLoading(false)
-      })
+        return
+      }
+
+      const [trafficData, aiHistoryData, sessionHistoryData, socialHistoryData] = await Promise.all([
+        queryClient.fetchQuery({
+          queryKey: queryKeys.traffic.summary(projectName, trafficWindow),
+          queryFn: () => fetchGaTraffic(projectName, undefined, trafficWindow),
+          staleTime: TRAFFIC_STALE_MS,
+        }),
+        queryClient.fetchQuery({
+          queryKey: queryKeys.traffic.aiHistory(projectName, trafficWindow),
+          queryFn: () => fetchGaAiReferralHistory(projectName, trafficWindow).catch(() => [] as GA4AiReferralHistoryEntry[]),
+          staleTime: TRAFFIC_STALE_MS,
+        }),
+        queryClient.fetchQuery({
+          queryKey: queryKeys.traffic.sessionHistory(projectName, trafficWindow),
+          queryFn: () => fetchGaSessionHistory(projectName, trafficWindow).catch(() => [] as GA4SessionHistoryEntry[]),
+          staleTime: TRAFFIC_STALE_MS,
+        }),
+        queryClient.fetchQuery({
+          queryKey: queryKeys.traffic.socialHistory(projectName, trafficWindow),
+          queryFn: () => fetchGaSocialReferralHistory(projectName, trafficWindow).catch(() => [] as GA4SocialReferralHistoryEntry[]),
+          staleTime: TRAFFIC_STALE_MS,
+        }),
+      ])
+      if (cancelled.current) return
+      setTraffic(trafficData)
+      setAiHistory(aiHistoryData)
+      setSessionHistory(sessionHistoryData)
+      setSocialHistory(socialHistoryData)
+      setLoading(false)
+    } catch (err) {
+      if (cancelled.current) return
+      setError(err instanceof Error ? err.message : 'Failed to load GA4 data')
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
     const cancelled = { current: false }
-    loadData(cancelled)
+    void loadData(cancelled)
     return () => {
       cancelled.current = true
     }
-  }, [projectName, trafficWindow])
+  }, [projectName, trafficWindow, queryClient])
 
   async function handleSync() {
     setSyncing(true)
@@ -134,18 +156,8 @@ export function TrafficSection({ projectName }: { projectName: string }) {
     try {
       const result = await triggerGaSync(projectName)
       setNotice(`Synced ${result.rowCount.toLocaleString()} page rows, ${result.aiReferralCount.toLocaleString()} AI and ${result.socialReferralCount.toLocaleString()} social referral rows (${result.days} days)`)
-      const [t, h, sh, soh] = await Promise.all([
-        fetchGaTraffic(projectName, undefined, trafficWindow),
-        fetchGaAiReferralHistory(projectName, trafficWindow).catch(() => [] as GA4AiReferralHistoryEntry[]),
-        fetchGaSessionHistory(projectName, trafficWindow).catch(() => [] as GA4SessionHistoryEntry[]),
-        fetchGaSocialReferralHistory(projectName, trafficWindow).catch(() => [] as GA4SocialReferralHistoryEntry[]),
-      ])
-      setTraffic(t)
-      setAiHistory(h)
-      setSessionHistory(sh)
-      setSocialHistory(soh)
-      const s = await fetchGaStatus(projectName)
-      setStatus(s)
+      await queryClient.invalidateQueries({ queryKey: queryKeys.traffic.project(projectName) })
+      await loadData({ current: false })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sync failed')
     } finally {
@@ -159,6 +171,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
     setNotice(null)
     try {
       await disconnectGa(projectName)
+      await queryClient.invalidateQueries({ queryKey: queryKeys.traffic.project(projectName) })
       setStatus({ connected: false, propertyId: null, clientEmail: null, lastSyncedAt: null, createdAt: null, updatedAt: null })
       setTraffic(null)
       setNotice('GA4 disconnected')
@@ -325,7 +338,12 @@ export function TrafficSection({ projectName }: { projectName: string }) {
     return (
       <Ga4ConnectForm
         projectName={projectName}
-        onConnected={() => loadData({ current: false })}
+        onConnected={() => {
+          void (async () => {
+            await queryClient.invalidateQueries({ queryKey: queryKeys.traffic.project(projectName) })
+            await loadData({ current: false })
+          })()
+        }}
       />
     )
   }

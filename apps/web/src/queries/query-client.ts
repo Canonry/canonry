@@ -1,11 +1,17 @@
 import { MutationCache, QueryClient } from '@tanstack/react-query'
 import { addToast } from '../lib/toast-store.js'
 
+export const DEFAULT_QUERY_STALE_MS = 5 * 60_000
+export const STATIC_VISIBILITY_STALE_MS = 30 * 60_000
+export const TRAFFIC_STALE_MS = 30_000
+export const GSC_STALE_MS = 60_000
+export const RUNS_STALE_MS = 30_000
+
 export function createQueryClient() {
   return new QueryClient({
     defaultOptions: {
       queries: {
-        staleTime: 30_000,
+        staleTime: DEFAULT_QUERY_STALE_MS,
         retry: 1,
         refetchOnWindowFocus: false,
       },

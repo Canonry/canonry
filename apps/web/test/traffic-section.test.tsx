@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 
@@ -19,6 +20,17 @@ vi.mock('recharts', () => {
 })
 
 import { TrafficSection } from '../src/components/project/TrafficSection.js'
+
+function renderTrafficSection() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <TrafficSection projectName="test-project" />
+    </QueryClientProvider>,
+  )
+}
 
 function mockFetch(handler: (url: string, init?: RequestInit) => Response | Promise<Response>) {
   const realFetch = globalThis.fetch
@@ -103,7 +115,7 @@ test('loads connected GA4 data without changing hook order', async () => {
   const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
   onTestFinished(() => consoleErrorSpy.mockRestore())
 
-  render(<TrafficSection projectName="test-project" />)
+  renderTrafficSection()
 
   await waitFor(() => {
     expect(screen.getByText('AI vs. total sessions')).toBeTruthy()
@@ -175,7 +187,7 @@ test('renders four-channel breakdown with Organic, Social, Direct, and Known AI 
   })
   onTestFinished(restoreFetch)
 
-  render(<TrafficSection projectName="test-project" />)
+  renderTrafficSection()
 
   await waitFor(() => {
     expect(screen.getByText('Channel breakdown')).toBeTruthy()

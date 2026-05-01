@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useQueries } from '@tanstack/react-query'
 import type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, MetricsWindow, GapCategory, SourceCategory, KeywordChangeEvent, VisibilityMetricMode } from '@ainyc/canonry-contracts'
 import { VisibilityMetricModes } from '@ainyc/canonry-contracts'
 
@@ -23,6 +24,8 @@ import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { ScoreGauge } from '../shared/ScoreGauge.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
 import { fetchAnalyticsMetrics, fetchAnalyticsGaps, fetchAnalyticsSources } from '../../api.js'
+import { STATIC_VISIBILITY_STALE_MS } from '../../queries/query-client.js'
+import { queryKeys } from '../../queries/query-keys.js'
 import type { MetricTone } from '../../view-models.js'
 
 const ANALYTICS_WINDOWS: MetricsWindow[] = ['7d', '30d', '90d', 'all']
@@ -48,30 +51,30 @@ const METRIC_MODE_LABELS: Record<VisibilityMetricMode, string> = {
 export function AnalyticsSection({ projectName }: { projectName: string }) {
   const [metricsWindow, setMetricsWindow] = useState<MetricsWindow>('30d')
   const [metricMode, setMetricMode] = useState<VisibilityMetricMode>(VisibilityMetricModes.mentioned)
-  const [metrics, setMetrics] = useState<BrandMetricsDto | null>(null)
-  const [gaps, setGaps] = useState<GapAnalysisDto | null>(null)
-  const [sources, setSources] = useState<SourceBreakdownDto | null>(null)
   const [gapFilter, setGapFilter] = useState<GapCategory | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    Promise.all([
-      fetchAnalyticsMetrics(projectName, metricsWindow),
-      fetchAnalyticsGaps(projectName, metricsWindow),
-      fetchAnalyticsSources(projectName, metricsWindow),
-    ]).then(([m, g, s]) => {
-      if (cancelled) return
-      setMetrics(m)
-      setGaps(g)
-      setSources(s)
-      setLoading(false)
-    }).catch(() => {
-      if (!cancelled) setLoading(false)
-    })
-    return () => { cancelled = true }
-  }, [projectName, metricsWindow])
+  const [metricsQuery, gapsQuery, sourcesQuery] = useQueries({
+    queries: [
+      {
+        queryKey: queryKeys.analytics.metrics(projectName, metricsWindow),
+        queryFn: () => fetchAnalyticsMetrics(projectName, metricsWindow),
+        staleTime: STATIC_VISIBILITY_STALE_MS,
+      },
+      {
+        queryKey: queryKeys.analytics.gaps(projectName, metricsWindow),
+        queryFn: () => fetchAnalyticsGaps(projectName, metricsWindow),
+        staleTime: STATIC_VISIBILITY_STALE_MS,
+      },
+      {
+        queryKey: queryKeys.analytics.sources(projectName, metricsWindow),
+        queryFn: () => fetchAnalyticsSources(projectName, metricsWindow),
+        staleTime: STATIC_VISIBILITY_STALE_MS,
+      },
+    ],
+  })
+  const metrics = metricsQuery.data ?? null
+  const gaps = gapsQuery.data ?? null
+  const sources = sourcesQuery.data ?? null
+  const loading = metricsQuery.isLoading || gapsQuery.isLoading || sourcesQuery.isLoading
 
   // Reset gap filter when switching modes (filter categories may differ)
   useEffect(() => { setGapFilter(null) }, [metricMode])

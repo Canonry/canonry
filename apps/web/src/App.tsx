@@ -47,6 +47,7 @@ import { useDrawer } from './hooks/use-drawer.js'
 import { useInitialDashboard } from './contexts/dashboard-context.js'
 import { Toaster } from './components/layout/Toaster.js'
 import { AeroBarHost } from './components/shared/AeroBar.js'
+import { RUNS_STALE_MS } from './queries/query-client.js'
 import { queryKeys } from './queries/query-keys.js'
 import type {
   HealthSnapshot,
@@ -142,6 +143,8 @@ export function RunNotificationObserver() {
     // Keep notification polling live whenever this browser session is tracking runs,
     // even if the app was bootstrapped with initial dashboard context.
     enabled: hasPendingTracking,
+    staleTime: RUNS_STALE_MS,
+    refetchInterval: 3000,
   })
   const projectsQuery = useQuery({
     queryKey: queryKeys.projects.all,

@@ -16,6 +16,7 @@ import { buildDashboard } from '../build-dashboard.js'
 import type { ProjectData } from '../build-dashboard.js'
 import type { DashboardVm } from '../view-models.js'
 import { queryKeys } from './query-keys.js'
+import { RUNS_STALE_MS, STATIC_VISIBILITY_STALE_MS } from './query-client.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
 
 export function useDashboard(initialDashboard?: DashboardVm | null) {
@@ -32,10 +33,11 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
     queryKey: queryKeys.runs.all,
     queryFn: fetchAllRuns,
     enabled: !effectiveInitial,
+    staleTime: RUNS_STALE_MS,
     refetchInterval: (query) => {
       const runs = query.state.data
       const hasActive = runs?.some(r => r.status === 'running' || r.status === 'queued')
-      return hasActive ? 3000 : false
+      return hasActive ? 3000 : RUNS_STALE_MS
     },
   })
 
@@ -85,6 +87,7 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
           }
         },
         enabled: !effectiveInitial && projectsQuery.isSuccess && runsQuery.isSuccess,
+        staleTime: STATIC_VISIBILITY_STALE_MS,
       }
     }),
   })
