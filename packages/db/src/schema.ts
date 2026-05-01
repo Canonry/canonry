@@ -523,3 +523,16 @@ export const agentMemory = sqliteTable('agent_memory', {
   uniqueIndex('uniq_agent_memory_project_key').on(table.projectId, table.key),
   index('idx_agent_memory_project_updated').on(table.projectId, table.updatedAt),
 ])
+
+/**
+ * Internal bookkeeping for the migration runner. One row per applied
+ * `MIGRATION_VERSIONS` entry. The migrator reads `MAX(version)` on boot and
+ * skips anything already recorded; statements never query this table at
+ * runtime. Defined here for grep-ability and consistency with the rest of
+ * the schema, but the table is created in `MIGRATION_SQL`.
+ */
+export const migrationsTable = sqliteTable('_migrations', {
+  version: integer('version').primaryKey(),
+  name: text('name').notNull(),
+  appliedAt: text('applied_at').notNull(),
+})

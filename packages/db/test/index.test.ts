@@ -10,6 +10,7 @@ import * as schema from '../src/schema.js'
 import {
   createClient,
   migrate,
+  MIGRATION_VERSIONS,
   projects,
   keywords,
   competitors,
@@ -638,11 +639,11 @@ test('migrate records applied versions and skips them on replay', () => {
   onTestFinished(() => sqlite.close())
 
   const versions = sqlite.prepare('SELECT version, name FROM _migrations ORDER BY version').all() as Array<{ version: number; name: string }>
-  expect(versions.length).toBeGreaterThan(0)
-  // The highest version should be 46
-  const maxVersion = versions[versions.length - 1]
-  expect(maxVersion.version).toBe(46)
-  expect(maxVersion.name).toBe('ga-ai-landing-page')
+  // Every entry in MIGRATION_VERSIONS should be recorded after a fresh boot,
+  // and the names must match — keying off the source of truth so adding a new
+  // migration doesn't require touching this test.
+  expect(versions.map(v => v.version)).toEqual(MIGRATION_VERSIONS.map(mv => mv.version))
+  expect(versions.map(v => v.name)).toEqual(MIGRATION_VERSIONS.map(mv => mv.name))
 
   // All tables should exist
   const tables = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as Array<{ name: string }>

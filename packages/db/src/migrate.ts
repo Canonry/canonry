@@ -152,7 +152,7 @@ interface MigrationVersion {
   statements: string[]
 }
 
-const MIGRATION_VERSIONS: MigrationVersion[] = [
+export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
   {
     version: 2,
     name: 'add-providers-column',
@@ -442,10 +442,15 @@ const MIGRATION_VERSIONS: MigrationVersion[] = [
     statements: [
       // Values: 'session' (sessionSource), 'first_user' (firstUserSource), 'manual_utm' (manualSource/utm_source)
       `ALTER TABLE ga_ai_referrals ADD COLUMN source_dimension TEXT NOT NULL DEFAULT 'session'`,
-      // Create the widened unique index first (before dropping the old one).
-      // We use a different name so the v17 index can stay as a non-unique
-      // fallback on databases that already have duplicate rows on the
-      // narrower (project_id, date, source, medium) key.
+      // Adopt the widened unique key (now including source_dimension). This
+      // version intentionally does NOT drop the prior narrow index
+      // idx_ga_ai_ref_unique — the original v17 + v20 pair did, but replaying
+      // that pair on a DB where data has since accumulated duplicates on the
+      // narrow key would crash (the bug this PR fixes). Any DB that ran the
+      // historical v20 once already has the narrow index gone; brand-new DBs
+      // never create it because v17 was rewritten to omit it. Anything else
+      // is repaired by v46, which drops idx_ga_ai_ref_unique_v2 and lands on
+      // the final (…, source_dimension, landing_page) index.
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_ai_ref_unique_v2 ON ga_ai_referrals(project_id, date, source, medium, source_dimension)`,
     ],
   },
@@ -963,23 +968,29 @@ export function dropLegacyCredentialColumns(db: DatabaseClient): void {
  * Returns the highest applied migration version, or 0 if none.
  */
 function getAppliedVersion(db: DatabaseClient): number {
-  const rows = db.all(sql.raw(
-    `SELECT MAX(version) as max_version FROM _migrations`,
-  )) as Array<{ max_version: number | null }>
+  const rows = db.all(sql`SELECT MAX(version) as max_version FROM _migrations`) as Array<{
+    max_version: number | null
+  }>
   return rows[0]?.max_version ?? 0
 }
 
 /**
- * Records a migration version as successfully applied.
+ * Records a migration version as successfully applied. Uses Drizzle's
+ * tagged-template binding so version/name are passed as bound parameters,
+ * not interpolated into SQL.
  */
-function recordMigration(db: DatabaseClient, version: number, name: string): void {
-  db.run(sql.raw(
-    `INSERT OR IGNORE INTO _migrations (version, name) VALUES (${version}, '${name}')`,
-  ))
+function recordMigration(
+  db: Pick<DatabaseClient, 'run'>,
+  version: number,
+  name: string,
+): void {
+  db.run(sql`INSERT OR IGNORE INTO _migrations (version, name) VALUES (${version}, ${name})`)
 }
 
 export function migrate(db: DatabaseClient) {
-  // Phase 1: base schema (idempotent — all CREATE IF NOT EXISTS)
+  // Phase 1: base schema (idempotent — all CREATE IF NOT EXISTS).
+  // Includes the _migrations table itself, so subsequent reads from
+  // getAppliedVersion always succeed.
   const statements = MIGRATION_SQL.split(';')
     .map(s => s.trim())
     .filter(s => s.length > 0)
@@ -989,23 +1000,29 @@ export function migrate(db: DatabaseClient) {
   }
 
   // Phase 2: incremental migrations with version tracking.
-  // Only run versions that haven't been applied yet.
-  // The _migrations table was just created in Phase 1, so first-ever
-  // boot will see appliedVersion=0 and run everything.
+  // Only run versions that haven't been applied yet. On first deploy of this
+  // code over an existing DB, _migrations is empty so appliedVersion=0 and
+  // every version is replayed once — that replay is safe because every
+  // statement is either CREATE/INDEX IF NOT EXISTS, an idempotent UPDATE,
+  // or an ALTER TABLE ADD COLUMN whose duplicate-column error we swallow.
   const appliedVersion = getAppliedVersion(db)
 
   for (const mv of MIGRATION_VERSIONS) {
     if (mv.version <= appliedVersion) continue
 
-    for (const statement of mv.statements) {
-      try {
-        db.run(sql.raw(statement))
-      } catch (err: unknown) {
-        if (isDuplicateColumnError(err)) continue
-        throw err
+    // Each version's statements + its row in _migrations commit atomically.
+    // If a non-recoverable error fires mid-version, the whole version is
+    // rolled back and not recorded, so the next boot retries it cleanly.
+    db.transaction((tx) => {
+      for (const statement of mv.statements) {
+        try {
+          tx.run(sql.raw(statement))
+        } catch (err: unknown) {
+          if (isDuplicateColumnError(err)) continue
+          throw err
+        }
       }
-    }
-
-    recordMigration(db, mv.version, mv.name)
+      recordMigration(tx, mv.version, mv.name)
+    })
   }
 }
