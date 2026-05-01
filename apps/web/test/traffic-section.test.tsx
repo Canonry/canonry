@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 afterEach(cleanup)
 
@@ -211,4 +211,105 @@ test('renders four-channel breakdown with Organic, Social, Direct, and Known AI 
   expect(row).toBeTruthy()
   expect(within(row).getByText('chatgpt.com')).toBeTruthy()
   expect(within(row).getByText('12')).toBeTruthy()
+})
+
+test('social table collapses to top 25 with show-all toggle and surfaces Other-source rollup', async () => {
+  // 30 sources keeps the table over the 25-row default cap and forces top-N + Other in the chart
+  const longCampaignName = (i: number) =>
+    `HVAC+Facebook+Groups+Q1+2026+|+Closed+|+US+CAN+|+1k+sources+(${i.toString().padStart(2, '0')})`
+  const referrals = Array.from({ length: 30 }, (_, i) => ({
+    source: longCampaignName(i),
+    medium: 'paid_facebook_Mobile_Feed',
+    channelGroup: 'Paid Social' as const,
+    sessions: 100 - i,
+    users: 90 - i,
+  }))
+  const history = referrals.flatMap((r) => [
+    { date: '2026-04-01', source: r.source, medium: r.medium, channelGroup: r.channelGroup, sessions: r.sessions, users: r.users },
+    { date: '2026-04-02', source: r.source, medium: r.medium, channelGroup: r.channelGroup, sessions: Math.max(1, r.sessions - 5), users: Math.max(1, r.users - 5) },
+  ])
+
+  const restoreFetch = mockFetch((url) => {
+    const urlPath = url.split('?')[0]!
+    if (urlPath.endsWith('/projects/test-project/ga/status')) {
+      return jsonResponse({
+        connected: true,
+        propertyId: '999888',
+        clientEmail: 'sa@test.iam.gserviceaccount.com',
+        authMethod: 'service-account',
+        lastSyncedAt: '2026-04-02T12:00:00.000Z',
+        createdAt: '2026-04-02T12:00:00.000Z',
+        updatedAt: '2026-04-02T12:00:00.000Z',
+      })
+    }
+    if (urlPath.endsWith('/projects/test-project/ga/traffic')) {
+      const totalSessions = referrals.reduce((acc, r) => acc + r.sessions, 0)
+      return jsonResponse({
+        totalSessions,
+        totalOrganicSessions: 0,
+        totalDirectSessions: 0,
+        totalUsers: referrals.reduce((acc, r) => acc + r.users, 0),
+        topPages: [],
+        aiReferrals: [],
+        aiReferralLandingPages: [],
+        aiSessionsDeduped: 0,
+        aiUsersDeduped: 0,
+        aiSessionsBySession: 0,
+        aiUsersBySession: 0,
+        socialReferrals: referrals,
+        socialSessions: totalSessions,
+        socialUsers: referrals.reduce((acc, r) => acc + r.users, 0),
+        organicSharePct: 0,
+        aiSharePct: 0,
+        aiSharePctBySession: 0,
+        directSharePct: 0,
+        socialSharePct: 100,
+        lastSyncedAt: '2026-04-02T12:00:00.000Z',
+      })
+    }
+    if (urlPath.endsWith('/projects/test-project/ga/ai-referral-history')) return jsonResponse([])
+    if (urlPath.endsWith('/projects/test-project/ga/session-history')) return jsonResponse([])
+    if (urlPath.endsWith('/projects/test-project/ga/social-referral-history')) return jsonResponse(history)
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restoreFetch)
+
+  render(<TrafficSection projectName="test-project" />)
+
+  await waitFor(() => {
+    expect(screen.getByText('Source / medium')).toBeTruthy()
+  })
+
+  // Top-N + Other notice: 30 sources, top 6 plotted, 24 collapsed into Other
+  expect(screen.getByText(/Showing top 6 sources · 24 more grouped as Other/)).toBeTruthy()
+
+  // Source / medium table starts collapsed at the default limit of 25
+  const breakdownCard = screen.getByText('Source / medium').closest('div.surface-card') as HTMLElement
+  expect(breakdownCard).toBeTruthy()
+  const breakdown = within(breakdownCard)
+  expect(breakdown.getByText('Top 25 of 30')).toBeTruthy()
+  expect(breakdown.queryAllByRole('row').length - 1 /* header */).toBe(25)
+
+  // Long source names render decoded — `+` becomes space — but the title attribute keeps the raw value
+  const decodedCell = breakdown.getAllByText(/HVAC Facebook Groups Q1 2026/)[0]!
+  expect(decodedCell).toBeTruthy()
+  expect(decodedCell.getAttribute('title')).toMatch(/HVAC\+Facebook\+Groups\+Q1\+2026/)
+
+  // Toggling the Show-all button expands to all 30 rows; toggling back returns to the cap
+  const showAllButton = breakdown.getByRole('button', { name: /Show all 30 sources/ })
+  act(() => {
+    fireEvent.click(showAllButton)
+  })
+  await waitFor(() => {
+    expect(breakdown.queryAllByRole('row').length - 1).toBe(30)
+  })
+  expect(breakdown.getByText('30 rows')).toBeTruthy()
+
+  const collapseButton = breakdown.getByRole('button', { name: /Show top 25/ })
+  act(() => {
+    fireEvent.click(collapseButton)
+  })
+  await waitFor(() => {
+    expect(breakdown.queryAllByRole('row').length - 1).toBe(25)
+  })
 })
