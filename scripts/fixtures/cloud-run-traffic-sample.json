@@ -1,0 +1,76 @@
+{
+  "entries": [
+    {
+      "insertId": "crawler-1",
+      "timestamp": "2026-05-01T12:10:00.000Z",
+      "resource": {
+        "type": "cloud_run_revision",
+        "labels": {
+          "project_id": "sample-project",
+          "service_name": "web",
+          "location": "us-central1"
+        }
+      },
+      "httpRequest": {
+        "requestMethod": "GET",
+        "requestUrl": "https://example.com/blog/ai-search",
+        "status": 200,
+        "userAgent": "GPTBot/1.2",
+        "remoteIp": "203.0.113.10",
+        "latency": "0.120s"
+      }
+    },
+    {
+      "insertId": "referral-1",
+      "timestamp": "2026-05-01T12:15:00.000Z",
+      "resource": {
+        "type": "cloud_run_revision",
+        "labels": {
+          "project_id": "sample-project",
+          "service_name": "web",
+          "location": "us-central1"
+        }
+      },
+      "httpRequest": {
+        "requestMethod": "GET",
+        "requestUrl": "https://example.com/pricing?utm_source=chatgpt.com",
+        "status": 200,
+        "userAgent": "Mozilla/5.0",
+        "remoteIp": "198.51.100.12",
+        "referer": "https://chatgpt.com/"
+      }
+    },
+    {
+      "insertId": "ordinary-1",
+      "timestamp": "2026-05-01T12:20:00.000Z",
+      "resource": {
+        "type": "cloud_run_revision",
+        "labels": {
+          "project_id": "sample-project",
+          "service_name": "web",
+          "location": "us-central1"
+        }
+      },
+      "httpRequest": {
+        "requestMethod": "GET",
+        "requestUrl": "https://example.com/orders/12345",
+        "status": 200,
+        "userAgent": "Mozilla/5.0",
+        "remoteIp": "198.51.100.13"
+      }
+    },
+    {
+      "insertId": "application-log",
+      "timestamp": "2026-05-01T12:25:00.000Z",
+      "resource": {
+        "type": "cloud_run_revision",
+        "labels": {
+          "project_id": "sample-project",
+          "service_name": "web",
+          "location": "us-central1"
+        }
+      },
+      "textPayload": "not a request log"
+    }
+  ]
+}

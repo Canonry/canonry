@@ -386,6 +386,12 @@ importers:
         specifier: workspace:*
         version: link:../contracts
 
+  packages/integration-traffic:
+    dependencies:
+      '@ainyc/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
   packages/integration-wordpress:
     dependencies:
       '@ainyc/canonry-contracts':

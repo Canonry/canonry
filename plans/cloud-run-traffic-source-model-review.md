@@ -97,14 +97,42 @@ manifest improves; aggregate evidence carries lower replay/verification power.
 This stacked PR starts the Cloud Run path without adding a partial dashboard:
 
 1. Add provider-neutral traffic contract constants and `NormalizedTrafficRequest`.
-2. Add a Cloud Run integration package that:
+2. Add a provider-neutral local traffic analysis package that rolls normalized
+   request evidence into crawler/referral buckets before DB persistence exists.
+3. Add a Cloud Run integration package that:
    - builds Cloud Logging filters for `cloud_run_revision`;
    - optionally narrows by service, location, timestamp window, and user-agent
      substrings;
    - pulls `entries.list` with page tokens;
    - normalizes `LogEntry.httpRequest` into Canonry request evidence.
-3. Keep persistence/API/CLI for the next PR so public surfaces are introduced
+4. Keep persistence/API/CLI for the next PR so public surfaces are introduced
    only when the storage and sync semantics are complete.
+
+## Local pull and analysis probe
+
+Before adding Canonry DB/API/CLI surfaces, use the local probe to test the
+pull-normalize-ingest-analyze loop:
+
+```bash
+pnpm tsx scripts/test-cloud-run-traffic-pull.ts \
+  --fixture scripts/fixtures/cloud-run-traffic-sample.json
+```
+
+For real Cloud Run logs:
+
+```bash
+pnpm tsx scripts/test-cloud-run-traffic-pull.ts \
+  --gcp-project <gcp-project-id> \
+  --service <cloud-run-service> \
+  --location <region> \
+  --since 6h \
+  --use-gcloud \
+  --out .tmp/cloud-run-traffic-report.json
+```
+
+Use `--narrow-bots` to add known AI-crawler user-agent filters to the Cloud
+Logging query. That lowers log volume, but it intentionally misses human AI
+referrals because those requests normally have browser user agents.
 
 ## Next implementation slice
 
