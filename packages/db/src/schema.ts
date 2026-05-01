@@ -317,7 +317,7 @@ export const gaAiReferrals = sqliteTable('ga_ai_referrals', {
   medium: text('medium').notNull(),
   /** Which GA4 dimension produced this row: 'session' | 'first_user' | 'manual_utm' */
   sourceDimension: text('source_dimension').notNull().default('session'),
-  landingPage: text('landing_page').notNull().default('(unknown)'),
+  landingPage: text('landing_page').notNull().default('(not set)'),
   landingPageNormalized: text('landing_page_normalized'),
   sessions: integer('sessions').notNull().default(0),
   users: integer('users').notNull().default(0),

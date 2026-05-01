@@ -3,7 +3,7 @@ import { createClient, migrate } from '@ainyc/canonry-db'
 import { createServer } from '../server.js'
 import { trackEvent } from '../telemetry.js'
 import { CliError, type CliFormat } from '../cli-error.js'
-import { backfillNormalizedPaths } from './backfill.js'
+import { backfillAiReferralPaths, backfillNormalizedPaths } from './backfill.js'
 
 /**
  * Precedence: `CANONRY_PORT` env var (also set by `--port`) > config.yaml `port:` > 4100.
@@ -44,6 +44,22 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
     // via COALESCE for non-fragmented legacy rows.
     const msg = err instanceof Error ? err.message : String(err)
     process.stderr.write(`warning: normalized-path backfill skipped: ${msg}\n`)
+  }
+
+  // Same idea for ga_ai_referrals — landing_page_normalized was added in
+  // v46. Without this, the dashboard's "Known AI referrers — landing pages"
+  // panel surfaces legacy rows as a synthetic '(not set)' bucket until the
+  // user re-syncs.
+  try {
+    const result = backfillAiReferralPaths(db)
+    if (result.updated > 0 && format === 'text') {
+      console.log(
+        `Migrated ${result.updated} GA AI referral row${result.updated === 1 ? '' : 's'} to canonical form.`,
+      )
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    process.stderr.write(`warning: ai-referral-paths backfill skipped: ${msg}\n`)
   }
 
   // Create and start server

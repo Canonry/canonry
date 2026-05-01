@@ -40,6 +40,7 @@ const SOURCE_COLORS = CHART_SERIES_COLORS
 type PageSortKey = 'landingPage' | 'sessions' | 'organicSessions' | 'users'
 type ReferralSortKey = 'source' | 'medium' | 'sessions' | 'users'
 type SocialSortKey = 'source' | 'medium' | 'sessions' | 'users'
+type AiLandingPageSortKey = 'landingPage' | 'source' | 'sessions' | 'users'
 type SortDir = 'asc' | 'desc'
 
 function formatCompact(n: number): string {
@@ -73,6 +74,8 @@ export function TrafficSection({ projectName }: { projectName: string }) {
   const [referralSortDir, setReferralSortDir] = useState<SortDir>('desc')
   const [socialSortKey, setSocialSortKey] = useState<SocialSortKey>('sessions')
   const [socialSortDir, setSocialSortDir] = useState<SortDir>('desc')
+  const [aiLandingSortKey, setAiLandingSortKey] = useState<AiLandingPageSortKey>('sessions')
+  const [aiLandingSortDir, setAiLandingSortDir] = useState<SortDir>('desc')
   const [aiHistory, setAiHistory] = useState<GA4AiReferralHistoryEntry[]>([])
   const [sessionHistory, setSessionHistory] = useState<GA4SessionHistoryEntry[]>([])
   const [socialHistory, setSocialHistory] = useState<GA4SocialReferralHistoryEntry[]>([])
@@ -193,6 +196,15 @@ export function TrafficSection({ projectName }: { projectName: string }) {
     }
   }
 
+  function handleAiLandingSort(key: AiLandingPageSortKey) {
+    if (aiLandingSortKey === key) {
+      setAiLandingSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))
+    } else {
+      setAiLandingSortKey(key)
+      setAiLandingSortDir('desc')
+    }
+  }
+
   const sortedPages = useMemo(() => {
     if (!traffic?.topPages) return []
     return [...traffic.topPages].sort((a, b) => {
@@ -219,8 +231,15 @@ export function TrafficSection({ projectName }: { projectName: string }) {
 
   const sortedAiLandingPages = useMemo(() => {
     if (!traffic?.aiReferralLandingPages) return []
-    return [...traffic.aiReferralLandingPages].sort((a, b) => b.sessions - a.sessions)
-  }, [traffic?.aiReferralLandingPages])
+    return [...traffic.aiReferralLandingPages].sort((a, b) => {
+      const av = a[aiLandingSortKey]
+      const bv = b[aiLandingSortKey]
+      if (typeof av === 'string' && typeof bv === 'string') {
+        return aiLandingSortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
+      }
+      return aiLandingSortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number)
+    })
+  }, [traffic?.aiReferralLandingPages, aiLandingSortKey, aiLandingSortDir])
 
   const sortedSocialReferrals = useMemo(() => {
     if (!traffic?.socialReferrals) return []
@@ -638,11 +657,11 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-[10px] uppercase tracking-wider text-zinc-500">
-                        <th className="py-1 font-medium text-left">Landing Page</th>
-                        <th className="py-1 font-medium text-left">Source</th>
+                        <SortHeader label="Landing Page" sortKey="landingPage" current={aiLandingSortKey} dir={aiLandingSortDir} onSort={handleAiLandingSort} align="left" />
+                        <SortHeader label="Source" sortKey="source" current={aiLandingSortKey} dir={aiLandingSortDir} onSort={handleAiLandingSort} align="left" />
                         <th className="py-1 font-medium text-left">Attribution</th>
-                        <th className="py-1 font-medium text-right">Sessions</th>
-                        <th className="py-1 font-medium text-right">Users</th>
+                        <SortHeader label="Sessions" sortKey="sessions" current={aiLandingSortKey} dir={aiLandingSortDir} onSort={handleAiLandingSort} align="right" />
+                        <SortHeader label="Users" sortKey="users" current={aiLandingSortKey} dir={aiLandingSortDir} onSort={handleAiLandingSort} align="right" />
                       </tr>
                     </thead>
                     <tbody>

@@ -1,6 +1,6 @@
 import { and, eq, inArray } from 'drizzle-orm'
 import type { GroundingSource, NormalizedQueryResult } from '@ainyc/canonry-contracts'
-import { createClient, gaTrafficSnapshots, migrate, parseJsonColumn, competitors, projects, querySnapshots, runs } from '@ainyc/canonry-db'
+import { createClient, gaAiReferrals, gaTrafficSnapshots, migrate, parseJsonColumn, competitors, projects, querySnapshots, runs } from '@ainyc/canonry-db'
 import { determineAnswerMentioned, effectiveDomains, normalizeUrlPath, ProviderNames, RunKinds } from '@ainyc/canonry-contracts'
 import { reparseStoredResult as reparseOpenAIStoredResult } from '@ainyc/canonry-provider-openai'
 import { reparseStoredResult as reparseClaudeStoredResult } from '@ainyc/canonry-provider-claude'
@@ -324,6 +324,115 @@ export async function backfillNormalizedPathsCommand(opts?: {
   }
 
   console.log('Normalized-path backfill complete.\n')
+  if (projectFilter) console.log(`  Project:   ${projectFilter}`)
+  console.log(`  Examined:  ${examined}`)
+  console.log(`  Updated:   ${updated}`)
+  console.log(`  Unchanged: ${unchanged}`)
+}
+
+/**
+ * Pure helper: backfill `ga_ai_referrals.landing_page_normalized` for rows
+ * where it is currently null. Mirrors `backfillNormalizedPaths` but for the
+ * AI referral table, which gained landing-page columns in v46. Idempotent.
+ *
+ * Used by both the CLI command (`canonry backfill ai-referral-paths`) and
+ * the server startup path (`canonry serve` runs it post-migrate so legacy
+ * rows surface in the dashboard's landing-page panel without a re-sync).
+ */
+export function backfillAiReferralPaths(
+  db: ReturnType<typeof createClient>,
+  opts?: { projectId?: string },
+): NormalizedPathsBackfillResult {
+  const baseConditions = []
+  if (opts?.projectId) {
+    baseConditions.push(eq(gaAiReferrals.projectId, opts.projectId))
+  }
+
+  const rows = db
+    .select({
+      id: gaAiReferrals.id,
+      landingPage: gaAiReferrals.landingPage,
+      landingPageNormalized: gaAiReferrals.landingPageNormalized,
+    })
+    .from(gaAiReferrals)
+    .where(baseConditions.length > 0 ? and(...baseConditions) : undefined)
+    .all()
+
+  let updated = 0
+  let unchanged = 0
+
+  if (rows.length > 0) {
+    db.transaction((tx) => {
+      for (const row of rows) {
+        const next = normalizeUrlPath(row.landingPage)
+        if (next === null) {
+          unchanged++
+          continue
+        }
+        if (row.landingPageNormalized === next) {
+          unchanged++
+          continue
+        }
+        tx.update(gaAiReferrals)
+          .set({ landingPageNormalized: next })
+          .where(eq(gaAiReferrals.id, row.id))
+          .run()
+        updated++
+      }
+    })
+  }
+
+  return { examined: rows.length, updated, unchanged }
+}
+
+export async function backfillAiReferralPathsCommand(opts?: {
+  project?: string
+  format?: CliFormat
+}): Promise<void> {
+  const config = loadConfig()
+  const db = createClient(config.database)
+  migrate(db)
+
+  const projectFilter = opts?.project?.trim()
+  let projectId: string | undefined
+  if (projectFilter) {
+    const project = db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(eq(projects.name, projectFilter))
+      .get()
+    if (!project) {
+      const result = {
+        project: projectFilter,
+        examined: 0,
+        updated: 0,
+        unchanged: 0,
+      }
+      if (opts?.format === 'json') {
+        console.log(JSON.stringify(result, null, 2))
+        return
+      }
+      console.log(`Backfill ai-referral-paths: project "${projectFilter}" not found.`)
+      return
+    }
+    projectId = project.id
+  }
+
+  const { examined, updated, unchanged } = backfillAiReferralPaths(db, { projectId })
+
+  const result = {
+    project: projectFilter ?? null,
+    examined,
+    updated,
+    unchanged,
+  }
+
+  if (opts?.format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  console.log('AI referral landing-page backfill complete.\n')
   if (projectFilter) console.log(`  Project:   ${projectFilter}`)
   console.log(`  Examined:  ${examined}`)
   console.log(`  Updated:   ${updated}`)

@@ -645,7 +645,6 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         sql`COALESCE(${gaAiReferrals.landingPageNormalized}, ${gaAiReferrals.landingPage})`,
       )
       .orderBy(sql`SUM(${gaAiReferrals.sessions}) DESC`)
-      .limit(limit)
       .all()
 
     // Deduplicated AI totals: sessionSource, firstUserSource, and manualSource are

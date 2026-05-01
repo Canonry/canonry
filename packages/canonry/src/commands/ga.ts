@@ -185,8 +185,10 @@ export async function gaTraffic(project: string, opts?: { limit?: number; window
 
     for (const row of result.aiReferralLandingPages) {
       const dimLabel = row.sourceDimension === 'first_user' ? 'first-visit' : row.sourceDimension === 'manual_utm' ? 'utm' : 'session'
+      const page = row.landingPage.length > 30 ? row.landingPage.slice(0, 27) + '...' : row.landingPage
+      const source = row.source.length > 25 ? row.source.slice(0, 22) + '...' : row.source
       console.log(
-        `  ${row.landingPage.padEnd(30)}  ${row.source.padEnd(25)}  ${dimLabel.padEnd(attrWidth)}  ${String(row.sessions).padEnd(10)}${String(row.users).padEnd(8)}`,
+        `  ${page.padEnd(30)}  ${source.padEnd(25)}  ${dimLabel.padEnd(attrWidth)}  ${String(row.sessions).padEnd(10)}${String(row.users).padEnd(8)}`,
       )
     }
     console.log()
@@ -539,7 +541,9 @@ export async function gaAttribution(project: string, opts?: { trend?: boolean; f
     console.log('  AI LANDING PAGES')
     for (const row of traffic.aiReferralLandingPages.slice(0, 10)) {
       const dimLabel = row.sourceDimension === 'first_user' ? 'first-visit' : row.sourceDimension === 'manual_utm' ? 'utm' : 'session'
-      console.log(`    ${row.landingPage.padEnd(30)} ${row.source.padEnd(22)} ${String(row.sessions).padEnd(8)} sessions  (${dimLabel})`)
+      const page = row.landingPage.length > 30 ? row.landingPage.slice(0, 27) + '...' : row.landingPage
+      const source = row.source.length > 22 ? row.source.slice(0, 19) + '...' : row.source
+      console.log(`    ${page.padEnd(30)} ${source.padEnd(22)} ${String(row.sessions).padEnd(8)} sessions  (${dimLabel})`)
     }
   }
 

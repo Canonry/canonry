@@ -581,7 +581,10 @@ const MIGRATIONS = [
   // v46: Landing-page breakdown for GA4 known-AI referral rows. The raw
   // landing_page participates in the unique key so distinct query strings can
   // be ingested without collision; API reads group by landing_page_normalized.
-  `ALTER TABLE ga_ai_referrals ADD COLUMN landing_page TEXT NOT NULL DEFAULT '(unknown)'`,
+  // Default '(not set)' matches GA4's own sentinel for missing dimension
+  // values, so legacy rows surface as the same bucket new ingestion uses
+  // when GA4 returns nothing.
+  `ALTER TABLE ga_ai_referrals ADD COLUMN landing_page TEXT NOT NULL DEFAULT '(not set)'`,
   `ALTER TABLE ga_ai_referrals ADD COLUMN landing_page_normalized TEXT`,
   `DROP INDEX IF EXISTS idx_ga_ai_ref_unique_v2`,
   `CREATE INDEX IF NOT EXISTS idx_ga_ai_ref_landing_page
