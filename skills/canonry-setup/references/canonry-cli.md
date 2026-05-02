@@ -253,20 +253,38 @@ canonry wordpress onboard <project> --url <url> --user <user>  # full onboarding
 
 ## Google Analytics 4
 
-GA4 integration uses service account authentication (no OAuth). The service account must have Viewer access on the GA4 property.
+GA4 integration uses service account authentication (no OAuth). The service account must have Viewer access on the GA4 property. `ga sync` writes to four DB tables (`gaTrafficSnapshots`, `gaAiReferrals`, `gaSocialReferrals`, `gaTrafficSummaries`); every subsequent read command queries the local store rather than re-fetching from GA4, so reads are fast and quotaless. AI-referral rows are tracked across 10 known providers (chatgpt, perplexity, claude, gemini, openai, anthropic, copilot, phind, you.com, meta.ai), three GA4 attribution dimensions (`session` / `first_user` / `manual_utm`), and joined to landing pages. Social referrals are split Organic vs Paid via GA4's `sessionDefaultChannelGroup`. All commands support `--format json`.
 
 ```bash
-canonry ga connect <project> --property-id <id> --key-file ./sa-key.json  # connect GA4
-canonry ga disconnect <project>                  # disconnect
-canonry ga status <project>                      # connection status
-canonry ga sync <project> [--days 30] [--only traffic|ai|social]  # pull GA4 data (selective or full)
-canonry ga traffic <project>                     # landing pages + AI/social referral sources
-canonry ga coverage <project>                    # indexed pages with traffic overlay
-canonry ga ai-referral-history <project>         # daily AI referral history by source
-canonry ga social-referral-history <project>     # daily social referral history by source
-canonry ga social-referral-summary <project> [--trend]  # one-line social summary + optional trend
-canonry ga attribution <project> [--trend]        # unified channel attribution overview + optional trends
+canonry ga connect <project> --property-id <id> --key-file ./sa-key.json
+                                                  # connect via service account (auth method = service_account)
+canonry ga disconnect <project>                  # disconnect; deletes all synced rows for the project
+canonry ga status <project>                      # connected, propertyId, authMethod, lastSyncedAt
+canonry ga sync <project> [--days 30] [--only traffic|ai|social]
+                                                  # refresh from GA4 → DB; --only restricts which slice is replaced
+                                                  # returns: synced, rowCount, aiReferralCount, socialReferralCount,
+                                                  #          syncedComponents, syncedAt
+canonry ga traffic <project>                     # current-period rollup; returns: totalSessions,
+                                                  # totalOrganicSessions/totalDirectSessions/totalUsers,
+                                                  # organicSharePct/aiSharePct/socialSharePct/directSharePct,
+                                                  # topPages[], aiReferrals[], aiReferralLandingPages[],
+                                                  # aiSessionsDeduped, aiUsersBySession, socialReferrals[]
+canonry ga attribution <project> [--trend]       # unified channel breakdown (organic / ai / social / direct
+                                                  # sessions + raw and display share %s); --trend adds 7d/30d
+                                                  # direction per channel + biggest mover
+canonry ga ai-referral-history <project>         # daily array of {date, source, medium, attribution,
+                                                  # sessions, users}; one row per (day × source × dimension)
+canonry ga social-referral-history <project>     # daily array of {date, source, medium, channel,
+                                                  # sessions, users}; channel ∈ {Organic Social, Paid Social}
+canonry ga social-referral-summary <project> [--trend]
+                                                  # one-line social rollup: socialSessions, socialUsers,
+                                                  # socialSharePct, topSources[]; --trend adds 7d/30d direction
+canonry ga session-history <project>             # daily totals: {date, sessions, organicSessions, users}
+canonry ga coverage <project>                    # per-page overlay: {landingPage, sessions,
+                                                  # organicSessions, users}
 ```
+
+Every read command queries persisted DB rows, so a stale `lastSyncedAt` means the response is stale — always check `ga status` before drawing conclusions, and re-`ga sync` if the data is older than the analysis window. Use `--only ai` or `--only social` to refresh just one slice when iterating.
 
 ## Backlinks (Common Crawl)
 

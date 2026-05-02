@@ -9,6 +9,7 @@ import { trackEvent, showFirstRunNotice } from '../telemetry.js'
 import { createClient, migrate } from '@ainyc/canonry-db'
 import { apiKeys } from '@ainyc/canonry-db'
 import { CliError, type CliFormat } from '../cli-error.js'
+import { installSkills, type SkillsInstallSummary } from './skills.js'
 
 function prompt(question: string): Promise<string> {
   const rl = readline.createInterface({
@@ -29,6 +30,14 @@ const DEFAULT_QUOTA = {
   maxRequestsPerDay: 500,
 }
 
+const PROJECT_MARKERS = ['.git', 'canonry.yaml', 'canonry.yml', 'package.json'] as const
+
+function cwdLooksLikeProject(dir: string): boolean {
+  const home = process.env.HOME ?? ''
+  if (home && path.resolve(dir) === path.resolve(home)) return false
+  return PROJECT_MARKERS.some(marker => fs.existsSync(path.join(dir, marker)))
+}
+
 export interface InitOptions {
   force?: boolean
   geminiKey?: string
@@ -43,6 +52,8 @@ export interface InitOptions {
   agentProvider?: string
   agentKey?: string
   agentModel?: string
+  skipSkills?: boolean
+  skillsDir?: string
   format?: CliFormat
 }
 
@@ -260,6 +271,23 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
   })
 
   const providerNames = Object.keys(providers)
+
+  // Skills install — auto-install when cwd looks like a project; otherwise print a tip.
+  let skillsSummary: SkillsInstallSummary | undefined
+  let skillsTip: string | undefined
+  if (!opts?.skipSkills) {
+    const skillsTarget = opts?.skillsDir ?? process.cwd()
+    if (cwdLooksLikeProject(skillsTarget)) {
+      try {
+        skillsSummary = await installSkills({ dir: skillsTarget })
+      } catch (err) {
+        skillsTip = `Skills auto-install failed: ${err instanceof Error ? err.message : String(err)}. Run "canonry skills install" manually.`
+      }
+    } else {
+      skillsTip = 'Run "canonry skills install" in a project directory to add the canonry + Aero playbook to .claude/skills/ and .codex/skills/.'
+    }
+  }
+
   if (format === 'json') {
     console.log(JSON.stringify({
       initialized: true,
@@ -269,12 +297,19 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
       apiKey: rawApiKey,
       providers: providerNames,
       googleConfigured: !!google,
+      skills: skillsSummary,
+      skillsTip,
     }, null, 2))
   } else {
     console.log(`\nConfig saved to ${getConfigPath()}`)
     console.log(`Database created at ${databasePath}`)
     console.log(`API key: ${rawApiKey}`)
     console.log(`Providers: ${providerNames.join(', ')}`)
+    if (skillsSummary) {
+      console.log(`\n${skillsSummary.message}`)
+      console.log(`Skills target: ${skillsSummary.targetDir}`)
+    }
+    if (skillsTip) console.log(`\n${skillsTip}`)
   }
 
   // Resolve agent LLM config — from flags, or interactive prompt

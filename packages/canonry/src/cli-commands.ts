@@ -15,6 +15,7 @@ import { PROJECT_CLI_COMMANDS } from './cli-commands/project.js'
 import { RUN_CLI_COMMANDS } from './cli-commands/run.js'
 import { SCHEDULE_CLI_COMMANDS } from './cli-commands/schedule.js'
 import { SETTINGS_CLI_COMMANDS } from './cli-commands/settings.js'
+import { SKILLS_CLI_COMMANDS } from './cli-commands/skills.js'
 import { SNAPSHOT_CLI_COMMANDS } from './cli-commands/snapshot.js'
 import { INTELLIGENCE_CLI_COMMANDS } from './cli-commands/intelligence.js'
 import { CONTENT_CLI_COMMANDS } from './cli-commands/content.js'
@@ -30,6 +31,7 @@ export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...KEYWORD_CLI_COMMANDS,
   ...COMPETITOR_CLI_COMMANDS,
   ...SETTINGS_CLI_COMMANDS,
+  ...SKILLS_CLI_COMMANDS,
   ...SNAPSHOT_CLI_COMMANDS,
   ...RUN_CLI_COMMANDS,
   ...OPERATOR_CLI_COMMANDS,

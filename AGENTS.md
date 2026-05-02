@@ -79,6 +79,12 @@ canonry-mcp --eager                                  # register all 51 API tools
 canonry mcp install --client claude-desktop          # merges a canonry entry into the config
 canonry mcp install --client cursor --read-only      # scope to the 35 read tools
 canonry mcp config  --client codex                   # print snippet for clients without auto-install
+
+# Skills — install canonry's agent playbook into a user's project
+canonry skills list                                  # show bundled skills (canonry-setup, aero)
+canonry skills install                               # write both skills into ./.claude/skills/ + ./.codex/skills/ (default)
+canonry skills install aero --client claude          # install only the analyst skill, no codex symlink
+canonry skills install --dir ~/projects/foo --force  # custom target, overwrite divergent local edits
 ```
 
 ## Agent Layer

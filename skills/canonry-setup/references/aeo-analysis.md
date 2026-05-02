@@ -81,6 +81,21 @@ canonry analytics <project> --feature gaps --window 30d
 ```
 Look for patterns: are gaps growing or shrinking? Are new competitors appearing?
 
+### Step 6: Check GA4 traffic for impact
+A lost citation isn't always a lost user. Before declaring a regression real, confirm whether AI-referral traffic actually fell on the same window:
+```bash
+canonry ga status <project>                          # confirm lastSyncedAt is recent; re-sync if stale
+canonry ga ai-referral-history <project> --format json
+                                                      # daily {date, source, medium, attribution, sessions, users}
+canonry ga attribution <project> --trend             # 7d/30d direction per channel + biggest mover
+```
+Read the result against the citation loss window:
+- **AI sessions flat or up** → the citation loss may be sweep-side noise (provider variance, query refresh). Track for one more cycle before alarming the client.
+- **AI sessions dropped on the same date** → real outage; escalate. Cross-reference `aiReferrals[]` from `canonry ga traffic` to identify which provider lost traffic.
+- **Organic dropped but AI held** → the citation loss is masking a separate indexing issue. Re-run Step 1.
+
+GA4 also covers the inverse case: a *gain* on `attribution --trend` for the AI channel that isn't reflected in citation count usually means a provider expanded an existing citation's exposure (more queries triggering it) — a quiet win worth flagging in the next report.
+
 ## Trend Interpretation
 
 **Stable cited** — monitor for regressions, no action needed.

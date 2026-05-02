@@ -155,7 +155,7 @@ describe('canonry', () => {
     vi.stubEnv('CANONRY_PORT', '5555')
 
     try {
-      await initCommand({ force: true, geminiKey: 'test-gemini-key' })
+      await initCommand({ force: true, geminiKey: 'test-gemini-key', skipSkills: true })
 
       vi.stubEnv('CANONRY_PORT', undefined as unknown as string)
       const config = loadConfig()
@@ -558,6 +558,7 @@ describe('canonry', () => {
         force: true,
         geminiKey: 'test-gemini-key',
         openaiKey: 'test-openai-key',
+        skipSkills: true,
       })
 
       const config = loadConfig()
@@ -579,7 +580,7 @@ describe('canonry', () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'test-anthropic-env')
 
     try {
-      await initCommand({ force: true })
+      await initCommand({ force: true, skipSkills: true })
 
       const config = loadConfig()
       expect(config.providers?.claude?.apiKey).toBe('test-anthropic-env')
