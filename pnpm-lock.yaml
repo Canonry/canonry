@@ -27,6 +27,9 @@ importers:
       husky:
         specifier: ^9.1.7
         version: 9.1.7
+      jsdom:
+        specifier: ^29.0.0
+        version: 29.0.0
       tsx:
         specifier: ^4.20.5
         version: 4.21.0
