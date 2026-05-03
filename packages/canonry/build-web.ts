@@ -50,4 +50,17 @@ if (hadAgentWorkspace) {
   fs.rmSync(agentWorkspaceTmp, { recursive: true })
 }
 
-console.log(`SPA assets copied to ${assetsDir}`)
+// Verify that all asset references in index.html resolve to existing files.
+// Prevents white-screen outages from HTML referencing stale hashed filenames.
+const indexPath = path.join(assetsDir, 'index.html')
+const html = fs.readFileSync(indexPath, 'utf-8')
+const refs = [...html.matchAll(/(?:src|href)="\.\/([^"]+)"/g)].map(m => m[1])
+const missing = refs.filter(ref => !fs.existsSync(path.join(assetsDir, ref)))
+if (missing.length > 0) {
+  console.error('Error: index.html references assets that do not exist:')
+  for (const ref of missing) console.error(`  - ${ref}`)
+  console.error('The web build output and asset copy are out of sync. Rebuild from clean state.')
+  process.exit(1)
+}
+
+console.log(`SPA assets copied to ${assetsDir} (${refs.length} references verified)`) 
