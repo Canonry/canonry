@@ -478,6 +478,34 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.executiveSummary.trend).toBe('up')
   })
 
+  test('partial runs power the scorecard but are excluded from the trend line', async () => {
+    const projectId = insertProject(ctx.db, 'partial-run')
+    const kw = insertKeyword(ctx.db, projectId, 'kw')
+
+    const completedId = insertRun(ctx.db, projectId, {
+      status: 'completed',
+      createdAt: '2026-04-01T00:00:00Z',
+      finishedAt: '2026-04-01T00:01:00Z',
+    })
+    insertSnapshot(ctx.db, completedId, kw, { citationState: 'not-cited' })
+
+    const partialId = insertRun(ctx.db, projectId, {
+      status: 'partial',
+      createdAt: '2026-04-02T00:00:00Z',
+      finishedAt: '2026-04-02T00:01:00Z',
+    })
+    insertSnapshot(ctx.db, partialId, kw, { citationState: 'cited' })
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/partial-run/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.citationsTrend.length).toBe(1)
+    expect(body.citationsTrend[0]!.runId).toBe(completedId)
+    expect(body.citationScorecard.keywords).toContain('kw')
+    expect(body.executiveSummary.citationRate).toBe(100)
+  })
+
   test('trend stays "unknown" when only one visibility run has completed', async () => {
     const projectId = insertProject(ctx.db, 'single-run')
     const kw = insertKeyword(ctx.db, projectId, 'kw')

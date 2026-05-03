@@ -564,7 +564,7 @@ function buildCitationsTrend(
 
   const points: CitationsTrendPoint[] = []
   for (const run of visibilityRuns) {
-    if (run.status !== 'completed' && run.status !== 'partial') continue
+    if (run.status !== 'completed') continue
     const snaps = loadSnapshotsForRun(db, run.id)
     if (snaps.length === 0) continue
 
@@ -749,9 +749,19 @@ export async function reportRoutes(app: FastifyInstance) {
     const insightList = buildInsightList(app.db, project.id)
     const recommendedNextSteps = buildRecommendedNextSteps(insightList)
 
+    let latestCited = 0
+    let latestConsidered = 0
+    for (const snap of latestSnapshots) {
+      if (!keywordLookup.byId.has(snap.keywordId)) continue
+      latestConsidered++
+      if (snap.citationState === 'cited') latestCited++
+    }
+    const citationRate = latestConsidered > 0
+      ? Math.round((latestCited / latestConsidered) * 100)
+      : 0
+
     const latestPoint = citationsTrend.at(-1)
     const previousPoint = citationsTrend.length >= 2 ? citationsTrend.at(-2) : null
-    const citationRate = latestPoint?.citationRate ?? 0
     let trend: ProjectReportDto['executiveSummary']['trend'] = 'unknown'
     if (latestPoint && previousPoint) {
       if (latestPoint.citationRate > previousPoint.citationRate) trend = 'up'
