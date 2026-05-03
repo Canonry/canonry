@@ -269,18 +269,18 @@ function buildGscSection(
 
   let totalClicks = 0
   let totalImpressions = 0
-  const queryAgg = new Map<string, { clicks: number; impressions: number; ctrSum: number; positionSum: number; rows: number }>()
+  let weightedPositionSum = 0
+  const queryAgg = new Map<string, { clicks: number; impressions: number; weightedPositionSum: number }>()
   const trendAgg = new Map<string, { clicks: number; impressions: number }>()
 
   for (const r of rows) {
     totalClicks += r.clicks
     totalImpressions += r.impressions
-    const q = queryAgg.get(r.query) ?? { clicks: 0, impressions: 0, ctrSum: 0, positionSum: 0, rows: 0 }
+    weightedPositionSum += safeNum(r.position) * r.impressions
+    const q = queryAgg.get(r.query) ?? { clicks: 0, impressions: 0, weightedPositionSum: 0 }
     q.clicks += r.clicks
     q.impressions += r.impressions
-    q.ctrSum += safeNum(r.ctr)
-    q.positionSum += safeNum(r.position)
-    q.rows++
+    q.weightedPositionSum += safeNum(r.position) * r.impressions
     queryAgg.set(r.query, q)
 
     const t = trendAgg.get(r.date) ?? { clicks: 0, impressions: 0 }
@@ -290,18 +290,15 @@ function buildGscSection(
   }
 
   const ctr = totalImpressions > 0 ? totalClicks / totalImpressions : 0
-  const positions = rows.map(r => safeNum(r.position)).filter(p => p > 0)
-  const avgPosition = positions.length > 0
-    ? positions.reduce((a, b) => a + b, 0) / positions.length
-    : 0
+  const avgPosition = totalImpressions > 0 ? weightedPositionSum / totalImpressions : 0
 
   const topQueries: GscQueryRow[] = [...queryAgg.entries()]
     .map(([query, agg]) => ({
       query,
       clicks: agg.clicks,
       impressions: agg.impressions,
-      ctr: agg.rows > 0 ? agg.ctrSum / agg.rows : 0,
-      avgPosition: agg.rows > 0 ? agg.positionSum / agg.rows : 0,
+      ctr: agg.impressions > 0 ? agg.clicks / agg.impressions : 0,
+      avgPosition: agg.impressions > 0 ? agg.weightedPositionSum / agg.impressions : 0,
       category: categorizeQuery(query, projectName, canonicalDomain),
     }))
     .sort((a, b) => b.clicks - a.clicks)
@@ -572,16 +569,19 @@ function buildCitationsTrend(
     if (snaps.length === 0) continue
 
     let cited = 0
+    let considered = 0
     const providerCounts = new Map<string, { cited: number; total: number }>()
     for (const snap of snaps) {
       if (!keywordLookup.byId.has(snap.keywordId)) continue
+      considered++
       if (snap.citationState === 'cited') cited++
       const counts = providerCounts.get(snap.provider) ?? { cited: 0, total: 0 }
       counts.total++
       if (snap.citationState === 'cited') counts.cited++
       providerCounts.set(snap.provider, counts)
     }
-    const citationRate = snaps.length > 0 ? Math.round((cited / snaps.length) * 100) : 0
+    if (considered === 0) continue
+    const citationRate = Math.round((cited / considered) * 100)
     const providerRates = [...providerCounts.entries()]
       .map(([provider, counts]) => ({
         provider,
@@ -677,13 +677,16 @@ function buildExecutiveFindings(
 
   if (trendsPoints.length > 0) {
     const tone = trend === 'up' ? 'positive' : trend === 'down' ? 'negative' : 'neutral'
+    let detail: string
+    switch (trend) {
+      case 'up': detail = 'Up from the previous run.'; break
+      case 'down': detail = 'Down from the previous run.'; break
+      case 'flat': detail = 'Flat compared to the previous run.'; break
+      case 'unknown': detail = 'No prior run to compare against.'; break
+    }
     findings.push({
       title: `Citation rate at ${citationRate}%`,
-      detail: trend === 'up'
-        ? 'Up from the previous run.'
-        : trend === 'down'
-          ? 'Down from the previous run.'
-          : 'Flat compared to the previous run.',
+      detail,
       tone,
     })
   }
@@ -754,8 +757,6 @@ export async function reportRoutes(app: FastifyInstance) {
       if (latestPoint.citationRate > previousPoint.citationRate) trend = 'up'
       else if (latestPoint.citationRate < previousPoint.citationRate) trend = 'down'
       else trend = 'flat'
-    } else if (latestPoint && !previousPoint) {
-      trend = 'flat'
     }
 
     const findings = buildExecutiveFindings(

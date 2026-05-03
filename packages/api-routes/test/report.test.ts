@@ -478,6 +478,22 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.executiveSummary.trend).toBe('up')
   })
 
+  test('trend stays "unknown" when only one visibility run has completed', async () => {
+    const projectId = insertProject(ctx.db, 'single-run')
+    const kw = insertKeyword(ctx.db, projectId, 'kw')
+    const runId = insertRun(ctx.db, projectId, { createdAt: '2026-04-01T00:00:00Z', finishedAt: '2026-04-01T00:01:00Z' })
+    insertSnapshot(ctx.db, runId, kw, { citationState: 'cited' })
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/single-run/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.citationsTrend.length).toBe(1)
+    expect(body.executiveSummary.trend).toBe('unknown')
+    const rateFinding = body.executiveSummary.findings.find(f => f.title.startsWith('Citation rate'))
+    expect(rateFinding?.detail).not.toContain('previous run')
+  })
+
   test('insights flow into the report and shape recommended next steps', async () => {
     const projectId = insertProject(ctx.db, 'insights-test')
     const runId = insertRun(ctx.db, projectId)

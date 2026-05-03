@@ -33,8 +33,7 @@ function escapeHtml(value: string): string {
 
 function formatRatio(value: number): string {
   if (!Number.isFinite(value) || value === 0) return '0%'
-  if (value < 1) return `${(value * 100).toFixed(1)}%`
-  return `${Math.round(value)}%`
+  return `${(value * 100).toFixed(1)}%`
 }
 
 function formatNumber(value: number): string {
