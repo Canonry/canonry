@@ -7,6 +7,12 @@
  * presence, `cite*` for source-list presence; never blend the two.
  */
 
+import type {
+  ContentTargetRowDto,
+  ContentSourceRowDto,
+  ContentGapRowDto,
+} from './content.js'
+
 export interface ReportMeta {
   /** ISO timestamp the report was generated (server clock). */
   generatedAt: string
@@ -252,4 +258,20 @@ export interface ProjectReportDto {
   citationsTrend: CitationsTrendPoint[]
   insights: ReportInsight[]
   recommendedNextSteps: RecommendedNextStep[]
+  /**
+   * Ranked, action-typed content opportunities sourced from the existing
+   * intelligence layer (`buildContentTargetRows`). Empty when no run has
+   * produced candidate queries with demand or competitor signal.
+   */
+  contentOpportunities: ContentTargetRowDto[]
+  /**
+   * Queries where competitors were cited but the project was not. Sourced
+   * from `buildContentGapRows`. Empty until the first answer-visibility run.
+   */
+  contentGaps: ContentGapRowDto[]
+  /**
+   * Per-query grounding source map (own + competitor cited URLs). Sourced
+   * from `buildContentSourceRows`. Empty until the first answer-visibility run.
+   */
+  groundingSources: ContentSourceRowDto[]
 }

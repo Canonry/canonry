@@ -40,6 +40,9 @@ function makeReport(): ProjectReportDto {
     citationsTrend: [],
     insights: [],
     recommendedNextSteps: [],
+    contentOpportunities: [],
+    contentGaps: [],
+    groundingSources: [],
   }
 }
 

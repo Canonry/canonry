@@ -38,6 +38,9 @@ function emptyReport(): ProjectReportDto {
     citationsTrend: [],
     insights: [],
     recommendedNextSteps: [],
+    contentOpportunities: [],
+    contentGaps: [],
+    groundingSources: [],
   }
 }
 
@@ -191,6 +194,70 @@ function richReport(): ProjectReportDto {
     recommendedNextSteps: [
       { horizon: 'immediate', title: 'Resolve 1 critical regression', rationale: 'Lost citation on aeo platform.' },
     ],
+    contentOpportunities: [
+      {
+        targetRef: 'rich:create:best-aeo-platform',
+        query: 'best aeo platform',
+        action: 'create',
+        ourBestPage: null,
+        winningCompetitor: {
+          domain: 'rival.com',
+          url: 'https://rival.com/best-aeo',
+          title: 'Best AEO',
+          citationCount: 3,
+        },
+        score: 87.5,
+        scoreBreakdown: { demand: 0.6, competitor: 0.8, absence: 1, gapSeverity: 1 },
+        drivers: ['high competitor density', 'no own page'],
+        demandSource: 'competitor-evidence',
+        actionConfidence: 'high',
+        existingAction: null,
+      },
+      {
+        targetRef: 'rich:refresh:answer-engine-optimization',
+        query: 'answer engine optimization',
+        action: 'refresh',
+        ourBestPage: {
+          url: '/blog/answer-engine-optimization',
+          gscImpressions: 1500,
+          gscClicks: 120,
+          gscAvgPosition: 4,
+          organicSessions: 200,
+        },
+        winningCompetitor: null,
+        score: 62.1,
+        scoreBreakdown: { demand: 0.7, competitor: 0.3, absence: 0.5, gapSeverity: 0.4 },
+        drivers: ['existing page ranks weakly'],
+        demandSource: 'gsc',
+        actionConfidence: 'medium',
+        existingAction: null,
+      },
+    ],
+    contentGaps: [
+      {
+        query: 'best aeo platform',
+        competitorDomains: ['rival.com'],
+        competitorCount: 1,
+        missRate: 1,
+        lastSeenInRunId: 'r-2',
+      },
+    ],
+    groundingSources: [
+      {
+        query: 'best aeo platform',
+        groundingSources: [
+          {
+            uri: 'https://rival.com/best-aeo',
+            title: 'Best AEO',
+            domain: 'rival.com',
+            isOurDomain: false,
+            isCompetitor: true,
+            citationCount: 3,
+            providers: ['gemini'],
+          },
+        ],
+      },
+    ],
   }
 }
 
@@ -291,6 +358,37 @@ describe('renderReportHtml', () => {
     expect(html).toContain('title="/solar?fbclid=120242511631000253&amp;h_ad_id=120242512056450253"')
     // The raw query string should not appear as visible cell text
     expect(html).not.toMatch(/<span class="page-path">[^<]*fbclid/)
+  })
+
+  test('renders a Content Opportunities section anchor when the array is non-empty', () => {
+    const html = renderReportHtml(richReport())
+    expect(html).toContain('id="content-opportunities"')
+    // Top opportunity's query and action chip should both appear
+    expect(html).toContain('best aeo platform')
+    expect(html).toContain('create')
+  })
+
+  test('omits the Content Opportunities section when the array is empty', () => {
+    const html = renderReportHtml(emptyReport())
+    expect(html).not.toContain('id="content-opportunities"')
+  })
+
+  test('auto-fills Recommended Next Steps from contentOpportunities when no severe insights', () => {
+    const report = richReport()
+    report.recommendedNextSteps = [] // simulate empty pipeline-derived steps
+    const html = renderReportHtml(report)
+    // The opportunity's query should now appear inside the next-steps section
+    const stepsBlock = html.split('id="recommended-next-steps"')[1] ?? ''
+    expect(stepsBlock).toContain('best aeo platform')
+    expect(stepsBlock).not.toContain('No outstanding actions.')
+  })
+
+  test('preserves explicit recommendedNextSteps over auto-fill', () => {
+    const html = renderReportHtml(richReport()) // has one explicit immediate step
+    const stepsBlock = html.split('id="recommended-next-steps"')[1] ?? ''
+    expect(stepsBlock).toContain('Resolve 1 critical regression')
+    // Auto-fill content (the opportunity query) should NOT appear inside the steps block
+    expect(stepsBlock).not.toContain('Refresh the page targeting')
   })
 })
 
