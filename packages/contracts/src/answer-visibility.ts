@@ -75,7 +75,13 @@ export function extractAnswerMentions(
   const answerBrandKey = brandKeyFromText(answerText)
   const normalizedCandidates = brandNormalizedCandidates(displayName)
   const brandKeyCandidates = brandKeyCandidatesForMatch(displayName)
-  const matchesNormalized = normalizedCandidates.some(c => answerNormalized.includes(c))
+  // Match the normalized candidate as a whole word in the answer, not as a
+  // substring. Otherwise a short candidate like "li" (from displayName "LI")
+  // false-matches inside unrelated words such as "polished" or "compliance",
+  // and "inc" false-matches inside "incident".
+  const matchesNormalized = normalizedCandidates.some(c =>
+    new RegExp(`\\b${escapeRegExp(c)}\\b`).test(answerNormalized),
+  )
   const matchesBrandKey = brandKeyCandidates.some(
     c => c.length >= MIN_BRAND_KEY_LENGTH && answerBrandKey.includes(c),
   )
@@ -188,10 +194,6 @@ function brandNormalizedCandidates(displayName: string): string[] {
   if (!original) return []
   const stripped = stripBusinessSuffix(original, ' ')
   if (!stripped || stripped === original) return [original]
-  // Apply the same MIN_BRAND_KEY_LENGTH guard as the brand-key path: a stripped
-  // candidate like "bob" (from "Bob Inc") would otherwise substring-match inside
-  // unrelated words such as "bobsled".
-  if (brandKeyFromText(stripped).length < MIN_BRAND_KEY_LENGTH) return [original]
   return [original, stripped]
 }
 
