@@ -3,6 +3,7 @@ import type { DatabaseClient } from '@ainyc/canonry-db'
 import { projects, runs, querySnapshots, keywords, insights, healthSnapshots, gscSearchData, parseJsonColumn } from '@ainyc/canonry-db'
 import { analyzeRuns, classifyRegressionSeverity } from '@ainyc/canonry-intelligence'
 import type { RunData, Snapshot, AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
+import { RunKinds } from '@ainyc/canonry-contracts'
 import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
 
@@ -285,6 +286,7 @@ export class IntelligenceService {
       .where(
         and(
           eq(runs.projectId, projectId),
+          eq(runs.kind, RunKinds['answer-visibility']),
           or(eq(runs.status, 'completed'), eq(runs.status, 'partial')),
         ),
       )
