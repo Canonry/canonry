@@ -60,7 +60,7 @@ A canonry engagement follows the same loop regardless of project size:
 2. **Prioritize** — Triage by impact: indexing gaps → schema gaps → content gaps → keyphrase strategy. Branded-term losses are urgent.
 3. **Execute** — Apply fixes via the canonry CLI or platform integrations. See `references/canonry-cli.md` for the full command catalog and `references/wordpress-integration.md` for the WordPress workflow.
 4. **Monitor** — Re-run sweeps weekly. Correlate visibility shifts with deployments and competitor moves.
-5. **Report** — Lead with data, not interpretation: "Lost `<keyword>` on Gemini between <date> and <date> — two competitors moved in. Here's what to fix."
+5. **Report** — Lead with data, not interpretation: "Lost `<keyword>` on Gemini between <date> and <date> — two competitors moved in. Here's what to fix." For a one-command client-facing summary, run `canonry report <project>` to generate a self-contained HTML bundle (executive summary, citation scorecard, competitor landscape, GSC + GA4 performance, insights). Same payload is available via `--format json` and the `canonry_report` MCP tool.
 
 ## Common Starting Points
 
