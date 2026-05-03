@@ -19,7 +19,7 @@ export function applyServerEnv(values: Record<string, unknown>): void {
 export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['init'],
-    usage: 'canonry init [--force] [--gemini-key <key>] [--openai-key <key>] [--claude-key <key>] [--perplexity-key <key>] [--local-url <url>] [--local-model <name>] [--local-key <key>] [--google-client-id <id>] [--google-client-secret <key>] [--format json]',
+    usage: 'canonry init [--force] [--gemini-key <key>] [--openai-key <key>] [--claude-key <key>] [--perplexity-key <key>] [--local-url <url>] [--local-model <name>] [--local-key <key>] [--google-client-id <id>] [--google-client-secret <key>] [--skip-skills] [--skills-dir <path>] [--format json]',
     options: {
       force: { type: 'boolean', short: 'f', default: false },
       'gemini-key': stringOption(),
@@ -31,6 +31,8 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'local-key': stringOption(),
       'google-client-id': stringOption(),
       'google-client-secret': stringOption(),
+      'skip-skills': { type: 'boolean' },
+      'skills-dir': stringOption(),
     },
     allowPositionals: false,
     run: async (input) => {
@@ -45,6 +47,8 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
         localKey: getString(input.values, 'local-key'),
         googleClientId: getString(input.values, 'google-client-id'),
         googleClientSecret: getString(input.values, 'google-client-secret'),
+        skipSkills: getBoolean(input.values, 'skip-skills'),
+        skillsDir: getString(input.values, 'skills-dir'),
         format: input.format,
       })
     },

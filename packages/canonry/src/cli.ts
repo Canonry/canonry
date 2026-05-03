@@ -15,6 +15,7 @@ Setup:
   bootstrap             Bootstrap config/database from env vars
   serve                 Start the local server (foreground)
   start / stop          Start/stop as a background daemon
+  skills                List or install bundled agent skills (claude/codex)
 
 Projects:
   project               Create, update, list, show, delete projects

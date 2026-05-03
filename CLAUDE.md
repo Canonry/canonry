@@ -64,7 +64,27 @@ The web dashboard follows a dark, professional analytics aesthetic inspired by *
 
 ## Skills Maintenance
 
-The `skills/canonry-setup/` directory contains a Claude skill that documents how to install, configure, and operate canonry. **Keep this skill in sync with the codebase.**
+The repo ships **two** Claude skills under `skills/`, both bundled into the published `@ainyc/canonry` package and installable into any user's project via `canonry skills install`:
+
+| Skill | Audience | Purpose |
+|---|---|---|
+| `skills/canonry-setup/` | External users (their Claude Code / Codex) | Operator playbook: how to install canonry, run sweeps, audit indexing, fix integrations |
+| `skills/aero/` | Aero (canonry's built-in analyst) AND external users | Analyst playbook: regression diagnosis, orchestration, memory patterns, reporting |
+
+**Keep both skills in sync with the codebase.** Both are co-equal — the analyst playbook ships alongside the operator playbook in every install (see `feedback_analyst_is_core` memory).
+
+### Layout
+
+Each skill is a directory tree:
+
+```
+skills/<name>/
+  SKILL.md          # tight entry point (≤ ~100 lines): when to use, top-level capabilities, references TOC
+  references/       # deep playbooks the agent reads on demand
+    *.md
+```
+
+`SKILL.md` is the only file always pulled into agent context when the skill is invoked. References lazy-load — the agent `Read`s them only when the task matches. **Keep `SKILL.md` lean** and push detail into `references/`.
 
 ### When to update skills
 
@@ -73,6 +93,13 @@ The `skills/canonry-setup/` directory contains a Claude skill that documents how
 - **New integration** (Google/Bing/CDP feature) → update the relevant reference file in `skills/canonry-setup/references/`
 - **Changed troubleshooting patterns** → update the troubleshooting table in `SKILL.md`
 - **New analytics feature** → update `references/aeo-analysis.md`
+- **New analyst workflow / reporting template** → update `skills/aero/references/`
+
+### Bundling and installation
+
+- `packages/canonry/scripts/copy-agent-assets.ts` mirrors `skills/<name>/` into `packages/canonry/assets/agent-workspace/skills/<name>/` at build time so the trees ship in the published package.
+- `canonry skills install [--dir <path>] [--client claude|codex|all] [--force]` writes the bundled trees into `<dir>/.claude/skills/<name>/` and (for codex) creates a relative symlink at `<dir>/.codex/skills/<name>` pointing back at the Claude path. Default scope: all skills, both clients.
+- `canonry init` auto-runs `installSkills()` when the cwd looks like a project (has `.git`, `canonry.yaml`, or `package.json`); otherwise prints a tip. Pass `--skip-skills` to opt out or `--skills-dir <path>` to override the target.
 
 ### What NOT to put in skills
 
