@@ -12,6 +12,7 @@ import { MCP_CLI_COMMANDS } from './cli-commands/mcp.js'
 import { NOTIFY_CLI_COMMANDS } from './cli-commands/notify.js'
 import { OPERATOR_CLI_COMMANDS } from './cli-commands/operator.js'
 import { PROJECT_CLI_COMMANDS } from './cli-commands/project.js'
+import { REPORT_CLI_COMMANDS } from './cli-commands/report.js'
 import { RUN_CLI_COMMANDS } from './cli-commands/run.js'
 import { SCHEDULE_CLI_COMMANDS } from './cli-commands/schedule.js'
 import { SETTINGS_CLI_COMMANDS } from './cli-commands/settings.js'
@@ -28,6 +29,7 @@ export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...BACKLINKS_CLI_COMMANDS,
   ...SYSTEM_CLI_COMMANDS,
   ...PROJECT_CLI_COMMANDS,
+  ...REPORT_CLI_COMMANDS,
   ...KEYWORD_CLI_COMMANDS,
   ...COMPETITOR_CLI_COMMANDS,
   ...SETTINGS_CLI_COMMANDS,

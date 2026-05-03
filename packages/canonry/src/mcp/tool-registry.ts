@@ -246,6 +246,18 @@ export const canonryMcpTools = [
     handler: (client, input) => client.getProjectOverview(input.project),
   }),
   defineTool({
+    name: 'canonry_report',
+    title: 'Get aggregated AEO report',
+    description:
+      'Returns the full client-facing AEO report bundle for a project — executive summary, per-keyword × per-provider citation matrix, competitor landscape, AI source origin, GSC/GA4 performance, social and AI referrals, indexing health, citations trend, prioritized insights, and recommended next steps. Same payload `canonry report <project>` consumes to render the self-contained HTML.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: projectInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/report'],
+    handler: (client, input) => client.getReport(input.project),
+  }),
+  defineTool({
     name: 'canonry_search',
     title: 'Search project (composite)',
     description: 'Search query snapshots and intelligence insights for the given text. Looks at snapshot answer text, cited domains, raw provider responses, and insight title/keyword/recommendation/cause. Returns ranked hits with snippets — use it instead of paginating snapshots when you need to find a competitor mention or term.',

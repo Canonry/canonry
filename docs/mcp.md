@@ -102,7 +102,7 @@ Toolkits (loaded on demand):
 
 | Toolkit | What's in it | When to load |
 | --- | --- | --- |
-| `monitoring` | runs list/latest/get, project history, timeline, snapshots list/diff, insights list/get, health latest/history, content targets/sources/gaps | Investigating regressions, comparing runs, reviewing insights/health, surfacing content opportunities |
+| `monitoring` | runs list/latest/get, project history, timeline, snapshots list/diff, insights list/get, health latest/history, content targets/sources/gaps, `canonry_report` (aggregated AEO report bundle) | Investigating regressions, comparing runs, reviewing insights/health, surfacing content opportunities, generating client-facing reports |
 | `setup` | project export/upsert, keywords list/add/remove/replace/generate, competitors list/add/remove, schedule get/set/delete, insight dismiss, backlinks domains | Onboarding a project, editing keywords/competitors/schedules, reviewing backlink coverage |
 | `gsc` | google connections list, GSC performance, inspections, coverage, coverage history, sitemaps, deindexed | Indexing, coverage, sitemap analysis from Google Search Console |
 | `ga` | GA status, traffic, coverage, AI/social referral history, social/attribution trends, session history | Traffic, referral, attribution data from Google Analytics 4 |

@@ -14,6 +14,7 @@ import type { ApplyRoutesOptions } from './apply.js'
 import { historyRoutes } from './history.js'
 import { analyticsRoutes } from './analytics.js'
 import { intelligenceRoutes } from './intelligence.js'
+import { reportRoutes } from './report.js'
 import { citationRoutes } from './citations.js'
 import { compositeRoutes } from './composites.js'
 import { contentRoutes } from './content.js'
@@ -208,6 +209,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(historyRoutes)
     await api.register(analyticsRoutes)
     await api.register(intelligenceRoutes)
+    await api.register(reportRoutes)
     await api.register(citationRoutes)
     await api.register(compositeRoutes)
     await api.register(contentRoutes)
