@@ -531,17 +531,23 @@ function renderCompetitorLandscape(report: ProjectReportDto): string {
 
   const rows = competitors.map(c => {
     const tone = pressureTone(c.pressureLabel)
+    const pagesDisclosure = c.theirCitedPages.length > 0
+      ? `<details class="cited-pages"><summary>${c.theirCitedPages.length} cited URL${c.theirCitedPages.length > 1 ? 's' : ''}</summary>
+          <ul>${c.theirCitedPages.map(p => `<li><a href="${escapeHtml(p.url)}">${escapeHtml(p.url)}</a> <span class="cited-for">${escapeHtml(p.citedFor.join(', '))}</span></li>`).join('')}</ul>
+        </details>`
+      : ''
     return `<tr>
       <td>${escapeHtml(c.domain)}</td>
       <td><span class="badge tone-${tone}">${escapeHtml(c.pressureLabel)}</span></td>
       <td class="numeric">${c.citationCount} / ${c.totalCount}</td>
-      <td>${escapeHtml(c.citedKeywords.slice(0, 5).join(', '))}${c.citedKeywords.length > 5 ? '…' : ''}</td>
+      <td class="numeric">${c.sharePct}%</td>
+      <td>${escapeHtml(c.citedKeywords.slice(0, 5).join(', '))}${c.citedKeywords.length > 5 ? '…' : ''}${pagesDisclosure}</td>
     </tr>`
   }).join('')
 
   const table = competitors.length > 0
     ? `<table class="report-table">
-        <thead><tr><th>Domain</th><th>Pressure</th><th>Citations</th><th>Cited keywords</th></tr></thead>
+        <thead><tr><th>Domain</th><th>Pressure</th><th>Citations</th><th class="numeric">SOV</th><th>Cited keywords</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`
     : renderEmpty('No competitors configured.')
@@ -693,6 +699,20 @@ function renderGsc(report: ProjectReportDto): string {
     'Clicks over time',
   )
 
+  const crossoverBlocks: string[] = []
+  if (gsc.trackedButNoGsc.length > 0) {
+    crossoverBlocks.push(`<div class="chart-card"><h3>AEO keywords without search demand</h3>
+      <p class="section-intro">Tracked AEO keywords with no GSC impressions in this window — review whether they represent real search demand.</p>
+      <ul>${gsc.trackedButNoGsc.map(k => `<li>${escapeHtml(k)}</li>`).join('')}</ul>
+    </div>`)
+  }
+  if (gsc.gscButNotTracked.length > 0) {
+    crossoverBlocks.push(`<div class="chart-card"><h3>Search queries you should track</h3>
+      <p class="section-intro">GSC top queries (by impressions) that aren't tracked in your AEO project — candidates to add as keywords.</p>
+      <ul>${gsc.gscButNotTracked.map(q => `<li>${escapeHtml(q)}</li>`).join('')}</ul>
+    </div>`)
+  }
+
   return section(
     { id: 'gsc', eyebrow: 'Section 5', title: 'GSC Performance', intro: 'Top queries, category breakdown, and traffic trend from Google Search Console.' },
     `<div class="metric-grid">
@@ -713,7 +733,8 @@ function renderGsc(report: ProjectReportDto): string {
         <thead><tr><th>Category</th><th class="numeric">Clicks</th><th class="numeric">Imp.</th><th class="numeric">Share</th></tr></thead>
         <tbody>${breakdownRows}</tbody>
       </table>
-    </div>`,
+    </div>
+    ${crossoverBlocks.join('\n')}`,
   )
 }
 

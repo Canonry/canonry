@@ -37,7 +37,13 @@ import {
   mapOpportunitiesToNextSteps,
 } from '@ainyc/canonry-intelligence'
 import { resolveProject } from './helpers.js'
-import { loadOrchestratorInput } from './content-data.js'
+import {
+  extractGroundingSources,
+  extractHostFromUri,
+  loadOrchestratorInput,
+  normalizeDomain,
+} from './content-data.js'
+import type { GroundingSource } from '@ainyc/canonry-contracts'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 
 const TOP_QUERIES_LIMIT = 20
@@ -95,6 +101,7 @@ interface SnapshotRow {
   answerText: string | null
   citedDomains: string[]
   competitorOverlap: string[]
+  groundingSources: GroundingSource[]
   createdAt: string
 }
 
@@ -111,6 +118,7 @@ function loadSnapshotsForRun(db: DatabaseClient, runId: string): SnapshotRow[] {
     answerText: r.answerText,
     citedDomains: parseJsonColumn<string[]>(r.citedDomains, []),
     competitorOverlap: parseJsonColumn<string[]>(r.competitorOverlap, []),
+    groundingSources: extractGroundingSources(r.rawResponse),
     createdAt: r.createdAt,
   }))
 }
@@ -188,8 +196,13 @@ function buildCompetitorLandscape(
   keywordLookup: KeywordLookup,
 ): ProjectReportDto['competitorLandscape'] {
   let projectCitationCount = 0
-  const competitorMap = new Map<string, { count: number; keywords: Set<string> }>()
-  for (const c of competitorDomains) competitorMap.set(c, { count: 0, keywords: new Set() })
+  const competitorMap = new Map<
+    string,
+    { count: number; keywords: Set<string>; pages: Map<string, Set<string>> }
+  >()
+  for (const c of competitorDomains) {
+    competitorMap.set(c, { count: 0, keywords: new Set(), pages: new Map() })
+  }
 
   for (const snap of snapshots) {
     const kw = keywordLookup.byId.get(snap.keywordId)
@@ -204,8 +217,26 @@ function buildCompetitorLandscape(
         entry.count++
         if (kw) entry.keywords.add(kw)
       }
+      // Aggregate cited URLs from grounding sources whose host matches this
+      // competitor — independent of citationState because grounding indicates
+      // the model considered the source even if it didn't ultimately cite it.
+      const competitorNorm = normalizeDomain(competitor)
+      for (const gs of snap.groundingSources) {
+        const host = normalizeDomain(extractHostFromUri(gs.uri))
+        if (!host) continue
+        if (host === competitorNorm || host.endsWith(`.${competitorNorm}`)) {
+          const entry = competitorMap.get(competitor)!
+          const pageKeywords = entry.pages.get(gs.uri) ?? new Set<string>()
+          if (kw) pageKeywords.add(kw)
+          entry.pages.set(gs.uri, pageKeywords)
+        }
+      }
     }
   }
+
+  // Denominator for SOV = sum of all citation counts (project + competitors).
+  const totalCitedSlots = projectCitationCount
+    + [...competitorMap.values()].reduce((sum, v) => sum + v.count, 0)
 
   const competitorRows: CompetitorRow[] = [...competitorMap.entries()].map(([domain, data]) => {
     const total = snapshots.length
@@ -216,12 +247,20 @@ function buildCompetitorLandscape(
       else if (ratio >= 0.2) pressureLabel = 'Moderate'
       else pressureLabel = 'Low'
     }
+    const sharePct = totalCitedSlots > 0
+      ? Math.round((data.count / totalCitedSlots) * 100)
+      : 0
+    const theirCitedPages = [...data.pages.entries()]
+      .map(([url, kws]) => ({ url, citedFor: [...kws].sort() }))
+      .sort((a, b) => b.citedFor.length - a.citedFor.length)
     return {
       domain,
       citationCount: data.count,
       totalCount: total,
       pressureLabel,
       citedKeywords: [...data.keywords].sort(),
+      sharePct,
+      theirCitedPages,
     }
   })
 
@@ -277,6 +316,7 @@ function buildGscSection(
   projectId: string,
   projectName: string,
   canonicalDomain: string,
+  trackedKeywords: string[],
 ): ProjectReportDto['gsc'] {
   const rows = db.select().from(gscSearchData).where(eq(gscSearchData.projectId, projectId)).all()
   if (rows.length === 0) return null
@@ -337,6 +377,15 @@ function buildGscSection(
     .map(([date, agg]) => ({ date, clicks: agg.clicks, impressions: agg.impressions }))
     .sort((a, b) => a.date.localeCompare(b.date))
 
+  const trackedSet = new Set(trackedKeywords.map(k => k.toLowerCase()))
+  const gscQuerySet = new Set([...queryAgg.keys()].map(q => q.toLowerCase()))
+  const trackedButNoGsc = trackedKeywords.filter(k => !gscQuerySet.has(k.toLowerCase())).sort()
+  const gscButNotTracked = [...queryAgg.entries()]
+    .filter(([q]) => !trackedSet.has(q.toLowerCase()))
+    .sort((a, b) => b[1].impressions - a[1].impressions)
+    .map(([q]) => q)
+    .slice(0, TOP_QUERIES_LIMIT)
+
   return {
     totalClicks,
     totalImpressions,
@@ -345,6 +394,8 @@ function buildGscSection(
     topQueries,
     categoryBreakdown,
     trend,
+    trackedButNoGsc,
+    gscButNotTracked,
   }
 }
 
@@ -791,7 +842,14 @@ export async function reportRoutes(app: FastifyInstance) {
       keywordLookup,
     )
     const aiSourceOrigin = buildAiSourceOrigin(latestSnapshots, projectDomains, competitorDomains)
-    const gscSection = buildGscSection(app.db, project.id, project.name, project.canonicalDomain)
+    const trackedKeywords = [...keywordLookup.byId.values()]
+    const gscSection = buildGscSection(
+      app.db,
+      project.id,
+      project.name,
+      project.canonicalDomain,
+      trackedKeywords,
+    )
     const gaSection = buildGaSection(app.db, project.id)
     const socialSection = buildSocialReferrals(app.db, project.id)
     const aiReferralsSection = buildAiReferrals(app.db, project.id)

@@ -94,6 +94,20 @@ export interface CompetitorRow {
   pressureLabel: 'High' | 'Moderate' | 'Low' | 'None'
   /** Distinct keywords on which this competitor was cited. */
   citedKeywords: string[]
+  /**
+   * Share of voice 0..100. Numerator = this competitor's `citationCount`.
+   * Denominator = sum of `citationCount` across all competitors plus the
+   * project's own `projectCitationCount`. Equals 0 when there are no cited
+   * slots in the snapshot.
+   */
+  sharePct: number
+  /**
+   * URLs from the latest run's grounding sources whose host matches this
+   * competitor's domain, with the keywords each URL was cited for. Empty
+   * when no grounding-source data is available (e.g. no `rawResponse` JSON
+   * stored for the snapshots).
+   */
+  theirCitedPages: Array<{ url: string; citedFor: string[] }>
 }
 
 export interface CompetitorLandscape {
@@ -147,6 +161,16 @@ export interface GscSection {
     sharePct: number
   }>
   trend: Array<{ date: string; clicks: number; impressions: number }>
+  /**
+   * Tracked AEO keywords that have no GSC impressions in the report window.
+   * Surfaces keywords that may not represent real search demand.
+   */
+  trackedButNoGsc: string[]
+  /**
+   * GSC top queries (sorted by impressions desc) that are not tracked as
+   * AEO keywords — the candidate set for adding to the AEO project.
+   */
+  gscButNotTracked: string[]
 }
 
 export interface GaTrafficSection {

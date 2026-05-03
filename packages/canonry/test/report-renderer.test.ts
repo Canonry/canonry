@@ -93,8 +93,8 @@ function richReport(): ProjectReportDto {
     competitorLandscape: {
       projectCitationCount: 4,
       competitors: [
-        { domain: 'rival.com', citationCount: 3, totalCount: 4, pressureLabel: 'High', citedKeywords: ['aeo platform'] },
-        { domain: 'other.com', citationCount: 1, totalCount: 4, pressureLabel: 'Low', citedKeywords: ['answer engine'] },
+        { domain: 'rival.com', citationCount: 3, totalCount: 4, pressureLabel: 'High', citedKeywords: ['aeo platform'], sharePct: 0, theirCitedPages: [] },
+        { domain: 'other.com', citationCount: 1, totalCount: 4, pressureLabel: 'Low', citedKeywords: ['answer engine'], sharePct: 0, theirCitedPages: [] },
       ],
     },
     aiSourceOrigin: {
@@ -124,6 +124,8 @@ function richReport(): ProjectReportDto {
         { date: '2026-04-01', clicks: 100, impressions: 500 },
         { date: '2026-04-02', clicks: 200, impressions: 1000 },
       ],
+      trackedButNoGsc: [],
+      gscButNotTracked: [],
     },
     ga: {
       totalSessions: 12000,
@@ -389,6 +391,56 @@ describe('renderReportHtml', () => {
     expect(stepsBlock).toContain('Resolve 1 critical regression')
     // Auto-fill content (the opportunity query) should NOT appear inside the steps block
     expect(stepsBlock).not.toContain('Refresh the page targeting')
+  })
+
+  test('renders SOV % column in competitor landscape', () => {
+    const report = richReport()
+    report.competitorLandscape.competitors[0]!.sharePct = 75
+    report.competitorLandscape.competitors[1]!.sharePct = 25
+    const html = renderReportHtml(report)
+    const landscape = html.split('id="competitor-landscape"')[1]?.split('</section>')[0] ?? ''
+    expect(landscape).toContain('75%')
+    expect(landscape).toContain('25%')
+  })
+
+  test('renders cited URLs from theirCitedPages as a disclosure', () => {
+    const report = richReport()
+    report.competitorLandscape.competitors[0]!.theirCitedPages = [
+      { url: 'https://rival.com/page-x', citedFor: ['kw1', 'kw2'] },
+    ]
+    const html = renderReportHtml(report)
+    const landscape = html.split('id="competitor-landscape"')[1]?.split('</section>')[0] ?? ''
+    expect(landscape).toContain('https://rival.com/page-x')
+    expect(landscape).toContain('kw1')
+    expect(landscape).toContain('kw2')
+  })
+
+  test('omits the cited-pages disclosure when no grounding URLs were captured', () => {
+    const report = richReport()
+    for (const c of report.competitorLandscape.competitors) c.theirCitedPages = []
+    const html = renderReportHtml(report)
+    const landscape = html.split('id="competitor-landscape"')[1]?.split('</section>')[0] ?? ''
+    expect(landscape).not.toContain('<details')
+  })
+
+  test('renders GSC × AEO crossover companion blocks when non-empty', () => {
+    const report = richReport()
+    report.gsc!.trackedButNoGsc = ['lonely-keyword']
+    report.gsc!.gscButNotTracked = ['unknown-query']
+    const html = renderReportHtml(report)
+    const gscBlock = html.split('id="gsc"')[1]?.split('</section>')[0] ?? ''
+    expect(gscBlock).toContain('lonely-keyword')
+    expect(gscBlock).toContain('unknown-query')
+  })
+
+  test('omits GSC × AEO crossover blocks when both lists are empty', () => {
+    const report = richReport()
+    report.gsc!.trackedButNoGsc = []
+    report.gsc!.gscButNotTracked = []
+    const html = renderReportHtml(report)
+    const gscBlock = html.split('id="gsc"')[1]?.split('</section>')[0] ?? ''
+    expect(gscBlock).not.toContain('AEO keywords without search demand')
+    expect(gscBlock).not.toContain('Search queries you should track')
   })
 })
 
