@@ -17,6 +17,9 @@ import {
 } from '@ainyc/canonry-db'
 import {
   categorizeSource,
+  normalizeProjectDomain,
+  RunKinds,
+  RunStatuses,
   type AiSourceCategoryBucket,
   type CitationCell,
   type CitationsTrendPoint,
@@ -47,6 +50,19 @@ function safeNum(value: unknown): number {
 
 function rootDomain(domain: string): string {
   return domain.toLowerCase().replace(/^www\./, '')
+}
+
+// Mirrors `domainMatches` in packages/canonry/src/citation-utils.ts (which
+// determineCitationState uses) — kept duplicated to respect the api-routes →
+// canonry dependency boundary. Whenever determineCitationState's matching
+// rules change, update this in lockstep.
+function citedDomainBelongsToProject(citedDomain: string, projectDomains: string[]): boolean {
+  const candidate = normalizeProjectDomain(citedDomain)
+  for (const domain of projectDomains) {
+    const normalized = normalizeProjectDomain(domain)
+    if (candidate === normalized || candidate.endsWith(`.${normalized}`)) return true
+  }
+  return false
 }
 
 function categorizeQuery(query: string, projectName: string, canonicalDomain: string): GscQueryRow['category'] {
@@ -165,24 +181,22 @@ function buildCitationScorecard(
 function buildCompetitorLandscape(
   snapshots: SnapshotRow[],
   competitorDomains: string[],
-  canonicalDomain: string,
+  projectDomains: string[],
   keywordLookup: KeywordLookup,
 ): ProjectReportDto['competitorLandscape'] {
-  const projectRoot = rootDomain(canonicalDomain)
   let projectCitationCount = 0
   const competitorMap = new Map<string, { count: number; keywords: Set<string> }>()
   for (const c of competitorDomains) competitorMap.set(c, { count: 0, keywords: new Set() })
 
   for (const snap of snapshots) {
     const kw = keywordLookup.byId.get(snap.keywordId)
-    const allDomains = [
-      ...snap.citedDomains.map(rootDomain),
-      ...snap.competitorOverlap.map(rootDomain),
-    ]
-    if (allDomains.includes(projectRoot)) projectCitationCount++
+    const allDomains = [...snap.citedDomains, ...snap.competitorOverlap]
+    if (allDomains.some(d => citedDomainBelongsToProject(d, projectDomains))) {
+      projectCitationCount++
+    }
 
     for (const competitor of competitorDomains) {
-      if (allDomains.includes(rootDomain(competitor))) {
+      if (allDomains.some(d => citedDomainBelongsToProject(d, [competitor]))) {
         const entry = competitorMap.get(competitor)!
         entry.count++
         if (kw) entry.keywords.add(kw)
@@ -215,10 +229,9 @@ function buildCompetitorLandscape(
 
 function buildAiSourceOrigin(
   snapshots: SnapshotRow[],
-  canonicalDomain: string,
+  projectDomains: string[],
   competitorDomains: string[],
 ): ProjectReportDto['aiSourceOrigin'] {
-  const projectRoot = rootDomain(canonicalDomain)
   const competitorRoots = new Set(competitorDomains.map(rootDomain))
   const categoryCounts = new Map<string, { label: string; count: number }>()
   const domainCounts = new Map<string, number>()
@@ -226,8 +239,7 @@ function buildAiSourceOrigin(
 
   for (const snap of snapshots) {
     for (const raw of snap.citedDomains) {
-      const root = rootDomain(raw)
-      if (root === projectRoot) continue
+      if (citedDomainBelongsToProject(raw, projectDomains)) continue
       const { category, label, domain } = categorizeSource(raw)
       const cat = categoryCounts.get(category) ?? { label, count: 0 }
       cat.count++
@@ -465,13 +477,44 @@ function buildAiReferrals(db: DatabaseClient, projectId: string): ProjectReportD
     .all()
   if (rows.length === 0) return null
 
+  // Dedupe overlapping attribution dimensions ('session', 'first_user',
+  // 'manual_utm') the same way GET /projects/:name/ga/traffic in ga.ts does:
+  // they're alternate lenses on the same visit, not disjoint events. For each
+  // (date, source, medium) tuple, pick the dimension whose total sessions are
+  // largest and keep only rows from that winning dimension.
+  const dimSessionsByTuple = new Map<string, Map<string, number>>()
+  for (const r of rows) {
+    const tupleKey = `${r.date}::${r.source}::${r.medium}`
+    let dimMap = dimSessionsByTuple.get(tupleKey)
+    if (!dimMap) {
+      dimMap = new Map<string, number>()
+      dimSessionsByTuple.set(tupleKey, dimMap)
+    }
+    dimMap.set(r.sourceDimension, (dimMap.get(r.sourceDimension) ?? 0) + r.sessions)
+  }
+  const winningDimension = new Map<string, string>()
+  for (const [tupleKey, dimMap] of dimSessionsByTuple) {
+    let bestDim: string | undefined
+    let bestSessions = -1
+    for (const [dim, sessions] of dimMap) {
+      if (sessions > bestSessions) {
+        bestSessions = sessions
+        bestDim = dim
+      }
+    }
+    if (bestDim) winningDimension.set(tupleKey, bestDim)
+  }
+  const dedupedRows = rows.filter(r =>
+    winningDimension.get(`${r.date}::${r.source}::${r.medium}`) === r.sourceDimension,
+  )
+
   let total = 0
   let totalUsers = 0
   const sourceAgg = new Map<string, { sessions: number; users: number }>()
   const trendAgg = new Map<string, number>()
   const pageAgg = new Map<string, { sessions: number; users: number }>()
 
-  for (const r of rows) {
+  for (const r of dedupedRows) {
     total += r.sessions
     totalUsers += r.users
     const s = sourceAgg.get(r.source) ?? { sessions: 0, users: 0 }
@@ -559,12 +602,12 @@ function buildCitationsTrend(
   const visibilityRuns = db
     .select()
     .from(runs)
-    .where(and(eq(runs.projectId, projectId), eq(runs.kind, 'answer-visibility')))
+    .where(and(eq(runs.projectId, projectId), eq(runs.kind, RunKinds['answer-visibility'])))
     .all()
 
   const points: CitationsTrendPoint[] = []
   for (const run of visibilityRuns) {
-    if (run.status !== 'completed') continue
+    if (run.status !== RunStatuses.completed) continue
     const snaps = loadSnapshotsForRun(db, run.id)
     if (snaps.length === 0) continue
 
@@ -724,22 +767,28 @@ export async function reportRoutes(app: FastifyInstance) {
       .orderBy(desc(runs.createdAt))
       .all()
 
-    const visibilityRuns = allRuns.filter(r => r.kind === 'answer-visibility')
-    const latestRun = visibilityRuns.find(r => r.status === 'completed' || r.status === 'partial')
-        ?? visibilityRuns[0]
+    const visibilityRuns = allRuns.filter(r => r.kind === RunKinds['answer-visibility'])
+    const latestRun = visibilityRuns.find(
+      r => r.status === RunStatuses.completed || r.status === RunStatuses.partial,
+    ) ?? visibilityRuns[0]
     const latestSnapshots = latestRun ? loadSnapshotsForRun(app.db, latestRun.id) : []
 
     const competitorRows = app.db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
     const competitorDomains = competitorRows.map(c => c.domain)
 
+    // Treat ownedDomains the same way determineCitationState does — anything
+    // matching the canonical domain or an owned subdomain counts as "ours".
+    const ownedDomains = parseJsonColumn<string[]>(project.ownedDomains, [])
+    const projectDomains = [project.canonicalDomain, ...ownedDomains]
+
     const citationScorecard = buildCitationScorecard(latestSnapshots, keywordLookup)
     const competitorLandscape = buildCompetitorLandscape(
       latestSnapshots,
       competitorDomains,
-      project.canonicalDomain,
+      projectDomains,
       keywordLookup,
     )
-    const aiSourceOrigin = buildAiSourceOrigin(latestSnapshots, project.canonicalDomain, competitorDomains)
+    const aiSourceOrigin = buildAiSourceOrigin(latestSnapshots, projectDomains, competitorDomains)
     const gscSection = buildGscSection(app.db, project.id, project.name, project.canonicalDomain)
     const gaSection = buildGaSection(app.db, project.id)
     const socialSection = buildSocialReferrals(app.db, project.id)

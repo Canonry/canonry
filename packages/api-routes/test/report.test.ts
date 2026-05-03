@@ -257,6 +257,30 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.competitorLandscape.projectCitationCount).toBe(1)
   })
 
+  test('owned domains and subdomains count toward the project, not as external sources', async () => {
+    const projectId = insertProject(ctx.db, 'owned', {
+      canonicalDomain: 'example.com',
+      ownedDomains: JSON.stringify(['brand.io']),
+    })
+    const kw = insertKeyword(ctx.db, projectId, 'kw')
+    const runId = insertRun(ctx.db, projectId)
+
+    insertSnapshot(ctx.db, runId, kw, {
+      provider: 'gemini',
+      citationState: 'cited',
+      citedDomains: JSON.stringify(['blog.example.com', 'brand.io']),
+    })
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/owned/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.competitorLandscape.projectCitationCount).toBe(1)
+    const externalDomains = body.aiSourceOrigin.topDomains.map(d => d.domain)
+    expect(externalDomains).not.toContain('blog.example.com')
+    expect(externalDomains).not.toContain('brand.io')
+  })
+
   test('AI source origin aggregates cited domains across snapshots', async () => {
     const projectId = insertProject(ctx.db, 'origin')
     const kw = insertKeyword(ctx.db, projectId, 'kw')
@@ -430,6 +454,48 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.socialReferrals!.totalSessions).toBe(120)
     expect(body.socialReferrals!.organicSessions).toBe(80)
     expect(body.socialReferrals!.paidSessions).toBe(40)
+  })
+
+  test('AI referrals dedupe overlapping attribution dimensions per (date, source, medium)', async () => {
+    const projectId = insertProject(ctx.db, 'ai-dedupe')
+    const baseDate = '2026-04-30'
+    ctx.db.insert(gaAiReferrals).values([
+      {
+        id: crypto.randomUUID(),
+        projectId,
+        date: baseDate,
+        source: 'chatgpt.com',
+        medium: 'referral',
+        sourceDimension: 'session',
+        landingPage: '/',
+        sessions: 10,
+        users: 8,
+        syncedAt: new Date().toISOString(),
+      },
+      {
+        id: crypto.randomUUID(),
+        projectId,
+        date: baseDate,
+        source: 'chatgpt.com',
+        medium: 'referral',
+        sourceDimension: 'first_user',
+        landingPage: '/',
+        sessions: 10,
+        users: 8,
+        syncedAt: new Date().toISOString(),
+      },
+    ]).run()
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/ai-dedupe/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.aiReferrals).not.toBeNull()
+    expect(body.aiReferrals!.totalSessions).toBe(10)
+    expect(body.aiReferrals!.totalUsers).toBe(8)
+    expect(body.aiReferrals!.bySource[0]!.sessions).toBe(10)
+    expect(body.aiReferrals!.trend[0]!.sessions).toBe(10)
+    expect(body.aiReferrals!.topLandingPages[0]!.sessions).toBe(10)
   })
 
   test('indexing health prefers GSC and falls back to Bing', async () => {
