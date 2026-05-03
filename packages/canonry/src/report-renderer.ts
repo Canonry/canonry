@@ -6,6 +6,7 @@ import type {
   ProjectReportDto,
   ReportInsight,
 } from '@ainyc/canonry-contracts'
+import { mapOpportunitiesToNextSteps } from '@ainyc/canonry-intelligence'
 
 const COLORS = {
   bg: '#09090b',
@@ -968,11 +969,47 @@ function renderInsights(report: ProjectReportDto): string {
   )
 }
 
+function renderOpportunities(report: ProjectReportDto): string {
+  const opps = report.contentOpportunities
+  if (opps.length === 0) return ''
+
+  const rows = opps.slice(0, 10).map((o) => {
+    const ourPage = o.ourBestPage
+      ? `<a href="${escapeHtml(o.ourBestPage.url)}">${escapeHtml(o.ourBestPage.url)}</a>`
+      : '<span class="cell-not-cited">—</span>'
+    const winning = o.winningCompetitor
+      ? `<a href="${escapeHtml(o.winningCompetitor.url)}">${escapeHtml(o.winningCompetitor.domain)}</a>`
+      : '<span class="cell-not-cited">—</span>'
+    return `<tr>
+      <td>${escapeHtml(o.query)}</td>
+      <td><span class="badge tone-neutral">${escapeHtml(o.action)}</span></td>
+      <td class="numeric">${Math.round(o.score)}</td>
+      <td>${ourPage}</td>
+      <td>${winning}</td>
+      <td><span class="badge tone-neutral">${escapeHtml(o.demandSource)}</span></td>
+      <td><span class="badge tone-neutral">${escapeHtml(o.actionConfidence)}</span></td>
+    </tr>`
+  }).join('')
+
+  return section(
+    {
+      id: 'content-opportunities',
+      eyebrow: 'Section 12',
+      title: 'Content Opportunities',
+      intro: 'Ranked, action-typed targets from the content recommendation engine. Top 10 shown.',
+    },
+    `<table class="report-table">
+      <thead><tr><th>Query</th><th>Action</th><th class="numeric">Score</th><th>Our page</th><th>Winning competitor</th><th>Demand</th><th>Confidence</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`,
+  )
+}
+
 function renderRecommendedNextSteps(report: ProjectReportDto): string {
-  const steps = report.recommendedNextSteps
+  const steps = mapOpportunitiesToNextSteps(report.contentOpportunities, report.recommendedNextSteps)
   if (steps.length === 0) {
     return section(
-      { id: 'recommended-next-steps', eyebrow: 'Section 12', title: 'Recommended Next Steps' },
+      { id: 'recommended-next-steps', eyebrow: 'Section 13', title: 'Recommended Next Steps' },
       renderEmpty('No outstanding actions.'),
     )
   }
@@ -985,7 +1022,7 @@ function renderRecommendedNextSteps(report: ProjectReportDto): string {
     </div>`).join('')
 
   return section(
-    { id: 'recommended-next-steps', eyebrow: 'Section 12', title: 'Recommended Next Steps' },
+    { id: 'recommended-next-steps', eyebrow: 'Section 13', title: 'Recommended Next Steps' },
     `<div class="steps">${items}</div>`,
   )
 }
@@ -1020,6 +1057,7 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
     renderIndexingHealth(report),
     renderCitationsTrend(report),
     renderInsights(report),
+    renderOpportunities(report),
     renderRecommendedNextSteps(report),
   ].join('\n')
 

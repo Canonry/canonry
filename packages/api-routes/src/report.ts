@@ -30,7 +30,14 @@ import {
   type ReportInsight,
   type SocialReferralSection,
 } from '@ainyc/canonry-contracts'
+import {
+  buildContentTargetRows,
+  buildContentSourceRows,
+  buildContentGapRows,
+  mapOpportunitiesToNextSteps,
+} from '@ainyc/canonry-intelligence'
 import { resolveProject } from './helpers.js'
+import { loadOrchestratorInput } from './content-data.js'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 
 const TOP_QUERIES_LIMIT = 20
@@ -791,7 +798,17 @@ export async function reportRoutes(app: FastifyInstance) {
     const indexingHealthSection = buildIndexingHealth(app.db, project.id)
     const citationsTrend = buildCitationsTrend(app.db, project.id, keywordLookup)
     const insightList = buildInsightList(app.db, project.id)
-    const recommendedNextSteps = buildRecommendedNextSteps(insightList)
+
+    const orchestratorInput = loadOrchestratorInput(app.db, project)
+    const contentOpportunities = buildContentTargetRows(orchestratorInput)
+    const contentGaps = buildContentGapRows(orchestratorInput)
+    const groundingSources = buildContentSourceRows(orchestratorInput)
+
+    const insightDerivedSteps = buildRecommendedNextSteps(insightList)
+    const recommendedNextSteps = mapOpportunitiesToNextSteps(
+      contentOpportunities,
+      insightDerivedSteps,
+    )
 
     let latestCited = 0
     let latestConsidered = 0
@@ -873,6 +890,9 @@ export async function reportRoutes(app: FastifyInstance) {
       citationsTrend,
       insights: insightList,
       recommendedNextSteps,
+      contentOpportunities,
+      contentGaps,
+      groundingSources,
     }
 
     return reply.send(dto)

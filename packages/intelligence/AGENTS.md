@@ -14,6 +14,7 @@ Pure analysis library for computing intelligence insights from run data. Takes r
 | `src/health.ts` | Computes overall and per-provider citation health metrics |
 | `src/causes.ts` | Root cause analysis for regressions (competitor displacement, etc.) |
 | `src/insights.ts` | Transforms raw analysis into user-facing insight objects |
+| `src/next-steps.ts` | `mapOpportunitiesToNextSteps()` — auto-fills `recommendedNextSteps` from scored content opportunities when the upstream insight-driven builder produced none. Pure mapper consumed by both `api-routes/report.ts` and `canonry/report-renderer.ts`. |
 | `src/types.ts` | Shared types: `RunData`, `Snapshot`, `AnalysisResult`, `Insight` |
 | `src/index.ts` | Barrel re-export of all modules |
 
