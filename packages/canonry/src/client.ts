@@ -69,6 +69,7 @@ import type {
   ProjectOverviewDto,
   ProjectSearchResponseDto,
   DoctorReportDto,
+  ProjectReportDto,
 } from '@ainyc/canonry-contracts'
 
 export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry, CompetitorDto, KeywordDto }
@@ -982,6 +983,10 @@ export class ApiClient {
       'GET',
       `/projects/${encodeURIComponent(project)}/search?${params.toString()}`,
     )
+  }
+
+  async getReport(project: string): Promise<ProjectReportDto> {
+    return this.request<ProjectReportDto>('GET', `/projects/${encodeURIComponent(project)}/report`)
   }
 
   async runDoctor(opts: { project?: string; checkIds?: string[] } = {}): Promise<DoctorReportDto> {

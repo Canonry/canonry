@@ -55,6 +55,9 @@ canonry run <project> --provider gemini          # single-provider run
 canonry status <project>
 canonry apply <file...>                          # multi-doc YAML + multiple files
 canonry export <project>
+canonry report <project>                         # client-facing AEO report → canonry-report-<project>-YYYY-MM-DD.html
+canonry report <project> --output dist/aeo.html
+canonry report <project> --format json           # raw report payload to stdout
 
 # Agent layer
 canonry agent ask <project> "<prompt>"               # one-shot turn against built-in Aero
@@ -73,7 +76,7 @@ canonry doctor --project <name> --check google.auth.* --format json   # filter b
 # MCP adapter (separate bin, stdio only)
 canonry-mcp                                          # core tier (~12 tools); load toolkits on demand
 canonry-mcp --read-only                              # core read tier; toolkits load read-only tools only
-canonry-mcp --eager                                  # register all 51 API tools at startup (legacy flat catalog)
+canonry-mcp --eager                                  # register all API tools at startup (legacy flat catalog)
 
 # MCP client install helpers (operate on local client config files)
 canonry mcp install --client claude-desktop          # merges a canonry entry into the config

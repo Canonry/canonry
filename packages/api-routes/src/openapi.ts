@@ -2258,6 +2258,19 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/report',
+    summary: 'Aggregated client-facing AEO report',
+    tags: ['report'],
+    description:
+      'Bundles every section the canonry-report HTML output needs (executive summary, citation scorecard, competitor landscape, AI source origin, GSC, GA4, social/AI referrals, indexing health, citations trend, insights, and recommended next steps) into a single JSON payload. Backs `canonry report <project>`.',
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'Report returned.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/health/latest',
     summary: 'Get latest health snapshot',
     description:

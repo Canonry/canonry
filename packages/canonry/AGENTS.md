@@ -18,7 +18,7 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/client.ts` | `ApiClient` class + `createApiClient()` factory |
 | `src/mcp/` | `canonry-mcp` stdio adapter over `createApiClient()` |
 | `src/mcp/server.ts` | `createCanonryMcpServer` — registers all API tools, then disables non-core tiers unless `--eager` |
-| `src/mcp/tool-registry.ts` | All 50 API tools, each tagged with a `tier` (`core` or one of the toolkit names) |
+| `src/mcp/tool-registry.ts` | All API tools (62 in v1.3, including `canonry_report`), each tagged with a `tier` (`core` or one of the toolkit names) |
 | `src/mcp/toolkits.ts` | Toolkit catalog (`monitoring`, `setup`, `gsc`, `ga`, `agent`) — name, title, description, when-to-load |
 | `src/mcp/dynamic-catalog.ts` | `DynamicToolCatalog` — drives `canonry_help` and `canonry_load_toolkit` (enables tools, emits `tools/list_changed`) |
 | `src/mcp/cli.ts` | `canonry-mcp` stdio entrypoint — parses `--read-only`, `--eager`, `--scope`, plus `CANONRY_MCP_*` env |
@@ -34,6 +34,9 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/commands/doctor.ts` | `canonry doctor` — runs the doctor check registry via `ApiClient.runDoctor` |
 | `src/cli-commands/doctor.ts` | CLI spec for `canonry doctor [--project <name>] [--check <id>...]` |
 | `src/commands/backfill.ts` | Historical recomputation for answer visibility fields and insights |
+| `src/commands/report.ts` | `runReportCommand` — `canonry report <project>` — fetches `/report` JSON, renders self-contained HTML to disk |
+| `src/cli-commands/report.ts` | CLI spec for `canonry report <project> [--output <path>] [--format json]` |
+| `src/report-renderer.ts` | `renderReportHtml(report)` — server-side HTML renderer with inline SVG charts and inline CSS |
 | `src/commands/ga.ts` | GA4 commands: `ga sync`, `ga traffic`, `ga status`, `ga social-referral-history`, `ga social-referral-summary`, `ga attribution` |
 | `src/commands/backlinks.ts` | Backlinks commands: `backlinks install`, `doctor`, `status`, `sync`, `list`, `extract`, `releases`, `cache prune` |
 | `src/commoncrawl-sync.ts` | `executeReleaseSync` — workspace-level Common Crawl release download + DuckDB query job |
