@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { ProjectReportDto } from '@ainyc/canonry-contracts'
-import { renderReportHtml } from '../src/report-renderer.js'
+import { formatLandingPageHtml, renderReportHtml } from '../src/report-renderer.js'
 
 function emptyReport(): ProjectReportDto {
   return {
@@ -268,5 +268,93 @@ describe('renderReportHtml', () => {
     // and provider names
     expect(html).toContain('gemini')
     expect(html).toContain('openai')
+  })
+
+  test('inline CSS allows long table cells to wrap', () => {
+    const html = renderReportHtml(emptyReport())
+    expect(html).toContain('overflow-wrap: anywhere')
+    expect(html).toContain('word-break: break-word')
+  })
+
+  test('renders landing page URLs with full URL accessible via title', () => {
+    const report = richReport()
+    report.ga!.topLandingPages = [
+      {
+        page: '/solar?fbclid=120242511631000253&h_ad_id=120242512056450253',
+        sessions: 100, users: 80, organicSessions: 0,
+      },
+    ]
+    const html = renderReportHtml(report)
+    expect(html).toContain('class="page-cell"')
+    expect(html).toContain('class="page-path"')
+    expect(html).toContain('Facebook Ad')
+    expect(html).toContain('title="/solar?fbclid=120242511631000253&amp;h_ad_id=120242512056450253"')
+    // The raw query string should not appear as visible cell text
+    expect(html).not.toMatch(/<span class="page-path">[^<]*fbclid/)
+  })
+})
+
+describe('formatLandingPageHtml', () => {
+  test('returns just the path span when there is no query string', () => {
+    expect(formatLandingPageHtml('/blog/foo')).toBe('<span class="page-path">/blog/foo</span>')
+  })
+
+  test('falls back to / when input is empty', () => {
+    expect(formatLandingPageHtml('')).toBe('<span class="page-path">/</span>')
+  })
+
+  test('preserves GA placeholders like (not set)', () => {
+    expect(formatLandingPageHtml('(not set)')).toBe('<span class="page-path">(not set)</span>')
+  })
+
+  test('escapes HTML in the path', () => {
+    const html = formatLandingPageHtml('/<script>alert(1)</script>')
+    expect(html).toContain('&lt;script&gt;')
+    expect(html).not.toContain('<script>')
+  })
+
+  test('labels Facebook Ads via fbclid', () => {
+    const html = formatLandingPageHtml('/solar?fbclid=abc&h_ad_id=123')
+    expect(html).toContain('Facebook Ad · 2 params')
+    expect(html).toContain('title="/solar?fbclid=abc&amp;h_ad_id=123"')
+  })
+
+  test('labels Google Ads via gclid', () => {
+    expect(formatLandingPageHtml('/x?gclid=abc')).toContain('Google Ad · 1 param')
+  })
+
+  test('labels Search Ads via hsa_* params', () => {
+    const url = '/roofing?adgroupid=1&hsa_acc=2&hsa_cam=3&hsa_grp=4&hsa_ad=5&hsa_kw=roof&hsa_mt=e&hsa_net=adwords&hsa_ver=3'
+    const html = formatLandingPageHtml(url)
+    expect(html).toContain('Search Ad · 9 params')
+    expect(html).toContain('<span class="page-path">/roofing</span>')
+  })
+
+  test('labels Microsoft Ads via msclkid', () => {
+    expect(formatLandingPageHtml('/x?msclkid=abc')).toContain('Microsoft Ad')
+  })
+
+  test('labels TikTok Ads via ttclid', () => {
+    expect(formatLandingPageHtml('/x?ttclid=abc')).toContain('TikTok Ad')
+  })
+
+  test('labels LinkedIn Ads via li_fat_id', () => {
+    expect(formatLandingPageHtml('/x?li_fat_id=abc')).toContain('LinkedIn Ad')
+  })
+
+  test('reports utm source / medium when no ad-click id', () => {
+    const html = formatLandingPageHtml('/x?utm_source=newsletter&utm_medium=email&utm_campaign=may')
+    expect(html).toContain('newsletter / email · 3 params')
+  })
+
+  test('falls back to "tracking params" count when no recognised tag', () => {
+    const html = formatLandingPageHtml('/x?foo=1&bar=2')
+    expect(html).toContain('2 tracking params')
+  })
+
+  test('singular noun for one tracking param', () => {
+    const html = formatLandingPageHtml('/x?foo=1')
+    expect(html).toContain('1 tracking param')
+    expect(html).not.toContain('1 tracking params')
   })
 })
