@@ -48,10 +48,6 @@ function safeNum(value: unknown): number {
   return 0
 }
 
-function rootDomain(domain: string): string {
-  return domain.toLowerCase().replace(/^www\./, '')
-}
-
 // Mirrors `domainMatches` in packages/canonry/src/citation-utils.ts (which
 // determineCitationState uses) — kept duplicated to respect the api-routes →
 // canonry dependency boundary. Whenever determineCitationState's matching
@@ -232,7 +228,6 @@ function buildAiSourceOrigin(
   projectDomains: string[],
   competitorDomains: string[],
 ): ProjectReportDto['aiSourceOrigin'] {
-  const competitorRoots = new Set(competitorDomains.map(rootDomain))
   const categoryCounts = new Map<string, { label: string; count: number }>()
   const domainCounts = new Map<string, number>()
   let totalCitations = 0
@@ -262,7 +257,7 @@ function buildAiSourceOrigin(
     .map(([domain, count]) => ({
       domain,
       count,
-      isCompetitor: competitorRoots.has(rootDomain(domain)),
+      isCompetitor: citedDomainBelongsToProject(domain, competitorDomains),
     }))
     .sort((a, b) => b.count - a.count)
     .slice(0, TOP_SOURCE_DOMAINS_LIMIT)

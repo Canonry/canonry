@@ -281,6 +281,26 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(externalDomains).not.toContain('brand.io')
   })
 
+  test('AI source origin tags competitor subdomains as competitors', async () => {
+    const projectId = insertProject(ctx.db, 'comp-sub')
+    insertCompetitor(ctx.db, projectId, 'rival.com')
+    const kw = insertKeyword(ctx.db, projectId, 'kw')
+    const runId = insertRun(ctx.db, projectId)
+    insertSnapshot(ctx.db, runId, kw, {
+      provider: 'gemini',
+      citationState: 'cited',
+      citedDomains: JSON.stringify(['blog.rival.com']),
+    })
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/comp-sub/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    const blog = body.aiSourceOrigin.topDomains.find(d => d.domain === 'blog.rival.com')
+    expect(blog).toBeDefined()
+    expect(blog!.isCompetitor).toBe(true)
+  })
+
   test('AI source origin aggregates cited domains across snapshots', async () => {
     const projectId = insertProject(ctx.db, 'origin')
     const kw = insertKeyword(ctx.db, projectId, 'kw')
