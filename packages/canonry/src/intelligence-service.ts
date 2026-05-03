@@ -1,10 +1,12 @@
-import { eq, desc, asc, and, or } from 'drizzle-orm'
+import { eq, desc, asc, and, or, inArray } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { projects, runs, querySnapshots, keywords, insights, healthSnapshots, parseJsonColumn } from '@ainyc/canonry-db'
-import { analyzeRuns } from '@ainyc/canonry-intelligence'
-import type { RunData, Snapshot, AnalysisResult } from '@ainyc/canonry-intelligence'
+import { projects, runs, querySnapshots, keywords, insights, healthSnapshots, gscSearchData, parseJsonColumn } from '@ainyc/canonry-db'
+import { analyzeRuns, classifyRegressionSeverity } from '@ainyc/canonry-intelligence'
+import type { RunData, Snapshot, AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
 import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
+
+const RECURRENCE_LOOKBACK_RUNS = 5
 
 const log = createLogger('IntelligenceService')
 
@@ -202,13 +204,15 @@ export class IntelligenceService {
       }
     }
 
+    const tieredInsights = this.applySeverityTiering(result.insights, runId, projectId)
+
     this.db.transaction((tx) => {
       tx.delete(insights).where(eq(insights.runId, runId)).run()
       tx.delete(healthSnapshots).where(eq(healthSnapshots.runId, runId)).run()
 
       const now = new Date().toISOString()
 
-      for (const insight of result.insights) {
+      for (const insight of tieredInsights) {
         const wasDismissed = previouslyDismissed.has(`${insight.keyword}:${insight.provider}:${insight.type}`)
         tx.insert(insights).values({
           id: insight.id,
@@ -238,7 +242,87 @@ export class IntelligenceService {
       }).run()
     })
 
-    log.info('intelligence.persisted', { runId, insights: result.insights.length })
+    log.info('intelligence.persisted', { runId, insights: tieredInsights.length })
+  }
+
+  /**
+   * Re-classify each regression insight's severity using GSC traffic +
+   * recurrence signals via the pure `classifyRegressionSeverity` primitive
+   * in @ainyc/canonry-intelligence. Non-regression insights are returned
+   * untouched.
+   */
+  private applySeverityTiering(
+    rawInsights: Insight[],
+    excludeRunId: string,
+    projectId: string,
+  ): Insight[] {
+    const regressions = rawInsights.filter((i) => i.type === 'regression')
+    if (regressions.length === 0) return rawInsights
+
+    // GSC impressions per keyword (case-insensitive).
+    // GSC impressions per keyword. Distinguish "GSC not connected" (no rows
+    // at all → undefined per keyword) from "connected but zero impressions
+    // for this keyword" (returns 0 — a real measurement).
+    const gscRows = this.db
+      .select({ query: gscSearchData.query, impressions: gscSearchData.impressions })
+      .from(gscSearchData)
+      .where(eq(gscSearchData.projectId, projectId))
+      .all()
+    const gscConnected = gscRows.length > 0
+    const gscImpressionsByKeyword = new Map<string, number>()
+    for (const row of gscRows) {
+      const key = row.query.toLowerCase()
+      gscImpressionsByKeyword.set(key, (gscImpressionsByKeyword.get(key) ?? 0) + row.impressions)
+    }
+
+    // Recurrence count: prior regression rows for the same (keyword, provider)
+    // in the last RECURRENCE_LOOKBACK_RUNS runs, excluding this run's own.
+    // Distinguish "no prior runs to compare against" (undefined) from "prior
+    // runs exist but never regressed this pair" (0).
+    const recentRunIds = this.db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(
+        and(
+          eq(runs.projectId, projectId),
+          or(eq(runs.status, 'completed'), eq(runs.status, 'partial')),
+        ),
+      )
+      .orderBy(desc(runs.createdAt))
+      .limit(RECURRENCE_LOOKBACK_RUNS + 1)
+      .all()
+      .map((r) => r.id)
+      .filter((id) => id !== excludeRunId)
+      .slice(0, RECURRENCE_LOOKBACK_RUNS)
+
+    const haveHistory = recentRunIds.length > 0
+    const priorRegressionsByPair = new Map<string, number>()
+    if (haveHistory) {
+      const priorRows = this.db
+        .select({ keyword: insights.keyword, provider: insights.provider })
+        .from(insights)
+        .where(and(eq(insights.type, 'regression'), inArray(insights.runId, recentRunIds)))
+        .all()
+      for (const row of priorRows) {
+        const key = `${row.keyword}:${row.provider}`
+        priorRegressionsByPair.set(key, (priorRegressionsByPair.get(key) ?? 0) + 1)
+      }
+    }
+
+    return rawInsights.map((insight) => {
+      if (insight.type !== 'regression') return insight
+      const gscImpressions = gscConnected
+        ? gscImpressionsByKeyword.get(insight.keyword.toLowerCase()) ?? 0
+        : undefined
+      const recurrenceCount = haveHistory
+        ? priorRegressionsByPair.get(`${insight.keyword}:${insight.provider}`) ?? 0
+        : undefined
+      const severity = classifyRegressionSeverity({
+        gscImpressions,
+        recurrenceCount,
+      })
+      return { ...insight, severity }
+    })
   }
 
   private buildRunData(runId: string, projectId: string, completedAt: string): RunData {

@@ -31,9 +31,11 @@ import {
   type SocialReferralSection,
 } from '@ainyc/canonry-contracts'
 import {
+  buildBrandTokens,
   buildContentTargetRows,
   buildContentSourceRows,
   buildContentGapRows,
+  categorizeQueryByIntent,
   mapOpportunitiesToNextSteps,
 } from '@ainyc/canonry-intelligence'
 import { resolveProject } from './helpers.js'
@@ -74,20 +76,11 @@ function citedDomainBelongsToProject(citedDomain: string, projectDomains: string
   return false
 }
 
+// Thin wrapper around the shared intelligence-package categorizer.
+// Encapsulates brand-token construction so the existing buildGscSection
+// call sites don't all need to thread brandTokens through.
 function categorizeQuery(query: string, projectName: string, canonicalDomain: string): GscQueryRow['category'] {
-  const lower = query.toLowerCase()
-  const projectTokens = [
-    projectName.toLowerCase(),
-    canonicalDomain.toLowerCase().replace(/\.[^.]+$/, ''),
-  ].filter(t => t.length >= 3)
-  if (projectTokens.some(token => lower.includes(token))) return 'brand'
-  if (/\b(buy|price|pricing|cost|hire|near me|services?|agency|consultant|company)\b/.test(lower)) {
-    return 'lead-gen'
-  }
-  if (/\b(what|how|why|when|guide|tutorial|vs|versus|alternatives?|examples?|definition)\b/.test(lower)) {
-    return 'industry'
-  }
-  return 'other'
+  return categorizeQueryByIntent(query, buildBrandTokens(canonicalDomain, projectName))
 }
 
 interface SnapshotRow {

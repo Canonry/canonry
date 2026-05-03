@@ -6,7 +6,12 @@ import type {
   ProjectReportDto,
   ReportInsight,
 } from '@ainyc/canonry-contracts'
-import { mapOpportunitiesToNextSteps } from '@ainyc/canonry-intelligence'
+import {
+  groupInsights,
+  isTrendBaseline,
+  mapOpportunitiesToNextSteps,
+  MIN_TREND_POINTS,
+} from '@ainyc/canonry-intelligence'
 
 const COLORS = {
   bg: '#09090b',
@@ -935,6 +940,13 @@ function renderCitationsTrend(report: ProjectReportDto): string {
     )
   }
 
+  if (isTrendBaseline(trend)) {
+    return section(
+      { id: 'citations-trend', eyebrow: 'Section 10', title: 'Citations Over Time' },
+      renderEmpty(`Establishing baseline (${trend.length} of ${MIN_TREND_POINTS} runs collected). Trend will appear once more sweeps are recorded.`),
+    )
+  }
+
   const chart = renderLineChart(
     trend.map(t => ({ x: t.date, y: t.citationRate, label: formatDate(t.date) })),
     COLORS.positive,
@@ -970,11 +982,16 @@ function renderInsights(report: ProjectReportDto): string {
     )
   }
 
-  const rows = list.map((i: ReportInsight) => {
+  const groups = groupInsights(list)
+  const rows = groups.map((g) => {
+    const i = g.representative
     const tone = severityTone(i.severity)
+    const countChip = g.count > 1
+      ? ` <span class="badge tone-neutral">× ${g.count}</span>`
+      : ''
     return `<tr>
       <td><span class="badge tone-${tone}">${escapeHtml(i.severity)}</span></td>
-      <td>${escapeHtml(i.title)}</td>
+      <td>${escapeHtml(i.title)}${countChip}</td>
       <td>${escapeHtml(i.keyword)}</td>
       <td>${escapeHtml(i.provider)}</td>
       <td>${i.recommendation ? escapeHtml(i.recommendation) : '<span class="cell-pending">—</span>'}</td>
