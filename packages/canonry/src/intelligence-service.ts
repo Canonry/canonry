@@ -1,10 +1,13 @@
-import { eq, desc, asc, and, or } from 'drizzle-orm'
+import { eq, desc, asc, and, or, inArray } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { projects, runs, querySnapshots, keywords, insights, healthSnapshots, parseJsonColumn } from '@ainyc/canonry-db'
-import { analyzeRuns } from '@ainyc/canonry-intelligence'
-import type { RunData, Snapshot, AnalysisResult } from '@ainyc/canonry-intelligence'
+import { projects, runs, querySnapshots, keywords, insights, healthSnapshots, gscSearchData, parseJsonColumn } from '@ainyc/canonry-db'
+import { analyzeRuns, classifyRegressionSeverity } from '@ainyc/canonry-intelligence'
+import type { RunData, Snapshot, AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
+import { RunKinds } from '@ainyc/canonry-contracts'
 import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
+
+const RECURRENCE_LOOKBACK_RUNS = 5
 
 const log = createLogger('IntelligenceService')
 
@@ -81,10 +84,12 @@ export class IntelligenceService {
       insights: result.insights.length,
     })
 
-    // 5. Persist — idempotent via shared persistResult
-    this.persistResult(result, runId, projectId)
+    // 5. Tier severities once, pass tiered insights to persist + return so
+    // RunCoordinator / webhook dispatch see the same severities the DB holds.
+    const tieredResult = this.tierResult(result, runId, projectId)
+    this.persistResult(tieredResult, runId, projectId)
 
-    return result
+    return tieredResult
   }
 
   /**
@@ -114,9 +119,10 @@ export class IntelligenceService {
 
     const result = analyzeRuns(currentRun, previousRun)
 
-    this.persistResult(result, runRecord.id, runRecord.projectId)
+    const tieredResult = this.tierResult(result, runRecord.id, runRecord.projectId)
+    this.persistResult(tieredResult, runRecord.id, runRecord.projectId)
 
-    return result
+    return tieredResult
   }
 
   /**
@@ -239,6 +245,98 @@ export class IntelligenceService {
     })
 
     log.info('intelligence.persisted', { runId, insights: result.insights.length })
+  }
+
+  /**
+   * Apply severity tiering to the insights of an AnalysisResult and return a
+   * new result. Wraps `applySeverityTiering` so callers (analyzeAndPersist,
+   * analyzeRunWithPrevious) can pass the same tiered shape both into the DB
+   * write and back to the RunCoordinator / webhook dispatcher.
+   */
+  private tierResult(result: AnalysisResult, runId: string, projectId: string): AnalysisResult {
+    if (result.insights.length === 0) return result
+    return { ...result, insights: this.applySeverityTiering(result.insights, runId, projectId) }
+  }
+
+  /**
+   * Re-classify each regression insight's severity using GSC traffic +
+   * recurrence signals via the pure `classifyRegressionSeverity` primitive
+   * in @ainyc/canonry-intelligence. Non-regression insights are returned
+   * untouched.
+   */
+  private applySeverityTiering(
+    rawInsights: Insight[],
+    excludeRunId: string,
+    projectId: string,
+  ): Insight[] {
+    const regressions = rawInsights.filter((i) => i.type === 'regression')
+    if (regressions.length === 0) return rawInsights
+
+    // GSC impressions per keyword (case-insensitive).
+    // GSC impressions per keyword. Distinguish "GSC not connected" (no rows
+    // at all → undefined per keyword) from "connected but zero impressions
+    // for this keyword" (returns 0 — a real measurement).
+    const gscRows = this.db
+      .select({ query: gscSearchData.query, impressions: gscSearchData.impressions })
+      .from(gscSearchData)
+      .where(eq(gscSearchData.projectId, projectId))
+      .all()
+    const gscConnected = gscRows.length > 0
+    const gscImpressionsByKeyword = new Map<string, number>()
+    for (const row of gscRows) {
+      const key = row.query.toLowerCase()
+      gscImpressionsByKeyword.set(key, (gscImpressionsByKeyword.get(key) ?? 0) + row.impressions)
+    }
+
+    // Recurrence count: prior regression rows for the same (keyword, provider)
+    // in the last RECURRENCE_LOOKBACK_RUNS runs, excluding this run's own.
+    // Distinguish "no prior runs to compare against" (undefined) from "prior
+    // runs exist but never regressed this pair" (0).
+    const recentRunIds = this.db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(
+        and(
+          eq(runs.projectId, projectId),
+          eq(runs.kind, RunKinds['answer-visibility']),
+          or(eq(runs.status, 'completed'), eq(runs.status, 'partial')),
+        ),
+      )
+      .orderBy(desc(runs.createdAt))
+      .limit(RECURRENCE_LOOKBACK_RUNS + 1)
+      .all()
+      .map((r) => r.id)
+      .filter((id) => id !== excludeRunId)
+      .slice(0, RECURRENCE_LOOKBACK_RUNS)
+
+    const haveHistory = recentRunIds.length > 0
+    const priorRegressionsByPair = new Map<string, number>()
+    if (haveHistory) {
+      const priorRows = this.db
+        .select({ keyword: insights.keyword, provider: insights.provider })
+        .from(insights)
+        .where(and(eq(insights.type, 'regression'), inArray(insights.runId, recentRunIds)))
+        .all()
+      for (const row of priorRows) {
+        const key = `${row.keyword}:${row.provider}`
+        priorRegressionsByPair.set(key, (priorRegressionsByPair.get(key) ?? 0) + 1)
+      }
+    }
+
+    return rawInsights.map((insight) => {
+      if (insight.type !== 'regression') return insight
+      const gscImpressions = gscConnected
+        ? gscImpressionsByKeyword.get(insight.keyword.toLowerCase()) ?? 0
+        : undefined
+      const recurrenceCount = haveHistory
+        ? priorRegressionsByPair.get(`${insight.keyword}:${insight.provider}`) ?? 0
+        : undefined
+      const severity = classifyRegressionSeverity({
+        gscImpressions,
+        recurrenceCount,
+      })
+      return { ...insight, severity }
+    })
   }
 
   private buildRunData(runId: string, projectId: string, completedAt: string): RunData {

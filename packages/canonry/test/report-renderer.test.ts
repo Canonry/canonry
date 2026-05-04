@@ -93,8 +93,8 @@ function richReport(): ProjectReportDto {
     competitorLandscape: {
       projectCitationCount: 4,
       competitors: [
-        { domain: 'rival.com', citationCount: 3, totalCount: 4, pressureLabel: 'High', citedKeywords: ['aeo platform'] },
-        { domain: 'other.com', citationCount: 1, totalCount: 4, pressureLabel: 'Low', citedKeywords: ['answer engine'] },
+        { domain: 'rival.com', citationCount: 3, totalCount: 4, pressureLabel: 'High', citedKeywords: ['aeo platform'], sharePct: 0, theirCitedPages: [] },
+        { domain: 'other.com', citationCount: 1, totalCount: 4, pressureLabel: 'Low', citedKeywords: ['answer engine'], sharePct: 0, theirCitedPages: [] },
       ],
     },
     aiSourceOrigin: {
@@ -124,6 +124,8 @@ function richReport(): ProjectReportDto {
         { date: '2026-04-01', clicks: 100, impressions: 500 },
         { date: '2026-04-02', clicks: 200, impressions: 1000 },
       ],
+      trackedButNoGsc: [],
+      gscButNotTracked: [],
     },
     ga: {
       totalSessions: 12000,
@@ -189,6 +191,7 @@ function richReport(): ProjectReportDto {
         provider: 'gemini',
         recommendation: 'review-content — /landing — rival outranking',
         createdAt: '2026-04-30T00:00:00Z',
+        instanceCount: 1,
       },
     ],
     recommendedNextSteps: [
@@ -389,6 +392,109 @@ describe('renderReportHtml', () => {
     expect(stepsBlock).toContain('Resolve 1 critical regression')
     // Auto-fill content (the opportunity query) should NOT appear inside the steps block
     expect(stepsBlock).not.toContain('Refresh the page targeting')
+  })
+
+  test('renders SOV % column in competitor landscape', () => {
+    const report = richReport()
+    report.competitorLandscape.competitors[0]!.sharePct = 75
+    report.competitorLandscape.competitors[1]!.sharePct = 25
+    const html = renderReportHtml(report)
+    const landscape = html.split('id="competitor-landscape"')[1]?.split('</section>')[0] ?? ''
+    expect(landscape).toContain('75%')
+    expect(landscape).toContain('25%')
+  })
+
+  test('renders cited URLs from theirCitedPages as a disclosure', () => {
+    const report = richReport()
+    report.competitorLandscape.competitors[0]!.theirCitedPages = [
+      { url: 'https://rival.com/page-x', citedFor: ['kw1', 'kw2'] },
+    ]
+    const html = renderReportHtml(report)
+    const landscape = html.split('id="competitor-landscape"')[1]?.split('</section>')[0] ?? ''
+    expect(landscape).toContain('https://rival.com/page-x')
+    expect(landscape).toContain('kw1')
+    expect(landscape).toContain('kw2')
+  })
+
+  test('omits the cited-pages disclosure when no grounding URLs were captured', () => {
+    const report = richReport()
+    for (const c of report.competitorLandscape.competitors) c.theirCitedPages = []
+    const html = renderReportHtml(report)
+    const landscape = html.split('id="competitor-landscape"')[1]?.split('</section>')[0] ?? ''
+    expect(landscape).not.toContain('<details')
+  })
+
+  test('renders GSC × AEO crossover companion blocks when non-empty', () => {
+    const report = richReport()
+    report.gsc!.trackedButNoGsc = ['lonely-keyword']
+    report.gsc!.gscButNotTracked = ['unknown-query']
+    const html = renderReportHtml(report)
+    const gscBlock = html.split('id="gsc"')[1]?.split('</section>')[0] ?? ''
+    expect(gscBlock).toContain('lonely-keyword')
+    expect(gscBlock).toContain('unknown-query')
+  })
+
+  test('omits GSC × AEO crossover blocks when both lists are empty', () => {
+    const report = richReport()
+    report.gsc!.trackedButNoGsc = []
+    report.gsc!.gscButNotTracked = []
+    const html = renderReportHtml(report)
+    const gscBlock = html.split('id="gsc"')[1]?.split('</section>')[0] ?? ''
+    expect(gscBlock).not.toContain('AEO keywords without search demand')
+    expect(gscBlock).not.toContain('Search queries you should track')
+  })
+
+  test('renders × N count chip from the API-supplied instanceCount', () => {
+    const report = richReport()
+    report.insights = [
+      { id: 'i1', type: 'gain', severity: 'low', title: 'New citation for "kw"', keyword: 'kw', provider: 'gemini', recommendation: null, createdAt: '2026-01-03T00:00:00Z', instanceCount: 3 },
+    ]
+    const html = renderReportHtml(report)
+    const block = html.split('id="insights"')[1]?.split('</section>')[0] ?? ''
+    expect(block).toContain('× 3')
+    const occurrences = (block.match(/New citation for &quot;kw&quot;/g) ?? []).length
+    expect(occurrences).toBe(1)
+  })
+
+  test('falls back to client-side grouping when instanceCount is missing (legacy fixture)', () => {
+    const report = richReport()
+    // Older payloads that predate the dedup may omit instanceCount. The
+    // renderer must still collapse duplicates so existing reports stay
+    // readable until the consumer upgrades.
+    report.insights = [
+      { id: 'i1', type: 'gain', severity: 'low', title: 'Legacy', keyword: 'kw', provider: 'gemini', recommendation: null, createdAt: '2026-01-01T00:00:00Z' } as ProjectReportDto['insights'][number],
+      { id: 'i2', type: 'gain', severity: 'low', title: 'Legacy', keyword: 'kw', provider: 'gemini', recommendation: null, createdAt: '2026-01-02T00:00:00Z' } as ProjectReportDto['insights'][number],
+    ]
+    const html = renderReportHtml(report)
+    const block = html.split('id="insights"')[1]?.split('</section>')[0] ?? ''
+    expect(block).toContain('× 2')
+    expect((block.match(/Legacy/g) ?? []).length).toBe(1)
+  })
+
+  test('hides the citations trend chart and shows a baseline note when fewer than 4 points exist', () => {
+    const report = richReport()
+    report.citationsTrend = [
+      { runId: 'r-1', date: '2026-04-01T00:00:00Z', citationRate: 50, providerRates: [] },
+      { runId: 'r-2', date: '2026-04-02T00:00:00Z', citationRate: 1, providerRates: [] },
+    ]
+    const html = renderReportHtml(report)
+    const block = html.split('id="citations-trend"')[1]?.split('</section>')[0] ?? ''
+    expect(block.toLowerCase()).toContain('establishing baseline')
+    expect(block).not.toContain('<svg')
+  })
+
+  test('renders the citations trend chart when at least 4 points exist', () => {
+    const report = richReport()
+    report.citationsTrend = [
+      { runId: 'r-1', date: '2026-04-01T00:00:00Z', citationRate: 50, providerRates: [] },
+      { runId: 'r-2', date: '2026-04-02T00:00:00Z', citationRate: 60, providerRates: [] },
+      { runId: 'r-3', date: '2026-04-03T00:00:00Z', citationRate: 55, providerRates: [] },
+      { runId: 'r-4', date: '2026-04-04T00:00:00Z', citationRate: 65, providerRates: [] },
+    ]
+    const html = renderReportHtml(report)
+    const block = html.split('id="citations-trend"')[1]?.split('</section>')[0] ?? ''
+    expect(block).toContain('<svg')
+    expect(block.toLowerCase()).not.toContain('establishing baseline')
   })
 })
 
