@@ -20,7 +20,13 @@ function validateSiteUrl(siteUrl: string): void {
   if (!siteUrl || typeof siteUrl !== 'string' || siteUrl.trim().length === 0) {
     throw new GoogleApiError('Site URL is required and must be a non-empty string', 400)
   }
-  // Accept both https://example.com and sc-domain:example.com patterns
+  // Accept three formats GSC's API uses for the {siteUrl} path segment:
+  //   - sc-domain:example.com   (domain property)
+  //   - https://example.com/    (URL-prefix property)
+  //   - 364127269               (numeric property ID returned by some GSC accounts)
+  if (/^\d+$/.test(siteUrl)) {
+    return
+  }
   if (siteUrl.startsWith('sc-domain:')) {
     const domain = siteUrl.slice('sc-domain:'.length)
     if (!domain) {

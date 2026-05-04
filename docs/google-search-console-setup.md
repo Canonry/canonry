@@ -153,7 +153,7 @@ canonry google properties <project>
 canonry google set-property <project> https://example.com/
 ```
 
-> Properties in GSC are typically `https://example.com/` (URL prefix) or `sc-domain:example.com` (domain property). Use whichever matches your verified property.
+> Properties in GSC are typically `https://example.com/` (URL prefix) or `sc-domain:example.com` (domain property). Some accounts also surface a numeric property ID (e.g. `364127269`); canonry passes any of these formats straight through to the GSC API. Use whichever matches your verified property.
 
 ---
 
