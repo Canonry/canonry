@@ -29,6 +29,7 @@ function emptyReport(): ProjectReportDto {
     },
     citationScorecard: { keywords: [], providers: [], matrix: [], providerRates: [] },
     competitorLandscape: { projectCitationCount: 0, competitors: [] },
+    mentionLandscape: { projectMentionCount: 0, totalAnswerSnapshots: 0, competitors: [] },
     aiSourceOrigin: { categories: [], topDomains: [] },
     gsc: null,
     ga: null,
@@ -95,6 +96,14 @@ function richReport(): ProjectReportDto {
       competitors: [
         { domain: 'rival.com', citationCount: 3, totalCount: 4, pressureLabel: 'High', citedKeywords: ['aeo platform'], sharePct: 0, theirCitedPages: [] },
         { domain: 'other.com', citationCount: 1, totalCount: 4, pressureLabel: 'Low', citedKeywords: ['answer engine'], sharePct: 0, theirCitedPages: [] },
+      ],
+    },
+    mentionLandscape: {
+      projectMentionCount: 3,
+      totalAnswerSnapshots: 4,
+      competitors: [
+        { domain: 'rival.com', mentionCount: 2, totalCount: 4, pressureLabel: 'Moderate', mentionedKeywords: ['aeo platform'], sharePct: 33 },
+        { domain: 'other.com', mentionCount: 1, totalCount: 4, pressureLabel: 'Low', mentionedKeywords: ['answer engine'], sharePct: 17 },
       ],
     },
     aiSourceOrigin: {
@@ -376,6 +385,16 @@ describe('renderReportHtml', () => {
     expect(html).not.toContain('id="content-opportunities"')
   })
 
+  test('absolutizes path-only Our page links to the project canonical domain', () => {
+    // richReport's second opportunity has ourBestPage.url = '/blog/answer-engine-optimization'
+    // and the project canonical domain is rich.example.com.
+    const html = renderReportHtml(richReport())
+    const opps = html.split('id="content-opportunities"')[1]?.split('</section>')[0] ?? ''
+    expect(opps).toContain('href="https://rich.example.com/blog/answer-engine-optimization"')
+    // Display text stays as the path so reviewers still see the slug
+    expect(opps).toContain('>/blog/answer-engine-optimization<')
+  })
+
   test('renders the API-supplied recommendedNextSteps verbatim', () => {
     // The API merges insight-derived and opportunity-derived steps via
     // mapOpportunitiesToNextSteps and ships the merged list. The renderer
@@ -425,6 +444,17 @@ describe('renderReportHtml', () => {
     const html = renderReportHtml(report)
     const landscape = html.split('id="competitor-landscape"')[1]?.split('</section>')[0] ?? ''
     expect(landscape).not.toContain('<details')
+  })
+
+  test('renders the Mentions per domain bar chart and Mentions column alongside Citations', () => {
+    const html = renderReportHtml(richReport())
+    const landscape = html.split('id="competitor-landscape"')[1]?.split('</section>')[0] ?? ''
+    expect(landscape).toContain('Citations per domain')
+    expect(landscape).toContain('Mentions per domain')
+    expect(landscape).toContain('<th class="numeric">Mentions</th>')
+    // rival.com has citationCount=3 / totalCount=4 (citations) and mentionCount=2 / totalCount=4 (mentions)
+    expect(landscape).toContain('3 / 4')
+    expect(landscape).toContain('2 / 4')
   })
 
   test('renders GSC × AEO crossover companion blocks when non-empty', () => {

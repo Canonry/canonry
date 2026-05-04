@@ -75,6 +75,33 @@ function dropTrailingSlash(path: string): string {
   return path
 }
 
+/**
+ * Build an absolute URL for a path stored against a project domain. GSC
+ * returns most landing pages as path-only strings (`/blog/foo`), and storing
+ * them that way is correct — but rendering them as `<a href="/blog/foo">` in
+ * a report HTML file makes the browser resolve the path against whatever host
+ * the file is served from (often the canonry dashboard host or `file://`).
+ * This helper prepends `https://<canonicalDomain>` so the link resolves to
+ * the project's actual site instead. Already-absolute URLs (http/https) and
+ * protocol-relative URLs (`//host/...`) are returned unchanged. Returns the
+ * input as-is when it can't be confidently absolutized.
+ */
+export function absolutizeProjectUrl(
+  url: string | null | undefined,
+  canonicalDomain: string,
+): string {
+  if (!url) return ''
+  const trimmed = url.trim()
+  if (!trimmed) return ''
+  if (/^https?:\/\//i.test(trimmed)) return trimmed
+  if (trimmed.startsWith('//')) return `https:${trimmed}`
+  const host = canonicalDomain.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '')
+  if (!host) return trimmed
+  if (trimmed.startsWith('/')) return `https://${host}${trimmed}`
+  // Bare paths or domain-prefixed strings are ambiguous — treat as paths.
+  return `https://${host}/${trimmed}`
+}
+
 export function normalizeUrlPath(input: string | null | undefined): string | null {
   if (input == null) return null
   let trimmed = input.trim()

@@ -6,6 +6,7 @@ import type {
   ProjectReportDto,
   ReportInsight,
 } from '@ainyc/canonry-contracts'
+import { absolutizeProjectUrl } from '@ainyc/canonry-contracts'
 import {
   groupInsights,
   isTrendBaseline,
@@ -424,7 +425,12 @@ function renderExecutiveSummary(report: ProjectReportDto): string {
     : ''
 
   return section(
-    { id: 'executive-summary', eyebrow: 'Section 1', title: 'Executive Summary' },
+    {
+      id: 'executive-summary',
+      eyebrow: 'Section 1',
+      title: 'Executive Summary',
+      intro: 'Top-line citation rate with trend versus the prior run, plus the most actionable findings from the latest visibility sweep.',
+    },
     metricsHtml + findingsHtml,
   )
 }
@@ -489,16 +495,18 @@ function renderCitationScorecard(report: ProjectReportDto): string {
     ${renderCitationMatrix(report.citationScorecard)}
   `
   return section(
-    { id: 'citation-scorecard', eyebrow: 'Section 2', title: 'Citation Scorecard', intro: 'Per-keyword × per-provider citation matrix from the latest visibility sweep.' },
+    { id: 'citation-scorecard', eyebrow: 'Section 2', title: 'Citation Scorecard', intro: 'Whether your domain appeared in each AI engine’s source list for every tracked keyword in the latest sweep — a cell turns green when your domain was cited, red when it was not, and gray when no snapshot exists for that pair.' },
     body,
   )
 }
 
-function renderCompetitorBars(landscape: ProjectReportDto['competitorLandscape'], canonical: string): string {
-  const data = [
-    { label: canonical, count: landscape.projectCitationCount, isProject: true },
-    ...landscape.competitors.map(c => ({ label: c.domain, count: c.citationCount, isProject: false })),
-  ]
+interface LandscapeBar {
+  label: string
+  count: number
+  isProject: boolean
+}
+
+function renderLandscapeBars(data: LandscapeBar[], heading: string, ariaLabel: string): string {
   if (data.length <= 1) return ''
   const max = Math.max(...data.map(d => d.count), 1)
   const width = 600
@@ -517,24 +525,47 @@ function renderCompetitorBars(landscape: ProjectReportDto['competitorLandscape']
   }).join('')
 
   return `<div class="chart-card">
-    <h3>Citations per domain</h3>
-    <svg viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMinYMin meet" role="img" aria-label="Citations per domain bar chart">
+    <h3>${escapeHtml(heading)}</h3>
+    <svg viewBox="0 0 ${width} ${height}" width="100%" preserveAspectRatio="xMinYMin meet" role="img" aria-label="${escapeHtml(ariaLabel)}">
       ${bars}
     </svg>
   </div>`
 }
 
+function renderCompetitorBars(landscape: ProjectReportDto['competitorLandscape'], canonical: string): string {
+  const data: LandscapeBar[] = [
+    { label: canonical, count: landscape.projectCitationCount, isProject: true },
+    ...landscape.competitors.map(c => ({ label: c.domain, count: c.citationCount, isProject: false })),
+  ]
+  return renderLandscapeBars(data, 'Citations per domain', 'Citations per domain bar chart')
+}
+
+function renderMentionBars(landscape: ProjectReportDto['mentionLandscape'], canonical: string): string {
+  const data: LandscapeBar[] = [
+    { label: canonical, count: landscape.projectMentionCount, isProject: true },
+    ...landscape.competitors.map(c => ({ label: c.domain, count: c.mentionCount, isProject: false })),
+  ]
+  return renderLandscapeBars(data, 'Mentions per domain', 'Mentions per domain bar chart')
+}
+
 function renderCompetitorLandscape(report: ProjectReportDto): string {
   const competitors = report.competitorLandscape.competitors
-  if (competitors.length === 0 && report.competitorLandscape.projectCitationCount === 0) {
+  const mentionLandscape = report.mentionLandscape
+  const noCitationData = competitors.length === 0 && report.competitorLandscape.projectCitationCount === 0
+  const noMentionData = mentionLandscape.competitors.length === 0 && mentionLandscape.projectMentionCount === 0
+  if (noCitationData && noMentionData) {
     return section(
       { id: 'competitor-landscape', eyebrow: 'Section 3', title: 'Competitor Landscape' },
       renderEmpty('No competitor data yet. Add competitors and run a visibility sweep.'),
     )
   }
 
+  const mentionByDomain = new Map(mentionLandscape.competitors.map(m => [m.domain, m]))
   const rows = competitors.map(c => {
     const tone = pressureTone(c.pressureLabel)
+    const mention = mentionByDomain.get(c.domain)
+    const mentionCount = mention?.mentionCount ?? 0
+    const mentionTotal = mention?.totalCount ?? mentionLandscape.totalAnswerSnapshots
     const pagesDisclosure = c.theirCitedPages.length > 0
       ? `<details class="cited-pages"><summary>${c.theirCitedPages.length} cited URL${c.theirCitedPages.length > 1 ? 's' : ''}</summary>
           <ul>${c.theirCitedPages.map(p => `<li><a href="${escapeHtml(p.url)}">${escapeHtml(p.url)}</a> <span class="cited-for">${escapeHtml(p.citedFor.join(', '))}</span></li>`).join('')}</ul>
@@ -544,6 +575,7 @@ function renderCompetitorLandscape(report: ProjectReportDto): string {
       <td>${escapeHtml(c.domain)}</td>
       <td><span class="badge tone-${tone}">${escapeHtml(c.pressureLabel)}</span></td>
       <td class="numeric">${c.citationCount} / ${c.totalCount}</td>
+      <td class="numeric">${mentionCount} / ${mentionTotal}</td>
       <td class="numeric">${c.sharePct}%</td>
       <td>${escapeHtml(c.citedKeywords.slice(0, 5).join(', '))}${c.citedKeywords.length > 5 ? '…' : ''}${pagesDisclosure}</td>
     </tr>`
@@ -551,14 +583,25 @@ function renderCompetitorLandscape(report: ProjectReportDto): string {
 
   const table = competitors.length > 0
     ? `<table class="report-table">
-        <thead><tr><th>Domain</th><th>Pressure</th><th>Citations</th><th class="numeric">SOV</th><th>Cited keywords</th></tr></thead>
+        <thead><tr><th>Domain</th><th>Pressure</th><th>Citations</th><th class="numeric">Mentions</th><th class="numeric">SOV</th><th>Cited keywords</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`
     : renderEmpty('No competitors configured.')
 
+  const citationBars = renderCompetitorBars(report.competitorLandscape, report.meta.project.canonicalDomain)
+  const mentionBars = renderMentionBars(mentionLandscape, report.meta.project.canonicalDomain)
+  const charts = citationBars && mentionBars
+    ? `<div class="chart-grid">${citationBars}${mentionBars}</div>`
+    : `${citationBars}${mentionBars}`
+
   return section(
-    { id: 'competitor-landscape', eyebrow: 'Section 3', title: 'Competitor Landscape', intro: 'Where tracked competitors appear in AI answers compared to your domain.' },
-    `${renderCompetitorBars(report.competitorLandscape, report.meta.project.canonicalDomain)}${table}`,
+    {
+      id: 'competitor-landscape',
+      eyebrow: 'Section 3',
+      title: 'Competitor Landscape',
+      intro: 'Where tracked competitors appear in AI answers compared to your domain — both in source citations and in the answer text itself.',
+    },
+    `${charts}${table}`,
   )
 }
 
@@ -609,7 +652,7 @@ function renderAiSourceOrigin(report: ProjectReportDto): string {
   const origin = report.aiSourceOrigin
   if (origin.categories.length === 0 && origin.topDomains.length === 0) {
     return section(
-      { id: 'ai-source-origin', eyebrow: 'Section 4', title: 'AI Source Origin' },
+      { id: 'ai-source-origin', eyebrow: 'Section 4', title: 'AI Citation Sources' },
       renderEmpty('No source data yet. Run a visibility sweep first.'),
     )
   }
@@ -629,7 +672,12 @@ function renderAiSourceOrigin(report: ProjectReportDto): string {
     : ''
 
   return section(
-    { id: 'ai-source-origin', eyebrow: 'Section 4', title: 'AI Source Origin', intro: 'Where AI answers pull from, aggregated across the latest sweep.' },
+    {
+      id: 'ai-source-origin',
+      eyebrow: 'Section 4',
+      title: 'AI Citation Sources',
+      intro: 'Every external website AI engines cited as a source for your tracked keywords in the latest sweep — categorized by site type (Reddit, YouTube, news, etc.) on the left and ranked by citation count on the right. Your own domains are excluded; tracked competitors are flagged.',
+    },
     `${renderDonut(origin.categories)}${table}`,
   )
 }
@@ -718,7 +766,7 @@ function renderGsc(report: ProjectReportDto): string {
   }
 
   return section(
-    { id: 'gsc', eyebrow: 'Section 5', title: 'GSC Performance', intro: 'Top queries, category breakdown, and traffic trend from Google Search Console.' },
+    { id: 'gsc', eyebrow: 'Section 5', title: 'GSC Performance', intro: 'Your site’s performance in Google’s regular (non-AI) search results — top queries that drove impressions, intent breakdown, and the click trend, sourced from Google Search Console for the most recent sync window.' },
     `<div class="metric-grid">
       <div class="metric"><div class="label">Total clicks</div><div class="value">${formatNumber(gsc.totalClicks)}</div></div>
       <div class="metric"><div class="label">Total impressions</div><div class="value">${formatNumber(gsc.totalImpressions)}</div></div>
@@ -767,7 +815,7 @@ function renderGa(report: ProjectReportDto): string {
     </tr>`).join('')
 
   return section(
-    { id: 'ga', eyebrow: 'Section 6', title: 'GA4 Traffic', intro: `Sessions and users for ${formatDate(ga.periodStart)} → ${formatDate(ga.periodEnd)}.` },
+    { id: 'ga', eyebrow: 'Section 6', title: 'GA4 Traffic', intro: `Total sessions and users on your site between ${formatDate(ga.periodStart)} and ${formatDate(ga.periodEnd)}, with the top landing pages and channel breakdown — sourced from Google Analytics 4.` },
     `<div class="metric-grid">
       <div class="metric"><div class="label">Total sessions</div><div class="value">${formatNumber(ga.totalSessions)}</div></div>
       <div class="metric"><div class="label">Total users</div><div class="value">${formatNumber(ga.totalUsers)}</div></div>
@@ -812,7 +860,7 @@ function renderSocial(report: ProjectReportDto): string {
     </tr>`).join('')
 
   return section(
-    { id: 'social-referrals', eyebrow: 'Section 7', title: 'Social Referrals', intro: 'Paid vs organic split with top campaigns.' },
+    { id: 'social-referrals', eyebrow: 'Section 7', title: 'Social Referrals', intro: 'Sessions on your site sent by social platforms (LinkedIn, Facebook, X, etc.) — paid versus organic split and the top campaigns that drove them. Sourced from Google Analytics 4.' },
     `<div class="metric-grid">
       <div class="metric"><div class="label">Total sessions</div><div class="value">${formatNumber(social.totalSessions)}</div></div>
       <div class="metric"><div class="label">Organic social</div><div class="value">${formatNumber(social.organicSessions)}</div></div>
@@ -864,7 +912,7 @@ function renderAiReferrals(report: ProjectReportDto): string {
   )
 
   return section(
-    { id: 'ai-referrals', eyebrow: 'Section 8', title: 'AI Referral Traffic', intro: 'Sessions sent from AI answer engines.' },
+    { id: 'ai-referrals', eyebrow: 'Section 8', title: 'AI Referral Traffic', intro: 'Sessions on your site referred by AI answer engines (ChatGPT, Perplexity, Claude, Copilot, Gemini, etc.) — broken down by referrer with a daily trend and the top landing pages. Sourced from Google Analytics 4.' },
     `<div class="metric-grid">
       <div class="metric"><div class="label">Total sessions</div><div class="value">${formatNumber(ai.totalSessions)}</div></div>
       <div class="metric"><div class="label">Total users</div><div class="value">${formatNumber(ai.totalUsers)}</div></div>
@@ -916,7 +964,7 @@ function renderIndexingHealth(report: ProjectReportDto): string {
   const legend = segments.map(s => `<span><span class="legend-swatch" style="background:${s.color}"></span>${escapeHtml(s.label)}: ${s.count}</span>`).join('')
 
   return section(
-    { id: 'indexing-health', eyebrow: 'Section 9', title: 'Indexing Health', intro: `Source: ${ih.provider === 'google' ? 'Google Search Console' : 'Bing Webmaster Tools'}.` },
+    { id: 'indexing-health', eyebrow: 'Section 9', title: 'Indexing Health', intro: `What share of your tracked URLs are currently indexed in ${ih.provider === 'google' ? 'Google' : 'Bing'} — sourced from ${ih.provider === 'google' ? 'Google Search Console URL Inspection' : 'Bing Webmaster Tools URL Inspection'}. Pages absent from the index can’t be retrieved by AI engines either.` },
     `<div class="metric-grid">
       <div class="metric"><div class="label">Indexed</div><div class="value tone-positive">${formatNumber(ih.indexed)}</div></div>
       <div class="metric"><div class="label">Total inspected</div><div class="value">${formatNumber(ih.total)}</div></div>
@@ -961,7 +1009,7 @@ function renderCitationsTrend(report: ProjectReportDto): string {
     </tr>`).join('')
 
   return section(
-    { id: 'citations-trend', eyebrow: 'Section 10', title: 'Citations Over Time', intro: 'Per-run citation rate across the project history.' },
+    { id: 'citations-trend', eyebrow: 'Section 10', title: 'Citations Over Time', intro: 'Citation rate across every visibility sweep — the share of (keyword × provider) pairs in each run where your domain appeared in the source list, with a per-provider breakdown beneath.' },
     `${chart}
     <div class="chart-card"><h3>Run-by-run breakdown</h3>
       <table class="report-table">
@@ -1001,7 +1049,7 @@ function renderInsights(report: ProjectReportDto): string {
     }).join('')
 
   return section(
-    { id: 'insights', eyebrow: 'Section 11', title: 'Insights & Alerts', intro: 'Priority-ordered findings from the most recent runs.' },
+    { id: 'insights', eyebrow: 'Section 11', title: 'Insights & Alerts', intro: 'Regressions (citations lost), gains (citations won), and opportunities surfaced by the intelligence engine across the most recent sweeps — ordered by severity and recurrence.' },
     `<table class="report-table">
       <thead><tr><th>Severity</th><th>Title</th><th>Keyword</th><th>Provider</th><th>Recommendation</th></tr></thead>
       <tbody>${rows}</tbody>
@@ -1013,9 +1061,10 @@ function renderOpportunities(report: ProjectReportDto): string {
   const opps = report.contentOpportunities
   if (opps.length === 0) return ''
 
+  const canonical = report.meta.project.canonicalDomain
   const rows = opps.slice(0, 10).map((o) => {
     const ourPage = o.ourBestPage
-      ? `<a href="${escapeHtml(o.ourBestPage.url)}">${escapeHtml(o.ourBestPage.url)}</a>`
+      ? `<a href="${escapeHtml(absolutizeProjectUrl(o.ourBestPage.url, canonical))}">${escapeHtml(o.ourBestPage.url)}</a>`
       : '<span class="cell-not-cited">—</span>'
     const winning = o.winningCompetitor
       ? `<a href="${escapeHtml(o.winningCompetitor.url)}">${escapeHtml(o.winningCompetitor.domain)}</a>`
@@ -1036,7 +1085,7 @@ function renderOpportunities(report: ProjectReportDto): string {
       id: 'content-opportunities',
       eyebrow: 'Section 12',
       title: 'Content Opportunities',
-      intro: 'Ranked, action-typed targets from the content recommendation engine. Top 10 shown.',
+      intro: 'Queries where you have search demand or competitor citation pressure but aren’t winning AI citations. Each row carries a suggested action (create / refresh / expand / add-schema). Top 10 shown.',
     },
     `<table class="report-table">
       <thead><tr><th>Query</th><th>Action</th><th class="numeric">Score</th><th>Our page</th><th>Winning competitor</th><th>Demand</th><th>Confidence</th></tr></thead>
@@ -1052,7 +1101,7 @@ function renderRecommendedNextSteps(report: ProjectReportDto): string {
   const steps = report.recommendedNextSteps
   if (steps.length === 0) {
     return section(
-      { id: 'recommended-next-steps', eyebrow: 'Section 13', title: 'Recommended Next Steps' },
+      { id: 'recommended-next-steps', eyebrow: 'Section 13', title: 'Recommended Next Steps', intro: 'Action items bucketed by horizon (immediate, short-term, medium-term), drawn from open insights and the highest-ranked content opportunities.' },
       renderEmpty('No outstanding actions.'),
     )
   }
@@ -1065,7 +1114,7 @@ function renderRecommendedNextSteps(report: ProjectReportDto): string {
     </div>`).join('')
 
   return section(
-    { id: 'recommended-next-steps', eyebrow: 'Section 13', title: 'Recommended Next Steps' },
+    { id: 'recommended-next-steps', eyebrow: 'Section 13', title: 'Recommended Next Steps', intro: 'Action items bucketed by horizon (immediate, short-term, medium-term), drawn from open insights and the highest-ranked content opportunities.' },
     `<div class="steps">${items}</div>`,
   )
 }
