@@ -43,6 +43,51 @@ function formatNumber(value: number): string {
   return value.toLocaleString('en-US')
 }
 
+function summarizeQueryParams(params: URLSearchParams): string {
+  const keys = Array.from(params.keys())
+  const total = keys.length
+  if (total === 0) return ''
+  const noun = total === 1 ? 'param' : 'params'
+  const tag = inferAdSource(params)
+  return tag ? `${tag} · ${total} ${noun}` : `${total} tracking ${noun}`
+}
+
+function inferAdSource(params: URLSearchParams): string | null {
+  if (params.has('fbclid')) return 'Facebook Ad'
+  if (params.has('gclid') || params.has('gbraid') || params.has('wbraid')) return 'Google Ad'
+  if (params.has('msclkid')) return 'Microsoft Ad'
+  if (params.has('ttclid')) return 'TikTok Ad'
+  if (params.has('li_fat_id')) return 'LinkedIn Ad'
+  if (params.has('twclid')) return 'X / Twitter Ad'
+  if (params.has('epik')) return 'Pinterest Ad'
+  for (const k of params.keys()) {
+    if (k.startsWith('hsa_')) return 'Search Ad'
+  }
+  const src = params.get('utm_source')
+  const med = params.get('utm_medium')
+  if (src && med) return `${src} / ${med}`
+  if (src) return `Source: ${src}`
+  if (med) return `Medium: ${med}`
+  return null
+}
+
+export function formatLandingPageHtml(raw: string): string {
+  const value = raw ?? ''
+  const queryIdx = value.indexOf('?')
+  const path = queryIdx === -1 ? value : value.slice(0, queryIdx)
+  const query = queryIdx === -1 ? '' : value.slice(queryIdx + 1)
+  const pathHtml = `<span class="page-path">${escapeHtml(path || '/')}</span>`
+  if (!query) return pathHtml
+  let summary = ''
+  try {
+    summary = summarizeQueryParams(new URLSearchParams(query))
+  } catch {
+    summary = 'tracking params'
+  }
+  if (!summary) return pathHtml
+  return `${pathHtml}<span class="page-query" title="${escapeHtml(value)}">${escapeHtml(summary)}</span>`
+}
+
 function formatDate(iso: string): string {
   if (!iso) return '—'
   try {
@@ -180,6 +225,9 @@ table.report-table th, table.report-table td {
   text-align: left;
   padding: 10px 12px;
   border-bottom: 1px solid ${COLORS.border};
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 table.report-table th {
   font-weight: 600;
@@ -188,7 +236,25 @@ table.report-table th {
   letter-spacing: 0.06em;
   font-size: 10px;
 }
-table.report-table td.numeric { text-align: right; font-variant-numeric: tabular-nums; }
+table.report-table td.numeric { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.report-table td.page-cell { max-width: 0; }
+table.report-table td.page-cell .page-path {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: ${COLORS.text};
+}
+table.report-table td.page-cell .page-query {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 1px 8px;
+  font-size: 11px;
+  color: ${COLORS.textMuted};
+  background: ${COLORS.surface};
+  border: 1px solid ${COLORS.border};
+  border-radius: 999px;
+  cursor: help;
+}
 table.report-table td .badge {
   display: inline-block;
   padding: 2px 8px;
@@ -661,7 +727,7 @@ function renderGa(report: ProjectReportDto): string {
 
   const pageRows = ga.topLandingPages.map(p => `
     <tr>
-      <td>${escapeHtml(p.page)}</td>
+      <td class="page-cell">${formatLandingPageHtml(p.page)}</td>
       <td class="numeric">${formatNumber(p.sessions)}</td>
       <td class="numeric">${formatNumber(p.users)}</td>
       <td class="numeric">${formatNumber(p.organicSessions)}</td>
@@ -760,7 +826,7 @@ function renderAiReferrals(report: ProjectReportDto): string {
 
   const pageRows = ai.topLandingPages.map(p => `
     <tr>
-      <td>${escapeHtml(p.page)}</td>
+      <td class="page-cell">${formatLandingPageHtml(p.page)}</td>
       <td class="numeric">${formatNumber(p.sessions)}</td>
       <td class="numeric">${formatNumber(p.users)}</td>
     </tr>`).join('')
