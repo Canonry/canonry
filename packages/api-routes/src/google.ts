@@ -643,6 +643,19 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     const indexed = indexedUrls.length
     const notIndexed = notIndexedUrls.length
 
+    // The most recent coverage snapshot's createdAt records when the sync
+    // last wrote data. This is distinct from lastInspectedAt — a sync that
+    // re-fetched coverage but found no newly-crawled URLs still updates
+    // lastSyncedAt while leaving lastInspectedAt unchanged.
+    const latestSnapshot = app.db
+      .select({ createdAt: gscCoverageSnapshots.createdAt })
+      .from(gscCoverageSnapshots)
+      .where(eq(gscCoverageSnapshots.projectId, project.id))
+      .orderBy(desc(gscCoverageSnapshots.createdAt))
+      .limit(1)
+      .get()
+    const lastSyncedAt = latestSnapshot?.createdAt ?? null
+
     const formatRow = (r: typeof allInspections[number]) => ({
       id: r.id,
       url: r.url,
@@ -686,6 +699,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         percentage: total > 0 ? Math.round((indexed / total) * 1000) / 10 : 0,
       },
       lastInspectedAt,
+      lastSyncedAt,
       indexed: indexedUrls.map(formatRow),
       notIndexed: notIndexedUrls.map(formatRow),
       deindexed: deindexedUrls,

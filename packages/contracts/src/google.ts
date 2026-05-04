@@ -70,6 +70,7 @@ export const gscCoverageSummaryDtoSchema = z.object({
     percentage: z.number(),
   }),
   lastInspectedAt: z.string().nullable(),
+  lastSyncedAt: z.string().nullable(),
   indexed: z.array(gscUrlInspectionDtoSchema).default([]),
   notIndexed: z.array(gscUrlInspectionDtoSchema).default([]),
   deindexed: z.array(gscDeindexedRowSchema).default([]),

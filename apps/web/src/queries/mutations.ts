@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { RunKinds } from '@ainyc/canonry-contracts'
 import {
   ApiError,
   type ApiRun,
@@ -20,6 +21,7 @@ import {
 import { createTrackedBatch, trackRun, type TrackedRunSourceAction } from '../lib/run-tracker-store.js'
 import { addToast } from '../lib/toast-store.js'
 import { queryKeys } from './query-keys.js'
+import { invalidateQueriesForRunKind } from './run-invalidations.js'
 
 function invalidateProjectAndRunQueries(queryClient: QueryClient) {
   void queryClient.invalidateQueries({ queryKey: queryKeys.runs.all })
@@ -185,7 +187,7 @@ export function useTriggerGscSync() {
       opts?: Parameters<typeof triggerGscSync>[1]
     }) => triggerGscSync(projectName, opts),
     onSuccess: (run, variables) => {
-      invalidateProjectAndRunQueries(queryClient)
+      invalidateQueriesForRunKind(queryClient, RunKinds['gsc-sync'], variables.projectName)
       queueTrackedRunToast(run, {
         projectLabel: variables.projectLabel ?? variables.projectName,
         sourceAction: 'gsc-sync',
@@ -210,7 +212,7 @@ export function useTriggerDiscoverSitemaps() {
       projectLabel?: string
     }) => triggerDiscoverSitemaps(projectName),
     onSuccess: (result, variables) => {
-      invalidateProjectAndRunQueries(queryClient)
+      invalidateQueriesForRunKind(queryClient, result.run.kind, variables.projectName)
       queueTrackedRunToast(result.run, {
         projectLabel: variables.projectLabel ?? variables.projectName,
         sourceAction: 'discover-sitemaps',
@@ -236,7 +238,7 @@ export function useTriggerInspectSitemap() {
       opts?: Parameters<typeof triggerInspectSitemap>[1]
     }) => triggerInspectSitemap(projectName, opts),
     onSuccess: (run, variables) => {
-      invalidateProjectAndRunQueries(queryClient)
+      invalidateQueriesForRunKind(queryClient, RunKinds['inspect-sitemap'], variables.projectName)
       queueTrackedRunToast(run, {
         projectLabel: variables.projectLabel ?? variables.projectName,
         sourceAction: 'inspect-sitemap',
