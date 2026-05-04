@@ -561,7 +561,49 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.citationsTrend[0]!.citationRate).toBe(0)
     expect(body.citationsTrend[1]!.runId).toBe(r2)
     expect(body.citationsTrend[1]!.citationRate).toBe(100)
+    // Only 2 points — below MIN_TREND_POINTS, so trend is suppressed.
+    expect(body.executiveSummary.trend).toBe('unknown')
+  })
+
+  test('executiveSummary.trend resolves once enough runs are collected', async () => {
+    const projectId = insertProject(ctx.db, 'trend-resolved')
+    const kw = insertKeyword(ctx.db, projectId, 'kw')
+
+    // 4 runs: 0%, 0%, 0%, 100% — last delta is up, sample is large enough.
+    for (let i = 0; i < 4; i++) {
+      const day = String(i + 1).padStart(2, '0')
+      const id = insertRun(ctx.db, projectId, {
+        createdAt: `2026-04-${day}T00:00:00Z`,
+        finishedAt: `2026-04-${day}T00:01:00Z`,
+      })
+      insertSnapshot(ctx.db, id, kw, { citationState: i === 3 ? 'cited' : 'not-cited' })
+    }
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/trend-resolved/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.citationsTrend.length).toBe(4)
     expect(body.executiveSummary.trend).toBe('up')
+  })
+
+  test('findings detail surfaces "Establishing baseline" copy until enough runs exist', async () => {
+    const projectId = insertProject(ctx.db, 'trend-baseline')
+    const kw = insertKeyword(ctx.db, projectId, 'kw')
+
+    const r1 = insertRun(ctx.db, projectId, { createdAt: '2026-04-01T00:00:00Z', finishedAt: '2026-04-01T00:01:00Z' })
+    const r2 = insertRun(ctx.db, projectId, { createdAt: '2026-04-02T00:00:00Z', finishedAt: '2026-04-02T00:01:00Z' })
+    insertSnapshot(ctx.db, r1, kw, { citationState: 'not-cited' })
+    insertSnapshot(ctx.db, r2, kw, { citationState: 'cited' })
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/trend-baseline/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    const trendFinding = body.executiveSummary.findings.find(f => f.title.startsWith('Citation rate'))
+    expect(trendFinding).toBeDefined()
+    expect(trendFinding!.detail).toMatch(/Establishing baseline/i)
+    expect(trendFinding!.tone).toBe('neutral')
   })
 
   test('partial runs power the scorecard but are excluded from the trend line', async () => {
@@ -650,10 +692,55 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.insights.length).toBe(2)
     expect(body.insights[0]!.severity).toBe('critical')
     expect(body.insights[0]!.recommendation).toContain('review-content')
+    expect(body.insights[0]!.instanceCount).toBe(1)
 
     expect(body.recommendedNextSteps.length).toBeGreaterThan(0)
     const horizons = body.recommendedNextSteps.map(s => s.horizon)
     expect(horizons).toContain('immediate')
+  })
+
+  test('insights are deduped by (keyword, provider, type) with instanceCount surfaced', async () => {
+    // A regression that fires across three runs should collapse to one
+    // ReportInsight with instanceCount=3, not three separate rows. Without
+    // dedup at the API layer, downstream consumers (executive findings,
+    // recommended next steps, CLI list views) overcount.
+    const projectId = insertProject(ctx.db, 'dedup-insights')
+    const r1 = insertRun(ctx.db, projectId, { createdAt: '2026-04-01T00:00:00Z', finishedAt: '2026-04-01T00:01:00Z' })
+    const r2 = insertRun(ctx.db, projectId, { createdAt: '2026-04-02T00:00:00Z', finishedAt: '2026-04-02T00:01:00Z' })
+    const r3 = insertRun(ctx.db, projectId, { createdAt: '2026-04-03T00:00:00Z', finishedAt: '2026-04-03T00:01:00Z' })
+
+    for (const [runId, createdAt, idSuffix] of [
+      [r1, '2026-04-01T00:00:00Z', '1'],
+      [r2, '2026-04-02T00:00:00Z', '2'],
+      [r3, '2026-04-03T00:00:00Z', '3'],
+    ] as const) {
+      ctx.db.insert(insights).values({
+        id: `ins-dup-${idSuffix}`,
+        projectId,
+        runId,
+        type: 'regression',
+        severity: 'critical',
+        title: 'Lost citation on aeo platform',
+        keyword: 'aeo platform',
+        provider: 'gemini',
+        recommendation: null,
+        cause: null,
+        dismissed: false,
+        createdAt,
+      }).run()
+    }
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/dedup-insights/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.insights.length).toBe(1)
+    expect(body.insights[0]!.instanceCount).toBe(3)
+    // Representative is the most-recent firing.
+    expect(body.insights[0]!.id).toBe('ins-dup-3')
+    // Recommended next steps should count one critical regression, not three.
+    const immediate = body.recommendedNextSteps.find(s => s.horizon === 'immediate')
+    expect(immediate?.title).toContain('1 critical regression')
   })
 
   test('report shape is structurally identical across calls (deterministic)', async () => {
