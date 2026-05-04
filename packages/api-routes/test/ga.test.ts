@@ -6,7 +6,7 @@ import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { eq, inArray } from 'drizzle-orm'
 import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
-import { createClient, migrate, gaAiReferrals, gaSocialReferrals, gaTrafficSnapshots, gaTrafficSummaries, runs } from '@ainyc/canonry-db'
+import { createClient, migrate, gaAiReferrals, gaSocialReferrals, gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, runs } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialStore, Ga4CredentialRecord } from '../src/ga.js'
 
@@ -238,6 +238,15 @@ describe('GA4 routes', () => {
       totalOrganicSessions: 30,
       totalUsers: 55,
     })
+    const fetchWindowSummarySpy = vi.spyOn(gaModule, 'fetchWindowSummary').mockImplementation(async (_token, _propId, windowKey) => ({
+      windowKey,
+      periodStart: '2026-02-19',
+      periodEnd: '2026-03-20',
+      totalSessions: windowKey === '7d' ? 20 : windowKey === '30d' ? 80 : 200,
+      totalOrganicSessions: windowKey === '7d' ? 8 : windowKey === '30d' ? 30 : 75,
+      totalDirectSessions: windowKey === '7d' ? 4 : windowKey === '30d' ? 16 : 40,
+      totalUsers: windowKey === '7d' ? 15 : windowKey === '30d' ? 55 : 140,
+    }))
     const fetchAiReferralsSpy = vi.spyOn(gaModule, 'fetchAiReferrals').mockResolvedValue([
       { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', landingPage: '/pricing?utm_source=chatgpt.com', sessions: 12, users: 9, sourceDimension: 'session' },
     ])
@@ -279,6 +288,22 @@ describe('GA4 routes', () => {
     expect(summaries[0]!.totalSessions).toBe(80)
     expect(summaries[0]!.totalOrganicSessions).toBe(30)
 
+    // Verify per-window summaries were written (one row per 7d/30d/90d).
+    // Drives the deduplicated totalUsers headline when a window filter is
+    // active in /ga/traffic — summing snapshots overcounts users who land
+    // on multiple pages.
+    const windowSummaries = db.select().from(gaTrafficWindowSummaries)
+      .where(eq(gaTrafficWindowSummaries.projectId, projectId))
+      .all()
+      .sort((a, b) => a.windowKey.localeCompare(b.windowKey))
+    expect(windowSummaries.map((r) => r.windowKey)).toEqual(['30d', '7d', '90d'])
+    const byKey = Object.fromEntries(windowSummaries.map((r) => [r.windowKey, r]))
+    expect(byKey['7d']!.totalUsers).toBe(15)
+    expect(byKey['30d']!.totalUsers).toBe(55)
+    expect(byKey['90d']!.totalUsers).toBe(140)
+    expect(byKey['30d']!.totalDirectSessions).toBe(16)
+    expect(windowSummaries.every((r) => r.syncRunId === gaRuns[0]!.id)).toBe(true)
+
     const aiReferrals = db.select().from(gaAiReferrals)
       .where(eq(gaAiReferrals.projectId, projectId))
       .all()
@@ -301,6 +326,7 @@ describe('GA4 routes', () => {
     getAccessTokenSpy.mockRestore()
     fetchTrafficSpy.mockRestore()
     fetchAggregateSpy.mockRestore()
+    fetchWindowSummarySpy.mockRestore()
     fetchAiReferralsSpy.mockRestore()
     fetchSocialReferralsSpy.mockRestore()
     credentials.delete('test-project')
@@ -361,6 +387,15 @@ describe('GA4 routes', () => {
       totalOrganicSessions: 0,
       totalUsers: 0,
     })
+    const fetchWindowSummarySpy = vi.spyOn(gaModule, 'fetchWindowSummary').mockImplementation(async (_t, _p, windowKey) => ({
+      windowKey,
+      periodStart: '2026-03-01',
+      periodEnd: '2026-03-31',
+      totalSessions: 0,
+      totalOrganicSessions: 0,
+      totalDirectSessions: 0,
+      totalUsers: 0,
+    }))
     const fetchAiReferralsSpy = vi.spyOn(gaModule, 'fetchAiReferrals').mockResolvedValue([])
     const fetchSocialReferralsSpy = vi.spyOn(gaModule, 'fetchSocialReferrals').mockResolvedValue([])
 
@@ -377,11 +412,15 @@ describe('GA4 routes', () => {
     getAccessTokenSpy.mockRestore()
     fetchTrafficSpy.mockRestore()
     fetchAggregateSpy.mockRestore()
+    fetchWindowSummarySpy.mockRestore()
     fetchAiReferralsSpy.mockRestore()
     fetchSocialReferralsSpy.mockRestore()
     credentials.delete('test-project')
     db.delete(gaTrafficSummaries)
       .where(eq(gaTrafficSummaries.projectId, projectId))
+      .run()
+    db.delete(gaTrafficWindowSummaries)
+      .where(eq(gaTrafficWindowSummaries.projectId, projectId))
       .run()
   })
 
@@ -426,6 +465,15 @@ describe('GA4 routes', () => {
       totalOrganicSessions: 12000,
       totalUsers: 22000,
     })
+    const fetchWindowSummarySpy = vi.spyOn(gaModule, 'fetchWindowSummary').mockImplementation(async (_t, _p, windowKey) => ({
+      windowKey,
+      periodStart: today,
+      periodEnd: today,
+      totalSessions: 30000,
+      totalOrganicSessions: 12000,
+      totalDirectSessions: 5000,
+      totalUsers: 22000,
+    }))
     const fetchAiReferralsSpy = vi.spyOn(gaModule, 'fetchAiReferrals').mockResolvedValue([])
     const fetchSocialReferralsSpy = vi.spyOn(gaModule, 'fetchSocialReferrals').mockResolvedValue([
       { date: today, source: 'facebook.com', medium: 'referral', sessions: 1273, users: 900, channelGroup: 'Organic Social' },
@@ -489,11 +537,13 @@ describe('GA4 routes', () => {
       getAccessTokenSpy.mockRestore()
       fetchTrafficSpy.mockRestore()
       fetchAggregateSpy.mockRestore()
+      fetchWindowSummarySpy.mockRestore()
       fetchAiReferralsSpy.mockRestore()
       fetchSocialReferralsSpy.mockRestore()
       credentials.delete('only-social-foundation')
       db.delete(gaTrafficSnapshots).where(eq(gaTrafficSnapshots.projectId, partialProjectId)).run()
       db.delete(gaTrafficSummaries).where(eq(gaTrafficSummaries.projectId, partialProjectId)).run()
+      db.delete(gaTrafficWindowSummaries).where(eq(gaTrafficWindowSummaries.projectId, partialProjectId)).run()
       db.delete(gaSocialReferrals).where(eq(gaSocialReferrals.projectId, partialProjectId)).run()
     }
   })
@@ -845,6 +895,152 @@ describe('GA4 routes', () => {
     expect(body.periodStart).toBe('2026-02-19')
 
     credentials.delete('test-project')
+  })
+
+  it('GET /ga/traffic uses windowed summary for totalUsers (no per-page SUM overcount)', async () => {
+    // Regression for the SUM-across-landing-pages overcount: when a window
+    // filter is active, summing gaTrafficSnapshots.users double-counts users
+    // who land on more than one page. The fix is to read totalUsers from the
+    // per-window summary (no landing-page dimension at sync time).
+    const now = new Date().toISOString()
+    const today = now.slice(0, 10)
+    const projRes = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/window-users',
+      payload: {
+        displayName: 'Window Users',
+        canonicalDomain: 'window-users.example',
+        country: 'US',
+        language: 'en',
+      },
+    })
+    const winProjectId = JSON.parse(projRes.payload).id
+
+    credentials.set('window-users', {
+      projectName: 'window-users',
+      propertyId: '111222',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    // Seed five snapshot rows for the same window — summing users across them
+    // gives 5,625, the overcounted figure the bug produced.
+    const snapshotIds: string[] = []
+    for (const [page, users, sessions] of [
+      ['/p1', 1500, 1500],
+      ['/p2', 1200, 1200],
+      ['/p3', 1100, 1100],
+      ['/p4', 950, 950],
+      ['/p5', 875, 875],
+    ] as Array<[string, number, number]>) {
+      const id = crypto.randomUUID()
+      snapshotIds.push(id)
+      db.insert(gaTrafficSnapshots).values({
+        id,
+        projectId: winProjectId,
+        date: today,
+        landingPage: page,
+        sessions,
+        organicSessions: 0,
+        directSessions: 0,
+        users,
+        syncedAt: now,
+      }).run()
+    }
+
+    // Seed the windowed summary with the deduplicated GA4 totalUsers — this
+    // is what the API should return, not the snapshot SUM.
+    db.insert(gaTrafficWindowSummaries).values({
+      id: crypto.randomUUID(),
+      projectId: winProjectId,
+      windowKey: '30d',
+      periodStart: today,
+      periodEnd: today,
+      totalSessions: 5625,
+      totalOrganicSessions: 0,
+      totalDirectSessions: 0,
+      totalUsers: 4905,
+      syncedAt: now,
+    }).run()
+
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/window-users/ga/traffic?window=30d',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      // The fix: totalUsers comes from the windowed summary (4905), NOT the
+      // snapshot SUM (5625). If this assertion ever flips back to 5625, the
+      // overcount bug is back.
+      expect(body.totalUsers).toBe(4905)
+      expect(body.totalUsers).not.toBe(5625)
+      expect(body.totalSessions).toBe(5625)
+    } finally {
+      db.delete(gaTrafficSnapshots).where(inArray(gaTrafficSnapshots.id, snapshotIds)).run()
+      db.delete(gaTrafficWindowSummaries).where(eq(gaTrafficWindowSummaries.projectId, winProjectId)).run()
+      credentials.delete('window-users')
+    }
+  })
+
+  it('GET /ga/traffic falls back to snapshot SUM when no windowed summary exists yet', async () => {
+    // Backwards-compatibility path: projects that haven't synced since the
+    // windowed-summary table was introduced still get a totals number — just
+    // the legacy (overcounted) one. New syncs replace it with the deduplicated
+    // value above.
+    const now = new Date().toISOString()
+    const today = now.slice(0, 10)
+    const projRes = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/window-fallback',
+      payload: {
+        displayName: 'Window Fallback',
+        canonicalDomain: 'window-fallback.example',
+        country: 'US',
+        language: 'en',
+      },
+    })
+    const fbProjectId = JSON.parse(projRes.payload).id
+
+    credentials.set('window-fallback', {
+      projectName: 'window-fallback',
+      propertyId: '222333',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const snapshotId = crypto.randomUUID()
+    db.insert(gaTrafficSnapshots).values({
+      id: snapshotId,
+      projectId: fbProjectId,
+      date: today,
+      landingPage: '/legacy',
+      sessions: 80,
+      organicSessions: 30,
+      directSessions: 10,
+      users: 60,
+      syncedAt: now,
+    }).run()
+
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/window-fallback/ga/traffic?window=30d',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      // No windowed summary row → fall back to SUM (single page here so no
+      // overcount risk).
+      expect(body.totalUsers).toBe(60)
+      expect(body.totalSessions).toBe(80)
+    } finally {
+      db.delete(gaTrafficSnapshots).where(eq(gaTrafficSnapshots.id, snapshotId)).run()
+      credentials.delete('window-fallback')
+    }
   })
 
   it('GET /ga/traffic exposes per-page directSessions and totalDirectSessions', async () => {

@@ -517,6 +517,98 @@ export async function fetchAggregateSummary(
   return summary
 }
 
+export interface GA4WindowSummary {
+  windowKey: string
+  periodStart: string
+  periodEnd: string
+  totalSessions: number
+  totalOrganicSessions: number
+  totalDirectSessions: number
+  totalUsers: number
+}
+
+const WINDOW_DAYS: Record<string, number> = { '7d': 7, '30d': 30, '90d': 90 }
+
+/**
+ * Fetch deduplicated totals for a fixed window (no landing-page dimension).
+ * Used to back the windowed `totalUsers` headline on the dashboard — summing
+ * `gaTrafficSnapshots.users` overcounts users who land on multiple pages.
+ *
+ * Returns sessions/organic/direct totals as well so the windowed view is
+ * consistent across all four channel buckets without re-aggregating snapshots.
+ */
+export async function fetchWindowSummary(
+  accessToken: string,
+  propertyId: string,
+  windowKey: '7d' | '30d' | '90d',
+): Promise<GA4WindowSummary> {
+  validateAccessToken(accessToken)
+  validatePropertyId(propertyId)
+
+  const days = WINDOW_DAYS[windowKey]
+  if (!days) {
+    throw new GA4ApiError(`Unsupported windowKey "${windowKey}" — must be 7d, 30d, or 90d`, 400)
+  }
+
+  const endDate = new Date()
+  const startDate = new Date()
+  startDate.setDate(startDate.getDate() - days)
+  const dateRange = { startDate: formatDate(startDate), endDate: formatDate(endDate) }
+
+  ga4Log('info', 'fetch-window-summary.start', { propertyId, windowKey, days })
+
+  // Three reports in one batch — total + organic + direct, no landing-page dim.
+  const batchRes = await batchRunReports(accessToken, propertyId, [
+    {
+      dateRanges: [dateRange],
+      dimensions: [],
+      metrics: [{ name: 'sessions' }, { name: 'totalUsers' }],
+      limit: 1,
+    },
+    {
+      dateRanges: [dateRange],
+      dimensions: [],
+      metrics: [{ name: 'sessions' }],
+      dimensionFilter: {
+        filter: {
+          fieldName: 'sessionDefaultChannelGrouping',
+          stringFilter: { matchType: 'EXACT', value: 'Organic Search' },
+        },
+      },
+      limit: 1,
+    },
+    {
+      dateRanges: [dateRange],
+      dimensions: [],
+      metrics: [{ name: 'sessions' }],
+      dimensionFilter: {
+        filter: {
+          fieldName: 'sessionDefaultChannelGrouping',
+          stringFilter: { matchType: 'EXACT', value: 'Direct' },
+        },
+      },
+      limit: 1,
+    },
+  ])
+
+  const totalRow = batchRes[0]?.rows?.[0]
+  const organicRow = batchRes[1]?.rows?.[0]
+  const directRow = batchRes[2]?.rows?.[0]
+
+  const summary: GA4WindowSummary = {
+    windowKey,
+    periodStart: formatDate(startDate),
+    periodEnd: formatDate(endDate),
+    totalSessions: parseInt(totalRow?.metricValues[0]?.value ?? '0', 10) || 0,
+    totalUsers: parseInt(totalRow?.metricValues[1]?.value ?? '0', 10) || 0,
+    totalOrganicSessions: parseInt(organicRow?.metricValues[0]?.value ?? '0', 10) || 0,
+    totalDirectSessions: parseInt(directRow?.metricValues[0]?.value ?? '0', 10) || 0,
+  }
+
+  ga4Log('info', 'fetch-window-summary.done', { propertyId, ...summary })
+  return summary
+}
+
 /**
  * Fetch traffic specifically from AI referral sources.
  */

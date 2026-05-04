@@ -804,6 +804,29 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
          ON ga_ai_referrals(project_id, date, source, medium, source_dimension, landing_page)`,
     ],
   },
+  {
+    version: 47,
+    name: 'ga-traffic-window-summaries',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS ga_traffic_window_summaries (
+        id                       TEXT PRIMARY KEY,
+        project_id               TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        window_key               TEXT NOT NULL,
+        period_start             TEXT NOT NULL,
+        period_end               TEXT NOT NULL,
+        total_sessions           INTEGER NOT NULL DEFAULT 0,
+        total_organic_sessions   INTEGER NOT NULL DEFAULT 0,
+        total_direct_sessions    INTEGER NOT NULL DEFAULT 0,
+        total_users              INTEGER NOT NULL DEFAULT 0,
+        synced_at                TEXT NOT NULL,
+        sync_run_id              TEXT REFERENCES runs(id) ON DELETE CASCADE
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_window_summary_unique
+         ON ga_traffic_window_summaries(project_id, window_key)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_window_summary_run
+         ON ga_traffic_window_summaries(sync_run_id)`,
+    ],
+  },
 ]
 
 /**
