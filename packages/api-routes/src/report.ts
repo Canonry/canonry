@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, inArray, or } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   bingCoverageSnapshots,
@@ -30,7 +30,25 @@ import {
   type ReportInsight,
   type SocialReferralSection,
 } from '@ainyc/canonry-contracts'
+import {
+  buildBrandTokens,
+  buildContentTargetRows,
+  buildContentSourceRows,
+  buildContentGapRows,
+  categorizeQueryByIntent,
+  groupInsights,
+  isTrendBaseline,
+  MIN_TREND_POINTS,
+  mapOpportunitiesToNextSteps,
+} from '@ainyc/canonry-intelligence'
 import { resolveProject } from './helpers.js'
+import {
+  extractGroundingSources,
+  extractHostFromUri,
+  loadOrchestratorInput,
+  normalizeDomain,
+} from './content-data.js'
+import type { GroundingSource } from '@ainyc/canonry-contracts'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 
 const TOP_QUERIES_LIMIT = 20
@@ -38,6 +56,11 @@ const TOP_LANDING_PAGES_LIMIT = 20
 const TOP_AI_REFERRAL_PAGES_LIMIT = 10
 const TOP_SOURCE_DOMAINS_LIMIT = 20
 const TOP_CAMPAIGN_LIMIT = 10
+// Cap insight history at the same window the intelligence layer uses
+// for recurrence (RECURRENCE_LOOKBACK_RUNS in intelligence-service.ts).
+// Keeps a months-old undismissed regression from cluttering today's
+// report while still surfacing alerts that recur within recent history.
+const INSIGHT_LOOKBACK_RUNS = 5
 
 function safeNum(value: unknown): number {
   if (typeof value === 'number') return value
@@ -61,20 +84,13 @@ function citedDomainBelongsToProject(citedDomain: string, projectDomains: string
   return false
 }
 
-function categorizeQuery(query: string, projectName: string, canonicalDomain: string): GscQueryRow['category'] {
-  const lower = query.toLowerCase()
-  const projectTokens = [
-    projectName.toLowerCase(),
-    canonicalDomain.toLowerCase().replace(/\.[^.]+$/, ''),
-  ].filter(t => t.length >= 3)
-  if (projectTokens.some(token => lower.includes(token))) return 'brand'
-  if (/\b(buy|price|pricing|cost|hire|near me|services?|agency|consultant|company)\b/.test(lower)) {
-    return 'lead-gen'
-  }
-  if (/\b(what|how|why|when|guide|tutorial|vs|versus|alternatives?|examples?|definition)\b/.test(lower)) {
-    return 'industry'
-  }
-  return 'other'
+// Thin wrapper around the shared intelligence-package categorizer.
+// Encapsulates brand-token construction so the existing buildGscSection
+// call sites don't all need to thread brandTokens through. The display
+// name is preferred over the project slug because the slug is internal
+// (e.g. "acme-corp") while the display name matches what searchers type.
+function categorizeQuery(query: string, projectDisplayName: string, canonicalDomain: string): GscQueryRow['category'] {
+  return categorizeQueryByIntent(query, buildBrandTokens(canonicalDomain, projectDisplayName))
 }
 
 interface SnapshotRow {
@@ -88,6 +104,7 @@ interface SnapshotRow {
   answerText: string | null
   citedDomains: string[]
   competitorOverlap: string[]
+  groundingSources: GroundingSource[]
   createdAt: string
 }
 
@@ -104,6 +121,7 @@ function loadSnapshotsForRun(db: DatabaseClient, runId: string): SnapshotRow[] {
     answerText: r.answerText,
     citedDomains: parseJsonColumn<string[]>(r.citedDomains, []),
     competitorOverlap: parseJsonColumn<string[]>(r.competitorOverlap, []),
+    groundingSources: extractGroundingSources(r.rawResponse),
     createdAt: r.createdAt,
   }))
 }
@@ -181,8 +199,13 @@ function buildCompetitorLandscape(
   keywordLookup: KeywordLookup,
 ): ProjectReportDto['competitorLandscape'] {
   let projectCitationCount = 0
-  const competitorMap = new Map<string, { count: number; keywords: Set<string> }>()
-  for (const c of competitorDomains) competitorMap.set(c, { count: 0, keywords: new Set() })
+  const competitorMap = new Map<
+    string,
+    { count: number; keywords: Set<string>; pages: Map<string, Set<string>> }
+  >()
+  for (const c of competitorDomains) {
+    competitorMap.set(c, { count: 0, keywords: new Set(), pages: new Map() })
+  }
 
   for (const snap of snapshots) {
     const kw = keywordLookup.byId.get(snap.keywordId)
@@ -197,8 +220,26 @@ function buildCompetitorLandscape(
         entry.count++
         if (kw) entry.keywords.add(kw)
       }
+      // Aggregate cited URLs from grounding sources whose host matches this
+      // competitor — independent of citationState because grounding indicates
+      // the model considered the source even if it didn't ultimately cite it.
+      const competitorNorm = normalizeDomain(competitor)
+      for (const gs of snap.groundingSources) {
+        const host = normalizeDomain(extractHostFromUri(gs.uri))
+        if (!host) continue
+        if (host === competitorNorm || host.endsWith(`.${competitorNorm}`)) {
+          const entry = competitorMap.get(competitor)!
+          const pageKeywords = entry.pages.get(gs.uri) ?? new Set<string>()
+          if (kw) pageKeywords.add(kw)
+          entry.pages.set(gs.uri, pageKeywords)
+        }
+      }
     }
   }
+
+  // Denominator for SOV = sum of all citation counts (project + competitors).
+  const totalCitedSlots = projectCitationCount
+    + [...competitorMap.values()].reduce((sum, v) => sum + v.count, 0)
 
   const competitorRows: CompetitorRow[] = [...competitorMap.entries()].map(([domain, data]) => {
     const total = snapshots.length
@@ -209,12 +250,20 @@ function buildCompetitorLandscape(
       else if (ratio >= 0.2) pressureLabel = 'Moderate'
       else pressureLabel = 'Low'
     }
+    const sharePct = totalCitedSlots > 0
+      ? Math.round((data.count / totalCitedSlots) * 100)
+      : 0
+    const theirCitedPages = [...data.pages.entries()]
+      .map(([url, kws]) => ({ url, citedFor: [...kws].sort() }))
+      .sort((a, b) => b.citedFor.length - a.citedFor.length)
     return {
       domain,
       citationCount: data.count,
       totalCount: total,
       pressureLabel,
       citedKeywords: [...data.keywords].sort(),
+      sharePct,
+      theirCitedPages,
     }
   })
 
@@ -268,8 +317,9 @@ function buildAiSourceOrigin(
 function buildGscSection(
   db: DatabaseClient,
   projectId: string,
-  projectName: string,
+  projectDisplayName: string,
   canonicalDomain: string,
+  trackedKeywords: string[],
 ): ProjectReportDto['gsc'] {
   const rows = db.select().from(gscSearchData).where(eq(gscSearchData.projectId, projectId)).all()
   if (rows.length === 0) return null
@@ -306,14 +356,14 @@ function buildGscSection(
       impressions: agg.impressions,
       ctr: agg.impressions > 0 ? agg.clicks / agg.impressions : 0,
       avgPosition: agg.impressions > 0 ? agg.weightedPositionSum / agg.impressions : 0,
-      category: categorizeQuery(query, projectName, canonicalDomain),
+      category: categorizeQuery(query, projectDisplayName, canonicalDomain),
     }))
     .sort((a, b) => b.clicks - a.clicks)
     .slice(0, TOP_QUERIES_LIMIT)
 
   const categoryAgg = new Map<GscQueryRow['category'], { clicks: number; impressions: number }>()
   for (const [query, agg] of queryAgg) {
-    const cat = categorizeQuery(query, projectName, canonicalDomain)
+    const cat = categorizeQuery(query, projectDisplayName, canonicalDomain)
     const bucket = categoryAgg.get(cat) ?? { clicks: 0, impressions: 0 }
     bucket.clicks += agg.clicks
     bucket.impressions += agg.impressions
@@ -330,6 +380,19 @@ function buildGscSection(
     .map(([date, agg]) => ({ date, clicks: agg.clicks, impressions: agg.impressions }))
     .sort((a, b) => a.date.localeCompare(b.date))
 
+  const trackedSet = new Set(trackedKeywords.map(k => k.toLowerCase()))
+  const gscQuerySet = new Set([...queryAgg.keys()].map(q => q.toLowerCase()))
+  const trackedButNoGsc = trackedKeywords.filter(k => !gscQuerySet.has(k.toLowerCase())).sort()
+  // Surface brand-free candidates only — brand queries already convert
+  // regardless of AEO tracking, so they're not actionable additions to
+  // the project keyword set.
+  const gscButNotTracked = [...queryAgg.entries()]
+    .filter(([q]) => !trackedSet.has(q.toLowerCase()))
+    .filter(([q]) => categorizeQuery(q, projectDisplayName, canonicalDomain) !== 'brand')
+    .sort((a, b) => b[1].impressions - a[1].impressions)
+    .map(([q]) => q)
+    .slice(0, TOP_QUERIES_LIMIT)
+
   return {
     totalClicks,
     totalImpressions,
@@ -338,6 +401,8 @@ function buildGscSection(
     topQueries,
     categoryBreakdown,
     trend,
+    trackedButNoGsc,
+    gscButNotTracked,
   }
 }
 
@@ -640,15 +705,35 @@ function buildCitationsTrend(
 }
 
 function buildInsightList(db: DatabaseClient, projectId: string): ReportInsight[] {
+  // Bound the report to the most recent N answer-visibility runs so stale,
+  // long-undismissed insights from months ago don't pile up. Mirrors the
+  // recurrence window used in intelligence-service for severity tiering.
+  const recentRunIds = db
+    .select({ id: runs.id })
+    .from(runs)
+    .where(
+      and(
+        eq(runs.projectId, projectId),
+        eq(runs.kind, RunKinds['answer-visibility']),
+        or(eq(runs.status, RunStatuses.completed), eq(runs.status, RunStatuses.partial)),
+      ),
+    )
+    .orderBy(desc(runs.createdAt))
+    .limit(INSIGHT_LOOKBACK_RUNS)
+    .all()
+    .map((r) => r.id)
+
+  if (recentRunIds.length === 0) return []
+
   const rows = db
     .select()
     .from(insights)
-    .where(eq(insights.projectId, projectId))
+    .where(and(eq(insights.projectId, projectId), inArray(insights.runId, recentRunIds)))
     .orderBy(desc(insights.createdAt))
     .all()
 
   const severityRank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
-  return rows
+  const flat: Array<ReportInsight & { _sortRank: number }> = rows
     .filter(r => !r.dismissed)
     .map(r => {
       const recommendation = parseJsonColumn<{ action?: string; target?: string; reason?: string } | null>(r.recommendation, null)
@@ -669,9 +754,35 @@ function buildInsightList(db: DatabaseClient, projectId: string): ReportInsight[
         provider: r.provider,
         recommendation: recText,
         createdAt: r.createdAt,
+        instanceCount: 1,
+        _sortRank: severityRank[r.severity] ?? 99,
       }
     })
-    .sort((a, b) => severityRank[a.severity]! - severityRank[b.severity]!)
+
+  // Dedup at the API layer so all consumers — DTO, executive findings, next
+  // steps, renderer — see one row per (keyword, provider, type) tuple.
+  // Without this, a regression that fired in three runs would inflate counts
+  // in `buildExecutiveFindings` (e.g. "3 critical regressions" when there is
+  // really one) and "Resolve 3 critical regressions" in next-steps.
+  const groups = groupInsights(flat)
+  return groups
+    .map((g) => {
+      const rep = g.representative
+      const rest: ReportInsight = {
+        id: rep.id,
+        type: rep.type,
+        severity: rep.severity,
+        title: rep.title,
+        keyword: rep.keyword,
+        provider: rep.provider,
+        recommendation: rep.recommendation,
+        createdAt: rep.createdAt,
+        instanceCount: g.count,
+      }
+      return { ...rest, _sortRank: rep._sortRank }
+    })
+    .sort((a, b) => a._sortRank - b._sortRank)
+    .map(({ _sortRank: _drop, ...rest }) => rest)
 }
 
 function buildRecommendedNextSteps(insightList: ReportInsight[]): RecommendedNextStep[] {
@@ -708,19 +819,26 @@ function buildExecutiveFindings(
   citationRate: number,
   trend: ProjectReportDto['executiveSummary']['trend'],
   trendsPoints: CitationsTrendPoint[],
+  trendBaseline: boolean,
   insightList: ReportInsight[],
   competitorRows: CompetitorRow[],
 ): ProjectReportDto['executiveSummary']['findings'] {
   const findings: ProjectReportDto['executiveSummary']['findings'] = []
 
   if (trendsPoints.length > 0) {
-    const tone = trend === 'up' ? 'positive' : trend === 'down' ? 'negative' : 'neutral'
+    const tone = trendBaseline
+      ? 'neutral'
+      : trend === 'up' ? 'positive' : trend === 'down' ? 'negative' : 'neutral'
     let detail: string
-    switch (trend) {
-      case 'up': detail = 'Up from the previous run.'; break
-      case 'down': detail = 'Down from the previous run.'; break
-      case 'flat': detail = 'Flat compared to the previous run.'; break
-      case 'unknown': detail = 'No prior run to compare against.'; break
+    if (trendBaseline) {
+      detail = `Establishing baseline (${trendsPoints.length} of ${MIN_TREND_POINTS} runs collected).`
+    } else {
+      switch (trend) {
+        case 'up': detail = 'Up from the previous run.'; break
+        case 'down': detail = 'Down from the previous run.'; break
+        case 'flat': detail = 'Flat compared to the previous run.'; break
+        case 'unknown': detail = 'No prior run to compare against.'; break
+      }
     }
     findings.push({
       title: `Citation rate at ${citationRate}%`,
@@ -784,14 +902,31 @@ export async function reportRoutes(app: FastifyInstance) {
       keywordLookup,
     )
     const aiSourceOrigin = buildAiSourceOrigin(latestSnapshots, projectDomains, competitorDomains)
-    const gscSection = buildGscSection(app.db, project.id, project.name, project.canonicalDomain)
+    const trackedKeywords = [...keywordLookup.byId.values()]
+    const gscSection = buildGscSection(
+      app.db,
+      project.id,
+      project.displayName,
+      project.canonicalDomain,
+      trackedKeywords,
+    )
     const gaSection = buildGaSection(app.db, project.id)
     const socialSection = buildSocialReferrals(app.db, project.id)
     const aiReferralsSection = buildAiReferrals(app.db, project.id)
     const indexingHealthSection = buildIndexingHealth(app.db, project.id)
     const citationsTrend = buildCitationsTrend(app.db, project.id, keywordLookup)
     const insightList = buildInsightList(app.db, project.id)
-    const recommendedNextSteps = buildRecommendedNextSteps(insightList)
+
+    const orchestratorInput = loadOrchestratorInput(app.db, project)
+    const contentOpportunities = buildContentTargetRows(orchestratorInput)
+    const contentGaps = buildContentGapRows(orchestratorInput)
+    const groundingSources = buildContentSourceRows(orchestratorInput)
+
+    const insightDerivedSteps = buildRecommendedNextSteps(insightList)
+    const recommendedNextSteps = mapOpportunitiesToNextSteps(
+      contentOpportunities,
+      insightDerivedSteps,
+    )
 
     let latestCited = 0
     let latestConsidered = 0
@@ -804,19 +939,36 @@ export async function reportRoutes(app: FastifyInstance) {
       ? Math.round((latestCited / latestConsidered) * 100)
       : 0
 
+    // Suppress trend computation until enough runs exist — a 5%→1% delta on
+    // N=2 reads as a crisis to a non-analyst reader but is pure noise on a
+    // sample of two. Same gate the renderer uses on the line chart so every
+    // surface (CLI, Aero, dashboard) stays consistent.
+    const trendBaseline = isTrendBaseline(citationsTrend)
     const latestPoint = citationsTrend.at(-1)
     const previousPoint = citationsTrend.length >= 2 ? citationsTrend.at(-2) : null
+    // When latestRun is `partial`, it's excluded from citationsTrend
+    // (buildCitationsTrend filters to completed runs only) but its rate
+    // still drives `citationRate` above. Compare the headline number
+    // against the most recent completed point so the trend label tracks
+    // the user-visible direction; otherwise fall back to the standard
+    // last-vs-prior comparison between two trend points.
     let trend: ProjectReportDto['executiveSummary']['trend'] = 'unknown'
-    if (latestPoint && previousPoint) {
-      if (latestPoint.citationRate > previousPoint.citationRate) trend = 'up'
-      else if (latestPoint.citationRate < previousPoint.citationRate) trend = 'down'
-      else trend = 'flat'
+    if (!trendBaseline && latestPoint) {
+      const latestRunOnTrend = latestRun?.id === latestPoint.runId
+      const currentRate = latestRunOnTrend ? latestPoint.citationRate : citationRate
+      const priorRate = latestRunOnTrend ? previousPoint?.citationRate : latestPoint.citationRate
+      if (priorRate !== undefined) {
+        if (currentRate > priorRate) trend = 'up'
+        else if (currentRate < priorRate) trend = 'down'
+        else trend = 'flat'
+      }
     }
 
     const findings = buildExecutiveFindings(
       citationRate,
       trend,
       citationsTrend,
+      trendBaseline,
       insightList,
       competitorLandscape.competitors,
     )
@@ -873,6 +1025,9 @@ export async function reportRoutes(app: FastifyInstance) {
       citationsTrend,
       insights: insightList,
       recommendedNextSteps,
+      contentOpportunities,
+      contentGaps,
+      groundingSources,
     }
 
     return reply.send(dto)

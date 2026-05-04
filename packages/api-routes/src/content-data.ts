@@ -413,7 +413,7 @@ function emptyCandidate(query: string): CandidateQuery {
   }
 }
 
-function extractGroundingSources(rawResponse: string | null): GroundingSource[] {
+export function extractGroundingSources(rawResponse: string | null): GroundingSource[] {
   if (!rawResponse) return []
   try {
     const parsed = JSON.parse(rawResponse) as unknown
@@ -434,7 +434,7 @@ function extractGroundingSources(rawResponse: string | null): GroundingSource[] 
   return []
 }
 
-function extractHostFromUri(uri: string): string {
+export function extractHostFromUri(uri: string): string {
   try {
     return new URL(uri).hostname
   } catch {
@@ -442,7 +442,7 @@ function extractHostFromUri(uri: string): string {
   }
 }
 
-function normalizeDomain(domain: string): string {
+export function normalizeDomain(domain: string): string {
   return domain.toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/$/, '')
 }
 

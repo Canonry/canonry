@@ -7,6 +7,12 @@
  * presence, `cite*` for source-list presence; never blend the two.
  */
 
+import type {
+  ContentTargetRowDto,
+  ContentSourceRowDto,
+  ContentGapRowDto,
+} from './content.js'
+
 export interface ReportMeta {
   /** ISO timestamp the report was generated (server clock). */
   generatedAt: string
@@ -88,6 +94,20 @@ export interface CompetitorRow {
   pressureLabel: 'High' | 'Moderate' | 'Low' | 'None'
   /** Distinct keywords on which this competitor was cited. */
   citedKeywords: string[]
+  /**
+   * Share of voice 0..100. Numerator = this competitor's `citationCount`.
+   * Denominator = sum of `citationCount` across all competitors plus the
+   * project's own `projectCitationCount`. Equals 0 when there are no cited
+   * slots in the snapshot.
+   */
+  sharePct: number
+  /**
+   * URLs from the latest run's grounding sources whose host matches this
+   * competitor's domain, with the keywords each URL was cited for. Empty
+   * when no grounding-source data is available (e.g. no `rawResponse` JSON
+   * stored for the snapshots).
+   */
+  theirCitedPages: Array<{ url: string; citedFor: string[] }>
 }
 
 export interface CompetitorLandscape {
@@ -141,6 +161,16 @@ export interface GscSection {
     sharePct: number
   }>
   trend: Array<{ date: string; clicks: number; impressions: number }>
+  /**
+   * Tracked AEO keywords that have no GSC impressions in the report window.
+   * Surfaces keywords that may not represent real search demand.
+   */
+  trackedButNoGsc: string[]
+  /**
+   * GSC top queries (sorted by impressions desc) that are not tracked as
+   * AEO keywords — the candidate set for adding to the AEO project.
+   */
+  gscButNotTracked: string[]
 }
 
 export interface GaTrafficSection {
@@ -229,6 +259,14 @@ export interface ReportInsight {
   provider: string
   recommendation: string | null
   createdAt: string
+  /**
+   * How many times this insight fired across recent runs for the same
+   * `(keyword, provider, type)` tuple. Always ≥ 1. Insights returned by the
+   * report API are already deduped to one row per tuple, with this counter
+   * surfacing the multiplicity. Use it directly instead of grouping again
+   * client-side — counts derived from raw insight rows will overcount.
+   */
+  instanceCount: number
 }
 
 export interface RecommendedNextStep {
@@ -252,4 +290,20 @@ export interface ProjectReportDto {
   citationsTrend: CitationsTrendPoint[]
   insights: ReportInsight[]
   recommendedNextSteps: RecommendedNextStep[]
+  /**
+   * Ranked, action-typed content opportunities sourced from the existing
+   * intelligence layer (`buildContentTargetRows`). Empty when no run has
+   * produced candidate queries with demand or competitor signal.
+   */
+  contentOpportunities: ContentTargetRowDto[]
+  /**
+   * Queries where competitors were cited but the project was not. Sourced
+   * from `buildContentGapRows`. Empty until the first answer-visibility run.
+   */
+  contentGaps: ContentGapRowDto[]
+  /**
+   * Per-query grounding source map (own + competitor cited URLs). Sourced
+   * from `buildContentSourceRows`. Empty until the first answer-visibility run.
+   */
+  groundingSources: ContentSourceRowDto[]
 }

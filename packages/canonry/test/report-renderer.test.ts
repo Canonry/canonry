@@ -38,6 +38,9 @@ function emptyReport(): ProjectReportDto {
     citationsTrend: [],
     insights: [],
     recommendedNextSteps: [],
+    contentOpportunities: [],
+    contentGaps: [],
+    groundingSources: [],
   }
 }
 
@@ -90,8 +93,8 @@ function richReport(): ProjectReportDto {
     competitorLandscape: {
       projectCitationCount: 4,
       competitors: [
-        { domain: 'rival.com', citationCount: 3, totalCount: 4, pressureLabel: 'High', citedKeywords: ['aeo platform'] },
-        { domain: 'other.com', citationCount: 1, totalCount: 4, pressureLabel: 'Low', citedKeywords: ['answer engine'] },
+        { domain: 'rival.com', citationCount: 3, totalCount: 4, pressureLabel: 'High', citedKeywords: ['aeo platform'], sharePct: 0, theirCitedPages: [] },
+        { domain: 'other.com', citationCount: 1, totalCount: 4, pressureLabel: 'Low', citedKeywords: ['answer engine'], sharePct: 0, theirCitedPages: [] },
       ],
     },
     aiSourceOrigin: {
@@ -121,6 +124,8 @@ function richReport(): ProjectReportDto {
         { date: '2026-04-01', clicks: 100, impressions: 500 },
         { date: '2026-04-02', clicks: 200, impressions: 1000 },
       ],
+      trackedButNoGsc: [],
+      gscButNotTracked: [],
     },
     ga: {
       totalSessions: 12000,
@@ -186,10 +191,75 @@ function richReport(): ProjectReportDto {
         provider: 'gemini',
         recommendation: 'review-content — /landing — rival outranking',
         createdAt: '2026-04-30T00:00:00Z',
+        instanceCount: 1,
       },
     ],
     recommendedNextSteps: [
       { horizon: 'immediate', title: 'Resolve 1 critical regression', rationale: 'Lost citation on aeo platform.' },
+    ],
+    contentOpportunities: [
+      {
+        targetRef: 'rich:create:best-aeo-platform',
+        query: 'best aeo platform',
+        action: 'create',
+        ourBestPage: null,
+        winningCompetitor: {
+          domain: 'rival.com',
+          url: 'https://rival.com/best-aeo',
+          title: 'Best AEO',
+          citationCount: 3,
+        },
+        score: 87.5,
+        scoreBreakdown: { demand: 0.6, competitor: 0.8, absence: 1, gapSeverity: 1 },
+        drivers: ['high competitor density', 'no own page'],
+        demandSource: 'competitor-evidence',
+        actionConfidence: 'high',
+        existingAction: null,
+      },
+      {
+        targetRef: 'rich:refresh:answer-engine-optimization',
+        query: 'answer engine optimization',
+        action: 'refresh',
+        ourBestPage: {
+          url: '/blog/answer-engine-optimization',
+          gscImpressions: 1500,
+          gscClicks: 120,
+          gscAvgPosition: 4,
+          organicSessions: 200,
+        },
+        winningCompetitor: null,
+        score: 62.1,
+        scoreBreakdown: { demand: 0.7, competitor: 0.3, absence: 0.5, gapSeverity: 0.4 },
+        drivers: ['existing page ranks weakly'],
+        demandSource: 'gsc',
+        actionConfidence: 'medium',
+        existingAction: null,
+      },
+    ],
+    contentGaps: [
+      {
+        query: 'best aeo platform',
+        competitorDomains: ['rival.com'],
+        competitorCount: 1,
+        missRate: 1,
+        lastSeenInRunId: 'r-2',
+      },
+    ],
+    groundingSources: [
+      {
+        query: 'best aeo platform',
+        groundingSources: [
+          {
+            uri: 'https://rival.com/best-aeo',
+            title: 'Best AEO',
+            domain: 'rival.com',
+            isOurDomain: false,
+            isCompetitor: true,
+            citationCount: 3,
+            providers: ['gemini'],
+          },
+        ],
+      },
     ],
   }
 }
@@ -291,6 +361,143 @@ describe('renderReportHtml', () => {
     expect(html).toContain('title="/solar?fbclid=120242511631000253&amp;h_ad_id=120242512056450253"')
     // The raw query string should not appear as visible cell text
     expect(html).not.toMatch(/<span class="page-path">[^<]*fbclid/)
+  })
+
+  test('renders a Content Opportunities section anchor when the array is non-empty', () => {
+    const html = renderReportHtml(richReport())
+    expect(html).toContain('id="content-opportunities"')
+    // Top opportunity's query and action chip should both appear
+    expect(html).toContain('best aeo platform')
+    expect(html).toContain('create')
+  })
+
+  test('omits the Content Opportunities section when the array is empty', () => {
+    const html = renderReportHtml(emptyReport())
+    expect(html).not.toContain('id="content-opportunities"')
+  })
+
+  test('renders the API-supplied recommendedNextSteps verbatim', () => {
+    // The API merges insight-derived and opportunity-derived steps via
+    // mapOpportunitiesToNextSteps and ships the merged list. The renderer
+    // is a pure consumer — no business logic, no recompute. (Coverage for
+    // the API-side merge lives in api-routes report-content.test.ts.)
+    const html = renderReportHtml(richReport()) // has one explicit immediate step
+    const stepsBlock = html.split('id="recommended-next-steps"')[1] ?? ''
+    expect(stepsBlock).toContain('Resolve 1 critical regression')
+    // Opportunity content was NOT in the API-supplied list, so it must not
+    // appear in the steps block.
+    expect(stepsBlock).not.toContain('Refresh the page targeting')
+  })
+
+  test('shows the empty state when the API supplies no recommendedNextSteps', () => {
+    const report = richReport()
+    report.recommendedNextSteps = []
+    const html = renderReportHtml(report)
+    const stepsBlock = html.split('id="recommended-next-steps"')[1] ?? ''
+    expect(stepsBlock).toContain('No outstanding actions.')
+  })
+
+  test('renders SOV % column in competitor landscape', () => {
+    const report = richReport()
+    report.competitorLandscape.competitors[0]!.sharePct = 75
+    report.competitorLandscape.competitors[1]!.sharePct = 25
+    const html = renderReportHtml(report)
+    const landscape = html.split('id="competitor-landscape"')[1]?.split('</section>')[0] ?? ''
+    expect(landscape).toContain('75%')
+    expect(landscape).toContain('25%')
+  })
+
+  test('renders cited URLs from theirCitedPages as a disclosure', () => {
+    const report = richReport()
+    report.competitorLandscape.competitors[0]!.theirCitedPages = [
+      { url: 'https://rival.com/page-x', citedFor: ['kw1', 'kw2'] },
+    ]
+    const html = renderReportHtml(report)
+    const landscape = html.split('id="competitor-landscape"')[1]?.split('</section>')[0] ?? ''
+    expect(landscape).toContain('https://rival.com/page-x')
+    expect(landscape).toContain('kw1')
+    expect(landscape).toContain('kw2')
+  })
+
+  test('omits the cited-pages disclosure when no grounding URLs were captured', () => {
+    const report = richReport()
+    for (const c of report.competitorLandscape.competitors) c.theirCitedPages = []
+    const html = renderReportHtml(report)
+    const landscape = html.split('id="competitor-landscape"')[1]?.split('</section>')[0] ?? ''
+    expect(landscape).not.toContain('<details')
+  })
+
+  test('renders GSC × AEO crossover companion blocks when non-empty', () => {
+    const report = richReport()
+    report.gsc!.trackedButNoGsc = ['lonely-keyword']
+    report.gsc!.gscButNotTracked = ['unknown-query']
+    const html = renderReportHtml(report)
+    const gscBlock = html.split('id="gsc"')[1]?.split('</section>')[0] ?? ''
+    expect(gscBlock).toContain('lonely-keyword')
+    expect(gscBlock).toContain('unknown-query')
+  })
+
+  test('omits GSC × AEO crossover blocks when both lists are empty', () => {
+    const report = richReport()
+    report.gsc!.trackedButNoGsc = []
+    report.gsc!.gscButNotTracked = []
+    const html = renderReportHtml(report)
+    const gscBlock = html.split('id="gsc"')[1]?.split('</section>')[0] ?? ''
+    expect(gscBlock).not.toContain('AEO keywords without search demand')
+    expect(gscBlock).not.toContain('Search queries you should track')
+  })
+
+  test('renders × N count chip from the API-supplied instanceCount', () => {
+    const report = richReport()
+    report.insights = [
+      { id: 'i1', type: 'gain', severity: 'low', title: 'New citation for "kw"', keyword: 'kw', provider: 'gemini', recommendation: null, createdAt: '2026-01-03T00:00:00Z', instanceCount: 3 },
+    ]
+    const html = renderReportHtml(report)
+    const block = html.split('id="insights"')[1]?.split('</section>')[0] ?? ''
+    expect(block).toContain('× 3')
+    const occurrences = (block.match(/New citation for &quot;kw&quot;/g) ?? []).length
+    expect(occurrences).toBe(1)
+  })
+
+  test('falls back to client-side grouping when instanceCount is missing (legacy fixture)', () => {
+    const report = richReport()
+    // Older payloads that predate the dedup may omit instanceCount. The
+    // renderer must still collapse duplicates so existing reports stay
+    // readable until the consumer upgrades.
+    report.insights = [
+      { id: 'i1', type: 'gain', severity: 'low', title: 'Legacy', keyword: 'kw', provider: 'gemini', recommendation: null, createdAt: '2026-01-01T00:00:00Z' } as ProjectReportDto['insights'][number],
+      { id: 'i2', type: 'gain', severity: 'low', title: 'Legacy', keyword: 'kw', provider: 'gemini', recommendation: null, createdAt: '2026-01-02T00:00:00Z' } as ProjectReportDto['insights'][number],
+    ]
+    const html = renderReportHtml(report)
+    const block = html.split('id="insights"')[1]?.split('</section>')[0] ?? ''
+    expect(block).toContain('× 2')
+    expect((block.match(/Legacy/g) ?? []).length).toBe(1)
+  })
+
+  test('hides the citations trend chart and shows a baseline note when fewer than 4 points exist', () => {
+    const report = richReport()
+    report.citationsTrend = [
+      { runId: 'r-1', date: '2026-04-01T00:00:00Z', citationRate: 50, providerRates: [] },
+      { runId: 'r-2', date: '2026-04-02T00:00:00Z', citationRate: 1, providerRates: [] },
+    ]
+    const html = renderReportHtml(report)
+    const block = html.split('id="citations-trend"')[1]?.split('</section>')[0] ?? ''
+    expect(block.toLowerCase()).toContain('establishing baseline')
+    expect(block).not.toContain('<svg')
+  })
+
+  test('renders the citations trend chart when at least 4 points exist', () => {
+    const report = richReport()
+    report.citationsTrend = [
+      { runId: 'r-1', date: '2026-04-01T00:00:00Z', citationRate: 50, providerRates: [] },
+      { runId: 'r-2', date: '2026-04-02T00:00:00Z', citationRate: 60, providerRates: [] },
+      { runId: 'r-3', date: '2026-04-03T00:00:00Z', citationRate: 55, providerRates: [] },
+      { runId: 'r-4', date: '2026-04-04T00:00:00Z', citationRate: 65, providerRates: [] },
+    ]
+    const html = renderReportHtml(report)
+    const block = html.split('id="citations-trend"')[1]?.split('</section>')[0] ?? ''
+    expect(block).toContain('<svg')
+    expect(block.toLowerCase()).not.toContain('establishing baseline')
   })
 })
 
