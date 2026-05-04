@@ -982,21 +982,24 @@ function renderInsights(report: ProjectReportDto): string {
     )
   }
 
-  const groups = groupInsights(list)
-  const rows = groups.map((g) => {
-    const i = g.representative
-    const tone = severityTone(i.severity)
-    const countChip = g.count > 1
-      ? ` <span class="badge tone-neutral">× ${g.count}</span>`
-      : ''
-    return `<tr>
-      <td><span class="badge tone-${tone}">${escapeHtml(i.severity)}</span></td>
-      <td>${escapeHtml(i.title)}${countChip}</td>
-      <td>${escapeHtml(i.keyword)}</td>
-      <td>${escapeHtml(i.provider)}</td>
-      <td>${i.recommendation ? escapeHtml(i.recommendation) : '<span class="cell-pending">—</span>'}</td>
-    </tr>`
-  }).join('')
+  // The API has already deduped by (keyword, provider, type); use the per-row
+  // `instanceCount` instead of regrouping client-side. Older fixtures without
+  // the field fall back to a defensive group pass.
+  const haveDeduped = list.every((i) => typeof i.instanceCount === 'number')
+  const rows = (haveDeduped ? list.map((i) => ({ rep: i, count: i.instanceCount })) : groupInsights(list).map((g) => ({ rep: g.representative, count: g.count })))
+    .map(({ rep: i, count }) => {
+      const tone = severityTone(i.severity)
+      const countChip = count > 1
+        ? ` <span class="badge tone-neutral">× ${count}</span>`
+        : ''
+      return `<tr>
+        <td><span class="badge tone-${tone}">${escapeHtml(i.severity)}</span></td>
+        <td>${escapeHtml(i.title)}${countChip}</td>
+        <td>${escapeHtml(i.keyword)}</td>
+        <td>${escapeHtml(i.provider)}</td>
+        <td>${i.recommendation ? escapeHtml(i.recommendation) : '<span class="cell-pending">—</span>'}</td>
+      </tr>`
+    }).join('')
 
   return section(
     { id: 'insights', eyebrow: 'Section 11', title: 'Insights & Alerts', intro: 'Priority-ordered findings from the most recent runs.' },

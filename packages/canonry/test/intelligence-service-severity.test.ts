@@ -217,4 +217,57 @@ describe('IntelligenceService — regression severity tiering', () => {
 
     expect(persistedSeverity(db, currentRunId)).toBe('low')
   })
+
+  it('returns the tiered severity to the caller (so RunCoordinator/webhooks see it)', () => {
+    // RunCoordinator and dispatchInsightWebhooks classify by the AnalysisResult
+    // returned from analyzeAndPersist. If the return value still carried the
+    // legacy 'high' severity, persisted 'critical' regressions would never fire
+    // insight.critical webhooks and 'low' regressions would still announce as
+    // 'high' to Aero.
+    const db = createTempDb('intel-sev-')
+    const { projectId, currentRunId } = seedRegressionScenario(db, {
+      gscImpressions: 500,
+      priorRegressions: 3,
+    })
+
+    const result = new IntelligenceService(db).analyzeAndPersist(currentRunId, projectId)
+
+    expect(result).not.toBeNull()
+    const regression = result!.insights.find(i => i.type === 'regression')
+    expect(regression).toBeDefined()
+    expect(regression!.severity).toBe('critical')
+    // The persisted row carries the same severity.
+    expect(persistedSeverity(db, currentRunId)).toBe('critical')
+  })
+
+  it('counts recurrence only across answer-visibility runs (ignores intervening gsc-sync runs)', () => {
+    // Without filtering by run kind, intervening sync runs would consume the
+    // recurrence-lookback budget and push prior visibility regressions out of
+    // the window — dropping severity from 'critical' to 'high'.
+    const db = createTempDb('intel-sev-')
+    const { projectId, currentRunId } = seedRegressionScenario(db, {
+      gscImpressions: 500,
+      priorRegressions: 3,
+    })
+    // Insert 4 gsc-sync runs between the previous visibility run (now-24h)
+    // and the first prior regression (now-48h). Without the kind filter the
+    // recurrence query would keep these and discard the 3 visibility regressions.
+    const baseTime = new Date()
+    for (let i = 0; i < 4; i++) {
+      const at = new Date(baseTime.getTime() - (25 + i) * 60 * 60_000).toISOString()
+      db.insert(runs).values({
+        id: crypto.randomUUID(),
+        projectId,
+        kind: 'gsc-sync',
+        status: 'completed',
+        providers: '["gemini"]',
+        createdAt: at,
+        finishedAt: at,
+      }).run()
+    }
+
+    new IntelligenceService(db).analyzeAndPersist(currentRunId, projectId)
+
+    expect(persistedSeverity(db, currentRunId)).toBe('critical')
+  })
 })
