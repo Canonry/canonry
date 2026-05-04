@@ -100,6 +100,17 @@ describe('listSitemaps', () => {
     expect(capturedUrl).toContain(encodeURIComponent('sc-domain:example.com'))
   })
 
+  it('accepts a numeric property ID and uses it in the request path', async () => {
+    let capturedUrl = ''
+    globalThis.fetch = async (url: string | URL | Request) => {
+      capturedUrl = String(url)
+      return new Response(JSON.stringify({ sitemap: [] }), { status: 200 })
+    }
+
+    await listSitemaps('test-token', '364127269')
+    expect(capturedUrl).toBe(`${GSC_API_BASE}/sites/364127269/sitemaps`)
+  })
+
   it('throws GoogleApiError on 401', async () => {
     globalThis.fetch = async () => new Response('Unauthorized', { status: 401 })
     await expect(() => listSitemaps('bad-token', 'https://example.com/')).rejects.toMatchObject({ name: 'GoogleApiError' })
@@ -177,6 +188,17 @@ describe('fetchSearchAnalytics', () => {
       () => fetchSearchAnalytics('token', 'https://example.com', { startDate: '2024-01-01', endDate: '2024-01-31' }),
     ).rejects.toThrow(/rate limit/)
   })
+
+  it('accepts a numeric property ID and uses it in the request path', async () => {
+    let capturedUrl = ''
+    globalThis.fetch = async (url: string | URL | Request) => {
+      capturedUrl = String(url)
+      return new Response(JSON.stringify({ rows: [] }), { status: 200 })
+    }
+
+    await fetchSearchAnalytics('token', '364127269', { startDate: '2024-01-01', endDate: '2024-01-31' })
+    expect(capturedUrl).toBe(`${GSC_API_BASE}/sites/364127269/searchAnalytics/query`)
+  })
 })
 
 describe('inspectUrl', () => {
@@ -229,6 +251,21 @@ describe('inspectUrl', () => {
     expect(result.inspectionResult.indexStatusResult?.verdict).toBe('PASS')
     expect(result.inspectionResult.indexStatusResult?.indexingState).toBe('INDEXING_ALLOWED')
     expect(result.inspectionResult.richResultsResult?.detectedItems?.[0]?.richResultType).toBe('FAQ')
+  })
+
+  it('accepts a numeric property ID for siteUrl', async () => {
+    let capturedBody: unknown
+    globalThis.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+      capturedBody = JSON.parse(String(init?.body ?? '{}'))
+      return new Response(
+        JSON.stringify({ inspectionResult: { indexStatusResult: { verdict: 'PASS' } } }),
+        { status: 200 },
+      )
+    }
+
+    await inspectUrl('token', 'https://example.com/page', '364127269')
+    const body = capturedBody as { inspectionUrl: string; siteUrl: string }
+    expect(body.siteUrl).toBe('364127269')
   })
 })
 
