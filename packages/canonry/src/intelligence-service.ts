@@ -84,10 +84,12 @@ export class IntelligenceService {
       insights: result.insights.length,
     })
 
-    // 5. Persist — idempotent via shared persistResult
-    this.persistResult(result, runId, projectId)
+    // 5. Tier severities once, pass tiered insights to persist + return so
+    // RunCoordinator / webhook dispatch see the same severities the DB holds.
+    const tieredResult = this.tierResult(result, runId, projectId)
+    this.persistResult(tieredResult, runId, projectId)
 
-    return result
+    return tieredResult
   }
 
   /**
@@ -117,9 +119,10 @@ export class IntelligenceService {
 
     const result = analyzeRuns(currentRun, previousRun)
 
-    this.persistResult(result, runRecord.id, runRecord.projectId)
+    const tieredResult = this.tierResult(result, runRecord.id, runRecord.projectId)
+    this.persistResult(tieredResult, runRecord.id, runRecord.projectId)
 
-    return result
+    return tieredResult
   }
 
   /**
@@ -205,15 +208,13 @@ export class IntelligenceService {
       }
     }
 
-    const tieredInsights = this.applySeverityTiering(result.insights, runId, projectId)
-
     this.db.transaction((tx) => {
       tx.delete(insights).where(eq(insights.runId, runId)).run()
       tx.delete(healthSnapshots).where(eq(healthSnapshots.runId, runId)).run()
 
       const now = new Date().toISOString()
 
-      for (const insight of tieredInsights) {
+      for (const insight of result.insights) {
         const wasDismissed = previouslyDismissed.has(`${insight.keyword}:${insight.provider}:${insight.type}`)
         tx.insert(insights).values({
           id: insight.id,
@@ -243,7 +244,18 @@ export class IntelligenceService {
       }).run()
     })
 
-    log.info('intelligence.persisted', { runId, insights: tieredInsights.length })
+    log.info('intelligence.persisted', { runId, insights: result.insights.length })
+  }
+
+  /**
+   * Apply severity tiering to the insights of an AnalysisResult and return a
+   * new result. Wraps `applySeverityTiering` so callers (analyzeAndPersist,
+   * analyzeRunWithPrevious) can pass the same tiered shape both into the DB
+   * write and back to the RunCoordinator / webhook dispatcher.
+   */
+  private tierResult(result: AnalysisResult, runId: string, projectId: string): AnalysisResult {
+    if (result.insights.length === 0) return result
+    return { ...result, insights: this.applySeverityTiering(result.insights, runId, projectId) }
   }
 
   /**
