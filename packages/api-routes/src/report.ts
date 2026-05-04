@@ -36,6 +36,7 @@ import {
   buildContentSourceRows,
   buildContentGapRows,
   categorizeQueryByIntent,
+  groupInsights,
   isTrendBaseline,
   MIN_TREND_POINTS,
   mapOpportunitiesToNextSteps,
@@ -701,7 +702,7 @@ function buildInsightList(db: DatabaseClient, projectId: string): ReportInsight[
     .all()
 
   const severityRank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
-  return rows
+  const flat: Array<ReportInsight & { _sortRank: number }> = rows
     .filter(r => !r.dismissed)
     .map(r => {
       const recommendation = parseJsonColumn<{ action?: string; target?: string; reason?: string } | null>(r.recommendation, null)
@@ -722,9 +723,35 @@ function buildInsightList(db: DatabaseClient, projectId: string): ReportInsight[
         provider: r.provider,
         recommendation: recText,
         createdAt: r.createdAt,
+        instanceCount: 1,
+        _sortRank: severityRank[r.severity] ?? 99,
       }
     })
-    .sort((a, b) => severityRank[a.severity]! - severityRank[b.severity]!)
+
+  // Dedup at the API layer so all consumers — DTO, executive findings, next
+  // steps, renderer — see one row per (keyword, provider, type) tuple.
+  // Without this, a regression that fired in three runs would inflate counts
+  // in `buildExecutiveFindings` (e.g. "3 critical regressions" when there is
+  // really one) and "Resolve 3 critical regressions" in next-steps.
+  const groups = groupInsights(flat)
+  return groups
+    .map((g) => {
+      const rep = g.representative
+      const rest: ReportInsight = {
+        id: rep.id,
+        type: rep.type,
+        severity: rep.severity,
+        title: rep.title,
+        keyword: rep.keyword,
+        provider: rep.provider,
+        recommendation: rep.recommendation,
+        createdAt: rep.createdAt,
+        instanceCount: g.count,
+      }
+      return { ...rest, _sortRank: rep._sortRank }
+    })
+    .sort((a, b) => a._sortRank - b._sortRank)
+    .map(({ _sortRank: _drop, ...rest }) => rest)
 }
 
 function buildRecommendedNextSteps(insightList: ReportInsight[]): RecommendedNextStep[] {

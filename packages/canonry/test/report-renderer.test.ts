@@ -191,6 +191,7 @@ function richReport(): ProjectReportDto {
         provider: 'gemini',
         recommendation: 'review-content — /landing — rival outranking',
         createdAt: '2026-04-30T00:00:00Z',
+        instanceCount: 1,
       },
     ],
     recommendedNextSteps: [
@@ -443,19 +444,31 @@ describe('renderReportHtml', () => {
     expect(gscBlock).not.toContain('Search queries you should track')
   })
 
-  test('groups duplicate insights into a single row with × N count chip', () => {
+  test('renders × N count chip from the API-supplied instanceCount', () => {
     const report = richReport()
     report.insights = [
-      { id: 'i1', type: 'gain', severity: 'low', title: 'New citation for "kw"', keyword: 'kw', provider: 'gemini', recommendation: null, createdAt: '2026-01-01T00:00:00Z' },
-      { id: 'i2', type: 'gain', severity: 'low', title: 'New citation for "kw"', keyword: 'kw', provider: 'gemini', recommendation: null, createdAt: '2026-01-02T00:00:00Z' },
-      { id: 'i3', type: 'gain', severity: 'low', title: 'New citation for "kw"', keyword: 'kw', provider: 'gemini', recommendation: null, createdAt: '2026-01-03T00:00:00Z' },
+      { id: 'i1', type: 'gain', severity: 'low', title: 'New citation for "kw"', keyword: 'kw', provider: 'gemini', recommendation: null, createdAt: '2026-01-03T00:00:00Z', instanceCount: 3 },
     ]
     const html = renderReportHtml(report)
     const block = html.split('id="insights"')[1]?.split('</section>')[0] ?? ''
     expect(block).toContain('× 3')
-    // The keyword/title should appear exactly once in the rendered table body, not three times
     const occurrences = (block.match(/New citation for &quot;kw&quot;/g) ?? []).length
     expect(occurrences).toBe(1)
+  })
+
+  test('falls back to client-side grouping when instanceCount is missing (legacy fixture)', () => {
+    const report = richReport()
+    // Older payloads that predate the dedup may omit instanceCount. The
+    // renderer must still collapse duplicates so existing reports stay
+    // readable until the consumer upgrades.
+    report.insights = [
+      { id: 'i1', type: 'gain', severity: 'low', title: 'Legacy', keyword: 'kw', provider: 'gemini', recommendation: null, createdAt: '2026-01-01T00:00:00Z' } as ProjectReportDto['insights'][number],
+      { id: 'i2', type: 'gain', severity: 'low', title: 'Legacy', keyword: 'kw', provider: 'gemini', recommendation: null, createdAt: '2026-01-02T00:00:00Z' } as ProjectReportDto['insights'][number],
+    ]
+    const html = renderReportHtml(report)
+    const block = html.split('id="insights"')[1]?.split('</section>')[0] ?? ''
+    expect(block).toContain('× 2')
+    expect((block.match(/Legacy/g) ?? []).length).toBe(1)
   })
 
   test('hides the citations trend chart and shows a baseline note when fewer than 4 points exist', () => {
