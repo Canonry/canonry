@@ -35,12 +35,19 @@ import {
   formatChartDateLabel,
   formatChartDateTick,
 } from '../components/shared/ChartPrimitives.js'
-import { isTrendBaseline, MIN_TREND_POINTS } from '@ainyc/canonry-intelligence'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { Button } from '../components/ui/button.js'
 import { downloadReportHtml, fetchReport, ApiError } from '../api.js'
 import { queryKeys } from '../queries/query-keys.js'
 import type { MetricTone } from '../view-models.js'
+
+// Mirrors MIN_TREND_POINTS in @ainyc/canonry-intelligence/trend-stability.
+// Inlined because that package's barrel imports node:crypto, which Vite
+// can't bundle for the browser. Keep these in lockstep.
+const MIN_TREND_POINTS = 4
+function isTrendBaseline(points: readonly unknown[]): boolean {
+  return points.length < MIN_TREND_POINTS
+}
 
 const SEVERITY_TONE: Record<ReportInsight['severity'], MetricTone> = {
   critical: 'negative',
