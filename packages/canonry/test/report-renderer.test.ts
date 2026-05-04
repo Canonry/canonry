@@ -376,22 +376,25 @@ describe('renderReportHtml', () => {
     expect(html).not.toContain('id="content-opportunities"')
   })
 
-  test('auto-fills Recommended Next Steps from contentOpportunities when no severe insights', () => {
-    const report = richReport()
-    report.recommendedNextSteps = [] // simulate empty pipeline-derived steps
-    const html = renderReportHtml(report)
-    // The opportunity's query should now appear inside the next-steps section
-    const stepsBlock = html.split('id="recommended-next-steps"')[1] ?? ''
-    expect(stepsBlock).toContain('best aeo platform')
-    expect(stepsBlock).not.toContain('No outstanding actions.')
-  })
-
-  test('preserves explicit recommendedNextSteps over auto-fill', () => {
+  test('renders the API-supplied recommendedNextSteps verbatim', () => {
+    // The API merges insight-derived and opportunity-derived steps via
+    // mapOpportunitiesToNextSteps and ships the merged list. The renderer
+    // is a pure consumer — no business logic, no recompute. (Coverage for
+    // the API-side merge lives in api-routes report-content.test.ts.)
     const html = renderReportHtml(richReport()) // has one explicit immediate step
     const stepsBlock = html.split('id="recommended-next-steps"')[1] ?? ''
     expect(stepsBlock).toContain('Resolve 1 critical regression')
-    // Auto-fill content (the opportunity query) should NOT appear inside the steps block
+    // Opportunity content was NOT in the API-supplied list, so it must not
+    // appear in the steps block.
     expect(stepsBlock).not.toContain('Refresh the page targeting')
+  })
+
+  test('shows the empty state when the API supplies no recommendedNextSteps', () => {
+    const report = richReport()
+    report.recommendedNextSteps = []
+    const html = renderReportHtml(report)
+    const stepsBlock = html.split('id="recommended-next-steps"')[1] ?? ''
+    expect(stepsBlock).toContain('No outstanding actions.')
   })
 
   test('renders SOV % column in competitor landscape', () => {

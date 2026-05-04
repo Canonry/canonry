@@ -743,6 +743,152 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(immediate?.title).toContain('1 critical regression')
   })
 
+  test('trend label tracks the partial-run citation rate when the latest run is partial', async () => {
+    // 4 completed runs at a stable 0% rate establish the trend chart, then a
+    // partial latest run lifts the headline to 100%. The trend label drives
+    // off the user-visible headline rate, so it must read 'up' — not 'flat'
+    // computed from two earlier completed points that pre-date the partial.
+    const projectId = insertProject(ctx.db, 'partial-trend')
+    const kw = insertKeyword(ctx.db, projectId, 'kw')
+
+    for (let i = 0; i < 4; i++) {
+      const day = String(i + 1).padStart(2, '0')
+      const id = insertRun(ctx.db, projectId, {
+        status: 'completed',
+        createdAt: `2026-04-${day}T00:00:00Z`,
+        finishedAt: `2026-04-${day}T00:01:00Z`,
+      })
+      insertSnapshot(ctx.db, id, kw, { citationState: 'not-cited' })
+    }
+
+    const partialId = insertRun(ctx.db, projectId, {
+      status: 'partial',
+      createdAt: '2026-04-05T00:00:00Z',
+      finishedAt: '2026-04-05T00:01:00Z',
+    })
+    insertSnapshot(ctx.db, partialId, kw, { citationState: 'cited' })
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/partial-trend/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.citationsTrend.length).toBe(4) // partial excluded
+    expect(body.executiveSummary.citationRate).toBe(100) // partial included
+    expect(body.executiveSummary.trend).toBe('up') // partial 100% > latest completed 0%
+  })
+
+  test('gscButNotTracked excludes brand-matching queries', async () => {
+    const projectId = insertProject(ctx.db, 'brand-filter', {
+      displayName: 'Acme',
+      canonicalDomain: 'acme.com',
+    })
+    insertKeyword(ctx.db, projectId, 'tracked thing') // already tracked
+    const syncRunId = insertRun(ctx.db, projectId, { kind: 'gsc-sync' })
+
+    const seedGscRow = (query: string, impressions: number) => {
+      ctx.db.insert(gscSearchData).values({
+        id: crypto.randomUUID(),
+        projectId,
+        syncRunId,
+        date: '2026-04-01',
+        query,
+        page: 'https://acme.com/',
+        clicks: 1,
+        impressions,
+        ctr: '0.01',
+        position: '5',
+        createdAt: new Date().toISOString(),
+      }).run()
+    }
+    seedGscRow('acme reviews', 1000) // brand → must be filtered
+    seedGscRow('Acme login', 800) // brand (case-insensitive) → must be filtered
+    seedGscRow('aeo platform', 500) // industry → must appear
+    seedGscRow('best widget', 400) // industry → must appear
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/brand-filter/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.gsc).not.toBeNull()
+    expect(body.gsc!.gscButNotTracked).not.toContain('acme reviews')
+    expect(body.gsc!.gscButNotTracked).not.toContain('Acme login')
+    expect(body.gsc!.gscButNotTracked).toContain('aeo platform')
+    expect(body.gsc!.gscButNotTracked).toContain('best widget')
+  })
+
+  test('GSC categorization uses the project displayName for brand tokens', async () => {
+    // The categorizer needs to recognize the human-readable brand even when
+    // the project slug differs (e.g. slug "acme-co", displayName "Acme Corp").
+    const projectId = insertProject(ctx.db, 'brand-displayname', {
+      displayName: 'Acme Corp',
+      canonicalDomain: 'acme-co.example.com',
+    })
+    insertKeyword(ctx.db, projectId, 'tracked thing')
+    const syncRunId = insertRun(ctx.db, projectId, { kind: 'gsc-sync' })
+
+    ctx.db.insert(gscSearchData).values({
+      id: crypto.randomUUID(),
+      projectId,
+      syncRunId,
+      date: '2026-04-01',
+      query: 'acme corp pricing',
+      page: 'https://acme-co.example.com/',
+      clicks: 100,
+      impressions: 2000,
+      ctr: '0.05',
+      position: '2',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/brand-displayname/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    const top = body.gsc!.topQueries.find((q) => q.query === 'acme corp pricing')
+    expect(top?.category).toBe('brand')
+  })
+
+  test('insight history is capped at the most recent 5 visibility runs', async () => {
+    // 6 answer-visibility runs with one regression insight per run (different
+    // keywords so dedup doesn't collapse them). Only the 5 most-recent should
+    // surface; the oldest run's insight must be filtered out.
+    const projectId = insertProject(ctx.db, 'insight-cap')
+
+    const runIds: string[] = []
+    for (let i = 0; i < 6; i++) {
+      const day = String(i + 1).padStart(2, '0')
+      const id = insertRun(ctx.db, projectId, {
+        status: 'completed',
+        createdAt: `2026-04-${day}T00:00:00Z`,
+        finishedAt: `2026-04-${day}T00:01:00Z`,
+      })
+      runIds.push(id)
+      ctx.db.insert(insights).values({
+        id: `ins-${i}`,
+        projectId,
+        runId: id,
+        type: 'regression',
+        severity: 'high',
+        title: `Lost citation #${i}`,
+        keyword: `keyword-${i}`,
+        provider: 'gemini',
+        recommendation: null,
+        cause: null,
+        dismissed: false,
+        createdAt: `2026-04-${day}T00:02:00Z`,
+      }).run()
+    }
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/insight-cap/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.insights.length).toBe(5)
+    const titles = body.insights.map((i) => i.title)
+    expect(titles).not.toContain('Lost citation #0') // oldest dropped
+    expect(titles).toContain('Lost citation #5') // newest kept
+  })
+
   test('report shape is structurally identical across calls (deterministic)', async () => {
     insertProject(ctx.db, 'stable')
     await ctx.app.ready()

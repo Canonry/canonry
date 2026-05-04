@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, inArray, or } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   bingCoverageSnapshots,
@@ -56,6 +56,11 @@ const TOP_LANDING_PAGES_LIMIT = 20
 const TOP_AI_REFERRAL_PAGES_LIMIT = 10
 const TOP_SOURCE_DOMAINS_LIMIT = 20
 const TOP_CAMPAIGN_LIMIT = 10
+// Cap insight history at the same window the intelligence layer uses
+// for recurrence (RECURRENCE_LOOKBACK_RUNS in intelligence-service.ts).
+// Keeps a months-old undismissed regression from cluttering today's
+// report while still surfacing alerts that recur within recent history.
+const INSIGHT_LOOKBACK_RUNS = 5
 
 function safeNum(value: unknown): number {
   if (typeof value === 'number') return value
@@ -81,9 +86,11 @@ function citedDomainBelongsToProject(citedDomain: string, projectDomains: string
 
 // Thin wrapper around the shared intelligence-package categorizer.
 // Encapsulates brand-token construction so the existing buildGscSection
-// call sites don't all need to thread brandTokens through.
-function categorizeQuery(query: string, projectName: string, canonicalDomain: string): GscQueryRow['category'] {
-  return categorizeQueryByIntent(query, buildBrandTokens(canonicalDomain, projectName))
+// call sites don't all need to thread brandTokens through. The display
+// name is preferred over the project slug because the slug is internal
+// (e.g. "acme-corp") while the display name matches what searchers type.
+function categorizeQuery(query: string, projectDisplayName: string, canonicalDomain: string): GscQueryRow['category'] {
+  return categorizeQueryByIntent(query, buildBrandTokens(canonicalDomain, projectDisplayName))
 }
 
 interface SnapshotRow {
@@ -310,7 +317,7 @@ function buildAiSourceOrigin(
 function buildGscSection(
   db: DatabaseClient,
   projectId: string,
-  projectName: string,
+  projectDisplayName: string,
   canonicalDomain: string,
   trackedKeywords: string[],
 ): ProjectReportDto['gsc'] {
@@ -349,14 +356,14 @@ function buildGscSection(
       impressions: agg.impressions,
       ctr: agg.impressions > 0 ? agg.clicks / agg.impressions : 0,
       avgPosition: agg.impressions > 0 ? agg.weightedPositionSum / agg.impressions : 0,
-      category: categorizeQuery(query, projectName, canonicalDomain),
+      category: categorizeQuery(query, projectDisplayName, canonicalDomain),
     }))
     .sort((a, b) => b.clicks - a.clicks)
     .slice(0, TOP_QUERIES_LIMIT)
 
   const categoryAgg = new Map<GscQueryRow['category'], { clicks: number; impressions: number }>()
   for (const [query, agg] of queryAgg) {
-    const cat = categorizeQuery(query, projectName, canonicalDomain)
+    const cat = categorizeQuery(query, projectDisplayName, canonicalDomain)
     const bucket = categoryAgg.get(cat) ?? { clicks: 0, impressions: 0 }
     bucket.clicks += agg.clicks
     bucket.impressions += agg.impressions
@@ -376,8 +383,12 @@ function buildGscSection(
   const trackedSet = new Set(trackedKeywords.map(k => k.toLowerCase()))
   const gscQuerySet = new Set([...queryAgg.keys()].map(q => q.toLowerCase()))
   const trackedButNoGsc = trackedKeywords.filter(k => !gscQuerySet.has(k.toLowerCase())).sort()
+  // Surface brand-free candidates only — brand queries already convert
+  // regardless of AEO tracking, so they're not actionable additions to
+  // the project keyword set.
   const gscButNotTracked = [...queryAgg.entries()]
     .filter(([q]) => !trackedSet.has(q.toLowerCase()))
+    .filter(([q]) => categorizeQuery(q, projectDisplayName, canonicalDomain) !== 'brand')
     .sort((a, b) => b[1].impressions - a[1].impressions)
     .map(([q]) => q)
     .slice(0, TOP_QUERIES_LIMIT)
@@ -694,10 +705,30 @@ function buildCitationsTrend(
 }
 
 function buildInsightList(db: DatabaseClient, projectId: string): ReportInsight[] {
+  // Bound the report to the most recent N answer-visibility runs so stale,
+  // long-undismissed insights from months ago don't pile up. Mirrors the
+  // recurrence window used in intelligence-service for severity tiering.
+  const recentRunIds = db
+    .select({ id: runs.id })
+    .from(runs)
+    .where(
+      and(
+        eq(runs.projectId, projectId),
+        eq(runs.kind, RunKinds['answer-visibility']),
+        or(eq(runs.status, RunStatuses.completed), eq(runs.status, RunStatuses.partial)),
+      ),
+    )
+    .orderBy(desc(runs.createdAt))
+    .limit(INSIGHT_LOOKBACK_RUNS)
+    .all()
+    .map((r) => r.id)
+
+  if (recentRunIds.length === 0) return []
+
   const rows = db
     .select()
     .from(insights)
-    .where(eq(insights.projectId, projectId))
+    .where(and(eq(insights.projectId, projectId), inArray(insights.runId, recentRunIds)))
     .orderBy(desc(insights.createdAt))
     .all()
 
@@ -875,7 +906,7 @@ export async function reportRoutes(app: FastifyInstance) {
     const gscSection = buildGscSection(
       app.db,
       project.id,
-      project.name,
+      project.displayName,
       project.canonicalDomain,
       trackedKeywords,
     )
@@ -915,11 +946,22 @@ export async function reportRoutes(app: FastifyInstance) {
     const trendBaseline = isTrendBaseline(citationsTrend)
     const latestPoint = citationsTrend.at(-1)
     const previousPoint = citationsTrend.length >= 2 ? citationsTrend.at(-2) : null
+    // When latestRun is `partial`, it's excluded from citationsTrend
+    // (buildCitationsTrend filters to completed runs only) but its rate
+    // still drives `citationRate` above. Compare the headline number
+    // against the most recent completed point so the trend label tracks
+    // the user-visible direction; otherwise fall back to the standard
+    // last-vs-prior comparison between two trend points.
     let trend: ProjectReportDto['executiveSummary']['trend'] = 'unknown'
-    if (!trendBaseline && latestPoint && previousPoint) {
-      if (latestPoint.citationRate > previousPoint.citationRate) trend = 'up'
-      else if (latestPoint.citationRate < previousPoint.citationRate) trend = 'down'
-      else trend = 'flat'
+    if (!trendBaseline && latestPoint) {
+      const latestRunOnTrend = latestRun?.id === latestPoint.runId
+      const currentRate = latestRunOnTrend ? latestPoint.citationRate : citationRate
+      const priorRate = latestRunOnTrend ? previousPoint?.citationRate : latestPoint.citationRate
+      if (priorRate !== undefined) {
+        if (currentRate > priorRate) trend = 'up'
+        else if (currentRate < priorRate) trend = 'down'
+        else trend = 'flat'
+      }
     }
 
     const findings = buildExecutiveFindings(

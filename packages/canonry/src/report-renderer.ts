@@ -9,7 +9,6 @@ import type {
 import {
   groupInsights,
   isTrendBaseline,
-  mapOpportunitiesToNextSteps,
   MIN_TREND_POINTS,
 } from '@ainyc/canonry-intelligence'
 
@@ -1047,7 +1046,10 @@ function renderOpportunities(report: ProjectReportDto): string {
 }
 
 function renderRecommendedNextSteps(report: ProjectReportDto): string {
-  const steps = mapOpportunitiesToNextSteps(report.contentOpportunities, report.recommendedNextSteps)
+  // The API already merges insight-driven and opportunity-driven steps via
+  // `mapOpportunitiesToNextSteps`; consume the result directly per the
+  // UI/CLI parity rule (no UI-only calculations).
+  const steps = report.recommendedNextSteps
   if (steps.length === 0) {
     return section(
       { id: 'recommended-next-steps', eyebrow: 'Section 13', title: 'Recommended Next Steps' },
