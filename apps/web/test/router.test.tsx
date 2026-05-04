@@ -75,9 +75,9 @@ test('/projects/$id/search-console renders the search engine intelligence tab', 
   expect(container.innerHTML).toMatch(/Search Engine Intelligence/)
 })
 
-test('/projects/$id/analytics renders the analytics tab', async () => {
-  const { container } = await renderRoute('/projects/project_citypoint/analytics')
-  expect(container.innerHTML).toMatch(/Loading analytics/)
+test('/projects/$id/report renders the report tab', async () => {
+  const { container } = await renderRoute('/projects/project_citypoint/report')
+  expect(container.innerHTML).toMatch(/Loading report/)
 })
 
 // ── Smart redirects ──

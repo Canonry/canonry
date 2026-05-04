@@ -19,7 +19,8 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/bing.ts` | Bing Webmaster Tools routes |
 | `src/ga.ts` | Google Analytics 4 routes |
 | `src/intelligence.ts` | Intelligence insights and health snapshot routes |
-| `src/report.ts` | `GET /projects/:name/report` — aggregated client-facing AEO report bundle (12 sections) |
+| `src/report.ts` | `GET /projects/:name/report` (JSON DTO) and `GET /projects/:name/report.html` (standalone downloadable HTML) — aggregated client-facing AEO report bundle (13 sections) |
+| `src/report-renderer.ts` | `renderReportHtml(report)` — server-side HTML renderer with inline SVG charts and inline CSS, re-exported from `@ainyc/canonry-api-routes` for the CLI |
 | `src/wordpress.ts` | WordPress integration routes |
 | `src/backlinks.ts` | Backlinks (Common Crawl sync + per-project extract/summary/domains/history) routes |
 | `src/doctor.ts` | `GET /doctor` and `GET /projects/:name/doctor` — runs check registry, returns `DoctorReport` |

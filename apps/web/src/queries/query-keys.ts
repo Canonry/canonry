@@ -37,11 +37,7 @@ export const queryKeys = {
     providers: (project: string) => ['agent', project, 'providers'] as const,
   },
   citationVisibility: (project: string) => ['citation-visibility', project] as const,
-  analytics: {
-    metrics: (project: string, window: string) => ['analytics', project, 'metrics', window] as const,
-    gaps: (project: string, window: string) => ['analytics', project, 'gaps', window] as const,
-    sources: (project: string, window: string) => ['analytics', project, 'sources', window] as const,
-  },
+  report: (project: string) => ['report', project] as const,
   traffic: {
     project: (project: string) => ['traffic', project] as const,
     status: (project: string) => ['traffic', project, 'status'] as const,

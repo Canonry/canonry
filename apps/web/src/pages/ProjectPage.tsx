@@ -16,11 +16,11 @@ import { EvidenceTable } from '../components/project/EvidenceTable.js'
 import { CompetitorTable } from '../components/project/CompetitorTable.js'
 import { SearchConsoleSummaryCard } from '../components/project/SearchConsoleSummaryCard.js'
 import { BingSummaryMetric } from '../components/project/BingSummaryMetric.js'
-import { AnalyticsSection } from '../components/project/AnalyticsSection.js'
 import { TrafficSection } from '../components/project/TrafficSection.js'
 import { GscSection } from '../components/project/GscSection.js'
 import { BacklinksSection } from '../components/project/BacklinksSection.js'
 import { CitationVisibilitySection } from '../components/project/CitationVisibilitySection.js'
+import { ReportPage } from './ReportPage.js'
 import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric } from '../lib/format-helpers.js'
 import { addToast } from '../lib/toast-store.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
@@ -66,7 +66,7 @@ import { useDrawer } from '../hooks/use-drawer.js'
 import { findProjectVm } from '../mock-data.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
-export type ProjectPageTab = 'overview' | 'search-console' | 'analytics' | 'traffic' | 'inbound'
+export type ProjectPageTab = 'overview' | 'search-console' | 'report' | 'traffic' | 'inbound'
 
 type SearchConsoleWorkspace = 'google' | 'bing'
 
@@ -1284,7 +1284,7 @@ export function ProjectPage({
     { key: 'overview', label: 'Overview', href: `/projects/${model.project.id}` },
     { key: 'search-console', label: 'Search Engine Intelligence', href: `/projects/${model.project.id}/search-console` },
     { key: 'traffic', label: 'Traffic', href: `/projects/${model.project.id}/traffic` },
-    { key: 'analytics', label: 'Visibility', href: `/projects/${model.project.id}/analytics` },
+    { key: 'report', label: 'Report', href: `/projects/${model.project.id}/report` },
     { key: 'inbound', label: 'Inbound', href: `/projects/${model.project.id}/inbound` },
   ]
 
@@ -1681,8 +1681,8 @@ export function ProjectPage({
           <ScheduleSection projectName={model.project.name} />
           <NotificationsSection projectName={model.project.name} />
         </>
-      ) : tab === 'analytics' ? (
-        <AnalyticsSection projectName={model.project.name} />
+      ) : tab === 'report' ? (
+        <ReportPage projectName={model.project.name} />
       ) : tab === 'traffic' ? (
         <TrafficSection projectName={model.project.name} />
       ) : tab === 'inbound' ? (

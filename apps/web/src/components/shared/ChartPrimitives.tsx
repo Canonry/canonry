@@ -8,10 +8,16 @@
 import type { CSSProperties } from 'react'
 import {
   Area,
+  Bar,
+  BarChart,
   CartesianGrid,
+  Cell,
   ComposedChart,
   Legend,
   Line,
+  LineChart,
+  Pie,
+  PieChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip as RechartsTooltip,
@@ -22,10 +28,16 @@ import {
 // Re-export Recharts components that pages may need directly
 export {
   Area,
+  Bar,
+  BarChart,
   CartesianGrid,
+  Cell,
   ComposedChart,
   Legend,
   Line,
+  LineChart,
+  Pie,
+  PieChart,
   RechartsTooltip,
   ReferenceLine,
   ResponsiveContainer,
