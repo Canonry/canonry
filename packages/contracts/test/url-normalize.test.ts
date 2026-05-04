@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { normalizeUrlPath } from '../src/url-normalize.js'
+import { absolutizeProjectUrl, normalizeUrlPath } from '../src/url-normalize.js'
 
 describe('normalizeUrlPath', () => {
   describe('null and empty inputs', () => {
@@ -190,5 +190,46 @@ describe('normalizeUrlPath', () => {
       expect(normalizeUrlPath('/michigan?v=3')).toBe('/michigan')
       expect(normalizeUrlPath('/path?ver=1.2.3')).toBe('/path')
     })
+  })
+})
+
+describe('absolutizeProjectUrl', () => {
+  it('prefixes path-only URLs with https://<canonicalDomain>', () => {
+    expect(absolutizeProjectUrl('/blog/foo', 'example.com')).toBe('https://example.com/blog/foo')
+  })
+
+  it('preserves the query string when prefixing a path', () => {
+    expect(absolutizeProjectUrl('/p?q=1', 'example.com')).toBe('https://example.com/p?q=1')
+  })
+
+  it('returns absolute https URLs unchanged', () => {
+    expect(absolutizeProjectUrl('https://other.com/x', 'example.com')).toBe('https://other.com/x')
+  })
+
+  it('returns absolute http URLs unchanged', () => {
+    expect(absolutizeProjectUrl('http://other.com/x', 'example.com')).toBe('http://other.com/x')
+  })
+
+  it('upgrades protocol-relative URLs to https', () => {
+    expect(absolutizeProjectUrl('//cdn.example.com/x', 'example.com')).toBe('https://cdn.example.com/x')
+  })
+
+  it('strips an http(s) prefix and trailing slash from the canonical domain', () => {
+    expect(absolutizeProjectUrl('/x', 'https://example.com/')).toBe('https://example.com/x')
+    expect(absolutizeProjectUrl('/x', 'http://example.com')).toBe('https://example.com/x')
+  })
+
+  it('returns empty string for null, undefined, or whitespace input', () => {
+    expect(absolutizeProjectUrl(null, 'example.com')).toBe('')
+    expect(absolutizeProjectUrl(undefined, 'example.com')).toBe('')
+    expect(absolutizeProjectUrl('   ', 'example.com')).toBe('')
+  })
+
+  it('treats bare slugs (no leading slash) as paths under the canonical host', () => {
+    expect(absolutizeProjectUrl('blog/foo', 'example.com')).toBe('https://example.com/blog/foo')
+  })
+
+  it('returns the original input when canonicalDomain is empty', () => {
+    expect(absolutizeProjectUrl('/blog/foo', '')).toBe('/blog/foo')
   })
 })

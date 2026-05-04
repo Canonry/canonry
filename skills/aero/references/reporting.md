@@ -15,7 +15,7 @@ canonry report <project> --output dist/aeo.html   # custom path
 canonry report <project> --format json            # raw payload, useful for narrating in chat
 ```
 
-The HTML is self-contained (inline CSS + SVG charts, no network dependencies) and covers: executive summary, per-keyword × per-provider citation matrix, competitor landscape, AI source origin, GSC + GA4 performance, social and AI referrals, indexing health, citations trend, prioritized insights, and recommended next steps. Same payload is available via `GET /api/v1/projects/<name>/report` and the `canonry_report` MCP tool — use `--format json` when you want to summarize specific numbers in a thread instead of attaching the file.
+The HTML is self-contained (inline CSS + SVG charts, no network dependencies) and covers: executive summary, per-keyword × per-provider citation matrix, competitor landscape, AI citation sources, GSC + GA4 performance, social and AI referrals, indexing health, citations trend, prioritized insights, and recommended next steps. Same payload is available via `GET /api/v1/projects/<name>/report` and the `canonry_report` MCP tool — use `--format json` when you want to summarize specific numbers in a thread instead of attaching the file.
 
 Behaviors worth knowing before narrating numbers from the report:
 - `executiveSummary.citationRate` is always sourced from the latest visibility run (completed **or** partial), so it tracks the scorecard table even when the latest sweep had a flaky provider.

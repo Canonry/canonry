@@ -249,7 +249,7 @@ export const canonryMcpTools = [
     name: 'canonry_report',
     title: 'Get aggregated AEO report',
     description:
-      'Returns the full client-facing AEO report bundle for a project — executive summary, per-keyword × per-provider citation matrix, competitor landscape, AI source origin, GSC/GA4 performance, social and AI referrals, indexing health, citations trend, prioritized insights, and recommended next steps. Same payload `canonry report <project>` consumes to render the self-contained HTML.',
+      'Returns the full client-facing AEO report bundle for a project — executive summary, per-keyword × per-provider citation matrix, competitor landscape, AI citation sources, GSC/GA4 performance, social and AI referrals, indexing health, citations trend, prioritized insights, and recommended next steps. Same payload `canonry report <project>` consumes to render the self-contained HTML.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: projectInputSchema,
