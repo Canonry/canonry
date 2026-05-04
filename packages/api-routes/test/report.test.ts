@@ -561,7 +561,49 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.citationsTrend[0]!.citationRate).toBe(0)
     expect(body.citationsTrend[1]!.runId).toBe(r2)
     expect(body.citationsTrend[1]!.citationRate).toBe(100)
+    // Only 2 points — below MIN_TREND_POINTS, so trend is suppressed.
+    expect(body.executiveSummary.trend).toBe('unknown')
+  })
+
+  test('executiveSummary.trend resolves once enough runs are collected', async () => {
+    const projectId = insertProject(ctx.db, 'trend-resolved')
+    const kw = insertKeyword(ctx.db, projectId, 'kw')
+
+    // 4 runs: 0%, 0%, 0%, 100% — last delta is up, sample is large enough.
+    for (let i = 0; i < 4; i++) {
+      const day = String(i + 1).padStart(2, '0')
+      const id = insertRun(ctx.db, projectId, {
+        createdAt: `2026-04-${day}T00:00:00Z`,
+        finishedAt: `2026-04-${day}T00:01:00Z`,
+      })
+      insertSnapshot(ctx.db, id, kw, { citationState: i === 3 ? 'cited' : 'not-cited' })
+    }
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/trend-resolved/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.citationsTrend.length).toBe(4)
     expect(body.executiveSummary.trend).toBe('up')
+  })
+
+  test('findings detail surfaces "Establishing baseline" copy until enough runs exist', async () => {
+    const projectId = insertProject(ctx.db, 'trend-baseline')
+    const kw = insertKeyword(ctx.db, projectId, 'kw')
+
+    const r1 = insertRun(ctx.db, projectId, { createdAt: '2026-04-01T00:00:00Z', finishedAt: '2026-04-01T00:01:00Z' })
+    const r2 = insertRun(ctx.db, projectId, { createdAt: '2026-04-02T00:00:00Z', finishedAt: '2026-04-02T00:01:00Z' })
+    insertSnapshot(ctx.db, r1, kw, { citationState: 'not-cited' })
+    insertSnapshot(ctx.db, r2, kw, { citationState: 'cited' })
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/trend-baseline/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    const trendFinding = body.executiveSummary.findings.find(f => f.title.startsWith('Citation rate'))
+    expect(trendFinding).toBeDefined()
+    expect(trendFinding!.detail).toMatch(/Establishing baseline/i)
+    expect(trendFinding!.tone).toBe('neutral')
   })
 
   test('partial runs power the scorecard but are excluded from the trend line', async () => {

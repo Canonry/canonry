@@ -36,6 +36,8 @@ import {
   buildContentSourceRows,
   buildContentGapRows,
   categorizeQueryByIntent,
+  isTrendBaseline,
+  MIN_TREND_POINTS,
   mapOpportunitiesToNextSteps,
 } from '@ainyc/canonry-intelligence'
 import { resolveProject } from './helpers.js'
@@ -759,19 +761,26 @@ function buildExecutiveFindings(
   citationRate: number,
   trend: ProjectReportDto['executiveSummary']['trend'],
   trendsPoints: CitationsTrendPoint[],
+  trendBaseline: boolean,
   insightList: ReportInsight[],
   competitorRows: CompetitorRow[],
 ): ProjectReportDto['executiveSummary']['findings'] {
   const findings: ProjectReportDto['executiveSummary']['findings'] = []
 
   if (trendsPoints.length > 0) {
-    const tone = trend === 'up' ? 'positive' : trend === 'down' ? 'negative' : 'neutral'
+    const tone = trendBaseline
+      ? 'neutral'
+      : trend === 'up' ? 'positive' : trend === 'down' ? 'negative' : 'neutral'
     let detail: string
-    switch (trend) {
-      case 'up': detail = 'Up from the previous run.'; break
-      case 'down': detail = 'Down from the previous run.'; break
-      case 'flat': detail = 'Flat compared to the previous run.'; break
-      case 'unknown': detail = 'No prior run to compare against.'; break
+    if (trendBaseline) {
+      detail = `Establishing baseline (${trendsPoints.length} of ${MIN_TREND_POINTS} runs collected).`
+    } else {
+      switch (trend) {
+        case 'up': detail = 'Up from the previous run.'; break
+        case 'down': detail = 'Down from the previous run.'; break
+        case 'flat': detail = 'Flat compared to the previous run.'; break
+        case 'unknown': detail = 'No prior run to compare against.'; break
+      }
     }
     findings.push({
       title: `Citation rate at ${citationRate}%`,
@@ -872,10 +881,15 @@ export async function reportRoutes(app: FastifyInstance) {
       ? Math.round((latestCited / latestConsidered) * 100)
       : 0
 
+    // Suppress trend computation until enough runs exist — a 5%→1% delta on
+    // N=2 reads as a crisis to a non-analyst reader but is pure noise on a
+    // sample of two. Same gate the renderer uses on the line chart so every
+    // surface (CLI, Aero, dashboard) stays consistent.
+    const trendBaseline = isTrendBaseline(citationsTrend)
     const latestPoint = citationsTrend.at(-1)
     const previousPoint = citationsTrend.length >= 2 ? citationsTrend.at(-2) : null
     let trend: ProjectReportDto['executiveSummary']['trend'] = 'unknown'
-    if (latestPoint && previousPoint) {
+    if (!trendBaseline && latestPoint && previousPoint) {
       if (latestPoint.citationRate > previousPoint.citationRate) trend = 'up'
       else if (latestPoint.citationRate < previousPoint.citationRate) trend = 'down'
       else trend = 'flat'
@@ -885,6 +899,7 @@ export async function reportRoutes(app: FastifyInstance) {
       citationRate,
       trend,
       citationsTrend,
+      trendBaseline,
       insightList,
       competitorLandscape.competitors,
     )
