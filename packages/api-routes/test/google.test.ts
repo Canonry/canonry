@@ -772,6 +772,160 @@ describe('googleRoutes: coverage snapshot deduplication', () => {
   })
 })
 
+describe('googleRoutes: GET /projects/:name/google/gsc/coverage', () => {
+  let app: ReturnType<typeof Fastify>
+  let tmpDir: string
+  let db: ReturnType<typeof createClient>
+
+  beforeAll(async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'google-coverage-summary-'))
+    const dbPath = path.join(tmpDir, 'test.db')
+    db = createClient(dbPath)
+    migrate(db)
+
+    const now = new Date().toISOString()
+    db.insert(projects).values({
+      id: 'p1',
+      name: 'covproj',
+      displayName: 'Coverage Project',
+      canonicalDomain: 'coverage.com',
+      country: 'US',
+      language: 'en',
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+
+    db.insert(runs).values({
+      id: 'r1',
+      projectId: 'p1',
+      kind: 'gsc-sync',
+      status: 'completed',
+      createdAt: now,
+    }).run()
+
+    const fastify = Fastify()
+    fastify.setErrorHandler((error, _request, reply) => {
+      if (error instanceof AppError) {
+        return reply.status(error.statusCode).send(error.toJSON())
+      }
+      throw error
+    })
+    fastify.decorate('db', db)
+    fastify.register(googleRoutes, {
+      getGoogleAuthConfig: () => ({ clientId: undefined, clientSecret: undefined }),
+      googleConnectionStore: {
+        listConnections: () => [],
+        getConnection: () => undefined,
+        upsertConnection: (c) => c,
+        updateConnection: () => undefined,
+        deleteConnection: () => false,
+      },
+      googleStateSecret: 'test-secret-32-bytes-long-enough!',
+    })
+
+    app = fastify
+    await app.ready()
+  })
+
+  afterAll(async () => {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('returns null lastSyncedAt and lastInspectedAt when no data exists', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/projects/covproj/google/gsc/coverage',
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { lastInspectedAt: string | null; lastSyncedAt: string | null }
+    expect(body.lastInspectedAt).toBeNull()
+    expect(body.lastSyncedAt).toBeNull()
+  })
+
+  it('returns lastSyncedAt from the most recent coverage snapshot, independent of inspection time', async () => {
+    // Inspections from May 1; sync snapshot from May 4 (later) — exercises
+    // the bug fix: a sync that re-fetched coverage but found no new URLs
+    // still updates lastSyncedAt while leaving lastInspectedAt unchanged.
+    const inspectionTime = '2026-05-01T08:00:00.000Z'
+    const syncTime = '2026-05-04T14:36:24.808Z'
+
+    db.insert(gscUrlInspections).values({
+      id: 'i1',
+      projectId: 'p1',
+      syncRunId: 'r1',
+      url: 'https://coverage.com/page-1',
+      indexingState: 'INDEXING_ALLOWED',
+      verdict: 'PASS',
+      coverageState: 'Submitted and indexed',
+      pageFetchState: 'SUCCESSFUL',
+      robotsTxtState: 'ALLOWED',
+      crawlTime: inspectionTime,
+      lastCrawlResult: null,
+      isMobileFriendly: 1,
+      richResults: '[]',
+      referringUrls: '[]',
+      inspectedAt: inspectionTime,
+      createdAt: inspectionTime,
+    }).run()
+
+    db.insert(gscCoverageSnapshots).values({
+      id: 'snap-may4',
+      projectId: 'p1',
+      syncRunId: 'r1',
+      date: '2026-05-04',
+      indexed: 1,
+      notIndexed: 0,
+      reasonBreakdown: '{}',
+      createdAt: syncTime,
+    }).run()
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/projects/covproj/google/gsc/coverage',
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { lastInspectedAt: string | null; lastSyncedAt: string | null }
+    expect(body.lastInspectedAt).toBe(inspectionTime)
+    expect(body.lastSyncedAt).toBe(syncTime)
+  })
+
+  it('uses the most recent snapshot when several exist for different dates', async () => {
+    const earlierSync = '2026-05-02T12:00:00.000Z'
+    const latestSync = '2026-05-05T09:30:00.000Z'
+
+    db.insert(gscCoverageSnapshots).values({
+      id: 'snap-may2',
+      projectId: 'p1',
+      syncRunId: 'r1',
+      date: '2026-05-02',
+      indexed: 1,
+      notIndexed: 0,
+      reasonBreakdown: '{}',
+      createdAt: earlierSync,
+    }).run()
+
+    db.insert(gscCoverageSnapshots).values({
+      id: 'snap-may5',
+      projectId: 'p1',
+      syncRunId: 'r1',
+      date: '2026-05-05',
+      indexed: 1,
+      notIndexed: 0,
+      reasonBreakdown: '{}',
+      createdAt: latestSync,
+    }).run()
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/projects/covproj/google/gsc/coverage',
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { lastSyncedAt: string | null }
+    expect(body.lastSyncedAt).toBe(latestSync)
+  })
+})
+
 describe('googleRoutes: POST /projects/:name/google/indexing/request', () => {
   let app: ReturnType<typeof Fastify>
   let tmpDir: string

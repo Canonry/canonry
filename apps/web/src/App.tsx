@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 import {
   BookOpen,
@@ -49,6 +49,7 @@ import { Toaster } from './components/layout/Toaster.js'
 import { AeroBarHost } from './components/shared/AeroBar.js'
 import { RUNS_STALE_MS } from './queries/query-client.js'
 import { queryKeys } from './queries/query-keys.js'
+import { invalidateQueriesForRunKind } from './queries/run-invalidations.js'
 import type {
   HealthSnapshot,
   ServiceStatus,
@@ -135,6 +136,7 @@ function batchTone(summary: ReturnType<typeof summarizeBatchStatuses>): ToastTon
 }
 
 export function RunNotificationObserver() {
+  const queryClient = useQueryClient()
   const trackedState = useSyncExternalStore(subscribeRunTracker, getRunTrackerState, getRunTrackerState)
   const hasPendingTracking = Object.keys(trackedState.runs).length > 0 || Object.keys(trackedState.batches).length > 0
   const runsQuery = useQuery({
@@ -191,6 +193,11 @@ export function RunNotificationObserver() {
       const previousStatus = prevStatusesRef.current[run.id] ?? trackedRun.lastAnnouncedStatus
       if (previousStatus === run.status) continue
 
+      const project = projects.find((candidate) => candidate.id === run.projectId)
+      if (project) {
+        invalidateQueriesForRunKind(queryClient, run.kind, project.name)
+      }
+
       if (trackedRun.sourceAction === 'run-all') {
         removeTrackedRun(run.id)
         continue
@@ -231,7 +238,7 @@ export function RunNotificationObserver() {
     }
 
     prevStatusesRef.current = nextStatuses
-  }, [projectsQuery.data, runsQuery.data, trackedState])
+  }, [projectsQuery.data, runsQuery.data, trackedState, queryClient])
 
   return null
 }

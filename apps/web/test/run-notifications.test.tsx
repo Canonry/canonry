@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import React from 'react'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 
@@ -17,7 +17,7 @@ import { createAppRouter } from '../src/router/router.js'
 import { createDashboardFixture } from '../src/mock-data.js'
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { queryKeys } from '../src/queries/query-keys.js'
-import { useTriggerRun } from '../src/queries/mutations.js'
+import { useTriggerGscSync, useTriggerRun } from '../src/queries/mutations.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 
 function makeProject() {
@@ -70,6 +70,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  cleanup()
   resetToasts()
   resetRunTracker()
   vi.restoreAllMocks()
@@ -195,7 +196,9 @@ test('keeps run notifications active when the app is bootstrapped from dashboard
     expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/api/v1/runs'))).toBe(true)
   })
 
-  expect(getToasts().some((toast) => toast.title === 'Visibility sweep completed')).toBe(true)
+  await waitFor(() => {
+    expect(getToasts().some((toast) => toast.title === 'Visibility sweep completed')).toBe(true)
+  })
 })
 
 test('emits one aggregate batch toast for run-all completions', async () => {
@@ -317,6 +320,121 @@ function TriggerRunButton() {
     </button>
   )
 }
+
+test('invalidates GSC project queries when a tracked gsc-sync run completes', async () => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.includes('/api/v1/runs')) {
+      return jsonResponse([{ ...makeRun('completed'), kind: 'gsc-sync' }])
+    }
+    if (url.includes('/api/v1/projects')) return jsonResponse([makeProject()])
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  vi.stubGlobal('fetch', fetchMock)
+
+  trackRun({
+    id: 'run_1',
+    projectId: 'proj_1',
+    kind: 'gsc-sync',
+    projectLabel: 'Citypoint Dental NYC',
+    sourceAction: 'gsc-sync',
+    lastAnnouncedStatus: 'queued',
+  })
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+  queryClient.setQueryData(queryKeys.runs.all, [{ ...makeRun('completed'), kind: 'gsc-sync' }])
+  queryClient.setQueryData(queryKeys.projects.all, [makeProject()])
+  // Pre-populate the GSC coverage cache so invalidation has something to mark stale.
+  queryClient.setQueryData(queryKeys.gsc.coverage('citypoint'), { stale: true })
+
+  render(
+    <QueryClientProvider client={queryClient}>
+      <RunNotificationObserver />
+    </QueryClientProvider>,
+  )
+
+  await waitFor(() => {
+    const state = queryClient.getQueryState(queryKeys.gsc.coverage('citypoint'))
+    expect(state?.isInvalidated).toBe(true)
+  })
+})
+
+test('does not invalidate GSC project queries for non-GSC runs', async () => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.includes('/api/v1/runs')) return jsonResponse([makeRun('completed')])
+    if (url.includes('/api/v1/projects')) return jsonResponse([makeProject()])
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  vi.stubGlobal('fetch', fetchMock)
+
+  trackRun({
+    id: 'run_1',
+    projectId: 'proj_1',
+    kind: 'answer-visibility',
+    projectLabel: 'Citypoint Dental NYC',
+    sourceAction: 'project-run',
+    lastAnnouncedStatus: 'queued',
+  })
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
+  queryClient.setQueryData(queryKeys.runs.all, [makeRun('completed')])
+  queryClient.setQueryData(queryKeys.projects.all, [makeProject()])
+  queryClient.setQueryData(queryKeys.gsc.coverage('citypoint'), { stale: true })
+
+  render(
+    <QueryClientProvider client={queryClient}>
+      <RunNotificationObserver />
+    </QueryClientProvider>,
+  )
+
+  // Wait for the terminal toast to fire so the observer effect has run.
+  await waitFor(() => {
+    expect(getToasts().some((toast) => toast.title === 'Visibility sweep completed')).toBe(true)
+  })
+
+  const state = queryClient.getQueryState(queryKeys.gsc.coverage('citypoint'))
+  expect(state?.isInvalidated).toBe(false)
+})
+
+function TriggerGscSyncButton() {
+  const mutation = useTriggerGscSync()
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        mutation.mutate({ projectName: 'citypoint', projectLabel: 'Citypoint Dental NYC' })
+      }}
+    >
+      Trigger GSC sync
+    </button>
+  )
+}
+
+test('useTriggerGscSync invalidates GSC project queries when the mutation succeeds', async () => {
+  const fetchMock = vi.fn(async () => jsonResponse({
+    ...makeRun('queued'),
+    kind: 'gsc-sync',
+  }))
+  vi.stubGlobal('fetch', fetchMock)
+
+  const queryClient = createQueryClient()
+  // Pre-populate the cache so we can observe invalidation.
+  queryClient.setQueryData(queryKeys.gsc.coverage('citypoint'), { stale: true })
+
+  render(
+    <QueryClientProvider client={queryClient}>
+      <TriggerGscSyncButton />
+    </QueryClientProvider>,
+  )
+
+  fireEvent.click(screen.getByRole('button', { name: 'Trigger GSC sync' }))
+
+  await waitFor(() => {
+    const state = queryClient.getQueryState(queryKeys.gsc.coverage('citypoint'))
+    expect(state?.isInvalidated).toBe(true)
+  })
+})
 
 test('maps RUN_IN_PROGRESS errors to one caution toast with an extended timer', async () => {
   const fetchMock = vi.fn(async () => new Response(JSON.stringify({

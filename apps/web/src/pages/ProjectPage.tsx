@@ -851,7 +851,7 @@ function SearchConsoleSection({
       : googleConfigured
         ? 'Connect Search Console for this domain'
         : 'Add Google OAuth credentials in Settings'
-  const googleUpdatedAt = googleCoverage?.lastInspectedAt ?? googleConnection?.updatedAt ?? null
+  const googleUpdatedAt = googleCoverage?.lastSyncedAt ?? googleCoverage?.lastInspectedAt ?? googleConnection?.updatedAt ?? null
 
   const bingTone = bingConnection?.connected ? 'positive' : bingConfigured ? 'caution' : 'negative'
   const bingStatus = bingConnection?.connected ? 'Connected' : bingConfigured ? 'Ready to connect' : 'Needs setup'
