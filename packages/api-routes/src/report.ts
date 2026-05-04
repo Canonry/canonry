@@ -36,6 +36,9 @@ import {
   buildContentSourceRows,
   buildContentGapRows,
   categorizeQueryByIntent,
+  groupInsights,
+  isTrendBaseline,
+  MIN_TREND_POINTS,
   mapOpportunitiesToNextSteps,
 } from '@ainyc/canonry-intelligence'
 import { resolveProject } from './helpers.js'
@@ -699,7 +702,7 @@ function buildInsightList(db: DatabaseClient, projectId: string): ReportInsight[
     .all()
 
   const severityRank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
-  return rows
+  const flat: Array<ReportInsight & { _sortRank: number }> = rows
     .filter(r => !r.dismissed)
     .map(r => {
       const recommendation = parseJsonColumn<{ action?: string; target?: string; reason?: string } | null>(r.recommendation, null)
@@ -720,9 +723,35 @@ function buildInsightList(db: DatabaseClient, projectId: string): ReportInsight[
         provider: r.provider,
         recommendation: recText,
         createdAt: r.createdAt,
+        instanceCount: 1,
+        _sortRank: severityRank[r.severity] ?? 99,
       }
     })
-    .sort((a, b) => severityRank[a.severity]! - severityRank[b.severity]!)
+
+  // Dedup at the API layer so all consumers — DTO, executive findings, next
+  // steps, renderer — see one row per (keyword, provider, type) tuple.
+  // Without this, a regression that fired in three runs would inflate counts
+  // in `buildExecutiveFindings` (e.g. "3 critical regressions" when there is
+  // really one) and "Resolve 3 critical regressions" in next-steps.
+  const groups = groupInsights(flat)
+  return groups
+    .map((g) => {
+      const rep = g.representative
+      const rest: ReportInsight = {
+        id: rep.id,
+        type: rep.type,
+        severity: rep.severity,
+        title: rep.title,
+        keyword: rep.keyword,
+        provider: rep.provider,
+        recommendation: rep.recommendation,
+        createdAt: rep.createdAt,
+        instanceCount: g.count,
+      }
+      return { ...rest, _sortRank: rep._sortRank }
+    })
+    .sort((a, b) => a._sortRank - b._sortRank)
+    .map(({ _sortRank: _drop, ...rest }) => rest)
 }
 
 function buildRecommendedNextSteps(insightList: ReportInsight[]): RecommendedNextStep[] {
@@ -759,19 +788,26 @@ function buildExecutiveFindings(
   citationRate: number,
   trend: ProjectReportDto['executiveSummary']['trend'],
   trendsPoints: CitationsTrendPoint[],
+  trendBaseline: boolean,
   insightList: ReportInsight[],
   competitorRows: CompetitorRow[],
 ): ProjectReportDto['executiveSummary']['findings'] {
   const findings: ProjectReportDto['executiveSummary']['findings'] = []
 
   if (trendsPoints.length > 0) {
-    const tone = trend === 'up' ? 'positive' : trend === 'down' ? 'negative' : 'neutral'
+    const tone = trendBaseline
+      ? 'neutral'
+      : trend === 'up' ? 'positive' : trend === 'down' ? 'negative' : 'neutral'
     let detail: string
-    switch (trend) {
-      case 'up': detail = 'Up from the previous run.'; break
-      case 'down': detail = 'Down from the previous run.'; break
-      case 'flat': detail = 'Flat compared to the previous run.'; break
-      case 'unknown': detail = 'No prior run to compare against.'; break
+    if (trendBaseline) {
+      detail = `Establishing baseline (${trendsPoints.length} of ${MIN_TREND_POINTS} runs collected).`
+    } else {
+      switch (trend) {
+        case 'up': detail = 'Up from the previous run.'; break
+        case 'down': detail = 'Down from the previous run.'; break
+        case 'flat': detail = 'Flat compared to the previous run.'; break
+        case 'unknown': detail = 'No prior run to compare against.'; break
+      }
     }
     findings.push({
       title: `Citation rate at ${citationRate}%`,
@@ -872,10 +908,15 @@ export async function reportRoutes(app: FastifyInstance) {
       ? Math.round((latestCited / latestConsidered) * 100)
       : 0
 
+    // Suppress trend computation until enough runs exist — a 5%→1% delta on
+    // N=2 reads as a crisis to a non-analyst reader but is pure noise on a
+    // sample of two. Same gate the renderer uses on the line chart so every
+    // surface (CLI, Aero, dashboard) stays consistent.
+    const trendBaseline = isTrendBaseline(citationsTrend)
     const latestPoint = citationsTrend.at(-1)
     const previousPoint = citationsTrend.length >= 2 ? citationsTrend.at(-2) : null
     let trend: ProjectReportDto['executiveSummary']['trend'] = 'unknown'
-    if (latestPoint && previousPoint) {
+    if (!trendBaseline && latestPoint && previousPoint) {
       if (latestPoint.citationRate > previousPoint.citationRate) trend = 'up'
       else if (latestPoint.citationRate < previousPoint.citationRate) trend = 'down'
       else trend = 'flat'
@@ -885,6 +926,7 @@ export async function reportRoutes(app: FastifyInstance) {
       citationRate,
       trend,
       citationsTrend,
+      trendBaseline,
       insightList,
       competitorLandscape.competitors,
     )

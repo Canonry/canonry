@@ -259,6 +259,14 @@ export interface ReportInsight {
   provider: string
   recommendation: string | null
   createdAt: string
+  /**
+   * How many times this insight fired across recent runs for the same
+   * `(keyword, provider, type)` tuple. Always ≥ 1. Insights returned by the
+   * report API are already deduped to one row per tuple, with this counter
+   * surfacing the multiplicity. Use it directly instead of grouping again
+   * client-side — counts derived from raw insight rows will overcount.
+   */
+  instanceCount: number
 }
 
 export interface RecommendedNextStep {
