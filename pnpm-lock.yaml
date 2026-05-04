@@ -69,6 +69,9 @@ importers:
       '@ainyc/canonry-contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@ainyc/canonry-intelligence':
+        specifier: workspace:*
+        version: link:../../packages/intelligence
       '@radix-ui/react-dialog':
         specifier: ^1.1.15
         version: 1.1.15(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)

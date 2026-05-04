@@ -1,4 +1,4 @@
-import type { ErrorCode, GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, HealthSnapshotDto, RunKind, RunStatus, RunTrigger, RunErrorDto, CitationState, CitationVisibilityResponse, ComputedTransition, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto } from '@ainyc/canonry-contracts'
+import type { ErrorCode, GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, HealthSnapshotDto, ProjectReportDto, RunKind, RunStatus, RunTrigger, RunErrorDto, CitationState, CitationVisibilityResponse, ComputedTransition, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto } from '@ainyc/canonry-contracts'
 export type { BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto }
 
 export type { GroundingSource }
@@ -935,20 +935,38 @@ export function updateBingApiKey(apiKey: string): Promise<{ configured: boolean 
   })
 }
 
-// Analytics
-export function fetchAnalyticsMetrics(project: string, window?: MetricsWindow): Promise<BrandMetricsDto> {
-  const qs = window ? `?window=${window}` : ''
-  return apiFetch(`/projects/${encodeURIComponent(project)}/analytics/metrics${qs}`)
+// Report
+export function fetchReport(project: string): Promise<ProjectReportDto> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/report`)
 }
 
-export function fetchAnalyticsGaps(project: string, window?: MetricsWindow): Promise<GapAnalysisDto> {
-  const qs = window ? `?window=${window}` : ''
-  return apiFetch(`/projects/${encodeURIComponent(project)}/analytics/gaps${qs}`)
+function parseFilenameFromContentDisposition(header: string | null): string | null {
+  if (!header) return null
+  const match = /filename\s*=\s*"?([^";]+)"?/i.exec(header)
+  return match?.[1] ?? null
 }
 
-export function fetchAnalyticsSources(project: string, window?: MetricsWindow): Promise<SourceBreakdownDto> {
-  const qs = window ? `?window=${window}` : ''
-  return apiFetch(`/projects/${encodeURIComponent(project)}/analytics/sources${qs}`)
+export async function downloadReportHtml(project: string): Promise<void> {
+  const key = getApiKey()
+  const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(project)}/report.html`, {
+    credentials: 'same-origin',
+    headers: key ? { Authorization: `Bearer ${key}` } : {},
+  })
+  if (!res.ok) {
+    throw new ApiError(`Failed to download report: ${res.status}`, res.status)
+  }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const filename =
+    parseFilenameFromContentDisposition(res.headers.get('Content-Disposition'))
+    ?? `canonry-report-${project}.html`
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
 }
 
 // ── GA4 Traffic ─────────────────────────────────────────────────────────────

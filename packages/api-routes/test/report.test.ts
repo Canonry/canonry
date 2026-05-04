@@ -905,3 +905,33 @@ describe('GET /api/v1/projects/:name/report', () => {
     )
   })
 })
+
+describe('GET /api/v1/projects/:name/report.html', () => {
+  test('returns 404 when the project does not exist', async () => {
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/missing/report.html' })
+    expect(res.statusCode).toBe(404)
+    expect(JSON.parse(res.body).error.code).toBe('NOT_FOUND')
+  })
+
+  test('returns standalone HTML with attachment headers', async () => {
+    insertProject(ctx.db, 'html-report', { displayName: 'HTML Report Co.' })
+    await ctx.app.ready()
+
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/html-report/report.html' })
+    expect(res.statusCode).toBe(200)
+
+    const contentType = res.headers['content-type']
+    expect(typeof contentType).toBe('string')
+    expect(String(contentType)).toMatch(/^text\/html/)
+
+    const disposition = res.headers['content-disposition']
+    expect(typeof disposition).toBe('string')
+    expect(String(disposition)).toMatch(/^attachment;/)
+    expect(String(disposition)).toMatch(/canonry-report-html-report-\d{4}-\d{2}-\d{2}\.html/)
+
+    expect(res.body).toMatch(/^<!DOCTYPE html>/)
+    expect(res.body).toContain('HTML Report Co.')
+    expect(res.body).toContain('<title>')
+  })
+})

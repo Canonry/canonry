@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createApiClient } from '../client.js'
-import { renderReportHtml } from '../report-renderer.js'
+import { renderReportHtml } from '@ainyc/canonry-api-routes'
 import type { CliFormat } from '../cli-error.js'
 
 export interface RunReportCommandOptions {

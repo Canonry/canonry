@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@ainyc/canonry-contracts": "workspace:*",
+    "@ainyc/canonry-intelligence": "workspace:*",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-slot": "^1.2.3",
     "@reduxjs/toolkit": "^2.11.2",

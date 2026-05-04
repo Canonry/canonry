@@ -2271,6 +2271,19 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/report.html',
+    summary: 'Standalone HTML AEO report',
+    tags: ['report'],
+    description:
+      'Server-rendered self-contained HTML version of the project report. Same data as `/projects/{name}/report` (JSON), rendered through the canonry HTML report renderer. Returns `text/html` with `Content-Disposition: attachment` so browsers download it as `canonry-report-<project>-YYYY-MM-DD.html`. Open in a browser and Print → Save as PDF for a PDF copy.',
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'HTML report returned.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/health/latest',
     summary: 'Get latest health snapshot',
     description:

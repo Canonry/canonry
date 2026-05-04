@@ -42,6 +42,7 @@ import {
   mapOpportunitiesToNextSteps,
 } from '@ainyc/canonry-intelligence'
 import { resolveProject } from './helpers.js'
+import { renderReportHtml } from './report-renderer.js'
 import {
   extractGroundingSources,
   extractHostFromUri,
@@ -868,168 +869,185 @@ function buildExecutiveFindings(
   return findings.slice(0, 5)
 }
 
-export async function reportRoutes(app: FastifyInstance) {
-  app.get<{ Params: { name: string } }>('/projects/:name/report', async (request, reply) => {
-    const project = resolveProject(app.db, request.params.name)
-    const keywordLookup = loadKeywordLookup(app.db, project.id)
+function buildProjectReport(db: DatabaseClient, projectName: string): ProjectReportDto {
+  const project = resolveProject(db, projectName)
+  const keywordLookup = loadKeywordLookup(db, project.id)
 
-    const allRuns = app.db
-      .select()
-      .from(runs)
-      .where(eq(runs.projectId, project.id))
-      .orderBy(desc(runs.createdAt))
-      .all()
+  const allRuns = db
+    .select()
+    .from(runs)
+    .where(eq(runs.projectId, project.id))
+    .orderBy(desc(runs.createdAt))
+    .all()
 
-    const visibilityRuns = allRuns.filter(r => r.kind === RunKinds['answer-visibility'])
-    const latestRun = visibilityRuns.find(
-      r => r.status === RunStatuses.completed || r.status === RunStatuses.partial,
-    ) ?? visibilityRuns[0]
-    const latestSnapshots = latestRun ? loadSnapshotsForRun(app.db, latestRun.id) : []
+  const visibilityRuns = allRuns.filter(r => r.kind === RunKinds['answer-visibility'])
+  const latestRun = visibilityRuns.find(
+    r => r.status === RunStatuses.completed || r.status === RunStatuses.partial,
+  ) ?? visibilityRuns[0]
+  const latestSnapshots = latestRun ? loadSnapshotsForRun(db, latestRun.id) : []
 
-    const competitorRows = app.db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
-    const competitorDomains = competitorRows.map(c => c.domain)
+  const competitorRows = db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
+  const competitorDomains = competitorRows.map(c => c.domain)
 
-    // Treat ownedDomains the same way determineCitationState does — anything
-    // matching the canonical domain or an owned subdomain counts as "ours".
-    const ownedDomains = parseJsonColumn<string[]>(project.ownedDomains, [])
-    const projectDomains = [project.canonicalDomain, ...ownedDomains]
+  // Treat ownedDomains the same way determineCitationState does — anything
+  // matching the canonical domain or an owned subdomain counts as "ours".
+  const ownedDomains = parseJsonColumn<string[]>(project.ownedDomains, [])
+  const projectDomains = [project.canonicalDomain, ...ownedDomains]
 
-    const citationScorecard = buildCitationScorecard(latestSnapshots, keywordLookup)
-    const competitorLandscape = buildCompetitorLandscape(
-      latestSnapshots,
-      competitorDomains,
-      projectDomains,
-      keywordLookup,
-    )
-    const aiSourceOrigin = buildAiSourceOrigin(latestSnapshots, projectDomains, competitorDomains)
-    const trackedKeywords = [...keywordLookup.byId.values()]
-    const gscSection = buildGscSection(
-      app.db,
-      project.id,
-      project.displayName,
-      project.canonicalDomain,
-      trackedKeywords,
-    )
-    const gaSection = buildGaSection(app.db, project.id)
-    const socialSection = buildSocialReferrals(app.db, project.id)
-    const aiReferralsSection = buildAiReferrals(app.db, project.id)
-    const indexingHealthSection = buildIndexingHealth(app.db, project.id)
-    const citationsTrend = buildCitationsTrend(app.db, project.id, keywordLookup)
-    const insightList = buildInsightList(app.db, project.id)
+  const citationScorecard = buildCitationScorecard(latestSnapshots, keywordLookup)
+  const competitorLandscape = buildCompetitorLandscape(
+    latestSnapshots,
+    competitorDomains,
+    projectDomains,
+    keywordLookup,
+  )
+  const aiSourceOrigin = buildAiSourceOrigin(latestSnapshots, projectDomains, competitorDomains)
+  const trackedKeywords = [...keywordLookup.byId.values()]
+  const gscSection = buildGscSection(
+    db,
+    project.id,
+    project.displayName,
+    project.canonicalDomain,
+    trackedKeywords,
+  )
+  const gaSection = buildGaSection(db, project.id)
+  const socialSection = buildSocialReferrals(db, project.id)
+  const aiReferralsSection = buildAiReferrals(db, project.id)
+  const indexingHealthSection = buildIndexingHealth(db, project.id)
+  const citationsTrend = buildCitationsTrend(db, project.id, keywordLookup)
+  const insightList = buildInsightList(db, project.id)
 
-    const orchestratorInput = loadOrchestratorInput(app.db, project)
-    const contentOpportunities = buildContentTargetRows(orchestratorInput)
-    const contentGaps = buildContentGapRows(orchestratorInput)
-    const groundingSources = buildContentSourceRows(orchestratorInput)
+  const orchestratorInput = loadOrchestratorInput(db, project)
+  const contentOpportunities = buildContentTargetRows(orchestratorInput)
+  const contentGaps = buildContentGapRows(orchestratorInput)
+  const groundingSources = buildContentSourceRows(orchestratorInput)
 
-    const insightDerivedSteps = buildRecommendedNextSteps(insightList)
-    const recommendedNextSteps = mapOpportunitiesToNextSteps(
-      contentOpportunities,
-      insightDerivedSteps,
-    )
+  const insightDerivedSteps = buildRecommendedNextSteps(insightList)
+  const recommendedNextSteps = mapOpportunitiesToNextSteps(
+    contentOpportunities,
+    insightDerivedSteps,
+  )
 
-    let latestCited = 0
-    let latestConsidered = 0
-    for (const snap of latestSnapshots) {
-      if (!keywordLookup.byId.has(snap.keywordId)) continue
-      latestConsidered++
-      if (snap.citationState === 'cited') latestCited++
+  let latestCited = 0
+  let latestConsidered = 0
+  for (const snap of latestSnapshots) {
+    if (!keywordLookup.byId.has(snap.keywordId)) continue
+    latestConsidered++
+    if (snap.citationState === 'cited') latestCited++
+  }
+  const citationRate = latestConsidered > 0
+    ? Math.round((latestCited / latestConsidered) * 100)
+    : 0
+
+  // Suppress trend computation until enough runs exist — a 5%→1% delta on
+  // N=2 reads as a crisis to a non-analyst reader but is pure noise on a
+  // sample of two. Same gate the renderer uses on the line chart so every
+  // surface (CLI, Aero, dashboard) stays consistent.
+  const trendBaseline = isTrendBaseline(citationsTrend)
+  const latestPoint = citationsTrend.at(-1)
+  const previousPoint = citationsTrend.length >= 2 ? citationsTrend.at(-2) : null
+  // When latestRun is `partial`, it's excluded from citationsTrend
+  // (buildCitationsTrend filters to completed runs only) but its rate
+  // still drives `citationRate` above. Compare the headline number
+  // against the most recent completed point so the trend label tracks
+  // the user-visible direction; otherwise fall back to the standard
+  // last-vs-prior comparison between two trend points.
+  let trend: ProjectReportDto['executiveSummary']['trend'] = 'unknown'
+  if (!trendBaseline && latestPoint) {
+    const latestRunOnTrend = latestRun?.id === latestPoint.runId
+    const currentRate = latestRunOnTrend ? latestPoint.citationRate : citationRate
+    const priorRate = latestRunOnTrend ? previousPoint?.citationRate : latestPoint.citationRate
+    if (priorRate !== undefined) {
+      if (currentRate > priorRate) trend = 'up'
+      else if (currentRate < priorRate) trend = 'down'
+      else trend = 'flat'
     }
-    const citationRate = latestConsidered > 0
-      ? Math.round((latestCited / latestConsidered) * 100)
-      : 0
+  }
 
-    // Suppress trend computation until enough runs exist — a 5%→1% delta on
-    // N=2 reads as a crisis to a non-analyst reader but is pure noise on a
-    // sample of two. Same gate the renderer uses on the line chart so every
-    // surface (CLI, Aero, dashboard) stays consistent.
-    const trendBaseline = isTrendBaseline(citationsTrend)
-    const latestPoint = citationsTrend.at(-1)
-    const previousPoint = citationsTrend.length >= 2 ? citationsTrend.at(-2) : null
-    // When latestRun is `partial`, it's excluded from citationsTrend
-    // (buildCitationsTrend filters to completed runs only) but its rate
-    // still drives `citationRate` above. Compare the headline number
-    // against the most recent completed point so the trend label tracks
-    // the user-visible direction; otherwise fall back to the standard
-    // last-vs-prior comparison between two trend points.
-    let trend: ProjectReportDto['executiveSummary']['trend'] = 'unknown'
-    if (!trendBaseline && latestPoint) {
-      const latestRunOnTrend = latestRun?.id === latestPoint.runId
-      const currentRate = latestRunOnTrend ? latestPoint.citationRate : citationRate
-      const priorRate = latestRunOnTrend ? previousPoint?.citationRate : latestPoint.citationRate
-      if (priorRate !== undefined) {
-        if (currentRate > priorRate) trend = 'up'
-        else if (currentRate < priorRate) trend = 'down'
-        else trend = 'flat'
-      }
-    }
+  const findings = buildExecutiveFindings(
+    citationRate,
+    trend,
+    citationsTrend,
+    trendBaseline,
+    insightList,
+    competitorLandscape.competitors,
+  )
 
-    const findings = buildExecutiveFindings(
+  const periodStart = citationsTrend[0]?.date ?? null
+  const periodEnd = citationsTrend.at(-1)?.date ?? null
+
+  return {
+    meta: {
+      generatedAt: new Date().toISOString(),
+      project: {
+        id: project.id,
+        name: project.name,
+        displayName: project.displayName,
+        canonicalDomain: project.canonicalDomain,
+        country: project.country,
+        language: project.language,
+      },
+      periodStart,
+      periodEnd,
+    },
+    executiveSummary: {
       citationRate,
       trend,
-      citationsTrend,
-      trendBaseline,
-      insightList,
-      competitorLandscape.competitors,
-    )
+      keywordCount: keywordLookup.byId.size,
+      competitorCount: competitorDomains.length,
+      providerCount: citationScorecard.providers.length,
+      gsc: gscSection
+        ? {
+            clicks: gscSection.totalClicks,
+            impressions: gscSection.totalImpressions,
+            ctr: gscSection.ctr,
+            avgPosition: gscSection.avgPosition,
+          }
+        : null,
+      ga: gaSection
+        ? {
+            sessions: gaSection.totalSessions,
+            users: gaSection.totalUsers,
+            periodStart: gaSection.periodStart,
+            periodEnd: gaSection.periodEnd,
+          }
+        : null,
+      findings,
+    },
+    citationScorecard,
+    competitorLandscape,
+    aiSourceOrigin,
+    gsc: gscSection,
+    ga: gaSection,
+    socialReferrals: socialSection,
+    aiReferrals: aiReferralsSection,
+    indexingHealth: indexingHealthSection,
+    citationsTrend,
+    insights: insightList,
+    recommendedNextSteps,
+    contentOpportunities,
+    contentGaps,
+    groundingSources,
+  }
+}
 
-    const periodStart = citationsTrend[0]?.date ?? null
-    const periodEnd = citationsTrend.at(-1)?.date ?? null
+function reportFilenameFor(project: ProjectReportDto['meta']['project'], generatedAt: string): string {
+  const date = generatedAt.slice(0, 10)
+  return `canonry-report-${project.name}-${date}.html`
+}
 
-    const dto: ProjectReportDto = {
-      meta: {
-        generatedAt: new Date().toISOString(),
-        project: {
-          id: project.id,
-          name: project.name,
-          displayName: project.displayName,
-          canonicalDomain: project.canonicalDomain,
-          country: project.country,
-          language: project.language,
-        },
-        periodStart,
-        periodEnd,
-      },
-      executiveSummary: {
-        citationRate,
-        trend,
-        keywordCount: keywordLookup.byId.size,
-        competitorCount: competitorDomains.length,
-        providerCount: citationScorecard.providers.length,
-        gsc: gscSection
-          ? {
-              clicks: gscSection.totalClicks,
-              impressions: gscSection.totalImpressions,
-              ctr: gscSection.ctr,
-              avgPosition: gscSection.avgPosition,
-            }
-          : null,
-        ga: gaSection
-          ? {
-              sessions: gaSection.totalSessions,
-              users: gaSection.totalUsers,
-              periodStart: gaSection.periodStart,
-              periodEnd: gaSection.periodEnd,
-            }
-          : null,
-        findings,
-      },
-      citationScorecard,
-      competitorLandscape,
-      aiSourceOrigin,
-      gsc: gscSection,
-      ga: gaSection,
-      socialReferrals: socialSection,
-      aiReferrals: aiReferralsSection,
-      indexingHealth: indexingHealthSection,
-      citationsTrend,
-      insights: insightList,
-      recommendedNextSteps,
-      contentOpportunities,
-      contentGaps,
-      groundingSources,
-    }
-
+export async function reportRoutes(app: FastifyInstance) {
+  app.get<{ Params: { name: string } }>('/projects/:name/report', async (request, reply) => {
+    const dto = buildProjectReport(app.db, request.params.name)
     return reply.send(dto)
+  })
+
+  app.get<{ Params: { name: string } }>('/projects/:name/report.html', async (request, reply) => {
+    const dto = buildProjectReport(app.db, request.params.name)
+    const html = renderReportHtml(dto)
+    const filename = reportFilenameFor(dto.meta.project, dto.meta.generatedAt)
+    reply.header('Content-Type', 'text/html; charset=utf-8')
+    reply.header('Content-Disposition', `attachment; filename="${filename}"`)
+    return reply.send(html)
   })
 }
