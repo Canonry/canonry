@@ -92,7 +92,7 @@ canonry report <project> --output dist/aeo.html   # custom path
 canonry report <project> --format json            # raw report payload to stdout
 ```
 
-One-command client-facing AEO report. Bundles the latest visibility sweep, competitor landscape, AI source origin, GSC + GA4 performance, social and AI referrals, indexing health, citations trend, prioritized insights, and recommended next steps into a self-contained HTML file (inline CSS + SVG charts, no network dependencies). Backed by `GET /api/v1/projects/<name>/report` and the `canonry_report` MCP tool.
+One-command client-facing AEO report. Bundles the latest visibility sweep, competitor landscape, AI citation sources, GSC + GA4 performance, social and AI referrals, indexing health, citations trend, prioritized insights, and recommended next steps into a self-contained HTML file (inline CSS + SVG charts, no network dependencies). Backed by `GET /api/v1/projects/<name>/report` and the `canonry_report` MCP tool.
 
 Behavior to know when narrating numbers from the report:
 - `executiveSummary.citationRate` is sourced from the latest visibility run (completed **or** partial), so it always matches the scorecard table.

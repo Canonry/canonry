@@ -93,6 +93,8 @@ function insertSnapshot(
     competitorOverlap?: string[]
     citationState?: 'cited' | 'not-cited'
     rawResponse?: { groundingSources: { uri: string; title?: string }[] }
+    answerText?: string | null
+    answerMentioned?: boolean | null
   } = {},
 ) {
   db.insert(querySnapshots).values({
@@ -101,7 +103,8 @@ function insertSnapshot(
     queryId,
     provider: 'gemini',
     citationState: opts.citationState ?? 'cited',
-    answerMentioned: false,
+    answerMentioned: opts.answerMentioned ?? false,
+    answerText: opts.answerText ?? null,
     citedDomains: JSON.stringify(opts.citedDomains ?? []),
     competitorOverlap: JSON.stringify(opts.competitorOverlap ?? []),
     rawResponse: opts.rawResponse ? JSON.stringify(opts.rawResponse) : null,
@@ -248,6 +251,86 @@ describe('CompetitorRow.theirCitedPages', () => {
 
     const rival = body.competitorLandscape.competitors.find(c => c.domain === 'rival.com')!
     expect(rival.theirCitedPages.map(p => p.url)).toEqual(['https://rival.com/keep'])
+  })
+})
+
+describe('mentionLandscape', () => {
+  test('counts per-competitor mentions from snapshot answer text', async () => {
+    const projectId = insertProject(ctx.db, 'mentions', 'mentions.example.com')
+    insertCompetitor(ctx.db, projectId, 'rival-a.com')
+    insertCompetitor(ctx.db, projectId, 'rival-b.com')
+    const k1 = insertQuery(ctx.db, projectId, 'k1')
+    const k2 = insertQuery(ctx.db, projectId, 'k2')
+    const k3 = insertQuery(ctx.db, projectId, 'k3')
+    const runId = insertRun(ctx.db, projectId)
+
+    // Snap 1: project + rival-a mentioned
+    insertSnapshot(ctx.db, runId, k1, {
+      answerText: 'Top picks include mentions.example.com and rival-a.com for this category.',
+      answerMentioned: true,
+    })
+    // Snap 2: rival-a + rival-b mentioned, project not
+    insertSnapshot(ctx.db, runId, k2, {
+      answerText: 'Consider rival-a.com or rival-b.com depending on workflow.',
+      answerMentioned: false,
+    })
+    // Snap 3: rival-a only
+    insertSnapshot(ctx.db, runId, k3, {
+      answerText: 'rival-a.com leads the category for this segment.',
+      answerMentioned: false,
+    })
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/mentions/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.mentionLandscape.totalAnswerSnapshots).toBe(3)
+    expect(body.mentionLandscape.projectMentionCount).toBe(1)
+    const byDomain = Object.fromEntries(body.mentionLandscape.competitors.map(c => [c.domain, c]))
+    expect(byDomain['rival-a.com']!.mentionCount).toBe(3)
+    expect(byDomain['rival-b.com']!.mentionCount).toBe(1)
+    expect(byDomain['rival-a.com']!.mentionedQueries).toEqual(expect.arrayContaining(['k1', 'k2', 'k3']))
+    expect(byDomain['rival-a.com']!.pressureLabel).toBe('High')
+    // SOV denominator = projectMentions(1) + rivalA(3) + rivalB(1) = 5
+    expect(byDomain['rival-a.com']!.sharePct).toBe(60)
+    expect(byDomain['rival-b.com']!.sharePct).toBe(20)
+  })
+
+  test('skips snapshots with no answer text from the totalCount denominator', async () => {
+    const projectId = insertProject(ctx.db, 'no-text', 'no-text.example.com')
+    insertCompetitor(ctx.db, projectId, 'rival.com')
+    const k1 = insertQuery(ctx.db, projectId, 'k1')
+    const k2 = insertQuery(ctx.db, projectId, 'k2')
+    const runId = insertRun(ctx.db, projectId)
+
+    insertSnapshot(ctx.db, runId, k1, { answerText: 'rival.com is mentioned here.' })
+    insertSnapshot(ctx.db, runId, k2, { answerText: null }) // ignored
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/no-text/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.mentionLandscape.totalAnswerSnapshots).toBe(1)
+    const rival = body.mentionLandscape.competitors.find(c => c.domain === 'rival.com')!
+    expect(rival.mentionCount).toBe(1)
+    expect(rival.totalCount).toBe(1)
+  })
+
+  test('returns zero mentions when no snapshot text references competitors or project', async () => {
+    const projectId = insertProject(ctx.db, 'empty-mentions', 'empty.example.com')
+    insertCompetitor(ctx.db, projectId, 'rival.com')
+    const k = insertQuery(ctx.db, projectId, 'k')
+    const runId = insertRun(ctx.db, projectId)
+    insertSnapshot(ctx.db, runId, k, { answerText: 'Generic advice with no brand references.' })
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/empty-mentions/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.mentionLandscape.projectMentionCount).toBe(0)
+    expect(body.mentionLandscape.competitors[0]!.mentionCount).toBe(0)
+    expect(body.mentionLandscape.competitors[0]!.sharePct).toBe(0)
+    expect(body.mentionLandscape.competitors[0]!.pressureLabel).toBe('None')
   })
 })
 

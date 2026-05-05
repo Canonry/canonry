@@ -31,6 +31,7 @@ function makeReport(): ProjectReportDto {
     },
     citationScorecard: { queries: [], providers: [], matrix: [], providerRates: [] },
     competitorLandscape: { projectCitationCount: 0, competitors: [] },
+    mentionLandscape: { projectMentionCount: 0, totalAnswerSnapshots: 0, competitors: [] },
     aiSourceOrigin: { categories: [], topDomains: [] },
     gsc: null,
     ga: null,

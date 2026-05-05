@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { createServiceAccountJwt, fetchAiReferrals, fetchTrafficByLandingPage, getAccessToken, verifyConnectionWithToken, fetchAggregateSummary } from '../src/ga4-client.js'
+import { createServiceAccountJwt, fetchAiReferrals, fetchTrafficByLandingPage, getAccessToken, verifyConnectionWithToken, fetchAggregateSummary, fetchWindowSummary } from '../src/ga4-client.js'
 import crypto from 'node:crypto'
 
 describe('createServiceAccountJwt', () => {
@@ -422,5 +422,53 @@ describe('fetchAggregateSummary', () => {
     expect(summary.totalSessions).toBe(0)
     expect(summary.totalUsers).toBe(0)
     expect(summary.totalOrganicSessions).toBe(0)
+  })
+})
+
+describe('fetchWindowSummary', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch')
+  })
+
+  afterEach(() => {
+    fetchSpy.mockRestore()
+  })
+
+  function mockFetchResponse(body: object, status = 200) {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  it('returns deduplicated totals across all four channels for a window', async () => {
+    // Three reports per window: total/users, organic-only, direct-only — all
+    // with no landing-page dimension so totalUsers reflects unique visitors.
+    fetchSpy.mockImplementation(async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { requests: unknown[] }
+      expect(body.requests).toHaveLength(3)
+      return mockFetchResponse({
+        reports: [
+          { rows: [{ dimensionValues: [], metricValues: [{ value: '5625' }, { value: '4905' }] }] },
+          { rows: [{ dimensionValues: [], metricValues: [{ value: '2200' }] }] },
+          { rows: [{ dimensionValues: [], metricValues: [{ value: '1100' }] }] },
+        ],
+      })
+    })
+
+    const summary = await fetchWindowSummary('fake-token', '123456', '30d')
+    expect(summary.windowKey).toBe('30d')
+    expect(summary.totalSessions).toBe(5625)
+    expect(summary.totalUsers).toBe(4905)
+    expect(summary.totalOrganicSessions).toBe(2200)
+    expect(summary.totalDirectSessions).toBe(1100)
+  })
+
+  it('rejects unsupported windowKey values', async () => {
+    await expect(
+      fetchWindowSummary('fake-token', '123456', 'all' as unknown as '7d'),
+    ).rejects.toThrow(/Unsupported windowKey/)
   })
 })

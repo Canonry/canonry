@@ -916,7 +916,11 @@ export interface ProjectData {
 export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCenterVm {
   const dto = toProjectDto(data.project)
   const evidence = buildEvidenceFromTimeline(dto.name, data.timeline, data.latestRunDetail, data.queries)
-  const latestVisibilityRunMetrics = data.runs.filter(r => r.kind === RunKinds['answer-visibility']).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  // Match latestRunDetail (which is fetched for the most recent completed/partial run)
+  // — using all runs would leave snapshots empty whenever a newer run is queued/running.
+  const latestVisibilityRunMetrics = data.runs
+    .filter(r => r.kind === RunKinds['answer-visibility'] && (r.status === RunStatuses.completed || r.status === RunStatuses.partial))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
   const snapshots = (latestVisibilityRunMetrics && data.latestRunDetail?.id === latestVisibilityRunMetrics.id) ? data.latestRunDetail.snapshots : []
   const qVis = computeQueryVisibility(snapshots)
   const gapQueries = buildGapQuerySummary(snapshots)
@@ -1058,7 +1062,9 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
 
 export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
   const dto = toProjectDto(data.project)
-  const latestVisibilityRun = data.runs.filter(r => r.kind === RunKinds['answer-visibility']).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  const latestVisibilityRun = data.runs
+    .filter(r => r.kind === RunKinds['answer-visibility'] && (r.status === RunStatuses.completed || r.status === RunStatuses.partial))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
   const snapshots = (latestVisibilityRun && data.latestRunDetail?.id === latestVisibilityRun.id) ? data.latestRunDetail.snapshots : []
   const qVis = computeQueryVisibility(snapshots)
   const pressure = computeCompetitorPressure(snapshots, data.competitors.map(c => c.domain))

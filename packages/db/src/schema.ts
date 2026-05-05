@@ -369,6 +369,28 @@ export const gaTrafficSummaries = sqliteTable('ga_traffic_summaries', {
   index('idx_ga_summary_run').on(table.syncRunId),
 ])
 
+// Per-window aggregate totals (7d / 30d / 90d). Sourced from GA4 with no
+// landing-page dimension, so totalUsers is the true deduplicated count.
+// Summing gaTrafficSnapshots.users by window double-counts users who land
+// on multiple pages — this table avoids that bug.
+export const gaTrafficWindowSummaries = sqliteTable('ga_traffic_window_summaries', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  /** '7d' | '30d' | '90d' */
+  windowKey: text('window_key').notNull(),
+  periodStart: text('period_start').notNull(),
+  periodEnd: text('period_end').notNull(),
+  totalSessions: integer('total_sessions').notNull().default(0),
+  totalOrganicSessions: integer('total_organic_sessions').notNull().default(0),
+  totalDirectSessions: integer('total_direct_sessions').notNull().default(0),
+  totalUsers: integer('total_users').notNull().default(0),
+  syncedAt: text('synced_at').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'cascade' }),
+}, (table) => [
+  uniqueIndex('idx_ga_window_summary_unique').on(table.projectId, table.windowKey),
+  index('idx_ga_window_summary_run').on(table.syncRunId),
+])
+
 export const usageCounters = sqliteTable('usage_counters', {
   id: text('id').primaryKey(),
   scope: text('scope').notNull(),

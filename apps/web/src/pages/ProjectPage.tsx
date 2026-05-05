@@ -3,6 +3,7 @@ import { ChevronRight, Download, Trash2 } from 'lucide-react'
 import { useParams, useNavigate } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
+import { RunKinds, RunStatuses } from '@ainyc/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
@@ -1090,6 +1091,10 @@ export function ProjectPage({
   const projectLabel = model?.project.displayName || model?.project.name || projectName
   const triggerRunMutation = useTriggerRun()
 
+  const hasActiveVisibilitySweep = (model?.recentRuns ?? []).some(
+    r => r.kind === RunKinds['answer-visibility'] && (r.status === RunStatuses.running || r.status === RunStatuses.queued),
+  )
+
   const locationLabelsInEvidence = useMemo(() => new Set(visibilityEvidence.map(e => e.location ?? '')), [visibilityEvidence])
   const hasNullLocationEvidence = locationLabelsInEvidence.has('')
   const distinctLocationsWithEvidence = useMemo(() => [...locationLabelsInEvidence].filter(Boolean), [locationLabelsInEvidence])
@@ -1387,10 +1392,14 @@ export function ProjectPage({
             </Button>
             <Button
               type="button"
-              disabled={triggerRunMutation.isPending}
+              disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep}
               onClick={handleTriggerRun}
             >
-              {triggerRunMutation.isPending ? 'Starting...' : 'Run now'}
+              {triggerRunMutation.isPending
+                ? 'Starting…'
+                : hasActiveVisibilitySweep
+                  ? 'Sweep running…'
+                  : 'Run now'}
             </Button>
           </div>
         </div>

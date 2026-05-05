@@ -1,13 +1,14 @@
 import crypto from 'node:crypto'
 import { eq, desc, and, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { gaTrafficSnapshots, gaTrafficSummaries, gaAiReferrals, gaSocialReferrals, runs } from '@ainyc/canonry-db'
+import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaAiReferrals, gaSocialReferrals, runs } from '@ainyc/canonry-db'
 import { validationError, notFound, RunKinds, RunStatuses, RunTriggers, parseWindow, windowCutoff, normalizeUrlPath } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import {
   getAccessToken,
   fetchTrafficByLandingPage,
   fetchAggregateSummary,
+  fetchWindowSummary,
   fetchAiReferrals,
   fetchSocialReferrals,
   verifyConnection,
@@ -395,15 +396,22 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       let aiReferrals: Awaited<ReturnType<typeof fetchAiReferrals>> = []
       let socialReferrals: Awaited<ReturnType<typeof fetchSocialReferrals>> = []
 
-      // Always need summary for date range (periodStart/periodEnd), even for partial sync
-      const fetches: Promise<unknown>[] = [fetchAggregateSummary(accessToken, propertyId, days)]
+      // Always need summary for date range (periodStart/periodEnd), even for partial sync.
+      // Windowed summaries (7d/30d/90d) are fetched alongside so the dashboard can show
+      // deduplicated totalUsers per window without summing per-page snapshots (overcounts).
+      const WINDOW_KEYS = ['7d', '30d', '90d'] as const
+      const fetches: Promise<unknown>[] = [
+        fetchAggregateSummary(accessToken, propertyId, days),
+        ...WINDOW_KEYS.map((w) => fetchWindowSummary(accessToken, propertyId, w)),
+      ]
       if (syncTraffic) fetches.push(fetchTrafficByLandingPage(accessToken, propertyId, days))
       if (syncAi) fetches.push(fetchAiReferrals(accessToken, propertyId, days))
       if (syncSocial) fetches.push(fetchSocialReferrals(accessToken, propertyId, days))
 
       const results = await Promise.all(fetches)
       const summary: Awaited<ReturnType<typeof fetchAggregateSummary>> = results[0] as Awaited<ReturnType<typeof fetchAggregateSummary>>
-      let idx = 1
+      const windowSummaries = results.slice(1, 1 + WINDOW_KEYS.length) as Array<Awaited<ReturnType<typeof fetchWindowSummary>>>
+      let idx = 1 + WINDOW_KEYS.length
       if (syncTraffic) { rows = results[idx++] as typeof rows }
       if (syncAi) { aiReferrals = results[idx++] as typeof aiReferrals }
       if (syncSocial) { socialReferrals = results[idx++] as typeof socialReferrals }
@@ -514,6 +522,28 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
             syncedAt: now,
             syncRunId: runId,
           }).run()
+
+          // Replace windowed summaries — one row per (project, windowKey).
+          // Drives the deduplicated totalUsers headline when a window filter
+          // is active in /ga/traffic.
+          tx.delete(gaTrafficWindowSummaries)
+            .where(eq(gaTrafficWindowSummaries.projectId, project.id))
+            .run()
+          for (const ws of windowSummaries) {
+            tx.insert(gaTrafficWindowSummaries).values({
+              id: crypto.randomUUID(),
+              projectId: project.id,
+              windowKey: ws.windowKey,
+              periodStart: ws.periodStart,
+              periodEnd: ws.periodEnd,
+              totalSessions: ws.totalSessions,
+              totalOrganicSessions: ws.totalOrganicSessions,
+              totalDirectSessions: ws.totalDirectSessions,
+              totalUsers: ws.totalUsers,
+              syncedAt: now,
+              syncRunId: runId,
+            }).run()
+          }
         }
       })
 
@@ -587,9 +617,31 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     const socialConditions = [eq(gaSocialReferrals.projectId, project.id)]
     if (cutoffDate) socialConditions.push(sql`${gaSocialReferrals.date} >= ${cutoffDate}`)
 
-    // When filtering by window, compute totals from snapshots instead of the
-    // pre-aggregated summary (which covers the full synced range).
-    const summaryRow = cutoffDate
+    // When filtering by window, prefer the per-window summary row populated by
+    // /ga/sync — it carries deduplicated totalUsers (no landing-page dimension).
+    // Summing gaTrafficSnapshots.users here would double-count users who land
+    // on multiple pages (one row per landing page). Falls back to the
+    // snapshot SUM for backwards compatibility (projects that haven't synced
+    // since the windowed-summary table was introduced).
+    const windowSummaryRow = cutoffDate
+      ? app.db
+          .select({
+            totalSessions: gaTrafficWindowSummaries.totalSessions,
+            totalOrganicSessions: gaTrafficWindowSummaries.totalOrganicSessions,
+            totalDirectSessions: gaTrafficWindowSummaries.totalDirectSessions,
+            totalUsers: gaTrafficWindowSummaries.totalUsers,
+          })
+          .from(gaTrafficWindowSummaries)
+          .where(
+            and(
+              eq(gaTrafficWindowSummaries.projectId, project.id),
+              eq(gaTrafficWindowSummaries.windowKey, window),
+            ),
+          )
+          .get()
+      : null
+
+    const snapshotTotalsRow = cutoffDate && !windowSummaryRow
       ? app.db
           .select({
             totalSessions: sql<number>`COALESCE(SUM(${gaTrafficSnapshots.sessions}), 0)`,
@@ -599,6 +651,10 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
           .from(gaTrafficSnapshots)
           .where(and(...snapshotConditions))
           .get()
+      : null
+
+    const summaryRow = cutoffDate
+      ? windowSummaryRow ?? snapshotTotalsRow
       : app.db
           .select({
             totalSessions: gaTrafficSummaries.totalSessions,
@@ -609,17 +665,19 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
           .where(eq(gaTrafficSummaries.projectId, project.id))
           .get()
 
-    // Direct-channel total. Always sourced from gaTrafficSnapshots since
-    // gaTrafficSummaries doesn't carry a direct_sessions column. Returns
-    // 0 when no rows match (e.g., a project that hasn't synced yet, or
-    // legacy rows with null direct_sessions).
-    const directTotalRow = app.db
-      .select({
-        totalDirectSessions: sql<number>`COALESCE(SUM(${gaTrafficSnapshots.directSessions}), 0)`,
-      })
-      .from(gaTrafficSnapshots)
-      .where(and(...snapshotConditions))
-      .get()
+    // Direct-channel total. With a window filter, prefer the deduplicated value
+    // from gaTrafficWindowSummaries; otherwise fall back to summing snapshots
+    // (sessions are dimensioned by landing page but each session has a single
+    // landing page, so SUM doesn't overcount sessions — only users).
+    const directTotalRow = windowSummaryRow
+      ? { totalDirectSessions: windowSummaryRow.totalDirectSessions }
+      : app.db
+          .select({
+            totalDirectSessions: sql<number>`COALESCE(SUM(${gaTrafficSnapshots.directSessions}), 0)`,
+          })
+          .from(gaTrafficSnapshots)
+          .where(and(...snapshotConditions))
+          .get()
 
     // Always fetch period bounds from the summary table (reflects full synced range).
     const summaryMeta = app.db

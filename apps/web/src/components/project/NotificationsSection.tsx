@@ -22,6 +22,7 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [testStates, setTestStates] = useState<Record<string, { state: 'testing' | 'ok' | 'fail'; status?: number }>>({})
+  const [removingIds, setRemovingIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     listNotifications(projectName).then(setNotifs).catch(() => setNotifs([]))
@@ -60,6 +61,8 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
   }
 
   const handleRemove = async (id: string) => {
+    if (removingIds.has(id)) return
+    setRemovingIds(prev => new Set(prev).add(id))
     try {
       await removeNotification(projectName, id)
       setNotifs(prev => prev === 'loading' ? prev : prev.filter(n => n.id !== id))
@@ -72,6 +75,12 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
       })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to remove webhook')
+    } finally {
+      setRemovingIds(prev => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
     }
   }
 
@@ -208,8 +217,8 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
                       <Button variant="ghost" size="sm" type="button" disabled={testStates[n.id]?.state === 'testing'} onClick={() => handleTest(n.id)}>
                         Test
                       </Button>
-                      <Button variant="ghost" size="sm" type="button" onClick={() => handleRemove(n.id)}>
-                        Remove
+                      <Button variant="ghost" size="sm" type="button" disabled={removingIds.has(n.id)} onClick={() => handleRemove(n.id)}>
+                        {removingIds.has(n.id) ? 'Removing…' : 'Remove'}
                       </Button>
                     </div>
                   </td>

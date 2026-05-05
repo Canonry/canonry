@@ -117,6 +117,33 @@ export interface CompetitorLandscape {
   competitors: CompetitorRow[]
 }
 
+export interface MentionRow {
+  domain: string
+  /** Number of (query × provider) pairs whose answer text mentioned this competitor's brand or domain. */
+  mentionCount: number
+  /** Out-of count for the same denominator (snapshots that had answer text). */
+  totalCount: number
+  /** 'High' | 'Moderate' | 'Low' | 'None' — mention frequency tier (mirrors CompetitorRow.pressureLabel). */
+  pressureLabel: 'High' | 'Moderate' | 'Low' | 'None'
+  /** Distinct queries on which this competitor was mentioned. */
+  mentionedQueries: string[]
+  /**
+   * Share of voice 0..100. Numerator = this competitor's `mentionCount`.
+   * Denominator = sum of `mentionCount` across all competitors plus the
+   * project's own `projectMentionCount`. Equals 0 when no snapshot had any
+   * mention.
+   */
+  sharePct: number
+}
+
+export interface MentionLandscape {
+  /** Project's own mention count (for the bar chart comparing project vs competitors). */
+  projectMentionCount: number
+  /** Snapshots considered — those with non-empty answerText. Drives the totalCount denominator. */
+  totalAnswerSnapshots: number
+  competitors: MentionRow[]
+}
+
 export interface AiSourceCategoryBucket {
   /** Category slug from packages/contracts/src/source-categories. */
   category: string
@@ -282,6 +309,7 @@ export interface ProjectReportDto {
   executiveSummary: ReportExecutiveSummary
   citationScorecard: CitationScorecard
   competitorLandscape: CompetitorLandscape
+  mentionLandscape: MentionLandscape
   aiSourceOrigin: AiSourceOrigin
   gsc: GscSection | null
   ga: GaTrafficSection | null

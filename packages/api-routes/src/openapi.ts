@@ -2371,7 +2371,7 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'Aggregated client-facing AEO report',
     tags: ['report'],
     description:
-      'Bundles every section the canonry-report HTML output needs (executive summary, citation scorecard, competitor landscape, AI source origin, GSC, GA4, social/AI referrals, indexing health, citations trend, insights, and recommended next steps) into a single JSON payload. Backs `canonry report <project>`.',
+      'Bundles every section the canonry-report HTML output needs (executive summary, citation scorecard, competitor landscape — citation + mention landscapes, AI citation sources, GSC, GA4, social/AI referrals, indexing health, citations trend, insights, and recommended next steps) into a single JSON payload. Backs `canonry report <project>`.',
     parameters: [nameParameter],
     responses: {
       200: { description: 'Report returned.' },
