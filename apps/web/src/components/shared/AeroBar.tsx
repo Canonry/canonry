@@ -110,10 +110,10 @@ const SLASH_COMMANDS: Array<SlashCommand> = [
     prompt: 'What is the current sweep schedule, and is it appropriate given recent volatility?',
   },
   {
-    command: '/keywords',
-    label: 'Keywords',
-    hint: 'List tracked keywords',
-    prompt: 'List the tracked keywords for this project and flag any that are obvious duplicates or underperformers.',
+    command: '/queries',
+    label: 'Queries',
+    hint: 'List tracked queries',
+    prompt: 'List the tracked queries for this project and flag any that are obvious duplicates or underperformers.',
   },
   {
     command: '/competitors',

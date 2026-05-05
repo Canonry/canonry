@@ -226,7 +226,7 @@ test('normalizeResult handles invalid grounding URIs', () => {
   expect(result.citedDomains).toEqual(['valid.com'])
 })
 
-test('buildPrompt returns the keyword verbatim', () => {
+test('buildPrompt returns the query verbatim', () => {
   expect(buildPrompt('best crm software')).toBe('best crm software')
   expect(buildPrompt('')).toBe('')
 })

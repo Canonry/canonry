@@ -75,7 +75,7 @@ export function EvidenceDetailModal({
     autoFetchedRef.current = true
     fetchRunDetail(latestHistoryRun.runId).then(runDetail => {
       const snap = runDetail.snapshots.find(
-        s => s.keyword === evidence.keyword && s.provider === evidence.provider,
+        s => s.query === evidence.query && s.provider === evidence.provider,
       )
       if (snap) {
         setAutoFetchedDisplay({
@@ -189,7 +189,7 @@ export function EvidenceDetailModal({
 
     const run = history[idx]
     // Check cache first
-    const cacheKey = `${run.runId}::${evidence.keyword}::${evidence.provider}`
+    const cacheKey = `${run.runId}::${evidence.query}::${evidence.provider}`
     if (runCache[cacheKey]) {
       setHistoricalSnapshot(runCache[cacheKey])
       return
@@ -201,11 +201,11 @@ export function EvidenceDetailModal({
       // Discard result if a newer request was fired while we were fetching
       if (requestId !== activeRequestRef.current) return
 
-      // Find the snapshot matching this keyword + provider
+      // Find the snapshot matching this query + provider
       const snap = runDetail.snapshots.find(
-        s => s.keyword === evidence.keyword && s.provider === evidence.provider,
+        s => s.query === evidence.query && s.provider === evidence.provider,
       ) ?? runDetail.snapshots.find(
-        s => s.keyword === evidence.keyword,
+        s => s.query === evidence.query,
       )
 
       const data: EvidenceDisplayData = snap ? {
@@ -268,7 +268,7 @@ export function EvidenceDetailModal({
         setLoadingHistory(false)
       }
     }
-  }, [history, evidence.keyword, evidence.provider, runCache])
+  }, [history, evidence.query, evidence.provider, runCache])
 
   // Hero copy
   const showModelInHeadline = isViewingHistory || evidence.historyScope !== 'provider'
@@ -378,7 +378,7 @@ export function EvidenceDetailModal({
           <div className="evidence-modal-header">
             <div className="min-w-0 flex-1">
               <p className="eyebrow eyebrow-soft">{project.project.name} {'\u00b7'} {display.provider || 'All providers'}</p>
-              <Dialog.Title className="text-lg font-semibold text-zinc-50 truncate">{evidence.keyword}</Dialog.Title>
+              <Dialog.Title className="text-lg font-semibold text-zinc-50 truncate">{evidence.query}</Dialog.Title>
             </div>
             <Dialog.Close className="inline-flex size-8 items-center justify-center rounded-md text-zinc-500 transition hover:bg-zinc-800 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 shrink-0">
               <X className="size-4" />

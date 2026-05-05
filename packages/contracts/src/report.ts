@@ -32,12 +32,12 @@ export interface ReportMeta {
 }
 
 export interface ReportExecutiveSummary {
-  /** 0..100 — share of (keyword × provider) pairs in the latest run that were cited. */
+  /** 0..100 — share of (query × provider) pairs in the latest run that were cited. */
   citationRate: number
   /** Compared to the previous run: 'up' | 'down' | 'flat' | 'unknown' (no prior run). */
   trend: 'up' | 'down' | 'flat' | 'unknown'
-  /** Total tracked keywords. */
-  keywordCount: number
+  /** Total tracked queries. */
+  queryCount: number
   /** Total tracked competitors. */
   competitorCount: number
   /** Number of providers in the latest run. */
@@ -71,10 +71,11 @@ export interface CitationCell {
 }
 
 export interface CitationScorecard {
-  keywords: string[]
+  queries: string[]
   providers: string[]
-  /** matrix[keywordIndex][providerIndex] — null when no snapshot exists for the pair. */
+  /** matrix[queryIndex][providerIndex] — null when no snapshot exists for the pair. */
   matrix: Array<Array<CitationCell | null>>
+
   /** Per-provider citation rate (0..100). */
   providerRates: Array<{
     provider: string
@@ -86,14 +87,14 @@ export interface CitationScorecard {
 
 export interface CompetitorRow {
   domain: string
-  /** Number of (keyword × provider) pairs that cited this competitor. */
+  /** Number of (query × provider) pairs that cited this competitor. */
   citationCount: number
   /** Out-of count for the same denominator. */
   totalCount: number
   /** 'High' | 'Moderate' | 'Low' | 'None' — from buildPortfolioProject pressure logic. */
   pressureLabel: 'High' | 'Moderate' | 'Low' | 'None'
-  /** Distinct keywords on which this competitor was cited. */
-  citedKeywords: string[]
+  /** Distinct queries on which this competitor was cited. */
+  citedQueries: string[]
   /**
    * Share of voice 0..100. Numerator = this competitor's `citationCount`.
    * Denominator = sum of `citationCount` across all competitors plus the
@@ -103,7 +104,7 @@ export interface CompetitorRow {
   sharePct: number
   /**
    * URLs from the latest run's grounding sources whose host matches this
-   * competitor's domain, with the keywords each URL was cited for. Empty
+   * competitor's domain, with the queries each URL was cited for. Empty
    * when no grounding-source data is available (e.g. no `rawResponse` JSON
    * stored for the snapshots).
    */
@@ -162,13 +163,13 @@ export interface GscSection {
   }>
   trend: Array<{ date: string; clicks: number; impressions: number }>
   /**
-   * Tracked AEO keywords that have no GSC impressions in the report window.
-   * Surfaces keywords that may not represent real search demand.
+   * Tracked AEO queries that have no GSC impressions in the report window.
+   * Surfaces queries that may not represent real search demand.
    */
   trackedButNoGsc: string[]
   /**
    * GSC top queries (sorted by impressions desc) that are not tracked as
-   * AEO keywords — the candidate set for adding to the AEO project.
+   * AEO queries — the candidate set for adding to the AEO project.
    */
   gscButNotTracked: string[]
 }
@@ -255,13 +256,13 @@ export interface ReportInsight {
   type: 'regression' | 'gain' | 'opportunity'
   severity: 'critical' | 'high' | 'medium' | 'low'
   title: string
-  keyword: string
+  query: string
   provider: string
   recommendation: string | null
   createdAt: string
   /**
    * How many times this insight fired across recent runs for the same
-   * `(keyword, provider, type)` tuple. Always ≥ 1. Insights returned by the
+   * `(query, provider, type)` tuple. Always ≥ 1. Insights returned by the
    * report API are already deduped to one row per tuple, with this counter
    * surfacing the multiplicity. Use it directly instead of grouping again
    * client-side — counts derived from raw insight rows will overcount.

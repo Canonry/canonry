@@ -63,7 +63,7 @@ export const perplexityAdapter: ProviderAdapter = {
 
   async executeTrackedQuery(input: TrackedQueryInput, config: ProviderConfig): Promise<RawQueryResult> {
     const raw = await perplexityExecuteTrackedQuery({
-      keyword: input.keyword,
+      query: input.query,
       canonicalDomains: input.canonicalDomains,
       competitorDomains: input.competitorDomains,
       config: toPerplexityConfig(config),

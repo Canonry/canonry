@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-`canonry` is an **agent-first** open-source AEO operating platform that tracks how AI answer engines cite a domain for tracked keywords and acts on the signal through the content engine and integrations. Published as `@ainyc/canonry` on npm. The CLI and API are the primary interfaces — the web dashboard is supplementary.
+`canonry` is an **agent-first** open-source AEO operating platform that tracks how AI answer engines cite a domain for tracked queries and acts on the signal through the content engine and integrations. Published as `@ainyc/canonry` on npm. The CLI and API are the primary interfaces — the web dashboard is supplementary.
 
 ## Workspace Map
 
@@ -46,8 +46,8 @@ pnpm run dev:web
 canonry init
 canonry serve
 canonry project create <name> --domain <domain> --country US --language en
-canonry keyword add <project> <keyword>...
-canonry keyword replace <project> <keyword>...
+canonry query add <project> <query>...
+canonry query replace <project> <query>...
 canonry competitor add <project> <domain>...
 canonry competitor remove <project> <domain>...
 canonry run <project>
@@ -206,7 +206,7 @@ high-severity insights after a run — dispatched by `RunCoordinator` after
 
 ## Vocabulary (Critical)
 
-Canonry tracks two parallel signals for every (keyword × provider) snapshot. They are independent — a model can do either, both, or neither — and must never be conflated in code, copy, or contract field names.
+Canonry tracks two parallel signals for every (query × provider) snapshot. They are independent — a model can do either, both, or neither — and must never be conflated in code, copy, or contract field names.
 
 | Term | Meaning | Source field |
 |------|---------|--------------|
@@ -405,7 +405,7 @@ import { validationError, notFound } from '@ainyc/canonry-contracts'
 import { resolveProject } from './helpers.js'
 
 const project = resolveProject(app.db, request.params.name) // throws notFound on miss
-if (!body.keywords?.length) throw validationError('"keywords" must be non-empty')
+if (!body.queries?.length) throw validationError('"queries" must be non-empty')
 
 // ❌ Wrong — duplicates global handler logic
 try {
@@ -467,9 +467,9 @@ if (!urlCheck.ok) throw validationError(urlCheck.message)
 // Then do all writes atomically
 app.db.transaction((tx) => {
   tx.update(projects).set({ ... }).where(...).run()
-  tx.delete(keywords).where(...).run()
-  for (const kw of newKeywords) {
-    tx.insert(keywords).values({ ... }).run()
+  tx.delete(queries).where(...).run()
+  for (const q of newQueries) {
+    tx.insert(queries).values({ ... }).run()
   }
   writeAuditLog(tx, { ... })
 })
@@ -556,8 +556,8 @@ spec:
   canonicalDomain: example.com
   country: US
   language: en
-  keywords:
-    - keyword one
+  queries:
+    - query one
   competitors:
     - competitor.com
   providers:
@@ -565,7 +565,7 @@ spec:
     - openai
 ```
 
-Locations are project-scoped via `spec.locations` and `spec.defaultLocation`. Runs choose the default location, an explicit location, all configured locations, or no location. Do not model locations as keyword-owned state.
+Locations are project-scoped via `spec.locations` and `spec.defaultLocation`. Runs choose the default location, an explicit location, all configured locations, or no location. Do not model locations as query-owned state.
 
 Multiple projects can be defined in one file using `---` document separators. Apply with `canonry apply <file...>` (accepts multiple files) or `POST /api/v1/apply`. Applied project YAML is declarative input; runtime project/run data lives in the DB, while local authentication credentials live in `~/.canonry/config.yaml`.
 
@@ -575,7 +575,7 @@ All endpoints under `/api/v1/`. Auth via `Authorization: Bearer cnry_...`. Key e
 
 - `PUT /api/v1/projects/{name}` — create/update project
 - `POST /api/v1/projects/{name}/runs` — trigger visibility sweep
-- `GET /api/v1/projects/{name}/timeline` — per-keyword citation history
+- `GET /api/v1/projects/{name}/timeline` — per-query citation history
 - `GET /api/v1/projects/{name}/snapshots/diff` — compare two runs
 - `POST /api/v1/apply` — config-as-code apply
 - `GET /api/v1/openapi.json` — OpenAPI spec (no auth)

@@ -4,7 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
-import { createClient, migrate, projects, keywords, runs, querySnapshots } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, queries, runs, querySnapshots } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 function buildApp() {
@@ -54,14 +54,14 @@ describe('analytics routes', () => {
       updatedAt: new Date().toISOString(),
     }).run()
 
-    // Seed: keywords
-    const kw1Id = crypto.randomUUID()
-    const kw2Id = crypto.randomUUID()
-    const kw3Id = crypto.randomUUID()
-    db.insert(keywords).values([
-      { id: kw1Id, projectId, keyword: 'best seo tools', createdAt: new Date().toISOString() },
-      { id: kw2Id, projectId, keyword: 'aeo monitoring', createdAt: new Date().toISOString() },
-      { id: kw3Id, projectId, keyword: 'website analytics', createdAt: new Date().toISOString() },
+    // Seed: queries
+    const q1Id = crypto.randomUUID()
+    const q2Id = crypto.randomUUID()
+    const q3Id = crypto.randomUUID()
+    db.insert(queries).values([
+      { id: q1Id, projectId, query: 'best seo tools', createdAt: new Date().toISOString() },
+      { id: q2Id, projectId, query: 'aeo monitoring', createdAt: new Date().toISOString() },
+      { id: q3Id, projectId, query: 'website analytics', createdAt: new Date().toISOString() },
     ]).run()
 
     // Seed: run
@@ -80,11 +80,11 @@ describe('analytics routes', () => {
     }).run()
 
     // Seed: snapshots
-    // kw1: cited by gemini (with grounding sources), not cited by openai
+    // q1: cited by gemini (with grounding sources), not cited by openai
     db.insert(querySnapshots).values({
       id: crypto.randomUUID(),
       runId,
-      keywordId: kw1Id,
+      queryId: q1Id,
       provider: 'gemini',
       model: 'gemini-2.5-flash',
       citationState: 'cited',
@@ -107,7 +107,7 @@ describe('analytics routes', () => {
     db.insert(querySnapshots).values({
       id: crypto.randomUUID(),
       runId,
-      keywordId: kw1Id,
+      queryId: q1Id,
       provider: 'openai',
       model: 'gpt-4o',
       citationState: 'not-cited',
@@ -126,11 +126,11 @@ describe('analytics routes', () => {
       createdAt: new Date().toISOString(),
     }).run()
 
-    // kw2: not cited by either, but competitor cited
+    // q2: not cited by either, but competitor cited
     db.insert(querySnapshots).values({
       id: crypto.randomUUID(),
       runId,
-      keywordId: kw2Id,
+      queryId: q2Id,
       provider: 'gemini',
       model: 'gemini-2.5-flash',
       citationState: 'not-cited',
@@ -148,11 +148,11 @@ describe('analytics routes', () => {
       createdAt: new Date().toISOString(),
     }).run()
 
-    // kw3: not cited, no competitor overlap
+    // q3: not cited, no competitor overlap
     db.insert(querySnapshots).values({
       id: crypto.randomUUID(),
       runId,
-      keywordId: kw3Id,
+      queryId: q3Id,
       provider: 'gemini',
       model: 'gemini-2.5-flash',
       citationState: 'not-cited',
@@ -231,57 +231,57 @@ describe('analytics routes', () => {
   })
 
   describe('GET /projects/:name/analytics/gaps', () => {
-    it('classifies keywords correctly with consistency', async () => {
+    it('classifies queries correctly with consistency', async () => {
       const res = await app.inject({ method: 'GET', url: '/api/v1/projects/test-site/analytics/gaps' })
       expect(res.statusCode).toBe(200)
       const body = JSON.parse(res.payload)
 
       expect(body.window).toBe('all')
 
-      // kw1 is cited by gemini
+      // q1 is cited by gemini
       expect(body.cited).toHaveLength(1)
-      expect(body.cited[0].keyword).toBe('best seo tools')
+      expect(body.cited[0].query).toBe('best seo tools')
       expect(body.cited[0].providers).toContain('gemini')
       expect(body.cited[0].consistency.citedRuns).toBe(1)
       expect(body.cited[0].consistency.totalRuns).toBe(1)
 
-      // kw2 is a gap — not cited but competitor is
+      // q2 is a gap — not cited but competitor is
       expect(body.gap).toHaveLength(1)
-      expect(body.gap[0].keyword).toBe('aeo monitoring')
+      expect(body.gap[0].query).toBe('aeo monitoring')
       expect(body.gap[0].competitorsCiting).toContain('competitor.com')
       expect(body.gap[0].consistency.citedRuns).toBe(0)
       expect(body.gap[0].consistency.totalRuns).toBe(1)
 
-      // kw3 is uncited — nobody cited
+      // q3 is uncited — nobody cited
       expect(body.uncited).toHaveLength(1)
-      expect(body.uncited[0].keyword).toBe('website analytics')
+      expect(body.uncited[0].query).toBe('website analytics')
 
       expect(body.runId).toBe(runId)
     })
 
-    it('classifies keywords by answer-mention alongside citation', async () => {
+    it('classifies queries by answer-mention alongside citation', async () => {
       const res = await app.inject({ method: 'GET', url: '/api/v1/projects/test-site/analytics/gaps' })
       expect(res.statusCode).toBe(200)
       const body = JSON.parse(res.payload)
 
       // Answer-mention arrays exist
-      expect(body.mentionedKeywords).toBeInstanceOf(Array)
+      expect(body.mentionedQueries).toBeInstanceOf(Array)
       expect(body.mentionGap).toBeInstanceOf(Array)
       expect(body.notMentioned).toBeInstanceOf(Array)
 
-      // kw1/gemini answerText='Example.com is great...' with canonicalDomain='example.com'
-      // → resolvedMentioned=true → mentionedKeywords
-      expect(body.mentionedKeywords.some((k: { keyword: string }) => k.keyword === 'best seo tools')).toBe(true)
+      // q1/gemini answerText='Example.com is great...' with canonicalDomain='example.com'
+      // → resolvedMentioned=true → mentionedQueries
+      expect(body.mentionedQueries.some((k: { query: string }) => k.query === 'best seo tools')).toBe(true)
 
-      // kw2 answerText='AEO monitoring is...' — does NOT mention example.com
+      // q2 answerText='AEO monitoring is...' — does NOT mention example.com
       // competitor.com is cited → mentionGap
-      expect(body.mentionGap.some((k: { keyword: string }) => k.keyword === 'aeo monitoring')).toBe(true)
+      expect(body.mentionGap.some((k: { query: string }) => k.query === 'aeo monitoring')).toBe(true)
 
-      // kw3 answerText='Website analytics are...' — no mention, no competitor → notMentioned
-      expect(body.notMentioned.some((k: { keyword: string }) => k.keyword === 'website analytics')).toBe(true)
+      // q3 answerText='Website analytics are...' — no mention, no competitor → notMentioned
+      expect(body.notMentioned.some((k: { query: string }) => k.query === 'website analytics')).toBe(true)
 
       // Consistency includes mentionedRuns
-      const mentioned = body.mentionedKeywords.find((k: { keyword: string }) => k.keyword === 'best seo tools')
+      const mentioned = body.mentionedQueries.find((k: { query: string }) => k.query === 'best seo tools')
       expect(mentioned.consistency.mentionedRuns).toBeGreaterThan(0)
     })
 
@@ -312,11 +312,11 @@ describe('analytics routes', () => {
       expect(totalPct).toBeCloseTo(1, 1)
     })
 
-    it('includes per-keyword breakdown', async () => {
+    it('includes per-query breakdown', async () => {
       const res = await app.inject({ method: 'GET', url: '/api/v1/projects/test-site/analytics/sources' })
       const body = JSON.parse(res.payload)
-      expect(body.byKeyword).toBeDefined()
-      expect(Object.keys(body.byKeyword).length).toBeGreaterThan(0)
+      expect(body.byQuery).toBeDefined()
+      expect(Object.keys(body.byQuery).length).toBeGreaterThan(0)
     })
 
     it('supports window parameter', async () => {
@@ -334,8 +334,8 @@ describe('analytics routes', () => {
 
   it('excludes provider infrastructure domains from source breakdown', async () => {
     // Seed a snapshot that mixes real sources with provider infra URIs
-    const infraKwId = crypto.randomUUID()
-    db.insert(keywords).values({ id: infraKwId, projectId, keyword: 'infra-filter-test', createdAt: new Date().toISOString() }).run()
+    const infraQId = crypto.randomUUID()
+    db.insert(queries).values({ id: infraQId, projectId, query: 'infra-filter-test', createdAt: new Date().toISOString() }).run()
     const infraRunId = crypto.randomUUID()
     db.insert(runs).values({
       id: infraRunId, projectId, kind: 'answer-visibility', status: 'completed',
@@ -343,7 +343,7 @@ describe('analytics routes', () => {
       finishedAt: new Date().toISOString(), error: null, createdAt: new Date().toISOString(),
     }).run()
     db.insert(querySnapshots).values({
-      id: crypto.randomUUID(), runId: infraRunId, keywordId: infraKwId,
+      id: crypto.randomUUID(), runId: infraRunId, queryId: infraQId,
       provider: 'gemini', model: 'gemini-2.5-flash', citationState: 'not-cited',
       answerText: 'test', citedDomains: '[]', competitorOverlap: '[]', location: null,
       rawResponse: JSON.stringify({
@@ -385,11 +385,11 @@ describe('analytics routes', () => {
       updatedAt: new Date().toISOString(),
     }).run()
 
-    const gapKwId = crypto.randomUUID()
-    db.insert(keywords).values({
-      id: gapKwId,
+    const gapQId = crypto.randomUUID()
+    db.insert(queries).values({
+      id: gapQId,
       projectId: gapProjectId,
-      keyword: 'gap test keyword',
+      query: 'gap test query',
       createdAt: new Date().toISOString(),
     }).run()
 
@@ -412,7 +412,7 @@ describe('analytics routes', () => {
     db.insert(querySnapshots).values({
       id: crypto.randomUUID(),
       runId: run1Id,
-      keywordId: gapKwId,
+      queryId: gapQId,
       provider: 'gemini',
       model: 'gemini-2.5-flash',
       citationState: 'cited',
@@ -442,7 +442,7 @@ describe('analytics routes', () => {
     db.insert(querySnapshots).values({
       id: crypto.randomUUID(),
       runId: run2Id,
-      keywordId: gapKwId,
+      queryId: gapQId,
       provider: 'gemini',
       model: 'gemini-2.5-flash',
       citationState: 'not-cited',
@@ -467,7 +467,7 @@ describe('analytics routes', () => {
   })
 
   describe('citation rate normalization', () => {
-    it('normalizes buckets to exclude newly added keywords', async () => {
+    it('normalizes buckets to exclude newly added queries', async () => {
       const normProjectId = crypto.randomUUID()
       db.insert(projects).values({
         id: normProjectId, name: 'norm-project', displayName: 'Norm',
@@ -477,16 +477,16 @@ describe('analytics routes', () => {
         createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
       }).run()
 
-      // Day 1: 2 original keywords
+      // Day 1: 2 original queries
       const day1 = new Date()
       day1.setDate(day1.getDate() - 5)
       const day1ISO = day1.toISOString()
 
-      const origKw1 = crypto.randomUUID()
-      const origKw2 = crypto.randomUUID()
-      db.insert(keywords).values([
-        { id: origKw1, projectId: normProjectId, keyword: 'orig keyword 1', createdAt: day1ISO },
-        { id: origKw2, projectId: normProjectId, keyword: 'orig keyword 2', createdAt: day1ISO },
+      const origQ1 = crypto.randomUUID()
+      const origQ2 = crypto.randomUUID()
+      db.insert(queries).values([
+        { id: origQ1, projectId: normProjectId, query: 'orig query 1', createdAt: day1ISO },
+        { id: origQ2, projectId: normProjectId, query: 'orig query 2', createdAt: day1ISO },
       ]).run()
 
       // Run 1 on day 1
@@ -497,24 +497,24 @@ describe('analytics routes', () => {
         error: null, createdAt: day1ISO,
       }).run()
       db.insert(querySnapshots).values([
-        { id: crypto.randomUUID(), runId: run1Id, keywordId: origKw1, provider: 'gemini', citationState: 'cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day1ISO },
-        { id: crypto.randomUUID(), runId: run1Id, keywordId: origKw2, provider: 'gemini', citationState: 'cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day1ISO },
+        { id: crypto.randomUUID(), runId: run1Id, queryId: origQ1, provider: 'gemini', citationState: 'cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day1ISO },
+        { id: crypto.randomUUID(), runId: run1Id, queryId: origQ2, provider: 'gemini', citationState: 'cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day1ISO },
       ]).run()
 
-      // Day 2: add 3 new keywords
+      // Day 2: add 3 new queries
       const day2 = new Date()
       const day2ISO = day2.toISOString()
 
-      const newKw1 = crypto.randomUUID()
-      const newKw2 = crypto.randomUUID()
-      const newKw3 = crypto.randomUUID()
-      db.insert(keywords).values([
-        { id: newKw1, projectId: normProjectId, keyword: 'new keyword 1', createdAt: day2ISO },
-        { id: newKw2, projectId: normProjectId, keyword: 'new keyword 2', createdAt: day2ISO },
-        { id: newKw3, projectId: normProjectId, keyword: 'new keyword 3', createdAt: day2ISO },
+      const newQ1 = crypto.randomUUID()
+      const newQ2 = crypto.randomUUID()
+      const newQ3 = crypto.randomUUID()
+      db.insert(queries).values([
+        { id: newQ1, projectId: normProjectId, query: 'new query 1', createdAt: day2ISO },
+        { id: newQ2, projectId: normProjectId, query: 'new query 2', createdAt: day2ISO },
+        { id: newQ3, projectId: normProjectId, query: 'new query 3', createdAt: day2ISO },
       ]).run()
 
-      // Run 2 on day 2: original keywords still cited, new ones not
+      // Run 2 on day 2: original queries still cited, new ones not
       const run2Id = crypto.randomUUID()
       db.insert(runs).values({
         id: run2Id, projectId: normProjectId, kind: 'answer-visibility', status: 'completed',
@@ -522,45 +522,45 @@ describe('analytics routes', () => {
         error: null, createdAt: day2ISO,
       }).run()
       db.insert(querySnapshots).values([
-        { id: crypto.randomUUID(), runId: run2Id, keywordId: origKw1, provider: 'gemini', citationState: 'cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day2ISO },
-        { id: crypto.randomUUID(), runId: run2Id, keywordId: origKw2, provider: 'gemini', citationState: 'cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day2ISO },
-        { id: crypto.randomUUID(), runId: run2Id, keywordId: newKw1, provider: 'gemini', citationState: 'not-cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day2ISO },
-        { id: crypto.randomUUID(), runId: run2Id, keywordId: newKw2, provider: 'gemini', citationState: 'not-cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day2ISO },
-        { id: crypto.randomUUID(), runId: run2Id, keywordId: newKw3, provider: 'gemini', citationState: 'not-cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day2ISO },
+        { id: crypto.randomUUID(), runId: run2Id, queryId: origQ1, provider: 'gemini', citationState: 'cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day2ISO },
+        { id: crypto.randomUUID(), runId: run2Id, queryId: origQ2, provider: 'gemini', citationState: 'cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day2ISO },
+        { id: crypto.randomUUID(), runId: run2Id, queryId: newQ1, provider: 'gemini', citationState: 'not-cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day2ISO },
+        { id: crypto.randomUUID(), runId: run2Id, queryId: newQ2, provider: 'gemini', citationState: 'not-cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day2ISO },
+        { id: crypto.randomUUID(), runId: run2Id, queryId: newQ3, provider: 'gemini', citationState: 'not-cited', answerText: '', citedDomains: '[]', competitorOverlap: '[]', location: null, rawResponse: '{}', createdAt: day2ISO },
       ]).run()
 
       const res = await app.inject({ method: 'GET', url: '/api/v1/projects/norm-project/analytics/metrics' })
       expect(res.statusCode).toBe(200)
       const body = JSON.parse(res.payload)
 
-      // Second bucket should be normalized to only original keywords (100% cited)
+      // Second bucket should be normalized to only original queries (100% cited)
       // Without normalization it would be 2/5 = 40%
       const lastBucket = body.buckets[body.buckets.length - 1]
       expect(lastBucket.citationRate).toBe(1) // 2/2 = 100%
-      expect(lastBucket.keywordCount).toBe(2)
+      expect(lastBucket.queryCount).toBe(2)
     })
 
-    it('returns keywordChanges annotations', async () => {
+    it('returns queryChanges annotations', async () => {
       const res = await app.inject({ method: 'GET', url: '/api/v1/projects/norm-project/analytics/metrics' })
       const body = JSON.parse(res.payload)
 
-      expect(body.keywordChanges).toBeInstanceOf(Array)
-      expect(body.keywordChanges.length).toBe(1)
-      expect(body.keywordChanges[0].delta).toBe(3)
-      expect(body.keywordChanges[0].label).toBe('+3 kp')
+      expect(body.queryChanges).toBeInstanceOf(Array)
+      expect(body.queryChanges.length).toBe(1)
+      expect(body.queryChanges[0].delta).toBe(3)
+      expect(body.queryChanges[0].label).toBe('+3 kp')
     })
 
-    it('returns empty keywordChanges when all keywords created same day', async () => {
+    it('returns empty queryChanges when all queries created same day', async () => {
       const res = await app.inject({ method: 'GET', url: '/api/v1/projects/test-site/analytics/metrics' })
       const body = JSON.parse(res.payload)
-      expect(body.keywordChanges).toEqual([])
+      expect(body.queryChanges).toEqual([])
     })
 
-    it('includes keywordCount on each bucket', async () => {
+    it('includes queryCount on each bucket', async () => {
       const res = await app.inject({ method: 'GET', url: '/api/v1/projects/test-site/analytics/metrics' })
       const body = JSON.parse(res.payload)
       for (const bucket of body.buckets) {
-        expect(bucket.keywordCount).toBeGreaterThan(0)
+        expect(bucket.queryCount).toBeGreaterThan(0)
       }
     })
   })
@@ -599,7 +599,7 @@ describe('analytics routes', () => {
     expect(gapsRes.statusCode).toBe(200)
     const gapsBody = JSON.parse(gapsRes.payload)
     expect(gapsBody.cited).toEqual([])
-    expect(gapsBody.mentionedKeywords).toEqual([])
+    expect(gapsBody.mentionedQueries).toEqual([])
     expect(gapsBody.mentionGap).toEqual([])
     expect(gapsBody.notMentioned).toEqual([])
 

@@ -7,7 +7,7 @@ export type SnapshotAccuracy = z.infer<typeof snapshotAccuracySchema>
 export const snapshotRequestSchema = z.object({
   companyName: z.string().min(1),
   domain: z.string().min(1),
-  phrases: z.array(z.string().min(1)).optional().default([]),
+  queries: z.array(z.string().min(1)).optional().default([]),
   competitors: z.array(z.string().min(1)).optional().default([]),
 })
 
@@ -77,7 +77,7 @@ export const snapshotProviderResultSchema = z.object({
 export type SnapshotProviderResultDto = z.infer<typeof snapshotProviderResultSchema>
 
 export const snapshotQueryResultSchema = z.object({
-  phrase: z.string(),
+  query: z.string(),
   providerResults: z.array(snapshotProviderResultSchema).default([]),
 })
 
@@ -102,7 +102,7 @@ export const snapshotReportSchema = z.object({
   domain: z.string(),
   homepageUrl: z.string(),
   generatedAt: z.string(),
-  phrases: z.array(z.string()).default([]),
+  queries: z.array(z.string()).default([]),
   competitors: z.array(z.string()).default([]),
   profile: snapshotProfileSchema,
   audit: snapshotAuditSchema,

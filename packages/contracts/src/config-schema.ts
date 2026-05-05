@@ -42,7 +42,7 @@ export const configSpecSchema = z.object({
   ownedDomains: z.array(z.string().min(1)).optional().default([]),
   country: z.string().length(2),
   language: z.string().min(2),
-  keywords: z.array(z.string().min(1)).optional().default([]),
+  queries: z.array(z.string().min(1)).optional().default([]),
   competitors: z.array(z.string().min(1)).optional().default([]),
   providers: z.array(providerNameSchema).optional().default([]),
   locations: z.array(locationContextSchema).optional().default([]),

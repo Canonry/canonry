@@ -4,8 +4,8 @@ import { AppError } from '@ainyc/canonry-contracts'
 import { authPlugin } from './auth.js'
 import { projectRoutes } from './projects.js'
 import type { ProjectRoutesOptions } from './projects.js'
-import { keywordRoutes } from './keywords.js'
-import type { KeywordRoutesOptions } from './keywords.js'
+import { queryRoutes } from './queries.js'
+import type { QueryRoutesOptions } from './queries.js'
 import { competitorRoutes } from './competitors.js'
 import { runRoutes } from './runs.js'
 import type { RunRoutesOptions } from './runs.js'
@@ -77,8 +77,8 @@ export interface ApiRoutesOptions {
   onProjectUpserted?: (projectId: string, projectName: string) => void
   /** Callback to generate a one-shot AI perception snapshot */
   onSnapshotRequested?: SnapshotRoutesOptions['onSnapshotRequested']
-  /** Callback to generate keyword suggestions using an LLM provider */
-  onGenerateKeywords?: KeywordRoutesOptions['onGenerateKeywords']
+  /** Callback to generate query suggestions using an LLM provider */
+  onGenerateQueries?: QueryRoutesOptions['onGenerateQueries']
   /** Telemetry status/toggle callbacks */
   getTelemetryStatus?: TelemetryRoutesOptions['getTelemetryStatus']
   setTelemetryEnabled?: TelemetryRoutesOptions['setTelemetryEnabled']
@@ -186,10 +186,10 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onProjectUpserted: opts.onProjectUpserted,
       validProviderNames: opts.providerAdapters?.map(a => a.name),
     } satisfies ProjectRoutesOptions)
-    await api.register(keywordRoutes, {
-      onGenerateKeywords: opts.onGenerateKeywords,
+    await api.register(queryRoutes, {
+      onGenerateQueries: opts.onGenerateQueries,
       validProviderNames: opts.providerAdapters?.filter(a => a.mode === 'api').map(a => a.name),
-    } satisfies KeywordRoutesOptions)
+    } satisfies QueryRoutesOptions)
     await api.register(competitorRoutes)
     await api.register(runRoutes, {
       onRunCreated: opts.onRunCreated,

@@ -6,7 +6,7 @@ Source of truth: `packages/db/src/schema.ts`
 
 ```mermaid
 erDiagram
-  projects ||--o{ keywords : has
+  projects ||--o{ queries : has
   projects ||--o{ competitors : has
   projects ||--o{ runs : has
   projects ||--o| schedules : "has (1:1)"
@@ -18,7 +18,7 @@ erDiagram
   runs ||--o{ query_snapshots : contains
   runs ||--o{ insights : "analyzed in"
   runs ||--o{ health_snapshots : "scored in"
-  keywords ||--o{ query_snapshots : "tracked in"
+  queries ||--o{ query_snapshots : "tracked in"
 
   projects ||--o| ga_connections : "has (1:1)"
   projects ||--o{ ga_traffic_snapshots : has
@@ -45,10 +45,10 @@ erDiagram
 | Table | Purpose | Key Constraints |
 |-------|---------|----------------|
 | **projects** | Root entity — domain, location config, provider list | Unique: `name` |
-| **keywords** | Tracked keywords per project | Unique: `(projectId, keyword)` |
+| **queries** | Tracked queries per project | Unique: `(projectId, query)` |
 | **competitors** | Competitor domains per project | Unique: `(projectId, domain)` |
 | **runs** | Visibility sweep executions | FK: projectId → projects |
-| **query_snapshots** | Per-keyword per-provider results | FK: runId → runs, keywordId → keywords |
+| **query_snapshots** | Per-query per-provider results | FK: runId → runs, queryId → queries |
 | **schedules** | Cron schedules (1:1 with project) | Unique: projectId |
 | **notifications** | Alert configurations per project | FK: projectId → projects |
 | **audit_log** | Change tracking | FK: projectId → projects (optional) |

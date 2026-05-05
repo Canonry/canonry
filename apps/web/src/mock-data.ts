@@ -183,7 +183,7 @@ const citypointEvidence: CitationInsightVm[] = [
   // emergency dentist brooklyn — 3 providers
   {
     id: 'evidence_citypoint_emergency_gemini',
-    keyword: 'emergency dentist brooklyn',
+    query: 'emergency dentist brooklyn',
     provider: 'gemini',
     model: 'gemini-3-flash',
     location: null,
@@ -208,7 +208,7 @@ const citypointEvidence: CitationInsightVm[] = [
   },
   {
     id: 'evidence_citypoint_emergency_openai',
-    keyword: 'emergency dentist brooklyn',
+    query: 'emergency dentist brooklyn',
     provider: 'openai',
     model: 'gpt-5.4',
     location: null,
@@ -226,7 +226,7 @@ const citypointEvidence: CitationInsightVm[] = [
   },
   {
     id: 'evidence_citypoint_emergency_claude',
-    keyword: 'emergency dentist brooklyn',
+    query: 'emergency dentist brooklyn',
     provider: 'claude',
     model: 'claude-sonnet-4-6',
     location: null,
@@ -246,7 +246,7 @@ const citypointEvidence: CitationInsightVm[] = [
   // best invisalign dentist downtown brooklyn — 3 providers
   {
     id: 'evidence_citypoint_invisalign_openai',
-    keyword: 'best invisalign dentist downtown brooklyn',
+    query: 'best invisalign dentist downtown brooklyn',
     provider: 'openai',
     model: 'gpt-5.4',
     location: null,
@@ -270,7 +270,7 @@ const citypointEvidence: CitationInsightVm[] = [
   },
   {
     id: 'evidence_citypoint_invisalign_gemini',
-    keyword: 'best invisalign dentist downtown brooklyn',
+    query: 'best invisalign dentist downtown brooklyn',
     provider: 'gemini',
     model: 'gemini-3-flash',
     location: null,
@@ -288,7 +288,7 @@ const citypointEvidence: CitationInsightVm[] = [
   },
   {
     id: 'evidence_citypoint_invisalign_claude',
-    keyword: 'best invisalign dentist downtown brooklyn',
+    query: 'best invisalign dentist downtown brooklyn',
     provider: 'claude',
     model: 'claude-sonnet-4-6',
     location: null,
@@ -308,7 +308,7 @@ const citypointEvidence: CitationInsightVm[] = [
   // pediatric dentist brooklyn heights — 3 providers
   {
     id: 'evidence_citypoint_children_claude',
-    keyword: 'pediatric dentist brooklyn heights',
+    query: 'pediatric dentist brooklyn heights',
     provider: 'claude',
     model: 'claude-sonnet-4-6',
     location: null,
@@ -332,7 +332,7 @@ const citypointEvidence: CitationInsightVm[] = [
   },
   {
     id: 'evidence_citypoint_children_gemini',
-    keyword: 'pediatric dentist brooklyn heights',
+    query: 'pediatric dentist brooklyn heights',
     provider: 'gemini',
     model: 'gemini-3-flash',
     location: null,
@@ -350,7 +350,7 @@ const citypointEvidence: CitationInsightVm[] = [
   },
   {
     id: 'evidence_citypoint_children_openai',
-    keyword: 'pediatric dentist brooklyn heights',
+    query: 'pediatric dentist brooklyn heights',
     provider: 'openai',
     model: 'gpt-5.4',
     location: null,
@@ -381,12 +381,12 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       description: 'Lost citation share on emergency-intent prompts while Invisalign visibility improved.',
       trend: [73, 71, 69, 66, 61],
     },
-    gapKeyPhrases: {
-      label: 'Gap Key Phrases',
+    gapQueries: {
+      label: 'Gap Queries',
       value: '1',
-      delta: '1 of 8 key phrases at risk',
+      delta: '1 of 8 queries at risk',
       tone: 'caution',
-      description: 'One tracked key phrase currently cites competitors without citing Citypoint.',
+      description: 'One tracked query currently cites competitors without citing Citypoint.',
       trend: [],
       progress: 0.125,
     },
@@ -403,7 +403,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       { provider: 'openai', model: 'gpt-5.4', score: 67, cited: 6, total: 9 },
       { provider: 'claude', model: 'claude-sonnet-4-6', score: 44, cited: 4, total: 9 },
     ],
-    keywordCounts: { cited: 6, total: 9 },
+    queryCounts: { cited: 6, total: 9 },
     movementSummary: { gained: 1, lost: 2, tone: 'negative', hasPreviousRun: true },
     competitorPressure: {
       label: 'Competitor Pressure',
@@ -425,11 +425,11 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       {
         id: 'insight_citypoint_lost_citations',
         tone: 'negative',
-        title: 'Lost citation on 1 key phrase',
+        title: 'Lost citation on 1 query',
         detail: 'Emergency-intent prompts stopped grounding Citypoint after competitors refreshed.',
         actionLabel: 'Lost',
         affectedPhrases: [{
-          keyword: 'emergency dentist brooklyn',
+          query: 'emergency dentist brooklyn',
           evidenceId: 'evidence_citypoint_emergency_gemini',
           provider: 'gemini',
           citationState: 'lost',
@@ -438,11 +438,11 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       {
         id: 'insight_citypoint_emerging',
         tone: 'positive',
-        title: 'New citation on 1 key phrase',
+        title: 'New citation on 1 query',
         detail: 'Case-study content is earning citations on Invisalign prompts.',
         actionLabel: 'Emerging',
         affectedPhrases: [{
-          keyword: 'best invisalign dentist downtown brooklyn',
+          query: 'best invisalign dentist downtown brooklyn',
           evidenceId: 'evidence_citypoint_invisalign_openai',
           provider: 'openai',
           citationState: 'emerging',
@@ -451,11 +451,11 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       {
         id: 'insight_citypoint_content_gap',
         tone: 'caution',
-        title: '1 key phrase not cited by any provider',
+        title: '1 query not cited by any provider',
         detail: 'No dedicated neighborhood page to support pediatric queries.',
         actionLabel: 'Gap',
         affectedPhrases: [{
-          keyword: 'pediatric dentist brooklyn heights',
+          query: 'pediatric dentist brooklyn heights',
           evidenceId: 'evidence_citypoint_children_claude',
           provider: 'claude',
           citationState: 'not-cited',
@@ -468,9 +468,9 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         id: 'competitor_citypoint_downtown',
         domain: 'downtownsmiles.com',
         citationCount: 4,
-        totalKeywords: 8,
+        totalQueries: 8,
         pressureLabel: 'High',
-        citedKeywords: ['emergency dentist', 'same-day dental', 'walk-in dentist', 'tooth pain'],
+        citedQueries: ['emergency dentist', 'same-day dental', 'walk-in dentist', 'tooth pain'],
         movement: 'Up on emergency and availability prompts',
         notes: 'Recently added same-day booking proof and FAQ content.',
       },
@@ -478,9 +478,9 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         id: 'competitor_citypoint_harbor',
         domain: 'harbordental.com',
         citationCount: 2,
-        totalKeywords: 8,
+        totalQueries: 8,
         pressureLabel: 'Moderate',
-        citedKeywords: ['family dentist', 'emergency dentist'],
+        citedQueries: ['family dentist', 'emergency dentist'],
         movement: 'Holding citations on family and emergency intents',
         notes: 'Strong appointment and insurance content keeps answers grounded.',
       },
@@ -488,9 +488,9 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         id: 'competitor_citypoint_clearline',
         domain: 'clearlineortho.com',
         citationCount: 1,
-        totalKeywords: 8,
+        totalQueries: 8,
         pressureLabel: 'Low',
-        citedKeywords: ['invisalign near me'],
+        citedQueries: ['invisalign near me'],
         movement: 'Softening on Invisalign prompts',
         notes: 'Case-study content is aging, opening room for Citypoint.',
       },
@@ -509,12 +509,12 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       description: 'Branded prompts are stable and informational queries are gradually improving.',
       trend: [68, 70, 71, 73, 74],
     },
-    gapKeyPhrases: {
-      label: 'Gap Key Phrases',
+    gapQueries: {
+      label: 'Gap Queries',
       value: '0',
-      delta: '0 of 6 key phrases at risk',
+      delta: '0 of 6 queries at risk',
       tone: 'positive',
-      description: 'No competitive key phrase gaps detected in the latest visibility run.',
+      description: 'No competitive query gaps detected in the latest visibility run.',
       trend: [],
       progress: 0,
     },
@@ -530,7 +530,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       { provider: 'gemini', model: 'gemini-3-flash', score: 75, cited: 3, total: 4 },
       { provider: 'openai', model: 'gpt-5.4', score: 50, cited: 2, total: 4 },
     ],
-    keywordCounts: { cited: 3, total: 4 },
+    queryCounts: { cited: 3, total: 4 },
     movementSummary: { gained: 1, lost: 0, tone: 'positive', hasPreviousRun: true },
     competitorPressure: {
       label: 'Competitor Pressure',
@@ -556,7 +556,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         detail: 'Merged legal service pages now ground broader informational prompts.',
         actionLabel: 'Cited',
         affectedPhrases: [{
-          keyword: 'brooklyn personal injury lawyer',
+          query: 'brooklyn personal injury lawyer',
           evidenceId: 'evidence_harbor_personal_injury',
           provider: 'gemini',
           citationState: 'cited',
@@ -574,7 +574,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     visibilityEvidence: [
       {
         id: 'evidence_harbor_personal_injury',
-        keyword: 'brooklyn personal injury lawyer',
+        query: 'brooklyn personal injury lawyer',
         provider: 'gemini',
         model: 'gemini-3-flash',
         location: null,
@@ -596,9 +596,9 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         id: 'competitor_harbor_shoreline',
         domain: 'shorelineinjury.com',
         citationCount: 2,
-        totalKeywords: 6,
+        totalQueries: 6,
         pressureLabel: 'Moderate',
-        citedKeywords: ['personal injury lawyer', 'car accident attorney'],
+        citedQueries: ['personal injury lawyer', 'car accident attorney'],
         movement: 'Stable',
         notes: 'Strong case-result pages keep it in rotation.',
       },
@@ -617,12 +617,12 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       description: 'The current run is measuring whether treatment-location pages improved citation breadth.',
       trend: [52, 54, 55, 57, 58],
     },
-    gapKeyPhrases: {
-      label: 'Gap Key Phrases',
+    gapQueries: {
+      label: 'Gap Queries',
       value: '2',
-      delta: '2 of 7 key phrases at risk',
+      delta: '2 of 7 queries at risk',
       tone: 'caution',
-      description: 'Two tracked key phrases currently cite competitors without citing Northstar.',
+      description: 'Two tracked queries currently cite competitors without citing Northstar.',
       trend: [],
       progress: 2 / 7,
     },
@@ -637,7 +637,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     providerScores: [
       { provider: 'openai', model: 'gpt-5.4', score: 58, cited: 4, total: 7 },
     ],
-    keywordCounts: { cited: 4, total: 7 },
+    queryCounts: { cited: 4, total: 7 },
     movementSummary: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
     competitorPressure: {
       label: 'Competitor Pressure',
@@ -663,7 +663,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         detail: 'Answers prefer competitors with physician-specific evidence.',
         actionLabel: 'Gap',
         affectedPhrases: [{
-          keyword: 'knee replacement surgeon westchester',
+          query: 'knee replacement surgeon westchester',
           evidenceId: 'evidence_northstar_knee',
           provider: 'openai',
           citationState: 'emerging',
@@ -673,7 +673,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     visibilityEvidence: [
       {
         id: 'evidence_northstar_knee',
-        keyword: 'knee replacement surgeon westchester',
+        query: 'knee replacement surgeon westchester',
         provider: 'openai',
         model: 'gpt-5.4',
         location: null,
@@ -697,9 +697,9 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
         id: 'competitor_northstar_regional',
         domain: 'regionaljointcare.com',
         citationCount: 5,
-        totalKeywords: 7,
+        totalQueries: 7,
         pressureLabel: 'High',
-        citedKeywords: ['knee replacement', 'hip surgery', 'joint pain treatment', 'orthopedic surgeon', 'sports medicine'],
+        citedQueries: ['knee replacement', 'hip surgery', 'joint pain treatment', 'orthopedic surgeon', 'sports medicine'],
         movement: 'Winning broad treatment prompts',
         notes: 'Heavy physician proof and patient-story content.',
       },
@@ -826,9 +826,9 @@ const baseDashboard: DashboardVm = {
       country: 'US',
       language: 'en',
     },
-    keywordImportState: {
+    queryImportState: {
       mode: 'paste',
-      keywordCount: 18,
+      queryCount: 18,
       preview: [
         'emergency dentist brooklyn',
         'best invisalign dentist downtown brooklyn',
@@ -916,7 +916,7 @@ export function createDashboardFixture(options: DashboardFixtureOptions = {}): D
         id: 'attention_setup',
         tone: 'neutral',
         title: 'No projects yet',
-        detail: 'Start the guided setup flow to add a domain, import keywords, and launch the first run.',
+        detail: 'Start the guided setup flow to add a domain, import queries, and launch the first run.',
         actionLabel: 'Open setup',
         href: '/setup',
       },
@@ -924,7 +924,7 @@ export function createDashboardFixture(options: DashboardFixtureOptions = {}): D
     dashboard.portfolioOverview.recentRuns = []
     dashboard.portfolioOverview.emptyState = {
       title: 'No projects yet',
-      detail: 'Canonry becomes useful after one project, a small key phrase set, and one competitor list are in place.',
+      detail: 'Canonry becomes useful after one project, a small query set, and one competitor list are in place.',
       ctaLabel: 'Launch setup',
       ctaHref: '/setup',
     }
@@ -994,7 +994,7 @@ export function createDashboardFixture(options: DashboardFixtureOptions = {}): D
           .filter(e => e.citationState === 'lost')
           .slice(0, 5)
           .map(e => ({
-            keyword: e.keyword,
+            query: e.query,
             evidenceId: e.id,
             provider: e.provider || undefined,
             citationState: e.citationState,

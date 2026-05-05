@@ -33,7 +33,7 @@
  *
  * ## Common context keys (prefer these names for consistency)
  *
- *   runId, projectId, provider, keyword   — identifiers
+ *   runId, projectId, provider, query     — identifiers
  *   url, sitemapUrl, domain               — URLs / domains
  *   httpStatus, responseBody              — HTTP response details
  *   error, stack                          — error diagnostics

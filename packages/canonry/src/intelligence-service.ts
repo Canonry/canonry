@@ -1,6 +1,6 @@
 import { eq, desc, asc, and, or, inArray } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { projects, runs, querySnapshots, keywords, insights, healthSnapshots, gscSearchData, parseJsonColumn } from '@ainyc/canonry-db'
+import { projects, runs, querySnapshots, queries, insights, healthSnapshots, gscSearchData, parseJsonColumn } from '@ainyc/canonry-db'
 import { analyzeRuns, classifyRegressionSeverity } from '@ainyc/canonry-intelligence'
 import type { RunData, Snapshot, AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
 import { RunKinds } from '@ainyc/canonry-contracts'
@@ -198,13 +198,13 @@ export class IntelligenceService {
   private persistResult(result: AnalysisResult, runId: string, projectId: string): void {
     const previouslyDismissed = new Set<string>()
     const existingInsights = this.db
-      .select({ keyword: insights.keyword, provider: insights.provider, type: insights.type, dismissed: insights.dismissed })
+      .select({ query: insights.query, provider: insights.provider, type: insights.type, dismissed: insights.dismissed })
       .from(insights)
       .where(eq(insights.runId, runId))
       .all()
     for (const row of existingInsights) {
       if (row.dismissed) {
-        previouslyDismissed.add(`${row.keyword}:${row.provider}:${row.type}`)
+        previouslyDismissed.add(`${row.query}:${row.provider}:${row.type}`)
       }
     }
 
@@ -215,7 +215,7 @@ export class IntelligenceService {
       const now = new Date().toISOString()
 
       for (const insight of result.insights) {
-        const wasDismissed = previouslyDismissed.has(`${insight.keyword}:${insight.provider}:${insight.type}`)
+        const wasDismissed = previouslyDismissed.has(`${insight.query}:${insight.provider}:${insight.type}`)
         tx.insert(insights).values({
           id: insight.id,
           projectId,
@@ -223,7 +223,7 @@ export class IntelligenceService {
           type: insight.type,
           severity: insight.severity,
           title: insight.title,
-          keyword: insight.keyword,
+          query: insight.query,
           provider: insight.provider,
           recommendation: insight.recommendation ? JSON.stringify(insight.recommendation) : null,
           cause: insight.cause ? JSON.stringify(insight.cause) : null,
@@ -272,23 +272,23 @@ export class IntelligenceService {
     const regressions = rawInsights.filter((i) => i.type === 'regression')
     if (regressions.length === 0) return rawInsights
 
-    // GSC impressions per keyword (case-insensitive).
-    // GSC impressions per keyword. Distinguish "GSC not connected" (no rows
-    // at all → undefined per keyword) from "connected but zero impressions
-    // for this keyword" (returns 0 — a real measurement).
+    // GSC impressions per query (case-insensitive).
+    // GSC impressions per query. Distinguish "GSC not connected" (no rows
+    // at all → undefined per query) from "connected but zero impressions
+    // for this query" (returns 0 — a real measurement).
     const gscRows = this.db
       .select({ query: gscSearchData.query, impressions: gscSearchData.impressions })
       .from(gscSearchData)
       .where(eq(gscSearchData.projectId, projectId))
       .all()
     const gscConnected = gscRows.length > 0
-    const gscImpressionsByKeyword = new Map<string, number>()
+    const gscImpressionsByQuery = new Map<string, number>()
     for (const row of gscRows) {
       const key = row.query.toLowerCase()
-      gscImpressionsByKeyword.set(key, (gscImpressionsByKeyword.get(key) ?? 0) + row.impressions)
+      gscImpressionsByQuery.set(key, (gscImpressionsByQuery.get(key) ?? 0) + row.impressions)
     }
 
-    // Recurrence count: prior regression rows for the same (keyword, provider)
+    // Recurrence count: prior regression rows for the same (query, provider)
     // in the last RECURRENCE_LOOKBACK_RUNS runs, excluding this run's own.
     // Distinguish "no prior runs to compare against" (undefined) from "prior
     // runs exist but never regressed this pair" (0).
@@ -313,12 +313,12 @@ export class IntelligenceService {
     const priorRegressionsByPair = new Map<string, number>()
     if (haveHistory) {
       const priorRows = this.db
-        .select({ keyword: insights.keyword, provider: insights.provider })
+        .select({ query: insights.query, provider: insights.provider })
         .from(insights)
         .where(and(eq(insights.type, 'regression'), inArray(insights.runId, recentRunIds)))
         .all()
       for (const row of priorRows) {
-        const key = `${row.keyword}:${row.provider}`
+        const key = `${row.query}:${row.provider}`
         priorRegressionsByPair.set(key, (priorRegressionsByPair.get(key) ?? 0) + 1)
       }
     }
@@ -326,10 +326,10 @@ export class IntelligenceService {
     return rawInsights.map((insight) => {
       if (insight.type !== 'regression') return insight
       const gscImpressions = gscConnected
-        ? gscImpressionsByKeyword.get(insight.keyword.toLowerCase()) ?? 0
+        ? gscImpressionsByQuery.get(insight.query.toLowerCase()) ?? 0
         : undefined
       const recurrenceCount = haveHistory
-        ? priorRegressionsByPair.get(`${insight.keyword}:${insight.provider}`) ?? 0
+        ? priorRegressionsByPair.get(`${insight.query}:${insight.provider}`) ?? 0
         : undefined
       const severity = classifyRegressionSeverity({
         gscImpressions,
@@ -342,14 +342,14 @@ export class IntelligenceService {
   private buildRunData(runId: string, projectId: string, completedAt: string): RunData {
     const rows = this.db
       .select({
-        keyword: keywords.keyword,
+        query: queries.query,
         provider: querySnapshots.provider,
         citationState: querySnapshots.citationState,
         citedDomains: querySnapshots.citedDomains,
         competitorOverlap: querySnapshots.competitorOverlap,
       })
       .from(querySnapshots)
-      .leftJoin(keywords, eq(querySnapshots.keywordId, keywords.id))
+      .leftJoin(queries, eq(querySnapshots.queryId, queries.id))
       .where(eq(querySnapshots.runId, runId))
       .all()
 
@@ -357,7 +357,7 @@ export class IntelligenceService {
       const domains = parseJsonColumn<string[]>(r.citedDomains, [])
       const competitors = parseJsonColumn<string[]>(r.competitorOverlap, [])
       return {
-        keyword: r.keyword ?? '',
+        query: r.query ?? '',
         provider: r.provider,
         cited: r.citationState === 'cited',
         citationUrl: domains[0] ?? undefined,

@@ -82,7 +82,7 @@ describe('latest-run command usage', () => {
           {
             id: 'snap_1',
             runId: 'run_latest',
-            keywordId: 'kw_1',
+            queryId: 'kw_1',
             provider: 'gemini',
             citationState: 'cited',
             citedDomains: ['example.com'],

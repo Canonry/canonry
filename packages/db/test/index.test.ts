@@ -12,7 +12,7 @@ import {
   migrate,
   MIGRATION_VERSIONS,
   projects,
-  keywords,
+  queries,
   competitors,
   runs,
   querySnapshots,
@@ -64,8 +64,8 @@ test('migrate creates all tables', () => {
   const projectRows = db.select().from(projects).all()
   expect(projectRows).toEqual([])
 
-  const keywordRows = db.select().from(keywords).all()
-  expect(keywordRows).toEqual([])
+  const queryRows = db.select().from(queries).all()
+  expect(queryRows).toEqual([])
 
   const runRows = db.select().from(runs).all()
   expect(runRows).toEqual([])
@@ -278,7 +278,7 @@ test('CRUD: insert and query a project', () => {
   expect(JSON.parse(project.labels)).toEqual({})
 })
 
-test('CRUD: insert keywords with project FK', () => {
+test('CRUD: insert queries with project FK', () => {
   const { db, tmpDir } = createTempDb()
   onTestFinished(() => cleanup(tmpDir))
   const now = new Date().toISOString()
@@ -294,19 +294,19 @@ test('CRUD: insert keywords with project FK', () => {
     updatedAt: now,
   }).run()
 
-  db.insert(keywords).values({
-    id: 'kw_1',
+  db.insert(queries).values({
+    id: 'q_1',
     projectId: 'proj_1',
-    keyword: 'emergency dentist brooklyn',
+    query: 'emergency dentist brooklyn',
     createdAt: now,
   }).run()
 
-  const kws = db.select().from(keywords).where(eq(keywords.projectId, 'proj_1')).all()
-  expect(kws).toHaveLength(1)
-  expect(kws[0].keyword).toBe('emergency dentist brooklyn')
+  const qs = db.select().from(queries).where(eq(queries.projectId, 'proj_1')).all()
+  expect(qs).toHaveLength(1)
+  expect(qs[0].query).toBe('emergency dentist brooklyn')
 })
 
-test('CRUD: cascade delete removes keywords when project deleted', () => {
+test('CRUD: cascade delete removes queries when project deleted', () => {
   const { db, tmpDir } = createTempDb()
   onTestFinished(() => cleanup(tmpDir))
   const now = new Date().toISOString()
@@ -322,16 +322,16 @@ test('CRUD: cascade delete removes keywords when project deleted', () => {
     updatedAt: now,
   }).run()
 
-  db.insert(keywords).values({
-    id: 'kw_1',
+  db.insert(queries).values({
+    id: 'q_1',
     projectId: 'proj_1',
-    keyword: 'test keyword',
+    query: 'test query',
     createdAt: now,
   }).run()
 
   db.delete(projects).where(eq(projects.id, 'proj_1')).run()
-  const kws = db.select().from(keywords).all()
-  expect(kws).toHaveLength(0)
+  const qs = db.select().from(queries).all()
+  expect(qs).toHaveLength(0)
 })
 
 test('CRUD: insert run and query snapshot', () => {
@@ -350,10 +350,10 @@ test('CRUD: insert run and query snapshot', () => {
     updatedAt: now,
   }).run()
 
-  db.insert(keywords).values({
-    id: 'kw_1',
+  db.insert(queries).values({
+    id: 'q_1',
     projectId: 'proj_1',
-    keyword: 'test keyword',
+    query: 'test query',
     createdAt: now,
   }).run()
 
@@ -371,7 +371,7 @@ test('CRUD: insert run and query snapshot', () => {
   db.insert(querySnapshots).values({
     id: 'snap_1',
     runId: 'run_1',
-    keywordId: 'kw_1',
+    queryId: 'q_1',
     provider: 'gemini',
     citationState: 'cited',
     citedDomains: '["example.com"]',
@@ -384,7 +384,7 @@ test('CRUD: insert run and query snapshot', () => {
   expect(JSON.parse(snap.recommendedCompetitors)).toEqual([])
 })
 
-test('unique constraint on keywords(project_id, keyword)', () => {
+test('unique constraint on queries(project_id, query)', () => {
   const { db, tmpDir } = createTempDb()
   onTestFinished(() => cleanup(tmpDir))
   const now = new Date().toISOString()
@@ -400,18 +400,18 @@ test('unique constraint on keywords(project_id, keyword)', () => {
     updatedAt: now,
   }).run()
 
-  db.insert(keywords).values({
-    id: 'kw_1',
+  db.insert(queries).values({
+    id: 'q_1',
     projectId: 'proj_1',
-    keyword: 'duplicate',
+    query: 'duplicate',
     createdAt: now,
   }).run()
 
   expect(() => {
-    db.insert(keywords).values({
-      id: 'kw_2',
+    db.insert(queries).values({
+      id: 'q_2',
       projectId: 'proj_1',
-      keyword: 'duplicate',
+      query: 'duplicate',
       createdAt: now,
     }).run()
   }).toThrow()

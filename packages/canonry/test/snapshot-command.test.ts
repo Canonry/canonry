@@ -15,7 +15,7 @@ const SNAPSHOT_FIXTURE = {
   domain: 'acme.example.com',
   homepageUrl: 'https://acme.example.com',
   generatedAt: '2026-03-29T12:00:00.000Z',
-  phrases: ['best enterprise widget provider', 'who offers enterprise widget support'],
+  queries: ['best enterprise widget provider', 'who offers enterprise widget support'],
   competitors: ['widgetco.com', 'superwidgets.com'],
   profile: {
     industry: 'Manufacturing',
@@ -45,7 +45,7 @@ const SNAPSHOT_FIXTURE = {
   },
   queryResults: [
     {
-      phrase: 'best enterprise widget provider',
+      query: 'best enterprise widget provider',
       providerResults: [
         {
           provider: 'openai',
@@ -66,7 +66,7 @@ const SNAPSHOT_FIXTURE = {
       ],
     },
     {
-      phrase: 'who offers enterprise widget support',
+      query: 'who offers enterprise widget support',
       providerResults: [
         {
           provider: 'claude',

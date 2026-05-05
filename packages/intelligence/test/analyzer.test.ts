@@ -16,28 +16,28 @@ describe('analyzeRuns', () => {
     const prev = makeRun({
       runId: 'run_001',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: true, citationUrl: 'https://a.com/1', position: 2 },
-        { keyword: 'k2', provider: 'chatgpt', cited: false },
-        { keyword: 'k2', provider: 'gemini', cited: true, citationUrl: 'https://a.com/2', position: 1 },
+        { query: 'k1', provider: 'chatgpt', cited: true, citationUrl: 'https://a.com/1', position: 2 },
+        { query: 'k2', provider: 'chatgpt', cited: false },
+        { query: 'k2', provider: 'gemini', cited: true, citationUrl: 'https://a.com/2', position: 1 },
       ],
     })
     const curr = makeRun({
       runId: 'run_002',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: false },            // regression
-        { keyword: 'k2', provider: 'chatgpt', cited: true, position: 3 }, // gain
-        { keyword: 'k2', provider: 'gemini', cited: true, position: 1 },  // stable
+        { query: 'k1', provider: 'chatgpt', cited: false },            // regression
+        { query: 'k2', provider: 'chatgpt', cited: true, position: 3 }, // gain
+        { query: 'k2', provider: 'gemini', cited: true, position: 1 },  // stable
       ],
     })
 
     const result = analyzeRuns(curr, prev)
 
     expect(result.regressions).toHaveLength(1)
-    expect(result.regressions[0].keyword).toBe('k1')
+    expect(result.regressions[0].query).toBe('k1')
     expect(result.regressions[0].provider).toBe('chatgpt')
 
     expect(result.gains).toHaveLength(1)
-    expect(result.gains[0].keyword).toBe('k2')
+    expect(result.gains[0].query).toBe('k2')
     expect(result.gains[0].provider).toBe('chatgpt')
 
     expect(result.health.overallCitedRate).toBeCloseTo(0.667, 2)
@@ -49,15 +49,15 @@ describe('analyzeRuns', () => {
     const prev = makeRun({
       runId: 'run_001',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: true },
-        { keyword: 'k2', provider: 'chatgpt', cited: false },
+        { query: 'k1', provider: 'chatgpt', cited: true },
+        { query: 'k2', provider: 'chatgpt', cited: false },
       ],
     })
     const curr = makeRun({
       runId: 'run_002',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: false },
-        { keyword: 'k2', provider: 'chatgpt', cited: true },
+        { query: 'k1', provider: 'chatgpt', cited: false },
+        { query: 'k2', provider: 'chatgpt', cited: true },
       ],
     })
 
@@ -81,13 +81,13 @@ describe('analyzeRuns', () => {
     const prev = makeRun({
       runId: 'run_001',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: true },
+        { query: 'k1', provider: 'chatgpt', cited: true },
       ],
     })
     const curr = makeRun({
       runId: 'run_002',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: false, competitorDomain: 'rival.com' },
+        { query: 'k1', provider: 'chatgpt', cited: false, competitorDomain: 'rival.com' },
       ],
     })
 
@@ -101,8 +101,8 @@ describe('analyzeRuns', () => {
   it('returns no regressions or gains when runs are identical', () => {
     const run = makeRun({
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: true },
-        { keyword: 'k2', provider: 'gemini', cited: false },
+        { query: 'k1', provider: 'chatgpt', cited: true },
+        { query: 'k2', provider: 'gemini', cited: false },
       ],
     })
 
@@ -114,7 +114,7 @@ describe('analyzeRuns', () => {
   })
 
   it('returns no trend when allRuns is not provided', () => {
-    const run = makeRun({ snapshots: [{ keyword: 'k1', provider: 'chatgpt', cited: true }] })
+    const run = makeRun({ snapshots: [{ query: 'k1', provider: 'chatgpt', cited: true }] })
     const result = analyzeRuns(run, run)
     expect(result.trend).toBeUndefined()
   })
@@ -122,11 +122,11 @@ describe('analyzeRuns', () => {
   it('computes trend when allRuns is provided', () => {
     const run1 = makeRun({
       runId: 'run_001',
-      snapshots: [{ keyword: 'k1', provider: 'chatgpt', cited: false }],
+      snapshots: [{ query: 'k1', provider: 'chatgpt', cited: false }],
     })
     const run2 = makeRun({
       runId: 'run_002',
-      snapshots: [{ keyword: 'k1', provider: 'chatgpt', cited: true }],
+      snapshots: [{ query: 'k1', provider: 'chatgpt', cited: true }],
     })
 
     const result = analyzeRuns(run2, run1, [run1, run2])
@@ -140,17 +140,17 @@ describe('analyzeRuns', () => {
     const prev = makeRun({
       runId: 'run_001',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: true },
-        { keyword: 'k1', provider: 'gemini', cited: true },
-        { keyword: 'k2', provider: 'chatgpt', cited: true },
+        { query: 'k1', provider: 'chatgpt', cited: true },
+        { query: 'k1', provider: 'gemini', cited: true },
+        { query: 'k2', provider: 'chatgpt', cited: true },
       ],
     })
     const curr = makeRun({
       runId: 'run_002',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: false },
-        { keyword: 'k1', provider: 'gemini', cited: false },
-        { keyword: 'k2', provider: 'chatgpt', cited: false },
+        { query: 'k1', provider: 'chatgpt', cited: false },
+        { query: 'k1', provider: 'gemini', cited: false },
+        { query: 'k2', provider: 'chatgpt', cited: false },
       ],
     })
 
@@ -177,15 +177,15 @@ describe('analyzeRuns', () => {
     const prev = makeRun({
       runId: 'run_001',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: false },
-        { keyword: 'k1', provider: 'gemini', cited: false },
+        { query: 'k1', provider: 'chatgpt', cited: false },
+        { query: 'k1', provider: 'gemini', cited: false },
       ],
     })
     const curr = makeRun({
       runId: 'run_002',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: true, citationUrl: 'https://a.com' },
-        { keyword: 'k1', provider: 'gemini', cited: true, citationUrl: 'https://a.com' },
+        { query: 'k1', provider: 'chatgpt', cited: true, citationUrl: 'https://a.com' },
+        { query: 'k1', provider: 'gemini', cited: true, citationUrl: 'https://a.com' },
       ],
     })
 

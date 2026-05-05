@@ -43,8 +43,8 @@ export function CitationVisibilitySection({ projectName }: { projectName: string
           </div>
         </div>
         <p className="text-sm text-zinc-500">
-          {data.reason === 'no-keywords'
-            ? 'Add keywords to start tracking AI citations.'
+          {data.reason === 'no-queries'
+            ? 'Add queries to start tracking AI citations.'
             : 'Run a sweep to see which engines cite this project.'}
         </p>
       </section>
@@ -60,7 +60,7 @@ export function CitationVisibilitySection({ projectName }: { projectName: string
           <p className="eyebrow eyebrow-soft">Citation visibility</p>
           <h2 className="flex items-center gap-2">
             Cited by {providersCiting} of {providersConfigured} engines
-            <InfoTooltip text="An engine is &lsquo;citing&rsquo; when our domain appears in its grounding source list (the structured citation/search-result attribution it returns alongside the answer). Counts each configured engine that cites the project on at least one tracked keyword in the latest snapshot per (keyword × provider)." />
+            <InfoTooltip text="An engine is &lsquo;citing&rsquo; when our domain appears in its grounding source list (the structured citation/search-result attribution it returns alongside the answer). Counts each configured engine that cites the project on at least one tracked query in the latest snapshot per (query × provider)." />
           </h2>
           <p className="text-base text-zinc-300 flex items-center gap-2">
             Mentioned in {providersMentioning} of {providersConfigured} engine answers
@@ -83,37 +83,37 @@ export function CitationVisibilitySection({ projectName }: { projectName: string
 
 function CitationSummaryRow({ data }: { data: CitationVisibilityResponse }) {
   const {
-    totalKeywords,
-    keywordsCitedAndMentioned,
-    keywordsCitedOnly,
-    keywordsMentionedOnly,
-    keywordsInvisible,
+    totalQueries,
+    queriesCitedAndMentioned,
+    queriesCitedOnly,
+    queriesMentionedOnly,
+    queriesInvisible,
   } = data.summary
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 mb-4">
       <SummaryCell
         label="Cited + mentioned"
-        value={`${keywordsCitedAndMentioned} / ${totalKeywords}`}
+        value={`${queriesCitedAndMentioned} / ${totalQueries}`}
         helper="In sources AND named in answer"
-        tone={keywordsCitedAndMentioned > 0 ? 'positive' : 'neutral'}
+        tone={queriesCitedAndMentioned > 0 ? 'positive' : 'neutral'}
       />
       <SummaryCell
         label="Cited only"
-        value={`${keywordsCitedOnly} / ${totalKeywords}`}
+        value={`${queriesCitedOnly} / ${totalQueries}`}
         helper="In sources, not named in answer"
-        tone={keywordsCitedOnly > 0 ? 'positive-dim' : 'neutral'}
+        tone={queriesCitedOnly > 0 ? 'positive-dim' : 'neutral'}
       />
       <SummaryCell
         label="Mentioned only"
-        value={`${keywordsMentionedOnly} / ${totalKeywords}`}
+        value={`${queriesMentionedOnly} / ${totalQueries}`}
         helper="Named in answer, no source link"
-        tone={keywordsMentionedOnly > 0 ? 'caution' : 'neutral'}
+        tone={queriesMentionedOnly > 0 ? 'caution' : 'neutral'}
       />
       <SummaryCell
         label="Invisible"
-        value={`${keywordsInvisible} / ${totalKeywords}`}
+        value={`${queriesInvisible} / ${totalQueries}`}
         helper="No engine cites or mentions"
-        tone={keywordsInvisible > 0 ? 'negative' : 'neutral'}
+        tone={queriesInvisible > 0 ? 'negative' : 'neutral'}
       />
     </div>
   )
@@ -143,14 +143,14 @@ function SummaryCell({ label, value, helper, tone }: { label: string; value: str
 function CoverageTable({ data }: { data: CitationVisibilityResponse }) {
   const providerColumns = useMemo(() => {
     const set = new Set<string>()
-    for (const row of data.byKeyword) {
+    for (const row of data.byQuery) {
       for (const p of row.providers) set.add(p.provider)
     }
     return Array.from(set).sort()
-  }, [data.byKeyword])
+  }, [data.byQuery])
 
-  if (data.byKeyword.length === 0) {
-    return <p className="text-sm text-zinc-500">No keyword coverage rows.</p>
+  if (data.byQuery.length === 0) {
+    return <p className="text-sm text-zinc-500">No query coverage rows.</p>
   }
 
   return (
@@ -160,7 +160,7 @@ function CoverageTable({ data }: { data: CitationVisibilityResponse }) {
         <table className="evidence-table">
           <thead>
             <tr>
-              <th>Keyword</th>
+              <th>Query</th>
               {providerColumns.map(p => (
                 <th key={p} className="text-center">
                   <ProviderBadge provider={p} />
@@ -171,9 +171,9 @@ function CoverageTable({ data }: { data: CitationVisibilityResponse }) {
             </tr>
           </thead>
           <tbody>
-            {data.byKeyword.map(row => (
-              <tr key={row.keywordId}>
-                <td className="font-medium text-zinc-100">{row.keyword}</td>
+            {data.byQuery.map(row => (
+              <tr key={row.queryId}>
+                <td className="font-medium text-zinc-100">{row.query}</td>
                 {providerColumns.map(p => {
                   const provider = row.providers.find(x => x.provider === p)
                   return (
@@ -273,7 +273,7 @@ function CompetitorGapList({ data }: { data: CitationVisibilityResponse }) {
     <div className="mt-4">
       <h3 className="text-sm font-semibold text-zinc-200 mb-2 flex items-center gap-2">
         Competitor gaps
-        <InfoTooltip text="Keywords where the project is not cited but a configured competitor is. Each row maps to one (keyword, engine) pair — the same keyword may surface for multiple engines." />
+        <InfoTooltip text="Queries where the project is not cited but a configured competitor is. Each row maps to one (query, engine) pair — the same query may surface for multiple engines." />
         <span className="text-[10px] font-normal uppercase tracking-wide text-zinc-500">
           {data.competitorGaps.length} {data.competitorGaps.length === 1 ? 'gap' : 'gaps'}
         </span>
@@ -282,15 +282,15 @@ function CompetitorGapList({ data }: { data: CitationVisibilityResponse }) {
         <table className="evidence-table">
           <thead>
             <tr>
-              <th>Keyword</th>
+              <th>Query</th>
               <th>Engine</th>
               <th>Competitors cited</th>
             </tr>
           </thead>
           <tbody>
             {data.competitorGaps.map(gap => (
-              <tr key={`${gap.keywordId}::${gap.provider}`}>
-                <td className="font-medium text-zinc-100">{gap.keyword}</td>
+              <tr key={`${gap.queryId}::${gap.provider}`}>
+                <td className="font-medium text-zinc-100">{gap.query}</td>
                 <td><ProviderBadge provider={gap.provider} /></td>
                 <td className="text-zinc-300">{gap.citingCompetitors.join(', ')}</td>
               </tr>

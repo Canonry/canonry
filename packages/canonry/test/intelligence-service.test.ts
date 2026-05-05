@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, onTestFinished } from 'vitest'
-import { createClient, migrate, projects, runs, keywords, querySnapshots, insights, healthSnapshots } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs, queries, querySnapshots, insights, healthSnapshots } from '@ainyc/canonry-db'
 import { IntelligenceService } from '../src/intelligence-service.js'
 
 function createTempDb(prefix: string) {
@@ -39,19 +39,18 @@ function seedRun(db: ReturnType<typeof createClient>, projectId: string, status:
     id: runId,
     projectId,
     status,
-    providers: '["gemini"]',
     createdAt: now,
     finishedAt: finishedAt ?? now,
   }).run()
   return runId
 }
 
-function seedKeyword(db: ReturnType<typeof createClient>, projectId: string, word: string) {
+function seedQuery(db: ReturnType<typeof createClient>, projectId: string, word: string) {
   const id = crypto.randomUUID()
-  db.insert(keywords).values({
+  db.insert(queries).values({
     id,
     projectId,
-    keyword: word,
+    query: word,
     createdAt: new Date().toISOString(),
   }).run()
   return id
@@ -60,7 +59,7 @@ function seedKeyword(db: ReturnType<typeof createClient>, projectId: string, wor
 function seedSnapshot(
   db: ReturnType<typeof createClient>,
   runId: string,
-  keywordId: string,
+  queryId: string,
   provider: string,
   citationState: string,
   opts?: { citedDomains?: string[]; competitorOverlap?: string[] },
@@ -68,14 +67,12 @@ function seedSnapshot(
   db.insert(querySnapshots).values({
     id: crypto.randomUUID(),
     runId,
-    keywordId,
+    queryId,
     provider,
     model: 'test-model',
     citationState,
     citedDomains: JSON.stringify(opts?.citedDomains ?? []),
     competitorOverlap: JSON.stringify(opts?.competitorOverlap ?? []),
-    groundingSources: '[]',
-    searchQueries: '[]',
     createdAt: new Date().toISOString(),
   }).run()
 }
@@ -85,9 +82,9 @@ describe('IntelligenceService', () => {
     it('persists insights and health snapshot for a completed run', () => {
       const { db } = createTempDb('intel-test-')
       const projectId = seedProject(db)
-      const kwId = seedKeyword(db, projectId, 'roof repair')
+      const queryId = seedQuery(db, projectId, 'roof repair')
       const runId = seedRun(db, projectId, 'completed')
-      seedSnapshot(db, runId, kwId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+      seedSnapshot(db, runId, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
 
       const service = new IntelligenceService(db)
       const result = service.analyzeAndPersist(runId, projectId)
@@ -137,11 +134,11 @@ describe('IntelligenceService', () => {
     it('is idempotent — reprocessing preserves dismissed state', async () => {
       const { db } = createTempDb('intel-idempotent-')
       const projectId = seedProject(db)
-      const kwId = seedKeyword(db, projectId, 'best roofing')
+      const queryId = seedQuery(db, projectId, 'best roofing')
       const run1 = seedRun(db, projectId, 'completed', '2024-01-01T00:00:00Z')
-      seedSnapshot(db, run1, kwId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+      seedSnapshot(db, run1, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
       const run2 = seedRun(db, projectId, 'completed', '2024-02-01T00:00:00Z')
-      seedSnapshot(db, run2, kwId, 'gemini', 'not-cited')
+      seedSnapshot(db, run2, queryId, 'gemini', 'not-cited')
 
       const service = new IntelligenceService(db)
       service.analyzeAndPersist(run2, projectId)
@@ -157,7 +154,7 @@ describe('IntelligenceService', () => {
 
         const afterReprocess = db.select().from(insights).all()
         const matchingInsight = afterReprocess.find(
-          i => i.keyword === insightRows[0]!.keyword && i.provider === insightRows[0]!.provider && i.type === insightRows[0]!.type,
+          i => i.query === insightRows[0]!.query && i.provider === insightRows[0]!.provider && i.type === insightRows[0]!.type,
         )
         expect(matchingInsight?.dismissed).toBe(true)
       }
@@ -166,9 +163,9 @@ describe('IntelligenceService', () => {
     it('does not produce false gain insights on first run', () => {
       const { db } = createTempDb('intel-first-run-')
       const projectId = seedProject(db)
-      const kwId = seedKeyword(db, projectId, 'roof repair')
+      const queryId = seedQuery(db, projectId, 'roof repair')
       const runId = seedRun(db, projectId, 'completed')
-      seedSnapshot(db, runId, kwId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+      seedSnapshot(db, runId, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
 
       const service = new IntelligenceService(db)
       const result = service.analyzeAndPersist(runId, projectId)
@@ -187,22 +184,22 @@ describe('IntelligenceService', () => {
     it('detects regressions between two runs', () => {
       const { db } = createTempDb('intel-regression-')
       const projectId = seedProject(db)
-      const kwId = seedKeyword(db, projectId, 'roof repair phoenix')
+      const queryId = seedQuery(db, projectId, 'roof repair phoenix')
 
       // Run 1: cited
       const run1 = seedRun(db, projectId, 'completed', '2024-01-01T00:00:00Z')
-      seedSnapshot(db, run1, kwId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+      seedSnapshot(db, run1, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
 
       // Run 2: not cited
       const run2 = seedRun(db, projectId, 'completed', '2024-02-01T00:00:00Z')
-      seedSnapshot(db, run2, kwId, 'gemini', 'not-cited')
+      seedSnapshot(db, run2, queryId, 'gemini', 'not-cited')
 
       const service = new IntelligenceService(db)
       const result = service.analyzeAndPersist(run2, projectId)
 
       expect(result).not.toBeNull()
       expect(result!.regressions.length).toBeGreaterThan(0)
-      expect(result!.regressions[0]!.keyword).toBe('roof repair phoenix')
+      expect(result!.regressions[0]!.query).toBe('roof repair phoenix')
     })
   })
 
@@ -210,16 +207,16 @@ describe('IntelligenceService', () => {
     it('processes runs in chronological order', () => {
       const { db } = createTempDb('intel-backfill-')
       const projectId = seedProject(db)
-      const kwId = seedKeyword(db, projectId, 'test keyword')
+      const queryId = seedQuery(db, projectId, 'test query')
 
       const run1 = seedRun(db, projectId, 'completed', '2024-01-01T00:00:00Z')
-      seedSnapshot(db, run1, kwId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+      seedSnapshot(db, run1, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
 
       const run2 = seedRun(db, projectId, 'completed', '2024-02-01T00:00:00Z')
-      seedSnapshot(db, run2, kwId, 'gemini', 'not-cited')
+      seedSnapshot(db, run2, queryId, 'gemini', 'not-cited')
 
       const run3 = seedRun(db, projectId, 'completed', '2024-03-01T00:00:00Z')
-      seedSnapshot(db, run3, kwId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+      seedSnapshot(db, run3, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
 
       const service = new IntelligenceService(db)
       const progress: string[] = []
@@ -240,16 +237,16 @@ describe('IntelligenceService', () => {
     it('respects --from-run and --to-run range', () => {
       const { db } = createTempDb('intel-backfill-range-')
       const projectId = seedProject(db)
-      const kwId = seedKeyword(db, projectId, 'test keyword')
+      const queryId = seedQuery(db, projectId, 'test query')
 
       const run1 = seedRun(db, projectId, 'completed', '2024-01-01T00:00:00Z')
-      seedSnapshot(db, run1, kwId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+      seedSnapshot(db, run1, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
 
       const run2 = seedRun(db, projectId, 'completed', '2024-02-01T00:00:00Z')
-      seedSnapshot(db, run2, kwId, 'gemini', 'not-cited')
+      seedSnapshot(db, run2, queryId, 'gemini', 'not-cited')
 
       const run3 = seedRun(db, projectId, 'completed', '2024-03-01T00:00:00Z')
-      seedSnapshot(db, run3, kwId, 'gemini', 'cited', { citedDomains: ['example.com'] })
+      seedSnapshot(db, run3, queryId, 'gemini', 'cited', { citedDomains: ['example.com'] })
 
       const service = new IntelligenceService(db)
       const result = service.backfill('test-project', { fromRunId: run2, toRunId: run2 })

@@ -102,7 +102,7 @@ export async function executeTrackedQuery(input: ClaudeTrackedQueryInput): Promi
         model,
         max_tokens: 4096,
         tools: [webSearchTool as unknown as WebSearchTool20250305],
-        messages: [{ role: 'user', content: input.keyword }],
+        messages: [{ role: 'user', content: input.query }],
       }),
     )
 

@@ -14,17 +14,17 @@ function parseCsvOption(value: string | undefined): string[] | undefined {
 export const SNAPSHOT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['snapshot'],
-    usage: 'canonry snapshot <company-name> --domain <domain> [--phrases "a,b"] [--competitors "x,y"] [--md] [--output <path>] [--pdf] [--format table|json]',
+    usage: 'canonry snapshot <company-name> --domain <domain> [--queries "a,b"] [--competitors "x,y"] [--md] [--output <path>] [--pdf] [--format table|json]',
     options: {
       domain: stringOption(),
-      phrases: stringOption(),
+      queries: stringOption(),
       competitors: stringOption(),
       md: { type: 'boolean' },
       pdf: { type: 'boolean' },
       output: stringOption(),
     },
     run: async (input) => {
-      const usage = 'canonry snapshot <company-name> --domain <domain> [--phrases "a,b"] [--competitors "x,y"] [--md] [--output <path>] [--pdf] [--format table|json]'
+      const usage = 'canonry snapshot <company-name> --domain <domain> [--queries "a,b"] [--competitors "x,y"] [--md] [--output <path>] [--pdf] [--format table|json]'
       const companyName = requirePositional(input, 0, {
         command: 'snapshot',
         usage,
@@ -44,7 +44,7 @@ export const SNAPSHOT_CLI_COMMANDS: readonly CliCommandSpec[] = [
 
       await createSnapshotReport(companyName, {
         domain,
-        phrases: parseCsvOption(getString(input.values, 'phrases')),
+        queries: parseCsvOption(getString(input.values, 'queries')),
         competitors: parseCsvOption(getString(input.values, 'competitors')),
         md: wantsMd,
         pdf: wantsPdf,

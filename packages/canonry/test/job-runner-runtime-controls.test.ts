@@ -12,7 +12,7 @@ import type {
   RawQueryResult,
   TrackedQueryInput,
 } from '@ainyc/canonry-contracts'
-import { createClient, keywords, migrate, projects, querySnapshots, runs, usageCounters } from '@ainyc/canonry-db'
+import { createClient, queries, migrate, projects, querySnapshots, runs, usageCounters } from '@ainyc/canonry-db'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 
@@ -59,7 +59,7 @@ function buildAdapter(overrides?: Partial<ProviderAdapter>): ProviderAdapter {
   }
 }
 
-function seedRunFixture(db: ReturnType<typeof createClient>, keywordCount: number) {
+function seedRunFixture(db: ReturnType<typeof createClient>, queryCount: number) {
   const now = new Date().toISOString()
   const projectId = crypto.randomUUID()
   const runId = crypto.randomUUID()
@@ -76,11 +76,11 @@ function seedRunFixture(db: ReturnType<typeof createClient>, keywordCount: numbe
     updatedAt: now,
   }).run()
 
-  for (let index = 0; index < keywordCount; index++) {
-    db.insert(keywords).values({
+  for (let index = 0; index < queryCount; index++) {
+    db.insert(queries).values({
       id: crypto.randomUUID(),
       projectId,
-      keyword: `keyword-${index + 1}`,
+      query: `query-${index + 1}`,
       createdAt: now,
     }).run()
   }

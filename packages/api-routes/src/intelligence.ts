@@ -27,7 +27,7 @@ function mapInsightRow(r: typeof insights.$inferSelect): InsightDto {
     type: r.type as InsightDto['type'],
     severity: r.severity as InsightDto['severity'],
     title: r.title,
-    keyword: r.keyword,
+    query: r.query,
     provider: r.provider,
     recommendation: parseJsonColumn<InsightDto['recommendation']>(r.recommendation, undefined),
     cause: parseJsonColumn<InsightDto['cause']>(r.cause, undefined),

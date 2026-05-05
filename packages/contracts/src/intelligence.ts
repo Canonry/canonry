@@ -5,7 +5,7 @@ export interface InsightDto {
   type: 'regression' | 'gain' | 'opportunity'
   severity: 'critical' | 'high' | 'medium' | 'low'
   title: string
-  keyword: string
+  query: string
   provider: string
   recommendation?: {
     action: string

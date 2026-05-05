@@ -119,7 +119,7 @@ export async function notificationRoutes(app: FastifyInstance) {
       project: { name: project.name, canonicalDomain: project.canonicalDomain },
       run: { id: 'test-run-id', status: 'completed', finishedAt: new Date().toISOString() },
       transitions: [
-        { keyword: 'test keyword', from: 'not-cited', to: 'cited', provider: 'gemini' },
+        { query: 'test query', from: 'not-cited', to: 'cited', provider: 'gemini' },
       ],
       dashboardUrl: `/projects/${project.name}`,
     }

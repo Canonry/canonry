@@ -67,7 +67,7 @@ export const geminiAdapter: ProviderAdapter = {
 
   async executeTrackedQuery(input: TrackedQueryInput, config: ProviderConfig): Promise<RawQueryResult> {
     const raw = await geminiExecuteTrackedQuery({
-      keyword: input.keyword,
+      query: input.query,
       canonicalDomains: input.canonicalDomains,
       competitorDomains: input.competitorDomains,
       config: toGeminiConfig(config),

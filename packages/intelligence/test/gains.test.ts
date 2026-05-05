@@ -16,20 +16,20 @@ describe('detectGains', () => {
     const prev = makeRun({
       runId: 'run_001',
       snapshots: [
-        { keyword: 'roof coating', provider: 'chatgpt', cited: false },
+        { query: 'roof coating', provider: 'chatgpt', cited: false },
       ],
     })
     const curr = makeRun({
       runId: 'run_002',
       snapshots: [
-        { keyword: 'roof coating', provider: 'chatgpt', cited: true, citationUrl: 'https://a.com/coating', position: 3, snippet: 'Great coating...' },
+        { query: 'roof coating', provider: 'chatgpt', cited: true, citationUrl: 'https://a.com/coating', position: 3, snippet: 'Great coating...' },
       ],
     })
 
     const result = detectGains(curr, prev)
     expect(result).toHaveLength(1)
     expect(result[0]).toEqual({
-      keyword: 'roof coating',
+      query: 'roof coating',
       provider: 'chatgpt',
       citationUrl: 'https://a.com/coating',
       position: 3,
@@ -41,8 +41,8 @@ describe('detectGains', () => {
   it('returns empty when no gains occurred', () => {
     const run = makeRun({
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: true },
-        { keyword: 'k2', provider: 'chatgpt', cited: false },
+        { query: 'k1', provider: 'chatgpt', cited: true },
+        { query: 'k2', provider: 'chatgpt', cited: false },
       ],
     })
     expect(detectGains(run, run)).toEqual([])
@@ -57,17 +57,17 @@ describe('detectGains', () => {
     const prev = makeRun({
       runId: 'run_001',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: false },
-        { keyword: 'k1', provider: 'gemini', cited: false },
-        { keyword: 'k1', provider: 'claude', cited: false },
+        { query: 'k1', provider: 'chatgpt', cited: false },
+        { query: 'k1', provider: 'gemini', cited: false },
+        { query: 'k1', provider: 'claude', cited: false },
       ],
     })
     const curr = makeRun({
       runId: 'run_002',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: true, citationUrl: 'https://a.com' },
-        { keyword: 'k1', provider: 'gemini', cited: true, citationUrl: 'https://a.com' },
-        { keyword: 'k1', provider: 'claude', cited: false },
+        { query: 'k1', provider: 'chatgpt', cited: true, citationUrl: 'https://a.com' },
+        { query: 'k1', provider: 'gemini', cited: true, citationUrl: 'https://a.com' },
+        { query: 'k1', provider: 'claude', cited: false },
       ],
     })
 
@@ -76,17 +76,17 @@ describe('detectGains', () => {
     expect(result.map(g => g.provider).sort()).toEqual(['chatgpt', 'gemini'])
   })
 
-  it('does not flag keywords that were already cited (stable citations)', () => {
+  it('does not flag queries that were already cited (stable citations)', () => {
     const prev = makeRun({
       runId: 'run_001',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: true },
+        { query: 'k1', provider: 'chatgpt', cited: true },
       ],
     })
     const curr = makeRun({
       runId: 'run_002',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: true },
+        { query: 'k1', provider: 'chatgpt', cited: true },
       ],
     })
     expect(detectGains(curr, prev)).toEqual([])
@@ -96,46 +96,46 @@ describe('detectGains', () => {
     const prev = makeRun({
       runId: 'run_001',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: true },
+        { query: 'k1', provider: 'chatgpt', cited: true },
       ],
     })
     const curr = makeRun({
       runId: 'run_002',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: false },
+        { query: 'k1', provider: 'chatgpt', cited: false },
       ],
     })
     expect(detectGains(curr, prev)).toEqual([])
   })
 
-  it('detects gain for a keyword new in current run (not in previous)', () => {
+  it('detects gain for a query new in current run (not in previous)', () => {
     const prev = makeRun({
       runId: 'run_001',
       snapshots: [
-        { keyword: 'existing', provider: 'chatgpt', cited: true },
+        { query: 'existing', provider: 'chatgpt', cited: true },
       ],
     })
     const curr = makeRun({
       runId: 'run_002',
       snapshots: [
-        { keyword: 'existing', provider: 'chatgpt', cited: true },
-        { keyword: 'brand-new', provider: 'chatgpt', cited: true, citationUrl: 'https://a.com/new' },
+        { query: 'existing', provider: 'chatgpt', cited: true },
+        { query: 'brand-new', provider: 'chatgpt', cited: true, citationUrl: 'https://a.com/new' },
       ],
     })
 
     const result = detectGains(curr, prev)
     expect(result).toHaveLength(1)
-    expect(result[0].keyword).toBe('brand-new')
+    expect(result[0].query).toBe('brand-new')
   })
 
   it('preserves undefined optional fields', () => {
     const prev = makeRun({
       runId: 'run_001',
-      snapshots: [{ keyword: 'k1', provider: 'chatgpt', cited: false }],
+      snapshots: [{ query: 'k1', provider: 'chatgpt', cited: false }],
     })
     const curr = makeRun({
       runId: 'run_002',
-      snapshots: [{ keyword: 'k1', provider: 'chatgpt', cited: true }], // no url/position/snippet
+      snapshots: [{ query: 'k1', provider: 'chatgpt', cited: true }], // no url/position/snippet
     })
 
     const result = detectGains(curr, prev)
@@ -149,20 +149,20 @@ describe('detectGains', () => {
     const prev = makeRun({
       runId: 'run_001',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: true },  // will regress
-        { keyword: 'k2', provider: 'chatgpt', cited: false },  // will gain
+        { query: 'k1', provider: 'chatgpt', cited: true },  // will regress
+        { query: 'k2', provider: 'chatgpt', cited: false },  // will gain
       ],
     })
     const curr = makeRun({
       runId: 'run_002',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: false },
-        { keyword: 'k2', provider: 'chatgpt', cited: true, citationUrl: 'https://a.com' },
+        { query: 'k1', provider: 'chatgpt', cited: false },
+        { query: 'k2', provider: 'chatgpt', cited: true, citationUrl: 'https://a.com' },
       ],
     })
 
     const result = detectGains(curr, prev)
     expect(result).toHaveLength(1)
-    expect(result[0].keyword).toBe('k2')
+    expect(result[0].query).toBe('k2')
   })
 })

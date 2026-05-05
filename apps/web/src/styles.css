@@ -568,7 +568,7 @@
   .compact-run-title,
   .run-row-title,
   .project-name,
-  .evidence-keyword {
+  .evidence-query {
     @apply text-[13px] font-medium text-zinc-200;
   }
 
@@ -839,7 +839,7 @@
     @apply px-4 py-3 text-zinc-300;
   }
 
-  .evidence-keyword-cell {
+  .evidence-query-cell {
     @apply font-medium text-zinc-100;
   }
 

@@ -1,6 +1,6 @@
 import { eq, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { competitors, keywords, querySnapshots, runs, parseJsonColumn } from '@ainyc/canonry-db'
+import { competitors, queries, querySnapshots, runs, parseJsonColumn } from '@ainyc/canonry-db'
 import {
   emptyCitationVisibility,
   citationStateToCited,
@@ -16,7 +16,7 @@ import { resolveProject } from './helpers.js'
 interface SnapshotRow {
   id: string
   runId: string
-  keywordId: string
+  queryId: string
   provider: string
   citationState: string
   citedDomains: string
@@ -28,22 +28,22 @@ interface SnapshotRow {
 
 export async function citationRoutes(app: FastifyInstance) {
   // GET /projects/:name/citations/visibility
-  // Single-call read: returns project headline + per-keyword coverage + competitor gaps
-  // computed from the latest snapshot per (keyword × provider).
+  // Single-call read: returns project headline + per-query coverage + competitor gaps
+  // computed from the latest snapshot per (query × provider).
   app.get<{
     Params: { name: string }
   }>('/projects/:name/citations/visibility', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const configuredProviders = parseJsonColumn<string[]>(project.providers, [])
 
-    const projectKeywords = app.db
+    const projectQueries = app.db
       .select()
-      .from(keywords)
-      .where(eq(keywords.projectId, project.id))
+      .from(queries)
+      .where(eq(queries.projectId, project.id))
       .all()
 
-    if (projectKeywords.length === 0) {
-      return reply.send(emptyCitationVisibility('no-keywords'))
+    if (projectQueries.length === 0) {
+      return reply.send(emptyCitationVisibility('no-queries'))
     }
 
     const projectRuns = app.db
@@ -62,7 +62,7 @@ export async function citationRoutes(app: FastifyInstance) {
       .select({
         id: querySnapshots.id,
         runId: querySnapshots.runId,
-        keywordId: querySnapshots.keywordId,
+        queryId: querySnapshots.queryId,
         provider: querySnapshots.provider,
         citationState: querySnapshots.citationState,
         citedDomains: querySnapshots.citedDomains,
@@ -92,7 +92,7 @@ export async function citationRoutes(app: FastifyInstance) {
       .filter(d => d.length > 0)
 
     const response = computeCitationVisibility({
-      keywords: projectKeywords.map(k => ({ id: k.id, keyword: k.keyword })),
+      queries: projectQueries.map(q => ({ id: q.id, query: q.query })),
       snapshots,
       configuredProviders,
       competitorDomains: projectCompetitors,
@@ -103,23 +103,23 @@ export async function citationRoutes(app: FastifyInstance) {
 }
 
 interface ComputeInput {
-  keywords: Array<{ id: string; keyword: string }>
+  queries: Array<{ id: string; query: string }>
   snapshots: SnapshotRow[]
   configuredProviders: string[]
   competitorDomains: string[]
 }
 
 export function computeCitationVisibility(input: ComputeInput): CitationVisibilityResponse {
-  const { keywords: kws, snapshots, configuredProviders, competitorDomains } = input
+  const { queries: qs, snapshots, configuredProviders, competitorDomains } = input
 
-  // Latest snapshot per (keywordId × provider). Multi-provider runs put all
+  // Latest snapshot per (queryId × provider). Multi-provider runs put all
   // providers on the same run; single-provider runs leave older snapshots from
   // other providers as the latest available data point. Picking the freshest
   // record per pair gives the user a "latest known coverage" view rather than
   // gating on a single comprehensive run.
   const latestByPair = new Map<string, SnapshotRow>()
   for (const snap of snapshots) {
-    const key = `${snap.keywordId}::${snap.provider}`
+    const key = `${snap.queryId}::${snap.provider}`
     const existing = latestByPair.get(key)
     if (!existing || snap.createdAt > existing.createdAt) {
       latestByPair.set(key, snap)
@@ -141,24 +141,24 @@ export function computeCitationVisibility(input: ComputeInput): CitationVisibili
   const providersCitingTracker = new Set<string>()
   const providersMentioningTracker = new Set<string>()
 
-  // Cross-tab buckets at the keyword level. A keyword lands in exactly one
+  // Cross-tab buckets at the query level. A query lands in exactly one
   // bucket: cited+mentioned > cited-only > mentioned-only > invisible.
-  // Keywords with zero snapshots fall through and are not counted in any
+  // Queries with zero snapshots fall through and are not counted in any
   // bucket — total - sum(buckets) = "no data yet".
-  let keywordsCitedAndMentioned = 0
-  let keywordsCitedOnly = 0
-  let keywordsMentionedOnly = 0
-  let keywordsInvisible = 0
+  let queriesCitedAndMentioned = 0
+  let queriesCitedOnly = 0
+  let queriesMentionedOnly = 0
+  let queriesInvisible = 0
 
-  const byKeyword: CitationCoverageRow[] = []
+  const byQuery: CitationCoverageRow[] = []
 
-  for (const kw of kws) {
+  for (const q of qs) {
     const providers: CitationCoverageProvider[] = []
     let citedCount = 0
     let mentionedCount = 0
 
     for (const provider of providerUniverse) {
-      const snap = latestByPair.get(`${kw.id}::${provider}`)
+      const snap = latestByPair.get(`${q.id}::${provider}`)
       if (!snap) continue
       const state = snap.citationState as CitationState
       const cited = citationStateToCited(state)
@@ -186,15 +186,15 @@ export function computeCitationVisibility(input: ComputeInput): CitationVisibili
     if (providers.length > 0) {
       const anyCited = citedCount > 0
       const anyMentioned = mentionedCount > 0
-      if (anyCited && anyMentioned) keywordsCitedAndMentioned++
-      else if (anyCited) keywordsCitedOnly++
-      else if (anyMentioned) keywordsMentionedOnly++
-      else keywordsInvisible++
+      if (anyCited && anyMentioned) queriesCitedAndMentioned++
+      else if (anyCited) queriesCitedOnly++
+      else if (anyMentioned) queriesMentionedOnly++
+      else queriesInvisible++
     }
 
-    byKeyword.push({
-      keywordId: kw.id,
-      keyword: kw.keyword,
+    byQuery.push({
+      queryId: q.id,
+      query: q.query,
       providers,
       citedCount,
       mentionedCount,
@@ -202,13 +202,13 @@ export function computeCitationVisibility(input: ComputeInput): CitationVisibili
     })
   }
 
-  // Competitor gaps: latest not-cited snapshot per (keyword × provider) where
+  // Competitor gaps: latest not-cited snapshot per (query × provider) where
   // a configured competitor appears in cited domains. Each row is one
-  // (keyword, provider, competitor-set) tuple — a single keyword can show up
+  // (query, provider, competitor-set) tuple — a single query can show up
   // multiple times if multiple providers have the gap.
   const competitorSet = new Set(competitorDomains)
   const competitorGaps: CompetitorGapRow[] = []
-  const keywordById = new Map(kws.map(k => [k.id, k.keyword]))
+  const queryById = new Map(qs.map(q => [q.id, q.query]))
 
   for (const snap of latestByPair.values()) {
     if (citationStateToCited(snap.citationState as CitationState)) continue
@@ -224,8 +224,8 @@ export function computeCitationVisibility(input: ComputeInput): CitationVisibili
     if (citingCompetitors.length === 0) continue
 
     competitorGaps.push({
-      keywordId: snap.keywordId,
-      keyword: keywordById.get(snap.keywordId) ?? '',
+      queryId: snap.queryId,
+      query: queryById.get(snap.queryId) ?? '',
       provider: snap.provider,
       citingCompetitors: citingCompetitors.sort(),
       runId: snap.runId,
@@ -233,7 +233,7 @@ export function computeCitationVisibility(input: ComputeInput): CitationVisibili
     })
   }
   competitorGaps.sort((a, b) => {
-    if (a.keyword !== b.keyword) return a.keyword.localeCompare(b.keyword)
+    if (a.query !== b.query) return a.query.localeCompare(b.query)
     return a.provider.localeCompare(b.provider)
   })
 
@@ -251,18 +251,18 @@ export function computeCitationVisibility(input: ComputeInput): CitationVisibili
     providersConfigured: providerUniverse.length,
     providersCiting: providersCitingTracker.size,
     providersMentioning: providersMentioningTracker.size,
-    totalKeywords: kws.length,
-    keywordsCitedAndMentioned,
-    keywordsCitedOnly,
-    keywordsMentionedOnly,
-    keywordsInvisible,
+    totalQueries: qs.length,
+    queriesCitedAndMentioned,
+    queriesCitedOnly,
+    queriesMentionedOnly,
+    queriesInvisible,
     latestRunId,
     latestRunAt,
   }
 
   return {
     summary,
-    byKeyword,
+    byQuery,
     competitorGaps,
     status: 'ready',
   }

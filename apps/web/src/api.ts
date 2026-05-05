@@ -164,8 +164,8 @@ export type ApiTriggerAllRunsResult = (ApiRun & { projectName: string }) | ApiTr
 export interface ApiSnapshot {
   id: string
   runId: string
-  keywordId: string
-  keyword: string | null
+  queryId: string
+  query: string | null
   provider: string
   citationState: CitationState
   answerMentioned?: boolean
@@ -186,9 +186,9 @@ export interface ApiRunDetail extends ApiRun {
   snapshots: ApiSnapshot[]
 }
 
-export interface ApiKeyword {
+export interface ApiQuery {
   id: string
-  keyword: string
+  query: string
   createdAt: string
 }
 
@@ -199,7 +199,7 @@ export interface ApiCompetitor {
 }
 
 export interface ApiTimelineEntry {
-  keyword: string
+  query: string
   runs: {
     runId: string
     createdAt: string
@@ -260,8 +260,8 @@ export function fetchRunDetail(id: string): Promise<ApiRunDetail> {
   return apiFetch(`/runs/${encodeURIComponent(id)}`)
 }
 
-export function fetchKeywords(name: string): Promise<ApiKeyword[]> {
-  return apiFetch(`/projects/${encodeURIComponent(name)}/keywords`)
+export function fetchQueries(name: string): Promise<ApiQuery[]> {
+  return apiFetch(`/projects/${encodeURIComponent(name)}/queries`)
 }
 
 export function fetchCompetitors(name: string): Promise<ApiCompetitor[]> {
@@ -298,24 +298,24 @@ export function createProject(name: string, body: {
   })
 }
 
-export function setKeywords(projectName: string, keywords: string[]): Promise<ApiKeyword[]> {
-  return apiFetch(`/projects/${encodeURIComponent(projectName)}/keywords`, {
+export function setQueries(projectName: string, queries: string[]): Promise<ApiQuery[]> {
+  return apiFetch(`/projects/${encodeURIComponent(projectName)}/queries`, {
     method: 'PUT',
-    body: JSON.stringify({ keywords }),
+    body: JSON.stringify({ queries }),
   })
 }
 
-export function deleteKeywords(projectName: string, keywords: string[]): Promise<ApiKeyword[]> {
-  return apiFetch(`/projects/${encodeURIComponent(projectName)}/keywords`, {
+export function deleteQueries(projectName: string, queries: string[]): Promise<ApiQuery[]> {
+  return apiFetch(`/projects/${encodeURIComponent(projectName)}/queries`, {
     method: 'DELETE',
-    body: JSON.stringify({ keywords }),
+    body: JSON.stringify({ queries }),
   })
 }
 
-export function appendKeywords(projectName: string, keywords: string[]): Promise<ApiKeyword[]> {
-  return apiFetch(`/projects/${encodeURIComponent(projectName)}/keywords`, {
+export function appendQueries(projectName: string, queries: string[]): Promise<ApiQuery[]> {
+  return apiFetch(`/projects/${encodeURIComponent(projectName)}/queries`, {
     method: 'POST',
-    body: JSON.stringify({ keywords }),
+    body: JSON.stringify({ queries }),
   })
 }
 
@@ -548,8 +548,8 @@ export function sendTestNotification(project: string, id: string): Promise<{ sta
   })
 }
 
-export function generateKeywords(projectName: string, provider: string, count?: number): Promise<{ keywords: string[]; provider: string }> {
-  return apiFetch(`/projects/${encodeURIComponent(projectName)}/keywords/generate`, {
+export function generateQueries(projectName: string, provider: string, count?: number): Promise<{ queries: string[]; provider: string }> {
+  return apiFetch(`/projects/${encodeURIComponent(projectName)}/queries/generate`, {
     method: 'POST',
     body: JSON.stringify({ provider, count }),
   })

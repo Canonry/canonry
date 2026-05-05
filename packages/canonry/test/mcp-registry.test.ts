@@ -38,7 +38,7 @@ const expectedToolNames = [
   'canonry_content_targets',
   'canonry_content_sources',
   'canonry_content_gaps',
-  'canonry_keywords_list',
+  'canonry_queries_list',
   'canonry_competitors_list',
   'canonry_schedule_get',
   'canonry_backlinks_latest_release',
@@ -61,12 +61,12 @@ const expectedToolNames = [
   'canonry_ga_session_history',
   'canonry_project_upsert',
   'canonry_apply_config',
-  'canonry_keywords_generate',
-  'canonry_keywords_replace',
+  'canonry_queries_generate',
+  'canonry_queries_replace',
   'canonry_run_trigger',
   'canonry_run_cancel',
-  'canonry_keywords_add',
-  'canonry_keywords_remove',
+  'canonry_queries_add',
+  'canonry_queries_remove',
   'canonry_competitors_add',
   'canonry_competitors_remove',
   'canonry_schedule_set',
@@ -166,16 +166,16 @@ describe('MCP tool registry', () => {
   })
 
   it('trims batch write strings before handlers receive them', () => {
-    const keywordsTool = canonryMcpTools.find(candidate => candidate.name === 'canonry_keywords_add')
+    const queriesTool = canonryMcpTools.find(candidate => candidate.name === 'canonry_queries_add')
     const competitorsTool = canonryMcpTools.find(candidate => candidate.name === 'canonry_competitors_add')
-    expect(keywordsTool).toBeTruthy()
+    expect(queriesTool).toBeTruthy()
     expect(competitorsTool).toBeTruthy()
 
-    expect(keywordsTool!.inputSchema.parse({ project: 'acme', request: { keywords: [' alpha '] } })).toEqual({
+    expect(queriesTool!.inputSchema.parse({ project: 'acme', request: { queries: [' alpha '] } })).toEqual({
       project: 'acme',
-      request: { keywords: ['alpha'] },
+      request: { queries: ['alpha'] },
     })
-    expect(() => keywordsTool!.inputSchema.parse({ project: 'acme', request: { keywords: ['  '] } })).toThrow()
+    expect(() => queriesTool!.inputSchema.parse({ project: 'acme', request: { queries: ['  '] } })).toThrow()
     expect(competitorsTool!.inputSchema.parse({ project: 'acme', request: { competitors: [' rival.example.com '] } })).toEqual({
       project: 'acme',
       request: { competitors: ['rival.example.com'] },
@@ -206,10 +206,10 @@ describe('MCP tool registry', () => {
     expect(annotations.canonry_run_cancel).toMatchObject({ idempotentHint: false, destructiveHint: true })
     expect(annotations.canonry_project_upsert).toMatchObject({ idempotentHint: true, destructiveHint: true })
     expect(annotations.canonry_apply_config).toMatchObject({ idempotentHint: true, destructiveHint: true })
-    expect(annotations.canonry_keywords_generate).toMatchObject({ idempotentHint: false, destructiveHint: false })
-    expect(annotations.canonry_keywords_replace).toMatchObject({ idempotentHint: true, destructiveHint: true })
-    expect(annotations.canonry_keywords_add).toMatchObject({ idempotentHint: true, destructiveHint: false })
-    expect(annotations.canonry_keywords_remove).toMatchObject({ idempotentHint: true, destructiveHint: true })
+    expect(annotations.canonry_queries_generate).toMatchObject({ idempotentHint: false, destructiveHint: false })
+    expect(annotations.canonry_queries_replace).toMatchObject({ idempotentHint: true, destructiveHint: true })
+    expect(annotations.canonry_queries_add).toMatchObject({ idempotentHint: true, destructiveHint: false })
+    expect(annotations.canonry_queries_remove).toMatchObject({ idempotentHint: true, destructiveHint: true })
     expect(annotations.canonry_competitors_add).toMatchObject({ idempotentHint: true, destructiveHint: false })
     expect(annotations.canonry_competitors_remove).toMatchObject({ idempotentHint: true, destructiveHint: true })
     expect(annotations.canonry_schedule_set).toMatchObject({ idempotentHint: true, destructiveHint: false })
@@ -257,10 +257,10 @@ describe('MCP tool registry', () => {
   it('maps ZodErrors to VALIDATION_ERROR envelopes', async () => {
     const schema = z.object({
       project: z.string().min(1),
-      request: z.object({ keywords: z.array(z.string()).min(1) }),
+      request: z.object({ queries: z.array(z.string()).min(1) }),
     })
     const result = await withToolErrors(async () => {
-      schema.parse({ project: 'acme', request: { keywords: [] } })
+      schema.parse({ project: 'acme', request: { queries: [] } })
       return { ok: true }
     })
 
@@ -270,8 +270,8 @@ describe('MCP tool registry', () => {
     }
     expect(envelope.error.code).toBe('VALIDATION_ERROR')
     expect(envelope.error.details.issues).toHaveLength(1)
-    expect(envelope.error.details.issues[0]!.path).toBe('request.keywords')
-    expect(envelope.error.message).toContain('request.keywords')
+    expect(envelope.error.details.issues[0]!.path).toBe('request.queries')
+    expect(envelope.error.message).toContain('request.queries')
   })
 
   it('preserves API error details in MCP tool errors', async () => {
@@ -430,7 +430,7 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_insight_get', input: { project: 'acme', insightId: 'insight-1' }, methods: ['getInsight'] },
   { tool: 'canonry_health_latest', input: projectInput, methods: ['getHealth'] },
   { tool: 'canonry_health_history', input: { project: 'acme', limit: 10 }, methods: ['getHealthHistory'] },
-  { tool: 'canonry_keywords_list', input: projectInput, methods: ['listKeywords'] },
+  { tool: 'canonry_queries_list', input: projectInput, methods: ['listQueries'] },
   { tool: 'canonry_competitors_list', input: projectInput, methods: ['listCompetitors'] },
   { tool: 'canonry_schedule_get', input: projectInput, methods: ['getSchedule'] },
   { tool: 'canonry_backlinks_latest_release', input: {}, methods: ['backlinksLatestRelease'] },
@@ -480,12 +480,12 @@ const handlerCases: HandlerCase[] = [
     },
     methods: ['apply'],
   },
-  { tool: 'canonry_keywords_generate', input: { project: 'acme', request: { provider: 'gemini', count: 3 } }, methods: ['generateKeywords'] },
-  { tool: 'canonry_keywords_replace', input: { project: 'acme', request: { keywords: ['alpha'] } }, methods: ['putKeywords'] },
+  { tool: 'canonry_queries_generate', input: { project: 'acme', request: { provider: 'gemini', count: 3 } }, methods: ['generateQueries'] },
+  { tool: 'canonry_queries_replace', input: { project: 'acme', request: { queries: ['alpha'] } }, methods: ['putQueries'] },
   { tool: 'canonry_run_trigger', input: { project: 'acme', request: { providers: ['gemini'] } }, methods: ['triggerRun'] },
   { tool: 'canonry_run_cancel', input: { runId: 'run-1' }, methods: ['cancelRun'] },
-  { tool: 'canonry_keywords_add', input: { project: 'acme', request: { keywords: ['alpha'] } }, methods: ['appendKeywords'] },
-  { tool: 'canonry_keywords_remove', input: { project: 'acme', request: { keywords: ['alpha'] } }, methods: ['deleteKeywords'] },
+  { tool: 'canonry_queries_add', input: { project: 'acme', request: { queries: ['alpha'] } }, methods: ['appendQueries'] },
+  { tool: 'canonry_queries_remove', input: { project: 'acme', request: { queries: ['alpha'] } }, methods: ['deleteQueries'] },
   { tool: 'canonry_competitors_add', input: { project: 'acme', request: { competitors: ['other.example.com'] } }, methods: ['appendCompetitors'] },
   { tool: 'canonry_competitors_remove', input: { project: 'acme', request: { competitors: ['other.example.com'] } }, methods: ['deleteCompetitors'] },
   { tool: 'canonry_schedule_set', input: { project: 'acme', schedule: { preset: 'daily', timezone: 'UTC' } }, methods: ['putSchedule'] },

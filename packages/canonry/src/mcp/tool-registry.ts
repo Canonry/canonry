@@ -3,8 +3,8 @@ import {
   AGENT_MEMORY_KEY_MAX_LENGTH,
   AGENT_MEMORY_VALUE_MAX_BYTES,
   competitorBatchRequestSchema,
-  keywordGenerateRequestSchema,
-  keywordBatchRequestSchema,
+  queryGenerateRequestSchema,
+  queryBatchRequestSchema,
   notificationCreateRequestSchema,
   notificationEventSchema,
   projectConfigSchema,
@@ -142,14 +142,14 @@ const gaTrafficInputSchema = gaWindowInputSchema.extend({
   limit: z.number().int().positive().max(500).optional(),
 })
 
-const keywordsInputSchema = z.object({
+const queriesInputSchema = z.object({
   project: projectNameSchema,
-  request: keywordBatchRequestSchema,
+  request: queryBatchRequestSchema,
 })
 
-const keywordGenerateInputSchema = z.object({
+const queryGenerateInputSchema = z.object({
   project: projectNameSchema,
-  request: keywordGenerateRequestSchema,
+  request: queryGenerateRequestSchema,
 })
 
 const competitorsInputSchema = z.object({
@@ -237,7 +237,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_project_overview',
     title: 'Get project overview (composite)',
-    description: 'One-call summary for "how is project X doing?" — bundles project info, latest run, top undismissed insights, latest health snapshot, keyword cited rate, per-provider breakdown, and gained/lost/emerging vs the previous run. Prefer this over fanning out to separate tools.',
+    description: 'One-call summary for "how is project X doing?" — bundles project info, latest run, top undismissed insights, latest health snapshot, query cited rate, per-provider breakdown, and gained/lost/emerging vs the previous run. Prefer this over fanning out to separate tools.',
     access: 'read',
     tier: 'core',
     inputSchema: projectInputSchema,
@@ -249,7 +249,7 @@ export const canonryMcpTools = [
     name: 'canonry_report',
     title: 'Get aggregated AEO report',
     description:
-      'Returns the full client-facing AEO report bundle for a project — executive summary, per-keyword × per-provider citation matrix, competitor landscape, AI source origin, GSC/GA4 performance, social and AI referrals, indexing health, citations trend, prioritized insights, and recommended next steps. Same payload `canonry report <project>` consumes to render the self-contained HTML.',
+      'Returns the full client-facing AEO report bundle for a project — executive summary, per-query × per-provider citation matrix, competitor landscape, AI source origin, GSC/GA4 performance, social and AI referrals, indexing health, citations trend, prioritized insights, and recommended next steps. Same payload `canonry report <project>` consumes to render the self-contained HTML.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: projectInputSchema,
@@ -260,7 +260,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_search',
     title: 'Search project (composite)',
-    description: 'Search query snapshots and intelligence insights for the given text. Looks at snapshot answer text, cited domains, raw provider responses, and insight title/keyword/recommendation/cause. Returns ranked hits with snippets — use it instead of paginating snapshots when you need to find a competitor mention or term.',
+    description: 'Search query snapshots and intelligence insights for the given text. Looks at snapshot answer text, cited domains, raw provider responses, and insight title/query/recommendation/cause. Returns ranked hits with snippets — use it instead of paginating snapshots when you need to find a competitor mention or term.',
     access: 'read',
     tier: 'core',
     inputSchema: z.object({
@@ -342,7 +342,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_timeline_get',
     title: 'Get project timeline',
-    description: 'Get per-keyword citation history for a Canonry project.',
+    description: 'Get per-query citation history for a Canonry project.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: timelineInputSchema,
@@ -423,7 +423,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_citations_visibility',
     title: 'Get citation visibility',
-    description: 'Single-call AI citation surface for a Canonry project. Returns the project headline (cited by N of M engines), per-keyword engine coverage rows from the latest snapshot per (keyword × provider), and a competitor-gap list (keywords where a configured competitor is cited but the project is not). Carries `status: "no-data"` with `reason: "no-keywords"` or `"no-runs-yet"` when inputs are missing.',
+    description: 'Single-call AI citation surface for a Canonry project. Returns the project headline (cited by N of M engines), per-query engine coverage rows from the latest snapshot per (query × provider), and a competitor-gap list (queries where a configured competitor is cited but the project is not). Carries `status: "no-data"` with `reason: "no-queries"` or `"no-runs-yet"` when inputs are missing.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: projectInputSchema,
@@ -468,15 +468,15 @@ export const canonryMcpTools = [
     handler: (client, input) => client.getContentGaps(input.project),
   }),
   defineTool({
-    name: 'canonry_keywords_list',
-    title: 'List keywords',
-    description: 'List tracked keywords for a Canonry project.',
+    name: 'canonry_queries_list',
+    title: 'List queries',
+    description: 'List tracked queries for a Canonry project.',
     access: 'read',
     tier: 'setup',
     inputSchema: projectInputSchema,
     annotations: readAnnotations(),
-    openApiOperations: ['GET /api/v1/projects/{name}/keywords'],
-    handler: (client, input) => client.listKeywords(input.project),
+    openApiOperations: ['GET /api/v1/projects/{name}/queries'],
+    handler: (client, input) => client.listQueries(input.project),
   }),
   defineTool({
     name: 'canonry_competitors_list',
@@ -726,27 +726,27 @@ export const canonryMcpTools = [
     handler: (client, input) => client.apply(input.config),
   }),
   defineTool({
-    name: 'canonry_keywords_generate',
-    title: 'Generate keyword suggestions',
-    description: 'Generate candidate key phrases using a configured provider. Returns suggestions only; use canonry_keywords_add to persist them.',
+    name: 'canonry_queries_generate',
+    title: 'Generate query suggestions',
+    description: 'Generate candidate queries using a configured provider. Returns suggestions only; use canonry_queries_add to persist them.',
     access: 'write',
     tier: 'setup',
-    inputSchema: keywordGenerateInputSchema,
+    inputSchema: queryGenerateInputSchema,
     annotations: writeAnnotations({ idempotentHint: false, openWorldHint: true }),
-    openApiOperations: ['POST /api/v1/projects/{name}/keywords/generate'],
-    handler: (client, input) => client.generateKeywords(input.project, input.request.provider, input.request.count),
+    openApiOperations: ['POST /api/v1/projects/{name}/queries/generate'],
+    handler: (client, input) => client.generateQueries(input.project, input.request.provider, input.request.count),
   }),
   defineTool({
-    name: 'canonry_keywords_replace',
-    title: 'Replace keywords',
-    description: 'Replace the tracked keyword set for a Canonry project.',
+    name: 'canonry_queries_replace',
+    title: 'Replace queries',
+    description: 'Replace the tracked query set for a Canonry project.',
     access: 'write',
     tier: 'setup',
-    inputSchema: keywordsInputSchema,
+    inputSchema: queriesInputSchema,
     annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
-    openApiOperations: ['PUT /api/v1/projects/{name}/keywords'],
+    openApiOperations: ['PUT /api/v1/projects/{name}/queries'],
     handler: async (client, input) => {
-      await client.putKeywords(input.project, uniqueStrings(input.request.keywords))
+      await client.putQueries(input.project, uniqueStrings(input.request.queries))
     },
   }),
   defineTool({
@@ -772,29 +772,29 @@ export const canonryMcpTools = [
     handler: (client, input) => client.cancelRun(input.runId),
   }),
   defineTool({
-    name: 'canonry_keywords_add',
-    title: 'Add keywords',
-    description: 'Append tracked keywords to a Canonry project; existing keywords are skipped by the API.',
+    name: 'canonry_queries_add',
+    title: 'Add queries',
+    description: 'Append tracked queries to a Canonry project; existing queries are skipped by the API.',
     access: 'write',
     tier: 'setup',
-    inputSchema: keywordsInputSchema,
+    inputSchema: queriesInputSchema,
     annotations: writeAnnotations({ idempotentHint: true }),
-    openApiOperations: ['POST /api/v1/projects/{name}/keywords'],
+    openApiOperations: ['POST /api/v1/projects/{name}/queries'],
     handler: async (client, input) => {
-      await client.appendKeywords(input.project, uniqueStrings(input.request.keywords))
+      await client.appendQueries(input.project, uniqueStrings(input.request.queries))
     },
   }),
   defineTool({
-    name: 'canonry_keywords_remove',
-    title: 'Remove keywords',
-    description: 'Remove tracked keywords from a Canonry project.',
+    name: 'canonry_queries_remove',
+    title: 'Remove queries',
+    description: 'Remove tracked queries from a Canonry project.',
     access: 'write',
     tier: 'setup',
-    inputSchema: keywordsInputSchema,
+    inputSchema: queriesInputSchema,
     annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
-    openApiOperations: ['DELETE /api/v1/projects/{name}/keywords'],
+    openApiOperations: ['DELETE /api/v1/projects/{name}/queries'],
     handler: async (client, input) => {
-      await client.deleteKeywords(input.project, uniqueStrings(input.request.keywords))
+      await client.deleteQueries(input.project, uniqueStrings(input.request.queries))
     },
   }),
   defineTool({

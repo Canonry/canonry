@@ -65,14 +65,14 @@ import type {
   ContentSourcesResponseDto,
   ContentGapsResponseDto,
   CompetitorDto,
-  KeywordDto,
+  QueryDto,
   ProjectOverviewDto,
   ProjectSearchResponseDto,
   DoctorReportDto,
   ProjectReportDto,
 } from '@ainyc/canonry-contracts'
 
-export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry, CompetitorDto, KeywordDto }
+export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry, CompetitorDto, QueryDto }
 
 /** Settings response from GET /settings */
 export interface SettingsDto {
@@ -100,7 +100,7 @@ export interface AgentTranscriptDto {
 }
 
 export interface TimelineDto {
-  keyword: string
+  query: string
   runs: {
     runId: string
     createdAt: string
@@ -396,20 +396,20 @@ export class ApiClient {
     await this.request<void>('DELETE', `/projects/${encodeURIComponent(name)}`)
   }
 
-  async putKeywords(project: string, keywords: string[]): Promise<void> {
-    await this.request<unknown>('PUT', `/projects/${encodeURIComponent(project)}/keywords`, { keywords })
+  async putQueries(project: string, queries: string[]): Promise<void> {
+    await this.request<unknown>('PUT', `/projects/${encodeURIComponent(project)}/queries`, { queries })
   }
 
-  async listKeywords(project: string): Promise<KeywordDto[]> {
-    return this.request<KeywordDto[]>('GET', `/projects/${encodeURIComponent(project)}/keywords`)
+  async listQueries(project: string): Promise<QueryDto[]> {
+    return this.request<QueryDto[]>('GET', `/projects/${encodeURIComponent(project)}/queries`)
   }
 
-  async deleteKeywords(project: string, keywords: string[]): Promise<void> {
-    await this.request<unknown>('DELETE', `/projects/${encodeURIComponent(project)}/keywords`, { keywords })
+  async deleteQueries(project: string, queries: string[]): Promise<void> {
+    await this.request<unknown>('DELETE', `/projects/${encodeURIComponent(project)}/queries`, { queries })
   }
 
-  async appendKeywords(project: string, keywords: string[]): Promise<void> {
-    await this.request<unknown>('POST', `/projects/${encodeURIComponent(project)}/keywords`, { keywords })
+  async appendQueries(project: string, queries: string[]): Promise<void> {
+    await this.request<unknown>('POST', `/projects/${encodeURIComponent(project)}/queries`, { queries })
   }
 
   async listCompetitors(project: string): Promise<CompetitorDto[]> {
@@ -487,7 +487,7 @@ export class ApiClient {
   async createSnapshot(body: {
     companyName: string
     domain: string
-    phrases?: string[]
+    queries?: string[]
     competitors?: string[]
   }): Promise<SnapshotReportDto> {
     return this.request<SnapshotReportDto>('POST', '/snapshot', body)
@@ -549,10 +549,10 @@ export class ApiClient {
     return this.request<TelemetryDto>('PUT', '/telemetry', { enabled })
   }
 
-  async generateKeywords(project: string, provider: string, count?: number): Promise<{ keywords: string[]; provider: string }> {
-    return this.request<{ keywords: string[]; provider: string }>(
+  async generateQueries(project: string, provider: string, count?: number): Promise<{ queries: string[]; provider: string }> {
+    return this.request<{ queries: string[]; provider: string }>(
       'POST',
-      `/projects/${encodeURIComponent(project)}/keywords/generate`,
+      `/projects/${encodeURIComponent(project)}/queries/generate`,
       { provider, count },
     )
   }

@@ -307,9 +307,9 @@ function renderCompetitors(pdf: PdfWriter, report: SnapshotReportDto) {
 
 function renderQueries(pdf: PdfWriter, report: SnapshotReportDto) {
   pdf.heading('Provider Comparison')
-  for (const query of report.queryResults) {
-    pdf.subheading(query.phrase, 11)
-    for (const result of query.providerResults) {
+  for (const queryResult of report.queryResults) {
+    pdf.subheading(queryResult.query, 11)
+    for (const result of queryResult.providerResults) {
       const status = result.error
         ? 'error'
         : result.mentioned

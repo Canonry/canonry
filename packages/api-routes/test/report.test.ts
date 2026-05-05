@@ -8,7 +8,7 @@ import {
   createClient,
   migrate,
   projects,
-  keywords,
+  queries as queriesTable,
   competitors,
   runs,
   querySnapshots,
@@ -54,12 +54,12 @@ function insertProject(
   return id
 }
 
-function insertKeyword(db: ReturnType<typeof createClient>, projectId: string, keyword: string) {
+function insertQuery(db: ReturnType<typeof createClient>, projectId: string, query: string) {
   const id = crypto.randomUUID()
-  db.insert(keywords).values({
+  db.insert(queriesTable).values({
     id,
     projectId,
-    keyword,
+    query,
     createdAt: new Date().toISOString(),
   }).run()
   return id
@@ -100,14 +100,14 @@ function insertRun(
 function insertSnapshot(
   db: ReturnType<typeof createClient>,
   runId: string,
-  keywordId: string,
+  queryId: string,
   overrides: Partial<typeof querySnapshots.$inferInsert> = {},
 ) {
   const id = crypto.randomUUID()
   db.insert(querySnapshots).values({
     id,
     runId,
-    keywordId,
+    queryId,
     provider: overrides.provider ?? 'gemini',
     model: overrides.model ?? 'gemini-2.0-flash',
     citationState: overrides.citationState ?? 'cited',
@@ -158,7 +158,7 @@ describe('GET /api/v1/projects/:name/report', () => {
     // executive summary defaults
     expect(body.executiveSummary.citationRate).toBe(0)
     expect(body.executiveSummary.trend).toBe('unknown')
-    expect(body.executiveSummary.keywordCount).toBe(0)
+    expect(body.executiveSummary.queryCount).toBe(0)
     expect(body.executiveSummary.competitorCount).toBe(0)
     expect(body.executiveSummary.providerCount).toBe(0)
     expect(body.executiveSummary.gsc).toBeNull()
@@ -166,7 +166,7 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(Array.isArray(body.executiveSummary.findings)).toBe(true)
 
     // scorecard
-    expect(body.citationScorecard.keywords).toEqual([])
+    expect(body.citationScorecard.queries).toEqual([])
     expect(body.citationScorecard.providers).toEqual([])
     expect(body.citationScorecard.matrix).toEqual([])
     expect(body.citationScorecard.providerRates).toEqual([])
@@ -188,10 +188,10 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.recommendedNextSteps).toEqual([])
   })
 
-  test('citation scorecard reflects keyword × provider matrix', async () => {
+  test('citation scorecard reflects query × provider matrix', async () => {
     const projectId = insertProject(ctx.db, 'scorecard')
-    const kwA = insertKeyword(ctx.db, projectId, 'aeo platform')
-    const kwB = insertKeyword(ctx.db, projectId, 'answer engine optimization')
+    const kwA = insertQuery(ctx.db, projectId, 'aeo platform')
+    const kwB = insertQuery(ctx.db, projectId, 'answer engine optimization')
     const runId = insertRun(ctx.db, projectId, { createdAt: '2026-04-01T00:00:00Z', finishedAt: '2026-04-01T00:01:00Z' })
 
     insertSnapshot(ctx.db, runId, kwA, { provider: 'gemini', citationState: 'cited' })
@@ -204,8 +204,8 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.body) as ProjectReportDto
 
-    expect(body.citationScorecard.keywords).toContain('aeo platform')
-    expect(body.citationScorecard.keywords).toContain('answer engine optimization')
+    expect(body.citationScorecard.queries).toContain('aeo platform')
+    expect(body.citationScorecard.queries).toContain('answer engine optimization')
     expect(body.citationScorecard.providers).toEqual(['gemini', 'openai'])
     expect(body.citationScorecard.matrix.length).toBe(2)
     expect(body.citationScorecard.matrix[0]!.length).toBe(2)
@@ -218,13 +218,13 @@ describe('GET /api/v1/projects/:name/report', () => {
 
     expect(body.executiveSummary.citationRate).toBe(50)
     expect(body.executiveSummary.providerCount).toBe(2)
-    expect(body.executiveSummary.keywordCount).toBe(2)
+    expect(body.executiveSummary.queryCount).toBe(2)
   })
 
   test('competitor landscape counts citations per tracked competitor', async () => {
     const projectId = insertProject(ctx.db, 'landscape')
-    const kwA = insertKeyword(ctx.db, projectId, 'k1')
-    const kwB = insertKeyword(ctx.db, projectId, 'k2')
+    const kwA = insertQuery(ctx.db, projectId, 'k1')
+    const kwB = insertQuery(ctx.db, projectId, 'k2')
     insertCompetitor(ctx.db, projectId, 'rival.com')
     insertCompetitor(ctx.db, projectId, 'other.com')
 
@@ -252,8 +252,8 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(byDomain.rival).toBeUndefined()
     expect(byDomain['rival.com']!.citationCount).toBe(2)
     expect(byDomain['other.com']!.citationCount).toBe(1)
-    expect(byDomain['rival.com']!.citedKeywords.sort()).toEqual(['k1', 'k2'])
-    expect(byDomain['other.com']!.citedKeywords).toEqual(['k2'])
+    expect(byDomain['rival.com']!.citedQueries.sort()).toEqual(['k1', 'k2'])
+    expect(byDomain['other.com']!.citedQueries).toEqual(['k2'])
     expect(body.competitorLandscape.projectCitationCount).toBe(1)
   })
 
@@ -262,7 +262,7 @@ describe('GET /api/v1/projects/:name/report', () => {
       canonicalDomain: 'example.com',
       ownedDomains: JSON.stringify(['brand.io']),
     })
-    const kw = insertKeyword(ctx.db, projectId, 'kw')
+    const kw = insertQuery(ctx.db, projectId, 'kw')
     const runId = insertRun(ctx.db, projectId)
 
     insertSnapshot(ctx.db, runId, kw, {
@@ -284,7 +284,7 @@ describe('GET /api/v1/projects/:name/report', () => {
   test('AI source origin tags competitor subdomains as competitors', async () => {
     const projectId = insertProject(ctx.db, 'comp-sub')
     insertCompetitor(ctx.db, projectId, 'rival.com')
-    const kw = insertKeyword(ctx.db, projectId, 'kw')
+    const kw = insertQuery(ctx.db, projectId, 'kw')
     const runId = insertRun(ctx.db, projectId)
     insertSnapshot(ctx.db, runId, kw, {
       provider: 'gemini',
@@ -303,7 +303,7 @@ describe('GET /api/v1/projects/:name/report', () => {
 
   test('AI source origin aggregates cited domains across snapshots', async () => {
     const projectId = insertProject(ctx.db, 'origin')
-    const kw = insertKeyword(ctx.db, projectId, 'kw')
+    const kw = insertQuery(ctx.db, projectId, 'kw')
     const runId = insertRun(ctx.db, projectId)
 
     insertSnapshot(ctx.db, runId, kw, {
@@ -545,7 +545,7 @@ describe('GET /api/v1/projects/:name/report', () => {
 
   test('citations trend returns one point per completed visibility run', async () => {
     const projectId = insertProject(ctx.db, 'trend')
-    const kw = insertKeyword(ctx.db, projectId, 'kw')
+    const kw = insertQuery(ctx.db, projectId, 'kw')
 
     const r1 = insertRun(ctx.db, projectId, { createdAt: '2026-04-01T00:00:00Z', finishedAt: '2026-04-01T00:01:00Z' })
     const r2 = insertRun(ctx.db, projectId, { createdAt: '2026-04-02T00:00:00Z', finishedAt: '2026-04-02T00:01:00Z' })
@@ -567,7 +567,7 @@ describe('GET /api/v1/projects/:name/report', () => {
 
   test('executiveSummary.trend resolves once enough runs are collected', async () => {
     const projectId = insertProject(ctx.db, 'trend-resolved')
-    const kw = insertKeyword(ctx.db, projectId, 'kw')
+    const kw = insertQuery(ctx.db, projectId, 'kw')
 
     // 4 runs: 0%, 0%, 0%, 100% — last delta is up, sample is large enough.
     for (let i = 0; i < 4; i++) {
@@ -589,7 +589,7 @@ describe('GET /api/v1/projects/:name/report', () => {
 
   test('findings detail surfaces "Establishing baseline" copy until enough runs exist', async () => {
     const projectId = insertProject(ctx.db, 'trend-baseline')
-    const kw = insertKeyword(ctx.db, projectId, 'kw')
+    const kw = insertQuery(ctx.db, projectId, 'kw')
 
     const r1 = insertRun(ctx.db, projectId, { createdAt: '2026-04-01T00:00:00Z', finishedAt: '2026-04-01T00:01:00Z' })
     const r2 = insertRun(ctx.db, projectId, { createdAt: '2026-04-02T00:00:00Z', finishedAt: '2026-04-02T00:01:00Z' })
@@ -608,7 +608,7 @@ describe('GET /api/v1/projects/:name/report', () => {
 
   test('partial runs power the scorecard but are excluded from the trend line', async () => {
     const projectId = insertProject(ctx.db, 'partial-run')
-    const kw = insertKeyword(ctx.db, projectId, 'kw')
+    const kw = insertQuery(ctx.db, projectId, 'kw')
 
     const completedId = insertRun(ctx.db, projectId, {
       status: 'completed',
@@ -630,13 +630,13 @@ describe('GET /api/v1/projects/:name/report', () => {
 
     expect(body.citationsTrend.length).toBe(1)
     expect(body.citationsTrend[0]!.runId).toBe(completedId)
-    expect(body.citationScorecard.keywords).toContain('kw')
+    expect(body.citationScorecard.queries).toContain('kw')
     expect(body.executiveSummary.citationRate).toBe(100)
   })
 
   test('trend stays "unknown" when only one visibility run has completed', async () => {
     const projectId = insertProject(ctx.db, 'single-run')
-    const kw = insertKeyword(ctx.db, projectId, 'kw')
+    const kw = insertQuery(ctx.db, projectId, 'kw')
     const runId = insertRun(ctx.db, projectId, { createdAt: '2026-04-01T00:00:00Z', finishedAt: '2026-04-01T00:01:00Z' })
     insertSnapshot(ctx.db, runId, kw, { citationState: 'cited' })
 
@@ -661,8 +661,8 @@ describe('GET /api/v1/projects/:name/report', () => {
         runId,
         type: 'regression',
         severity: 'critical',
-        title: 'Lost citation on key phrase',
-        keyword: 'aeo platform',
+        title: 'Lost citation on query',
+        query: 'aeo platform',
         provider: 'gemini',
         recommendation: JSON.stringify({ action: 'review-content', target: '/landing', reason: 'rival outranking' }),
         cause: null,
@@ -676,7 +676,7 @@ describe('GET /api/v1/projects/:name/report', () => {
         type: 'opportunity',
         severity: 'medium',
         title: 'New referring domain',
-        keyword: 'kw',
+        query: 'kw',
         provider: 'openai',
         recommendation: null,
         cause: null,
@@ -699,7 +699,7 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(horizons).toContain('immediate')
   })
 
-  test('insights are deduped by (keyword, provider, type) with instanceCount surfaced', async () => {
+  test('insights are deduped by (query, provider, type) with instanceCount surfaced', async () => {
     // A regression that fires across three runs should collapse to one
     // ReportInsight with instanceCount=3, not three separate rows. Without
     // dedup at the API layer, downstream consumers (executive findings,
@@ -721,7 +721,7 @@ describe('GET /api/v1/projects/:name/report', () => {
         type: 'regression',
         severity: 'critical',
         title: 'Lost citation on aeo platform',
-        keyword: 'aeo platform',
+        query: 'aeo platform',
         provider: 'gemini',
         recommendation: null,
         cause: null,
@@ -749,7 +749,7 @@ describe('GET /api/v1/projects/:name/report', () => {
     // off the user-visible headline rate, so it must read 'up' — not 'flat'
     // computed from two earlier completed points that pre-date the partial.
     const projectId = insertProject(ctx.db, 'partial-trend')
-    const kw = insertKeyword(ctx.db, projectId, 'kw')
+    const kw = insertQuery(ctx.db, projectId, 'kw')
 
     for (let i = 0; i < 4; i++) {
       const day = String(i + 1).padStart(2, '0')
@@ -782,7 +782,7 @@ describe('GET /api/v1/projects/:name/report', () => {
       displayName: 'Acme',
       canonicalDomain: 'acme.com',
     })
-    insertKeyword(ctx.db, projectId, 'tracked thing') // already tracked
+    insertQuery(ctx.db, projectId, 'tracked thing') // already tracked
     const syncRunId = insertRun(ctx.db, projectId, { kind: 'gsc-sync' })
 
     const seedGscRow = (query: string, impressions: number) => {
@@ -823,7 +823,7 @@ describe('GET /api/v1/projects/:name/report', () => {
       displayName: 'Acme Corp',
       canonicalDomain: 'acme-co.example.com',
     })
-    insertKeyword(ctx.db, projectId, 'tracked thing')
+    insertQuery(ctx.db, projectId, 'tracked thing')
     const syncRunId = insertRun(ctx.db, projectId, { kind: 'gsc-sync' })
 
     ctx.db.insert(gscSearchData).values({
@@ -850,7 +850,7 @@ describe('GET /api/v1/projects/:name/report', () => {
 
   test('insight history is capped at the most recent 5 visibility runs', async () => {
     // 6 answer-visibility runs with one regression insight per run (different
-    // keywords so dedup doesn't collapse them). Only the 5 most-recent should
+    // queries so dedup doesn't collapse them). Only the 5 most-recent should
     // surface; the oldest run's insight must be filtered out.
     const projectId = insertProject(ctx.db, 'insight-cap')
 
@@ -870,7 +870,7 @@ describe('GET /api/v1/projects/:name/report', () => {
         type: 'regression',
         severity: 'high',
         title: `Lost citation #${i}`,
-        keyword: `keyword-${i}`,
+        query: `query-${i}`,
         provider: 'gemini',
         recommendation: null,
         cause: null,

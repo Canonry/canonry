@@ -20,10 +20,10 @@ When a project has GA4 connected, traffic is a first-class signal alongside cita
 
 ### What to Prioritize
 1. Branded term regressions (losing citations for your own name = urgent)
-2. Competitive keyword losses (competitor gained where you lost)
-3. Informational gap expansion (new uncited keywords appearing)
+2. Competitive query losses (competitor gained where you lost)
+3. Informational gap expansion (new uncited queries appearing)
 4. Indexing issues (pages not indexed can't be cited)
-5. Content optimization (improve cited rate on partially-cited keywords)
+5. Content optimization (improve cited rate on partially-cited queries)
 
 ### What NOT to Do
 - Don't promise fixes will appear in the next sweep (AEO changes take weeks/months)
@@ -44,7 +44,7 @@ Detailed playbooks live alongside this file. Read them on demand when the task m
 | File | Read when |
 |---|---|
 | `references/orchestration.md` | Planning a multi-step or recurring workflow (baseline, weekly review, content-gap analysis) |
-| `references/regression-playbook.md` | A keyword lost its citation and you need to triage and respond |
+| `references/regression-playbook.md` | A query lost its citation and you need to triage and respond |
 | `references/memory-patterns.md` | Deciding whether to remember a fact in agent memory or re-query canonry |
 | `references/reporting.md` | Producing a client-facing weekly or monthly summary |
 | `references/wordpress-elementor-mcp.md` | Editing WordPress pages with the Elementor MCP integration |

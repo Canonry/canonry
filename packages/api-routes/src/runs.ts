@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, asc, desc, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { runs, querySnapshots, keywords, projects, parseJsonColumn } from '@ainyc/canonry-db'
+import { runs, querySnapshots, queries, projects, parseJsonColumn } from '@ainyc/canonry-db'
 import type { LocationContext } from '@ainyc/canonry-contracts'
 import {
   RunKinds,
@@ -391,8 +391,8 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
     .select({
       id: querySnapshots.id,
       runId: querySnapshots.runId,
-      keywordId: querySnapshots.keywordId,
-      keyword: keywords.keyword,
+      queryId: querySnapshots.queryId,
+      query: queries.query,
       provider: querySnapshots.provider,
       model: querySnapshots.model,
       citationState: querySnapshots.citationState,
@@ -406,7 +406,7 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
       createdAt: querySnapshots.createdAt,
     })
     .from(querySnapshots)
-    .leftJoin(keywords, eq(querySnapshots.keywordId, keywords.id))
+    .leftJoin(queries, eq(querySnapshots.queryId, queries.id))
     .where(eq(querySnapshots.runId, run.id))
     .all()
 
@@ -420,8 +420,8 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
       return {
         id: s.id,
         runId: s.runId,
-        keywordId: s.keywordId,
-        keyword: s.keyword,
+        queryId: s.queryId,
+        query: s.query,
         provider: s.provider,
         citationState: s.citationState,
         answerMentioned,

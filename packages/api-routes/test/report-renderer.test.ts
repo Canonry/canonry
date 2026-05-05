@@ -20,14 +20,14 @@ function emptyReport(): ProjectReportDto {
     executiveSummary: {
       citationRate: 0,
       trend: 'unknown',
-      keywordCount: 0,
+      queryCount: 0,
       competitorCount: 0,
       providerCount: 0,
       gsc: null,
       ga: null,
       findings: [],
     },
-    citationScorecard: { keywords: [], providers: [], matrix: [], providerRates: [] },
+    citationScorecard: { queries: [], providers: [], matrix: [], providerRates: [] },
     competitorLandscape: { projectCitationCount: 0, competitors: [] },
     aiSourceOrigin: { categories: [], topDomains: [] },
     gsc: null,
@@ -62,7 +62,7 @@ function richReport(): ProjectReportDto {
     executiveSummary: {
       citationRate: 65,
       trend: 'up',
-      keywordCount: 5,
+      queryCount: 5,
       competitorCount: 3,
       providerCount: 2,
       gsc: { clicks: 1000, impressions: 5000, ctr: 0.2, avgPosition: 4.5 },
@@ -73,7 +73,7 @@ function richReport(): ProjectReportDto {
       ],
     },
     citationScorecard: {
-      keywords: ['aeo platform', 'answer engine'],
+      queries: ['aeo platform', 'answer engine'],
       providers: ['gemini', 'openai'],
       matrix: [
         [
@@ -93,8 +93,8 @@ function richReport(): ProjectReportDto {
     competitorLandscape: {
       projectCitationCount: 4,
       competitors: [
-        { domain: 'rival.com', citationCount: 3, totalCount: 4, pressureLabel: 'High', citedKeywords: ['aeo platform'], sharePct: 0, theirCitedPages: [] },
-        { domain: 'other.com', citationCount: 1, totalCount: 4, pressureLabel: 'Low', citedKeywords: ['answer engine'], sharePct: 0, theirCitedPages: [] },
+        { domain: 'rival.com', citationCount: 3, totalCount: 4, pressureLabel: 'High', citedQueries: ['aeo platform'], sharePct: 0, theirCitedPages: [] },
+        { domain: 'other.com', citationCount: 1, totalCount: 4, pressureLabel: 'Low', citedQueries: ['answer engine'], sharePct: 0, theirCitedPages: [] },
       ],
     },
     aiSourceOrigin: {
@@ -187,7 +187,7 @@ function richReport(): ProjectReportDto {
         type: 'regression',
         severity: 'critical',
         title: 'Lost citation on aeo platform',
-        keyword: 'aeo platform',
+        query: 'aeo platform',
         provider: 'gemini',
         recommendation: 'review-content — /landing — rival outranking',
         createdAt: '2026-04-30T00:00:00Z',
@@ -332,7 +332,7 @@ describe('renderReportHtml', () => {
 
   test('citation matrix shows cited vs not-cited cells', () => {
     const html = renderReportHtml(richReport())
-    // Section content should include keywords from the matrix
+    // Section content should include queries from the matrix
     expect(html).toContain('aeo platform')
     expect(html).toContain('answer engine')
     // and provider names
@@ -429,11 +429,11 @@ describe('renderReportHtml', () => {
 
   test('renders GSC × AEO crossover companion blocks when non-empty', () => {
     const report = richReport()
-    report.gsc!.trackedButNoGsc = ['lonely-keyword']
+    report.gsc!.trackedButNoGsc = ['lonely-query']
     report.gsc!.gscButNotTracked = ['unknown-query']
     const html = renderReportHtml(report)
     const gscBlock = html.split('id="gsc"')[1]?.split('</section>')[0] ?? ''
-    expect(gscBlock).toContain('lonely-keyword')
+    expect(gscBlock).toContain('lonely-query')
     expect(gscBlock).toContain('unknown-query')
   })
 
@@ -443,14 +443,14 @@ describe('renderReportHtml', () => {
     report.gsc!.gscButNotTracked = []
     const html = renderReportHtml(report)
     const gscBlock = html.split('id="gsc"')[1]?.split('</section>')[0] ?? ''
-    expect(gscBlock).not.toContain('AEO keywords without search demand')
+    expect(gscBlock).not.toContain('AEO queries without search demand')
     expect(gscBlock).not.toContain('Search queries you should track')
   })
 
   test('renders × N count chip from the API-supplied instanceCount', () => {
     const report = richReport()
     report.insights = [
-      { id: 'i1', type: 'gain', severity: 'low', title: 'New citation for "kw"', keyword: 'kw', provider: 'gemini', recommendation: null, createdAt: '2026-01-03T00:00:00Z', instanceCount: 3 },
+      { id: 'i1', type: 'gain', severity: 'low', title: 'New citation for "kw"', query: 'kw', provider: 'gemini', recommendation: null, createdAt: '2026-01-03T00:00:00Z', instanceCount: 3 },
     ]
     const html = renderReportHtml(report)
     const block = html.split('id="insights"')[1]?.split('</section>')[0] ?? ''
@@ -465,8 +465,8 @@ describe('renderReportHtml', () => {
     // renderer must still collapse duplicates so existing reports stay
     // readable until the consumer upgrades.
     report.insights = [
-      { id: 'i1', type: 'gain', severity: 'low', title: 'Legacy', keyword: 'kw', provider: 'gemini', recommendation: null, createdAt: '2026-01-01T00:00:00Z' } as ProjectReportDto['insights'][number],
-      { id: 'i2', type: 'gain', severity: 'low', title: 'Legacy', keyword: 'kw', provider: 'gemini', recommendation: null, createdAt: '2026-01-02T00:00:00Z' } as ProjectReportDto['insights'][number],
+      { id: 'i1', type: 'gain', severity: 'low', title: 'Legacy', query: 'kw', provider: 'gemini', recommendation: null, createdAt: '2026-01-01T00:00:00Z' } as ProjectReportDto['insights'][number],
+      { id: 'i2', type: 'gain', severity: 'low', title: 'Legacy', query: 'kw', provider: 'gemini', recommendation: null, createdAt: '2026-01-02T00:00:00Z' } as ProjectReportDto['insights'][number],
     ]
     const html = renderReportHtml(report)
     const block = html.split('id="insights"')[1]?.split('</section>')[0] ?? ''

@@ -4,7 +4,7 @@ import {
   fetchProjects,
   fetchAllRuns,
   fetchSettings,
-  fetchKeywords,
+  fetchQueries,
   fetchCompetitors,
   fetchGscCoverage,
   fetchTimeline,
@@ -62,8 +62,8 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
         queryKey: queryKeys.projects.detail(project.id, completedRuns[0]?.id),
         queryFn: async (): Promise<ProjectData> => {
           const latestRunId = completedRuns[0]?.id
-          const [kws, comps, timeline, latestRunDetail, previousRunDetail, gscCoverage, bingCoverage, dbInsights] = await Promise.all([
-            fetchKeywords(project.name).catch(() => []),
+          const [qs, comps, timeline, latestRunDetail, previousRunDetail, gscCoverage, bingCoverage, dbInsights] = await Promise.all([
+            fetchQueries(project.name).catch(() => []),
             fetchCompetitors(project.name).catch(() => []),
             fetchTimeline(project.name).catch(() => []),
             latestRunId ? fetchRunDetail(latestRunId).catch(() => null) : Promise.resolve(null),
@@ -76,7 +76,7 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
           return {
             project,
             runs: projectRuns,
-            keywords: kws,
+            queries: qs,
             competitors: comps,
             timeline,
             latestRunDetail,

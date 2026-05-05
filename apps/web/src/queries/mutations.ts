@@ -4,8 +4,8 @@ import {
   ApiError,
   type ApiRun,
   type ApiTriggerAllRunsResult,
-  appendKeywords,
-  deleteKeywords,
+  appendQueries,
+  deleteQueries,
   fetchCompetitors,
   setCompetitors,
   triggerRun,
@@ -264,22 +264,22 @@ export function useDeleteProject() {
   })
 }
 
-export function useAppendKeywords() {
+export function useAppendQueries() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ projectName, keywords }: { projectName: string; keywords: string[] }) =>
-      appendKeywords(projectName, keywords),
+    mutationFn: ({ projectName, queries }: { projectName: string; queries: string[] }) =>
+      appendQueries(projectName, queries),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all })
     },
   })
 }
 
-export function useDeleteKeywords() {
+export function useDeleteQueries() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ projectName, keywords }: { projectName: string; keywords: string[] }) =>
-      deleteKeywords(projectName, keywords),
+    mutationFn: ({ projectName, queries }: { projectName: string; queries: string[] }) =>
+      deleteQueries(projectName, queries),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all })
     },

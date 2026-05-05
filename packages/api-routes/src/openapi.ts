@@ -326,19 +326,19 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/keywords',
-    summary: 'List keywords',
-    tags: ['keywords'],
+    path: '/api/v1/projects/{name}/queries',
+    summary: 'List queries',
+    tags: ['queries'],
     parameters: [nameParameter],
     responses: {
-      200: { description: 'Keywords returned.' },
+      200: { description: 'Queries returned.' },
     },
   },
   {
     method: 'put',
-    path: '/api/v1/projects/{name}/keywords',
-    summary: 'Replace keywords',
-    tags: ['keywords'],
+    path: '/api/v1/projects/{name}/queries',
+    summary: 'Replace queries',
+    tags: ['queries'],
     parameters: [nameParameter],
     requestBody: {
       required: true,
@@ -346,23 +346,23 @@ const routeCatalog: OpenApiOperation[] = [
         'application/json': {
           schema: {
             type: 'object',
-            required: ['keywords'],
+            required: ['queries'],
             properties: {
-              keywords: stringArraySchema,
+              queries: stringArraySchema,
             },
           },
         },
       },
     },
     responses: {
-      200: { description: 'Keywords replaced.' },
+      200: { description: 'Queries replaced.' },
     },
   },
   {
     method: 'delete',
-    path: '/api/v1/projects/{name}/keywords',
-    summary: 'Delete specific keywords',
-    tags: ['keywords'],
+    path: '/api/v1/projects/{name}/queries',
+    summary: 'Delete specific queries',
+    tags: ['queries'],
     parameters: [nameParameter],
     requestBody: {
       required: true,
@@ -370,24 +370,24 @@ const routeCatalog: OpenApiOperation[] = [
         'application/json': {
           schema: {
             type: 'object',
-            required: ['keywords'],
+            required: ['queries'],
             properties: {
-              keywords: stringArraySchema,
+              queries: stringArraySchema,
             },
           },
         },
       },
     },
     responses: {
-      200: { description: 'Remaining keywords returned.' },
-      400: { description: 'Invalid keyword delete request.' },
+      200: { description: 'Remaining queries returned.' },
+      400: { description: 'Invalid query delete request.' },
     },
   },
   {
     method: 'post',
-    path: '/api/v1/projects/{name}/keywords',
-    summary: 'Append keywords',
-    tags: ['keywords'],
+    path: '/api/v1/projects/{name}/queries',
+    summary: 'Append queries',
+    tags: ['queries'],
     parameters: [nameParameter],
     requestBody: {
       required: true,
@@ -395,23 +395,23 @@ const routeCatalog: OpenApiOperation[] = [
         'application/json': {
           schema: {
             type: 'object',
-            required: ['keywords'],
+            required: ['queries'],
             properties: {
-              keywords: stringArraySchema,
+              queries: stringArraySchema,
             },
           },
         },
       },
     },
     responses: {
-      200: { description: 'Keywords appended.' },
+      200: { description: 'Queries appended.' },
     },
   },
   {
     method: 'post',
-    path: '/api/v1/projects/{name}/keywords/generate',
-    summary: 'Generate keyword suggestions',
-    tags: ['keywords'],
+    path: '/api/v1/projects/{name}/queries/generate',
+    summary: 'Generate query suggestions',
+    tags: ['queries'],
     parameters: [nameParameter],
     requestBody: {
       required: true,
@@ -429,8 +429,8 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: { description: 'Keyword suggestions returned.' },
-      501: { description: 'Keyword generation is not available.' },
+      200: { description: 'Query suggestions returned.' },
+      501: { description: 'Query generation is not available.' },
     },
   },
   {
@@ -675,7 +675,7 @@ const routeCatalog: OpenApiOperation[] = [
   {
     method: 'get',
     path: '/api/v1/projects/{name}/timeline',
-    summary: 'Get keyword timeline',
+    summary: 'Get query timeline',
     tags: ['history'],
     parameters: [nameParameter, locationQueryParameter],
     responses: {
@@ -2312,9 +2312,9 @@ const routeCatalog: OpenApiOperation[] = [
   {
     method: 'get',
     path: '/api/v1/projects/{name}/citations/visibility',
-    summary: 'Citation visibility headline (citation + answer-mention, by engine + keyword)',
+    summary: 'Citation visibility headline (citation + answer-mention, by engine + query)',
     description:
-      'Single-call read for the AI citation surface. Returns two parallel headline metrics (`providersCiting` = engines that cite the project in their grounding/source list, `providersMentioning` = engines that name the project in answer prose), per-keyword cross-tab buckets (`keywordsCitedAndMentioned` / `keywordsCitedOnly` / `keywordsMentionedOnly` / `keywordsInvisible` — mutually exclusive over keywords that have at least one snapshot), per-keyword engine coverage rows from the latest snapshot per (keyword × provider) with both `cited` and `mentioned` flags, and a competitor-gap list (keywords where the project is not cited but a configured competitor is). Status `no-data` with `reason: "no-runs-yet"` or `"no-keywords"` when the project lacks the inputs.',
+      'Single-call read for the AI citation surface. Returns two parallel headline metrics (`providersCiting` = engines that cite the project in their grounding/source list, `providersMentioning` = engines that name the project in answer prose), per-query cross-tab buckets (`queriesCitedAndMentioned` / `queriesCitedOnly` / `queriesMentionedOnly` / `queriesInvisible` — mutually exclusive over queries that have at least one snapshot), per-query engine coverage rows from the latest snapshot per (query × provider) with both `cited` and `mentioned` flags, and a competitor-gap list (queries where the project is not cited but a configured competitor is). Status `no-data` with `reason: "no-runs-yet"` or `"no-queries"` when the project lacks the inputs.',
     tags: ['intelligence'],
     parameters: [nameParameter],
     responses: {
@@ -2373,7 +2373,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/overview',
     summary: 'Get a composite overview of project health',
     description:
-      'Bundles project info, latest run, top undismissed insights, the latest health snapshot, keyword cited rate, per-provider breakdown, and transitions vs. the previous run. Designed for the "how is project X doing?" question so agents can answer in one call.',
+      'Bundles project info, latest run, top undismissed insights, the latest health snapshot, query cited rate, per-provider breakdown, and transitions vs. the previous run. Designed for the "how is project X doing?" question so agents can answer in one call.',
     tags: ['intelligence'],
     parameters: [nameParameter],
     responses: {
@@ -2386,7 +2386,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/search',
     summary: 'Search query snapshots and insights for text',
     description:
-      'Returns the most recent snapshots and insights whose answer text, cited domains, raw response, or insight title/keyword/recommendation/cause matches the query. Use to find anything mentioning a competitor, term, or URL without paginating snapshots.',
+      'Returns the most recent snapshots and insights whose answer text, cited domains, raw response, or insight title/query/recommendation/cause matches the query. Use to find anything mentioning a competitor, term, or URL without paginating snapshots.',
     tags: ['intelligence'],
     parameters: [
       nameParameter,

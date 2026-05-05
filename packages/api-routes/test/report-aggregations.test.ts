@@ -1,7 +1,7 @@
 /**
  * PR B: aggregations layered onto the existing report builders.
  * - CompetitorRow.sharePct (SOV across all cited slots)
- * - CompetitorRow.theirCitedPages (URLs they were cited for + which keywords)
+ * - CompetitorRow.theirCitedPages (URLs they were cited for + which queries)
  * - GscSection.trackedButNoGsc + .gscButNotTracked (GSC × AEO crossover)
  */
 
@@ -15,7 +15,7 @@ import {
   createClient,
   migrate,
   projects,
-  keywords,
+  queries as queriesTable,
   competitors,
   runs,
   querySnapshots,
@@ -51,10 +51,10 @@ function insertProject(db: ReturnType<typeof createClient>, name: string, canoni
   return id
 }
 
-function insertKeyword(db: ReturnType<typeof createClient>, projectId: string, keyword: string) {
+function insertQuery(db: ReturnType<typeof createClient>, projectId: string, query: string) {
   const id = crypto.randomUUID()
-  db.insert(keywords).values({
-    id, projectId, keyword,
+  db.insert(queriesTable).values({
+    id, projectId, query,
     createdAt: new Date().toISOString(),
   }).run()
   return id
@@ -87,7 +87,7 @@ function insertRun(db: ReturnType<typeof createClient>, projectId: string) {
 function insertSnapshot(
   db: ReturnType<typeof createClient>,
   runId: string,
-  keywordId: string,
+  queryId: string,
   opts: {
     citedDomains?: string[]
     competitorOverlap?: string[]
@@ -98,7 +98,7 @@ function insertSnapshot(
   db.insert(querySnapshots).values({
     id: crypto.randomUUID(),
     runId,
-    keywordId,
+    queryId,
     provider: 'gemini',
     citationState: opts.citationState ?? 'cited',
     answerMentioned: false,
@@ -126,9 +126,9 @@ describe('CompetitorRow.sharePct (SOV)', () => {
     insertCompetitor(ctx.db, projectId, 'rival-a.com')
     insertCompetitor(ctx.db, projectId, 'rival-b.com')
 
-    const k1 = insertKeyword(ctx.db, projectId, 'k1')
-    const k2 = insertKeyword(ctx.db, projectId, 'k2')
-    const k3 = insertKeyword(ctx.db, projectId, 'k3')
+    const k1 = insertQuery(ctx.db, projectId, 'k1')
+    const k2 = insertQuery(ctx.db, projectId, 'k2')
+    const k3 = insertQuery(ctx.db, projectId, 'k3')
     const runId = insertRun(ctx.db, projectId)
 
     // Snap 1: project + rival-a
@@ -154,7 +154,7 @@ describe('CompetitorRow.sharePct (SOV)', () => {
   test('returns sharePct=0 for every row when no snapshots have any cited domain', async () => {
     const projectId = insertProject(ctx.db, 'empty')
     insertCompetitor(ctx.db, projectId, 'rival.com')
-    const k = insertKeyword(ctx.db, projectId, 'k')
+    const k = insertQuery(ctx.db, projectId, 'k')
     const runId = insertRun(ctx.db, projectId)
     insertSnapshot(ctx.db, runId, k, { citationState: 'not-cited', citedDomains: [] })
 
@@ -169,11 +169,11 @@ describe('CompetitorRow.sharePct (SOV)', () => {
 })
 
 describe('CompetitorRow.theirCitedPages', () => {
-  test('aggregates competitor cited URLs per keyword from groundingSources', async () => {
+  test('aggregates competitor cited URLs per query from groundingSources', async () => {
     const projectId = insertProject(ctx.db, 'pages')
     insertCompetitor(ctx.db, projectId, 'rival-a.com')
-    const k1 = insertKeyword(ctx.db, projectId, 'k1')
-    const k2 = insertKeyword(ctx.db, projectId, 'k2')
+    const k1 = insertQuery(ctx.db, projectId, 'k1')
+    const k2 = insertQuery(ctx.db, projectId, 'k2')
     const runId = insertRun(ctx.db, projectId)
 
     insertSnapshot(ctx.db, runId, k1, {
@@ -215,7 +215,7 @@ describe('CompetitorRow.theirCitedPages', () => {
   test('returns empty theirCitedPages when no grounding sources reference the competitor', async () => {
     const projectId = insertProject(ctx.db, 'no-pages')
     insertCompetitor(ctx.db, projectId, 'rival.com')
-    const k = insertKeyword(ctx.db, projectId, 'k')
+    const k = insertQuery(ctx.db, projectId, 'k')
     const runId = insertRun(ctx.db, projectId)
     insertSnapshot(ctx.db, runId, k, { citedDomains: ['rival.com'] }) // no rawResponse
 
@@ -230,7 +230,7 @@ describe('CompetitorRow.theirCitedPages', () => {
   test('ignores grounding sources from non-competitor domains', async () => {
     const projectId = insertProject(ctx.db, 'mixed')
     insertCompetitor(ctx.db, projectId, 'rival.com')
-    const k = insertKeyword(ctx.db, projectId, 'k')
+    const k = insertQuery(ctx.db, projectId, 'k')
     const runId = insertRun(ctx.db, projectId)
     insertSnapshot(ctx.db, runId, k, {
       citedDomains: ['rival.com', 'unrelated.com'],
@@ -276,10 +276,10 @@ describe('GscSection × AEO crossover', () => {
     }
   }
 
-  test('lists tracked AEO keywords with no GSC impressions', async () => {
+  test('lists tracked AEO queries with no GSC impressions', async () => {
     const projectId = insertProject(ctx.db, 'cross1')
-    insertKeyword(ctx.db, projectId, 'tracked-with-gsc')
-    insertKeyword(ctx.db, projectId, 'tracked-no-gsc')
+    insertQuery(ctx.db, projectId, 'tracked-with-gsc')
+    insertQuery(ctx.db, projectId, 'tracked-no-gsc')
     const runId = insertRun(ctx.db, projectId)
     seedGscQueries(ctx.db, projectId, runId, [['tracked-with-gsc', 50]])
 
@@ -291,9 +291,9 @@ describe('GscSection × AEO crossover', () => {
     expect(body.gsc!.trackedButNoGsc).toEqual(['tracked-no-gsc'])
   })
 
-  test('lists GSC top queries that are not tracked AEO keywords', async () => {
+  test('lists GSC top queries that are not tracked AEO queries', async () => {
     const projectId = insertProject(ctx.db, 'cross2')
-    insertKeyword(ctx.db, projectId, 'tracked')
+    insertQuery(ctx.db, projectId, 'tracked')
     const runId = insertRun(ctx.db, projectId)
     seedGscQueries(ctx.db, projectId, runId, [
       ['tracked', 100],
@@ -313,9 +313,9 @@ describe('GscSection × AEO crossover', () => {
     expect(body.gsc!.gscButNotTracked).not.toContain('tracked')
   })
 
-  test('case-insensitive match between tracked keyword and GSC query', async () => {
+  test('case-insensitive match between tracked query and GSC query', async () => {
     const projectId = insertProject(ctx.db, 'cross3')
-    insertKeyword(ctx.db, projectId, 'HVAC Estimator')
+    insertQuery(ctx.db, projectId, 'HVAC Estimator')
     const runId = insertRun(ctx.db, projectId)
     seedGscQueries(ctx.db, projectId, runId, [['hvac estimator', 100]])
 
@@ -327,9 +327,9 @@ describe('GscSection × AEO crossover', () => {
     expect(body.gsc!.gscButNotTracked).toEqual([])
   })
 
-  test('both lists empty when all tracked keywords have GSC entries and no extras exist', async () => {
+  test('both lists empty when all tracked queries have GSC entries and no extras exist', async () => {
     const projectId = insertProject(ctx.db, 'cross4')
-    insertKeyword(ctx.db, projectId, 'foo')
+    insertQuery(ctx.db, projectId, 'foo')
     const runId = insertRun(ctx.db, projectId)
     seedGscQueries(ctx.db, projectId, runId, [['foo', 50]])
 

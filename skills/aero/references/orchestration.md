@@ -11,9 +11,9 @@ Trigger: First sweep completes for a new project
 
 Steps:
 1. `canonry evidence <project> --format json` → get initial citation data
-2. Compute baseline: cited rate, provider breakdown, top/bottom keywords
+2. Compute baseline: cited rate, provider breakdown, top/bottom queries
 3. `npx @ainyc/aeo-audit "<domain>" --format json` → site readiness score
-4. Identify top 3 gaps (uncited keywords with fixable site issues)
+4. Identify top 3 gaps (uncited queries with fixable site issues)
 5. Generate onboarding report with baseline + action plan
 6. Store baseline metrics in memory
 
@@ -23,7 +23,7 @@ Trigger: Comparison shows decline or webhook fires regression.detected
 
 Steps:
 1. `canonry evidence <project> --format json` → current state
-2. `canonry history <project> --keyword "<keyword>"` → trend for affected keyword
+2. `canonry history <project>` → trend for affected query
 3. Check indexing: `canonry google coverage <project>` → is the page still indexed?
 4. Check competitor: did a competitor gain the citation we lost?
 5. Audit the page: `npx @ainyc/aeo-audit "<page-url>" --format json`
@@ -46,12 +46,12 @@ Steps:
 
 ## Workflow 4: Content Gap Analysis
 
-Trigger: User asks "why aren't we cited for X?" or multiple uncited keywords detected
+Trigger: User asks "why aren't we cited for X?" or multiple uncited queries detected
 
 Steps:
-1. `canonry evidence <project> --keyword "<keyword>"` → confirm uncited
+1. `canonry evidence <project>` → confirm uncited
 2. Check if a relevant page exists on the domain
-3. If no page: recommend content creation (topic, target keywords)
+3. If no page: recommend content creation (topic, target queries)
 4. If page exists: `npx @ainyc/aeo-audit "<page-url>"` → diagnose why uncited
 5. Check schema completeness, llms.txt coverage, indexing status
 6. Generate prioritized fix list

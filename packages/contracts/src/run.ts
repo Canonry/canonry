@@ -177,8 +177,8 @@ export type GroundingSource = z.infer<typeof groundingSourceSchema>
 export const querySnapshotDtoSchema = z.object({
   id: z.string(),
   runId: z.string(),
-  keywordId: z.string(),
-  keyword: z.string().optional(),
+  queryId: z.string(),
+  query: z.string().optional(),
   provider: providerNameSchema,
   citationState: citationStateSchema,
   answerMentioned: z.boolean().optional(),
@@ -206,8 +206,8 @@ export const snapshotListResponseSchema = z.object({
 export type SnapshotListResponse = z.infer<typeof snapshotListResponseSchema>
 
 export const snapshotDiffRowSchema = z.object({
-  keywordId: z.string().nullable(),
-  keyword: z.string().nullable(),
+  queryId: z.string().nullable(),
+  query: z.string().nullable(),
   run1State: citationStateSchema.nullable(),
   run2State: citationStateSchema.nullable(),
   run1AnswerMentioned: z.boolean().nullable(),

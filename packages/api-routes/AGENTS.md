@@ -62,7 +62,7 @@ import { resolveProject } from './helpers.js'
 
 // ✅ Correct — let the global handler serialize
 const project = resolveProject(app.db, request.params.name) // throws notFound on miss
-if (!body.keywords?.length) throw validationError('"keywords" must be non-empty')
+if (!body.queries?.length) throw validationError('"queries" must be non-empty')
 
 // ❌ Wrong — duplicates global handler logic
 try { resolveProject(app.db, name) } catch (e) { reply.status(e.statusCode).send(e.toJSON()) }

@@ -3,7 +3,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { createClient, migrate, apiKeys, keywords, querySnapshots, runs } from '@ainyc/canonry-db'
+import { createClient, migrate, apiKeys, queries, querySnapshots, runs } from '@ainyc/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 import { loadConfig } from '../src/config.js'
@@ -125,9 +125,9 @@ describe('operator CLI contract', () => {
     expect(parsed.runs).toBeInstanceOf(Array)
   })
 
-  it('supports JSON output for keyword replace and competitor remove', async () => {
+  it('supports JSON output for query replace and competitor remove', async () => {
     const replaceResult = await invokeCli([
-      'keyword',
+      'query',
       'replace',
       'test-proj',
       'answer visibility',
@@ -140,10 +140,10 @@ describe('operator CLI contract', () => {
     expect(replaceResult.stderr).toBe('')
     expect(JSON.parse(replaceResult.stdout)).toMatchObject({
       project: 'test-proj',
-      keywords: ['answer visibility', 'ai citations'],
+      queries: ['answer visibility', 'ai citations'],
       replacedCount: 2,
     })
-    expect((await client.listKeywords('test-proj')).map(row => row.keyword).sort()).toEqual(['ai citations', 'answer visibility'])
+    expect((await client.listQueries('test-proj')).map(row => row.query).sort()).toEqual(['ai citations', 'answer visibility'])
 
     await client.appendCompetitors('test-proj', ['rival.com', 'other-rival.com'])
     const removeResult = await invokeCli([
@@ -197,14 +197,14 @@ describe('operator CLI contract', () => {
 
   it('prints evidence to stdout in JSON mode', async () => {
     const project = await client.getProject('test-proj') as { id: string }
-    const keywordId = crypto.randomUUID()
+    const queryId = crypto.randomUUID()
     const runId = crypto.randomUUID()
     const createdAt = new Date().toISOString()
 
-    db.insert(keywords).values({
-      id: keywordId,
+    db.insert(queries).values({
+      id: queryId,
       projectId: project.id,
-      keyword: 'answer engine optimization',
+      query: 'answer engine optimization',
       createdAt,
     }).run()
 
@@ -219,7 +219,7 @@ describe('operator CLI contract', () => {
     db.insert(querySnapshots).values({
       id: crypto.randomUUID(),
       runId,
-      keywordId,
+      queryId,
       provider: 'gemini',
       citationState: 'cited',
       createdAt,
@@ -229,9 +229,9 @@ describe('operator CLI contract', () => {
 
     expect(result.exitCode).toBe(undefined)
     expect(result.stderr).toBe('')
-    const parsed = JSON.parse(result.stdout) as Array<{ keyword: string; cited: boolean }>
+    const parsed = JSON.parse(result.stdout) as Array<{ query: string; cited: boolean }>
     expect(parsed).toBeInstanceOf(Array)
-    expect(parsed[0]?.keyword).toBe('answer engine optimization')
+    expect(parsed[0]?.query).toBe('answer engine optimization')
     expect(parsed[0]?.cited).toBe(true)
   })
 
@@ -313,7 +313,7 @@ describe('operator CLI contract', () => {
       '  canonicalDomain: applied.example.com',
       '  country: US',
       '  language: en',
-      '  keywords:',
+      '  queries:',
       '    - answer engine optimization',
       '  competitors: []',
       '  providers: []',
@@ -585,12 +585,12 @@ describe('operator CLI contract', () => {
     expect(parsed.error.details.command).toBe('project.create')
   })
 
-  it('supports JSON output for keyword add/import/list/remove', async () => {
-    const keywordFile = path.join(tmpDir, 'keywords.txt')
-    fs.writeFileSync(keywordFile, ['site authority', 'answer engine roi'].join('\n'), 'utf-8')
+  it('supports JSON output for query add/import/list/remove', async () => {
+    const queryFile = path.join(tmpDir, 'queries.txt')
+    fs.writeFileSync(queryFile, ['site authority', 'answer engine roi'].join('\n'), 'utf-8')
 
     const addResult = await invokeCli([
-      'keyword',
+      'query',
       'add',
       'test-proj',
       'answer engine optimization',
@@ -598,21 +598,21 @@ describe('operator CLI contract', () => {
       '--format',
       'json',
     ])
-    const added = JSON.parse(addResult.stdout) as { project: string; keywords: string[]; addedCount: number }
+    const added = JSON.parse(addResult.stdout) as { project: string; queries: string[]; addedCount: number }
     expect(added.project).toBe('test-proj')
     expect(added.addedCount).toBe(2)
-    expect(added.keywords).toEqual(['answer engine optimization', 'brand monitoring'])
+    expect(added.queries).toEqual(['answer engine optimization', 'brand monitoring'])
 
-    const importResult = await invokeCli(['keyword', 'import', 'test-proj', keywordFile, '--format', 'json'])
-    const imported = JSON.parse(importResult.stdout) as { filePath: string; importedCount: number; keywords: string[] }
-    expect(imported.filePath).toBe(keywordFile)
+    const importResult = await invokeCli(['query', 'import', 'test-proj', queryFile, '--format', 'json'])
+    const imported = JSON.parse(importResult.stdout) as { filePath: string; importedCount: number; queries: string[] }
+    expect(imported.filePath).toBe(queryFile)
     expect(imported.importedCount).toBe(2)
-    expect(imported.keywords).toEqual(['site authority', 'answer engine roi'])
+    expect(imported.queries).toEqual(['site authority', 'answer engine roi'])
 
-    const listResult = await invokeCli(['keyword', 'list', 'test-proj', '--format', 'json'])
-    const listed = JSON.parse(listResult.stdout) as Array<{ keyword: string }>
+    const listResult = await invokeCli(['query', 'list', 'test-proj', '--format', 'json'])
+    const listed = JSON.parse(listResult.stdout) as Array<{ query: string }>
     expect(listed).toHaveLength(4)
-    expect(listed.map(entry => entry.keyword)).toEqual(expect.arrayContaining([
+    expect(listed.map(entry => entry.query)).toEqual(expect.arrayContaining([
       'answer engine optimization',
       'brand monitoring',
       'site authority',
@@ -620,7 +620,7 @@ describe('operator CLI contract', () => {
     ]))
 
     const removeResult = await invokeCli([
-      'keyword',
+      'query',
       'remove',
       'test-proj',
       'site authority',
@@ -628,19 +628,19 @@ describe('operator CLI contract', () => {
       'json',
     ])
     const removed = JSON.parse(removeResult.stdout) as {
-      removedKeywords: string[]
+      removedQueries: string[]
       removedCount: number
     }
-    expect(removed.removedKeywords).toEqual(['site authority'])
+    expect(removed.removedQueries).toEqual(['site authority'])
     expect(removed.removedCount).toBe(1)
   })
 
-  it('prints typed JSON errors for keyword usage and import failures', async () => {
+  it('prints typed JSON errors for query usage and import failures', async () => {
     const missingResult = await invokeCli([
-      'keyword',
+      'query',
       'import',
       'test-proj',
-      path.join(tmpDir, 'missing-keywords.txt'),
+      path.join(tmpDir, 'missing-queries.txt'),
       '--format',
       'json',
     ])
@@ -648,17 +648,17 @@ describe('operator CLI contract', () => {
     const missingParsed = JSON.parse(missingResult.stderr) as {
       error: { code: string; message: string; details: { filePath: string } }
     }
-    expect(missingParsed.error.code).toBe('KEYWORD_IMPORT_FILE_NOT_FOUND')
-    expect(missingParsed.error.details.filePath).toMatch(/missing-keywords\.txt$/)
+    expect(missingParsed.error.code).toBe('QUERY_IMPORT_FILE_NOT_FOUND')
+    expect(missingParsed.error.details.filePath).toMatch(/missing-queries\.txt$/)
 
-    const usageResult = await invokeCli(['keyword', 'generate', 'test-proj', '--format', 'json'])
+    const usageResult = await invokeCli(['query', 'generate', 'test-proj', '--format', 'json'])
     expect(usageResult.exitCode).toBe(1)
     const usageParsed = JSON.parse(usageResult.stderr) as {
       error: { code: string; message: string; details: { command: string } }
     }
     expect(usageParsed.error.code).toBe('CLI_USAGE_ERROR')
     expect(usageParsed.error.message).toBe('--provider is required (e.g. gemini, openai, claude, perplexity, local)')
-    expect(usageParsed.error.details.command).toBe('keyword.generate')
+    expect(usageParsed.error.details.command).toBe('query.generate')
   })
 
   it('supports JSON output for competitor add/list', async () => {

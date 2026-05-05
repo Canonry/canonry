@@ -12,7 +12,7 @@ export interface CDPTarget {
   /** CSS selector for the response container element (used for cropped screenshots) */
   responseSelector: string
   /** Type the query and submit it */
-  submitQuery(client: CDP.Client, keyword: string): Promise<void>
+  submitQuery(client: CDP.Client, query: string): Promise<void>
   /** Wait for the AI response to finish streaming */
   waitForResponse(client: CDP.Client): Promise<void>
   /** Extract the answer text from the DOM */

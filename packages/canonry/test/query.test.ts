@@ -7,14 +7,14 @@ import { createClient, migrate, apiKeys } from '@ainyc/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 
-describe('keyword commands', () => {
+describe('query commands', () => {
   let tmpDir: string
   let origConfigDir: string | undefined
   let client: ApiClient
   let close: () => Promise<void>
 
   beforeEach(async () => {
-    tmpDir = path.join(os.tmpdir(), `canonry-kw-test-${crypto.randomUUID()}`)
+    tmpDir = path.join(os.tmpdir(), `canonry-q-test-${crypto.randomUUID()}`)
     fs.mkdirSync(tmpDir, { recursive: true })
     origConfigDir = process.env.CANONRY_CONFIG_DIR
     process.env.CANONRY_CONFIG_DIR = tmpDir
@@ -67,52 +67,52 @@ describe('keyword commands', () => {
     if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('removeKeywords prints the count of actually deleted phrases', async () => {
-    await client.appendKeywords('test-proj', ['aeo tools', 'answer engine'])
+  it('removeQueries prints the count of actually deleted queries', async () => {
+    await client.appendQueries('test-proj', ['aeo tools', 'answer engine'])
 
-    const { removeKeywords } = await import('../src/commands/keyword.js')
+    const { removeQueries } = await import('../src/commands/query.js')
     const logs: string[] = []
     const origLog = console.log
     console.log = (...args: unknown[]) => logs.push(args.join(' '))
     try {
-      await removeKeywords('test-proj', ['aeo tools'])
+      await removeQueries('test-proj', ['aeo tools'])
     } finally {
       console.log = origLog
     }
 
     const output = logs.join('\n')
-    expect(output).toMatch(/Removed 1 key phrase\(s\) from "test-proj"/)
+    expect(output).toMatch(/Removed 1 query from "test-proj"/)
   })
 
-  it('removeKeywords reports 0 when none of the requested phrases exist', async () => {
-    const { removeKeywords } = await import('../src/commands/keyword.js')
+  it('removeQueries reports 0 when none of the requested queries exist', async () => {
+    const { removeQueries } = await import('../src/commands/query.js')
     const logs: string[] = []
     const origLog = console.log
     console.log = (...args: unknown[]) => logs.push(args.join(' '))
     try {
-      await removeKeywords('test-proj', ['does not exist'])
+      await removeQueries('test-proj', ['does not exist'])
     } finally {
       console.log = origLog
     }
 
     const output = logs.join('\n')
-    expect(output).toMatch(/Removed 0 key phrase\(s\) from "test-proj"/)
+    expect(output).toMatch(/Removed 0 queries from "test-proj"/)
   })
 
-  it('removeKeywords counts only the phrases that actually existed', async () => {
-    await client.appendKeywords('test-proj', ['real phrase'])
+  it('removeQueries counts only the queries that actually existed', async () => {
+    await client.appendQueries('test-proj', ['real phrase'])
 
-    const { removeKeywords } = await import('../src/commands/keyword.js')
+    const { removeQueries } = await import('../src/commands/query.js')
     const logs: string[] = []
     const origLog = console.log
     console.log = (...args: unknown[]) => logs.push(args.join(' '))
     try {
-      await removeKeywords('test-proj', ['real phrase', 'phantom phrase'])
+      await removeQueries('test-proj', ['real phrase', 'phantom phrase'])
     } finally {
       console.log = origLog
     }
 
     const output = logs.join('\n')
-    expect(output).toMatch(/Removed 1 key phrase\(s\) from "test-proj"/)
+    expect(output).toMatch(/Removed 1 query from "test-proj"/)
   })
 })

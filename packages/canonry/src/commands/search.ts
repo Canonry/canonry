@@ -19,14 +19,14 @@ export async function searchProject(
   }
   for (const hit of result.hits) {
     if (hit.kind === 'snapshot') {
-      console.log(`  [snapshot] ${hit.keyword} (${hit.provider}, ${hit.citationState}) — ${hit.matchedField}`)
+      console.log(`  [snapshot] ${hit.query} (${hit.provider}, ${hit.citationState}) — ${hit.matchedField}`)
       console.log(`    ${hit.snippet}`)
       console.log(`    run=${hit.runId}  at ${hit.createdAt}`)
     } else {
       const dismissed = hit.dismissed ? ' [dismissed]' : ''
       console.log(`  [insight ${hit.severity.toUpperCase()}] ${hit.type} — ${hit.title}${dismissed}`)
       console.log(`    ${hit.snippet}`)
-      console.log(`    keyword=${hit.keyword}  at ${hit.createdAt}`)
+      console.log(`    query=${hit.query}  at ${hit.createdAt}`)
     }
     console.log('')
   }

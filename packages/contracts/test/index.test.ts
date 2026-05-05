@@ -163,7 +163,7 @@ test('projectConfigSchema validates canonry.yaml structure', () => {
 
   expect(config.metadata.name).toBe('my-project')
   expect(config.metadata.labels).toEqual({})
-  expect(config.spec.keywords).toEqual([])
+  expect(config.spec.queries).toEqual([])
   expect(config.spec.competitors).toEqual([])
 })
 
@@ -246,7 +246,7 @@ test('querySnapshotDtoSchema applies defaults', () => {
   const snapshot = querySnapshotDtoSchema.parse({
     id: 'snap_1',
     runId: 'run_1',
-    keywordId: 'kw_1',
+    queryId: 'q_1',
     provider: 'gemini',
     citationState: 'cited',
     createdAt: '2026-03-09T00:00:00.000Z',
@@ -266,7 +266,7 @@ test('querySnapshotDtoSchema accepts all provider names', () => {
     const snapshot = querySnapshotDtoSchema.parse({
       id: 'snap_1',
       runId: 'run_1',
-      keywordId: 'kw_1',
+      queryId: 'q_1',
       provider,
       citationState: 'cited',
       createdAt: '2026-03-09T00:00:00.000Z',
@@ -500,7 +500,7 @@ test('querySnapshotDtoSchema accepts location string', () => {
   const snapshot = querySnapshotDtoSchema.parse({
     id: 'snap_1',
     runId: 'run_1',
-    keywordId: 'kw_1',
+    queryId: 'q_1',
     provider: 'gemini',
     citationState: 'cited',
     location: 'nyc',
@@ -513,7 +513,7 @@ test('querySnapshotDtoSchema defaults location to undefined', () => {
   const snapshot = querySnapshotDtoSchema.parse({
     id: 'snap_1',
     runId: 'run_1',
-    keywordId: 'kw_1',
+    queryId: 'q_1',
     provider: 'openai',
     citationState: 'not-cited',
     createdAt: '2026-03-09T00:00:00.000Z',
@@ -525,7 +525,7 @@ test('querySnapshotDtoSchema accepts null location', () => {
   const snapshot = querySnapshotDtoSchema.parse({
     id: 'snap_1',
     runId: 'run_1',
-    keywordId: 'kw_1',
+    queryId: 'q_1',
     provider: 'claude',
     citationState: 'cited',
     location: null,

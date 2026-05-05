@@ -15,7 +15,7 @@ export function CompetitorTable({ competitors }: { competitors: ProjectCommandCe
             <th>Domain</th>
             <th>Pressure</th>
             <th>Citations</th>
-            <th>Key Phrases</th>
+            <th>Queries</th>
           </tr>
         </thead>
         <tbody>
@@ -28,13 +28,13 @@ export function CompetitorTable({ competitors }: { competitors: ProjectCommandCe
                 </ToneBadge>
               </td>
               <td className="text-zinc-300 tabular-nums">
-                {competitor.totalKeywords > 0
-                  ? `${competitor.citationCount} / ${competitor.totalKeywords}`
+                {competitor.totalQueries > 0
+                  ? `${competitor.citationCount} / ${competitor.totalQueries}`
                   : '\u2014'}
               </td>
               <td className="text-zinc-500 text-xs">
-                {competitor.citedKeywords.length > 0
-                  ? competitor.citedKeywords.join(', ')
+                {competitor.citedQueries.length > 0
+                  ? competitor.citedQueries.join(', ')
                   : 'Not cited'}
               </td>
             </tr>

@@ -4,7 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
-import { createClient, migrate, projects, keywords, querySnapshots, runs } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
 
@@ -119,65 +119,65 @@ describe('api-routes', () => {
     expect(res.statusCode).toBe(404)
   })
 
-  it('PUT /api/v1/projects/:name/keywords sets keywords', async () => {
+  it('PUT /api/v1/projects/:name/queries sets queries', async () => {
     const res = await app.inject({
       method: 'PUT',
-      url: '/api/v1/projects/my-site/keywords',
-      payload: { keywords: ['aeo tools', 'answer engine'] },
+      url: '/api/v1/projects/my-site/queries',
+      payload: { queries: ['aeo tools', 'answer engine'] },
     })
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload)
     expect(body).toHaveLength(2)
   })
 
-  it('DELETE /api/v1/projects/:name/keywords removes specific keywords', async () => {
+  it('DELETE /api/v1/projects/:name/queries removes specific queries', async () => {
     const res = await app.inject({
       method: 'DELETE',
-      url: '/api/v1/projects/my-site/keywords',
-      payload: { keywords: ['aeo tools'] },
+      url: '/api/v1/projects/my-site/queries',
+      payload: { queries: ['aeo tools'] },
     })
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload)
     expect(body).toHaveLength(1)
-    expect(body[0].keyword).toBe('answer engine')
+    expect(body[0].query).toBe('answer engine')
   })
 
-  it('DELETE /api/v1/projects/:name/keywords ignores non-existent keywords', async () => {
+  it('DELETE /api/v1/projects/:name/queries ignores non-existent queries', async () => {
     const res = await app.inject({
       method: 'DELETE',
-      url: '/api/v1/projects/my-site/keywords',
-      payload: { keywords: ['does not exist'] },
+      url: '/api/v1/projects/my-site/queries',
+      payload: { queries: ['does not exist'] },
     })
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload)
     expect(body).toHaveLength(1)
   })
 
-  it('DELETE /api/v1/projects/:name/keywords rejects empty array', async () => {
+  it('DELETE /api/v1/projects/:name/queries rejects empty array', async () => {
     const res = await app.inject({
       method: 'DELETE',
-      url: '/api/v1/projects/my-site/keywords',
-      payload: { keywords: [] },
+      url: '/api/v1/projects/my-site/queries',
+      payload: { queries: [] },
     })
     expect(res.statusCode).toBe(400)
   })
 
-  // Re-add keywords for subsequent tests
-  it('POST /api/v1/projects/:name/keywords re-adds keywords', async () => {
+  // Re-add queries for subsequent tests
+  it('POST /api/v1/projects/:name/queries re-adds queries', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: '/api/v1/projects/my-site/keywords',
-      payload: { keywords: ['aeo tools'] },
+      url: '/api/v1/projects/my-site/queries',
+      payload: { queries: ['aeo tools'] },
     })
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload)
     expect(body).toHaveLength(2)
   })
 
-  it('POST /api/v1/projects/:name/keywords/generate returns provider suggestions', async () => {
+  it('POST /api/v1/projects/:name/queries/generate returns provider suggestions', async () => {
     const ctx = buildApp({
       validProviderNames: ['gemini'],
-      onGenerateKeywords: async (provider, count, project) => {
+      onGenerateQueries: async (provider, count, project) => {
         expect(provider).toBe('gemini')
         expect(count).toBe(3)
         expect(project.domain).toBe('example.com')
@@ -199,14 +199,14 @@ describe('api-routes', () => {
 
       const res = await ctx.app.inject({
         method: 'POST',
-        url: '/api/v1/projects/generator/keywords/generate',
+        url: '/api/v1/projects/generator/queries/generate',
         payload: { provider: 'gemini', count: 3 },
       })
 
       expect(res.statusCode).toBe(200)
       expect(JSON.parse(res.payload)).toEqual({
         provider: 'gemini',
-        keywords: ['answer visibility software', 'ai citation tracking'],
+        queries: ['answer visibility software', 'ai citation tracking'],
       })
     } finally {
       await ctx.app.close()
@@ -423,7 +423,7 @@ describe('api-routes', () => {
 
   it('run detail and project snapshot history expose recommendedCompetitors', async () => {
     const projectId = crypto.randomUUID()
-    const keywordId = crypto.randomUUID()
+    const queryId = crypto.randomUUID()
     const runId = crypto.randomUUID()
     const now = new Date(Date.now() + 30_000).toISOString()
 
@@ -439,10 +439,10 @@ describe('api-routes', () => {
       updatedAt: now,
     }).run()
 
-    db.insert(keywords).values({
-      id: keywordId,
+    db.insert(queries).values({
+      id: queryId,
       projectId,
-      keyword: 'best example software',
+      query: 'best example software',
       createdAt: now,
     }).run()
 
@@ -457,7 +457,7 @@ describe('api-routes', () => {
     db.insert(querySnapshots).values({
       id: crypto.randomUUID(),
       runId,
-      keywordId,
+      queryId,
       provider: 'gemini',
       citationState: 'not-cited',
       answerText: '1. Downtown Smiles - strong reviews',
@@ -497,7 +497,7 @@ describe('api-routes', () => {
 
   it('project timeline exposes answer visibility states and transitions', async () => {
     const projectId = crypto.randomUUID()
-    const keywordId = crypto.randomUUID()
+    const queryId = crypto.randomUUID()
     const run1Id = crypto.randomUUID()
     const run2Id = crypto.randomUUID()
     const run1At = new Date(Date.now() + 40_000).toISOString()
@@ -515,10 +515,10 @@ describe('api-routes', () => {
       updatedAt: run1At,
     }).run()
 
-    db.insert(keywords).values({
-      id: keywordId,
+    db.insert(queries).values({
+      id: queryId,
       projectId,
-      keyword: 'best example tooling',
+      query: 'best example tooling',
       createdAt: run1At,
     }).run()
 
@@ -543,7 +543,7 @@ describe('api-routes', () => {
       {
         id: crypto.randomUUID(),
         runId: run1Id,
-        keywordId,
+        queryId,
         provider: 'gemini',
         citationState: 'not-cited',
         answerMentioned: false,
@@ -557,7 +557,7 @@ describe('api-routes', () => {
       {
         id: crypto.randomUUID(),
         runId: run2Id,
-        keywordId,
+        queryId,
         provider: 'gemini',
         citationState: 'not-cited',
         answerMentioned: true,
@@ -606,7 +606,7 @@ describe('api-routes', () => {
 
   it('GET /api/v1/projects/:name/snapshots/diff includes visibility comparison fields', async () => {
     const projectId = crypto.randomUUID()
-    const keywordId = crypto.randomUUID()
+    const queryId = crypto.randomUUID()
     const run1Id = crypto.randomUUID()
     const run2Id = crypto.randomUUID()
     const run1At = new Date('2025-02-01T10:00:00.000Z').toISOString()
@@ -625,10 +625,10 @@ describe('api-routes', () => {
       updatedAt: run1At,
     }).run()
 
-    db.insert(keywords).values({
-      id: keywordId,
+    db.insert(queries).values({
+      id: queryId,
       projectId,
-      keyword: 'best example tooling',
+      query: 'best example tooling',
       createdAt: run1At,
     }).run()
 
@@ -653,7 +653,7 @@ describe('api-routes', () => {
       {
         id: crypto.randomUUID(),
         runId: run1Id,
-        keywordId,
+        queryId,
         provider: 'gemini',
         citationState: 'not-cited',
         answerMentioned: false,
@@ -667,7 +667,7 @@ describe('api-routes', () => {
       {
         id: crypto.randomUUID(),
         runId: run2Id,
-        keywordId,
+        queryId,
         provider: 'gemini',
         citationState: 'not-cited',
         answerMentioned: true,

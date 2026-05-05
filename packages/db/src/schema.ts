@@ -20,14 +20,14 @@ export const projects = sqliteTable('projects', {
   updatedAt: text('updated_at').notNull(),
 })
 
-export const keywords = sqliteTable('keywords', {
+export const queries = sqliteTable('queries', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
-  keyword: text('keyword').notNull(),
+  query: text('query').notNull(),
   createdAt: text('created_at').notNull(),
 }, (table) => [
-  index('idx_keywords_project').on(table.projectId),
-  uniqueIndex('idx_keywords_project_keyword').on(table.projectId, table.keyword),
+  index('idx_queries_project').on(table.projectId),
+  uniqueIndex('idx_queries_project_query').on(table.projectId, table.query),
 ])
 
 export const competitors = sqliteTable('competitors', {
@@ -59,7 +59,7 @@ export const runs = sqliteTable('runs', {
 export const querySnapshots = sqliteTable('query_snapshots', {
   id: text('id').primaryKey(),
   runId: text('run_id').notNull().references(() => runs.id, { onDelete: 'cascade' }),
-  keywordId: text('keyword_id').notNull().references(() => keywords.id, { onDelete: 'cascade' }),
+  queryId: text('query_id').notNull().references(() => queries.id, { onDelete: 'cascade' }),
   provider: text('provider').notNull().default('gemini'),
   model: text('model'),
   citationState: text('citation_state').notNull(),
@@ -74,7 +74,7 @@ export const querySnapshots = sqliteTable('query_snapshots', {
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_snapshots_run').on(table.runId),
-  index('idx_snapshots_keyword').on(table.keywordId),
+  index('idx_snapshots_query').on(table.queryId),
   index('idx_snapshots_citation_state').on(table.citationState),
   index('idx_snapshots_provider_model').on(table.provider, table.model),
   index('idx_snapshots_location').on(table.location),
@@ -388,7 +388,7 @@ export const insights = sqliteTable('insights', {
   type: text('type').notNull(),
   severity: text('severity').notNull(),
   title: text('title').notNull(),
-  keyword: text('keyword').notNull(),
+  query: text('query').notNull(),
   provider: text('provider').notNull(),
   recommendation: text('recommendation'),
   cause: text('cause'),
@@ -398,7 +398,7 @@ export const insights = sqliteTable('insights', {
   index('idx_insights_project').on(table.projectId),
   index('idx_insights_run').on(table.runId),
   index('idx_insights_created').on(table.createdAt),
-  index('idx_insights_keyword_provider').on(table.keyword, table.provider),
+  index('idx_insights_query_provider').on(table.query, table.provider),
 ])
 
 export const healthSnapshots = sqliteTable('health_snapshots', {

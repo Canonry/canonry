@@ -9,13 +9,13 @@ Pure analysis library for computing intelligence insights from run data. Takes r
 | File | Role |
 |------|------|
 | `src/analyzer.ts` | `analyzeRuns()` — main entry point, orchestrates all analysis |
-| `src/regressions.ts` | Detects keywords that lost citation between runs |
-| `src/gains.ts` | Detects keywords that gained citation between runs |
+| `src/regressions.ts` | Detects queries that lost citation between runs |
+| `src/gains.ts` | Detects queries that gained citation between runs |
 | `src/health.ts` | Computes overall and per-provider citation health metrics |
 | `src/causes.ts` | Root cause analysis for regressions (competitor displacement, etc.) |
 | `src/insights.ts` | Transforms raw analysis into user-facing insight objects |
 | `src/insight-severity.ts` | `classifyRegressionSeverity({ gscImpressions, recurrenceCount })` — pure tiering rule. Caller supplies the signals (lookups happen in `IntelligenceService`); rule lives here so the dashboard, CLI, and Aero classify identically. |
-| `src/insight-grouping.ts` | `groupInsights<T>(insights, keyFn?)` — generic dedup over `(keyword, provider, type)`. Consumed by report renderer + any future CLI/dashboard list view to collapse repeat alerts. |
+| `src/insight-grouping.ts` | `groupInsights<T>(insights, keyFn?)` — generic dedup over `(query, provider, type)`. Consumed by report renderer + any future CLI/dashboard list view to collapse repeat alerts. |
 | `src/next-steps.ts` | `mapOpportunitiesToNextSteps()` — auto-fills `recommendedNextSteps` from scored content opportunities when the upstream insight-driven builder produced none. Pure mapper consumed by both `api-routes/report.ts` and `canonry/report-renderer.ts`. |
 | `src/query-categorize.ts` | `buildBrandTokens()` + `categorizeQueryByIntent()` — brand/lead-gen/industry/other classifier. Compact-token brand matching handles spacing/hyphenation variants ("demand iq" / "demandiq" / "demand-iq" all match `demand-iq.com`). Replaces the regex-only categorizer that lived in `report.ts`. |
 | `src/trend-stability.ts` | `isTrendBaseline(points)` + `MIN_TREND_POINTS` — predicate any consumer (renderer, dashboard tile, Aero) calls before showing a trend chart. Suppresses misleading visualizations on small samples. |

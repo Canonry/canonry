@@ -10,7 +10,7 @@ import {
   gscCoverageSnapshots,
   gscSearchData,
   insights,
-  keywords,
+  queries,
   parseJsonColumn,
   querySnapshots,
   runs,
@@ -97,7 +97,7 @@ function categorizeQuery(query: string, projectDisplayName: string, canonicalDom
 interface SnapshotRow {
   id: string
   runId: string
-  keywordId: string
+  queryId: string
   provider: string
   model: string | null
   citationState: string
@@ -114,7 +114,7 @@ function loadSnapshotsForRun(db: DatabaseClient, runId: string): SnapshotRow[] {
   return rows.map(r => ({
     id: r.id,
     runId: r.runId,
-    keywordId: r.keywordId,
+    queryId: r.queryId,
     provider: r.provider,
     model: r.model,
     citationState: r.citationState,
@@ -127,48 +127,48 @@ function loadSnapshotsForRun(db: DatabaseClient, runId: string): SnapshotRow[] {
   }))
 }
 
-interface KeywordLookup {
+interface QueryLookup {
   byId: Map<string, string>
 }
 
-function loadKeywordLookup(db: DatabaseClient, projectId: string): KeywordLookup {
-  const rows = db.select().from(keywords).where(eq(keywords.projectId, projectId)).all()
+function loadQueryLookup(db: DatabaseClient, projectId: string): QueryLookup {
+  const rows = db.select().from(queries).where(eq(queries.projectId, projectId)).all()
   const byId = new Map<string, string>()
-  for (const row of rows) byId.set(row.id, row.keyword)
+  for (const row of rows) byId.set(row.id, row.query)
   return { byId }
 }
 
 function buildCitationScorecard(
   snapshots: SnapshotRow[],
-  keywordLookup: KeywordLookup,
+  queryLookup: QueryLookup,
 ): ProjectReportDto['citationScorecard'] {
   if (snapshots.length === 0) {
-    return { keywords: [], providers: [], matrix: [], providerRates: [] }
+    return { queries: [], providers: [], matrix: [], providerRates: [] }
   }
 
-  const keywordSet = new Set<string>()
+  const querySet = new Set<string>()
   const providerSet = new Set<string>()
   for (const snap of snapshots) {
-    const kw = keywordLookup.byId.get(snap.keywordId)
-    if (!kw) continue
-    keywordSet.add(kw)
+    const q = queryLookup.byId.get(snap.queryId)
+    if (!q) continue
+    querySet.add(q)
     providerSet.add(snap.provider)
   }
-  const keywordList = [...keywordSet].sort()
+  const queryList = [...querySet].sort()
   const providerList = [...providerSet].sort()
 
-  const matrix: Array<Array<CitationCell | null>> = keywordList.map(() =>
+  const matrix: Array<Array<CitationCell | null>> = queryList.map(() =>
     providerList.map(() => null),
   )
   const providerCounts = new Map<string, { cited: number; total: number }>()
 
   for (const snap of snapshots) {
-    const kw = keywordLookup.byId.get(snap.keywordId)
-    if (!kw) continue
-    const ki = keywordList.indexOf(kw)
+    const q = queryLookup.byId.get(snap.queryId)
+    if (!q) continue
+    const qi = queryList.indexOf(q)
     const pi = providerList.indexOf(snap.provider)
-    if (ki < 0 || pi < 0) continue
-    matrix[ki]![pi] = {
+    if (qi < 0 || pi < 0) continue
+    matrix[qi]![pi] = {
       citationState: snap.citationState === 'cited' ? 'cited' : 'not-cited',
       answerMentioned: snap.answerMentioned ?? null,
       model: snap.model,
@@ -190,26 +190,26 @@ function buildCitationScorecard(
     }
   })
 
-  return { keywords: keywordList, providers: providerList, matrix, providerRates }
+  return { queries: queryList, providers: providerList, matrix, providerRates }
 }
 
 function buildCompetitorLandscape(
   snapshots: SnapshotRow[],
   competitorDomains: string[],
   projectDomains: string[],
-  keywordLookup: KeywordLookup,
+  queryLookup: QueryLookup,
 ): ProjectReportDto['competitorLandscape'] {
   let projectCitationCount = 0
   const competitorMap = new Map<
     string,
-    { count: number; keywords: Set<string>; pages: Map<string, Set<string>> }
+    { count: number; queries: Set<string>; pages: Map<string, Set<string>> }
   >()
   for (const c of competitorDomains) {
-    competitorMap.set(c, { count: 0, keywords: new Set(), pages: new Map() })
+    competitorMap.set(c, { count: 0, queries: new Set(), pages: new Map() })
   }
 
   for (const snap of snapshots) {
-    const kw = keywordLookup.byId.get(snap.keywordId)
+    const q = queryLookup.byId.get(snap.queryId)
     const allDomains = [...snap.citedDomains, ...snap.competitorOverlap]
     if (allDomains.some(d => citedDomainBelongsToProject(d, projectDomains))) {
       projectCitationCount++
@@ -219,7 +219,7 @@ function buildCompetitorLandscape(
       if (allDomains.some(d => citedDomainBelongsToProject(d, [competitor]))) {
         const entry = competitorMap.get(competitor)!
         entry.count++
-        if (kw) entry.keywords.add(kw)
+        if (q) entry.queries.add(q)
       }
       // Aggregate cited URLs from grounding sources whose host matches this
       // competitor — independent of citationState because grounding indicates
@@ -230,9 +230,9 @@ function buildCompetitorLandscape(
         if (!host) continue
         if (host === competitorNorm || host.endsWith(`.${competitorNorm}`)) {
           const entry = competitorMap.get(competitor)!
-          const pageKeywords = entry.pages.get(gs.uri) ?? new Set<string>()
-          if (kw) pageKeywords.add(kw)
-          entry.pages.set(gs.uri, pageKeywords)
+          const pageQueries = entry.pages.get(gs.uri) ?? new Set<string>()
+          if (q) pageQueries.add(q)
+          entry.pages.set(gs.uri, pageQueries)
         }
       }
     }
@@ -255,14 +255,14 @@ function buildCompetitorLandscape(
       ? Math.round((data.count / totalCitedSlots) * 100)
       : 0
     const theirCitedPages = [...data.pages.entries()]
-      .map(([url, kws]) => ({ url, citedFor: [...kws].sort() }))
+      .map(([url, qs]) => ({ url, citedFor: [...qs].sort() }))
       .sort((a, b) => b.citedFor.length - a.citedFor.length)
     return {
       domain,
       citationCount: data.count,
       totalCount: total,
       pressureLabel,
-      citedKeywords: [...data.keywords].sort(),
+      citedQueries: [...data.queries].sort(),
       sharePct,
       theirCitedPages,
     }
@@ -320,7 +320,7 @@ function buildGscSection(
   projectId: string,
   projectDisplayName: string,
   canonicalDomain: string,
-  trackedKeywords: string[],
+  trackedQueries: string[],
 ): ProjectReportDto['gsc'] {
   const rows = db.select().from(gscSearchData).where(eq(gscSearchData.projectId, projectId)).all()
   if (rows.length === 0) return null
@@ -381,12 +381,12 @@ function buildGscSection(
     .map(([date, agg]) => ({ date, clicks: agg.clicks, impressions: agg.impressions }))
     .sort((a, b) => a.date.localeCompare(b.date))
 
-  const trackedSet = new Set(trackedKeywords.map(k => k.toLowerCase()))
+  const trackedSet = new Set(trackedQueries.map(q => q.toLowerCase()))
   const gscQuerySet = new Set([...queryAgg.keys()].map(q => q.toLowerCase()))
-  const trackedButNoGsc = trackedKeywords.filter(k => !gscQuerySet.has(k.toLowerCase())).sort()
+  const trackedButNoGsc = trackedQueries.filter(q => !gscQuerySet.has(q.toLowerCase())).sort()
   // Surface brand-free candidates only — brand queries already convert
   // regardless of AEO tracking, so they're not actionable additions to
-  // the project keyword set.
+  // the project query set.
   const gscButNotTracked = [...queryAgg.entries()]
     .filter(([q]) => !trackedSet.has(q.toLowerCase()))
     .filter(([q]) => categorizeQuery(q, projectDisplayName, canonicalDomain) !== 'brand')
@@ -658,7 +658,7 @@ function buildIndexingHealth(db: DatabaseClient, projectId: string): ProjectRepo
 function buildCitationsTrend(
   db: DatabaseClient,
   projectId: string,
-  keywordLookup: KeywordLookup,
+  queryLookup: QueryLookup,
 ): CitationsTrendPoint[] {
   const visibilityRuns = db
     .select()
@@ -676,7 +676,7 @@ function buildCitationsTrend(
     let considered = 0
     const providerCounts = new Map<string, { cited: number; total: number }>()
     for (const snap of snaps) {
-      if (!keywordLookup.byId.has(snap.keywordId)) continue
+      if (!queryLookup.byId.has(snap.queryId)) continue
       considered++
       if (snap.citationState === 'cited') cited++
       const counts = providerCounts.get(snap.provider) ?? { cited: 0, total: 0 }
@@ -751,7 +751,7 @@ function buildInsightList(db: DatabaseClient, projectId: string): ReportInsight[
         type: r.type as ReportInsight['type'],
         severity: r.severity as ReportInsight['severity'],
         title: r.title,
-        keyword: r.keyword,
+        query: r.query,
         provider: r.provider,
         recommendation: recText,
         createdAt: r.createdAt,
@@ -761,7 +761,7 @@ function buildInsightList(db: DatabaseClient, projectId: string): ReportInsight[
     })
 
   // Dedup at the API layer so all consumers — DTO, executive findings, next
-  // steps, renderer — see one row per (keyword, provider, type) tuple.
+  // steps, renderer — see one row per (query, provider, type) tuple.
   // Without this, a regression that fired in three runs would inflate counts
   // in `buildExecutiveFindings` (e.g. "3 critical regressions" when there is
   // really one) and "Resolve 3 critical regressions" in next-steps.
@@ -774,7 +774,7 @@ function buildInsightList(db: DatabaseClient, projectId: string): ReportInsight[
         type: rep.type,
         severity: rep.severity,
         title: rep.title,
-        keyword: rep.keyword,
+        query: rep.query,
         provider: rep.provider,
         recommendation: rep.recommendation,
         createdAt: rep.createdAt,
@@ -871,7 +871,7 @@ function buildExecutiveFindings(
 
 function buildProjectReport(db: DatabaseClient, projectName: string): ProjectReportDto {
   const project = resolveProject(db, projectName)
-  const keywordLookup = loadKeywordLookup(db, project.id)
+  const queryLookup = loadQueryLookup(db, project.id)
 
   const allRuns = db
     .select()
@@ -894,27 +894,27 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
   const ownedDomains = parseJsonColumn<string[]>(project.ownedDomains, [])
   const projectDomains = [project.canonicalDomain, ...ownedDomains]
 
-  const citationScorecard = buildCitationScorecard(latestSnapshots, keywordLookup)
+  const citationScorecard = buildCitationScorecard(latestSnapshots, queryLookup)
   const competitorLandscape = buildCompetitorLandscape(
     latestSnapshots,
     competitorDomains,
     projectDomains,
-    keywordLookup,
+    queryLookup,
   )
   const aiSourceOrigin = buildAiSourceOrigin(latestSnapshots, projectDomains, competitorDomains)
-  const trackedKeywords = [...keywordLookup.byId.values()]
+  const trackedQueries = [...queryLookup.byId.values()]
   const gscSection = buildGscSection(
     db,
     project.id,
     project.displayName,
     project.canonicalDomain,
-    trackedKeywords,
+    trackedQueries,
   )
   const gaSection = buildGaSection(db, project.id)
   const socialSection = buildSocialReferrals(db, project.id)
   const aiReferralsSection = buildAiReferrals(db, project.id)
   const indexingHealthSection = buildIndexingHealth(db, project.id)
-  const citationsTrend = buildCitationsTrend(db, project.id, keywordLookup)
+  const citationsTrend = buildCitationsTrend(db, project.id, queryLookup)
   const insightList = buildInsightList(db, project.id)
 
   const orchestratorInput = loadOrchestratorInput(db, project)
@@ -931,7 +931,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
   let latestCited = 0
   let latestConsidered = 0
   for (const snap of latestSnapshots) {
-    if (!keywordLookup.byId.has(snap.keywordId)) continue
+    if (!queryLookup.byId.has(snap.queryId)) continue
     latestConsidered++
     if (snap.citationState === 'cited') latestCited++
   }
@@ -993,7 +993,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
     executiveSummary: {
       citationRate,
       trend,
-      keywordCount: keywordLookup.byId.size,
+      queryCount: queryLookup.byId.size,
       competitorCount: competitorDomains.length,
       providerCount: citationScorecard.providers.length,
       gsc: gscSection

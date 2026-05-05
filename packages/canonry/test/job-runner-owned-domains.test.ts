@@ -12,7 +12,7 @@ import type {
   RawQueryResult,
   NormalizedQueryResult,
 } from '@ainyc/canonry-contracts'
-import { createClient, migrate, keywords, projects, querySnapshots, runs } from '@ainyc/canonry-db'
+import { createClient, migrate, queries, projects, querySnapshots, runs } from '@ainyc/canonry-db'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 
@@ -24,7 +24,7 @@ test('JobRunner marks citations on owned domains as cited', async () => {
   migrate(db)
 
   const projectId = crypto.randomUUID()
-  const keywordId = crypto.randomUUID()
+  const queryId = crypto.randomUUID()
   const runId = crypto.randomUUID()
   const now = new Date().toISOString()
   let receivedDomains: string[] = []
@@ -85,10 +85,10 @@ test('JobRunner marks citations on owned domains as cited', async () => {
     updatedAt: now,
   }).run()
 
-  db.insert(keywords).values({
-    id: keywordId,
+  db.insert(queries).values({
+    id: queryId,
     projectId,
-    keyword: 'test keyword',
+    query: 'test query',
     createdAt: now,
   }).run()
 
@@ -118,7 +118,7 @@ test('JobRunner stores answerMentioned when the answer names the project', async
   migrate(db)
 
   const projectId = crypto.randomUUID()
-  const keywordId = crypto.randomUUID()
+  const queryId = crypto.randomUUID()
   const runId = crypto.randomUUID()
   const now = new Date().toISOString()
 
@@ -176,10 +176,10 @@ test('JobRunner stores answerMentioned when the answer names the project', async
     updatedAt: now,
   }).run()
 
-  db.insert(keywords).values({
-    id: keywordId,
+  db.insert(queries).values({
+    id: queryId,
     projectId,
-    keyword: 'best digital health platforms',
+    query: 'best digital health platforms',
     createdAt: now,
   }).run()
 

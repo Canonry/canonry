@@ -74,7 +74,7 @@ canonry mcp config  --client codex               # print snippet for unsupported
 original, and is idempotent. Restart the client after install to pick it up.
 
 The adapter exposes 48 tools — projects, runs, snapshots, insights, health,
-keyword and competitor management, schedules, GSC and GA reads, and the
+query and competitor management, schedules, GSC and GA reads, and the
 config-as-code apply path. Auth and configuration are inherited from
 `~/.canonry/config.yaml`. See [`docs/mcp.md`](docs/mcp.md) for the full
 surface and safety rules.
@@ -128,7 +128,7 @@ spec:
   canonicalDomain: example.com
   country: US
   language: en
-  keywords:
+  queries:
     - best dental implants near me
     - emergency dentist open now
   competitors:
@@ -156,17 +156,17 @@ Canonry is **agent-first** — every dashboard view has a matching API endpoint 
 |--------|----------------|------------|
 | **Projects** | Create, read, update, delete projects; locations; export | `PUT /projects/{name}`, `GET /projects`, `GET /projects/{name}/export` |
 | **Apply** | Config-as-code — declarative multi-project upsert | `POST /apply` |
-| **Keywords / Competitors** | Per-project keyword and competitor management | `POST/DELETE /projects/{name}/keywords`, `/competitors` |
+| **Queries / Competitors** | Per-project query and competitor management | `POST/DELETE /projects/{name}/queries`, `/competitors` |
 | **Runs** | Trigger, list, cancel, and inspect visibility sweeps | `POST /projects/{name}/runs`, `GET /runs`, `POST /runs/{id}/cancel` |
 | **Schedules** | Cron-based recurring sweeps | `GET/PUT /projects/{name}/schedule` |
-| **History / Snapshots** | Timeline + run diffs + per-keyword citation state | `GET /projects/{name}/timeline`, `/snapshots/diff`, `/history` |
+| **History / Snapshots** | Timeline + run diffs + per-query citation state | `GET /projects/{name}/timeline`, `/snapshots/diff`, `/history` |
 | **Intelligence** | DB-backed insights + health snapshots + dismissal | `GET /projects/{name}/insights`, `/health`, `POST /insights/{id}/dismiss` |
 | **Content** | Action-typed content opportunities, gaps, and grounding-source map | `GET /projects/{name}/content/targets`, `/gaps`, `/sources` |
 | **Notifications** | Webhook subscriptions per project (agent or user-defined) | `GET/POST/DELETE /projects/{name}/notifications`, `POST /.../test` |
 | **Analytics** | Aggregated dashboard analytics | `GET /projects/{name}/analytics` |
 | **Google (GSC + OAuth)** | Search Console integration, OAuth flow, property selection, URL inspection | `/google/*`, `/projects/{name}/google/*` |
 | **Google Analytics (GA4)** | Traffic, social referrals, attribution, AI referrals | `/projects/{name}/ga/*` |
-| **Bing Webmaster** | Coverage, URL inspection, keyword stats | `/projects/{name}/bing/*` |
+| **Bing Webmaster** | Coverage, URL inspection, keyword stats (Bing's term) | `/projects/{name}/bing/*` |
 | **WordPress** | Content publishing + site management integration | `/projects/{name}/wordpress/*` |
 | **CDP (ChatGPT browser provider)** | Chrome DevTools Protocol health and session status | `/cdp/*` |
 | **Settings / Auth / Telemetry** | Server config, API key management, opt-in telemetry | `/settings`, `/telemetry` |
@@ -194,10 +194,10 @@ Canonry ships a bundled `canonry-setup` skill that turns Aero (or any Claude-pow
 
 The skill covers the end-to-end answer-engine optimization loop:
 
-- **AEO monitoring.** Running citation sweeps across Gemini, ChatGPT, Claude, and Perplexity via `canonry run` / `canonry evidence` / `canonry status`, including how to interpret per-phrase citation state and regressions.
+- **AEO monitoring.** Running citation sweeps across Gemini, ChatGPT, Claude, and Perplexity via `canonry run` / `canonry evidence` / `canonry status`, including how to interpret per-query citation state and regressions.
 - **Technical SEO audits.** Driving the companion [`@ainyc/aeo-audit`](https://www.npmjs.com/package/@ainyc/aeo-audit) CLI for 14-factor scoring — structured data (JSON-LD), content depth, AI-readable files (`llms.txt`, `llms-full.txt`), E-E-A-T signals, FAQ blocks, definition blocks, H1/alt/meta hygiene.
 - **Indexing diagnosis.** Google Search Console and Bing Webmaster Tools coverage, URL inspection, and one-shot submissions via `canonry google request-indexing` / `canonry bing request-indexing`.
-- **Schema & content execution.** Patterns for injecting LocalBusiness/FAQPage JSON-LD, writing `llms.txt` with service-area detail, trimming keyphrase lists to high-intent queries, and handling WordPress/Elementor specifics (REST API, Application Passwords, Elementor Custom Code).
+- **Schema & content execution.** Patterns for injecting LocalBusiness/FAQPage JSON-LD, writing `llms.txt` with service-area detail, trimming query lists to high-intent queries, and handling WordPress/Elementor specifics (REST API, Application Passwords, Elementor Custom Code).
 - **Diagnose → prioritize → execute → monitor → report workflow.** Opinionated defaults for new sites (0 citations), regressions on established sites, and county-level targeting — with guardrails like "never fabricate citation data" and "back up `~/.canonry/config.yaml` before editing".
 
 See [`skills/canonry-setup/SKILL.md`](skills/canonry-setup/SKILL.md) plus the reference files under [`skills/canonry-setup/references/`](skills/canonry-setup/references/) (`canonry-cli.md`, `aeo-analysis.md`, `indexing.md`, `wordpress-integration.md`) for the full playbook. Aero loads the same material natively, so anything an external agent can do through the skill, Aero can do from the CLI or dashboard command bar.

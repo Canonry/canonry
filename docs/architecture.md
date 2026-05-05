@@ -2,9 +2,9 @@
 
 ## Overview
 
-Canonry is a self-hosted agent-first AEO operating platform. It tracks how AI answer engines (Gemini, OpenAI, Claude, Perplexity, and local LLMs) cite or omit a domain for tracked keywords, and acts on that signal through the content engine and integrations.
+Canonry is a self-hosted agent-first AEO operating platform. It tracks how AI answer engines (Gemini, OpenAI, Claude, Perplexity, and local LLMs) cite or omit a domain for tracked queries, and acts on that signal through the content engine and integrations.
 
-Locations are modeled as project-scoped run context. A project can define named locations and an optional default location, while keywords remain project-wide.
+Locations are modeled as project-scoped run context. A project can define named locations and an optional default location, while queries remain project-wide.
 
 ## Local Architecture
 
@@ -51,8 +51,8 @@ flowchart LR
 
 1. Analyst runs `canonry run <project>` with the project default location, an explicit `--location`, `--all-locations`, or no location context
 2. API creates a run record and enqueues a job
-3. Job runner resolves the run location, fans out `executeTrackedQuery` for each keyword across all configured providers via the provider registry, and passes the location hint to providers
-4. Raw observation snapshots (`cited` / `not-cited`) are persisted per keyword per run, tagged with the run's location label when present
+3. Job runner resolves the run location, fans out `executeTrackedQuery` for each query across all configured providers via the provider registry, and passes the location hint to providers
+4. Raw observation snapshots (`cited` / `not-cited`) are persisted per query per run, tagged with the run's location label when present
 5. Transitions (`lost`, `emerging`) are computed at query time by comparing consecutive snapshots
 6. Dashboard polls API for results and renders visibility data
 
@@ -163,9 +163,9 @@ ProviderAdapter {
 The `ProviderRegistry` in `packages/canonry` collects all adapters at startup. When a run executes, the job runner:
 
 1. Reads the project's configured providers
-2. For each provider, calls `executeTrackedQuery()` with the keyword and location context
+2. For each provider, calls `executeTrackedQuery()` with the query and location context
 3. Calls `normalizeResult()` to convert provider-specific responses to standard `NormalizedQueryResult`
-4. Persists `query_snapshots` — one per keyword per provider per run
+4. Persists `query_snapshots` — one per query per provider per run
 
 ## Cloud Architecture
 
@@ -202,7 +202,7 @@ The same API routes, contracts, Drizzle schema, and dashboard code are used in b
 
 ## Score Families
 
-- **Answer visibility**: multi-provider keyword tracking and citation outcomes across all providers
+- **Answer visibility**: multi-provider query tracking and citation outcomes across all providers
 - **Technical readiness**: `@ainyc/aeo-audit` and future site-audit rollups
 
 These remain separate to avoid mixing technical readiness with live-answer visibility.
