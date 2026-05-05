@@ -881,6 +881,39 @@ describe('extractAnswerMentions', () => {
       ['ainyc.ai'],
     ).mentioned).toBe(false)
   })
+
+  it('does not flag a multi-word brand on the trailing descriptor word alone', () => {
+    // Regression: a project "Cenco Roofing" must not be considered mentioned
+    // when the answer only contains the generic word "roofing" — even when
+    // it appears many times. Standalone descriptor words like "Roofing",
+    // "Plumbing", "Construction" are too common in industry prose to be a
+    // reliable signal of brand presence on their own.
+    const result = extractAnswerMentions(
+      'Roofing repair work requires permits and trained inspectors. Most homeowners pay $300 for a basic roofing inspection.',
+      'Cenco Roofing',
+      ['cencoroofing.com'],
+    )
+    expect(result.mentioned).toBe(false)
+    expect(result.matchedTerms).toEqual([])
+  })
+
+  it('does not surface trailing descriptor words as matched terms when the full phrase is present', () => {
+    // The brand IS mentioned (full phrase appears + many "roofing" mentions
+    // in surrounding prose). The match itself is correct, but matchedTerms
+    // must NOT surface "roofing" — otherwise it gets shown as a chip in the
+    // UI and highlighted everywhere the generic word appears, which is
+    // misleading. Only the distinctive prefix ("cenco") and the displayName
+    // should be exposed as evidence.
+    const result = extractAnswerMentions(
+      'Denver-area picks: Precision Exteriors (commercial roofing), ESS Roofing & Exteriors (storm damage), and Cenco Roofing for residential work. Budget around $11,000 for a full roofing replacement.',
+      'Cenco Roofing',
+      ['cencoroofing.com'],
+    )
+    expect(result.mentioned).toBe(true)
+    expect(result.matchedTerms).toContain('Cenco Roofing')
+    expect(result.matchedTerms).toContain('cenco')
+    expect(result.matchedTerms).not.toContain('roofing')
+  })
 })
 
 describe('parseProviderName', () => {
