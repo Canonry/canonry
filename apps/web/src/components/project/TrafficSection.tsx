@@ -879,12 +879,12 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm table-fixed">
                         <colgroup>
-                          <col className="w-[40%]" />
-                          <col className="w-[28%]" />
+                          <col className="w-[32%]" />
+                          <col className="w-[22%]" />
                           <col className="w-[12%]" />
-                          <col className="w-[8%]" />
-                          <col className="w-[6%]" />
-                          <col className="w-[6%]" />
+                          <col className="w-[11%]" />
+                          <col className="w-[11%]" />
+                          <col className="w-[12%]" />
                         </colgroup>
                         <thead>
                           <tr className="text-[10px] uppercase tracking-wider text-zinc-500">
