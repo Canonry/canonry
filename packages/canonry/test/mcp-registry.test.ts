@@ -39,6 +39,7 @@ const expectedToolNames = [
   'canonry_content_sources',
   'canonry_content_gaps',
   'canonry_queries_list',
+  'canonry_keywords_list',
   'canonry_competitors_list',
   'canonry_schedule_get',
   'canonry_backlinks_latest_release',
@@ -62,11 +63,15 @@ const expectedToolNames = [
   'canonry_project_upsert',
   'canonry_apply_config',
   'canonry_queries_generate',
+  'canonry_keywords_generate',
   'canonry_queries_replace',
+  'canonry_keywords_replace',
   'canonry_run_trigger',
   'canonry_run_cancel',
   'canonry_queries_add',
+  'canonry_keywords_add',
   'canonry_queries_remove',
+  'canonry_keywords_remove',
   'canonry_competitors_add',
   'canonry_competitors_remove',
   'canonry_schedule_set',
@@ -82,8 +87,8 @@ const expectedToolNames = [
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(62)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(44)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(67)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(45)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -120,7 +125,7 @@ describe('MCP tool registry', () => {
       counts.set(tool.tier, (counts.get(tool.tier) ?? 0) + 1)
     }
     expect(counts.get('monitoring')).toBe(16)
-    expect(counts.get('setup')).toBe(16)
+    expect(counts.get('setup')).toBe(21)
     expect(counts.get('gsc')).toBe(7)
     expect(counts.get('ga')).toBe(8)
     expect(counts.get('agent')).toBe(5)
@@ -167,8 +172,10 @@ describe('MCP tool registry', () => {
 
   it('trims batch write strings before handlers receive them', () => {
     const queriesTool = canonryMcpTools.find(candidate => candidate.name === 'canonry_queries_add')
+    const keywordsTool = canonryMcpTools.find(candidate => candidate.name === 'canonry_keywords_add')
     const competitorsTool = canonryMcpTools.find(candidate => candidate.name === 'canonry_competitors_add')
     expect(queriesTool).toBeTruthy()
+    expect(keywordsTool).toBeTruthy()
     expect(competitorsTool).toBeTruthy()
 
     expect(queriesTool!.inputSchema.parse({ project: 'acme', request: { queries: [' alpha '] } })).toEqual({
@@ -176,6 +183,11 @@ describe('MCP tool registry', () => {
       request: { queries: ['alpha'] },
     })
     expect(() => queriesTool!.inputSchema.parse({ project: 'acme', request: { queries: ['  '] } })).toThrow()
+    expect(keywordsTool!.inputSchema.parse({ project: 'acme', request: { keywords: [' alpha '] } })).toEqual({
+      project: 'acme',
+      request: { keywords: ['alpha'] },
+    })
+    expect(() => keywordsTool!.inputSchema.parse({ project: 'acme', request: { keywords: ['  '] } })).toThrow()
     expect(competitorsTool!.inputSchema.parse({ project: 'acme', request: { competitors: [' rival.example.com '] } })).toEqual({
       project: 'acme',
       request: { competitors: ['rival.example.com'] },
@@ -210,6 +222,10 @@ describe('MCP tool registry', () => {
     expect(annotations.canonry_queries_replace).toMatchObject({ idempotentHint: true, destructiveHint: true })
     expect(annotations.canonry_queries_add).toMatchObject({ idempotentHint: true, destructiveHint: false })
     expect(annotations.canonry_queries_remove).toMatchObject({ idempotentHint: true, destructiveHint: true })
+    expect(annotations.canonry_keywords_generate).toMatchObject({ idempotentHint: false, destructiveHint: false })
+    expect(annotations.canonry_keywords_replace).toMatchObject({ idempotentHint: true, destructiveHint: true })
+    expect(annotations.canonry_keywords_add).toMatchObject({ idempotentHint: true, destructiveHint: false })
+    expect(annotations.canonry_keywords_remove).toMatchObject({ idempotentHint: true, destructiveHint: true })
     expect(annotations.canonry_competitors_add).toMatchObject({ idempotentHint: true, destructiveHint: false })
     expect(annotations.canonry_competitors_remove).toMatchObject({ idempotentHint: true, destructiveHint: true })
     expect(annotations.canonry_schedule_set).toMatchObject({ idempotentHint: true, destructiveHint: false })
@@ -431,6 +447,7 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_health_latest', input: projectInput, methods: ['getHealth'] },
   { tool: 'canonry_health_history', input: { project: 'acme', limit: 10 }, methods: ['getHealthHistory'] },
   { tool: 'canonry_queries_list', input: projectInput, methods: ['listQueries'] },
+  { tool: 'canonry_keywords_list', input: projectInput, methods: ['listKeywords'] },
   { tool: 'canonry_competitors_list', input: projectInput, methods: ['listCompetitors'] },
   { tool: 'canonry_schedule_get', input: projectInput, methods: ['getSchedule'] },
   { tool: 'canonry_backlinks_latest_release', input: {}, methods: ['backlinksLatestRelease'] },
@@ -481,11 +498,15 @@ const handlerCases: HandlerCase[] = [
     methods: ['apply'],
   },
   { tool: 'canonry_queries_generate', input: { project: 'acme', request: { provider: 'gemini', count: 3 } }, methods: ['generateQueries'] },
+  { tool: 'canonry_keywords_generate', input: { project: 'acme', request: { provider: 'gemini', count: 3 } }, methods: ['generateKeywords'] },
   { tool: 'canonry_queries_replace', input: { project: 'acme', request: { queries: ['alpha'] } }, methods: ['putQueries'] },
+  { tool: 'canonry_keywords_replace', input: { project: 'acme', request: { keywords: ['alpha'] } }, methods: ['putKeywords'] },
   { tool: 'canonry_run_trigger', input: { project: 'acme', request: { providers: ['gemini'] } }, methods: ['triggerRun'] },
   { tool: 'canonry_run_cancel', input: { runId: 'run-1' }, methods: ['cancelRun'] },
   { tool: 'canonry_queries_add', input: { project: 'acme', request: { queries: ['alpha'] } }, methods: ['appendQueries'] },
+  { tool: 'canonry_keywords_add', input: { project: 'acme', request: { keywords: ['alpha'] } }, methods: ['appendKeywords'] },
   { tool: 'canonry_queries_remove', input: { project: 'acme', request: { queries: ['alpha'] } }, methods: ['deleteQueries'] },
+  { tool: 'canonry_keywords_remove', input: { project: 'acme', request: { keywords: ['alpha'] } }, methods: ['deleteKeywords'] },
   { tool: 'canonry_competitors_add', input: { project: 'acme', request: { competitors: ['other.example.com'] } }, methods: ['appendCompetitors'] },
   { tool: 'canonry_competitors_remove', input: { project: 'acme', request: { competitors: ['other.example.com'] } }, methods: ['deleteCompetitors'] },
   { tool: 'canonry_schedule_set', input: { project: 'acme', schedule: { preset: 'daily', timezone: 'UTC' } }, methods: ['putSchedule'] },

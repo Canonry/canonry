@@ -97,13 +97,25 @@ describe('api-routes', () => {
 
     const body = JSON.parse(res.payload) as {
       openapi: string
-      paths: Record<string, Record<string, { security?: unknown[] }>>
+      paths: Record<string, Record<string, {
+        security?: unknown[]
+        requestBody?: {
+          content?: {
+            'application/json'?: {
+              schema?: { properties?: Record<string, unknown> }
+            }
+          }
+        }
+      }>>
     }
 
     expect(body.openapi).toBe('3.1.0')
     expect(body.paths['/api/v1/openapi.json']).toBeDefined()
     expect(body.paths['/api/v1/projects']).toBeDefined()
     expect(body.paths['/api/v1/openapi.json']?.get?.security).toEqual([])
+    const snapshotProperties = body.paths['/api/v1/snapshot']?.post?.requestBody?.content?.['application/json']?.schema?.properties
+    expect(snapshotProperties?.queries).toBeDefined()
+    expect(snapshotProperties?.phrases).toBeUndefined()
   })
 
   it('GET /api/v1/projects/:name gets a single project', async () => {
@@ -172,6 +184,89 @@ describe('api-routes', () => {
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload)
     expect(body).toHaveLength(2)
+  })
+
+  it('POST /api/v1/apply accepts legacy spec.keywords as queries', async () => {
+    const ctx = buildApp()
+    try {
+      await ctx.app.ready()
+
+      const res = await ctx.app.inject({
+        method: 'POST',
+        url: '/api/v1/apply',
+        payload: {
+          apiVersion: 'canonry/v1',
+          kind: 'Project',
+          metadata: { name: 'legacy-config' },
+          spec: {
+            displayName: 'Legacy Config',
+            canonicalDomain: 'legacy.example.com',
+            country: 'US',
+            language: 'en',
+            keywords: ['answer visibility software', 'ai citation tracking'],
+          },
+        },
+      })
+
+      expect(res.statusCode).toBe(200)
+      const queriesRes = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/legacy-config/queries' })
+      expect(queriesRes.statusCode).toBe(200)
+      expect(JSON.parse(queriesRes.payload).map((row: { query: string }) => row.query).sort()).toEqual([
+        'answer visibility software',
+        'ai citation tracking',
+      ].sort())
+    } finally {
+      await ctx.app.close()
+      fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('legacy /keywords routes alias the canonical query store', async () => {
+    const ctx = buildApp({
+      validProviderNames: ['gemini'],
+      onGenerateQueries: async (provider, count, project) => {
+        expect(provider).toBe('gemini')
+        expect(count).toBe(2)
+        expect(project.existingQueries).toEqual(['answer visibility software'])
+        return ['ai citation tracking']
+      },
+    })
+    try {
+      await ctx.app.ready()
+      await ctx.app.inject({
+        method: 'PUT',
+        url: '/api/v1/projects/legacy-keywords',
+        payload: {
+          displayName: 'Legacy Keywords',
+          canonicalDomain: 'legacy.example.com',
+          country: 'US',
+          language: 'en',
+        },
+      })
+
+      const putRes = await ctx.app.inject({
+        method: 'PUT',
+        url: '/api/v1/projects/legacy-keywords/keywords',
+        payload: { keywords: ['answer visibility software'] },
+      })
+      expect(putRes.statusCode).toBe(200)
+      expect(putRes.json()).toMatchObject([{ keyword: 'answer visibility software' }])
+
+      const queriesRes = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/legacy-keywords/queries' })
+      expect(queriesRes.statusCode).toBe(200)
+      expect(queriesRes.json()).toMatchObject([{ query: 'answer visibility software' }])
+
+      const generatedRes = await ctx.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/legacy-keywords/keywords/generate',
+        payload: { provider: 'gemini', count: 2 },
+      })
+      expect(generatedRes.statusCode).toBe(200)
+      expect(generatedRes.json()).toEqual({ keywords: ['ai citation tracking'], provider: 'gemini' })
+    } finally {
+      await ctx.app.close()
+      fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    }
   })
 
   it('POST /api/v1/projects/:name/queries/generate returns provider suggestions', async () => {

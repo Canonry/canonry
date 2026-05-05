@@ -1,5 +1,5 @@
 import { runAeoAudit } from '@ainyc/aeo-audit'
-import { determineAnswerMentioned } from '@ainyc/canonry-contracts'
+import { determineAnswerMentioned, resolveSnapshotRequestQueries } from '@ainyc/canonry-contracts'
 import type {
   GroundingSource,
   SnapshotAccuracy,
@@ -121,7 +121,7 @@ export class SnapshotService {
   async createReport(input: SnapshotRequestDto): Promise<SnapshotReportDto> {
     const companyName = input.companyName.trim()
     const domain = normalizeDomain(input.domain)
-    const manualQueries = normalizeStringList(input.queries ?? [])
+    const manualQueries = normalizeStringList(resolveSnapshotRequestQueries(input))
     const manualCompetitors = normalizeStringList(input.competitors ?? [])
     const providers = this.registry.getAll()
     if (providers.length === 0) {

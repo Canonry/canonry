@@ -4,14 +4,29 @@ import { groundingSourceSchema } from './run.js'
 export const snapshotAccuracySchema = z.enum(['yes', 'no', 'unknown', 'not-mentioned'])
 export type SnapshotAccuracy = z.infer<typeof snapshotAccuracySchema>
 
+const snapshotQueryListSchema = z.array(z.string().min(1))
+
 export const snapshotRequestSchema = z.object({
   companyName: z.string().min(1),
   domain: z.string().min(1),
-  queries: z.array(z.string().min(1)).optional().default([]),
+  queries: snapshotQueryListSchema.optional(),
+  phrases: snapshotQueryListSchema.optional(),
   competitors: z.array(z.string().min(1)).optional().default([]),
+}).superRefine((input, ctx) => {
+  if (input.queries !== undefined && input.phrases !== undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'Use queries; phrases is accepted only as a legacy alias when queries is omitted',
+      path: ['phrases'],
+    })
+  }
 })
 
 export type SnapshotRequestDto = z.infer<typeof snapshotRequestSchema>
+
+export function resolveSnapshotRequestQueries(input: { queries?: string[]; phrases?: string[] }): string[] {
+  return input.queries ?? input.phrases ?? []
+}
 
 export const snapshotCompetitorEntrySchema = z.object({
   name: z.string(),

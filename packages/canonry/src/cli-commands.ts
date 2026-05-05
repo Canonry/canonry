@@ -7,6 +7,7 @@ import { DOCTOR_CLI_COMMANDS } from './cli-commands/doctor.js'
 import { GA_CLI_COMMANDS } from './cli-commands/ga.js'
 import { COMPETITOR_CLI_COMMANDS } from './cli-commands/competitor.js'
 import { GOOGLE_CLI_COMMANDS } from './cli-commands/google.js'
+import { KEYWORD_CLI_COMMANDS } from './cli-commands/keyword.js'
 import { QUERY_CLI_COMMANDS } from './cli-commands/query.js'
 import { MCP_CLI_COMMANDS } from './cli-commands/mcp.js'
 import { NOTIFY_CLI_COMMANDS } from './cli-commands/notify.js'
@@ -31,6 +32,7 @@ export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...PROJECT_CLI_COMMANDS,
   ...REPORT_CLI_COMMANDS,
   ...QUERY_CLI_COMMANDS,
+  ...KEYWORD_CLI_COMMANDS,
   ...COMPETITOR_CLI_COMMANDS,
   ...SETTINGS_CLI_COMMANDS,
   ...SKILLS_CLI_COMMANDS,

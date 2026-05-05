@@ -145,6 +145,158 @@ test('migrate is idempotent', () => {
   migrate(db)
 })
 
+test('migrate renames legacy keyword schema before bootstrap indexes run', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-legacy-test-'))
+  onTestFinished(() => cleanup(tmpDir))
+  const dbPath = path.join(tmpDir, 'legacy.db')
+  const raw = new Database(dbPath)
+  raw.exec(`
+    CREATE TABLE _migrations (
+      version     INTEGER PRIMARY KEY,
+      name        TEXT NOT NULL,
+      applied_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    INSERT INTO _migrations(version, name) VALUES (46, 'ga-ai-landing-page');
+
+    CREATE TABLE projects (
+      id                TEXT PRIMARY KEY,
+      name              TEXT NOT NULL UNIQUE,
+      display_name      TEXT NOT NULL,
+      canonical_domain  TEXT NOT NULL,
+      owned_domains     TEXT NOT NULL DEFAULT '[]',
+      country           TEXT NOT NULL,
+      language          TEXT NOT NULL,
+      tags              TEXT NOT NULL DEFAULT '[]',
+      labels            TEXT NOT NULL DEFAULT '{}',
+      providers         TEXT NOT NULL DEFAULT '[]',
+      locations         TEXT NOT NULL DEFAULT '[]',
+      default_location  TEXT,
+      config_source     TEXT NOT NULL DEFAULT 'cli',
+      config_revision   INTEGER NOT NULL DEFAULT 1,
+      auto_extract_backlinks INTEGER NOT NULL DEFAULT 0,
+      created_at        TEXT NOT NULL,
+      updated_at        TEXT NOT NULL
+    );
+
+    CREATE TABLE keywords (
+      id          TEXT PRIMARY KEY,
+      project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      keyword     TEXT NOT NULL,
+      created_at  TEXT NOT NULL,
+      UNIQUE(project_id, keyword)
+    );
+
+    CREATE TABLE queries (
+      id          TEXT PRIMARY KEY,
+      project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      query       TEXT NOT NULL,
+      created_at  TEXT NOT NULL,
+      UNIQUE(project_id, query)
+    );
+
+    CREATE TABLE runs (
+      id          TEXT PRIMARY KEY,
+      project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      kind        TEXT NOT NULL DEFAULT 'answer-visibility',
+      status      TEXT NOT NULL DEFAULT 'queued',
+      trigger     TEXT NOT NULL DEFAULT 'manual',
+      started_at  TEXT,
+      finished_at TEXT,
+      error       TEXT,
+      location    TEXT,
+      created_at  TEXT NOT NULL
+    );
+
+    CREATE TABLE query_snapshots (
+      id                      TEXT PRIMARY KEY,
+      run_id                  TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+      keyword_id              TEXT NOT NULL REFERENCES keywords(id) ON DELETE CASCADE,
+      provider                TEXT NOT NULL DEFAULT 'gemini',
+      model                   TEXT,
+      citation_state          TEXT NOT NULL,
+      answer_mentioned        INTEGER,
+      answer_text             TEXT,
+      cited_domains           TEXT NOT NULL DEFAULT '[]',
+      competitor_overlap      TEXT NOT NULL DEFAULT '[]',
+      recommended_competitors TEXT NOT NULL DEFAULT '[]',
+      location                TEXT,
+      screenshot_path         TEXT,
+      raw_response            TEXT,
+      created_at              TEXT NOT NULL
+    );
+
+    CREATE TABLE insights (
+      id              TEXT PRIMARY KEY,
+      project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      run_id          TEXT REFERENCES runs(id) ON DELETE CASCADE,
+      type            TEXT NOT NULL,
+      severity        TEXT NOT NULL,
+      title           TEXT NOT NULL,
+      keyword         TEXT NOT NULL,
+      provider        TEXT NOT NULL,
+      recommendation  TEXT,
+      cause           TEXT,
+      dismissed       INTEGER NOT NULL DEFAULT 0,
+      created_at      TEXT NOT NULL
+    );
+
+    CREATE INDEX idx_keywords_project ON keywords(project_id);
+    CREATE INDEX idx_keywords_project_keyword ON keywords(project_id, keyword);
+    CREATE INDEX idx_snapshots_keyword ON query_snapshots(keyword_id);
+    CREATE INDEX idx_insights_keyword_provider ON insights(keyword, provider);
+
+    INSERT INTO projects(
+      id, name, display_name, canonical_domain, country, language, created_at, updated_at
+    ) VALUES (
+      'proj_legacy', 'legacy-project', 'Legacy Project', 'example.com', 'US', 'en',
+      '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+    );
+    INSERT INTO keywords(id, project_id, keyword, created_at)
+      VALUES ('query_legacy', 'proj_legacy', 'best answer engine tools', '2026-01-01T00:00:00.000Z');
+    INSERT INTO runs(id, project_id, kind, status, trigger, created_at)
+      VALUES ('run_legacy', 'proj_legacy', 'answer-visibility', 'completed', 'manual', '2026-01-01T00:00:00.000Z');
+    INSERT INTO query_snapshots(
+      id, run_id, keyword_id, provider, citation_state, cited_domains, competitor_overlap,
+      recommended_competitors, raw_response, created_at
+    ) VALUES (
+      'snap_legacy', 'run_legacy', 'query_legacy', 'gemini', 'cited', '["example.com"]', '[]',
+      '[]', '{}', '2026-01-01T00:00:00.000Z'
+    );
+    INSERT INTO insights(
+      id, project_id, run_id, type, severity, title, keyword, provider, created_at
+    ) VALUES (
+      'insight_legacy', 'proj_legacy', 'run_legacy', 'gain', 'medium', 'Citation gained',
+      'best answer engine tools', 'gemini', '2026-01-01T00:00:00.000Z'
+    );
+  `)
+  raw.close()
+
+  const db = createClient(dbPath)
+  migrate(db)
+  migrate(db)
+
+  expect(db.select().from(queries).all()).toMatchObject([
+    { id: 'query_legacy', query: 'best answer engine tools' },
+  ])
+  expect(db.select().from(querySnapshots).all()).toMatchObject([
+    { id: 'snap_legacy', queryId: 'query_legacy' },
+  ])
+  expect(db.select().from(insights).all()).toMatchObject([
+    { id: 'insight_legacy', query: 'best answer engine tools' },
+  ])
+
+  const legacyTables = db.all(sql.raw(
+    `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'keywords'`,
+  )) as Array<{ name: string }>
+  expect(legacyTables).toEqual([])
+
+  const snapshotColumns = db.all(sql.raw(
+    `SELECT name FROM pragma_table_info('query_snapshots')`,
+  )) as Array<{ name: string }>
+  expect(snapshotColumns.map(c => c.name)).toContain('query_id')
+  expect(snapshotColumns.map(c => c.name)).not.toContain('keyword_id')
+})
+
 test('migrate v43 backfills bing_url_inspections.in_index from stored crawl signals', () => {
   const { db, tmpDir } = createTempDb()
   onTestFinished(() => cleanup(tmpDir))

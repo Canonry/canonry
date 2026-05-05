@@ -65,6 +65,7 @@ import type {
   ContentSourcesResponseDto,
   ContentGapsResponseDto,
   CompetitorDto,
+  KeywordDto,
   QueryDto,
   ProjectOverviewDto,
   ProjectSearchResponseDto,
@@ -72,7 +73,7 @@ import type {
   ProjectReportDto,
 } from '@ainyc/canonry-contracts'
 
-export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry, CompetitorDto, QueryDto }
+export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry, CompetitorDto, KeywordDto, QueryDto }
 
 /** Settings response from GET /settings */
 export interface SettingsDto {
@@ -412,6 +413,22 @@ export class ApiClient {
     await this.request<unknown>('POST', `/projects/${encodeURIComponent(project)}/queries`, { queries })
   }
 
+  async putKeywords(project: string, keywords: string[]): Promise<void> {
+    await this.request<unknown>('PUT', `/projects/${encodeURIComponent(project)}/keywords`, { keywords })
+  }
+
+  async listKeywords(project: string): Promise<KeywordDto[]> {
+    return this.request<KeywordDto[]>('GET', `/projects/${encodeURIComponent(project)}/keywords`)
+  }
+
+  async deleteKeywords(project: string, keywords: string[]): Promise<void> {
+    await this.request<unknown>('DELETE', `/projects/${encodeURIComponent(project)}/keywords`, { keywords })
+  }
+
+  async appendKeywords(project: string, keywords: string[]): Promise<void> {
+    await this.request<unknown>('POST', `/projects/${encodeURIComponent(project)}/keywords`, { keywords })
+  }
+
   async listCompetitors(project: string): Promise<CompetitorDto[]> {
     return this.request<CompetitorDto[]>('GET', `/projects/${encodeURIComponent(project)}/competitors`)
   }
@@ -553,6 +570,14 @@ export class ApiClient {
     return this.request<{ queries: string[]; provider: string }>(
       'POST',
       `/projects/${encodeURIComponent(project)}/queries/generate`,
+      { provider, count },
+    )
+  }
+
+  async generateKeywords(project: string, provider: string, count?: number): Promise<{ keywords: string[]; provider: string }> {
+    return this.request<{ keywords: string[]; provider: string }>(
+      'POST',
+      `/projects/${encodeURIComponent(project)}/keywords/generate`,
       { provider, count },
     )
   }

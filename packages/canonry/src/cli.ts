@@ -97,7 +97,7 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
   // Resolve command name for telemetry (e.g. "project.create", "run")
   // Only include subcommand when it is a known subcommand name, not a positional arg
   // like a project name. Commands where arg[1] is always a subcommand (never a positional):
-  const SUBCOMMAND_COMMANDS = new Set(['backfill', 'project', 'query', 'competitor', 'schedule', 'notify', 'settings', 'telemetry', 'google', 'bing', 'wordpress', 'cdp'])
+  const SUBCOMMAND_COMMANDS = new Set(['backfill', 'project', 'query', 'keyword', 'competitor', 'schedule', 'notify', 'settings', 'telemetry', 'google', 'bing', 'wordpress', 'cdp'])
   // Commands where arg[1] is usually a positional but has known subcommands:
   const MIXED_SUBCOMMANDS: Record<string, Set<string>> = {
     insights: new Set(['dismiss']),

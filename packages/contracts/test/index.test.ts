@@ -11,6 +11,9 @@ import {
   notFound,
   validationError,
   projectConfigSchema,
+  resolveConfigSpecQueries,
+  resolveSnapshotRequestQueries,
+  snapshotRequestSchema,
   projectDtoSchema,
   providerQuotaPolicySchema,
   runDtoSchema,
@@ -163,8 +166,51 @@ test('projectConfigSchema validates canonry.yaml structure', () => {
 
   expect(config.metadata.name).toBe('my-project')
   expect(config.metadata.labels).toEqual({})
-  expect(config.spec.queries).toEqual([])
+  expect(resolveConfigSpecQueries(config.spec)).toEqual([])
   expect(config.spec.competitors).toEqual([])
+})
+
+test('projectConfigSchema accepts legacy spec.keywords as queries', () => {
+  const config = projectConfigSchema.parse({
+    apiVersion: 'canonry/v1',
+    kind: 'Project',
+    metadata: { name: 'legacy-project' },
+    spec: {
+      displayName: 'Legacy Project',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+      keywords: ['answer visibility tools'],
+    },
+  })
+
+  expect(resolveConfigSpecQueries(config.spec)).toEqual(['answer visibility tools'])
+})
+
+test('projectConfigSchema rejects mixed spec.queries and legacy spec.keywords', () => {
+  expect(() => projectConfigSchema.parse({
+    apiVersion: 'canonry/v1',
+    kind: 'Project',
+    metadata: { name: 'mixed-project' },
+    spec: {
+      displayName: 'Mixed Project',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+      queries: ['answer visibility tools'],
+      keywords: ['legacy phrase'],
+    },
+  })).toThrow(/legacy alias/)
+})
+
+test('snapshotRequestSchema accepts legacy phrases as queries', () => {
+  const request = snapshotRequestSchema.parse({
+    companyName: 'Acme',
+    domain: 'example.com',
+    phrases: ['best widget provider'],
+  })
+
+  expect(resolveSnapshotRequestQueries(request)).toEqual(['best widget provider'])
 })
 
 test('projectConfigSchema rejects invalid project names', () => {

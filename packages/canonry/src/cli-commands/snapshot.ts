@@ -18,6 +18,7 @@ export const SNAPSHOT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     options: {
       domain: stringOption(),
       queries: stringOption(),
+      phrases: stringOption(),
       competitors: stringOption(),
       md: { type: 'boolean' },
       pdf: { type: 'boolean' },
@@ -44,7 +45,7 @@ export const SNAPSHOT_CLI_COMMANDS: readonly CliCommandSpec[] = [
 
       await createSnapshotReport(companyName, {
         domain,
-        queries: parseCsvOption(getString(input.values, 'queries')),
+        queries: parseCsvOption(getString(input.values, 'queries') ?? getString(input.values, 'phrases')),
         competitors: parseCsvOption(getString(input.values, 'competitors')),
         md: wantsMd,
         pdf: wantsPdf,

@@ -3,6 +3,8 @@ import {
   AGENT_MEMORY_KEY_MAX_LENGTH,
   AGENT_MEMORY_VALUE_MAX_BYTES,
   competitorBatchRequestSchema,
+  keywordBatchRequestSchema,
+  keywordGenerateRequestSchema,
   queryGenerateRequestSchema,
   queryBatchRequestSchema,
   notificationCreateRequestSchema,
@@ -150,6 +152,16 @@ const queriesInputSchema = z.object({
 const queryGenerateInputSchema = z.object({
   project: projectNameSchema,
   request: queryGenerateRequestSchema,
+})
+
+const keywordsInputSchema = z.object({
+  project: projectNameSchema,
+  request: keywordBatchRequestSchema,
+})
+
+const keywordGenerateInputSchema = z.object({
+  project: projectNameSchema,
+  request: keywordGenerateRequestSchema,
 })
 
 const competitorsInputSchema = z.object({
@@ -479,6 +491,17 @@ export const canonryMcpTools = [
     handler: (client, input) => client.listQueries(input.project),
   }),
   defineTool({
+    name: 'canonry_keywords_list',
+    title: 'List keywords (legacy alias)',
+    description: 'Legacy alias for canonry_queries_list. Returns tracked queries using the pre-queries keyword response shape.',
+    access: 'read',
+    tier: 'setup',
+    inputSchema: projectInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/keywords'],
+    handler: (client, input) => client.listKeywords(input.project),
+  }),
+  defineTool({
     name: 'canonry_competitors_list',
     title: 'List competitors',
     description: 'List tracked competitors for a Canonry project.',
@@ -737,6 +760,17 @@ export const canonryMcpTools = [
     handler: (client, input) => client.generateQueries(input.project, input.request.provider, input.request.count),
   }),
   defineTool({
+    name: 'canonry_keywords_generate',
+    title: 'Generate keyword suggestions (legacy alias)',
+    description: 'Legacy alias for canonry_queries_generate. Returns suggestions using the pre-queries keyword response shape.',
+    access: 'write',
+    tier: 'setup',
+    inputSchema: keywordGenerateInputSchema,
+    annotations: writeAnnotations({ idempotentHint: false, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/keywords/generate'],
+    handler: (client, input) => client.generateKeywords(input.project, input.request.provider, input.request.count),
+  }),
+  defineTool({
     name: 'canonry_queries_replace',
     title: 'Replace queries',
     description: 'Replace the tracked query set for a Canonry project.',
@@ -747,6 +781,19 @@ export const canonryMcpTools = [
     openApiOperations: ['PUT /api/v1/projects/{name}/queries'],
     handler: async (client, input) => {
       await client.putQueries(input.project, uniqueStrings(input.request.queries))
+    },
+  }),
+  defineTool({
+    name: 'canonry_keywords_replace',
+    title: 'Replace keywords (legacy alias)',
+    description: 'Legacy alias for canonry_queries_replace. Replaces the same canonical tracked query set.',
+    access: 'write',
+    tier: 'setup',
+    inputSchema: keywordsInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
+    openApiOperations: ['PUT /api/v1/projects/{name}/keywords'],
+    handler: async (client, input) => {
+      await client.putKeywords(input.project, uniqueStrings(input.request.keywords))
     },
   }),
   defineTool({
@@ -785,6 +832,19 @@ export const canonryMcpTools = [
     },
   }),
   defineTool({
+    name: 'canonry_keywords_add',
+    title: 'Add keywords (legacy alias)',
+    description: 'Legacy alias for canonry_queries_add. Appends to the same canonical tracked query set.',
+    access: 'write',
+    tier: 'setup',
+    inputSchema: keywordsInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/keywords'],
+    handler: async (client, input) => {
+      await client.appendKeywords(input.project, uniqueStrings(input.request.keywords))
+    },
+  }),
+  defineTool({
     name: 'canonry_queries_remove',
     title: 'Remove queries',
     description: 'Remove tracked queries from a Canonry project.',
@@ -795,6 +855,19 @@ export const canonryMcpTools = [
     openApiOperations: ['DELETE /api/v1/projects/{name}/queries'],
     handler: async (client, input) => {
       await client.deleteQueries(input.project, uniqueStrings(input.request.queries))
+    },
+  }),
+  defineTool({
+    name: 'canonry_keywords_remove',
+    title: 'Remove keywords (legacy alias)',
+    description: 'Legacy alias for canonry_queries_remove. Removes from the same canonical tracked query set.',
+    access: 'write',
+    tier: 'setup',
+    inputSchema: keywordsInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
+    openApiOperations: ['DELETE /api/v1/projects/{name}/keywords'],
+    handler: async (client, input) => {
+      await client.deleteKeywords(input.project, uniqueStrings(input.request.keywords))
     },
   }),
   defineTool({

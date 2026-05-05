@@ -66,14 +66,14 @@ adapter. The fastest path is the `canonry mcp install` helper:
 
 ```bash
 canonry mcp install --client claude-desktop      # or: cursor
-canonry mcp install --client claude-desktop --read-only  # 33 read tools only
+canonry mcp install --client claude-desktop --read-only  # 45 read API tools only
 canonry mcp config  --client codex               # print snippet for unsupported clients
 ```
 
 `install` merges a `canonry` entry into the client's config, backs up the
 original, and is idempotent. Restart the client after install to pick it up.
 
-The adapter exposes 48 tools — projects, runs, snapshots, insights, health,
+The adapter exposes 67 API tools — projects, runs, snapshots, insights, health,
 query and competitor management, schedules, GSC and GA reads, and the
 config-as-code apply path. Auth and configuration are inherited from
 `~/.canonry/config.yaml`. See [`docs/mcp.md`](docs/mcp.md) for the full
@@ -91,7 +91,7 @@ Canonry's CLI and API are the agent interface. The optional `canonry-mcp` adapte
 ## Features
 
 - **Built-in AI agent (Aero).** Reads state, analyzes regressions, fires write tools (`run_sweep`, `dismiss_insight`, `update_schedule`, etc.), wakes up unprompted after runs. Backed by [`pi-agent-core`](https://github.com/badlogic/pi-mono) — 15+ LLM providers, streaming first.
-- **Agent-first.** Every CLI command supports `--format json`; every UI view has a matching API endpoint. An optional `canonry-mcp` stdio adapter exposes 48 tools to MCP clients like Claude Desktop and Codex.
+- **Agent-first.** Every CLI command supports `--format json`; every UI view has a matching API endpoint. An optional `canonry-mcp` stdio adapter exposes 67 API tools to MCP clients like Claude Desktop and Codex.
 - **Multi-provider.** Query Gemini, OpenAI, Claude, Perplexity, and local LLMs from a single platform.
 - **Content opportunity engine.** Per-query recommendations typed by action (`create` / `expand` / `refresh` / `add-schema`) with auditable score breakdowns, drivers, and demand-source labels. Combines GSC ranking signals with competitor citation evidence so zero-traffic gaps still surface. Available via `canonry content targets / gaps / sources`, the matching API endpoints, and Aero's tool surface.
 - **Config-as-code.** Kubernetes-style YAML files. Version control your monitoring, let agents apply changes declaratively.

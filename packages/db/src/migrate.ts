@@ -154,9 +154,7 @@ type MigrationDb = Pick<DatabaseClient, 'run' | 'all'>
  * should be idempotent so they produce no side-effects on re-run.
  *
  * `run` is an optional escape hatch for migrations that need runtime
- * conditionals (e.g. rename steps that must no-op when the rename has
- * already been applied by the bootstrap on a fresh install). It runs after
- * `statements` within the same transaction.
+ * conditionals. It runs after `statements` within the same transaction.
  */
 interface MigrationVersion {
   version: number
@@ -441,10 +439,6 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     version: 19,
     name: 'named-unique-indexes',
     statements: [
-      // Use the post-rename table/column names. On a fresh install the bootstrap
-      // already creates the renamed table; on a legacy DB v47 renames keywords→
-      // queries before this version replays (it never replays after the first
-      // boot anyway thanks to _migrations).
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_queries_project_query ON queries(project_id, query)`,
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_competitors_project_domain ON competitors(project_id, domain)`,
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_schedules_project ON schedules(project_id)`,
@@ -484,10 +478,6 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     version: 22,
     name: 'insights-table',
     statements: [
-      // Use the post-rename column name (`query`) directly. On a fresh install
-      // this table is created in its final shape; on legacy DBs this version
-      // never replays (recorded in _migrations), and v47 renames the legacy
-      // `keyword` column to `query` for those DBs.
       `CREATE TABLE IF NOT EXISTS insights (
         id              TEXT PRIMARY KEY,
         project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -828,12 +818,9 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
   {
     version: 47,
     name: 'rename-keywords-to-queries',
-    // Modern SQLite (3.26+, default `legacy_alter_table=OFF`) propagates
-    // RENAME TO / RENAME COLUMN through foreign key references in other
-    // tables, so the FK on query_snapshots tracks the rename automatically.
-    // The RENAME steps live in `run` so they can be skipped on fresh installs
-    // where the bootstrap already created the post-rename schema directly —
-    // legacy DBs still hit the renames once and then record this version.
+    // The actual legacy rename runs before bootstrap SQL so existing DBs never
+    // see new-name indexes before their old columns have been renamed. This
+    // version records the schema cutover and lands the final index names.
     statements: [
       `DROP INDEX IF EXISTS idx_keywords_project`,
       `DROP INDEX IF EXISTS idx_keywords_project_keyword`,
@@ -845,18 +832,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_insights_query_provider ON insights(query, provider)`,
     ],
     run: (tx) => {
-      if (tableExists(tx, 'keywords')) {
-        tx.run(sql.raw(`ALTER TABLE keywords RENAME TO queries`))
-      }
-      if (columnExists(tx, 'queries', 'keyword')) {
-        tx.run(sql.raw(`ALTER TABLE queries RENAME COLUMN keyword TO query`))
-      }
-      if (columnExists(tx, 'query_snapshots', 'keyword_id')) {
-        tx.run(sql.raw(`ALTER TABLE query_snapshots RENAME COLUMN keyword_id TO query_id`))
-      }
-      if (columnExists(tx, 'insights', 'keyword')) {
-        tx.run(sql.raw(`ALTER TABLE insights RENAME COLUMN keyword TO query`))
-      }
+      normalizeLegacyQuerySchema(tx)
     },
   },
 ]
@@ -915,6 +891,50 @@ function tableExists(db: MigrationDb, table: string): boolean {
     `SELECT COUNT(*) as c FROM sqlite_master WHERE type = 'table' AND name = '${table}'`,
   )) as Array<{ c: number }>
   return (rows[0]?.c ?? 0) > 0
+}
+
+function tableIsEmpty(db: MigrationDb, table: string): boolean {
+  // Table name is a hard-coded constant in this module — safe to interpolate.
+  const rows = db.all(sql.raw(`SELECT COUNT(*) as c FROM ${table}`)) as Array<{ c: number }>
+  return (rows[0]?.c ?? 0) === 0
+}
+
+function hasLegacyQuerySchema(db: MigrationDb): boolean {
+  return tableExists(db, 'keywords') ||
+    columnExists(db, 'query_snapshots', 'keyword_id') ||
+    columnExists(db, 'insights', 'keyword')
+}
+
+function normalizeLegacyQuerySchema(db: MigrationDb): void {
+  if (!hasLegacyQuerySchema(db)) return
+
+  // A previous failed boot with the broken v47 bootstrap may have created the
+  // new table before crashing on query_snapshots(query_id). That table is empty
+  // in that failure mode, so remove it before renaming the real legacy table.
+  if (tableExists(db, 'keywords') && tableExists(db, 'queries')) {
+    if (!tableIsEmpty(db, 'queries')) {
+      throw new Error('Cannot migrate keywords to queries because both tables contain data')
+    }
+    db.run(sql.raw(`DROP TABLE queries`))
+  }
+
+  db.run(sql.raw(`DROP INDEX IF EXISTS idx_keywords_project`))
+  db.run(sql.raw(`DROP INDEX IF EXISTS idx_keywords_project_keyword`))
+  db.run(sql.raw(`DROP INDEX IF EXISTS idx_snapshots_keyword`))
+  db.run(sql.raw(`DROP INDEX IF EXISTS idx_insights_keyword_provider`))
+
+  if (tableExists(db, 'keywords')) {
+    db.run(sql.raw(`ALTER TABLE keywords RENAME TO queries`))
+  }
+  if (columnExists(db, 'queries', 'keyword')) {
+    db.run(sql.raw(`ALTER TABLE queries RENAME COLUMN keyword TO query`))
+  }
+  if (columnExists(db, 'query_snapshots', 'keyword_id')) {
+    db.run(sql.raw(`ALTER TABLE query_snapshots RENAME COLUMN keyword_id TO query_id`))
+  }
+  if (columnExists(db, 'insights', 'keyword')) {
+    db.run(sql.raw(`ALTER TABLE insights RENAME COLUMN keyword TO query`))
+  }
 }
 
 function dropColumnIfExists(db: DatabaseClient, table: string, column: string): void {
@@ -1051,6 +1071,13 @@ function recordMigration(
 }
 
 export function migrate(db: DatabaseClient) {
+  // Normalize legacy table/column names before bootstrap SQL runs. Bootstrap
+  // creates final-shape indexes, so existing DBs must expose final column names
+  // before those statements execute.
+  db.transaction((tx) => {
+    normalizeLegacyQuerySchema(tx)
+  })
+
   // Phase 1: base schema (idempotent — all CREATE IF NOT EXISTS).
   // Includes the _migrations table itself, so subsequent reads from
   // getAppliedVersion always succeed.

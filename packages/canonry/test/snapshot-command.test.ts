@@ -109,6 +109,7 @@ describe('snapshot command', () => {
   let originalConfigDir: string | undefined
   let originalTelemetryDisabled: string | undefined
   let originalCi: string | undefined
+  let snapshotInputs: Array<{ queries: string[] }>
 
   beforeEach(async () => {
     tmpDir = path.join(os.tmpdir(), `canonry-snapshot-${crypto.randomUUID()}`)
@@ -120,6 +121,7 @@ describe('snapshot command', () => {
     process.env.CANONRY_CONFIG_DIR = tmpDir
     process.env.CANONRY_TELEMETRY_DISABLED = '1'
     process.env.CI = '1'
+    snapshotInputs = []
 
     const dbPath = path.join(tmpDir, 'test.db')
     const db = createClient(dbPath)
@@ -129,7 +131,10 @@ describe('snapshot command', () => {
     app.register(apiRoutes, {
       db,
       skipAuth: true,
-      onSnapshotRequested: async () => SNAPSHOT_FIXTURE,
+      onSnapshotRequested: async (input) => {
+        snapshotInputs.push({ queries: input.queries ?? [] })
+        return SNAPSHOT_FIXTURE
+      },
     })
     await app.listen({ host: '127.0.0.1', port: 0 })
 
@@ -173,6 +178,26 @@ describe('snapshot command', () => {
     const parsed = JSON.parse(result.stdout) as typeof SNAPSHOT_FIXTURE
     expect(parsed.audit.overallScore).toBe(58)
     expect(parsed.summary.topCompetitors[0]?.name).toBe('widgetco.com')
+  })
+
+  it('accepts legacy --phrases as snapshot queries', async () => {
+    const result = await invokeCli([
+      'snapshot',
+      'Acme Corp',
+      '--domain',
+      'acme.example.com',
+      '--phrases',
+      'best enterprise widget provider,who offers enterprise widget support',
+      '--format',
+      'json',
+    ])
+
+    expect(result.exitCode).toBe(undefined)
+    expect(result.stderr).toBe('')
+    expect(snapshotInputs.at(-1)?.queries).toEqual([
+      'best enterprise widget provider',
+      'who offers enterprise widget support',
+    ])
   })
 
   it('creates a markdown report when --md is provided', async () => {

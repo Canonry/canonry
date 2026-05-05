@@ -435,6 +435,115 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/keywords',
+    summary: 'List keywords (legacy alias for queries)',
+    tags: ['queries'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'Legacy keyword-shaped queries returned.' },
+    },
+  },
+  {
+    method: 'put',
+    path: '/api/v1/projects/{name}/keywords',
+    summary: 'Replace keywords (legacy alias for queries)',
+    tags: ['queries'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['keywords'],
+            properties: {
+              keywords: stringArraySchema,
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Legacy keyword-shaped queries replaced.' },
+    },
+  },
+  {
+    method: 'delete',
+    path: '/api/v1/projects/{name}/keywords',
+    summary: 'Delete keywords (legacy alias for queries)',
+    tags: ['queries'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['keywords'],
+            properties: {
+              keywords: stringArraySchema,
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Remaining legacy keyword-shaped queries returned.' },
+      400: { description: 'Invalid legacy keyword delete request.' },
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/keywords',
+    summary: 'Append keywords (legacy alias for queries)',
+    tags: ['queries'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['keywords'],
+            properties: {
+              keywords: stringArraySchema,
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Legacy keyword-shaped queries appended.' },
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/keywords/generate',
+    summary: 'Generate keyword suggestions (legacy alias for queries)',
+    tags: ['queries'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['provider'],
+            properties: {
+              provider: { type: 'string', enum: ['gemini', 'openai', 'claude', 'perplexity', 'local'] },
+              count: integerSchema,
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Legacy keyword suggestions returned.' },
+      501: { description: 'Legacy keyword generation is not available.' },
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/competitors',
     summary: 'List competitors',
     tags: ['competitors'],
@@ -820,7 +929,7 @@ const routeCatalog: OpenApiOperation[] = [
             properties: {
               companyName: stringSchema,
               domain: stringSchema,
-              phrases: stringArraySchema,
+              queries: stringArraySchema,
               competitors: stringArraySchema,
             },
           },

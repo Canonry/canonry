@@ -73,11 +73,25 @@ export const queryDtoSchema = z.object({
 
 export type QueryDto = z.infer<typeof queryDtoSchema>
 
+export const keywordDtoSchema = z.object({
+  id: z.string(),
+  keyword: z.string(),
+  createdAt: z.string(),
+})
+
+export type KeywordDto = z.infer<typeof keywordDtoSchema>
+
 export const queryBatchRequestSchema = z.object({
   queries: z.array(z.string().trim().min(1)).min(1),
 })
 
 export type QueryBatchRequest = z.infer<typeof queryBatchRequestSchema>
+
+export const keywordBatchRequestSchema = z.object({
+  keywords: z.array(z.string().trim().min(1)).min(1),
+})
+
+export type KeywordBatchRequest = z.infer<typeof keywordBatchRequestSchema>
 
 export const queryGenerateRequestSchema = z.object({
   provider: providerNameSchema,
@@ -85,6 +99,9 @@ export const queryGenerateRequestSchema = z.object({
 })
 
 export type QueryGenerateRequest = z.infer<typeof queryGenerateRequestSchema>
+
+export const keywordGenerateRequestSchema = queryGenerateRequestSchema
+export type KeywordGenerateRequest = QueryGenerateRequest
 
 export const competitorDtoSchema = z.object({
   id: z.string(),
