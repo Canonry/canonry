@@ -99,12 +99,23 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
     if (!projectsQuery.data || !runsQuery.data) return null
     if (projects.length > 0 && !allProjectDetailsLoaded) return null
 
+    // Override `runs` with fresh allRuns. The detail query is keyed by the latest
+    // completed run id, so its cached `runs` field misses runs that started after
+    // the last completion (queued/running). Polling refreshes runsQuery every 3s
+    // while a run is active — projecting it through here lets the dashboard
+    // reflect in-progress state without waiting for the detail query to refetch.
     const projectDataList: ProjectData[] = projectDetailQueries
-      .map(q => q.data)
+      .map((q) => {
+        if (!q.data) return null
+        return {
+          ...q.data,
+          runs: allRuns.filter((r) => r.projectId === q.data!.project.id),
+        }
+      })
       .filter((d): d is ProjectData => d != null)
 
     return buildDashboard(projectDataList, settingsQuery.data ?? null)
-  }, [effectiveInitial, projectsQuery.data, runsQuery.data, settingsQuery.data, allProjectDetailsLoaded, projectDetailQueries, projects.length])
+  }, [effectiveInitial, projectsQuery.data, runsQuery.data, settingsQuery.data, allProjectDetailsLoaded, projectDetailQueries, projects.length, allRuns])
 
   const isError = !effectiveInitial && (projectsQuery.isError || runsQuery.isError)
   const isLoading = !effectiveInitial && !dashboard && !isError

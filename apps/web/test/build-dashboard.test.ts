@@ -900,4 +900,55 @@ describe('provider coverage indicators', () => {
     expect(portfolio.visibilityTone).not.toBe('caution')
     expect(portfolio.providerCoverage).toBeUndefined()
   })
+
+  test('overview keeps last completed snapshots when a newer run is in progress', () => {
+    const data = makeMultiProviderData(['gemini', 'openai'], ['gemini', 'openai'])
+    // A new run was queued after the completed run finished. latestRunDetail still
+    // points at run_1, so the build must fall back to it instead of showing "No data".
+    data.runs = [
+      {
+        id: 'run_2_running',
+        projectId: 'proj_cov',
+        kind: 'answer-visibility',
+        status: 'running',
+        trigger: 'manual',
+        startedAt: '2026-03-16T00:00:00Z',
+        finishedAt: null,
+        error: null,
+        createdAt: '2026-03-16T00:00:00Z',
+      },
+      ...data.runs,
+    ]
+
+    const model = buildProjectCommandCenter(data)
+    expect(model.visibilitySummary.value).not.toBe('No data')
+    expect(model.visibilitySummary.delta).not.toBe('Run a sweep first')
+
+    const portfolio = buildPortfolioProject(data)
+    expect(portfolio.visibilityDelta).not.toBe('No data')
+    expect(portfolio.insight).not.toBe('No runs completed yet.')
+  })
+
+  test('overview shows in-progress status while preserving snapshots', () => {
+    const data = makeMultiProviderData(['gemini', 'openai'], ['gemini', 'openai'])
+    data.runs = [
+      {
+        id: 'run_2_queued',
+        projectId: 'proj_cov',
+        kind: 'answer-visibility',
+        status: 'queued',
+        trigger: 'manual',
+        startedAt: null,
+        finishedAt: null,
+        error: null,
+        createdAt: '2026-03-16T00:00:00Z',
+      },
+      ...data.runs,
+    ]
+
+    const model = buildProjectCommandCenter(data)
+    expect(model.runStatus.value).toBe('Queued')
+    // Snapshots from the previous completed run should still drive the gauges.
+    expect(model.visibilitySummary.value).not.toBe('No data')
+  })
 })
