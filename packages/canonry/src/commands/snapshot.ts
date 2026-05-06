@@ -83,7 +83,7 @@ export function formatSnapshotMarkdown(report: SnapshotReportDto): string {
   lines.push(`**AEO Audit Score:** ${report.audit.overallScore}/100 (${report.audit.overallGrade})`)
   lines.push('')
 
-  lines.push('## Visibility Gap')
+  lines.push('## Visibility Gap (Citations + Mentions)')
   lines.push('')
   lines.push(report.summary.visibilityGap)
   lines.push('')

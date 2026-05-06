@@ -220,6 +220,8 @@ Canonry tracks two parallel signals for every (keyword × provider) snapshot. Th
 3. **Never compute one signal from the other.** A label that says "cited" must read `citationState` (or a derived `cited: boolean`); a label that says "mentioned" must read `answerMentioned`. If you find a metric named for one signal but computed from the other, that's a bug — fix it, don't paper over it.
 4. **When you need to refer to both at once,** say "citation + mention coverage" or "visibility (cited or mentioned)" — but always disambiguate immediately.
 5. **Public API field names** must use the canonical vocabulary. Renaming a field means a version bump per the API Stability rules, so get it right the first time.
+6. **When rendering snapshot state in CLI/UI output, render both signals.** Don't print a single-cell label that flips between "cited" and "mentioned" depending on which field is populated — readers cannot tell which signal they're looking at. Use a two-glyph cell (`[citation][mention]` — `C/c` for cited/not, `M/m` for mentioned/not, `–` for missing) like `canonry citations` and `canonry run` do, and always print the legend above the table.
+7. **Lint-enforced banned literals.** ESLint blocks the literals `'not-vis'`, `'visibility run'`, `'visibility sweep'`, `'visibility report'`, `'answer rate'`, `'answer-rate'`, and `'answerRate'` in `packages/canonry/src/commands/`, `packages/canonry/src/cli-commands/`, `packages/api-routes/src/`, and `apps/web/src/`. Bare `'visible'` is not banned because it has legitimate uses (DOM `document.visibilityState`, the legacy `VisibilityState` enum value) — the burden of correctness for those falls on review.
 
 ### Anti-patterns
 

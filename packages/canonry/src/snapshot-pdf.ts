@@ -250,7 +250,7 @@ function renderCover(pdf: PdfWriter, report: SnapshotReportDto) {
     minute: '2-digit',
   }))
   pdf.keyValue('AEO Audit', `${report.audit.overallScore}/100 (${report.audit.overallGrade})`)
-  pdf.keyValue('Visibility Gap', report.summary.visibilityGap)
+  pdf.keyValue('Visibility Gap (Citations + Mentions)', report.summary.visibilityGap)
   pdf.paragraph(report.profile.summary, { size: 11, color: INK, lineHeight: 16 })
   pdf.rule()
 }

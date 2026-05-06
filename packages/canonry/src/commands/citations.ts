@@ -42,7 +42,7 @@ function printSummary(data: CitationVisibilityResponse): void {
     keywordsMentionedOnly,
     keywordsInvisible,
   } = data.summary
-  console.log('Citation visibility')
+  console.log('AEO visibility (citations + mentions)')
   if (data.summary.latestRunAt) {
     console.log(`Latest run:           ${data.summary.latestRunAt}`)
   }
