@@ -73,12 +73,14 @@ export const queryDtoSchema = z.object({
 
 export type QueryDto = z.infer<typeof queryDtoSchema>
 
+/** @deprecated Legacy alias kept for the `/keywords` back-compat surface. New code should use {@link queryDtoSchema}. */
 export const keywordDtoSchema = z.object({
   id: z.string(),
   keyword: z.string(),
   createdAt: z.string(),
 })
 
+/** @deprecated Legacy alias kept for the `/keywords` back-compat surface. New code should use {@link QueryDto}. */
 export type KeywordDto = z.infer<typeof keywordDtoSchema>
 
 export const queryBatchRequestSchema = z.object({
@@ -87,10 +89,12 @@ export const queryBatchRequestSchema = z.object({
 
 export type QueryBatchRequest = z.infer<typeof queryBatchRequestSchema>
 
+/** @deprecated Legacy alias kept for the `/keywords` back-compat surface. New code should use {@link queryBatchRequestSchema}. */
 export const keywordBatchRequestSchema = z.object({
   keywords: z.array(z.string().trim().min(1)).min(1),
 })
 
+/** @deprecated Legacy alias kept for the `/keywords` back-compat surface. New code should use {@link QueryBatchRequest}. */
 export type KeywordBatchRequest = z.infer<typeof keywordBatchRequestSchema>
 
 export const queryGenerateRequestSchema = z.object({
@@ -100,7 +104,9 @@ export const queryGenerateRequestSchema = z.object({
 
 export type QueryGenerateRequest = z.infer<typeof queryGenerateRequestSchema>
 
+/** @deprecated Legacy alias kept for the `/keywords/generate` back-compat surface. New code should use {@link queryGenerateRequestSchema}. */
 export const keywordGenerateRequestSchema = queryGenerateRequestSchema
+/** @deprecated Legacy alias kept for the `/keywords/generate` back-compat surface. New code should use {@link QueryGenerateRequest}. */
 export type KeywordGenerateRequest = QueryGenerateRequest
 
 export const competitorDtoSchema = z.object({

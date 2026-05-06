@@ -1096,7 +1096,10 @@ function recordMigration(
 export function migrate(db: DatabaseClient) {
   // Normalize legacy table/column names before bootstrap SQL runs. Bootstrap
   // creates final-shape indexes, so existing DBs must expose final column names
-  // before those statements execute.
+  // before those statements execute. The same call also runs inside v48's
+  // `run` (defense in depth — the in-version call is what gets recorded in
+  // `_migrations` for the cutover); both invocations no-op once the schema
+  // is already on the new names.
   db.transaction((tx) => {
     normalizeLegacyQuerySchema(tx)
   })
