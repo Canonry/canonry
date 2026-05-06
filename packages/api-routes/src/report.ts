@@ -16,25 +16,22 @@ import {
   runs,
 } from '@ainyc/canonry-db'
 import {
-  brandLabelFromDomain,
-  categorizeSource,
-  determineAnswerMentioned,
-  normalizeProjectDomain,
   RunKinds,
   RunStatuses,
-  type AiSourceCategoryBucket,
-  type CitationCell,
   type CitationsTrendPoint,
   type CompetitorRow,
   type GscQueryRow,
-  type MentionRow,
   type ProjectReportDto,
   type RecommendedNextStep,
   type ReportInsight,
   type SocialReferralSection,
 } from '@ainyc/canonry-contracts'
 import {
+  buildAiSourceOrigin,
   buildBrandTokens,
+  buildCitationScorecard,
+  buildCompetitorLandscape,
+  buildMentionLandscape,
   buildContentTargetRows,
   buildContentSourceRows,
   buildContentGapRows,
@@ -48,9 +45,7 @@ import { resolveProject } from './helpers.js'
 import { renderReportHtml } from './report-renderer.js'
 import {
   extractGroundingSources,
-  extractHostFromUri,
   loadOrchestratorInput,
-  normalizeDomain,
 } from './content-data.js'
 import type { GroundingSource } from '@ainyc/canonry-contracts'
 import type { DatabaseClient } from '@ainyc/canonry-db'
@@ -58,7 +53,6 @@ import type { DatabaseClient } from '@ainyc/canonry-db'
 const TOP_QUERIES_LIMIT = 20
 const TOP_LANDING_PAGES_LIMIT = 20
 const TOP_AI_REFERRAL_PAGES_LIMIT = 10
-const TOP_SOURCE_DOMAINS_LIMIT = 20
 const TOP_CAMPAIGN_LIMIT = 10
 // Cap insight history at the same window the intelligence layer uses
 // for recurrence (RECURRENCE_LOOKBACK_RUNS in intelligence-service.ts).
@@ -73,19 +67,6 @@ function safeNum(value: unknown): number {
     return Number.isFinite(parsed) ? parsed : 0
   }
   return 0
-}
-
-// Mirrors `domainMatches` in packages/canonry/src/citation-utils.ts (which
-// determineCitationState uses) — kept duplicated to respect the api-routes →
-// canonry dependency boundary. Whenever determineCitationState's matching
-// rules change, update this in lockstep.
-function citedDomainBelongsToProject(citedDomain: string, projectDomains: string[]): boolean {
-  const candidate = normalizeProjectDomain(citedDomain)
-  for (const domain of projectDomains) {
-    const normalized = normalizeProjectDomain(domain)
-    if (candidate === normalized || candidate.endsWith(`.${normalized}`)) return true
-  }
-  return false
 }
 
 // Thin wrapper around the shared intelligence-package categorizer.
@@ -139,259 +120,6 @@ function loadQueryLookup(db: DatabaseClient, projectId: string): QueryLookup {
   const byId = new Map<string, string>()
   for (const row of rows) byId.set(row.id, row.query)
   return { byId }
-}
-
-function buildCitationScorecard(
-  snapshots: SnapshotRow[],
-  queryLookup: QueryLookup,
-): ProjectReportDto['citationScorecard'] {
-  if (snapshots.length === 0) {
-    return { queries: [], providers: [], matrix: [], providerRates: [] }
-  }
-
-  const querySet = new Set<string>()
-  const providerSet = new Set<string>()
-  for (const snap of snapshots) {
-    const q = queryLookup.byId.get(snap.queryId)
-    if (!q) continue
-    querySet.add(q)
-    providerSet.add(snap.provider)
-  }
-  const queryList = [...querySet].sort()
-  const providerList = [...providerSet].sort()
-
-  const matrix: Array<Array<CitationCell | null>> = queryList.map(() =>
-    providerList.map(() => null),
-  )
-  const providerCounts = new Map<string, { cited: number; total: number }>()
-
-  for (const snap of snapshots) {
-    const q = queryLookup.byId.get(snap.queryId)
-    if (!q) continue
-    const qi = queryList.indexOf(q)
-    const pi = providerList.indexOf(snap.provider)
-    if (qi < 0 || pi < 0) continue
-    matrix[qi]![pi] = {
-      citationState: snap.citationState === 'cited' ? 'cited' : 'not-cited',
-      answerMentioned: snap.answerMentioned ?? null,
-      model: snap.model,
-    }
-    const counts = providerCounts.get(snap.provider) ?? { cited: 0, total: 0 }
-    counts.total++
-    if (snap.citationState === 'cited') counts.cited++
-    providerCounts.set(snap.provider, counts)
-  }
-
-  const providerRates = providerList.map(provider => {
-    const counts = providerCounts.get(provider) ?? { cited: 0, total: 0 }
-    const citationRate = counts.total > 0 ? Math.round((counts.cited / counts.total) * 100) : 0
-    return {
-      provider,
-      citedCount: counts.cited,
-      totalCount: counts.total,
-      citationRate,
-    }
-  })
-
-  return { queries: queryList, providers: providerList, matrix, providerRates }
-}
-
-function buildCompetitorLandscape(
-  snapshots: SnapshotRow[],
-  competitorDomains: string[],
-  projectDomains: string[],
-  queryLookup: QueryLookup,
-): ProjectReportDto['competitorLandscape'] {
-  let projectCitationCount = 0
-  const competitorMap = new Map<
-    string,
-    { count: number; queries: Set<string>; pages: Map<string, Set<string>> }
-  >()
-  for (const c of competitorDomains) {
-    competitorMap.set(c, { count: 0, queries: new Set(), pages: new Map() })
-  }
-
-  for (const snap of snapshots) {
-    const q = queryLookup.byId.get(snap.queryId)
-    const allDomains = [...snap.citedDomains, ...snap.competitorOverlap]
-    if (allDomains.some(d => citedDomainBelongsToProject(d, projectDomains))) {
-      projectCitationCount++
-    }
-
-    for (const competitor of competitorDomains) {
-      if (allDomains.some(d => citedDomainBelongsToProject(d, [competitor]))) {
-        const entry = competitorMap.get(competitor)!
-        entry.count++
-        if (q) entry.queries.add(q)
-      }
-      // Aggregate cited URLs from grounding sources whose host matches this
-      // competitor — independent of citationState because grounding indicates
-      // the model considered the source even if it didn't ultimately cite it.
-      const competitorNorm = normalizeDomain(competitor)
-      for (const gs of snap.groundingSources) {
-        const host = normalizeDomain(extractHostFromUri(gs.uri))
-        if (!host) continue
-        if (host === competitorNorm || host.endsWith(`.${competitorNorm}`)) {
-          const entry = competitorMap.get(competitor)!
-          const pageQueries = entry.pages.get(gs.uri) ?? new Set<string>()
-          if (q) pageQueries.add(q)
-          entry.pages.set(gs.uri, pageQueries)
-        }
-      }
-    }
-  }
-
-  // Denominator for SOV = sum of all citation counts (project + competitors).
-  const totalCitedSlots = projectCitationCount
-    + [...competitorMap.values()].reduce((sum, v) => sum + v.count, 0)
-
-  const competitorRows: CompetitorRow[] = [...competitorMap.entries()].map(([domain, data]) => {
-    const total = snapshots.length
-    const ratio = total > 0 ? data.count / total : 0
-    let pressureLabel: CompetitorRow['pressureLabel'] = 'None'
-    if (data.count > 0) {
-      if (ratio >= 0.5) pressureLabel = 'High'
-      else if (ratio >= 0.2) pressureLabel = 'Moderate'
-      else pressureLabel = 'Low'
-    }
-    const sharePct = totalCitedSlots > 0
-      ? Math.round((data.count / totalCitedSlots) * 100)
-      : 0
-    const theirCitedPages = [...data.pages.entries()]
-      .map(([url, qs]) => ({ url, citedFor: [...qs].sort() }))
-      .sort((a, b) => b.citedFor.length - a.citedFor.length)
-    return {
-      domain,
-      citationCount: data.count,
-      totalCount: total,
-      pressureLabel,
-      citedQueries: [...data.queries].sort(),
-      sharePct,
-      theirCitedPages,
-    }
-  })
-
-  competitorRows.sort((a, b) => b.citationCount - a.citationCount)
-
-  return { projectCitationCount, competitors: competitorRows }
-}
-
-// Mirrors buildCompetitorLandscape but operates on the answer-text
-// signal — `answerMentioned` for the project, and per-competitor brand
-// detection via extractAnswerMentions on the snapshot's answerText.
-// Snapshots with no answerText are excluded from the denominator since
-// we can't compute mention either way for them.
-function buildMentionLandscape(
-  snapshots: SnapshotRow[],
-  competitorDomains: string[],
-  projectDisplayName: string,
-  projectDomains: string[],
-  queryLookup: QueryLookup,
-): ProjectReportDto['mentionLandscape'] {
-  let projectMentionCount = 0
-  let totalAnswerSnapshots = 0
-  const competitorMap = new Map<string, { count: number; queries: Set<string> }>()
-  for (const c of competitorDomains) {
-    competitorMap.set(c, { count: 0, queries: new Set() })
-  }
-
-  for (const snap of snapshots) {
-    const text = snap.answerText
-    if (!text) continue
-    totalAnswerSnapshots++
-
-    const q = queryLookup.byId.get(snap.queryId)
-    // Project mention: prefer the stored snapshot.answerMentioned (computed at
-    // run time against the project's own brand + domains). Fall back to a
-    // recompute when the column is null (legacy rows) so this stays consistent
-    // with the citation builder, which uses snapshot fields directly.
-    const projectMentioned = snap.answerMentioned ?? determineAnswerMentioned(
-      text,
-      projectDisplayName,
-      projectDomains,
-    )
-    if (projectMentioned) projectMentionCount++
-
-    for (const competitor of competitorDomains) {
-      const brand = brandLabelFromDomain(competitor)
-      const mentioned = determineAnswerMentioned(text, brand, [competitor])
-      if (mentioned) {
-        const entry = competitorMap.get(competitor)!
-        entry.count++
-        if (q) entry.queries.add(q)
-      }
-    }
-  }
-
-  const totalMentionedSlots = projectMentionCount
-    + [...competitorMap.values()].reduce((sum, v) => sum + v.count, 0)
-
-  const competitorRows: MentionRow[] = [...competitorMap.entries()].map(([domain, data]) => {
-    const ratio = totalAnswerSnapshots > 0 ? data.count / totalAnswerSnapshots : 0
-    let pressureLabel: MentionRow['pressureLabel'] = 'None'
-    if (data.count > 0) {
-      if (ratio >= 0.5) pressureLabel = 'High'
-      else if (ratio >= 0.2) pressureLabel = 'Moderate'
-      else pressureLabel = 'Low'
-    }
-    const sharePct = totalMentionedSlots > 0
-      ? Math.round((data.count / totalMentionedSlots) * 100)
-      : 0
-    return {
-      domain,
-      mentionCount: data.count,
-      totalCount: totalAnswerSnapshots,
-      pressureLabel,
-      mentionedQueries: [...data.queries].sort(),
-      sharePct,
-    }
-  })
-
-  competitorRows.sort((a, b) => b.mentionCount - a.mentionCount)
-
-  return { projectMentionCount, totalAnswerSnapshots, competitors: competitorRows }
-}
-
-function buildAiSourceOrigin(
-  snapshots: SnapshotRow[],
-  projectDomains: string[],
-  competitorDomains: string[],
-): ProjectReportDto['aiSourceOrigin'] {
-  const categoryCounts = new Map<string, { label: string; count: number }>()
-  const domainCounts = new Map<string, number>()
-  let totalCitations = 0
-
-  for (const snap of snapshots) {
-    for (const raw of snap.citedDomains) {
-      if (citedDomainBelongsToProject(raw, projectDomains)) continue
-      const { category, label, domain } = categorizeSource(raw)
-      const cat = categoryCounts.get(category) ?? { label, count: 0 }
-      cat.count++
-      categoryCounts.set(category, cat)
-      domainCounts.set(domain, (domainCounts.get(domain) ?? 0) + 1)
-      totalCitations++
-    }
-  }
-
-  const categories: AiSourceCategoryBucket[] = [...categoryCounts.entries()]
-    .map(([category, { label, count }]) => ({
-      category,
-      label,
-      count,
-      sharePct: totalCitations > 0 ? Math.round((count / totalCitations) * 100) : 0,
-    }))
-    .sort((a, b) => b.count - a.count)
-
-  const topDomains = [...domainCounts.entries()]
-    .map(([domain, count]) => ({
-      domain,
-      count,
-      isCompetitor: citedDomainBelongsToProject(domain, competitorDomains),
-    }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, TOP_SOURCE_DOMAINS_LIMIT)
-
-  return { categories, topDomains }
 }
 
 function buildGscSection(

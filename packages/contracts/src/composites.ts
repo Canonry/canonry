@@ -30,6 +30,93 @@ export interface ProjectOverviewTransitionsDto {
   emerging: number
 }
 
+// Tone used by the dashboard, CLI human output, and any agent rendering the
+// overview. The server is the source of truth — clients map to colors/icons
+// per their surface but never recompute the tone themselves.
+export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
+
+// One score gauge — used for visibility, gap queries, index coverage,
+// competitor pressure, and run status. `value` is presentational (e.g. "67",
+// "No data") so the same string renders in CLI, dashboard gauges, and report
+// HTML. `progress` is the 0–100 numeric used by progress rings; absent for
+// gauges that aren't ratio-based.
+export interface ScoreSummaryDto {
+  label: string
+  value: string
+  delta: string
+  tone: MetricTone
+  description: string
+  tooltip?: string
+  trend: number[]
+  progress?: number
+  providerCoverage?: string
+}
+
+// The five score gauges shown at the top of the project page. Each is a
+// `ScoreSummaryDto` so the SPA renders them with one component and the CLI
+// formats them with one helper.
+export interface ProjectOverviewScoresDto {
+  visibility: ScoreSummaryDto
+  gapQueries: ScoreSummaryDto
+  indexCoverage: ScoreSummaryDto
+  competitorPressure: ScoreSummaryDto
+  runStatus: ScoreSummaryDto
+}
+
+// Gained / lost since the previous run — `transitions` is point-in-time, this
+// is the human-readable summary with a tone hint.
+export interface MovementSummaryDto {
+  gained: number
+  lost: number
+  tone: MetricTone
+  hasPreviousRun: boolean
+}
+
+// Per-competitor row for the overview's competitor list. Distinct from the
+// `competitorLandscape` shape used by the report — narrower, no per-page
+// breakdown. `id` is stable across calls (uses the competitor row id when
+// available, falls back to a deterministic suffix).
+export interface ProjectOverviewCompetitorDto {
+  id: string
+  domain: string
+  citationCount: number
+  totalQueries: number
+  pressureLabel: 'None' | 'Low' | 'Moderate' | 'High'
+  citedQueries: string[]
+}
+
+// Per-(provider, model) score from the latest run. Different from
+// `ProjectOverviewProviderEntryDto`, which is per-provider only.
+export interface ProjectOverviewProviderScoreDto {
+  provider: string
+  model: string | null
+  score: number
+  cited: number
+  total: number
+}
+
+// Item in the "look at this" queue at the top of the dashboard. `href` is
+// relative to the SPA's basePath; CLI consumers can ignore it.
+export interface AttentionItemDto {
+  id: string
+  tone: MetricTone
+  title: string
+  detail: string
+  actionLabel: string
+  href: string
+}
+
+// Per-run point used for sparklines in the overview. One entry per run in
+// the history window (newest first or oldest first — see endpoint docs).
+export interface RunHistoryPointDto {
+  runId: string
+  createdAt: string
+  citedCount: number
+  totalCount: number
+  citationRate: number
+  status: string
+}
+
 export interface ProjectOverviewDto {
   project: ProjectDto
   latestRun: LatestProjectRunDto
@@ -38,6 +125,18 @@ export interface ProjectOverviewDto {
   queryCounts: ProjectOverviewQueryCountsDto
   providers: ProjectOverviewProviderEntryDto[]
   transitions: ProjectOverviewTransitionsDto
+
+  // Phase 2 additions — populated from the same snapshot data the existing
+  // fields use. All additive; older clients that only read the legacy fields
+  // continue to work.
+  scores: ProjectOverviewScoresDto
+  movementSummary: MovementSummaryDto
+  competitors: ProjectOverviewCompetitorDto[]
+  providerScores: ProjectOverviewProviderScoreDto[]
+  attentionItems: AttentionItemDto[]
+  runHistory: RunHistoryPointDto[]
+  dateRangeLabel: string
+  contextLabel: string
 }
 
 export const searchHitKindSchema = z.enum(['snapshot', 'insight'])

@@ -997,8 +997,16 @@ export class ApiClient {
     return this.request<HealthSnapshotDto>('GET', `/projects/${encodeURIComponent(project)}/health/latest`)
   }
 
-  async getProjectOverview(project: string): Promise<ProjectOverviewDto> {
-    return this.request<ProjectOverviewDto>('GET', `/projects/${encodeURIComponent(project)}/overview`)
+  async getProjectOverview(
+    project: string,
+    opts?: { location?: string; since?: string },
+  ): Promise<ProjectOverviewDto> {
+    const params = new URLSearchParams()
+    if (opts?.location) params.set('location', opts.location)
+    if (opts?.since) params.set('since', opts.since)
+    const query = params.toString()
+    const path = `/projects/${encodeURIComponent(project)}/overview${query ? `?${query}` : ''}`
+    return this.request<ProjectOverviewDto>('GET', path)
   }
 
   async searchProject(project: string, opts: { q: string; limit?: number }): Promise<ProjectSearchResponseDto> {

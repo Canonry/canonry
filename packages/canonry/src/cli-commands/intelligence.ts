@@ -54,12 +54,17 @@ export const INTELLIGENCE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['overview'],
-    usage: 'canonry overview <project> [--format json]',
-    options: {},
+    usage: 'canonry overview <project> [--location <label>] [--since <iso>] [--format json]',
+    options: {
+      location: { type: 'string' },
+      since: { type: 'string' },
+    },
     run: async (input) => {
-      const usage = 'canonry overview <project> [--format json]'
+      const usage = 'canonry overview <project> [--location <label>] [--since <iso>] [--format json]'
       const project = requireProject(input, 'overview', usage)
-      await showOverview(project, { format: input.format })
+      const location = getString(input.values, 'location')
+      const since = getString(input.values, 'since')
+      await showOverview(project, { format: input.format, location, since })
     },
   },
   {

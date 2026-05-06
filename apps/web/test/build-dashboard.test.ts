@@ -1,9 +1,7 @@
-import { test, expect, describe } from 'vitest'
+import { test, expect } from 'vitest'
 
-import { buildDashboard, buildProjectCommandCenter, buildPortfolioProject, type ProjectData } from '../src/build-dashboard.js'
+import { buildDashboard, buildProjectCommandCenter, type ProjectData } from '../src/build-dashboard.js'
 import type { ApiSettings } from '../src/api.js'
-import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
-import type { InsightDto } from '@ainyc/canonry-contracts'
 
 test('buildDashboard maps Google settings into the dashboard view model', () => {
   const apiSettings: ApiSettings = {
@@ -277,205 +275,13 @@ test('buildProjectCommandCenter keeps historical-only provider badges on their o
   expect(openaiEvidence?.citationState).toBe('not-cited')
 })
 
-test('buildProjectCommandCenter summarizes gap queries and prefers Google index coverage', () => {
+test('buildProjectCommandCenter populates score gauges from the overview DTO when provided', () => {
   const data: ProjectData = {
     project: {
-      id: 'proj_2',
-      name: 'harbor',
-      displayName: 'Harbor',
-      canonicalDomain: 'harbor.example',
-      ownedDomains: [],
-      country: 'US',
-      language: 'en',
-      tags: [],
-      labels: {},
-      providers: ['gemini', 'openai'],
-      configSource: 'api',
-      configRevision: 1,
-      createdAt: '2026-03-10T00:00:00Z',
-      updatedAt: '2026-03-15T00:00:00Z',
-    },
-    runs: [{
-      id: 'run_latest',
-      projectId: 'proj_2',
-      kind: 'answer-visibility',
-      status: 'completed',
-      trigger: 'manual',
-      startedAt: '2026-03-15T00:00:00Z',
-      finishedAt: '2026-03-15T00:00:20Z',
-      error: null,
-      createdAt: '2026-03-15T00:00:00Z',
-    }],
-    queries: [
-      { id: 'kw_gap', query: 'ai seo consultant', createdAt: '2026-03-10T00:00:00Z' },
-      { id: 'kw_cited', query: 'aeo agency', createdAt: '2026-03-10T00:00:00Z' },
-    ],
-    competitors: [{ id: 'comp_1', domain: 'rival.example', createdAt: '2026-03-10T00:00:00Z' }],
-    timeline: [
-      {
-        query: 'ai seo consultant',
-        runs: [{ runId: 'run_latest', createdAt: '2026-03-15T00:00:00Z', citationState: 'not-cited', transition: 'not-cited' }],
-      },
-      {
-        query: 'aeo agency',
-        runs: [{ runId: 'run_latest', createdAt: '2026-03-15T00:00:00Z', citationState: 'cited', transition: 'new' }],
-      },
-    ],
-    latestRunDetail: {
-      id: 'run_latest',
-      projectId: 'proj_2',
-      kind: 'answer-visibility',
-      status: 'completed',
-      trigger: 'manual',
-      startedAt: '2026-03-15T00:00:00Z',
-      finishedAt: '2026-03-15T00:00:20Z',
-      error: null,
-      createdAt: '2026-03-15T00:00:00Z',
-      snapshots: [
-        {
-          id: 'snap_gap_gemini',
-          runId: 'run_latest',
-          queryId: 'kw_gap',
-          query: 'ai seo consultant',
-          provider: 'gemini',
-          model: 'gemini-3-flash',
-          citationState: 'not-cited',
-          answerText: null,
-          citedDomains: [],
-          competitorOverlap: ['rival.example'],
-          groundingSources: [],
-          searchQueries: [],
-          location: null,
-          createdAt: '2026-03-15T00:00:00Z',
-        },
-        {
-          id: 'snap_gap_openai',
-          runId: 'run_latest',
-          queryId: 'kw_gap',
-          query: 'ai seo consultant',
-          provider: 'openai',
-          model: 'gpt-5.4',
-          citationState: 'not-cited',
-          answerText: null,
-          citedDomains: [],
-          competitorOverlap: ['rival.example'],
-          groundingSources: [],
-          searchQueries: [],
-          location: null,
-          createdAt: '2026-03-15T00:00:00Z',
-        },
-        {
-          id: 'snap_cited_gemini',
-          runId: 'run_latest',
-          queryId: 'kw_cited',
-          query: 'aeo agency',
-          provider: 'gemini',
-          model: 'gemini-3-flash',
-          citationState: 'cited',
-          answerText: null,
-          citedDomains: ['harbor.example'],
-          competitorOverlap: [],
-          groundingSources: [],
-          searchQueries: [],
-          location: null,
-          createdAt: '2026-03-15T00:00:00Z',
-        },
-      ],
-    },
-    previousRunDetail: null,
-    gscCoverage: {
-      summary: {
-        total: 10,
-        indexed: 8,
-        notIndexed: 2,
-        deindexed: 1,
-        percentage: 80,
-      },
-      lastInspectedAt: '2026-03-15T01:00:00Z',
-      indexed: [],
-      notIndexed: [],
-      deindexed: [],
-      reasonGroups: [],
-    },
-    bingCoverage: {
-      summary: {
-        total: 12,
-        indexed: 12,
-        notIndexed: 0,
-        percentage: 100,
-      },
-      lastInspectedAt: '2026-03-15T01:00:00Z',
-      indexed: [],
-      notIndexed: [],
-    },
-  }
-
-  const model = buildProjectCommandCenter(data)
-
-  expect(model.gapQueries.label).toBe('Gap Queries')
-  expect(model.gapQueries.value).toBe('1')
-  expect(model.gapQueries.delta).toBe('1 of 2 queries at risk')
-  expect(model.gapQueries.progress).toBe(0.5)
-  expect(model.indexCoverage.value).toBe('80')
-  expect(model.indexCoverage.delta).toBe('Google · 8 of 10 indexed')
-  expect(model.indexCoverage.tone).toBe('negative')
-  expect(model.indexCoverage.description).toMatch(/deindexed/i)
-})
-
-test('buildProjectCommandCenter falls back to Bing coverage when Google coverage is unavailable', () => {
-  const data: ProjectData = {
-    project: {
-      id: 'proj_3',
-      name: 'northstar',
-      displayName: 'Northstar',
-      canonicalDomain: 'northstar.example',
-      ownedDomains: [],
-      country: 'US',
-      language: 'en',
-      tags: [],
-      labels: {},
-      providers: ['openai'],
-      configSource: 'api',
-      configRevision: 1,
-      createdAt: '2026-03-10T00:00:00Z',
-      updatedAt: '2026-03-15T00:00:00Z',
-    },
-    runs: [],
-    queries: [],
-    competitors: [],
-    timeline: [],
-    latestRunDetail: null,
-    previousRunDetail: null,
-    gscCoverage: null,
-    bingCoverage: {
-      summary: {
-        total: 20,
-        indexed: 15,
-        notIndexed: 5,
-        percentage: 75,
-      },
-      lastInspectedAt: '2026-03-15T01:00:00Z',
-      indexed: [],
-      notIndexed: [],
-    },
-  }
-
-  const model = buildProjectCommandCenter(data)
-
-  expect(model.indexCoverage.value).toBe('75')
-  expect(model.indexCoverage.delta).toBe('Bing · 15 of 20 indexed')
-  expect(model.indexCoverage.description).toMatch(/Bing Webmaster Tools/)
-})
-
-/* ── DB insight merge tests ──────────────────────────────────────────────── */
-
-function makeRegressionData(): ProjectData {
-  return {
-    project: {
-      id: 'proj_merge',
-      name: 'merge-test',
-      displayName: 'Merge Test',
-      canonicalDomain: 'merge.example',
+      id: 'proj_overview',
+      name: 'overview-demo',
+      displayName: 'Overview Demo',
+      canonicalDomain: 'overview.example',
       ownedDomains: [],
       country: 'US',
       language: 'en',
@@ -484,471 +290,62 @@ function makeRegressionData(): ProjectData {
       providers: ['gemini'],
       configSource: 'api',
       configRevision: 1,
-      createdAt: '2026-03-10T00:00:00Z',
-      updatedAt: '2026-03-15T00:00:00Z',
+      createdAt: '2026-04-01T00:00:00Z',
+      updatedAt: '2026-04-01T00:00:00Z',
     },
-    runs: [
-      { id: 'run_2', projectId: 'proj_merge', kind: 'answer-visibility', status: 'completed', trigger: 'manual', startedAt: '2026-03-15T00:00:00Z', finishedAt: '2026-03-15T00:00:10Z', error: null, createdAt: '2026-03-15T00:00:00Z' },
-      { id: 'run_1', projectId: 'proj_merge', kind: 'answer-visibility', status: 'completed', trigger: 'manual', startedAt: '2026-03-14T00:00:00Z', finishedAt: '2026-03-14T00:00:10Z', error: null, createdAt: '2026-03-14T00:00:00Z' },
-    ],
-    queries: [{ id: 'kw_1', query: 'roof repair', createdAt: '2026-03-10T00:00:00Z' }],
+    runs: [],
+    queries: [],
     competitors: [],
-    timeline: [{
-      query: 'roof repair',
-      runs: [
-        { runId: 'run_1', createdAt: '2026-03-14T00:00:00Z', citationState: 'cited', transition: 'new' },
-        { runId: 'run_2', createdAt: '2026-03-15T00:00:00Z', citationState: 'not-cited', transition: 'lost' },
-      ],
-    }],
-    latestRunDetail: {
-      id: 'run_2', projectId: 'proj_merge', kind: 'answer-visibility', status: 'completed', trigger: 'manual',
-      startedAt: '2026-03-15T00:00:00Z', finishedAt: '2026-03-15T00:00:10Z', error: null, createdAt: '2026-03-15T00:00:00Z',
-      snapshots: [{
-        id: 'snap_2', runId: 'run_2', queryId: 'kw_1', query: 'roof repair', provider: 'gemini', model: null,
-        citationState: 'not-cited', answerText: null, citedDomains: [], competitorOverlap: [], groundingSources: [], searchQueries: [], createdAt: '2026-03-15T00:00:00Z',
-      }],
-    },
-    previousRunDetail: {
-      id: 'run_1', projectId: 'proj_merge', kind: 'answer-visibility', status: 'completed', trigger: 'manual',
-      startedAt: '2026-03-14T00:00:00Z', finishedAt: '2026-03-14T00:00:10Z', error: null, createdAt: '2026-03-14T00:00:00Z',
-      snapshots: [{
-        id: 'snap_1', runId: 'run_1', queryId: 'kw_1', query: 'roof repair', provider: 'gemini', model: null,
-        citationState: 'cited', answerText: 'Merge example cited.', citedDomains: ['merge.example'], competitorOverlap: [], groundingSources: [], searchQueries: [], createdAt: '2026-03-14T00:00:00Z',
-      }],
-    },
-  }
-}
-
-function makeDbInsight(overrides: Partial<InsightDto> = {}): InsightDto {
-  return {
-    id: 'ins_1', projectId: 'proj_merge', runId: 'run_2', type: 'regression', severity: 'high',
-    title: 'Lost citation on Gemini', query: 'roof repair', provider: 'gemini',
-    recommendation: { action: 'Audit content', reason: 'Page not re-indexed' },
-    cause: { cause: 'competitor displacement', details: 'rival.com now cited' },
-    dismissed: false, createdAt: '2026-04-01T00:00:00Z',
-    ...overrides,
-  }
-}
-
-describe('DB insight merge with in-memory signals', () => {
-  test('dbInsights null → pure in-memory insights (no merge)', () => {
-    const data = makeRegressionData()
-    data.dbInsights = null
-    const model = buildProjectCommandCenter(data)
-    // In-memory generates insight_lost for the regression
-    expect(model.insights.some(i => i.id === 'insight_lost')).toBe(true)
-  })
-
-  test('DB regressions replace in-memory insight_lost', () => {
-    const data = makeRegressionData()
-    data.dbInsights = [makeDbInsight()]
-    const model = buildProjectCommandCenter(data)
-    // insight_lost should be gone, replaced by DB regression
-    expect(model.insights.some(i => i.id === 'insight_lost')).toBe(false)
-    expect(model.insights.some(i => i.tone === 'negative' && i.title === 'Lost citation on Gemini')).toBe(true)
-  })
-
-  test('empty DB insights (all dismissed) does not resurrect in-memory lost signal', () => {
-    const data = makeRegressionData()
-    data.dbInsights = [] // intelligence ran, all dismissed
-    const model = buildProjectCommandCenter(data)
-    // insight_lost should be stripped since DB is authoritative, stable fallback instead
-    expect(model.insights.some(i => i.id === 'insight_lost')).toBe(false)
-    expect(model.insights.some(i => i.id === 'insight_stable')).toBe(true)
-  })
-
-  test('non-regression in-memory signals preserved alongside DB insights', () => {
-    const data = makeRegressionData()
-    // Add a first-citation signal by adding a second query that just appeared
-    data.queries.push({ id: 'kw_2', query: 'best roofer', createdAt: '2026-03-10T00:00:00Z' })
-    data.timeline.push({
-      query: 'best roofer',
-      runs: [
-        { runId: 'run_2', createdAt: '2026-03-15T00:00:00Z', citationState: 'cited', transition: 'emerging' },
-      ],
-    })
-    data.latestRunDetail!.snapshots.push({
-      id: 'snap_3', runId: 'run_2', queryId: 'kw_2', query: 'best roofer', provider: 'gemini', model: null,
-      citationState: 'cited', answerText: 'Best roofer cited.', citedDomains: ['merge.example'], competitorOverlap: [], groundingSources: [], searchQueries: [], createdAt: '2026-03-15T00:00:00Z',
-    })
-    data.dbInsights = [makeDbInsight()]
-    const model = buildProjectCommandCenter(data)
-    // DB regression present
-    expect(model.insights.some(i => i.tone === 'negative' && i.title === 'Lost citation on Gemini')).toBe(true)
-    // In-memory first-citation also present
-    expect(model.insights.some(i => i.id === 'insight_first_citation')).toBe(true)
-    // insight_lost removed
-    expect(model.insights.some(i => i.id === 'insight_lost')).toBe(false)
-  })
-
-  test('dbInsights undefined (field not set) → pure in-memory fallback', () => {
-    const data = makeRegressionData()
-    // dbInsights not set at all (pre-existing ProjectData without the field)
-    const model = buildProjectCommandCenter(data)
-    expect(model.insights.some(i => i.id === 'insight_lost')).toBe(true)
-  })
-})
-
-/* ── Run kind differentiation (#269) ──────────────────────────────────── */
-
-describe('run kind differentiation in Command Center', () => {
-  function makeProjectWithMixedRuns(): ProjectData {
-    return {
+    timeline: [],
+    latestRunDetail: null,
+    previousRunDetail: null,
+    overview: {
       project: {
-        id: 'proj_mixed',
-        name: 'mixed-runs',
-        displayName: 'Mixed Runs',
-        canonicalDomain: 'mixed.example',
+        id: 'proj_overview',
+        name: 'overview-demo',
+        displayName: 'Overview Demo',
+        canonicalDomain: 'overview.example',
         ownedDomains: [],
         country: 'US',
         language: 'en',
         tags: [],
         labels: {},
-        providers: ['gemini'],
+        locations: [],
+        defaultLocation: null,
+        autoExtractBacklinks: false,
         configSource: 'api',
         configRevision: 1,
-        createdAt: '2026-03-10T00:00:00Z',
-        updatedAt: '2026-03-15T00:00:00Z',
+        createdAt: '2026-04-01T00:00:00Z',
+        updatedAt: '2026-04-01T00:00:00Z',
       },
-      runs: [
-        // gsc-sync is the absolute latest run
-        {
-          id: 'run_gsc',
-          projectId: 'proj_mixed',
-          kind: 'gsc-sync',
-          status: 'completed',
-          trigger: 'scheduled',
-          startedAt: '2026-03-17T00:00:00Z',
-          finishedAt: '2026-03-17T00:00:05Z',
-          error: null,
-          createdAt: '2026-03-17T00:00:00Z',
-        },
-        // answer-visibility run is older
-        {
-          id: 'run_vis',
-          projectId: 'proj_mixed',
-          kind: 'answer-visibility',
-          status: 'completed',
-          trigger: 'manual',
-          startedAt: '2026-03-15T00:00:00Z',
-          finishedAt: '2026-03-15T00:00:10Z',
-          error: null,
-          createdAt: '2026-03-15T00:00:00Z',
-        },
-      ],
-      queries: [{ id: 'kw_1', query: 'test query', createdAt: '2026-03-10T00:00:00Z' }],
+      latestRun: { totalRuns: 0, run: null },
+      health: null,
+      topInsights: [],
+      queryCounts: { totalQueries: 4, citedQueries: 3, notCitedQueries: 1, citedRate: 0.75 },
+      providers: [{ provider: 'gemini', cited: 3, total: 4, citedRate: 0.75 }],
+      transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
+      scores: {
+        visibility: { label: 'Answer Visibility', value: '75', delta: '3 of 4 queries visible', tone: 'positive', description: '', tooltip: '', trend: [], progress: 75 },
+        gapQueries: { label: 'Gap Queries', value: '0', delta: '0 of 4 queries at risk', tone: 'positive', description: '', tooltip: '', trend: [] },
+        indexCoverage: { label: 'Index Coverage', value: 'No data', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
+        competitorPressure: { label: 'Competitor Pressure', value: 'None', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
+        runStatus: { label: 'Run Status', value: 'None', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
+      },
+      movementSummary: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
       competitors: [],
-      timeline: [{
-        query: 'test query',
-        runs: [
-          { runId: 'run_vis', createdAt: '2026-03-15T00:00:00Z', citationState: 'cited', transition: 'new' },
-        ],
-      }],
-      latestRunDetail: {
-        id: 'run_vis',
-        projectId: 'proj_mixed',
-        kind: 'answer-visibility',
-        status: 'completed',
-        trigger: 'manual',
-        startedAt: '2026-03-15T00:00:00Z',
-        finishedAt: '2026-03-15T00:00:10Z',
-        error: null,
-        createdAt: '2026-03-15T00:00:00Z',
-        snapshots: [{
-          id: 'snap_1',
-          runId: 'run_vis',
-          queryId: 'kw_1',
-          query: 'test query',
-          provider: 'gemini',
-          model: null,
-          citationState: 'cited',
-          answerText: 'Test cited.',
-          citedDomains: ['mixed.example'],
-          competitorOverlap: [],
-          groundingSources: [],
-          searchQueries: [],
-          createdAt: '2026-03-15T00:00:00Z',
-        }],
-      },
-      previousRunDetail: null,
-    }
+      providerScores: [{ provider: 'gemini', model: 'flash', score: 75, cited: 3, total: 4 }],
+      attentionItems: [],
+      runHistory: [],
+      dateRangeLabel: 'All time',
+      contextLabel: 'US / EN',
+    },
   }
 
-  test('runStatus pins to latest answer-visibility run, not gsc-sync', () => {
-    const data = makeProjectWithMixedRuns()
-    const model = buildProjectCommandCenter(data)
-
-    // Run Status should reflect the visibility run, not the gsc-sync
-    expect(model.runStatus.value).toBe('Healthy')
-    expect(model.runStatus.description).toMatch(/Answer visibility sweep/)
-    expect(model.runStatus.description).not.toMatch(/gsc-sync/)
-  })
-
-  test('runStatus delta shows sweep and sync counts', () => {
-    const data = makeProjectWithMixedRuns()
-    const model = buildProjectCommandCenter(data)
-
-    expect(model.runStatus.delta).toBe('1 sweep · 1 sync')
-  })
-
-  test('visibility metrics use answer-visibility snapshots, not gsc-sync', () => {
-    const data = makeProjectWithMixedRuns()
-    const model = buildProjectCommandCenter(data)
-
-    // Should show 100% visibility from the visibility run, not 0% from gsc-sync
-    expect(model.visibilitySummary.value).toBe('100')
-    expect(model.queryCounts.cited).toBe(1)
-  })
-
-  test('stale visibility warning when sync is >1 day newer than visibility run', () => {
-    const data = makeProjectWithMixedRuns()
-    // Push the gsc-sync 2 days after visibility
-    data.runs[0]!.createdAt = '2026-03-17T00:00:00Z'
-    const model = buildProjectCommandCenter(data)
-
-    expect(model.insights.some(i => i.id === 'insight_stale_visibility')).toBe(true)
-    const staleInsight = model.insights.find(i => i.id === 'insight_stale_visibility')!
-    expect(staleInsight.tone).toBe('caution')
-    expect(staleInsight.title).toBe('Stale visibility data')
-  })
-
-  test('no stale warning when sync is within 1 day of visibility run', () => {
-    const data = makeProjectWithMixedRuns()
-    // gsc-sync only 1 hour after visibility
-    data.runs[0]!.createdAt = '2026-03-15T01:00:00Z'
-    const model = buildProjectCommandCenter(data)
-
-    expect(model.insights.some(i => i.id === 'insight_stale_visibility')).toBe(false)
-  })
-
-  test('recentRuns shows all run kinds with proper labels', () => {
-    const data = makeProjectWithMixedRuns()
-    const model = buildProjectCommandCenter(data)
-
-    const gscRun = model.recentRuns.find(r => r.id === 'run_gsc')
-    const visRun = model.recentRuns.find(r => r.id === 'run_vis')
-
-    expect(gscRun?.kindLabel).toBe('GSC sync')
-    expect(gscRun?.summary).toBe('GSC sync completed')
-    expect(visRun?.kindLabel).toBe('Answer visibility sweep')
-    expect(visRun?.summary).toBe('Answer visibility sweep completed')
-  })
-
-  test('recentRuns labels GA and Bing sync runs', () => {
-    const data = makeProjectWithMixedRuns()
-    data.runs.unshift(
-      {
-        id: 'run_bing',
-        projectId: 'proj_mixed',
-        kind: RunKinds['bing-inspect'],
-        status: RunStatuses.completed,
-        trigger: RunTriggers.manual,
-        startedAt: '2026-03-18T00:00:00Z',
-        finishedAt: '2026-03-18T00:00:05Z',
-        error: null,
-        createdAt: '2026-03-18T00:00:00Z',
-      },
-      {
-        id: 'run_ga',
-        projectId: 'proj_mixed',
-        kind: RunKinds['ga-sync'],
-        status: RunStatuses.completed,
-        trigger: RunTriggers.scheduled,
-        startedAt: '2026-03-16T00:00:00Z',
-        finishedAt: '2026-03-16T00:00:05Z',
-        error: null,
-        createdAt: '2026-03-16T00:00:00Z',
-      },
-    )
-
-    const model = buildProjectCommandCenter(data)
-    const bingRun = model.recentRuns.find(r => r.id === 'run_bing')
-    const gaRun = model.recentRuns.find(r => r.id === 'run_ga')
-
-    expect(bingRun?.kindLabel).toBe('Bing URL inspection')
-    expect(bingRun?.summary).toBe('Bing URL inspection completed')
-    expect(gaRun?.kindLabel).toBe('GA sync')
-    expect(gaRun?.summary).toBe('GA sync completed')
-  })
-})
-
-/* ── Provider coverage tests ───────────────────────────────────────────── */
-
-describe('provider coverage indicators', () => {
-  function makeMultiProviderData(
-    providers: string[],
-    snapshotProviders: string[],
-  ): ProjectData {
-    const snapshots = snapshotProviders.map((prov, i) => ({
-      id: `snap_${i}`,
-      runId: 'run_1',
-      queryId: 'kw_1',
-      query: 'test query',
-      provider: prov,
-      model: null,
-      citationState: 'cited' as const,
-      answerText: 'Cited.',
-      citedDomains: ['test.example'],
-      competitorOverlap: [],
-      groundingSources: [],
-      searchQueries: [],
-      createdAt: '2026-03-15T00:00:00Z',
-    }))
-
-    return {
-      project: {
-        id: 'proj_cov',
-        name: 'coverage-test',
-        displayName: 'Coverage Test',
-        canonicalDomain: 'test.example',
-        ownedDomains: [],
-        country: 'US',
-        language: 'en',
-        tags: [],
-        labels: {},
-        providers,
-        configSource: 'api',
-        configRevision: 1,
-        createdAt: '2026-03-10T00:00:00Z',
-        updatedAt: '2026-03-15T00:00:00Z',
-      },
-      runs: [{
-        id: 'run_1',
-        projectId: 'proj_cov',
-        kind: 'answer-visibility',
-        status: 'completed',
-        trigger: 'manual',
-        startedAt: '2026-03-15T00:00:00Z',
-        finishedAt: '2026-03-15T00:00:10Z',
-        error: null,
-        createdAt: '2026-03-15T00:00:00Z',
-      }],
-      queries: [{ id: 'kw_1', query: 'test query', createdAt: '2026-03-10T00:00:00Z' }],
-      competitors: [],
-      timeline: [{
-        query: 'test query',
-        runs: [{ runId: 'run_1', createdAt: '2026-03-15T00:00:00Z', citationState: 'cited', transition: 'new' }],
-      }],
-      latestRunDetail: {
-        id: 'run_1',
-        projectId: 'proj_cov',
-        kind: 'answer-visibility',
-        status: 'completed',
-        trigger: 'manual',
-        startedAt: '2026-03-15T00:00:00Z',
-        finishedAt: '2026-03-15T00:00:10Z',
-        error: null,
-        createdAt: '2026-03-15T00:00:00Z',
-        snapshots,
-      },
-      previousRunDetail: null,
-    }
-  }
-
-  test('partial provider run shows caution tone and coverage label in command center', () => {
-    const data = makeMultiProviderData(['gemini', 'openai', 'claude'], ['openai'])
-    const model = buildProjectCommandCenter(data)
-
-    expect(model.visibilitySummary.tone).toBe('caution')
-    expect(model.visibilitySummary.providerCoverage).toBe('1 of 3 providers')
-  })
-
-  test('full provider coverage uses score-based tone with no coverage label', () => {
-    const data = makeMultiProviderData(['gemini', 'openai'], ['gemini', 'openai'])
-    const model = buildProjectCommandCenter(data)
-
-    expect(model.visibilitySummary.tone).not.toBe('caution')
-    expect(model.visibilitySummary.providerCoverage).toBeUndefined()
-  })
-
-  test('single configured provider never triggers partial coverage', () => {
-    const data = makeMultiProviderData(['openai'], ['openai'])
-    const model = buildProjectCommandCenter(data)
-
-    expect(model.visibilitySummary.providerCoverage).toBeUndefined()
-  })
-
-  test('CDP providers are excluded from coverage calculation', () => {
-    const data = makeMultiProviderData(['openai', 'cdp:chatgpt'], ['openai'])
-    const model = buildProjectCommandCenter(data)
-
-    // Only 1 API provider configured, so no partial coverage
-    expect(model.visibilitySummary.providerCoverage).toBeUndefined()
-  })
-
-  test('no snapshots yields neutral tone without coverage label', () => {
-    const data = makeMultiProviderData(['gemini', 'openai'], [])
-    data.latestRunDetail = null
-    const model = buildProjectCommandCenter(data)
-
-    expect(model.visibilitySummary.tone).toBe('neutral')
-    expect(model.visibilitySummary.providerCoverage).toBeUndefined()
-  })
-
-  test('partial provider run in portfolio shows caution tone and coverage label', () => {
-    const data = makeMultiProviderData(['gemini', 'openai', 'claude'], ['openai'])
-    const portfolio = buildPortfolioProject(data)
-
-    expect(portfolio.visibilityTone).toBe('caution')
-    expect(portfolio.providerCoverage).toBe('1 of 3 providers')
-  })
-
-  test('full provider coverage in portfolio uses score-based tone', () => {
-    const data = makeMultiProviderData(['gemini', 'openai'], ['gemini', 'openai'])
-    const portfolio = buildPortfolioProject(data)
-
-    expect(portfolio.visibilityTone).not.toBe('caution')
-    expect(portfolio.providerCoverage).toBeUndefined()
-  })
-
-  test('overview keeps last completed snapshots when a newer run is in progress', () => {
-    const data = makeMultiProviderData(['gemini', 'openai'], ['gemini', 'openai'])
-    // A new run was queued after the completed run finished. latestRunDetail still
-    // points at run_1, so the build must fall back to it instead of showing "No data".
-    data.runs = [
-      {
-        id: 'run_2_running',
-        projectId: 'proj_cov',
-        kind: 'answer-visibility',
-        status: 'running',
-        trigger: 'manual',
-        startedAt: '2026-03-16T00:00:00Z',
-        finishedAt: null,
-        error: null,
-        createdAt: '2026-03-16T00:00:00Z',
-      },
-      ...data.runs,
-    ]
-
-    const model = buildProjectCommandCenter(data)
-    expect(model.visibilitySummary.value).not.toBe('No data')
-    expect(model.visibilitySummary.delta).not.toBe('Run a sweep first')
-
-    const portfolio = buildPortfolioProject(data)
-    expect(portfolio.visibilityDelta).not.toBe('No data')
-    expect(portfolio.insight).not.toBe('No runs completed yet.')
-  })
-
-  test('overview shows in-progress status while preserving snapshots', () => {
-    const data = makeMultiProviderData(['gemini', 'openai'], ['gemini', 'openai'])
-    data.runs = [
-      {
-        id: 'run_2_queued',
-        projectId: 'proj_cov',
-        kind: 'answer-visibility',
-        status: 'queued',
-        trigger: 'manual',
-        startedAt: null,
-        finishedAt: null,
-        error: null,
-        createdAt: '2026-03-16T00:00:00Z',
-      },
-      ...data.runs,
-    ]
-
-    const model = buildProjectCommandCenter(data)
-    expect(model.runStatus.value).toBe('Queued')
-    // Snapshots from the previous completed run should still drive the gauges.
-    expect(model.visibilitySummary.value).not.toBe('No data')
-  })
+  const vm = buildProjectCommandCenter(data)
+  expect(vm.visibilitySummary.value).toBe('75')
+  expect(vm.visibilitySummary.tone).toBe('positive')
+  expect(vm.queryCounts).toEqual({ cited: 3, total: 4 })
+  expect(vm.providerScores).toEqual([{ provider: 'gemini', model: 'flash', score: 75, cited: 3, total: 4 }])
+  expect(vm.dateRangeLabel).toBe('All time')
+  expect(vm.contextLabel).toBe('US / EN')
 })

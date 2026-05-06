@@ -1445,7 +1445,7 @@ export function ProjectPage({
               <div className="metric-card-bar">
                 <div
                   className={`metric-card-bar-fill progress-fill-${model.gapQueries.tone}`}
-                  style={{ width: model.gapQueries.progress !== undefined ? `${model.gapQueries.progress * 100}%` : '0%' }}
+                  style={{ width: model.gapQueries.progress !== undefined ? `${Math.min(Math.max(model.gapQueries.progress, 0), 100)}%` : '0%' }}
                 />
               </div>
               <p className="metric-card-detail">{model.gapQueries.delta}</p>

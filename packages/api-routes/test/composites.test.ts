@@ -130,6 +130,98 @@ describe('GET /api/v1/projects/:name/overview', () => {
     await app.close()
   })
 
+  it('populates the Phase 2 score gauges, movement, and provider scores', async () => {
+    const { app } = seedProjectWithRuns()
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/overview' })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload) as ProjectOverviewDto
+
+    expect(body.scores.visibility.label).toBe('Answer Visibility')
+    expect(body.scores.visibility.value).toBe('100')
+    expect(body.scores.visibility.tone).toBe('positive')
+
+    expect(body.scores.gapQueries.value).toBe('0')
+    expect(body.scores.indexCoverage.value).toBe('No data')
+    expect(body.scores.competitorPressure.value).toBe('None')
+    expect(body.scores.runStatus.value).toBe('Healthy')
+
+    expect(body.movementSummary).toEqual({
+      gained: 1,
+      lost: 0,
+      tone: 'positive',
+      hasPreviousRun: true,
+    })
+
+    expect(body.providerScores).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ provider: 'gemini', score: 100, cited: 2, total: 2 }),
+        expect.objectContaining({ provider: 'openai', score: 0, cited: 0, total: 1 }),
+      ]),
+    )
+
+    // No competitors are configured in the seed.
+    expect(body.competitors).toEqual([])
+
+    expect(body.attentionItems).toHaveLength(1)
+    expect(body.attentionItems[0]?.actionLabel).toBe('High')
+
+    expect(body.runHistory).toHaveLength(2)
+    expect(body.runHistory[0]?.citationRate).toBe(50) // previous run: A cited, B not
+    expect(body.runHistory[1]?.citationRate).toBe(100) // latest run: both cited
+
+    expect(body.dateRangeLabel).toBe('All time')
+    expect(body.contextLabel).toBe('US / EN')
+  })
+
+  it('honors the ?since filter by excluding runs older than the cutoff', async () => {
+    const { app } = seedProjectWithRuns()
+    await app.ready()
+
+    // Cutoff after the previous run but before the latest — only the latest survives.
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/demo/overview?since=2026-04-18T14:15:00.000Z',
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload) as ProjectOverviewDto
+
+    expect(body.latestRun.totalRuns).toBe(1)
+    expect(body.runHistory).toHaveLength(1)
+    expect(body.movementSummary.hasPreviousRun).toBe(false)
+    expect(body.transitions.since).toBeNull()
+  })
+
+  it('rejects ?since values that are not valid ISO datetimes', async () => {
+    const { app } = seedProjectWithRuns()
+    await app.ready()
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/demo/overview?since=not-a-date',
+    })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.payload).error.code).toBe('VALIDATION_ERROR')
+  })
+
+  it('filters runs by ?location label, returning empty data when no run matches', async () => {
+    const { app } = seedProjectWithRuns()
+    await app.ready()
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/demo/overview?location=Boston',
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload) as ProjectOverviewDto
+    // Seed has no runs with location='Boston' — every snapshot-derived metric
+    // collapses to its empty form.
+    expect(body.latestRun.totalRuns).toBe(0)
+    expect(body.runHistory).toHaveLength(0)
+    expect(body.scores.visibility.value).toBe('No data')
+  })
+
   it('returns empty counts and null transitions when project has no runs', async () => {
     const { app, db, tmpDir } = buildApp()
     cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))

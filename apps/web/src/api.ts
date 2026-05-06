@@ -1,4 +1,5 @@
-import type { ErrorCode, GroundingSource, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, HealthSnapshotDto, ProjectReportDto, RunKind, RunStatus, RunTrigger, RunErrorDto, CitationState, CitationVisibilityResponse, ComputedTransition, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto } from '@ainyc/canonry-contracts'
+import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, HealthSnapshotDto, ProjectReportDto, RunKind, RunStatus, RunTrigger, RunErrorDto, CitationState, CitationVisibilityResponse, ComputedTransition, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto } from '@ainyc/canonry-contracts'
+export type { ProjectOverviewDto }
 export type { BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto }
 
 export type { GroundingSource }
@@ -277,6 +278,17 @@ export function fetchTimeline(name: string, location?: string): Promise<ApiTimel
 
 export function fetchHistory(name: string): Promise<ApiAuditEntry[]> {
   return apiFetch(`/projects/${encodeURIComponent(name)}/history`)
+}
+
+export function fetchProjectOverview(
+  name: string,
+  opts?: { location?: string; since?: string },
+): Promise<ProjectOverviewDto> {
+  const params = new URLSearchParams()
+  if (opts?.location) params.set('location', opts.location)
+  if (opts?.since) params.set('since', opts.since)
+  const qs = params.toString()
+  return apiFetch(`/projects/${encodeURIComponent(name)}/overview${qs ? `?${qs}` : ''}`)
 }
 
 export function createProject(name: string, body: {
