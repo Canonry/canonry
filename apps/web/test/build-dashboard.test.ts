@@ -349,3 +349,83 @@ test('buildProjectCommandCenter populates score gauges from the overview DTO whe
   expect(vm.dateRangeLabel).toBe('All time')
   expect(vm.contextLabel).toBe('US / EN')
 })
+
+test('buildProjectCommandCenter surfaces synthesized attention items (e.g. stale_visibility) as project insights', () => {
+  const data: ProjectData = {
+    project: {
+      id: 'proj_attention',
+      name: 'attention-demo',
+      displayName: 'Attention Demo',
+      canonicalDomain: 'attention.example',
+      ownedDomains: [],
+      country: 'US',
+      language: 'en',
+      tags: [],
+      labels: {},
+      providers: ['gemini'],
+      configSource: 'api',
+      configRevision: 1,
+      createdAt: '2026-04-01T00:00:00Z',
+      updatedAt: '2026-04-01T00:00:00Z',
+    },
+    runs: [],
+    queries: [],
+    competitors: [],
+    timeline: [],
+    latestRunDetail: null,
+    previousRunDetail: null,
+    overview: {
+      project: {
+        id: 'proj_attention',
+        name: 'attention-demo',
+        displayName: 'Attention Demo',
+        canonicalDomain: 'attention.example',
+        ownedDomains: [],
+        country: 'US',
+        language: 'en',
+        tags: [],
+        labels: {},
+        locations: [],
+        defaultLocation: null,
+        autoExtractBacklinks: false,
+        configSource: 'api',
+        configRevision: 1,
+        createdAt: '2026-04-01T00:00:00Z',
+        updatedAt: '2026-04-01T00:00:00Z',
+      },
+      latestRun: { totalRuns: 0, run: null },
+      health: null,
+      topInsights: [],
+      queryCounts: { totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0 },
+      providers: [],
+      transitions: { since: null, gained: 0, lost: 0, emerging: 0 },
+      scores: {
+        visibility: { label: 'Answer Visibility', value: 'No data', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
+        gapQueries: { label: 'Gap Queries', value: 'No data', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
+        indexCoverage: { label: 'Index Coverage', value: 'No data', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
+        competitorPressure: { label: 'Competitor Pressure', value: 'None', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
+        runStatus: { label: 'Run Status', value: 'None', delta: '', tone: 'neutral', description: '', tooltip: '', trend: [] },
+      },
+      movementSummary: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
+      competitors: [],
+      providerScores: [],
+      attentionItems: [
+        // DB-echo (id starts with insight_) — already in topInsights, must be deduped
+        { id: 'insight_abc', tone: 'negative', title: 'Lost citation', detail: 'on query: foo', actionLabel: 'Critical', href: '#insight-abc' },
+        // Synthesized — no insight_ prefix, must surface as a project insight
+        { id: 'stale_visibility', tone: 'caution', title: 'Stale visibility data', detail: 'Last visibility sweep is older than the latest sync.', actionLabel: 'Stale', href: '#runs' },
+      ],
+      runHistory: [],
+      dateRangeLabel: 'All time',
+      contextLabel: 'US / EN',
+    },
+  }
+
+  const vm = buildProjectCommandCenter(data)
+  const ids = vm.insights.map(i => i.id)
+  expect(ids).toContain('stale_visibility')
+  expect(ids).not.toContain('insight_abc') // DB echoes don't double up
+  const stale = vm.insights.find(i => i.id === 'stale_visibility')!
+  expect(stale.tone).toBe('caution')
+  expect(stale.actionLabel).toBe('Stale')
+})

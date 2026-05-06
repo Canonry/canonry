@@ -18,7 +18,7 @@ describe('analyzeCause', () => {
   it('identifies competitor_gain when a competitor domain appeared in the lost snapshot', () => {
     const reg = makeRegression()
     const snapshots: Snapshot[] = [
-      { query: 'roof repair phoenix', provider: 'chatgpt', cited: false, competitorDomain: 'roofco.com' },
+      { query: 'roof repair phoenix', provider: 'chatgpt', cited: false, competitorDomains: ['roofco.com'] },
     ]
 
     const result = analyzeCause(reg, snapshots)
@@ -48,7 +48,7 @@ describe('analyzeCause', () => {
   it('ignores snapshots for different queries', () => {
     const reg = makeRegression({ query: 'roof repair phoenix' })
     const snapshots: Snapshot[] = [
-      { query: 'different query', provider: 'chatgpt', cited: false, competitorDomain: 'rival.com' },
+      { query: 'different query', provider: 'chatgpt', cited: false, competitorDomains: ['rival.com'] },
     ]
 
     const result = analyzeCause(reg, snapshots)
@@ -58,7 +58,7 @@ describe('analyzeCause', () => {
   it('ignores snapshots for different providers', () => {
     const reg = makeRegression({ provider: 'chatgpt' })
     const snapshots: Snapshot[] = [
-      { query: 'roof repair phoenix', provider: 'gemini', cited: false, competitorDomain: 'rival.com' },
+      { query: 'roof repair phoenix', provider: 'gemini', cited: false, competitorDomains: ['rival.com'] },
     ]
 
     const result = analyzeCause(reg, snapshots)
@@ -68,7 +68,7 @@ describe('analyzeCause', () => {
   it('ignores snapshots where cited is true (competitor domain on a cited snapshot is irrelevant)', () => {
     const reg = makeRegression()
     const snapshots: Snapshot[] = [
-      { query: 'roof repair phoenix', provider: 'chatgpt', cited: true, competitorDomain: 'rival.com' },
+      { query: 'roof repair phoenix', provider: 'chatgpt', cited: true, competitorDomains: ['rival.com'] },
     ]
 
     const result = analyzeCause(reg, snapshots)
@@ -78,8 +78,24 @@ describe('analyzeCause', () => {
   it('picks the first matching snapshot when multiple competitors exist', () => {
     const reg = makeRegression()
     const snapshots: Snapshot[] = [
-      { query: 'roof repair phoenix', provider: 'chatgpt', cited: false, competitorDomain: 'first-rival.com' },
-      { query: 'roof repair phoenix', provider: 'chatgpt', cited: false, competitorDomain: 'second-rival.com' },
+      { query: 'roof repair phoenix', provider: 'chatgpt', cited: false, competitorDomains: ['first-rival.com'] },
+      { query: 'roof repair phoenix', provider: 'chatgpt', cited: false, competitorDomains: ['second-rival.com'] },
+    ]
+
+    const result = analyzeCause(reg, snapshots)
+    expect(result.cause).toBe('competitor_gain')
+    expect(result.competitorDomain).toBe('first-rival.com')
+  })
+
+  it('picks the first competitor when a single snapshot has multiple', () => {
+    const reg = makeRegression()
+    const snapshots: Snapshot[] = [
+      {
+        query: 'roof repair phoenix',
+        provider: 'chatgpt',
+        cited: false,
+        competitorDomains: ['first-rival.com', 'second-rival.com'],
+      },
     ]
 
     const result = analyzeCause(reg, snapshots)
@@ -89,7 +105,7 @@ describe('analyzeCause', () => {
 
   it('analyzes different regressions independently', () => {
     const snapshots: Snapshot[] = [
-      { query: 'k1', provider: 'chatgpt', cited: false, competitorDomain: 'rival-a.com' },
+      { query: 'k1', provider: 'chatgpt', cited: false, competitorDomains: ['rival-a.com'] },
       { query: 'k2', provider: 'gemini', cited: false },
     ]
 

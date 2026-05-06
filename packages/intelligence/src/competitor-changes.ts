@@ -7,11 +7,13 @@ interface BuildOptions {
 function buildCompetitorQueryMap(run: RunData, tracked: Set<string>): Map<string, Set<string>> {
   const result = new Map<string, Set<string>>()
   for (const snap of run.snapshots) {
-    if (!snap.query || !snap.competitorDomain) continue
-    if (!tracked.has(snap.competitorDomain)) continue
-    const existing = result.get(snap.competitorDomain) ?? new Set<string>()
-    existing.add(snap.query)
-    result.set(snap.competitorDomain, existing)
+    if (!snap.query || !snap.competitorDomains || snap.competitorDomains.length === 0) continue
+    for (const domain of snap.competitorDomains) {
+      if (!tracked.has(domain)) continue
+      const existing = result.get(domain) ?? new Set<string>()
+      existing.add(snap.query)
+      result.set(domain, existing)
+    }
   }
   return result
 }

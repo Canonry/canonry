@@ -5,7 +5,13 @@ export interface Snapshot {
   citationUrl?: string
   position?: number
   snippet?: string
-  competitorDomain?: string
+  /**
+   * All competitor domains observed in this snapshot's competitorOverlap.
+   * Detectors that filter against the project's tracked-competitor set must
+   * iterate this array — taking the first element drops every additional
+   * tracked rival on the same (query, provider) pair.
+   */
+  competitorDomains?: readonly string[]
 }
 
 export interface RunData {

@@ -89,7 +89,7 @@ describe('analyzeRuns', () => {
     const curr = makeRun({
       runId: 'run_002',
       snapshots: [
-        { query: 'k1', provider: 'chatgpt', cited: false, competitorDomain: 'rival.com' },
+        { query: 'k1', provider: 'chatgpt', cited: false, competitorDomains: ['rival.com'] },
       ],
     })
 
@@ -145,7 +145,7 @@ describe('analyzeRuns', () => {
         { query: 'k1', provider: 'chatgpt', cited: false },
         { query: 'k1', provider: 'gemini', cited: false },
         { query: 'k2', provider: 'gemini', cited: true },
-        { query: 'k3', provider: 'chatgpt', cited: false, competitorDomain: 'rival.com' },
+        { query: 'k3', provider: 'chatgpt', cited: false, competitorDomains: ['rival.com'] },
         { query: 'k4', provider: 'chatgpt', cited: false },
       ],
     })
@@ -155,7 +155,7 @@ describe('analyzeRuns', () => {
         { query: 'k1', provider: 'chatgpt', cited: false },
         { query: 'k1', provider: 'gemini', cited: false },
         { query: 'k2', provider: 'gemini', cited: true },
-        { query: 'k3', provider: 'chatgpt', cited: false, competitorDomain: 'rival.com' },
+        { query: 'k3', provider: 'chatgpt', cited: false, competitorDomains: ['rival.com'] },
         { query: 'k4', provider: 'chatgpt', cited: false },
       ],
     })
@@ -173,7 +173,7 @@ describe('analyzeRuns', () => {
         // k4: still uncited, 3 runs in a row → persistent-gap
         { query: 'k4', provider: 'chatgpt', cited: false },
         // k5: rival.com just appeared on this query → competitor-gained
-        { query: 'k5', provider: 'chatgpt', cited: false, competitorDomain: 'rival.com' },
+        { query: 'k5', provider: 'chatgpt', cited: false, competitorDomains: ['rival.com'] },
       ],
     })
 
@@ -206,7 +206,7 @@ describe('analyzeRuns', () => {
   })
 
   it('skips competitor signals when no competitors are tracked', () => {
-    const r1 = makeRun({ runId: 'r1', snapshots: [{ query: 'k1', provider: 'chatgpt', cited: false, competitorDomain: 'rival.com' }] })
+    const r1 = makeRun({ runId: 'r1', snapshots: [{ query: 'k1', provider: 'chatgpt', cited: false, competitorDomains: ['rival.com'] }] })
     const r2 = makeRun({ runId: 'r2', snapshots: [{ query: 'k1', provider: 'chatgpt', cited: false }] })
 
     const result = analyzeRuns(r2, r1, { history: [r1, r2] })

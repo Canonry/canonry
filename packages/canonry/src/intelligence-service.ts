@@ -415,7 +415,7 @@ export class IntelligenceService {
         provider: r.provider,
         cited: r.citationState === CitationStates.cited,
         citationUrl: domains[0] ?? undefined,
-        competitorDomain: competitors[0] ?? undefined,
+        competitorDomains: competitors,
       }
     })
 

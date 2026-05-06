@@ -4,6 +4,7 @@ import {
   bingCoverageSnapshots,
   competitors,
   gscCoverageSnapshots,
+  gscUrlInspections,
   insights,
   healthSnapshots,
   queries,
@@ -496,20 +497,80 @@ function buildIndexCoverageScore(app: FastifyInstance, projectId: string): Score
   const total = chosen.indexed + chosen.notIndexed
   if (total === 0) return empty
 
+  // Bing has no per-URL inspection history, so deindexed only applies to Google.
+  const deindexed = chosen.provider === 'Google'
+    ? countGoogleDeindexedUrls(app, projectId)
+    : 0
+
   const percentage = (chosen.indexed / total) * 100
-  const tone: MetricTone = percentage >= 90 ? 'positive' : percentage >= 70 ? 'caution' : 'negative'
+  // Newly deindexed URLs are a hard signal — they used to be indexed and now aren't.
+  // Surface as negative regardless of headline percentage so the gauge matches the
+  // previous client-side behavior. Mirror /google/gsc/coverage's deindexed accounting.
+  const tone: MetricTone = deindexed > 0
+    ? 'negative'
+    : percentage >= 90 ? 'positive'
+    : percentage >= 70 ? 'caution'
+    : 'negative'
   const notIndexedLabel = chosen.notIndexed === 1 ? 'URL is' : 'URLs are'
+  const deindexedLabel = deindexed === 1 ? 'URL' : 'URLs'
 
   return {
     label: 'Index Coverage',
     value: `${Math.round(percentage)}`,
     delta: `${chosen.provider} · ${chosen.indexed} of ${total} indexed`,
     tone,
-    description: `${chosen.notIndexed} ${notIndexedLabel} not indexed in ${chosen.provider === 'Google' ? 'Google Search Console' : 'Bing Webmaster Tools'}.`,
+    description: deindexed > 0
+      ? `${deindexed} deindexed ${deindexedLabel} detected in the latest Google Search Console inspection.`
+      : `${chosen.notIndexed} ${notIndexedLabel} not indexed in ${chosen.provider === 'Google' ? 'Google Search Console' : 'Bing Webmaster Tools'}.`,
     tooltip,
     trend: [],
     progress: Math.round(percentage),
   }
+}
+
+/**
+ * Walk this project's GSC URL inspection history and count URLs whose latest
+ * inspection flipped to non-indexed after a previous indexed reading. Mirrors
+ * the deindexed computation in `GET /projects/:name/google/gsc/coverage` so
+ * the two surfaces report the same number.
+ */
+function countGoogleDeindexedUrls(app: FastifyInstance, projectId: string): number {
+  const rows = app.db
+    .select({
+      url: gscUrlInspections.url,
+      indexingState: gscUrlInspections.indexingState,
+      inspectedAt: gscUrlInspections.inspectedAt,
+    })
+    .from(gscUrlInspections)
+    .where(eq(gscUrlInspections.projectId, projectId))
+    .orderBy(desc(gscUrlInspections.inspectedAt))
+    .all()
+
+  if (rows.length === 0) return 0
+
+  // Collapse http:// / https:// duplicates per coverage endpoint's logic.
+  const canonicalUrl = (url: string) => url.replace(/^http:\/\//, 'https://')
+  const historyByUrl = new Map<string, typeof rows>()
+  for (const row of rows) {
+    const key = canonicalUrl(row.url)
+    const list = historyByUrl.get(key)
+    if (list) list.push(row)
+    else historyByUrl.set(key, [row])
+  }
+
+  let deindexed = 0
+  for (const history of historyByUrl.values()) {
+    if (history.length < 2) continue
+    const latest = history[0]!
+    const previous = history[1]!
+    if (
+      previous.indexingState === 'INDEXING_ALLOWED' &&
+      latest.indexingState !== 'INDEXING_ALLOWED'
+    ) {
+      deindexed++
+    }
+  }
+  return deindexed
 }
 
 function pickIndexCoverageRow(

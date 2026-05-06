@@ -5,9 +5,12 @@ import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  bingCoverageSnapshots,
   createClient,
   migrate,
   insights,
+  gscCoverageSnapshots,
+  gscUrlInspections,
   healthSnapshots,
   queries,
   projects,
@@ -173,6 +176,58 @@ describe('GET /api/v1/projects/:name/overview', () => {
 
     expect(body.dateRangeLabel).toBe('All time')
     expect(body.contextLabel).toBe('US / EN')
+  })
+
+  it('elevates index-coverage tone to negative when GSC reports newly deindexed URLs', async () => {
+    const { app, db, projectId } = seedProjectWithRuns()
+    // Headline percentage stays high (95%) but a previously indexed URL just flipped to non-indexed.
+    db.insert(gscCoverageSnapshots).values({
+      id: crypto.randomUUID(),
+      projectId,
+      date: '2026-04-18',
+      indexed: 19,
+      notIndexed: 1,
+      reasonBreakdown: '{}',
+      createdAt: '2026-04-18T14:25:00.000Z',
+    }).run()
+    db.insert(gscUrlInspections).values([
+      // First (older) inspection for /a — was indexed
+      { id: crypto.randomUUID(), projectId, url: 'https://example.com/a', indexingState: 'INDEXING_ALLOWED', verdict: 'PASS', coverageState: 'Submitted and indexed', pageFetchState: 'SUCCESSFUL', robotsTxtState: 'ALLOWED', crawlTime: null, lastCrawlResult: null, isMobileFriendly: 1, richResults: '[]', referringUrls: '[]', inspectedAt: '2026-04-15T00:00:00.000Z', createdAt: '2026-04-15T00:00:00.000Z' },
+      // Latest inspection for /a — flipped to deindexed
+      { id: crypto.randomUUID(), projectId, url: 'https://example.com/a', indexingState: 'BLOCKED', verdict: 'FAIL', coverageState: 'Excluded by noindex tag', pageFetchState: 'SUCCESSFUL', robotsTxtState: 'ALLOWED', crawlTime: null, lastCrawlResult: null, isMobileFriendly: 1, richResults: '[]', referringUrls: '[]', inspectedAt: '2026-04-18T00:00:00.000Z', createdAt: '2026-04-18T00:00:00.000Z' },
+    ]).run()
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/overview' })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload) as ProjectOverviewDto
+
+    expect(body.scores.indexCoverage.value).toBe('95')
+    expect(body.scores.indexCoverage.tone).toBe('negative')
+    expect(body.scores.indexCoverage.description).toMatch(/1 deindexed URL detected/)
+  })
+
+  it('uses Bing coverage when GSC has none, and never elevates tone for Bing (no inspection history)', async () => {
+    const { app, db, projectId } = seedProjectWithRuns()
+    db.insert(bingCoverageSnapshots).values({
+      id: crypto.randomUUID(),
+      projectId,
+      date: '2026-04-18',
+      indexed: 6,
+      notIndexed: 4,
+      reasonBreakdown: '{}',
+      createdAt: '2026-04-18T14:25:00.000Z',
+    }).run()
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/overview' })
+    const body = JSON.parse(res.payload) as ProjectOverviewDto
+
+    expect(body.scores.indexCoverage.delta).toMatch(/^Bing/)
+    expect(body.scores.indexCoverage.value).toBe('60')
+    // 60% indexed → negative under the headline-only thresholds, unrelated to deindexed.
+    expect(body.scores.indexCoverage.tone).toBe('negative')
+    expect(body.scores.indexCoverage.description).not.toMatch(/deindexed/)
   })
 
   it('honors the ?since filter by excluding runs older than the cutoff', async () => {

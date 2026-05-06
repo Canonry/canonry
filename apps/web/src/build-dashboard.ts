@@ -462,6 +462,21 @@ function adaptOverviewToCommandCenter(
   runItems: RunListItemVm[],
 ): ProjectCommandCenterVm {
   const insights = mapInsightDtosToVms(overview.topInsights)
+  // Server-synthesized attention items (e.g. stale_visibility) live in
+  // overview.attentionItems alongside DB-backed insight echoes (id prefix
+  // `insight_`). Append the synthesized ones so warnings like the stale
+  // visibility hint render in the project's insights list.
+  for (const item of overview.attentionItems) {
+    if (item.id.startsWith('insight_')) continue
+    insights.push({
+      id: item.id,
+      tone: item.tone,
+      title: item.title,
+      detail: item.detail,
+      actionLabel: item.actionLabel,
+      affectedPhrases: [],
+    })
+  }
 
   return {
     project,
