@@ -22,7 +22,7 @@ export interface GeminiHealthcheckResult {
 }
 
 export interface GeminiTrackedQueryInput {
-  keyword: string
+  query: string
   canonicalDomains: string[]
   competitorDomains: string[]
   config: GeminiConfig

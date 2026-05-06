@@ -182,7 +182,7 @@ export function NotificationsSection({ projectName }: { projectName: string }) {
             <tbody>
               {notifs.map(n => (
                 <tr key={n.id}>
-                  <td className="evidence-keyword-cell">
+                  <td className="evidence-query-cell">
                     <span className="font-mono text-xs text-zinc-300 break-all" title={n.urlHost}>
                       {n.urlDisplay ?? n.url}
                     </span>

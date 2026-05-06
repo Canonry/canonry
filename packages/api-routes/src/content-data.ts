@@ -11,7 +11,7 @@
 
 import { and, eq, desc, inArray } from 'drizzle-orm'
 import {
-  keywords,
+  queries,
   competitors as competitorsTable,
   querySnapshots,
   runs,
@@ -52,8 +52,8 @@ export function loadOrchestratorInput(db: DatabaseClient, project: ProjectRow): 
   const ownedDomains = parseJsonColumn<string[]>(project.ownedDomains, [])
   const ourDomains = new Set([ownDomain, ...ownedDomains.map(normalizeDomain)])
 
-  const trackedKeywords = listKeywords(db, projectId)
-  const candidateQueryStrings = trackedKeywords.filter(isBlogShapedQuery)
+  const trackedQueries = listQueries(db, projectId)
+  const candidateQueryStrings = trackedQueries.filter(isBlogShapedQuery)
 
   const trackedCompetitors = listCompetitorDomains(db, projectId).map(normalizeDomain)
   const competitorSet = new Set(trackedCompetitors)
@@ -99,11 +99,11 @@ export function loadOrchestratorInput(db: DatabaseClient, project: ProjectRow): 
 
 // ─── Per-domain helpers (each is a tiny focused query) ──────────────────────
 
-function listKeywords(db: DatabaseClient, projectId: string): string[] {
+function listQueries(db: DatabaseClient, projectId: string): string[] {
   const rows = db
-    .select({ text: keywords.keyword })
-    .from(keywords)
-    .where(eq(keywords.projectId, projectId))
+    .select({ text: queries.query })
+    .from(queries)
+    .where(eq(queries.projectId, projectId))
     .all()
   return rows.map((r) => r.text)
 }
@@ -209,15 +209,15 @@ function buildCandidateQueries(opts: BuildCandidateQueriesOpts): CandidateQuery[
     return opts.candidateQueryStrings.map((query) => emptyCandidate(query))
   }
 
-  const keywordRows = opts.db
-    .select({ id: keywords.id, text: keywords.keyword })
-    .from(keywords)
-    .where(eq(keywords.projectId, opts.projectId))
+  const queryRows = opts.db
+    .select({ id: queries.id, text: queries.query })
+    .from(queries)
+    .where(eq(queries.projectId, opts.projectId))
     .all()
 
-  const keywordIdByText = new Map(keywordRows.map((r) => [r.text, r.id]))
-  const candidateKeywordIds = opts.candidateQueryStrings
-    .map((q) => keywordIdByText.get(q))
+  const queryIdByText = new Map(queryRows.map((r) => [r.text, r.id]))
+  const candidateQueryIds = opts.candidateQueryStrings
+    .map((q) => queryIdByText.get(q))
     .filter((id): id is string => Boolean(id))
 
   const snapshotRows = opts.db
@@ -225,13 +225,13 @@ function buildCandidateQueries(opts: BuildCandidateQueriesOpts): CandidateQuery[
     .from(querySnapshots)
     .where(inArray(querySnapshots.runId, opts.recentRunIds))
     .all()
-    .filter((r) => candidateKeywordIds.includes(r.keywordId))
+    .filter((r) => candidateQueryIds.includes(r.queryId))
 
-  const snapshotsByKeyword = new Map<string, typeof snapshotRows>()
+  const snapshotsByQuery = new Map<string, typeof snapshotRows>()
   for (const row of snapshotRows) {
-    const list = snapshotsByKeyword.get(row.keywordId) ?? []
+    const list = snapshotsByQuery.get(row.queryId) ?? []
     list.push(row)
-    snapshotsByKeyword.set(row.keywordId, list)
+    snapshotsByQuery.set(row.queryId, list)
   }
 
   const gscRows = opts.db
@@ -242,8 +242,8 @@ function buildCandidateQueries(opts: BuildCandidateQueriesOpts): CandidateQuery[
   const gscByQuery = aggregateGscByQuery(gscRows)
 
   return opts.candidateQueryStrings.map((query) => {
-    const keywordId = keywordIdByText.get(query)
-    const snaps = keywordId ? snapshotsByKeyword.get(keywordId) ?? [] : []
+    const queryId = queryIdByText.get(query)
+    const snaps = queryId ? snapshotsByQuery.get(queryId) ?? [] : []
     const gsc = gscByQuery.get(query) ?? null
     return aggregateCandidate({
       query,

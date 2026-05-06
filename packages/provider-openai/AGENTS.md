@@ -19,7 +19,7 @@ All provider packages follow the same 4-file structure and implement the same `P
 
 - **`validateConfig(config)`** — verify API key and model are valid
 - **`healthcheck(config)`** — test connectivity to the provider
-- **`executeTrackedQuery(input)`** — send a keyword query and capture raw response with web search results
+- **`executeTrackedQuery(input)`** — send a tracked query and capture raw response with web search results
 - **`normalizeResult(raw)`** — convert provider-specific response to standard `NormalizedQueryResult`
 - **`generateText(config, prompt)`** — general-purpose text generation
 

@@ -159,12 +159,12 @@ describe('SnapshotService', () => {
           summary: 'Acme sells enterprise widget services.',
           services: ['Widget manufacturing'],
           categoryTerms: ['enterprise widgets'],
-          phrases: ['best enterprise widget vendor'],
+          queries: ['best enterprise widget vendor'],
         }),
         JSON.stringify({
           assessments: [
             {
-              phrase: 'best enterprise widget vendor',
+              query: 'best enterprise widget vendor',
               provider: 'openai',
               mentioned: false,
               describedAccurately: 'not-mentioned',

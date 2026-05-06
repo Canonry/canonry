@@ -2,7 +2,7 @@
 
 ## Role
 
-`packages/provider-claude` is one of three answer-visibility provider adapters (alongside Gemini and OpenAI). It queries the Anthropic Messages API with web search enabled to determine which domains are cited in AI-generated answers for tracked keywords.
+`packages/provider-claude` is one of three answer-visibility provider adapters (alongside Gemini and OpenAI). It queries the Anthropic Messages API with web search enabled to determine which domains are cited in AI-generated answers for tracked queries.
 
 ## Provider Contract
 
@@ -16,7 +16,7 @@ Makes a lightweight Anthropic API call to verify the key works. Returns ok/error
 
 ### `executeTrackedQuery(input: ClaudeTrackedQueryInput): Promise<ClaudeRawResult>`
 
-Sends the keyword to the Anthropic Messages API with `web_search_20250305` tool enabled (`max_uses: 5`). The keyword is sent as-is. Returns:
+Sends the query to the Anthropic Messages API with `web_search_20250305` tool enabled (`max_uses: 5`). The query is sent as-is. Returns:
 
 - `rawResponse` — the full Anthropic API response (content blocks, usage metadata)
 - `groundingSources` — extracted `{ uri, title }` pairs from final `text.citations` entries of type `web_search_result_location`
@@ -76,7 +76,7 @@ The job runner stores the following in `query_snapshots.raw_response` as JSON:
   "groundingSources": [
     { "uri": "https://example.com/page", "title": "Page Title" }
   ],
-  "searchQueries": ["keyword related search"],
+  "searchQueries": ["query related search"],
   "apiResponse": { "content": [...] }
 }
 ```

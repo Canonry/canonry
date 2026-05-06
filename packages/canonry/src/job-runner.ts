@@ -4,7 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { runs, keywords, competitors, projects, querySnapshots, usageCounters, parseJsonColumn } from '@ainyc/canonry-db'
+import { runs, queries, competitors, projects, querySnapshots, usageCounters, parseJsonColumn } from '@ainyc/canonry-db'
 import type { ProviderName, NormalizedQueryResult, LocationContext } from '@ainyc/canonry-contracts'
 import { buildRunErrorFromMessages, determineAnswerMentioned, effectiveDomains, isBrowserProvider, serializeRunError } from '@ainyc/canonry-contracts'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
@@ -127,7 +127,7 @@ function resolveProviderFanout(): number {
 type RunExecutionContext = {
   providerCount: number
   providers: ProviderName[]
-  keywordCount: number
+  queryCount: number
   location?: string
 }
 
@@ -166,7 +166,7 @@ export class JobRunner {
     const startTime = Date.now()
     let runLocation: LocationContext | undefined
     let activeProviders: RegisteredProvider[] = []
-    let projectKeywords: typeof keywords.$inferSelect[] = []
+    let projectQueries: typeof queries.$inferSelect[] = []
     const providerDispatchCounts = new Map<ProviderName, number>()
 
     try {
@@ -178,7 +178,7 @@ export class JobRunner {
         this.handleCancelledRun(runId, projectId, startTime, {
           providerCount: 0,
           providers: [],
-          keywordCount: 0,
+          queryCount: 0,
         })
         return
       }
@@ -230,11 +230,11 @@ export class JobRunner {
 
       log.info('run.dispatch', { runId, providerCount: activeProviders.length, providers: activeProviders.map(p => p.adapter.name) })
 
-      // Fetch keywords for the project
-      projectKeywords = this.db
+      // Fetch queries for the project
+      projectQueries = this.db
         .select()
-        .from(keywords)
-        .where(eq(keywords.projectId, projectId))
+        .from(queries)
+        .where(eq(queries.projectId, projectId))
         .all()
 
       // Fetch competitors for the project
@@ -252,14 +252,14 @@ export class JobRunner {
       const executionContext: RunExecutionContext = {
         providerCount: activeProviders.length,
         providers: activeProviders.map(provider => provider.adapter.name),
-        keywordCount: projectKeywords.length,
+        queryCount: projectQueries.length,
         ...(runLocation ? { location: runLocation.label } : {}),
       }
 
-      // Enforce daily quota per provider — each provider receives one query per keyword.
+      // Enforce daily quota per provider — each provider receives one request per query.
       // Track and check usage per (projectId, providerName) so that a provider that has
       // never been used isn't blocked by another provider's past usage.
-      const queriesPerProvider = projectKeywords.length
+      const queriesPerProvider = projectQueries.length
       const todayPeriod = getCurrentUsageDay()
 
       for (const p of activeProviders) {
@@ -299,9 +299,9 @@ export class JobRunner {
       const apiProviders = activeProviders.filter(p => !isBrowserProvider(p.adapter.name))
       const browserProviders = activeProviders.filter(p => isBrowserProvider(p.adapter.name))
 
-      const processKeywordForProvider = async (
+      const processQueryForProvider = async (
         registeredProvider: RegisteredProvider,
-        kw: typeof keywords.$inferSelect,
+        q: typeof queries.$inferSelect,
       ): Promise<void> => {
         const { adapter, config } = registeredProvider
         const providerName = adapter.name
@@ -317,7 +317,7 @@ export class JobRunner {
 
             const raw = await adapter.executeTrackedQuery(
               {
-                keyword: kw.keyword,
+                query: q.query,
                 canonicalDomains: allDomains,
                 competitorDomains,
                 location: runLocation,
@@ -329,7 +329,7 @@ export class JobRunner {
 
             const normalized = adapter.normalizeResult(raw)
 
-            log.info('query.result', { runId, provider: providerName, keyword: kw.keyword, citedDomains: normalized.citedDomains, groundingSources: normalized.groundingSources.map(s => s.uri), matchDomains: allDomains })
+            log.info('query.result', { runId, provider: providerName, query: q.query, citedDomains: normalized.citedDomains, groundingSources: normalized.groundingSources.map(s => s.uri), matchDomains: allDomains })
             const citationState = determineCitationState(normalized, allDomains)
             const answerMentioned = determineAnswerMentioned(
               normalized.answerText,
@@ -357,7 +357,7 @@ export class JobRunner {
               this.db.insert(querySnapshots).values({
                 id: snapshotId,
                 runId,
-                keywordId: kw.id,
+                queryId: q.id,
                 provider: providerName,
                 model: raw.model,
                 citationState,
@@ -380,7 +380,7 @@ export class JobRunner {
               this.db.insert(querySnapshots).values({
                 id: crypto.randomUUID(),
                 runId,
-                keywordId: kw.id,
+                queryId: q.id,
                 provider: providerName,
                 model: raw.model,
                 citationState,
@@ -401,7 +401,7 @@ export class JobRunner {
             }
 
             totalSnapshotsInserted++
-            log.info('query.citation', { runId, provider: providerName, keyword: kw.keyword, citationState, answerMentioned })
+            log.info('query.citation', { runId, provider: providerName, query: q.query, citationState, answerMentioned })
           })
         } catch (err: unknown) {
           if (err instanceof RunCancelledError) {
@@ -410,7 +410,7 @@ export class JobRunner {
 
           const msg = err instanceof Error ? err.message : String(err)
           const stack = err instanceof Error ? err.stack : undefined
-          log.error('query.failed', { runId, provider: providerName, keyword: kw.keyword, error: msg, stack })
+          log.error('query.failed', { runId, provider: providerName, query: q.query, error: msg, stack })
           if (!providerErrors.has(providerName)) {
             providerErrors.set(providerName, msg)
           }
@@ -418,15 +418,15 @@ export class JobRunner {
       }
 
       await runWithConcurrency(apiProviders, resolveProviderFanout(), async (registeredProvider) => {
-        await Promise.all(projectKeywords.map(async (kw) => {
-          await processKeywordForProvider(registeredProvider, kw)
+        await Promise.all(projectQueries.map(async (q) => {
+          await processQueryForProvider(registeredProvider, q)
         }))
       })
 
-      // Browser providers still run keyword-by-keyword to preserve tab reuse semantics.
+      // Browser providers still run query-by-query to preserve tab reuse semantics.
       for (const registeredProvider of browserProviders) {
-        for (const kw of projectKeywords) {
-          await processKeywordForProvider(registeredProvider, kw)
+        for (const q of projectQueries) {
+          await processQueryForProvider(registeredProvider, q)
         }
       }
 
@@ -466,7 +466,7 @@ export class JobRunner {
         status: finalStatus,
         providerCount: executionContext.providerCount,
         providers: executionContext.providers,
-        keywordCount: executionContext.keywordCount,
+        queryCount: executionContext.queryCount,
         durationMs: Date.now() - startTime,
         ...(executionContext.location ? { location: executionContext.location } : {}),
       })
@@ -483,7 +483,7 @@ export class JobRunner {
       const executionContext: RunExecutionContext = {
         providerCount: activeProviders.length,
         providers: activeProviders.map(provider => provider.adapter.name),
-        keywordCount: projectKeywords.length,
+        queryCount: projectQueries.length,
         ...(runLocation ? { location: runLocation.label } : {}),
       }
 
@@ -512,7 +512,7 @@ export class JobRunner {
         status: 'failed',
         providerCount: executionContext.providerCount,
         providers: executionContext.providers,
-        keywordCount: executionContext.keywordCount,
+        queryCount: executionContext.queryCount,
         durationMs: Date.now() - startTime,
         ...(executionContext.location ? { location: executionContext.location } : {}),
       })
@@ -594,7 +594,7 @@ export class JobRunner {
       status: 'cancelled',
       providerCount: context.providerCount,
       providers: context.providers,
-      keywordCount: context.keywordCount,
+      queryCount: context.queryCount,
       durationMs: Date.now() - startTime,
       ...(context.location ? { location: context.location } : {}),
     })

@@ -18,7 +18,7 @@ export function analyzeRuns(currentRun: RunData, previousRun: RunData, allRuns?:
   const causes = new Map<string, CauseAnalysis>()
   for (const reg of regressions) {
     const cause = analyzeCause(reg, currentRun.snapshots)
-    causes.set(`${reg.keyword}:${reg.provider}`, cause)
+    causes.set(`${reg.query}:${reg.provider}`, cause)
   }
 
   // 4. Generate insights

@@ -304,7 +304,7 @@ function printRunDetail(run: RunDetailDto): void {
         ? (s.answerMentioned ? '  visible  ' : '  not-vis  ')
         : (s.citationState === 'cited' ? '  cited    ' : '  not-cited')
       const modelLabel = s.model ? ` (${s.model})` : ''
-      console.log(`    ${state}  ${s.provider}${modelLabel}  ${s.keyword}`)
+      console.log(`    ${state}  ${s.provider}${modelLabel}  ${s.query}`)
     }
   }
 }

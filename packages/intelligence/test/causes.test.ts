@@ -4,7 +4,7 @@ import type { Regression, Snapshot } from '../src/types.js'
 
 function makeRegression(overrides?: Partial<Regression>): Regression {
   return {
-    keyword: 'roof repair phoenix',
+    query: 'roof repair phoenix',
     provider: 'chatgpt',
     previousCitationUrl: 'https://example.com/roof',
     previousPosition: 2,
@@ -18,7 +18,7 @@ describe('analyzeCause', () => {
   it('identifies competitor_gain when a competitor domain appeared in the lost snapshot', () => {
     const reg = makeRegression()
     const snapshots: Snapshot[] = [
-      { keyword: 'roof repair phoenix', provider: 'chatgpt', cited: false, competitorDomain: 'roofco.com' },
+      { query: 'roof repair phoenix', provider: 'chatgpt', cited: false, competitorDomain: 'roofco.com' },
     ]
 
     const result = analyzeCause(reg, snapshots)
@@ -32,7 +32,7 @@ describe('analyzeCause', () => {
   it('returns unknown when no competitor domain is present', () => {
     const reg = makeRegression()
     const snapshots: Snapshot[] = [
-      { keyword: 'roof repair phoenix', provider: 'chatgpt', cited: false },
+      { query: 'roof repair phoenix', provider: 'chatgpt', cited: false },
     ]
 
     const result = analyzeCause(reg, snapshots)
@@ -45,10 +45,10 @@ describe('analyzeCause', () => {
     expect(result.cause).toBe('unknown')
   })
 
-  it('ignores snapshots for different keywords', () => {
-    const reg = makeRegression({ keyword: 'roof repair phoenix' })
+  it('ignores snapshots for different queries', () => {
+    const reg = makeRegression({ query: 'roof repair phoenix' })
     const snapshots: Snapshot[] = [
-      { keyword: 'different keyword', provider: 'chatgpt', cited: false, competitorDomain: 'rival.com' },
+      { query: 'different query', provider: 'chatgpt', cited: false, competitorDomain: 'rival.com' },
     ]
 
     const result = analyzeCause(reg, snapshots)
@@ -58,7 +58,7 @@ describe('analyzeCause', () => {
   it('ignores snapshots for different providers', () => {
     const reg = makeRegression({ provider: 'chatgpt' })
     const snapshots: Snapshot[] = [
-      { keyword: 'roof repair phoenix', provider: 'gemini', cited: false, competitorDomain: 'rival.com' },
+      { query: 'roof repair phoenix', provider: 'gemini', cited: false, competitorDomain: 'rival.com' },
     ]
 
     const result = analyzeCause(reg, snapshots)
@@ -68,7 +68,7 @@ describe('analyzeCause', () => {
   it('ignores snapshots where cited is true (competitor domain on a cited snapshot is irrelevant)', () => {
     const reg = makeRegression()
     const snapshots: Snapshot[] = [
-      { keyword: 'roof repair phoenix', provider: 'chatgpt', cited: true, competitorDomain: 'rival.com' },
+      { query: 'roof repair phoenix', provider: 'chatgpt', cited: true, competitorDomain: 'rival.com' },
     ]
 
     const result = analyzeCause(reg, snapshots)
@@ -78,8 +78,8 @@ describe('analyzeCause', () => {
   it('picks the first matching snapshot when multiple competitors exist', () => {
     const reg = makeRegression()
     const snapshots: Snapshot[] = [
-      { keyword: 'roof repair phoenix', provider: 'chatgpt', cited: false, competitorDomain: 'first-rival.com' },
-      { keyword: 'roof repair phoenix', provider: 'chatgpt', cited: false, competitorDomain: 'second-rival.com' },
+      { query: 'roof repair phoenix', provider: 'chatgpt', cited: false, competitorDomain: 'first-rival.com' },
+      { query: 'roof repair phoenix', provider: 'chatgpt', cited: false, competitorDomain: 'second-rival.com' },
     ]
 
     const result = analyzeCause(reg, snapshots)
@@ -89,12 +89,12 @@ describe('analyzeCause', () => {
 
   it('analyzes different regressions independently', () => {
     const snapshots: Snapshot[] = [
-      { keyword: 'k1', provider: 'chatgpt', cited: false, competitorDomain: 'rival-a.com' },
-      { keyword: 'k2', provider: 'gemini', cited: false },
+      { query: 'k1', provider: 'chatgpt', cited: false, competitorDomain: 'rival-a.com' },
+      { query: 'k2', provider: 'gemini', cited: false },
     ]
 
-    const r1 = analyzeCause(makeRegression({ keyword: 'k1', provider: 'chatgpt' }), snapshots)
-    const r2 = analyzeCause(makeRegression({ keyword: 'k2', provider: 'gemini' }), snapshots)
+    const r1 = analyzeCause(makeRegression({ query: 'k1', provider: 'chatgpt' }), snapshots)
+    const r2 = analyzeCause(makeRegression({ query: 'k2', provider: 'gemini' }), snapshots)
 
     expect(r1.cause).toBe('competitor_gain')
     expect(r1.competitorDomain).toBe('rival-a.com')

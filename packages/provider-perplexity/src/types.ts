@@ -16,7 +16,7 @@ export interface PerplexityHealthcheckResult {
 }
 
 export interface PerplexityTrackedQueryInput {
-  keyword: string
+  query: string
   canonicalDomains: string[]
   competitorDomains: string[]
   config: PerplexityConfig

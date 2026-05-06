@@ -74,7 +74,7 @@ To test live API calls, use the CLI with real API keys:
 ```bash
 canonry init                                    # provide API keys for one or more providers
 canonry project create test --domain example.com --country US --language en
-canonry keyword add test "best dentist brooklyn"
+canonry query add test "best dentist brooklyn"
 canonry run test                                # runs against all configured providers
 canonry run test --provider gemini              # single-provider run
 canonry status test                             # view citation results
@@ -84,7 +84,7 @@ canonry status test                             # view citation results
 
 1. `canonry init` creates `~/.canonry/` with SQLite DB and auto-generated API key
 2. `canonry serve` starts server, dashboard loads
-3. `canonry project create` / `keyword add` / `run` workflow completes with results from all configured providers
+3. `canonry project create` / `query add` / `run` workflow completes with results from all configured providers
 4. Run results include per-provider grounding sources, search queries, and cited domains
 5. `canonry export` produces valid `canonry.yaml`
 6. `canonry apply` is idempotent and records audit log entries

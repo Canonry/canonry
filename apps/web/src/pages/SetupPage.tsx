@@ -8,9 +8,9 @@ import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { addToast } from '../lib/toast-store.js'
 import {
   createProject,
-  setKeywords,
+  setQueries,
   setCompetitors,
-  generateKeywords as apiGenerateKeywords,
+  generateQueries as apiGenerateQueries,
 } from '../api.js'
 import { useTriggerRun } from '../queries/mutations.js'
 import { useDashboard } from '../queries/use-dashboard.js'
@@ -21,7 +21,7 @@ import { buildSetupModel, serviceStatusTooltip } from '../lib/health-helpers.js'
 const SETUP_STEPS = [
   { label: 'System check', description: 'Verify your instance is ready' },
   { label: 'Create project', description: 'Name, domain, and locale' },
-  { label: 'Key phrases', description: 'Add key phrases to track' },
+  { label: 'Queries', description: 'Add queries to track' },
   { label: 'Competitors', description: 'Add competitor domains' },
   { label: 'Launch', description: 'Start your first visibility sweep' },
 ] as const
@@ -95,15 +95,15 @@ export function SetupPage() {
   const [projectError, setProjectError] = useState<string | null>(null)
   const [projectSaving, setProjectSaving] = useState(false)
 
-  const [keywordsText, setKeywordsText] = useState('')
-  const [keywordsSaved, setKeywordsSaved] = useState(false)
-  const [keywordsError, setKeywordsError] = useState<string | null>(null)
-  const [keywordsSaving, setKeywordsSaving] = useState(false)
+  const [queriesText, setQueriesText] = useState('')
+  const [queriesSaved, setQueriesSaved] = useState(false)
+  const [queriesError, setQueriesError] = useState<string | null>(null)
+  const [queriesSaving, setQueriesSaving] = useState(false)
 
   const readyProviders = settings.providerStatuses.filter(p => p.state === 'ready')
   const [selectedProvider, setSelectedProvider] = useState(readyProviders[0]?.name ?? '')
   const [generateCount, setGenerateCount] = useState(5)
-  const [generatingKeywords, setGeneratingKeywords] = useState(false)
+  const [generatingQueries, setGeneratingQueries] = useState(false)
   const [generateError, setGenerateError] = useState<string | null>(null)
 
   const [competitorsText, setCompetitorsText] = useState('')
@@ -116,7 +116,7 @@ export function SetupPage() {
   const triggerRunMutation = useTriggerRun()
 
   const slug = projectName.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
-  const parsedKeywords = keywordsText.split('\n').map(k => k.trim()).filter(Boolean)
+  const parsedQueries = queriesText.split('\n').map(k => k.trim()).filter(Boolean)
   const parsedCompetitors = competitorsText.split('\n').map(c => c.trim()).filter(Boolean)
 
   const apiReady = model.healthChecks.some((c) => c.id === 'api' && c.state === 'ready')
@@ -151,40 +151,40 @@ export function SetupPage() {
     }
   }
 
-  const handleSaveKeywords = async () => {
+  const handleSaveQueries = async () => {
     if (!createdProjectName) return
-    const keywords = parsedKeywords
-    if (keywords.length === 0) return
-    setKeywordsSaving(true)
-    setKeywordsError(null)
+    const queries = parsedQueries
+    if (queries.length === 0) return
+    setQueriesSaving(true)
+    setQueriesError(null)
     try {
-      await setKeywords(createdProjectName, keywords)
-      setKeywordsSaved(true)
+      await setQueries(createdProjectName, queries)
+      setQueriesSaved(true)
       void refetch()
       setStep(3)
     } catch (err) {
-      setKeywordsError(err instanceof Error ? err.message : 'Failed to save key phrases')
+      setQueriesError(err instanceof Error ? err.message : 'Failed to save queries')
     } finally {
-      setKeywordsSaving(false)
+      setQueriesSaving(false)
     }
   }
 
-  const handleGenerateKeywords = async () => {
+  const handleGenerateQueries = async () => {
     if (!createdProjectName || !selectedProvider) return
-    setGeneratingKeywords(true)
+    setGeneratingQueries(true)
     setGenerateError(null)
     try {
-      const result = await apiGenerateKeywords(createdProjectName, selectedProvider, generateCount)
-      if (result.keywords.length > 0) {
-        const newText = keywordsText
-          ? keywordsText.trimEnd() + '\n' + result.keywords.join('\n')
-          : result.keywords.join('\n')
-        setKeywordsText(newText)
+      const result = await apiGenerateQueries(createdProjectName, selectedProvider, generateCount)
+      if (result.queries.length > 0) {
+        const newText = queriesText
+          ? queriesText.trimEnd() + '\n' + result.queries.join('\n')
+          : result.queries.join('\n')
+        setQueriesText(newText)
       }
     } catch (err) {
-      setGenerateError(err instanceof Error ? err.message : 'Failed to generate key phrases')
+      setGenerateError(err instanceof Error ? err.message : 'Failed to generate queries')
     } finally {
-      setGeneratingKeywords(false)
+      setGeneratingQueries(false)
     }
   }
 
@@ -355,19 +355,19 @@ export function SetupPage() {
             <div className="section-head">
               <div>
                 <p className="eyebrow eyebrow-soft">Step 3 of 5</p>
-                <h2>Add key phrases</h2>
+                <h2>Add queries</h2>
               </div>
-              {keywordsSaved ? (
-                <ToneBadge tone="positive">{parsedKeywords.length} saved</ToneBadge>
+              {queriesSaved ? (
+                <ToneBadge tone="positive">{parsedQueries.length} saved</ToneBadge>
               ) : (
-                <ToneBadge tone="neutral">{parsedKeywords.length} key phrase{parsedKeywords.length !== 1 ? 's' : ''}</ToneBadge>
+                <ToneBadge tone="neutral">{parsedQueries.length} quer{parsedQueries.length !== 1 ? 'ies' : 'y'}</ToneBadge>
               )}
             </div>
             <p className="supporting-copy">Enter the search queries you want to track. One per line.</p>
-            {keywordsSaved ? (
+            {queriesSaved ? (
               <div className="compact-stack">
                 <ul className="detail-list">
-                  {parsedKeywords.map((kw) => <li key={kw}>{kw}</li>)}
+                  {parsedQueries.map((q) => <li key={q}>{q}</li>)}
                 </ul>
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={goBack}>Back</Button>
@@ -413,10 +413,10 @@ export function SetupPage() {
                       <Button
                         type="button"
                         variant="outline"
-                        disabled={generatingKeywords || !selectedProvider}
-                        onClick={handleGenerateKeywords}
+                        disabled={generatingQueries || !selectedProvider}
+                        onClick={handleGenerateQueries}
                       >
-                        {generatingKeywords ? 'Analyzing site...' : 'Generate'}
+                        {generatingQueries ? 'Analyzing site...' : 'Generate'}
                       </Button>
                     </div>
                     {generateError ? <p className="text-rose-400 text-sm">{generateError}</p> : null}
@@ -428,21 +428,21 @@ export function SetupPage() {
                   <span className="flex-1 border-t border-zinc-800" />
                 </div>
                 <div className="setup-field">
-                  <label className="setup-label" htmlFor="keywords">Key phrases (one per line)</label>
+                  <label className="setup-label" htmlFor="queries">Queries (one per line)</label>
                   <textarea
-                    id="keywords"
+                    id="queries"
                     className="setup-textarea"
                     rows={6}
                     placeholder={'emergency dentist brooklyn\nbest invisalign downtown brooklyn\npediatric dentist brooklyn heights'}
-                    value={keywordsText}
-                    onChange={(e) => setKeywordsText(e.target.value)}
+                    value={queriesText}
+                    onChange={(e) => setQueriesText(e.target.value)}
                   />
                 </div>
-                {keywordsError ? <p className="text-rose-400 text-sm">{keywordsError}</p> : null}
+                {queriesError ? <p className="text-rose-400 text-sm">{queriesError}</p> : null}
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={goBack}>Back</Button>
-                  <Button type="button" disabled={parsedKeywords.length === 0 || keywordsSaving} onClick={handleSaveKeywords}>
-                    {keywordsSaving ? 'Saving...' : `Save ${parsedKeywords.length} key phrase${parsedKeywords.length !== 1 ? 's' : ''}`}
+                  <Button type="button" disabled={parsedQueries.length === 0 || queriesSaving} onClick={handleSaveQueries}>
+                    {queriesSaving ? 'Saving...' : `Save ${parsedQueries.length} quer${parsedQueries.length !== 1 ? 'ies' : 'y'}`}
                   </Button>
                 </div>
               </div>
@@ -460,7 +460,7 @@ export function SetupPage() {
               </div>
               {competitorsSaved ? <ToneBadge tone="positive">Saved</ToneBadge> : null}
             </div>
-            <p className="supporting-copy">Domains that compete for the same key phrases. One per line.</p>
+            <p className="supporting-copy">Domains that compete for the same queries. One per line.</p>
             {competitorsSaved ? (
               <div className="compact-stack">
                 <ul className="detail-list">
@@ -547,7 +547,7 @@ export function SetupPage() {
       <div className="page-header">
         <div className="page-header-left">
           <h1 className="page-title">Setup</h1>
-          <p className="page-subtitle">Create a project, add key phrases, add competitors, and launch the first run.</p>
+          <p className="page-subtitle">Create a project, add queries, add competitors, and launch the first run.</p>
         </div>
       </div>
 

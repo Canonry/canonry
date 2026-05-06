@@ -97,7 +97,7 @@ export const locationContextSchema = z.object({
 })
 
 export interface TrackedQueryInput {
-  keyword: string
+  query: string
   canonicalDomains: string[]
   competitorDomains: string[]
   location?: LocationContext

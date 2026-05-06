@@ -3,7 +3,7 @@ import { RunKinds, RunStatuses, RunTriggers, CitationStates, ComputedTransitions
 import type {
   ApiCompetitor,
   ApiBingCoverageSummary,
-  ApiKeyword,
+  ApiQuery,
   ApiProject,
   ApiGscCoverageSummary,
   ApiRun,
@@ -117,8 +117,8 @@ function statusDetailFromRun(run: ApiRun): string {
   switch (run.status) {
     case RunStatuses.queued: return 'Waiting for execution slot.'
     case RunStatuses.running: return 'Provider queries in progress.'
-    case RunStatuses.completed: return 'All key phrases checked.'
-    case RunStatuses.partial: return 'Run completed with some key phrases skipped.'
+    case RunStatuses.completed: return 'All queries checked.'
+    case RunStatuses.partial: return 'Run completed with some queries skipped.'
     case RunStatuses.failed: return run.error ? formatRunError(run.error) : 'Run failed.'
     case RunStatuses.cancelled: return 'Run was cancelled.'
     default: return ''
@@ -138,17 +138,17 @@ function summaryFromRun(run: ApiRun): string {
   }
 }
 
-/** Count unique keywords that are cited by at least one provider. */
-function computeKeywordVisibility(snapshots: ApiRunDetail['snapshots']): { score: number; citedCount: number; totalCount: number } {
+/** Count unique queries that are cited by at least one provider. */
+function computeQueryVisibility(snapshots: ApiRunDetail['snapshots']): { score: number; citedCount: number; totalCount: number } {
   if (snapshots.length === 0) return { score: 0, citedCount: 0, totalCount: 0 }
-  const keywordCited = new Map<string, boolean>()
+  const queryCited = new Map<string, boolean>()
   for (const snap of snapshots) {
-    const kw = snap.keyword ?? snap.id
-    if (!keywordCited.has(kw)) keywordCited.set(kw, false)
-    if (snap.citationState === 'cited') keywordCited.set(kw, true)
+    const q = snap.query ?? snap.id
+    if (!queryCited.has(q)) queryCited.set(q, false)
+    if (snap.citationState === 'cited') queryCited.set(q, true)
   }
-  const totalCount = keywordCited.size
-  const citedCount = [...keywordCited.values()].filter(Boolean).length
+  const totalCount = queryCited.size
+  const citedCount = [...queryCited.values()].filter(Boolean).length
   const score = totalCount > 0 ? Math.round((citedCount / totalCount) * 100) : 0
   return { score, citedCount, totalCount }
 }
@@ -172,44 +172,44 @@ function gapTone(gapCount: number, totalCount: number): MetricTone {
   return 'caution'
 }
 
-function buildGapKeyPhraseSummary(
+function buildGapQuerySummary(
   snapshots: ApiRunDetail['snapshots'],
 ): ScoreSummaryVm {
   if (snapshots.length === 0) {
     return {
-      label: 'Gap Key Phrases',
+      label: 'Gap Queries',
       value: 'No data',
       delta: 'Run a sweep first',
       tone: 'neutral',
-      description: 'Run a visibility sweep to identify key phrases where competitors are cited and your domain is not.',
-      tooltip: 'Tracked key phrases where a competitor is cited in the latest run but your domain is not.',
+      description: 'Run a visibility sweep to identify queries where competitors are cited and your domain is not.',
+      tooltip: 'Tracked queries where a competitor is cited in the latest run but your domain is not.',
       trend: [],
     }
   }
 
-  const byKeyword = new Map<string, { cited: boolean; competitorOverlap: Set<string> }>()
+  const byQuery = new Map<string, { cited: boolean; competitorOverlap: Set<string> }>()
 
   for (const snap of snapshots) {
-    const key = snap.keywordId
-    const current = byKeyword.get(key) ?? { cited: false, competitorOverlap: new Set<string>() }
+    const key = snap.queryId
+    const current = byQuery.get(key) ?? { cited: false, competitorOverlap: new Set<string>() }
     if (snap.citationState === 'cited') current.cited = true
     for (const domain of snap.competitorOverlap) current.competitorOverlap.add(domain)
-    byKeyword.set(key, current)
+    byQuery.set(key, current)
   }
 
-  const totalCount = byKeyword.size
-  const gapCount = [...byKeyword.values()].filter(entry => !entry.cited && entry.competitorOverlap.size > 0).length
-  const gapPhraseLabel = gapCount === 1 ? 'key phrase' : 'key phrases'
+  const totalCount = byQuery.size
+  const gapCount = [...byQuery.values()].filter(entry => !entry.cited && entry.competitorOverlap.size > 0).length
+  const gapQueryLabel = gapCount === 1 ? 'query' : 'queries'
 
   return {
-    label: 'Gap Key Phrases',
+    label: 'Gap Queries',
     value: `${gapCount}`,
-    delta: `${gapCount} of ${totalCount} key phrases at risk`,
+    delta: `${gapCount} of ${totalCount} queries at risk`,
     tone: gapTone(gapCount, totalCount),
     description: gapCount > 0
-      ? `${gapCount} tracked ${gapPhraseLabel} currently cite competitors without citing your domain.`
-      : 'No competitive key phrase gaps detected in the latest visibility run.',
-    tooltip: 'Tracked key phrases where a competitor is cited in the latest run but your domain is not.',
+      ? `${gapCount} tracked ${gapQueryLabel} currently cite competitors without citing your domain.`
+      : 'No competitive query gaps detected in the latest visibility run.',
+    tooltip: 'Tracked queries where a competitor is cited in the latest run but your domain is not.',
     trend: [],
     progress: totalCount > 0 ? gapCount / totalCount : 0,
   }
@@ -320,18 +320,18 @@ function buildEvidenceFromTimeline(
   projectName: string,
   timeline: ApiTimelineEntry[],
   latestRunDetail: ApiRunDetail | null,
-  savedKeywords: ApiKeyword[],
+  savedQueries: ApiQuery[],
 ): CitationInsightVm[] {
   const results: CitationInsightVm[] = []
   let idx = 0
-  const seenKeywords = new Set<string>()
+  const seenQueries = new Set<string>()
 
   if (latestRunDetail) {
-    // Group snapshots by keyword+provider for multi-provider support
+    // Group snapshots by query+provider for multi-provider support
     const snapshotsByKey = new Map<string, ApiRunDetail['snapshots'][number]>()
     for (const snap of latestRunDetail.snapshots) {
-      if (snap.keyword) {
-        const key = `${snap.keyword}::${snap.provider}`
+      if (snap.query) {
+        const key = `${snap.query}::${snap.provider}`
         snapshotsByKey.set(key, snap)
       }
     }
@@ -349,16 +349,16 @@ function buildEvidenceFromTimeline(
 
     for (const entry of timeline) {
       if (entry.runs.length === 0) continue // never run yet; pending fallback handles it
-      seenKeywords.add(entry.keyword)
+      seenQueries.add(entry.query)
       const latestRun = entry.runs.at(-1)
       const transition = latestRun?.transition ?? 'not-cited'
       for (const provider of providers) {
-        const snap = snapshotsByKey.get(`${entry.keyword}::${provider}`)
-        // Only skip if provider has zero history for this phrase AND no snapshot in latest run
+        const snap = snapshotsByKey.get(`${entry.query}::${provider}`)
+        // Only skip if provider has zero history for this query AND no snapshot in latest run
         const hasHistory = (entry.providerRuns?.[provider]?.length ?? 0) > 0
         if (!snap && !hasHistory) continue
 
-        // Prefer provider-level history for continuity across model changes; fall back to model-scoped then keyword-level
+        // Prefer provider-level history for continuity across model changes; fall back to model-scoped then query-level
         const model = snap?.model ?? null
         const modelKey = model ? `${provider}:${model}` : null
         const modelHistory = modelKey ? entry.modelRuns?.[modelKey] : undefined
@@ -369,7 +369,7 @@ function buildEvidenceFromTimeline(
           ? 'provider'
           : modelHistory?.length
             ? 'model'
-            : 'keyword'
+            : 'query'
 
         const effectiveTransition = effectiveHistory
           ? effectiveHistory.at(-1)!.transition
@@ -379,7 +379,7 @@ function buildEvidenceFromTimeline(
           : (latestRun?.visibilityTransition ?? (latestRun?.visibilityState === 'visible' ? 'visible' : 'not-visible'))
 
         // When a provider is missing from the latest run, keep showing its last
-        // observed provider-level state instead of leaking the keyword-level
+        // observed provider-level state instead of leaking the query-level
         // transition from another provider into this synthetic badge row.
         const latestProviderState = effectiveHistory?.at(-1)?.citationState
         const latestProviderVisibilityState = effectiveHistory?.at(-1)?.visibilityState
@@ -417,7 +417,7 @@ function buildEvidenceFromTimeline(
 
         results.push({
           id: `evidence_${projectName}_${idx++}`,
-          keyword: entry.keyword,
+          query: entry.query,
           provider: snap?.provider ?? provider,
           model: snap?.model ?? null,
           location: snap?.location ?? null,
@@ -438,7 +438,7 @@ function buildEvidenceFromTimeline(
           matchedTerms: snap?.matchedTerms ?? [],
           relatedTechnicalSignals: [],
           groundingSources: snap?.groundingSources ?? [],
-          summary: visibilityEvidenceSummary(snapVisibilityState, effectiveVisibilityTransition, entry.keyword),
+          summary: visibilityEvidenceSummary(snapVisibilityState, effectiveVisibilityTransition, entry.query),
           runHistory,
           historyScope,
           modelsSeen,
@@ -448,12 +448,12 @@ function buildEvidenceFromTimeline(
     }
   }
 
-  // Show saved keywords that haven't been run yet
-  for (const kw of savedKeywords) {
-    if (seenKeywords.has(kw.keyword)) continue
+  // Show saved queries that haven't been run yet
+  for (const q of savedQueries) {
+    if (seenQueries.has(q.query)) continue
     results.push({
       id: `evidence_${projectName}_${idx++}`,
-      keyword: kw.keyword,
+      query: q.query,
       provider: '',
       model: null,
       location: null,
@@ -469,9 +469,9 @@ function buildEvidenceFromTimeline(
       matchedTerms: [],
       relatedTechnicalSignals: [],
       groundingSources: [],
-      summary: `"${kw.keyword}" has been added but no visibility run has been triggered yet.`,
+      summary: `"${q.query}" has been added but no visibility run has been triggered yet.`,
       runHistory: [],
-      historyScope: 'keyword',
+      historyScope: 'query',
       modelsSeen: [],
       modelTransitions: [],
     })
@@ -578,23 +578,23 @@ function capitalizeLabel(value: string): string {
 function visibilityEvidenceSummary(
   visibilityState: CitationInsightVm['visibilityState'],
   visibilityTransition: string,
-  keyword: string,
+  query: string,
 ): string {
   switch (visibilityTransition) {
     case 'lost':
-      return `Visibility was lost for "${keyword}". Your brand no longer appeared in the latest answer.`
+      return `Visibility was lost for "${query}". Your brand no longer appeared in the latest answer.`
     case 'emerging':
-      return `Your brand started appearing in AI answers for "${keyword}".`
+      return `Your brand started appearing in AI answers for "${query}".`
   }
 
   switch (visibilityState) {
     case 'visible':
-      return `Your brand or domain is visible in AI answers for "${keyword}".`
+      return `Your brand or domain is visible in AI answers for "${query}".`
     case 'pending':
-      return `"${keyword}" has been added but no visibility run has been triggered yet.`
+      return `"${query}" has been added but no visibility run has been triggered yet.`
     case 'not-visible':
     default:
-      return `Your brand or domain was not mentioned in AI answers for "${keyword}".`
+      return `Your brand or domain was not mentioned in AI answers for "${query}".`
   }
 }
 
@@ -606,18 +606,18 @@ export interface InsightInput {
   trackedCompetitors: string[]
 }
 
-function buildCompetitorKeywordMap(
+function buildCompetitorQueryMap(
   snapshots: ApiRunDetail['snapshots'],
   trackedCompetitors: string[],
 ): Map<string, Set<string>> {
   const competitorSet = new Set(trackedCompetitors)
   const result = new Map<string, Set<string>>()
   for (const snap of snapshots) {
-    if (!snap.keyword) continue
+    if (!snap.query) continue
     for (const domain of snap.competitorOverlap) {
       if (!competitorSet.has(domain)) continue
       const existing = result.get(domain) ?? new Set()
-      existing.add(snap.keyword)
+      existing.add(snap.query)
       result.set(domain, existing)
     }
   }
@@ -630,21 +630,21 @@ export function buildInsights(input: InsightInput): ProjectInsightVm[] {
   const { evidence, timeline, latestSnapshots, previousSnapshots, trackedCompetitors } = input
   const insights: ProjectInsightVm[] = []
 
-  // --- 1. Lost citation (one entry per keyword, representative provider) ---
+  // --- 1. Lost citation (one entry per query, representative provider) ---
   const lostPhrases: AffectedPhrase[] = []
-  const seenLostKeywords = new Set<string>()
+  const seenLostQueries = new Set<string>()
   for (const e of evidence) {
     if (e.citationState !== 'lost') continue
-    if (seenLostKeywords.has(e.keyword)) continue
-    seenLostKeywords.add(e.keyword)
-    lostPhrases.push({ keyword: e.keyword, evidenceId: e.id, provider: e.provider, citationState: 'lost' as CitationState })
+    if (seenLostQueries.has(e.query)) continue
+    seenLostQueries.add(e.query)
+    lostPhrases.push({ query: e.query, evidenceId: e.id, provider: e.provider, citationState: 'lost' as CitationState })
   }
 
   if (lostPhrases.length > 0) {
     insights.push({
       id: 'insight_lost',
       tone: 'negative',
-      title: `Lost citation on ${lostPhrases.length} key phrase${lostPhrases.length > 1 ? 's' : ''}`,
+      title: `Lost citation on ${lostPhrases.length} quer${lostPhrases.length > 1 ? 'ies' : 'y'}`,
       detail: 'Citations dropped since the last run.',
       actionLabel: 'Lost',
       affectedPhrases: lostPhrases,
@@ -652,69 +652,69 @@ export function buildInsights(input: InsightInput): ProjectInsightVm[] {
   }
 
   // --- 2. Competitor gained ---
-  const latestCompMap = buildCompetitorKeywordMap(latestSnapshots, trackedCompetitors)
-  const prevCompMap = buildCompetitorKeywordMap(previousSnapshots, trackedCompetitors)
+  const latestCompMap = buildCompetitorQueryMap(latestSnapshots, trackedCompetitors)
+  const prevCompMap = buildCompetitorQueryMap(previousSnapshots, trackedCompetitors)
 
   for (const comp of trackedCompetitors) {
-    const latestKws = latestCompMap.get(comp) ?? new Set()
-    const prevKws = prevCompMap.get(comp) ?? new Set()
-    const gained = [...latestKws].filter(kw => !prevKws.has(kw))
+    const latestQs = latestCompMap.get(comp) ?? new Set()
+    const prevQs = prevCompMap.get(comp) ?? new Set()
+    const gained = [...latestQs].filter(q => !prevQs.has(q))
     if (gained.length > 0) {
       insights.push({
         id: `insight_comp_gained_${comp}`,
         tone: 'negative',
-        title: `${comp} appeared on ${gained.length} key phrase${gained.length > 1 ? 's' : ''}`,
+        title: `${comp} appeared on ${gained.length} quer${gained.length > 1 ? 'ies' : 'y'}`,
         detail: 'A tracked competitor gained new citations.',
         actionLabel: 'Competitor',
-        affectedPhrases: gained.map(kw => {
-          const ev = evidence.find(e => e.keyword === kw)
-          return { keyword: kw, evidenceId: ev?.id ?? '', citationState: 'cited' as CitationState }
+        affectedPhrases: gained.map(q => {
+          const ev = evidence.find(e => e.query === q)
+          return { query: q, evidenceId: ev?.id ?? '', citationState: 'cited' as CitationState }
         }),
       })
     }
   }
 
   // --- 3 & 4. New provider pickup vs First citation ---
-  // Use the deduped keyword timeline to decide: if the keyword itself just became cited
-  // (transition = 'emerging' or 'new' + cited), it's a "first citation" (keyword-level).
-  // If the keyword was already cited but a specific provider just started citing it
+  // Use the deduped query timeline to decide: if the query itself just became cited
+  // (transition = 'emerging' or 'new' + cited), it's a "first citation" (query-level).
+  // If the query was already cited but a specific provider just started citing it
   // (provider transition = 'emerging'), it's a "new provider pickup".
-  const keywordTransition = new Map<string, { transition: string; citationState: string }>()
+  const queryTransition = new Map<string, { transition: string; citationState: string }>()
   for (const entry of timeline) {
     const latest = entry.runs.at(-1)
-    if (latest) keywordTransition.set(entry.keyword, { transition: latest.transition, citationState: latest.citationState })
+    if (latest) queryTransition.set(entry.query, { transition: latest.transition, citationState: latest.citationState })
   }
 
   const firstCitationPhrases: AffectedPhrase[] = []
   const newProviderPhrases: AffectedPhrase[] = []
-  const firstCitationKeywords = new Set<string>()
+  const firstCitationQueries = new Set<string>()
 
-  // First citation: keyword-level
-  for (const [keyword, { transition, citationState }] of keywordTransition) {
+  // First citation: query-level
+  for (const [query, { transition, citationState }] of queryTransition) {
     const isFirst = transition === 'emerging' || (transition === 'new' && citationState === 'cited')
     if (!isFirst) continue
-    firstCitationKeywords.add(keyword)
-    const ev = evidence.find(e => e.keyword === keyword && (e.citationState === 'emerging' || e.citationState === 'cited'))
+    firstCitationQueries.add(query)
+    const ev = evidence.find(e => e.query === query && (e.citationState === 'emerging' || e.citationState === 'cited'))
     firstCitationPhrases.push({
-      keyword, evidenceId: ev?.id ?? '', provider: ev?.provider, citationState: 'emerging',
+      query, evidenceId: ev?.id ?? '', provider: ev?.provider, citationState: 'emerging',
     })
   }
 
-  // New provider pickup: per-provider emerging where keyword was already cited
+  // New provider pickup: per-provider emerging where query was already cited
   for (const e of evidence) {
     if (e.citationState !== 'emerging') continue
-    if (firstCitationKeywords.has(e.keyword)) continue
+    if (firstCitationQueries.has(e.query)) continue
     newProviderPhrases.push({
-      keyword: e.keyword, evidenceId: e.id, provider: e.provider, citationState: 'emerging',
+      query: e.query, evidenceId: e.id, provider: e.provider, citationState: 'emerging',
     })
   }
 
   if (newProviderPhrases.length > 0) {
-    const kwCount = new Set(newProviderPhrases.map(p => p.keyword)).size
+    const qCount = new Set(newProviderPhrases.map(p => p.query)).size
     insights.push({
       id: 'insight_provider_pickup',
       tone: 'positive',
-      title: `Picked up by new provider on ${kwCount} key phrase${kwCount > 1 ? 's' : ''}`,
+      title: `Picked up by new provider on ${qCount} quer${qCount > 1 ? 'ies' : 'y'}`,
       detail: 'Your domain started appearing on additional providers.',
       actionLabel: 'Pickup',
       affectedPhrases: newProviderPhrases,
@@ -725,26 +725,26 @@ export function buildInsights(input: InsightInput): ProjectInsightVm[] {
     insights.push({
       id: 'insight_first_citation',
       tone: 'positive',
-      title: `First citation on ${firstCitationKeywords.size} key phrase${firstCitationKeywords.size > 1 ? 's' : ''}`,
+      title: `First citation on ${firstCitationQueries.size} quer${firstCitationQueries.size > 1 ? 'ies' : 'y'}`,
       detail: 'Your domain appeared in AI answers for the first time.',
       actionLabel: 'New',
       affectedPhrases: firstCitationPhrases,
     })
   }
 
-  // --- 5. Persistent gap (keyword-level, deduped timeline) ---
-  const evidenceKeywords = new Set(evidence.map(e => e.keyword))
+  // --- 5. Persistent gap (query-level, deduped timeline) ---
+  const evidenceQueries = new Set(evidence.map(e => e.query))
   const gapPhrases: AffectedPhrase[] = []
 
   for (const entry of timeline) {
-    if (!evidenceKeywords.has(entry.keyword)) continue
+    if (!evidenceQueries.has(entry.query)) continue
     if (entry.runs.length < GAP_THRESHOLD) continue
     const latestRun = entry.runs.at(-1)
     if (latestRun?.citationState !== 'not-cited') continue
     const streak = computeStreak(entry.runs)
     if (streak >= GAP_THRESHOLD) {
-      const ev = evidence.find(e => e.keyword === entry.keyword)
-      gapPhrases.push({ keyword: entry.keyword, evidenceId: ev?.id ?? '', citationState: 'not-cited' })
+      const ev = evidence.find(e => e.query === entry.query)
+      gapPhrases.push({ query: entry.query, evidenceId: ev?.id ?? '', citationState: 'not-cited' })
     }
   }
 
@@ -752,8 +752,8 @@ export function buildInsights(input: InsightInput): ProjectInsightVm[] {
     insights.push({
       id: 'insight_persistent_gap',
       tone: 'caution',
-      title: `${gapPhrases.length} key phrase${gapPhrases.length > 1 ? 's' : ''} uncited for ${GAP_THRESHOLD}+ runs`,
-      detail: 'These key phrases have not been cited by any provider across multiple consecutive runs.',
+      title: `${gapPhrases.length} quer${gapPhrases.length > 1 ? 'ies' : 'y'} uncited for ${GAP_THRESHOLD}+ runs`,
+      detail: 'These queries have not been cited by any provider across multiple consecutive runs.',
       actionLabel: 'Gap',
       affectedPhrases: gapPhrases,
     })
@@ -761,19 +761,19 @@ export function buildInsights(input: InsightInput): ProjectInsightVm[] {
 
   // --- 6. Competitor lost ---
   for (const comp of trackedCompetitors) {
-    const latestKws = latestCompMap.get(comp) ?? new Set()
-    const prevKws = prevCompMap.get(comp) ?? new Set()
-    const lost = [...prevKws].filter(kw => !latestKws.has(kw))
+    const latestQs = latestCompMap.get(comp) ?? new Set()
+    const prevQs = prevCompMap.get(comp) ?? new Set()
+    const lost = [...prevQs].filter(q => !latestQs.has(q))
     if (lost.length > 0) {
       insights.push({
         id: `insight_comp_lost_${comp}`,
         tone: 'neutral',
-        title: `${comp} dropped from ${lost.length} key phrase${lost.length > 1 ? 's' : ''}`,
+        title: `${comp} dropped from ${lost.length} quer${lost.length > 1 ? 'ies' : 'y'}`,
         detail: 'A tracked competitor lost citations.',
         actionLabel: 'Competitor',
-        affectedPhrases: lost.map(kw => {
-          const ev = evidence.find(e => e.keyword === kw)
-          return { keyword: kw, evidenceId: ev?.id ?? '', citationState: 'not-cited' as CitationState }
+        affectedPhrases: lost.map(q => {
+          const ev = evidence.find(e => e.query === q)
+          return { query: q, evidenceId: ev?.id ?? '', citationState: 'not-cited' as CitationState }
         }),
       })
     }
@@ -785,7 +785,7 @@ export function buildInsights(input: InsightInput): ProjectInsightVm[] {
       id: 'insight_stable',
       tone: 'neutral',
       title: 'No significant changes',
-      detail: 'Citation state is stable across all tracked key phrases.',
+      detail: 'Citation state is stable across all tracked queries.',
       actionLabel: 'Stable',
       affectedPhrases: [],
     })
@@ -809,7 +809,7 @@ function mergeInsights(inMemory: ProjectInsightVm[], db: ProjectInsightVm[]): Pr
       id: 'insight_stable',
       tone: 'neutral',
       title: 'No significant changes',
-      detail: 'Citation state is stable across all tracked key phrases.',
+      detail: 'Citation state is stable across all tracked queries.',
       actionLabel: 'Stable',
       affectedPhrases: [],
     }]
@@ -817,7 +817,7 @@ function mergeInsights(inMemory: ProjectInsightVm[], db: ProjectInsightVm[]): Pr
   return merged
 }
 
-/** Compare latest vs previous run to count keyword-level gains and losses. */
+/** Compare latest vs previous run to count query-level gains and losses. */
 function computeMovement(
   latestSnapshots: ApiRunDetail['snapshots'],
   previousSnapshots: ApiRunDetail['snapshots'],
@@ -825,16 +825,16 @@ function computeMovement(
   if (previousSnapshots.length === 0) {
     // No previous run to compare against
     const citedCount = new Set(
-      latestSnapshots.filter(s => s.citationState === 'cited').map(s => s.keyword),
+      latestSnapshots.filter(s => s.citationState === 'cited').map(s => s.query),
     ).size
     return { gained: citedCount, lost: 0, tone: citedCount > 0 ? 'positive' : 'neutral', hasPreviousRun: false }
   }
 
-  // Build keyword-level cited sets (cited if ANY provider cited it)
+  // Build query-level cited sets (cited if ANY provider cited it)
   const buildCitedSet = (snaps: ApiRunDetail['snapshots']): Set<string> => {
     const cited = new Set<string>()
     for (const s of snaps) {
-      if (s.citationState === 'cited' && s.keyword) cited.add(s.keyword)
+      if (s.citationState === 'cited' && s.query) cited.add(s.query)
     }
     return cited
   }
@@ -844,11 +844,11 @@ function computeMovement(
 
   let gained = 0
   let lost = 0
-  for (const kw of latestCited) {
-    if (!previousCited.has(kw)) gained++
+  for (const q of latestCited) {
+    if (!previousCited.has(q)) gained++
   }
-  for (const kw of previousCited) {
-    if (!latestCited.has(kw)) lost++
+  for (const q of previousCited) {
+    if (!latestCited.has(q)) lost++
   }
 
   const tone: MetricTone = lost > gained ? 'negative' : gained > lost ? 'positive' : 'neutral'
@@ -903,7 +903,7 @@ function runStatusSummary(projectRuns: ApiRun[]): ScoreSummaryVm {
 export interface ProjectData {
   project: ApiProject
   runs: ApiRun[]
-  keywords: ApiKeyword[]
+  queries: ApiQuery[]
   competitors: ApiCompetitor[]
   timeline: ApiTimelineEntry[]
   latestRunDetail: ApiRunDetail | null
@@ -915,15 +915,15 @@ export interface ProjectData {
 
 export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCenterVm {
   const dto = toProjectDto(data.project)
-  const evidence = buildEvidenceFromTimeline(dto.name, data.timeline, data.latestRunDetail, data.keywords)
+  const evidence = buildEvidenceFromTimeline(dto.name, data.timeline, data.latestRunDetail, data.queries)
   // Match latestRunDetail (which is fetched for the most recent completed/partial run)
   // — using all runs would leave snapshots empty whenever a newer run is queued/running.
   const latestVisibilityRunMetrics = data.runs
     .filter(r => r.kind === RunKinds['answer-visibility'] && (r.status === RunStatuses.completed || r.status === RunStatuses.partial))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
   const snapshots = (latestVisibilityRunMetrics && data.latestRunDetail?.id === latestVisibilityRunMetrics.id) ? data.latestRunDetail.snapshots : []
-  const kwVis = computeKeywordVisibility(snapshots)
-  const gapKeyPhrases = buildGapKeyPhraseSummary(snapshots)
+  const qVis = computeQueryVisibility(snapshots)
+  const gapQueries = buildGapQuerySummary(snapshots)
   const indexCoverage = buildIndexCoverageSummary(data.gscCoverage, data.bingCoverage)
   const pressure = computeCompetitorPressure(snapshots, data.competitors.map(c => c.domain))
   const inMemoryInsights = buildInsights({
@@ -997,20 +997,20 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
     contextLabel: `${dto.country} / ${dto.language.toUpperCase()}`,
     visibilitySummary: {
       label: 'Answer Visibility',
-      value: snapshots.length > 0 ? `${kwVis.score}` : 'No data',
-      delta: snapshots.length > 0 ? `${kwVis.citedCount} of ${kwVis.totalCount} key phrases visible` : 'Run a sweep first',
+      value: snapshots.length > 0 ? `${qVis.score}` : 'No data',
+      delta: snapshots.length > 0 ? `${qVis.citedCount} of ${qVis.totalCount} queries visible` : 'Run a sweep first',
       tone: snapshots.length > 0
-        ? isPartialProviderRun ? 'caution' : scoreTone(kwVis.score)
+        ? isPartialProviderRun ? 'caution' : scoreTone(qVis.score)
         : 'neutral',
       description: snapshots.length > 0
-        ? `${kwVis.citedCount} of ${kwVis.totalCount} tracked key phrases found your domain in at least one AI answer engine.`
+        ? `${qVis.citedCount} of ${qVis.totalCount} tracked queries found your domain in at least one AI answer engine.`
         : 'No visibility data yet. Trigger a run to start tracking.',
-      tooltip: 'Percentage of tracked key phrases where your domain is cited by at least one AI answer engine. A key phrase is "visible" if any configured provider includes your site in its response.',
+      tooltip: 'Percentage of tracked queries where your domain is cited by at least one AI answer engine. A query is "visible" if any configured provider includes your site in its response.',
       trend: [],
       providerCoverage: providerCoverageLabel,
     },
-    keywordCounts: { cited: kwVis.citedCount, total: kwVis.totalCount },
-    gapKeyPhrases,
+    queryCounts: { cited: qVis.citedCount, total: qVis.totalCount },
+    gapQueries,
     indexCoverage,
     providerScores,
     competitorPressure: {
@@ -1021,7 +1021,7 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
       description: data.competitors.length > 0
         ? `${data.competitors.length} competitor${data.competitors.length > 1 ? 's' : ''} tracked.`
         : 'No competitors configured.',
-      tooltip: 'How often competitor domains appear alongside yours in AI answers. High pressure means competitors are frequently cited for the same key phrases.',
+      tooltip: 'How often competitor domains appear alongside yours in AI answers. High pressure means competitors are frequently cited for the same queries.',
       trend: [],
     },
     runStatus: runStatusSummary(sortedRuns),
@@ -1032,26 +1032,26 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
     insights,
     visibilityEvidence: evidence,
     competitors: data.competitors.map((c, i) => {
-      const citedKeywordSet = new Set<string>()
+      const citedQuerySet = new Set<string>()
       for (const snap of snapshots) {
         if (
           snap.competitorOverlap.includes(c.domain) ||
           snap.citedDomains.includes(c.domain)
         ) {
-          if (snap.keyword) citedKeywordSet.add(snap.keyword)
+          if (snap.query) citedQuerySet.add(snap.query)
         }
       }
-      const citedKeywords = [...citedKeywordSet]
-      const uniqueKeywords = new Set(snapshots.map(s => s.keyword).filter(Boolean))
-      const ratio = uniqueKeywords.size > 0 ? citedKeywords.length / uniqueKeywords.size : 0
-      const pressureLabel = ratio >= 0.5 ? 'High' : ratio >= 0.2 ? 'Moderate' : citedKeywords.length > 0 ? 'Low' : 'None'
+      const citedQueries = [...citedQuerySet]
+      const uniqueQueries = new Set(snapshots.map(s => s.query).filter(Boolean))
+      const ratio = uniqueQueries.size > 0 ? citedQueries.length / uniqueQueries.size : 0
+      const pressureLabel = ratio >= 0.5 ? 'High' : ratio >= 0.2 ? 'Moderate' : citedQueries.length > 0 ? 'Low' : 'None'
       return {
         id: c.id || `comp_${i}`,
         domain: c.domain,
-        citationCount: citedKeywords.length,
-        totalKeywords: uniqueKeywords.size,
+        citationCount: citedQueries.length,
+        totalQueries: uniqueQueries.size,
         pressureLabel,
-        citedKeywords,
+        citedQueries,
         movement: '',
         notes: '',
       }
@@ -1066,7 +1066,7 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
     .filter(r => r.kind === RunKinds['answer-visibility'] && (r.status === RunStatuses.completed || r.status === RunStatuses.partial))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
   const snapshots = (latestVisibilityRun && data.latestRunDetail?.id === latestVisibilityRun.id) ? data.latestRunDetail.snapshots : []
-  const kwVis = computeKeywordVisibility(snapshots)
+  const qVis = computeQueryVisibility(snapshots)
   const pressure = computeCompetitorPressure(snapshots, data.competitors.map(c => c.domain))
   const sortedRuns = [...data.runs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 
@@ -1099,15 +1099,15 @@ export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
 
   return {
     project: dto,
-    visibilityScore: kwVis.score,
-    visibilityDelta: snapshots.length > 0 ? `${kwVis.citedCount} of ${kwVis.totalCount} key phrases` : 'No data',
+    visibilityScore: qVis.score,
+    visibilityDelta: snapshots.length > 0 ? `${qVis.citedCount} of ${qVis.totalCount} queries` : 'No data',
     visibilityTone: snapshots.length > 0
-      ? pfIsPartial ? 'caution' : scoreTone(kwVis.score)
+      ? pfIsPartial ? 'caution' : scoreTone(qVis.score)
       : 'neutral',
     providerCoverage: pfIsPartial ? `${pfRunApiCount} of ${pfConfiguredApi.length} providers` : undefined,
     lastRun: runItem,
     insight: snapshots.length > 0
-      ? `${kwVis.citedCount} of ${kwVis.totalCount} key phrases visible across ${new Set(snapshots.map(s => s.provider)).size} provider${new Set(snapshots.map(s => s.provider)).size > 1 ? 's' : ''}.`
+      ? `${qVis.citedCount} of ${qVis.totalCount} queries visible across ${new Set(snapshots.map(s => s.provider)).size} provider${new Set(snapshots.map(s => s.provider)).size > 1 ? 's' : ''}.`
       : 'No runs completed yet.',
     trend: [],
     competitorPressureLabel: pressure.label,
@@ -1155,7 +1155,7 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
       ...(!hasProjects ? {
         emptyState: {
           title: 'No projects yet',
-          detail: 'Canonry becomes useful after one project, a small key phrase set, and one competitor list are in place.',
+          detail: 'Canonry becomes useful after one project, a small query set, and one competitor list are in place.',
           ctaLabel: 'Launch setup',
           ctaHref: '/setup',
         },
@@ -1169,7 +1169,7 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
         { id: 'provider', label: 'Provider configured', detail: 'Gemini key is configured.', state: 'ready', guidance: 'Required for answer-visibility sweeps.' },
       ],
       projectDraft: { name: '', canonicalDomain: '', country: 'US', language: 'en' },
-      keywordImportState: { mode: 'paste', keywordCount: 0, preview: [] },
+      queryImportState: { mode: 'paste', queryCount: 0, preview: [] },
       competitorDraft: { domains: [], notes: 'Use the CLI to add competitors.' },
       launchState: {
         enabled: hasProjects,
@@ -1222,7 +1222,7 @@ function buildAttentionItems(projectCenters: ProjectCommandCenterVm[]) {
         id: `attention_${pc.project.id}_lost`,
         tone: 'negative',
         title: `${pc.project.displayName || pc.project.name} lost citations`,
-        detail: `${lostEvidence.length} key phrase${lostEvidence.length > 1 ? 's' : ''} lost citation.`,
+        detail: `${lostEvidence.length} quer${lostEvidence.length > 1 ? 'ies' : 'y'} lost citation.`,
         actionLabel: 'Open project',
         href: `/projects/${pc.project.id}`,
       })

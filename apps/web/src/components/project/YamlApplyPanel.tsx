@@ -65,7 +65,7 @@ export function YamlApplyPanel({ onApplied }: { onApplied: () => void }) {
       <textarea
         className="setup-input w-full font-mono text-xs"
         rows={10}
-        placeholder={'apiVersion: canonry/v1\nkind: Project\nmetadata:\n  name: my-project\nspec:\n  canonicalDomain: example.com\n  country: US\n  language: en\n  keywords: []'}
+        placeholder={'apiVersion: canonry/v1\nkind: Project\nmetadata:\n  name: my-project\nspec:\n  canonicalDomain: example.com\n  country: US\n  language: en\n  queries: []'}
         value={yamlText}
         onChange={(e) => setYamlText(e.target.value)}
       />

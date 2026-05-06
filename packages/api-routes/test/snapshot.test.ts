@@ -22,7 +22,7 @@ const SNAPSHOT_FIXTURE = {
   domain: 'acme.example.com',
   homepageUrl: 'https://acme.example.com',
   generatedAt: '2026-03-29T12:00:00.000Z',
-  phrases: ['best enterprise widget provider'],
+  queries: ['best enterprise widget provider'],
   competitors: ['widgetco.com'],
   profile: {
     industry: 'Manufacturing',
@@ -41,7 +41,7 @@ const SNAPSHOT_FIXTURE = {
   },
   queryResults: [
     {
-      phrase: 'best enterprise widget provider',
+      query: 'best enterprise widget provider',
       providerResults: [
         {
           provider: 'openai',
@@ -129,6 +129,33 @@ describe('snapshot routes', () => {
     }
     expect(body.error.code).toBe('VALIDATION_ERROR')
     expect(body.error.details.issues.map(issue => issue.path)).toEqual(['companyName', 'domain'])
+  })
+
+  it('POST /api/v1/snapshot accepts legacy phrases as queries', async () => {
+    const ctx = buildApp({
+      onSnapshotRequested: async (input) => {
+        expect(input.queries).toEqual(['best enterprise widget provider'])
+        return SNAPSHOT_FIXTURE
+      },
+    })
+    await ctx.app.ready()
+
+    try {
+      const res = await ctx.app.inject({
+        method: 'POST',
+        url: '/api/v1/snapshot',
+        payload: {
+          companyName: 'Acme Corp',
+          domain: 'acme.example.com',
+          phrases: ['best enterprise widget provider'],
+        },
+      })
+
+      expect(res.statusCode).toBe(200)
+    } finally {
+      await ctx.app.close()
+      fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+    }
   })
 
   it('POST /api/v1/snapshot returns 501 when the server has no snapshot implementation', async () => {

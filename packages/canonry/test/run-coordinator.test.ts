@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, vi, onTestFinished } from 'vitest'
-import { createClient, migrate, projects, runs, keywords, querySnapshots, healthSnapshots } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs, queries, querySnapshots, healthSnapshots } from '@ainyc/canonry-db'
 import { Notifier } from '../src/notifier.js'
 import { IntelligenceService } from '../src/intelligence-service.js'
 import { RunCoordinator } from '../src/run-coordinator.js'
@@ -33,11 +33,11 @@ function seedFixture(db: ReturnType<typeof createClient>) {
     updatedAt: now,
   }).run()
 
-  const kwId = crypto.randomUUID()
-  db.insert(keywords).values({
-    id: kwId,
+  const queryId = crypto.randomUUID()
+  db.insert(queries).values({
+    id: queryId,
     projectId,
-    keyword: 'test keyword',
+    query: 'test query',
     createdAt: now,
   }).run()
 
@@ -46,7 +46,6 @@ function seedFixture(db: ReturnType<typeof createClient>) {
     id: runId,
     projectId,
     status: 'completed',
-    providers: '["gemini"]',
     createdAt: now,
     finishedAt: now,
   }).run()
@@ -54,14 +53,12 @@ function seedFixture(db: ReturnType<typeof createClient>) {
   db.insert(querySnapshots).values({
     id: crypto.randomUUID(),
     runId,
-    keywordId: kwId,
+    queryId,
     provider: 'gemini',
     model: 'test-model',
     citationState: 'cited',
     citedDomains: '["example.com"]',
     competitorOverlap: '[]',
-    groundingSources: '[]',
-    searchQueries: '[]',
     createdAt: now,
   }).run()
 

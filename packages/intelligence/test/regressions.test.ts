@@ -16,20 +16,20 @@ describe('detectRegressions', () => {
     const prev = makeRun({
       runId: 'run_001',
       snapshots: [
-        { keyword: 'roof repair', provider: 'chatgpt', cited: true, citationUrl: 'https://example.com/roof', position: 2 },
+        { query: 'roof repair', provider: 'chatgpt', cited: true, citationUrl: 'https://example.com/roof', position: 2 },
       ],
     })
     const curr = makeRun({
       runId: 'run_002',
       snapshots: [
-        { keyword: 'roof repair', provider: 'chatgpt', cited: false },
+        { query: 'roof repair', provider: 'chatgpt', cited: false },
       ],
     })
 
     const result = detectRegressions(curr, prev)
     expect(result).toHaveLength(1)
     expect(result[0]).toEqual({
-      keyword: 'roof repair',
+      query: 'roof repair',
       provider: 'chatgpt',
       previousCitationUrl: 'https://example.com/roof',
       previousPosition: 2,
@@ -41,8 +41,8 @@ describe('detectRegressions', () => {
   it('returns empty when nothing changed', () => {
     const run = makeRun({
       snapshots: [
-        { keyword: 'k1', provider: 'gemini', cited: true },
-        { keyword: 'k2', provider: 'gemini', cited: false },
+        { query: 'k1', provider: 'gemini', cited: true },
+        { query: 'k2', provider: 'gemini', cited: false },
       ],
     })
     expect(detectRegressions(run, run)).toEqual([])
@@ -53,21 +53,21 @@ describe('detectRegressions', () => {
     expect(detectRegressions(empty, empty)).toEqual([])
   })
 
-  it('detects regressions across multiple providers for the same keyword', () => {
+  it('detects regressions across multiple providers for the same query', () => {
     const prev = makeRun({
       runId: 'run_001',
       snapshots: [
-        { keyword: 'seo tips', provider: 'chatgpt', cited: true, citationUrl: 'https://a.com/1', position: 1 },
-        { keyword: 'seo tips', provider: 'gemini', cited: true, citationUrl: 'https://a.com/2', position: 3 },
-        { keyword: 'seo tips', provider: 'claude', cited: true, citationUrl: 'https://a.com/3', position: 2 },
+        { query: 'seo tips', provider: 'chatgpt', cited: true, citationUrl: 'https://a.com/1', position: 1 },
+        { query: 'seo tips', provider: 'gemini', cited: true, citationUrl: 'https://a.com/2', position: 3 },
+        { query: 'seo tips', provider: 'claude', cited: true, citationUrl: 'https://a.com/3', position: 2 },
       ],
     })
     const curr = makeRun({
       runId: 'run_002',
       snapshots: [
-        { keyword: 'seo tips', provider: 'chatgpt', cited: false },
-        { keyword: 'seo tips', provider: 'gemini', cited: false },
-        { keyword: 'seo tips', provider: 'claude', cited: true, citationUrl: 'https://a.com/3', position: 2 },
+        { query: 'seo tips', provider: 'chatgpt', cited: false },
+        { query: 'seo tips', provider: 'gemini', cited: false },
+        { query: 'seo tips', provider: 'claude', cited: true, citationUrl: 'https://a.com/3', position: 2 },
       ],
     })
 
@@ -76,54 +76,54 @@ describe('detectRegressions', () => {
     expect(result.map(r => r.provider).sort()).toEqual(['chatgpt', 'gemini'])
   })
 
-  it('does not flag a keyword that was never cited in the previous run', () => {
+  it('does not flag a query that was never cited in the previous run', () => {
     const prev = makeRun({
       runId: 'run_001',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: false },
+        { query: 'k1', provider: 'chatgpt', cited: false },
       ],
     })
     const curr = makeRun({
       runId: 'run_002',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: false },
+        { query: 'k1', provider: 'chatgpt', cited: false },
       ],
     })
 
     expect(detectRegressions(curr, prev)).toEqual([])
   })
 
-  it('does not flag keywords that gained citation', () => {
+  it('does not flag queries that gained citation', () => {
     const prev = makeRun({
       runId: 'run_001',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: false },
+        { query: 'k1', provider: 'chatgpt', cited: false },
       ],
     })
     const curr = makeRun({
       runId: 'run_002',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: true, citationUrl: 'https://a.com' },
+        { query: 'k1', provider: 'chatgpt', cited: true, citationUrl: 'https://a.com' },
       ],
     })
 
     expect(detectRegressions(curr, prev)).toEqual([])
   })
 
-  it('handles a keyword present in previous run but absent from current run', () => {
-    // If a keyword was tracked before but is no longer in the current run snapshots,
-    // it should NOT produce a regression (the keyword was removed, not lost)
+  it('handles a query present in previous run but absent from current run', () => {
+    // If a query was tracked before but is no longer in the current run snapshots,
+    // it should NOT produce a regression (the query was removed, not lost)
     const prev = makeRun({
       runId: 'run_001',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: true },
-        { keyword: 'k2', provider: 'chatgpt', cited: true },
+        { query: 'k1', provider: 'chatgpt', cited: true },
+        { query: 'k2', provider: 'chatgpt', cited: true },
       ],
     })
     const curr = makeRun({
       runId: 'run_002',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: true },
+        { query: 'k1', provider: 'chatgpt', cited: true },
         // k2 is absent entirely
       ],
     })
@@ -131,18 +131,18 @@ describe('detectRegressions', () => {
     expect(detectRegressions(curr, prev)).toEqual([])
   })
 
-  it('handles a keyword present in current run but not in previous run', () => {
+  it('handles a query present in current run but not in previous run', () => {
     const prev = makeRun({
       runId: 'run_001',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: true },
+        { query: 'k1', provider: 'chatgpt', cited: true },
       ],
     })
     const curr = makeRun({
       runId: 'run_002',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: true },
-        { keyword: 'k2', provider: 'chatgpt', cited: false }, // new keyword, was never cited
+        { query: 'k1', provider: 'chatgpt', cited: true },
+        { query: 'k2', provider: 'chatgpt', cited: false }, // new query, was never cited
       ],
     })
 
@@ -153,13 +153,13 @@ describe('detectRegressions', () => {
     const prev = makeRun({
       runId: 'run_001',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: true }, // no citationUrl or position
+        { query: 'k1', provider: 'chatgpt', cited: true }, // no citationUrl or position
       ],
     })
     const curr = makeRun({
       runId: 'run_002',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: false },
+        { query: 'k1', provider: 'chatgpt', cited: false },
       ],
     })
 
@@ -169,45 +169,45 @@ describe('detectRegressions', () => {
     expect(result[0].previousPosition).toBeUndefined()
   })
 
-  it('handles large runs with many keywords and providers', () => {
-    const keywords = Array.from({ length: 50 }, (_, i) => `keyword-${i}`)
+  it('handles large runs with many queries and providers', () => {
+    const queries = Array.from({ length: 50 }, (_, i) => `query-${i}`)
     const providers = ['chatgpt', 'gemini', 'claude', 'perplexity']
 
     // Previous: all cited
-    const prevSnapshots = keywords.flatMap(kw =>
-      providers.map(p => ({ keyword: kw, provider: p, cited: true })),
+    const prevSnapshots = queries.flatMap(q =>
+      providers.map(p => ({ query: q, provider: p, cited: true })),
     )
-    // Current: every other keyword lost all citations
-    const currSnapshots = keywords.flatMap((kw, i) =>
-      providers.map(p => ({ keyword: kw, provider: p, cited: i % 2 === 0 })),
+    // Current: every other query lost all citations
+    const currSnapshots = queries.flatMap((q, i) =>
+      providers.map(p => ({ query: q, provider: p, cited: i % 2 === 0 })),
     )
 
     const prev = makeRun({ runId: 'run_001', snapshots: prevSnapshots })
     const curr = makeRun({ runId: 'run_002', snapshots: currSnapshots })
 
     const result = detectRegressions(curr, prev)
-    // 25 odd-indexed keywords × 4 providers = 100 regressions
+    // 25 odd-indexed queries × 4 providers = 100 regressions
     expect(result).toHaveLength(25 * 4)
-    // All regressions should be for odd-indexed keywords
+    // All regressions should be for odd-indexed queries
     for (const r of result) {
-      const idx = parseInt(r.keyword.split('-')[1])
+      const idx = parseInt(r.query.split('-')[1])
       expect(idx % 2).toBe(1)
     }
   })
 
-  it('isolates regressions by provider — same keyword, different provider is independent', () => {
+  it('isolates regressions by provider — same query, different provider is independent', () => {
     const prev = makeRun({
       runId: 'run_001',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: true },
-        { keyword: 'k1', provider: 'gemini', cited: false },
+        { query: 'k1', provider: 'chatgpt', cited: true },
+        { query: 'k1', provider: 'gemini', cited: false },
       ],
     })
     const curr = makeRun({
       runId: 'run_002',
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: false }, // regression
-        { keyword: 'k1', provider: 'gemini', cited: true },   // gain, not regression
+        { query: 'k1', provider: 'chatgpt', cited: false }, // regression
+        { query: 'k1', provider: 'gemini', cited: true },   // gain, not regression
       ],
     })
 

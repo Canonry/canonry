@@ -1,5 +1,5 @@
 export interface Snapshot {
-  keyword: string
+  query: string
   provider: string
   cited: boolean
   citationUrl?: string
@@ -16,7 +16,7 @@ export interface RunData {
 }
 
 export interface Regression {
-  keyword: string
+  query: string
   provider: string
   previousCitationUrl?: string
   previousPosition?: number
@@ -25,7 +25,7 @@ export interface Regression {
 }
 
 export interface Gain {
-  keyword: string
+  query: string
   provider: string
   citationUrl?: string
   position?: number
@@ -61,7 +61,7 @@ export interface Insight {
   type: 'regression' | 'gain' | 'opportunity'
   severity: InsightSeverity
   title: string
-  keyword: string
+  query: string
   provider: string
   recommendation?: {
     action: string

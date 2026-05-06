@@ -2,12 +2,12 @@
 
 ## What Citation Means
 
-A "cited" keyword means the client's domain appeared in an AI provider's response when that query was asked. It does NOT mean:
+A "cited" query means the client's domain appeared in an AI provider's response when that query was asked. It does NOT mean:
 - The AI recommended them positively
 - The citation is prominent
 - It will persist on the next sweep
 
-A "not-cited" keyword means the AI answered without mentioning the client at all.
+A "not-cited" query means the AI answered without mentioning the client at all.
 
 ## Reading Evidence Output
 
@@ -18,17 +18,17 @@ A "not-cited" keyword means the AI answered without mentioning the client at all
 ✗ not-cited  emergency plumber near me  ← competitive gap: others cited instead
 ```
 
-### Keyword Categories
+### Query Categories
 
-**Branded/direct keywords** (e.g., "[business name] [city]"):
+**Branded/direct queries** (e.g., "[business name] [city]"):
 - If cited: good — entity is established for core queries
 - If not cited: urgent — something broken at a fundamental level (indexing, schema, llms.txt)
 
-**Competitive keywords** (e.g., "best [service] [city]"):
+**Competitive queries** (e.g., "best [service] [city]"):
 - If not cited: check who IS cited — competitor analysis needed
 - Harder wins; require established authority and trust signals
 
-**Informational/how-to keywords** (e.g., "how to [do X]"):
+**Informational/how-to queries** (e.g., "how to [do X]"):
 - If not cited: almost always a content gap — no page targeting this topic, or it's not indexed
 - High-leverage — informational content positions a site as authoritative to AI models
 
@@ -40,15 +40,15 @@ Shows citation rate over time across providers. Use to identify:
 - Provider-specific performance differences
 - Impact of content/indexing changes over time
 
-**Key phrase normalization:** When new key phrases are added to a project mid-history, canonry automatically normalizes each time bucket to only include key phrases that existed before that bucket started. This prevents newly-added (typically uncited) key phrases from creating a false drop in the citation rate trend. The chart displays dashed vertical annotation lines at points where key phrases were added (e.g. "+3 kp"), and each bucket's tooltip shows the key phrase count ("kp") used for that bucket's calculation.
+**Query normalization:** When new queries are added to a project mid-history, canonry automatically normalizes each time bucket to only include queries that existed before that bucket started. This prevents newly-added (typically uncited) queries from creating a false drop in the citation rate trend. The chart displays dashed vertical annotation lines at points where queries were added (e.g. "+3 q"), and each bucket's tooltip shows the query count ("q") used for that bucket's calculation.
 
 ### Gap Analysis (`--feature gaps`)
-Categorizes keywords as cited, gap (competitor cited but you're not), or uncited (nobody cited). Priorities:
-- **Gap keywords** are highest priority — competitors are winning these
-- **Uncited keywords** may need content or may be too broad
+Categorizes queries as cited, gap (competitor cited but you're not), or uncited (nobody cited). Priorities:
+- **Gap queries** are highest priority — competitors are winning these
+- **Uncited queries** may need content or may be too broad
 
 ### Source Breakdown (`--feature sources`)
-Shows which source categories AI models cite for your keywords. Helps identify:
+Shows which source categories AI models cite for your queries. Helps identify:
 - Whether competitors dominate specific categories
 - Content format opportunities (FAQ, how-to, comparison pages)
 
@@ -62,10 +62,10 @@ canonry google coverage <project>
 If key pages are "unknown to Google," submit them before drawing conclusions.
 
 ### Step 2: Check if content exists
-Is there a page on the site targeting that keyword? If not, that's the gap — not a canonry or provider issue.
+Is there a page on the site targeting that query? If not, that's the gap — not a canonry or provider issue.
 
 ### Step 3: Check competitors
-For competitive keywords, if others are cited and the client isn't:
+For competitive queries, if others are cited and the client isn't:
 - Do competitors have more specific, dedicated pages?
 - Do they have stronger schema/structured data?
 - Are they more established in the index?
@@ -108,7 +108,7 @@ GA4 also covers the inverse case: a *gain* on `attribution --trend` for the AI c
 - Did the model update?
 - Check `canonry google deindexed <project>` for index losses
 
-**Fluctuation** (cited in some runs, not others) — normal for competitive keywords. Track trend over 5+ runs before drawing conclusions. AI answers are non-deterministic.
+**Fluctuation** (cited in some runs, not others) — normal for competitive queries. Track trend over 5+ runs before drawing conclusions. AI answers are non-deterministic.
 
 ## What to Recommend
 
@@ -117,7 +117,7 @@ GA4 also covers the inverse case: a *gain* on `attribution --trend` for the AI c
 2. Submit unindexed pages to Google Indexing API
 3. Submit sitemap to Bing WMT + send IndexNow batch
 4. Check core pages for schema (LocalBusiness / Organization / FAQPage)
-5. Map uncited keywords to pages — which have no corresponding page?
+5. Map uncited queries to pages — which have no corresponding page?
 
 ### Branded terms not cited
 Red flag. Check:

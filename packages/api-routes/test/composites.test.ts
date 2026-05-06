@@ -9,7 +9,7 @@ import {
   migrate,
   insights,
   healthSnapshots,
-  keywords,
+  queries,
   projects,
   querySnapshots,
   runs,
@@ -43,8 +43,8 @@ function seedProjectWithRuns() {
   const projectId = crypto.randomUUID()
   const previousRunId = crypto.randomUUID()
   const latestRunId = crypto.randomUUID()
-  const keywordA = crypto.randomUUID()
-  const keywordB = crypto.randomUUID()
+  const queryA = crypto.randomUUID()
+  const queryB = crypto.randomUUID()
 
   db.insert(projects).values({
     id: projectId,
@@ -59,9 +59,9 @@ function seedProjectWithRuns() {
     createdAt: '2026-04-18T14:00:00.000Z',
     updatedAt: '2026-04-18T14:00:00.000Z',
   }).run()
-  db.insert(keywords).values([
-    { id: keywordA, projectId, keyword: 'answer engine optimization', createdAt: '2026-04-18T14:05:00.000Z' },
-    { id: keywordB, projectId, keyword: 'aeo monitoring', createdAt: '2026-04-18T14:05:00.000Z' },
+  db.insert(queries).values([
+    { id: queryA, projectId, query: 'answer engine optimization', createdAt: '2026-04-18T14:05:00.000Z' },
+    { id: queryB, projectId, query: 'aeo monitoring', createdAt: '2026-04-18T14:05:00.000Z' },
   ]).run()
   db.insert(runs).values([
     { id: previousRunId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', createdAt: '2026-04-18T14:10:00.000Z', finishedAt: '2026-04-18T14:11:00.000Z' },
@@ -69,14 +69,14 @@ function seedProjectWithRuns() {
   ]).run()
   // previous run: A cited (gemini), B not cited
   db.insert(querySnapshots).values([
-    { id: crypto.randomUUID(), runId: previousRunId, keywordId: keywordA, provider: 'gemini', citationState: 'cited', answerMentioned: true, citedDomains: '["example.com"]', competitorOverlap: '[]', recommendedCompetitors: '[]', answerText: 'Example.com is the leader in answer engine optimization.', createdAt: '2026-04-18T14:10:30.000Z' },
-    { id: crypto.randomUUID(), runId: previousRunId, keywordId: keywordB, provider: 'gemini', citationState: 'not-cited', answerMentioned: false, citedDomains: '[]', competitorOverlap: '[]', recommendedCompetitors: '[]', answerText: null, createdAt: '2026-04-18T14:10:30.000Z' },
+    { id: crypto.randomUUID(), runId: previousRunId, queryId: queryA, provider: 'gemini', citationState: 'cited', answerMentioned: true, citedDomains: '["example.com"]', competitorOverlap: '[]', recommendedCompetitors: '[]', answerText: 'Example.com is the leader in answer engine optimization.', createdAt: '2026-04-18T14:10:30.000Z' },
+    { id: crypto.randomUUID(), runId: previousRunId, queryId: queryB, provider: 'gemini', citationState: 'not-cited', answerMentioned: false, citedDomains: '[]', competitorOverlap: '[]', recommendedCompetitors: '[]', answerText: null, createdAt: '2026-04-18T14:10:30.000Z' },
   ]).run()
   // latest run: A still cited, B newly cited (gained), plus an openai snapshot for variety
   db.insert(querySnapshots).values([
-    { id: crypto.randomUUID(), runId: latestRunId, keywordId: keywordA, provider: 'gemini', citationState: 'cited', answerMentioned: true, citedDomains: '["example.com"]', competitorOverlap: '[]', recommendedCompetitors: '[]', answerText: 'Example.com is the leader in answer engine optimization. Rival.com is the runner-up.', createdAt: '2026-04-18T14:20:30.000Z' },
-    { id: crypto.randomUUID(), runId: latestRunId, keywordId: keywordB, provider: 'gemini', citationState: 'cited', answerMentioned: true, citedDomains: '["example.com"]', competitorOverlap: '[]', recommendedCompetitors: '[]', answerText: 'Example.com offers AEO monitoring tools.', createdAt: '2026-04-18T14:20:30.000Z' },
-    { id: crypto.randomUUID(), runId: latestRunId, keywordId: keywordA, provider: 'openai', citationState: 'not-cited', answerMentioned: false, citedDomains: '[]', competitorOverlap: '[]', recommendedCompetitors: '[]', answerText: null, createdAt: '2026-04-18T14:20:30.000Z' },
+    { id: crypto.randomUUID(), runId: latestRunId, queryId: queryA, provider: 'gemini', citationState: 'cited', answerMentioned: true, citedDomains: '["example.com"]', competitorOverlap: '[]', recommendedCompetitors: '[]', answerText: 'Example.com is the leader in answer engine optimization. Rival.com is the runner-up.', createdAt: '2026-04-18T14:20:30.000Z' },
+    { id: crypto.randomUUID(), runId: latestRunId, queryId: queryB, provider: 'gemini', citationState: 'cited', answerMentioned: true, citedDomains: '["example.com"]', competitorOverlap: '[]', recommendedCompetitors: '[]', answerText: 'Example.com offers AEO monitoring tools.', createdAt: '2026-04-18T14:20:30.000Z' },
+    { id: crypto.randomUUID(), runId: latestRunId, queryId: queryA, provider: 'openai', citationState: 'not-cited', answerMentioned: false, citedDomains: '[]', competitorOverlap: '[]', recommendedCompetitors: '[]', answerText: null, createdAt: '2026-04-18T14:20:30.000Z' },
   ]).run()
   db.insert(healthSnapshots).values({
     id: crypto.randomUUID(),
@@ -90,11 +90,11 @@ function seedProjectWithRuns() {
   }).run()
   // Two insights, one dismissed
   db.insert(insights).values([
-    { id: crypto.randomUUID(), projectId, runId: latestRunId, type: 'gain', severity: 'high', title: 'Newly cited for "aeo monitoring"', keyword: 'aeo monitoring', provider: 'gemini', recommendation: null, cause: null, dismissed: false, createdAt: '2026-04-18T14:21:30.000Z' },
-    { id: crypto.randomUUID(), projectId, runId: latestRunId, type: 'opportunity', severity: 'medium', title: 'Rival.com appears alongside example.com', keyword: 'answer engine optimization', provider: 'gemini', recommendation: null, cause: null, dismissed: true, createdAt: '2026-04-18T14:21:35.000Z' },
+    { id: crypto.randomUUID(), projectId, runId: latestRunId, type: 'gain', severity: 'high', title: 'Newly cited for "aeo monitoring"', query: 'aeo monitoring', provider: 'gemini', recommendation: null, cause: null, dismissed: false, createdAt: '2026-04-18T14:21:30.000Z' },
+    { id: crypto.randomUUID(), projectId, runId: latestRunId, type: 'opportunity', severity: 'medium', title: 'Rival.com appears alongside example.com', query: 'answer engine optimization', provider: 'gemini', recommendation: null, cause: null, dismissed: true, createdAt: '2026-04-18T14:21:35.000Z' },
   ]).run()
 
-  return { app, db, projectId, latestRunId, previousRunId, keywordA, keywordB }
+  return { app, db, projectId, latestRunId, previousRunId, queryA, queryB }
 }
 
 describe('GET /api/v1/projects/:name/overview', () => {
@@ -113,10 +113,10 @@ describe('GET /api/v1/projects/:name/overview', () => {
     expect(body.health?.totalPairs).toBe(3)
     expect(body.topInsights).toHaveLength(1)
     expect(body.topInsights[0]?.dismissed).toBe(false)
-    expect(body.keywordCounts).toEqual({
-      totalKeywords: 2,
-      citedKeywords: 2,
-      notCitedKeywords: 0,
+    expect(body.queryCounts).toEqual({
+      totalQueries: 2,
+      citedQueries: 2,
+      notCitedQueries: 0,
       citedRate: 1,
     })
     expect(body.providers.map(p => p.provider)).toEqual(['gemini', 'openai'])
@@ -156,7 +156,7 @@ describe('GET /api/v1/projects/:name/overview', () => {
     expect(body.latestRun).toEqual({ totalRuns: 0, run: null })
     expect(body.health).toBeNull()
     expect(body.topInsights).toEqual([])
-    expect(body.keywordCounts).toEqual({ totalKeywords: 0, citedKeywords: 0, notCitedKeywords: 0, citedRate: 0 })
+    expect(body.queryCounts).toEqual({ totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0 })
     expect(body.providers).toEqual([])
     expect(body.transitions).toEqual({ since: null, gained: 0, lost: 0, emerging: 0 })
 

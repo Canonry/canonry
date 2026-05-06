@@ -57,7 +57,7 @@ export async function executeTrackedQuery(input: PerplexityTrackedQueryInput): P
   const model = input.config.model ?? DEFAULT_MODEL
   const client = new OpenAI({ apiKey: input.config.apiKey, baseURL: BASE_URL })
 
-  const prompt = buildPrompt(input.keyword, input.location)
+  const prompt = buildPrompt(input.query, input.location)
 
   try {
     const response = await withRetry(() =>
@@ -129,11 +129,11 @@ export function reparseStoredResult(rawResponse: Record<string, unknown>): Perpl
 
 // --- Internal helpers ---
 
-function buildPrompt(keyword: string, location?: PerplexityTrackedQueryInput['location']): string {
+function buildPrompt(query: string, location?: PerplexityTrackedQueryInput['location']): string {
   if (location) {
-    return `${keyword} (searching from ${location.city}, ${location.region}, ${location.country})`
+    return `${query} (searching from ${location.city}, ${location.region}, ${location.country})`
   }
-  return keyword
+  return query
 }
 
 /**

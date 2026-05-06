@@ -1,5 +1,5 @@
 import { runAeoAudit } from '@ainyc/aeo-audit'
-import { determineAnswerMentioned } from '@ainyc/canonry-contracts'
+import { determineAnswerMentioned, resolveSnapshotRequestQueries } from '@ainyc/canonry-contracts'
 import type {
   GroundingSource,
   SnapshotAccuracy,
@@ -93,11 +93,11 @@ class ProviderExecutionGate {
 }
 
 type GeneratedSnapshotProfile = SnapshotProfileDto & {
-  phrases: string[]
+  queries: string[]
 }
 
 type ResponseAssessment = {
-  phrase: string
+  query: string
   provider: string
   mentioned?: boolean
   describedAccurately?: SnapshotAccuracy
@@ -121,7 +121,7 @@ export class SnapshotService {
   async createReport(input: SnapshotRequestDto): Promise<SnapshotReportDto> {
     const companyName = input.companyName.trim()
     const domain = normalizeDomain(input.domain)
-    const manualPhrases = normalizeStringList(input.phrases ?? [])
+    const manualQueries = normalizeStringList(resolveSnapshotRequestQueries(input))
     const manualCompetitors = normalizeStringList(input.competitors ?? [])
     const providers = this.registry.getAll()
     if (providers.length === 0) {
@@ -136,10 +136,10 @@ export class SnapshotService {
       this.runAudit(homepageUrl),
     ])
 
-    if (manualPhrases.length === 0 && !siteText) {
+    if (manualQueries.length === 0 && !siteText) {
       throw new Error(
         `Could not analyze https://${extractHostname(domain)}. ` +
-        'Try again with a reachable homepage or pass manual category queries via --phrases.',
+        'Try again with a reachable homepage or pass manual category queries via --queries.',
       )
     }
 
@@ -148,14 +148,14 @@ export class SnapshotService {
       domain,
       siteText,
       audit,
-      manualPhrases,
+      manualQueries,
       analysisProvider,
     })
 
     const queryResults = await this.runSnapshotQueries({
       companyName,
       domain,
-      phrases: profile.phrases,
+      queries: profile.queries,
       providers,
       manualCompetitors,
     })
@@ -171,7 +171,7 @@ export class SnapshotService {
     })
 
     const enrichedResults = applyBatchAssessment(queryResults, batchAssessment)
-    const summary = buildSnapshotSummary(companyName, profile.phrases, providers, enrichedResults, audit, batchAssessment)
+    const summary = buildSnapshotSummary(companyName, profile.queries, providers, enrichedResults, audit, batchAssessment)
     const reportCompetitors = uniqueStrings([
       ...manualCompetitors,
       ...summary.topCompetitors.map(entry => entry.name),
@@ -182,7 +182,7 @@ export class SnapshotService {
       domain,
       homepageUrl,
       generatedAt: new Date().toISOString(),
-      phrases: profile.phrases,
+      queries: profile.queries,
       competitors: reportCompetitors,
       profile: {
         industry: profile.industry,
@@ -220,7 +220,7 @@ export class SnapshotService {
     domain: string
     siteText: string
     audit: SnapshotAuditDto
-    manualPhrases: string[]
+    manualQueries: string[]
     analysisProvider?: RegisteredProvider
   }): Promise<GeneratedSnapshotProfile> {
     if (ctx.analysisProvider && ctx.siteText) {
@@ -232,14 +232,14 @@ export class SnapshotService {
           summary?: string
           services?: string[]
           categoryTerms?: string[]
-          phrases?: string[]
+          queries?: string[]
         }>(raw)
-        const parsedPhrases = ctx.manualPhrases.length > 0
-          ? ctx.manualPhrases
-          : normalizeStringList(parsed.phrases ?? []).slice(0, SNAPSHOT_QUERY_COUNT)
+        const parsedQueries = ctx.manualQueries.length > 0
+          ? ctx.manualQueries
+          : normalizeStringList(parsed.queries ?? []).slice(0, SNAPSHOT_QUERY_COUNT)
 
-        if (ctx.manualPhrases.length === 0 && parsedPhrases.length === 0) {
-          throw new Error('no phrases returned')
+        if (ctx.manualQueries.length === 0 && parsedQueries.length === 0) {
+          throw new Error('no queries returned')
         }
 
         return {
@@ -247,7 +247,7 @@ export class SnapshotService {
           summary: parsed.summary?.trim() || ctx.audit.summary,
           services: uniqueStrings(parsed.services ?? []).slice(0, 6),
           categoryTerms: uniqueStrings(parsed.categoryTerms ?? []).slice(0, 8),
-          phrases: parsedPhrases,
+          queries: parsedQueries,
         }
       } catch (err) {
         log.warn('profile.generation-failed', {
@@ -258,10 +258,10 @@ export class SnapshotService {
       }
     }
 
-    if (ctx.manualPhrases.length === 0) {
+    if (ctx.manualQueries.length === 0) {
       throw new Error(
         'Automatic category-query generation requires a configured API provider. ' +
-        'Add OpenAI, Claude, Gemini, Perplexity, or Local, or pass --phrases manually.',
+        'Add OpenAI, Claude, Gemini, Perplexity, or Local, or pass --queries manually.',
       )
     }
 
@@ -270,14 +270,14 @@ export class SnapshotService {
       summary: ctx.audit.summary,
       services: [],
       categoryTerms: [],
-      phrases: ctx.manualPhrases,
+      queries: ctx.manualQueries,
     }
   }
 
   private async runSnapshotQueries(ctx: {
     companyName: string
     domain: string
-    phrases: string[]
+    queries: string[]
     providers: RegisteredProvider[]
     manualCompetitors: string[]
   }): Promise<SnapshotQueryResultDto[]> {
@@ -294,15 +294,15 @@ export class SnapshotService {
 
     const competitorDomains = ctx.manualCompetitors.filter(isDomainLike)
 
-    return Promise.all(ctx.phrases.map(async (phrase) => ({
-      phrase,
+    return Promise.all(ctx.queries.map(async (query) => ({
+      query,
       providerResults: await Promise.all(ctx.providers.map(async (provider) => {
         const gate = gates.get(provider.adapter.name)!
         return gate.run(async () => {
           try {
             const raw = await provider.adapter.executeTrackedQuery(
               {
-                keyword: phrase,
+                query,
                 canonicalDomains: [ctx.domain],
                 competitorDomains,
               },
@@ -372,11 +372,11 @@ export class SnapshotService {
       return buildFallbackBatchAssessment(ctx.companyName, ctx.audit)
     }
 
-    const responses = ctx.queryResults.flatMap(query =>
-      query.providerResults
+    const responses = ctx.queryResults.flatMap(queryResult =>
+      queryResult.providerResults
         .filter(result => !result.error)
         .map(result => ({
-          phrase: query.phrase,
+          query: queryResult.query,
           provider: result.provider,
           displayName: result.displayName,
           heuristicMentioned: result.mentioned,
@@ -404,7 +404,7 @@ export class SnapshotService {
       const raw = await ctx.analysisProvider.adapter.generateText(prompt, ctx.analysisProvider.config)
       const parsed = parseJsonObject<{
         assessments?: Array<{
-          phrase?: string
+          query?: string
           provider?: string
           mentioned?: boolean
           describedAccurately?: SnapshotAccuracy
@@ -418,11 +418,11 @@ export class SnapshotService {
 
       return {
         assessments: (parsed.assessments ?? [])
-          .filter(assessment => assessment.phrase && assessment.provider)
+          .filter(assessment => assessment.query && assessment.provider)
           .map(assessment => {
             const hasReviewedCompetitors = assessment.recommendedCompetitors !== undefined
             return {
-              phrase: assessment.phrase!,
+              query: assessment.query!,
               provider: assessment.provider!,
               mentioned: assessment.mentioned,
               describedAccurately: assessment.describedAccurately,
@@ -461,7 +461,7 @@ function buildProfilePrompt(ctx: {
   domain: string
   siteText: string
   audit: SnapshotAuditDto
-  manualPhrases: string[]
+  manualQueries: string[]
   analysisProvider?: RegisteredProvider
 }): string {
   const instructions = [
@@ -469,12 +469,12 @@ function buildProfilePrompt(ctx: {
     'Use ONLY the homepage text below. Do not browse or invent facts.',
     'Infer the company category, summarize what it sells, and generate non-branded category queries buyers would ask an AI assistant.',
     'Never produce brand queries like "what does Acme do?"',
-    `Return strict JSON with keys: industry, summary, services, categoryTerms, phrases.`,
-    `phrases must contain exactly ${SNAPSHOT_QUERY_COUNT} buyer-style category/recommendation queries unless manual phrases are provided.`,
+    `Return strict JSON with keys: industry, summary, services, categoryTerms, queries.`,
+    `queries must contain exactly ${SNAPSHOT_QUERY_COUNT} buyer-style category/recommendation queries unless manual queries are provided.`,
   ]
 
-  if (ctx.manualPhrases.length > 0) {
-    instructions.push('Manual phrases were already supplied. Echo them back unchanged in the "phrases" array.')
+  if (ctx.manualQueries.length > 0) {
+    instructions.push('Manual queries were already supplied. Echo them back unchanged in the "queries" array.')
   }
 
   return [
@@ -495,7 +495,7 @@ function buildBatchAnalysisPrompt(ctx: {
   profile: GeneratedSnapshotProfile
   audit: SnapshotAuditDto
   responses: Array<{
-    phrase: string
+    query: string
     provider: string
     displayName: string
     heuristicMentioned: boolean
@@ -511,7 +511,7 @@ function buildBatchAnalysisPrompt(ctx: {
     'You are reviewing AI answer-engine responses for a sales-facing AEO snapshot report.',
     'Use ONLY the provided facts and responses. Do not invent companies or claims.',
     'Return strict JSON with keys: assessments, whatThisMeans, recommendedActions.',
-    'Each assessment must include: phrase, provider, mentioned, describedAccurately, accuracyNotes, incorrectClaims, recommendedCompetitors.',
+    'Each assessment must include: query, provider, mentioned, describedAccurately, accuracyNotes, incorrectClaims, recommendedCompetitors.',
     'describedAccurately must be one of: yes, no, unknown, not-mentioned.',
     '',
     'CRITICAL — recommendedCompetitors extraction:',
@@ -552,13 +552,13 @@ function applyBatchAssessment(
 ): SnapshotQueryResultDto[] {
   const assessmentMap = new Map<string, ResponseAssessment>()
   for (const assessment of batchAssessment.assessments) {
-    assessmentMap.set(`${assessment.phrase}::${assessment.provider}`, assessment)
+    assessmentMap.set(`${assessment.query}::${assessment.provider}`, assessment)
   }
 
-  return queryResults.map(query => ({
-    phrase: query.phrase,
-    providerResults: query.providerResults.map(result => {
-      const assessment = assessmentMap.get(`${query.phrase}::${result.provider}`)
+  return queryResults.map(queryResult => ({
+    query: queryResult.query,
+    providerResults: queryResult.providerResults.map(result => {
+      const assessment = assessmentMap.get(`${queryResult.query}::${result.provider}`)
       if (!assessment) {
         return {
           ...result,
@@ -589,13 +589,13 @@ function applyBatchAssessment(
 
 function buildSnapshotSummary(
   companyName: string,
-  phrases: string[],
+  queries: string[],
   providers: RegisteredProvider[],
   queryResults: SnapshotQueryResultDto[],
   audit: SnapshotAuditDto,
   batchAssessment: BatchAssessment,
 ) {
-  const allResults = queryResults.flatMap(query => query.providerResults)
+  const allResults = queryResults.flatMap(queryResult => queryResult.providerResults)
   const successfulResults = allResults.filter(result => !result.error)
   const failedComparisons = allResults.length - successfulResults.length
   const mentionCount = successfulResults.filter(result => result.mentioned).length
@@ -615,8 +615,8 @@ function buildSnapshotSummary(
     .map(([name, count]) => ({ name, count }))
 
   const defaultMeaning = totalComparisons > 0
-    ? `${companyName} was mentioned in ${mentionCount}/${totalComparisons} successful provider-query response${totalComparisons === 1 ? '' : 's'} across ${phrases.length} category queries.`
-    : `No successful provider responses were returned across ${phrases.length} category queries.`
+    ? `${companyName} was mentioned in ${mentionCount}/${totalComparisons} successful provider-query response${totalComparisons === 1 ? '' : 's'} across ${queries.length} category queries.`
+    : `No successful provider responses were returned across ${queries.length} category queries.`
   const failureNote = failedComparisons > 0
     ? [
         `${failedComparisons} provider response${failedComparisons === 1 ? '' : 's'} failed and ${failedComparisons === 1 ? 'was' : 'were'} excluded from visibility totals.`,
@@ -634,7 +634,7 @@ function buildSnapshotSummary(
     : buildFallbackRecommendedActions(audit)
 
   return {
-    totalQueries: phrases.length,
+    totalQueries: queries.length,
     totalProviders: providers.length,
     totalComparisons,
     mentionCount,
@@ -642,7 +642,7 @@ function buildSnapshotSummary(
     topCompetitors,
     visibilityGap: buildVisibilityGap(
       companyName,
-      phrases.length,
+      queries.length,
       providers.length,
       totalComparisons,
       mentionCount,

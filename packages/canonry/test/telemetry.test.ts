@@ -710,7 +710,7 @@ describe('telemetry', () => {
           status: 'failed',
           providerCount: 0,
           providers: [],
-          keywordCount: 0,
+          queryCount: 0,
           durationMs: (runEvent!.properties as Record<string, unknown>).durationMs,
         })
         expect((runEvent!.properties as Record<string, unknown>).status).toBe('failed')

@@ -43,7 +43,7 @@ Always use factory functions — never hand-construct error JSON:
 
 ```typescript
 // ✅ Correct
-throw validationError('"keywords" must be non-empty')
+throw validationError('"queries" must be non-empty')
 throw notFound(`Project "${name}" not found`)
 
 // ❌ Wrong

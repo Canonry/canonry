@@ -71,7 +71,7 @@ Run statuses: `queued` → `running` → `completed` / `failed` / `partial`
 ## Citation Data
 
 ```bash
-canonry evidence <project>                        # per-keyword cited/not-cited
+canonry evidence <project>                        # per-query cited/not-cited
 canonry evidence <project> --format json          # JSON output
 canonry history <project>                         # audit trail
 canonry export <project> --include-results        # export as YAML
@@ -80,7 +80,7 @@ canonry backfill answer-visibility --project <name> --format json
 ```
 
 Output shows:
-- `✓ cited` — domain appeared in AI response for that keyword
+- `✓ cited` — domain appeared in AI response for that query
 - `✗ not-cited` — domain did not appear
 - Summary: `Cited: X / Y`
 
@@ -127,14 +127,14 @@ canonry backfill insights <project>              # backfill insights for all com
 canonry backfill insights <project> --from-run <id> --to-run <id>  # backfill a range
 ```
 
-## Keywords & Competitors
+## Queries & Competitors
 
 ```bash
-canonry keyword add <project> "phrase one" "phrase two"
-canonry keyword remove <project> "phrase"
-canonry keyword list <project>
-canonry keyword import <project> keywords.txt
-canonry keyword generate <project> --provider gemini --count 10 --save
+canonry query add <project> "phrase one" "phrase two"
+canonry query remove <project> "phrase"
+canonry query list <project>
+canonry query import <project> queries.txt
+canonry query generate <project> --provider gemini --count 10 --save
 
 canonry competitor add <project> competitor1.com competitor2.com
 canonry competitor list <project>

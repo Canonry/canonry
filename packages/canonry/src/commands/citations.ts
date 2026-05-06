@@ -14,8 +14,8 @@ export async function showCitationVisibility(
   }
 
   if (data.status === 'no-data') {
-    if (data.reason === 'no-keywords') {
-      console.log('No keywords configured. Add some with `canonry keyword add`.')
+    if (data.reason === 'no-queries') {
+      console.log('No queries configured. Add some with `canonry query add`.')
     } else {
       console.log('No citation data yet — run a sweep first (canonry run <project>).')
     }
@@ -36,11 +36,11 @@ function printSummary(data: CitationVisibilityResponse): void {
     providersCiting,
     providersMentioning,
     providersConfigured,
-    totalKeywords,
-    keywordsCitedAndMentioned,
-    keywordsCitedOnly,
-    keywordsMentionedOnly,
-    keywordsInvisible,
+    totalQueries,
+    queriesCitedAndMentioned,
+    queriesCitedOnly,
+    queriesMentionedOnly,
+    queriesInvisible,
   } = data.summary
   console.log('Citation visibility')
   if (data.summary.latestRunAt) {
@@ -49,29 +49,29 @@ function printSummary(data: CitationVisibilityResponse): void {
   console.log(`Cited in sources:     ${providersCiting}/${providersConfigured} engines`)
   console.log(`Mentioned in answers: ${providersMentioning}/${providersConfigured} engines`)
   console.log('')
-  console.log(`Keywords (${totalKeywords} total):`)
-  console.log(`  cited + mentioned:  ${keywordsCitedAndMentioned}`)
-  console.log(`  cited only:         ${keywordsCitedOnly}`)
-  console.log(`  mentioned only:     ${keywordsMentionedOnly}`)
-  console.log(`  invisible:          ${keywordsInvisible}`)
+  console.log(`Queries (${totalQueries} total):`)
+  console.log(`  cited + mentioned:  ${queriesCitedAndMentioned}`)
+  console.log(`  cited only:         ${queriesCitedOnly}`)
+  console.log(`  mentioned only:     ${queriesMentionedOnly}`)
+  console.log(`  invisible:          ${queriesInvisible}`)
 }
 
 function printCoverage(data: CitationVisibilityResponse): void {
-  if (data.byKeyword.length === 0) {
-    console.log('No keyword coverage rows.')
+  if (data.byQuery.length === 0) {
+    console.log('No query coverage rows.')
     return
   }
   // Build a stable provider column order from any row that has providers
   const providerSet = new Set<string>()
-  for (const row of data.byKeyword) {
+  for (const row of data.byQuery) {
     for (const p of row.providers) providerSet.add(p.provider)
   }
   const providerColumns = Array.from(providerSet).sort()
 
   if (providerColumns.length === 0) {
-    console.log('Per-keyword coverage:')
-    for (const row of data.byKeyword) {
-      console.log(`  ${row.keyword.padEnd(35)} no snapshots`)
+    console.log('Per-query coverage:')
+    for (const row of data.byQuery) {
+      console.log(`  ${row.query.padEnd(35)} no snapshots`)
     }
     return
   }
@@ -81,12 +81,12 @@ function printCoverage(data: CitationVisibilityResponse): void {
   // Width grows with the longest provider name so headers like "perplexity"
   // stay aligned with the 2-char cells underneath.
   const cellWidth = Math.max(6, ...providerColumns.map(p => p.length))
-  const keywordWidth = Math.max(7, ...data.byKeyword.map(r => r.keyword.length))
-  const header = ['Keyword'.padEnd(keywordWidth), ...providerColumns.map(p => p.padEnd(cellWidth)), 'Cite', 'Ment'].join('  ')
-  console.log('Per-keyword coverage:  (cell = [citation][mention];  C=cited c=not, M=mentioned m=not, –=no data)')
+  const queryWidth = Math.max(7, ...data.byQuery.map(r => r.query.length))
+  const header = ['Query'.padEnd(queryWidth), ...providerColumns.map(p => p.padEnd(cellWidth)), 'Cite', 'Ment'].join('  ')
+  console.log('Per-query coverage:  (cell = [citation][mention];  C=cited c=not, M=mentioned m=not, –=no data)')
   console.log(header)
   console.log('─'.repeat(header.length))
-  for (const row of data.byKeyword) {
+  for (const row of data.byQuery) {
     const cells = providerColumns.map(p => {
       const provider = row.providers.find(x => x.provider === p)
       if (!provider) return '–'.padEnd(cellWidth)
@@ -96,17 +96,17 @@ function printCoverage(data: CitationVisibilityResponse): void {
     })
     const citeCol = `${row.citedCount}/${row.totalProviders}`
     const mentCol = `${row.mentionedCount}/${row.totalProviders}`
-    console.log([row.keyword.padEnd(keywordWidth), ...cells, citeCol, mentCol].join('  '))
+    console.log([row.query.padEnd(queryWidth), ...cells, citeCol, mentCol].join('  '))
   }
 }
 
 function printGaps(data: CitationVisibilityResponse): void {
   console.log('Competitor gaps (not cited but a competitor is):')
-  const keywordWidth = Math.max(7, ...data.competitorGaps.map(g => g.keyword.length))
+  const queryWidth = Math.max(7, ...data.competitorGaps.map(g => g.query.length))
   const providerWidth = Math.max(8, ...data.competitorGaps.map(g => g.provider.length))
   for (const gap of data.competitorGaps) {
     console.log(
-      `  ${gap.keyword.padEnd(keywordWidth)}  ${gap.provider.padEnd(providerWidth)}  ${gap.citingCompetitors.join(', ')}`,
+      `  ${gap.query.padEnd(queryWidth)}  ${gap.provider.padEnd(providerWidth)}  ${gap.citingCompetitors.join(', ')}`,
     )
   }
 }

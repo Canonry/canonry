@@ -51,7 +51,7 @@ Because local LLMs cannot search the web, `citedDomains` is built by scanning th
 
 Both patterns strip `www.` and lowercase the result. Duplicates are removed.
 
-**Reliability caveat:** the extracted domains reflect the model's training data, not a live web search. A model may mention well-known domains regardless of whether they currently rank for the keyword. Treat local provider citation data as a rough signal, not a ground truth.
+**Reliability caveat:** the extracted domains reflect the model's training data, not a live web search. A model may mention well-known domains regardless of whether they currently rank for the query. Treat local provider citation data as a rough signal, not a ground truth.
 
 ## Model
 

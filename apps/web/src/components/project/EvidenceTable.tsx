@@ -87,8 +87,8 @@ export function EvidenceTable({
     const projected = projectItemsForMode(evidence, mode)
     const map = new Map<string, CitationInsightVm[]>()
     for (const item of projected) {
-      const existing = map.get(item.keyword) ?? []
-      map.set(item.keyword, [...existing, item])
+      const existing = map.get(item.query) ?? []
+      map.set(item.query, [...existing, item])
     }
     return [...map.entries()].map(([phrase, items]) => ({ phrase, items }))
   }, [evidence, mode])
@@ -153,7 +153,7 @@ export function EvidenceTable({
           <thead>
             <tr>
               <th style={{ width: '2rem' }} />
-              <th>Key Phrase</th>
+              <th>Query</th>
               <th>Status</th>
               <th>{historyHeader}</th>
               <th>Change</th>
@@ -187,7 +187,7 @@ export function EvidenceTable({
                         className={`transition-transform duration-150 text-zinc-500 ${isExpanded ? 'rotate-90' : ''}`}
                       />
                     </td>
-                    <td className="evidence-keyword-cell">
+                    <td className="evidence-query-cell">
                       <div>
                         <span className="font-medium text-zinc-100">{phrase}</span>
                         <div className="flex flex-wrap gap-1 mt-1">
@@ -219,7 +219,7 @@ export function EvidenceTable({
                   {isExpanded && items.map(item => (
                     <tr key={item.id} className="bg-zinc-900/30">
                       <td />
-                      <td className="evidence-keyword-cell pl-5">
+                      <td className="evidence-query-cell pl-5">
                         <ProviderBadge provider={item.provider} />
                       </td>
                       <td>

@@ -83,10 +83,10 @@ test('buildProjectCommandCenter preserves provider continuity while marking mixe
         createdAt: '2026-03-14T00:00:00Z',
       },
     ],
-    keywords: [{ id: 'kw_1', keyword: 'best ai seo agency', createdAt: '2026-03-10T00:00:00Z' }],
+    queries: [{ id: 'kw_1', query: 'best ai seo agency', createdAt: '2026-03-10T00:00:00Z' }],
     competitors: [],
     timeline: [{
-      keyword: 'best ai seo agency',
+      query: 'best ai seo agency',
       runs: [
         { runId: 'run_1', createdAt: '2026-03-14T00:00:00Z', citationState: 'cited', transition: 'new' },
         { runId: 'run_2', createdAt: '2026-03-15T00:00:00Z', citationState: 'cited', transition: 'cited' },
@@ -119,8 +119,8 @@ test('buildProjectCommandCenter preserves provider continuity while marking mixe
       snapshots: [{
         id: 'snap_2',
         runId: 'run_2',
-        keywordId: 'kw_1',
-        keyword: 'best ai seo agency',
+        queryId: 'kw_1',
+        query: 'best ai seo agency',
         provider: 'openai',
         model: 'gpt-4.1',
         citationState: 'cited',
@@ -145,8 +145,8 @@ test('buildProjectCommandCenter preserves provider continuity while marking mixe
       snapshots: [{
         id: 'snap_1',
         runId: 'run_1',
-        keywordId: 'kw_1',
-        keyword: 'best ai seo agency',
+        queryId: 'kw_1',
+        query: 'best ai seo agency',
         provider: 'openai',
         model: 'gpt-4o',
         citationState: 'cited',
@@ -218,10 +218,10 @@ test('buildProjectCommandCenter keeps historical-only provider badges on their o
         createdAt: '2026-03-22T00:00:00Z',
       },
     ],
-    keywords: [{ id: 'kw_1', keyword: 'best ai seo agency', createdAt: '2026-03-20T00:00:00Z' }],
+    queries: [{ id: 'kw_1', query: 'best ai seo agency', createdAt: '2026-03-20T00:00:00Z' }],
     competitors: [],
     timeline: [{
-      keyword: 'best ai seo agency',
+      query: 'best ai seo agency',
       runs: [
         { runId: 'run_1', createdAt: '2026-03-21T00:00:00Z', citationState: 'cited', transition: 'new' },
         { runId: 'run_2', createdAt: '2026-03-22T00:00:00Z', citationState: 'not-cited', transition: 'lost' },
@@ -250,8 +250,8 @@ test('buildProjectCommandCenter keeps historical-only provider badges on their o
       snapshots: [{
         id: 'snap_2',
         runId: 'run_2',
-        keywordId: 'kw_1',
-        keyword: 'best ai seo agency',
+        queryId: 'kw_1',
+        query: 'best ai seo agency',
         provider: 'openai',
         model: 'gpt-5.4',
         citationState: 'not-cited',
@@ -277,7 +277,7 @@ test('buildProjectCommandCenter keeps historical-only provider badges on their o
   expect(openaiEvidence?.citationState).toBe('not-cited')
 })
 
-test('buildProjectCommandCenter summarizes gap key phrases and prefers Google index coverage', () => {
+test('buildProjectCommandCenter summarizes gap queries and prefers Google index coverage', () => {
   const data: ProjectData = {
     project: {
       id: 'proj_2',
@@ -306,18 +306,18 @@ test('buildProjectCommandCenter summarizes gap key phrases and prefers Google in
       error: null,
       createdAt: '2026-03-15T00:00:00Z',
     }],
-    keywords: [
-      { id: 'kw_gap', keyword: 'ai seo consultant', createdAt: '2026-03-10T00:00:00Z' },
-      { id: 'kw_cited', keyword: 'aeo agency', createdAt: '2026-03-10T00:00:00Z' },
+    queries: [
+      { id: 'kw_gap', query: 'ai seo consultant', createdAt: '2026-03-10T00:00:00Z' },
+      { id: 'kw_cited', query: 'aeo agency', createdAt: '2026-03-10T00:00:00Z' },
     ],
     competitors: [{ id: 'comp_1', domain: 'rival.example', createdAt: '2026-03-10T00:00:00Z' }],
     timeline: [
       {
-        keyword: 'ai seo consultant',
+        query: 'ai seo consultant',
         runs: [{ runId: 'run_latest', createdAt: '2026-03-15T00:00:00Z', citationState: 'not-cited', transition: 'not-cited' }],
       },
       {
-        keyword: 'aeo agency',
+        query: 'aeo agency',
         runs: [{ runId: 'run_latest', createdAt: '2026-03-15T00:00:00Z', citationState: 'cited', transition: 'new' }],
       },
     ],
@@ -335,8 +335,8 @@ test('buildProjectCommandCenter summarizes gap key phrases and prefers Google in
         {
           id: 'snap_gap_gemini',
           runId: 'run_latest',
-          keywordId: 'kw_gap',
-          keyword: 'ai seo consultant',
+          queryId: 'kw_gap',
+          query: 'ai seo consultant',
           provider: 'gemini',
           model: 'gemini-3-flash',
           citationState: 'not-cited',
@@ -351,8 +351,8 @@ test('buildProjectCommandCenter summarizes gap key phrases and prefers Google in
         {
           id: 'snap_gap_openai',
           runId: 'run_latest',
-          keywordId: 'kw_gap',
-          keyword: 'ai seo consultant',
+          queryId: 'kw_gap',
+          query: 'ai seo consultant',
           provider: 'openai',
           model: 'gpt-5.4',
           citationState: 'not-cited',
@@ -367,8 +367,8 @@ test('buildProjectCommandCenter summarizes gap key phrases and prefers Google in
         {
           id: 'snap_cited_gemini',
           runId: 'run_latest',
-          keywordId: 'kw_cited',
-          keyword: 'aeo agency',
+          queryId: 'kw_cited',
+          query: 'aeo agency',
           provider: 'gemini',
           model: 'gemini-3-flash',
           citationState: 'cited',
@@ -412,10 +412,10 @@ test('buildProjectCommandCenter summarizes gap key phrases and prefers Google in
 
   const model = buildProjectCommandCenter(data)
 
-  expect(model.gapKeyPhrases.label).toBe('Gap Key Phrases')
-  expect(model.gapKeyPhrases.value).toBe('1')
-  expect(model.gapKeyPhrases.delta).toBe('1 of 2 key phrases at risk')
-  expect(model.gapKeyPhrases.progress).toBe(0.5)
+  expect(model.gapQueries.label).toBe('Gap Queries')
+  expect(model.gapQueries.value).toBe('1')
+  expect(model.gapQueries.delta).toBe('1 of 2 queries at risk')
+  expect(model.gapQueries.progress).toBe(0.5)
   expect(model.indexCoverage.value).toBe('80')
   expect(model.indexCoverage.delta).toBe('Google · 8 of 10 indexed')
   expect(model.indexCoverage.tone).toBe('negative')
@@ -441,7 +441,7 @@ test('buildProjectCommandCenter falls back to Bing coverage when Google coverage
       updatedAt: '2026-03-15T00:00:00Z',
     },
     runs: [],
-    keywords: [],
+    queries: [],
     competitors: [],
     timeline: [],
     latestRunDetail: null,
@@ -491,10 +491,10 @@ function makeRegressionData(): ProjectData {
       { id: 'run_2', projectId: 'proj_merge', kind: 'answer-visibility', status: 'completed', trigger: 'manual', startedAt: '2026-03-15T00:00:00Z', finishedAt: '2026-03-15T00:00:10Z', error: null, createdAt: '2026-03-15T00:00:00Z' },
       { id: 'run_1', projectId: 'proj_merge', kind: 'answer-visibility', status: 'completed', trigger: 'manual', startedAt: '2026-03-14T00:00:00Z', finishedAt: '2026-03-14T00:00:10Z', error: null, createdAt: '2026-03-14T00:00:00Z' },
     ],
-    keywords: [{ id: 'kw_1', keyword: 'roof repair', createdAt: '2026-03-10T00:00:00Z' }],
+    queries: [{ id: 'kw_1', query: 'roof repair', createdAt: '2026-03-10T00:00:00Z' }],
     competitors: [],
     timeline: [{
-      keyword: 'roof repair',
+      query: 'roof repair',
       runs: [
         { runId: 'run_1', createdAt: '2026-03-14T00:00:00Z', citationState: 'cited', transition: 'new' },
         { runId: 'run_2', createdAt: '2026-03-15T00:00:00Z', citationState: 'not-cited', transition: 'lost' },
@@ -504,7 +504,7 @@ function makeRegressionData(): ProjectData {
       id: 'run_2', projectId: 'proj_merge', kind: 'answer-visibility', status: 'completed', trigger: 'manual',
       startedAt: '2026-03-15T00:00:00Z', finishedAt: '2026-03-15T00:00:10Z', error: null, createdAt: '2026-03-15T00:00:00Z',
       snapshots: [{
-        id: 'snap_2', runId: 'run_2', keywordId: 'kw_1', keyword: 'roof repair', provider: 'gemini', model: null,
+        id: 'snap_2', runId: 'run_2', queryId: 'kw_1', query: 'roof repair', provider: 'gemini', model: null,
         citationState: 'not-cited', answerText: null, citedDomains: [], competitorOverlap: [], groundingSources: [], searchQueries: [], createdAt: '2026-03-15T00:00:00Z',
       }],
     },
@@ -512,7 +512,7 @@ function makeRegressionData(): ProjectData {
       id: 'run_1', projectId: 'proj_merge', kind: 'answer-visibility', status: 'completed', trigger: 'manual',
       startedAt: '2026-03-14T00:00:00Z', finishedAt: '2026-03-14T00:00:10Z', error: null, createdAt: '2026-03-14T00:00:00Z',
       snapshots: [{
-        id: 'snap_1', runId: 'run_1', keywordId: 'kw_1', keyword: 'roof repair', provider: 'gemini', model: null,
+        id: 'snap_1', runId: 'run_1', queryId: 'kw_1', query: 'roof repair', provider: 'gemini', model: null,
         citationState: 'cited', answerText: 'Merge example cited.', citedDomains: ['merge.example'], competitorOverlap: [], groundingSources: [], searchQueries: [], createdAt: '2026-03-14T00:00:00Z',
       }],
     },
@@ -522,7 +522,7 @@ function makeRegressionData(): ProjectData {
 function makeDbInsight(overrides: Partial<InsightDto> = {}): InsightDto {
   return {
     id: 'ins_1', projectId: 'proj_merge', runId: 'run_2', type: 'regression', severity: 'high',
-    title: 'Lost citation on Gemini', keyword: 'roof repair', provider: 'gemini',
+    title: 'Lost citation on Gemini', query: 'roof repair', provider: 'gemini',
     recommendation: { action: 'Audit content', reason: 'Page not re-indexed' },
     cause: { cause: 'competitor displacement', details: 'rival.com now cited' },
     dismissed: false, createdAt: '2026-04-01T00:00:00Z',
@@ -559,16 +559,16 @@ describe('DB insight merge with in-memory signals', () => {
 
   test('non-regression in-memory signals preserved alongside DB insights', () => {
     const data = makeRegressionData()
-    // Add a first-citation signal by adding a second keyword that just appeared
-    data.keywords.push({ id: 'kw_2', keyword: 'best roofer', createdAt: '2026-03-10T00:00:00Z' })
+    // Add a first-citation signal by adding a second query that just appeared
+    data.queries.push({ id: 'kw_2', query: 'best roofer', createdAt: '2026-03-10T00:00:00Z' })
     data.timeline.push({
-      keyword: 'best roofer',
+      query: 'best roofer',
       runs: [
         { runId: 'run_2', createdAt: '2026-03-15T00:00:00Z', citationState: 'cited', transition: 'emerging' },
       ],
     })
     data.latestRunDetail!.snapshots.push({
-      id: 'snap_3', runId: 'run_2', keywordId: 'kw_2', keyword: 'best roofer', provider: 'gemini', model: null,
+      id: 'snap_3', runId: 'run_2', queryId: 'kw_2', query: 'best roofer', provider: 'gemini', model: null,
       citationState: 'cited', answerText: 'Best roofer cited.', citedDomains: ['merge.example'], competitorOverlap: [], groundingSources: [], searchQueries: [], createdAt: '2026-03-15T00:00:00Z',
     })
     data.dbInsights = [makeDbInsight()]
@@ -636,10 +636,10 @@ describe('run kind differentiation in Command Center', () => {
           createdAt: '2026-03-15T00:00:00Z',
         },
       ],
-      keywords: [{ id: 'kw_1', keyword: 'test keyword', createdAt: '2026-03-10T00:00:00Z' }],
+      queries: [{ id: 'kw_1', query: 'test query', createdAt: '2026-03-10T00:00:00Z' }],
       competitors: [],
       timeline: [{
-        keyword: 'test keyword',
+        query: 'test query',
         runs: [
           { runId: 'run_vis', createdAt: '2026-03-15T00:00:00Z', citationState: 'cited', transition: 'new' },
         ],
@@ -657,8 +657,8 @@ describe('run kind differentiation in Command Center', () => {
         snapshots: [{
           id: 'snap_1',
           runId: 'run_vis',
-          keywordId: 'kw_1',
-          keyword: 'test keyword',
+          queryId: 'kw_1',
+          query: 'test query',
           provider: 'gemini',
           model: null,
           citationState: 'cited',
@@ -697,7 +697,7 @@ describe('run kind differentiation in Command Center', () => {
 
     // Should show 100% visibility from the visibility run, not 0% from gsc-sync
     expect(model.visibilitySummary.value).toBe('100')
-    expect(model.keywordCounts.cited).toBe(1)
+    expect(model.queryCounts.cited).toBe(1)
   })
 
   test('stale visibility warning when sync is >1 day newer than visibility run', () => {
@@ -782,8 +782,8 @@ describe('provider coverage indicators', () => {
     const snapshots = snapshotProviders.map((prov, i) => ({
       id: `snap_${i}`,
       runId: 'run_1',
-      keywordId: 'kw_1',
-      keyword: 'test keyword',
+      queryId: 'kw_1',
+      query: 'test query',
       provider: prov,
       model: null,
       citationState: 'cited' as const,
@@ -823,10 +823,10 @@ describe('provider coverage indicators', () => {
         error: null,
         createdAt: '2026-03-15T00:00:00Z',
       }],
-      keywords: [{ id: 'kw_1', keyword: 'test keyword', createdAt: '2026-03-10T00:00:00Z' }],
+      queries: [{ id: 'kw_1', query: 'test query', createdAt: '2026-03-10T00:00:00Z' }],
       competitors: [],
       timeline: [{
-        keyword: 'test keyword',
+        query: 'test query',
         runs: [{ runId: 'run_1', createdAt: '2026-03-15T00:00:00Z', citationState: 'cited', transition: 'new' }],
       }],
       latestRunDetail: {

@@ -10,8 +10,8 @@ import {
 describe('citationCoverageRowSchema', () => {
   it('accepts a row with mixed citation + mention states', () => {
     const row = {
-      keywordId: 'kw-1',
-      keyword: 'best CRM',
+      queryId: 'q-1',
+      query: 'best CRM',
       providers: [
         { provider: 'gemini', citationState: 'cited' as const, cited: true, mentioned: true, runId: 'run-1', runCreatedAt: '2026-04-29T00:00:00Z' },
         { provider: 'claude', citationState: 'not-cited' as const, cited: false, mentioned: true, runId: 'run-1', runCreatedAt: '2026-04-29T00:00:00Z' },
@@ -25,8 +25,8 @@ describe('citationCoverageRowSchema', () => {
 
   it('rejects unknown citation states', () => {
     const bad = {
-      keywordId: 'kw-1',
-      keyword: 'foo',
+      queryId: 'q-1',
+      query: 'foo',
       providers: [{ provider: 'gemini', citationState: 'pending', cited: false, mentioned: false, runId: 'r', runCreatedAt: 't' }],
       citedCount: 0,
       mentionedCount: 0,
@@ -37,8 +37,8 @@ describe('citationCoverageRowSchema', () => {
 
   it('requires the mentioned flag on each provider', () => {
     const missing = {
-      keywordId: 'kw-1',
-      keyword: 'foo',
+      queryId: 'q-1',
+      query: 'foo',
       providers: [{ provider: 'gemini', citationState: 'cited', cited: true, runId: 'r', runCreatedAt: 't' }],
       citedCount: 1,
       mentionedCount: 0,
@@ -51,8 +51,8 @@ describe('citationCoverageRowSchema', () => {
 describe('competitorGapRowSchema', () => {
   it('accepts a gap with a list of citing competitors', () => {
     const gap = {
-      keywordId: 'kw-2',
-      keyword: 'CRM software',
+      queryId: 'q-2',
+      query: 'CRM software',
       provider: 'gemini',
       citingCompetitors: ['salesforce.com', 'hubspot.com'],
       runId: 'run-1',
@@ -69,22 +69,22 @@ describe('citationVisibilityResponseSchema', () => {
         providersConfigured: 4,
         providersCiting: 1,
         providersMentioning: 2,
-        totalKeywords: 10,
-        keywordsCitedAndMentioned: 1,
-        keywordsCitedOnly: 2,
-        keywordsMentionedOnly: 1,
-        keywordsInvisible: 6,
+        totalQueries: 10,
+        queriesCitedAndMentioned: 1,
+        queriesCitedOnly: 2,
+        queriesMentionedOnly: 1,
+        queriesInvisible: 6,
         latestRunId: 'run-1',
         latestRunAt: '2026-04-29T00:00:00Z',
       },
-      byKeyword: [],
+      byQuery: [],
       competitorGaps: [],
       status: 'ready' as const,
     }
     const parsed = citationVisibilityResponseSchema.parse(response)
     expect(parsed.summary.providersCiting).toBe(1)
     expect(parsed.summary.providersMentioning).toBe(2)
-    expect(parsed.summary.keywordsCitedAndMentioned).toBe(1)
+    expect(parsed.summary.queriesCitedAndMentioned).toBe(1)
     expect(parsed.status).toBe('ready')
   })
 
@@ -93,9 +93,9 @@ describe('citationVisibilityResponseSchema', () => {
     const parsed = citationVisibilityResponseSchema.parse(response)
     expect(parsed.status).toBe('no-data')
     expect(parsed.reason).toBe('no-runs-yet')
-    expect(parsed.summary.totalKeywords).toBe(0)
+    expect(parsed.summary.totalQueries).toBe(0)
     expect(parsed.summary.providersMentioning).toBe(0)
-    expect(parsed.summary.keywordsInvisible).toBe(0)
+    expect(parsed.summary.queriesInvisible).toBe(0)
   })
 })
 

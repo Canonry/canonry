@@ -16,7 +16,7 @@ This file stores client-specific context accumulated over time. Update it as you
 
 ## Watchlist
 
-<!-- Keywords, competitors, or trends to monitor closely -->
+<!-- Queries, competitors, or trends to monitor closely -->
 
 ## Notes
 

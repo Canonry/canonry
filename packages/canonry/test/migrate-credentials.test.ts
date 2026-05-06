@@ -82,8 +82,6 @@ describe('legacy credential migration (extract + apply)', () => {
       canonicalDomain: 'example.com',
       country: 'US',
       language: 'en',
-      keywords: '[]',
-      competitors: '[]',
       providers: '["gemini"]',
       locations: '[]',
       tags: '[]',

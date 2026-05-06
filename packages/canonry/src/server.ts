@@ -1105,7 +1105,7 @@ export async function createServer(opts: {
       const conn = registry.get('cdp:chatgpt')
       if (!conn) throw new Error('CDP provider not configured')
       const result = await conn.adapter.executeTrackedQuery(
-        { keyword: query, canonicalDomains: [], competitorDomains: [] },
+        { query, canonicalDomains: [], competitorDomains: [] },
         conn.config,
       )
       const raw = result.rawResponse as { answerText?: string; groundingSources?: { uri: string; title: string }[] }
@@ -1116,24 +1116,24 @@ export async function createServer(opts: {
         citations: (raw.groundingSources ?? []),
       }]
     },
-    onGenerateKeywords: async (providerName, count, project) => {
+    onGenerateQueries: async (providerName, count, project) => {
       const provider = registry.get(providerName)
       if (!provider) throw new Error(`Provider "${providerName}" is not configured`)
 
       const siteText = await fetchSiteText(project.domain)
 
-      const prompt = buildKeywordGenerationPrompt({
+      const prompt = buildQueryGenerationPrompt({
         domain: project.domain,
         displayName: project.displayName,
         country: project.country,
         language: project.language,
-        existingKeywords: project.existingKeywords,
+        existingQueries: project.existingQueries,
         siteText,
         count,
       })
 
       const raw = await provider.adapter.generateText(prompt, provider.config)
-      return parseKeywordResponse(raw, count)
+      return parseQueryResponse(raw, count)
     },
     onSnapshotRequested: async (input) => {
       return snapshotService.createReport(input)
@@ -1243,12 +1243,12 @@ export async function createServer(opts: {
   return app
 }
 
-function buildKeywordGenerationPrompt(ctx: {
+function buildQueryGenerationPrompt(ctx: {
   domain: string
   displayName?: string
   country: string
   language: string
-  existingKeywords: string[]
+  existingQueries: string[]
   siteText: string
   count: number
 }): string {
@@ -1265,26 +1265,26 @@ function buildKeywordGenerationPrompt(ctx: {
     lines.push('', '--- Site Content ---', ctx.siteText, '--- End Site Content ---')
   }
 
-  if (ctx.existingKeywords.length > 0) {
-    lines.push('', `Already tracking (do NOT duplicate): ${ctx.existingKeywords.join(', ')}`)
+  if (ctx.existingQueries.length > 0) {
+    lines.push('', `Already tracking (do NOT duplicate): ${ctx.existingQueries.join(', ')}`)
   }
 
   lines.push(
     '',
-    `Generate exactly ${ctx.count} key phrases that:`,
+    `Generate exactly ${ctx.count} queries that:`,
     '- Are short and concise (2-5 words each, like "best dentist brooklyn" not "what is the best dentist office in the brooklyn area for families")',
     '- Are natural phrases people would type into AI answer engines',
     '- Cover different intents (informational, transactional, navigational)',
     `- Are relevant to the ${ctx.country} market in ${ctx.language}`,
     '- Reflect the actual services/products/content found on the site',
     '',
-    'Return ONLY the key phrases, one per line, no numbering or bullets.',
+    'Return ONLY the queries, one per line, no numbering or bullets.',
   )
 
   return lines.join('\n')
 }
 
-function parseKeywordResponse(raw: string, count: number): string[] {
+function parseQueryResponse(raw: string, count: number): string[] {
   const seen = new Set<string>()
   const results: string[] = []
 

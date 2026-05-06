@@ -31,7 +31,7 @@ import {
   fetchExport,
   fetchTimeline,
   deleteProject as apiDeleteProject,
-  appendKeywords as apiAppendKeywords,
+  appendQueries as apiAppendQueries,
   fetchCompetitors as apiFetchCompetitors,
   setCompetitors as apiSetCompetitors,
   updateOwnedDomains as apiUpdateOwnedDomains,
@@ -1008,7 +1008,7 @@ function InsightSignals({
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <CitationBadge state={ap.citationState} />
-                      <span className="text-sm text-zinc-200 truncate">{ap.keyword}</span>
+                      <span className="text-sm text-zinc-200 truncate">{ap.query}</span>
                       <div className="hidden sm:flex gap-1">
                         {ap.provider && <ProviderBadge provider={ap.provider} />}
                       </div>
@@ -1072,9 +1072,9 @@ export function ProjectPage({
   const model = findProjectVm(dashboard, projectId)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [addingKeywords, setAddingKeywords] = useState(false)
-  const [newKeywordText, setNewKeywordText] = useState('')
-  const [keywordSaving, setKeywordSaving] = useState(false)
+  const [addingQueries, setAddingQueries] = useState(false)
+  const [newQueryText, setNewQueryText] = useState('')
+  const [querySaving, setQuerySaving] = useState(false)
   const [addingCompetitor, setAddingCompetitor] = useState(false)
   const [newCompetitorDomain, setNewCompetitorDomain] = useState('')
   const [competitorSaving, setCompetitorSaving] = useState(false)
@@ -1111,13 +1111,13 @@ export function ProjectPage({
       .catch(() => { setLocationTimeline(null); setLocationTimelineLoading(false) })
   }, [locationFilter, projectName])
 
-  // Build a runHistory override map keyed by keyword::provider from the location-scoped timeline
+  // Build a runHistory override map keyed by query::provider from the location-scoped timeline
   const locationRunHistoryMap = useMemo<Map<string, RunHistoryPoint[]> | null>(() => {
     if (!locationTimeline) return null
     const map = new Map<string, RunHistoryPoint[]>()
     for (const entry of locationTimeline) {
       for (const [provider, runs] of Object.entries(entry.providerRuns ?? {})) {
-        map.set(`${entry.keyword}::${provider}`, runs.map(r => ({
+        map.set(`${entry.query}::${provider}`, runs.map(r => ({
           runId: r.runId,
           citationState: r.citationState,
           createdAt: r.createdAt,
@@ -1126,9 +1126,9 @@ export function ProjectPage({
           visibilityTransition: r.visibilityTransition,
         })))
       }
-      // Fallback: keyword-level history when no per-provider data
+      // Fallback: query-level history when no per-provider data
       if (!entry.providerRuns || Object.keys(entry.providerRuns).length === 0) {
-        map.set(`${entry.keyword}::`, entry.runs.map(r => ({
+        map.set(`${entry.query}::`, entry.runs.map(r => ({
           runId: r.runId,
           citationState: r.citationState,
           createdAt: r.createdAt,
@@ -1147,8 +1147,8 @@ export function ProjectPage({
       : visibilityEvidence
     if (!locationRunHistoryMap) return filtered
     return filtered.map(item => {
-      const history = locationRunHistoryMap.get(`${item.keyword}::${item.provider}`)
-        ?? locationRunHistoryMap.get(`${item.keyword}::`)
+      const history = locationRunHistoryMap.get(`${item.query}::${item.provider}`)
+        ?? locationRunHistoryMap.get(`${item.query}::`)
       return history ? { ...item, runHistory: history } : item
     })
   }, [visibilityEvidence, locationFilter, locationRunHistoryMap])
@@ -1222,17 +1222,17 @@ export function ProjectPage({
     }
   }
 
-  async function handleAddKeywords() {
-    const keywords = newKeywordText.split('\n').map(k => k.trim()).filter(Boolean)
-    if (keywords.length === 0) return
-    setKeywordSaving(true)
+  async function handleAddQueries() {
+    const queries = newQueryText.split('\n').map(k => k.trim()).filter(Boolean)
+    if (queries.length === 0) return
+    setQuerySaving(true)
     try {
-      await apiAppendKeywords(projectName, keywords)
+      await apiAppendQueries(projectName, queries)
       void refetch()
-      setNewKeywordText('')
-      setAddingKeywords(false)
+      setNewQueryText('')
+      setAddingQueries(false)
     } finally {
-      setKeywordSaving(false)
+      setQuerySaving(false)
     }
   }
 
@@ -1300,7 +1300,7 @@ export function ProjectPage({
           <h3 className="text-base font-semibold text-rose-400 mb-2">Delete project?</h3>
           <p className="text-sm text-zinc-400 mb-4">
             This will permanently delete <strong className="text-zinc-200">{model.project.displayName || model.project.name}</strong> and
-            all its key phrases, competitors, runs, and snapshots. This cannot be undone.
+            all its queries, competitors, runs, and snapshots. This cannot be undone.
           </p>
           <div className="flex items-center gap-3">
             <Button
@@ -1435,22 +1435,22 @@ export function ProjectPage({
             />
             <div className="metric-card">
               <p className="metric-card-eyebrow">
-                Gap Key Phrases
-                <InfoTooltip text="Tracked key phrases where competitors are cited in the latest completed visibility run but your domain is not." />
+                Gap Queries
+                <InfoTooltip text="Tracked queries where competitors are cited in the latest completed visibility run but your domain is not." />
               </p>
               <p className="metric-card-big-value">
-                <span className="text-zinc-50">{model.gapKeyPhrases.value}</span>
-                <span className="text-zinc-600"> / {model.keywordCounts.total}</span>
+                <span className="text-zinc-50">{model.gapQueries.value}</span>
+                <span className="text-zinc-600"> / {model.queryCounts.total}</span>
               </p>
               <div className="metric-card-bar">
                 <div
-                  className={`metric-card-bar-fill progress-fill-${model.gapKeyPhrases.tone}`}
-                  style={{ width: model.gapKeyPhrases.progress !== undefined ? `${model.gapKeyPhrases.progress * 100}%` : '0%' }}
+                  className={`metric-card-bar-fill progress-fill-${model.gapQueries.tone}`}
+                  style={{ width: model.gapQueries.progress !== undefined ? `${model.gapQueries.progress * 100}%` : '0%' }}
                 />
               </div>
-              <p className="metric-card-detail">{model.gapKeyPhrases.delta}</p>
+              <p className="metric-card-detail">{model.gapQueries.delta}</p>
               <p className="metric-card-sub">
-                {model.gapKeyPhrases.description}
+                {model.gapQueries.description}
               </p>
             </div>
             <div className="metric-card">
@@ -1476,7 +1476,7 @@ export function ProjectPage({
             <div className="metric-card">
               <p className="metric-card-eyebrow">
                 Since Last Run
-                <InfoTooltip text="Keyword-level citation changes compared to the previous completed run." />
+                <InfoTooltip text="Query-level citation changes compared to the previous completed run." />
               </p>
               {model.movementSummary.hasPreviousRun ? (
                 <div className="metric-card-movement">
@@ -1511,7 +1511,7 @@ export function ProjectPage({
               <div className="section-head section-head-inline">
                 <div>
                   <p className="eyebrow eyebrow-soft">Model breakdown</p>
-                  <h2>Visibility by model <InfoTooltip text="Per-model citation rate. Shows how often each AI model cites your domain across all tracked key phrases. Switching models can significantly affect citation rates." /></h2>
+                  <h2>Visibility by model <InfoTooltip text="Per-model citation rate. Shows how often each AI model cites your domain across all tracked queries. Switching models can significantly affect citation rates." /></h2>
                 </div>
               </div>
               <div className="evidence-table-wrap">
@@ -1520,7 +1520,7 @@ export function ProjectPage({
                     <tr>
                       <th>Model</th>
                       <th>Score</th>
-                      <th>Cited key phrases</th>
+                      <th>Cited queries</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1562,28 +1562,28 @@ export function ProjectPage({
             <div className="section-head section-head-inline">
               <div>
                 <p className="eyebrow eyebrow-soft">Visibility evidence</p>
-                <h2>Key phrase citation tracking</h2>
+                <h2>Query citation tracking</h2>
               </div>
               <div className="flex items-center gap-3">
-                <p className="supporting-copy">{new Set(model.visibilityEvidence.map(e => e.keyword)).size} key phrases tracked</p>
-                <Button type="button" variant="outline" size="sm" onClick={() => setAddingKeywords(!addingKeywords)}>
-                  {addingKeywords ? 'Cancel' : '+ Add key phrases'}
+                <p className="supporting-copy">{new Set(model.visibilityEvidence.map(e => e.query)).size} queries tracked</p>
+                <Button type="button" variant="outline" size="sm" onClick={() => setAddingQueries(!addingQueries)}>
+                  {addingQueries ? 'Cancel' : '+ Add queries'}
                 </Button>
               </div>
             </div>
-            {addingKeywords && (
+            {addingQueries && (
               <div className="mb-3 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
                 <textarea
                   className="w-full resize-none rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
                   rows={3}
-                  placeholder="Enter key phrases, one per line"
-                  value={newKeywordText}
-                  onChange={(e) => setNewKeywordText(e.target.value)}
+                  placeholder="Enter queries, one per line"
+                  value={newQueryText}
+                  onChange={(e) => setNewQueryText(e.target.value)}
                 />
                 <div className="mt-2 flex items-center justify-between">
-                  <p className="text-xs text-zinc-500">{newKeywordText.split('\n').filter(k => k.trim()).length} key phrases</p>
-                  <Button type="button" size="sm" disabled={!newKeywordText.trim() || keywordSaving} onClick={handleAddKeywords}>
-                    {keywordSaving ? 'Adding...' : 'Add key phrases'}
+                  <p className="text-xs text-zinc-500">{newQueryText.split('\n').filter(k => k.trim()).length} queries</p>
+                  <Button type="button" size="sm" disabled={!newQueryText.trim() || querySaving} onClick={handleAddQueries}>
+                    {querySaving ? 'Adding...' : 'Add queries'}
                   </Button>
                 </div>
               </div>

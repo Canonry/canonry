@@ -12,15 +12,15 @@ export function generateInsights(
 
   // Regression insights
   for (const reg of regressions) {
-    const key = `${reg.keyword}:${reg.provider}`
+    const key = `${reg.query}:${reg.provider}`
     const cause = causes.get(key)
 
     insights.push({
       id: `ins_${randomUUID().slice(0, 8)}`,
       type: 'regression',
       severity: 'high',
-      title: `Lost ${reg.provider} citation for "${reg.keyword}"`,
-      keyword: reg.keyword,
+      title: `Lost ${reg.provider} citation for "${reg.query}"`,
+      query: reg.query,
       provider: reg.provider,
       recommendation: {
         action: 'audit',
@@ -38,8 +38,8 @@ export function generateInsights(
       id: `ins_${randomUUID().slice(0, 8)}`,
       type: 'gain',
       severity: 'low',
-      title: `New ${gain.provider} citation for "${gain.keyword}"`,
-      keyword: gain.keyword,
+      title: `New ${gain.provider} citation for "${gain.query}"`,
+      query: gain.query,
       provider: gain.provider,
       recommendation: {
         action: 'monitor',

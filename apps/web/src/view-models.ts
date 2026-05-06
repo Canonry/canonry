@@ -96,7 +96,7 @@ export interface RunHistoryPoint {
   visibilityTransition?: string
 }
 
-export type EvidenceHistoryScope = 'keyword' | 'model' | 'provider'
+export type EvidenceHistoryScope = 'query' | 'model' | 'provider'
 
 export interface ModelTransitionVm {
   runId: string
@@ -107,7 +107,7 @@ export interface ModelTransitionVm {
 
 export interface CitationInsightVm {
   id: string
-  keyword: string
+  query: string
   provider: string
   model: string | null
   location: string | null
@@ -132,7 +132,7 @@ export interface CitationInsightVm {
 }
 
 export interface AffectedPhrase {
-  keyword: string
+  query: string
   evidenceId: string
   provider?: string
   citationState: CitationState
@@ -152,9 +152,9 @@ export interface CompetitorVm {
   id: string
   domain: string
   citationCount: number
-  totalKeywords: number
+  totalQueries: number
   pressureLabel: string
-  citedKeywords: string[]
+  citedQueries: string[]
   movement: string
   notes: string
 }
@@ -166,7 +166,7 @@ export interface MovementSummaryVm {
   hasPreviousRun: boolean
 }
 
-export interface KeywordCountsVm {
+export interface QueryCountsVm {
   cited: number
   total: number
 }
@@ -176,8 +176,8 @@ export interface ProjectCommandCenterVm {
   dateRangeLabel: string
   contextLabel: string
   visibilitySummary: ScoreSummaryVm
-  keywordCounts: KeywordCountsVm
-  gapKeyPhrases: ScoreSummaryVm
+  queryCounts: QueryCountsVm
+  gapQueries: ScoreSummaryVm
   indexCoverage: ScoreSummaryVm
   providerScores: { provider: string; model: string | null; score: number; cited: number; total: number }[]
   competitorPressure: ScoreSummaryVm
@@ -205,9 +205,9 @@ export interface SetupWizardVm {
     country: string
     language: string
   }
-  keywordImportState: {
+  queryImportState: {
     mode: 'paste' | 'csv'
-    keywordCount: number
+    queryCount: number
     preview: string[]
   }
   competitorDraft: {

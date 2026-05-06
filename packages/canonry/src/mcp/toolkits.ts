@@ -21,8 +21,8 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
   {
     name: 'setup',
     title: 'Project configuration',
-    description: 'Manage keywords, competitors, schedules, project upsert, and config-as-code roundtrips.',
-    whenToLoad: 'Load when onboarding a new project or editing tracked keywords, competitors, or schedules.',
+    description: 'Manage queries, competitors, schedules, project upsert, and config-as-code roundtrips.',
+    whenToLoad: 'Load when onboarding a new project or editing tracked queries, competitors, or schedules.',
   },
   {
     name: 'gsc',

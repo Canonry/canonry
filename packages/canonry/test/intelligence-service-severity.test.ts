@@ -15,7 +15,7 @@ import {
   migrate,
   projects,
   runs,
-  keywords,
+  queries,
   querySnapshots,
   insights,
   gscSearchData,
@@ -32,7 +32,7 @@ function createTempDb(prefix: string) {
 
 interface SeededRegression {
   projectId: string
-  keywordId: string
+  queryId: string
   previousRunId: string
   currentRunId: string
 }
@@ -55,11 +55,11 @@ function seedRegressionScenario(
     updatedAt: now.toISOString(),
   }).run()
 
-  const keywordId = crypto.randomUUID()
-  db.insert(keywords).values({
-    id: keywordId,
+  const queryId = crypto.randomUUID()
+  db.insert(queries).values({
+    id: queryId,
     projectId,
-    keyword: 'foo keyword',
+    query: 'foo query',
     createdAt: now.toISOString(),
   }).run()
 
@@ -70,7 +70,6 @@ function seedRegressionScenario(
     id: previousRunId,
     projectId,
     status: 'completed',
-    providers: '["gemini"]',
     createdAt: previousAt,
     finishedAt: previousAt,
   }).run()
@@ -78,7 +77,6 @@ function seedRegressionScenario(
     id: currentRunId,
     projectId,
     status: 'completed',
-    providers: '["gemini"]',
     createdAt: now.toISOString(),
     finishedAt: now.toISOString(),
   }).run()
@@ -87,7 +85,7 @@ function seedRegressionScenario(
   db.insert(querySnapshots).values({
     id: crypto.randomUUID(),
     runId: previousRunId,
-    keywordId,
+    queryId,
     provider: 'gemini',
     model: 'test',
     citationState: 'cited',
@@ -99,7 +97,7 @@ function seedRegressionScenario(
   db.insert(querySnapshots).values({
     id: crypto.randomUUID(),
     runId: currentRunId,
-    keywordId,
+    queryId,
     provider: 'gemini',
     model: 'test',
     citationState: 'not-cited',
@@ -114,7 +112,7 @@ function seedRegressionScenario(
       projectId,
       syncRunId: currentRunId,
       date: '2026-04-01',
-      query: 'foo keyword',
+      query: 'foo query',
       page: '/foo',
       impressions: opts.gscImpressions,
       clicks: 0,
@@ -132,7 +130,6 @@ function seedRegressionScenario(
       id: oldRunId,
       projectId,
       status: 'completed',
-      providers: '["gemini"]',
       createdAt: oldAt,
       finishedAt: oldAt,
     }).run()
@@ -142,8 +139,8 @@ function seedRegressionScenario(
       runId: oldRunId,
       type: 'regression',
       severity: 'high',
-      title: 'Lost gemini citation for "foo keyword"',
-      keyword: 'foo keyword',
+      title: 'Lost gemini citation for "foo query"',
+      query: 'foo query',
       provider: 'gemini',
       recommendation: null,
       cause: null,
@@ -152,7 +149,7 @@ function seedRegressionScenario(
     }).run()
   }
 
-  return { projectId, keywordId, previousRunId, currentRunId }
+  return { projectId, queryId, previousRunId, currentRunId }
 }
 
 function persistedSeverity(db: ReturnType<typeof createClient>, runId: string): string | undefined {
@@ -260,7 +257,6 @@ describe('IntelligenceService — regression severity tiering', () => {
         projectId,
         kind: 'gsc-sync',
         status: 'completed',
-        providers: '["gemini"]',
         createdAt: at,
         finishedAt: at,
       }).run()

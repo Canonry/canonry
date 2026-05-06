@@ -109,7 +109,7 @@ export const cdpChatgptAdapter: ProviderAdapter = {
       const client = await conn.prepareForQuery(target)
 
       // Submit the query
-      await target.submitQuery(client, input.keyword)
+      await target.submitQuery(client, input.query)
 
       // Wait for the response to complete
       await target.waitForResponse(client)
@@ -144,7 +144,7 @@ export const cdpChatgptAdapter: ProviderAdapter = {
         },
         model: 'chatgpt-web',
         groundingSources,
-        searchQueries: [input.keyword],
+        searchQueries: [input.query],
         screenshotPath: capturedScreenshotPath,
       }
     } catch (err: unknown) {

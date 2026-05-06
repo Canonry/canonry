@@ -9,7 +9,7 @@ export async function showOverview(project: string, opts: { format?: string }): 
     return
   }
 
-  const { project: meta, latestRun, health, topInsights, keywordCounts, providers, transitions } = overview
+  const { project: meta, latestRun, health, topInsights, queryCounts, providers, transitions } = overview
   console.log(`Overview: ${meta.displayName ?? meta.name} (${meta.name})\n`)
   console.log(`  Domain:   ${meta.canonicalDomain}`)
   console.log(`  Country:  ${meta.country}`)
@@ -23,7 +23,7 @@ export async function showOverview(project: string, opts: { format?: string }): 
     console.log('\n  No runs yet.')
   }
 
-  console.log(`\n  Keywords cited: ${keywordCounts.citedKeywords}/${keywordCounts.totalKeywords} (${pct(keywordCounts.citedRate)})`)
+  console.log(`\n  Queries cited: ${queryCounts.citedQueries}/${queryCounts.totalQueries} (${pct(queryCounts.citedRate)})`)
   if (providers.length > 0) {
     console.log('  Providers:')
     for (const p of providers) {

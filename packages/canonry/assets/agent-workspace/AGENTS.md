@@ -29,7 +29,7 @@ If the server isn't running, start it with `canonry serve`.
 | `canonry evidence <project>` | Raw citation evidence from sweeps |
 | `canonry insights <project>` | AI-generated insights and findings |
 | `canonry health <project>` | Health snapshot with visibility scores |
-| `canonry timeline <project>` | Per-keyword citation history over time |
+| `canonry timeline <project>` | Per-query citation history over time |
 | `canonry export <project>` | Full project data export |
 
 ### Auditing
@@ -45,8 +45,8 @@ npx @ainyc/aeo-audit <url> --format json
 |---------|---------|
 | `canonry project list` | List all projects |
 | `canonry project create <name> --domain <domain>` | Create a new project |
-| `canonry keyword add <project> <keyword>...` | Add keywords to track |
-| `canonry keyword list <project>` | List tracked keywords |
+| `canonry query add <project> <query>...` | Add queries to track |
+| `canonry query list <project>` | List tracked queries |
 
 ## Workflow Patterns
 
@@ -59,7 +59,7 @@ npx @ainyc/aeo-audit <url> --format json
 
 ### Investigation workflow
 
-1. Identify affected keywords from insights
+1. Identify affected queries from insights
 2. Pull evidence: `canonry evidence <project> --format json`
 3. Check timeline for trends: `canonry timeline <project> --format json`
 4. If structural issues suspected, run audit: `npx @ainyc/aeo-audit <url> --format json`

@@ -18,12 +18,12 @@ export interface TimeBucket {
   citationRate: number
   cited: number
   total: number
-  keywordCount: number
+  queryCount: number
   mentionRate: number
   mentionedCount: number
 }
 
-export interface KeywordChangeEvent {
+export interface QueryChangeEvent {
   date: string
   delta: number
   label: string
@@ -44,12 +44,12 @@ export interface BrandMetricsDto {
   byProvider: Record<string, ProviderMetric>
   trend: TrendDirection
   mentionTrend: TrendDirection
-  keywordChanges: KeywordChangeEvent[]
+  queryChanges: QueryChangeEvent[]
 }
 
-export interface GapKeyword {
-  keyword: string
-  keywordId: string
+export interface GapQuery {
+  query: string
+  queryId: string
   category: GapCategory
   providers: string[]
   competitorsCiting: string[]
@@ -57,12 +57,12 @@ export interface GapKeyword {
 }
 
 export interface GapAnalysisDto {
-  cited: GapKeyword[]
-  gap: GapKeyword[]
-  uncited: GapKeyword[]
-  mentionedKeywords: GapKeyword[]
-  mentionGap: GapKeyword[]
-  notMentioned: GapKeyword[]
+  cited: GapQuery[]
+  gap: GapQuery[]
+  uncited: GapQuery[]
+  mentionedQueries: GapQuery[]
+  mentionGap: GapQuery[]
+  notMentioned: GapQuery[]
   runId: string
   window: MetricsWindow
 }
@@ -77,7 +77,7 @@ export interface SourceCategoryCount {
 
 export interface SourceBreakdownDto {
   overall: SourceCategoryCount[]
-  byKeyword: Record<string, SourceCategoryCount[]>
+  byQuery: Record<string, SourceCategoryCount[]>
   runId: string
   window: MetricsWindow
 }

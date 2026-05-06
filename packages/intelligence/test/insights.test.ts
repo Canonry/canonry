@@ -18,7 +18,7 @@ describe('generateInsights', () => {
   it('creates one insight per regression with correct structure', () => {
     const regressions: Regression[] = [
       {
-        keyword: 'roof repair',
+        query: 'roof repair',
         provider: 'chatgpt',
         previousCitationUrl: 'https://example.com/roof',
         previousPosition: 2,
@@ -33,7 +33,7 @@ describe('generateInsights', () => {
     const ins = insights[0]
     expect(ins.type).toBe('regression')
     expect(ins.severity).toBe('high')
-    expect(ins.keyword).toBe('roof repair')
+    expect(ins.query).toBe('roof repair')
     expect(ins.provider).toBe('chatgpt')
     expect(ins.title).toContain('chatgpt')
     expect(ins.title).toContain('roof repair')
@@ -47,7 +47,7 @@ describe('generateInsights', () => {
   it('creates one insight per gain with correct structure', () => {
     const gains: Gain[] = [
       {
-        keyword: 'roof coating',
+        query: 'roof coating',
         provider: 'gemini',
         citationUrl: 'https://example.com/coating',
         position: 1,
@@ -62,7 +62,7 @@ describe('generateInsights', () => {
     const ins = insights[0]
     expect(ins.type).toBe('gain')
     expect(ins.severity).toBe('low')
-    expect(ins.keyword).toBe('roof coating')
+    expect(ins.query).toBe('roof coating')
     expect(ins.provider).toBe('gemini')
     expect(ins.recommendation?.action).toBe('monitor')
     expect(ins.recommendation?.target).toBe('https://example.com/coating')
@@ -72,7 +72,7 @@ describe('generateInsights', () => {
   it('attaches cause analysis to regression insights', () => {
     const regressions: Regression[] = [
       {
-        keyword: 'k1',
+        query: 'k1',
         provider: 'chatgpt',
         currentRunId: 'run_002',
         previousRunId: 'run_001',
@@ -90,7 +90,7 @@ describe('generateInsights', () => {
 
   it('does not attach cause to gain insights', () => {
     const gains: Gain[] = [
-      { keyword: 'k1', provider: 'chatgpt', runId: 'run_002' },
+      { query: 'k1', provider: 'chatgpt', runId: 'run_002' },
     ]
     const causes = new Map<string, CauseAnalysis>([
       ['k1:chatgpt', { cause: 'competitor_gain', competitorDomain: 'rival.com' }],
@@ -102,12 +102,12 @@ describe('generateInsights', () => {
 
   it('handles multiple regressions and gains together', () => {
     const regressions: Regression[] = [
-      { keyword: 'k1', provider: 'chatgpt', currentRunId: 'r2', previousRunId: 'r1' },
-      { keyword: 'k2', provider: 'gemini', currentRunId: 'r2', previousRunId: 'r1' },
+      { query: 'k1', provider: 'chatgpt', currentRunId: 'r2', previousRunId: 'r1' },
+      { query: 'k2', provider: 'gemini', currentRunId: 'r2', previousRunId: 'r1' },
     ]
     const gains: Gain[] = [
-      { keyword: 'k3', provider: 'chatgpt', runId: 'r2' },
-      { keyword: 'k4', provider: 'claude', runId: 'r2' },
+      { query: 'k3', provider: 'chatgpt', runId: 'r2' },
+      { query: 'k4', provider: 'claude', runId: 'r2' },
     ]
 
     const insights = generateInsights(regressions, gains, defaultHealth, new Map())
@@ -127,8 +127,8 @@ describe('generateInsights', () => {
 
   it('generates unique IDs for each insight', () => {
     const regressions: Regression[] = [
-      { keyword: 'k1', provider: 'chatgpt', currentRunId: 'r2', previousRunId: 'r1' },
-      { keyword: 'k2', provider: 'chatgpt', currentRunId: 'r2', previousRunId: 'r1' },
+      { query: 'k1', provider: 'chatgpt', currentRunId: 'r2', previousRunId: 'r1' },
+      { query: 'k2', provider: 'chatgpt', currentRunId: 'r2', previousRunId: 'r1' },
     ]
 
     const insights = generateInsights(regressions, [], defaultHealth, new Map())
@@ -138,7 +138,7 @@ describe('generateInsights', () => {
 
   it('handles regression with undefined previousPosition gracefully', () => {
     const regressions: Regression[] = [
-      { keyword: 'k1', provider: 'chatgpt', currentRunId: 'r2', previousRunId: 'r1' },
+      { query: 'k1', provider: 'chatgpt', currentRunId: 'r2', previousRunId: 'r1' },
     ]
 
     const insights = generateInsights(regressions, [], defaultHealth, new Map())
@@ -147,7 +147,7 @@ describe('generateInsights', () => {
 
   it('handles regression without a cause in the map', () => {
     const regressions: Regression[] = [
-      { keyword: 'k1', provider: 'chatgpt', currentRunId: 'r2', previousRunId: 'r1' },
+      { query: 'k1', provider: 'chatgpt', currentRunId: 'r2', previousRunId: 'r1' },
     ]
 
     const insights = generateInsights(regressions, [], defaultHealth, new Map())

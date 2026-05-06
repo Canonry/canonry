@@ -47,7 +47,7 @@ export interface InsightWebhookPayload {
     type: string
     severity: string
     title: string
-    keyword: string
+    query: string
     provider: string
   }>
   dashboardUrl: string
@@ -59,7 +59,7 @@ export interface WebhookPayload {
   project: { name: string; canonicalDomain: string }
   run: { id: string; status: string; finishedAt: string | null }
   transitions: Array<{
-    keyword: string
+    query: string
     from: string
     to: string
     provider: string

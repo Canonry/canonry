@@ -6,9 +6,9 @@ import { buildInsights, type InsightInput } from '../src/build-dashboard.js'
 
 /* ── helpers ─────────────────────────────────────────── */
 
-function makeEvidence(overrides: Partial<CitationInsightVm> & { keyword: string; provider: string; citationState: CitationInsightVm['citationState'] }): CitationInsightVm {
+function makeEvidence(overrides: Partial<CitationInsightVm> & { query: string; provider: string; citationState: CitationInsightVm['citationState'] }): CitationInsightVm {
   return {
-    id: `ev_${overrides.keyword}_${overrides.provider}`,
+    id: `ev_${overrides.query}_${overrides.provider}`,
     answerSnippet: '',
     citedDomains: [],
     evidenceUrls: [],
@@ -22,9 +22,9 @@ function makeEvidence(overrides: Partial<CitationInsightVm> & { keyword: string;
   }
 }
 
-function makeTimeline(keyword: string, runs: { citationState: string; transition: string }[], providerRuns?: Record<string, { citationState: string; transition: string }[]>): ApiTimelineEntry {
+function makeTimeline(query: string, runs: { citationState: string; transition: string }[], providerRuns?: Record<string, { citationState: string; transition: string }[]>): ApiTimelineEntry {
   return {
-    keyword,
+    query,
     runs: runs.map((r, i) => ({ runId: `run_${i}`, createdAt: `2026-03-${10 + i}T00:00:00Z`, ...r })),
     providerRuns: providerRuns
       ? Object.fromEntries(
@@ -37,12 +37,12 @@ function makeTimeline(keyword: string, runs: { citationState: string; transition
   }
 }
 
-function makeSnapshot(keyword: string, provider: string, citationState: string, competitorOverlap: string[] = []): ApiSnapshot {
+function makeSnapshot(query: string, provider: string, citationState: string, competitorOverlap: string[] = []): ApiSnapshot {
   return {
-    id: `snap_${keyword}_${provider}`,
+    id: `snap_${query}_${provider}`,
     runId: 'run_0',
-    keywordId: `kw_${keyword}`,
-    keyword,
+    queryId: `kw_${query}`,
+    query,
     provider,
     citationState,
     answerText: null,
@@ -57,7 +57,7 @@ function makeSnapshot(keyword: string, provider: string, citationState: string, 
 
 function stableInput(): InsightInput {
   return {
-    evidence: [makeEvidence({ keyword: 'kw1', provider: 'gemini', citationState: 'cited' })],
+    evidence: [makeEvidence({ query: 'kw1', provider: 'gemini', citationState: 'cited' })],
     timeline: [makeTimeline('kw1', [
       { citationState: 'cited', transition: 'cited' },
       { citationState: 'cited', transition: 'cited' },
@@ -77,12 +77,12 @@ test('stable: no changes produces a single stable insight', () => {
   expect(insights[0]!.tone).toBe('neutral')
 })
 
-test('lost citation: per-provider lost surfaces with correct keyword count', () => {
+test('lost citation: per-provider lost surfaces with correct query count', () => {
   const insights = buildInsights({
     evidence: [
-      makeEvidence({ keyword: 'kw1', provider: 'gemini', citationState: 'lost' }),
-      makeEvidence({ keyword: 'kw1', provider: 'openai', citationState: 'cited' }),
-      makeEvidence({ keyword: 'kw2', provider: 'gemini', citationState: 'lost' }),
+      makeEvidence({ query: 'kw1', provider: 'gemini', citationState: 'lost' }),
+      makeEvidence({ query: 'kw1', provider: 'openai', citationState: 'cited' }),
+      makeEvidence({ query: 'kw2', provider: 'gemini', citationState: 'lost' }),
     ],
     timeline: [
       makeTimeline('kw1', [{ citationState: 'cited', transition: 'cited' }]),
@@ -96,18 +96,18 @@ test('lost citation: per-provider lost surfaces with correct keyword count', () 
   const lost = insights.find(i => i.id === 'insight_lost')
   expect(lost).toBeTruthy()
   expect(lost!.tone).toBe('negative')
-  // 2 affected phrases (kw1/gemini, kw2/gemini) across 2 keywords
+  // 2 affected phrases (kw1/gemini, kw2/gemini) across 2 queries
   expect(lost!.affectedPhrases.length).toBe(2)
-  expect(lost!.title).toMatch(/2 key phrase/)
+  expect(lost!.title).toMatch(/2 quer/)
   // Each affected phrase has a single provider
   expect(lost!.affectedPhrases[0]!.provider).toBe('gemini')
 })
 
-test('lost citation: keyword cited by one provider but lost on another still flags the loss', () => {
+test('lost citation: query cited by one provider but lost on another still flags the loss', () => {
   const insights = buildInsights({
     evidence: [
-      makeEvidence({ keyword: 'kw1', provider: 'gemini', citationState: 'lost' }),
-      makeEvidence({ keyword: 'kw1', provider: 'openai', citationState: 'cited' }),
+      makeEvidence({ query: 'kw1', provider: 'gemini', citationState: 'lost' }),
+      makeEvidence({ query: 'kw1', provider: 'openai', citationState: 'cited' }),
     ],
     timeline: [makeTimeline('kw1', [{ citationState: 'cited', transition: 'cited' }])],
     latestSnapshots: [],
@@ -121,10 +121,10 @@ test('lost citation: keyword cited by one provider but lost on another still fla
   expect(lost!.affectedPhrases[0]!.provider).toBe('gemini')
 })
 
-test('first citation: keyword newly cited for the first time', () => {
+test('first citation: query newly cited for the first time', () => {
   const insights = buildInsights({
     evidence: [
-      makeEvidence({ keyword: 'kw1', provider: 'gemini', citationState: 'emerging' }),
+      makeEvidence({ query: 'kw1', provider: 'gemini', citationState: 'emerging' }),
     ],
     timeline: [makeTimeline('kw1', [
       { citationState: 'not-cited', transition: 'new' },
@@ -140,13 +140,13 @@ test('first citation: keyword newly cited for the first time', () => {
   expect(first!.tone).toBe('positive')
   expect(first!.actionLabel).toBe('New')
   expect(first!.affectedPhrases.length).toBe(1)
-  expect(first!.affectedPhrases[0]!.keyword).toBe('kw1')
+  expect(first!.affectedPhrases[0]!.query).toBe('kw1')
 })
 
 test('first citation: first observation that is cited (transition=new, state=cited)', () => {
   const insights = buildInsights({
     evidence: [
-      makeEvidence({ keyword: 'kw1', provider: 'gemini', citationState: 'cited' }),
+      makeEvidence({ query: 'kw1', provider: 'gemini', citationState: 'cited' }),
     ],
     timeline: [makeTimeline('kw1', [{ citationState: 'cited', transition: 'new' }])],
     latestSnapshots: [],
@@ -158,11 +158,11 @@ test('first citation: first observation that is cited (transition=new, state=cit
   expect(first).toBeTruthy()
 })
 
-test('new provider pickup: keyword already cited by another provider gains a new one', () => {
+test('new provider pickup: query already cited by another provider gains a new one', () => {
   const insights = buildInsights({
     evidence: [
-      makeEvidence({ keyword: 'kw1', provider: 'gemini', citationState: 'cited' }),
-      makeEvidence({ keyword: 'kw1', provider: 'openai', citationState: 'emerging' }),
+      makeEvidence({ query: 'kw1', provider: 'gemini', citationState: 'cited' }),
+      makeEvidence({ query: 'kw1', provider: 'openai', citationState: 'emerging' }),
     ],
     timeline: [makeTimeline('kw1', [
       { citationState: 'cited', transition: 'cited' },
@@ -187,7 +187,7 @@ test('new provider pickup: keyword already cited by another provider gains a new
 test('single-provider emerging is first citation, not provider pickup', () => {
   const insights = buildInsights({
     evidence: [
-      makeEvidence({ keyword: 'kw1', provider: 'gemini', citationState: 'emerging' }),
+      makeEvidence({ query: 'kw1', provider: 'gemini', citationState: 'emerging' }),
     ],
     timeline: [makeTimeline('kw1', [
       { citationState: 'not-cited', transition: 'new' },
@@ -202,11 +202,11 @@ test('single-provider emerging is first citation, not provider pickup', () => {
   expect(insights.find(i => i.id === 'insight_provider_pickup')).toBe(undefined)
 })
 
-test('competitor gained: competitor appears on keywords it was not cited on before', () => {
+test('competitor gained: competitor appears on queries it was not cited on before', () => {
   const insights = buildInsights({
     evidence: [
-      makeEvidence({ keyword: 'kw1', provider: 'gemini', citationState: 'cited' }),
-      makeEvidence({ keyword: 'kw2', provider: 'gemini', citationState: 'cited' }),
+      makeEvidence({ query: 'kw1', provider: 'gemini', citationState: 'cited' }),
+      makeEvidence({ query: 'kw2', provider: 'gemini', citationState: 'cited' }),
     ],
     timeline: [
       makeTimeline('kw1', [{ citationState: 'cited', transition: 'cited' }]),
@@ -227,12 +227,12 @@ test('competitor gained: competitor appears on keywords it was not cited on befo
   expect(gained).toBeTruthy()
   expect(gained!.tone).toBe('negative')
   expect(gained!.affectedPhrases.length).toBe(2)
-  expect(gained!.title).toMatch(/rival\.com appeared on 2 key phrase/)
+  expect(gained!.title).toMatch(/rival\.com appeared on 2 quer/)
 })
 
 test('competitor gained: only tracked competitors are flagged', () => {
   const insights = buildInsights({
-    evidence: [makeEvidence({ keyword: 'kw1', provider: 'gemini', citationState: 'cited' })],
+    evidence: [makeEvidence({ query: 'kw1', provider: 'gemini', citationState: 'cited' })],
     timeline: [makeTimeline('kw1', [{ citationState: 'cited', transition: 'cited' }])],
     latestSnapshots: [makeSnapshot('kw1', 'gemini', 'cited', ['untracked.com'])],
     previousSnapshots: [makeSnapshot('kw1', 'gemini', 'cited', [])],
@@ -245,7 +245,7 @@ test('competitor gained: only tracked competitors are flagged', () => {
 
 test('competitor lost: competitor drops out of citations', () => {
   const insights = buildInsights({
-    evidence: [makeEvidence({ keyword: 'kw1', provider: 'gemini', citationState: 'cited' })],
+    evidence: [makeEvidence({ query: 'kw1', provider: 'gemini', citationState: 'cited' })],
     timeline: [makeTimeline('kw1', [{ citationState: 'cited', transition: 'cited' }])],
     latestSnapshots: [makeSnapshot('kw1', 'gemini', 'cited', [])],
     previousSnapshots: [makeSnapshot('kw1', 'gemini', 'cited', ['rival.com'])],
@@ -255,12 +255,12 @@ test('competitor lost: competitor drops out of citations', () => {
   const lost = insights.find(i => i.id === 'insight_comp_lost_rival.com')
   expect(lost).toBeTruthy()
   expect(lost!.tone).toBe('neutral')
-  expect(lost!.title).toMatch(/rival\.com dropped from 1 key phrase/)
+  expect(lost!.title).toMatch(/rival\.com dropped from 1 quer/)
 })
 
-test('persistent gap: keyword uncited for 3+ runs', () => {
+test('persistent gap: query uncited for 3+ runs', () => {
   const insights = buildInsights({
-    evidence: [makeEvidence({ keyword: 'kw1', provider: 'gemini', citationState: 'not-cited' })],
+    evidence: [makeEvidence({ query: 'kw1', provider: 'gemini', citationState: 'not-cited' })],
     timeline: [makeTimeline('kw1', [
       { citationState: 'not-cited', transition: 'new' },
       { citationState: 'not-cited', transition: 'not-cited' },
@@ -274,12 +274,12 @@ test('persistent gap: keyword uncited for 3+ runs', () => {
   const gap = insights.find(i => i.id === 'insight_persistent_gap')
   expect(gap).toBeTruthy()
   expect(gap!.tone).toBe('caution')
-  expect(gap!.title).toMatch(/1 key phrase/)
+  expect(gap!.title).toMatch(/1 quer/)
 })
 
 test('persistent gap: not triggered below threshold', () => {
   const insights = buildInsights({
-    evidence: [makeEvidence({ keyword: 'kw1', provider: 'gemini', citationState: 'not-cited' })],
+    evidence: [makeEvidence({ query: 'kw1', provider: 'gemini', citationState: 'not-cited' })],
     timeline: [makeTimeline('kw1', [
       { citationState: 'not-cited', transition: 'new' },
       { citationState: 'not-cited', transition: 'not-cited' },
@@ -295,9 +295,9 @@ test('persistent gap: not triggered below threshold', () => {
 test('multiple signal types can fire simultaneously', () => {
   const insights = buildInsights({
     evidence: [
-      makeEvidence({ keyword: 'kw1', provider: 'gemini', citationState: 'lost' }),
-      makeEvidence({ keyword: 'kw2', provider: 'openai', citationState: 'emerging' }),
-      makeEvidence({ keyword: 'kw3', provider: 'gemini', citationState: 'not-cited' }),
+      makeEvidence({ query: 'kw1', provider: 'gemini', citationState: 'lost' }),
+      makeEvidence({ query: 'kw2', provider: 'openai', citationState: 'emerging' }),
+      makeEvidence({ query: 'kw3', provider: 'gemini', citationState: 'not-cited' }),
     ],
     timeline: [
       makeTimeline('kw1', [
@@ -332,11 +332,11 @@ test('multiple signal types can fire simultaneously', () => {
 test('render order: lost before competitor before pickup before first-citation before gap', () => {
   const insights = buildInsights({
     evidence: [
-      makeEvidence({ keyword: 'kw_lost', provider: 'gemini', citationState: 'lost' }),
-      makeEvidence({ keyword: 'kw_pickup', provider: 'gemini', citationState: 'cited' }),
-      makeEvidence({ keyword: 'kw_pickup', provider: 'openai', citationState: 'emerging' }),
-      makeEvidence({ keyword: 'kw_first', provider: 'gemini', citationState: 'emerging' }),
-      makeEvidence({ keyword: 'kw_gap', provider: 'gemini', citationState: 'not-cited' }),
+      makeEvidence({ query: 'kw_lost', provider: 'gemini', citationState: 'lost' }),
+      makeEvidence({ query: 'kw_pickup', provider: 'gemini', citationState: 'cited' }),
+      makeEvidence({ query: 'kw_pickup', provider: 'openai', citationState: 'emerging' }),
+      makeEvidence({ query: 'kw_first', provider: 'gemini', citationState: 'emerging' }),
+      makeEvidence({ query: 'kw_gap', provider: 'gemini', citationState: 'not-cited' }),
     ],
     timeline: [
       makeTimeline('kw_lost', [
@@ -388,14 +388,14 @@ test('render order: lost before competitor before pickup before first-citation b
 
 test('no previous snapshots: competitor signals gracefully absent', () => {
   const insights = buildInsights({
-    evidence: [makeEvidence({ keyword: 'kw1', provider: 'gemini', citationState: 'cited' })],
+    evidence: [makeEvidence({ query: 'kw1', provider: 'gemini', citationState: 'cited' })],
     timeline: [makeTimeline('kw1', [{ citationState: 'cited', transition: 'cited' }])],
     latestSnapshots: [makeSnapshot('kw1', 'gemini', 'cited', ['rival.com'])],
     previousSnapshots: [],
     trackedCompetitors: ['rival.com'],
   })
 
-  // Without previous snapshots, every competitor keyword looks "gained" since previous set is empty
+  // Without previous snapshots, every competitor query looks "gained" since previous set is empty
   const gained = insights.find(i => i.id === 'insight_comp_gained_rival.com')
   expect(gained).toBeTruthy()
 })

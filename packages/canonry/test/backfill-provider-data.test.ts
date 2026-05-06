@@ -6,7 +6,7 @@ import path from 'node:path'
 import {
   competitors,
   createClient,
-  keywords,
+  queries,
   migrate,
   projects,
   querySnapshots,
@@ -90,19 +90,19 @@ describe('backfill answer-visibility provider reparsing', () => {
       createdAt: now,
     }).run()
 
-    const openAiKeywordId = crypto.randomUUID()
-    const claudeKeywordId = crypto.randomUUID()
-    const perplexityKeywordId = crypto.randomUUID()
-    db.insert(keywords).values([
-      { id: openAiKeywordId, projectId, keyword: 'canonry pricing', createdAt: now },
-      { id: claudeKeywordId, projectId, keyword: 'canonry audit workflow', createdAt: now },
-      { id: perplexityKeywordId, projectId, keyword: 'canonry alternatives', createdAt: now },
+    const openAiQueryId = crypto.randomUUID()
+    const claudeQueryId = crypto.randomUUID()
+    const perplexityQueryId = crypto.randomUUID()
+    db.insert(queries).values([
+      { id: openAiQueryId, projectId, query: 'canonry pricing', createdAt: now },
+      { id: claudeQueryId, projectId, query: 'canonry audit workflow', createdAt: now },
+      { id: perplexityQueryId, projectId, query: 'canonry alternatives', createdAt: now },
     ]).run()
 
     db.insert(querySnapshots).values({
       id: crypto.randomUUID(),
       runId,
-      keywordId: openAiKeywordId,
+      queryId: openAiQueryId,
       provider: 'openai',
       model: 'gpt-5.4',
       citationState: 'cited',
@@ -150,7 +150,7 @@ describe('backfill answer-visibility provider reparsing', () => {
     db.insert(querySnapshots).values({
       id: crypto.randomUUID(),
       runId,
-      keywordId: claudeKeywordId,
+      queryId: claudeQueryId,
       provider: 'claude',
       model: 'claude-sonnet-4-6',
       citationState: 'not-cited',
@@ -196,7 +196,7 @@ describe('backfill answer-visibility provider reparsing', () => {
     db.insert(querySnapshots).values({
       id: crypto.randomUUID(),
       runId,
-      keywordId: perplexityKeywordId,
+      queryId: perplexityQueryId,
       provider: 'perplexity',
       model: 'sonar',
       citationState: 'not-cited',
@@ -253,7 +253,7 @@ describe('backfill answer-visibility provider reparsing', () => {
   it('uses Gemini grounding supports during snapshot reprocessing when available', async () => {
     const projectId = crypto.randomUUID()
     const runId = crypto.randomUUID()
-    const keywordId = crypto.randomUUID()
+    const queryId = crypto.randomUUID()
     const now = new Date().toISOString()
     const projectName = 'gemini-backfill'
 
@@ -279,17 +279,17 @@ describe('backfill answer-visibility provider reparsing', () => {
       createdAt: now,
     }).run()
 
-    db.insert(keywords).values({
-      id: keywordId,
+    db.insert(queries).values({
+      id: queryId,
       projectId,
-      keyword: 'answer visibility tools',
+      query: 'answer visibility tools',
       createdAt: now,
     }).run()
 
     db.insert(querySnapshots).values({
       id: crypto.randomUUID(),
       runId,
-      keywordId,
+      queryId,
       provider: 'gemini',
       model: 'gemini-3-flash',
       citationState: 'not-cited',
@@ -346,9 +346,9 @@ describe('backfill answer-visibility provider reparsing', () => {
     const projectId = crypto.randomUUID()
     const answerRunId = crypto.randomUUID()
     const auditRunId = crypto.randomUUID()
-    const openAiKeywordId = crypto.randomUUID()
-    const auditKeywordId = crypto.randomUUID()
-    const localKeywordId = crypto.randomUUID()
+    const openAiQueryId = crypto.randomUUID()
+    const auditQueryId = crypto.randomUUID()
+    const localQueryId = crypto.randomUUID()
     const now = new Date().toISOString()
     const projectName = 'mixed-backfill'
 
@@ -384,17 +384,17 @@ describe('backfill answer-visibility provider reparsing', () => {
       },
     ]).run()
 
-    db.insert(keywords).values([
-      { id: openAiKeywordId, projectId, keyword: 'canonry pricing', createdAt: now },
-      { id: auditKeywordId, projectId, keyword: 'site audit keyword', createdAt: now },
-      { id: localKeywordId, projectId, keyword: 'local visibility', createdAt: now },
+    db.insert(queries).values([
+      { id: openAiQueryId, projectId, query: 'canonry pricing', createdAt: now },
+      { id: auditQueryId, projectId, query: 'site audit query', createdAt: now },
+      { id: localQueryId, projectId, query: 'local visibility', createdAt: now },
     ]).run()
 
     db.insert(querySnapshots).values([
       {
         id: crypto.randomUUID(),
         runId: answerRunId,
-        keywordId: openAiKeywordId,
+        queryId: openAiQueryId,
         provider: 'openai',
         model: 'gpt-5.4',
         citationState: 'not-cited',
@@ -435,7 +435,7 @@ describe('backfill answer-visibility provider reparsing', () => {
       {
         id: crypto.randomUUID(),
         runId: answerRunId,
-        keywordId: localKeywordId,
+        queryId: localQueryId,
         provider: 'local',
         model: 'llama',
         citationState: 'not-cited',
@@ -450,7 +450,7 @@ describe('backfill answer-visibility provider reparsing', () => {
       {
         id: crypto.randomUUID(),
         runId: auditRunId,
-        keywordId: auditKeywordId,
+        queryId: auditQueryId,
         provider: 'openai',
         model: 'gpt-5.4',
         citationState: 'not-cited',

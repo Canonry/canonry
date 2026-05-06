@@ -12,8 +12,8 @@ export const citationCoverageProviderSchema = z.object({
 export type CitationCoverageProvider = z.infer<typeof citationCoverageProviderSchema>
 
 export const citationCoverageRowSchema = z.object({
-  keywordId: z.string(),
-  keyword: z.string(),
+  queryId: z.string(),
+  query: z.string(),
   providers: z.array(citationCoverageProviderSchema),
   citedCount: z.number().int().nonnegative(),
   mentionedCount: z.number().int().nonnegative(),
@@ -22,8 +22,8 @@ export const citationCoverageRowSchema = z.object({
 export type CitationCoverageRow = z.infer<typeof citationCoverageRowSchema>
 
 export const competitorGapRowSchema = z.object({
-  keywordId: z.string(),
-  keyword: z.string(),
+  queryId: z.string(),
+  query: z.string(),
   provider: z.string(),
   citingCompetitors: z.array(z.string()),
   runId: z.string(),
@@ -35,14 +35,14 @@ export const citationVisibilitySummarySchema = z.object({
   providersConfigured: z.number().int().nonnegative(),
   providersCiting: z.number().int().nonnegative(),
   providersMentioning: z.number().int().nonnegative(),
-  totalKeywords: z.number().int().nonnegative(),
-  // Cross-tab buckets — each tracked keyword with at least one snapshot lands
-  // in exactly one of these. Keywords with zero snapshots are not counted in
-  // any bucket; (sum of buckets) ≤ totalKeywords.
-  keywordsCitedAndMentioned: z.number().int().nonnegative(),
-  keywordsCitedOnly: z.number().int().nonnegative(),
-  keywordsMentionedOnly: z.number().int().nonnegative(),
-  keywordsInvisible: z.number().int().nonnegative(),
+  totalQueries: z.number().int().nonnegative(),
+  // Cross-tab buckets — each tracked query with at least one snapshot lands
+  // in exactly one of these. Queries with zero snapshots are not counted in
+  // any bucket; (sum of buckets) ≤ totalQueries.
+  queriesCitedAndMentioned: z.number().int().nonnegative(),
+  queriesCitedOnly: z.number().int().nonnegative(),
+  queriesMentionedOnly: z.number().int().nonnegative(),
+  queriesInvisible: z.number().int().nonnegative(),
   latestRunId: z.string().nullable(),
   latestRunAt: z.string().nullable(),
 })
@@ -50,28 +50,28 @@ export type CitationVisibilitySummary = z.infer<typeof citationVisibilitySummary
 
 export const citationVisibilityResponseSchema = z.object({
   summary: citationVisibilitySummarySchema,
-  byKeyword: z.array(citationCoverageRowSchema),
+  byQuery: z.array(citationCoverageRowSchema),
   competitorGaps: z.array(competitorGapRowSchema),
   status: z.enum(['ready', 'no-data']),
-  reason: z.enum(['no-runs-yet', 'no-keywords']).optional(),
+  reason: z.enum(['no-runs-yet', 'no-queries']).optional(),
 })
 export type CitationVisibilityResponse = z.infer<typeof citationVisibilityResponseSchema>
 
-export function emptyCitationVisibility(reason: 'no-runs-yet' | 'no-keywords'): CitationVisibilityResponse {
+export function emptyCitationVisibility(reason: 'no-runs-yet' | 'no-queries'): CitationVisibilityResponse {
   return {
     summary: {
       providersConfigured: 0,
       providersCiting: 0,
       providersMentioning: 0,
-      totalKeywords: 0,
-      keywordsCitedAndMentioned: 0,
-      keywordsCitedOnly: 0,
-      keywordsMentionedOnly: 0,
-      keywordsInvisible: 0,
+      totalQueries: 0,
+      queriesCitedAndMentioned: 0,
+      queriesCitedOnly: 0,
+      queriesMentionedOnly: 0,
+      queriesInvisible: 0,
       latestRunId: null,
       latestRunAt: null,
     },
-    byKeyword: [],
+    byQuery: [],
     competitorGaps: [],
     status: 'no-data',
     reason,

@@ -95,16 +95,16 @@ describe('canonry-mcp stdio', () => {
     const setupLoad = await client.callTool({ name: 'canonry_load_toolkit', arguments: { name: 'setup' } })
     expect(setupLoad.isError).not.toBe(true)
 
-    const addKeywords = await client.callTool({
-      name: 'canonry_keywords_add',
-      arguments: { project: 'acme', request: { keywords: ['alpha', 'alpha'] } },
+    const addQueries = await client.callTool({
+      name: 'canonry_queries_add',
+      arguments: { project: 'acme', request: { queries: ['alpha', 'alpha'] } },
     })
-    expect(addKeywords.isError).not.toBe(true)
-    expect(jsonText(addKeywords)).toEqual({ ok: true })
+    expect(addQueries.isError).not.toBe(true)
+    expect(jsonText(addQueries)).toEqual({ ok: true })
 
     const invalid = await client.callTool({
-      name: 'canonry_keywords_add',
-      arguments: { project: 'acme', request: { keywords: [] } },
+      name: 'canonry_queries_add',
+      arguments: { project: 'acme', request: { queries: [] } },
     })
     expect(invalid.isError).toBe(true)
     const text = invalid.content?.[0]
@@ -154,7 +154,7 @@ describe('canonry-mcp stdio', () => {
     await client.connect(transport)
 
     const list = await client.listTools()
-    expect(list.tools).toHaveLength(64)
+    expect(list.tools).toHaveLength(69)
     const names = list.tools.map(tool => tool.name)
     expect(names).toContain('canonry_insights_list')
     expect(names).toContain('canonry_project_overview')
@@ -186,9 +186,9 @@ function handleRequest(request: IncomingMessage, response: ServerResponse): void
     send(response, [])
     return
   }
-  if (request.method === 'POST' && url.pathname === '/api/v1/projects/acme/keywords') {
+  if (request.method === 'POST' && url.pathname === '/api/v1/projects/acme/queries') {
     request.resume()
-    send(response, [{ id: 'k1', keyword: 'alpha', createdAt: '2026-04-27T00:00:00Z' }])
+    send(response, [{ id: 'k1', query: 'alpha', createdAt: '2026-04-27T00:00:00Z' }])
     return
   }
   send(response, { error: { code: 'NOT_FOUND', message: `${request.method} ${url.pathname}` } }, 404)
