@@ -1197,6 +1197,11 @@
 
   .answer-snippet-block {
     @apply rounded-lg border border-zinc-800/60 bg-zinc-900/50 p-3 text-sm leading-relaxed text-zinc-400;
+    /* Long markdown citation URLs in answer text have no natural break
+       points; force them to wrap so they can't push the column wider than
+       the modal viewport. */
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .answer-highlight,
@@ -1330,7 +1335,7 @@
   }
 
   .evidence-modal-main {
-    @apply grid gap-4 content-start;
+    @apply grid gap-4 content-start min-w-0;
   }
 
   .evidence-modal-sidebar {
