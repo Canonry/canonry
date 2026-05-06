@@ -27,7 +27,7 @@ export function mapInsightDtoToVm(dto: InsightDto): ProjectInsightVm {
     detail: dto.cause?.details ?? dto.cause?.cause ?? '',
     actionLabel: dto.recommendation?.action ?? ACTION_LABEL_FALLBACK[dto.type],
     affectedPhrases: [{
-      keyword: dto.keyword,
+      query: dto.query,
       evidenceId: '',
       provider: dto.provider,
       citationState: CITATION_STATE_MAP[dto.type],

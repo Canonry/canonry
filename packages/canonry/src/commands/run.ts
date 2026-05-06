@@ -305,7 +305,7 @@ export function printRunDetail(run: RunDetailDto): void {
         ? (s.answerMentioned ? 'M' : 'm')
         : '–'
       const modelLabel = s.model ? ` (${s.model})` : ''
-      console.log(`    [${citationGlyph}${mentionGlyph}]  ${s.provider}${modelLabel}  ${s.keyword}`)
+      console.log(`    [${citationGlyph}${mentionGlyph}]  ${s.provider}${modelLabel}  ${s.query}`)
     }
   }
 }

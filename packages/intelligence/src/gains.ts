@@ -7,16 +7,16 @@ export function detectGains(currentRun: RunData, previousRun: RunData): Gain[] {
   const previousCited = new Set<string>()
   for (const snap of previousRun.snapshots) {
     if (snap.cited) {
-      previousCited.add(`${snap.keyword}:${snap.provider}`)
+      previousCited.add(`${snap.query}:${snap.provider}`)
     }
   }
 
   // Find current snapshots that ARE cited but were NOT previously
   for (const snap of currentRun.snapshots) {
-    const key = `${snap.keyword}:${snap.provider}`
+    const key = `${snap.query}:${snap.provider}`
     if (snap.cited && !previousCited.has(key)) {
       gains.push({
-        keyword: snap.keyword,
+        query: snap.query,
         provider: snap.provider,
         citationUrl: snap.citationUrl,
         position: snap.position,

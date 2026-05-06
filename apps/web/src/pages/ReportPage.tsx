@@ -230,7 +230,7 @@ function ExecutiveSummarySection({ report }: { report: ProjectReportDto }) {
       <SectionHeading eyebrow="Section 1" title="Executive summary" subtitle="Top-line citation rate with trend versus the prior run, plus the most actionable findings from the latest visibility sweep." />
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric label="Citation rate" value={formatPercent(exec.citationRate, 0)} tone={trendTone(exec.trend)} subtitle={providerSuffix} />
-        <Metric label="Keywords tracked" value={formatNumber(exec.keywordCount)} subtitle={competitorSuffix} />
+        <Metric label="Queries tracked" value={formatNumber(exec.queryCount)} subtitle={competitorSuffix} />
         {exec.gsc && (
           <Metric
             label="GSC clicks"
@@ -288,7 +288,7 @@ function Metric({ label, value, tone, subtitle }: { label: string; value: string
 
 function CitationScorecardSection({ report }: { report: ProjectReportDto }) {
   const sc = report.citationScorecard
-  if (sc.providers.length === 0 || sc.keywords.length === 0) {
+  if (sc.providers.length === 0 || sc.queries.length === 0) {
     return (
       <section className="page-section-divider">
         <SectionHeading eyebrow="Section 2" title="Citation scorecard" subtitle="Whether your domain appeared in each AI engine's source list for every tracked keyword in the latest sweep — green = cited, red = not cited, gray = no snapshot." />
@@ -327,19 +327,19 @@ function CitationScorecardSection({ report }: { report: ProjectReportDto }) {
           ))}
         </ul>
       </div>
-      <p className="eyebrow mb-2">Keyword × provider</p>
+      <p className="eyebrow mb-2">Query × provider</p>
       <div className="evidence-table-wrap">
         <table className="evidence-table">
           <thead>
             <tr>
-              <th>Keyword</th>
+              <th>Query</th>
               {sc.providers.map(p => <th key={p}>{p}</th>)}
             </tr>
           </thead>
           <tbody>
-            {sc.keywords.map((kw, i) => (
-              <tr key={kw}>
-                <td className="evidence-keyword-cell">{kw}</td>
+            {sc.queries.map((q: string, i: number) => (
+              <tr key={q}>
+                <td className="evidence-query-cell">{q}</td>
                 {sc.providers.map((p, j) => {
                   const cell = sc.matrix[i]?.[j] ?? null
                   return (
@@ -445,7 +445,7 @@ function CompetitorLandscapeSection({ report }: { report: ProjectReportDto }) {
                 <th>Citations</th>
                 <th>Mentions</th>
                 <th>SOV</th>
-                <th>Cited keywords</th>
+                <th>Cited queries</th>
               </tr>
             </thead>
             <tbody>
@@ -455,13 +455,13 @@ function CompetitorLandscapeSection({ report }: { report: ProjectReportDto }) {
                 const mentionTotal = mention?.totalCount ?? ml.totalAnswerSnapshots
                 return (
                   <tr key={c.domain}>
-                    <td className="evidence-keyword-cell">{c.domain}</td>
+                    <td className="evidence-query-cell">{c.domain}</td>
                     <td><ToneBadge tone={pressureTone(c.pressureLabel)}>{c.pressureLabel}</ToneBadge></td>
                     <td>{c.citationCount} / {c.totalCount}</td>
                     <td>{mentionCount} / {mentionTotal}</td>
                     <td>{c.sharePct}%</td>
                     <td className="text-xs text-zinc-400">
-                      {c.citedKeywords.slice(0, 5).join(', ')}{c.citedKeywords.length > 5 ? '…' : ''}
+                      {c.citedQueries.slice(0, 5).join(', ')}{c.citedQueries.length > 5 ? '…' : ''}
                       {c.theirCitedPages.length > 0 && (
                         <details className="mt-1">
                           <summary className="cursor-pointer text-zinc-500 hover:text-zinc-300">
@@ -543,7 +543,7 @@ function AiSourceOriginSection({ report }: { report: ProjectReportDto }) {
                 <tbody>
                   {so.topDomains.map(d => (
                     <tr key={d.domain}>
-                      <td className="evidence-keyword-cell text-xs">{d.domain}</td>
+                      <td className="evidence-query-cell text-xs">{d.domain}</td>
                       <td>{d.count}</td>
                       <td>
                         {d.isCompetitor
@@ -617,10 +617,10 @@ function GscPerformanceSection({ report }: { report: ProjectReportDto }) {
       {(gsc.trackedButNoGsc.length > 0 || gsc.gscButNotTracked.length > 0) && (
         <div className="mt-4 grid gap-3 lg:grid-cols-2">
           {gsc.trackedButNoGsc.length > 0 && (
-            <KeywordList title="Tracked but no GSC impressions" tone="caution" items={gsc.trackedButNoGsc} />
+            <QueryList title="Tracked but no GSC impressions" tone="caution" items={gsc.trackedButNoGsc} />
           )}
           {gsc.gscButNotTracked.length > 0 && (
-            <KeywordList title="GSC queries not yet tracked" tone="neutral" items={gsc.gscButNotTracked} />
+            <QueryList title="GSC queries not yet tracked" tone="neutral" items={gsc.gscButNotTracked} />
           )}
         </div>
       )}
@@ -647,7 +647,7 @@ function TopQueriesTable({ rows }: { rows: GscQueryRow[] }) {
           <tbody>
             {rows.map(r => (
               <tr key={r.query}>
-                <td className="evidence-keyword-cell">{r.query}</td>
+                <td className="evidence-query-cell">{r.query}</td>
                 <td className="text-xs text-zinc-400">{r.category}</td>
                 <td>{formatNumber(r.clicks)}</td>
                 <td>{formatNumber(r.impressions)}</td>
@@ -662,7 +662,7 @@ function TopQueriesTable({ rows }: { rows: GscQueryRow[] }) {
   )
 }
 
-function KeywordList({ title, items, tone }: { title: string; items: string[]; tone: MetricTone }) {
+function QueryList({ title, items, tone }: { title: string; items: string[]; tone: MetricTone }) {
   return (
     <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-3">
       <div className="flex items-center justify-between">
@@ -713,7 +713,7 @@ function GaTrafficSection({ report }: { report: ProjectReportDto }) {
               <tbody>
                 {ga.topLandingPages.slice(0, 12).map(p => (
                   <tr key={p.page}>
-                    <td className="evidence-keyword-cell text-xs">{p.page}</td>
+                    <td className="evidence-query-cell text-xs">{p.page}</td>
                     <td>{formatNumber(p.sessions)}</td>
                     <td>{formatNumber(p.users)}</td>
                     <td>{formatNumber(p.organicSessions)}</td>
@@ -863,7 +863,7 @@ function AiReferralsSection({ report }: { report: ProjectReportDto }) {
               <tbody>
                 {ai.topLandingPages.map(p => (
                   <tr key={p.page}>
-                    <td className="evidence-keyword-cell text-xs">{p.page}</td>
+                    <td className="evidence-query-cell text-xs">{p.page}</td>
                     <td>{formatNumber(p.sessions)}</td>
                     <td>{formatNumber(p.users)}</td>
                   </tr>
@@ -970,7 +970,7 @@ function PerProviderTrendTable({ trend }: { trend: CitationsTrendPoint[] }) {
           <tbody>
             {trend.map(t => (
               <tr key={t.runId}>
-                <td className="evidence-keyword-cell">{formatDate(t.date)}</td>
+                <td className="evidence-query-cell">{formatDate(t.date)}</td>
                 <td>{t.citationRate}%</td>
                 <td className="text-xs text-zinc-400">
                   {t.providerRates.map(r => `${r.provider}: ${r.citationRate}%`).join(' · ')}
@@ -1004,7 +1004,7 @@ function InsightsSection({ report }: { report: ProjectReportDto }) {
             <tr>
               <th>Severity</th>
               <th>Title</th>
-              <th>Keyword</th>
+              <th>Query</th>
               <th>Provider</th>
               <th>Recommendation</th>
             </tr>
@@ -1018,8 +1018,8 @@ function InsightsSection({ report }: { report: ProjectReportDto }) {
                     <span className="ml-2 text-[11px] text-zinc-500">×{i.instanceCount}</span>
                   )}
                 </td>
-                <td className="evidence-keyword-cell">{i.title}</td>
-                <td className="text-xs text-zinc-400">{i.keyword}</td>
+                <td className="evidence-query-cell">{i.title}</td>
+                <td className="text-xs text-zinc-400">{i.query}</td>
                 <td className="text-xs text-zinc-400">{i.provider}</td>
                 <td className="text-xs text-zinc-400">{i.recommendation ?? '—'}</td>
               </tr>
@@ -1057,7 +1057,7 @@ function ContentOpportunitiesSection({ report }: { report: ProjectReportDto }) {
           <tbody>
             {report.contentOpportunities.slice(0, 10).map(o => (
               <tr key={o.targetRef}>
-                <td className="evidence-keyword-cell">{o.query}</td>
+                <td className="evidence-query-cell">{o.query}</td>
                 <td><ToneBadge tone="neutral">{actionLabel(o.action)}</ToneBadge></td>
                 <td>{Math.round(o.score)}</td>
                 <td className="text-xs">

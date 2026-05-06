@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import {
   insights,
   healthSnapshots,
-  keywords,
+  queries,
   parseJsonColumn,
   projects,
   querySnapshots,
@@ -19,7 +19,7 @@ import {
   type LocationContext,
   type ProjectDto,
   type ProjectOverviewDto,
-  type ProjectOverviewKeywordCountsDto,
+  type ProjectOverviewQueryCountsDto,
   type ProjectOverviewProviderEntryDto,
   type ProjectOverviewTransitionsDto,
   type ProjectSearchHitDto,
@@ -87,7 +87,7 @@ export async function compositeRoutes(app: FastifyInstance) {
       .slice(0, TOP_INSIGHT_LIMIT)
       .map(mapInsightRow)
 
-    const { keywordCounts, providers } = summarizeLatestRun(app, latestRunRow ?? null)
+    const { queryCounts, providers } = summarizeLatestRun(app, latestRunRow ?? null)
     const transitions = summarizeTransitions(app, latestRunRow ?? null, previousRunRow ?? null)
 
     const result: ProjectOverviewDto = {
@@ -95,7 +95,7 @@ export async function compositeRoutes(app: FastifyInstance) {
       latestRun,
       health,
       topInsights,
-      keywordCounts,
+      queryCounts,
       providers,
       transitions,
     }
@@ -122,8 +122,8 @@ export async function compositeRoutes(app: FastifyInstance) {
       .select({
         id: querySnapshots.id,
         runId: querySnapshots.runId,
-        keywordId: querySnapshots.keywordId,
-        keywordText: keywords.keyword,
+        queryId: querySnapshots.queryId,
+        queryText: queries.query,
         provider: querySnapshots.provider,
         model: querySnapshots.model,
         citationState: querySnapshots.citationState,
@@ -133,15 +133,15 @@ export async function compositeRoutes(app: FastifyInstance) {
         createdAt: querySnapshots.createdAt,
       })
       .from(querySnapshots)
-      .innerJoin(keywords, eq(querySnapshots.keywordId, keywords.id))
+      .innerJoin(queries, eq(querySnapshots.queryId, queries.id))
       .where(
         and(
-          eq(keywords.projectId, project.id),
+          eq(queries.projectId, project.id),
           or(
             sql`${querySnapshots.answerText} LIKE ${pattern} ESCAPE '\\'`,
             sql`${querySnapshots.citedDomains} LIKE ${pattern} ESCAPE '\\'`,
             sql`${querySnapshots.rawResponse} LIKE ${pattern} ESCAPE '\\'`,
-            like(keywords.keyword, pattern),
+            like(queries.query, pattern),
           ),
         ),
       )
@@ -157,7 +157,7 @@ export async function compositeRoutes(app: FastifyInstance) {
           eq(insights.projectId, project.id),
           or(
             like(insights.title, pattern),
-            like(insights.keyword, pattern),
+            like(insights.query, pattern),
             sql`${insights.recommendation} LIKE ${pattern} ESCAPE '\\'`,
             sql`${insights.cause} LIKE ${pattern} ESCAPE '\\'`,
           ),
@@ -222,16 +222,16 @@ function summarizeRun(run: typeof runs.$inferSelect): RunDetailDto {
 function summarizeLatestRun(
   app: FastifyInstance,
   run: typeof runs.$inferSelect | null,
-): { keywordCounts: ProjectOverviewKeywordCountsDto; providers: ProjectOverviewProviderEntryDto[] } {
+): { queryCounts: ProjectOverviewQueryCountsDto; providers: ProjectOverviewProviderEntryDto[] } {
   const empty = {
-    keywordCounts: { totalKeywords: 0, citedKeywords: 0, notCitedKeywords: 0, citedRate: 0 } as ProjectOverviewKeywordCountsDto,
+    queryCounts: { totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0 } as ProjectOverviewQueryCountsDto,
     providers: [] as ProjectOverviewProviderEntryDto[],
   }
   if (!run) return empty
 
   const rows = app.db
     .select({
-      keywordId: querySnapshots.keywordId,
+      queryId: querySnapshots.queryId,
       provider: querySnapshots.provider,
       citationState: querySnapshots.citationState,
     })
@@ -240,14 +240,14 @@ function summarizeLatestRun(
     .all()
   if (rows.length === 0) return empty
 
-  // Roll up per-keyword: a keyword counts as cited if any provider cited it.
-  // Mirrors the dashboard's keyword-status badge.
-  const perKeyword = new Map<string, boolean>()
+  // Roll up per-query: a query counts as cited if any provider cited it.
+  // Mirrors the dashboard's query-status badge.
+  const perQuery = new Map<string, boolean>()
   const perProvider = new Map<string, { cited: number; total: number }>()
   for (const row of rows) {
     const cited = row.citationState === CitationStates.cited
-    if (!perKeyword.has(row.keywordId) || cited) {
-      perKeyword.set(row.keywordId, cited)
+    if (!perQuery.has(row.queryId) || cited) {
+      perQuery.set(row.queryId, cited)
     }
     const bucket = perProvider.get(row.provider) ?? { cited: 0, total: 0 }
     bucket.total += 1
@@ -255,13 +255,13 @@ function summarizeLatestRun(
     perProvider.set(row.provider, bucket)
   }
 
-  const totalKeywords = perKeyword.size
-  let citedKeywords = 0
-  for (const wasCited of perKeyword.values()) {
-    if (wasCited) citedKeywords += 1
+  const totalQueries = perQuery.size
+  let citedQueries = 0
+  for (const wasCited of perQuery.values()) {
+    if (wasCited) citedQueries += 1
   }
-  const notCitedKeywords = totalKeywords - citedKeywords
-  const citedRate = totalKeywords === 0 ? 0 : Number((citedKeywords / totalKeywords).toFixed(4))
+  const notCitedQueries = totalQueries - citedQueries
+  const citedRate = totalQueries === 0 ? 0 : Number((citedQueries / totalQueries).toFixed(4))
 
   const providers: ProjectOverviewProviderEntryDto[] = [...perProvider.entries()]
     .map(([provider, { cited, total }]) => ({
@@ -273,7 +273,7 @@ function summarizeLatestRun(
     .sort((a, b) => a.provider.localeCompare(b.provider))
 
   return {
-    keywordCounts: { totalKeywords, citedKeywords, notCitedKeywords, citedRate },
+    queryCounts: { totalQueries, citedQueries, notCitedQueries, citedRate },
     providers,
   }
 }
@@ -289,7 +289,7 @@ function summarizeTransitions(
   const fetchCited = (runId: string): Map<string, boolean> => {
     const rows = app.db
       .select({
-        keywordId: querySnapshots.keywordId,
+        queryId: querySnapshots.queryId,
         citationState: querySnapshots.citationState,
       })
       .from(querySnapshots)
@@ -298,7 +298,7 @@ function summarizeTransitions(
     const map = new Map<string, boolean>()
     for (const row of rows) {
       const cited = row.citationState === CitationStates.cited
-      if (!map.has(row.keywordId) || cited) map.set(row.keywordId, cited)
+      if (!map.has(row.queryId) || cited) map.set(row.queryId, cited)
     }
     return map
   }
@@ -308,8 +308,8 @@ function summarizeTransitions(
   let gained = 0
   let lost = 0
   let emerging = 0
-  for (const [keywordId, latestCited] of latestMap) {
-    const previousCited = previousMap.get(keywordId)
+  for (const [queryId, latestCited] of latestMap) {
+    const previousCited = previousMap.get(queryId)
     if (previousCited === undefined) {
       if (latestCited) emerging += 1
       continue
@@ -329,7 +329,7 @@ function mapInsightRow(r: typeof insights.$inferSelect): InsightDto {
     type: r.type as InsightDto['type'],
     severity: r.severity as InsightDto['severity'],
     title: r.title,
-    keyword: r.keyword,
+    query: r.query,
     provider: r.provider,
     recommendation: parseJsonColumn<InsightDto['recommendation']>(r.recommendation, undefined),
     cause: parseJsonColumn<InsightDto['cause']>(r.cause, undefined),
@@ -377,8 +377,8 @@ function buildSnapshotHit(
   row: {
     id: string
     runId: string
-    keywordId: string
-    keywordText: string | null
+    queryId: string
+    queryText: string | null
     provider: string
     model: string | null
     citationState: string
@@ -387,10 +387,10 @@ function buildSnapshotHit(
     rawResponse: string | null
     createdAt: string
   },
-  query: string,
+  searchTerm: string,
 ): ProjectSearchSnapshotHitDto {
-  const lower = query.toLowerCase()
-  const keyword = row.keywordText ?? ''
+  const lower = searchTerm.toLowerCase()
+  const query = row.queryText ?? ''
   const answer = row.answerText ?? ''
   const cited = row.citedDomains
   const raw = row.rawResponse ?? ''
@@ -398,22 +398,22 @@ function buildSnapshotHit(
   let snippet: string
   if (answer.toLowerCase().includes(lower)) {
     matchedField = 'answerText'
-    snippet = makeSnippet(answer, query)
+    snippet = makeSnippet(answer, searchTerm)
   } else if (cited.toLowerCase().includes(lower)) {
     matchedField = 'citedDomains'
-    snippet = makeSnippet(cited, query)
+    snippet = makeSnippet(cited, searchTerm)
   } else if (raw.toLowerCase().includes(lower)) {
     matchedField = 'searchQueries'
-    snippet = makeSnippet(raw, query)
+    snippet = makeSnippet(raw, searchTerm)
   } else {
-    matchedField = 'keyword'
-    snippet = keyword
+    matchedField = 'query'
+    snippet = query
   }
   return {
     kind: 'snapshot',
     id: row.id,
     runId: row.runId,
-    keyword,
+    query,
     provider: row.provider,
     model: row.model,
     citationState: row.citationState as CitationState,
@@ -423,24 +423,24 @@ function buildSnapshotHit(
   }
 }
 
-function buildInsightHit(row: typeof insights.$inferSelect, query: string): ProjectSearchInsightHitDto {
-  const lower = query.toLowerCase()
+function buildInsightHit(row: typeof insights.$inferSelect, searchTerm: string): ProjectSearchInsightHitDto {
+  const lower = searchTerm.toLowerCase()
   const recommendation = row.recommendation ?? ''
   const cause = row.cause ?? ''
   let matchedField: InsightMatchedField
   let snippet: string
   if (row.title.toLowerCase().includes(lower)) {
     matchedField = 'title'
-    snippet = makeSnippet(row.title, query)
-  } else if (row.keyword.toLowerCase().includes(lower)) {
-    matchedField = 'keyword'
-    snippet = row.keyword
+    snippet = makeSnippet(row.title, searchTerm)
+  } else if (row.query.toLowerCase().includes(lower)) {
+    matchedField = 'query'
+    snippet = row.query
   } else if (recommendation.toLowerCase().includes(lower)) {
     matchedField = 'recommendation'
-    snippet = makeSnippet(recommendation, query)
+    snippet = makeSnippet(recommendation, searchTerm)
   } else {
     matchedField = 'cause'
-    snippet = makeSnippet(cause, query)
+    snippet = makeSnippet(cause, searchTerm)
   }
   return {
     kind: 'insight',
@@ -449,7 +449,7 @@ function buildInsightHit(row: typeof insights.$inferSelect, query: string): Proj
     type: row.type as InsightDto['type'],
     severity: row.severity as InsightDto['severity'],
     title: row.title,
-    keyword: row.keyword,
+    query: row.query,
     provider: row.provider,
     matchedField,
     snippet,

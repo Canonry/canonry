@@ -36,13 +36,16 @@ export const configGoogleSchema = z.object({
   }).optional(),
 }).optional()
 
+const configQueryListSchema = z.array(z.string().min(1))
+
 export const configSpecSchema = z.object({
   displayName: z.string().min(1),
   canonicalDomain: z.string().min(1),
   ownedDomains: z.array(z.string().min(1)).optional().default([]),
   country: z.string().length(2),
   language: z.string().min(2),
-  keywords: z.array(z.string().min(1)).optional().default([]),
+  queries: configQueryListSchema.optional(),
+  keywords: configQueryListSchema.optional(),
   competitors: z.array(z.string().min(1)).optional().default([]),
   providers: z.array(providerNameSchema).optional().default([]),
   locations: z.array(locationContextSchema).optional().default([]),
@@ -52,6 +55,14 @@ export const configSpecSchema = z.object({
   google: configGoogleSchema,
   autoExtractBacklinks: z.boolean().optional().default(false),
 }).superRefine((spec, ctx) => {
+  if (spec.queries !== undefined && spec.keywords !== undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'Use spec.queries; spec.keywords is accepted only as a legacy alias when spec.queries is omitted',
+      path: ['keywords'],
+    })
+  }
+
   const duplicateLabels = findDuplicateLocationLabels(spec.locations)
   if (duplicateLabels.length > 0) {
     ctx.addIssue({
@@ -76,6 +87,10 @@ export const projectConfigSchema = z.object({
   metadata: configMetadataSchema,
   spec: configSpecSchema,
 })
+
+export function resolveConfigSpecQueries(spec: { queries?: string[]; keywords?: string[] }): string[] {
+  return spec.queries ?? spec.keywords ?? []
+}
 
 export type ProjectConfig = z.infer<typeof projectConfigSchema>
 export type ConfigMetadata = z.infer<typeof configMetadataSchema>

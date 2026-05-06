@@ -3,7 +3,7 @@ import path from 'node:path'
 import os from 'node:os'
 import type { FastifyInstance } from 'fastify'
 import { eq, and } from 'drizzle-orm'
-import { querySnapshots, runs, keywords } from '@ainyc/canonry-db'
+import { parseJsonColumn, querySnapshots, runs, queries } from '@ainyc/canonry-db'
 import { CitationStates, notFound, notImplemented, validationError, type GroundingSource } from '@ainyc/canonry-contracts'
 import { resolveProject } from './helpers.js'
 
@@ -141,7 +141,7 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
       const snapshots = app.db
         .select({
           id: querySnapshots.id,
-          keywordId: querySnapshots.keywordId,
+          queryId: querySnapshots.queryId,
           provider: querySnapshots.provider,
           citationState: querySnapshots.citationState,
           citedDomains: querySnapshots.citedDomains,
@@ -152,27 +152,27 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
         .where(eq(querySnapshots.runId, runId))
         .all()
 
-      // Get keyword names
-      const keywordRows = app.db
-        .select({ id: keywords.id, keyword: keywords.keyword })
-        .from(keywords)
-        .where(eq(keywords.projectId, project.id))
+      // Get query texts
+      const queryRows = app.db
+        .select({ id: queries.id, query: queries.query })
+        .from(queries)
+        .where(eq(queries.projectId, project.id))
         .all()
-      const keywordMap = new Map(keywordRows.map(k => [k.id, k.keyword]))
+      const queryMap = new Map(queryRows.map(q => [q.id, q.query]))
 
-      // Group snapshots by keyword, separate API (openai) from browser (cdp:chatgpt)
-      const byKeyword = new Map<string, {
-        keyword: string
+      // Group snapshots by query, separate API (openai) from browser (cdp:chatgpt)
+      const byQuery = new Map<string, {
+        query: string
         api: typeof snapshots[number] | null
         browser: typeof snapshots[number] | null
       }>()
 
       for (const snap of snapshots) {
-        const kwName = keywordMap.get(snap.keywordId) ?? snap.keywordId
-        if (!byKeyword.has(snap.keywordId)) {
-          byKeyword.set(snap.keywordId, { keyword: kwName, api: null, browser: null })
+        const qName = queryMap.get(snap.queryId) ?? snap.queryId
+        if (!byQuery.has(snap.queryId)) {
+          byQuery.set(snap.queryId, { query: qName, api: null, browser: null })
         }
-        const entry = byKeyword.get(snap.keywordId)!
+        const entry = byQuery.get(snap.queryId)!
         if (snap.provider === 'cdp:chatgpt') {
           entry.browser = snap
         } else if (snap.provider === 'openai') {
@@ -187,7 +187,7 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
       let disagreed = 0
       let total = 0
 
-      const keywordResults = [...byKeyword.values()].map(({ keyword, api, browser }) => {
+      const queryResults = [...byQuery.values()].map(({ query, api, browser }) => {
         total++
         const apiCited = api?.citationState === CitationStates.cited
         const browserCited = browser?.citationState === CitationStates.cited
@@ -224,17 +224,17 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
         }
 
         return {
-          keyword,
+          query,
           api: api ? {
             provider: api.provider,
             citationState: api.citationState,
-            citedDomains: JSON.parse(api.citedDomains || '[]'),
+            citedDomains: parseJsonColumn<string[]>(api.citedDomains, []),
             groundingSources: parseGroundingSources(api),
           } : null,
           browser: browser ? {
             provider: browser.provider,
             citationState: browser.citationState,
-            citedDomains: JSON.parse(browser.citedDomains || '[]'),
+            citedDomains: parseJsonColumn<string[]>(browser.citedDomains, []),
             groundingSources: parseGroundingSources(browser),
             screenshotUrl: browser.screenshotPath ? `${opts.routePrefix ?? '/api/v1'}/screenshots/${browser.id}` : undefined,
           } : null,
@@ -244,7 +244,7 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
 
       return reply.send({
         summary: { total, agreed, apiOnly: apiOnlyCited, browserOnly: browserOnlyCited, disagreed },
-        keywords: keywordResults,
+        queries: queryResults,
       })
     },
   )

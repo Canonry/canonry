@@ -2,7 +2,7 @@
 
 ## Role
 
-`packages/provider-openai` is one of three answer-visibility provider adapters (alongside Gemini and Claude). It queries the OpenAI Responses API with web search enabled to determine which domains are cited in AI-generated answers for tracked keywords.
+`packages/provider-openai` is one of three answer-visibility provider adapters (alongside Gemini and Claude). It queries the OpenAI Responses API with web search enabled to determine which domains are cited in AI-generated answers for tracked queries.
 
 ## Provider Contract
 
@@ -16,7 +16,7 @@ Makes a lightweight OpenAI API call to verify the key works. Returns ok/error wi
 
 ### `executeTrackedQuery(input: OpenAITrackedQueryInput): Promise<OpenAIRawResult>`
 
-Sends the keyword to the OpenAI Responses API with `web_search_preview` tool enabled. The keyword is sent as-is. Returns:
+Sends the query to the OpenAI Responses API with `web_search_preview` tool enabled. The query is sent as-is. Returns:
 
 - `rawResponse` — the full OpenAI API response (output items, usage metadata)
 - `groundingSources` — extracted `{ uri, title }` pairs from URL citation annotations

@@ -2,7 +2,7 @@
 
 ## Role
 
-`packages/provider-gemini` is one of three answer-visibility provider adapters (alongside OpenAI and Claude). It queries the Gemini API with Google Search grounding enabled to determine which domains are cited in AI-generated answers for tracked keywords.
+`packages/provider-gemini` is one of three answer-visibility provider adapters (alongside OpenAI and Claude). It queries the Gemini API with Google Search grounding enabled to determine which domains are cited in AI-generated answers for tracked queries.
 
 ## Provider Contract
 
@@ -16,7 +16,7 @@ Makes a lightweight Gemini API call to verify the key works. Returns ok/error wi
 
 ### `executeTrackedQuery(input: GeminiTrackedQueryInput): Promise<GeminiRawResult>`
 
-Sends the keyword to Gemini with the `googleSearch` tool enabled. The keyword is sent as-is aside from optional location context. Returns:
+Sends the query to Gemini with the `googleSearch` tool enabled. The query is sent as-is aside from optional location context. Returns:
 
 - `rawResponse` — the full Gemini API response (candidates, usage metadata)
 - `groundingSources` — extracted `{ uri, title }` pairs from the grounding chunks referenced by `groundingSupports`
@@ -109,7 +109,7 @@ The `GET /runs/:id` endpoint returns snapshots enriched with grounding data:
 ```json
 {
   "id": "...",
-  "keyword": "best dentist brooklyn",
+  "query": "best dentist brooklyn",
   "citationState": "cited",
   "answerText": "...",
   "citedDomains": ["example.com", "competitor.com"],

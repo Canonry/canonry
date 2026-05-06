@@ -38,7 +38,7 @@ Agent-first open-source AEO (Answer Engine Optimization) operating platform. Tra
 
 ## When to Use
 
-- Tracking keyphrase citations across AI providers
+- Tracking query citations across AI providers
 - Running technical SEO audits (14‑factor scoring)
 - Implementing structured data (JSON‑LD)
 - Diagnosing indexing gaps via Google Search Console / Bing Webmaster Tools
@@ -57,16 +57,16 @@ Agent-first open-source AEO (Answer Engine Optimization) operating platform. Tra
 A canonry engagement follows the same loop regardless of project size:
 
 1. **Diagnose** — Run a baseline sweep (`canonry run <project> --wait`) and a technical audit (`npx @ainyc/aeo-audit@latest <url> --format json`). See `references/aeo-analysis.md` for interpretation.
-2. **Prioritize** — Triage by impact: indexing gaps → schema gaps → content gaps → keyphrase strategy. Branded-term losses are urgent.
+2. **Prioritize** — Triage by impact: indexing gaps → schema gaps → content gaps → query strategy. Branded-term losses are urgent.
 3. **Execute** — Apply fixes via the canonry CLI or platform integrations. See `references/canonry-cli.md` for the full command catalog and `references/wordpress-integration.md` for the WordPress workflow.
 4. **Monitor** — Re-run sweeps weekly. Correlate visibility shifts with deployments and competitor moves.
-5. **Report** — Lead with data, not interpretation: "Lost `<keyword>` on Gemini between <date> and <date> — two competitors moved in. Here's what to fix." For a one-command client-facing summary, run `canonry report <project>` to generate a self-contained HTML bundle (executive summary, citation scorecard, competitor landscape, GSC + GA4 performance, insights). Same payload is available via `--format json` and the `canonry_report` MCP tool.
+5. **Report** — Lead with data, not interpretation: "Lost `<query>` on Gemini between <date> and <date> — two competitors moved in. Here's what to fix." For a one-command client-facing summary, run `canonry report <project>` to generate a self-contained HTML bundle (executive summary, citation scorecard, competitor landscape, GSC + GA4 performance, insights). Same payload is available via `--format json` and the `canonry_report` MCP tool.
 
 ## Common Starting Points
 
-- **New site, 0 citations** → submit to GSC/Bing first; basic LocalBusiness/Service schema; `llms.txt`; trim to 8–12 high-intent keyphrases. See `references/indexing.md`.
+- **New site, 0 citations** → submit to GSC/Bing first; basic LocalBusiness/Service schema; `llms.txt`; trim to 8–12 high-intent queries. See `references/indexing.md`.
 - **Established site, regression** → diff canonry runs to find the loss window; verify schema is intact; resubmit affected URLs. See `references/aeo-analysis.md`.
-- **Multi-county targeting** → reference counties in `areaServed` schema and `llms.txt`; do not split into per-county keyphrases until base visibility exists.
+- **Multi-county targeting** → reference counties in `areaServed` schema and `llms.txt`; do not split into per-county queries until base visibility exists.
 
 ## Google Analytics 4
 

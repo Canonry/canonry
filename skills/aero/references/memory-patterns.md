@@ -13,13 +13,13 @@ Aero ships with a built-in durable notes store — the `canonry_memory_set`, `ca
 
 | Scope | Examples | Home |
 |---|---|---|
-| **Project state** | Baselines, historical regressions, citation rates per keyword/provider, recent insights, sweep history, audit trail | Canonry DB — query via CLI / API / read tools |
+| **Project state** | Baselines, historical regressions, citation rates per query/provider, recent insights, sweep history, audit trail | Canonry DB — query via CLI / API / read tools |
 | **Operator facts** | Personal preferences, non-observable context ("content lead is Sarah", "migrating off Webflow next quarter"), tone/voice preferences the operator confirmed | Aero memory (`canonry_memory_set`) |
 | **Session scratch** | "I just tried X and it failed", intermediate reasoning, turn-local state | Nowhere — let it die with the session |
 
 ## How to read project state from canonry
 
-Prefer Aero's read tools (`canonry_project_overview`, `canonry_health_latest`, `canonry_timeline_get`, `canonry_insights_list`, `canonry_keywords_list`, `canonry_competitors_list`, `canonry_run_get`) over shelling out, but the CLI exists for operators too:
+Prefer Aero's read tools (`canonry_project_overview`, `canonry_health_latest`, `canonry_timeline_get`, `canonry_insights_list`, `canonry_queries_list`, `canonry_competitors_list`, `canonry_run_get`) over shelling out, but the CLI exists for operators too:
 
 ```bash
 canonry status <project> --format json
@@ -61,6 +61,6 @@ canonry agent memory forget <project> --key <k>
 ## Bad remember candidates
 
 - Anything canonry already tracks (runs, insights, citation rates, schedules). Query it.
-- Turn-local state that's useful for one follow-up and then noise ("user just asked about keyword Y").
+- Turn-local state that's useful for one follow-up and then noise ("user just asked about query Y").
 - Raw evidence or long transcripts — persist a conclusion, not a dump.
 - Unvalidated guesses. Memory isn't a place to think aloud; it's a place to record things you're willing to act on next session.

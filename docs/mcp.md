@@ -26,7 +26,7 @@ canonry mcp install --client cursor --read-only
 canonry mcp config  --client codex            # print snippet for clients without auto-install
 ```
 
-`install` merges a `canonry` MCP server entry into the client's config (creating the file if needed, backing up the original to `<config>.canonry.bak`). It is idempotent — re-running with the same flags is a no-op. `config` prints the snippet to stdout for copy-paste or use in unsupported clients (currently Codex CLI, since it uses TOML). Both helpers accept `--name <server>` to install under a custom key, `--read-only` to scope to the 35 read tools, `--dry-run` (install only), and `--format json` for machine-readable output.
+`install` merges a `canonry` MCP server entry into the client's config (creating the file if needed, backing up the original to `<config>.canonry.bak`). It is idempotent — re-running with the same flags is a no-op. `config` prints the snippet to stdout for copy-paste or use in unsupported clients (currently Codex CLI, since it uses TOML). Both helpers accept `--name <server>` to install under a custom key, `--read-only` to scope to the 45 read API tools, `--dry-run` (install only), and `--format json` for machine-readable output.
 
 ## Auth
 
@@ -72,9 +72,9 @@ args = []
 
 ## Tool Surface
 
-v1 is curated for client usability: 60 API tools (42 read in `--read-only`) plus two meta-tools (`canonry_help`, `canonry_load_toolkit`). It covers projects, project-overview and search composites, config apply, runs, snapshots, insights, health, keyword generation and replacement, competitor add/remove, schedules, settings, GSC reads, GA reads, the doctor health-check (Google/GA auth diagnostics), run trigger/cancel, schedule updates, insight dismiss, content gap/target/source analysis, backlinks domains, durable Aero memory (list/set/forget), agent transcript clear, and agent webhook attach/detach.
+v1 is curated for client usability: 67 API tools (45 read in `--read-only`) plus two meta-tools (`canonry_help`, `canonry_load_toolkit`). It covers projects, project-overview and search composites, config apply, runs, snapshots, insights, health, query generation and replacement, legacy keyword aliases, competitor add/remove, schedules, settings, GSC reads, GA reads, the doctor health-check (Google/GA auth diagnostics), run trigger/cancel, schedule updates, insight dismiss, content gap/target/source analysis, backlinks domains, durable Aero memory (list/set/forget), agent transcript clear, and agent webhook attach/detach.
 
-`canonry_apply_config` accepts one config-as-code project document per call. For multi-document YAML or multiple project files, agents should call the tool once per project document. `canonry_keywords_generate` returns suggestions only; persist accepted suggestions with `canonry_keywords_add` or replace the tracked set with `canonry_keywords_replace`.
+`canonry_apply_config` accepts one config-as-code project document per call. For multi-document YAML or multiple project files, agents should call the tool once per project document. `canonry_queries_generate` returns suggestions only; persist accepted suggestions with `canonry_queries_add` or replace the tracked set with `canonry_queries_replace`. The `canonry_keywords_*` tools remain as legacy aliases over the same query store for older clients.
 
 Deferred from v1: Aero ask SSE, OAuth callbacks, raw screenshots, project delete, snapshot generation, broad admin/provider writes, Google/Bing/GA connect/sync/inspect/indexing writes, WordPress writes, CDP screenshot, generic notifications, backlinks, raw OpenAPI, and raw HTTP escape hatches.
 
@@ -84,7 +84,7 @@ Some write tools compose existing API calls rather than using a native atomic en
 
 ## Progressive Tool Discovery
 
-The full 60-tool catalog costs roughly 14k tokens of definitions every session. Most sessions touch a handful of tools, so `canonry-mcp` defaults to a small **core tier** (~10 tools, ~3k tokens) and registers the rest on demand via `notifications/tools/list_changed`.
+The full 67-tool API catalog costs roughly 15k tokens of definitions every session. Most sessions touch a handful of tools, so `canonry-mcp` defaults to a small **core tier** (~10 tools, ~3k tokens) and registers the rest on demand via `notifications/tools/list_changed`.
 
 Core tier (always loaded):
 
@@ -103,7 +103,7 @@ Toolkits (loaded on demand):
 | Toolkit | What's in it | When to load |
 | --- | --- | --- |
 | `monitoring` | runs list/latest/get, project history, timeline, snapshots list/diff, insights list/get, health latest/history, content targets/sources/gaps, `canonry_report` (aggregated AEO report bundle) | Investigating regressions, comparing runs, reviewing insights/health, surfacing content opportunities, generating client-facing reports |
-| `setup` | project export/upsert, keywords list/add/remove/replace/generate, competitors list/add/remove, schedule get/set/delete, insight dismiss, backlinks domains | Onboarding a project, editing keywords/competitors/schedules, reviewing backlink coverage |
+| `setup` | project export/upsert, queries list/add/remove/replace/generate, legacy keyword aliases, competitors list/add/remove, schedule get/set/delete, insight dismiss, backlinks domains | Onboarding a project, editing queries/competitors/schedules, reviewing backlink coverage |
 | `gsc` | google connections list, GSC performance, inspections, coverage, coverage history, sitemaps, deindexed | Indexing, coverage, sitemap analysis from Google Search Console |
 | `ga` | GA status, traffic, coverage, AI/social referral history, social/attribution trends, session history | Traffic, referral, attribution data from Google Analytics 4 |
 | `agent` | Aero memory list/set/forget, agent clear, agent webhook detach | Reading or writing project-scoped Aero notes, clearing a stuck conversation, removing an agent webhook |
@@ -116,7 +116,7 @@ Loading a toolkit is idempotent and persists for the rest of the session; there 
 
 ### Eager mode
 
-Power-user environments (scripts, Aero, telemetry harnesses) that want the flat 62-tool catalog at startup can opt back in with `--eager` (or `CANONRY_MCP_EAGER=1`):
+Power-user environments (scripts, Aero, telemetry harnesses) that want the flat 69-tool catalog at startup, including the two meta-tools, can opt back in with `--eager` (or `CANONRY_MCP_EAGER=1`):
 
 ```json
 {

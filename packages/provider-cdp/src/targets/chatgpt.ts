@@ -9,7 +9,7 @@ import { waitForStabilization } from '../connection.js'
  *
  * Query flow:
  * 1. Navigate to chatgpt.com (fresh conversation)
- * 2. Find message input, type keyword with realistic delays
+ * 2. Find message input, type query with realistic delays
  * 3. Submit via Enter
  * 4. Wait for response: stop button disappears + text stable for 500ms
  * 5. Extract answer text from last assistant message
@@ -21,7 +21,7 @@ export const chatgptTarget: CDPTarget = {
   newConversationUrl: 'https://chatgpt.com/?model=auto',
   responseSelector: '[data-testid="conversation-turn-3"], article:last-of-type, .agent-turn:last-of-type',
 
-  async submitQuery(client: CDP.Client, keyword: string): Promise<void> {
+  async submitQuery(client: CDP.Client, query: string): Promise<void> {
     // Wait for the input area to appear
     const inputReady = await waitForElement(
       client,
@@ -44,7 +44,7 @@ export const chatgptTarget: CDPTarget = {
     await sleep(200)
 
     // Type the query character by character with small random delays
-    for (const char of keyword) {
+    for (const char of query) {
       await client.Input.dispatchKeyEvent({
         type: 'keyDown',
         key: char,

@@ -70,7 +70,7 @@ describe('global error handler', () => {
     const urls = [
       '/api/v1/projects/no-such-project',
       '/api/v1/runs/00000000-0000-0000-0000-000000000000',
-      '/api/v1/projects/no-such-project/keywords',
+      '/api/v1/projects/no-such-project/queries',
     ]
 
     for (const url of urls) {

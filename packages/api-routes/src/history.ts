@@ -1,6 +1,6 @@
 import { eq, desc, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { auditLog, querySnapshots, runs, keywords, parseJsonColumn } from '@ainyc/canonry-db'
+import { auditLog, querySnapshots, runs, queries, parseJsonColumn } from '@ainyc/canonry-db'
 import { CitationStates, validationError } from '@ainyc/canonry-contracts'
 import { resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotVisibilityState } from './helpers.js'
 import { redactNotificationDiff } from './notification-redaction.js'
@@ -57,8 +57,8 @@ export async function historyRoutes(app: FastifyInstance) {
       .select({
         id: querySnapshots.id,
         runId: querySnapshots.runId,
-        keywordId: querySnapshots.keywordId,
-        keyword: keywords.keyword,
+        queryId: querySnapshots.queryId,
+        query: queries.query,
         provider: querySnapshots.provider,
         model: querySnapshots.model,
         citationState: querySnapshots.citationState,
@@ -71,7 +71,7 @@ export async function historyRoutes(app: FastifyInstance) {
         createdAt: querySnapshots.createdAt,
       })
       .from(querySnapshots)
-      .leftJoin(keywords, eq(querySnapshots.keywordId, keywords.id))
+      .leftJoin(queries, eq(querySnapshots.queryId, queries.id))
       .where(inArray(querySnapshots.runId, projectRuns.map(r => r.id)))
       .orderBy(desc(querySnapshots.createdAt))
       .all()
@@ -89,8 +89,8 @@ export async function historyRoutes(app: FastifyInstance) {
       snapshots: paged.map(s => ({
         id: s.id,
         runId: s.runId,
-        keywordId: s.keywordId,
-        keyword: s.keyword,
+        queryId: s.queryId,
+        query: s.query,
         provider: s.provider,
         model: s.model,
         citationState: s.citationState,
@@ -107,15 +107,15 @@ export async function historyRoutes(app: FastifyInstance) {
     })
   })
 
-  // GET /projects/:name/timeline — per-keyword citation state over time
+  // GET /projects/:name/timeline — per-query citation state over time
   app.get<{ Params: { name: string }; Querystring: { location?: string } }>('/projects/:name/timeline', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
-    // Get project keywords
-    const projectKeywords = app.db
+    // Get project queries
+    const projectQueries = app.db
       .select()
-      .from(keywords)
-      .where(eq(keywords.projectId, project.id))
+      .from(queries)
+      .where(eq(queries.projectId, project.id))
       .all()
 
     // Get project runs ordered by creation time
@@ -126,7 +126,7 @@ export async function historyRoutes(app: FastifyInstance) {
       .orderBy(runs.createdAt)
       .all()
 
-    if (projectRuns.length === 0 || projectKeywords.length === 0) {
+    if (projectRuns.length === 0 || projectQueries.length === 0) {
       return reply.send([])
     }
 
@@ -149,12 +149,12 @@ export async function historyRoutes(app: FastifyInstance) {
       answerMentioned: resolveSnapshotAnswerMentioned(snapshot, project),
     }))
 
-    // Deduplicate to one entry per (runId, keywordId) before building transitions so that
+    // Deduplicate to one entry per (runId, queryId) before building transitions so that
     // multi-provider runs don't produce spurious transition events within a single run.
     // Prefer 'cited' when providers disagree within the same run.
     const deduped = new Map<string, typeof allSnapshots[number]>()
     for (const snap of allSnapshots) {
-      const key = `${snap.runId}:${snap.keywordId}`
+      const key = `${snap.runId}:${snap.queryId}`
       const existing = deduped.get(key)
       if (
         !existing ||
@@ -166,22 +166,22 @@ export async function historyRoutes(app: FastifyInstance) {
     }
     const dedupedSnapshots = [...deduped.values()]
 
-    // Index raw (un-deduplicated) snapshots by keyword+provider for per-provider timelines
-    const rawByKwProvider = new Map<string, typeof allSnapshots[number][]>()
+    // Index raw (un-deduplicated) snapshots by query+provider for per-provider timelines
+    const rawByQueryProvider = new Map<string, typeof allSnapshots[number][]>()
     for (const snap of allSnapshots) {
-      const key = `${snap.keywordId}::${snap.provider}`
-      const arr = rawByKwProvider.get(key)
+      const key = `${snap.queryId}::${snap.provider}`
+      const arr = rawByQueryProvider.get(key)
       if (arr) arr.push(snap)
-      else rawByKwProvider.set(key, [snap])
+      else rawByQueryProvider.set(key, [snap])
     }
 
-    // Index raw snapshots by keyword+provider+model for per-model timelines
-    const rawByKwModel = new Map<string, typeof allSnapshots[number][]>()
+    // Index raw snapshots by query+provider+model for per-model timelines
+    const rawByQueryModel = new Map<string, typeof allSnapshots[number][]>()
     for (const snap of allSnapshots) {
-      const key = `${snap.keywordId}::${snap.provider}:${snap.model ?? 'unknown'}`
-      const arr = rawByKwModel.get(key)
+      const key = `${snap.queryId}::${snap.provider}:${snap.model ?? 'unknown'}`
+      const arr = rawByQueryModel.get(key)
       if (arr) arr.push(snap)
-      else rawByKwModel.set(key, [snap])
+      else rawByQueryModel.set(key, [snap])
     }
 
     function computeTransitions(snaps: typeof allSnapshots) {
@@ -220,36 +220,36 @@ export async function historyRoutes(app: FastifyInstance) {
       })
     }
 
-    // Build per-keyword timeline
-    const timeline = projectKeywords.map(kw => {
-      const kwSnapshots = dedupedSnapshots
-        .filter(s => s.keywordId === kw.id)
+    // Build per-query timeline
+    const timeline = projectQueries.map(q => {
+      const qSnapshots = dedupedSnapshots
+        .filter(s => s.queryId === q.id)
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 
-      const runEntries = computeTransitions(kwSnapshots)
+      const runEntries = computeTransitions(qSnapshots)
 
       // Build per-provider run histories from raw snapshots
       const providerRuns: Record<string, typeof runEntries> = {}
-      const providerKeys = [...rawByKwProvider.keys()].filter(k => k.startsWith(`${kw.id}::`))
+      const providerKeys = [...rawByQueryProvider.keys()].filter(k => k.startsWith(`${q.id}::`))
       for (const pk of providerKeys) {
         const provider = pk.split('::')[1]!
-        const provSnaps = rawByKwProvider.get(pk)!
+        const provSnaps = rawByQueryProvider.get(pk)!
           .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
         providerRuns[provider] = computeTransitions(provSnaps)
       }
 
       // Build per-model run histories (keyed by "provider:model")
       const modelRuns: Record<string, typeof runEntries> = {}
-      const modelKeys = [...rawByKwModel.keys()].filter(k => k.startsWith(`${kw.id}::`))
+      const modelKeys = [...rawByQueryModel.keys()].filter(k => k.startsWith(`${q.id}::`))
       for (const mk of modelKeys) {
         const modelKey = mk.split('::')[1]! // "provider:model"
-        const modelSnaps = rawByKwModel.get(mk)!
+        const modelSnaps = rawByQueryModel.get(mk)!
           .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
         modelRuns[modelKey] = computeTransitions(modelSnaps)
       }
 
       return {
-        keyword: kw.keyword,
+        query: q.query,
         runs: runEntries,
         providerRuns,
         modelRuns,
@@ -274,32 +274,32 @@ export async function historyRoutes(app: FastifyInstance) {
     // Get snapshots for both runs
     const snaps1 = app.db
       .select({
-        keywordId: querySnapshots.keywordId,
-        keyword: keywords.keyword,
+        queryId: querySnapshots.queryId,
+        query: queries.query,
         citationState: querySnapshots.citationState,
         answerMentioned: querySnapshots.answerMentioned,
         answerText: querySnapshots.answerText,
       })
       .from(querySnapshots)
-      .leftJoin(keywords, eq(querySnapshots.keywordId, keywords.id))
+      .leftJoin(queries, eq(querySnapshots.queryId, queries.id))
       .where(eq(querySnapshots.runId, run1))
       .all()
 
     const snaps2 = app.db
       .select({
-        keywordId: querySnapshots.keywordId,
-        keyword: keywords.keyword,
+        queryId: querySnapshots.queryId,
+        query: queries.query,
         citationState: querySnapshots.citationState,
         answerMentioned: querySnapshots.answerMentioned,
         answerText: querySnapshots.answerText,
       })
       .from(querySnapshots)
-      .leftJoin(keywords, eq(querySnapshots.keywordId, keywords.id))
+      .leftJoin(queries, eq(querySnapshots.queryId, queries.id))
       .where(eq(querySnapshots.runId, run2))
       .all()
 
-    // Build lookup by keyword id — prefer 'cited' when multiple providers gave different
-    // states for the same keyword within a run (same logic as the timeline deduplication)
+    // Build lookup by query id — prefer 'cited' when multiple providers gave different
+    // states for the same query within a run (same logic as the timeline deduplication)
     const map1 = new Map<string | null, (typeof snaps1[number]) & {
       resolvedAnswerMentioned: boolean
       resolvedVisibilityState: ReturnType<typeof resolveSnapshotVisibilityState>
@@ -310,13 +310,13 @@ export async function historyRoutes(app: FastifyInstance) {
         resolvedAnswerMentioned: resolveSnapshotAnswerMentioned(s, project),
         resolvedVisibilityState: resolveSnapshotVisibilityState(s, project),
       }
-      const existing = map1.get(s.keywordId)
+      const existing = map1.get(s.queryId)
       if (
         !existing ||
         (!existing.resolvedAnswerMentioned && resolved.resolvedAnswerMentioned) ||
         (existing.resolvedAnswerMentioned === resolved.resolvedAnswerMentioned && resolved.citationState === CitationStates.cited)
       ) {
-        map1.set(s.keywordId, resolved)
+        map1.set(s.queryId, resolved)
       }
     }
     const map2 = new Map<string | null, (typeof snaps2[number]) & {
@@ -329,24 +329,24 @@ export async function historyRoutes(app: FastifyInstance) {
         resolvedAnswerMentioned: resolveSnapshotAnswerMentioned(s, project),
         resolvedVisibilityState: resolveSnapshotVisibilityState(s, project),
       }
-      const existing = map2.get(s.keywordId)
+      const existing = map2.get(s.queryId)
       if (
         !existing ||
         (!existing.resolvedAnswerMentioned && resolved.resolvedAnswerMentioned) ||
         (existing.resolvedAnswerMentioned === resolved.resolvedAnswerMentioned && resolved.citationState === CitationStates.cited)
       ) {
-        map2.set(s.keywordId, resolved)
+        map2.set(s.queryId, resolved)
       }
     }
 
-    // Compute diff for all keywords present in either run
-    const allKeywordIds = new Set([...map1.keys(), ...map2.keys()])
-    const diff = [...allKeywordIds].map(kwId => {
-      const s1 = map1.get(kwId)
-      const s2 = map2.get(kwId)
+    // Compute diff for all queries present in either run
+    const allQueryIds = new Set([...map1.keys(), ...map2.keys()])
+    const diff = [...allQueryIds].map(qId => {
+      const s1 = map1.get(qId)
+      const s2 = map2.get(qId)
       return {
-        keywordId: kwId,
-        keyword: s2?.keyword ?? s1?.keyword ?? null,
+        queryId: qId,
+        query: s2?.query ?? s1?.query ?? null,
         run1State: s1?.citationState ?? null,
         run2State: s2?.citationState ?? null,
         run1AnswerMentioned: s1?.resolvedAnswerMentioned ?? null,

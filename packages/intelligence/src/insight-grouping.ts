@@ -1,7 +1,7 @@
 /**
  * Pure insight collapsing.
  *
- * Multiple runs can produce the same insight for the same (keyword, provider, type)
+ * Multiple runs can produce the same insight for the same (query, provider, type)
  * tuple — e.g. "new perplexity citation for 'HVAC lead generation software'"
  * fired twice in two days. Every consumer of the insight stream — the report
  * renderer (consuming `ReportInsight`), the CLI list view (`InsightDto`),
@@ -11,7 +11,7 @@
 
 /** Minimal shape required to dedupe. Both `Insight` and `ReportInsight` satisfy it. */
 export interface InsightLike {
-  keyword: string
+  query: string
   provider: string
   type: string
   createdAt: string
@@ -30,7 +30,7 @@ export interface GroupedInsight<T extends InsightLike = InsightLike> {
 
 /**
  * Group insights by an arbitrary key. Default key tuples on the natural
- * dedup dimensions: (keyword, provider, type).
+ * dedup dimensions: (query, provider, type).
  *
  * Group order is the order of first appearance in the input.
  * Within each group, instances are sorted oldest → newest by createdAt
@@ -38,7 +38,7 @@ export interface GroupedInsight<T extends InsightLike = InsightLike> {
  */
 export function groupInsights<T extends InsightLike>(
   insights: T[],
-  keyFn: (i: T) => string = (i) => `${i.keyword} ${i.provider} ${i.type}`,
+  keyFn: (i: T) => string = (i) => `${i.query} ${i.provider} ${i.type}`,
 ): GroupedInsight<T>[] {
   const order: string[] = []
   const buckets = new Map<string, T[]>()

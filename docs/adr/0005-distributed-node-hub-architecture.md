@@ -2,9 +2,9 @@
 
 ## Decision
 
-Canonry adopts a hub-and-spoke architecture where local installations act as sensing nodes that sync observation snapshots to a central hub for cross-location, cross-audience analytics. Persona-framed queries are a first-class concept, allowing the same keywords to be tracked across multiple simulated audience segments.
+Canonry adopts a hub-and-spoke architecture where local installations act as sensing nodes that sync observation snapshots to a central hub for cross-location, cross-audience analytics. Persona-framed queries are a first-class concept, allowing the same queries to be tracked across multiple simulated audience segments.
 
-The observation matrix becomes: `keyword × provider × node × persona`.
+The observation matrix becomes: `query × provider × node × persona`.
 
 ## Why
 
@@ -18,7 +18,7 @@ The observation matrix becomes: `keyword × provider × node × persona`.
 
 - snapshots gain node identity metadata (`nodeId`, `nodeLocation`, `nodeContext`) and a `personaId` column; existing data stays valid with defaults (`nodeId = 'local'`, `personaId = null`)
 - a new `personas` table stores per-project persona definitions with `systemInstruction` (preferred) and `queryPrefix` (fallback) fields
-- the job runner fans out across personas: `keyword × provider × persona` per run; `null` persona preserves existing behavior
+- the job runner fans out across personas: `query × provider × persona` per run; `null` persona preserves existing behavior
 - each provider adapter applies persona context as a system instruction where the API supports it, falling back to query text modification for providers that don't
 - hub mode is a flag on the same binary (`canonry serve --mode hub`), not a separate artifact
 - sync protocol is append-only and cursor-based: nodes push snapshots, hub pushes config; nodes are authoritative for their snapshots, hub is authoritative for config

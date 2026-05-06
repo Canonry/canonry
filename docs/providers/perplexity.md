@@ -2,7 +2,7 @@
 
 ## Role
 
-`packages/provider-perplexity` is an answer-visibility provider adapter for Perplexity Sonar. It uses Perplexity's OpenAI-compatible Chat Completions surface to determine which domains are cited in AI-generated answers for tracked keywords.
+`packages/provider-perplexity` is an answer-visibility provider adapter for Perplexity Sonar. It uses Perplexity's OpenAI-compatible Chat Completions surface to determine which domains are cited in AI-generated answers for tracked queries.
 
 ## Provider Contract
 
@@ -12,7 +12,7 @@ Validates that the config has a non-empty API key. Returns the model name that w
 
 ### `executeTrackedQuery(input: PerplexityTrackedQueryInput): Promise<PerplexityRawResult>`
 
-Sends the keyword to Perplexity's Sonar API. Returns:
+Sends the query to Perplexity's Sonar API. Returns:
 
 - `rawResponse` — the full Perplexity API response
 - `groundingSources` — extracted `{ uri, title }` pairs from `search_results` when present, otherwise from `citations`

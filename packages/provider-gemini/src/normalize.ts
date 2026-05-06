@@ -109,7 +109,7 @@ export async function healthcheck(config: GeminiConfig): Promise<GeminiHealthche
 
 export async function executeTrackedQuery(input: GeminiTrackedQueryInput): Promise<GeminiRawResult> {
   const model = resolveModel(input.config)
-  const prompt = buildPrompt(input.keyword, input.location)
+  const prompt = buildPrompt(input.query, input.location)
   const client = createClient(input.config)
 
   try {
@@ -174,11 +174,11 @@ export function reparseStoredResult(rawResponse: Record<string, unknown>): Gemin
 
 // --- Internal helpers ---
 
-function buildPrompt(keyword: string, location?: GeminiTrackedQueryInput['location']): string {
+function buildPrompt(query: string, location?: GeminiTrackedQueryInput['location']): string {
   if (location) {
-    return `${keyword} (searching from ${location.city}, ${location.region}, ${location.country})`
+    return `${query} (searching from ${location.city}, ${location.region}, ${location.country})`
   }
-  return keyword
+  return query
 }
 
 function extractAnswerText(rawResponse: Record<string, unknown>): string {

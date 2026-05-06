@@ -20,12 +20,12 @@ CREATE TABLE IF NOT EXISTS projects (
   updated_at        TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS keywords (
+CREATE TABLE IF NOT EXISTS queries (
   id          TEXT PRIMARY KEY,
   project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  keyword     TEXT NOT NULL,
+  query       TEXT NOT NULL,
   created_at  TEXT NOT NULL,
-  UNIQUE(project_id, keyword)
+  UNIQUE(project_id, query)
 );
 
 CREATE TABLE IF NOT EXISTS competitors (
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS runs (
 CREATE TABLE IF NOT EXISTS query_snapshots (
   id                  TEXT PRIMARY KEY,
   run_id              TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-  keyword_id          TEXT NOT NULL REFERENCES keywords(id) ON DELETE CASCADE,
+  query_id            TEXT NOT NULL REFERENCES queries(id) ON DELETE CASCADE,
   provider            TEXT NOT NULL DEFAULT 'gemini',
   citation_state      TEXT NOT NULL,
   answer_text         TEXT,
@@ -93,12 +93,12 @@ CREATE TABLE IF NOT EXISTS usage_counters (
   UNIQUE(scope, period, metric)
 );
 
-CREATE INDEX IF NOT EXISTS idx_keywords_project ON keywords(project_id);
+CREATE INDEX IF NOT EXISTS idx_queries_project ON queries(project_id);
 CREATE INDEX IF NOT EXISTS idx_competitors_project ON competitors(project_id);
 CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id);
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
 CREATE INDEX IF NOT EXISTS idx_snapshots_run ON query_snapshots(run_id);
-CREATE INDEX IF NOT EXISTS idx_snapshots_keyword ON query_snapshots(keyword_id);
+CREATE INDEX IF NOT EXISTS idx_snapshots_query ON query_snapshots(query_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_project ON audit_log(project_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at);
 CREATE TABLE IF NOT EXISTS schedules (
@@ -141,15 +141,26 @@ CREATE TABLE IF NOT EXISTS _migrations (
 `
 
 /**
+ * Subset of the drizzle DB API that's usable inside a transaction. The full
+ * `DatabaseClient` type is the top-level drizzle instance which can't be
+ * assigned from `db.transaction((tx) => ...)`'s `tx` argument.
+ */
+type MigrationDb = Pick<DatabaseClient, 'run' | 'all'>
+
+/**
  * Each entry describes one migration version.  Statements are run in order
  * within the version; if any fail the version is not recorded, leaving it
  * pending for the next boot.  Long-running statements (e.g. large UPDATEs)
  * should be idempotent so they produce no side-effects on re-run.
+ *
+ * `run` is an optional escape hatch for migrations that need runtime
+ * conditionals. It runs after `statements` within the same transaction.
  */
 interface MigrationVersion {
   version: number
   name: string
   statements: string[]
+  run?: (tx: MigrationDb) => void
 }
 
 export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
@@ -428,7 +439,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     version: 19,
     name: 'named-unique-indexes',
     statements: [
-      `CREATE UNIQUE INDEX IF NOT EXISTS idx_keywords_project_keyword ON keywords(project_id, keyword)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_queries_project_query ON queries(project_id, query)`,
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_competitors_project_domain ON competitors(project_id, domain)`,
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_schedules_project ON schedules(project_id)`,
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_scope_period_metric ON usage_counters(scope, period, metric)`,
@@ -473,7 +484,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
         type            TEXT NOT NULL,
         severity        TEXT NOT NULL,
         title           TEXT NOT NULL,
-        keyword         TEXT NOT NULL,
+        query           TEXT NOT NULL,
         provider        TEXT NOT NULL,
         recommendation  TEXT,
         cause           TEXT,
@@ -482,7 +493,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       )`,
       `CREATE INDEX IF NOT EXISTS idx_insights_project ON insights(project_id)`,
       `CREATE INDEX IF NOT EXISTS idx_insights_created ON insights(created_at)`,
-      `CREATE INDEX IF NOT EXISTS idx_insights_keyword_provider ON insights(keyword, provider)`,
+      `CREATE INDEX IF NOT EXISTS idx_insights_query_provider ON insights(query, provider)`,
     ],
   },
   {
@@ -827,6 +838,26 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
          ON ga_traffic_window_summaries(sync_run_id)`,
     ],
   },
+  {
+    version: 48,
+    name: 'rename-keywords-to-queries',
+    // The actual legacy rename runs before bootstrap SQL so existing DBs never
+    // see new-name indexes before their old columns have been renamed. This
+    // version records the schema cutover and lands the final index names.
+    statements: [
+      `DROP INDEX IF EXISTS idx_keywords_project`,
+      `DROP INDEX IF EXISTS idx_keywords_project_keyword`,
+      `DROP INDEX IF EXISTS idx_snapshots_keyword`,
+      `DROP INDEX IF EXISTS idx_insights_keyword_provider`,
+      `CREATE INDEX IF NOT EXISTS idx_queries_project ON queries(project_id)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_queries_project_query ON queries(project_id, query)`,
+      `CREATE INDEX IF NOT EXISTS idx_snapshots_query ON query_snapshots(query_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_insights_query_provider ON insights(query, provider)`,
+    ],
+    run: (tx) => {
+      normalizeLegacyQuerySchema(tx)
+    },
+  },
 ]
 
 /**
@@ -869,12 +900,64 @@ export interface LegacyCredentialRows {
   ga4: LegacyGa4ConnectionRow[]
 }
 
-function columnExists(db: DatabaseClient, table: string, column: string): boolean {
+function columnExists(db: MigrationDb, table: string, column: string): boolean {
   // Table/column names are hard-coded constants in this module — safe to interpolate.
   const rows = db.all(sql.raw(
     `SELECT COUNT(*) as c FROM pragma_table_info('${table}') WHERE name = '${column}'`,
   )) as Array<{ c: number }>
   return (rows[0]?.c ?? 0) > 0
+}
+
+function tableExists(db: MigrationDb, table: string): boolean {
+  // Table name is a hard-coded constant in this module — safe to interpolate.
+  const rows = db.all(sql.raw(
+    `SELECT COUNT(*) as c FROM sqlite_master WHERE type = 'table' AND name = '${table}'`,
+  )) as Array<{ c: number }>
+  return (rows[0]?.c ?? 0) > 0
+}
+
+function tableIsEmpty(db: MigrationDb, table: string): boolean {
+  // Table name is a hard-coded constant in this module — safe to interpolate.
+  const rows = db.all(sql.raw(`SELECT COUNT(*) as c FROM ${table}`)) as Array<{ c: number }>
+  return (rows[0]?.c ?? 0) === 0
+}
+
+function hasLegacyQuerySchema(db: MigrationDb): boolean {
+  return tableExists(db, 'keywords') ||
+    columnExists(db, 'query_snapshots', 'keyword_id') ||
+    columnExists(db, 'insights', 'keyword')
+}
+
+function normalizeLegacyQuerySchema(db: MigrationDb): void {
+  if (!hasLegacyQuerySchema(db)) return
+
+  // A previous failed boot with the broken v47 bootstrap may have created the
+  // new table before crashing on query_snapshots(query_id). That table is empty
+  // in that failure mode, so remove it before renaming the real legacy table.
+  if (tableExists(db, 'keywords') && tableExists(db, 'queries')) {
+    if (!tableIsEmpty(db, 'queries')) {
+      throw new Error('Cannot migrate keywords to queries because both tables contain data')
+    }
+    db.run(sql.raw(`DROP TABLE queries`))
+  }
+
+  db.run(sql.raw(`DROP INDEX IF EXISTS idx_keywords_project`))
+  db.run(sql.raw(`DROP INDEX IF EXISTS idx_keywords_project_keyword`))
+  db.run(sql.raw(`DROP INDEX IF EXISTS idx_snapshots_keyword`))
+  db.run(sql.raw(`DROP INDEX IF EXISTS idx_insights_keyword_provider`))
+
+  if (tableExists(db, 'keywords')) {
+    db.run(sql.raw(`ALTER TABLE keywords RENAME TO queries`))
+  }
+  if (columnExists(db, 'queries', 'keyword')) {
+    db.run(sql.raw(`ALTER TABLE queries RENAME COLUMN keyword TO query`))
+  }
+  if (columnExists(db, 'query_snapshots', 'keyword_id')) {
+    db.run(sql.raw(`ALTER TABLE query_snapshots RENAME COLUMN keyword_id TO query_id`))
+  }
+  if (columnExists(db, 'insights', 'keyword')) {
+    db.run(sql.raw(`ALTER TABLE insights RENAME COLUMN keyword TO query`))
+  }
 }
 
 function dropColumnIfExists(db: DatabaseClient, table: string, column: string): void {
@@ -1011,6 +1094,16 @@ function recordMigration(
 }
 
 export function migrate(db: DatabaseClient) {
+  // Normalize legacy table/column names before bootstrap SQL runs. Bootstrap
+  // creates final-shape indexes, so existing DBs must expose final column names
+  // before those statements execute. The same call also runs inside v48's
+  // `run` (defense in depth — the in-version call is what gets recorded in
+  // `_migrations` for the cutover); both invocations no-op once the schema
+  // is already on the new names.
+  db.transaction((tx) => {
+    normalizeLegacyQuerySchema(tx)
+  })
+
   // Phase 1: base schema (idempotent — all CREATE IF NOT EXISTS).
   // Includes the _migrations table itself, so subsequent reads from
   // getAppliedVersion always succeed.
@@ -1045,6 +1138,7 @@ export function migrate(db: DatabaseClient) {
           throw err
         }
       }
+      mv.run?.(tx)
       recordMigration(tx, mv.version, mv.name)
     })
   }

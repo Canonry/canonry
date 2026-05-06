@@ -1,11 +1,11 @@
 import { eq, desc, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { querySnapshots, runs, keywords, parseJsonColumn } from '@ainyc/canonry-db'
+import { querySnapshots, runs, queries, parseJsonColumn } from '@ainyc/canonry-db'
 import { categorizeSource, categoryLabel, CitationStates, parseWindow, windowCutoff } from '@ainyc/canonry-contracts'
 import type {
   BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto,
-  MetricsWindow, TimeBucket, TrendDirection, GapKeyword, GapCategory,
-  SourceCategory, SourceCategoryCount, ProviderMetric, KeywordChangeEvent,
+  MetricsWindow, TimeBucket, TrendDirection, GapQuery, GapCategory,
+  SourceCategory, SourceCategoryCount, ProviderMetric, QueryChangeEvent,
 } from '@ainyc/canonry-contracts'
 import { resolveProject, resolveSnapshotAnswerMentioned } from './helpers.js'
 
@@ -37,7 +37,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         byProvider: {},
         trend: 'stable',
         mentionTrend: 'stable',
-        keywordChanges: [],
+        queryChanges: [],
       } satisfies BrandMetricsDto)
     }
 
@@ -45,7 +45,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const rawSnapshots = app.db
       .select({
         runId: querySnapshots.runId,
-        keywordId: querySnapshots.keywordId,
+        queryId: querySnapshots.queryId,
         provider: querySnapshots.provider,
         citationState: querySnapshots.citationState,
         answerMentioned: querySnapshots.answerMentioned,
@@ -62,13 +62,13 @@ export async function analyticsRoutes(app: FastifyInstance) {
       resolvedMentioned: resolveSnapshotAnswerMentioned(s, project),
     }))
 
-    // Fetch keyword creation dates for normalization
-    const projectKeywords = app.db
-      .select({ id: keywords.id, createdAt: keywords.createdAt })
-      .from(keywords)
-      .where(eq(keywords.projectId, project.id))
+    // Fetch query creation dates for normalization
+    const projectQueries = app.db
+      .select({ id: queries.id, createdAt: queries.createdAt })
+      .from(queries)
+      .where(eq(queries.projectId, project.id))
       .all()
-    const keywordCreatedAt = new Map(projectKeywords.map(k => [k.id, k.createdAt]))
+    const queryCreatedAt = new Map(projectQueries.map(q => [q.id, q.createdAt]))
 
     // Overall metrics
     const overall = computeProviderMetric(allSnapshots)
@@ -85,16 +85,16 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const latest = new Date(projectRuns[projectRuns.length - 1]!.createdAt)
     const spanDays = Math.max(1, Math.ceil((latest.getTime() - earliest.getTime()) / 86_400_000))
     const bucketSize = bucketSizeForSpan(spanDays)
-    const buckets = computeBuckets(allSnapshots, projectRuns, bucketSize, keywordCreatedAt)
+    const buckets = computeBuckets(allSnapshots, projectRuns, bucketSize, queryCreatedAt)
 
     // Trends
     const trend = computeTrend(buckets, 'citationRate')
     const mentionTrend = computeTrend(buckets, 'mentionRate')
 
-    // Keyword change annotations
-    const keywordChanges = computeKeywordChanges(projectKeywords, cutoff)
+    // Query change annotations
+    const queryChanges = computeQueryChanges(projectQueries, cutoff)
 
-    return reply.send({ window, buckets, overall, byProvider, trend, mentionTrend, keywordChanges } satisfies BrandMetricsDto)
+    return reply.send({ window, buckets, overall, byProvider, trend, mentionTrend, queryChanges } satisfies BrandMetricsDto)
   })
 
   // GET /projects/:name/analytics/gaps — brand gap analysis
@@ -117,7 +117,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       .find(r => r.status === 'completed' || r.status === 'partial')
 
     if (!latestRun) {
-      return reply.send({ cited: [], gap: [], uncited: [], mentionedKeywords: [], mentionGap: [], notMentioned: [], runId: '', window } satisfies GapAnalysisDto)
+      return reply.send({ cited: [], gap: [], uncited: [], mentionedQueries: [], mentionGap: [], notMentioned: [], runId: '', window } satisfies GapAnalysisDto)
     }
 
     // All runs in window (for consistency signal)
@@ -132,12 +132,12 @@ export async function analyticsRoutes(app: FastifyInstance) {
 
     const windowRunIds = windowRuns.map(r => r.id)
 
-    // Consistency: for each keyword, count how many runs cited/mentioned it
+    // Consistency: for each query, count how many runs cited/mentioned it
     const consistencyMap = new Map<string, { citedRuns: Set<string>; totalRuns: Set<string>; mentionedRuns: Set<string> }>()
     if (windowRunIds.length > 0) {
       const allWindowSnaps = app.db
         .select({
-          keywordId: querySnapshots.keywordId,
+          queryId: querySnapshots.queryId,
           runId: querySnapshots.runId,
           citationState: querySnapshots.citationState,
           answerMentioned: querySnapshots.answerMentioned,
@@ -148,10 +148,10 @@ export async function analyticsRoutes(app: FastifyInstance) {
         .all()
 
       for (const s of allWindowSnaps) {
-        let entry = consistencyMap.get(s.keywordId)
+        let entry = consistencyMap.get(s.queryId)
         if (!entry) {
           entry = { citedRuns: new Set(), totalRuns: new Set(), mentionedRuns: new Set() }
-          consistencyMap.set(s.keywordId, entry)
+          consistencyMap.set(s.queryId, entry)
         }
         entry.totalRuns.add(s.runId)
         if (s.citationState === CitationStates.cited) entry.citedRuns.add(s.runId)
@@ -162,8 +162,8 @@ export async function analyticsRoutes(app: FastifyInstance) {
     // Latest-run snapshots (determines classification)
     const rawSnapshots = app.db
       .select({
-        keywordId: querySnapshots.keywordId,
-        keyword: keywords.keyword,
+        queryId: querySnapshots.queryId,
+        query: queries.query,
         provider: querySnapshots.provider,
         citationState: querySnapshots.citationState,
         answerMentioned: querySnapshots.answerMentioned,
@@ -171,7 +171,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         competitorOverlap: querySnapshots.competitorOverlap,
       })
       .from(querySnapshots)
-      .leftJoin(keywords, eq(querySnapshots.keywordId, keywords.id))
+      .leftJoin(queries, eq(querySnapshots.queryId, queries.id))
       .where(eq(querySnapshots.runId, latestRun.id))
       .all()
 
@@ -181,37 +181,37 @@ export async function analyticsRoutes(app: FastifyInstance) {
       resolvedMentioned: resolveSnapshotAnswerMentioned(s, project),
     }))
 
-    // Group by keyword
-    const byKeyword = new Map<string, typeof snapshots>()
+    // Group by query
+    const byQuery = new Map<string, typeof snapshots>()
     for (const s of snapshots) {
-      const key = s.keywordId
-      const arr = byKeyword.get(key)
+      const key = s.queryId
+      const arr = byQuery.get(key)
       if (arr) arr.push(s)
-      else byKeyword.set(key, [s])
+      else byQuery.set(key, [s])
     }
 
-    const cited: GapKeyword[] = []
-    const gap: GapKeyword[] = []
-    const uncited: GapKeyword[] = []
-    const mentionedKeywords: GapKeyword[] = []
-    const mentionGap: GapKeyword[] = []
-    const notMentioned: GapKeyword[] = []
+    const cited: GapQuery[] = []
+    const gap: GapQuery[] = []
+    const uncited: GapQuery[] = []
+    const mentionedQueries: GapQuery[] = []
+    const mentionGap: GapQuery[] = []
+    const notMentioned: GapQuery[] = []
 
-    for (const [keywordId, kwSnapshots] of byKeyword) {
-      const keyword = kwSnapshots[0]?.keyword ?? ''
-      const citedProviders = kwSnapshots
+    for (const [queryId, qSnapshots] of byQuery) {
+      const query = qSnapshots[0]?.query ?? ''
+      const citedProviders = qSnapshots
         .filter(s => s.citationState === CitationStates.cited)
         .map(s => s.provider)
-      const mentionedProviders = kwSnapshots
+      const mentionedProviders = qSnapshots
         .filter(s => s.resolvedMentioned)
         .map(s => s.provider)
       const competitorsCiting = new Set<string>()
-      for (const s of kwSnapshots) {
+      for (const s of qSnapshots) {
         const overlap = parseJsonColumn<string[]>(s.competitorOverlap, [])
         for (const c of overlap) competitorsCiting.add(c)
       }
 
-      const cons = consistencyMap.get(keywordId)
+      const cons = consistencyMap.get(queryId)
       const consistency = {
         citedRuns: cons?.citedRuns.size ?? 0,
         totalRuns: cons?.totalRuns.size ?? 0,
@@ -228,8 +228,8 @@ export async function analyticsRoutes(app: FastifyInstance) {
         category = 'uncited'
       }
 
-      const citationEntry: GapKeyword = {
-        keyword, keywordId, category,
+      const citationEntry: GapQuery = {
+        query, queryId, category,
         providers: citedProviders,
         competitorsCiting: [...competitorsCiting],
         consistency,
@@ -249,27 +249,27 @@ export async function analyticsRoutes(app: FastifyInstance) {
         mentionCategory = 'uncited'
       }
 
-      const mentionEntry: GapKeyword = {
-        keyword, keywordId, category: mentionCategory,
+      const mentionEntry: GapQuery = {
+        query, queryId, category: mentionCategory,
         providers: mentionedProviders,
         competitorsCiting: [...competitorsCiting],
         consistency,
       }
 
-      if (mentionCategory === 'cited') mentionedKeywords.push(mentionEntry)
+      if (mentionCategory === 'cited') mentionedQueries.push(mentionEntry)
       else if (mentionCategory === 'gap') mentionGap.push(mentionEntry)
       else notMentioned.push(mentionEntry)
     }
 
     // Sort: gap by most competitors, cited/uncited alphabetically
     gap.sort((a, b) => b.competitorsCiting.length - a.competitorsCiting.length)
-    cited.sort((a, b) => a.keyword.localeCompare(b.keyword))
-    uncited.sort((a, b) => a.keyword.localeCompare(b.keyword))
+    cited.sort((a, b) => a.query.localeCompare(b.query))
+    uncited.sort((a, b) => a.query.localeCompare(b.query))
     mentionGap.sort((a, b) => b.competitorsCiting.length - a.competitorsCiting.length)
-    mentionedKeywords.sort((a, b) => a.keyword.localeCompare(b.keyword))
-    notMentioned.sort((a, b) => a.keyword.localeCompare(b.keyword))
+    mentionedQueries.sort((a, b) => a.query.localeCompare(b.query))
+    notMentioned.sort((a, b) => a.query.localeCompare(b.query))
 
-    return reply.send({ cited, gap, uncited, mentionedKeywords, mentionGap, notMentioned, runId: latestRun.id, window } satisfies GapAnalysisDto)
+    return reply.send({ cited, gap, uncited, mentionedQueries, mentionGap, notMentioned, runId: latestRun.id, window } satisfies GapAnalysisDto)
   })
 
   // GET /projects/:name/analytics/sources — source origin breakdown
@@ -293,7 +293,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       .filter(r => !cutoff || r.createdAt >= cutoff)
 
     if (windowRuns.length === 0) {
-      return reply.send({ overall: [], byKeyword: {}, runId: '', window } satisfies SourceBreakdownDto)
+      return reply.send({ overall: [], byQuery: {}, runId: '', window } satisfies SourceBreakdownDto)
     }
 
     const latestRunId = windowRuns[0]!.id
@@ -301,22 +301,22 @@ export async function analyticsRoutes(app: FastifyInstance) {
 
     const snapshots = app.db
       .select({
-        keywordId: querySnapshots.keywordId,
-        keyword: keywords.keyword,
+        queryId: querySnapshots.queryId,
+        query: queries.query,
         rawResponse: querySnapshots.rawResponse,
       })
       .from(querySnapshots)
-      .leftJoin(keywords, eq(querySnapshots.keywordId, keywords.id))
+      .leftJoin(queries, eq(querySnapshots.queryId, queries.id))
       .where(inArray(querySnapshots.runId, windowRunIds))
       .all()
 
-    // Aggregate sources overall and per-keyword
+    // Aggregate sources overall and per-query
     const overallCounts = new Map<SourceCategory, Map<string, number>>()
-    const byKeyword: Record<string, SourceCategoryCount[]> = {}
+    const byQuery: Record<string, SourceCategoryCount[]> = {}
 
     for (const snap of snapshots) {
       const sources = parseGroundingSources(snap.rawResponse)
-      const kwCounts = new Map<SourceCategory, Map<string, number>>()
+      const qCounts = new Map<SourceCategory, Map<string, number>>()
 
       for (const source of sources) {
         const { category, domain } = categorizeSource(source.uri)
@@ -326,20 +326,20 @@ export async function analyticsRoutes(app: FastifyInstance) {
         const oDomains = overallCounts.get(category)!
         oDomains.set(domain, (oDomains.get(domain) ?? 0) + 1)
 
-        // Per-keyword
-        if (!kwCounts.has(category)) kwCounts.set(category, new Map())
-        const kDomains = kwCounts.get(category)!
-        kDomains.set(domain, (kDomains.get(domain) ?? 0) + 1)
+        // Per-query
+        if (!qCounts.has(category)) qCounts.set(category, new Map())
+        const qDomains = qCounts.get(category)!
+        qDomains.set(domain, (qDomains.get(domain) ?? 0) + 1)
       }
 
-      if (sources.length > 0 && snap.keyword) {
-        byKeyword[snap.keyword] = buildCategoryCounts(kwCounts)
+      if (sources.length > 0 && snap.query) {
+        byQuery[snap.query] = buildCategoryCounts(qCounts)
       }
     }
 
     const overall = buildCategoryCounts(overallCounts)
 
-    return reply.send({ overall, byKeyword, runId: latestRunId, window } satisfies SourceBreakdownDto)
+    return reply.send({ overall, byQuery, runId: latestRunId, window } satisfies SourceBreakdownDto)
   })
 }
 
@@ -385,7 +385,7 @@ function bucketSizeForSpan(spanDays: number): number {
 }
 
 interface SnapshotLike {
-  keywordId: string
+  queryId: string
   citationState: string
   resolvedMentioned: boolean
   createdAt: string
@@ -408,7 +408,7 @@ function computeBuckets(
   snapshots: SnapshotLike[],
   projectRuns: Array<{ createdAt: string }>,
   bucketDays: number,
-  keywordCreatedAt?: Map<string, string>,
+  queryCreatedAt?: Map<string, string>,
 ): TimeBucket[] {
   if (projectRuns.length === 0) return []
 
@@ -429,26 +429,26 @@ function computeBuckets(
 
     // Only emit buckets that contain actual sweep data
     if (inBucket.length > 0) {
-      // Normalize: only include keywords that existed before this bucket started
+      // Normalize: only include queries that existed before this bucket started
       let usable = inBucket
-      if (keywordCreatedAt) {
+      if (queryCreatedAt) {
         const eligible = inBucket.filter(s => {
-          const kwCreated = keywordCreatedAt.get(s.keywordId)
-          return kwCreated !== undefined && kwCreated < startISO
+          const qCreated = queryCreatedAt.get(s.queryId)
+          return qCreated !== undefined && qCreated < startISO
         })
-        // Fallback: if ALL keywords are new (e.g. first bucket), use full set
+        // Fallback: if ALL queries are new (e.g. first bucket), use full set
         if (eligible.length > 0) usable = eligible
       }
 
       const metric = computeProviderMetric(usable)
-      const keywordCount = new Set(usable.map(s => s.keywordId)).size
+      const queryCount = new Set(usable.map(s => s.queryId)).size
       buckets.push({
         startDate: startISO,
         endDate: endISO,
         citationRate: metric.citationRate,
         cited: metric.cited,
         total: metric.total,
-        keywordCount,
+        queryCount,
         mentionRate: metric.mentionRate,
         mentionedCount: metric.mentionedCount,
       })
@@ -460,15 +460,15 @@ function computeBuckets(
   return buckets
 }
 
-function computeKeywordChanges(
-  projectKeywords: Array<{ id: string; createdAt: string }>,
+function computeQueryChanges(
+  projectQueries: Array<{ id: string; createdAt: string }>,
   cutoff: string | null,
-): KeywordChangeEvent[] {
-  // Group keywords by creation day (YYYY-MM-DD)
+): QueryChangeEvent[] {
+  // Group queries by creation day (YYYY-MM-DD)
   const byDay = new Map<string, number>()
-  for (const kw of projectKeywords) {
-    if (cutoff && kw.createdAt < cutoff) continue
-    const day = kw.createdAt.slice(0, 10)
+  for (const q of projectQueries) {
+    if (cutoff && q.createdAt < cutoff) continue
+    const day = q.createdAt.slice(0, 10)
     byDay.set(day, (byDay.get(day) ?? 0) + 1)
   }
 

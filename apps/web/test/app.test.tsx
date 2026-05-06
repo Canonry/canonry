@@ -57,7 +57,7 @@ test('project route renders a single command center with visibility sections', a
   expect(html).toMatch(/Overview/)
   expect(html).toMatch(/Search Engine Intelligence/)
   expect(html).toMatch(/Citation signals/)
-  expect(html).toMatch(/Key phrase citation tracking/)
+  expect(html).toMatch(/Query citation tracking/)
   expect(html).toMatch(/Recent execution history/)
 })
 
@@ -117,7 +117,7 @@ test('setup route renders step indicator with all step labels', async () => {
 
   expect(html).toMatch(/System check/)
   expect(html).toMatch(/Create project/)
-  expect(html).toMatch(/Key phrases/)
+  expect(html).toMatch(/Queries/)
   expect(html).toMatch(/Competitors/)
   expect(html).toMatch(/Launch/)
 })

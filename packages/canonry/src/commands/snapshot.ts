@@ -24,7 +24,7 @@ export async function createSnapshotReport(
   companyName: string,
   opts: {
     domain: string
-    phrases?: string[]
+    queries?: string[]
     competitors?: string[]
     md?: boolean
     pdf?: boolean
@@ -36,7 +36,7 @@ export async function createSnapshotReport(
   const report = await client.createSnapshot({
     companyName,
     domain: opts.domain,
-    ...(opts.phrases && opts.phrases.length > 0 ? { phrases: opts.phrases } : {}),
+    ...(opts.queries && opts.queries.length > 0 ? { queries: opts.queries } : {}),
     ...(opts.competitors && opts.competitors.length > 0 ? { competitors: opts.competitors } : {}),
   })
 
@@ -119,12 +119,12 @@ export function formatSnapshotMarkdown(report: SnapshotReportDto): string {
 
   lines.push('## Provider Comparison')
   lines.push('')
-  for (const query of report.queryResults) {
-    lines.push(`### "${query.phrase}"`)
+  for (const queryResult of report.queryResults) {
+    lines.push(`### "${queryResult.query}"`)
     lines.push('')
     lines.push('| Provider | Mentioned | Cited | Accuracy | Competitors Recommended |')
     lines.push('|----------|-----------|-------|----------|------------------------|')
-    for (const result of query.providerResults) {
+    for (const result of queryResult.providerResults) {
       if (result.error) {
         lines.push(`| ${result.displayName} | ERROR | - | - | ${result.error} |`)
         continue
@@ -184,12 +184,12 @@ export function formatSnapshotText(report: SnapshotReportDto): string {
 
   const providerWidth = Math.max(
     8,
-    ...report.queryResults.flatMap(query => query.providerResults.map(result => result.displayName.length)),
+    ...report.queryResults.flatMap(queryResult => queryResult.providerResults.map(result => result.displayName.length)),
   )
 
-  for (const query of report.queryResults) {
-    lines.push(`"${query.phrase}"`)
-    for (const result of query.providerResults) {
+  for (const queryResult of report.queryResults) {
+    lines.push(`"${queryResult.query}"`)
+    for (const result of queryResult.providerResults) {
       lines.push(`  ${result.displayName.padEnd(providerWidth)}  ${formatProviderLine(result)}`)
     }
     lines.push('')

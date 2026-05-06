@@ -28,8 +28,8 @@ function makeRun(overrides: Partial<RunDetailDto['snapshots'] extends Array<infe
     snapshots: overrides.map((o, i) => ({
       id: `snap-${i}`,
       runId: 'run-1',
-      keywordId: `kw-${i}`,
-      keyword: o.keyword ?? `keyword ${i}`,
+      queryId: `q-${i}`,
+      query: o.query ?? `query ${i}`,
       provider: o.provider ?? 'gemini',
       citationState: o.citationState ?? 'cited',
       answerMentioned: o.answerMentioned,
@@ -49,25 +49,25 @@ describe('CLI canonical vocabulary', () => {
   describe('printRunDetail snapshot rendering', () => {
     it('renders both citation and mention signals as a two-glyph cell', () => {
       const run = makeRun([
-        { keyword: 'kw-cited-and-mentioned', citationState: 'cited', answerMentioned: true },
-        { keyword: 'kw-cited-only', citationState: 'cited', answerMentioned: false },
-        { keyword: 'kw-mentioned-only', citationState: 'not-cited', answerMentioned: true },
-        { keyword: 'kw-neither', citationState: 'not-cited', answerMentioned: false },
+        { query: 'q-cited-and-mentioned', citationState: 'cited', answerMentioned: true },
+        { query: 'q-cited-only', citationState: 'cited', answerMentioned: false },
+        { query: 'q-mentioned-only', citationState: 'not-cited', answerMentioned: true },
+        { query: 'q-neither', citationState: 'not-cited', answerMentioned: false },
       ])
       const out = captureStdout(() => printRunDetail(run))
 
-      expect(out).toContain('[CM]  gemini  kw-cited-and-mentioned')
-      expect(out).toContain('[Cm]  gemini  kw-cited-only')
-      expect(out).toContain('[cM]  gemini  kw-mentioned-only')
-      expect(out).toContain('[cm]  gemini  kw-neither')
+      expect(out).toContain('[CM]  gemini  q-cited-and-mentioned')
+      expect(out).toContain('[Cm]  gemini  q-cited-only')
+      expect(out).toContain('[cM]  gemini  q-mentioned-only')
+      expect(out).toContain('[cm]  gemini  q-neither')
     })
 
     it('renders the dash glyph for mention when answerMentioned is undefined', () => {
       const run = makeRun([
-        { keyword: 'kw-no-mention-data', citationState: 'cited', answerMentioned: undefined },
+        { query: 'q-no-mention-data', citationState: 'cited', answerMentioned: undefined },
       ])
       const out = captureStdout(() => printRunDetail(run))
-      expect(out).toContain('[C–]  gemini  kw-no-mention-data')
+      expect(out).toContain('[C–]  gemini  q-no-mention-data')
     })
 
     it('prints a legend that disambiguates citation and mention glyphs', () => {

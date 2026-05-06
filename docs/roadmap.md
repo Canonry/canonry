@@ -9,7 +9,7 @@ Canonry is a fully functional agent-first open-source AEO operating platform wit
 - **Config-as-code**: `canonry.yaml` with `canonry apply` / `canonry export`
 - **Scheduling**: Cron-based with presets (daily, weekly, twice-daily, custom), timezone support, catch-up on missed runs
 - **Webhooks**: HMAC-SHA256 signed payloads, events: `citation.lost`, `citation.gained`, `run.completed`, `run.failed`
-- **Auto-generate keywords**: LLM-powered keyword generation per project
+- **Auto-generate queries**: LLM-powered query generation per project
 - **Multi-project support**: Full CRUD with multi-project dashboard
 - **Usage counters**: Per-provider daily quotas enforced in job runner
 - **Audit logging**: All config mutations tracked with diffs
@@ -48,7 +48,7 @@ These build on existing infrastructure with minimal schema/architecture changes.
 
 ### Share of Voice (SOV) Metrics
 **Gap**: Every paid AEO incumbent offers SOV. Canonry doesn't compute it.
-**Implementation**: SOV = (runs where cited / total runs) as a percentage, computed per keyword and aggregated per project. Pure query-time computation over existing `querySnapshots` data — no schema changes needed. Add `GET /api/v1/projects/:name/sov` endpoint. Show on dashboard as a primary metric gauge.
+**Implementation**: SOV = (runs where cited / total runs) as a percentage, computed per query and aggregated per project. Pure query-time computation over existing `querySnapshots` data — no schema changes needed. Add `GET /api/v1/projects/:name/sov` endpoint. Show on dashboard as a primary metric gauge.
 **Impact**: The single most-requested AEO metric. Makes Canonry dashboards immediately comparable to paid tools.
 
 ### Sentiment Classification of Mentions
@@ -59,7 +59,7 @@ These build on existing infrastructure with minimal schema/architecture changes.
 ### Competitor Share-of-Voice Comparison
 **Gap**: Canonry tracks `competitorOverlap` (which competitors appear) but doesn't compute comparative SOV.
 **Implementation**: Extend the SOV endpoint to return SOV for each competitor alongside your domain. Render as a stacked bar chart or comparison table on the dashboard.
-**Impact**: Answers "who's winning the AI answer war for this keyword?"
+**Impact**: Answers "who's winning the AI answer war for this query?"
 
 ### Results CSV/JSON Export
 **Gap**: Some paid incumbents highlight CSV export as a key feature. Canonry's `canonry export` exports config YAML, not results data.
@@ -82,13 +82,13 @@ These build on existing infrastructure with minimal schema/architecture changes.
 
 ### Answer Snapshots & Diff Viewer
 **Gap**: No tool shows exactly *how* AI answers changed over time for the same query.
-**Implementation**: Canonry already stores `answerText`. Build a side-by-side diff view in the UI comparing answer text across runs for the same keyword. Highlight added/removed citations and text changes.
+**Implementation**: Canonry already stores `answerText`. Build a side-by-side diff view in the UI comparing answer text across runs for the same query. Highlight added/removed citations and text changes.
 **Impact**: Unique feature — paid incumbents don't show full answer diffs.
 
 ### Prompt-to-Topic Clustering
 **Gap**: Hosted incumbents offer "prompt-level analytics" grouping queries by topic.
-**Implementation**: Use an LLM call to cluster keywords into topic groups (e.g., "pricing", "comparison", "how-to"). Store topic assignments in a new `keywordTopics` table. Aggregate SOV and sentiment by topic on the dashboard.
-**Impact**: Analysts think by topic, not keyword-by-keyword. This is how hosted incumbents justify their high SaaS pricing tiers.
+**Implementation**: Use an LLM call to cluster queries into topic groups (e.g., "pricing", "comparison", "how-to"). Store topic assignments in a new `queryTopics` table. Aggregate SOV and sentiment by topic on the dashboard.
+**Impact**: Analysts think by topic, not query-by-query. This is how hosted incumbents justify their high SaaS pricing tiers.
 
 ### Citation-Driven Content Opportunities + Action Outcome Ledger (LEAD WAVE-0 INVESTMENT)
 **Gap**: An "AEO Content Score" is the most differentiated feature offered by hosted incumbents. No open-source tool offers an action-typed, deterministic recommendation engine paired with closed-loop outcome tracking.
@@ -132,7 +132,7 @@ Cloud SaaS AEO tools query from data centers, producing a single decontextualize
 
 ### Persona-Framed Queries
 **Gap**: Analysts capture their own personalized perspective, not their target audience's. A 28-year-old SEO professional gets different LLM answers than a 35-year-old homeowner.
-**Implementation**: New `personas` table per project. Each persona defines a `systemInstruction` (passed as system message to Gemini/OpenAI/Claude APIs) with query text modification as fallback. Job runner fans out across personas: `keyword × provider × persona`. Add `personaId` to snapshots. Config-as-code support in `canonry.yaml`. Surface parity: CLI (`canonry persona add`), API (`POST /api/v1/projects/:name/personas`), and UI (persona management + filter).
+**Implementation**: New `personas` table per project. Each persona defines a `systemInstruction` (passed as system message to Gemini/OpenAI/Claude APIs) with query text modification as fallback. Job runner fans out across personas: `query × provider × persona`. Add `personaId` to snapshots. Config-as-code support in `canonry.yaml`. Surface parity: CLI (`canonry persona add`), API (`POST /api/v1/projects/:name/personas`), and UI (persona management + filter).
 **Impact**: Enables audience-segmented AEO monitoring using existing API providers — no new infrastructure. "Homeowners see us cited, property managers don't" becomes a trackable metric.
 
 ### Browser Provider (ChatGPT UI)

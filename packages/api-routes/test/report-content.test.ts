@@ -8,7 +8,7 @@ import {
   createClient,
   migrate,
   projects,
-  keywords,
+  queries,
   competitors,
   runs,
   querySnapshots,
@@ -86,14 +86,14 @@ function seedRichProject(db: ReturnType<typeof createClient>): SeededRich {
     }).run()
   }
 
-  // Two blog-shaped tracked keywords. Both fail isBlogShapedQuery? Verify:
+  // Two blog-shaped tracked queries. Both fail isBlogShapedQuery? Verify:
   // - "best aeo platform" — no transactional / navigational tokens, passes
   // - "instant roofing estimate tool" — passes
-  const kwIds = new Map<string, string>()
+  const queryIds = new Map<string, string>()
   for (const q of ['best aeo platform', 'instant roofing estimate tool']) {
     const id = crypto.randomUUID()
-    kwIds.set(q, id)
-    db.insert(keywords).values({ id, projectId, keyword: q, createdAt: now }).run()
+    queryIds.set(q, id)
+    db.insert(queries).values({ id, projectId, query: q, createdAt: now }).run()
   }
 
   const latestRunId = crypto.randomUUID()
@@ -111,7 +111,7 @@ function seedRichProject(db: ReturnType<typeof createClient>): SeededRich {
   db.insert(querySnapshots).values({
     id: crypto.randomUUID(),
     runId: latestRunId,
-    keywordId: kwIds.get('best aeo platform')!,
+    queryId: queryIds.get('best aeo platform')!,
     provider: 'gemini',
     citationState: 'not-cited',
     competitorOverlap: JSON.stringify(['rival-a.com', 'rival-b.com']),
@@ -128,7 +128,7 @@ function seedRichProject(db: ReturnType<typeof createClient>): SeededRich {
   db.insert(querySnapshots).values({
     id: crypto.randomUUID(),
     runId: latestRunId,
-    keywordId: kwIds.get('instant roofing estimate tool')!,
+    queryId: queryIds.get('instant roofing estimate tool')!,
     provider: 'gemini',
     citationState: 'not-cited',
     competitorOverlap: JSON.stringify(['rival-a.com']),

@@ -8,7 +8,7 @@ import {
   migrate,
   apiKeys,
   projects,
-  keywords,
+  queries,
   competitors,
   runs,
   querySnapshots,
@@ -40,10 +40,10 @@ function seedProject(db: ReturnType<typeof createClient>): { projectId: string; 
     createdAt: now,
   }).run()
 
-  const kwA = crypto.randomUUID()
-  const kwB = crypto.randomUUID()
-  db.insert(keywords).values({ id: kwA, projectId, keyword: 'keyword A', createdAt: now }).run()
-  db.insert(keywords).values({ id: kwB, projectId, keyword: 'keyword B', createdAt: now }).run()
+  const qA = crypto.randomUUID()
+  const qB = crypto.randomUUID()
+  db.insert(queries).values({ id: qA, projectId, query: 'query A', createdAt: now }).run()
+  db.insert(queries).values({ id: qB, projectId, query: 'query B', createdAt: now }).run()
 
   const runId = crypto.randomUUID()
   db.insert(runs).values({
@@ -56,19 +56,19 @@ function seedProject(db: ReturnType<typeof createClient>): { projectId: string; 
   }).run()
 
   db.insert(querySnapshots).values({
-    id: crypto.randomUUID(), runId, keywordId: kwA, provider: 'gemini',
+    id: crypto.randomUUID(), runId, queryId: qA, provider: 'gemini',
     citationState: 'cited', citedDomains: '[]', competitorOverlap: '[]', recommendedCompetitors: '[]', createdAt: now,
   }).run()
   db.insert(querySnapshots).values({
-    id: crypto.randomUUID(), runId, keywordId: kwA, provider: 'claude',
+    id: crypto.randomUUID(), runId, queryId: qA, provider: 'claude',
     citationState: 'not-cited', citedDomains: '[]', competitorOverlap: '[]', recommendedCompetitors: '[]', createdAt: now,
   }).run()
   db.insert(querySnapshots).values({
-    id: crypto.randomUUID(), runId, keywordId: kwB, provider: 'gemini',
+    id: crypto.randomUUID(), runId, queryId: qB, provider: 'gemini',
     citationState: 'not-cited', citedDomains: JSON.stringify(['rival.com']), competitorOverlap: '[]', recommendedCompetitors: '[]', createdAt: now,
   }).run()
   db.insert(querySnapshots).values({
-    id: crypto.randomUUID(), runId, keywordId: kwB, provider: 'claude',
+    id: crypto.randomUUID(), runId, queryId: qB, provider: 'claude',
     citationState: 'not-cited', citedDomains: '[]', competitorOverlap: '[]', recommendedCompetitors: '[]', createdAt: now,
   }).run()
 
@@ -155,11 +155,11 @@ describe('citation visibility CLI + parity', () => {
     const parsed = JSON.parse(out)
     expect(parsed.status).toBe('ready')
     expect(parsed.summary.providersConfigured).toBe(2)
-    expect(parsed.byKeyword).toHaveLength(2)
+    expect(parsed.byQuery).toHaveLength(2)
     expect(parsed.competitorGaps).toHaveLength(1)
   })
 
-  it('human output includes both headlines, cross-tab buckets, and the per-keyword table', async () => {
+  it('human output includes both headlines, cross-tab buckets, and the per-query table', async () => {
     const out = await captureStdout(() => showCitationVisibility('example', {}))
     expect(out).toContain('AEO visibility (citations + mentions)')
     expect(out).toContain('Cited in sources:')
@@ -168,9 +168,9 @@ describe('citation visibility CLI + parity', () => {
     expect(out).toContain('cited only:')
     expect(out).toContain('mentioned only:')
     expect(out).toContain('invisible:')
-    expect(out).toContain('keyword A')
-    expect(out).toContain('keyword B')
-    expect(out).toContain('Per-keyword coverage')
+    expect(out).toContain('query A')
+    expect(out).toContain('query B')
+    expect(out).toContain('Per-query coverage')
     expect(out).toContain('Competitor gaps')
     expect(out).toContain('rival.com')
   })

@@ -62,7 +62,7 @@ export const claudeAdapter: ProviderAdapter = {
 
   async executeTrackedQuery(input: TrackedQueryInput, config: ProviderConfig): Promise<RawQueryResult> {
     const raw = await claudeExecuteTrackedQuery({
-      keyword: input.keyword,
+      query: input.query,
       canonicalDomains: input.canonicalDomains,
       competitorDomains: input.competitorDomains,
       config: toClaudeConfig(config),

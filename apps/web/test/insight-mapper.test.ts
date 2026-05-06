@@ -13,7 +13,7 @@ function makeInsightDto(overrides: Partial<InsightDto> = {}): InsightDto {
     type: 'regression',
     severity: 'high',
     title: 'Lost citation on ChatGPT',
-    keyword: 'roof repair phoenix',
+    query: 'roof repair phoenix',
     provider: 'chatgpt',
     recommendation: { action: 'Re-submit to index', reason: 'Page not re-indexed' },
     cause: { cause: 'competitor displacement', competitorDomain: 'rival.com', details: 'rival.com now cited instead' },
@@ -53,14 +53,14 @@ describe('mapInsightDtoToVm', () => {
 
   /* ── affected phrases ────────────────────────────────── */
 
-  test('builds single affected phrase from keyword + provider', () => {
+  test('builds single affected phrase from query + provider', () => {
     const vm = mapInsightDtoToVm(makeInsightDto({
-      keyword: 'best roofing',
+      query: 'best roofing',
       provider: 'gemini',
       type: 'regression',
     }))
     expect(vm.affectedPhrases).toHaveLength(1)
-    expect(vm.affectedPhrases[0]!.keyword).toBe('best roofing')
+    expect(vm.affectedPhrases[0]!.query).toBe('best roofing')
     expect(vm.affectedPhrases[0]!.provider).toBe('gemini')
   })
 

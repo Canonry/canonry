@@ -12,7 +12,7 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/cli-commands.ts` | `REGISTERED_CLI_COMMANDS` array — declarative command specs |
 | `src/commands/` | Command implementations (one file per domain) |
 | `src/commands/competitor.ts` | Competitor commands: `competitor add`, `remove`/`delete`, `list` |
-| `src/commands/keyword.ts` | Keyword commands: `keyword add`, `replace`, `remove`/`delete`, `list`, `import`, `generate` |
+| `src/commands/query.ts` | Query commands: `query add`, `replace`, `remove`/`delete`, `list`, `import`, `generate` |
 | `src/commands/mcp.ts` | MCP client install helpers: `mcp install`, `mcp config` (writes to client config files only — separate from the `canonry-mcp` stdio bin) |
 | `src/mcp-clients.ts` | Registry of supported MCP clients (Claude Desktop, Cursor, Codex) — config-path resolvers and format hints used by `mcp install`/`mcp config` |
 | `src/commands/skills.ts` | `installSkills` / `listSkills` — copies bundled `skills/<name>/` trees into a user's `.claude/skills/<name>/` and creates relative `.codex/skills/<name>` symlinks. Auto-invoked by `canonry init` when cwd looks like a project. |

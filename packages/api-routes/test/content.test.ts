@@ -9,7 +9,7 @@ import {
   createClient,
   migrate,
   projects,
-  keywords,
+  queries,
   competitors,
   runs,
   querySnapshots,
@@ -75,14 +75,14 @@ function seedProject(db: ReturnType<typeof createClient>): SeededProject {
     { key: 'q5_filtered', query: 'buy crm software', isBlogShape: false },
   ]
 
-  const keywordIds = new Map<string, string>()
+  const queryIds = new Map<string, string>()
   for (const def of queryDefs) {
     const id = crypto.randomUUID()
-    keywordIds.set(def.key, id)
-    db.insert(keywords).values({
+    queryIds.set(def.key, id)
+    db.insert(queries).values({
       id,
       projectId,
-      keyword: def.query,
+      query: def.query,
       createdAt: now,
     }).run()
   }
@@ -101,7 +101,7 @@ function seedProject(db: ReturnType<typeof createClient>): SeededProject {
   db.insert(querySnapshots).values({
     id: crypto.randomUUID(),
     runId: latestRunId,
-    keywordId: keywordIds.get('q1_create')!,
+    queryId: queryIds.get('q1_create')!,
     provider: 'gemini',
     citationState: 'not-cited',
     competitorOverlap: JSON.stringify(['competitor-a.com', 'competitor-b.com', 'competitor-c.com']),
@@ -118,7 +118,7 @@ function seedProject(db: ReturnType<typeof createClient>): SeededProject {
   db.insert(querySnapshots).values({
     id: crypto.randomUUID(),
     runId: latestRunId,
-    keywordId: keywordIds.get('q2_refresh')!,
+    queryId: queryIds.get('q2_refresh')!,
     provider: 'gemini',
     citationState: 'not-cited',
     competitorOverlap: JSON.stringify(['competitor-a.com', 'competitor-b.com']),
@@ -147,7 +147,7 @@ function seedProject(db: ReturnType<typeof createClient>): SeededProject {
   db.insert(querySnapshots).values({
     id: crypto.randomUUID(),
     runId: latestRunId,
-    keywordId: keywordIds.get('q3_expand')!,
+    queryId: queryIds.get('q3_expand')!,
     provider: 'gemini',
     citationState: 'not-cited',
     competitorOverlap: JSON.stringify(['competitor-b.com']),
@@ -172,7 +172,7 @@ function seedProject(db: ReturnType<typeof createClient>): SeededProject {
   db.insert(querySnapshots).values({
     id: crypto.randomUUID(),
     runId: latestRunId,
-    keywordId: keywordIds.get('q4_addschema_eligible')!,
+    queryId: queryIds.get('q4_addschema_eligible')!,
     provider: 'gemini',
     citationState: 'cited',
     competitorOverlap: JSON.stringify([]),
@@ -435,16 +435,16 @@ describe('content routes', () => {
       const path = '/blog/full-url-page'
       const now = new Date().toISOString()
       const kwId = crypto.randomUUID()
-      db.insert(keywords).values({
+      db.insert(queries).values({
         id: kwId,
         projectId,
-        keyword: 'full url normalization',
+        query: 'full url normalization',
         createdAt: now,
       }).run()
       db.insert(querySnapshots).values({
         id: crypto.randomUUID(),
         runId: latestRunId,
-        keywordId: kwId,
+        queryId: kwId,
         provider: 'gemini',
         citationState: 'not-cited',
         competitorOverlap: JSON.stringify(['competitor-a.com']),
@@ -508,10 +508,10 @@ describe('content routes', () => {
         createdAt: isoNow,
       }).run()
       const kwId = crypto.randomUUID()
-      db.insert(keywords).values({
+      db.insert(queries).values({
         id: kwId,
         projectId,
-        keyword: 'best api gateway',
+        query: 'best api gateway',
         createdAt: isoNow,
       }).run()
 
@@ -529,7 +529,7 @@ describe('content routes', () => {
       db.insert(querySnapshots).values({
         id: crypto.randomUUID(),
         runId: olderRunId,
-        keywordId: kwId,
+        queryId: kwId,
         provider: 'gemini',
         citationState: 'cited',
         competitorOverlap: JSON.stringify([]),
@@ -552,7 +552,7 @@ describe('content routes', () => {
       db.insert(querySnapshots).values({
         id: crypto.randomUUID(),
         runId: newerRunId,
-        keywordId: kwId,
+        queryId: kwId,
         provider: 'gemini',
         citationState: 'not-cited',
         competitorOverlap: JSON.stringify(['competitor-a.com']),
@@ -610,14 +610,14 @@ describe('content routes', () => {
         createdAt: later,
       }).run()
       const kwForQuery = db
-        .select({ id: keywords.id })
-        .from(keywords)
-        .where(and(eq(keywords.projectId, projectId), eq(keywords.keyword, 'best email marketing software')))
+        .select({ id: queries.id })
+        .from(queries)
+        .where(and(eq(queries.projectId, projectId), eq(queries.query, 'best email marketing software')))
         .get()
       db.insert(querySnapshots).values({
         id: crypto.randomUUID(),
         runId: newRunId,
-        keywordId: kwForQuery!.id,
+        queryId: kwForQuery!.id,
         provider: 'gemini',
         citationState: 'not-cited',
         competitorOverlap: JSON.stringify(['competitor-a.com', 'competitor-b.com']),
@@ -682,10 +682,10 @@ describe('content routes', () => {
         createdAt: isoNow,
       }).run()
       const kwId = crypto.randomUUID()
-      db.insert(keywords).values({
+      db.insert(queries).values({
         id: kwId,
         projectId,
-        keyword: 'observability platform',
+        query: 'observability platform',
         createdAt: isoNow,
       }).run()
       const runId = crypto.randomUUID()
@@ -703,7 +703,7 @@ describe('content routes', () => {
         db.insert(querySnapshots).values({
           id: crypto.randomUUID(),
           runId,
-          keywordId: kwId,
+          queryId: kwId,
           provider,
           citationState: 'cited',
           competitorOverlap: JSON.stringify([]),

@@ -73,7 +73,7 @@ export async function executeTrackedQuery(input: OpenAITrackedQueryInput): Promi
         model,
         tools: [webSearchTool as { type: 'web_search_preview' }],
         tool_choice: 'required' as never,
-        input: buildPrompt(input.keyword),
+        input: buildPrompt(input.query),
       }),
     )
 
@@ -128,8 +128,8 @@ export function reparseStoredResult(rawResponse: Record<string, unknown>): OpenA
 
 // --- Internal helpers ---
 
-export function buildPrompt(keyword: string): string {
-  return keyword
+export function buildPrompt(query: string): string {
+  return query
 }
 
 function extractResponseText(response: OpenAI.Responses.Response): string {

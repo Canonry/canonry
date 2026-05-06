@@ -1,4 +1,4 @@
-# ADR 0006: Location-Aware Keyword Tracking (Superseded)
+# ADR 0006: Location-Aware Query Tracking (Superseded)
 
 ## Status
 
@@ -6,11 +6,11 @@ Superseded by [ADR 0007](0007-project-scoped-location-context.md).
 
 ## Note
 
-This document proposed a keyword-scoped location model. Canonry's accepted and implemented model keeps locations project-scoped and uses them as run context. The historical proposal remains below for reference only.
+This document proposed a query-scoped location model. Canonry's accepted and implemented model keeps locations project-scoped and uses them as run context. The historical proposal remains below for reference only.
 
 ## Decision
 
-Add location as a first-class dimension to keyword tracking. Each keyword can be tracked from specific geographic locations (down to city level), and provider APIs receive location hints so search results reflect what users in that location would see.
+Add location as a first-class dimension to query tracking. Each query can be tracked from specific geographic locations (down to city level), and provider APIs receive location hints so search results reflect what users in that location would see.
 
 ## Why
 
@@ -21,13 +21,13 @@ Add location as a first-class dimension to keyword tracking. Each keyword can be
 
 ## Data Model Decisions
 
-- **Locations are per-keyword**: "best CRM" tracked from US+UK, "best dentist" from Springfield, IL only
+- **Locations are per-query**: "best CRM" tracked from US+UK, "best dentist" from Springfield, IL only
 - **Structured location objects**: `{ country, region?, city?, timezone? }` — maps directly to OpenAI/Claude `user_location` API params
-- **Normalized locations table**: "Springfield, IL" is one record shared across keywords
+- **Normalized locations table**: "Springfield, IL" is one record shared across queries
 - **Non-null sentinel `_default`** instead of nullable locationId — avoids SQLite NULL uniqueness issues
 - **Snapshot immutability**: Full location context (label, country, region, city, timezone) snapshotted as JSON on `query_snapshots` at query time. Survives renames, deletes, and project country changes.
-- **ON DELETE RESTRICT**: Cannot delete a location that has keywords referencing it (avoids SET NULL collapse)
-- **Re-key on keywordId**: All grouping/dedup uses keywordId (already location-specific) not raw keyword text
+- **ON DELETE RESTRICT**: Cannot delete a location that has queries referencing it (avoids SET NULL collapse)
+- **Re-key on queryId**: All grouping/dedup uses queryId (already location-specific) not raw query text
 
 ### Verified SDK Support
 
@@ -61,9 +61,9 @@ export const locations = sqliteTable('locations', {
 ])
 ```
 
-### Add `locationId` to `keywords` table
+### Add `locationId` to `queries` table
 - Column: `locationId: text('location_id').notNull().default('_default').references(() => locations.id, { onDelete: 'restrict' })`
-- Replace unique index `(projectId, keyword)` → `(projectId, keyword, locationId)`
+- Replace unique index `(projectId, query)` → `(projectId, query, locationId)`
 - Each project auto-creates a `_default` location row during project creation
 
 ### Add `locationContext` to `querySnapshots` table
@@ -76,9 +76,9 @@ File: `packages/db/src/migrate.ts`
 
 1. `CREATE TABLE IF NOT EXISTS locations (...)`
 2. Insert `_default` location per existing project (inherits project country)
-3. `ALTER TABLE keywords ADD COLUMN location_id TEXT NOT NULL DEFAULT '_default'`
-4. Backfill: `UPDATE keywords SET location_id = (SELECT id FROM locations WHERE project_id = keywords.project_id AND label = '_default')`
-5. Drop old index, create new `(project_id, keyword, location_id)` index
+3. `ALTER TABLE queries ADD COLUMN location_id TEXT NOT NULL DEFAULT '_default'`
+4. Backfill: `UPDATE queries SET location_id = (SELECT id FROM locations WHERE project_id = queries.project_id AND label = '_default')`
+5. Drop old index, create new `(project_id, query, location_id)` index
 6. `ALTER TABLE query_snapshots ADD COLUMN location_context TEXT NOT NULL DEFAULT '{}'`
 
 ### Contract types
@@ -91,7 +91,7 @@ File: `packages/contracts/src/location.ts` (new)
 ### Extend existing contracts
 - `TrackedQueryInput` (`packages/contracts/src/provider.ts`): add `country?, region?, city?, timezone?`
 - Snapshot DTO (`packages/contracts/src/run.ts`): add `locationContext?: SnapshotLocationContext`
-- Config schema (`packages/contracts/src/config-schema.ts`): `spec.locations` array, keyword `{ keyword, locations }` objects
+- Config schema (`packages/contracts/src/config-schema.ts`): `spec.locations` array, query `{ query, locations }` objects
 
 ---
 
@@ -125,7 +125,7 @@ Same prompt-level approach.
 ### Job runner
 File: `packages/canonry/src/job-runner.ts`
 
-- Pre-fetch all locations for project before keyword loop
+- Pre-fetch all locations for project before query loop
 - Pass `country/region/city/timezone` from location record to `TrackedQueryInput`
 - Snapshot `locationContext` JSON at insert time (line 149)
 
@@ -138,27 +138,27 @@ File: `packages/api-routes/src/locations.ts` (new)
 
 - `GET /projects/:name/locations` — list (includes `_default`)
 - `POST /projects/:name/locations` — create. Auto-generate label from fields.
-- `DELETE /projects/:name/locations/:id` — 409 if keywords reference it, cannot delete `_default`
+- `DELETE /projects/:name/locations/:id` — 409 if queries reference it, cannot delete `_default`
 
 ### Route registration
 File: `packages/api-routes/src/index.ts` — register `locationRoutes`
 
-### Keyword endpoints
-File: `packages/api-routes/src/keywords.ts`
+### Query endpoints
+File: `packages/api-routes/src/queries.ts`
 
-- Accept `locationId` or `locationLabel` per keyword. Default to `_default`.
+- Accept `locationId` or `locationLabel` per query. Default to `_default`.
 - GET: join with locations, return `location: LocationDto`
 - Validate locationId belongs to same project
 
 ### Export endpoint
 File: `packages/api-routes/src/projects.ts` (line 138)
 
-Include `spec.locations` array and per-keyword location references. Plain string for `_default`, object for located keywords.
+Include `spec.locations` array and per-query location references. Plain string for `_default`, object for located queries.
 
 ### Timeline
 File: `packages/api-routes/src/history.ts`
 
-Add `keywordId` and `locationLabel` to timeline response entries. Same keyword with different locations = separate timeline entries (already naturally separated by `keywordId`).
+Add `queryId` and `locationLabel` to timeline response entries. Same query with different locations = separate timeline entries (already naturally separated by `queryId`).
 
 ### Snapshot responses
 File: `packages/api-routes/src/runs.ts`
@@ -176,10 +176,10 @@ File: `packages/canonry/src/commands/location.ts` (new)
 - `canonry location list <project>`
 - `canonry location remove <project> <label>`
 
-### Keyword commands
-File: `packages/canonry/src/commands/keyword.ts`
+### Query commands
+File: `packages/canonry/src/commands/query.ts`
 
-- `canonry keyword add <project> "best dentist" --location "Springfield, Illinois, US"`
+- `canonry query add <project> "best dentist" --location "Springfield, Illinois, US"`
 - Without `--location`, uses `_default`
 
 ### Client + CLI registration
@@ -192,9 +192,9 @@ Files: `packages/canonry/src/client.ts`, `packages/canonry/src/cli.ts`
 ### API client types
 File: `apps/web/src/api.ts`
 
-- Extend `ApiKeyword`: add `locationId`, `location?: LocationDto`
+- Extend `ApiQuery`: add `locationId`, `location?: LocationDto`
 - Extend `ApiSnapshot`: add `locationContext`
-- Extend `ApiTimelineEntry`: add `keywordId`, `locationLabel`
+- Extend `ApiTimelineEntry`: add `queryId`, `locationLabel`
 - Add `fetchLocations()`
 
 ### View models
@@ -207,15 +207,15 @@ File: `apps/web/src/view-models.ts`
 File: `apps/web/src/build-dashboard.ts`
 
 - `buildProjectCommandCenter()`: accept `locationFilter?` param, filter snapshots before aggregation
-- `buildEvidenceFromTimeline()` (line 183): re-key `seenKeywords` set and snapshot grouping on `keywordId` not keyword text
-- `buildInsights()` (line 326): group `phraseMap` on `keyword + '::' + locationId`
+- `buildEvidenceFromTimeline()` (line 183): re-key `seenQueries` set and snapshot grouping on `queryId` not query text
+- `buildInsights()` (line 326): group `phraseMap` on `query + '::' + locationId`
 - Compute `locationScores` from snapshot `locationContext`
 
 ### UI components
 File: `apps/web/src/App.tsx`
 
 - **LocationBadge**: pill badge, slate tone, shows label (hidden for `_default`)
-- **Evidence cards**: show LocationBadge next to keyword text
+- **Evidence cards**: show LocationBadge next to query text
 - **Location breakdown card**: parallel to provider breakdown, shows per-location citation rates
 - **Location filter chips**: `All` + location labels, clicking re-computes entire VM for that location
 
@@ -226,8 +226,8 @@ File: `apps/web/src/App.tsx`
 ### Export roundtrip
 File: `packages/api-routes/test/export-roundtrip.test.ts`
 
-- Create project with locations + located keywords
-- Export → verify `spec.locations` and keyword location refs
+- Create project with locations + located queries
+- Export → verify `spec.locations` and query location refs
 - Re-apply → verify round-trip preserves
 
 ### Provider tests
@@ -237,9 +237,9 @@ Verify each adapter forwards location fields to API call / prompt.
 
 ## Consequences
 
-- Keyword count multiplies with locations: 20 keywords × 3 locations × 3 providers = 180 snapshots per run. Quota checks must account for this.
+- Query count multiplies with locations: 20 queries × 3 locations × 3 providers = 180 snapshots per run. Quota checks must account for this.
 - The `_default` sentinel location row per project adds a small overhead but avoids NULL uniqueness edge cases in SQLite.
-- `ON DELETE RESTRICT` on location FK means users must reassign keywords before deleting a location.
+- `ON DELETE RESTRICT` on location FK means users must reassign queries before deleting a location.
 - Gemini location support is prompt-level only (no SDK param) — results are less reliably geo-targeted than OpenAI/Claude.
 - Historical snapshots are immutable — renaming a location doesn't retroactively change old run data. This is intentional for audit integrity.
 
@@ -247,13 +247,13 @@ Verify each adapter forwards location fields to API call / prompt.
 
 | File | Phase | Changes |
 |------|-------|---------|
-| `packages/db/src/schema.ts` | 1 | `locations` table, `locationId` on keywords, `locationContext` on snapshots |
+| `packages/db/src/schema.ts` | 1 | `locations` table, `locationId` on queries, `locationContext` on snapshots |
 | `packages/db/src/migrate.ts` | 1 | Migration: create table, backfill, swap index |
 | `packages/contracts/src/location.ts` | 1 | **New** — LocationDto, CreateLocationInput, SnapshotLocationContext |
 | `packages/contracts/src/index.ts` | 1 | Export location types |
 | `packages/contracts/src/provider.ts` | 1 | Extend TrackedQueryInput |
 | `packages/contracts/src/run.ts` | 1 | Extend snapshot DTO |
-| `packages/contracts/src/config-schema.ts` | 1 | locations in spec, keyword location references |
+| `packages/contracts/src/config-schema.ts` | 1 | locations in spec, query location references |
 | `packages/provider-openai/src/adapter.ts` | 2 | Forward location fields |
 | `packages/provider-openai/src/normalize.ts` | 2 | Pass user_location to web_search_preview |
 | `packages/provider-claude/src/adapter.ts` | 2 | Forward location fields |
@@ -265,16 +265,16 @@ Verify each adapter forwards location fields to API call / prompt.
 | `packages/canonry/src/job-runner.ts` | 2 | Fetch locations, pass to providers, snapshot locationContext |
 | `packages/api-routes/src/index.ts` | 3 | Register locationRoutes |
 | `packages/api-routes/src/locations.ts` | 3 | **New** — location CRUD |
-| `packages/api-routes/src/keywords.ts` | 3 | Handle locationId in keyword CRUD |
+| `packages/api-routes/src/queries.ts` | 3 | Handle locationId in query CRUD |
 | `packages/api-routes/src/projects.ts` | 3 | Locations in export |
 | `packages/api-routes/src/runs.ts` | 3 | locationContext in snapshot response |
-| `packages/api-routes/src/history.ts` | 3 | keywordId + locationLabel in timeline |
+| `packages/api-routes/src/history.ts` | 3 | queryId + locationLabel in timeline |
 | `packages/canonry/src/client.ts` | 4 | Location client methods |
 | `packages/canonry/src/cli.ts` | 4 | Register location command |
 | `packages/canonry/src/commands/location.ts` | 4 | **New** — location CLI |
-| `packages/canonry/src/commands/keyword.ts` | 4 | --location flag |
+| `packages/canonry/src/commands/query.ts` | 4 | --location flag |
 | `apps/web/src/api.ts` | 5 | Extend types, fetchLocations |
 | `apps/web/src/view-models.ts` | 5 | locationId/label, locationScores |
-| `apps/web/src/build-dashboard.ts` | 5 | Filter param, re-key on keywordId, locationScores |
+| `apps/web/src/build-dashboard.ts` | 5 | Filter param, re-key on queryId, locationScores |
 | `apps/web/src/App.tsx` | 5 | LocationBadge, breakdown card, filter chips |
 | `packages/api-routes/test/export-roundtrip.test.ts` | 6 | Location round-trip test |

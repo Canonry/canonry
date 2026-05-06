@@ -388,8 +388,8 @@ function renderExecutiveSummary(report: ProjectReportDto): string {
       delta: `<span class="tone-${trendTone}">${trendLabel}</span> · ${s.providerCount} provider${s.providerCount === 1 ? '' : 's'}`,
     },
     {
-      label: 'Keywords tracked',
-      value: formatNumber(s.keywordCount),
+      label: 'Queries tracked',
+      value: formatNumber(s.queryCount),
       delta: `${s.competitorCount} competitor${s.competitorCount === 1 ? '' : 's'} tracked`,
     },
   ]
@@ -465,13 +465,13 @@ function renderProviderBars(rates: ProjectReportDto['citationScorecard']['provid
 }
 
 function renderCitationMatrix(scorecard: ProjectReportDto['citationScorecard']): string {
-  if (scorecard.keywords.length === 0 || scorecard.providers.length === 0) {
+  if (scorecard.queries.length === 0 || scorecard.providers.length === 0) {
     return renderEmpty('Run a visibility sweep to populate the citation matrix.')
   }
   const headers = scorecard.providers.map(p => `<th>${escapeHtml(p)}</th>`).join('')
-  const rows = scorecard.keywords.map((kw, ki) => {
+  const rows = scorecard.queries.map((q, qi) => {
     const cells = scorecard.providers.map((_, pi) => {
-      const cell = scorecard.matrix[ki]?.[pi]
+      const cell = scorecard.matrix[qi]?.[pi]
       if (!cell) {
         return '<td><span class="cell-pending">—</span></td>'
       }
@@ -480,11 +480,11 @@ function renderCitationMatrix(scorecard: ProjectReportDto['citationScorecard']):
       }
       return '<td><span class="cell-not-cited">Not cited</span></td>'
     }).join('')
-    return `<tr><td>${escapeHtml(kw)}</td>${cells}</tr>`
+    return `<tr><td>${escapeHtml(q)}</td>${cells}</tr>`
   }).join('')
 
   return `<table class="report-table">
-    <thead><tr><th>Keyword</th>${headers}</tr></thead>
+    <thead><tr><th>Query</th>${headers}</tr></thead>
     <tbody>${rows}</tbody>
   </table>`
 }
@@ -495,7 +495,7 @@ function renderCitationScorecard(report: ProjectReportDto): string {
     ${renderCitationMatrix(report.citationScorecard)}
   `
   return section(
-    { id: 'citation-scorecard', eyebrow: 'Section 2', title: 'Citation Scorecard', intro: 'Whether your domain appeared in each AI engine’s source list for every tracked keyword in the latest sweep — a cell turns green when your domain was cited, red when it was not, and gray when no snapshot exists for that pair.' },
+    { id: 'citation-scorecard', eyebrow: 'Section 2', title: 'Citation Scorecard', intro: 'Whether your domain appeared in each AI engine’s source list for every tracked query in the latest sweep — a cell turns green when your domain was cited, red when it was not, and gray when no snapshot exists for that pair.' },
     body,
   )
 }
@@ -577,13 +577,13 @@ function renderCompetitorLandscape(report: ProjectReportDto): string {
       <td class="numeric">${c.citationCount} / ${c.totalCount}</td>
       <td class="numeric">${mentionCount} / ${mentionTotal}</td>
       <td class="numeric">${c.sharePct}%</td>
-      <td>${escapeHtml(c.citedKeywords.slice(0, 5).join(', '))}${c.citedKeywords.length > 5 ? '…' : ''}${pagesDisclosure}</td>
+      <td>${escapeHtml(c.citedQueries.slice(0, 5).join(', '))}${c.citedQueries.length > 5 ? '…' : ''}${pagesDisclosure}</td>
     </tr>`
   }).join('')
 
   const table = competitors.length > 0
     ? `<table class="report-table">
-        <thead><tr><th>Domain</th><th>Pressure</th><th>Citations</th><th class="numeric">Mentions</th><th class="numeric">SOV</th><th>Cited keywords</th></tr></thead>
+        <thead><tr><th>Domain</th><th>Pressure</th><th>Citations</th><th class="numeric">Mentions</th><th class="numeric">SOV</th><th>Cited queries</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`
     : renderEmpty('No competitors configured.')
@@ -753,14 +753,14 @@ function renderGsc(report: ProjectReportDto): string {
 
   const crossoverBlocks: string[] = []
   if (gsc.trackedButNoGsc.length > 0) {
-    crossoverBlocks.push(`<div class="chart-card"><h3>AEO keywords without search demand</h3>
-      <p class="section-intro">Tracked AEO keywords with no GSC impressions in this window — review whether they represent real search demand.</p>
-      <ul>${gsc.trackedButNoGsc.map(k => `<li>${escapeHtml(k)}</li>`).join('')}</ul>
+    crossoverBlocks.push(`<div class="chart-card"><h3>AEO queries without search demand</h3>
+      <p class="section-intro">Tracked AEO queries with no GSC impressions in this window — review whether they represent real search demand.</p>
+      <ul>${gsc.trackedButNoGsc.map(q => `<li>${escapeHtml(q)}</li>`).join('')}</ul>
     </div>`)
   }
   if (gsc.gscButNotTracked.length > 0) {
     crossoverBlocks.push(`<div class="chart-card"><h3>Search queries you should track</h3>
-      <p class="section-intro">GSC top queries (by impressions) that aren't tracked in your AEO project — candidates to add as keywords.</p>
+      <p class="section-intro">GSC top queries (by impressions) that aren't tracked in your AEO project — candidates to add as queries.</p>
       <ul>${gsc.gscButNotTracked.map(q => `<li>${escapeHtml(q)}</li>`).join('')}</ul>
     </div>`)
   }
@@ -1029,7 +1029,7 @@ function renderInsights(report: ProjectReportDto): string {
     )
   }
 
-  // The API has already deduped by (keyword, provider, type); use the per-row
+  // The API has already deduped by (query, provider, type); use the per-row
   // `instanceCount` instead of regrouping client-side. Older fixtures without
   // the field fall back to a defensive group pass.
   const haveDeduped = list.every((i) => typeof i.instanceCount === 'number')
@@ -1042,7 +1042,7 @@ function renderInsights(report: ProjectReportDto): string {
       return `<tr>
         <td><span class="badge tone-${tone}">${escapeHtml(i.severity)}</span></td>
         <td>${escapeHtml(i.title)}${countChip}</td>
-        <td>${escapeHtml(i.keyword)}</td>
+        <td>${escapeHtml(i.query)}</td>
         <td>${escapeHtml(i.provider)}</td>
         <td>${i.recommendation ? escapeHtml(i.recommendation) : '<span class="cell-pending">—</span>'}</td>
       </tr>`
@@ -1051,7 +1051,7 @@ function renderInsights(report: ProjectReportDto): string {
   return section(
     { id: 'insights', eyebrow: 'Section 11', title: 'Insights & Alerts', intro: 'Regressions (citations lost), gains (citations won), and opportunities surfaced by the intelligence engine across the most recent sweeps — ordered by severity and recurrence.' },
     `<table class="report-table">
-      <thead><tr><th>Severity</th><th>Title</th><th>Keyword</th><th>Provider</th><th>Recommendation</th></tr></thead>
+      <thead><tr><th>Severity</th><th>Title</th><th>Query</th><th>Provider</th><th>Recommendation</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`,
   )

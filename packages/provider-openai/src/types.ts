@@ -16,7 +16,7 @@ export interface OpenAIHealthcheckResult {
 }
 
 export interface OpenAITrackedQueryInput {
-  keyword: string
+  query: string
   canonicalDomains: string[]
   competitorDomains: string[]
   config: OpenAIConfig

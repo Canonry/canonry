@@ -6,10 +6,10 @@ import type { HealthSnapshotDto, InsightDto } from './intelligence.js'
 
 // One-call summary for "how is project X doing?". The shape stays stable so
 // agents can build prompts on it without falling back to four list endpoints.
-export interface ProjectOverviewKeywordCountsDto {
-  totalKeywords: number
-  citedKeywords: number
-  notCitedKeywords: number
+export interface ProjectOverviewQueryCountsDto {
+  totalQueries: number
+  citedQueries: number
+  notCitedQueries: number
   citedRate: number
 }
 
@@ -21,7 +21,7 @@ export interface ProjectOverviewProviderEntryDto {
 }
 
 // `since` is the createdAt of the run before `latestRun`, so callers can render
-// "2 of 8 keywords transitioned since the previous sweep" without a second
+// "2 of 8 queries transitioned since the previous sweep" without a second
 // fetch. Null when no prior run exists.
 export interface ProjectOverviewTransitionsDto {
   since: string | null
@@ -35,7 +35,7 @@ export interface ProjectOverviewDto {
   latestRun: LatestProjectRunDto
   health: HealthSnapshotDto | null
   topInsights: InsightDto[]
-  keywordCounts: ProjectOverviewKeywordCountsDto
+  queryCounts: ProjectOverviewQueryCountsDto
   providers: ProjectOverviewProviderEntryDto[]
   transitions: ProjectOverviewTransitionsDto
 }
@@ -47,11 +47,11 @@ export const projectSearchSnapshotHitSchema = z.object({
   kind: z.literal('snapshot'),
   id: z.string(),
   runId: z.string(),
-  keyword: z.string(),
+  query: z.string(),
   provider: z.string(),
   model: z.string().nullable(),
   citationState: citationStateSchema,
-  matchedField: z.enum(['answerText', 'citedDomains', 'searchQueries', 'keyword']),
+  matchedField: z.enum(['answerText', 'citedDomains', 'searchQueries', 'query']),
   snippet: z.string(),
   createdAt: z.string(),
 })
@@ -65,9 +65,9 @@ export const projectSearchInsightHitSchema = z.object({
   type: z.enum(['regression', 'gain', 'opportunity']),
   severity: z.enum(['critical', 'high', 'medium', 'low']),
   title: z.string(),
-  keyword: z.string(),
+  query: z.string(),
   provider: z.string(),
-  matchedField: z.enum(['title', 'keyword', 'recommendation', 'cause']),
+  matchedField: z.enum(['title', 'query', 'recommendation', 'cause']),
   snippet: z.string(),
   dismissed: z.boolean(),
   createdAt: z.string(),

@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { projects, keywords, competitors, schedules, notifications, parseJsonColumn } from '@ainyc/canonry-db'
+import { projects, queries, competitors, schedules, notifications, parseJsonColumn } from '@ainyc/canonry-db'
 import {
   validationError,
   locationContextSchema,
@@ -308,7 +308,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
   app.get<{ Params: { name: string } }>('/projects/:name/export', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
-    const kws = app.db.select().from(keywords).where(eq(keywords.projectId, project.id)).all()
+    const qs = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
     const comps = app.db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
     const schedule = app.db.select().from(schedules).where(eq(schedules.projectId, project.id)).get()
     const notificationRows = app.db.select().from(notifications).where(eq(notifications.projectId, project.id)).all()
@@ -326,7 +326,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         ownedDomains: parseJsonColumn<string[]>(project.ownedDomains, []),
         country: project.country,
         language: project.language,
-        keywords: kws.map(k => k.keyword),
+        queries: qs.map(q => q.query),
         competitors: comps.map(c => c.domain),
         providers: parseJsonColumn<string[]>(project.providers, []),
         locations: parseJsonColumn<LocationContext[]>(project.locations, []),

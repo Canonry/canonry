@@ -11,6 +11,9 @@ import {
   notFound,
   validationError,
   projectConfigSchema,
+  resolveConfigSpecQueries,
+  resolveSnapshotRequestQueries,
+  snapshotRequestSchema,
   projectDtoSchema,
   providerQuotaPolicySchema,
   runDtoSchema,
@@ -163,8 +166,51 @@ test('projectConfigSchema validates canonry.yaml structure', () => {
 
   expect(config.metadata.name).toBe('my-project')
   expect(config.metadata.labels).toEqual({})
-  expect(config.spec.keywords).toEqual([])
+  expect(resolveConfigSpecQueries(config.spec)).toEqual([])
   expect(config.spec.competitors).toEqual([])
+})
+
+test('projectConfigSchema accepts legacy spec.keywords as queries', () => {
+  const config = projectConfigSchema.parse({
+    apiVersion: 'canonry/v1',
+    kind: 'Project',
+    metadata: { name: 'legacy-project' },
+    spec: {
+      displayName: 'Legacy Project',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+      keywords: ['answer visibility tools'],
+    },
+  })
+
+  expect(resolveConfigSpecQueries(config.spec)).toEqual(['answer visibility tools'])
+})
+
+test('projectConfigSchema rejects mixed spec.queries and legacy spec.keywords', () => {
+  expect(() => projectConfigSchema.parse({
+    apiVersion: 'canonry/v1',
+    kind: 'Project',
+    metadata: { name: 'mixed-project' },
+    spec: {
+      displayName: 'Mixed Project',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+      queries: ['answer visibility tools'],
+      keywords: ['legacy phrase'],
+    },
+  })).toThrow(/legacy alias/)
+})
+
+test('snapshotRequestSchema accepts legacy phrases as queries', () => {
+  const request = snapshotRequestSchema.parse({
+    companyName: 'Acme',
+    domain: 'example.com',
+    phrases: ['best widget provider'],
+  })
+
+  expect(resolveSnapshotRequestQueries(request)).toEqual(['best widget provider'])
 })
 
 test('projectConfigSchema rejects invalid project names', () => {
@@ -246,7 +292,7 @@ test('querySnapshotDtoSchema applies defaults', () => {
   const snapshot = querySnapshotDtoSchema.parse({
     id: 'snap_1',
     runId: 'run_1',
-    keywordId: 'kw_1',
+    queryId: 'q_1',
     provider: 'gemini',
     citationState: 'cited',
     createdAt: '2026-03-09T00:00:00.000Z',
@@ -266,7 +312,7 @@ test('querySnapshotDtoSchema accepts all provider names', () => {
     const snapshot = querySnapshotDtoSchema.parse({
       id: 'snap_1',
       runId: 'run_1',
-      keywordId: 'kw_1',
+      queryId: 'q_1',
       provider,
       citationState: 'cited',
       createdAt: '2026-03-09T00:00:00.000Z',
@@ -500,7 +546,7 @@ test('querySnapshotDtoSchema accepts location string', () => {
   const snapshot = querySnapshotDtoSchema.parse({
     id: 'snap_1',
     runId: 'run_1',
-    keywordId: 'kw_1',
+    queryId: 'q_1',
     provider: 'gemini',
     citationState: 'cited',
     location: 'nyc',
@@ -513,7 +559,7 @@ test('querySnapshotDtoSchema defaults location to undefined', () => {
   const snapshot = querySnapshotDtoSchema.parse({
     id: 'snap_1',
     runId: 'run_1',
-    keywordId: 'kw_1',
+    queryId: 'q_1',
     provider: 'openai',
     citationState: 'not-cited',
     createdAt: '2026-03-09T00:00:00.000Z',
@@ -525,7 +571,7 @@ test('querySnapshotDtoSchema accepts null location', () => {
   const snapshot = querySnapshotDtoSchema.parse({
     id: 'snap_1',
     runId: 'run_1',
-    keywordId: 'kw_1',
+    queryId: 'q_1',
     provider: 'claude',
     citationState: 'cited',
     location: null,

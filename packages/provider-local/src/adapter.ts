@@ -59,7 +59,7 @@ export const localAdapter: ProviderAdapter = {
 
   async executeTrackedQuery(input: TrackedQueryInput, config: ProviderConfig): Promise<RawQueryResult> {
     const raw = await localExecuteTrackedQuery({
-      keyword: input.keyword,
+      query: input.query,
       canonicalDomains: input.canonicalDomains,
       competitorDomains: input.competitorDomains,
       config: toLocalConfig(config),

@@ -1,8 +1,8 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { projects, keywords, competitors, schedules, notifications, parseJsonColumn } from '@ainyc/canonry-db'
-import { normalizeProjectDomain, projectConfigSchema, registrableDomain, validationError } from '@ainyc/canonry-contracts'
+import { projects, queries, competitors, schedules, notifications, parseJsonColumn } from '@ainyc/canonry-db'
+import { normalizeProjectDomain, projectConfigSchema, registrableDomain, resolveConfigSpecQueries, validationError } from '@ainyc/canonry-contracts'
 import { writeAuditLog } from './helpers.js'
 import { resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
 import { resolveWebhookTarget } from './webhooks.js'
@@ -88,6 +88,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
 
     const now = new Date().toISOString()
     const name = config.metadata.name
+    const configQueries = resolveConfigSpecQueries(config.spec)
 
     // All validation done — wrap all writes in a single transaction
     let projectId: string
@@ -153,13 +154,13 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         })
       }
 
-      // Replace keywords + competitors
-      tx.delete(keywords).where(eq(keywords.projectId, projectId)).run()
-      for (const kw of config.spec.keywords) {
-        tx.insert(keywords).values({
+      // Replace queries + competitors
+      tx.delete(queries).where(eq(queries.projectId, projectId)).run()
+      for (const q of configQueries) {
+        tx.insert(queries).values({
           id: crypto.randomUUID(),
           projectId,
-          keyword: kw,
+          query: q,
           createdAt: now,
         }).run()
       }
@@ -167,9 +168,9 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       writeAuditLog(tx, {
         projectId,
         actor: 'api',
-        action: 'keywords.replaced',
-        entityType: 'keyword',
-        diff: { keywords: config.spec.keywords },
+        action: 'queries.replaced',
+        entityType: 'query',
+        diff: { queries: configQueries },
       })
 
       tx.delete(competitors).where(eq(competitors.projectId, projectId)).run()

@@ -16,7 +16,7 @@ export interface ClaudeHealthcheckResult {
 }
 
 export interface ClaudeTrackedQueryInput {
-  keyword: string
+  query: string
   canonicalDomains: string[]
   competitorDomains: string[]
   config: ClaudeConfig

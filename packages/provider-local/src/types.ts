@@ -17,7 +17,7 @@ export interface LocalHealthcheckResult {
 }
 
 export interface LocalTrackedQueryInput {
-  keyword: string
+  query: string
   canonicalDomains: string[]
   competitorDomains: string[]
   config: LocalConfig

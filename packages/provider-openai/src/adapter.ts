@@ -65,7 +65,7 @@ export const openaiAdapter: ProviderAdapter = {
 
   async executeTrackedQuery(input: TrackedQueryInput, config: ProviderConfig): Promise<RawQueryResult> {
     const raw = await openaiExecuteTrackedQuery({
-      keyword: input.keyword,
+      query: input.query,
       canonicalDomains: input.canonicalDomains,
       competitorDomains: input.competitorDomains,
       config: toOpenAIConfig(config),

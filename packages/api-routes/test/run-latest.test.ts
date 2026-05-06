@@ -4,7 +4,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { describe, expect, it } from 'vitest'
-import { createClient, migrate, projects, runs, keywords, querySnapshots } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs, queries, querySnapshots } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
 
@@ -28,7 +28,7 @@ describe('GET /api/v1/projects/:name/runs/latest', () => {
     const projectId = crypto.randomUUID()
     const olderRunId = crypto.randomUUID()
     const latestRunId = crypto.randomUUID()
-    const keywordId = crypto.randomUUID()
+    const queryId = crypto.randomUUID()
 
     db.insert(projects).values({
       id: projectId,
@@ -43,10 +43,10 @@ describe('GET /api/v1/projects/:name/runs/latest', () => {
       createdAt: '2026-04-18T14:00:00.000Z',
       updatedAt: '2026-04-18T14:00:00.000Z',
     }).run()
-    db.insert(keywords).values({
-      id: keywordId,
+    db.insert(queries).values({
+      id: queryId,
       projectId,
-      keyword: 'answer engine optimization',
+      query: 'answer engine optimization',
       createdAt: '2026-04-18T14:05:00.000Z',
     }).run()
     db.insert(runs).values([
@@ -72,7 +72,7 @@ describe('GET /api/v1/projects/:name/runs/latest', () => {
     db.insert(querySnapshots).values({
       id: crypto.randomUUID(),
       runId: latestRunId,
-      keywordId,
+      queryId,
       provider: 'gemini',
       citationState: 'cited',
       answerMentioned: true,
@@ -87,12 +87,12 @@ describe('GET /api/v1/projects/:name/runs/latest', () => {
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload) as {
       totalRuns: number
-      run: { id: string; snapshots: Array<{ keyword: string; citedDomains: string[] }> }
+      run: { id: string; snapshots: Array<{ query: string; citedDomains: string[] }> }
     }
     expect(body.totalRuns).toBe(2)
     expect(body.run.id).toBe(latestRunId)
     expect(body.run.snapshots).toHaveLength(1)
-    expect(body.run.snapshots[0]?.keyword).toBe('answer engine optimization')
+    expect(body.run.snapshots[0]?.query).toBe('answer engine optimization')
     expect(body.run.snapshots[0]?.citedDomains).toEqual(['example.com'])
 
     await app.close()

@@ -1,7 +1,7 @@
 import { eq, desc, and, or } from 'drizzle-orm'
 import { deliverWebhook, redactNotificationUrl, resolveWebhookTarget } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { notifications, runs, querySnapshots, keywords, projects, auditLog, parseJsonColumn } from '@ainyc/canonry-db'
+import { notifications, runs, querySnapshots, queries, projects, auditLog, parseJsonColumn } from '@ainyc/canonry-db'
 import type { NotificationEvent, WebhookPayload, InsightWebhookPayload } from '@ainyc/canonry-contracts'
 import type { AnalysisResult } from '@ainyc/canonry-intelligence'
 import crypto from 'node:crypto'
@@ -146,7 +146,7 @@ export class Notifier {
             type: i.type,
             severity: i.severity,
             title: i.title,
-            keyword: i.keyword,
+            query: i.query,
             provider: i.provider,
           })),
           dashboardUrl: `${this.serverUrl}/projects/${project.name}`,
@@ -157,7 +157,7 @@ export class Notifier {
   }
 
   private computeTransitions(runId: string, projectId: string): Array<{
-    keyword: string; from: string; to: string; provider: string
+    query: string; from: string; to: string; provider: string
   }> {
     // Get the two most recent completed/partial runs for this project.
     // Status filter is pushed into SQL (not applied in JS) so that a concurrent
@@ -185,19 +185,19 @@ export class Notifier {
 
     const currentSnapshots = this.db
       .select({
-        keywordId: querySnapshots.keywordId,
-        keyword: keywords.keyword,
+        queryId: querySnapshots.queryId,
+        query: queries.query,
         provider: querySnapshots.provider,
         citationState: querySnapshots.citationState,
       })
       .from(querySnapshots)
-      .leftJoin(keywords, eq(querySnapshots.keywordId, keywords.id))
+      .leftJoin(queries, eq(querySnapshots.queryId, queries.id))
       .where(eq(querySnapshots.runId, currentRunId))
       .all()
 
     const previousSnapshots = this.db
       .select({
-        keywordId: querySnapshots.keywordId,
+        queryId: querySnapshots.queryId,
         provider: querySnapshots.provider,
         citationState: querySnapshots.citationState,
       })
@@ -205,20 +205,20 @@ export class Notifier {
       .where(eq(querySnapshots.runId, previousRunId))
       .all()
 
-    // Build lookup: key = `${keywordId}:${provider}`
+    // Build lookup: key = `${queryId}:${provider}`
     const prevMap = new Map<string, string>()
     for (const s of previousSnapshots) {
-      prevMap.set(`${s.keywordId}:${s.provider}`, s.citationState)
+      prevMap.set(`${s.queryId}:${s.provider}`, s.citationState)
     }
 
-    const transitions: Array<{ keyword: string; from: string; to: string; provider: string }> = []
+    const transitions: Array<{ query: string; from: string; to: string; provider: string }> = []
 
     for (const s of currentSnapshots) {
-      const key = `${s.keywordId}:${s.provider}`
+      const key = `${s.queryId}:${s.provider}`
       const prevState = prevMap.get(key)
       if (prevState && prevState !== s.citationState) {
         transitions.push({
-          keyword: s.keyword ?? s.keywordId,
+          query: s.query ?? s.queryId,
           from: prevState,
           to: s.citationState,
           provider: s.provider,

@@ -625,7 +625,7 @@ export function RootLayout() {
                 {runDetail.snapshots.map((snap) => (
                   <div key={snap.id} className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 p-3">
                     <div className="flex items-center justify-between gap-2 mb-1">
-                      <p className="text-sm font-medium text-zinc-200 truncate">{snap.keyword ?? 'Unknown key phrase'}</p>
+                      <p className="text-sm font-medium text-zinc-200 truncate">{snap.query ?? 'Unknown query'}</p>
                       <div className="flex items-center gap-1.5">
                         <ProviderBadge provider={snap.provider} />
                         <Badge variant={snap.citationState === CitationStates.cited ? 'success' : 'neutral'}>
@@ -671,14 +671,14 @@ export function RootLayout() {
                 {runDetail.status === 'running' && (
                   <div className="flex items-center gap-2 p-3 text-sm text-zinc-500">
                     <span className="inline-block h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-                    Querying remaining key phrases...
+                    Running remaining queries...
                   </div>
                 )}
               </div>
             ) : runDetail && runDetail.status === 'running' ? (
               <div className="flex items-center gap-2 p-3 text-sm text-zinc-500">
                 <span className="inline-block h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-                Waiting for first key phrase result...
+                Waiting for first query result...
               </div>
             ) : runDetail && runDetail.status === 'queued' ? (
               <div className="flex items-center gap-2 p-3 text-sm text-zinc-500">

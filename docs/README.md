@@ -60,7 +60,7 @@ Plans describe implementation work. They are not current-behavior reference docs
 | [`0003-provider-throttling-and-quotas.md`](adr/0003-provider-throttling-and-quotas.md) | ADR | Use conservative provider throttling and quota defaults |
 | [`0004-local-llm-provider.md`](adr/0004-local-llm-provider.md) | ADR | Support local LLMs via an OpenAI-compatible provider |
 | [`0005-distributed-node-hub-architecture.md`](adr/0005-distributed-node-hub-architecture.md) | ADR | Define the long-term distributed node and hub architecture |
-| [`0006-location-aware-tracking.md`](adr/0006-location-aware-tracking.md) | ADR (superseded) | Historical proposal for keyword-scoped location tracking |
+| [`0006-location-aware-tracking.md`](adr/0006-location-aware-tracking.md) | ADR (superseded) | Historical proposal for query-scoped location tracking |
 | [`0007-project-scoped-location-context.md`](adr/0007-project-scoped-location-context.md) | ADR | Keep locations project-scoped and use them as run context |
 
 ## Reading Order

@@ -22,7 +22,7 @@ That reframes the GTM feature set: the question isn't "what can Aero do?" It's *
 
 ### 1. Easy setup — extend the existing UI wizard, mirror in CLI for agents
 
-**Status — corrected:** the dashboard already has a 5-step setup wizard at `apps/web/src/pages/SetupPage.tsx:21` (system check → create project → keywords → competitors → first run). Empty installs are auto-redirected to `/setup` (`apps/web/src/router/routes.tsx:46-48`), and `build-dashboard.ts:1153,1167` already surfaces empty-state CTAs. **The wizard exists; the gap is what it covers.**
+**Status — corrected:** the dashboard already has a 5-step setup wizard at `apps/web/src/pages/SetupPage.tsx:21` (system check → create project → queries → competitors → first run). Empty installs are auto-redirected to `/setup` (`apps/web/src/router/routes.tsx:46-48`), and `build-dashboard.ts:1153,1167` already surfaces empty-state CTAs. **The wizard exists; the gap is what it covers.**
 
 The existing wizard:
 - Only *checks* providers in step 1 (system check) and links out to `/settings` to add them — provider entry is not inline.
@@ -90,7 +90,7 @@ Same capabilities exposed for users who say "Claude, install canonry and set me 
 - `groundingSources: { uri, title }[]` — the **specific URLs with titles** the LLM used to generate its answer (not just domains)
 - `searchQueries: string[]` — the internal queries the LLM fired (related angles to cover)
 - `competitorOverlap: string[]` — competitor domains cited alongside the query
-- `matchedTerms: string[]` — which of the tracked keyword terms appeared in the answer
+- `matchedTerms: string[]` — which of the tracked query terms appeared in the answer
 
 Plus the `competitors` table (`packages/db/src/schema.ts:32`), `competitorOverlap` / `recommendedCompetitors` on health snapshots (lines 68-69), and the intelligence package (`packages/intelligence/src/regressions.ts`, `gains.ts`, `causes.ts`) which already computes *why* citations move.
 
@@ -537,7 +537,7 @@ Track against a funnel dashboard powered by `packages/canonry/src/telemetry.ts`:
 
 - **Install:** `canonry skill install --for openclaw` writes OpenClaw skill bundle.
 - **Example prompt:** "Set up canonry for example.com and run the first sweep."
-- **Expected workflow:** OpenClaw drives `canonry init` → `canonry project create` → `canonry keyword add` → `canonry run` → `canonry insights list` end-to-end.
+- **Expected workflow:** OpenClaw drives `canonry init` → `canonry project create` → `canonry query add` → `canonry run` → `canonry insights list` end-to-end.
 
 ### Generic fallback
 

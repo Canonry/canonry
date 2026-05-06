@@ -21,9 +21,9 @@ export const SEVERITY_THRESHOLDS = {
 } as const
 
 export interface SeveritySignals {
-  /** GSC impressions for the regressed keyword over the report window. */
+  /** GSC impressions for the regressed query over the report window. */
   gscImpressions?: number
-  /** How many prior runs in recent history flagged this same (keyword, provider) regression. */
+  /** How many prior runs in recent history flagged this same (query, provider) regression. */
   recurrenceCount?: number
 }
 

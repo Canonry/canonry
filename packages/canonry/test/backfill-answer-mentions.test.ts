@@ -6,7 +6,7 @@ import path from 'node:path'
 import {
   competitors,
   createClient,
-  keywords,
+  queries,
   migrate,
   projects,
   querySnapshots,
@@ -58,10 +58,10 @@ describe('backfill answer-mentions', () => {
   function seedAnswerVisibilityRun(opts: {
     projectName: string
     competitorDomains: string[]
-  }): { projectId: string; runId: string; keywordId: string } {
+  }): { projectId: string; runId: string; queryId: string } {
     const projectId = crypto.randomUUID()
     const runId = crypto.randomUUID()
-    const keywordId = crypto.randomUUID()
+    const queryId = crypto.randomUUID()
     const now = new Date().toISOString()
 
     db.insert(projects).values({
@@ -95,14 +95,14 @@ describe('backfill answer-mentions', () => {
       createdAt: now,
     }).run()
 
-    db.insert(keywords).values({
-      id: keywordId,
+    db.insert(queries).values({
+      id: queryId,
       projectId,
-      keyword: 'instant roof estimate',
+      query: 'instant roof estimate',
       createdAt: now,
     }).run()
 
-    return { projectId, runId, keywordId }
+    return { projectId, runId, queryId }
   }
 
   it('clears stale competitorOverlap when a stored subdomained competitor caused a brand-token false match', async () => {
@@ -110,7 +110,7 @@ describe('backfill answer-mentions', () => {
     // pulled `offers` as the brand label and word-boundary matched it against
     // the prose word "offers", marking the snapshot as having competitor
     // overlap when in fact Roofle isn't mentioned at all.
-    const { runId, keywordId } = seedAnswerVisibilityRun({
+    const { runId, queryId } = seedAnswerVisibilityRun({
       projectName: 'demand-iq',
       competitorDomains: ['offers.roofle.com'],
     })
@@ -120,7 +120,7 @@ describe('backfill answer-mentions', () => {
     db.insert(querySnapshots).values({
       id: snapshotId,
       runId,
-      keywordId,
+      queryId,
       provider: 'openai',
       model: 'gpt-5',
       citationState: 'not-cited',
@@ -150,7 +150,7 @@ describe('backfill answer-mentions', () => {
   })
 
   it('still flags overlap when the answer text mentions the registrable brand', async () => {
-    const { runId, keywordId } = seedAnswerVisibilityRun({
+    const { runId, queryId } = seedAnswerVisibilityRun({
       projectName: 'demand-iq-positive',
       competitorDomains: ['offers.roofle.com'],
     })
@@ -160,7 +160,7 @@ describe('backfill answer-mentions', () => {
     db.insert(querySnapshots).values({
       id: snapshotId,
       runId,
-      keywordId,
+      queryId,
       provider: 'openai',
       model: 'gpt-5',
       citationState: 'not-cited',
@@ -189,7 +189,7 @@ describe('backfill answer-mentions', () => {
     // `backfill answer-visibility` command would skip recomputing
     // competitorOverlap/recommendedCompetitors for them. This lighter
     // backfill works off stored data and patches that gap.
-    const { runId, keywordId } = seedAnswerVisibilityRun({
+    const { runId, queryId } = seedAnswerVisibilityRun({
       projectName: 'cdp-project',
       competitorDomains: ['offers.roofle.com'],
     })
@@ -199,7 +199,7 @@ describe('backfill answer-mentions', () => {
     db.insert(querySnapshots).values({
       id: snapshotId,
       runId,
-      keywordId,
+      queryId,
       provider: 'cdp',
       model: 'chrome',
       citationState: 'not-cited',
@@ -226,7 +226,7 @@ describe('backfill answer-mentions', () => {
   })
 
   it('is idempotent — a second run reports zero updates', async () => {
-    const { runId, keywordId } = seedAnswerVisibilityRun({
+    const { runId, queryId } = seedAnswerVisibilityRun({
       projectName: 'idempotent-project',
       competitorDomains: ['offers.roofle.com'],
     })
@@ -235,7 +235,7 @@ describe('backfill answer-mentions', () => {
     db.insert(querySnapshots).values({
       id: crypto.randomUUID(),
       runId,
-      keywordId,
+      queryId,
       provider: 'openai',
       model: 'gpt-5',
       citationState: 'not-cited',
@@ -263,7 +263,7 @@ describe('backfill answer-mentions', () => {
   it('does not touch citationState, citedDomains, or rawResponse', async () => {
     // The PR fixed only brand-token matching; the citation path is unchanged.
     // This backfill must not modify those columns even if it could.
-    const { runId, keywordId } = seedAnswerVisibilityRun({
+    const { runId, queryId } = seedAnswerVisibilityRun({
       projectName: 'preserves-citation-state',
       competitorDomains: ['offers.roofle.com'],
     })
@@ -278,7 +278,7 @@ describe('backfill answer-mentions', () => {
     db.insert(querySnapshots).values({
       id: snapshotId,
       runId,
-      keywordId,
+      queryId,
       provider: 'openai',
       model: 'gpt-5',
       citationState: 'cited',
@@ -305,7 +305,7 @@ describe('backfill answer-mentions', () => {
   })
 
   it('only processes answer-visibility runs', async () => {
-    const { projectId, keywordId } = seedAnswerVisibilityRun({
+    const { projectId, queryId } = seedAnswerVisibilityRun({
       projectName: 'mixed-runs',
       competitorDomains: ['offers.roofle.com'],
     })
@@ -325,7 +325,7 @@ describe('backfill answer-mentions', () => {
     db.insert(querySnapshots).values({
       id: auditSnapshotId,
       runId: auditRunId,
-      keywordId,
+      queryId,
       provider: 'openai',
       model: 'gpt-5',
       citationState: 'not-cited',

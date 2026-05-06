@@ -85,23 +85,23 @@ function printGaps(data: GapAnalysisDto): void {
 
   if (data.gap.length > 0) {
     console.log(`\n  Opportunity Gaps (competitors cited, you're not):`)
-    for (const kw of data.gap) {
-      const competitors = kw.competitorsCiting.join(', ')
-      const cons = kw.consistency.totalRuns > 0
-        ? ` [cited ${kw.consistency.citedRuns}/${kw.consistency.totalRuns} runs]`
+    for (const q of data.gap) {
+      const competitors = q.competitorsCiting.join(', ')
+      const cons = q.consistency.totalRuns > 0
+        ? ` [cited ${q.consistency.citedRuns}/${q.consistency.totalRuns} runs]`
         : ''
-      console.log(`    • ${kw.keyword}${cons}`)
+      console.log(`    • ${q.query}${cons}`)
       console.log(`      Competitors: ${competitors}`)
     }
   }
 
   if (data.cited.length > 0) {
-    console.log(`\n  Cited Keywords:`)
-    for (const kw of data.cited) {
-      const cons = kw.consistency.totalRuns > 0
-        ? ` [${kw.consistency.citedRuns}/${kw.consistency.totalRuns} runs]`
+    console.log(`\n  Cited Queries:`)
+    for (const q of data.cited) {
+      const cons = q.consistency.totalRuns > 0
+        ? ` [${q.consistency.citedRuns}/${q.consistency.totalRuns} runs]`
         : ''
-      console.log(`    ✓ ${kw.keyword} (${kw.providers.join(', ')})${cons}`)
+      console.log(`    ✓ ${q.query} (${q.providers.join(', ')})${cons}`)
     }
   }
 }

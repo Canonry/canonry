@@ -15,10 +15,10 @@ describe('computeHealth', () => {
   it('computes correct overall rate and per-provider breakdown', () => {
     const run = makeRun({
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: true },
-        { keyword: 'k1', provider: 'gemini', cited: true },
-        { keyword: 'k2', provider: 'chatgpt', cited: false },
-        { keyword: 'k2', provider: 'gemini', cited: true },
+        { query: 'k1', provider: 'chatgpt', cited: true },
+        { query: 'k1', provider: 'gemini', cited: true },
+        { query: 'k2', provider: 'chatgpt', cited: false },
+        { query: 'k2', provider: 'gemini', cited: true },
       ],
     })
 
@@ -42,9 +42,9 @@ describe('computeHealth', () => {
   it('returns 1.0 when all snapshots are cited', () => {
     const run = makeRun({
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: true },
-        { keyword: 'k2', provider: 'chatgpt', cited: true },
-        { keyword: 'k3', provider: 'chatgpt', cited: true },
+        { query: 'k1', provider: 'chatgpt', cited: true },
+        { query: 'k2', provider: 'chatgpt', cited: true },
+        { query: 'k3', provider: 'chatgpt', cited: true },
       ],
     })
 
@@ -56,8 +56,8 @@ describe('computeHealth', () => {
   it('returns 0 when no snapshots are cited', () => {
     const run = makeRun({
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: false },
-        { keyword: 'k2', provider: 'gemini', cited: false },
+        { query: 'k1', provider: 'chatgpt', cited: false },
+        { query: 'k2', provider: 'gemini', cited: false },
       ],
     })
 
@@ -69,8 +69,8 @@ describe('computeHealth', () => {
   it('handles a single provider correctly', () => {
     const run = makeRun({
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: true },
-        { keyword: 'k2', provider: 'chatgpt', cited: false },
+        { query: 'k1', provider: 'chatgpt', cited: true },
+        { query: 'k2', provider: 'chatgpt', cited: false },
       ],
     })
 
@@ -83,7 +83,7 @@ describe('computeHealth', () => {
     const providers = ['chatgpt', 'gemini', 'claude', 'perplexity']
     const run = makeRun({
       snapshots: providers.map((p, i) => ({
-        keyword: 'k1',
+        query: 'k1',
         provider: p,
         cited: i < 2, // first two cited
       })),
@@ -106,8 +106,8 @@ describe('computeHealthTrend', () => {
   it('treats single run as full delta from zero', () => {
     const run = makeRun({
       snapshots: [
-        { keyword: 'k1', provider: 'chatgpt', cited: true },
-        { keyword: 'k2', provider: 'chatgpt', cited: true },
+        { query: 'k1', provider: 'chatgpt', cited: true },
+        { query: 'k2', provider: 'chatgpt', cited: true },
       ],
     })
 
@@ -122,15 +122,15 @@ describe('computeHealthTrend', () => {
       makeRun({
         runId: 'run_001',
         snapshots: [
-          { keyword: 'k1', provider: 'chatgpt', cited: false },
-          { keyword: 'k2', provider: 'chatgpt', cited: false },
+          { query: 'k1', provider: 'chatgpt', cited: false },
+          { query: 'k2', provider: 'chatgpt', cited: false },
         ],
       }),
       makeRun({
         runId: 'run_002',
         snapshots: [
-          { keyword: 'k1', provider: 'chatgpt', cited: true },
-          { keyword: 'k2', provider: 'chatgpt', cited: true },
+          { query: 'k1', provider: 'chatgpt', cited: true },
+          { query: 'k2', provider: 'chatgpt', cited: true },
         ],
       }),
     ]
@@ -146,15 +146,15 @@ describe('computeHealthTrend', () => {
       makeRun({
         runId: 'run_001',
         snapshots: [
-          { keyword: 'k1', provider: 'chatgpt', cited: true },
-          { keyword: 'k2', provider: 'chatgpt', cited: true },
+          { query: 'k1', provider: 'chatgpt', cited: true },
+          { query: 'k2', provider: 'chatgpt', cited: true },
         ],
       }),
       makeRun({
         runId: 'run_002',
         snapshots: [
-          { keyword: 'k1', provider: 'chatgpt', cited: false },
-          { keyword: 'k2', provider: 'chatgpt', cited: false },
+          { query: 'k1', provider: 'chatgpt', cited: false },
+          { query: 'k2', provider: 'chatgpt', cited: false },
         ],
       }),
     ]
@@ -167,9 +167,9 @@ describe('computeHealthTrend', () => {
 
   it('uses last two runs only, ignoring earlier runs', () => {
     const runs: RunData[] = [
-      makeRun({ runId: 'oldest', snapshots: [{ keyword: 'k1', provider: 'chatgpt', cited: true }] }),
-      makeRun({ runId: 'prev', snapshots: [{ keyword: 'k1', provider: 'chatgpt', cited: false }] }),
-      makeRun({ runId: 'curr', snapshots: [{ keyword: 'k1', provider: 'chatgpt', cited: true }] }),
+      makeRun({ runId: 'oldest', snapshots: [{ query: 'k1', provider: 'chatgpt', cited: true }] }),
+      makeRun({ runId: 'prev', snapshots: [{ query: 'k1', provider: 'chatgpt', cited: false }] }),
+      makeRun({ runId: 'curr', snapshots: [{ query: 'k1', provider: 'chatgpt', cited: true }] }),
     ]
 
     const trend = computeHealthTrend(runs)
@@ -179,7 +179,7 @@ describe('computeHealthTrend', () => {
   })
 
   it('returns zero delta when health is stable', () => {
-    const snapshot = [{ keyword: 'k1', provider: 'chatgpt', cited: true }]
+    const snapshot = [{ query: 'k1', provider: 'chatgpt', cited: true }]
     const runs = [
       makeRun({ runId: 'run_001', snapshots: snapshot }),
       makeRun({ runId: 'run_002', snapshots: snapshot }),

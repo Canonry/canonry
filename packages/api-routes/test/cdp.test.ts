@@ -227,10 +227,10 @@ describe('GET /api/v1/screenshots/:snapshotId', () => {
     const screenshotPath = path.join(screenshotDir, testScreenshotName)
     fs.writeFileSync(screenshotPath, pngBytes)
 
-    const { querySnapshots, runs, projects, keywords } = await import('@ainyc/canonry-db')
+    const { querySnapshots, runs, projects, queries } = await import('@ainyc/canonry-db')
     const projectId = crypto.randomUUID()
     const runId = crypto.randomUUID()
-    const keywordId = crypto.randomUUID()
+    const queryId = crypto.randomUUID()
     const snapshotId = crypto.randomUUID()
 
     db.insert(projects).values({
@@ -244,10 +244,10 @@ describe('GET /api/v1/screenshots/:snapshotId', () => {
       updatedAt: new Date().toISOString(),
     }).run()
 
-    db.insert(keywords).values({
-      id: keywordId,
+    db.insert(queries).values({
+      id: queryId,
       projectId,
-      keyword: 'test keyword',
+      query: 'test query',
       createdAt: new Date().toISOString(),
     }).run()
 
@@ -263,7 +263,7 @@ describe('GET /api/v1/screenshots/:snapshotId', () => {
     db.insert(querySnapshots).values({
       id: snapshotId,
       runId,
-      keywordId,
+      queryId,
       provider: 'cdp:chatgpt',
       citationState: 'cited',
       citedDomains: '[]',
@@ -329,8 +329,8 @@ describe('GET /api/v1/projects/:name/runs/:runId/browser-diff', () => {
     expect(res.statusCode).toBe(404)
   })
 
-  it('returns a summary and per-keyword comparison for a run with api + browser snapshots', async () => {
-    const { querySnapshots, runs, keywords } = await import('@ainyc/canonry-db')
+  it('returns a summary and per-query comparison for a run with api + browser snapshots', async () => {
+    const { querySnapshots, runs, queries } = await import('@ainyc/canonry-db')
 
     // Create project via API so it lands in the shared DB
     const createRes = await app.inject({
@@ -346,9 +346,9 @@ describe('GET /api/v1/projects/:name/runs/:runId/browser-diff', () => {
     expect(createRes.statusCode).toBe(201)
     const project = JSON.parse(createRes.payload) as { id: string }
 
-    // Insert run + keyword + snapshots directly into the same DB
+    // Insert run + query + snapshots directly into the same DB
     const runId = crypto.randomUUID()
-    const keywordId = crypto.randomUUID()
+    const queryId = crypto.randomUUID()
 
     db.insert(runs).values({
       id: runId,
@@ -359,10 +359,10 @@ describe('GET /api/v1/projects/:name/runs/:runId/browser-diff', () => {
       createdAt: new Date().toISOString(),
     }).run()
 
-    db.insert(keywords).values({
-      id: keywordId,
+    db.insert(queries).values({
+      id: queryId,
       projectId: project.id,
-      keyword: 'best coffee',
+      query: 'best coffee',
       createdAt: new Date().toISOString(),
     }).run()
 
@@ -370,7 +370,7 @@ describe('GET /api/v1/projects/:name/runs/:runId/browser-diff', () => {
       {
         id: crypto.randomUUID(),
         runId,
-        keywordId,
+        queryId,
         provider: 'openai',
         citationState: 'cited',
         citedDomains: JSON.stringify(['example.com']),
@@ -380,7 +380,7 @@ describe('GET /api/v1/projects/:name/runs/:runId/browser-diff', () => {
       {
         id: crypto.randomUUID(),
         runId,
-        keywordId,
+        queryId,
         provider: 'cdp:chatgpt',
         citationState: 'cited',
         citedDomains: JSON.stringify(['example.com']),
@@ -397,8 +397,8 @@ describe('GET /api/v1/projects/:name/runs/:runId/browser-diff', () => {
     const body = JSON.parse(res.payload)
     expect(body.summary).toBeDefined()
     expect(body.summary.total).toBeGreaterThanOrEqual(1)
-    expect(body.keywords).toBeInstanceOf(Array)
-    expect(body.keywords[0].agreement).toBe('agree-cited')
+    expect(body.queries).toBeInstanceOf(Array)
+    expect(body.queries[0].agreement).toBe('agree-cited')
   })
 })
 

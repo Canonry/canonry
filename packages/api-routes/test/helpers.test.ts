@@ -46,7 +46,7 @@ describe('incrementUsage', () => {
   it('keeps separate counters for different metrics', () => {
     const db = createTempDb()
     incrementUsage(db, 'project:test', 'runs')
-    incrementUsage(db, 'project:test', 'keywords')
+    incrementUsage(db, 'project:test', 'queries')
 
     const rows = db.select().from(usageCounters)
       .where(eq(usageCounters.scope, 'project:test'))
@@ -55,7 +55,7 @@ describe('incrementUsage', () => {
     expect(rows).toHaveLength(2)
     const byMetric = Object.fromEntries(rows.map(r => [r.metric, r.count]))
     expect(byMetric['runs']).toBe(1)
-    expect(byMetric['keywords']).toBe(1)
+    expect(byMetric['queries']).toBe(1)
   })
 
   it('keeps separate counters for different scopes', () => {

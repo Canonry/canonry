@@ -23,7 +23,7 @@ export async function showEvidence(project: string, format?: string): Promise<vo
   }
 
   if (timeline.length === 0) {
-    console.log('No keyword evidence yet. Trigger a run first with "canonry run".')
+    console.log('No query evidence yet. Trigger a run first with "canonry run".')
     return
   }
 
@@ -34,10 +34,10 @@ export async function showEvidence(project: string, format?: string): Promise<vo
     if (!latest) continue
     const state = latest.citationState === CitationStates.cited ? '✓ cited' : '✗ not-cited'
     const transition = latest.transition !== latest.citationState ? ` (${latest.transition})` : ''
-    console.log(`  ${state}${transition}  ${entry.keyword}`)
+    console.log(`  ${state}${transition}  ${entry.query}`)
   }
 
-  console.log(`\n  Keywords: ${timeline.length}`)
+  console.log(`\n  Queries: ${timeline.length}`)
   const cited = timeline.filter(e => e.runs[e.runs.length - 1]?.citationState === CitationStates.cited).length
   console.log(`  Cited:    ${cited} / ${timeline.length}`)
 }
