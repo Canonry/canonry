@@ -85,8 +85,8 @@ export async function testNotification(project: string, id: string, format?: str
 const EVENT_DESCRIPTIONS: Record<string, string> = {
   'citation.lost': 'A query lost its citation status',
   'citation.gained': 'A query gained citation status',
-  'run.completed': 'A visibility run completed successfully',
-  'run.failed': 'A visibility run failed',
+  'run.completed': 'An AEO sweep completed successfully',
+  'run.failed': 'An AEO sweep failed',
   'insight.critical': 'A critical-severity insight was generated',
   'insight.high': 'A high-severity insight was generated',
 }

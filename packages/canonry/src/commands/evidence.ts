@@ -1,3 +1,4 @@
+import { CitationStates } from '@ainyc/canonry-contracts'
 import { createApiClient, type TimelineDto } from '../client.js'
 
 type EvidenceJsonEntry = TimelineDto & {
@@ -15,7 +16,7 @@ export async function showEvidence(project: string, format?: string): Promise<vo
   if (format === 'json') {
     const enriched: EvidenceJsonEntry[] = timeline.map((entry) => ({
       ...entry,
-      cited: entry.runs[entry.runs.length - 1]?.citationState === 'cited',
+      cited: entry.runs[entry.runs.length - 1]?.citationState === CitationStates.cited,
     }))
     console.log(JSON.stringify(enriched, null, 2))
     return
@@ -31,12 +32,12 @@ export async function showEvidence(project: string, format?: string): Promise<vo
   for (const entry of timeline) {
     const latest = entry.runs[entry.runs.length - 1]
     if (!latest) continue
-    const state = latest.citationState === 'cited' ? '✓ cited' : '✗ not-cited'
+    const state = latest.citationState === CitationStates.cited ? '✓ cited' : '✗ not-cited'
     const transition = latest.transition !== latest.citationState ? ` (${latest.transition})` : ''
     console.log(`  ${state}${transition}  ${entry.query}`)
   }
 
   console.log(`\n  Queries: ${timeline.length}`)
-  const cited = timeline.filter(e => e.runs[e.runs.length - 1]?.citationState === 'cited').length
+  const cited = timeline.filter(e => e.runs[e.runs.length - 1]?.citationState === CitationStates.cited).length
   console.log(`  Cited:    ${cited} / ${timeline.length}`)
 }

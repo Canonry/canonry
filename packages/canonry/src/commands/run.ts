@@ -1,5 +1,5 @@
 import { type ApiClient, createApiClient } from '../client.js'
-import { resolveProviderInput, type RunDetailDto } from '@ainyc/canonry-contracts'
+import { CitationStates, resolveProviderInput, type RunDetailDto } from '@ainyc/canonry-contracts'
 import { CliError } from '../cli-error.js'
 
 function getClient() {
@@ -281,7 +281,7 @@ async function pollRun(client: ApiClient, runId: string): Promise<RunDetailDto> 
   }
 }
 
-function printRunDetail(run: RunDetailDto): void {
+export function printRunDetail(run: RunDetailDto): void {
   console.log(`Run: ${run.id}`)
   console.log(`  Status:   ${run.status}`)
   console.log(`  Kind:     ${run.kind}`)
@@ -298,13 +298,14 @@ function printRunDetail(run: RunDetailDto): void {
     }
   }
   if (run.snapshots && run.snapshots.length > 0) {
-    console.log(`\n  Snapshots: ${run.snapshots.length}`)
+    console.log(`\n  Snapshots: ${run.snapshots.length}  (cell = [citation][mention];  C=cited c=not, M=mentioned m=not, –=no data)`)
     for (const s of run.snapshots) {
-      const state = typeof s.answerMentioned === 'boolean'
-        ? (s.answerMentioned ? '  visible  ' : '  not-vis  ')
-        : (s.citationState === 'cited' ? '  cited    ' : '  not-cited')
+      const citationGlyph = s.citationState === CitationStates.cited ? 'C' : 'c'
+      const mentionGlyph = typeof s.answerMentioned === 'boolean'
+        ? (s.answerMentioned ? 'M' : 'm')
+        : '–'
       const modelLabel = s.model ? ` (${s.model})` : ''
-      console.log(`    ${state}  ${s.provider}${modelLabel}  ${s.query}`)
+      console.log(`    [${citationGlyph}${mentionGlyph}]  ${s.provider}${modelLabel}  ${s.query}`)
     }
   }
 }

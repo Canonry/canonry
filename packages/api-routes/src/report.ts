@@ -18,6 +18,7 @@ import {
 import {
   brandLabelFromDomain,
   categorizeSource,
+  CitationStates,
   determineAnswerMentioned,
   normalizeProjectDomain,
   RunKinds,
@@ -172,13 +173,13 @@ function buildCitationScorecard(
     const pi = providerList.indexOf(snap.provider)
     if (qi < 0 || pi < 0) continue
     matrix[qi]![pi] = {
-      citationState: snap.citationState === 'cited' ? 'cited' : 'not-cited',
+      citationState: snap.citationState === CitationStates.cited ? CitationStates.cited : CitationStates['not-cited'],
       answerMentioned: snap.answerMentioned ?? null,
       model: snap.model,
     }
     const counts = providerCounts.get(snap.provider) ?? { cited: 0, total: 0 }
     counts.total++
-    if (snap.citationState === 'cited') counts.cited++
+    if (snap.citationState === CitationStates.cited) counts.cited++
     providerCounts.set(snap.provider, counts)
   }
 
@@ -757,10 +758,10 @@ function buildCitationsTrend(
     for (const snap of snaps) {
       if (!queryLookup.byId.has(snap.queryId)) continue
       considered++
-      if (snap.citationState === 'cited') cited++
+      if (snap.citationState === CitationStates.cited) cited++
       const counts = providerCounts.get(snap.provider) ?? { cited: 0, total: 0 }
       counts.total++
-      if (snap.citationState === 'cited') counts.cited++
+      if (snap.citationState === CitationStates.cited) counts.cited++
       providerCounts.set(snap.provider, counts)
     }
     if (considered === 0) continue
@@ -1019,7 +1020,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
   for (const snap of latestSnapshots) {
     if (!queryLookup.byId.has(snap.queryId)) continue
     latestConsidered++
-    if (snap.citationState === 'cited') latestCited++
+    if (snap.citationState === CitationStates.cited) latestCited++
   }
   const citationRate = latestConsidered > 0
     ? Math.round((latestCited / latestConsidered) * 100)

@@ -3,7 +3,7 @@ import type { DatabaseClient } from '@ainyc/canonry-db'
 import { projects, runs, querySnapshots, queries, insights, healthSnapshots, gscSearchData, parseJsonColumn } from '@ainyc/canonry-db'
 import { analyzeRuns, classifyRegressionSeverity } from '@ainyc/canonry-intelligence'
 import type { RunData, Snapshot, AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
-import { RunKinds } from '@ainyc/canonry-contracts'
+import { CitationStates, RunKinds } from '@ainyc/canonry-contracts'
 import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
 
@@ -359,7 +359,7 @@ export class IntelligenceService {
       return {
         query: r.query ?? '',
         provider: r.provider,
-        cited: r.citationState === 'cited',
+        cited: r.citationState === CitationStates.cited,
         citationUrl: domains[0] ?? undefined,
         competitorDomain: competitors[0] ?? undefined,
       }

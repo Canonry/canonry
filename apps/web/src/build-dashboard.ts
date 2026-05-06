@@ -145,7 +145,7 @@ function computeQueryVisibility(snapshots: ApiRunDetail['snapshots']): { score: 
   for (const snap of snapshots) {
     const q = snap.query ?? snap.id
     if (!queryCited.has(q)) queryCited.set(q, false)
-    if (snap.citationState === 'cited') queryCited.set(q, true)
+    if (snap.citationState === CitationStates.cited) queryCited.set(q, true)
   }
   const totalCount = queryCited.size
   const citedCount = [...queryCited.values()].filter(Boolean).length
@@ -192,7 +192,7 @@ function buildGapQuerySummary(
   for (const snap of snapshots) {
     const key = snap.queryId
     const current = byQuery.get(key) ?? { cited: false, competitorOverlap: new Set<string>() }
-    if (snap.citationState === 'cited') current.cited = true
+    if (snap.citationState === CitationStates.cited) current.cited = true
     for (const domain of snap.competitorOverlap) current.competitorOverlap.add(domain)
     byQuery.set(key, current)
   }
@@ -386,8 +386,8 @@ function buildEvidenceFromTimeline(
         const snapState: CitationState = snap
           ? effectiveTransition === 'lost' ? 'lost'
             : effectiveTransition === 'emerging' ? 'emerging'
-            : snap.citationState === 'cited' ? 'cited' : 'not-cited'
-          : latestProviderState === 'cited' ? 'cited' : 'not-cited'
+            : snap.citationState === CitationStates.cited ? 'cited' : 'not-cited'
+          : latestProviderState === CitationStates.cited ? 'cited' : 'not-cited'
         const snapVisibilityState = (snap?.visibilityState as CitationInsightVm['visibilityState'] | undefined)
           ?? (latestProviderVisibilityState === 'visible' ? 'visible' : latestProviderVisibilityState === 'pending' ? 'pending' : 'not-visible')
 
@@ -691,10 +691,10 @@ export function buildInsights(input: InsightInput): ProjectInsightVm[] {
 
   // First citation: query-level
   for (const [query, { transition, citationState }] of queryTransition) {
-    const isFirst = transition === 'emerging' || (transition === 'new' && citationState === 'cited')
+    const isFirst = transition === 'emerging' || (transition === 'new' && citationState === CitationStates.cited)
     if (!isFirst) continue
     firstCitationQueries.add(query)
-    const ev = evidence.find(e => e.query === query && (e.citationState === 'emerging' || e.citationState === 'cited'))
+    const ev = evidence.find(e => e.query === query && (e.citationState === 'emerging' || e.citationState === CitationStates.cited))
     firstCitationPhrases.push({
       query, evidenceId: ev?.id ?? '', provider: ev?.provider, citationState: 'emerging',
     })
@@ -740,7 +740,7 @@ export function buildInsights(input: InsightInput): ProjectInsightVm[] {
     if (!evidenceQueries.has(entry.query)) continue
     if (entry.runs.length < GAP_THRESHOLD) continue
     const latestRun = entry.runs.at(-1)
-    if (latestRun?.citationState !== 'not-cited') continue
+    if (latestRun?.citationState !== CitationStates['not-cited']) continue
     const streak = computeStreak(entry.runs)
     if (streak >= GAP_THRESHOLD) {
       const ev = evidence.find(e => e.query === entry.query)
@@ -825,7 +825,7 @@ function computeMovement(
   if (previousSnapshots.length === 0) {
     // No previous run to compare against
     const citedCount = new Set(
-      latestSnapshots.filter(s => s.citationState === 'cited').map(s => s.query),
+      latestSnapshots.filter(s => s.citationState === CitationStates.cited).map(s => s.query),
     ).size
     return { gained: citedCount, lost: 0, tone: citedCount > 0 ? 'positive' : 'neutral', hasPreviousRun: false }
   }
@@ -834,7 +834,7 @@ function computeMovement(
   const buildCitedSet = (snaps: ApiRunDetail['snapshots']): Set<string> => {
     const cited = new Set<string>()
     for (const s of snaps) {
-      if (s.citationState === 'cited' && s.query) cited.add(s.query)
+      if (s.citationState === CitationStates.cited && s.query) cited.add(s.query)
     }
     return cited
   }
@@ -969,7 +969,7 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
     const key = `${p}::${m ?? 'unknown'}`
     const group = modelGroups.get(key) ?? { provider: p, model: m, cited: 0, total: 0 }
     group.total++
-    if (snap.citationState === 'cited') group.cited++
+    if (snap.citationState === CitationStates.cited) group.cited++
     modelGroups.set(key, group)
   }
   const providerScores = [...modelGroups.values()]
