@@ -17,7 +17,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-import { RunKinds, formatRunErrorOneLine, type RunKind } from '@ainyc/canonry-contracts'
+import { CitationStates, RunKinds, formatRunErrorOneLine, type RunKind } from '@ainyc/canonry-contracts'
 
 import { formatErrorLog } from './lib/format-helpers.js'
 import { fetchAllRuns, fetchProjects, type ApiProject, type ApiRun } from './api.js'
@@ -628,7 +628,7 @@ export function RootLayout() {
                       <p className="text-sm font-medium text-zinc-200 truncate">{snap.query ?? 'Unknown query'}</p>
                       <div className="flex items-center gap-1.5">
                         <ProviderBadge provider={snap.provider} />
-                        <Badge variant={snap.citationState === 'cited' ? 'success' : 'neutral'}>
+                        <Badge variant={snap.citationState === CitationStates.cited ? 'success' : 'neutral'}>
                           {snap.citationState}
                         </Badge>
                       </div>

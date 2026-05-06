@@ -1,5 +1,6 @@
 import { Fragment, useMemo, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
+import { CitationStates } from '@ainyc/canonry-contracts'
 
 import { Button } from '../ui/button.js'
 import { CitationBadge } from '../shared/CitationBadge.js'
@@ -171,7 +172,7 @@ export function EvidenceTable({
                 states.every(s => s === 'pending') ? 'pending' : 'not-cited'
 
               const mergedHistory = mergeProviderHistories(items)
-              const presentCount = items.filter(i => i.citationState === 'cited' || i.citationState === 'emerging').length
+              const presentCount = items.filter(i => i.citationState === CitationStates.cited || i.citationState === 'emerging').length
               const aggChangeLabel = describeChange(mergedHistory, mode)
 
               return (

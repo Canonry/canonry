@@ -161,7 +161,7 @@ describe('citation visibility CLI + parity', () => {
 
   it('human output includes both headlines, cross-tab buckets, and the per-query table', async () => {
     const out = await captureStdout(() => showCitationVisibility('example', {}))
-    expect(out).toContain('Citation visibility')
+    expect(out).toContain('AEO visibility (citations + mentions)')
     expect(out).toContain('Cited in sources:')
     expect(out).toContain('Mentioned in answers:')
     expect(out).toContain('cited + mentioned:')

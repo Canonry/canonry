@@ -39,6 +39,29 @@ export default tseslint.config(
     },
   },
   {
+    // Vocabulary enforcement: per AGENTS.md "Vocabulary (Critical)", user-facing
+    // labels for `answer_mentioned` must say "mentioned" / "not-mentioned" and
+    // labels for `citation_state` must say "cited" / "not-cited". The legacy
+    // umbrella term "visibility" is permitted only when explicitly disambiguated
+    // (e.g. "Visibility Gap (Citations + Mentions)"). The literals below are
+    // unambiguous user-facing labels that conflate the two signals — bare
+    // `'visible'` is excluded because it has legitimate uses (DOM API, the
+    // legacy `VisibilityState` enum value) that lint cannot disambiguate.
+    files: [
+      'packages/canonry/src/commands/**/*.ts',
+      'packages/canonry/src/cli-commands/**/*.ts',
+      'packages/api-routes/src/**/*.ts',
+      'apps/web/src/**/*.ts',
+      'apps/web/src/**/*.tsx',
+    ],
+    rules: {
+      'no-restricted-syntax': ['error', {
+        selector: "Literal[value=/^(not-vis|visibility run|visibility sweep|visibility report|answer rate|answer-rate|answerRate)$/]",
+        message: 'Use canonical AEO vocabulary: "mentioned" / "not-mentioned" for answer-text presence, "cited" / "not-cited" for source-list presence. See AGENTS.md "Vocabulary (Critical)".',
+      }],
+    },
+  },
+  {
     files: ['**/*.js'],
     extends: [js.configs.recommended],
     languageOptions: {

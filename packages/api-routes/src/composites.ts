@@ -13,6 +13,7 @@ import {
   runs,
 } from '@ainyc/canonry-db'
 import {
+  CitationStates,
   parseRunError,
   RunKinds,
   RunStatuses,
@@ -394,7 +395,7 @@ function summarizeFromSnapshots(
   const perQuery = new Map<string, boolean>()
   const perProvider = new Map<string, { cited: number; total: number }>()
   for (const snap of snapshots) {
-    const cited = snap.citationState === 'cited'
+    const cited = snap.citationState === CitationStates.cited
     if (!perQuery.has(snap.queryId) || cited) {
       perQuery.set(snap.queryId, cited)
     }
@@ -438,7 +439,7 @@ function summarizeTransitionsFromSnapshots(
   const buildMap = (snaps: readonly OverviewSnapshot[]): Map<string, boolean> => {
     const m = new Map<string, boolean>()
     for (const s of snaps) {
-      const cited = s.citationState === 'cited'
+      const cited = s.citationState === CitationStates.cited
       if (!m.has(s.queryId) || cited) m.set(s.queryId, cited)
     }
     return m

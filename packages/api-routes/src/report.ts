@@ -16,6 +16,7 @@ import {
   runs,
 } from '@ainyc/canonry-db'
 import {
+  CitationStates,
   RunKinds,
   RunStatuses,
   type CitationsTrendPoint,
@@ -485,10 +486,10 @@ function buildCitationsTrend(
     for (const snap of snaps) {
       if (!queryLookup.byId.has(snap.queryId)) continue
       considered++
-      if (snap.citationState === 'cited') cited++
+      if (snap.citationState === CitationStates.cited) cited++
       const counts = providerCounts.get(snap.provider) ?? { cited: 0, total: 0 }
       counts.total++
-      if (snap.citationState === 'cited') counts.cited++
+      if (snap.citationState === CitationStates.cited) counts.cited++
       providerCounts.set(snap.provider, counts)
     }
     if (considered === 0) continue
@@ -747,7 +748,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
   for (const snap of latestSnapshots) {
     if (!queryLookup.byId.has(snap.queryId)) continue
     latestConsidered++
-    if (snap.citationState === 'cited') latestCited++
+    if (snap.citationState === CitationStates.cited) latestCited++
   }
   const citationRate = latestConsidered > 0
     ? Math.round((latestCited / latestConsidered) * 100)

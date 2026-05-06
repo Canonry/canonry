@@ -6,7 +6,7 @@ import type {
   ProjectReportDto,
   ReportInsight,
 } from '@ainyc/canonry-contracts'
-import { absolutizeProjectUrl } from '@ainyc/canonry-contracts'
+import { absolutizeProjectUrl, CitationStates } from '@ainyc/canonry-contracts'
 import {
   groupInsights,
   isTrendBaseline,
@@ -475,7 +475,7 @@ function renderCitationMatrix(scorecard: ProjectReportDto['citationScorecard']):
       if (!cell) {
         return '<td><span class="cell-pending">—</span></td>'
       }
-      if (cell.citationState === 'cited') {
+      if (cell.citationState === CitationStates.cited) {
         return '<td><span class="cell-cited">Cited</span></td>'
       }
       return '<td><span class="cell-not-cited">Not cited</span></td>'
