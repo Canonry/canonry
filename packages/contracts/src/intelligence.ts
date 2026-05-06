@@ -1,8 +1,18 @@
+export type InsightType =
+  | 'regression'
+  | 'gain'
+  | 'opportunity'
+  | 'first-citation'
+  | 'provider-pickup'
+  | 'persistent-gap'
+  | 'competitor-gained'
+  | 'competitor-lost'
+
 export interface InsightDto {
   id: string
   projectId: string
   runId: string | null
-  type: 'regression' | 'gain' | 'opportunity'
+  type: InsightType
   severity: 'critical' | 'high' | 'medium' | 'low'
   title: string
   query: string

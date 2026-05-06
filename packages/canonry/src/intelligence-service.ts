@@ -1,13 +1,15 @@
 import { eq, desc, asc, and, or, inArray } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { projects, runs, querySnapshots, queries, insights, healthSnapshots, gscSearchData, parseJsonColumn } from '@ainyc/canonry-db'
-import { analyzeRuns, classifyRegressionSeverity } from '@ainyc/canonry-intelligence'
+import { projects, runs, querySnapshots, queries, competitors, insights, healthSnapshots, gscSearchData, parseJsonColumn } from '@ainyc/canonry-db'
+import { analyzeRuns, classifyRegressionSeverity, PERSISTENT_GAP_THRESHOLD } from '@ainyc/canonry-intelligence'
 import type { RunData, Snapshot, AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
 import { CitationStates, RunKinds } from '@ainyc/canonry-contracts'
 import crypto from 'node:crypto'
 import { createLogger } from './logger.js'
 
 const RECURRENCE_LOOKBACK_RUNS = 5
+/** Number of recent runs to load for persistent-gap detection. Must be >= PERSISTENT_GAP_THRESHOLD. */
+const HISTORY_WINDOW_RUNS = Math.max(PERSISTENT_GAP_THRESHOLD, 5)
 
 const log = createLogger('IntelligenceService')
 
@@ -20,7 +22,10 @@ export class IntelligenceService {
    * Returns the analysis result for the coordinator to inspect (e.g. for webhook dispatch).
    */
   analyzeAndPersist(runId: string, projectId: string): AnalysisResult | null {
-    // 1. Fetch the two most recent completed/partial runs for context
+    // 1. Fetch a window of recent completed/partial runs — covers immediate
+    //    previous run and enough history for persistent-gap detection.
+    //    Order by finishedAt (then createdAt) so chronology is well-defined
+    //    even when multiple test rows share a wall-clock createdAt.
     const recentRuns = this.db
       .select()
       .from(runs)
@@ -30,8 +35,8 @@ export class IntelligenceService {
           or(eq(runs.status, 'completed'), eq(runs.status, 'partial')),
         ),
       )
-      .orderBy(desc(runs.createdAt))
-      .limit(2)
+      .orderBy(desc(runs.finishedAt), desc(runs.createdAt))
+      .limit(HISTORY_WINDOW_RUNS)
       .all()
 
     if (recentRuns.length === 0) {
@@ -53,15 +58,22 @@ export class IntelligenceService {
       return null
     }
 
-    // 3. Build RunData for the previous run (if available)
-    const previousRunRecord = recentRuns.find(r => r.id !== runId)
+    // 3. Build RunData for previous run + history window (oldest → newest, ending at current)
+    const orderedRecent = [...recentRuns].reverse()
+    const currentIdx = orderedRecent.findIndex(r => r.id === runId)
+    const previousRunRecord = currentIdx > 0 ? orderedRecent[currentIdx - 1]! : null
     const previousRun = previousRunRecord
       ? this.buildRunData(previousRunRecord.id, projectId, previousRunRecord.finishedAt ?? previousRunRecord.createdAt)
       : null
 
+    const trackedCompetitors = this.loadTrackedCompetitors(projectId)
+    const history = orderedRecent
+      .slice(0, currentIdx + 1)
+      .map(r => r.id === runId ? currentRun : this.buildRunData(r.id, projectId, r.finishedAt ?? r.createdAt))
+
     // 4. Run analysis — skip transition detection on first run (no baseline to compare)
     if (!previousRun) {
-      const result = analyzeRuns(currentRun, currentRun)
+      const result = analyzeRuns(currentRun, currentRun, { trackedCompetitors, history })
       log.info('intelligence.analyzed', {
         runId,
         regressions: 0,
@@ -70,16 +82,21 @@ export class IntelligenceService {
         insights: 0,
       })
       // Persist only the health snapshot, no transition insights
-      this.persistResult({ ...result, insights: [], regressions: [], gains: [] }, runId, projectId)
+      this.persistResult(this.emptyAnalysisResult(result), runId, projectId)
       return result
     }
 
-    const result = analyzeRuns(currentRun, previousRun)
+    const result = analyzeRuns(currentRun, previousRun, { trackedCompetitors, history })
 
     log.info('intelligence.analyzed', {
       runId,
       regressions: result.regressions.length,
       gains: result.gains.length,
+      firstCitations: result.firstCitations.length,
+      providerPickups: result.providerPickups.length,
+      persistentGaps: result.persistentGaps.length,
+      competitorGains: result.competitorGains.length,
+      competitorLosses: result.competitorLosses.length,
       citedRate: result.health.overallCitedRate,
       insights: result.insights.length,
     })
@@ -99,6 +116,7 @@ export class IntelligenceService {
   analyzeRunWithPrevious(
     runRecord: { id: string; projectId: string; finishedAt: string | null; createdAt: string },
     previousRunRecord: { id: string; projectId: string; finishedAt: string | null; createdAt: string } | null,
+    historyRecords?: readonly { id: string; projectId: string; finishedAt: string | null; createdAt: string }[],
   ): AnalysisResult | null {
     const currentRun = this.buildRunData(runRecord.id, runRecord.projectId, runRecord.finishedAt ?? runRecord.createdAt)
 
@@ -110,14 +128,20 @@ export class IntelligenceService {
       ? this.buildRunData(previousRunRecord.id, previousRunRecord.projectId, previousRunRecord.finishedAt ?? previousRunRecord.createdAt)
       : null
 
+    const trackedCompetitors = this.loadTrackedCompetitors(runRecord.projectId)
+    const history = (historyRecords ?? [])
+      .map(r => r.id === runRecord.id
+        ? currentRun
+        : this.buildRunData(r.id, r.projectId, r.finishedAt ?? r.createdAt))
+
     // Skip transition detection on first run (no baseline to compare)
     if (!previousRun) {
-      const result = analyzeRuns(currentRun, currentRun)
-      this.persistResult({ ...result, insights: [], regressions: [], gains: [] }, runRecord.id, runRecord.projectId)
+      const result = analyzeRuns(currentRun, currentRun, { trackedCompetitors, history })
+      this.persistResult(this.emptyAnalysisResult(result), runRecord.id, runRecord.projectId)
       return result
     }
 
-    const result = analyzeRuns(currentRun, previousRun)
+    const result = analyzeRuns(currentRun, previousRun, { trackedCompetitors, history })
 
     const tieredResult = this.tierResult(result, runRecord.id, runRecord.projectId)
     this.persistResult(tieredResult, runRecord.id, runRecord.projectId)
@@ -179,8 +203,11 @@ export class IntelligenceService {
       // Previous run is the one before this in the full list (not just the target slice)
       const globalIdx = allRuns.indexOf(run)
       const previousRun = globalIdx > 0 ? allRuns[globalIdx - 1]! : null
+      // History window for persistent-gap: last HISTORY_WINDOW_RUNS entries up to and including this run.
+      const historyStart = Math.max(0, globalIdx - (HISTORY_WINDOW_RUNS - 1))
+      const historyRecords = allRuns.slice(historyStart, globalIdx + 1)
 
-      const result = this.analyzeRunWithPrevious(run, previousRun)
+      const result = this.analyzeRunWithPrevious(run, previousRun, historyRecords)
 
       if (result) {
         processed++
@@ -193,6 +220,33 @@ export class IntelligenceService {
     }
 
     return { processed, skipped, totalInsights }
+  }
+
+  private loadTrackedCompetitors(projectId: string): string[] {
+    return this.db
+      .select({ domain: competitors.domain })
+      .from(competitors)
+      .where(eq(competitors.projectId, projectId))
+      .all()
+      .map(r => r.domain)
+  }
+
+  /**
+   * Wipe transition signals from an analysis result while keeping health.
+   * Used when there's no baseline (first run) to avoid emitting false transitions.
+   */
+  private emptyAnalysisResult(result: AnalysisResult): AnalysisResult {
+    return {
+      ...result,
+      insights: [],
+      regressions: [],
+      gains: [],
+      firstCitations: [],
+      providerPickups: [],
+      persistentGaps: [],
+      competitorGains: [],
+      competitorLosses: [],
+    }
   }
 
   private persistResult(result: AnalysisResult, runId: string, projectId: string): void {
@@ -361,7 +415,7 @@ export class IntelligenceService {
         provider: r.provider,
         cited: r.citationState === CitationStates.cited,
         citationUrl: domains[0] ?? undefined,
-        competitorDomain: competitors[0] ?? undefined,
+        competitorDomains: competitors,
       }
     })
 
