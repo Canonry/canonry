@@ -89,23 +89,33 @@ export function extractAnswerMentions(
     matchedTerms.push(displayName)
   }
 
-  const tokens = collectDistinctiveTokens(displayName, domains)
+  // Token-based matching: count every distinctive token toward the
+  // threshold (so detection accuracy stays the same — a multi-word brand
+  // still requires ≥2 matches before it fires), but only surface the
+  // *primary* tokens as matchedTerms. Secondary tokens are trailing
+  // descriptors like "Roofing"/"Plumbing"/"Construction" that are too
+  // generic to be useful as standalone evidence. Surfacing them as chips
+  // (or as highlight terms in the answer body) misleads the reader into
+  // thinking every "roofing" mention is a hit on the brand "Cenco Roofing".
+  const brandTokens = collectBrandTokens(displayName, domains)
+  const allTokens = [...brandTokens.primary, ...brandTokens.secondary]
+  const secondarySet = new Set(brandTokens.secondary)
   let tokenMatches = 0
-  const matchedTokens: string[] = []
-  for (const token of tokens) {
+  const matchedPrimary: string[] = []
+  for (const token of allTokens) {
     if (new RegExp(`\\b${escapeRegExp(token)}\\b`).test(lowerAnswer)) {
       tokenMatches++
-      matchedTokens.push(token)
+      if (!secondarySet.has(token)) matchedPrimary.push(token)
     }
   }
 
-  const tokenThresholdMet = tokens.length > 0 && (
-    (tokens.length === 1 && tokenMatches >= 1)
-    || tokenMatches >= Math.min(2, tokens.length)
+  const tokenThresholdMet = allTokens.length > 0 && (
+    (allTokens.length === 1 && tokenMatches >= 1)
+    || tokenMatches >= Math.min(2, allTokens.length)
   )
 
   if (tokenThresholdMet) {
-    matchedTerms.push(...matchedTokens)
+    matchedTerms.push(...matchedPrimary)
   }
 
   // Deduplicate and remove tokens already subsumed by a domain match
@@ -150,11 +160,34 @@ function domainMentioned(lowerAnswer: string, normalizedDomain: string): boolean
   return patterns.some(pattern => pattern.test(lowerAnswer))
 }
 
-function collectDistinctiveTokens(displayName: string, domains: string[]): string[] {
-  const tokens = new Set<string>()
+interface BrandTokens {
+  /**
+   * Tokens that may match standalone in answer text — the brand prefix
+   * (first distinctive word of the display name) and the registrable
+   * domain's concatenated brand label. These are unique enough that a
+   * single word-boundary hit signals a real mention.
+   */
+  primary: string[]
+  /**
+   * Distinctive but trailing descriptor words from the display name
+   * (e.g. "Roofing" in "Cenco Roofing"). These flow through full-phrase
+   * and brand-key matching, but are NEVER matched standalone in prose,
+   * because generic industry nouns are too common to be a reliable
+   * signal of brand presence on their own.
+   */
+  secondary: string[]
+}
 
-  for (const token of extractDistinctiveTokens(displayName)) {
-    tokens.add(token)
+function collectBrandTokens(displayName: string, domains: string[]): BrandTokens {
+  const primary = new Set<string>()
+  const secondary = new Set<string>()
+
+  const distinctiveWords = extractDistinctiveTokens(displayName)
+  if (distinctiveWords.length > 0) {
+    primary.add(distinctiveWords[0]!)
+    for (let i = 1; i < distinctiveWords.length; i++) {
+      secondary.add(distinctiveWords[i]!)
+    }
   }
 
   for (const domain of domains) {
@@ -168,10 +201,13 @@ function collectDistinctiveTokens(displayName: string, domains: string[]): strin
       ? brandLabelFromDomain(reg)
       : (normalizeProjectDomain(domain).split('/')[0]?.split('.')[0] ?? '')
     const token = brand.replace(/[^a-z0-9]/gi, '').toLowerCase()
-    if (isDistinctiveToken(token)) tokens.add(token)
+    if (isDistinctiveToken(token)) primary.add(token)
   }
 
-  return [...tokens]
+  // A token must not appear in both buckets — primary wins.
+  for (const t of primary) secondary.delete(t)
+
+  return { primary: [...primary], secondary: [...secondary] }
 }
 
 function extractDistinctiveTokens(value: string): string[] {
