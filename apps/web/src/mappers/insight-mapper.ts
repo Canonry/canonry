@@ -5,18 +5,33 @@ const TONE_MAP: Record<InsightDto['type'], MetricTone> = {
   regression: 'negative',
   gain: 'positive',
   opportunity: 'caution',
+  'first-citation': 'positive',
+  'provider-pickup': 'positive',
+  'persistent-gap': 'caution',
+  'competitor-gained': 'negative',
+  'competitor-lost': 'neutral',
 }
 
 const CITATION_STATE_MAP: Record<InsightDto['type'], CitationState> = {
   regression: 'lost',
   gain: 'emerging',
   opportunity: 'not-cited',
+  'first-citation': 'emerging',
+  'provider-pickup': 'emerging',
+  'persistent-gap': 'not-cited',
+  'competitor-gained': 'cited',
+  'competitor-lost': 'not-cited',
 }
 
 const ACTION_LABEL_FALLBACK: Record<InsightDto['type'], string> = {
   regression: 'Regression',
   gain: 'Gain',
   opportunity: 'Opportunity',
+  'first-citation': 'First citation',
+  'provider-pickup': 'Pickup',
+  'persistent-gap': 'Gap',
+  'competitor-gained': 'Competitor',
+  'competitor-lost': 'Competitor',
 }
 
 export function mapInsightDtoToVm(dto: InsightDto): ProjectInsightVm {
