@@ -9,14 +9,15 @@ export function analyzeCause(regression: Regression, currentSnapshots: Snapshot[
       s.query === regression.query &&
       s.provider === regression.provider &&
       !s.cited &&
-      s.competitorDomain
+      s.competitorDomains && s.competitorDomains.length > 0
   )
 
   if (currentSnap) {
+    const competitor = currentSnap.competitorDomains![0]!
     return {
       cause: 'competitor_gain',
-      competitorDomain: currentSnap.competitorDomain,
-      details: `Competitor ${currentSnap.competitorDomain} now cited for "${regression.query}" on ${regression.provider}`,
+      competitorDomain: competitor,
+      details: `Competitor ${competitor} now cited for "${regression.query}" on ${regression.provider}`,
     }
   }
 

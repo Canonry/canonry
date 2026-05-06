@@ -1,4 +1,4 @@
-import type { ProjectDto, InsightDto, RunErrorDto, RunKind, RunStatus } from '@ainyc/canonry-contracts'
+import type { ProjectDto, InsightDto, ProjectOverviewDto, RunErrorDto, RunKind, RunStatus } from '@ainyc/canonry-contracts'
 import { RunKinds, RunStatuses, RunTriggers, CitationStates, ComputedTransitions, formatRunErrorOneLine } from '@ainyc/canonry-contracts'
 import type {
   ApiCompetitor,
@@ -139,183 +139,6 @@ function summaryFromRun(run: ApiRun): string {
 }
 
 /** Count unique queries that are cited by at least one provider. */
-function computeQueryVisibility(snapshots: ApiRunDetail['snapshots']): { score: number; citedCount: number; totalCount: number } {
-  if (snapshots.length === 0) return { score: 0, citedCount: 0, totalCount: 0 }
-  const queryCited = new Map<string, boolean>()
-  for (const snap of snapshots) {
-    const q = snap.query ?? snap.id
-    if (!queryCited.has(q)) queryCited.set(q, false)
-    if (snap.citationState === CitationStates.cited) queryCited.set(q, true)
-  }
-  const totalCount = queryCited.size
-  const citedCount = [...queryCited.values()].filter(Boolean).length
-  const score = totalCount > 0 ? Math.round((citedCount / totalCount) * 100) : 0
-  return { score, citedCount, totalCount }
-}
-
-function scoreTone(score: number): MetricTone {
-  if (score >= 70) return 'positive'
-  if (score >= 40) return 'caution'
-  return 'negative'
-}
-
-function pressureTone(label: string): MetricTone {
-  if (label === 'High') return 'negative'
-  if (label === 'Moderate') return 'caution'
-  return 'neutral'
-}
-
-function gapTone(gapCount: number, totalCount: number): MetricTone {
-  if (gapCount === 0) return 'positive'
-  const ratio = totalCount > 0 ? gapCount / totalCount : 0
-  if (ratio >= 0.3) return 'negative'
-  return 'caution'
-}
-
-function buildGapQuerySummary(
-  snapshots: ApiRunDetail['snapshots'],
-): ScoreSummaryVm {
-  if (snapshots.length === 0) {
-    return {
-      label: 'Gap Queries',
-      value: 'No data',
-      delta: 'Run a sweep first',
-      tone: 'neutral',
-      description: 'Run a visibility sweep to identify queries where competitors are cited and your domain is not.',
-      tooltip: 'Tracked queries where a competitor is cited in the latest run but your domain is not.',
-      trend: [],
-    }
-  }
-
-  const byQuery = new Map<string, { cited: boolean; competitorOverlap: Set<string> }>()
-
-  for (const snap of snapshots) {
-    const key = snap.queryId
-    const current = byQuery.get(key) ?? { cited: false, competitorOverlap: new Set<string>() }
-    if (snap.citationState === CitationStates.cited) current.cited = true
-    for (const domain of snap.competitorOverlap) current.competitorOverlap.add(domain)
-    byQuery.set(key, current)
-  }
-
-  const totalCount = byQuery.size
-  const gapCount = [...byQuery.values()].filter(entry => !entry.cited && entry.competitorOverlap.size > 0).length
-  const gapQueryLabel = gapCount === 1 ? 'query' : 'queries'
-
-  return {
-    label: 'Gap Queries',
-    value: `${gapCount}`,
-    delta: `${gapCount} of ${totalCount} queries at risk`,
-    tone: gapTone(gapCount, totalCount),
-    description: gapCount > 0
-      ? `${gapCount} tracked ${gapQueryLabel} currently cite competitors without citing your domain.`
-      : 'No competitive query gaps detected in the latest visibility run.',
-    tooltip: 'Tracked queries where a competitor is cited in the latest run but your domain is not.',
-    trend: [],
-    progress: totalCount > 0 ? gapCount / totalCount : 0,
-  }
-}
-
-type CoverageSummarySource =
-  | ({ provider: 'Google' } & ApiGscCoverageSummary['summary'])
-  | ({ provider: 'Bing'; deindexed: 0 } & ApiBingCoverageSummary['summary'])
-
-function chooseIndexCoverageSummary(
-  gscCoverage?: ApiGscCoverageSummary | null,
-  bingCoverage?: ApiBingCoverageSummary | null,
-): CoverageSummarySource | null {
-  if (gscCoverage && gscCoverage.summary.total > 0) {
-    return {
-      provider: 'Google',
-      ...gscCoverage.summary,
-    }
-  }
-
-  if (bingCoverage && bingCoverage.summary.total > 0) {
-    return {
-      provider: 'Bing',
-      ...bingCoverage.summary,
-      deindexed: 0,
-    }
-  }
-
-  if (gscCoverage) {
-    return {
-      provider: 'Google',
-      ...gscCoverage.summary,
-    }
-  }
-
-  if (bingCoverage) {
-    return {
-      provider: 'Bing',
-      ...bingCoverage.summary,
-      deindexed: 0,
-    }
-  }
-
-  return null
-}
-
-function indexCoverageTone(summary: CoverageSummarySource): MetricTone {
-  if (summary.provider === 'Google' && summary.deindexed > 0) return 'negative'
-  if (summary.percentage >= 90) return 'positive'
-  if (summary.percentage >= 70) return 'caution'
-  return 'negative'
-}
-
-function buildIndexCoverageSummary(
-  gscCoverage?: ApiGscCoverageSummary | null,
-  bingCoverage?: ApiBingCoverageSummary | null,
-): ScoreSummaryVm {
-  const coverage = chooseIndexCoverageSummary(gscCoverage, bingCoverage)
-
-  if (!coverage || coverage.total === 0) {
-    return {
-      label: 'Index Coverage',
-      value: 'No data',
-      delta: 'Connect GSC or Bing',
-      tone: 'neutral',
-      description: 'Connect Google Search Console or Bing Webmaster Tools and inspect your sitemap to populate coverage.',
-      tooltip: 'Percentage of inspected URLs currently indexed. Google Search Console is preferred when available, otherwise Bing Webmaster Tools is used.',
-      trend: [],
-    }
-  }
-
-  const notIndexedLabel = coverage.notIndexed === 1 ? 'URL is' : 'URLs are'
-  const deindexedLabel = coverage.deindexed === 1 ? 'URL' : 'URLs'
-
-  return {
-    label: 'Index Coverage',
-    value: `${Math.round(coverage.percentage)}`,
-    delta: `${coverage.provider} · ${coverage.indexed} of ${coverage.total} indexed`,
-    tone: indexCoverageTone(coverage),
-    description: coverage.provider === 'Google' && coverage.deindexed > 0
-      ? `${coverage.deindexed} deindexed ${deindexedLabel} detected in the latest Google Search Console inspection.`
-      : `${coverage.notIndexed} ${notIndexedLabel} not indexed in ${coverage.provider === 'Google' ? 'Google Search Console' : 'Bing Webmaster Tools'}.`,
-    tooltip: 'Percentage of inspected URLs currently indexed. Google Search Console is preferred when available, otherwise Bing Webmaster Tools is used.',
-    trend: [],
-  }
-}
-
-function computeCompetitorPressure(snapshots: ApiRunDetail['snapshots'], competitorDomains: string[]): { label: string; count: number } {
-  if (snapshots.length === 0 || competitorDomains.length === 0) {
-    return { label: 'None', count: 0 }
-  }
-  // Use competitorOverlap (root-domain-collapsed by the job runner) so subdomain
-  // citations are counted the same way as the per-competitor table below.
-  const competitorSet = new Set(competitorDomains)
-  let overlapCount = 0
-  for (const snap of snapshots) {
-    if (snap.competitorOverlap.some(d => competitorSet.has(d))) {
-      overlapCount++
-    }
-  }
-  const ratio = overlapCount / snapshots.length
-  if (ratio >= 0.5) return { label: 'High', count: overlapCount }
-  if (ratio >= 0.2) return { label: 'Moderate', count: overlapCount }
-  return { label: 'Low', count: overlapCount }
-}
-
 function buildEvidenceFromTimeline(
   projectName: string,
   timeline: ApiTimelineEntry[],
@@ -598,307 +421,6 @@ function visibilityEvidenceSummary(
   }
 }
 
-export interface InsightInput {
-  evidence: CitationInsightVm[]
-  timeline: ApiTimelineEntry[]
-  latestSnapshots: ApiRunDetail['snapshots']
-  previousSnapshots: ApiRunDetail['snapshots']
-  trackedCompetitors: string[]
-}
-
-function buildCompetitorQueryMap(
-  snapshots: ApiRunDetail['snapshots'],
-  trackedCompetitors: string[],
-): Map<string, Set<string>> {
-  const competitorSet = new Set(trackedCompetitors)
-  const result = new Map<string, Set<string>>()
-  for (const snap of snapshots) {
-    if (!snap.query) continue
-    for (const domain of snap.competitorOverlap) {
-      if (!competitorSet.has(domain)) continue
-      const existing = result.get(domain) ?? new Set()
-      existing.add(snap.query)
-      result.set(domain, existing)
-    }
-  }
-  return result
-}
-
-const GAP_THRESHOLD = 3
-
-export function buildInsights(input: InsightInput): ProjectInsightVm[] {
-  const { evidence, timeline, latestSnapshots, previousSnapshots, trackedCompetitors } = input
-  const insights: ProjectInsightVm[] = []
-
-  // --- 1. Lost citation (one entry per query, representative provider) ---
-  const lostPhrases: AffectedPhrase[] = []
-  const seenLostQueries = new Set<string>()
-  for (const e of evidence) {
-    if (e.citationState !== 'lost') continue
-    if (seenLostQueries.has(e.query)) continue
-    seenLostQueries.add(e.query)
-    lostPhrases.push({ query: e.query, evidenceId: e.id, provider: e.provider, citationState: 'lost' as CitationState })
-  }
-
-  if (lostPhrases.length > 0) {
-    insights.push({
-      id: 'insight_lost',
-      tone: 'negative',
-      title: `Lost citation on ${lostPhrases.length} quer${lostPhrases.length > 1 ? 'ies' : 'y'}`,
-      detail: 'Citations dropped since the last run.',
-      actionLabel: 'Lost',
-      affectedPhrases: lostPhrases,
-    })
-  }
-
-  // --- 2. Competitor gained ---
-  const latestCompMap = buildCompetitorQueryMap(latestSnapshots, trackedCompetitors)
-  const prevCompMap = buildCompetitorQueryMap(previousSnapshots, trackedCompetitors)
-
-  for (const comp of trackedCompetitors) {
-    const latestQs = latestCompMap.get(comp) ?? new Set()
-    const prevQs = prevCompMap.get(comp) ?? new Set()
-    const gained = [...latestQs].filter(q => !prevQs.has(q))
-    if (gained.length > 0) {
-      insights.push({
-        id: `insight_comp_gained_${comp}`,
-        tone: 'negative',
-        title: `${comp} appeared on ${gained.length} quer${gained.length > 1 ? 'ies' : 'y'}`,
-        detail: 'A tracked competitor gained new citations.',
-        actionLabel: 'Competitor',
-        affectedPhrases: gained.map(q => {
-          const ev = evidence.find(e => e.query === q)
-          return { query: q, evidenceId: ev?.id ?? '', citationState: 'cited' as CitationState }
-        }),
-      })
-    }
-  }
-
-  // --- 3 & 4. New provider pickup vs First citation ---
-  // Use the deduped query timeline to decide: if the query itself just became cited
-  // (transition = 'emerging' or 'new' + cited), it's a "first citation" (query-level).
-  // If the query was already cited but a specific provider just started citing it
-  // (provider transition = 'emerging'), it's a "new provider pickup".
-  const queryTransition = new Map<string, { transition: string; citationState: string }>()
-  for (const entry of timeline) {
-    const latest = entry.runs.at(-1)
-    if (latest) queryTransition.set(entry.query, { transition: latest.transition, citationState: latest.citationState })
-  }
-
-  const firstCitationPhrases: AffectedPhrase[] = []
-  const newProviderPhrases: AffectedPhrase[] = []
-  const firstCitationQueries = new Set<string>()
-
-  // First citation: query-level
-  for (const [query, { transition, citationState }] of queryTransition) {
-    const isFirst = transition === 'emerging' || (transition === 'new' && citationState === CitationStates.cited)
-    if (!isFirst) continue
-    firstCitationQueries.add(query)
-    const ev = evidence.find(e => e.query === query && (e.citationState === 'emerging' || e.citationState === CitationStates.cited))
-    firstCitationPhrases.push({
-      query, evidenceId: ev?.id ?? '', provider: ev?.provider, citationState: 'emerging',
-    })
-  }
-
-  // New provider pickup: per-provider emerging where query was already cited
-  for (const e of evidence) {
-    if (e.citationState !== 'emerging') continue
-    if (firstCitationQueries.has(e.query)) continue
-    newProviderPhrases.push({
-      query: e.query, evidenceId: e.id, provider: e.provider, citationState: 'emerging',
-    })
-  }
-
-  if (newProviderPhrases.length > 0) {
-    const qCount = new Set(newProviderPhrases.map(p => p.query)).size
-    insights.push({
-      id: 'insight_provider_pickup',
-      tone: 'positive',
-      title: `Picked up by new provider on ${qCount} quer${qCount > 1 ? 'ies' : 'y'}`,
-      detail: 'Your domain started appearing on additional providers.',
-      actionLabel: 'Pickup',
-      affectedPhrases: newProviderPhrases,
-    })
-  }
-
-  if (firstCitationPhrases.length > 0) {
-    insights.push({
-      id: 'insight_first_citation',
-      tone: 'positive',
-      title: `First citation on ${firstCitationQueries.size} quer${firstCitationQueries.size > 1 ? 'ies' : 'y'}`,
-      detail: 'Your domain appeared in AI answers for the first time.',
-      actionLabel: 'New',
-      affectedPhrases: firstCitationPhrases,
-    })
-  }
-
-  // --- 5. Persistent gap (query-level, deduped timeline) ---
-  const evidenceQueries = new Set(evidence.map(e => e.query))
-  const gapPhrases: AffectedPhrase[] = []
-
-  for (const entry of timeline) {
-    if (!evidenceQueries.has(entry.query)) continue
-    if (entry.runs.length < GAP_THRESHOLD) continue
-    const latestRun = entry.runs.at(-1)
-    if (latestRun?.citationState !== CitationStates['not-cited']) continue
-    const streak = computeStreak(entry.runs)
-    if (streak >= GAP_THRESHOLD) {
-      const ev = evidence.find(e => e.query === entry.query)
-      gapPhrases.push({ query: entry.query, evidenceId: ev?.id ?? '', citationState: 'not-cited' })
-    }
-  }
-
-  if (gapPhrases.length > 0) {
-    insights.push({
-      id: 'insight_persistent_gap',
-      tone: 'caution',
-      title: `${gapPhrases.length} quer${gapPhrases.length > 1 ? 'ies' : 'y'} uncited for ${GAP_THRESHOLD}+ runs`,
-      detail: 'These queries have not been cited by any provider across multiple consecutive runs.',
-      actionLabel: 'Gap',
-      affectedPhrases: gapPhrases,
-    })
-  }
-
-  // --- 6. Competitor lost ---
-  for (const comp of trackedCompetitors) {
-    const latestQs = latestCompMap.get(comp) ?? new Set()
-    const prevQs = prevCompMap.get(comp) ?? new Set()
-    const lost = [...prevQs].filter(q => !latestQs.has(q))
-    if (lost.length > 0) {
-      insights.push({
-        id: `insight_comp_lost_${comp}`,
-        tone: 'neutral',
-        title: `${comp} dropped from ${lost.length} quer${lost.length > 1 ? 'ies' : 'y'}`,
-        detail: 'A tracked competitor lost citations.',
-        actionLabel: 'Competitor',
-        affectedPhrases: lost.map(q => {
-          const ev = evidence.find(e => e.query === q)
-          return { query: q, evidenceId: ev?.id ?? '', citationState: 'not-cited' as CitationState }
-        }),
-      })
-    }
-  }
-
-  // Stable fallback
-  if (insights.length === 0) {
-    insights.push({
-      id: 'insight_stable',
-      tone: 'neutral',
-      title: 'No significant changes',
-      detail: 'Citation state is stable across all tracked queries.',
-      actionLabel: 'Stable',
-      affectedPhrases: [],
-    })
-  }
-
-  return insights
-}
-
-/**
- * Merge DB-backed insights with in-memory signals.
- * DB covers regression/gain; in-memory covers first-citation, provider-pickup,
- * persistent-gap, competitor signals, and stable fallback.
- * DB regressions replace in-memory insight_lost (richer cause/recommendation data).
- */
-function mergeInsights(inMemory: ProjectInsightVm[], db: ProjectInsightVm[]): ProjectInsightVm[] {
-  // Remove in-memory lost-citation signals; DB regressions are more detailed
-  const supplemental = inMemory.filter(i => i.id !== 'insight_lost' && i.id !== 'insight_stable')
-  const merged = [...db, ...supplemental]
-  if (merged.length === 0) {
-    return [{
-      id: 'insight_stable',
-      tone: 'neutral',
-      title: 'No significant changes',
-      detail: 'Citation state is stable across all tracked queries.',
-      actionLabel: 'Stable',
-      affectedPhrases: [],
-    }]
-  }
-  return merged
-}
-
-/** Compare latest vs previous run to count query-level gains and losses. */
-function computeMovement(
-  latestSnapshots: ApiRunDetail['snapshots'],
-  previousSnapshots: ApiRunDetail['snapshots'],
-): MovementSummaryVm {
-  if (previousSnapshots.length === 0) {
-    // No previous run to compare against
-    const citedCount = new Set(
-      latestSnapshots.filter(s => s.citationState === CitationStates.cited).map(s => s.query),
-    ).size
-    return { gained: citedCount, lost: 0, tone: citedCount > 0 ? 'positive' : 'neutral', hasPreviousRun: false }
-  }
-
-  // Build query-level cited sets (cited if ANY provider cited it)
-  const buildCitedSet = (snaps: ApiRunDetail['snapshots']): Set<string> => {
-    const cited = new Set<string>()
-    for (const s of snaps) {
-      if (s.citationState === CitationStates.cited && s.query) cited.add(s.query)
-    }
-    return cited
-  }
-
-  const latestCited = buildCitedSet(latestSnapshots)
-  const previousCited = buildCitedSet(previousSnapshots)
-
-  let gained = 0
-  let lost = 0
-  for (const q of latestCited) {
-    if (!previousCited.has(q)) gained++
-  }
-  for (const q of previousCited) {
-    if (!latestCited.has(q)) lost++
-  }
-
-  const tone: MetricTone = lost > gained ? 'negative' : gained > lost ? 'positive' : 'neutral'
-  return { gained, lost, tone, hasPreviousRun: true }
-}
-
-function runStatusSummary(projectRuns: ApiRun[]): ScoreSummaryVm {
-  if (projectRuns.length === 0) {
-    return {
-      label: 'Run Status',
-      value: 'None',
-      delta: 'No runs yet',
-      tone: 'neutral',
-      description: 'Trigger a visibility sweep to start tracking.',
-      tooltip: 'Current execution state of visibility sweeps. Shows the status of the most recent run and total run count.',
-      trend: [],
-    }
-  }
-
-  // Pin Run Status to the latest answer-visibility run; fall back to the absolute latest
-  const latestVisibility = projectRuns.find(r => r.kind === RunKinds['answer-visibility'])
-  const latest = latestVisibility ?? projectRuns[0]!
-
-  const value = latest.status === RunStatuses.completed ? 'Healthy'
-    : latest.status === RunStatuses.running ? 'Running'
-    : latest.status === RunStatuses.queued ? 'Queued'
-    : latest.status === RunStatuses.partial ? 'Partial'
-    : 'Failed'
-
-  const tone: MetricTone = latest.status === RunStatuses.completed ? 'positive'
-    : latest.status === RunStatuses.failed ? 'negative'
-    : latest.status === RunStatuses.partial ? 'caution'
-    : 'neutral'
-
-  const visibilityRunCount = projectRuns.filter(r => r.kind === RunKinds['answer-visibility']).length
-  const syncRunCount = projectRuns.length - visibilityRunCount
-  const delta = syncRunCount > 0
-    ? `${visibilityRunCount} ${visibilityRunCount === 1 ? 'sweep' : 'sweeps'} · ${syncRunCount} ${syncRunCount === 1 ? 'sync' : 'syncs'}`
-    : `${projectRuns.length} total runs`
-
-  return {
-    label: 'Run Status',
-    value,
-    delta,
-    tone,
-    description: `Latest: ${kindLabel(latest.kind)} — ${latest.status}`,
-    tooltip: 'Current execution state of visibility sweeps. Shows the status of the most recent run and total run count.',
-    trend: [],
-  }
-}
 
 export interface ProjectData {
   project: ApiProject
@@ -911,206 +433,175 @@ export interface ProjectData {
   gscCoverage?: ApiGscCoverageSummary | null
   bingCoverage?: ApiBingCoverageSummary | null
   dbInsights?: InsightDto[] | null
+  /** Server-rendered project overview. When present, drives all score gauges,
+   * movement, competitor pressure, attention items, and provider scores —
+   * this layer no longer recomputes them client-side. */
+  overview?: ProjectOverviewDto | null
 }
 
 export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCenterVm {
   const dto = toProjectDto(data.project)
+  // Evidence cards stay client-side for now: per Q8 of the deepening plan, the
+  // /timeline endpoint is the source for per-query history. Eventually a
+  // dedicated /evidence endpoint replaces this client-side derivation.
   const evidence = buildEvidenceFromTimeline(dto.name, data.timeline, data.latestRunDetail, data.queries)
-  // Match latestRunDetail (which is fetched for the most recent completed/partial run)
-  // — using all runs would leave snapshots empty whenever a newer run is queued/running.
-  const latestVisibilityRunMetrics = data.runs
-    .filter(r => r.kind === RunKinds['answer-visibility'] && (r.status === RunStatuses.completed || r.status === RunStatuses.partial))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
-  const snapshots = (latestVisibilityRunMetrics && data.latestRunDetail?.id === latestVisibilityRunMetrics.id) ? data.latestRunDetail.snapshots : []
-  const qVis = computeQueryVisibility(snapshots)
-  const gapQueries = buildGapQuerySummary(snapshots)
-  const indexCoverage = buildIndexCoverageSummary(data.gscCoverage, data.bingCoverage)
-  const pressure = computeCompetitorPressure(snapshots, data.competitors.map(c => c.domain))
-  const inMemoryInsights = buildInsights({
-    evidence,
-    timeline: data.timeline,
-    latestSnapshots: data.latestRunDetail?.snapshots ?? [],
-    previousSnapshots: data.previousRunDetail?.snapshots ?? [],
-    trackedCompetitors: data.competitors.map(c => c.domain),
-  })
-  // DB insights (regression/gain) are richer than in-memory lost detection.
-  // Merge: DB insights replace insight_lost, all other in-memory signals preserved.
-  const dbMapped = data.dbInsights != null ? mapInsightDtosToVms(data.dbInsights) : null
-  const insights = dbMapped != null
-    ? mergeInsights(inMemoryInsights, dbMapped)
-    : inMemoryInsights
 
-  // Surface stale-visibility warning when integration syncs are more recent than the latest visibility run
   const sortedRuns = [...data.runs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-  const latestVisibilityRunStale = sortedRuns.find(r => r.kind === RunKinds['answer-visibility'])
-  const latestSyncRun = sortedRuns.find(r => r.kind !== RunKinds['answer-visibility'])
-  if (latestVisibilityRunStale && latestSyncRun) {
-    const visibilityAge = new Date(latestSyncRun.createdAt).getTime() - new Date(latestVisibilityRunStale.createdAt).getTime()
-    const ONE_DAY = 24 * 60 * 60 * 1000
-    if (visibilityAge > ONE_DAY) {
-      insights.push({
-        id: 'insight_stale_visibility',
-        tone: 'caution',
-        title: 'Stale visibility data',
-        detail: `Last visibility sweep was ${formatDate(latestVisibilityRunStale.createdAt)}, but integration syncs have run since. Run a new sweep for current metrics.`,
-        actionLabel: 'Stale',
-        affectedPhrases: [],
-      })
-    }
-  }
-
   const runItems = sortedRuns.map(r => toRunListItem(r, data.project.displayName || data.project.name))
 
-  // Compute per-model scores (grouped by provider+model)
-  const modelGroups = new Map<string, { provider: string; model: string | null; cited: number; total: number }>()
-  for (const snap of snapshots) {
-    const p = snap.provider || 'gemini'
-    const m = snap.model ?? null
-    const key = `${p}::${m ?? 'unknown'}`
-    const group = modelGroups.get(key) ?? { provider: p, model: m, cited: 0, total: 0 }
-    group.total++
-    if (snap.citationState === CitationStates.cited) group.cited++
-    modelGroups.set(key, group)
+  if (data.overview) {
+    return adaptOverviewToCommandCenter(dto, data.overview, evidence, runItems)
   }
-  const providerScores = [...modelGroups.values()]
-    .sort((a, b) => a.provider.localeCompare(b.provider) || (a.model ?? '').localeCompare(b.model ?? ''))
-    .map(({ provider, model, cited, total }) => ({
-      provider,
-      model,
-      score: total > 0 ? Math.round((cited / total) * 100) : 0,
-      cited,
-      total,
-    }))
+  return emptyCommandCenter(dto, evidence, runItems)
+}
 
-  // Compute provider coverage: how many configured API providers were in the latest visibility run
-  const configuredApiProviders = data.project.providers.filter(p => !p.startsWith('cdp:'))
-  const runProviders = new Set(snapshots.map(s => s.provider))
-  const runApiProviderCount = configuredApiProviders.filter(p => runProviders.has(p)).length
-  const isPartialProviderRun = snapshots.length > 0 && configuredApiProviders.length > 1 && runApiProviderCount < configuredApiProviders.length
-  const providerCoverageLabel = isPartialProviderRun
-    ? `${runApiProviderCount} of ${configuredApiProviders.length} providers`
-    : undefined
+function adaptOverviewToCommandCenter(
+  project: ProjectDto,
+  overview: ProjectOverviewDto,
+  evidence: CitationInsightVm[],
+  runItems: RunListItemVm[],
+): ProjectCommandCenterVm {
+  const insights = mapInsightDtosToVms(overview.topInsights)
+  // Server-synthesized attention items (e.g. stale_visibility) live in
+  // overview.attentionItems alongside DB-backed insight echoes (id prefix
+  // `insight_`). Append the synthesized ones so warnings like the stale
+  // visibility hint render in the project's insights list.
+  for (const item of overview.attentionItems) {
+    if (item.id.startsWith('insight_')) continue
+    insights.push({
+      id: item.id,
+      tone: item.tone,
+      title: item.title,
+      detail: item.detail,
+      actionLabel: item.actionLabel,
+      affectedPhrases: [],
+    })
+  }
 
   return {
-    project: dto,
-    dateRangeLabel: 'All time',
-    contextLabel: `${dto.country} / ${dto.language.toUpperCase()}`,
-    visibilitySummary: {
-      label: 'Answer Visibility',
-      value: snapshots.length > 0 ? `${qVis.score}` : 'No data',
-      delta: snapshots.length > 0 ? `${qVis.citedCount} of ${qVis.totalCount} queries visible` : 'Run a sweep first',
-      tone: snapshots.length > 0
-        ? isPartialProviderRun ? 'caution' : scoreTone(qVis.score)
-        : 'neutral',
-      description: snapshots.length > 0
-        ? `${qVis.citedCount} of ${qVis.totalCount} tracked queries found your domain in at least one AI answer engine.`
-        : 'No visibility data yet. Trigger a run to start tracking.',
-      tooltip: 'Percentage of tracked queries where your domain is cited by at least one AI answer engine. A query is "visible" if any configured provider includes your site in its response.',
-      trend: [],
-      providerCoverage: providerCoverageLabel,
-    },
-    queryCounts: { cited: qVis.citedCount, total: qVis.totalCount },
-    gapQueries,
-    indexCoverage,
-    providerScores,
-    competitorPressure: {
-      label: 'Competitor Pressure',
-      value: pressure.label,
-      delta: pressure.count > 0 ? `${pressure.count} overlapping citations` : 'No overlap detected',
-      tone: pressureTone(pressure.label),
-      description: data.competitors.length > 0
-        ? `${data.competitors.length} competitor${data.competitors.length > 1 ? 's' : ''} tracked.`
-        : 'No competitors configured.',
-      tooltip: 'How often competitor domains appear alongside yours in AI answers. High pressure means competitors are frequently cited for the same queries.',
-      trend: [],
-    },
-    runStatus: runStatusSummary(sortedRuns),
-    movementSummary: computeMovement(
-      data.latestRunDetail?.snapshots ?? [],
-      data.previousRunDetail?.snapshots ?? [],
-    ),
+    project,
+    dateRangeLabel: overview.dateRangeLabel,
+    contextLabel: overview.contextLabel,
+    visibilitySummary: overview.scores.visibility as ScoreSummaryVm,
+    queryCounts: { cited: overview.queryCounts.citedQueries, total: overview.queryCounts.totalQueries },
+    gapQueries: overview.scores.gapQueries as ScoreSummaryVm,
+    indexCoverage: overview.scores.indexCoverage as ScoreSummaryVm,
+    providerScores: overview.providerScores,
+    competitorPressure: overview.scores.competitorPressure as ScoreSummaryVm,
+    runStatus: overview.scores.runStatus as ScoreSummaryVm,
+    movementSummary: overview.movementSummary as MovementSummaryVm,
     insights,
     visibilityEvidence: evidence,
-    competitors: data.competitors.map((c, i) => {
-      const citedQuerySet = new Set<string>()
-      for (const snap of snapshots) {
-        if (
-          snap.competitorOverlap.includes(c.domain) ||
-          snap.citedDomains.includes(c.domain)
-        ) {
-          if (snap.query) citedQuerySet.add(snap.query)
-        }
-      }
-      const citedQueries = [...citedQuerySet]
-      const uniqueQueries = new Set(snapshots.map(s => s.query).filter(Boolean))
-      const ratio = uniqueQueries.size > 0 ? citedQueries.length / uniqueQueries.size : 0
-      const pressureLabel = ratio >= 0.5 ? 'High' : ratio >= 0.2 ? 'Moderate' : citedQueries.length > 0 ? 'Low' : 'None'
-      return {
-        id: c.id || `comp_${i}`,
-        domain: c.domain,
-        citationCount: citedQueries.length,
-        totalQueries: uniqueQueries.size,
-        pressureLabel,
-        citedQueries,
-        movement: '',
-        notes: '',
-      }
-    }),
+    competitors: overview.competitors.map((row): CompetitorVm => ({
+      id: row.id,
+      domain: row.domain,
+      citationCount: row.citationCount,
+      totalQueries: row.totalQueries,
+      pressureLabel: row.pressureLabel,
+      citedQueries: row.citedQueries,
+      movement: '',
+      notes: '',
+    })),
+    recentRuns: runItems.slice(0, 5),
+  }
+}
+
+function emptyCommandCenter(
+  project: ProjectDto,
+  evidence: CitationInsightVm[],
+  runItems: RunListItemVm[],
+): ProjectCommandCenterVm {
+  // Reached only when the /overview fetch failed. Renders a neutral, "no data"
+  // shell so the page doesn't crash — fresh data lands on the next refresh.
+  const placeholder: ScoreSummaryVm = {
+    label: '',
+    value: 'No data',
+    delta: 'Loading…',
+    tone: 'neutral',
+    description: '',
+    tooltip: '',
+    trend: [],
+  }
+  return {
+    project,
+    dateRangeLabel: 'All time',
+    contextLabel: `${project.country} / ${project.language.toUpperCase()}`,
+    visibilitySummary: { ...placeholder, label: 'Answer Visibility' },
+    queryCounts: { cited: 0, total: 0 },
+    gapQueries: { ...placeholder, label: 'Gap Queries' },
+    indexCoverage: { ...placeholder, label: 'Index Coverage' },
+    providerScores: [],
+    competitorPressure: { ...placeholder, label: 'Competitor Pressure' },
+    runStatus: { ...placeholder, label: 'Run Status' },
+    movementSummary: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
+    insights: [],
+    visibilityEvidence: evidence,
+    competitors: [],
     recentRuns: runItems.slice(0, 5),
   }
 }
 
 export function buildPortfolioProject(data: ProjectData): PortfolioProjectVm {
   const dto = toProjectDto(data.project)
-  const latestVisibilityRun = data.runs
-    .filter(r => r.kind === RunKinds['answer-visibility'] && (r.status === RunStatuses.completed || r.status === RunStatuses.partial))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
-  const snapshots = (latestVisibilityRun && data.latestRunDetail?.id === latestVisibilityRun.id) ? data.latestRunDetail.snapshots : []
-  const qVis = computeQueryVisibility(snapshots)
-  const pressure = computeCompetitorPressure(snapshots, data.competitors.map(c => c.domain))
   const sortedRuns = [...data.runs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-
-  // Prefer the latest visibility run for the portfolio card
   const latestRun = sortedRuns.find(r => r.kind === RunKinds['answer-visibility']) ?? sortedRuns[0]
   const projectLabel = data.project.displayName || data.project.name
   const runItem = latestRun
     ? toRunListItem(latestRun, projectLabel)
-    : {
-        id: 'none',
-        projectId: data.project.id,
-        projectName: projectLabel,
-        kind: RunKinds['answer-visibility'],
-        kindLabel: 'No runs yet',
-        status: RunStatuses.queued,
-        trigger: RunTriggers.manual,
-        createdAt: '',
-        startedAt: '',
-        duration: '',
-        statusDetail: '',
-        summary: 'No runs yet',
-        triggerLabel: '',
-      }
+    : emptyRunListItem(data.project.id, projectLabel)
 
-  // Compute provider coverage for portfolio card
-  const pfConfiguredApi = data.project.providers.filter(p => !p.startsWith('cdp:'))
-  const pfRunProviders = new Set(snapshots.map(s => s.provider))
-  const pfRunApiCount = pfConfiguredApi.filter(p => pfRunProviders.has(p)).length
-  const pfIsPartial = snapshots.length > 0 && pfConfiguredApi.length > 1 && pfRunApiCount < pfConfiguredApi.length
+  const overview = data.overview
+  if (!overview) {
+    return {
+      project: dto,
+      visibilityScore: 0,
+      visibilityDelta: 'No data',
+      visibilityTone: 'neutral',
+      lastRun: runItem,
+      insight: 'No runs completed yet.',
+      trend: [],
+      competitorPressureLabel: 'None',
+    }
+  }
+
+  const visibility = overview.scores.visibility
+  // The visibility gauge's `value` is presentational ("67" or "No data");
+  // `progress` is the same number as 0–100, so we read that for the score.
+  const visibilityScore = visibility.progress ?? 0
+  const cited = overview.queryCounts.citedQueries
+  const total = overview.queryCounts.totalQueries
+  const providerCount = overview.providers.length
 
   return {
     project: dto,
-    visibilityScore: qVis.score,
-    visibilityDelta: snapshots.length > 0 ? `${qVis.citedCount} of ${qVis.totalCount} queries` : 'No data',
-    visibilityTone: snapshots.length > 0
-      ? pfIsPartial ? 'caution' : scoreTone(qVis.score)
-      : 'neutral',
-    providerCoverage: pfIsPartial ? `${pfRunApiCount} of ${pfConfiguredApi.length} providers` : undefined,
+    visibilityScore,
+    visibilityDelta: total > 0 ? `${cited} of ${total} queries` : 'No data',
+    visibilityTone: visibility.tone as MetricTone,
+    providerCoverage: visibility.providerCoverage,
     lastRun: runItem,
-    insight: snapshots.length > 0
-      ? `${qVis.citedCount} of ${qVis.totalCount} queries visible across ${new Set(snapshots.map(s => s.provider)).size} provider${new Set(snapshots.map(s => s.provider)).size > 1 ? 's' : ''}.`
+    insight: total > 0
+      ? `${cited} of ${total} queries visible across ${providerCount} provider${providerCount === 1 ? '' : 's'}.`
       : 'No runs completed yet.',
     trend: [],
-    competitorPressureLabel: pressure.label,
+    competitorPressureLabel: overview.scores.competitorPressure.value,
+  }
+}
+
+function emptyRunListItem(projectId: string, projectName: string): RunListItemVm {
+  return {
+    id: 'none',
+    projectId,
+    projectName,
+    kind: RunKinds['answer-visibility'],
+    kindLabel: 'No runs yet',
+    status: RunStatuses.queued,
+    trigger: RunTriggers.manual,
+    createdAt: '',
+    startedAt: '',
+    duration: '',
+    statusDetail: '',
+    summary: 'No runs yet',
+    triggerLabel: '',
   }
 }
 

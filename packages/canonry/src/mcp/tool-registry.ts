@@ -249,13 +249,20 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_project_overview',
     title: 'Get project overview (composite)',
-    description: 'One-call summary for "how is project X doing?" — bundles project info, latest run, top undismissed insights, latest health snapshot, query cited rate, per-provider breakdown, and gained/lost/emerging vs the previous run. Prefer this over fanning out to separate tools.',
+    description: 'One-call summary for "how is project X doing?" — bundles project info, latest run, top undismissed insights, latest health snapshot, query cited rate, per-provider breakdown, gained/lost/emerging vs the previous run, the five score gauges (visibility, gap queries, index coverage, competitor pressure, run status), per-(provider, model) scores, configured competitors with pressure labels, an attention queue of critical/high insights, and a recent-runs sparkline. Filterable by location and time window. Prefer this over fanning out to separate tools.',
     access: 'read',
     tier: 'core',
-    inputSchema: projectInputSchema,
+    inputSchema: z.object({
+      project: projectNameSchema,
+      location: z.string().optional().describe('Filter to runs from this location label (e.g. "Boston, MA, US"). Omit for all locations.'),
+      since: z.string().optional().describe('ISO 8601 datetime — only include runs at or after this time. Omit for full history.'),
+    }),
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/overview'],
-    handler: (client, input) => client.getProjectOverview(input.project),
+    handler: (client, input) => client.getProjectOverview(input.project, {
+      location: input.location,
+      since: input.since,
+    }),
   }),
   defineTool({
     name: 'canonry_report',

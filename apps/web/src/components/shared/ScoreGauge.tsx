@@ -27,7 +27,7 @@ export function ScoreGauge({
   const circumference = 2 * Math.PI * radius
   const numericValue = Number.parseInt(value, 10)
   const normalizedProgress = typeof progress === 'number' && Number.isFinite(progress)
-    ? Math.min(Math.max(progress, 0), 1)
+    ? Math.min(Math.max(progress, 0), 100) / 100
     : isNumeric && !Number.isNaN(numericValue)
       ? Math.min(numericValue / 100, 1)
       : 0.5

@@ -5,7 +5,13 @@ export interface Snapshot {
   citationUrl?: string
   position?: number
   snippet?: string
-  competitorDomain?: string
+  /**
+   * All competitor domains observed in this snapshot's competitorOverlap.
+   * Detectors that filter against the project's tracked-competitor set must
+   * iterate this array — taking the first element drops every additional
+   * tracked rival on the same (query, provider) pair.
+   */
+  competitorDomains?: readonly string[]
 }
 
 export interface RunData {
@@ -46,7 +52,7 @@ export interface HealthTrend {
   delta: number
 }
 
-export type SuspectedCause = 'competitor_gain' | 'indexing_loss' | 'content_change' | 'unknown'
+export type SuspectedCause = 'competitor_gain' | 'competitor_loss' | 'indexing_loss' | 'content_change' | 'unknown'
 
 export interface CauseAnalysis {
   cause: SuspectedCause
@@ -56,9 +62,19 @@ export interface CauseAnalysis {
 
 export type InsightSeverity = 'critical' | 'high' | 'medium' | 'low'
 
+export type InsightType =
+  | 'regression'
+  | 'gain'
+  | 'opportunity'
+  | 'first-citation'
+  | 'provider-pickup'
+  | 'persistent-gap'
+  | 'competitor-gained'
+  | 'competitor-lost'
+
 export interface Insight {
   id: string
-  type: 'regression' | 'gain' | 'opportunity'
+  type: InsightType
   severity: InsightSeverity
   title: string
   query: string
@@ -72,9 +88,41 @@ export interface Insight {
   createdAt: string
 }
 
+export interface FirstCitation {
+  query: string
+  provider: string
+  citationUrl?: string
+  position?: number
+  runId: string
+}
+
+export interface ProviderPickup {
+  query: string
+  provider: string
+  citationUrl?: string
+  position?: number
+  runId: string
+}
+
+export interface PersistentGap {
+  query: string
+  streak: number
+  threshold: number
+}
+
+export interface CompetitorChange {
+  query: string
+  competitorDomain: string
+}
+
 export interface AnalysisResult {
   regressions: Regression[]
   gains: Gain[]
+  firstCitations: FirstCitation[]
+  providerPickups: ProviderPickup[]
+  persistentGaps: PersistentGap[]
+  competitorGains: CompetitorChange[]
+  competitorLosses: CompetitorChange[]
   health: HealthScore
   trend?: HealthTrend
   insights: Insight[]

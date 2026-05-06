@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, onTestFinished } from 'vitest'
-import { createClient, migrate, projects, runs, queries, querySnapshots, insights, healthSnapshots } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs, queries, competitors, querySnapshots, insights, healthSnapshots } from '@ainyc/canonry-db'
 import { IntelligenceService } from '../src/intelligence-service.js'
 
 function createTempDb(prefix: string) {
@@ -200,6 +200,67 @@ describe('IntelligenceService', () => {
       expect(result).not.toBeNull()
       expect(result!.regressions.length).toBeGreaterThan(0)
       expect(result!.regressions[0]!.query).toBe('roof repair phoenix')
+    })
+
+    it('persists first-citation, provider-pickup, persistent-gap, and competitor signals', () => {
+      const { db } = createTempDb('intel-signals-')
+      const projectId = seedProject(db)
+      // Seed competitor so competitor signals are detected
+      db.insert(competitors).values({
+        id: crypto.randomUUID(),
+        projectId,
+        domain: 'rival.com',
+        createdAt: new Date().toISOString(),
+      }).run()
+
+      const k1 = seedQuery(db, projectId, 'k1') // first-citation candidate
+      const k2 = seedQuery(db, projectId, 'k2') // provider-pickup candidate
+      const k3 = seedQuery(db, projectId, 'k3') // persistent-gap candidate
+      const k4 = seedQuery(db, projectId, 'k4') // competitor-gained candidate
+      const k5 = seedQuery(db, projectId, 'k5') // competitor-lost candidate
+
+      // Run 1
+      const run1 = seedRun(db, projectId, 'completed', '2024-01-01T00:00:00Z')
+      seedSnapshot(db, run1, k1, 'gemini', 'not-cited')
+      seedSnapshot(db, run1, k2, 'gemini', 'cited', { citedDomains: ['example.com'] })
+      seedSnapshot(db, run1, k3, 'gemini', 'not-cited')
+      seedSnapshot(db, run1, k4, 'gemini', 'not-cited')
+      seedSnapshot(db, run1, k5, 'gemini', 'not-cited', { competitorOverlap: ['rival.com'] })
+
+      // Run 2
+      const run2 = seedRun(db, projectId, 'completed', '2024-02-01T00:00:00Z')
+      seedSnapshot(db, run2, k1, 'gemini', 'not-cited')
+      seedSnapshot(db, run2, k2, 'gemini', 'cited', { citedDomains: ['example.com'] })
+      seedSnapshot(db, run2, k3, 'gemini', 'not-cited')
+      seedSnapshot(db, run2, k4, 'gemini', 'not-cited')
+      seedSnapshot(db, run2, k5, 'gemini', 'not-cited', { competitorOverlap: ['rival.com'] })
+
+      // Run 3 — the run we're analyzing
+      const run3 = seedRun(db, projectId, 'completed', '2024-03-01T00:00:00Z')
+      seedSnapshot(db, run3, k1, 'gemini', 'cited', { citedDomains: ['example.com'] }) // first-citation
+      seedSnapshot(db, run3, k2, 'gemini', 'cited', { citedDomains: ['example.com'] })
+      seedSnapshot(db, run3, k2, 'openai', 'cited', { citedDomains: ['example.com'] }) // provider-pickup
+      seedSnapshot(db, run3, k3, 'gemini', 'not-cited') // persistent-gap (3 in a row)
+      seedSnapshot(db, run3, k4, 'gemini', 'not-cited', { competitorOverlap: ['rival.com'] }) // competitor-gained
+      seedSnapshot(db, run3, k5, 'gemini', 'not-cited') // competitor-lost (rival dropped)
+
+      const service = new IntelligenceService(db)
+      const result = service.analyzeAndPersist(run3, projectId)
+
+      expect(result).not.toBeNull()
+      expect(result!.firstCitations.map(f => f.query)).toContain('k1')
+      expect(result!.providerPickups.map(p => `${p.query}:${p.provider}`)).toContain('k2:openai')
+      expect(result!.persistentGaps.map(g => g.query)).toContain('k3')
+      expect(result!.competitorGains.map(c => `${c.query}:${c.competitorDomain}`)).toContain('k4:rival.com')
+      expect(result!.competitorLosses.map(c => `${c.query}:${c.competitorDomain}`)).toContain('k5:rival.com')
+
+      // All signals should land in the DB
+      const savedTypes = new Set(db.select({ type: insights.type }).from(insights).all().map(r => r.type))
+      expect(savedTypes.has('first-citation')).toBe(true)
+      expect(savedTypes.has('provider-pickup')).toBe(true)
+      expect(savedTypes.has('persistent-gap')).toBe(true)
+      expect(savedTypes.has('competitor-gained')).toBe(true)
+      expect(savedTypes.has('competitor-lost')).toBe(true)
     })
   })
 
