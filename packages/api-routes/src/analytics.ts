@@ -1,7 +1,7 @@
 import { eq, desc, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { querySnapshots, runs, keywords, parseJsonColumn } from '@ainyc/canonry-db'
-import { categorizeSource, categoryLabel, parseWindow, windowCutoff } from '@ainyc/canonry-contracts'
+import { categorizeSource, categoryLabel, CitationStates, parseWindow, windowCutoff } from '@ainyc/canonry-contracts'
 import type {
   BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto,
   MetricsWindow, TimeBucket, TrendDirection, GapKeyword, GapCategory,
@@ -154,7 +154,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
           consistencyMap.set(s.keywordId, entry)
         }
         entry.totalRuns.add(s.runId)
-        if (s.citationState === 'cited') entry.citedRuns.add(s.runId)
+        if (s.citationState === CitationStates.cited) entry.citedRuns.add(s.runId)
         if (resolveSnapshotAnswerMentioned(s, project)) entry.mentionedRuns.add(s.runId)
       }
     }
@@ -200,7 +200,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     for (const [keywordId, kwSnapshots] of byKeyword) {
       const keyword = kwSnapshots[0]?.keyword ?? ''
       const citedProviders = kwSnapshots
-        .filter(s => s.citationState === 'cited')
+        .filter(s => s.citationState === CitationStates.cited)
         .map(s => s.provider)
       const mentionedProviders = kwSnapshots
         .filter(s => s.resolvedMentioned)
@@ -393,7 +393,7 @@ interface SnapshotLike {
 
 function computeProviderMetric(snapshots: SnapshotLike[]): ProviderMetric {
   const total = snapshots.length
-  const cited = snapshots.filter(s => s.citationState === 'cited').length
+  const cited = snapshots.filter(s => s.citationState === CitationStates.cited).length
   const mentionedCount = snapshots.filter(s => s.resolvedMentioned).length
   return {
     citationRate: total > 0 ? Math.round((cited / total) * 10000) / 10000 : 0,

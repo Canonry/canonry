@@ -1,5 +1,5 @@
 import { type ApiClient, createApiClient } from '../client.js'
-import { resolveProviderInput, type RunDetailDto } from '@ainyc/canonry-contracts'
+import { CitationStates, resolveProviderInput, type RunDetailDto } from '@ainyc/canonry-contracts'
 import { CliError } from '../cli-error.js'
 
 function getClient() {
@@ -300,7 +300,7 @@ export function printRunDetail(run: RunDetailDto): void {
   if (run.snapshots && run.snapshots.length > 0) {
     console.log(`\n  Snapshots: ${run.snapshots.length}  (cell = [citation][mention];  C=cited c=not, M=mentioned m=not, –=no data)`)
     for (const s of run.snapshots) {
-      const citationGlyph = s.citationState === 'cited' ? 'C' : 'c'
+      const citationGlyph = s.citationState === CitationStates.cited ? 'C' : 'c'
       const mentionGlyph = typeof s.answerMentioned === 'boolean'
         ? (s.answerMentioned ? 'M' : 'm')
         : '–'

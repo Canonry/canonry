@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
-import { brandKeyFromText, brandLabelFromDomain, effectiveDomains, normalizeProjectDomain } from '@ainyc/canonry-contracts'
+import { brandKeyFromText, brandLabelFromDomain, CitationStates, effectiveDomains, normalizeProjectDomain } from '@ainyc/canonry-contracts'
 
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { highlightTermsInText, type HighlightTermGroup } from '../../lib/highlight.js'
@@ -128,7 +128,7 @@ export function EvidenceDetailModal({
       ? display.visibilityState === 'visible'
       : display.answerMentioned != null
         ? display.answerMentioned
-        : (display.citationState === 'cited' || display.citationState === 'emerging')
+        : (display.citationState === CitationStates.cited || display.citationState === 'emerging')
   const hasMentionData = display.answerMentioned != null
     || display.visibilityState != null
     || display.recommendedCompetitors.length > 0

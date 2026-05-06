@@ -12,7 +12,7 @@ import type {
   RecommendedNextStep,
   ReportInsight,
 } from '@ainyc/canonry-contracts'
-import { absolutizeProjectUrl } from '@ainyc/canonry-contracts'
+import { absolutizeProjectUrl, CitationStates } from '@ainyc/canonry-contracts'
 
 import {
   Bar,
@@ -120,14 +120,14 @@ function actionLabel(action: ContentTargetRowDto['action']): string {
 
 function citationStateClass(cell: CitationCell | null): string {
   if (!cell) return 'bg-zinc-900/30 text-zinc-700'
-  if (cell.citationState === 'cited') return 'bg-emerald-500/20 text-emerald-300'
+  if (cell.citationState === CitationStates.cited) return 'bg-emerald-500/20 text-emerald-300'
   if (cell.citationState === 'pending') return 'bg-amber-500/15 text-amber-300'
   return 'bg-zinc-900/40 text-zinc-500'
 }
 
 function citationStateLabel(cell: CitationCell | null): string {
   if (!cell) return '—'
-  if (cell.citationState === 'cited') return 'Cited'
+  if (cell.citationState === CitationStates.cited) return 'Cited'
   if (cell.citationState === 'pending') return 'Pending'
   return 'Not cited'
 }

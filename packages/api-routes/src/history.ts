@@ -1,7 +1,7 @@
 import { eq, desc, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { auditLog, querySnapshots, runs, keywords, parseJsonColumn } from '@ainyc/canonry-db'
-import { validationError } from '@ainyc/canonry-contracts'
+import { CitationStates, validationError } from '@ainyc/canonry-contracts'
 import { resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotVisibilityState } from './helpers.js'
 import { redactNotificationDiff } from './notification-redaction.js'
 
@@ -159,7 +159,7 @@ export async function historyRoutes(app: FastifyInstance) {
       if (
         !existing ||
         (!existing.answerMentioned && snap.answerMentioned) ||
-        (existing.answerMentioned === snap.answerMentioned && snap.citationState === 'cited')
+        (existing.answerMentioned === snap.answerMentioned && snap.citationState === CitationStates.cited)
       ) {
         deduped.set(key, snap)
       }
@@ -187,7 +187,7 @@ export async function historyRoutes(app: FastifyInstance) {
     function computeTransitions(snaps: typeof allSnapshots) {
       return snaps.map((snap, idx) => {
         const run = projectRuns.find(r => r.id === snap.runId)
-        let transition: string = snap.citationState === 'cited' ? 'cited' : 'not-cited'
+        let transition: string = snap.citationState === CitationStates.cited ? 'cited' : 'not-cited'
         let visibilityTransition: string = snap.answerMentioned ? 'visible' : 'not-visible'
 
         if (idx === 0) {
@@ -195,9 +195,9 @@ export async function historyRoutes(app: FastifyInstance) {
           visibilityTransition = 'new'
         } else {
           const prev = snaps[idx - 1]!
-          if (prev.citationState === 'not-cited' && snap.citationState === 'cited') {
+          if (prev.citationState === CitationStates['not-cited'] && snap.citationState === CitationStates.cited) {
             transition = 'emerging'
-          } else if (prev.citationState === 'cited' && snap.citationState === 'not-cited') {
+          } else if (prev.citationState === CitationStates.cited && snap.citationState === CitationStates['not-cited']) {
             transition = 'lost'
           }
 
@@ -314,7 +314,7 @@ export async function historyRoutes(app: FastifyInstance) {
       if (
         !existing ||
         (!existing.resolvedAnswerMentioned && resolved.resolvedAnswerMentioned) ||
-        (existing.resolvedAnswerMentioned === resolved.resolvedAnswerMentioned && resolved.citationState === 'cited')
+        (existing.resolvedAnswerMentioned === resolved.resolvedAnswerMentioned && resolved.citationState === CitationStates.cited)
       ) {
         map1.set(s.keywordId, resolved)
       }
@@ -333,7 +333,7 @@ export async function historyRoutes(app: FastifyInstance) {
       if (
         !existing ||
         (!existing.resolvedAnswerMentioned && resolved.resolvedAnswerMentioned) ||
-        (existing.resolvedAnswerMentioned === resolved.resolvedAnswerMentioned && resolved.citationState === 'cited')
+        (existing.resolvedAnswerMentioned === resolved.resolvedAnswerMentioned && resolved.citationState === CitationStates.cited)
       ) {
         map2.set(s.keywordId, resolved)
       }

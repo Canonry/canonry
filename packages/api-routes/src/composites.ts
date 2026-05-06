@@ -10,6 +10,7 @@ import {
   runs,
 } from '@ainyc/canonry-db'
 import {
+  CitationStates,
   parseRunError,
   type CitationState,
   type HealthSnapshotDto,
@@ -244,7 +245,7 @@ function summarizeLatestRun(
   const perKeyword = new Map<string, boolean>()
   const perProvider = new Map<string, { cited: number; total: number }>()
   for (const row of rows) {
-    const cited = row.citationState === 'cited'
+    const cited = row.citationState === CitationStates.cited
     if (!perKeyword.has(row.keywordId) || cited) {
       perKeyword.set(row.keywordId, cited)
     }
@@ -296,7 +297,7 @@ function summarizeTransitions(
       .all()
     const map = new Map<string, boolean>()
     for (const row of rows) {
-      const cited = row.citationState === 'cited'
+      const cited = row.citationState === CitationStates.cited
       if (!map.has(row.keywordId) || cited) map.set(row.keywordId, cited)
     }
     return map

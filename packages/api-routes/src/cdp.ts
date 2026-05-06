@@ -4,7 +4,7 @@ import os from 'node:os'
 import type { FastifyInstance } from 'fastify'
 import { eq, and } from 'drizzle-orm'
 import { querySnapshots, runs, keywords } from '@ainyc/canonry-db'
-import { notFound, notImplemented, validationError, type GroundingSource } from '@ainyc/canonry-contracts'
+import { CitationStates, notFound, notImplemented, validationError, type GroundingSource } from '@ainyc/canonry-contracts'
 import { resolveProject } from './helpers.js'
 
 export interface CDPRoutesOptions {
@@ -189,8 +189,8 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
 
       const keywordResults = [...byKeyword.values()].map(({ keyword, api, browser }) => {
         total++
-        const apiCited = api?.citationState === 'cited'
-        const browserCited = browser?.citationState === 'cited'
+        const apiCited = api?.citationState === CitationStates.cited
+        const browserCited = browser?.citationState === CitationStates.cited
 
         let agreement: string
         if (!api && !browser) {
