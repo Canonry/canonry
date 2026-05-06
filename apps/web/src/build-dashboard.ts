@@ -387,7 +387,7 @@ function buildEvidenceFromTimeline(
           ? effectiveTransition === 'lost' ? 'lost'
             : effectiveTransition === 'emerging' ? 'emerging'
             : snap.citationState === CitationStates.cited ? 'cited' : 'not-cited'
-          : latestProviderState === 'cited' ? 'cited' : 'not-cited'
+          : latestProviderState === CitationStates.cited ? 'cited' : 'not-cited'
         const snapVisibilityState = (snap?.visibilityState as CitationInsightVm['visibilityState'] | undefined)
           ?? (latestProviderVisibilityState === 'visible' ? 'visible' : latestProviderVisibilityState === 'pending' ? 'pending' : 'not-visible')
 
