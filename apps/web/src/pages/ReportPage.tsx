@@ -1038,7 +1038,7 @@ function CitationsTrendSection({ report }: { report: ProjectReportDto }) {
   if (trend.length === 0) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 10" title="Citations over time" subtitle="Citation rate across every visibility sweep — the share of (keyword × provider) pairs in each run where your domain appeared in the source list, with a per-provider breakdown beneath." />
+        <SectionHeading eyebrow="Section 10" title="Citations over time" subtitle="Citation rate across every visibility sweep — the share of tracked queries cited by at least one provider, with a per-provider breakdown beneath. Computed per-query so the headline stays comparable across runs that ran a different mix of providers." />
         <EmptyHint message="Run multiple visibility sweeps to see a trend." />
       </section>
     )
@@ -1046,7 +1046,7 @@ function CitationsTrendSection({ report }: { report: ProjectReportDto }) {
   if (isTrendBaseline(trend)) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 10" title="Citations over time" subtitle="Citation rate across every visibility sweep — the share of (keyword × provider) pairs in each run where your domain appeared in the source list, with a per-provider breakdown beneath." />
+        <SectionHeading eyebrow="Section 10" title="Citations over time" subtitle="Citation rate across every visibility sweep — the share of tracked queries cited by at least one provider, with a per-provider breakdown beneath. Computed per-query so the headline stays comparable across runs that ran a different mix of providers." />
         <EmptyHint message={`Establishing baseline (${trend.length} of ${MIN_TREND_POINTS} runs collected). Trend will appear once more sweeps are recorded.`} />
       </section>
     )
@@ -1266,7 +1266,7 @@ function NextStepsSection({ report }: { report: ProjectReportDto }) {
   }
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 13" title="Recommended next steps" subtitle="Action items bucketed by horizon (immediate, short-term, medium-term), drawn from open insights and the highest-ranked content opportunities." />
+      <SectionHeading eyebrow="Section 14" title="Recommended next steps" subtitle="Action items bucketed by horizon (immediate, short-term, medium-term), drawn from open insights and the highest-ranked content opportunities." />
       <div className="grid gap-3 lg:grid-cols-3">
         {(['immediate', 'short-term', 'medium-term'] as const).map(h => {
           const steps = report.recommendedNextSteps.filter(s => s.horizon === h)

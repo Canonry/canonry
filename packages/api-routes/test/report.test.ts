@@ -783,6 +783,57 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.executiveSummary.totalQueryCount).toBe(2)
   })
 
+  test('history-derived sections (trend, insights) scope to the latest run\'s location', async () => {
+    // azcoatings-style: same project sweeps both florida and michigan. The
+    // report headline says "michigan", so the trend, insights, and content
+    // orchestrator must NOT mix in the florida runs — otherwise a Detroit
+    // analyst reading the report sees a Miami citation as part of "their"
+    // history. See review thread on PR #423.
+    const projectId = insertProject(ctx.db, 'loc-scope', {
+      locations: JSON.stringify([
+        { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' },
+        { label: 'florida', city: 'Miami', region: 'Florida', country: 'US' },
+      ]),
+      defaultLocation: 'michigan',
+    })
+    const kw = insertQuery(ctx.db, projectId, 'kw')
+
+    // Five michigan runs (so the trend chart isn't suppressed by the
+    // baseline gate) and three florida runs interleaved by date.
+    for (let i = 0; i < 5; i++) {
+      const day = String(i + 1).padStart(2, '0')
+      const id = insertRun(ctx.db, projectId, {
+        location: 'michigan',
+        createdAt: `2026-04-${day}T00:00:00Z`,
+        finishedAt: `2026-04-${day}T00:01:00Z`,
+      })
+      insertSnapshot(ctx.db, id, kw, { provider: 'gemini', citationState: i === 4 ? 'cited' : 'not-cited' })
+    }
+    const flRunIds: string[] = []
+    for (let i = 0; i < 3; i++) {
+      const day = String(i + 6).padStart(2, '0')
+      const id = insertRun(ctx.db, projectId, {
+        location: 'florida',
+        createdAt: `2026-04-${day}T00:00:00Z`,
+        finishedAt: `2026-04-${day}T00:01:00Z`,
+      })
+      flRunIds.push(id)
+      insertSnapshot(ctx.db, id, kw, { provider: 'gemini', citationState: 'cited' })
+    }
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/loc-scope/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    // Latest run is the most recent — that's florida (day 8).
+    expect(body.meta.location?.label).toBe('florida')
+    // Trend should only contain the three florida runs, not the five michigan ones.
+    expect(body.citationsTrend).toHaveLength(3)
+    for (const point of body.citationsTrend) {
+      expect(flRunIds).toContain(point.runId)
+    }
+  })
+
   test('meta surfaces the latest run location and per-provider location handling', async () => {
     // azcoatings-style: project has two locations configured; a sweep ran
     // against the default (michigan). Report must say which location powered
@@ -824,6 +875,9 @@ describe('GET /api/v1/projects/:name/report', () => {
   })
 
   test('meta.location is null when the latest run had no location attached', async () => {
+    // For locationless runs, providerLocationHandling stays empty so the
+    // renderer's "Location for this run: none" headline isn't contradicted
+    // by per-provider rows describing how the location was applied.
     const projectId = insertProject(ctx.db, 'loc-empty')
     const kw = insertQuery(ctx.db, projectId, 'kw')
     const runId = insertRun(ctx.db, projectId, {
@@ -838,8 +892,7 @@ describe('GET /api/v1/projects/:name/report', () => {
     const body = JSON.parse(res.body) as ProjectReportDto
 
     expect(body.meta.location).toBeNull()
-    expect(body.meta.providerLocationHandling).toHaveLength(1)
-    expect(body.meta.providerLocationHandling[0]?.provider).toBe('gemini')
+    expect(body.meta.providerLocationHandling).toEqual([])
   })
 
   test('headline rate is per-query — partial-provider runs do not inflate the denominator (issue #422)', async () => {

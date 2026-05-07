@@ -470,12 +470,19 @@ function buildCitationsTrend(
   db: DatabaseClient,
   projectId: string,
   queryLookup: QueryLookup,
+  // Same tri-state semantics as content-data's `LocationScope`:
+  //   `undefined` = unfiltered, `null` = locationless runs only, string = match label.
+  locationFilter: string | null | undefined,
 ): CitationsTrendPoint[] {
+  // Trend points must share a location with the latest run, otherwise a
+  // florida sweep and a michigan sweep get plotted on the same line. Match
+  // null-to-null so locationless projects still see a contiguous trend.
   const visibilityRuns = db
     .select()
     .from(runs)
     .where(and(eq(runs.projectId, projectId), eq(runs.kind, RunKinds['answer-visibility'])))
     .all()
+    .filter(r => locationFilter === undefined || (r.location ?? null) === locationFilter)
 
   const totalQueries = queryLookup.byId.size
   const points: CitationsTrendPoint[] = []
@@ -536,12 +543,19 @@ function buildCitationsTrend(
   return points
 }
 
-function buildInsightList(db: DatabaseClient, projectId: string): ReportInsight[] {
+function buildInsightList(
+  db: DatabaseClient,
+  projectId: string,
+  // Same tri-state as buildCitationsTrend.
+  locationFilter: string | null | undefined,
+): ReportInsight[] {
   // Bound the report to the most recent N answer-visibility runs so stale,
   // long-undismissed insights from months ago don't pile up. Mirrors the
   // recurrence window used in intelligence-service for severity tiering.
+  // Insights are scoped to runs at the same location as the latest run so
+  // a florida regression isn't surfaced on a michigan-scoped report.
   const recentRunIds = db
-    .select({ id: runs.id })
+    .select({ id: runs.id, location: runs.location })
     .from(runs)
     .where(
       and(
@@ -551,8 +565,9 @@ function buildInsightList(db: DatabaseClient, projectId: string): ReportInsight[
       ),
     )
     .orderBy(desc(runs.createdAt))
-    .limit(INSIGHT_LOOKBACK_RUNS)
     .all()
+    .filter((r) => locationFilter === undefined || (r.location ?? null) === locationFilter)
+    .slice(0, INSIGHT_LOOKBACK_RUNS)
     .map((r) => r.id)
 
   if (recentRunIds.length === 0) return []
@@ -758,6 +773,10 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
     r => r.status === RunStatuses.completed || r.status === RunStatuses.partial,
   ) ?? visibilityRuns[0]
   const latestSnapshots = latestRun ? loadSnapshotsForRun(db, latestRun.id) : []
+  // Used to scope history-derived sections (trend, insights, content
+  // orchestrator) to the same location as the latest run. `null` means
+  // "no-location runs only" — not "any run". See review thread on PR #423.
+  const latestRunLocation: string | null = latestRun?.location ?? null
 
   const competitorRows = db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
   const competitorDomains = competitorRows.map(c => c.domain)
@@ -794,10 +813,10 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
   const socialSection = buildSocialReferrals(db, project.id)
   const aiReferralsSection = buildAiReferrals(db, project.id)
   const indexingHealthSection = buildIndexingHealth(db, project.id)
-  const citationsTrend = buildCitationsTrend(db, project.id, queryLookup)
-  const insightList = buildInsightList(db, project.id)
+  const citationsTrend = buildCitationsTrend(db, project.id, queryLookup, latestRunLocation)
+  const insightList = buildInsightList(db, project.id, latestRunLocation)
 
-  const orchestratorInput = loadOrchestratorInput(db, project)
+  const orchestratorInput = loadOrchestratorInput(db, project, latestRunLocation)
   const contentOpportunities = buildContentTargetRows(orchestratorInput)
   const contentGaps = buildContentGapRows(orchestratorInput)
   const groundingSources = buildContentSourceRows(orchestratorInput)
@@ -875,7 +894,14 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
 
   const configuredLocations = parseJsonColumn<LocationContext[]>(project.locations, [])
   const reportLocation = buildLocationMeta(latestRun?.location ?? null, configuredLocations)
-  const providerLocationHandling = buildProviderLocationHandling(citationScorecard.providers)
+  // Per-provider handling only makes sense relative to an actual run location.
+  // For locationless runs, surfacing rows that say "Location appended to the
+  // prompt" or "Sent as user_location" contradicts the headline ("none — the
+  // queries went out verbatim"); leave the array empty so the renderer hides
+  // the breakdown table.
+  const providerLocationHandling = reportLocation
+    ? buildProviderLocationHandling(citationScorecard.providers)
+    : []
 
   return {
     meta: {
