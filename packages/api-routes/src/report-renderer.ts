@@ -730,9 +730,9 @@ function renderLocationCard(report: ProjectReportDto): string {
   const notIncluded = otherLocations.length > 0 ? compactInlineList(otherLocations, 4) : 'None'
   const interpretation = location
     ? otherLocations.length > 0
-      ? `${otherLocations.length} configured ${pluralize(otherLocations.length, 'market')} still ${otherLocations.length === 1 ? 'needs' : 'need'} a matching sweep before cross-market recommendations.`
+      ? `${otherLocations.length} configured ${pluralize(otherLocations.length, 'market')} still ${otherLocations.length === 1 ? 'needs' : 'need'} a matching check before cross-market recommendations.`
       : 'Single-market report; findings can be read as the current market view.'
-    : 'No geographic hint was attached to this sweep; read findings as default-market or national results.'
+    : 'No geographic hint was attached to this check; read findings as default-market or national results.'
 
   const providerCopy = handling.length > 0
     ? weakLocationProviders.length > 0
@@ -751,7 +751,7 @@ function renderLocationCard(report: ProjectReportDto): string {
     <h3>Market Scope</h3>
     <div class="market-scope-grid">
       <div class="scope-tile">
-        <div class="scope-label">Current sweep</div>
+        <div class="scope-label">Current check</div>
         <div class="scope-value">${escapeHtml(marketValue)}</div>
         <div class="scope-copy">All findings below are scoped to this run.</div>
       </div>
@@ -787,7 +787,7 @@ function renderExecutiveSummary(report: ProjectReportDto): string {
     : 'No AI citation data yet'
   const headlineSubtitle = s.totalQueryCount > 0
     ? `${s.citationRate}% citation coverage and ${s.mentionRate}% mention coverage across ${s.providerCount} ${pluralize(s.providerCount, 'provider')}.`
-    : 'Run a visibility sweep to populate the first citation and mention baseline.'
+    : 'Run a check to populate the first citation and mention baseline.'
   const priorityActions = report.agencyDiagnostics.priorities.length > 0
     ? report.agencyDiagnostics.priorities
     : report.actionPlan
@@ -795,7 +795,7 @@ function renderExecutiveSummary(report: ProjectReportDto): string {
   const heroHtml = `<div class="executive-hero">
     <div class="headline-card">
       <div>
-        <div class="hero-kicker">Latest AI visibility sweep</div>
+        <div class="hero-kicker">Latest AI visibility check</div>
         <div class="hero-title">${escapeHtml(headlineTitle)}</div>
       </div>
       <div class="hero-subtitle">${escapeHtml(headlineSubtitle)}</div>
@@ -943,9 +943,9 @@ function renderProviderMovements(
       <td class="numeric ${deltaToneClass(m.direction)}">${sign}${m.deltaAbs.toFixed(1)}% ${deltaArrow(m.direction)}</td>
     </tr>`
   }).join('')
-  return `<div class="chart-card"><h3>Provider movements</h3>
+  return `<div class="chart-card"><h3>AI engine movements</h3>
     <table class="report-table">
-      <thead><tr><th>Provider</th><th class="numeric">Prior</th><th class="numeric">Current</th><th class="numeric">Δ</th></tr></thead>
+      <thead><tr><th>Engine</th><th class="numeric">Prior</th><th class="numeric">Current</th><th class="numeric">Change</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   </div>`
@@ -984,7 +984,7 @@ function renderWhatsChanged(report: ProjectReportDto): string {
   if (!w.enoughHistory && !w.gscClicksDelta && !w.aiReferralsDelta && w.wins.length === 0 && w.regressions.length === 0) {
     return section(
       { id: 'whats-changed', eyebrow: 'Section 2', title: "What's Changed", intro: w.headline },
-      renderEmpty('Trend deltas will populate after a few more visibility sweeps.'),
+      renderEmpty('Trends will appear after a few more checks.'),
     )
   }
   const rateTiles = `<div class="metric-grid">
@@ -995,8 +995,8 @@ function renderWhatsChanged(report: ProjectReportDto): string {
     ${renderTrafficDeltaTile('AI referral sessions', w.aiReferralsDelta, 'sessions')}
   </div>`
   const movements = renderProviderMovements(w.providerMovements)
-  const wins = renderWinsLosses(w.wins, 'Wins', 'No new gains in the latest sweep.')
-  const regressions = renderWinsLosses(w.regressions, 'Regressions', 'No new regressions in the latest sweep.')
+  const wins = renderWinsLosses(w.wins, 'Wins', 'No new gains in the latest check.')
+  const regressions = renderWinsLosses(w.regressions, 'Regressions', 'No new regressions in the latest check.')
   return section(
     { id: 'whats-changed', eyebrow: 'Section 2', title: "What's Changed", intro: w.headline },
     `${rateTiles}${movements}${wins}${regressions}`,
@@ -1034,7 +1034,7 @@ function renderProviderBars(rates: ProjectReportDto['citationScorecard']['provid
 
 function renderCitationMatrix(scorecard: ProjectReportDto['citationScorecard']): string {
   if (scorecard.queries.length === 0 || scorecard.providers.length === 0) {
-    return renderEmpty('Run a visibility sweep to populate the citation matrix.')
+    return renderEmpty('Run a check to populate the citation matrix.')
   }
   const headers = scorecard.providers.map(p => `<th>${escapeHtml(p)}</th>`).join('')
   const rows = scorecard.queries.map((q, qi) => {
@@ -1073,7 +1073,7 @@ function renderCitationScorecard(report: ProjectReportDto): string {
     ${renderCitationMatrix(report.citationScorecard)}
   `
   return section(
-    { id: 'citation-scorecard', eyebrow: 'Section 3', title: 'Citation Scorecard', intro: 'Provider-by-provider citation and mention coverage for the latest sweep.' },
+    { id: 'citation-scorecard', eyebrow: 'Section 3', title: 'Citation Scorecard', intro: 'Per-engine citation and mention coverage from the latest check.' },
     body,
   )
 }
@@ -1134,7 +1134,7 @@ function renderCompetitorLandscape(report: ProjectReportDto): string {
   if (noCitationData && noMentionData) {
     return section(
       { id: 'competitor-landscape', eyebrow: 'Section 4', title: 'Competitor Landscape' },
-      renderEmpty('No competitor data yet. Add competitors and run a visibility sweep.'),
+      renderEmpty('No competitor data yet. Add competitors and run a check.'),
     )
   }
 
@@ -1256,7 +1256,7 @@ function renderAiSourceOrigin(report: ProjectReportDto): string {
   if (origin.categories.length === 0 && origin.topDomains.length === 0) {
     return section(
       { id: 'ai-source-origin', eyebrow: 'Section 5', title: 'AI Citation Sources' },
-      renderEmpty('No source data yet. Run a visibility sweep first.'),
+      renderEmpty('No source data yet. Run a check first.'),
     )
   }
 
@@ -1286,7 +1286,7 @@ function renderAiSourceOrigin(report: ProjectReportDto): string {
       id: 'ai-source-origin',
       eyebrow: 'Section 5',
       title: 'AI Citation Sources',
-      intro: 'External domains AI engines trusted most in the latest sweep.',
+      intro: 'External domains AI engines cited most in the latest check.',
     },
     `${headlineFragment}${table}${renderCategoryBars(origin.categories)}`,
   )
@@ -1589,14 +1589,14 @@ function renderCitationsTrend(report: ProjectReportDto): string {
   if (trend.length === 0) {
     return section(
       { id: 'citations-trend', eyebrow: 'Section 11', title: 'Citations Over Time' },
-      renderEmpty('Run multiple visibility sweeps to see a trend.'),
+      renderEmpty('Run multiple checks to see a trend.'),
     )
   }
 
   if (isTrendBaseline(trend)) {
     return section(
       { id: 'citations-trend', eyebrow: 'Section 11', title: 'Citations Over Time' },
-      renderEmpty(`Establishing baseline (${trend.length} of ${MIN_TREND_POINTS} runs collected). Trend will appear once more sweeps are recorded.`),
+      renderEmpty(`Building baseline (${trend.length} of ${MIN_TREND_POINTS} checks completed). Trend will appear once more checks are recorded.`),
     )
   }
 
@@ -1615,11 +1615,11 @@ function renderCitationsTrend(report: ProjectReportDto): string {
     </tr>`).join('')
 
   return section(
-    { id: 'citations-trend', eyebrow: 'Section 11', title: 'Citations Over Time', intro: 'Citation coverage across completed visibility sweeps.' },
+    { id: 'citations-trend', eyebrow: 'Section 11', title: 'Citations Over Time', intro: 'Citation coverage across recent checks.' },
     `${chart}
-    <div class="chart-card"><h3>Run-by-run breakdown</h3>
+    <div class="chart-card"><h3>Check-by-check breakdown</h3>
       <table class="report-table">
-        <thead><tr><th>Run</th><th class="numeric">Cited queries</th><th>Per-provider rates</th></tr></thead>
+        <thead><tr><th>Check</th><th class="numeric">Cited queries</th><th>Per-engine rates</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`,
@@ -1631,7 +1631,7 @@ function renderInsights(report: ProjectReportDto): string {
   if (list.length === 0) {
     return section(
       { id: 'insights', eyebrow: 'Section 12', title: 'Insights & Alerts' },
-      renderEmpty('No insights yet — run a visibility sweep to generate alerts.'),
+      renderEmpty('No insights yet — run a check to generate alerts.'),
     )
   }
 

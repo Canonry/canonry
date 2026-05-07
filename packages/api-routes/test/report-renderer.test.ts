@@ -45,7 +45,7 @@ function emptyReport(): ProjectReportDto {
     citationsTrend: [],
     whatsChanged: {
       enoughHistory: false,
-      headline: 'Establishing baseline (0 of 4 runs collected). Trend deltas appear after a few more sweeps.',
+      headline: 'Building baseline (0 of 4 checks completed). Trends appear after a few more checks.',
       citationRate: null,
       mentionRate: null,
       citedQueryCount: null,
@@ -262,7 +262,7 @@ function richReport(): ProjectReportDto {
     ],
     whatsChanged: {
       enoughHistory: false,
-      headline: 'Establishing baseline (2 of 4 runs collected). Trend deltas appear after a few more sweeps.',
+      headline: 'Building baseline (2 of 4 checks completed). Trends appear after a few more checks.',
       citationRate: null,
       mentionRate: null,
       citedQueryCount: null,
@@ -496,7 +496,7 @@ describe('renderReportHtml', () => {
     const html = renderReportHtml(richReport())
     const executive = html.split('id="executive-summary"')[1]?.split('id="agency-action-plan"')[0] ?? ''
     expect(executive).toContain('Market Scope')
-    expect(executive).toContain('Current sweep')
+    expect(executive).toContain('Current check')
     expect(executive).toContain('Not included')
     expect(executive).toContain('florida')
     expect(executive).not.toContain('Location handling')
@@ -851,7 +851,7 @@ describe('renderReportHtml', () => {
     ]
     const html = renderReportHtml(report)
     const block = html.split('id="citations-trend"')[1]?.split('</section>')[0] ?? ''
-    expect(block.toLowerCase()).toContain('establishing baseline')
+    expect(block.toLowerCase()).toContain('building baseline')
     expect(block).not.toContain('<svg')
   })
 
@@ -866,7 +866,7 @@ describe('renderReportHtml', () => {
     const html = renderReportHtml(report)
     const block = html.split('id="citations-trend"')[1]?.split('</section>')[0] ?? ''
     expect(block).toContain('<svg')
-    expect(block.toLowerCase()).not.toContain('establishing baseline')
+    expect(block.toLowerCase()).not.toContain('building baseline')
   })
 })
 

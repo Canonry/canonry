@@ -759,7 +759,7 @@ function buildExecutiveFindings(
       : trend === 'up' ? 'positive' : trend === 'down' ? 'negative' : 'neutral'
     let detail: string
     if (trendBaseline) {
-      detail = `Establishing baseline (${trendsPoints.length} of ${MIN_TREND_POINTS} runs collected).`
+      detail = `Building baseline (${trendsPoints.length} of ${MIN_TREND_POINTS} checks completed).`
     } else {
       switch (trend) {
         case 'up': detail = 'Up from the previous run.'; break
@@ -885,7 +885,7 @@ function buildReportActionPlan(input: ReportActionPlanInput): ReportActionPlanIt
       horizon: 'immediate',
       category: 'competitors',
       title: 'Define the competitor set Canonry should benchmark against',
-      action: 'Review the recurring external source domains and add the true competitors before the next sweep.',
+      action: 'Review the recurring external source domains and add the true competitors before the next check.',
       why: [
         'The report can identify repeated external sources, but it cannot separate competitors from publishers until competitors are configured.',
         'A clean competitor set makes future share-of-voice and content-gap reporting easier to explain to clients.',
@@ -925,7 +925,7 @@ function buildReportActionPlan(input: ReportActionPlanInput): ReportActionPlanIt
         ? opportunity.drivers
         : ['Canonry ranked this as a content opportunity from search-demand and citation evidence.'],
       evidence,
-      successMetric: `A future sweep cites ${input.canonicalDomain} for "${opportunity.query}" and the matching GSC query/page improves.`,
+      successMetric: `A future check cites ${input.canonicalDomain} for "${opportunity.query}" and the matching GSC query/page improves.`,
       confidence: opportunity.actionConfidence,
     })
   }
@@ -968,7 +968,7 @@ function buildReportActionPlan(input: ReportActionPlanInput): ReportActionPlanIt
         'This points the agency toward provider-specific evidence gaps instead of a generic content recommendation.',
       ],
       evidence: zeroCitationProviders.map(p => `${p.provider}: 0/${p.totalCount} cited query-provider pairs`),
-      successMetric: 'At least one zero-citation provider cites the client on a priority query in a later sweep.',
+      successMetric: 'At least one zero-citation engine cites the client on a priority query in a later check.',
       confidence: 'high',
     })
   }
@@ -1037,13 +1037,13 @@ function buildReportActionPlan(input: ReportActionPlanInput): ReportActionPlanIt
       horizon: 'medium-term',
       category: 'location',
       title: 'Keep location-scoped reporting separate by market',
-      action: 'Run and compare separate sweeps for each configured location before making market-level recommendations.',
+      action: 'Run and compare separate checks for each configured location before making market-level recommendations.',
       why: [
         'A multi-location client can appear differently by market.',
         'Keeping each report location-scoped avoids mixing Florida and Michigan evidence in the same client story.',
       ],
       evidence,
-      successMetric: 'Each configured market has its own current sweep and trend before cross-market decisions are made.',
+      successMetric: 'Each configured market has its own current check and trend before cross-market decisions are made.',
       confidence: 'high',
     })
   }
@@ -1055,10 +1055,10 @@ function buildReportActionPlan(input: ReportActionPlanInput): ReportActionPlanIt
       horizon: 'short-term',
       category: 'monitoring',
       title: 'Keep monitoring citation and mention coverage',
-      action: 'Run the next scheduled visibility sweep and watch for citation gains, losses, and provider-specific misses.',
+      action: 'Run the next scheduled check and watch for citation gains, losses, and engine-specific misses.',
       why: [
         'No urgent corrective action surfaced from the current evidence.',
-        'AEO performance is directional; repeated sweeps are needed before overreacting to a single sample.',
+        'AEO performance is directional; repeated checks are needed before overreacting to a single sample.',
       ],
       evidence: ['No critical insights, content gaps, indexing blockers, or provider-zero issues were detected in this report.'],
       successMetric: 'Coverage stays stable or improves across the next trend window.',
@@ -1071,9 +1071,9 @@ function buildReportActionPlan(input: ReportActionPlanInput): ReportActionPlanIt
 
 function trendSentence(trend: ProjectReportDto['executiveSummary']['trend']): string {
   switch (trend) {
-    case 'up': return 'Citation coverage improved versus the prior comparable sweep.'
-    case 'down': return 'Citation coverage declined versus the prior comparable sweep.'
-    case 'flat': return 'Citation coverage is flat versus the prior comparable sweep.'
+    case 'up': return 'Citation coverage improved versus the prior comparable check.'
+    case 'down': return 'Citation coverage declined versus the prior comparable check.'
+    case 'flat': return 'Citation coverage is flat versus the prior comparable check.'
     case 'unknown': return 'There is not enough comparable run history yet to call a trend.'
   }
 }
@@ -1092,19 +1092,19 @@ function buildClientSummary(
   const queryNoun = s.totalQueryCount === 1 ? 'query' : 'queries'
   const headline = s.totalQueryCount > 0
     ? `${s.citedQueryCount} of ${s.totalQueryCount} tracked ${queryNoun} are cited by AI engines`
-    : 'No tracked queries have completed a visibility sweep yet'
+    : 'No tracked queries have completed a check yet'
   const overview = s.totalQueryCount > 0
     ? `${reportLike.canonicalDomain} is cited on ${s.citationRate}% of tracked queries and mentioned on ${s.mentionRate}% of tracked queries. ${trendSentence(s.trend)}`
-    : 'Canonry needs at least one completed visibility sweep before it can summarize how the brand appears in AI answers.'
+    : 'At least one completed check is needed before this can summarize how the brand appears in AI answers.'
 
   const confidenceNotes: string[] = []
   if (s.totalQueryCount === 0) {
-    confidenceNotes.push('Confidence is low until the first tracked query sweep completes.')
+    confidenceNotes.push('Confidence is low until the first tracked query check completes.')
   } else if (s.totalQueryCount < 5) {
     confidenceNotes.push('Directional read: the tracked query set is still small, so each query has outsized impact on the percentage.')
   }
   if (isTrendBaseline(reportLike.citationsTrend)) {
-    confidenceNotes.push(`Trend confidence is still developing; ${MIN_TREND_POINTS} comparable sweeps are needed for a stable trend.`)
+    confidenceNotes.push(`Trend confidence is still developing; ${MIN_TREND_POINTS} comparable checks are needed for a stable trend.`)
   }
   if (!reportLike.gsc) {
     confidenceNotes.push('Search Console is not connected, so content recommendations lean more heavily on citation and competitor evidence.')
@@ -1131,7 +1131,7 @@ function buildAgencyDiagnostics(input: ReportActionPlanInput & {
   diagnostics.push({
     title: 'Provider citation coverage',
     detail: zeroCitationProviders.length > 0
-      ? `${zeroCitationProviders.length} provider${zeroCitationProviders.length === 1 ? '' : 's'} returned zero client citations in the latest sweep.`
+      ? `${zeroCitationProviders.length} engine${zeroCitationProviders.length === 1 ? '' : 's'} returned zero client citations in the latest check.`
       : 'Every provider with completed snapshots produced at least one client citation or no provider data is available yet.',
     severity: zeroCitationProviders.length > 0 ? 'negative' : 'positive',
     evidence: zeroCitationProviders.length > 0
@@ -1143,7 +1143,7 @@ function buildAgencyDiagnostics(input: ReportActionPlanInput & {
     title: 'AI source domains',
     detail: input.aiSourceOrigin.topDomains.length > 0
       ? 'Repeated external source domains show what AI engines are currently trusting for this topic set.'
-      : 'No external source-domain evidence is available from the latest sweep yet.',
+      : 'No external source-domain evidence is available from the latest check yet.',
     severity: input.aiSourceOrigin.topDomains.length > 0 ? 'neutral' : 'caution',
     evidence: input.aiSourceOrigin.topDomains.slice(0, 5).map(d => `${d.domain}: ${d.count}`),
   })
@@ -1230,7 +1230,7 @@ function buildWhatsChangedHeadline(
   trendLength: number,
 ): string {
   if (!enoughHistory) {
-    return `Establishing baseline (${trendLength} of ${MIN_TREND_POINTS} runs collected). Trend deltas appear after a few more sweeps.`
+    return `Building baseline (${trendLength} of ${MIN_TREND_POINTS} checks completed). Trends appear after a few more checks.`
   }
   const parts: string[] = []
   if (citation) {

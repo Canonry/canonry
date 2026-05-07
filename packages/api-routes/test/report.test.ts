@@ -818,7 +818,7 @@ describe('GET /api/v1/projects/:name/report', () => {
     const body = JSON.parse(res.body) as ProjectReportDto
 
     expect(body.whatsChanged.enoughHistory).toBe(false)
-    expect(body.whatsChanged.headline).toMatch(/Establishing baseline/i)
+    expect(body.whatsChanged.headline).toMatch(/Building baseline/i)
     expect(body.whatsChanged.citationRate).toBeNull()
     expect(body.whatsChanged.mentionRate).toBeNull()
     expect(body.whatsChanged.citedQueryCount).toBeNull()
@@ -904,7 +904,7 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.whatsChanged.regressions[0]!.type).toBe('regression')
   })
 
-  test('findings detail surfaces "Establishing baseline" copy until enough runs exist', async () => {
+  test('findings detail surfaces "Building baseline" copy until enough runs exist', async () => {
     const projectId = insertProject(ctx.db, 'trend-baseline')
     const kw = insertQuery(ctx.db, projectId, 'kw')
 
@@ -919,7 +919,7 @@ describe('GET /api/v1/projects/:name/report', () => {
 
     const trendFinding = body.executiveSummary.findings.find(f => f.title.startsWith('Citation rate'))
     expect(trendFinding).toBeDefined()
-    expect(trendFinding!.detail).toMatch(/Establishing baseline/i)
+    expect(trendFinding!.detail).toMatch(/Building baseline/i)
     expect(trendFinding!.tone).toBe('neutral')
   })
 

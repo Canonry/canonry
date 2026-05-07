@@ -47,7 +47,7 @@ function makeReport(): ProjectReportDto {
     citationsTrend: [],
     whatsChanged: {
       enoughHistory: false,
-      headline: 'Establishing baseline (0 of 4 runs collected). Trend deltas appear after a few more sweeps.',
+      headline: 'Building baseline (0 of 4 checks completed). Trends appear after a few more checks.',
       citationRate: null,
       mentionRate: null,
       citedQueryCount: null,

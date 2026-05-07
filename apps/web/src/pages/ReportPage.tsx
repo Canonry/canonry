@@ -510,7 +510,7 @@ function ExecutiveSummarySection({ report }: { report: ProjectReportDto }) {
     : 'No AI citation data yet'
   const headlineSubtitle = exec.totalQueryCount > 0
     ? `${exec.citationRate}% citation coverage and ${exec.mentionRate}% mention coverage across ${exec.providerCount} provider${exec.providerCount === 1 ? '' : 's'}.`
-    : 'Run a visibility sweep to populate the first citation and mention baseline.'
+    : 'Run a check to populate the first citation and mention baseline.'
   const priorityActions = report.agencyDiagnostics.priorities.length > 0
     ? report.agencyDiagnostics.priorities
     : report.actionPlan
@@ -525,7 +525,7 @@ function ExecutiveSummarySection({ report }: { report: ProjectReportDto }) {
       />
       <div className="mb-4 grid gap-3 lg:grid-cols-[2fr_3fr]">
         <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-5">
-          <p className="text-[11px] uppercase tracking-wide text-zinc-500">Latest AI visibility sweep</p>
+          <p className="text-[11px] uppercase tracking-wide text-zinc-500">Latest AI visibility check</p>
           <p className="mt-2 text-lg font-semibold tracking-tight text-zinc-100">{headlineTitle}</p>
           <p className="mt-2 text-sm text-zinc-400">{headlineSubtitle}</p>
         </div>
@@ -693,15 +693,15 @@ function ProviderMovementsTable({
   if (meaningful.length === 0) return null
   return (
     <div className="mt-4">
-      <p className="eyebrow mb-2">Provider movements</p>
+      <p className="eyebrow mb-2">AI engine movements</p>
       <div className="evidence-table-wrap">
         <table className="evidence-table">
           <thead>
             <tr>
-              <th>Provider</th>
+              <th>Engine</th>
               <th>Prior</th>
               <th>Current</th>
-              <th>Δ</th>
+              <th>Change</th>
             </tr>
           </thead>
           <tbody>
@@ -789,7 +789,7 @@ function WhatsChangedSection({ report }: { report: ProjectReportDto }) {
     return (
       <section className="page-section-divider">
         <SectionHeading eyebrow="Section 2" title="What's Changed" subtitle={w.headline} />
-        <EmptyHint message="Trend deltas will populate after a few more visibility sweeps." />
+        <EmptyHint message="Trends will appear after a few more checks." />
       </section>
     )
   }
@@ -804,8 +804,8 @@ function WhatsChangedSection({ report }: { report: ProjectReportDto }) {
         <TrafficDeltaTile label="AI referral sessions" delta={w.aiReferralsDelta} countLabel="sessions" />
       </div>
       <ProviderMovementsTable movements={w.providerMovements} />
-      <WinsLossesTable insights={w.wins} heading="Wins" emptyMessage="No new gains in the latest sweep." />
-      <WinsLossesTable insights={w.regressions} heading="Regressions" emptyMessage="No new regressions in the latest sweep." />
+      <WinsLossesTable insights={w.wins} heading="Wins" emptyMessage="No new gains in the latest check." />
+      <WinsLossesTable insights={w.regressions} heading="Regressions" emptyMessage="No new regressions in the latest check." />
     </section>
   )
 }
@@ -822,7 +822,7 @@ function LocationHandlingCard({ report }: { report: ProjectReportDto }) {
         {location ? formatLocationLabel(location) : 'none — providers received the queries verbatim with no geographic hint.'}
         {location && location.otherConfiguredLabels.length > 0 && (
           <span className="text-zinc-500">
-            {' '}— other configured locations ({location.otherConfiguredLabels.join(', ')}) need their own sweep to compare.
+            {' '}— other configured locations ({location.otherConfiguredLabels.join(', ')}) need their own check to compare.
           </span>
         )}
       </p>
@@ -877,14 +877,14 @@ function CitationScorecardSection({ report }: { report: ProjectReportDto }) {
   if (sc.providers.length === 0 || sc.queries.length === 0) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 3" title="Citation Scorecard" subtitle="Provider-by-provider citation and mention coverage for the latest sweep." />
+        <SectionHeading eyebrow="Section 3" title="Citation Scorecard" subtitle="Per-engine citation and mention coverage from the latest check." />
         <EmptyHint message="No completed answer-visibility runs yet." />
       </section>
     )
   }
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 3" title="Citation Scorecard" subtitle="Provider-by-provider citation and mention coverage for the latest sweep." />
+      <SectionHeading eyebrow="Section 3" title="Citation Scorecard" subtitle="Per-engine citation and mention coverage from the latest check." />
       <div className="mb-4">
         <p className="eyebrow mb-2">Provider citation rate</p>
         <div className="h-48 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-3">
@@ -964,7 +964,7 @@ function CompetitorLandscapeSection({ report }: { report: ProjectReportDto }) {
     return (
       <section className="page-section-divider">
         <SectionHeading eyebrow="Section 4" title="Competitor Landscape" subtitle="Who AI engines cite and mention instead of the client." />
-        <EmptyHint message="No competitor data yet. Add competitors and run a visibility sweep." />
+        <EmptyHint message="No competitor data yet. Add competitors and run a check." />
       </section>
     )
   }
@@ -1088,8 +1088,8 @@ function AiSourceOriginSection({ report }: { report: ProjectReportDto }) {
   if (so.categories.length === 0 && so.topDomains.length === 0) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 5" title="AI Citation Sources" subtitle="External domains AI engines trusted most in the latest sweep." />
-        <EmptyHint message="No source data yet. Run a visibility sweep first." />
+        <SectionHeading eyebrow="Section 5" title="AI Citation Sources" subtitle="External domains AI engines cited most in the latest check." />
+        <EmptyHint message="No source data yet. Run a check first." />
       </section>
     )
   }
@@ -1097,7 +1097,7 @@ function AiSourceOriginSection({ report }: { report: ProjectReportDto }) {
   const competitor = so.categories.find(c => c.category === 'competitor')
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 5" title="AI Citation Sources" subtitle="External domains AI engines trusted most in the latest sweep." />
+      <SectionHeading eyebrow="Section 5" title="AI Citation Sources" subtitle="External domains AI engines cited most in the latest check." />
       {competitor && (
         <p className="mb-3 text-sm text-zinc-300">
           <span className="font-semibold">{competitor.sharePct}%</span> of citations went to tracked competitors ({competitor.count} of {totalCitations}).
@@ -1545,22 +1545,22 @@ function CitationsTrendSection({ report }: { report: ProjectReportDto }) {
   if (trend.length === 0) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 11" title="Citations Over Time" subtitle="Citation coverage across completed visibility sweeps." />
-        <EmptyHint message="Run multiple visibility sweeps to see a trend." />
+        <SectionHeading eyebrow="Section 11" title="Citations Over Time" subtitle="Citation coverage across recent checks." />
+        <EmptyHint message="Run multiple checks to see a trend." />
       </section>
     )
   }
   if (isTrendBaseline(trend)) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 11" title="Citations Over Time" subtitle="Citation coverage across completed visibility sweeps." />
-        <EmptyHint message={`Establishing baseline (${trend.length} of ${MIN_TREND_POINTS} runs collected). Trend will appear once more sweeps are recorded.`} />
+        <SectionHeading eyebrow="Section 11" title="Citations Over Time" subtitle="Citation coverage across recent checks." />
+        <EmptyHint message={`Building baseline (${trend.length} of ${MIN_TREND_POINTS} checks completed). Trend will appear once more checks are recorded.`} />
       </section>
     )
   }
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 11" title="Citations Over Time" subtitle="Citation coverage across completed visibility sweeps." />
+      <SectionHeading eyebrow="Section 11" title="Citations Over Time" subtitle="Citation coverage across recent checks." />
       <div className="h-64 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-3">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={trend} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
@@ -1585,14 +1585,14 @@ function PerProviderTrendTable({ trend }: { trend: CitationsTrendPoint[] }) {
   if (trend.length === 0) return null
   return (
     <div className="mt-4">
-      <p className="eyebrow mb-2">Run-by-run breakdown</p>
+      <p className="eyebrow mb-2">Check-by-check breakdown</p>
       <div className="evidence-table-wrap">
         <table className="evidence-table">
           <thead>
             <tr>
-              <th>Run</th>
+              <th>Check</th>
               <th>Cited queries</th>
-              <th>Per-provider rates</th>
+              <th>Per-engine rates</th>
             </tr>
           </thead>
           <tbody>
