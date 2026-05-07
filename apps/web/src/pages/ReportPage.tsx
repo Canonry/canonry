@@ -9,10 +9,12 @@ import type {
   GscQueryRow,
   IndexingHealthSection,
   ProjectReportDto,
+  ReportActionPlanItem,
+  ReportAudience,
   RecommendedNextStep,
   ReportInsight,
 } from '@ainyc/canonry-contracts'
-import { absolutizeProjectUrl, CitationStates } from '@ainyc/canonry-contracts'
+import { absolutizeProjectUrl, CitationStates, reportActionTone } from '@ainyc/canonry-contracts'
 
 import {
   Bar,
@@ -181,6 +183,7 @@ function pressureTone(label: CompetitorRow['pressureLabel']): MetricTone {
 export function ReportPage({ projectName }: { projectName: string }) {
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
+  const [audience, setAudience] = useState<ReportAudience>('agency')
 
   const reportQuery = useQuery({
     queryKey: queryKeys.report(projectName),
@@ -191,7 +194,7 @@ export function ReportPage({ projectName }: { projectName: string }) {
     setDownloading(true)
     setDownloadError(null)
     try {
-      await downloadReportHtml(projectName)
+      await downloadReportHtml(projectName, audience)
     } catch (err) {
       const message = err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Download failed'
       setDownloadError(message)
@@ -230,6 +233,24 @@ export function ReportPage({ projectName }: { projectName: string }) {
           {downloadError && <p className="mt-2 text-xs text-rose-400">{downloadError}</p>}
         </div>
         <div className="page-header-right">
+          <div className="inline-flex rounded-lg border border-zinc-800/70 bg-zinc-950/60 p-1" role="tablist" aria-label="Report audience">
+            {(['agency', 'client'] as const).map(mode => (
+              <button
+                key={mode}
+                type="button"
+                role="tab"
+                aria-selected={audience === mode}
+                onClick={() => setAudience(mode)}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                  audience === mode
+                    ? 'bg-zinc-100 text-zinc-950'
+                    : 'text-zinc-400 hover:text-zinc-100'
+                }`}
+              >
+                {mode === 'agency' ? 'Agency' : 'Client'}
+              </button>
+            ))}
+          </div>
           <Button
             variant="secondary"
             size="sm"
@@ -242,21 +263,218 @@ export function ReportPage({ projectName }: { projectName: string }) {
         </div>
       </div>
 
-      <ExecutiveSummarySection report={report} />
-      <CitationScorecardSection report={report} />
-      <CompetitorLandscapeSection report={report} />
-      <AiSourceOriginSection report={report} />
-      <GscPerformanceSection report={report} />
-      <GaTrafficSection report={report} />
-      <SocialReferralsSection report={report} />
-      <AiReferralsSection report={report} />
-      <IndexingHealthSectionView report={report} />
-      <CitationsTrendSection report={report} />
-      <InsightsSection report={report} />
-      <ContentOpportunitiesSection report={report} />
-      <ContentGapsSection report={report} />
-      <NextStepsSection report={report} />
+      {audience === 'client' ? (
+        <>
+          <ClientSummarySection report={report} />
+          <ActionPlanSection report={report} audience="client" />
+          <ClientEvidenceSection report={report} />
+        </>
+      ) : (
+        <>
+          <ExecutiveSummarySection report={report} />
+          <ActionPlanSection report={report} audience="agency" />
+          <AgencyDiagnosticsSection report={report} />
+          <CitationScorecardSection report={report} />
+          <CompetitorLandscapeSection report={report} />
+          <AiSourceOriginSection report={report} />
+          <GscPerformanceSection report={report} />
+          <GaTrafficSection report={report} />
+          <SocialReferralsSection report={report} />
+          <AiReferralsSection report={report} />
+          <IndexingHealthSectionView report={report} />
+          <CitationsTrendSection report={report} />
+          <InsightsSection report={report} />
+          <ContentOpportunitiesSection report={report} />
+          <ContentGapsSection report={report} />
+          <NextStepsSection report={report} />
+        </>
+      )}
     </div>
+  )
+}
+
+function actionAudienceMatches(action: ReportActionPlanItem, audience: ReportAudience): boolean {
+  return action.audience === 'both' || action.audience === audience
+}
+
+function ClientSummarySection({ report }: { report: ProjectReportDto }) {
+  const exec = report.executiveSummary
+  return (
+    <section className="page-section-divider">
+      <SectionHeading eyebrow="Client summary" title="How you're appearing" subtitle={report.clientSummary.overview} />
+      <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
+        <p className="text-sm font-medium text-zinc-100">{report.clientSummary.headline}</p>
+        <p className="mt-1 text-sm text-zinc-400">{report.clientSummary.overview}</p>
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Metric label="Citation coverage" value={formatPercent(exec.citationRate, 0)} tone={trendTone(exec.trend)} subtitle={`${exec.citedQueryCount}/${exec.totalQueryCount} tracked queries cited`} />
+        <Metric label="Mention coverage" value={formatPercent(exec.mentionRate, 0)} subtitle={`${exec.mentionedQueryCount}/${exec.totalQueryCount} tracked queries mentioned`} />
+        <Metric label="Providers checked" value={formatNumber(exec.providerCount)} subtitle={`${formatNumber(exec.queryCount)} tracked queries`} />
+        {exec.gsc && <Metric label="Search impressions" value={formatNumber(exec.gsc.impressions)} subtitle={`${formatNumber(exec.gsc.clicks)} clicks`} />}
+      </div>
+      {report.clientSummary.confidenceNotes.length > 0 && (
+        <div className="mt-4 grid gap-2">
+          {report.clientSummary.confidenceNotes.map((note, i) => (
+            <div key={i} className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-3 py-2 text-xs text-zinc-400">{note}</div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function ActionPlanSection({ report, audience }: { report: ProjectReportDto; audience: ReportAudience }) {
+  const actions = audience === 'client'
+    ? report.clientSummary.actionItems
+    : report.agencyDiagnostics.priorities.length > 0
+      ? report.agencyDiagnostics.priorities
+      : report.actionPlan.filter(a => actionAudienceMatches(a, audience))
+  return (
+    <section className="page-section-divider">
+      <SectionHeading
+        eyebrow={audience === 'client' ? 'Client actions' : 'Agency actions'}
+        title={audience === 'client' ? 'What we recommend next' : 'Agency action plan'}
+        subtitle={audience === 'client' ? 'Polished next steps backed by concise evidence.' : 'Technical priorities from the canonical action plan.'}
+      />
+      {actions.length === 0 ? (
+        <EmptyHint message="No prioritized actions yet." />
+      ) : (
+        <div className="grid gap-3 lg:grid-cols-2">
+          {actions.map(action => (
+            <div key={`${action.priority}-${action.title}`} className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
+              <div className="mb-3 flex flex-wrap gap-2">
+                <ToneBadge tone={reportActionTone(action)}>{horizonLabel(action.horizon)}</ToneBadge>
+                <ToneBadge tone="neutral">{action.category}</ToneBadge>
+                <ToneBadge tone="neutral">{action.confidence} confidence</ToneBadge>
+              </div>
+              <p className="text-sm font-medium text-zinc-100">{action.title}</p>
+              <p className="mt-1 text-sm text-zinc-400">{action.action}</p>
+              {action.why.length > 0 && (
+                <div className="mt-3">
+                  <p className="eyebrow-soft mb-1">Why</p>
+                  <ul className="list-disc space-y-1 pl-4 text-xs text-zinc-400">
+                    {action.why.map((item, i) => <li key={i}>{item}</li>)}
+                  </ul>
+                </div>
+              )}
+              {action.evidence.length > 0 && (
+                <div className="mt-3">
+                  <p className="eyebrow-soft mb-1">Evidence</p>
+                  <ul className="list-disc space-y-1 pl-4 text-xs text-zinc-400">
+                    {action.evidence.map((item, i) => <li key={i}>{item}</li>)}
+                  </ul>
+                </div>
+              )}
+              <p className="mt-3 border-t border-zinc-800/60 pt-3 text-xs text-zinc-300">
+                <span className="font-medium">Success metric:</span> {action.successMetric}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function AgencyDiagnosticsSection({ report }: { report: ProjectReportDto }) {
+  const diagnostics = report.agencyDiagnostics.diagnostics
+  if (diagnostics.length === 0) return null
+  return (
+    <section className="page-section-divider">
+      <SectionHeading eyebrow="Agency diagnostics" title="Technical diagnostics" subtitle="Operator-facing evidence for provider, source-domain, search-demand, indexing, content, and location follow-up." />
+      <div className="grid gap-3 lg:grid-cols-2">
+        {diagnostics.map(d => (
+          <div key={d.title} className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
+            <div className="mb-2 flex items-center gap-2">
+              <ToneBadge tone={d.severity}>{d.severity}</ToneBadge>
+              <p className="text-sm font-medium text-zinc-100">{d.title}</p>
+            </div>
+            <p className="text-sm text-zinc-400">{d.detail}</p>
+            {d.evidence.length > 0 && (
+              <ul className="mt-3 list-disc space-y-1 pl-4 text-xs text-zinc-500">
+                {d.evidence.map((item, i) => <li key={i}>{item}</li>)}
+              </ul>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function ClientEvidenceSection({ report }: { report: ProjectReportDto }) {
+  const cards: Array<{
+    key: string
+    tone: MetricTone
+    title: string
+    detail: string
+    items: string[]
+  }> = []
+
+  if (report.aiSourceOrigin.topDomains.length > 0) {
+    cards.push({
+      key: 'source-domains',
+      tone: 'neutral',
+      title: 'Sources AI engines trust',
+      detail: 'These domains appeared most often as cited sources outside your owned domain.',
+      items: report.aiSourceOrigin.topDomains.slice(0, 5).map(d => `${d.domain}: ${formatNumber(d.count)} citation${d.count === 1 ? '' : 's'}`),
+    })
+  }
+  if (report.gsc) {
+    cards.push({
+      key: 'search-demand',
+      tone: 'neutral',
+      title: 'Search demand',
+      detail: `Search Console shows ${formatNumber(report.gsc.totalImpressions)} impressions and ${formatNumber(report.gsc.totalClicks)} clicks in the report window.`,
+      items: report.gsc.topQueries.slice(0, 5).map(q => `${q.query}: ${formatNumber(q.impressions)} impressions`),
+    })
+  }
+  if (report.indexingHealth) {
+    cards.push({
+      key: 'indexing',
+      tone: report.indexingHealth.indexedPct >= 90 ? 'positive' : report.indexingHealth.indexedPct >= 70 ? 'caution' : 'negative',
+      title: 'Indexing readiness',
+      detail: `${report.indexingHealth.indexedPct}% of inspected URLs are indexed.`,
+      items: [
+        `${formatNumber(report.indexingHealth.indexed)} indexed`,
+        `${formatNumber(report.indexingHealth.notIndexed)} not indexed`,
+      ],
+    })
+  }
+  if (report.contentOpportunities.length > 0) {
+    cards.push({
+      key: 'content',
+      tone: 'caution',
+      title: 'Content opportunities',
+      detail: 'Canonry found topics where better content could improve AI citations.',
+      items: report.contentOpportunities.slice(0, 5).map(o => `${o.query}: ${actionLabel(o.action)} (${Math.round(o.score)})`),
+    })
+  }
+
+  return (
+    <section className="page-section-divider">
+      <SectionHeading eyebrow="Evidence" title="Why this is the plan" subtitle="Concise support for the client summary. Switch to Agency for the detailed tables and matrices." />
+      {cards.length === 0 ? (
+        <EmptyHint message="No supporting evidence sections are populated yet." />
+      ) : (
+        <div className="grid gap-3 lg:grid-cols-2">
+          {cards.map(card => (
+            <div key={card.key} className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <ToneBadge tone={card.tone}>{card.tone}</ToneBadge>
+                <p className="text-sm font-medium text-zinc-100">{card.title}</p>
+              </div>
+              <p className="text-sm text-zinc-400">{card.detail}</p>
+              {card.items.length > 0 && (
+                <ul className="mt-3 list-disc space-y-1 pl-4 text-xs text-zinc-500">
+                  {card.items.map((item, i) => <li key={i}>{item}</li>)}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   )
 }
 

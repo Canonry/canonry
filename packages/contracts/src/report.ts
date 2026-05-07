@@ -379,6 +379,69 @@ export interface RecommendedNextStep {
   rationale: string
 }
 
+export type ReportAudience = 'agency' | 'client'
+export type ReportActionAudience = ReportAudience | 'both'
+export type ReportActionHorizon = 'immediate' | 'short-term' | 'medium-term'
+export type ReportActionConfidence = 'high' | 'medium' | 'low'
+export type ReportTone = 'positive' | 'caution' | 'negative' | 'neutral'
+export type ReportActionCategory =
+  | 'content'
+  | 'competitors'
+  | 'provider'
+  | 'search-demand'
+  | 'indexing'
+  | 'location'
+  | 'monitoring'
+
+export interface ReportActionPlanItem {
+  /** Which report audience should see this action. `both` renders in both modes. */
+  audience: ReportActionAudience
+  /** Stable sort priority. Lower numbers render earlier. */
+  priority: number
+  /** When this should be tackled. */
+  horizon: ReportActionHorizon
+  category: ReportActionCategory
+  title: string
+  /** Direct next step written as an operator/client-friendly imperative. */
+  action: string
+  /** Why this matters. Keep each entry concise and evidence-backed. */
+  why: string[]
+  /** Specific observations that justify the action. */
+  evidence: string[]
+  /** What should move if the action worked. */
+  successMetric: string
+  /** Confidence in the recommendation based on the available evidence. */
+  confidence: ReportActionConfidence
+}
+
+export interface ReportClientSummary {
+  headline: string
+  overview: string
+  actionItems: ReportActionPlanItem[]
+  confidenceNotes: string[]
+}
+
+export interface ReportAgencyDiagnostic {
+  title: string
+  detail: string
+  severity: 'positive' | 'caution' | 'negative' | 'neutral'
+  evidence: string[]
+}
+
+export interface ReportAgencyDiagnostics {
+  priorities: ReportActionPlanItem[]
+  diagnostics: ReportAgencyDiagnostic[]
+}
+
+export function reportActionTone(
+  action: Pick<ReportActionPlanItem, 'horizon' | 'confidence'>,
+): ReportTone {
+  if (action.horizon === 'immediate') return 'negative'
+  if (action.confidence === 'high') return 'caution'
+  if (action.confidence === 'low') return 'neutral'
+  return 'caution'
+}
+
 export interface ProjectReportDto {
   meta: ReportMeta
   executiveSummary: ReportExecutiveSummary
@@ -394,6 +457,12 @@ export interface ProjectReportDto {
   citationsTrend: CitationsTrendPoint[]
   insights: ReportInsight[]
   recommendedNextSteps: RecommendedNextStep[]
+  /** Canonical structured actions shared by the client and agency render modes. */
+  actionPlan: ReportActionPlanItem[]
+  /** Polished client-facing summary and action shortlist. */
+  clientSummary: ReportClientSummary
+  /** Technical, evidence-oriented operator diagnostics for agency mode. */
+  agencyDiagnostics: ReportAgencyDiagnostics
   /**
    * Ranked, action-typed content opportunities sourced from the existing
    * intelligence layer (`buildContentTargetRows`). Empty when no run has

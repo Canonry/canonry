@@ -47,6 +47,17 @@ function makeReport(): ProjectReportDto {
     citationsTrend: [],
     insights: [],
     recommendedNextSteps: [],
+    actionPlan: [],
+    clientSummary: {
+      headline: 'No tracked queries have completed a visibility sweep yet',
+      overview: 'No visibility data yet.',
+      actionItems: [],
+      confidenceNotes: [],
+    },
+    agencyDiagnostics: {
+      priorities: [],
+      diagnostics: [],
+    },
     contentOpportunities: [],
     contentGaps: [],
     groundingSources: [],
@@ -94,11 +105,12 @@ describe('runReportCommand', () => {
 
       const files = fs.readdirSync(tmpDir).filter(f => f.endsWith('.html'))
       expect(files.length).toBe(1)
-      expect(files[0]).toMatch(/^canonry-report-demo-\d{4}-\d{2}-\d{2}\.html$/)
+      expect(files[0]).toMatch(/^canonry-report-demo-agency-\d{4}-\d{2}-\d{2}\.html$/)
 
       const html = fs.readFileSync(path.join(tmpDir, files[0]!), 'utf-8')
       expect(html).toMatch(/^<!DOCTYPE html>/)
       expect(html).toContain('id="executive-summary"')
+      expect(html).toContain('AEO Agency Report')
 
       expect(logs.join('\n')).toContain(files[0]!)
     } finally {
@@ -115,6 +127,18 @@ describe('runReportCommand', () => {
     expect(fs.existsSync(target)).toBe(true)
     const html = fs.readFileSync(target, 'utf-8')
     expect(html).toContain('id="executive-summary"')
+  })
+
+  it('renders client HTML when --audience client is supplied', async () => {
+    getReportMock.mockResolvedValue(makeReport())
+    const target = path.join(tmpDir, 'client.html')
+
+    await runReportCommand('demo', { format: 'text', audience: 'client', output: target })
+
+    const html = fs.readFileSync(target, 'utf-8')
+    expect(html).toContain('AEO Client Summary')
+    expect(html).toContain('id="client-summary"')
+    expect(html).not.toContain('id="citation-scorecard"')
   })
 
   it('--format json prints the raw report JSON to stdout, no file written', async () => {

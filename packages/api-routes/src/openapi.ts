@@ -144,6 +144,13 @@ const locationQueryParameter: OpenApiParameter = {
   schema: stringSchema,
 }
 
+const reportAudienceQueryParameter: OpenApiParameter = {
+  name: 'audience',
+  in: 'query',
+  description: 'HTML report audience mode. Defaults to agency.',
+  schema: { type: 'string', enum: ['agency', 'client'] },
+}
+
 const analyticsWindowParameter: OpenApiParameter = {
   name: 'window',
   in: 'query',
@@ -2368,10 +2375,10 @@ const routeCatalog: OpenApiOperation[] = [
   {
     method: 'get',
     path: '/api/v1/projects/{name}/report',
-    summary: 'Aggregated client-facing AEO report',
+    summary: 'Aggregated canonical AEO report',
     tags: ['report'],
     description:
-      'Bundles every section the canonry-report HTML output needs (executive summary, citation scorecard, competitor landscape — citation + mention landscapes, AI citation sources, GSC, GA4, social/AI referrals, indexing health, citations trend, insights, and recommended next steps) into a single JSON payload. Backs `canonry report <project>`.',
+      'Bundles every section the canonry-report HTML output needs (executive summary, client summary, agency diagnostics, action plan, citation scorecard, competitor landscape — citation + mention landscapes, AI citation sources, GSC, GA4, social/AI referrals, indexing health, citations trend, insights, and recommended next steps) into a single canonical JSON payload. Backs `canonry report <project>` and MCP report reads.',
     parameters: [nameParameter],
     responses: {
       200: { description: 'Report returned.' },
@@ -2384,8 +2391,8 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'Standalone HTML AEO report',
     tags: ['report'],
     description:
-      'Server-rendered self-contained HTML version of the project report. Same data as `/projects/{name}/report` (JSON), rendered through the canonry HTML report renderer. Returns `text/html` with `Content-Disposition: attachment` so browsers download it as `canonry-report-<project>-YYYY-MM-DD.html`. Open in a browser and Print → Save as PDF for a PDF copy.',
-    parameters: [nameParameter],
+      'Server-rendered self-contained HTML version of the project report. Same data as `/projects/{name}/report` (JSON), rendered through the canonry HTML report renderer in agency or client mode. Returns `text/html` with `Content-Disposition: attachment` so browsers download it as `canonry-report-<project>-<audience>-YYYY-MM-DD.html`. Open in a browser and Print → Save as PDF for a PDF copy.',
+    parameters: [nameParameter, reportAudienceQueryParameter],
     responses: {
       200: { description: 'HTML report returned.' },
       404: { description: 'Project not found.' },

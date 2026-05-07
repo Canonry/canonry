@@ -45,6 +45,17 @@ function emptyReport(): ProjectReportDto {
     citationsTrend: [],
     insights: [],
     recommendedNextSteps: [],
+    actionPlan: [],
+    clientSummary: {
+      headline: 'No tracked queries have completed a visibility sweep yet',
+      overview: 'No visibility data yet.',
+      actionItems: [],
+      confidenceNotes: [],
+    },
+    agencyDiagnostics: {
+      priorities: [],
+      diagnostics: [],
+    },
     contentOpportunities: [],
     contentGaps: [],
     groundingSources: [],
@@ -52,6 +63,30 @@ function emptyReport(): ProjectReportDto {
 }
 
 function richReport(): ProjectReportDto {
+  const clientAction: ProjectReportDto['actionPlan'][number] = {
+    audience: 'both',
+    priority: 10,
+    horizon: 'short-term',
+    category: 'content',
+    title: 'Create content for "best aeo platform"',
+    action: 'Publish a client-safe guide that directly answers the priority query.',
+    why: ['AI engines already cite competitors for this query.'],
+    evidence: ['rival.com is the current winning cited source'],
+    successMetric: 'The client is cited for "best aeo platform" in a future sweep.',
+    confidence: 'high',
+  }
+  const agencyAction: ProjectReportDto['actionPlan'][number] = {
+    audience: 'agency',
+    priority: 20,
+    horizon: 'short-term',
+    category: 'provider',
+    title: 'Diagnose zero-citation providers',
+    action: 'Inspect provider answers and source lists for model-specific gaps.',
+    why: ['Provider-level misses isolate where retrieval differs by model family.'],
+    evidence: ['openai: 0/2 cited query-provider pairs'],
+    successMetric: 'OpenAI cites the client on at least one tracked query.',
+    confidence: 'high',
+  }
   return {
     meta: {
       generatedAt: '2026-05-02T12:00:00.000Z',
@@ -227,6 +262,24 @@ function richReport(): ProjectReportDto {
     recommendedNextSteps: [
       { horizon: 'immediate', title: 'Resolve 1 critical regression', rationale: 'Lost citation on aeo platform.' },
     ],
+    actionPlan: [clientAction, agencyAction],
+    clientSummary: {
+      headline: '3 of 5 tracked queries are cited by AI engines',
+      overview: 'Rich Project is cited on 65% of tracked queries and mentioned on 40%. Citation coverage improved versus the prior comparable sweep.',
+      actionItems: [clientAction],
+      confidenceNotes: ['This summary is scoped to the michigan run location.'],
+    },
+    agencyDiagnostics: {
+      priorities: [clientAction, agencyAction],
+      diagnostics: [
+        {
+          title: 'Provider citation coverage',
+          detail: 'One provider returned zero client citations.',
+          severity: 'negative',
+          evidence: ['openai: 0/2'],
+        },
+      ],
+    },
     contentOpportunities: [
       {
         targetRef: 'rich:create:best-aeo-platform',
@@ -327,6 +380,8 @@ describe('renderReportHtml', () => {
     const html = renderReportHtml(richReport())
     const expectedSections = [
       'executive-summary',
+      'agency-action-plan',
+      'agency-diagnostics',
       'citation-scorecard',
       'competitor-landscape',
       'ai-source-origin',
@@ -387,6 +442,29 @@ describe('renderReportHtml', () => {
     expect(html).toContain('rival.com')
     expect(html).toContain('Lost citation on aeo platform')
     expect(html).toContain('chatgpt.com')
+  })
+
+  test('defaults to agency mode with diagnostics and detailed evidence sections', () => {
+    const html = renderReportHtml(richReport())
+    expect(html).toContain('AEO Agency Report')
+    expect(html).toContain('id="agency-diagnostics"')
+    expect(html).toContain('id="citation-scorecard"')
+    expect(html).toContain('Diagnose zero-citation providers')
+  })
+
+  test('client mode renders polished actions before concise evidence', () => {
+    const html = renderReportHtml(richReport(), { audience: 'client' })
+    expect(html).toContain('AEO Client Summary')
+    expect(html).toContain('id="client-summary"')
+    expect(html).toContain('id="client-action-plan"')
+    expect(html).toContain('What We Recommend Next')
+    expect(html).toContain('Publish a client-safe guide')
+    expect(html).not.toContain('id="citation-scorecard"')
+
+    const actionIndex = html.indexOf('id="client-action-plan"')
+    const evidenceIndex = html.indexOf('id="client-evidence-summary"')
+    expect(actionIndex).toBeGreaterThan(-1)
+    expect(evidenceIndex).toBeGreaterThan(actionIndex)
   })
 
   test('citation matrix shows cited vs not-cited cells', () => {
