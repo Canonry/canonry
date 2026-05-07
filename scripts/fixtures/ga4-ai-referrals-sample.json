@@ -1,0 +1,49 @@
+{
+  "rows": [
+    {
+      "date": "2026-05-01",
+      "source": "chatgpt.com",
+      "medium": "referral",
+      "landingPage": "/pricing",
+      "sessions": 14,
+      "users": 12,
+      "sourceDimension": "session"
+    },
+    {
+      "date": "2026-05-01",
+      "source": "perplexity.ai",
+      "medium": "referral",
+      "landingPage": "/blog/ai-search",
+      "sessions": 3,
+      "users": 3,
+      "sourceDimension": "session"
+    },
+    {
+      "date": "2026-05-01",
+      "source": "claude.ai",
+      "medium": "referral",
+      "landingPage": "/docs/getting-started",
+      "sessions": 2,
+      "users": 2,
+      "sourceDimension": "session"
+    },
+    {
+      "date": "2026-05-01",
+      "source": "chatgpt.com",
+      "medium": "referral",
+      "landingPage": "/pricing",
+      "sessions": 14,
+      "users": 12,
+      "sourceDimension": "first_user"
+    },
+    {
+      "date": "2026-05-01",
+      "source": "chatgpt-recommendation",
+      "medium": "referral",
+      "landingPage": "/features",
+      "sessions": 5,
+      "users": 4,
+      "sourceDimension": "manual_utm"
+    }
+  ]
+}
