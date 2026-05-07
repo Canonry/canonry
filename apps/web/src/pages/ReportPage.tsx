@@ -254,6 +254,7 @@ export function ReportPage({ projectName }: { projectName: string }) {
       <CitationsTrendSection report={report} />
       <InsightsSection report={report} />
       <ContentOpportunitiesSection report={report} />
+      <ContentGapsSection report={report} />
       <NextStepsSection report={report} />
     </div>
   )
@@ -1162,7 +1163,11 @@ function ContentOpportunitiesSection({ report }: { report: ProjectReportDto }) {
   const canonical = report.meta.project.canonicalDomain
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 12" title="Content opportunities" subtitle="Queries where you have search demand or competitor citation pressure but aren't winning AI citations. Each row carries a suggested action (create / refresh / expand / add-schema). Top 10 shown." />
+      <SectionHeading
+        eyebrow="Section 12"
+        title="Content opportunities"
+        subtitle="Queries where you have search demand or competitor citation pressure but aren't winning AI citations. Each row pairs a suggested action with the signals driving the score, the best matching page on your domain, and the competitor URL the AI most often cites. Top 10 shown."
+      />
       <div className="evidence-table-wrap">
         <table className="evidence-table">
           <thead>
@@ -1170,9 +1175,9 @@ function ContentOpportunitiesSection({ report }: { report: ProjectReportDto }) {
               <th>Query</th>
               <th>Action</th>
               <th>Score</th>
+              <th>Why</th>
               <th>Our page</th>
               <th>Winning competitor</th>
-              <th>Demand</th>
               <th>Confidence</th>
             </tr>
           </thead>
@@ -1182,20 +1187,65 @@ function ContentOpportunitiesSection({ report }: { report: ProjectReportDto }) {
                 <td className="evidence-query-cell">{o.query}</td>
                 <td><ToneBadge tone="neutral">{actionLabel(o.action)}</ToneBadge></td>
                 <td>{Math.round(o.score)}</td>
+                <td className="text-xs text-zinc-400">
+                  {o.drivers.length > 0
+                    ? <ul className="list-disc pl-4 space-y-0.5">{o.drivers.map((d, i) => <li key={i}>{d}</li>)}</ul>
+                    : <span className="text-zinc-600">No driver signal yet</span>}
+                </td>
                 <td className="text-xs">
                   {o.ourBestPage
                     ? <a href={absolutizeProjectUrl(o.ourBestPage.url, canonical)} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline break-all">{o.ourBestPage.url}</a>
-                    : <span className="text-zinc-600">—</span>}
+                    : <span className="text-zinc-600">No page yet</span>}
                 </td>
                 <td className="text-xs">
                   {o.winningCompetitor
                     ? <a href={o.winningCompetitor.url} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">{o.winningCompetitor.domain}</a>
                     : <span className="text-zinc-600">—</span>}
                 </td>
-                <td><ToneBadge tone="neutral">{o.demandSource}</ToneBadge></td>
                 <td><ToneBadge tone="neutral">{o.actionConfidence}</ToneBadge></td>
               </tr>
             ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
+function ContentGapsSection({ report }: { report: ProjectReportDto }) {
+  if (report.contentGaps.length === 0) return null
+  return (
+    <section className="page-section-divider">
+      <SectionHeading
+        eyebrow="Section 13"
+        title="Content gaps"
+        subtitle="Tracked queries where multiple competitors are cited by AI engines but you are not — explicit “they're answering, you're missing” signal. Sorted by recent miss rate, then by competitor count. Top 10 shown."
+      />
+      <div className="evidence-table-wrap">
+        <table className="evidence-table">
+          <thead>
+            <tr>
+              <th>Query</th>
+              <th>Competitors cited</th>
+              <th>Domains</th>
+              <th>Miss rate</th>
+            </tr>
+          </thead>
+          <tbody>
+            {report.contentGaps.slice(0, 10).map(g => {
+              const visible = g.competitorDomains.slice(0, 5)
+              const more = g.competitorDomains.length - visible.length
+              return (
+                <tr key={g.query}>
+                  <td className="evidence-query-cell">{g.query}</td>
+                  <td>{g.competitorCount}</td>
+                  <td className="text-xs text-zinc-400">
+                    {visible.join(', ')}{more > 0 ? `, +${more} more` : ''}
+                  </td>
+                  <td>{Math.round(g.missRate * 100)}%</td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
@@ -1209,7 +1259,7 @@ function NextStepsSection({ report }: { report: ProjectReportDto }) {
   if (report.recommendedNextSteps.length === 0) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 13" title="Recommended next steps" subtitle="Action items bucketed by horizon (immediate, short-term, medium-term), drawn from open insights and the highest-ranked content opportunities." />
+        <SectionHeading eyebrow="Section 14" title="Recommended next steps" subtitle="Action items bucketed by horizon (immediate, short-term, medium-term), drawn from open insights and the highest-ranked content opportunities." />
         <EmptyHint message="No prioritized actions yet." />
       </section>
     )

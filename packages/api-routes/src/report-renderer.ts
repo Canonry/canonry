@@ -235,6 +235,8 @@ section.report-section .section-intro {
 .source-bar-fill { height: 100%; border-radius: 3px; }
 .source-bar-value { color: ${COLORS.text}; text-align: right; font-variant-numeric: tabular-nums; }
 .source-bar-pct { color: ${COLORS.textFaint}; font-size: 11px; }
+.driver-list { margin: 0; padding-left: 16px; font-size: 12px; color: ${COLORS.textMuted}; }
+.driver-list li { margin: 2px 0; }
 table.report-table {
   width: 100%;
   border-collapse: collapse;
@@ -1172,17 +1174,20 @@ function renderOpportunities(report: ProjectReportDto): string {
   const rows = opps.slice(0, 10).map((o) => {
     const ourPage = o.ourBestPage
       ? `<a href="${escapeHtml(absolutizeProjectUrl(o.ourBestPage.url, canonical))}">${escapeHtml(o.ourBestPage.url)}</a>`
-      : '<span class="cell-not-cited">—</span>'
+      : '<span class="cell-not-cited">No page yet</span>'
     const winning = o.winningCompetitor
       ? `<a href="${escapeHtml(o.winningCompetitor.url)}">${escapeHtml(o.winningCompetitor.domain)}</a>`
       : '<span class="cell-not-cited">—</span>'
+    const drivers = o.drivers.length > 0
+      ? `<ul class="driver-list">${o.drivers.map(d => `<li>${escapeHtml(d)}</li>`).join('')}</ul>`
+      : '<span class="cell-not-cited">No driver signal yet</span>'
     return `<tr>
       <td>${escapeHtml(o.query)}</td>
       <td><span class="badge tone-neutral">${escapeHtml(o.action)}</span></td>
       <td class="numeric">${Math.round(o.score)}</td>
+      <td>${drivers}</td>
       <td>${ourPage}</td>
       <td>${winning}</td>
-      <td><span class="badge tone-neutral">${escapeHtml(o.demandSource)}</span></td>
       <td><span class="badge tone-neutral">${escapeHtml(o.actionConfidence)}</span></td>
     </tr>`
   }).join('')
@@ -1192,10 +1197,37 @@ function renderOpportunities(report: ProjectReportDto): string {
       id: 'content-opportunities',
       eyebrow: 'Section 12',
       title: 'Content Opportunities',
-      intro: 'Queries where you have search demand or competitor citation pressure but aren’t winning AI citations. Each row carries a suggested action (create / refresh / expand / add-schema). Top 10 shown.',
+      intro: 'Queries where you have search demand or competitor citation pressure but aren’t winning AI citations. Each row pairs a suggested action (create / refresh / expand / add-schema) with the signals driving the score, the best matching page on your domain, and the competitor URL the AI most often cites. Top 10 shown.',
     },
     `<table class="report-table">
-      <thead><tr><th>Query</th><th>Action</th><th class="numeric">Score</th><th>Our page</th><th>Winning competitor</th><th>Demand</th><th>Confidence</th></tr></thead>
+      <thead><tr><th>Query</th><th>Action</th><th class="numeric">Score</th><th>Why</th><th>Our page</th><th>Winning competitor</th><th>Confidence</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`,
+  )
+}
+
+function renderContentGaps(report: ProjectReportDto): string {
+  const gaps = report.contentGaps
+  if (gaps.length === 0) return ''
+  const rows = gaps.slice(0, 10).map(g => {
+    const competitorList = g.competitorDomains.slice(0, 5).map(escapeHtml).join(', ')
+    const more = g.competitorDomains.length > 5 ? `, +${g.competitorDomains.length - 5} more` : ''
+    return `<tr>
+      <td>${escapeHtml(g.query)}</td>
+      <td class="numeric">${g.competitorCount}</td>
+      <td>${competitorList}${more}</td>
+      <td class="numeric">${Math.round(g.missRate * 100)}%</td>
+    </tr>`
+  }).join('')
+  return section(
+    {
+      id: 'content-gaps',
+      eyebrow: 'Section 13',
+      title: 'Content Gaps',
+      intro: 'Tracked queries where multiple competitors are cited by AI engines but you are not — explicit "they are answering, you are missing" signal. Sorted by recent miss rate, then by number of competitors cited. Top 10 shown.',
+    },
+    `<table class="report-table">
+      <thead><tr><th>Query</th><th class="numeric">Competitors cited</th><th>Domains</th><th class="numeric">Miss rate</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`,
   )
@@ -1208,7 +1240,7 @@ function renderRecommendedNextSteps(report: ProjectReportDto): string {
   const steps = report.recommendedNextSteps
   if (steps.length === 0) {
     return section(
-      { id: 'recommended-next-steps', eyebrow: 'Section 13', title: 'Recommended Next Steps', intro: 'Action items bucketed by horizon (immediate, short-term, medium-term), drawn from open insights and the highest-ranked content opportunities.' },
+      { id: 'recommended-next-steps', eyebrow: 'Section 14', title: 'Recommended Next Steps', intro: 'Action items bucketed by horizon (immediate, short-term, medium-term), drawn from open insights and the highest-ranked content opportunities.' },
       renderEmpty('No outstanding actions.'),
     )
   }
@@ -1221,7 +1253,7 @@ function renderRecommendedNextSteps(report: ProjectReportDto): string {
     </div>`).join('')
 
   return section(
-    { id: 'recommended-next-steps', eyebrow: 'Section 13', title: 'Recommended Next Steps', intro: 'Action items bucketed by horizon (immediate, short-term, medium-term), drawn from open insights and the highest-ranked content opportunities.' },
+    { id: 'recommended-next-steps', eyebrow: 'Section 14', title: 'Recommended Next Steps', intro: 'Action items bucketed by horizon (immediate, short-term, medium-term), drawn from open insights and the highest-ranked content opportunities.' },
     `<div class="steps">${items}</div>`,
   )
 }
@@ -1257,6 +1289,7 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
     renderCitationsTrend(report),
     renderInsights(report),
     renderOpportunities(report),
+    renderContentGaps(report),
     renderRecommendedNextSteps(report),
   ].join('\n')
 

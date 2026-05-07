@@ -337,11 +337,40 @@ describe('renderReportHtml', () => {
       'indexing-health',
       'citations-trend',
       'insights',
+      'content-opportunities',
       'recommended-next-steps',
     ]
     for (const section of expectedSections) {
       expect(html).toContain(`id="${section}"`)
     }
+  })
+
+  test('content opportunities table surfaces the drivers list as a Why column', () => {
+    const html = renderReportHtml(richReport())
+    expect(html).toContain('high competitor density')
+    expect(html).toContain('no own page')
+    // Drivers are rendered as a list, not a single comma-joined cell.
+    const block = html.split('id="content-opportunities"')[1]?.split('</section>')[0] ?? ''
+    expect(block).toContain('driver-list')
+  })
+
+  test('content gaps section renders when contentGaps has entries', () => {
+    const report = richReport()
+    report.contentGaps = [
+      { query: 'gap one', competitorDomains: ['a.com', 'b.com', 'c.com'], competitorCount: 3, missRate: 1, lastSeenInRunId: 'run-1' },
+      { query: 'gap two', competitorDomains: ['x.com'], competitorCount: 1, missRate: 0.5, lastSeenInRunId: 'run-1' },
+    ]
+    const html = renderReportHtml(report)
+    expect(html).toContain('id="content-gaps"')
+    expect(html).toContain('gap one')
+    expect(html).toContain('a.com, b.com, c.com')
+  })
+
+  test('content gaps section is omitted when contentGaps is empty', () => {
+    const report = richReport()
+    report.contentGaps = []
+    const html = renderReportHtml(report)
+    expect(html).not.toContain('id="content-gaps"')
   })
 
   test('renders project display name in the document title', () => {
