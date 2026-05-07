@@ -122,7 +122,7 @@ function richReport(): ProjectReportDto {
       queryCount: 5,
       competitorCount: 3,
       providerCount: 2,
-      gsc: { clicks: 1000, impressions: 5000, ctr: 0.2, avgPosition: 4.5 },
+      gsc: { clicks: 1000, impressions: 5000, ctr: 0.2, avgPosition: 4.5, periodStart: '2026-04-01', periodEnd: '2026-04-30' },
       ga: { sessions: 12000, users: 9000, periodStart: '2026-04-01', periodEnd: '2026-04-30' },
       findings: [
         { title: 'Citation rate at 65%', detail: 'Up from previous run.', tone: 'positive' },
@@ -173,6 +173,8 @@ function richReport(): ProjectReportDto {
       ],
     },
     gsc: {
+      periodStart: '2026-04-01',
+      periodEnd: '2026-04-30',
       totalClicks: 1000,
       totalImpressions: 5000,
       ctr: 0.2,
@@ -433,6 +435,20 @@ describe('renderReportHtml', () => {
     expect(html).toMatch(/<title>[^<]*Rich Project[^<]*<\/title>/)
   })
 
+  test('renders date-only reporting ranges without timezone shifting the day', () => {
+    const html = renderReportHtml(richReport())
+    expect(html).toContain('Apr 1, 2026')
+    expect(html).toContain('Apr 30, 2026')
+  })
+
+  test('renders the GSC date range beside the click metric', () => {
+    const html = renderReportHtml(richReport())
+    const executive = html.split('id="executive-summary"')[1]?.split('id="agency-action-plan"')[0] ?? ''
+    const gsc = html.split('id="gsc"')[1]?.split('</section>')[0] ?? ''
+    expect(executive).toContain('5.0K imp · 20.0% CTR · Apr 1, 2026 → Apr 30, 2026')
+    expect(gsc).toContain('Search demand signals to compare against AI visibility for Apr 1, 2026 → Apr 30, 2026.')
+  })
+
   test('handles empty data without throwing', () => {
     expect(() => renderReportHtml(emptyReport())).not.toThrow()
   })
@@ -450,6 +466,172 @@ describe('renderReportHtml', () => {
     expect(html).toContain('id="agency-diagnostics"')
     expect(html).toContain('id="citation-scorecard"')
     expect(html).toContain('Diagnose zero-citation providers')
+  })
+
+  test('renders market scope without visible provider implementation details', () => {
+    const html = renderReportHtml(richReport())
+    const executive = html.split('id="executive-summary"')[1]?.split('id="agency-action-plan"')[0] ?? ''
+    expect(executive).toContain('Market Scope')
+    expect(executive).toContain('Current sweep')
+    expect(executive).toContain('Not included')
+    expect(executive).toContain('florida')
+    expect(executive).not.toContain('Location handling')
+    expect(executive).not.toContain('web_search_preview')
+    expect(executive).not.toContain('How the location reached the model')
+  })
+
+  test('filters legacy location caveat diagnostics from the visible agency report', () => {
+    const report = richReport()
+    report.agencyDiagnostics.diagnostics.push({
+      title: 'Location caveat',
+      detail: 'This report is scoped to the latest run location.',
+      severity: 'caution',
+      evidence: ['Current location: michigan'],
+    })
+    const html = renderReportHtml(report)
+    const diagnostics = html.split('id="agency-diagnostics"')[1]?.split('</section>')[0] ?? ''
+    expect(diagnostics).not.toContain('Location caveat')
+  })
+
+  test('collapses market-modified duplicate content recommendations in saved report payloads', () => {
+    const report = richReport()
+    const baseAction: ProjectReportDto['actionPlan'][number] = {
+      audience: 'both',
+      priority: 20,
+      horizon: 'medium-term',
+      category: 'content',
+      title: 'Create content for "polyurea roof coating"',
+      action: 'Create / so it directly answers the tracked query.',
+      why: ['4 GSC impressions'],
+      evidence: ['Opportunity score 1 with medium confidence'],
+      successMetric: 'A future sweep cites demo.example.com for "polyurea roof coating".',
+      confidence: 'medium',
+    }
+    const marketAction: ProjectReportDto['actionPlan'][number] = {
+      ...baseAction,
+      priority: 21,
+      title: 'Create content for "polyurea roof coating michigan"',
+      action: 'Create a new page for "polyurea roof coating michigan".',
+      why: ['no existing page'],
+      evidence: ['Opportunity score 0 with low confidence'],
+      successMetric: 'A future sweep cites demo.example.com for "polyurea roof coating michigan".',
+      confidence: 'low',
+    }
+    report.actionPlan = [baseAction, marketAction]
+    report.clientSummary.actionItems = [baseAction, marketAction]
+    report.agencyDiagnostics.priorities = [baseAction, marketAction]
+    report.contentOpportunities = [
+      {
+        targetRef: 'polyurea',
+        query: 'polyurea roof coating',
+        action: 'create',
+        ourBestPage: null,
+        winningCompetitor: null,
+        score: 1,
+        scoreBreakdown: { demand: 1, competitor: 0, absence: 1, gapSeverity: 1 },
+        drivers: ['4 GSC impressions'],
+        demandSource: 'gsc',
+        actionConfidence: 'medium',
+        existingAction: null,
+      },
+      {
+        targetRef: 'polyurea-michigan',
+        query: 'polyurea roof coating michigan',
+        action: 'create',
+        ourBestPage: null,
+        winningCompetitor: null,
+        score: 0,
+        scoreBreakdown: { demand: 0, competitor: 0, absence: 1, gapSeverity: 1 },
+        drivers: ['no existing page'],
+        demandSource: 'gsc',
+        actionConfidence: 'low',
+        existingAction: null,
+      },
+    ]
+
+    const html = renderReportHtml(report)
+    const actions = html.split('id="agency-action-plan"')[1]?.split('</section>')[0] ?? ''
+    const opportunities = html.split('id="content-opportunities"')[1]?.split('</section>')[0] ?? ''
+
+    expect(actions).toContain('Create content for &quot;polyurea roof coating&quot;')
+    expect(actions).not.toContain('polyurea roof coating michigan')
+    expect(opportunities).toContain('polyurea roof coating')
+    expect(opportunities).not.toContain('polyurea roof coating michigan')
+  })
+
+  test('action card badges show polished labels, not raw enum codes', () => {
+    // The DTO carries lowercase, hyphenated codes (`'short-term'`, `'high'`,
+    // `'search-demand'`, etc.) that exist for sorting/routing/tone — they
+    // must not reach the user. Symptom we're guarding against: badges that
+    // read "short-term" or "high confidence" instead of "Short term" /
+    // "High confidence". Same class of bug as the rank-number leak.
+    const report = richReport()
+    report.actionPlan = [{
+      audience: 'agency',
+      priority: 50,
+      horizon: 'short-term',
+      category: 'search-demand',
+      title: 'Audit GSC alignment',
+      action: 'Review tracked queries against GSC demand.',
+      why: ['mismatch hides opportunity'],
+      evidence: [],
+      successMetric: 'Tracked set matches GSC.',
+      confidence: 'medium',
+    }]
+    report.agencyDiagnostics.priorities = report.actionPlan
+    const cards = renderReportHtml(report).split('id="agency-action-plan"')[1]?.split('</section>')[0] ?? ''
+    expect(cards).toContain('Short term')
+    expect(cards).toContain('Search demand')
+    expect(cards).toContain('Medium confidence')
+    expect(cards).not.toMatch(/>short-term</)
+    expect(cards).not.toMatch(/>search-demand</)
+    expect(cards).not.toMatch(/>medium confidence</)
+  })
+
+  test('insights table severity badge shows "Critical" not "critical"', () => {
+    const report = richReport()
+    report.insights = [{
+      id: 'i-x',
+      type: 'regression',
+      severity: 'critical',
+      title: 'Lost citation',
+      query: 'q',
+      provider: 'gemini',
+      recommendation: null,
+      createdAt: '2026-04-30T00:00:00Z',
+      instanceCount: 1,
+    }]
+    const block = renderReportHtml(report).split('id="insights"')[1]?.split('</section>')[0] ?? ''
+    expect(block).toContain('>Critical<')
+    expect(block).not.toMatch(/>critical</)
+  })
+
+  test('opportunity card surfaces score scale and title-cased action/confidence', () => {
+    // The opportunity score is 0–100; rendered bare ("87"), users mistake it
+    // for a percent, a rank, or some scoped quality grade. Always pair it
+    // with "/100" or a tooltip so the scale is unambiguous. Action/confidence
+    // chips stay polished too.
+    const html = renderReportHtml(richReport())
+    const opps = html.split('id="content-opportunities"')[1]?.split('</section>')[0] ?? ''
+    expect(opps).toContain('/100')
+    expect(opps).toContain('>Create<')
+    expect(opps).toContain('>High<')
+    expect(opps).not.toMatch(/>create</)
+    expect(opps).not.toMatch(/>high</)
+  })
+
+  test('action rank is sequential 1..N, not the internal priority code', () => {
+    // The DTO's `priority` is a stable internal sort key (10 = competitors,
+    // 20-21 = content, 30 = indexing, 40 = provider, ...). Surfacing those
+    // raw values to the client confused readers — they read "10" as a score.
+    // The renderer should display the visible position in the impact-sorted
+    // list (1, 2, 3, ...) while letting `priority` keep its sort role.
+    const report = richReport()
+    const cards = renderReportHtml(report).split('id="agency-action-plan"')[1]?.split('</section>')[0] ?? ''
+    const ranks = [...cards.matchAll(/<div class="action-rank"[^>]*>(\d+)<\/div>/g)].map(m => m[1])
+    expect(ranks).toEqual(['1', '2'])
+    expect(ranks).not.toContain('10')
+    expect(ranks).not.toContain('20')
   })
 
   test('client mode renders polished actions before concise evidence', () => {
@@ -477,10 +659,15 @@ describe('renderReportHtml', () => {
     expect(html).toContain('openai')
   })
 
-  test('inline CSS allows long table cells to wrap', () => {
+  test('inline CSS allows long table cells to wrap on word boundaries', () => {
+    // overflow-wrap: anywhere broke mid-word inside quoted query strings
+    // (e.g. "polyurea roof coating" in the Insights & Alerts table). Switching
+    // to break-word + hyphens: auto wraps at word boundaries first and only
+    // splits long tokens when no boundary fits.
     const html = renderReportHtml(emptyReport())
-    expect(html).toContain('overflow-wrap: anywhere')
-    expect(html).toContain('word-break: break-word')
+    expect(html).toContain('overflow-wrap: break-word')
+    expect(html).toContain('hyphens: auto')
+    expect(html).not.toContain('overflow-wrap: anywhere')
   })
 
   test('renders landing page URLs with full URL accessible via title', () => {

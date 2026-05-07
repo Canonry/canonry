@@ -106,6 +106,8 @@ export interface ReportExecutiveSummary {
     impressions: number
     ctr: number
     avgPosition: number
+    periodStart: string
+    periodEnd: string
   } | null
   /** GA4 totals across the most-recent sync period. Null when GA4 is not connected. */
   ga: {
@@ -235,6 +237,8 @@ export interface GscQueryRow {
 }
 
 export interface GscSection {
+  periodStart: string
+  periodEnd: string
   totalClicks: number
   totalImpressions: number
   ctr: number
@@ -440,6 +444,50 @@ export function reportActionTone(
   if (action.confidence === 'high') return 'caution'
   if (action.confidence === 'low') return 'neutral'
   return 'caution'
+}
+
+/**
+ * Human-readable labels for enum values that appear in the report DTO. The
+ * underlying field values (e.g. `'short-term'`, `'add-schema'`) are stable
+ * identifiers used for routing, sorting, and tone — never render them
+ * directly to the UI. Always run them through these helpers so titles,
+ * badges, and summaries read like prose.
+ */
+export function reportSeverityLabel(severity: ReportInsight['severity']): string {
+  switch (severity) {
+    case 'critical': return 'Critical'
+    case 'high': return 'High'
+    case 'medium': return 'Medium'
+    case 'low': return 'Low'
+  }
+}
+
+export function reportHorizonLabel(horizon: ReportActionHorizon): string {
+  switch (horizon) {
+    case 'immediate': return 'Immediate'
+    case 'short-term': return 'Short term'
+    case 'medium-term': return 'Medium term'
+  }
+}
+
+export function reportActionCategoryLabel(category: ReportActionCategory): string {
+  switch (category) {
+    case 'content': return 'Content'
+    case 'competitors': return 'Competitors'
+    case 'provider': return 'Provider'
+    case 'search-demand': return 'Search demand'
+    case 'indexing': return 'Indexing'
+    case 'location': return 'Location'
+    case 'monitoring': return 'Monitoring'
+  }
+}
+
+export function reportConfidenceLabel(confidence: ReportActionConfidence): string {
+  switch (confidence) {
+    case 'high': return 'High'
+    case 'medium': return 'Medium'
+    case 'low': return 'Low'
+  }
 }
 
 export interface ProjectReportDto {

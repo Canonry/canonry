@@ -35,6 +35,7 @@ import {
   RunKinds,
   RunStatuses,
   type GroundingSource,
+  type LocationContext,
   type ProviderName,
 } from '@ainyc/canonry-contracts'
 
@@ -44,6 +45,7 @@ interface ProjectRow {
   id: string
   canonicalDomain: string
   ownedDomains?: string | null
+  locations?: string | null
 }
 
 /**
@@ -107,6 +109,7 @@ export function loadOrchestratorInput(
     ownDomain,
     competitors: trackedCompetitors,
     candidateQueries,
+    queryIntentModifiers: buildQueryIntentModifiers(project, locationFilter),
     inventory,
     wpSchemaAudit: new Map(),
     gaTrafficByPage,
@@ -115,6 +118,79 @@ export function loadOrchestratorInput(
     latestRunTimestamp,
     inProgressActions: new Map<string, ExistingActionRef>(),
   }
+}
+
+function buildQueryIntentModifiers(project: ProjectRow, locationFilter: LocationScope): string[] {
+  if (locationFilter === undefined || locationFilter === null) return []
+  const locations = parseJsonColumn<LocationContext[]>(project.locations, [])
+  const currentLocation = locations.find(location => location.label === locationFilter)
+  const raw = currentLocation
+    ? [
+        currentLocation.label,
+        currentLocation.city,
+        currentLocation.region,
+        regionAbbreviation(currentLocation.region),
+        currentLocation.country,
+      ]
+    : [locationFilter]
+  return [...new Set(raw.map(value => value.trim().toLowerCase()).filter(Boolean))]
+}
+
+function regionAbbreviation(region: string): string {
+  return US_REGION_ABBREVIATIONS[region.trim().toLowerCase()] ?? ''
+}
+
+const US_REGION_ABBREVIATIONS: Record<string, string> = {
+  alabama: 'al',
+  alaska: 'ak',
+  arizona: 'az',
+  arkansas: 'ar',
+  california: 'ca',
+  colorado: 'co',
+  connecticut: 'ct',
+  delaware: 'de',
+  florida: 'fl',
+  georgia: 'ga',
+  hawaii: 'hi',
+  idaho: 'id',
+  illinois: 'il',
+  indiana: 'in',
+  iowa: 'ia',
+  kansas: 'ks',
+  kentucky: 'ky',
+  louisiana: 'la',
+  maine: 'me',
+  maryland: 'md',
+  massachusetts: 'ma',
+  michigan: 'mi',
+  minnesota: 'mn',
+  mississippi: 'ms',
+  missouri: 'mo',
+  montana: 'mt',
+  nebraska: 'ne',
+  nevada: 'nv',
+  'new hampshire': 'nh',
+  'new jersey': 'nj',
+  'new mexico': 'nm',
+  'new york': 'ny',
+  'north carolina': 'nc',
+  'north dakota': 'nd',
+  ohio: 'oh',
+  oklahoma: 'ok',
+  oregon: 'or',
+  pennsylvania: 'pa',
+  'rhode island': 'ri',
+  'south carolina': 'sc',
+  'south dakota': 'sd',
+  tennessee: 'tn',
+  texas: 'tx',
+  utah: 'ut',
+  vermont: 'vt',
+  virginia: 'va',
+  washington: 'wa',
+  'west virginia': 'wv',
+  wisconsin: 'wi',
+  wyoming: 'wy',
 }
 
 // ─── Per-domain helpers (each is a tiny focused query) ──────────────────────

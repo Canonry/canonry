@@ -84,6 +84,12 @@ export interface OrchestratorInput {
   competitors: string[]
 
   candidateQueries: CandidateQuery[]
+  /**
+   * Optional terms to ignore when grouping recommendation targets by user intent.
+   * Report callers pass the active market tokens here so "roof coating" and
+   * "roof coating michigan" do not become duplicate content recommendations.
+   */
+  queryIntentModifiers?: readonly string[]
   inventory: SitePage[]
   wpSchemaAudit: Map<string, boolean>
   gaTrafficByPage: Map<string, number>
@@ -179,7 +185,10 @@ export function buildContentTargetRows(input: OrchestratorInput): ContentTargetR
     })
   }
 
-  return rows.sort((a, b) => b.score - a.score)
+  return dedupeByIntent(
+    rows.sort((a, b) => b.score - a.score),
+    input.queryIntentModifiers ?? [],
+  )
 }
 
 // ─── Sources ────────────────────────────────────────────────────────────────
@@ -276,6 +285,64 @@ function computeAiReferralFactor(totalAiReferralSessions: number, competitorCoun
   const baseline = Math.min(totalAiReferralSessions / 1000, 0.5)
   const competitorBoost = competitorCount > 0 ? 0.1 : 0
   return Math.min(baseline + competitorBoost, 1.0)
+}
+
+const QUERY_INTENT_STOPWORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'at',
+  'by',
+  'for',
+  'from',
+  'in',
+  'near',
+  'of',
+  'on',
+  'or',
+  'the',
+  'to',
+])
+
+function dedupeByIntent(
+  rows: ContentTargetRowDto[],
+  modifiers: readonly string[],
+): ContentTargetRowDto[] {
+  if (rows.length <= 1 || modifiers.length === 0) return rows
+
+  const seen = new Set<string>()
+  const result: ContentTargetRowDto[] = []
+  const modifierTokens = new Set(
+    modifiers.flatMap(tokenizeQuery).map(normalizeToken).filter(Boolean),
+  )
+
+  for (const row of rows) {
+    const key = intentKey(row.query, modifierTokens)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    result.push(row)
+  }
+
+  return result
+}
+
+function intentKey(query: string, modifierTokens: ReadonlySet<string>): string {
+  const tokens = tokenizeQuery(query)
+    .map(normalizeToken)
+    .filter(Boolean)
+    .filter(token => !QUERY_INTENT_STOPWORDS.has(token))
+    .filter(token => !modifierTokens.has(token))
+  return [...new Set(tokens)].sort().join(' ')
+}
+
+function tokenizeQuery(value: string): string[] {
+  return value.toLowerCase().match(/[a-z0-9]+/g) ?? []
+}
+
+function normalizeToken(token: string): string {
+  if (token.length > 4 && token.endsWith('ies')) return `${token.slice(0, -3)}y`
+  if (token.length > 4 && token.endsWith('s') && !token.endsWith('ss')) return token.slice(0, -1)
+  return token
 }
 
 function pickTopCompetitor(
