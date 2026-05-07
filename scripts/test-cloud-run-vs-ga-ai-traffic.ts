@@ -21,6 +21,8 @@ import {
   DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS,
   DEFAULT_AI_REFERRER_RULES,
   buildTrafficProbeReport,
+  classifyAiReferral,
+  classifyCrawler,
   type AiReferrerRule,
 } from '../packages/integration-traffic/src/index.js'
 import {
@@ -72,7 +74,8 @@ interface AiSourceComparisonRow {
   domain: string
   operator: string
   product: string
-  cloudRunRefererHits: number
+  cloudRunHits: number
+  cloudRunHitsByEvidence: { referer: number; utm: number }
   gaSessions: number
   delta: number
   verdict:
@@ -417,15 +420,6 @@ function normalizePath(rawPath: string): string {
   }
 }
 
-function refererHost(value: string | null | undefined): string | null {
-  if (!value) return null
-  try {
-    return new URL(value).hostname.toLowerCase()
-  } catch {
-    return null
-  }
-}
-
 function gaSourceMatchesRule(gaSource: string, rule: AiReferrerRule): boolean {
   const lower = gaSource.toLowerCase()
   const domain = rule.domain.toLowerCase()
@@ -445,34 +439,53 @@ function buildAiSourceComparison(
 ): AiSourceComparisonRow[] {
   const dedupedGa = dedupeGaRows(gaRows)
 
-  return DEFAULT_AI_REFERRER_RULES.map((rule) => {
-    const cloudRunRefererHits = cloudRunEvents.filter((event) => {
-      const host = refererHost(event.referer)
-      return host !== null && (host === rule.domain || host.endsWith(`.${rule.domain}`))
-    }).length
+  // Group rules by product so we don't double-count when multiple rules
+  // (e.g. chatgpt.com + chat.openai.com) point at the same AI surface.
+  const rulesByProduct = new Map<string, AiReferrerRule[]>()
+  for (const rule of DEFAULT_AI_REFERRER_RULES) {
+    const list = rulesByProduct.get(rule.product) ?? []
+    list.push(rule)
+    rulesByProduct.set(rule.product, list)
+  }
+
+  // Use the shipped classifier so referer + UTM evidence both count.
+  const classifications = cloudRunEvents.map((event) => classifyAiReferral(event))
+
+  const rows: AiSourceComparisonRow[] = []
+  for (const [product, rules] of rulesByProduct) {
+    let referer = 0
+    let utm = 0
+    for (const ai of classifications) {
+      if (!ai || ai.product !== product) continue
+      if (ai.evidenceType === 'referer') referer += 1
+      else if (ai.evidenceType === 'utm') utm += 1
+    }
+    const cloudRunHits = referer + utm
 
     const gaSessions = dedupedGa
-      .filter((row) => gaSourceMatchesRule(row.source, rule))
+      .filter((row) => rules.some((rule) => gaSourceMatchesRule(row.source, rule)))
       .reduce((sum, row) => sum + row.sessions, 0)
 
-    const delta = cloudRunRefererHits - gaSessions
+    const delta = cloudRunHits - gaSessions
     let verdict: AiSourceComparisonRow['verdict']
-    if (cloudRunRefererHits === 0 && gaSessions === 0) verdict = 'neither'
-    else if (cloudRunRefererHits === 0) verdict = 'ga-only'
+    if (cloudRunHits === 0 && gaSessions === 0) verdict = 'neither'
+    else if (cloudRunHits === 0) verdict = 'ga-only'
     else if (gaSessions === 0) verdict = 'cloud-run-only'
     else if (delta === 0) verdict = 'agree'
     else verdict = delta > 0 ? 'cloud-run-higher' : 'ga-higher'
 
-    return {
-      domain: rule.domain,
-      operator: rule.operator,
-      product: rule.product,
-      cloudRunRefererHits,
+    rows.push({
+      domain: rules[0].domain,
+      operator: rules[0].operator,
+      product,
+      cloudRunHits,
+      cloudRunHitsByEvidence: { referer, utm },
       gaSessions,
       delta,
       verdict,
-    }
-  })
+    })
+  }
+  return rows
 }
 
 function buildPathJoin(
@@ -508,30 +521,22 @@ function buildPathJoin(
     return row
   }
 
-  const crawlerSubstrings = DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS
-  const aiDomains = new Set(DEFAULT_AI_REFERRER_RULES.map((r) => r.domain))
-
   for (const event of cloudRunEvents) {
     const key = normalizePath(event.path)
     const row = ensure(key)
     row.cloudRunTotalHits += 1
 
-    const ua = event.userAgent ?? ''
-    const matchedCrawler = ua ? crawlerSubstrings.find((substring) => ua.includes(substring)) : undefined
-    if (matchedCrawler) {
+    const crawler = classifyCrawler(event)
+    if (crawler) {
       row.cloudRunCrawlerHits += 1
-      row.crawlerCounts.set(matchedCrawler, (row.crawlerCounts.get(matchedCrawler) ?? 0) + 1)
+      row.crawlerCounts.set(crawler.product, (row.crawlerCounts.get(crawler.product) ?? 0) + 1)
     }
 
-    const host = refererHost(event.referer)
-    if (host) {
-      const matchedDomain = [...aiDomains].find(
-        (domain) => host === domain || host.endsWith(`.${domain}`),
-      )
-      if (matchedDomain) {
-        row.cloudRunReferralHits += 1
-        row.refererCounts.set(matchedDomain, (row.refererCounts.get(matchedDomain) ?? 0) + 1)
-      }
+    const ai = classifyAiReferral(event)
+    if (ai) {
+      row.cloudRunReferralHits += 1
+      const label = `${ai.product} (${ai.evidenceType})`
+      row.refererCounts.set(label, (row.refererCounts.get(label) ?? 0) + 1)
     }
   }
 
@@ -610,14 +615,24 @@ function printSummary(output: CorrelationOutput): void {
     }
   }
 
-  console.log('\nAI source comparison (Cloud Run referer vs GA sessions):')
-  console.log('  surface'.padEnd(30) + 'CR'.padStart(6) + 'GA'.padStart(6) + 'delta'.padStart(8) + '  verdict')
+  console.log('\nAI source comparison (Cloud Run referer+UTM vs GA sessions):')
+  console.log(
+    '  surface'.padEnd(30) +
+      'CR'.padStart(6) +
+      'ref'.padStart(6) +
+      'utm'.padStart(6) +
+      'GA'.padStart(6) +
+      'delta'.padStart(8) +
+      '  verdict',
+  )
   for (const row of output.aiSourceComparison) {
     if (row.verdict === 'neither') continue
     const label = `${row.product} (${row.domain})`
     console.log(
       `  ${label.padEnd(28)}` +
-        `${row.cloudRunRefererHits.toString().padStart(6)}` +
+        `${row.cloudRunHits.toString().padStart(6)}` +
+        `${row.cloudRunHitsByEvidence.referer.toString().padStart(6)}` +
+        `${row.cloudRunHitsByEvidence.utm.toString().padStart(6)}` +
         `${row.gaSessions.toString().padStart(6)}` +
         `${row.delta.toString().padStart(8)}  ${row.verdict}`,
     )
