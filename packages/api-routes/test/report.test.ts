@@ -161,6 +161,8 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.executiveSummary.citationRate).toBe(0)
     expect(body.executiveSummary.citedQueryCount).toBe(0)
     expect(body.executiveSummary.totalQueryCount).toBe(0)
+    expect(body.executiveSummary.mentionRate).toBe(0)
+    expect(body.executiveSummary.mentionedQueryCount).toBe(0)
     expect(body.executiveSummary.trend).toBe('unknown')
     expect(body.executiveSummary.queryCount).toBe(0)
     expect(body.executiveSummary.competitorCount).toBe(0)
@@ -751,6 +753,34 @@ describe('GET /api/v1/projects/:name/report', () => {
     // Recommended next steps should count one critical regression, not three.
     const immediate = body.recommendedNextSteps.find(s => s.horizon === 'immediate')
     expect(immediate?.title).toContain('1 critical regression')
+  })
+
+  test('exposes mention rate independently from citation rate', async () => {
+    // Per AGENTS.md vocabulary: a query can be cited without being mentioned
+    // and vice versa. The executive summary must surface both signals
+    // separately or readers will conflate them. Here:
+    //   - kwA: cited by gemini, NOT mentioned anywhere
+    //   - kwB: NOT cited by anyone, mentioned by gemini
+    // Per-query: 1/2 cited (50%) and 1/2 mentioned (50%) — independent.
+    const projectId = insertProject(ctx.db, 'cite-vs-mention')
+    const kwA = insertQuery(ctx.db, projectId, 'cited-not-mentioned')
+    const kwB = insertQuery(ctx.db, projectId, 'mentioned-not-cited')
+    const runId = insertRun(ctx.db, projectId)
+
+    insertSnapshot(ctx.db, runId, kwA, { provider: 'gemini', citationState: 'cited', answerMentioned: false })
+    insertSnapshot(ctx.db, runId, kwA, { provider: 'openai', citationState: 'not-cited', answerMentioned: false })
+    insertSnapshot(ctx.db, runId, kwB, { provider: 'gemini', citationState: 'not-cited', answerMentioned: true })
+    insertSnapshot(ctx.db, runId, kwB, { provider: 'openai', citationState: 'not-cited', answerMentioned: false })
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/cite-vs-mention/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.executiveSummary.citationRate).toBe(50)
+    expect(body.executiveSummary.citedQueryCount).toBe(1)
+    expect(body.executiveSummary.mentionRate).toBe(50)
+    expect(body.executiveSummary.mentionedQueryCount).toBe(1)
+    expect(body.executiveSummary.totalQueryCount).toBe(2)
   })
 
   test('meta surfaces the latest run location and per-provider location handling', async () => {

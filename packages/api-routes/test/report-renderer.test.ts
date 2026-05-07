@@ -23,6 +23,8 @@ function emptyReport(): ProjectReportDto {
       citationRate: 0,
       citedQueryCount: 0,
       totalQueryCount: 0,
+      mentionRate: 0,
+      mentionedQueryCount: 0,
       trend: 'unknown',
       queryCount: 0,
       competitorCount: 0,
@@ -79,6 +81,8 @@ function richReport(): ProjectReportDto {
       citationRate: 65,
       citedQueryCount: 3,
       totalQueryCount: 5,
+      mentionRate: 40,
+      mentionedQueryCount: 2,
       trend: 'up',
       queryCount: 5,
       competitorCount: 3,
@@ -204,8 +208,8 @@ function richReport(): ProjectReportDto {
       indexedPct: 80,
     },
     citationsTrend: [
-      { runId: 'r-1', date: '2026-04-01T00:00:00Z', citationRate: 50, citedQueryCount: 2, totalQueryCount: 4, providerRates: [{ provider: 'gemini', citationRate: 50 }] },
-      { runId: 'r-2', date: '2026-04-15T00:00:00Z', citationRate: 65, citedQueryCount: 3, totalQueryCount: 5, providerRates: [{ provider: 'gemini', citationRate: 65 }] },
+      { runId: 'r-1', date: '2026-04-01T00:00:00Z', citationRate: 50, citedQueryCount: 2, totalQueryCount: 4, mentionRate: 25, mentionedQueryCount: 1, providerRates: [{ provider: 'gemini', citationRate: 50 }] },
+      { runId: 'r-2', date: '2026-04-15T00:00:00Z', citationRate: 65, citedQueryCount: 3, totalQueryCount: 5, mentionRate: 40, mentionedQueryCount: 2, providerRates: [{ provider: 'gemini', citationRate: 65 }] },
     ],
     insights: [
       {
@@ -524,8 +528,8 @@ describe('renderReportHtml', () => {
   test('hides the citations trend chart and shows a baseline note when fewer than 4 points exist', () => {
     const report = richReport()
     report.citationsTrend = [
-      { runId: 'r-1', date: '2026-04-01T00:00:00Z', citationRate: 50, citedQueryCount: 2, totalQueryCount: 4, providerRates: [] },
-      { runId: 'r-2', date: '2026-04-02T00:00:00Z', citationRate: 1, citedQueryCount: 0, totalQueryCount: 4, providerRates: [] },
+      { runId: 'r-1', date: '2026-04-01T00:00:00Z', citationRate: 50, citedQueryCount: 2, totalQueryCount: 4, mentionRate: 25, mentionedQueryCount: 1, providerRates: [] },
+      { runId: 'r-2', date: '2026-04-02T00:00:00Z', citationRate: 1, citedQueryCount: 0, totalQueryCount: 4, mentionRate: 0, mentionedQueryCount: 0, providerRates: [] },
     ]
     const html = renderReportHtml(report)
     const block = html.split('id="citations-trend"')[1]?.split('</section>')[0] ?? ''
@@ -536,10 +540,10 @@ describe('renderReportHtml', () => {
   test('renders the citations trend chart when at least 4 points exist', () => {
     const report = richReport()
     report.citationsTrend = [
-      { runId: 'r-1', date: '2026-04-01T00:00:00Z', citationRate: 50, citedQueryCount: 2, totalQueryCount: 4, providerRates: [] },
-      { runId: 'r-2', date: '2026-04-02T00:00:00Z', citationRate: 60, citedQueryCount: 3, totalQueryCount: 5, providerRates: [] },
-      { runId: 'r-3', date: '2026-04-03T00:00:00Z', citationRate: 55, citedQueryCount: 3, totalQueryCount: 5, providerRates: [] },
-      { runId: 'r-4', date: '2026-04-04T00:00:00Z', citationRate: 65, citedQueryCount: 3, totalQueryCount: 5, providerRates: [] },
+      { runId: 'r-1', date: '2026-04-01T00:00:00Z', citationRate: 50, citedQueryCount: 2, totalQueryCount: 4, mentionRate: 25, mentionedQueryCount: 1, providerRates: [] },
+      { runId: 'r-2', date: '2026-04-02T00:00:00Z', citationRate: 60, citedQueryCount: 3, totalQueryCount: 5, mentionRate: 40, mentionedQueryCount: 2, providerRates: [] },
+      { runId: 'r-3', date: '2026-04-03T00:00:00Z', citationRate: 55, citedQueryCount: 3, totalQueryCount: 5, mentionRate: 40, mentionedQueryCount: 2, providerRates: [] },
+      { runId: 'r-4', date: '2026-04-04T00:00:00Z', citationRate: 65, citedQueryCount: 3, totalQueryCount: 5, mentionRate: 60, mentionedQueryCount: 3, providerRates: [] },
     ]
     const html = renderReportHtml(report)
     const block = html.split('id="citations-trend"')[1]?.split('</section>')[0] ?? ''

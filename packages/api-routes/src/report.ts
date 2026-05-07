@@ -489,13 +489,16 @@ function buildCitationsTrend(
     // gemini-only run and a full 4-provider run can be compared honestly. See
     // issue #422: per-(query × provider) ballooned the denominator and made
     // real improvements look like declines whenever the provider mix shifted.
+    // mentionRate uses the same per-query denominator for symmetry.
     const citedQueryIds = new Set<string>()
+    const mentionedQueryIds = new Set<string>()
     let considered = 0
     const providerCounts = new Map<string, { cited: number; total: number }>()
     for (const snap of snaps) {
       if (!queryLookup.byId.has(snap.queryId)) continue
       considered++
       if (snap.citationState === CitationStates.cited) citedQueryIds.add(snap.queryId)
+      if (snap.answerMentioned) mentionedQueryIds.add(snap.queryId)
       const counts = providerCounts.get(snap.provider) ?? { cited: 0, total: 0 }
       counts.total++
       if (snap.citationState === CitationStates.cited) counts.cited++
@@ -503,8 +506,12 @@ function buildCitationsTrend(
     }
     if (considered === 0) continue
     const citedQueryCount = citedQueryIds.size
+    const mentionedQueryCount = mentionedQueryIds.size
     const citationRate = totalQueries > 0
       ? Math.round((citedQueryCount / totalQueries) * 100)
+      : 0
+    const mentionRate = totalQueries > 0
+      ? Math.round((mentionedQueryCount / totalQueries) * 100)
       : 0
     const providerRates = [...providerCounts.entries()]
       .map(([provider, counts]) => ({
@@ -519,6 +526,8 @@ function buildCitationsTrend(
       citationRate,
       citedQueryCount,
       totalQueryCount: totalQueries,
+      mentionRate,
+      mentionedQueryCount,
       providerRates,
     })
   }
@@ -803,15 +812,26 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
   // Same definition both places so the trend chart and the executive summary
   // KPI move together; using different denominators in the two surfaces is
   // how issue #422 originally manifested.
+  //
+  // Citation rate and mention rate are independent signals (per the canonry
+  // vocabulary rules in AGENTS.md): a query can be cited without being
+  // mentioned, mentioned without being cited, or both. We compute both
+  // here and surface them side-by-side in the executive summary.
   const totalQueryCount = queryLookup.byId.size
   const citedQueryIds = new Set<string>()
+  const mentionedQueryIds = new Set<string>()
   for (const snap of latestSnapshots) {
     if (!queryLookup.byId.has(snap.queryId)) continue
     if (snap.citationState === CitationStates.cited) citedQueryIds.add(snap.queryId)
+    if (snap.answerMentioned) mentionedQueryIds.add(snap.queryId)
   }
   const citedQueryCount = citedQueryIds.size
+  const mentionedQueryCount = mentionedQueryIds.size
   const citationRate = totalQueryCount > 0
     ? Math.round((citedQueryCount / totalQueryCount) * 100)
+    : 0
+  const mentionRate = totalQueryCount > 0
+    ? Math.round((mentionedQueryCount / totalQueryCount) * 100)
     : 0
 
   // Suppress trend computation until enough runs exist — a 5%→1% delta on
@@ -877,6 +897,8 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
       citationRate,
       citedQueryCount,
       totalQueryCount,
+      mentionRate,
+      mentionedQueryCount,
       trend,
       queryCount: queryLookup.byId.size,
       competitorCount: competitorDomains.length,

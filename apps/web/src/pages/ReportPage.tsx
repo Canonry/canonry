@@ -139,18 +139,34 @@ function actionLabel(action: ContentTargetRowDto['action']): string {
   }
 }
 
-function citationStateClass(cell: CitationCell | null): string {
-  if (!cell) return 'bg-zinc-900/30 text-zinc-700'
-  if (cell.citationState === CitationStates.cited) return 'bg-emerald-500/20 text-emerald-300'
-  if (cell.citationState === 'pending') return 'bg-amber-500/15 text-amber-300'
-  return 'bg-zinc-900/40 text-zinc-500'
-}
-
-function citationStateLabel(cell: CitationCell | null): string {
-  if (!cell) return '—'
-  if (cell.citationState === CitationStates.cited) return 'Cited'
-  if (cell.citationState === 'pending') return 'Pending'
-  return 'Not cited'
+function CitedMentionedGlyphs({ cell }: { cell: CitationCell | null }) {
+  if (!cell) {
+    return (
+      <span className="inline-flex items-center gap-1 font-mono text-[12px] text-zinc-700">
+        <span>—</span>
+        <span>—</span>
+      </span>
+    )
+  }
+  const cited = cell.citationState === CitationStates.cited
+  const mentioned = cell.answerMentioned
+  return (
+    <span className="inline-flex items-center gap-1 font-mono text-[12px]">
+      <span className={cited ? 'text-emerald-300' : 'text-zinc-500'} title={cited ? 'Cited (your domain in source list)' : 'Not cited'}>
+        {cited ? 'C' : 'c'}
+      </span>
+      <span
+        className={mentioned === true ? 'text-emerald-300' : mentioned === false ? 'text-zinc-500' : 'text-zinc-700'}
+        title={
+          mentioned === true ? 'Mentioned (your brand in answer text)'
+            : mentioned === false ? 'Not mentioned'
+            : 'No answer text'
+        }
+      >
+        {mentioned === true ? 'M' : mentioned === false ? 'm' : '–'}
+      </span>
+    </span>
+  )
 }
 
 function pressureTone(label: CompetitorRow['pressureLabel']): MetricTone {
@@ -249,16 +265,24 @@ function ExecutiveSummarySection({ report }: { report: ProjectReportDto }) {
   const exec = report.executiveSummary
   const trendArrow = exec.trend === 'up' ? '↑ Up' : exec.trend === 'down' ? '↓ Down' : exec.trend === 'flat' ? '→ Flat' : '—'
   const queryNoun = exec.totalQueryCount === 1 ? 'query' : 'queries'
-  const ratioFragment = exec.totalQueryCount > 0
+  const citedFragment = exec.totalQueryCount > 0
     ? `${exec.citedQueryCount}/${exec.totalQueryCount} ${queryNoun} cited`
     : 'no queries'
-  const citationSuffix = `${trendArrow} · ${ratioFragment} · ${exec.providerCount} provider${exec.providerCount === 1 ? '' : 's'}`
+  const mentionedFragment = exec.totalQueryCount > 0
+    ? `${exec.mentionedQueryCount}/${exec.totalQueryCount} ${queryNoun} mentioned`
+    : 'no queries'
+  const citationSuffix = `${trendArrow} · ${citedFragment} · ${exec.providerCount} provider${exec.providerCount === 1 ? '' : 's'}`
   const competitorSuffix = `${exec.competitorCount} competitor${exec.competitorCount === 1 ? '' : 's'} tracked`
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 1" title="Executive summary" subtitle="Citation rate is the share of tracked queries cited by at least one AI engine in the latest sweep — invariant to provider count, so it stays comparable run-to-run." />
+      <SectionHeading
+        eyebrow="Section 1"
+        title="Executive summary"
+        subtitle="Two independent signals: citation rate = your domain in the source list the AI used; mention rate = your brand in the answer text. A model can mention you without citing your domain, or vice versa. Both are computed per-query so they stay comparable when provider count changes."
+      />
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric label="Citation rate" value={formatPercent(exec.citationRate, 0)} tone={trendTone(exec.trend)} subtitle={citationSuffix} />
+        <Metric label="Mention rate" value={formatPercent(exec.mentionRate, 0)} subtitle={mentionedFragment} />
         <Metric label="Queries tracked" value={formatNumber(exec.queryCount)} subtitle={competitorSuffix} />
         {exec.gsc && (
           <Metric
@@ -367,14 +391,14 @@ function CitationScorecardSection({ report }: { report: ProjectReportDto }) {
   if (sc.providers.length === 0 || sc.queries.length === 0) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 2" title="Citation scorecard" subtitle="Whether your domain appeared in each AI engine's source list for every tracked keyword in the latest sweep — green = cited, red = not cited, gray = no snapshot." />
+        <SectionHeading eyebrow="Section 2" title="Citation scorecard" subtitle="Per (query × provider) view of citations and mentions for the latest sweep." />
         <EmptyHint message="No completed answer-visibility runs yet." />
       </section>
     )
   }
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 2" title="Citation scorecard" subtitle="Whether your domain appeared in each AI engine's source list for every tracked keyword in the latest sweep — green = cited, red = not cited, gray = no snapshot." />
+      <SectionHeading eyebrow="Section 2" title="Citation scorecard" subtitle="Per (query × provider) view of both signals — citations (your domain in the source list) and mentions (your brand in the answer text) — for the latest sweep." />
       <div className="mb-4">
         <p className="eyebrow mb-2">Provider citation rate</p>
         <div className="h-48 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-3">
@@ -404,6 +428,14 @@ function CitationScorecardSection({ report }: { report: ProjectReportDto }) {
         </ul>
       </div>
       <p className="eyebrow mb-2">Query × provider</p>
+      <p className="mb-2 text-[11px] text-zinc-500">
+        Each cell shows two flags —{' '}
+        <span className="font-mono text-emerald-300">C</span>/
+        <span className="font-mono text-zinc-500">c</span> = cited / not cited (your domain in the source list),{' '}
+        <span className="font-mono text-emerald-300">M</span>/
+        <span className="font-mono text-zinc-500">m</span> = mentioned / not mentioned (your brand in the answer text),{' '}
+        <span className="font-mono text-zinc-700">–</span> = no data.
+      </p>
       <div className="evidence-table-wrap">
         <table className="evidence-table">
           <thead>
@@ -420,9 +452,7 @@ function CitationScorecardSection({ report }: { report: ProjectReportDto }) {
                   const cell = sc.matrix[i]?.[j] ?? null
                   return (
                     <td key={p}>
-                      <span className={`inline-flex items-center justify-center rounded-md px-2 py-1 text-[11px] font-semibold ${citationStateClass(cell)}`}>
-                        {citationStateLabel(cell)}
-                      </span>
+                      <CitedMentionedGlyphs cell={cell} />
                     </td>
                   )
                 })}

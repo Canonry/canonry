@@ -459,14 +459,22 @@ function renderExecutiveSummary(report: ProjectReportDto): string {
   const trendTone = s.trend === 'up' ? 'positive' : s.trend === 'down' ? 'negative' : 'neutral'
 
   const queryNoun = s.totalQueryCount === 1 ? 'query' : 'queries'
-  const ratioFragment = s.totalQueryCount > 0
+  const citedFragment = s.totalQueryCount > 0
     ? `${s.citedQueryCount}/${s.totalQueryCount} ${queryNoun} cited`
+    : 'no queries'
+  const mentionedFragment = s.totalQueryCount > 0
+    ? `${s.mentionedQueryCount}/${s.totalQueryCount} ${queryNoun} mentioned`
     : 'no queries'
   const metrics = [
     {
       label: 'Citation rate',
       value: `${s.citationRate}%`,
-      delta: `<span class="tone-${trendTone}">${trendLabel}</span> · ${ratioFragment} · ${s.providerCount} provider${s.providerCount === 1 ? '' : 's'}`,
+      delta: `<span class="tone-${trendTone}">${trendLabel}</span> · ${citedFragment} · ${s.providerCount} provider${s.providerCount === 1 ? '' : 's'}`,
+    },
+    {
+      label: 'Mention rate',
+      value: `${s.mentionRate}%`,
+      delta: mentionedFragment,
     },
     {
       label: 'Queries tracked',
@@ -512,7 +520,7 @@ function renderExecutiveSummary(report: ProjectReportDto): string {
       id: 'executive-summary',
       eyebrow: 'Section 1',
       title: 'Executive Summary',
-      intro: 'Citation rate is the share of tracked queries cited by at least one AI engine in the latest sweep — invariant to provider count so it stays comparable run-to-run. The trend label compares this run to the previous one.',
+      intro: 'Two independent signals: Citation rate = share of tracked queries where your domain appeared in the source list the AI used. Mention rate = share of tracked queries where your brand or domain appeared in the answer text itself. A model can mention you without citing your domain, or cite your domain without naming you in the prose. Both are computed per-query so they stay comparable when provider count changes.',
     },
     metricsHtml + findingsHtml + locationHtml,
   )
@@ -556,17 +564,27 @@ function renderCitationMatrix(scorecard: ProjectReportDto['citationScorecard']):
     const cells = scorecard.providers.map((_, pi) => {
       const cell = scorecard.matrix[qi]?.[pi]
       if (!cell) {
-        return '<td><span class="cell-pending">—</span></td>'
+        return '<td><span class="cell-pending">— —</span></td>'
       }
-      if (cell.citationState === CitationStates.cited) {
-        return '<td><span class="cell-cited">Cited</span></td>'
-      }
-      return '<td><span class="cell-not-cited">Not cited</span></td>'
+      // Two-glyph cell — citation flag then mention flag — per the AGENTS.md
+      // vocabulary rules. A query can be cited without being mentioned and
+      // vice versa, so a single label would conflate independent signals.
+      const citedGlyph = cell.citationState === CitationStates.cited
+        ? '<span class="cell-cited">C</span>'
+        : '<span class="cell-not-cited">c</span>'
+      const mentionedGlyph = cell.answerMentioned === true
+        ? '<span class="cell-cited">M</span>'
+        : cell.answerMentioned === false
+          ? '<span class="cell-not-cited">m</span>'
+          : '<span class="cell-pending">–</span>'
+      return `<td>${citedGlyph} ${mentionedGlyph}</td>`
     }).join('')
     return `<tr><td>${escapeHtml(q)}</td>${cells}</tr>`
   }).join('')
 
-  return `<table class="report-table">
+  const legend = '<p class="section-intro" style="margin-top:0;font-size:11px;">Each cell shows two flags — <span class="cell-cited">C</span>/<span class="cell-not-cited">c</span> = cited / not cited (your domain in the source list), <span class="cell-cited">M</span>/<span class="cell-not-cited">m</span> = mentioned / not mentioned (your brand in the answer text), <span class="cell-pending">–</span> = no data.</p>'
+
+  return `${legend}<table class="report-table">
     <thead><tr><th>Query</th>${headers}</tr></thead>
     <tbody>${rows}</tbody>
   </table>`
@@ -578,7 +596,7 @@ function renderCitationScorecard(report: ProjectReportDto): string {
     ${renderCitationMatrix(report.citationScorecard)}
   `
   return section(
-    { id: 'citation-scorecard', eyebrow: 'Section 2', title: 'Citation Scorecard', intro: 'Whether your domain appeared in each AI engine’s source list for every tracked query in the latest sweep — a cell turns green when your domain was cited, red when it was not, and gray when no snapshot exists for that pair.' },
+    { id: 'citation-scorecard', eyebrow: 'Section 2', title: 'Citation Scorecard', intro: 'Per (query × provider) view of both signals — citations (your domain in the source list) and mentions (your brand in the answer text) — for every tracked query in the latest sweep.' },
     body,
   )
 }

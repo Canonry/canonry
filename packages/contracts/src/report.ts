@@ -73,15 +73,25 @@ export interface ReportMeta {
 export interface ReportExecutiveSummary {
   /**
    * 0..100 — share of tracked queries that were cited by at least one
-   * provider in the latest run. Computed per-query (not per-(query × provider))
-   * so the rate is invariant to provider count and trend comparisons across
-   * runs with different provider configurations stay meaningful.
+   * provider in the latest run. "Cited" means the project's domain appeared
+   * in the source list / grounding the AI used to answer. Computed per-query
+   * (not per-(query × provider)) so the rate is invariant to provider count.
    */
   citationRate: number
   /** Numerator of `citationRate` — distinct tracked queries cited by ≥1 provider in the latest run. */
   citedQueryCount: number
   /** Denominator of `citationRate` — total tracked queries. */
   totalQueryCount: number
+  /**
+   * 0..100 — share of tracked queries where the project's brand or domain
+   * appeared in at least one provider's answer text in the latest run.
+   * "Mentioned" is independent from "cited": a model can mention you in
+   * the prose without citing your domain in its sources, and vice versa.
+   * Same per-query denominator as `citationRate` for consistency.
+   */
+  mentionRate: number
+  /** Numerator of `mentionRate` — distinct tracked queries mentioned in ≥1 provider's answer text. */
+  mentionedQueryCount: number
   /** Compared to the previous run: 'up' | 'down' | 'flat' | 'unknown' (no prior run). */
   trend: 'up' | 'down' | 'flat' | 'unknown'
   /** Total tracked queries. */
@@ -331,6 +341,10 @@ export interface CitationsTrendPoint {
   citedQueryCount: number
   /** Denominator of `citationRate` for this run. */
   totalQueryCount: number
+  /** 0..100 — same per-query unique-mentioned definition as `ReportExecutiveSummary.mentionRate`. */
+  mentionRate: number
+  /** Numerator of `mentionRate` for this run. */
+  mentionedQueryCount: number
   /**
    * Per-provider rates for the same run. Each provider's rate is per-pair
    * within that provider (`cited / scanned`), so it remains comparable

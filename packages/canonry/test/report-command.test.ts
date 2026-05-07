@@ -25,6 +25,8 @@ function makeReport(): ProjectReportDto {
       citationRate: 0,
       citedQueryCount: 0,
       totalQueryCount: 0,
+      mentionRate: 0,
+      mentionedQueryCount: 0,
       trend: 'unknown',
       queryCount: 0,
       competitorCount: 0,
