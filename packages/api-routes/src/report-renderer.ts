@@ -8,7 +8,17 @@ import type {
   ReportAudience,
   ReportInsight,
 } from '@ainyc/canonry-contracts'
-import { absolutizeProjectUrl, CitationStates, reportActionTone } from '@ainyc/canonry-contracts'
+import {
+  absolutizeProjectUrl,
+  actionConfidenceLabel,
+  CitationStates,
+  contentActionLabel,
+  reportActionCategoryLabel,
+  reportActionTone,
+  reportConfidenceLabel,
+  reportHorizonLabel,
+  reportSeverityLabel,
+} from '@ainyc/canonry-contracts'
 import {
   groupInsights,
   isTrendBaseline,
@@ -99,11 +109,49 @@ export function formatLandingPageHtml(raw: string): string {
 function formatDate(iso: string): string {
   if (!iso) return '—'
   try {
-    const d = new Date(iso)
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+    const options: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', year: 'numeric' }
+    const d = dateOnly && dateOnly[1] && dateOnly[2] && dateOnly[3]
+      ? new Date(Date.UTC(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3])))
+      : new Date(iso)
+    if (Number.isNaN(d.getTime())) return iso
+    return d.toLocaleDateString('en-US', dateOnly ? { ...options, timeZone: 'UTC' } : options)
   } catch {
     return iso
   }
+}
+
+function formatDateRange(start: string, end: string): string {
+  if (!start && !end) return ''
+  if (start && end) return `${formatDate(start)} → ${formatDate(end)}`
+  return formatDate(start || end)
+}
+
+function gscDateRange(report: ProjectReportDto): string {
+  const summary = report.executiveSummary.gsc
+  const gsc = report.gsc
+  const start = summary?.periodStart || gsc?.periodStart || gsc?.trend[0]?.date || ''
+  const end = summary?.periodEnd || gsc?.periodEnd || gsc?.trend.at(-1)?.date || ''
+  return formatDateRange(start, end)
+}
+
+function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return count === 1 ? singular : plural
+}
+
+function compactInlineList(items: readonly string[], limit = 3): string {
+  const visible = items.slice(0, limit)
+  const more = items.length - visible.length
+  return `${visible.join(', ')}${more > 0 ? `, +${more} more` : ''}`
+}
+
+function renderProofChips(items: readonly string[], limit = 3): string {
+  if (items.length === 0) return ''
+  const visible = items.slice(0, limit)
+  const more = items.length - visible.length
+  const chips = visible.map(item => `<span class="proof-chip">${escapeHtml(item)}</span>`)
+  if (more > 0) chips.push(`<span class="proof-chip">+${more} more</span>`)
+  return `<div class="proof-chips">${chips.join('')}</div>`
 }
 
 function pressureTone(label: CompetitorRow['pressureLabel']): 'positive' | 'caution' | 'negative' | 'neutral' {
@@ -150,7 +198,7 @@ body {
   font-size: 32px;
   font-weight: 700;
   margin: 0 0 8px;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
 }
 .header .subtitle {
   color: ${COLORS.textMuted};
@@ -158,7 +206,7 @@ body {
 }
 .eyebrow {
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   font-size: 10px;
   color: ${COLORS.textFaint};
   font-weight: 600;
@@ -171,11 +219,75 @@ section.report-section h2 {
   font-size: 22px;
   font-weight: 700;
   margin: 0 0 24px;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 section.report-section .section-intro {
   color: ${COLORS.textMuted};
   margin-bottom: 24px;
+  max-width: 760px;
+}
+.executive-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(240px, 0.65fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.headline-card {
+  background: #111827;
+  border: 1px solid ${COLORS.border};
+  border-radius: 8px;
+  padding: 28px;
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.headline-card .hero-kicker {
+  color: ${COLORS.textMuted};
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+.headline-card .hero-title {
+  font-size: 44px;
+  line-height: 1.05;
+  font-weight: 800;
+  letter-spacing: 0;
+  margin: 18px 0;
+}
+.headline-card .hero-subtitle {
+  color: ${COLORS.textMuted};
+  font-size: 15px;
+  max-width: 620px;
+}
+.hero-proof-grid {
+  display: grid;
+  gap: 12px;
+}
+.hero-proof {
+  background: ${COLORS.surface};
+  border: 1px solid ${COLORS.border};
+  border-radius: 8px;
+  padding: 18px;
+}
+.hero-proof .mini-label {
+  color: ${COLORS.textFaint};
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0;
+  margin-bottom: 8px;
+}
+.hero-proof .mini-value {
+  font-size: 30px;
+  line-height: 1;
+  font-weight: 800;
+}
+.hero-proof .mini-copy {
+  color: ${COLORS.textMuted};
+  font-size: 12px;
+  margin-top: 8px;
 }
 .metric-grid {
   display: grid;
@@ -190,7 +302,7 @@ section.report-section .section-intro {
 }
 .metric .label {
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   font-size: 10px;
   color: ${COLORS.textFaint};
   font-weight: 600;
@@ -199,7 +311,7 @@ section.report-section .section-intro {
 .metric .value {
   font-size: 28px;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
 }
 .metric .delta {
   font-size: 12px;
@@ -224,10 +336,46 @@ section.report-section .section-intro {
 .finding.tone-neutral { border-left-color: ${COLORS.neutral}; }
 .finding strong { display: block; margin-bottom: 4px; }
 .finding span { color: ${COLORS.textMuted}; font-size: 13px; }
-.location-card { margin-top: 16px; }
-.location-card .location-line { margin: 0 0 12px; font-size: 13px; color: ${COLORS.text}; }
-.location-card .location-line strong { color: ${COLORS.text}; }
-.location-card .location-line .cell-pending { font-size: 12px; }
+.market-scope-card { margin-top: 16px; }
+.market-scope-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+.scope-tile {
+  background: #09090b;
+  border: 1px solid ${COLORS.border};
+  border-radius: 8px;
+  padding: 14px;
+}
+.scope-tile .scope-label {
+  color: ${COLORS.textFaint};
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0;
+  margin-bottom: 8px;
+}
+.scope-tile .scope-value {
+  font-size: 18px;
+  line-height: 1.2;
+  font-weight: 700;
+}
+.scope-tile .scope-copy {
+  color: ${COLORS.textMuted};
+  font-size: 12px;
+  margin-top: 8px;
+}
+.scope-warning {
+  margin-top: 12px;
+  border: 1px solid ${COLORS.caution}55;
+  background: ${COLORS.caution}14;
+  border-radius: 8px;
+  padding: 12px 14px;
+  color: ${COLORS.textMuted};
+  font-size: 13px;
+}
+.scope-warning strong { color: ${COLORS.text}; display: block; margin-bottom: 4px; }
 .source-origin-headline { margin: 0 0 12px; font-size: 14px; color: ${COLORS.text}; }
 .source-origin-headline strong { color: ${COLORS.text}; }
 .source-bars { display: flex; flex-direction: column; gap: 6px; }
@@ -249,18 +397,24 @@ table.report-table th, table.report-table td {
   padding: 10px 12px;
   border-bottom: 1px solid ${COLORS.border};
   vertical-align: top;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
 }
 table.report-table th {
   font-weight: 600;
   color: ${COLORS.textMuted};
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0;
   font-size: 10px;
 }
 table.report-table td.numeric { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 table.report-table td.page-cell { max-width: 0; }
+table.insights-table { table-layout: fixed; }
+table.insights-table th.col-severity, table.insights-table td.col-severity { width: 96px; }
+table.insights-table th.col-query, table.insights-table td.col-query { width: 18%; }
+table.insights-table th.col-provider, table.insights-table td.col-provider { width: 88px; }
+table.insights-table th.col-title, table.insights-table td.col-title { width: 28%; }
+table.insights-table th.col-recommendation, table.insights-table td.col-recommendation { width: auto; }
 table.report-table td.page-cell .page-path {
   display: block;
   font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
@@ -353,7 +507,7 @@ table.report-table td .badge {
 .step .horizon {
   text-transform: uppercase;
   font-size: 10px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   color: ${COLORS.textFaint};
   font-weight: 600;
 }
@@ -368,20 +522,40 @@ table.report-table td .badge {
   background: ${COLORS.surface};
   border: 1px solid ${COLORS.border};
   border-radius: 8px;
-  padding: 18px 20px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.action-card .action-head {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+.action-card .action-rank {
+  border: 1px solid ${COLORS.border};
+  border-radius: 8px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 800;
+  color: ${COLORS.text};
+  background: #09090b;
 }
 .action-card .action-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 10px;
 }
 .action-card h3 {
   font-size: 16px;
-  margin: 0 0 8px;
+  margin: 8px 0 0;
 }
 .action-card p {
-  margin: 0 0 12px;
+  margin: 0;
   color: ${COLORS.textMuted};
 }
 .action-card ul {
@@ -391,6 +565,28 @@ table.report-table td .badge {
   font-size: 13px;
 }
 .action-card li { margin: 4px 0; }
+.proof-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.proof-chip {
+  border: 1px solid ${COLORS.border};
+  border-radius: 8px;
+  padding: 6px 8px;
+  color: ${COLORS.textMuted};
+  font-size: 12px;
+  background: #09090b;
+}
+.action-details {
+  color: ${COLORS.textMuted};
+  font-size: 12px;
+}
+.action-details summary {
+  cursor: pointer;
+  color: ${COLORS.text};
+  font-weight: 600;
+}
 .action-card .success-metric {
   color: ${COLORS.text};
   font-size: 13px;
@@ -426,10 +622,44 @@ table.report-table td .badge {
 .diagnostic-card h3 { font-size: 14px; margin: 0 0 6px; }
 .diagnostic-card p { margin: 0 0 8px; color: ${COLORS.textMuted}; font-size: 13px; }
 .diagnostic-card ul { margin: 0; padding-left: 16px; color: ${COLORS.textMuted}; font-size: 12px; }
+.diagnostic-card .proof-chips { margin-top: 10px; }
 .diagnostic-card.tone-positive { border-left-color: ${COLORS.positive}; }
 .diagnostic-card.tone-caution { border-left-color: ${COLORS.caution}; }
 .diagnostic-card.tone-negative { border-left-color: ${COLORS.negative}; }
 .diagnostic-card.tone-neutral { border-left-color: ${COLORS.neutral}; }
+.opportunity-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.opportunity-card {
+  background: ${COLORS.surface};
+  border: 1px solid ${COLORS.border};
+  border-radius: 8px;
+  padding: 16px;
+}
+.opportunity-card .opportunity-score {
+  font-size: 32px;
+  line-height: 1;
+  font-weight: 800;
+  margin-bottom: 10px;
+}
+.opportunity-card .opportunity-score-suffix {
+  font-size: 14px;
+  font-weight: 600;
+  color: ${COLORS.textFaint};
+  margin-left: 4px;
+}
+.opportunity-card h3 {
+  font-size: 14px;
+  margin: 0 0 8px;
+}
+.opportunity-card p {
+  color: ${COLORS.textMuted};
+  font-size: 12px;
+  margin: 0;
+}
 .footer {
   margin-top: 96px;
   padding-top: 24px;
@@ -437,6 +667,14 @@ table.report-table td .badge {
   text-align: center;
   color: ${COLORS.textFaint};
   font-size: 12px;
+}
+@media (max-width: 760px) {
+  .container { padding: 32px 16px 72px; }
+  .executive-hero { grid-template-columns: 1fr; }
+  .headline-card .hero-title { font-size: 34px; }
+  .source-bar-row { grid-template-columns: 1fr; gap: 6px; }
+  .source-bar-value { text-align: left; }
+  .chart-grid { grid-template-columns: 1fr; }
 }
 @media print {
   body { background: white; color: black; }
@@ -471,8 +709,97 @@ function locationDisplay(location: ProjectReportDto['meta']['location']): string
 }
 
 function renderHeaderLocationFragment(location: ProjectReportDto['meta']['location']): string {
-  if (!location) return ' · No location set'
-  return ` · Location: ${escapeHtml(locationDisplay(location))}`
+  if (!location) return ' · No market set'
+  return ` · Market: ${escapeHtml(locationDisplay(location))}`
+}
+
+const REPORT_INTENT_STOPWORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'for',
+  'from',
+  'in',
+  'near',
+  'of',
+  'on',
+  'or',
+  'the',
+  'to',
+])
+
+function reportIntentModifiers(report: ProjectReportDto): Set<string> {
+  const location = report.meta.location
+  if (!location) return new Set()
+  return new Set(
+    [location.label, location.city, location.region, location.country]
+      .flatMap(tokenizeReportIntent)
+      .map(normalizeReportIntentToken)
+      .filter(Boolean),
+  )
+}
+
+function dedupeReportActions(
+  report: ProjectReportDto,
+  actions: readonly ReportActionPlanItem[],
+): ReportActionPlanItem[] {
+  const modifiers = reportIntentModifiers(report)
+  if (actions.length <= 1 || modifiers.size === 0) return [...actions]
+
+  const seen = new Set<string>()
+  const result: ReportActionPlanItem[] = []
+  for (const action of actions) {
+    if (action.category !== 'content') {
+      result.push(action)
+      continue
+    }
+    const key = reportIntentKey(extractActionQuery(action), modifiers)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    result.push(action)
+  }
+  return result
+}
+
+function dedupeReportOpportunities(
+  report: ProjectReportDto,
+): ProjectReportDto['contentOpportunities'] {
+  const modifiers = reportIntentModifiers(report)
+  const opportunities = report.contentOpportunities
+  if (opportunities.length <= 1 || modifiers.size === 0) return opportunities
+
+  const seen = new Set<string>()
+  return opportunities.filter((opportunity) => {
+    const key = reportIntentKey(opportunity.query, modifiers)
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function extractActionQuery(action: ReportActionPlanItem): string {
+  return action.title.match(/"([^"]+)"/)?.[1]
+    ?? action.successMetric.match(/"([^"]+)"/)?.[1]
+    ?? action.title
+}
+
+function reportIntentKey(value: string, modifiers: ReadonlySet<string>): string {
+  const tokens = tokenizeReportIntent(value)
+    .map(normalizeReportIntentToken)
+    .filter(Boolean)
+    .filter(token => !REPORT_INTENT_STOPWORDS.has(token))
+    .filter(token => !modifiers.has(token))
+  return [...new Set(tokens)].sort().join(' ')
+}
+
+function tokenizeReportIntent(value: string): string[] {
+  return value.toLowerCase().match(/[a-z0-9]+/g) ?? []
+}
+
+function normalizeReportIntentToken(token: string): string {
+  if (token.length > 4 && token.endsWith('ies')) return `${token.slice(0, -3)}y`
+  if (token.length > 4 && token.endsWith('s') && !token.endsWith('ss')) return token.slice(0, -1)
+  return token
 }
 
 function renderLocationCard(report: ProjectReportDto): string {
@@ -480,51 +807,52 @@ function renderLocationCard(report: ProjectReportDto): string {
   const handling = report.meta.providerLocationHandling
   if (!location && handling.length === 0) return ''
 
-  const treatmentTone: Record<string, 'positive' | 'caution' | 'negative' | 'neutral'> = {
-    'request-param': 'positive',
-    prompt: 'positive',
-    'browser-geo': 'caution',
-    ignored: 'negative',
-  }
-  const treatmentLabel: Record<string, string> = {
-    'request-param': 'Request parameter',
-    prompt: 'Prompt-injected',
-    'browser-geo': 'Browser geo',
-    ignored: 'Ignored',
-  }
+  const otherLocations = location?.otherConfiguredLabels ?? []
+  const weakLocationProviders = handling
+    .filter(h => h.treatment === 'ignored' || h.treatment === 'browser-geo')
+    .map(h => h.provider)
 
-  const locationLine = location
-    ? `<p class="location-line"><strong>Location for this run:</strong> ${escapeHtml(locationDisplay(location))}${
-        location.otherConfiguredLabels.length > 0
-          ? ` <span class="cell-pending">— other configured locations (${location.otherConfiguredLabels
-              .map(escapeHtml)
-              .join(', ')}) need their own sweep to compare</span>`
-          : ''
-      }</p>`
-    : `<p class="location-line"><strong>Location for this run:</strong> none — providers received the queries verbatim with no geographic hint.</p>`
+  const marketValue = location ? locationDisplay(location) : 'No market set'
+  const notIncluded = otherLocations.length > 0 ? compactInlineList(otherLocations, 4) : 'None'
+  const interpretation = location
+    ? otherLocations.length > 0
+      ? `${otherLocations.length} configured ${pluralize(otherLocations.length, 'market')} still ${otherLocations.length === 1 ? 'needs' : 'need'} a matching sweep before cross-market recommendations.`
+      : 'Single-market report; findings can be read as the current market view.'
+    : 'No geographic hint was attached to this sweep; read findings as default-market or national results.'
 
-  const handlingRows = handling.length > 0
-    ? handling.map(h => {
-        const tone = treatmentTone[h.treatment] ?? 'neutral'
-        const label = treatmentLabel[h.treatment] ?? h.treatment
-        return `<tr>
-          <td>${escapeHtml(h.provider)}</td>
-          <td><span class="badge tone-${tone}">${escapeHtml(label)}</span></td>
-          <td>${escapeHtml(h.description)}</td>
-        </tr>`
-      }).join('')
-    : ''
-  const handlingTable = handlingRows
-    ? `<table class="report-table">
-        <thead><tr><th>Provider</th><th>Treatment</th><th>How the location reached the model</th></tr></thead>
-        <tbody>${handlingRows}</tbody>
-      </table>`
+  const providerCopy = handling.length > 0
+    ? weakLocationProviders.length > 0
+      ? `${weakLocationProviders.length} ${pluralize(weakLocationProviders.length, 'provider')} need a closer location check.`
+      : `${handling.length} ${pluralize(handling.length, 'provider')} received the market context.`
+    : 'No provider-level location metadata is available for this report.'
+
+  const warning = weakLocationProviders.length > 0
+    ? `<div class="scope-warning">
+        <strong>Location handling needs review</strong>
+        ${escapeHtml(compactInlineList(weakLocationProviders, 4))} used weak or indirect market handling. Treat provider-level differences cautiously.
+      </div>`
     : ''
 
-  return `<div class="chart-card location-card">
-    <h3>Location handling</h3>
-    ${locationLine}
-    ${handlingTable}
+  return `<div class="chart-card market-scope-card">
+    <h3>Market Scope</h3>
+    <div class="market-scope-grid">
+      <div class="scope-tile">
+        <div class="scope-label">Current sweep</div>
+        <div class="scope-value">${escapeHtml(marketValue)}</div>
+        <div class="scope-copy">All findings below are scoped to this run.</div>
+      </div>
+      <div class="scope-tile">
+        <div class="scope-label">Not included</div>
+        <div class="scope-value">${escapeHtml(notIncluded)}</div>
+        <div class="scope-copy">${escapeHtml(interpretation)}</div>
+      </div>
+      <div class="scope-tile">
+        <div class="scope-label">Provider context</div>
+        <div class="scope-value">${handling.length > 0 ? formatNumber(handling.length) : '—'}</div>
+        <div class="scope-copy">${escapeHtml(providerCopy)}</div>
+      </div>
+    </div>
+    ${warning}
   </div>`
 }
 
@@ -540,6 +868,42 @@ function renderExecutiveSummary(report: ProjectReportDto): string {
   const mentionedFragment = s.totalQueryCount > 0
     ? `${s.mentionedQueryCount}/${s.totalQueryCount} ${queryNoun} mentioned`
     : 'no queries'
+  const headlineTitle = s.totalQueryCount > 0
+    ? `${s.citedQueryCount} of ${s.totalQueryCount} tracked ${queryNoun} cite ${report.meta.project.displayName}`
+    : 'No AI citation data yet'
+  const headlineSubtitle = s.totalQueryCount > 0
+    ? `${s.citationRate}% citation coverage and ${s.mentionRate}% mention coverage across ${s.providerCount} ${pluralize(s.providerCount, 'provider')}.`
+    : 'Run a visibility sweep to populate the first citation and mention baseline.'
+  const priorityActions = report.agencyDiagnostics.priorities.length > 0
+    ? report.agencyDiagnostics.priorities
+    : report.actionPlan
+  const actionCount = dedupeReportActions(report, priorityActions).length
+  const heroHtml = `<div class="executive-hero">
+    <div class="headline-card">
+      <div>
+        <div class="hero-kicker">Latest AI visibility sweep</div>
+        <div class="hero-title">${escapeHtml(headlineTitle)}</div>
+      </div>
+      <div class="hero-subtitle">${escapeHtml(headlineSubtitle)}</div>
+    </div>
+    <div class="hero-proof-grid">
+      <div class="hero-proof">
+        <div class="mini-label">Citation trend</div>
+        <div class="mini-value tone-${trendTone}">${escapeHtml(trendLabel)}</div>
+        <div class="mini-copy">${escapeHtml(citedFragment)}</div>
+      </div>
+      <div class="hero-proof">
+        <div class="mini-label">Mention coverage</div>
+        <div class="mini-value">${s.mentionRate}%</div>
+        <div class="mini-copy">${escapeHtml(mentionedFragment)}</div>
+      </div>
+      <div class="hero-proof">
+        <div class="mini-label">Prioritized actions</div>
+        <div class="mini-value">${formatNumber(actionCount)}</div>
+        <div class="mini-copy">Sorted for agency follow-up.</div>
+      </div>
+    </div>
+  </div>`
   const metrics = [
     {
       label: 'Citation rate',
@@ -558,10 +922,11 @@ function renderExecutiveSummary(report: ProjectReportDto): string {
     },
   ]
   if (s.gsc) {
+    const dateRange = gscDateRange(report)
     metrics.push({
       label: 'GSC clicks',
       value: formatNumber(s.gsc.clicks),
-      delta: `${formatNumber(s.gsc.impressions)} imp · ${formatRatio(s.gsc.ctr)} CTR`,
+      delta: `${formatNumber(s.gsc.impressions)} imp · ${formatRatio(s.gsc.ctr)} CTR${dateRange ? ` · ${escapeHtml(dateRange)}` : ''}`,
     })
   }
   if (s.ga) {
@@ -595,9 +960,9 @@ function renderExecutiveSummary(report: ProjectReportDto): string {
       id: 'executive-summary',
       eyebrow: 'Section 1',
       title: 'Executive Summary',
-      intro: 'Two independent signals: Citation rate = share of tracked queries where your domain appeared in the source list the AI used. Mention rate = share of tracked queries where your brand or domain appeared in the answer text itself. A model can mention you without citing your domain, or cite your domain without naming you in the prose. Both are computed per-query so they stay comparable when provider count changes.',
+      intro: 'Citation = source list. Mention = answer text. They are independent signals.',
     },
-    metricsHtml + findingsHtml + locationHtml,
+    heroHtml + metricsHtml + findingsHtml + locationHtml,
   )
 }
 
@@ -657,7 +1022,7 @@ function renderCitationMatrix(scorecard: ProjectReportDto['citationScorecard']):
     return `<tr><td>${escapeHtml(q)}</td>${cells}</tr>`
   }).join('')
 
-  const legend = '<p class="section-intro" style="margin-top:0;font-size:11px;">Each cell shows two flags — <span class="cell-cited">C</span>/<span class="cell-not-cited">c</span> = cited / not cited (your domain in the source list), <span class="cell-cited">M</span>/<span class="cell-not-cited">m</span> = mentioned / not mentioned (your brand in the answer text), <span class="cell-pending">–</span> = no data.</p>'
+  const legend = '<p class="section-intro" style="margin-top:0;font-size:11px;">Legend: <span class="cell-cited">C</span>/<span class="cell-not-cited">c</span> = cited/not, <span class="cell-cited">M</span>/<span class="cell-not-cited">m</span> = mentioned/not, <span class="cell-pending">–</span> = no data.</p>'
 
   return `${legend}<table class="report-table">
     <thead><tr><th>Query</th>${headers}</tr></thead>
@@ -671,7 +1036,7 @@ function renderCitationScorecard(report: ProjectReportDto): string {
     ${renderCitationMatrix(report.citationScorecard)}
   `
   return section(
-    { id: 'citation-scorecard', eyebrow: 'Section 2', title: 'Citation Scorecard', intro: 'Per (query × provider) view of both signals — citations (your domain in the source list) and mentions (your brand in the answer text) — for every tracked query in the latest sweep.' },
+    { id: 'citation-scorecard', eyebrow: 'Section 2', title: 'Citation Scorecard', intro: 'Provider-by-provider citation and mention coverage for the latest sweep.' },
     body,
   )
 }
@@ -775,7 +1140,7 @@ function renderCompetitorLandscape(report: ProjectReportDto): string {
       id: 'competitor-landscape',
       eyebrow: 'Section 3',
       title: 'Competitor Landscape',
-      intro: 'Where tracked competitors appear in AI answers compared to your domain — both in source citations and in the answer text itself.',
+      intro: 'Who AI engines cite and mention instead of the client.',
     },
     `${charts}${table}`,
   )
@@ -823,6 +1188,32 @@ function renderCategoryBars(buckets: AiSourceCategoryBucket[]): string {
   </div>`
 }
 
+function renderShareBars(
+  heading: string,
+  rows: Array<{ label: string; count: number; sharePct: number; color?: string }>,
+  countLabel: string,
+): string {
+  const visibleRows = rows.filter(r => r.count > 0 || r.sharePct > 0)
+  if (visibleRows.length === 0) return ''
+  const bars = visibleRows.map((r, index) => {
+    const pct = Math.max(0, Math.min(100, r.sharePct))
+    const color = r.color ?? COLORS.series[index % COLORS.series.length]
+    return `
+      <div class="source-bar-row">
+        <div class="source-bar-label">${escapeHtml(r.label)}</div>
+        <div class="source-bar-track">
+          <div class="source-bar-fill" style="width:${pct.toFixed(1)}%;background:${color}"></div>
+        </div>
+        <div class="source-bar-value">${formatNumber(r.count)} <span class="source-bar-pct">${escapeHtml(countLabel)} · ${r.sharePct}%</span></div>
+      </div>`
+  }).join('')
+
+  return `<div class="chart-card">
+    <h3>${escapeHtml(heading)}</h3>
+    <div class="source-bars">${bars}</div>
+  </div>`
+}
+
 function renderAiSourceOrigin(report: ProjectReportDto): string {
   const origin = report.aiSourceOrigin
   if (origin.categories.length === 0 && origin.topDomains.length === 0) {
@@ -858,7 +1249,7 @@ function renderAiSourceOrigin(report: ProjectReportDto): string {
       id: 'ai-source-origin',
       eyebrow: 'Section 4',
       title: 'AI Citation Sources',
-      intro: 'Every external website AI engines cited as a source for your tracked queries in the latest sweep, ranked by citation count. Tracked competitors are pulled into their own bucket so you can see how much of the AI’s answer came from rivals; the remaining buckets cover directories, forums, news, and other site types. Your own domains are excluded.',
+      intro: 'External domains AI engines trusted most in the latest sweep.',
     },
     `${headlineFragment}${table}${renderCategoryBars(origin.categories)}`,
   )
@@ -919,13 +1310,16 @@ function renderGsc(report: ProjectReportDto): string {
       <td><span class="badge tone-neutral">${escapeHtml(q.category)}</span></td>
     </tr>`).join('')
 
-  const breakdownRows = gsc.categoryBreakdown.map(c => `
-    <tr>
-      <td>${escapeHtml(c.category)}</td>
-      <td class="numeric">${formatNumber(c.clicks)}</td>
-      <td class="numeric">${formatNumber(c.impressions)}</td>
-      <td class="numeric">${c.sharePct}%</td>
-    </tr>`).join('')
+  const categoryBars = renderShareBars(
+    'Search demand by intent',
+    gsc.categoryBreakdown.map((c, index) => ({
+      label: c.category,
+      count: c.clicks,
+      sharePct: c.sharePct,
+      color: COLORS.series[index % COLORS.series.length],
+    })),
+    'clicks',
+  )
 
   const trendChart = renderLineChart(
     gsc.trend.map(t => ({ x: t.date, y: t.clicks, label: t.date.slice(5) })),
@@ -936,19 +1330,21 @@ function renderGsc(report: ProjectReportDto): string {
   const crossoverBlocks: string[] = []
   if (gsc.trackedButNoGsc.length > 0) {
     crossoverBlocks.push(`<div class="chart-card"><h3>AEO queries without search demand</h3>
-      <p class="section-intro">Tracked AEO queries with no GSC impressions in this window — review whether they represent real search demand.</p>
-      <ul>${gsc.trackedButNoGsc.map(q => `<li>${escapeHtml(q)}</li>`).join('')}</ul>
+      <p class="section-intro">Review whether these still belong in the tracking set.</p>
+      ${renderProofChips(gsc.trackedButNoGsc, 6)}
     </div>`)
   }
   if (gsc.gscButNotTracked.length > 0) {
     crossoverBlocks.push(`<div class="chart-card"><h3>Search queries you should track</h3>
-      <p class="section-intro">GSC top queries (by impressions) that aren't tracked in your AEO project — candidates to add as queries.</p>
-      <ul>${gsc.gscButNotTracked.map(q => `<li>${escapeHtml(q)}</li>`).join('')}</ul>
+      <p class="section-intro">High-impression candidates to add to AEO tracking.</p>
+      ${renderProofChips(gsc.gscButNotTracked, 6)}
     </div>`)
   }
 
+  const dateRange = gscDateRange(report)
+
   return section(
-    { id: 'gsc', eyebrow: 'Section 5', title: 'GSC Performance', intro: 'Your site’s performance in Google’s regular (non-AI) search results — top queries that drove impressions, intent breakdown, and the click trend, sourced from Google Search Console for the most recent sync window.' },
+    { id: 'gsc', eyebrow: 'Section 5', title: 'GSC Performance', intro: `Search demand signals to compare against AI visibility${dateRange ? ` for ${dateRange}` : ''}.` },
     `<div class="metric-grid">
       <div class="metric"><div class="label">Total clicks</div><div class="value">${formatNumber(gsc.totalClicks)}</div></div>
       <div class="metric"><div class="label">Total impressions</div><div class="value">${formatNumber(gsc.totalImpressions)}</div></div>
@@ -962,12 +1358,7 @@ function renderGsc(report: ProjectReportDto): string {
         <tbody>${rows}</tbody>
       </table>
     </div>
-    <div class="chart-card"><h3>Category breakdown</h3>
-      <table class="report-table">
-        <thead><tr><th>Category</th><th class="numeric">Clicks</th><th class="numeric">Imp.</th><th class="numeric">Share</th></tr></thead>
-        <tbody>${breakdownRows}</tbody>
-      </table>
-    </div>
+    ${categoryBars}
     ${crossoverBlocks.join('\n')}`,
   )
 }
@@ -989,15 +1380,19 @@ function renderGa(report: ProjectReportDto): string {
       <td class="numeric">${formatNumber(p.organicSessions)}</td>
     </tr>`).join('')
 
-  const channelRows = ga.channelBreakdown.map(c => `
-    <tr>
-      <td>${escapeHtml(c.channel)}</td>
-      <td class="numeric">${formatNumber(c.sessions)}</td>
-      <td class="numeric">${c.sharePct}%</td>
-    </tr>`).join('')
+  const channelBars = renderShareBars(
+    'Channel mix',
+    ga.channelBreakdown.map((c, index) => ({
+      label: c.channel,
+      count: c.sessions,
+      sharePct: c.sharePct,
+      color: COLORS.series[index % COLORS.series.length],
+    })),
+    'sessions',
+  )
 
   return section(
-    { id: 'ga', eyebrow: 'Section 6', title: 'GA4 Traffic', intro: `Total sessions and users on your site between ${formatDate(ga.periodStart)} and ${formatDate(ga.periodEnd)}, with the top landing pages and channel breakdown — sourced from Google Analytics 4.` },
+    { id: 'ga', eyebrow: 'Section 6', title: 'GA4 Traffic', intro: `Site traffic from ${formatDate(ga.periodStart)} to ${formatDate(ga.periodEnd)}.` },
     `<div class="metric-grid">
       <div class="metric"><div class="label">Total sessions</div><div class="value">${formatNumber(ga.totalSessions)}</div></div>
       <div class="metric"><div class="label">Total users</div><div class="value">${formatNumber(ga.totalUsers)}</div></div>
@@ -1009,12 +1404,7 @@ function renderGa(report: ProjectReportDto): string {
         <tbody>${pageRows}</tbody>
       </table>
     </div>
-    <div class="chart-card"><h3>Channel breakdown</h3>
-      <table class="report-table">
-        <thead><tr><th>Channel</th><th class="numeric">Sessions</th><th class="numeric">Share</th></tr></thead>
-        <tbody>${channelRows}</tbody>
-      </table>
-    </div>`,
+    ${channelBars}`,
   )
 }
 
@@ -1027,12 +1417,16 @@ function renderSocial(report: ProjectReportDto): string {
     )
   }
 
-  const channelRows = social.channels.map(c => `
-    <tr>
-      <td>${escapeHtml(c.channelGroup)}</td>
-      <td class="numeric">${formatNumber(c.sessions)}</td>
-      <td class="numeric">${c.sharePct}%</td>
-    </tr>`).join('')
+  const channelBars = renderShareBars(
+    'Social channel mix',
+    social.channels.map((c, index) => ({
+      label: c.channelGroup,
+      count: c.sessions,
+      sharePct: c.sharePct,
+      color: COLORS.series[index % COLORS.series.length],
+    })),
+    'sessions',
+  )
 
   const campaignRows = social.topCampaigns.map(c => `
     <tr>
@@ -1042,18 +1436,13 @@ function renderSocial(report: ProjectReportDto): string {
     </tr>`).join('')
 
   return section(
-    { id: 'social-referrals', eyebrow: 'Section 7', title: 'Social Referrals', intro: 'Sessions on your site sent by social platforms (LinkedIn, Facebook, X, etc.) — paid versus organic split and the top campaigns that drove them. Sourced from Google Analytics 4.' },
+    { id: 'social-referrals', eyebrow: 'Section 7', title: 'Social Referrals', intro: 'Social traffic split by channel and campaign.' },
     `<div class="metric-grid">
       <div class="metric"><div class="label">Total sessions</div><div class="value">${formatNumber(social.totalSessions)}</div></div>
       <div class="metric"><div class="label">Organic social</div><div class="value">${formatNumber(social.organicSessions)}</div></div>
       <div class="metric"><div class="label">Paid social</div><div class="value">${formatNumber(social.paidSessions)}</div></div>
     </div>
-    <div class="chart-card"><h3>Channel groups</h3>
-      <table class="report-table">
-        <thead><tr><th>Channel</th><th class="numeric">Sessions</th><th class="numeric">Share</th></tr></thead>
-        <tbody>${channelRows}</tbody>
-      </table>
-    </div>
+    ${channelBars}
     <div class="chart-card"><h3>Top campaigns</h3>
       <table class="report-table">
         <thead><tr><th>Source</th><th>Medium</th><th class="numeric">Sessions</th></tr></thead>
@@ -1072,13 +1461,16 @@ function renderAiReferrals(report: ProjectReportDto): string {
     )
   }
 
-  const sourceRows = ai.bySource.map(s => `
-    <tr>
-      <td>${escapeHtml(s.source)}</td>
-      <td class="numeric">${formatNumber(s.sessions)}</td>
-      <td class="numeric">${formatNumber(s.users)}</td>
-      <td class="numeric">${s.sharePct}%</td>
-    </tr>`).join('')
+  const sourceBars = renderShareBars(
+    'AI sessions by source',
+    ai.bySource.map((s, index) => ({
+      label: s.source,
+      count: s.sessions,
+      sharePct: s.sharePct,
+      color: COLORS.series[(index + 2) % COLORS.series.length],
+    })),
+    'sessions',
+  )
 
   const pageRows = ai.topLandingPages.map(p => `
     <tr>
@@ -1094,18 +1486,13 @@ function renderAiReferrals(report: ProjectReportDto): string {
   )
 
   return section(
-    { id: 'ai-referrals', eyebrow: 'Section 8', title: 'AI Referral Traffic', intro: 'Sessions on your site referred by AI answer engines (ChatGPT, Perplexity, Claude, Copilot, Gemini, etc.) — broken down by referrer with a daily trend and the top landing pages. Sourced from Google Analytics 4.' },
+    { id: 'ai-referrals', eyebrow: 'Section 8', title: 'AI Referral Traffic', intro: 'Traffic arriving from AI answer engines.' },
     `<div class="metric-grid">
       <div class="metric"><div class="label">Total sessions</div><div class="value">${formatNumber(ai.totalSessions)}</div></div>
       <div class="metric"><div class="label">Total users</div><div class="value">${formatNumber(ai.totalUsers)}</div></div>
     </div>
     ${trendChart}
-    <div class="chart-card"><h3>Sessions by source</h3>
-      <table class="report-table">
-        <thead><tr><th>Source</th><th class="numeric">Sessions</th><th class="numeric">Users</th><th class="numeric">Share</th></tr></thead>
-        <tbody>${sourceRows}</tbody>
-      </table>
-    </div>
+    ${sourceBars}
     <div class="chart-card"><h3>Top AI landing pages</h3>
       <table class="report-table">
         <thead><tr><th>Page</th><th class="numeric">Sessions</th><th class="numeric">Users</th></tr></thead>
@@ -1146,7 +1533,7 @@ function renderIndexingHealth(report: ProjectReportDto): string {
   const legend = segments.map(s => `<span><span class="legend-swatch" style="background:${s.color}"></span>${escapeHtml(s.label)}: ${s.count}</span>`).join('')
 
   return section(
-    { id: 'indexing-health', eyebrow: 'Section 9', title: 'Indexing Health', intro: `What share of your tracked URLs are currently indexed in ${ih.provider === 'google' ? 'Google' : 'Bing'} — sourced from ${ih.provider === 'google' ? 'Google Search Console URL Inspection' : 'Bing Webmaster Tools URL Inspection'}. Pages absent from the index can’t be retrieved by AI engines either.` },
+    { id: 'indexing-health', eyebrow: 'Section 9', title: 'Indexing Health', intro: `Pages absent from ${ih.provider === 'google' ? 'Google' : 'Bing'} are harder for AI engines to retrieve.` },
     `<div class="metric-grid">
       <div class="metric"><div class="label">Indexed</div><div class="value tone-positive">${formatNumber(ih.indexed)}</div></div>
       <div class="metric"><div class="label">Total inspected</div><div class="value">${formatNumber(ih.total)}</div></div>
@@ -1191,7 +1578,7 @@ function renderCitationsTrend(report: ProjectReportDto): string {
     </tr>`).join('')
 
   return section(
-    { id: 'citations-trend', eyebrow: 'Section 10', title: 'Citations Over Time', intro: 'Citation rate across every visibility sweep — the share of tracked queries cited by at least one provider, with a per-provider breakdown beneath. Computed per-query so the headline stays comparable across runs that ran a different mix of providers.' },
+    { id: 'citations-trend', eyebrow: 'Section 10', title: 'Citations Over Time', intro: 'Citation coverage across completed visibility sweeps.' },
     `${chart}
     <div class="chart-card"><h3>Run-by-run breakdown</h3>
       <table class="report-table">
@@ -1222,28 +1609,42 @@ function renderInsights(report: ProjectReportDto): string {
         ? ` <span class="badge tone-neutral">× ${count}</span>`
         : ''
       return `<tr>
-        <td><span class="badge tone-${tone}">${escapeHtml(i.severity)}</span></td>
-        <td>${escapeHtml(i.title)}${countChip}</td>
-        <td>${escapeHtml(i.query)}</td>
-        <td>${escapeHtml(i.provider)}</td>
-        <td>${i.recommendation ? escapeHtml(i.recommendation) : '<span class="cell-pending">—</span>'}</td>
+        <td class="col-severity"><span class="badge tone-${tone}">${escapeHtml(reportSeverityLabel(i.severity))}</span></td>
+        <td class="col-title">${escapeHtml(i.title)}${countChip}</td>
+        <td class="col-query">${escapeHtml(i.query)}</td>
+        <td class="col-provider">${escapeHtml(i.provider)}</td>
+        <td class="col-recommendation">${i.recommendation ? escapeHtml(i.recommendation) : '<span class="cell-pending">—</span>'}</td>
       </tr>`
     }).join('')
 
   return section(
-    { id: 'insights', eyebrow: 'Section 11', title: 'Insights & Alerts', intro: 'Regressions (citations lost), gains (citations won), and opportunities surfaced by the intelligence engine across the most recent sweeps — ordered by severity and recurrence.' },
-    `<table class="report-table">
-      <thead><tr><th>Severity</th><th>Title</th><th>Query</th><th>Provider</th><th>Recommendation</th></tr></thead>
+    { id: 'insights', eyebrow: 'Section 11', title: 'Insights & Alerts', intro: 'Regressions, gains, and recurring alerts ordered by severity.' },
+    `<table class="report-table insights-table">
+      <thead><tr>
+        <th class="col-severity">Severity</th>
+        <th class="col-title">Title</th>
+        <th class="col-query">Query</th>
+        <th class="col-provider">Provider</th>
+        <th class="col-recommendation">Recommendation</th>
+      </tr></thead>
       <tbody>${rows}</tbody>
     </table>`,
   )
 }
 
 function renderOpportunities(report: ProjectReportDto): string {
-  const opps = report.contentOpportunities
+  const opps = dedupeReportOpportunities(report)
   if (opps.length === 0) return ''
 
   const canonical = report.meta.project.canonicalDomain
+  const highlights = `<div class="opportunity-grid">
+    ${opps.slice(0, 3).map(o => `<article class="opportunity-card">
+      <div class="opportunity-score" title="Opportunity score (0–100, higher = stronger)">${Math.round(o.score)}<span class="opportunity-score-suffix">/100</span></div>
+      <h3>${escapeHtml(o.query)}</h3>
+      <p>${escapeHtml(contentActionLabel(o.action))} · ${escapeHtml(actionConfidenceLabel(o.actionConfidence))} confidence</p>
+      ${renderProofChips(o.drivers, 2)}
+    </article>`).join('')}
+  </div>`
   const rows = opps.slice(0, 10).map((o) => {
     const ourPage = o.ourBestPage
       ? `<a href="${escapeHtml(absolutizeProjectUrl(o.ourBestPage.url, canonical))}">${escapeHtml(o.ourBestPage.url)}</a>`
@@ -1256,12 +1657,12 @@ function renderOpportunities(report: ProjectReportDto): string {
       : '<span class="cell-not-cited">No driver signal yet</span>'
     return `<tr>
       <td>${escapeHtml(o.query)}</td>
-      <td><span class="badge tone-neutral">${escapeHtml(o.action)}</span></td>
-      <td class="numeric">${Math.round(o.score)}</td>
+      <td><span class="badge tone-neutral">${escapeHtml(contentActionLabel(o.action))}</span></td>
+      <td class="numeric" title="Opportunity score (0–100)">${Math.round(o.score)}</td>
       <td>${drivers}</td>
       <td>${ourPage}</td>
       <td>${winning}</td>
-      <td><span class="badge tone-neutral">${escapeHtml(o.actionConfidence)}</span></td>
+      <td><span class="badge tone-neutral">${escapeHtml(actionConfidenceLabel(o.actionConfidence))}</span></td>
     </tr>`
   }).join('')
 
@@ -1270,10 +1671,10 @@ function renderOpportunities(report: ProjectReportDto): string {
       id: 'content-opportunities',
       eyebrow: 'Section 12',
       title: 'Content Opportunities',
-      intro: 'Queries where you have search demand or competitor citation pressure but aren’t winning AI citations. Each row pairs a suggested action (create / refresh / expand / add-schema) with the signals driving the score, the best matching page on your domain, and the competitor URL the AI most often cites. Top 10 shown.',
+      intro: 'Queries where content work has the clearest path to more AI citations. Opportunity score is 0–100, higher = stronger.',
     },
-    `<table class="report-table">
-      <thead><tr><th>Query</th><th>Action</th><th class="numeric">Score</th><th>Why</th><th>Our page</th><th>Winning competitor</th><th>Confidence</th></tr></thead>
+    `${highlights}<table class="report-table">
+      <thead><tr><th>Query</th><th>Action</th><th class="numeric" title="Opportunity score (0–100)">Score</th><th>Why</th><th>Our page</th><th>Winning competitor</th><th>Confidence</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`,
   )
@@ -1297,7 +1698,7 @@ function renderContentGaps(report: ProjectReportDto): string {
       id: 'content-gaps',
       eyebrow: 'Section 13',
       title: 'Content Gaps',
-      intro: 'Tracked queries where multiple competitors are cited by AI engines but you are not — explicit "they are answering, you are missing" signal. Sorted by recent miss rate, then by number of competitors cited. Top 10 shown.',
+      intro: 'Tracked queries where competitors are cited and the client is missing.',
     },
     `<table class="report-table">
       <thead><tr><th>Query</th><th class="numeric">Competitors cited</th><th>Domains</th><th class="numeric">Miss rate</th></tr></thead>
@@ -1313,7 +1714,7 @@ function renderRecommendedNextSteps(report: ProjectReportDto): string {
   const steps = report.recommendedNextSteps
   if (steps.length === 0) {
     return section(
-      { id: 'recommended-next-steps', eyebrow: 'Section 14', title: 'Recommended Next Steps', intro: 'Action items bucketed by horizon (immediate, short-term, medium-term), drawn from open insights and the highest-ranked content opportunities.' },
+      { id: 'recommended-next-steps', eyebrow: 'Section 14', title: 'Recommended Next Steps', intro: 'Action items bucketed by timing.' },
       renderEmpty('No outstanding actions.'),
     )
   }
@@ -1326,7 +1727,7 @@ function renderRecommendedNextSteps(report: ProjectReportDto): string {
     </div>`).join('')
 
   return section(
-    { id: 'recommended-next-steps', eyebrow: 'Section 14', title: 'Recommended Next Steps', intro: 'Action items bucketed by horizon (immediate, short-term, medium-term), drawn from open insights and the highest-ranked content opportunities.' },
+    { id: 'recommended-next-steps', eyebrow: 'Section 14', title: 'Recommended Next Steps', intro: 'Action items bucketed by timing.' },
     `<div class="steps">${items}</div>`,
   )
 }
@@ -1338,7 +1739,7 @@ function actionAudienceMatches(action: ReportActionPlanItem, audience: ReportAud
 function renderActionCards(actions: readonly ReportActionPlanItem[]): string {
   if (actions.length === 0) return renderEmpty('No prioritized actions yet.')
   return `<div class="action-card-grid">
-    ${actions.map(action => {
+    ${actions.map((action, idx) => {
       const tone = reportActionTone(action)
       const why = action.why.length > 0
         ? `<ul>${action.why.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
@@ -1346,36 +1747,50 @@ function renderActionCards(actions: readonly ReportActionPlanItem[]): string {
       const evidence = action.evidence.length > 0
         ? `<ul>${action.evidence.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
         : ''
+      const proof = renderProofChips(action.evidence.length > 0 ? action.evidence : action.why, 3)
+      const details = why || evidence
+        ? `<details class="action-details">
+            <summary>Evidence details</summary>
+            ${why ? `<div><strong>Why</strong>${why}</div>` : ''}
+            ${evidence ? `<div><strong>Evidence</strong>${evidence}</div>` : ''}
+          </details>`
+        : ''
       return `<article class="action-card">
-        <div class="action-meta">
-          <span class="badge tone-${tone}">${escapeHtml(action.horizon)}</span>
-          <span class="badge tone-neutral">${escapeHtml(action.category)}</span>
-          <span class="badge tone-neutral">${escapeHtml(action.confidence)} confidence</span>
+        <div class="action-head">
+          <div class="action-rank" title="Impact rank — 1 is the highest-leverage action">${idx + 1}</div>
+          <div>
+            <div class="action-meta">
+              <span class="badge tone-${tone}">${escapeHtml(reportHorizonLabel(action.horizon))}</span>
+              <span class="badge tone-neutral">${escapeHtml(reportActionCategoryLabel(action.category))}</span>
+              <span class="badge tone-neutral">${escapeHtml(reportConfidenceLabel(action.confidence))} confidence</span>
+            </div>
+            <h3>${escapeHtml(action.title)}</h3>
+          </div>
         </div>
-        <h3>${escapeHtml(action.title)}</h3>
         <p>${escapeHtml(action.action)}</p>
-        ${why ? `<div><strong>Why</strong>${why}</div>` : ''}
-        ${evidence ? `<div><strong>Evidence</strong>${evidence}</div>` : ''}
-        <div class="success-metric"><strong>Success metric:</strong> ${escapeHtml(action.successMetric)}</div>
+        ${proof}
+        ${details}
+        <div class="success-metric"><strong>Win condition:</strong> ${escapeHtml(action.successMetric)}</div>
       </article>`
     }).join('')}
   </div>`
 }
 
 function renderAudienceActionPlan(report: ProjectReportDto, audience: ReportAudience): string {
-  const actions = audience === 'client'
+  const rawActions = audience === 'client'
     ? report.clientSummary.actionItems
     : report.agencyDiagnostics.priorities.length > 0
       ? report.agencyDiagnostics.priorities
       : report.actionPlan.filter(a => actionAudienceMatches(a, audience))
+  const actions = dedupeReportActions(report, rawActions)
   return section(
     {
       id: audience === 'client' ? 'client-action-plan' : 'agency-action-plan',
       eyebrow: audience === 'client' ? 'Client actions' : 'Agency actions',
       title: audience === 'client' ? 'What We Recommend Next' : 'Agency Action Plan',
       intro: audience === 'client'
-        ? 'Polished next steps the client can understand, backed by concise evidence from the report.'
-        : 'Technical priorities pulled from the canonical action plan, sorted by urgency and evidence strength.',
+        ? 'The short list to approve and execute.'
+        : 'The highest-leverage work, sorted by urgency and evidence strength.',
     },
     renderActionCards(actions),
   )
@@ -1431,11 +1846,12 @@ function renderClientEvidenceSummary(report: ProjectReportDto): string {
       <ul><li>${formatNumber(report.indexingHealth.indexed)} indexed</li><li>${formatNumber(report.indexingHealth.notIndexed)} not indexed</li></ul>
     </div>`)
   }
-  if (report.contentOpportunities.length > 0) {
+  const opportunities = dedupeReportOpportunities(report)
+  if (opportunities.length > 0) {
     evidenceCards.push(`<div class="diagnostic-card tone-caution">
       <h3>Content opportunities</h3>
       <p>Canonry found topics where better content could improve AI citations.</p>
-      <ul>${report.contentOpportunities.slice(0, 5).map(o => `<li>${escapeHtml(o.query)}: ${escapeHtml(o.action)} (${Math.round(o.score)})</li>`).join('')}</ul>
+      <ul>${opportunities.slice(0, 5).map(o => `<li>${escapeHtml(o.query)}: ${escapeHtml(o.action)} (${Math.round(o.score)})</li>`).join('')}</ul>
     </div>`)
   }
   return section(
@@ -1451,12 +1867,13 @@ function renderClientEvidenceSummary(report: ProjectReportDto): string {
 
 function renderAgencyDiagnostics(report: ProjectReportDto): string {
   const diagnostics = report.agencyDiagnostics.diagnostics
+    .filter(d => d.title !== 'Location caveat')
   const body = diagnostics.length > 0
     ? `<div class="diagnostics-grid">
         ${diagnostics.map(d => `<div class="diagnostic-card tone-${d.severity}">
           <h3>${escapeHtml(d.title)}</h3>
           <p>${escapeHtml(d.detail)}</p>
-          ${d.evidence.length > 0 ? `<ul>${d.evidence.map(e => `<li>${escapeHtml(e)}</li>`).join('')}</ul>` : ''}
+          ${renderProofChips(d.evidence, 3)}
         </div>`).join('')}
       </div>`
     : renderEmpty('No agency diagnostics available yet.')
@@ -1465,7 +1882,7 @@ function renderAgencyDiagnostics(report: ProjectReportDto): string {
       id: 'agency-diagnostics',
       eyebrow: 'Agency diagnostics',
       title: 'Technical Diagnostics',
-      intro: 'Operator-facing diagnostics for content, provider, source-domain, search-demand, indexing, and location follow-up.',
+      intro: 'Fast-read operator flags behind the action plan.',
     },
     body,
   )

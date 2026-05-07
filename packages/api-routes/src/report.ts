@@ -7,6 +7,7 @@ import {
   gaSocialReferrals,
   gaTrafficSnapshots,
   gaTrafficSummaries,
+  gaTrafficWindowSummaries,
   gscCoverageSnapshots,
   gscSearchData,
   insights,
@@ -66,6 +67,21 @@ const TOP_CAMPAIGN_LIMIT = 10
 // Keeps a months-old undismissed regression from cluttering today's
 // report while still surfacing alerts that recur within recent history.
 const INSIGHT_LOOKBACK_RUNS = 5
+// Trailing window for GSC and GA report sections. Anchored on the most
+// recent date present in each dataset (not "today") so reports remain
+// usable when a sync hasn't run for a few days; the two sections may end
+// on slightly different dates but always span the same number of days.
+const REPORT_WINDOW_DAYS = 30
+
+// Returns the inclusive start-date string (YYYY-MM-DD) for a window of
+// `windowDays` ending on `endDate`. `endDate` must already be YYYY-MM-DD.
+function windowStartDate(endDate: string, windowDays: number): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(endDate)
+  if (!m) return endDate
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])))
+  d.setUTCDate(d.getUTCDate() - (windowDays - 1))
+  return d.toISOString().slice(0, 10)
+}
 
 function safeNum(value: unknown): number {
   if (typeof value === 'number') return value
@@ -136,7 +152,18 @@ function buildGscSection(
   canonicalDomain: string,
   trackedQueries: string[],
 ): ProjectReportDto['gsc'] {
-  const rows = db.select().from(gscSearchData).where(eq(gscSearchData.projectId, projectId)).all()
+  const allRows = db.select().from(gscSearchData).where(eq(gscSearchData.projectId, projectId)).all()
+  if (allRows.length === 0) return null
+
+  // Constrain to the most recent REPORT_WINDOW_DAYS of data so the GSC
+  // section aligns with the GA section. GSC retains up to 16 months, but the
+  // report only ever shows 30 days. Anchor on the latest date in the dataset
+  // rather than "today" — when GSC sync is a few days behind the report
+  // should still cover a full 30-day window of real data.
+  let maxDate = ''
+  for (const r of allRows) if (r.date > maxDate) maxDate = r.date
+  const startDate = windowStartDate(maxDate, REPORT_WINDOW_DAYS)
+  const rows = allRows.filter(r => r.date >= startDate && r.date <= maxDate)
   if (rows.length === 0) return null
 
   let totalClicks = 0
@@ -194,6 +221,8 @@ function buildGscSection(
   const trend = [...trendAgg.entries()]
     .map(([date, agg]) => ({ date, clicks: agg.clicks, impressions: agg.impressions }))
     .sort((a, b) => a.date.localeCompare(b.date))
+  const periodStart = trend[0]?.date ?? ''
+  const periodEnd = trend.at(-1)?.date ?? ''
 
   const trackedSet = new Set(trackedQueries.map(q => q.toLowerCase()))
   const gscQuerySet = new Set([...queryAgg.keys()].map(q => q.toLowerCase()))
@@ -209,6 +238,8 @@ function buildGscSection(
     .slice(0, TOP_QUERIES_LIMIT)
 
   return {
+    periodStart,
+    periodEnd,
     totalClicks,
     totalImpressions,
     ctr,
@@ -222,29 +253,63 @@ function buildGscSection(
 }
 
 function buildGaSection(db: DatabaseClient, projectId: string): ProjectReportDto['ga'] {
-  const summaryRow = db
+  // Prefer the dedicated 30-day window summary so totalUsers reflects the
+  // deduplicated count from GA4 (summing per-page snapshots overcounts users
+  // who landed on multiple pages — that's exactly what this table fixes).
+  const windowSummary = db
     .select()
-    .from(gaTrafficSummaries)
-    .where(eq(gaTrafficSummaries.projectId, projectId))
-    .orderBy(desc(gaTrafficSummaries.syncedAt))
+    .from(gaTrafficWindowSummaries)
+    .where(
+      and(
+        eq(gaTrafficWindowSummaries.projectId, projectId),
+        eq(gaTrafficWindowSummaries.windowKey, '30d'),
+      ),
+    )
     .limit(1)
     .get()
 
-  const snapshotRows = db
+  // Fallback when window summaries haven't been backfilled yet — the older
+  // gaTrafficSummaries table still holds aggregate totals.
+  const fallbackSummary = windowSummary
+    ? null
+    : db
+        .select()
+        .from(gaTrafficSummaries)
+        .where(eq(gaTrafficSummaries.projectId, projectId))
+        .orderBy(desc(gaTrafficSummaries.syncedAt))
+        .limit(1)
+        .get()
+
+  const allSnapshotRows = db
     .select()
     .from(gaTrafficSnapshots)
     .where(eq(gaTrafficSnapshots.projectId, projectId))
     .all()
 
-  if (!summaryRow && snapshotRows.length === 0) return null
+  if (!windowSummary && !fallbackSummary && allSnapshotRows.length === 0) return null
 
-  const totalSessions = summaryRow?.totalSessions ?? snapshotRows.reduce((s, r) => s + r.sessions, 0)
-  const totalUsers = summaryRow?.totalUsers ?? snapshotRows.reduce((s, r) => s + r.users, 0)
-  const totalOrganicSessions = summaryRow?.totalOrganicSessions
+  // Match the GSC section: filter per-page snapshots to the most recent
+  // REPORT_WINDOW_DAYS so the landing-page table and channel mix describe the
+  // same window the headline totals do.
+  let snapshotMaxDate = ''
+  for (const r of allSnapshotRows) if (r.date > snapshotMaxDate) snapshotMaxDate = r.date
+  const snapshotStartDate = snapshotMaxDate ? windowStartDate(snapshotMaxDate, REPORT_WINDOW_DAYS) : ''
+  const snapshotRows = snapshotStartDate
+    ? allSnapshotRows.filter(r => r.date >= snapshotStartDate && r.date <= snapshotMaxDate)
+    : allSnapshotRows
+
+  const totalSessions = windowSummary?.totalSessions
+    ?? fallbackSummary?.totalSessions
+    ?? snapshotRows.reduce((s, r) => s + r.sessions, 0)
+  const totalUsers = windowSummary?.totalUsers
+    ?? fallbackSummary?.totalUsers
+    ?? snapshotRows.reduce((s, r) => s + r.users, 0)
+  const totalOrganicSessions = windowSummary?.totalOrganicSessions
+    ?? fallbackSummary?.totalOrganicSessions
     ?? snapshotRows.reduce((s, r) => s + r.organicSessions, 0)
 
   const pageAgg = new Map<string, { sessions: number; users: number; organic: number }>()
-  let directSessions = 0
+  let directSessions = windowSummary?.totalDirectSessions ?? 0
   for (const r of snapshotRows) {
     const page = r.landingPageNormalized ?? r.landingPage
     const existing = pageAgg.get(page) ?? { sessions: 0, users: 0, organic: 0 }
@@ -252,7 +317,7 @@ function buildGaSection(db: DatabaseClient, projectId: string): ProjectReportDto
     existing.users += r.users
     existing.organic += r.organicSessions
     pageAgg.set(page, existing)
-    if (r.directSessions != null) directSessions += r.directSessions
+    if (!windowSummary && r.directSessions != null) directSessions += r.directSessions
   }
 
   const topLandingPages = [...pageAgg.entries()]
@@ -287,12 +352,20 @@ function buildGaSection(db: DatabaseClient, projectId: string): ProjectReportDto
     }
   }
 
+  // Period reflects whichever totals source was used. Window summary is the
+  // authoritative 30d span; otherwise we report the snapshot-derived window
+  // (which is also 30 days), with the legacy summary as a final fallback.
+  const periodStart = windowSummary?.periodStart
+    ?? (snapshotStartDate || fallbackSummary?.periodStart || '')
+  const periodEnd = windowSummary?.periodEnd
+    ?? (snapshotMaxDate || fallbackSummary?.periodEnd || '')
+
   return {
     totalSessions,
     totalUsers,
     totalOrganicSessions,
-    periodStart: summaryRow?.periodStart ?? '',
-    periodEnd: summaryRow?.periodEnd ?? '',
+    periodStart,
+    periodEnd,
     topLandingPages,
     channelBreakdown,
   }
@@ -1107,22 +1180,6 @@ function buildAgencyDiagnostics(input: ReportActionPlanInput & {
     evidence: input.contentOpportunities.slice(0, 3).map(o => `${o.query}: ${o.action} (${Math.round(o.score)})`),
   })
 
-  if (input.reportLocation) {
-    diagnostics.push({
-      title: 'Location caveat',
-      detail: input.reportLocation.otherConfiguredLabels.length > 0
-        ? 'This report is scoped to the latest run location; other configured locations need separate interpretation.'
-        : 'This report is scoped to one configured location.',
-      severity: input.reportLocation.otherConfiguredLabels.length > 0 ? 'caution' : 'neutral',
-      evidence: [
-        `Current location: ${input.reportLocation.label}`,
-        ...(input.reportLocation.otherConfiguredLabels.length > 0
-          ? [`Other configured locations: ${compactList(input.reportLocation.otherConfiguredLabels)}`]
-          : []),
-      ],
-    })
-  }
-
   return {
     priorities: input.actionPlan.filter(a => actionAudienceMatches(a, 'agency')).slice(0, 6),
     diagnostics,
@@ -1291,6 +1348,8 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
           impressions: gscSection.totalImpressions,
           ctr: gscSection.ctr,
           avgPosition: gscSection.avgPosition,
+          periodStart: gscSection.periodStart,
+          periodEnd: gscSection.periodEnd,
         }
       : null,
     ga: gaSection

@@ -8,6 +8,16 @@ export const contentActionSchema = z.enum(['create', 'expand', 'refresh', 'add-s
 export type ContentAction = z.infer<typeof contentActionSchema>
 export const ContentActions = contentActionSchema.enum
 
+/** Title-cased label for `ContentAction` — never render the raw enum to UI. */
+export function contentActionLabel(action: ContentAction): string {
+  switch (action) {
+    case 'create': return 'Create'
+    case 'expand': return 'Expand'
+    case 'refresh': return 'Refresh'
+    case 'add-schema': return 'Add schema'
+  }
+}
+
 export const demandSourceSchema = z.enum(['gsc', 'competitor-evidence', 'both'])
 export type DemandSource = z.infer<typeof demandSourceSchema>
 export const DemandSources = demandSourceSchema.enum
@@ -15,6 +25,15 @@ export const DemandSources = demandSourceSchema.enum
 export const actionConfidenceSchema = z.enum(['high', 'medium', 'low'])
 export type ActionConfidence = z.infer<typeof actionConfidenceSchema>
 export const ActionConfidences = actionConfidenceSchema.enum
+
+/** Title-cased label for `ActionConfidence` — never render the raw enum to UI. */
+export function actionConfidenceLabel(confidence: ActionConfidence): string {
+  switch (confidence) {
+    case 'high': return 'High'
+    case 'medium': return 'Medium'
+    case 'low': return 'Low'
+  }
+}
 
 export const pageTypeSchema = z.enum([
   'blog-post',

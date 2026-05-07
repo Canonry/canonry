@@ -5,16 +5,24 @@ import type {
   CitationCell,
   CitationsTrendPoint,
   CompetitorRow,
-  ContentTargetRowDto,
   GscQueryRow,
   IndexingHealthSection,
   ProjectReportDto,
   ReportActionPlanItem,
   ReportAudience,
-  RecommendedNextStep,
   ReportInsight,
 } from '@ainyc/canonry-contracts'
-import { absolutizeProjectUrl, CitationStates, reportActionTone } from '@ainyc/canonry-contracts'
+import {
+  absolutizeProjectUrl,
+  actionConfidenceLabel,
+  CitationStates,
+  contentActionLabel,
+  reportActionCategoryLabel,
+  reportActionTone,
+  reportConfidenceLabel,
+  reportHorizonLabel,
+  reportSeverityLabel,
+} from '@ainyc/canonry-contracts'
 
 import {
   Bar,
@@ -120,26 +128,9 @@ const LOCATION_TREATMENT_LABEL: Record<ProjectReportDto['meta']['providerLocatio
   ignored: 'Ignored',
 }
 
-function severityLabel(severity: ReportInsight['severity']): string {
-  return severity.charAt(0).toUpperCase() + severity.slice(1)
-}
-
-function horizonLabel(horizon: RecommendedNextStep['horizon']): string {
-  switch (horizon) {
-    case 'immediate': return 'Immediate'
-    case 'short-term': return 'Short term'
-    case 'medium-term': return 'Medium term'
-  }
-}
-
-function actionLabel(action: ContentTargetRowDto['action']): string {
-  switch (action) {
-    case 'create': return 'Create'
-    case 'expand': return 'Expand'
-    case 'refresh': return 'Refresh'
-    case 'add-schema': return 'Add schema'
-  }
-}
+// severityLabel / horizonLabel / actionLabel moved to @ainyc/canonry-contracts
+// (`reportSeverityLabel`, `reportHorizonLabel`, `contentActionLabel`) so the
+// HTML report renderer and the web dashboard can't drift on what users see.
 
 function CitedMentionedGlyphs({ cell }: { cell: CitationCell | null }) {
   if (!cell) {
@@ -343,9 +334,9 @@ function ActionPlanSection({ report, audience }: { report: ProjectReportDto; aud
           {actions.map(action => (
             <div key={`${action.priority}-${action.title}`} className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
               <div className="mb-3 flex flex-wrap gap-2">
-                <ToneBadge tone={reportActionTone(action)}>{horizonLabel(action.horizon)}</ToneBadge>
-                <ToneBadge tone="neutral">{action.category}</ToneBadge>
-                <ToneBadge tone="neutral">{action.confidence} confidence</ToneBadge>
+                <ToneBadge tone={reportActionTone(action)}>{reportHorizonLabel(action.horizon)}</ToneBadge>
+                <ToneBadge tone="neutral">{reportActionCategoryLabel(action.category)}</ToneBadge>
+                <ToneBadge tone="neutral">{reportConfidenceLabel(action.confidence)} confidence</ToneBadge>
               </div>
               <p className="text-sm font-medium text-zinc-100">{action.title}</p>
               <p className="mt-1 text-sm text-zinc-400">{action.action}</p>
@@ -447,7 +438,7 @@ function ClientEvidenceSection({ report }: { report: ProjectReportDto }) {
       tone: 'caution',
       title: 'Content opportunities',
       detail: 'Canonry found topics where better content could improve AI citations.',
-      items: report.contentOpportunities.slice(0, 5).map(o => `${o.query}: ${actionLabel(o.action)} (${Math.round(o.score)})`),
+      items: report.contentOpportunities.slice(0, 5).map(o => `${o.query}: ${contentActionLabel(o.action)} (score ${Math.round(o.score)}/100)`),
     })
   }
 
@@ -1354,7 +1345,7 @@ function InsightsSection({ report }: { report: ProjectReportDto }) {
             {report.insights.map(i => (
               <tr key={i.id}>
                 <td>
-                  <ToneBadge tone={SEVERITY_TONE[i.severity]}>{severityLabel(i.severity)}</ToneBadge>
+                  <ToneBadge tone={SEVERITY_TONE[i.severity]}>{reportSeverityLabel(i.severity)}</ToneBadge>
                   {i.instanceCount > 1 && (
                     <span className="ml-2 text-[11px] text-zinc-500">×{i.instanceCount}</span>
                   )}
@@ -1384,7 +1375,7 @@ function ContentOpportunitiesSection({ report }: { report: ProjectReportDto }) {
       <SectionHeading
         eyebrow="Section 12"
         title="Content opportunities"
-        subtitle="Queries where you have search demand or competitor citation pressure but aren't winning AI citations. Each row pairs a suggested action with the signals driving the score, the best matching page on your domain, and the competitor URL the AI most often cites. Top 10 shown."
+        subtitle="Queries where you have search demand or competitor citation pressure but aren't winning AI citations. Each row pairs a suggested action with the signals driving the opportunity score (0–100, higher = stronger), the best matching page on your domain, and the competitor URL the AI most often cites. Top 10 shown."
       />
       <div className="evidence-table-wrap">
         <table className="evidence-table">
@@ -1392,7 +1383,7 @@ function ContentOpportunitiesSection({ report }: { report: ProjectReportDto }) {
             <tr>
               <th>Query</th>
               <th>Action</th>
-              <th>Score</th>
+              <th title="Opportunity score (0–100)">Score</th>
               <th>Why</th>
               <th>Our page</th>
               <th>Winning competitor</th>
@@ -1403,8 +1394,11 @@ function ContentOpportunitiesSection({ report }: { report: ProjectReportDto }) {
             {report.contentOpportunities.slice(0, 10).map(o => (
               <tr key={o.targetRef}>
                 <td className="evidence-query-cell">{o.query}</td>
-                <td><ToneBadge tone="neutral">{actionLabel(o.action)}</ToneBadge></td>
-                <td>{Math.round(o.score)}</td>
+                <td><ToneBadge tone="neutral">{contentActionLabel(o.action)}</ToneBadge></td>
+                <td title="Opportunity score (0–100)">
+                  {Math.round(o.score)}
+                  <span className="text-zinc-600"> / 100</span>
+                </td>
                 <td className="text-xs text-zinc-400">
                   {o.drivers.length > 0
                     ? <ul className="list-disc pl-4 space-y-0.5">{o.drivers.map((d, i) => <li key={i}>{d}</li>)}</ul>
@@ -1420,7 +1414,7 @@ function ContentOpportunitiesSection({ report }: { report: ProjectReportDto }) {
                     ? <a href={o.winningCompetitor.url} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">{o.winningCompetitor.domain}</a>
                     : <span className="text-zinc-600">—</span>}
                 </td>
-                <td><ToneBadge tone="neutral">{o.actionConfidence}</ToneBadge></td>
+                <td><ToneBadge tone="neutral">{actionConfidenceLabel(o.actionConfidence)}</ToneBadge></td>
               </tr>
             ))}
           </tbody>
@@ -1492,7 +1486,7 @@ function NextStepsSection({ report }: { report: ProjectReportDto }) {
           const tone: MetricTone = h === 'immediate' ? 'negative' : h === 'short-term' ? 'caution' : 'neutral'
           return (
             <div key={h} className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
-              <ToneBadge tone={tone}>{horizonLabel(h)}</ToneBadge>
+              <ToneBadge tone={tone}>{reportHorizonLabel(h)}</ToneBadge>
               <ul className="mt-3 space-y-3">
                 {steps.map((s, i) => (
                   <li key={i}>

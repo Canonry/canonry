@@ -17,6 +17,7 @@ import {
   gscCoverageSnapshots,
   gaTrafficSnapshots,
   gaTrafficSummaries,
+  gaTrafficWindowSummaries,
   gaAiReferrals,
   gaSocialReferrals,
 } from '@ainyc/canonry-db'
@@ -390,7 +391,7 @@ describe('GET /api/v1/projects/:name/report', () => {
         id: crypto.randomUUID(),
         projectId,
         syncRunId,
-        date: '2026-04-30',
+        date: '2026-04-01',
         query: 'best industrial coatings',
         page: 'https://azcoatings.com/blog/best-industrial-coatings',
         clicks: 12,
@@ -445,7 +446,7 @@ describe('GET /api/v1/projects/:name/report', () => {
         id: crypto.randomUUID(),
         projectId,
         syncRunId,
-        date: '2026-04-30',
+        date: '2026-04-01',
         query: 'gsc-test brand',
         page: 'https://gsc-test.example.com/',
         clicks: 100,
@@ -476,13 +477,132 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.gsc).not.toBeNull()
     expect(body.gsc!.totalClicks).toBe(130)
     expect(body.gsc!.totalImpressions).toBe(1100)
+    expect(body.gsc!.periodStart).toBe('2026-04-01')
+    expect(body.gsc!.periodEnd).toBe('2026-04-30')
     expect(body.gsc!.topQueries.length).toBe(2)
     expect(body.gsc!.topQueries[0]!.query).toBe('gsc-test brand')
 
     const brandRow = body.gsc!.categoryBreakdown.find(c => c.category === 'brand')
     expect(brandRow?.clicks).toBe(100)
 
-    expect(body.executiveSummary.gsc).toMatchObject({ clicks: 130, impressions: 1100 })
+    expect(body.executiveSummary.gsc).toMatchObject({
+      clicks: 130,
+      impressions: 1100,
+      periodStart: '2026-04-01',
+      periodEnd: '2026-04-30',
+    })
+  })
+
+  test('GSC section trims to the most recent 30 days when older history is present', async () => {
+    // GSC retains up to 16 months. The report only ever shows 30 days so it
+    // stays aligned with the GA window. Older rows must be excluded from the
+    // headline totals (and the period must reflect the trimmed window).
+    const projectId = insertProject(ctx.db, 'gsc-window')
+    const syncRunId = insertRun(ctx.db, projectId, { kind: 'gsc-sync' })
+    const baseRow = {
+      projectId,
+      syncRunId,
+      query: 'gsc-window topic',
+      page: 'https://gsc-window.example.com/',
+      ctr: '0.05',
+      position: '5',
+      createdAt: new Date().toISOString(),
+    }
+    ctx.db.insert(gscSearchData).values([
+      // Inside the 30-day window (anchored to 2026-04-30, so 2026-04-01 onwards):
+      { id: crypto.randomUUID(), ...baseRow, date: '2026-04-01', clicks: 5, impressions: 100 },
+      { id: crypto.randomUUID(), ...baseRow, date: '2026-04-30', clicks: 10, impressions: 200 },
+      // Outside the 30-day window (>= 31 days before max date):
+      { id: crypto.randomUUID(), ...baseRow, date: '2026-03-15', clicks: 999, impressions: 9999 },
+      { id: crypto.randomUUID(), ...baseRow, date: '2025-12-01', clicks: 999, impressions: 9999 },
+    ]).run()
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/gsc-window/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.gsc).not.toBeNull()
+    expect(body.gsc!.totalClicks).toBe(15)
+    expect(body.gsc!.totalImpressions).toBe(300)
+    expect(body.gsc!.periodStart).toBe('2026-04-01')
+    expect(body.gsc!.periodEnd).toBe('2026-04-30')
+  })
+
+  test('GA section uses the 30d window summary for accurate deduplicated user totals', async () => {
+    // gaTrafficSnapshots.users overcounts when a user lands on multiple pages.
+    // gaTrafficWindowSummaries['30d'] holds the deduplicated GA4 figure — when
+    // it exists, it must drive the headline. The period must match too so the
+    // GA range stays aligned with the 30-day GSC range.
+    const projectId = insertProject(ctx.db, 'ga-window')
+    ctx.db.insert(gaTrafficWindowSummaries).values({
+      id: crypto.randomUUID(),
+      projectId,
+      windowKey: '30d',
+      periodStart: '2026-04-01',
+      periodEnd: '2026-04-30',
+      totalSessions: 7777,
+      totalOrganicSessions: 4444,
+      totalDirectSessions: 1111,
+      totalUsers: 5555,
+      syncedAt: new Date().toISOString(),
+    }).run()
+    // Older legacy summary row that should be ignored when the window summary exists.
+    ctx.db.insert(gaTrafficSummaries).values({
+      id: crypto.randomUUID(),
+      projectId,
+      periodStart: '2024-01-01',
+      periodEnd: '2024-12-31',
+      totalSessions: 1,
+      totalOrganicSessions: 1,
+      totalUsers: 1,
+      syncedAt: new Date().toISOString(),
+    }).run()
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/ga-window/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.ga).not.toBeNull()
+    expect(body.ga!.totalSessions).toBe(7777)
+    expect(body.ga!.totalUsers).toBe(5555)
+    expect(body.ga!.totalOrganicSessions).toBe(4444)
+    expect(body.ga!.periodStart).toBe('2026-04-01')
+    expect(body.ga!.periodEnd).toBe('2026-04-30')
+    // Direct-channel total must come from the window summary, not be summed from snapshots.
+    const direct = body.ga!.channelBreakdown.find(c => c.channel === 'Direct')
+    expect(direct?.sessions).toBe(1111)
+  })
+
+  test('GA section trims per-page snapshots to the same 30-day window', async () => {
+    const projectId = insertProject(ctx.db, 'ga-page-window')
+    ctx.db.insert(gaTrafficWindowSummaries).values({
+      id: crypto.randomUUID(),
+      projectId,
+      windowKey: '30d',
+      periodStart: '2026-04-01',
+      periodEnd: '2026-04-30',
+      totalSessions: 1500,
+      totalOrganicSessions: 1000,
+      totalDirectSessions: 200,
+      totalUsers: 1200,
+      syncedAt: new Date().toISOString(),
+    }).run()
+    ctx.db.insert(gaTrafficSnapshots).values([
+      { id: crypto.randomUUID(), projectId, date: '2026-04-30', landingPage: '/', sessions: 500, organicSessions: 300, users: 400, syncedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), projectId, date: '2026-04-15', landingPage: '/blog', sessions: 200, organicSessions: 150, users: 180, syncedAt: new Date().toISOString() },
+      // Old page outside the window — must be excluded from topLandingPages.
+      { id: crypto.randomUUID(), projectId, date: '2025-09-01', landingPage: '/legacy', sessions: 9999, organicSessions: 9999, users: 9999, syncedAt: new Date().toISOString() },
+    ]).run()
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/ga-page-window/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.ga).not.toBeNull()
+    const pages = body.ga!.topLandingPages.map(p => p.page)
+    expect(pages).toContain('/')
+    expect(pages).toContain('/blog')
+    expect(pages).not.toContain('/legacy')
   })
 
   test('GA traffic, social referral, AI referral sections aggregate from GA tables', async () => {
