@@ -32,8 +32,17 @@ export interface ReportMeta {
 }
 
 export interface ReportExecutiveSummary {
-  /** 0..100 — share of (query × provider) pairs in the latest run that were cited. */
+  /**
+   * 0..100 — share of tracked queries that were cited by at least one
+   * provider in the latest run. Computed per-query (not per-(query × provider))
+   * so the rate is invariant to provider count and trend comparisons across
+   * runs with different provider configurations stay meaningful.
+   */
   citationRate: number
+  /** Numerator of `citationRate` — distinct tracked queries cited by ≥1 provider in the latest run. */
+  citedQueryCount: number
+  /** Denominator of `citationRate` — total tracked queries. */
+  totalQueryCount: number
   /** Compared to the previous run: 'up' | 'down' | 'flat' | 'unknown' (no prior run). */
   trend: 'up' | 'down' | 'flat' | 'unknown'
   /** Total tracked queries. */
@@ -272,9 +281,22 @@ export interface CitationsTrendPoint {
   runId: string
   /** ISO timestamp when the run finished (or createdAt fallback). */
   date: string
-  /** Citation rate for this run, 0..100. */
+  /**
+   * 0..100 — same per-query unique-cited definition as
+   * `ReportExecutiveSummary.citationRate`. Stable across runs with different
+   * provider counts so the trend line measures real movement rather than
+   * provider-count variance.
+   */
   citationRate: number
-  /** Per-provider rates for the same run. */
+  /** Numerator of `citationRate` for this run. */
+  citedQueryCount: number
+  /** Denominator of `citationRate` for this run. */
+  totalQueryCount: number
+  /**
+   * Per-provider rates for the same run. Each provider's rate is per-pair
+   * within that provider (`cited / scanned`), so it remains comparable
+   * between providers in the same run.
+   */
   providerRates: Array<{ provider: string; citationRate: number }>
 }
 

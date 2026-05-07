@@ -474,26 +474,35 @@ function buildCitationsTrend(
     .where(and(eq(runs.projectId, projectId), eq(runs.kind, RunKinds['answer-visibility'])))
     .all()
 
+  const totalQueries = queryLookup.byId.size
   const points: CitationsTrendPoint[] = []
   for (const run of visibilityRuns) {
     if (run.status !== RunStatuses.completed) continue
     const snaps = loadSnapshotsForRun(db, run.id)
     if (snaps.length === 0) continue
 
-    let cited = 0
+    // Headline rate is per-query (unique queries cited by ≥1 provider divided
+    // by total tracked queries) — invariant to provider count so a partial
+    // gemini-only run and a full 4-provider run can be compared honestly. See
+    // issue #422: per-(query × provider) ballooned the denominator and made
+    // real improvements look like declines whenever the provider mix shifted.
+    const citedQueryIds = new Set<string>()
     let considered = 0
     const providerCounts = new Map<string, { cited: number; total: number }>()
     for (const snap of snaps) {
       if (!queryLookup.byId.has(snap.queryId)) continue
       considered++
-      if (snap.citationState === CitationStates.cited) cited++
+      if (snap.citationState === CitationStates.cited) citedQueryIds.add(snap.queryId)
       const counts = providerCounts.get(snap.provider) ?? { cited: 0, total: 0 }
       counts.total++
       if (snap.citationState === CitationStates.cited) counts.cited++
       providerCounts.set(snap.provider, counts)
     }
     if (considered === 0) continue
-    const citationRate = Math.round((cited / considered) * 100)
+    const citedQueryCount = citedQueryIds.size
+    const citationRate = totalQueries > 0
+      ? Math.round((citedQueryCount / totalQueries) * 100)
+      : 0
     const providerRates = [...providerCounts.entries()]
       .map(([provider, counts]) => ({
         provider,
@@ -505,6 +514,8 @@ function buildCitationsTrend(
       runId: run.id,
       date: run.finishedAt ?? run.createdAt,
       citationRate,
+      citedQueryCount,
+      totalQueryCount: totalQueries,
       providerRates,
     })
   }
@@ -626,6 +637,8 @@ function buildRecommendedNextSteps(insightList: ReportInsight[]): RecommendedNex
 
 function buildExecutiveFindings(
   citationRate: number,
+  citedQueryCount: number,
+  totalQueryCount: number,
   trend: ProjectReportDto['executiveSummary']['trend'],
   trendsPoints: CitationsTrendPoint[],
   trendBaseline: boolean,
@@ -649,8 +662,12 @@ function buildExecutiveFindings(
         case 'unknown': detail = 'No prior run to compare against.'; break
       }
     }
+    const queryNoun = totalQueryCount === 1 ? 'query' : 'queries'
+    const ratioFragment = totalQueryCount > 0
+      ? ` (${citedQueryCount} of ${totalQueryCount} ${queryNoun} cited)`
+      : ''
     findings.push({
-      title: `Citation rate at ${citationRate}%`,
+      title: `Citation rate at ${citationRate}%${ratioFragment}`,
       detail,
       tone,
     })
@@ -743,15 +760,19 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
     insightDerivedSteps,
   )
 
-  let latestCited = 0
-  let latestConsidered = 0
+  // Headline rate is per-query — see buildCitationsTrend for the rationale.
+  // Same definition both places so the trend chart and the executive summary
+  // KPI move together; using different denominators in the two surfaces is
+  // how issue #422 originally manifested.
+  const totalQueryCount = queryLookup.byId.size
+  const citedQueryIds = new Set<string>()
   for (const snap of latestSnapshots) {
     if (!queryLookup.byId.has(snap.queryId)) continue
-    latestConsidered++
-    if (snap.citationState === CitationStates.cited) latestCited++
+    if (snap.citationState === CitationStates.cited) citedQueryIds.add(snap.queryId)
   }
-  const citationRate = latestConsidered > 0
-    ? Math.round((latestCited / latestConsidered) * 100)
+  const citedQueryCount = citedQueryIds.size
+  const citationRate = totalQueryCount > 0
+    ? Math.round((citedQueryCount / totalQueryCount) * 100)
     : 0
 
   // Suppress trend computation until enough runs exist — a 5%→1% delta on
@@ -781,6 +802,8 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
 
   const findings = buildExecutiveFindings(
     citationRate,
+    citedQueryCount,
+    totalQueryCount,
     trend,
     citationsTrend,
     trendBaseline,
@@ -807,6 +830,8 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
     },
     executiveSummary: {
       citationRate,
+      citedQueryCount,
+      totalQueryCount,
       trend,
       queryCount: queryLookup.byId.size,
       competitorCount: competitorDomains.length,

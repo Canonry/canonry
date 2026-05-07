@@ -18,7 +18,8 @@ canonry report <project> --format json            # raw payload, useful for narr
 The HTML is self-contained (inline CSS + SVG charts, no network dependencies) and covers: executive summary, per-query × per-provider citation matrix, competitor landscape, AI citation sources, GSC + GA4 performance, social and AI referrals, indexing health, citations trend, prioritized insights, and recommended next steps. Same payload is available via `GET /api/v1/projects/<name>/report` and the `canonry_report` MCP tool — use `--format json` when you want to summarize specific numbers in a thread instead of attaching the file.
 
 Behaviors worth knowing before narrating numbers from the report:
-- `executiveSummary.citationRate` is always sourced from the latest visibility run (completed **or** partial), so it tracks the scorecard table even when the latest sweep had a flaky provider.
+- `executiveSummary.citationRate` is **per-query** — `citedQueryCount / totalQueryCount`, where a query counts as cited if any provider in the run cited it. The denominator is total tracked queries (not (query × provider) pairs), so the rate stays comparable when provider count varies between runs. Use `citedQueryCount` / `totalQueryCount` directly when narrating ratios.
+- The same per-query definition powers every `citationsTrend[].citationRate` so trend deltas reflect real movement, not provider-mix variance.
 - `citationsTrend` excludes partial runs. A project with only one completed run shows `trend: "unknown"` — never claim a comparison that isn't there.
 - Project ownership and competitor tagging use subdomain-aware matching: `blog.example.com` counts as the project when `example.com` is the canonical domain or in `ownedDomains`; `blog.rival.com` is tagged `isCompetitor: true` when `rival.com` is tracked.
 - AI referral totals dedupe overlapping GA4 attribution dimensions (`session` / `first_user` / `manual_utm`).

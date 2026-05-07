@@ -21,6 +21,8 @@ function makeReport(): ProjectReportDto {
     },
     executiveSummary: {
       citationRate: 0,
+      citedQueryCount: 0,
+      totalQueryCount: 0,
       trend: 'unknown',
       queryCount: 0,
       competitorCount: 0,

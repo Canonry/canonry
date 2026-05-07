@@ -157,6 +157,8 @@ describe('GET /api/v1/projects/:name/report', () => {
 
     // executive summary defaults
     expect(body.executiveSummary.citationRate).toBe(0)
+    expect(body.executiveSummary.citedQueryCount).toBe(0)
+    expect(body.executiveSummary.totalQueryCount).toBe(0)
     expect(body.executiveSummary.trend).toBe('unknown')
     expect(body.executiveSummary.queryCount).toBe(0)
     expect(body.executiveSummary.competitorCount).toBe(0)
@@ -216,7 +218,13 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(ratesByProvider.gemini).toMatchObject({ citedCount: 1, totalCount: 2, citationRate: 50 })
     expect(ratesByProvider.openai).toMatchObject({ citedCount: 1, totalCount: 2, citationRate: 50 })
 
-    expect(body.executiveSummary.citationRate).toBe(50)
+    // Headline citationRate is per-query: both kwA and kwB are cited by ≥1
+    // provider in this run, so 2/2 = 100% — not the per-pair 2/4 = 50%. The
+    // per-provider rates above stay at 50% because they're scoped to a single
+    // provider's denominator and stay meaningful within a run.
+    expect(body.executiveSummary.citationRate).toBe(100)
+    expect(body.executiveSummary.citedQueryCount).toBe(2)
+    expect(body.executiveSummary.totalQueryCount).toBe(2)
     expect(body.executiveSummary.providerCount).toBe(2)
     expect(body.executiveSummary.queryCount).toBe(2)
   })
@@ -741,6 +749,87 @@ describe('GET /api/v1/projects/:name/report', () => {
     // Recommended next steps should count one critical regression, not three.
     const immediate = body.recommendedNextSteps.find(s => s.horizon === 'immediate')
     expect(immediate?.title).toContain('1 critical regression')
+  })
+
+  test('headline rate is per-query — partial-provider runs do not inflate the denominator (issue #422)', async () => {
+    // Issue #422 reproduction: a gemini-only run that cited 1 of 5 queries
+    // (per-pair 1/5 = 20%) was followed by a full 4-provider run where
+    // 2 distinct queries got cited (per-pair 3/24 = 13%). The old per-pair
+    // headline read this as a decline. Per-query reads it as 1/5 → 2/5 = up.
+    const projectId = insertProject(ctx.db, 'issue-422')
+    const queryIds: string[] = []
+    for (let i = 1; i <= 5; i++) {
+      queryIds.push(insertQuery(ctx.db, projectId, `query-${i}`))
+    }
+
+    // Establish four prior baseline runs at 0% so the trend chart isn't
+    // suppressed by isTrendBaseline (MIN_TREND_POINTS = 4).
+    for (let i = 0; i < 4; i++) {
+      const day = String(i + 1).padStart(2, '0')
+      const baselineId = insertRun(ctx.db, projectId, {
+        createdAt: `2026-04-${day}T00:00:00Z`,
+        finishedAt: `2026-04-${day}T00:01:00Z`,
+      })
+      // 4 providers × 5 queries × not-cited
+      for (const qid of queryIds) {
+        for (const provider of ['gemini', 'openai', 'claude', 'perplexity']) {
+          insertSnapshot(ctx.db, baselineId, qid, { provider, citationState: 'not-cited' })
+        }
+      }
+    }
+
+    // Run A: gemini-only, query-1 cited.
+    const runA = insertRun(ctx.db, projectId, {
+      createdAt: '2026-04-30T00:00:00Z',
+      finishedAt: '2026-04-30T00:01:00Z',
+    })
+    for (const qid of queryIds) {
+      insertSnapshot(ctx.db, runA, qid, {
+        provider: 'gemini',
+        citationState: qid === queryIds[0] ? 'cited' : 'not-cited',
+      })
+    }
+
+    // Run B: all four providers. query-1 still cited by gemini, query-2
+    // newly cited by gemini + claude + openai. Per-pair = 4/20 = 20% but
+    // the per-query rate is 2/5 = 40% — a real improvement, not a decline.
+    const runB = insertRun(ctx.db, projectId, {
+      createdAt: '2026-05-01T00:00:00Z',
+      finishedAt: '2026-05-01T00:01:00Z',
+    })
+    for (const qid of queryIds) {
+      for (const provider of ['gemini', 'openai', 'claude', 'perplexity']) {
+        const qIdx = queryIds.indexOf(qid)
+        let cited = false
+        if (qIdx === 0 && provider === 'gemini') cited = true
+        if (qIdx === 1 && provider !== 'perplexity') cited = true
+        insertSnapshot(ctx.db, runB, qid, { provider, citationState: cited ? 'cited' : 'not-cited' })
+      }
+    }
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/issue-422/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    // Latest run is run B: 2 of 5 queries cited = 40%.
+    expect(body.executiveSummary.citationRate).toBe(40)
+    expect(body.executiveSummary.citedQueryCount).toBe(2)
+    expect(body.executiveSummary.totalQueryCount).toBe(5)
+
+    // Trend points: 4 baselines (0%) + run A (1/5 = 20%) + run B (2/5 = 40%).
+    const trend = body.citationsTrend
+    expect(trend.length).toBe(6)
+    const last = trend.at(-1)!
+    const prev = trend.at(-2)!
+    expect(last.runId).toBe(runB)
+    expect(last.citationRate).toBe(40)
+    expect(last.citedQueryCount).toBe(2)
+    expect(last.totalQueryCount).toBe(5)
+    expect(prev.runId).toBe(runA)
+    expect(prev.citationRate).toBe(20)
+
+    // The whole point of the fix: the trend label reads 'up', not 'down'.
+    expect(body.executiveSummary.trend).toBe('up')
   })
 
   test('trend label tracks the partial-run citation rate when the latest run is partial', async () => {

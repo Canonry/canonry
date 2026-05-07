@@ -223,13 +223,17 @@ export function ReportPage({ projectName }: { projectName: string }) {
 function ExecutiveSummarySection({ report }: { report: ProjectReportDto }) {
   const exec = report.executiveSummary
   const trendArrow = exec.trend === 'up' ? '↑ Up' : exec.trend === 'down' ? '↓ Down' : exec.trend === 'flat' ? '→ Flat' : '—'
-  const providerSuffix = `${trendArrow} · ${exec.providerCount} provider${exec.providerCount === 1 ? '' : 's'}`
+  const queryNoun = exec.totalQueryCount === 1 ? 'query' : 'queries'
+  const ratioFragment = exec.totalQueryCount > 0
+    ? `${exec.citedQueryCount}/${exec.totalQueryCount} ${queryNoun} cited`
+    : 'no queries'
+  const citationSuffix = `${trendArrow} · ${ratioFragment} · ${exec.providerCount} provider${exec.providerCount === 1 ? '' : 's'}`
   const competitorSuffix = `${exec.competitorCount} competitor${exec.competitorCount === 1 ? '' : 's'} tracked`
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 1" title="Executive summary" subtitle="Top-line citation rate with trend versus the prior run, plus the most actionable findings from the latest visibility sweep." />
+      <SectionHeading eyebrow="Section 1" title="Executive summary" subtitle="Citation rate is the share of tracked queries cited by at least one AI engine in the latest sweep — invariant to provider count, so it stays comparable run-to-run." />
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Metric label="Citation rate" value={formatPercent(exec.citationRate, 0)} tone={trendTone(exec.trend)} subtitle={providerSuffix} />
+        <Metric label="Citation rate" value={formatPercent(exec.citationRate, 0)} tone={trendTone(exec.trend)} subtitle={citationSuffix} />
         <Metric label="Queries tracked" value={formatNumber(exec.queryCount)} subtitle={competitorSuffix} />
         {exec.gsc && (
           <Metric
@@ -963,7 +967,7 @@ function PerProviderTrendTable({ trend }: { trend: CitationsTrendPoint[] }) {
           <thead>
             <tr>
               <th>Run</th>
-              <th>Overall rate</th>
+              <th>Cited queries</th>
               <th>Per-provider rates</th>
             </tr>
           </thead>
@@ -971,7 +975,9 @@ function PerProviderTrendTable({ trend }: { trend: CitationsTrendPoint[] }) {
             {trend.map(t => (
               <tr key={t.runId}>
                 <td className="evidence-query-cell">{formatDate(t.date)}</td>
-                <td>{t.citationRate}%</td>
+                <td>
+                  {t.citationRate}% <span className="text-zinc-500">({t.citedQueryCount}/{t.totalQueryCount})</span>
+                </td>
                 <td className="text-xs text-zinc-400">
                   {t.providerRates.map(r => `${r.provider}: ${r.citationRate}%`).join(' · ')}
                 </td>

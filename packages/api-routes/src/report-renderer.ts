@@ -381,11 +381,15 @@ function renderExecutiveSummary(report: ProjectReportDto): string {
   const trendLabel = s.trend === 'up' ? '↑ Up' : s.trend === 'down' ? '↓ Down' : s.trend === 'flat' ? '→ Flat' : '—'
   const trendTone = s.trend === 'up' ? 'positive' : s.trend === 'down' ? 'negative' : 'neutral'
 
+  const queryNoun = s.totalQueryCount === 1 ? 'query' : 'queries'
+  const ratioFragment = s.totalQueryCount > 0
+    ? `${s.citedQueryCount}/${s.totalQueryCount} ${queryNoun} cited`
+    : 'no queries'
   const metrics = [
     {
       label: 'Citation rate',
       value: `${s.citationRate}%`,
-      delta: `<span class="tone-${trendTone}">${trendLabel}</span> · ${s.providerCount} provider${s.providerCount === 1 ? '' : 's'}`,
+      delta: `<span class="tone-${trendTone}">${trendLabel}</span> · ${ratioFragment} · ${s.providerCount} provider${s.providerCount === 1 ? '' : 's'}`,
     },
     {
       label: 'Queries tracked',
@@ -429,7 +433,7 @@ function renderExecutiveSummary(report: ProjectReportDto): string {
       id: 'executive-summary',
       eyebrow: 'Section 1',
       title: 'Executive Summary',
-      intro: 'Top-line citation rate with trend versus the prior run, plus the most actionable findings from the latest visibility sweep.',
+      intro: 'Citation rate is the share of tracked queries cited by at least one AI engine in the latest sweep — invariant to provider count so it stays comparable run-to-run. The trend label compares this run to the previous one.',
     },
     metricsHtml + findingsHtml,
   )
@@ -1004,16 +1008,16 @@ function renderCitationsTrend(report: ProjectReportDto): string {
   const rows = trend.map((t: CitationsTrendPoint) => `
     <tr>
       <td>${formatDate(t.date)}</td>
-      <td class="numeric">${t.citationRate}%</td>
+      <td class="numeric">${t.citationRate}% <span class="cell-pending">(${t.citedQueryCount}/${t.totalQueryCount})</span></td>
       <td>${t.providerRates.map(r => `${escapeHtml(r.provider)}: ${r.citationRate}%`).join(' · ')}</td>
     </tr>`).join('')
 
   return section(
-    { id: 'citations-trend', eyebrow: 'Section 10', title: 'Citations Over Time', intro: 'Citation rate across every visibility sweep — the share of (keyword × provider) pairs in each run where your domain appeared in the source list, with a per-provider breakdown beneath.' },
+    { id: 'citations-trend', eyebrow: 'Section 10', title: 'Citations Over Time', intro: 'Citation rate across every visibility sweep — the share of tracked queries cited by at least one provider, with a per-provider breakdown beneath. Computed per-query so the headline stays comparable across runs that ran a different mix of providers.' },
     `${chart}
     <div class="chart-card"><h3>Run-by-run breakdown</h3>
       <table class="report-table">
-        <thead><tr><th>Run</th><th class="numeric">Overall rate</th><th>Per-provider rates</th></tr></thead>
+        <thead><tr><th>Run</th><th class="numeric">Cited queries</th><th>Per-provider rates</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`,
