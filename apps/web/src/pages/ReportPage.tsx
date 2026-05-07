@@ -1053,7 +1053,7 @@ function CitationsTrendSection({ report }: { report: ProjectReportDto }) {
   }
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 10" title="Citations over time" subtitle="Citation rate across every visibility sweep — the share of (keyword × provider) pairs in each run where your domain appeared in the source list, with a per-provider breakdown beneath." />
+      <SectionHeading eyebrow="Section 10" title="Citations over time" subtitle="Citation rate across every visibility sweep — the share of tracked queries cited by at least one provider, with a per-provider breakdown beneath. Computed per-query so the headline stays comparable across runs that ran a different mix of providers." />
       <div className="h-64 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-3">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={trend} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
