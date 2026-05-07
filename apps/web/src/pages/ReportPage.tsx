@@ -17,6 +17,8 @@ import {
   actionConfidenceLabel,
   CitationStates,
   contentActionLabel,
+  dedupeReportActions,
+  dedupeReportOpportunities,
   reportActionCategoryLabel,
   reportActionTone,
   reportConfidenceLabel,
@@ -257,12 +259,14 @@ export function ReportPage({ projectName }: { projectName: string }) {
       {audience === 'client' ? (
         <>
           <ClientSummarySection report={report} />
+          <WhatsChangedSection report={report} />
           <ActionPlanSection report={report} audience="client" />
           <ClientEvidenceSection report={report} />
         </>
       ) : (
         <>
           <ExecutiveSummarySection report={report} />
+          <WhatsChangedSection report={report} />
           <ActionPlanSection report={report} audience="agency" />
           <AgencyDiagnosticsSection report={report} />
           <CitationScorecardSection report={report} />
@@ -315,52 +319,73 @@ function ClientSummarySection({ report }: { report: ProjectReportDto }) {
 }
 
 function ActionPlanSection({ report, audience }: { report: ProjectReportDto; audience: ReportAudience }) {
-  const actions = audience === 'client'
+  const rawActions = audience === 'client'
     ? report.clientSummary.actionItems
     : report.agencyDiagnostics.priorities.length > 0
       ? report.agencyDiagnostics.priorities
       : report.actionPlan.filter(a => actionAudienceMatches(a, audience))
+  const actions = dedupeReportActions(report, rawActions)
   return (
     <section className="page-section-divider">
       <SectionHeading
         eyebrow={audience === 'client' ? 'Client actions' : 'Agency actions'}
-        title={audience === 'client' ? 'What we recommend next' : 'Agency action plan'}
-        subtitle={audience === 'client' ? 'Polished next steps backed by concise evidence.' : 'Technical priorities from the canonical action plan.'}
+        title={audience === 'client' ? 'What We Recommend Next' : 'Agency Action Plan'}
+        subtitle={audience === 'client' ? 'The short list to approve and execute.' : 'The highest-leverage work, sorted by urgency and evidence strength.'}
       />
       {actions.length === 0 ? (
         <EmptyHint message="No prioritized actions yet." />
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
-          {actions.map(action => (
-            <div key={`${action.priority}-${action.title}`} className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
-              <div className="mb-3 flex flex-wrap gap-2">
-                <ToneBadge tone={reportActionTone(action)}>{reportHorizonLabel(action.horizon)}</ToneBadge>
-                <ToneBadge tone="neutral">{reportActionCategoryLabel(action.category)}</ToneBadge>
-                <ToneBadge tone="neutral">{reportConfidenceLabel(action.confidence)} confidence</ToneBadge>
-              </div>
-              <p className="text-sm font-medium text-zinc-100">{action.title}</p>
-              <p className="mt-1 text-sm text-zinc-400">{action.action}</p>
-              {action.why.length > 0 && (
-                <div className="mt-3">
-                  <p className="eyebrow-soft mb-1">Why</p>
-                  <ul className="list-disc space-y-1 pl-4 text-xs text-zinc-400">
-                    {action.why.map((item, i) => <li key={i}>{item}</li>)}
-                  </ul>
+          {actions.map((action, idx) => {
+            const proof = action.evidence.length > 0 ? action.evidence : action.why
+            const hasDetails = action.why.length > 0 || action.evidence.length > 0
+            return (
+              <article key={`${action.priority}-${action.title}`} className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
+                <div className="flex items-start gap-3">
+                  <div
+                    className="flex size-8 shrink-0 items-center justify-center rounded-full bg-zinc-800/80 text-sm font-semibold text-zinc-100"
+                    title="Impact rank — 1 is the highest-leverage action"
+                  >
+                    {idx + 1}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-2 flex flex-wrap gap-2">
+                      <ToneBadge tone={reportActionTone(action)}>{reportHorizonLabel(action.horizon)}</ToneBadge>
+                      <ToneBadge tone="neutral">{reportActionCategoryLabel(action.category)}</ToneBadge>
+                      <ToneBadge tone="neutral">{reportConfidenceLabel(action.confidence)} confidence</ToneBadge>
+                    </div>
+                    <p className="text-sm font-medium text-zinc-100">{action.title}</p>
+                  </div>
                 </div>
-              )}
-              {action.evidence.length > 0 && (
-                <div className="mt-3">
-                  <p className="eyebrow-soft mb-1">Evidence</p>
-                  <ul className="list-disc space-y-1 pl-4 text-xs text-zinc-400">
-                    {action.evidence.map((item, i) => <li key={i}>{item}</li>)}
-                  </ul>
-                </div>
-              )}
-              <p className="mt-3 border-t border-zinc-800/60 pt-3 text-xs text-zinc-300">
-                <span className="font-medium">Success metric:</span> {action.successMetric}
-              </p>
-            </div>
-          ))}
+                <p className="mt-3 text-sm text-zinc-400">{action.action}</p>
+                <ProofChips items={proof} limit={3} className="mt-3" />
+                {hasDetails && (
+                  <details className="mt-3 text-xs text-zinc-400">
+                    <summary className="cursor-pointer text-zinc-500 hover:text-zinc-300">Evidence details</summary>
+                    {action.why.length > 0 && (
+                      <div className="mt-2">
+                        <p className="eyebrow-soft mb-1">Why</p>
+                        <ul className="list-disc space-y-1 pl-4">
+                          {action.why.map((item, i) => <li key={i}>{item}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                    {action.evidence.length > 0 && (
+                      <div className="mt-2">
+                        <p className="eyebrow-soft mb-1">Evidence</p>
+                        <ul className="list-disc space-y-1 pl-4">
+                          {action.evidence.map((item, i) => <li key={i}>{item}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                  </details>
+                )}
+                <p className="mt-3 border-t border-zinc-800/60 pt-3 text-xs text-zinc-300">
+                  <span className="font-medium">Win condition:</span> {action.successMetric}
+                </p>
+              </article>
+            )
+          })}
         </div>
       )}
     </section>
@@ -368,11 +393,11 @@ function ActionPlanSection({ report, audience }: { report: ProjectReportDto; aud
 }
 
 function AgencyDiagnosticsSection({ report }: { report: ProjectReportDto }) {
-  const diagnostics = report.agencyDiagnostics.diagnostics
+  const diagnostics = report.agencyDiagnostics.diagnostics.filter(d => d.title !== 'Location caveat')
   if (diagnostics.length === 0) return null
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Agency diagnostics" title="Technical diagnostics" subtitle="Operator-facing evidence for provider, source-domain, search-demand, indexing, content, and location follow-up." />
+      <SectionHeading eyebrow="Agency diagnostics" title="Technical Diagnostics" subtitle="Fast-read operator flags behind the action plan." />
       <div className="grid gap-3 lg:grid-cols-2">
         {diagnostics.map(d => (
           <div key={d.title} className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
@@ -381,11 +406,7 @@ function AgencyDiagnosticsSection({ report }: { report: ProjectReportDto }) {
               <p className="text-sm font-medium text-zinc-100">{d.title}</p>
             </div>
             <p className="text-sm text-zinc-400">{d.detail}</p>
-            {d.evidence.length > 0 && (
-              <ul className="mt-3 list-disc space-y-1 pl-4 text-xs text-zinc-500">
-                {d.evidence.map((item, i) => <li key={i}>{item}</li>)}
-              </ul>
-            )}
+            <ProofChips items={d.evidence} limit={3} className="mt-3" />
           </div>
         ))}
       </div>
@@ -432,13 +453,14 @@ function ClientEvidenceSection({ report }: { report: ProjectReportDto }) {
       ],
     })
   }
-  if (report.contentOpportunities.length > 0) {
+  const dedupedOpportunities = dedupeReportOpportunities(report)
+  if (dedupedOpportunities.length > 0) {
     cards.push({
       key: 'content',
       tone: 'caution',
       title: 'Content opportunities',
       detail: 'Canonry found topics where better content could improve AI citations.',
-      items: report.contentOpportunities.slice(0, 5).map(o => `${o.query}: ${contentActionLabel(o.action)} (score ${Math.round(o.score)}/100)`),
+      items: dedupedOpportunities.slice(0, 5).map(o => `${o.query}: ${o.action} (${Math.round(o.score)})`),
     })
   }
 
@@ -483,13 +505,52 @@ function ExecutiveSummarySection({ report }: { report: ProjectReportDto }) {
     : 'no queries'
   const citationSuffix = `${trendArrow} · ${citedFragment} · ${exec.providerCount} provider${exec.providerCount === 1 ? '' : 's'}`
   const competitorSuffix = `${exec.competitorCount} competitor${exec.competitorCount === 1 ? '' : 's'} tracked`
+  const headlineTitle = exec.totalQueryCount > 0
+    ? `${exec.citedQueryCount} of ${exec.totalQueryCount} tracked ${queryNoun} cite ${report.meta.project.displayName}`
+    : 'No AI citation data yet'
+  const headlineSubtitle = exec.totalQueryCount > 0
+    ? `${exec.citationRate}% citation coverage and ${exec.mentionRate}% mention coverage across ${exec.providerCount} provider${exec.providerCount === 1 ? '' : 's'}.`
+    : 'Run a check to populate the first citation and mention baseline.'
+  const priorityActions = report.agencyDiagnostics.priorities.length > 0
+    ? report.agencyDiagnostics.priorities
+    : report.actionPlan
+  const actionCount = dedupeReportActions(report, priorityActions).length
+  const dateRange = gscDateRange(report)
   return (
     <section className="page-section-divider">
       <SectionHeading
         eyebrow="Section 1"
-        title="Executive summary"
-        subtitle="Two independent signals: citation rate = your domain in the source list the AI used; mention rate = your brand in the answer text. A model can mention you without citing your domain, or vice versa. Both are computed per-query so they stay comparable when provider count changes."
+        title="Executive Summary"
+        subtitle="Citation = source list. Mention = answer text. They are independent signals."
       />
+      <div className="mb-4 grid gap-3 lg:grid-cols-[2fr_3fr]">
+        <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-5">
+          <p className="text-[11px] uppercase tracking-wide text-zinc-500">Latest AI visibility check</p>
+          <p className="mt-2 text-lg font-semibold tracking-tight text-zinc-100">{headlineTitle}</p>
+          <p className="mt-2 text-sm text-zinc-400">{headlineSubtitle}</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
+            <p className="eyebrow-soft">Citation trend</p>
+            <p className={`text-xl font-semibold tracking-tight ${
+              exec.trend === 'up' ? 'text-emerald-400'
+                : exec.trend === 'down' ? 'text-rose-400'
+                : 'text-zinc-100'
+            }`}>{trendArrow}</p>
+            <p className="mt-1 text-[11px] text-zinc-500">{citedFragment}</p>
+          </div>
+          <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
+            <p className="eyebrow-soft">Mention coverage</p>
+            <p className="text-xl font-semibold tracking-tight text-zinc-100">{exec.mentionRate}%</p>
+            <p className="mt-1 text-[11px] text-zinc-500">{mentionedFragment}</p>
+          </div>
+          <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
+            <p className="eyebrow-soft">Prioritized actions</p>
+            <p className="text-xl font-semibold tracking-tight text-zinc-100">{formatNumber(actionCount)}</p>
+            <p className="mt-1 text-[11px] text-zinc-500">Sorted for agency follow-up.</p>
+          </div>
+        </div>
+      </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric label="Citation rate" value={formatPercent(exec.citationRate, 0)} tone={trendTone(exec.trend)} subtitle={citationSuffix} />
         <Metric label="Mention rate" value={formatPercent(exec.mentionRate, 0)} subtitle={mentionedFragment} />
@@ -498,7 +559,7 @@ function ExecutiveSummarySection({ report }: { report: ProjectReportDto }) {
           <Metric
             label="GSC clicks"
             value={formatNumber(exec.gsc.clicks)}
-            subtitle={`${formatNumber(exec.gsc.impressions)} imp · ${formatRatio(exec.gsc.ctr)} CTR`}
+            subtitle={`${formatNumber(exec.gsc.impressions)} imp · ${formatRatio(exec.gsc.ctr)} CTR${dateRange ? ` · ${dateRange}` : ''}`}
           />
         )}
         {exec.ga && (
@@ -534,6 +595,221 @@ function ExecutiveSummarySection({ report }: { report: ProjectReportDto }) {
   )
 }
 
+// ─── Section: What's Changed ───────────────────────────────────────────────
+
+const WHATS_CHANGED_PERIOD_DAYS = 14
+
+function deltaTone(direction: 'up' | 'down' | 'flat'): MetricTone {
+  if (direction === 'up') return 'positive'
+  if (direction === 'down') return 'negative'
+  return 'neutral'
+}
+
+function deltaArrow(direction: 'up' | 'down' | 'flat'): string {
+  if (direction === 'up') return '↑'
+  if (direction === 'down') return '↓'
+  return '→'
+}
+
+function RateDeltaTile({
+  label,
+  delta,
+  unit,
+}: {
+  label: string
+  delta: ProjectReportDto['whatsChanged']['citationRate']
+  unit: '%' | 'count'
+}) {
+  if (!delta) {
+    return (
+      <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
+        <p className="eyebrow-soft">{label}</p>
+        <p className="text-2xl font-semibold tracking-tight text-zinc-500">—</p>
+        <p className="mt-1 text-[11px] text-zinc-500">No prior data</p>
+      </div>
+    )
+  }
+  const valueSuffix = unit === '%' ? '%' : ''
+  const sign = delta.deltaAbs > 0 ? '+' : ''
+  const tone = deltaTone(delta.direction)
+  const toneClass = tone === 'positive' ? 'text-emerald-400'
+    : tone === 'negative' ? 'text-rose-400'
+    : 'text-zinc-100'
+  return (
+    <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
+      <p className="eyebrow-soft">{label}</p>
+      <p className={`text-2xl font-semibold tracking-tight ${toneClass}`}>
+        {delta.current}{valueSuffix} <span className="text-sm font-medium">{deltaArrow(delta.direction)}</span>
+      </p>
+      <p className="mt-1 text-[11px] text-zinc-500">
+        {sign}{unit === '%' ? delta.deltaAbs.toFixed(1) : delta.deltaAbs}{valueSuffix} vs {delta.prior}{valueSuffix}
+      </p>
+    </div>
+  )
+}
+
+function TrafficDeltaTile({
+  label,
+  delta,
+  countLabel,
+}: {
+  label: string
+  delta: ProjectReportDto['whatsChanged']['gscClicksDelta']
+  countLabel: string
+}) {
+  if (!delta) {
+    return (
+      <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
+        <p className="eyebrow-soft">{label}</p>
+        <p className="text-2xl font-semibold tracking-tight text-zinc-500">—</p>
+        <p className="mt-1 text-[11px] text-zinc-500">Not enough trend data</p>
+      </div>
+    )
+  }
+  const sign = delta.deltaAbs > 0 ? '+' : ''
+  const tone = deltaTone(delta.direction)
+  const toneClass = tone === 'positive' ? 'text-emerald-400'
+    : tone === 'negative' ? 'text-rose-400'
+    : 'text-zinc-100'
+  return (
+    <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 px-4 py-3">
+      <p className="eyebrow-soft">{label}</p>
+      <p className={`text-2xl font-semibold tracking-tight ${toneClass}`}>
+        {formatNumber(delta.current)} <span className="text-sm font-medium">{deltaArrow(delta.direction)}</span>
+      </p>
+      <p className="mt-1 text-[11px] text-zinc-500">
+        {sign}{formatNumber(delta.deltaAbs)} {countLabel} vs prior {WHATS_CHANGED_PERIOD_DAYS} days
+      </p>
+    </div>
+  )
+}
+
+function ProviderMovementsTable({
+  movements,
+}: {
+  movements: ProjectReportDto['whatsChanged']['providerMovements']
+}) {
+  const meaningful = movements.filter(m => m.direction !== 'flat')
+  if (meaningful.length === 0) return null
+  return (
+    <div className="mt-4">
+      <p className="eyebrow mb-2">AI engine movements</p>
+      <div className="evidence-table-wrap">
+        <table className="evidence-table">
+          <thead>
+            <tr>
+              <th>Engine</th>
+              <th>Prior</th>
+              <th>Current</th>
+              <th>Change</th>
+            </tr>
+          </thead>
+          <tbody>
+            {meaningful.map(m => {
+              const sign = m.deltaAbs > 0 ? '+' : ''
+              const tone = deltaTone(m.direction)
+              const cellClass = tone === 'positive' ? 'text-emerald-400'
+                : tone === 'negative' ? 'text-rose-400'
+                : 'text-zinc-300'
+              return (
+                <tr key={m.provider}>
+                  <td>{m.provider}</td>
+                  <td>{m.prior}%</td>
+                  <td>{m.current}%</td>
+                  <td className={cellClass}>
+                    {sign}{m.deltaAbs.toFixed(1)}% {deltaArrow(m.direction)}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function WinsLossesTable({
+  insights,
+  heading,
+  emptyMessage,
+}: {
+  insights: readonly ReportInsight[]
+  heading: string
+  emptyMessage: string
+}) {
+  if (insights.length === 0) {
+    return (
+      <div className="mt-4 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
+        <p className="eyebrow mb-1">{heading}</p>
+        <p className="text-xs text-zinc-500">{emptyMessage}</p>
+      </div>
+    )
+  }
+  return (
+    <div className="mt-4">
+      <p className="eyebrow mb-2">{heading}</p>
+      <div className="evidence-table-wrap">
+        <table className="evidence-table">
+          <thead>
+            <tr>
+              <th>Severity</th>
+              <th>Title</th>
+              <th>Query</th>
+              <th>Provider</th>
+            </tr>
+          </thead>
+          <tbody>
+            {insights.map(i => (
+              <tr key={i.id}>
+                <td>
+                  <ToneBadge tone={SEVERITY_TONE[i.severity]}>{reportSeverityLabel(i.severity)}</ToneBadge>
+                  {i.instanceCount > 1 && <span className="ml-2 text-[11px] text-zinc-500">×{i.instanceCount}</span>}
+                </td>
+                <td className="evidence-query-cell">{i.title}</td>
+                <td className="text-xs text-zinc-400">{i.query}</td>
+                <td className="text-xs text-zinc-400">{i.provider}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function WhatsChangedSection({ report }: { report: ProjectReportDto }) {
+  const w = report.whatsChanged
+  const everythingEmpty = !w.enoughHistory
+    && !w.gscClicksDelta
+    && !w.aiReferralsDelta
+    && w.wins.length === 0
+    && w.regressions.length === 0
+  if (everythingEmpty) {
+    return (
+      <section className="page-section-divider">
+        <SectionHeading eyebrow="Section 2" title="What's Changed" subtitle={w.headline} />
+        <EmptyHint message="Trends will appear after a few more checks." />
+      </section>
+    )
+  }
+  return (
+    <section className="page-section-divider">
+      <SectionHeading eyebrow="Section 2" title="What's Changed" subtitle={w.headline} />
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <RateDeltaTile label="Citation rate" delta={w.citationRate} unit="%" />
+        <RateDeltaTile label="Mention rate" delta={w.mentionRate} unit="%" />
+        <RateDeltaTile label="Cited queries" delta={w.citedQueryCount} unit="count" />
+        <TrafficDeltaTile label="GSC clicks" delta={w.gscClicksDelta} countLabel="clicks" />
+        <TrafficDeltaTile label="AI referral sessions" delta={w.aiReferralsDelta} countLabel="sessions" />
+      </div>
+      <ProviderMovementsTable movements={w.providerMovements} />
+      <WinsLossesTable insights={w.wins} heading="Wins" emptyMessage="No new gains in the latest check." />
+      <WinsLossesTable insights={w.regressions} heading="Regressions" emptyMessage="No new regressions in the latest check." />
+    </section>
+  )
+}
+
 function LocationHandlingCard({ report }: { report: ProjectReportDto }) {
   const location = report.meta.location
   const handling = report.meta.providerLocationHandling
@@ -546,7 +822,7 @@ function LocationHandlingCard({ report }: { report: ProjectReportDto }) {
         {location ? formatLocationLabel(location) : 'none — providers received the queries verbatim with no geographic hint.'}
         {location && location.otherConfiguredLabels.length > 0 && (
           <span className="text-zinc-500">
-            {' '}— other configured locations ({location.otherConfiguredLabels.join(', ')}) need their own sweep to compare.
+            {' '}— other configured locations ({location.otherConfiguredLabels.join(', ')}) need their own check to compare.
           </span>
         )}
       </p>
@@ -601,14 +877,14 @@ function CitationScorecardSection({ report }: { report: ProjectReportDto }) {
   if (sc.providers.length === 0 || sc.queries.length === 0) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 2" title="Citation scorecard" subtitle="Per (query × provider) view of citations and mentions for the latest sweep." />
+        <SectionHeading eyebrow="Section 3" title="Citation Scorecard" subtitle="Per-engine citation and mention coverage from the latest check." />
         <EmptyHint message="No completed answer-visibility runs yet." />
       </section>
     )
   }
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 2" title="Citation scorecard" subtitle="Per (query × provider) view of both signals — citations (your domain in the source list) and mentions (your brand in the answer text) — for the latest sweep." />
+      <SectionHeading eyebrow="Section 3" title="Citation Scorecard" subtitle="Per-engine citation and mention coverage from the latest check." />
       <div className="mb-4">
         <p className="eyebrow mb-2">Provider citation rate</p>
         <div className="h-48 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-3">
@@ -687,8 +963,8 @@ function CompetitorLandscapeSection({ report }: { report: ProjectReportDto }) {
   if (noCitationData && noMentionData) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 3" title="Competitor landscape" subtitle="Where tracked competitors appear in AI answers compared to your domain — both in source citations and in the answer text itself." />
-        <EmptyHint message="No competitor data yet. Add competitors and run a visibility sweep." />
+        <SectionHeading eyebrow="Section 4" title="Competitor Landscape" subtitle="Who AI engines cite and mention instead of the client." />
+        <EmptyHint message="No competitor data yet. Add competitors and run a check." />
       </section>
     )
   }
@@ -705,7 +981,7 @@ function CompetitorLandscapeSection({ report }: { report: ProjectReportDto }) {
   const mentionByDomain = new Map(ml.competitors.map(m => [m.domain, m]))
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 3" title="Competitor landscape" subtitle="Where tracked competitors appear in AI answers compared to your domain — both in source citations and in the answer text itself." />
+      <SectionHeading eyebrow="Section 4" title="Competitor Landscape" subtitle="Who AI engines cite and mention instead of the client." />
       <div className="grid gap-4 lg:grid-cols-2">
         {showCitationBars && (
           <div>
@@ -812,101 +1088,96 @@ function AiSourceOriginSection({ report }: { report: ProjectReportDto }) {
   if (so.categories.length === 0 && so.topDomains.length === 0) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 4" title="AI citation sources" subtitle="Every external website AI engines cited as a source for your tracked queries in the latest sweep, ranked by citation count. Tracked competitors are pulled into their own bucket. Your own domains are excluded." />
-        <EmptyHint message="No source data yet. Run a visibility sweep first." />
+        <SectionHeading eyebrow="Section 5" title="AI Citation Sources" subtitle="External domains AI engines cited most in the latest check." />
+        <EmptyHint message="No source data yet. Run a check first." />
       </section>
     )
   }
   const totalCitations = so.categories.reduce((s, c) => s + c.count, 0)
   const competitor = so.categories.find(c => c.category === 'competitor')
-  const max = Math.max(1, ...so.categories.map(c => c.count))
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 4" title="AI citation sources" subtitle="Every external website AI engines cited as a source for your tracked queries in the latest sweep, ranked by citation count. Tracked competitors are pulled into their own bucket. Your own domains are excluded." />
+      <SectionHeading eyebrow="Section 5" title="AI Citation Sources" subtitle="External domains AI engines cited most in the latest check." />
       {competitor && (
         <p className="mb-3 text-sm text-zinc-300">
           <span className="font-semibold">{competitor.sharePct}%</span> of citations went to tracked competitors ({competitor.count} of {totalCitations}).
         </p>
       )}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div>
-          <p className="eyebrow mb-2">Top source domains</p>
-          {so.topDomains.length === 0 ? (
-            <EmptyHint message="No domains tracked yet." />
-          ) : (
-            <div className="evidence-table-wrap">
-              <table className="evidence-table">
-                <thead>
-                  <tr>
-                    <th>Domain</th>
-                    <th>Citations</th>
-                    <th>Tag</th>
+      {so.topDomains.length > 0 && (
+        <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
+          <p className="eyebrow mb-3">Top sources</p>
+          <div className="evidence-table-wrap">
+            <table className="evidence-table">
+              <thead>
+                <tr>
+                  <th>Domain</th>
+                  <th>Citations</th>
+                  <th>Tag</th>
+                </tr>
+              </thead>
+              <tbody>
+                {so.topDomains.map(d => (
+                  <tr key={d.domain}>
+                    <td className="evidence-query-cell text-xs">{d.domain}</td>
+                    <td>{d.count}</td>
+                    <td>
+                      {d.isCompetitor
+                        ? <ToneBadge tone="negative">Tracked competitor</ToneBadge>
+                        : <ToneBadge tone="neutral">External</ToneBadge>}
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {so.topDomains.map(d => (
-                    <tr key={d.domain}>
-                      <td className="evidence-query-cell text-xs">{d.domain}</td>
-                      <td>{d.count}</td>
-                      <td>
-                        {d.isCompetitor
-                          ? <ToneBadge tone="negative">Tracked competitor</ToneBadge>
-                          : <ToneBadge tone="neutral">External</ToneBadge>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-        <div>
-          <p className="eyebrow mb-2">By source type</p>
-          {so.categories.length === 0 ? (
-            <EmptyHint message="No category data." />
-          ) : (
-            <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
-              <div className="space-y-2 text-sm">
-                {so.categories.map(c => {
-                  const pct = (c.count / max) * 100
-                  const tone = c.category === 'competitor' ? 'negative' : c.category === 'directory' || c.category === 'forum' ? 'caution' : 'neutral'
-                  const fill = tone === 'negative' ? 'bg-rose-400' : tone === 'caution' ? 'bg-amber-400' : 'bg-blue-400'
-                  return (
-                    <div key={c.category} className="grid grid-cols-[180px_1fr_90px] items-center gap-2">
-                      <div className="truncate text-xs text-zinc-400">{c.label}</div>
-                      <div className="h-3 rounded-sm bg-zinc-800">
-                        <div className={`h-full rounded-sm ${fill}`} style={{ width: `${pct.toFixed(1)}%` }} />
-                      </div>
-                      <div className="text-right text-xs text-zinc-200 tabular-nums">
-                        {c.count} <span className="text-zinc-500">({c.sharePct}%)</span>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
+      )}
+      {so.categories.length > 0 && (
+        <div className="mt-4">
+          <ShareBars
+            heading="By source type"
+            rows={so.categories.map(c => {
+              const tone = c.category === 'competitor'
+                ? '#f43f5e'
+                : c.category === 'directory' || c.category === 'forum'
+                  ? '#f59e0b'
+                  : '#3b82f6'
+              return { label: c.label, count: c.count, sharePct: c.sharePct, color: tone }
+            })}
+            countLabel="citations"
+          />
         </div>
-      </div>
+      )}
     </section>
   )
 }
 
 // ─── Section: GSC performance ──────────────────────────────────────────────
 
+function gscDateRange(report: ProjectReportDto): string {
+  const summary = report.executiveSummary.gsc
+  const gsc = report.gsc
+  const start = summary?.periodStart || gsc?.periodStart || gsc?.trend[0]?.date || ''
+  const end = summary?.periodEnd || gsc?.periodEnd || gsc?.trend.at(-1)?.date || ''
+  if (!start && !end) return ''
+  if (start && end) return `${formatDate(start)} → ${formatDate(end)}`
+  return formatDate(start || end)
+}
+
 function GscPerformanceSection({ report }: { report: ProjectReportDto }) {
   const gsc = report.gsc
   if (!gsc) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 5" title="GSC performance" subtitle="Your site's performance in Google's regular (non-AI) search results — top queries, intent breakdown, and the click trend, sourced from Google Search Console for the most recent sync window." />
+        <SectionHeading eyebrow="Section 6" title="GSC Performance" subtitle="Search demand signals to compare against AI visibility." />
         <EmptyHint message="Google Search Console is not connected for this project." />
       </section>
     )
   }
+  const dateRange = gscDateRange(report)
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 5" title="GSC performance" subtitle="Your site's performance in Google's regular (non-AI) search results — top queries, intent breakdown, and the click trend, sourced from Google Search Console for the most recent sync window." />
+      <SectionHeading eyebrow="Section 6" title="GSC Performance" subtitle={`Search demand signals to compare against AI visibility${dateRange ? ` for ${dateRange}` : ''}.`} />
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric label="Clicks" value={formatNumber(gsc.totalClicks)} />
         <Metric label="Impressions" value={formatNumber(gsc.totalImpressions)} />
@@ -932,16 +1203,16 @@ function GscPerformanceSection({ report }: { report: ProjectReportDto }) {
       {gsc.topQueries.length > 0 && <TopQueriesTable rows={gsc.topQueries} />}
       {gsc.categoryBreakdown.length > 0 && (
         <div className="mt-4">
-          <p className="eyebrow mb-2">Query categories</p>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {gsc.categoryBreakdown.map(c => (
-              <div key={c.category} className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-3 py-2">
-                <p className="eyebrow-soft">{c.category}</p>
-                <p className="text-base font-semibold text-zinc-100">{formatNumber(c.clicks)} clicks</p>
-                <p className="text-[11px] text-zinc-500">{formatPercent(c.sharePct)} share · {formatNumber(c.impressions)} impressions</p>
-              </div>
-            ))}
-          </div>
+          <ShareBars
+            heading="Search demand by intent"
+            rows={gsc.categoryBreakdown.map((c, i) => ({
+              label: c.category,
+              count: c.clicks,
+              sharePct: c.sharePct,
+              color: CHART_SERIES_COLORS[i % CHART_SERIES_COLORS.length],
+            }))}
+            countLabel="clicks"
+          />
         </div>
       )}
       {(gsc.trackedButNoGsc.length > 0 || gsc.gscButNotTracked.length > 0) && (
@@ -967,22 +1238,22 @@ function TopQueriesTable({ rows }: { rows: GscQueryRow[] }) {
           <thead>
             <tr>
               <th>Query</th>
-              <th>Category</th>
               <th>Clicks</th>
-              <th>Impr.</th>
+              <th>Imp.</th>
               <th>CTR</th>
               <th>Pos.</th>
+              <th>Category</th>
             </tr>
           </thead>
           <tbody>
             {rows.map(r => (
               <tr key={r.query}>
                 <td className="evidence-query-cell">{r.query}</td>
-                <td className="text-xs text-zinc-400">{r.category}</td>
                 <td>{formatNumber(r.clicks)}</td>
                 <td>{formatNumber(r.impressions)}</td>
                 <td>{formatRatio(r.ctr)}</td>
                 <td>{r.avgPosition.toFixed(1)}</td>
+                <td><ToneBadge tone="neutral">{r.category}</ToneBadge></td>
               </tr>
             ))}
           </tbody>
@@ -1014,14 +1285,14 @@ function GaTrafficSection({ report }: { report: ProjectReportDto }) {
   if (!ga) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 6" title="GA4 traffic" subtitle="Total sessions and users on your site, with top landing pages and channel breakdown — sourced from Google Analytics 4." />
+        <SectionHeading eyebrow="Section 7" title="GA4 Traffic" subtitle="Site traffic from the connected Google Analytics 4 property." />
         <EmptyHint message="Google Analytics 4 is not connected for this project." />
       </section>
     )
   }
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 6" title="GA4 traffic" subtitle={`Total sessions and users on your site between ${formatDate(ga.periodStart)} and ${formatDate(ga.periodEnd)}, with top landing pages and channel breakdown — sourced from Google Analytics 4.`} />
+      <SectionHeading eyebrow="Section 7" title="GA4 Traffic" subtitle={`Site traffic from ${formatDate(ga.periodStart)} to ${formatDate(ga.periodEnd)}.`} />
       <div className="mt-3 grid gap-3 sm:grid-cols-3">
         <Metric label="Sessions" value={formatNumber(ga.totalSessions)} />
         <Metric label="Users" value={formatNumber(ga.totalUsers)} />
@@ -1041,7 +1312,7 @@ function GaTrafficSection({ report }: { report: ProjectReportDto }) {
                 </tr>
               </thead>
               <tbody>
-                {ga.topLandingPages.slice(0, 12).map(p => (
+                {ga.topLandingPages.map(p => (
                   <tr key={p.page}>
                     <td className="evidence-query-cell text-xs">{p.page}</td>
                     <td>{formatNumber(p.sessions)}</td>
@@ -1056,16 +1327,16 @@ function GaTrafficSection({ report }: { report: ProjectReportDto }) {
       )}
       {ga.channelBreakdown.length > 0 && (
         <div className="mt-4">
-          <p className="eyebrow mb-2">Channel breakdown</p>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {ga.channelBreakdown.map(c => (
-              <div key={c.channel} className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-3 py-2">
-                <p className="eyebrow-soft">{c.channel}</p>
-                <p className="text-base font-semibold text-zinc-100">{formatNumber(c.sessions)}</p>
-                <p className="text-[11px] text-zinc-500">{formatPercent(c.sharePct)}</p>
-              </div>
-            ))}
-          </div>
+          <ShareBars
+            heading="Channel mix"
+            rows={ga.channelBreakdown.map((c, i) => ({
+              label: c.channel,
+              count: c.sessions,
+              sharePct: c.sharePct,
+              color: CHART_SERIES_COLORS[i % CHART_SERIES_COLORS.length],
+            }))}
+            countLabel="sessions"
+          />
         </div>
       )}
     </section>
@@ -1079,14 +1350,14 @@ function SocialReferralsSection({ report }: { report: ProjectReportDto }) {
   if (!sr) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 7" title="Social referrals" subtitle="Sessions on your site sent by social platforms (LinkedIn, Facebook, X, etc.) — paid versus organic split with the top driving campaigns. Sourced from Google Analytics 4." />
+        <SectionHeading eyebrow="Section 8" title="Social Referrals" subtitle="Social traffic split by channel and campaign." />
         <EmptyHint message="No social referral data." />
       </section>
     )
   }
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 7" title="Social referrals" subtitle="Sessions on your site sent by social platforms (LinkedIn, Facebook, X, etc.) — paid versus organic split with the top driving campaigns. Sourced from Google Analytics 4." />
+      <SectionHeading eyebrow="Section 8" title="Social Referrals" subtitle="Social traffic split by channel and campaign." />
       <div className="grid gap-3 sm:grid-cols-3">
         <Metric label="Total sessions" value={formatNumber(sr.totalSessions)} />
         <Metric label="Organic" value={formatNumber(sr.organicSessions)} />
@@ -1094,16 +1365,16 @@ function SocialReferralsSection({ report }: { report: ProjectReportDto }) {
       </div>
       {sr.channels.length > 0 && (
         <div className="mt-4">
-          <p className="eyebrow mb-2">By channel</p>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {sr.channels.map(c => (
-              <div key={c.channelGroup} className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-3 py-2">
-                <p className="eyebrow-soft">{c.channelGroup}</p>
-                <p className="text-base font-semibold text-zinc-100">{formatNumber(c.sessions)}</p>
-                <p className="text-[11px] text-zinc-500">{formatPercent(c.sharePct)}</p>
-              </div>
-            ))}
-          </div>
+          <ShareBars
+            heading="Social channel mix"
+            rows={sr.channels.map((c, i) => ({
+              label: c.channelGroup,
+              count: c.sessions,
+              sharePct: c.sharePct,
+              color: CHART_SERIES_COLORS[i % CHART_SERIES_COLORS.length],
+            }))}
+            countLabel="sessions"
+          />
         </div>
       )}
       {sr.topCampaigns.length > 0 && (
@@ -1142,14 +1413,14 @@ function AiReferralsSection({ report }: { report: ProjectReportDto }) {
   if (!ai) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 8" title="AI referral traffic" subtitle="Sessions on your site referred by AI answer engines (ChatGPT, Perplexity, Claude, Copilot, Gemini, etc.) — broken down by referrer with a daily trend and the top landing pages. Sourced from Google Analytics 4." />
+        <SectionHeading eyebrow="Section 9" title="AI Referral Traffic" subtitle="Traffic arriving from AI answer engines." />
         <EmptyHint message="No AI referral data." />
       </section>
     )
   }
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 8" title="AI referral traffic" subtitle="Sessions on your site referred by AI answer engines (ChatGPT, Perplexity, Claude, Copilot, Gemini, etc.) — broken down by referrer with a daily trend and the top landing pages. Sourced from Google Analytics 4." />
+      <SectionHeading eyebrow="Section 9" title="AI Referral Traffic" subtitle="Traffic arriving from AI answer engines." />
       <div className="grid gap-3 sm:grid-cols-2">
         <Metric label="Sessions" value={formatNumber(ai.totalSessions)} />
         <Metric label="Users" value={formatNumber(ai.totalUsers)} />
@@ -1172,16 +1443,16 @@ function AiReferralsSection({ report }: { report: ProjectReportDto }) {
       )}
       {ai.bySource.length > 0 && (
         <div className="mt-4">
-          <p className="eyebrow mb-2">By source</p>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {ai.bySource.map(s => (
-              <div key={s.source} className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-3 py-2">
-                <p className="eyebrow-soft">{s.source}</p>
-                <p className="text-base font-semibold text-zinc-100">{formatNumber(s.sessions)}</p>
-                <p className="text-[11px] text-zinc-500">{formatNumber(s.users)} users · {formatPercent(s.sharePct)}</p>
-              </div>
-            ))}
-          </div>
+          <ShareBars
+            heading="AI sessions by source"
+            rows={ai.bySource.map((s, i) => ({
+              label: s.source,
+              count: s.sessions,
+              sharePct: s.sharePct,
+              color: CHART_SERIES_COLORS[(i + 2) % CHART_SERIES_COLORS.length],
+            }))}
+            countLabel="sessions"
+          />
         </div>
       )}
       {ai.topLandingPages.length > 0 && (
@@ -1214,30 +1485,57 @@ function IndexingHealthSectionView({ report }: { report: ProjectReportDto }) {
   if (!ih || !ih.provider) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 9" title="Indexing health" subtitle="What share of your tracked URLs are currently indexed in Google or Bing — connect Google Search Console or Bing Webmaster Tools to populate this section." />
+        <SectionHeading eyebrow="Section 10" title="Indexing Health" subtitle="Connect Google Search Console or Bing Webmaster Tools to populate this section." />
         <EmptyHint message="No indexing data — connect Google Search Console or Bing Webmaster Tools." />
       </section>
     )
   }
-  const tone: MetricTone = ih.indexedPct >= 90 ? 'positive' : ih.indexedPct >= 70 ? 'caution' : 'negative'
-  const indexingSubtitle = `What share of your tracked URLs are currently indexed in ${ih.provider === 'google' ? 'Google' : 'Bing'} — sourced from ${ih.provider === 'google' ? 'Google Search Console URL Inspection' : 'Bing Webmaster Tools URL Inspection'}. Pages absent from the index can't be retrieved by AI engines either.`
+  const indexingSubtitle = `Pages absent from ${ih.provider === 'google' ? 'Google' : 'Bing'} are harder for AI engines to retrieve.`
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 9" title={`Indexing health — ${ih.provider}`} subtitle={indexingSubtitle} />
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <Metric label="Indexed" value={formatPercent(ih.indexedPct, 0)} tone={tone} />
-        <Metric label="Total pages" value={formatNumber(ih.total)} />
-        <Metric label="Indexed pages" value={formatNumber(ih.indexed)} />
-        <Metric label="Not indexed" value={formatNumber(ih.notIndexed)} />
-        <DeindexedOrUnknown ih={ih} />
+      <SectionHeading eyebrow="Section 10" title="Indexing Health" subtitle={indexingSubtitle} />
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Metric label="Indexed" value={formatNumber(ih.indexed)} tone="positive" />
+        <Metric label="Total inspected" value={formatNumber(ih.total)} />
+        <Metric label="Indexed share" value={`${ih.indexedPct}%`} />
       </div>
+      <CoverageBreakdown ih={ih} />
     </section>
   )
 }
 
-function DeindexedOrUnknown({ ih }: { ih: IndexingHealthSection }) {
-  if (ih.provider === 'google') return <Metric label="Deindexed" value={formatNumber(ih.deindexed)} />
-  return <Metric label="Unknown" value={formatNumber(ih.unknown)} />
+function CoverageBreakdown({ ih }: { ih: IndexingHealthSection }) {
+  const segments = [
+    { label: 'Indexed', count: ih.indexed, color: '#10b981' },
+    { label: 'Not indexed', count: ih.notIndexed, color: '#f59e0b' },
+    { label: 'Deindexed', count: ih.deindexed, color: '#f43f5e' },
+    { label: 'Unknown', count: ih.unknown, color: '#71717a' },
+  ].filter(s => s.count > 0)
+  const total = segments.reduce((s, x) => s + x.count, 0) || 1
+  if (segments.length === 0) return null
+  return (
+    <div className="mt-4 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
+      <p className="eyebrow mb-3">Coverage breakdown</p>
+      <div className="flex h-7 w-full overflow-hidden rounded-md">
+        {segments.map(s => (
+          <div
+            key={s.label}
+            style={{ width: `${(s.count / total) * 100}%`, background: s.color }}
+            title={`${s.label}: ${s.count}`}
+          />
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-zinc-400">
+        {segments.map(s => (
+          <span key={s.label} className="inline-flex items-center gap-1.5">
+            <span className="inline-block size-2.5 rounded-sm" style={{ background: s.color }} />
+            <span className="text-zinc-300">{s.label}:</span>
+            <span className="tabular-nums text-zinc-100">{s.count}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 // ─── Section: Citations trend ──────────────────────────────────────────────
@@ -1247,22 +1545,22 @@ function CitationsTrendSection({ report }: { report: ProjectReportDto }) {
   if (trend.length === 0) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 10" title="Citations over time" subtitle="Citation rate across every visibility sweep — the share of tracked queries cited by at least one provider, with a per-provider breakdown beneath. Computed per-query so the headline stays comparable across runs that ran a different mix of providers." />
-        <EmptyHint message="Run multiple visibility sweeps to see a trend." />
+        <SectionHeading eyebrow="Section 11" title="Citations Over Time" subtitle="Citation coverage across recent checks." />
+        <EmptyHint message="Run multiple checks to see a trend." />
       </section>
     )
   }
   if (isTrendBaseline(trend)) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 10" title="Citations over time" subtitle="Citation rate across every visibility sweep — the share of tracked queries cited by at least one provider, with a per-provider breakdown beneath. Computed per-query so the headline stays comparable across runs that ran a different mix of providers." />
-        <EmptyHint message={`Establishing baseline (${trend.length} of ${MIN_TREND_POINTS} runs collected). Trend will appear once more sweeps are recorded.`} />
+        <SectionHeading eyebrow="Section 11" title="Citations Over Time" subtitle="Citation coverage across recent checks." />
+        <EmptyHint message={`Building baseline (${trend.length} of ${MIN_TREND_POINTS} checks completed). Trend will appear once more checks are recorded.`} />
       </section>
     )
   }
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 10" title="Citations over time" subtitle="Citation rate across every visibility sweep — the share of tracked queries cited by at least one provider, with a per-provider breakdown beneath. Computed per-query so the headline stays comparable across runs that ran a different mix of providers." />
+      <SectionHeading eyebrow="Section 11" title="Citations Over Time" subtitle="Citation coverage across recent checks." />
       <div className="h-64 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-3">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={trend} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
@@ -1287,14 +1585,14 @@ function PerProviderTrendTable({ trend }: { trend: CitationsTrendPoint[] }) {
   if (trend.length === 0) return null
   return (
     <div className="mt-4">
-      <p className="eyebrow mb-2">Run-by-run breakdown</p>
+      <p className="eyebrow mb-2">Check-by-check breakdown</p>
       <div className="evidence-table-wrap">
         <table className="evidence-table">
           <thead>
             <tr>
-              <th>Run</th>
+              <th>Check</th>
               <th>Cited queries</th>
-              <th>Per-provider rates</th>
+              <th>Per-engine rates</th>
             </tr>
           </thead>
           <tbody>
@@ -1322,14 +1620,14 @@ function InsightsSection({ report }: { report: ProjectReportDto }) {
   if (report.insights.length === 0) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 11" title="Insights &amp; alerts" subtitle="Regressions (citations lost), gains (citations won), and opportunities surfaced by the intelligence engine across the most recent sweeps — ordered by severity and recurrence." />
+        <SectionHeading eyebrow="Section 12" title="Insights &amp; Alerts" subtitle="Regressions, gains, and recurring alerts ordered by severity." />
         <EmptyHint message="No active insights — everything looks stable." />
       </section>
     )
   }
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 11" title="Insights &amp; alerts" subtitle="Regressions (citations lost), gains (citations won), and opportunities surfaced by the intelligence engine across the most recent sweeps — ordered by severity and recurrence." />
+      <SectionHeading eyebrow="Section 12" title="Insights &amp; Alerts" subtitle="Regressions, gains, and recurring alerts ordered by severity." />
       <div className="evidence-table-wrap">
         <table className="evidence-table">
           <thead>
@@ -1366,17 +1664,32 @@ function InsightsSection({ report }: { report: ProjectReportDto }) {
 // ─── Section: Content opportunities ────────────────────────────────────────
 
 function ContentOpportunitiesSection({ report }: { report: ProjectReportDto }) {
-  if (report.contentOpportunities.length === 0) {
-    return null
-  }
+  const opps = dedupeReportOpportunities(report)
+  if (opps.length === 0) return null
   const canonical = report.meta.project.canonicalDomain
+  const highlights = opps.slice(0, 3)
   return (
     <section className="page-section-divider">
       <SectionHeading
-        eyebrow="Section 12"
-        title="Content opportunities"
-        subtitle="Queries where you have search demand or competitor citation pressure but aren't winning AI citations. Each row pairs a suggested action with the signals driving the opportunity score (0–100, higher = stronger), the best matching page on your domain, and the competitor URL the AI most often cites. Top 10 shown."
+        eyebrow="Section 13"
+        title="Content Opportunities"
+        subtitle="Queries where content work has the clearest path to more AI citations. Opportunity score is 0–100, higher = stronger."
       />
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {highlights.map(o => (
+          <article key={o.targetRef} className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
+            <div className="text-2xl font-semibold tracking-tight text-zinc-100" title="Opportunity score (0–100, higher = stronger)">
+              {Math.round(o.score)}
+              <span className="ml-0.5 text-sm font-normal text-zinc-500">/100</span>
+            </div>
+            <p className="mt-2 text-sm font-medium text-zinc-100">{o.query}</p>
+            <p className="mt-1 text-xs text-zinc-500">
+              {contentActionLabel(o.action)} · {actionConfidenceLabel(o.actionConfidence)} confidence
+            </p>
+            <ProofChips items={o.drivers} limit={2} className="mt-3" />
+          </article>
+        ))}
+      </div>
       <div className="evidence-table-wrap">
         <table className="evidence-table">
           <thead>
@@ -1391,14 +1704,11 @@ function ContentOpportunitiesSection({ report }: { report: ProjectReportDto }) {
             </tr>
           </thead>
           <tbody>
-            {report.contentOpportunities.slice(0, 10).map(o => (
+            {opps.slice(0, 10).map(o => (
               <tr key={o.targetRef}>
                 <td className="evidence-query-cell">{o.query}</td>
                 <td><ToneBadge tone="neutral">{contentActionLabel(o.action)}</ToneBadge></td>
-                <td title="Opportunity score (0–100)">
-                  {Math.round(o.score)}
-                  <span className="text-zinc-600"> / 100</span>
-                </td>
+                <td title="Opportunity score (0–100)">{Math.round(o.score)}</td>
                 <td className="text-xs text-zinc-400">
                   {o.drivers.length > 0
                     ? <ul className="list-disc pl-4 space-y-0.5">{o.drivers.map((d, i) => <li key={i}>{d}</li>)}</ul>
@@ -1429,9 +1739,9 @@ function ContentGapsSection({ report }: { report: ProjectReportDto }) {
   return (
     <section className="page-section-divider">
       <SectionHeading
-        eyebrow="Section 13"
-        title="Content gaps"
-        subtitle="Tracked queries where multiple competitors are cited by AI engines but you are not — explicit “they're answering, you're missing” signal. Sorted by recent miss rate, then by competitor count. Top 10 shown."
+        eyebrow="Section 14"
+        title="Content Gaps"
+        subtitle="Tracked queries where competitors are cited and the client is missing."
       />
       <div className="evidence-table-wrap">
         <table className="evidence-table">
@@ -1471,33 +1781,26 @@ function NextStepsSection({ report }: { report: ProjectReportDto }) {
   if (report.recommendedNextSteps.length === 0) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 14" title="Recommended next steps" subtitle="Action items bucketed by horizon (immediate, short-term, medium-term), drawn from open insights and the highest-ranked content opportunities." />
+        <SectionHeading eyebrow="Section 15" title="Recommended Next Steps" subtitle="Action items bucketed by timing." />
         <EmptyHint message="No prioritized actions yet." />
       </section>
     )
   }
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 14" title="Recommended next steps" subtitle="Action items bucketed by horizon (immediate, short-term, medium-term), drawn from open insights and the highest-ranked content opportunities." />
-      <div className="grid gap-3 lg:grid-cols-3">
-        {(['immediate', 'short-term', 'medium-term'] as const).map(h => {
-          const steps = report.recommendedNextSteps.filter(s => s.horizon === h)
-          if (steps.length === 0) return null
-          const tone: MetricTone = h === 'immediate' ? 'negative' : h === 'short-term' ? 'caution' : 'neutral'
-          return (
-            <div key={h} className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
-              <ToneBadge tone={tone}>{reportHorizonLabel(h)}</ToneBadge>
-              <ul className="mt-3 space-y-3">
-                {steps.map((s, i) => (
-                  <li key={i}>
-                    <p className="text-sm font-medium text-zinc-100">{s.title}</p>
-                    <p className="text-xs text-zinc-500">{s.rationale}</p>
-                  </li>
-                ))}
-              </ul>
+      <SectionHeading eyebrow="Section 15" title="Recommended Next Steps" subtitle="Action items bucketed by timing." />
+      <div className="space-y-2">
+        {report.recommendedNextSteps.map((s, i) => (
+          <div key={i} className="flex items-start gap-3 rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-3 py-2.5">
+            <span className="shrink-0 rounded-md border border-zinc-800/60 bg-zinc-950/40 px-2 py-0.5 text-[11px] uppercase tracking-wide text-zinc-400">
+              {reportHorizonLabel(s.horizon)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-zinc-100">{s.title}</p>
+              <p className="text-xs text-zinc-500">{s.rationale}</p>
             </div>
-          )
-        })}
+          </div>
+        ))}
       </div>
     </section>
   )
@@ -1511,6 +1814,61 @@ function SectionHeading({ eyebrow, title, subtitle }: { eyebrow: string; title: 
       <p className="eyebrow-soft">{eyebrow}</p>
       <h2 className="page-title">{title}</h2>
       {subtitle && <p className="page-subtitle mt-1">{subtitle}</p>}
+    </div>
+  )
+}
+
+function ProofChips({ items, limit = 3, className }: { items: readonly string[]; limit?: number; className?: string }) {
+  if (items.length === 0) return null
+  const visible = items.slice(0, limit)
+  const more = items.length - visible.length
+  return (
+    <div className={`flex flex-wrap gap-1.5 ${className ?? ''}`}>
+      {visible.map((item, i) => (
+        <span key={i} className="rounded-md border border-zinc-800/60 bg-zinc-900/40 px-2 py-0.5 text-[11px] text-zinc-300">
+          {item}
+        </span>
+      ))}
+      {more > 0 && (
+        <span className="rounded-md border border-zinc-800/60 bg-zinc-900/40 px-2 py-0.5 text-[11px] text-zinc-400">
+          +{more} more
+        </span>
+      )}
+    </div>
+  )
+}
+
+function ShareBars({
+  heading,
+  rows,
+  countLabel,
+}: {
+  heading: string
+  rows: ReadonlyArray<{ label: string; count: number; sharePct: number; color?: string }>
+  countLabel: string
+}) {
+  const visible = rows.filter(r => r.count > 0 || r.sharePct > 0)
+  if (visible.length === 0) return null
+  return (
+    <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
+      <p className="eyebrow mb-3">{heading}</p>
+      <div className="space-y-2">
+        {visible.map((r, i) => {
+          const pct = Math.max(0, Math.min(100, r.sharePct))
+          const color = r.color ?? CHART_SERIES_COLORS[i % CHART_SERIES_COLORS.length]
+          return (
+            <div key={r.label} className="grid grid-cols-[160px_1fr_auto] items-center gap-3">
+              <div className="truncate text-xs text-zinc-400">{r.label}</div>
+              <div className="h-2 rounded-sm bg-zinc-800">
+                <div className="h-full rounded-sm" style={{ width: `${pct.toFixed(1)}%`, background: color }} />
+              </div>
+              <div className="text-right text-xs tabular-nums text-zinc-200">
+                {formatNumber(r.count)} <span className="text-zinc-500">{countLabel} · {r.sharePct}%</span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

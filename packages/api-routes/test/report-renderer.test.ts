@@ -43,6 +43,18 @@ function emptyReport(): ProjectReportDto {
     aiReferrals: null,
     indexingHealth: null,
     citationsTrend: [],
+    whatsChanged: {
+      enoughHistory: false,
+      headline: 'Building baseline (0 of 4 checks completed). Trends appear after a few more checks.',
+      citationRate: null,
+      mentionRate: null,
+      citedQueryCount: null,
+      gscClicksDelta: null,
+      aiReferralsDelta: null,
+      providerMovements: [],
+      wins: [],
+      regressions: [],
+    },
     insights: [],
     recommendedNextSteps: [],
     actionPlan: [],
@@ -248,6 +260,18 @@ function richReport(): ProjectReportDto {
       { runId: 'r-1', date: '2026-04-01T00:00:00Z', citationRate: 50, citedQueryCount: 2, totalQueryCount: 4, mentionRate: 25, mentionedQueryCount: 1, providerRates: [{ provider: 'gemini', citationRate: 50 }] },
       { runId: 'r-2', date: '2026-04-15T00:00:00Z', citationRate: 65, citedQueryCount: 3, totalQueryCount: 5, mentionRate: 40, mentionedQueryCount: 2, providerRates: [{ provider: 'gemini', citationRate: 65 }] },
     ],
+    whatsChanged: {
+      enoughHistory: false,
+      headline: 'Building baseline (2 of 4 checks completed). Trends appear after a few more checks.',
+      citationRate: null,
+      mentionRate: null,
+      citedQueryCount: null,
+      gscClicksDelta: null,
+      aiReferralsDelta: null,
+      providerMovements: [],
+      wins: [],
+      regressions: [],
+    },
     insights: [
       {
         id: 'i-1',
@@ -472,7 +496,7 @@ describe('renderReportHtml', () => {
     const html = renderReportHtml(richReport())
     const executive = html.split('id="executive-summary"')[1]?.split('id="agency-action-plan"')[0] ?? ''
     expect(executive).toContain('Market Scope')
-    expect(executive).toContain('Current sweep')
+    expect(executive).toContain('Current check')
     expect(executive).toContain('Not included')
     expect(executive).toContain('florida')
     expect(executive).not.toContain('Location handling')
@@ -827,7 +851,7 @@ describe('renderReportHtml', () => {
     ]
     const html = renderReportHtml(report)
     const block = html.split('id="citations-trend"')[1]?.split('</section>')[0] ?? ''
-    expect(block.toLowerCase()).toContain('establishing baseline')
+    expect(block.toLowerCase()).toContain('building baseline')
     expect(block).not.toContain('<svg')
   })
 
@@ -842,7 +866,7 @@ describe('renderReportHtml', () => {
     const html = renderReportHtml(report)
     const block = html.split('id="citations-trend"')[1]?.split('</section>')[0] ?? ''
     expect(block).toContain('<svg')
-    expect(block.toLowerCase()).not.toContain('establishing baseline')
+    expect(block.toLowerCase()).not.toContain('building baseline')
   })
 })
 
