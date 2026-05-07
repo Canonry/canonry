@@ -4,6 +4,8 @@ import type {
   CompetitorRow,
   GscQueryRow,
   ProjectReportDto,
+  ReportActionPlanItem,
+  ReportAudience,
   ReportInsight,
 } from '@ainyc/canonry-contracts'
 import { absolutizeProjectUrl, CitationStates } from '@ainyc/canonry-contracts'
@@ -348,17 +350,88 @@ table.report-table td .badge {
   display: grid;
   gap: 4px;
 }
-.step .horizon {
-  text-transform: uppercase;
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  color: ${COLORS.textFaint};
-  font-weight: 600;
-}
-.step .title { font-weight: 600; }
-.step .rationale { color: ${COLORS.textMuted}; font-size: 13px; }
-.footer {
-  margin-top: 96px;
+	.step .horizon {
+	  text-transform: uppercase;
+	  font-size: 10px;
+	  letter-spacing: 0.08em;
+	  color: ${COLORS.textFaint};
+	  font-weight: 600;
+	}
+	.step .title { font-weight: 600; }
+	.step .rationale { color: ${COLORS.textMuted}; font-size: 13px; }
+	.action-card-grid {
+	  display: grid;
+	  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+	  gap: 16px;
+	}
+	.action-card {
+	  background: ${COLORS.surface};
+	  border: 1px solid ${COLORS.border};
+	  border-radius: 8px;
+	  padding: 18px 20px;
+	}
+	.action-card .action-meta {
+	  display: flex;
+	  flex-wrap: wrap;
+	  gap: 8px;
+	  margin-bottom: 10px;
+	}
+	.action-card h3 {
+	  font-size: 16px;
+	  margin: 0 0 8px;
+	}
+	.action-card p {
+	  margin: 0 0 12px;
+	  color: ${COLORS.textMuted};
+	}
+	.action-card ul {
+	  margin: 0 0 12px;
+	  padding-left: 18px;
+	  color: ${COLORS.textMuted};
+	  font-size: 13px;
+	}
+	.action-card li { margin: 4px 0; }
+	.action-card .success-metric {
+	  color: ${COLORS.text};
+	  font-size: 13px;
+	  border-top: 1px solid ${COLORS.border};
+	  padding-top: 10px;
+	  margin-top: 12px;
+	}
+	.client-notes {
+	  margin-top: 18px;
+	  display: grid;
+	  gap: 8px;
+	}
+	.client-note {
+	  color: ${COLORS.textMuted};
+	  font-size: 13px;
+	  background: ${COLORS.surface};
+	  border: 1px solid ${COLORS.border};
+	  border-radius: 8px;
+	  padding: 10px 12px;
+	}
+	.diagnostics-grid {
+	  display: grid;
+	  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+	  gap: 12px;
+	}
+	.diagnostic-card {
+	  background: ${COLORS.surface};
+	  border: 1px solid ${COLORS.border};
+	  border-left-width: 3px;
+	  border-radius: 8px;
+	  padding: 14px 16px;
+	}
+	.diagnostic-card h3 { font-size: 14px; margin: 0 0 6px; }
+	.diagnostic-card p { margin: 0 0 8px; color: ${COLORS.textMuted}; font-size: 13px; }
+	.diagnostic-card ul { margin: 0; padding-left: 16px; color: ${COLORS.textMuted}; font-size: 12px; }
+	.diagnostic-card.tone-positive { border-left-color: ${COLORS.positive}; }
+	.diagnostic-card.tone-caution { border-left-color: ${COLORS.caution}; }
+	.diagnostic-card.tone-negative { border-left-color: ${COLORS.negative}; }
+	.diagnostic-card.tone-neutral { border-left-color: ${COLORS.neutral}; }
+	.footer {
+	  margin-top: 96px;
   padding-top: 24px;
   border-top: 1px solid ${COLORS.border};
   text-align: center;
@@ -1258,6 +1331,153 @@ function renderRecommendedNextSteps(report: ProjectReportDto): string {
   )
 }
 
+function actionAudienceMatches(action: ReportActionPlanItem, audience: ReportAudience): boolean {
+  return action.audience === 'both' || action.audience === audience
+}
+
+function actionTone(action: ReportActionPlanItem): 'positive' | 'caution' | 'negative' | 'neutral' {
+  if (action.horizon === 'immediate') return 'negative'
+  if (action.confidence === 'high') return 'caution'
+  if (action.confidence === 'low') return 'neutral'
+  return 'caution'
+}
+
+function renderActionCards(actions: readonly ReportActionPlanItem[]): string {
+  if (actions.length === 0) return renderEmpty('No prioritized actions yet.')
+  return `<div class="action-card-grid">
+    ${actions.map(action => {
+      const tone = actionTone(action)
+      const why = action.why.length > 0
+        ? `<ul>${action.why.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
+        : ''
+      const evidence = action.evidence.length > 0
+        ? `<ul>${action.evidence.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
+        : ''
+      return `<article class="action-card">
+        <div class="action-meta">
+          <span class="badge tone-${tone}">${escapeHtml(action.horizon)}</span>
+          <span class="badge tone-neutral">${escapeHtml(action.category)}</span>
+          <span class="badge tone-neutral">${escapeHtml(action.confidence)} confidence</span>
+        </div>
+        <h3>${escapeHtml(action.title)}</h3>
+        <p>${escapeHtml(action.action)}</p>
+        ${why ? `<div><strong>Why</strong>${why}</div>` : ''}
+        ${evidence ? `<div><strong>Evidence</strong>${evidence}</div>` : ''}
+        <div class="success-metric"><strong>Success metric:</strong> ${escapeHtml(action.successMetric)}</div>
+      </article>`
+    }).join('')}
+  </div>`
+}
+
+function renderAudienceActionPlan(report: ProjectReportDto, audience: ReportAudience): string {
+  const actions = audience === 'client'
+    ? report.clientSummary.actionItems
+    : report.agencyDiagnostics.priorities.length > 0
+      ? report.agencyDiagnostics.priorities
+      : report.actionPlan.filter(a => actionAudienceMatches(a, audience))
+  return section(
+    {
+      id: audience === 'client' ? 'client-action-plan' : 'agency-action-plan',
+      eyebrow: audience === 'client' ? 'Client actions' : 'Agency actions',
+      title: audience === 'client' ? 'What We Recommend Next' : 'Agency Action Plan',
+      intro: audience === 'client'
+        ? 'Polished next steps the client can understand, backed by concise evidence from the report.'
+        : 'Technical priorities pulled from the canonical action plan, sorted by urgency and evidence strength.',
+    },
+    renderActionCards(actions),
+  )
+}
+
+function renderClientSummary(report: ProjectReportDto): string {
+  const s = report.executiveSummary
+  const metrics = `<div class="metric-grid">
+    <div class="metric"><div class="label">Citation coverage</div><div class="value">${s.citationRate}%</div><div class="delta">${s.citedQueryCount}/${s.totalQueryCount} tracked queries cited</div></div>
+    <div class="metric"><div class="label">Mention coverage</div><div class="value">${s.mentionRate}%</div><div class="delta">${s.mentionedQueryCount}/${s.totalQueryCount} tracked queries mentioned</div></div>
+    <div class="metric"><div class="label">Providers checked</div><div class="value">${formatNumber(s.providerCount)}</div><div class="delta">${formatNumber(s.queryCount)} tracked queries</div></div>
+  </div>`
+  const notes = report.clientSummary.confidenceNotes.length > 0
+    ? `<div class="client-notes">${report.clientSummary.confidenceNotes.map(note => `<div class="client-note">${escapeHtml(note)}</div>`).join('')}</div>`
+    : ''
+  return section(
+    {
+      id: 'client-summary',
+      eyebrow: 'Client summary',
+      title: "How You're Appearing",
+      intro: report.clientSummary.overview,
+    },
+    `<div class="chart-card">
+      <h3>${escapeHtml(report.clientSummary.headline)}</h3>
+      <p class="source-origin-headline">${escapeHtml(report.clientSummary.overview)}</p>
+    </div>
+    ${metrics}
+    ${notes}`,
+  )
+}
+
+function renderClientEvidenceSummary(report: ProjectReportDto): string {
+  const evidenceCards: string[] = []
+  if (report.aiSourceOrigin.topDomains.length > 0) {
+    evidenceCards.push(`<div class="diagnostic-card tone-neutral">
+      <h3>Sources AI engines trust</h3>
+      <p>These domains appeared most often as cited sources outside your owned domain.</p>
+      <ul>${report.aiSourceOrigin.topDomains.slice(0, 5).map(d => `<li>${escapeHtml(d.domain)}: ${formatNumber(d.count)} citation${d.count === 1 ? '' : 's'}</li>`).join('')}</ul>
+    </div>`)
+  }
+  if (report.gsc) {
+    evidenceCards.push(`<div class="diagnostic-card tone-neutral">
+      <h3>Search demand</h3>
+      <p>Search Console shows ${formatNumber(report.gsc.totalImpressions)} impressions and ${formatNumber(report.gsc.totalClicks)} clicks in the report window.</p>
+      <ul>${report.gsc.topQueries.slice(0, 5).map(q => `<li>${escapeHtml(q.query)}: ${formatNumber(q.impressions)} impressions</li>`).join('')}</ul>
+    </div>`)
+  }
+  if (report.indexingHealth) {
+    const tone = report.indexingHealth.indexedPct >= 90 ? 'positive' : report.indexingHealth.indexedPct >= 70 ? 'caution' : 'negative'
+    evidenceCards.push(`<div class="diagnostic-card tone-${tone}">
+      <h3>Indexing readiness</h3>
+      <p>${report.indexingHealth.indexedPct}% of inspected URLs are indexed.</p>
+      <ul><li>${formatNumber(report.indexingHealth.indexed)} indexed</li><li>${formatNumber(report.indexingHealth.notIndexed)} not indexed</li></ul>
+    </div>`)
+  }
+  if (report.contentOpportunities.length > 0) {
+    evidenceCards.push(`<div class="diagnostic-card tone-caution">
+      <h3>Content opportunities</h3>
+      <p>Canonry found topics where better content could improve AI citations.</p>
+      <ul>${report.contentOpportunities.slice(0, 5).map(o => `<li>${escapeHtml(o.query)}: ${escapeHtml(o.action)} (${Math.round(o.score)})</li>`).join('')}</ul>
+    </div>`)
+  }
+  return section(
+    {
+      id: 'client-evidence-summary',
+      eyebrow: 'Evidence',
+      title: 'Why This Is The Plan',
+      intro: 'A concise evidence view for the client summary. The agency report keeps the full matrices and detailed tables.',
+    },
+    evidenceCards.length > 0 ? `<div class="diagnostics-grid">${evidenceCards.join('')}</div>` : renderEmpty('No supporting evidence sections are populated yet.'),
+  )
+}
+
+function renderAgencyDiagnostics(report: ProjectReportDto): string {
+  const diagnostics = report.agencyDiagnostics.diagnostics
+  const body = diagnostics.length > 0
+    ? `<div class="diagnostics-grid">
+        ${diagnostics.map(d => `<div class="diagnostic-card tone-${d.severity}">
+          <h3>${escapeHtml(d.title)}</h3>
+          <p>${escapeHtml(d.detail)}</p>
+          ${d.evidence.length > 0 ? `<ul>${d.evidence.map(e => `<li>${escapeHtml(e)}</li>`).join('')}</ul>` : ''}
+        </div>`).join('')}
+      </div>`
+    : renderEmpty('No agency diagnostics available yet.')
+  return section(
+    {
+      id: 'agency-diagnostics',
+      eyebrow: 'Agency diagnostics',
+      title: 'Technical Diagnostics',
+      intro: 'Operator-facing diagnostics for content, provider, source-domain, search-demand, indexing, and location follow-up.',
+    },
+    body,
+  )
+}
+
 function escapeJsonForScript(json: string): string {
   // Avoid breaking out of the </script> tag — both JSON literally as `</`
   // and unicode escapes need handling.
@@ -1272,26 +1492,37 @@ function escapeJsonForScript(json: string): string {
 export interface RenderReportHtmlOptions {
   /** Override <title>. Default: `Canonry report — <project displayName>`. */
   title?: string
+  /** Audience render mode. JSON payload stays canonical either way. Default: agency. */
+  audience?: ReportAudience
 }
 
 export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtmlOptions = {}): string {
-  const title = opts.title ?? `Canonry report — ${report.meta.project.displayName}`
-  const sections = [
-    renderExecutiveSummary(report),
-    renderCitationScorecard(report),
-    renderCompetitorLandscape(report),
-    renderAiSourceOrigin(report),
-    renderGsc(report),
-    renderGa(report),
-    renderSocial(report),
-    renderAiReferrals(report),
-    renderIndexingHealth(report),
-    renderCitationsTrend(report),
-    renderInsights(report),
-    renderOpportunities(report),
-    renderContentGaps(report),
-    renderRecommendedNextSteps(report),
-  ].join('\n')
+  const audience = opts.audience ?? 'agency'
+  const title = opts.title ?? `Canonry ${audience} report — ${report.meta.project.displayName}`
+  const sections = audience === 'client'
+    ? [
+        renderClientSummary(report),
+        renderAudienceActionPlan(report, 'client'),
+        renderClientEvidenceSummary(report),
+      ].join('\n')
+    : [
+        renderExecutiveSummary(report),
+        renderAudienceActionPlan(report, 'agency'),
+        renderAgencyDiagnostics(report),
+        renderCitationScorecard(report),
+        renderCompetitorLandscape(report),
+        renderAiSourceOrigin(report),
+        renderGsc(report),
+        renderGa(report),
+        renderSocial(report),
+        renderAiReferrals(report),
+        renderIndexingHealth(report),
+        renderCitationsTrend(report),
+        renderInsights(report),
+        renderOpportunities(report),
+        renderContentGaps(report),
+        renderRecommendedNextSteps(report),
+      ].join('\n')
 
   const json = escapeJsonForScript(JSON.stringify(report))
 
@@ -1305,9 +1536,9 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
 </head>
 <body>
 <div class="container">
-  <header class="header">
-    <div class="eyebrow">AEO Report</div>
-    <h1>${escapeHtml(report.meta.project.displayName)}</h1>
+	  <header class="header">
+	    <div class="eyebrow">${audience === 'client' ? 'AEO Client Summary' : 'AEO Agency Report'}</div>
+	    <h1>${escapeHtml(report.meta.project.displayName)}</h1>
     <div class="subtitle">${escapeHtml(report.meta.project.canonicalDomain)} · ${escapeHtml(report.meta.project.country)} / ${escapeHtml(report.meta.project.language.toUpperCase())}${renderHeaderLocationFragment(report.meta.location)} · Generated ${formatDate(report.meta.generatedAt)}</div>
   </header>
   ${sections}

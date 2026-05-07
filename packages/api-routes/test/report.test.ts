@@ -192,6 +192,10 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.citationsTrend).toEqual([])
     expect(body.insights).toEqual([])
     expect(body.recommendedNextSteps).toEqual([])
+    expect(body.actionPlan.length).toBeGreaterThan(0)
+    expect(body.clientSummary.headline).toContain('No tracked queries')
+    expect(body.clientSummary.actionItems.length).toBeGreaterThan(0)
+    expect(body.agencyDiagnostics.priorities.length).toBeGreaterThan(0)
   })
 
   test('citation scorecard reflects query × provider matrix', async () => {
@@ -343,6 +347,94 @@ describe('GET /api/v1/projects/:name/report', () => {
     )
     expect(topByDomain['reddit.com']).toBe(2)
     expect(topByDomain['youtube.com']).toBe(1)
+  })
+
+  test('builds audience action plan and diagnostics from azcoatings-style signals', async () => {
+    const projectId = insertProject(ctx.db, 'az-actions', {
+      displayName: 'AZ Coatings',
+      canonicalDomain: 'azcoatings.com',
+    })
+    const coatingQuery = insertQuery(ctx.db, projectId, 'best industrial coatings')
+    const guideQuery = insertQuery(ctx.db, projectId, 'commercial floor coating guide')
+    const runId = insertRun(ctx.db, projectId, {
+      createdAt: '2026-05-01T00:00:00Z',
+      finishedAt: '2026-05-01T00:01:00Z',
+    })
+
+    const externalGrounding = JSON.stringify({
+      groundingSources: [
+        { uri: 'https://external-directory.com/coatings', title: 'Coating directory' },
+        { uri: 'https://paintmag.com/industrial-coatings', title: 'Industrial coatings guide' },
+      ],
+    })
+    for (const queryId of [coatingQuery, guideQuery]) {
+      insertSnapshot(ctx.db, runId, queryId, {
+        provider: 'gemini',
+        citationState: 'not-cited',
+        answerMentioned: false,
+        citedDomains: JSON.stringify(['external-directory.com', 'paintmag.com']),
+        rawResponse: externalGrounding,
+      })
+      insertSnapshot(ctx.db, runId, queryId, {
+        provider: 'openai',
+        citationState: 'not-cited',
+        answerMentioned: false,
+        citedDomains: JSON.stringify(['external-directory.com']),
+        rawResponse: externalGrounding,
+      })
+    }
+
+    const syncRunId = insertRun(ctx.db, projectId, { kind: 'gsc-sync' })
+    ctx.db.insert(gscSearchData).values([
+      {
+        id: crypto.randomUUID(),
+        projectId,
+        syncRunId,
+        date: '2026-04-30',
+        query: 'best industrial coatings',
+        page: 'https://azcoatings.com/blog/best-industrial-coatings',
+        clicks: 12,
+        impressions: 1200,
+        ctr: '0.01',
+        position: '8',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: crypto.randomUUID(),
+        projectId,
+        syncRunId,
+        date: '2026-04-30',
+        query: 'epoxy floor coatings contractors',
+        page: 'https://azcoatings.com/blog/epoxy-floor-coatings',
+        clicks: 9,
+        impressions: 900,
+        ctr: '0.01',
+        position: '6',
+        createdAt: new Date().toISOString(),
+      },
+    ]).run()
+    ctx.db.insert(gscCoverageSnapshots).values({
+      id: crypto.randomUUID(),
+      projectId,
+      syncRunId,
+      date: '2026-04-30',
+      indexed: 2,
+      notIndexed: 8,
+      reasonBreakdown: '{}',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/az-actions/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.actionPlan.some(a => a.category === 'competitors' && a.audience === 'both')).toBe(true)
+    expect(body.actionPlan.some(a => a.category === 'content' && a.title.includes('best industrial coatings'))).toBe(true)
+    expect(body.actionPlan.some(a => a.category === 'indexing' && a.evidence.some(e => e.includes('20% indexed')))).toBe(true)
+    expect(body.actionPlan.some(a => a.category === 'provider' && a.evidence.some(e => e.includes('openai: 0/2')))).toBe(true)
+    expect(body.actionPlan.some(a => a.category === 'search-demand' && a.evidence.some(e => e.includes('epoxy floor coatings contractors')))).toBe(true)
+    expect(body.clientSummary.actionItems.length).toBeGreaterThan(0)
+    expect(body.agencyDiagnostics.priorities.some(a => a.category === 'provider')).toBe(true)
   })
 
   test('GSC section returns top queries, totals, category breakdown', async () => {
@@ -1161,10 +1253,32 @@ describe('GET /api/v1/projects/:name/report.html', () => {
     const disposition = res.headers['content-disposition']
     expect(typeof disposition).toBe('string')
     expect(String(disposition)).toMatch(/^attachment;/)
-    expect(String(disposition)).toMatch(/canonry-report-html-report-\d{4}-\d{2}-\d{2}\.html/)
+    expect(String(disposition)).toMatch(/canonry-report-html-report-agency-\d{4}-\d{2}-\d{2}\.html/)
 
     expect(res.body).toMatch(/^<!DOCTYPE html>/)
     expect(res.body).toContain('HTML Report Co.')
+    expect(res.body).toContain('AEO Agency Report')
     expect(res.body).toContain('<title>')
+  })
+
+  test('renders client HTML when audience=client', async () => {
+    insertProject(ctx.db, 'client-html', { displayName: 'Client HTML Co.' })
+    await ctx.app.ready()
+
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/client-html/report.html?audience=client' })
+    expect(res.statusCode).toBe(200)
+    expect(String(res.headers['content-disposition'])).toMatch(/canonry-report-client-html-client-\d{4}-\d{2}-\d{2}\.html/)
+    expect(res.body).toContain('AEO Client Summary')
+    expect(res.body).toContain('id="client-summary"')
+    expect(res.body).not.toContain('id="citation-scorecard"')
+  })
+
+  test('rejects invalid report audience', async () => {
+    insertProject(ctx.db, 'bad-audience')
+    await ctx.app.ready()
+
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/bad-audience/report.html?audience=internal' })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR')
   })
 })
