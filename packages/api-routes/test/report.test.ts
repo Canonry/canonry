@@ -811,6 +811,99 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.executiveSummary.trend).toBe('up')
   })
 
+  test('whatsChanged reports baseline state when there is no prior run', async () => {
+    insertProject(ctx.db, 'wc-empty')
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/wc-empty/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.whatsChanged.enoughHistory).toBe(false)
+    expect(body.whatsChanged.headline).toMatch(/Establishing baseline/i)
+    expect(body.whatsChanged.citationRate).toBeNull()
+    expect(body.whatsChanged.mentionRate).toBeNull()
+    expect(body.whatsChanged.citedQueryCount).toBeNull()
+    expect(body.whatsChanged.providerMovements).toEqual([])
+  })
+
+  test('whatsChanged computes run-over-run rate deltas once enough history exists', async () => {
+    const projectId = insertProject(ctx.db, 'wc-deltas')
+    const kw1 = insertQuery(ctx.db, projectId, 'kw1')
+    const kw2 = insertQuery(ctx.db, projectId, 'kw2')
+
+    // 4 runs: cited rate climbs from 0% → 100% on kw1, kw2 stays not-cited.
+    for (let i = 0; i < 4; i++) {
+      const day = String(i + 1).padStart(2, '0')
+      const runId = insertRun(ctx.db, projectId, {
+        createdAt: `2026-04-${day}T00:00:00Z`,
+        finishedAt: `2026-04-${day}T00:01:00Z`,
+      })
+      insertSnapshot(ctx.db, runId, kw1, { provider: 'gemini', citationState: i === 3 ? 'cited' : 'not-cited' })
+      insertSnapshot(ctx.db, runId, kw2, { provider: 'gemini', citationState: 'not-cited' })
+    }
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/wc-deltas/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.whatsChanged.enoughHistory).toBe(true)
+    expect(body.whatsChanged.citationRate).not.toBeNull()
+    expect(body.whatsChanged.citationRate!.current).toBe(50)
+    expect(body.whatsChanged.citationRate!.prior).toBe(0)
+    expect(body.whatsChanged.citationRate!.deltaAbs).toBe(50)
+    expect(body.whatsChanged.citationRate!.direction).toBe('up')
+    expect(body.whatsChanged.citedQueryCount!.current).toBe(1)
+    expect(body.whatsChanged.citedQueryCount!.prior).toBe(0)
+    expect(body.whatsChanged.providerMovements.length).toBe(1)
+    expect(body.whatsChanged.providerMovements[0]!.provider).toBe('gemini')
+    expect(body.whatsChanged.providerMovements[0]!.direction).toBe('up')
+    expect(body.whatsChanged.headline).toMatch(/Citation rate rose/i)
+  })
+
+  test('whatsChanged surfaces wins and regressions from insights', async () => {
+    const projectId = insertProject(ctx.db, 'wc-insights')
+    const runId = insertRun(ctx.db, projectId)
+
+    ctx.db.insert(insights).values([
+      {
+        id: 'gain-1',
+        projectId,
+        runId,
+        type: 'gain',
+        severity: 'high',
+        title: 'New citation on aeo platform',
+        query: 'aeo platform',
+        provider: 'gemini',
+        recommendation: null,
+        cause: null,
+        dismissed: false,
+        createdAt: '2026-04-30T00:00:00Z',
+      },
+      {
+        id: 'reg-1',
+        projectId,
+        runId,
+        type: 'regression',
+        severity: 'critical',
+        title: 'Lost citation on answer engine optimization',
+        query: 'answer engine optimization',
+        provider: 'openai',
+        recommendation: null,
+        cause: null,
+        dismissed: false,
+        createdAt: '2026-04-30T00:00:00Z',
+      },
+    ]).run()
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/wc-insights/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.whatsChanged.wins.length).toBe(1)
+    expect(body.whatsChanged.wins[0]!.type).toBe('gain')
+    expect(body.whatsChanged.regressions.length).toBe(1)
+    expect(body.whatsChanged.regressions[0]!.type).toBe('regression')
+  })
+
   test('findings detail surfaces "Establishing baseline" copy until enough runs exist', async () => {
     const projectId = insertProject(ctx.db, 'trend-baseline')
     const kw = insertQuery(ctx.db, projectId, 'kw')

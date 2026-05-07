@@ -13,6 +13,8 @@ import {
   actionConfidenceLabel,
   CitationStates,
   contentActionLabel,
+  dedupeReportActions,
+  dedupeReportOpportunities,
   reportActionCategoryLabel,
   reportActionTone,
   reportConfidenceLabel,
@@ -713,94 +715,6 @@ function renderHeaderLocationFragment(location: ProjectReportDto['meta']['locati
   return ` · Market: ${escapeHtml(locationDisplay(location))}`
 }
 
-const REPORT_INTENT_STOPWORDS = new Set([
-  'a',
-  'an',
-  'and',
-  'for',
-  'from',
-  'in',
-  'near',
-  'of',
-  'on',
-  'or',
-  'the',
-  'to',
-])
-
-function reportIntentModifiers(report: ProjectReportDto): Set<string> {
-  const location = report.meta.location
-  if (!location) return new Set()
-  return new Set(
-    [location.label, location.city, location.region, location.country]
-      .flatMap(tokenizeReportIntent)
-      .map(normalizeReportIntentToken)
-      .filter(Boolean),
-  )
-}
-
-function dedupeReportActions(
-  report: ProjectReportDto,
-  actions: readonly ReportActionPlanItem[],
-): ReportActionPlanItem[] {
-  const modifiers = reportIntentModifiers(report)
-  if (actions.length <= 1 || modifiers.size === 0) return [...actions]
-
-  const seen = new Set<string>()
-  const result: ReportActionPlanItem[] = []
-  for (const action of actions) {
-    if (action.category !== 'content') {
-      result.push(action)
-      continue
-    }
-    const key = reportIntentKey(extractActionQuery(action), modifiers)
-    if (!key || seen.has(key)) continue
-    seen.add(key)
-    result.push(action)
-  }
-  return result
-}
-
-function dedupeReportOpportunities(
-  report: ProjectReportDto,
-): ProjectReportDto['contentOpportunities'] {
-  const modifiers = reportIntentModifiers(report)
-  const opportunities = report.contentOpportunities
-  if (opportunities.length <= 1 || modifiers.size === 0) return opportunities
-
-  const seen = new Set<string>()
-  return opportunities.filter((opportunity) => {
-    const key = reportIntentKey(opportunity.query, modifiers)
-    if (!key || seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
-}
-
-function extractActionQuery(action: ReportActionPlanItem): string {
-  return action.title.match(/"([^"]+)"/)?.[1]
-    ?? action.successMetric.match(/"([^"]+)"/)?.[1]
-    ?? action.title
-}
-
-function reportIntentKey(value: string, modifiers: ReadonlySet<string>): string {
-  const tokens = tokenizeReportIntent(value)
-    .map(normalizeReportIntentToken)
-    .filter(Boolean)
-    .filter(token => !REPORT_INTENT_STOPWORDS.has(token))
-    .filter(token => !modifiers.has(token))
-  return [...new Set(tokens)].sort().join(' ')
-}
-
-function tokenizeReportIntent(value: string): string[] {
-  return value.toLowerCase().match(/[a-z0-9]+/g) ?? []
-}
-
-function normalizeReportIntentToken(token: string): string {
-  if (token.length > 4 && token.endsWith('ies')) return `${token.slice(0, -3)}y`
-  if (token.length > 4 && token.endsWith('s') && !token.endsWith('ss')) return token.slice(0, -1)
-  return token
-}
 
 function renderLocationCard(report: ProjectReportDto): string {
   const location = report.meta.location
@@ -966,6 +880,129 @@ function renderExecutiveSummary(report: ProjectReportDto): string {
   )
 }
 
+function deltaToneClass(direction: 'up' | 'down' | 'flat'): string {
+  if (direction === 'up') return 'tone-positive'
+  if (direction === 'down') return 'tone-negative'
+  return ''
+}
+
+function deltaArrow(direction: 'up' | 'down' | 'flat'): string {
+  if (direction === 'up') return '↑'
+  if (direction === 'down') return '↓'
+  return '→'
+}
+
+function renderRateDeltaTile(
+  label: string,
+  delta: ProjectReportDto['whatsChanged']['citationRate'],
+  unit: '%' | 'count',
+): string {
+  if (!delta) {
+    return `<div class="metric"><div class="label">${escapeHtml(label)}</div><div class="value">—</div><div class="delta">No prior data</div></div>`
+  }
+  const valueSuffix = unit === '%' ? '%' : ''
+  const deltaSign = delta.deltaAbs > 0 ? '+' : ''
+  const deltaText = `${deltaSign}${delta.deltaAbs.toFixed(unit === '%' ? 1 : 0)}${valueSuffix} vs ${delta.prior}${valueSuffix}`
+  return `<div class="metric">
+    <div class="label">${escapeHtml(label)}</div>
+    <div class="value ${deltaToneClass(delta.direction)}">${delta.current}${valueSuffix} <span style="font-size:14px;font-weight:500;">${deltaArrow(delta.direction)}</span></div>
+    <div class="delta">${deltaText}</div>
+  </div>`
+}
+
+function renderTrafficDeltaTile(
+  label: string,
+  delta: ProjectReportDto['whatsChanged']['gscClicksDelta'],
+  countLabel: string,
+): string {
+  if (!delta) {
+    return `<div class="metric"><div class="label">${escapeHtml(label)}</div><div class="value">—</div><div class="delta">Not enough trend data</div></div>`
+  }
+  const deltaSign = delta.deltaAbs > 0 ? '+' : ''
+  const deltaText = `${deltaSign}${formatNumber(delta.deltaAbs)} ${countLabel} vs prior ${WHATS_CHANGED_PERIOD_DAYS} days`
+  return `<div class="metric">
+    <div class="label">${escapeHtml(label)}</div>
+    <div class="value ${deltaToneClass(delta.direction)}">${formatNumber(delta.current)} <span style="font-size:14px;font-weight:500;">${deltaArrow(delta.direction)}</span></div>
+    <div class="delta">${deltaText}</div>
+  </div>`
+}
+
+const WHATS_CHANGED_PERIOD_DAYS = 14
+
+function renderProviderMovements(
+  movements: ProjectReportDto['whatsChanged']['providerMovements'],
+): string {
+  const meaningful = movements.filter(m => m.direction !== 'flat')
+  if (meaningful.length === 0) return ''
+  const rows = meaningful.map(m => {
+    const sign = m.deltaAbs > 0 ? '+' : ''
+    return `<tr>
+      <td>${escapeHtml(m.provider)}</td>
+      <td class="numeric">${m.prior}%</td>
+      <td class="numeric">${m.current}%</td>
+      <td class="numeric ${deltaToneClass(m.direction)}">${sign}${m.deltaAbs.toFixed(1)}% ${deltaArrow(m.direction)}</td>
+    </tr>`
+  }).join('')
+  return `<div class="chart-card"><h3>Provider movements</h3>
+    <table class="report-table">
+      <thead><tr><th>Provider</th><th class="numeric">Prior</th><th class="numeric">Current</th><th class="numeric">Δ</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`
+}
+
+function renderWinsLosses(
+  insights: readonly ReportInsight[],
+  heading: string,
+  emptyMessage: string,
+): string {
+  if (insights.length === 0) {
+    return `<div class="chart-card"><h3>${escapeHtml(heading)}</h3>
+      <p class="section-intro">${escapeHtml(emptyMessage)}</p>
+    </div>`
+  }
+  const rows = insights.map(i => {
+    const tone = severityTone(i.severity)
+    const countChip = i.instanceCount > 1 ? ` <span class="badge tone-neutral">× ${i.instanceCount}</span>` : ''
+    return `<tr>
+      <td><span class="badge tone-${tone}">${escapeHtml(reportSeverityLabel(i.severity))}</span></td>
+      <td>${escapeHtml(i.title)}${countChip}</td>
+      <td>${escapeHtml(i.query)}</td>
+      <td>${escapeHtml(i.provider)}</td>
+    </tr>`
+  }).join('')
+  return `<div class="chart-card"><h3>${escapeHtml(heading)}</h3>
+    <table class="report-table">
+      <thead><tr><th>Severity</th><th>Title</th><th>Query</th><th>Provider</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`
+}
+
+function renderWhatsChanged(report: ProjectReportDto): string {
+  const w = report.whatsChanged
+  if (!w.enoughHistory && !w.gscClicksDelta && !w.aiReferralsDelta && w.wins.length === 0 && w.regressions.length === 0) {
+    return section(
+      { id: 'whats-changed', eyebrow: 'Section 2', title: "What's Changed", intro: w.headline },
+      renderEmpty('Trend deltas will populate after a few more visibility sweeps.'),
+    )
+  }
+  const rateTiles = `<div class="metric-grid">
+    ${renderRateDeltaTile('Citation rate', w.citationRate, '%')}
+    ${renderRateDeltaTile('Mention rate', w.mentionRate, '%')}
+    ${renderRateDeltaTile('Cited queries', w.citedQueryCount, 'count')}
+    ${renderTrafficDeltaTile('GSC clicks', w.gscClicksDelta, 'clicks')}
+    ${renderTrafficDeltaTile('AI referral sessions', w.aiReferralsDelta, 'sessions')}
+  </div>`
+  const movements = renderProviderMovements(w.providerMovements)
+  const wins = renderWinsLosses(w.wins, 'Wins', 'No new gains in the latest sweep.')
+  const regressions = renderWinsLosses(w.regressions, 'Regressions', 'No new regressions in the latest sweep.')
+  return section(
+    { id: 'whats-changed', eyebrow: 'Section 2', title: "What's Changed", intro: w.headline },
+    `${rateTiles}${movements}${wins}${regressions}`,
+  )
+}
+
 function renderProviderBars(rates: ProjectReportDto['citationScorecard']['providerRates']): string {
   if (rates.length === 0) return ''
   const max = Math.max(...rates.map(r => r.citationRate), 100)
@@ -1036,7 +1073,7 @@ function renderCitationScorecard(report: ProjectReportDto): string {
     ${renderCitationMatrix(report.citationScorecard)}
   `
   return section(
-    { id: 'citation-scorecard', eyebrow: 'Section 2', title: 'Citation Scorecard', intro: 'Provider-by-provider citation and mention coverage for the latest sweep.' },
+    { id: 'citation-scorecard', eyebrow: 'Section 3', title: 'Citation Scorecard', intro: 'Provider-by-provider citation and mention coverage for the latest sweep.' },
     body,
   )
 }
@@ -1096,7 +1133,7 @@ function renderCompetitorLandscape(report: ProjectReportDto): string {
   const noMentionData = mentionLandscape.competitors.length === 0 && mentionLandscape.projectMentionCount === 0
   if (noCitationData && noMentionData) {
     return section(
-      { id: 'competitor-landscape', eyebrow: 'Section 3', title: 'Competitor Landscape' },
+      { id: 'competitor-landscape', eyebrow: 'Section 4', title: 'Competitor Landscape' },
       renderEmpty('No competitor data yet. Add competitors and run a visibility sweep.'),
     )
   }
@@ -1138,7 +1175,7 @@ function renderCompetitorLandscape(report: ProjectReportDto): string {
   return section(
     {
       id: 'competitor-landscape',
-      eyebrow: 'Section 3',
+      eyebrow: 'Section 4',
       title: 'Competitor Landscape',
       intro: 'Who AI engines cite and mention instead of the client.',
     },
@@ -1218,7 +1255,7 @@ function renderAiSourceOrigin(report: ProjectReportDto): string {
   const origin = report.aiSourceOrigin
   if (origin.categories.length === 0 && origin.topDomains.length === 0) {
     return section(
-      { id: 'ai-source-origin', eyebrow: 'Section 4', title: 'AI Citation Sources' },
+      { id: 'ai-source-origin', eyebrow: 'Section 5', title: 'AI Citation Sources' },
       renderEmpty('No source data yet. Run a visibility sweep first.'),
     )
   }
@@ -1247,7 +1284,7 @@ function renderAiSourceOrigin(report: ProjectReportDto): string {
   return section(
     {
       id: 'ai-source-origin',
-      eyebrow: 'Section 4',
+      eyebrow: 'Section 5',
       title: 'AI Citation Sources',
       intro: 'External domains AI engines trusted most in the latest sweep.',
     },
@@ -1295,7 +1332,7 @@ function renderGsc(report: ProjectReportDto): string {
   const gsc = report.gsc
   if (!gsc) {
     return section(
-      { id: 'gsc', eyebrow: 'Section 5', title: 'GSC Performance' },
+      { id: 'gsc', eyebrow: 'Section 6', title: 'GSC Performance' },
       renderEmpty('Connect Google Search Console to populate this section.'),
     )
   }
@@ -1344,7 +1381,7 @@ function renderGsc(report: ProjectReportDto): string {
   const dateRange = gscDateRange(report)
 
   return section(
-    { id: 'gsc', eyebrow: 'Section 5', title: 'GSC Performance', intro: `Search demand signals to compare against AI visibility${dateRange ? ` for ${dateRange}` : ''}.` },
+    { id: 'gsc', eyebrow: 'Section 6', title: 'GSC Performance', intro: `Search demand signals to compare against AI visibility${dateRange ? ` for ${dateRange}` : ''}.` },
     `<div class="metric-grid">
       <div class="metric"><div class="label">Total clicks</div><div class="value">${formatNumber(gsc.totalClicks)}</div></div>
       <div class="metric"><div class="label">Total impressions</div><div class="value">${formatNumber(gsc.totalImpressions)}</div></div>
@@ -1367,7 +1404,7 @@ function renderGa(report: ProjectReportDto): string {
   const ga = report.ga
   if (!ga) {
     return section(
-      { id: 'ga', eyebrow: 'Section 6', title: 'GA4 Traffic' },
+      { id: 'ga', eyebrow: 'Section 7', title: 'GA4 Traffic' },
       renderEmpty('Connect Google Analytics 4 to populate this section.'),
     )
   }
@@ -1392,7 +1429,7 @@ function renderGa(report: ProjectReportDto): string {
   )
 
   return section(
-    { id: 'ga', eyebrow: 'Section 6', title: 'GA4 Traffic', intro: `Site traffic from ${formatDate(ga.periodStart)} to ${formatDate(ga.periodEnd)}.` },
+    { id: 'ga', eyebrow: 'Section 7', title: 'GA4 Traffic', intro: `Site traffic from ${formatDate(ga.periodStart)} to ${formatDate(ga.periodEnd)}.` },
     `<div class="metric-grid">
       <div class="metric"><div class="label">Total sessions</div><div class="value">${formatNumber(ga.totalSessions)}</div></div>
       <div class="metric"><div class="label">Total users</div><div class="value">${formatNumber(ga.totalUsers)}</div></div>
@@ -1412,7 +1449,7 @@ function renderSocial(report: ProjectReportDto): string {
   const social = report.socialReferrals
   if (!social) {
     return section(
-      { id: 'social-referrals', eyebrow: 'Section 7', title: 'Social Referrals' },
+      { id: 'social-referrals', eyebrow: 'Section 8', title: 'Social Referrals' },
       renderEmpty('No social referral data yet.'),
     )
   }
@@ -1436,7 +1473,7 @@ function renderSocial(report: ProjectReportDto): string {
     </tr>`).join('')
 
   return section(
-    { id: 'social-referrals', eyebrow: 'Section 7', title: 'Social Referrals', intro: 'Social traffic split by channel and campaign.' },
+    { id: 'social-referrals', eyebrow: 'Section 8', title: 'Social Referrals', intro: 'Social traffic split by channel and campaign.' },
     `<div class="metric-grid">
       <div class="metric"><div class="label">Total sessions</div><div class="value">${formatNumber(social.totalSessions)}</div></div>
       <div class="metric"><div class="label">Organic social</div><div class="value">${formatNumber(social.organicSessions)}</div></div>
@@ -1456,7 +1493,7 @@ function renderAiReferrals(report: ProjectReportDto): string {
   const ai = report.aiReferrals
   if (!ai) {
     return section(
-      { id: 'ai-referrals', eyebrow: 'Section 8', title: 'AI Referral Traffic' },
+      { id: 'ai-referrals', eyebrow: 'Section 9', title: 'AI Referral Traffic' },
       renderEmpty('No AI referral traffic detected yet.'),
     )
   }
@@ -1486,7 +1523,7 @@ function renderAiReferrals(report: ProjectReportDto): string {
   )
 
   return section(
-    { id: 'ai-referrals', eyebrow: 'Section 8', title: 'AI Referral Traffic', intro: 'Traffic arriving from AI answer engines.' },
+    { id: 'ai-referrals', eyebrow: 'Section 9', title: 'AI Referral Traffic', intro: 'Traffic arriving from AI answer engines.' },
     `<div class="metric-grid">
       <div class="metric"><div class="label">Total sessions</div><div class="value">${formatNumber(ai.totalSessions)}</div></div>
       <div class="metric"><div class="label">Total users</div><div class="value">${formatNumber(ai.totalUsers)}</div></div>
@@ -1506,7 +1543,7 @@ function renderIndexingHealth(report: ProjectReportDto): string {
   const ih = report.indexingHealth
   if (!ih) {
     return section(
-      { id: 'indexing-health', eyebrow: 'Section 9', title: 'Indexing Health' },
+      { id: 'indexing-health', eyebrow: 'Section 10', title: 'Indexing Health' },
       renderEmpty('Connect Google Search Console or Bing Webmaster Tools and run a sitemap inspection.'),
     )
   }
@@ -1533,7 +1570,7 @@ function renderIndexingHealth(report: ProjectReportDto): string {
   const legend = segments.map(s => `<span><span class="legend-swatch" style="background:${s.color}"></span>${escapeHtml(s.label)}: ${s.count}</span>`).join('')
 
   return section(
-    { id: 'indexing-health', eyebrow: 'Section 9', title: 'Indexing Health', intro: `Pages absent from ${ih.provider === 'google' ? 'Google' : 'Bing'} are harder for AI engines to retrieve.` },
+    { id: 'indexing-health', eyebrow: 'Section 10', title: 'Indexing Health', intro: `Pages absent from ${ih.provider === 'google' ? 'Google' : 'Bing'} are harder for AI engines to retrieve.` },
     `<div class="metric-grid">
       <div class="metric"><div class="label">Indexed</div><div class="value tone-positive">${formatNumber(ih.indexed)}</div></div>
       <div class="metric"><div class="label">Total inspected</div><div class="value">${formatNumber(ih.total)}</div></div>
@@ -1551,14 +1588,14 @@ function renderCitationsTrend(report: ProjectReportDto): string {
   const trend = report.citationsTrend
   if (trend.length === 0) {
     return section(
-      { id: 'citations-trend', eyebrow: 'Section 10', title: 'Citations Over Time' },
+      { id: 'citations-trend', eyebrow: 'Section 11', title: 'Citations Over Time' },
       renderEmpty('Run multiple visibility sweeps to see a trend.'),
     )
   }
 
   if (isTrendBaseline(trend)) {
     return section(
-      { id: 'citations-trend', eyebrow: 'Section 10', title: 'Citations Over Time' },
+      { id: 'citations-trend', eyebrow: 'Section 11', title: 'Citations Over Time' },
       renderEmpty(`Establishing baseline (${trend.length} of ${MIN_TREND_POINTS} runs collected). Trend will appear once more sweeps are recorded.`),
     )
   }
@@ -1578,7 +1615,7 @@ function renderCitationsTrend(report: ProjectReportDto): string {
     </tr>`).join('')
 
   return section(
-    { id: 'citations-trend', eyebrow: 'Section 10', title: 'Citations Over Time', intro: 'Citation coverage across completed visibility sweeps.' },
+    { id: 'citations-trend', eyebrow: 'Section 11', title: 'Citations Over Time', intro: 'Citation coverage across completed visibility sweeps.' },
     `${chart}
     <div class="chart-card"><h3>Run-by-run breakdown</h3>
       <table class="report-table">
@@ -1593,7 +1630,7 @@ function renderInsights(report: ProjectReportDto): string {
   const list = report.insights
   if (list.length === 0) {
     return section(
-      { id: 'insights', eyebrow: 'Section 11', title: 'Insights & Alerts' },
+      { id: 'insights', eyebrow: 'Section 12', title: 'Insights & Alerts' },
       renderEmpty('No insights yet — run a visibility sweep to generate alerts.'),
     )
   }
@@ -1618,7 +1655,7 @@ function renderInsights(report: ProjectReportDto): string {
     }).join('')
 
   return section(
-    { id: 'insights', eyebrow: 'Section 11', title: 'Insights & Alerts', intro: 'Regressions, gains, and recurring alerts ordered by severity.' },
+    { id: 'insights', eyebrow: 'Section 12', title: 'Insights & Alerts', intro: 'Regressions, gains, and recurring alerts ordered by severity.' },
     `<table class="report-table insights-table">
       <thead><tr>
         <th class="col-severity">Severity</th>
@@ -1669,7 +1706,7 @@ function renderOpportunities(report: ProjectReportDto): string {
   return section(
     {
       id: 'content-opportunities',
-      eyebrow: 'Section 12',
+      eyebrow: 'Section 13',
       title: 'Content Opportunities',
       intro: 'Queries where content work has the clearest path to more AI citations. Opportunity score is 0–100, higher = stronger.',
     },
@@ -1696,7 +1733,7 @@ function renderContentGaps(report: ProjectReportDto): string {
   return section(
     {
       id: 'content-gaps',
-      eyebrow: 'Section 13',
+      eyebrow: 'Section 14',
       title: 'Content Gaps',
       intro: 'Tracked queries where competitors are cited and the client is missing.',
     },
@@ -1714,7 +1751,7 @@ function renderRecommendedNextSteps(report: ProjectReportDto): string {
   const steps = report.recommendedNextSteps
   if (steps.length === 0) {
     return section(
-      { id: 'recommended-next-steps', eyebrow: 'Section 14', title: 'Recommended Next Steps', intro: 'Action items bucketed by timing.' },
+      { id: 'recommended-next-steps', eyebrow: 'Section 15', title: 'Recommended Next Steps', intro: 'Action items bucketed by timing.' },
       renderEmpty('No outstanding actions.'),
     )
   }
@@ -1727,7 +1764,7 @@ function renderRecommendedNextSteps(report: ProjectReportDto): string {
     </div>`).join('')
 
   return section(
-    { id: 'recommended-next-steps', eyebrow: 'Section 14', title: 'Recommended Next Steps', intro: 'Action items bucketed by timing.' },
+    { id: 'recommended-next-steps', eyebrow: 'Section 15', title: 'Recommended Next Steps', intro: 'Action items bucketed by timing.' },
     `<div class="steps">${items}</div>`,
   )
 }
@@ -1912,11 +1949,13 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
   const sections = audience === 'client'
     ? [
         renderClientSummary(report),
+        renderWhatsChanged(report),
         renderAudienceActionPlan(report, 'client'),
         renderClientEvidenceSummary(report),
       ].join('\n')
     : [
         renderExecutiveSummary(report),
+        renderWhatsChanged(report),
         renderAudienceActionPlan(report, 'agency'),
         renderAgencyDiagnostics(report),
         renderCitationScorecard(report),

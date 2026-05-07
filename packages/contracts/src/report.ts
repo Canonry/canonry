@@ -383,6 +383,85 @@ export interface RecommendedNextStep {
   rationale: string
 }
 
+/**
+ * "What's changed" — the trend-focused act of the report. Pre-computed
+ * deltas between the latest run/period and the prior one. Renderers must
+ * not recompute these from `citationsTrend` etc. — read them directly.
+ *
+ * `enoughHistory: false` means there is not enough run/trend data to compute
+ * meaningful deltas; renderers should fall back to a baseline message.
+ */
+export interface ReportRateDelta {
+  /** Current value (0..100 for rates, raw count otherwise). */
+  current: number
+  /** Prior value compared against. */
+  prior: number
+  /** Absolute delta (current − prior). Negative = decrease. */
+  deltaAbs: number
+  /**
+   * Direction tag for tone mapping. 'flat' when |deltaAbs| < 0.5 for rates
+   * or 0 for counts; 'unknown' is reserved for prior-undefined cases that
+   * the parent shape captures with a null instead.
+   */
+  direction: 'up' | 'down' | 'flat'
+}
+
+export interface ReportProviderMovement {
+  provider: string
+  current: number
+  prior: number
+  deltaAbs: number
+  direction: 'up' | 'down' | 'flat'
+}
+
+export interface WhatsChangedSection {
+  /**
+   * False when there's no prior run (or fewer than the trend baseline),
+   * meaning all per-metric deltas will be null. Renderers use this to swap
+   * in a "establishing baseline" fallback rather than rendering empty
+   * delta tiles.
+   */
+  enoughHistory: boolean
+  /**
+   * One-sentence narrative summary suitable as a section subtitle.
+   * Always present — even on baseline, narrates whatever signal exists.
+   */
+  headline: string
+  /** Citation rate delta vs the prior completed run. Null when no prior run. */
+  citationRate: ReportRateDelta | null
+  /** Mention rate delta vs the prior completed run. Null when no prior run. */
+  mentionRate: ReportRateDelta | null
+  /** Cited query count delta vs the prior completed run. Null when no prior run. */
+  citedQueryCount: ReportRateDelta | null
+  /**
+   * GSC clicks delta — last 14 days of `gsc.trend` vs the 14 days before
+   * that. Null when GSC isn't connected or fewer than 28 trend points exist.
+   */
+  gscClicksDelta: ReportRateDelta | null
+  /**
+   * AI referral sessions delta — last 14 days of `aiReferrals.trend` vs the
+   * 14 days before that. Null when AI referrals aren't tracked or fewer
+   * than 28 trend points exist.
+   */
+  aiReferralsDelta: ReportRateDelta | null
+  /**
+   * Per-provider citation rate movements (latest run vs prior run). Empty
+   * when no prior run. Sorted by |deltaAbs| desc — providers with the
+   * biggest swing first.
+   */
+  providerMovements: ReportProviderMovement[]
+  /**
+   * Top wins this period — gains surfaced by the intelligence engine.
+   * Capped at 5; sourced from `insights` filtered to `type: 'gain'`.
+   */
+  wins: ReportInsight[]
+  /**
+   * Top regressions this period — citations or mentions lost. Capped at 5;
+   * sourced from `insights` filtered to `type: 'regression'`.
+   */
+  regressions: ReportInsight[]
+}
+
 export type ReportAudience = 'agency' | 'client'
 export type ReportActionAudience = ReportAudience | 'both'
 export type ReportActionHorizon = 'immediate' | 'short-term' | 'medium-term'
@@ -503,6 +582,11 @@ export interface ProjectReportDto {
   aiReferrals: AiReferralSection | null
   indexingHealth: IndexingHealthSection | null
   citationsTrend: CitationsTrendPoint[]
+  /**
+   * Trend-focused "what's changed" summary for the report's act 2. Always
+   * present; renderers gate empty/baseline states via `enoughHistory`.
+   */
+  whatsChanged: WhatsChangedSection
   insights: ReportInsight[]
   recommendedNextSteps: RecommendedNextStep[]
   /** Canonical structured actions shared by the client and agency render modes. */

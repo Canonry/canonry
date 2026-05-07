@@ -32,7 +32,10 @@ import {
   type ReportAudience,
   type ReportInsight,
   type ReportProviderLocationHandling,
+  type ReportProviderMovement,
+  type ReportRateDelta,
   type SocialReferralSection,
+  type WhatsChangedSection,
 } from '@ainyc/canonry-contracts'
 import {
   buildAiSourceOrigin,
@@ -1186,6 +1189,158 @@ function buildAgencyDiagnostics(input: ReportActionPlanInput & {
   }
 }
 
+// 14-day half-window for period-over-period traffic deltas (last 14 days vs
+// the 14 days before that). Anchored on the trend tail so a stale sync still
+// produces meaningful comparisons; below 28 points we return null instead of
+// inventing motion. The choice of 14 (not 7) smooths weekday seasonality
+// without dropping all the way back into the noise floor of single-day swings.
+const WHATS_CHANGED_PERIOD_DAYS = 14
+const WHATS_CHANGED_MIN_TREND_POINTS = WHATS_CHANGED_PERIOD_DAYS * 2
+
+const WIN_REGRESSION_LIMIT = 5
+
+function rateDirection(delta: number, threshold = 0.5): 'up' | 'down' | 'flat' {
+  if (delta > threshold) return 'up'
+  if (delta < -threshold) return 'down'
+  return 'flat'
+}
+
+function periodOverPeriodDelta(
+  trend: ReadonlyArray<{ date: string; value: number }>,
+): ReportRateDelta | null {
+  if (trend.length < WHATS_CHANGED_MIN_TREND_POINTS) return null
+  const tail = trend.slice(-WHATS_CHANGED_PERIOD_DAYS)
+  const prior = trend.slice(-WHATS_CHANGED_PERIOD_DAYS * 2, -WHATS_CHANGED_PERIOD_DAYS)
+  const current = tail.reduce((s, p) => s + p.value, 0)
+  const priorTotal = prior.reduce((s, p) => s + p.value, 0)
+  const deltaAbs = current - priorTotal
+  return {
+    current,
+    prior: priorTotal,
+    deltaAbs,
+    direction: rateDirection(deltaAbs, 0),
+  }
+}
+
+function buildWhatsChangedHeadline(
+  citation: ReportRateDelta | null,
+  gscClicks: ReportRateDelta | null,
+  aiReferrals: ReportRateDelta | null,
+  enoughHistory: boolean,
+  trendLength: number,
+): string {
+  if (!enoughHistory) {
+    return `Establishing baseline (${trendLength} of ${MIN_TREND_POINTS} runs collected). Trend deltas appear after a few more sweeps.`
+  }
+  const parts: string[] = []
+  if (citation) {
+    const arrow = citation.direction === 'up' ? '↑' : citation.direction === 'down' ? '↓' : '→'
+    const verb = citation.direction === 'up' ? 'rose' : citation.direction === 'down' ? 'fell' : 'held'
+    parts.push(`Citation rate ${verb} ${citation.prior}% ${arrow} ${citation.current}%`)
+  }
+  if (aiReferrals && aiReferrals.direction !== 'flat') {
+    const arrow = aiReferrals.direction === 'up' ? '↑' : '↓'
+    parts.push(`AI referrals ${arrow}${Math.abs(aiReferrals.deltaAbs)} sessions vs prior 14 days`)
+  } else if (gscClicks && gscClicks.direction !== 'flat') {
+    const arrow = gscClicks.direction === 'up' ? '↑' : '↓'
+    parts.push(`GSC clicks ${arrow}${Math.abs(gscClicks.deltaAbs)} vs prior 14 days`)
+  }
+  return parts.length > 0 ? `${parts.join(' · ')}.` : 'No meaningful movement vs the prior period.'
+}
+
+function buildWhatsChanged(input: {
+  citationsTrend: CitationsTrendPoint[]
+  gsc: ProjectReportDto['gsc']
+  aiReferrals: ProjectReportDto['aiReferrals']
+  insights: ReportInsight[]
+}): WhatsChangedSection {
+  const { citationsTrend, gsc, aiReferrals, insights: insightList } = input
+  const baseline = isTrendBaseline(citationsTrend)
+  const latest = citationsTrend.at(-1)
+  const prior = citationsTrend.length >= 2 ? citationsTrend.at(-2) : null
+  const enoughHistory = !baseline && latest !== undefined && prior !== undefined
+
+  const citationRate: ReportRateDelta | null = enoughHistory
+    ? {
+        current: latest!.citationRate,
+        prior: prior!.citationRate,
+        deltaAbs: latest!.citationRate - prior!.citationRate,
+        direction: rateDirection(latest!.citationRate - prior!.citationRate),
+      }
+    : null
+
+  const mentionRate: ReportRateDelta | null = enoughHistory
+    ? {
+        current: latest!.mentionRate,
+        prior: prior!.mentionRate,
+        deltaAbs: latest!.mentionRate - prior!.mentionRate,
+        direction: rateDirection(latest!.mentionRate - prior!.mentionRate),
+      }
+    : null
+
+  const citedQueryCount: ReportRateDelta | null = enoughHistory
+    ? {
+        current: latest!.citedQueryCount,
+        prior: prior!.citedQueryCount,
+        deltaAbs: latest!.citedQueryCount - prior!.citedQueryCount,
+        direction: rateDirection(latest!.citedQueryCount - prior!.citedQueryCount, 0),
+      }
+    : null
+
+  const providerMovements: ReportProviderMovement[] = []
+  if (enoughHistory) {
+    const priorByProvider = new Map(prior!.providerRates.map(p => [p.provider, p.citationRate]))
+    for (const cur of latest!.providerRates) {
+      const priorRate = priorByProvider.get(cur.provider)
+      if (priorRate === undefined) continue
+      const deltaAbs = cur.citationRate - priorRate
+      providerMovements.push({
+        provider: cur.provider,
+        current: cur.citationRate,
+        prior: priorRate,
+        deltaAbs,
+        direction: rateDirection(deltaAbs),
+      })
+    }
+    providerMovements.sort((a, b) => Math.abs(b.deltaAbs) - Math.abs(a.deltaAbs))
+  }
+
+  const gscClicksDelta = gsc
+    ? periodOverPeriodDelta(gsc.trend.map(t => ({ date: t.date, value: t.clicks })))
+    : null
+  const aiReferralsDelta = aiReferrals
+    ? periodOverPeriodDelta(aiReferrals.trend.map(t => ({ date: t.date, value: t.sessions })))
+    : null
+
+  const wins = insightList
+    .filter(i => i.type === 'gain')
+    .slice(0, WIN_REGRESSION_LIMIT)
+  const regressions = insightList
+    .filter(i => i.type === 'regression')
+    .slice(0, WIN_REGRESSION_LIMIT)
+
+  const headline = buildWhatsChangedHeadline(
+    citationRate,
+    gscClicksDelta,
+    aiReferralsDelta,
+    enoughHistory,
+    citationsTrend.length,
+  )
+
+  return {
+    enoughHistory,
+    headline,
+    citationRate,
+    mentionRate,
+    citedQueryCount,
+    gscClicksDelta,
+    aiReferralsDelta,
+    providerMovements,
+    wins,
+    regressions,
+  }
+}
+
 function buildProjectReport(db: DatabaseClient, projectName: string): ProjectReportDto {
   const project = resolveProject(db, projectName)
   const queryLookup = loadQueryLookup(db, project.id)
@@ -1255,6 +1410,13 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
     contentOpportunities,
     insightDerivedSteps,
   )
+
+  const whatsChanged = buildWhatsChanged({
+    citationsTrend,
+    gsc: gscSection,
+    aiReferrals: aiReferralsSection,
+    insights: insightList,
+  })
 
   // Headline rate is per-query — see buildCitationsTrend for the rationale.
   // Same definition both places so the trend chart and the executive summary
@@ -1424,6 +1586,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
     aiReferrals: aiReferralsSection,
     indexingHealth: indexingHealthSection,
     citationsTrend,
+    whatsChanged,
     insights: insightList,
     recommendedNextSteps,
     actionPlan,
