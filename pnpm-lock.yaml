@@ -358,6 +358,12 @@ importers:
         specifier: workspace:*
         version: link:../contracts
 
+  packages/integration-cloud-run:
+    dependencies:
+      '@ainyc/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
   packages/integration-commoncrawl:
     dependencies:
       '@ainyc/canonry-contracts':
@@ -375,6 +381,12 @@ importers:
         version: link:../contracts
 
   packages/integration-google-analytics:
+    dependencies:
+      '@ainyc/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
+  packages/integration-traffic:
     dependencies:
       '@ainyc/canonry-contracts':
         specifier: workspace:*

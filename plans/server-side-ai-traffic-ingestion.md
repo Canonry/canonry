@@ -1,7 +1,7 @@
 # Server-Side AI Traffic & Crawler Ingestion Plan
 
 Status: design plan for implementation after GA known-AI landing page work
-Last updated: 2026-04-30
+Last updated: 2026-05-01
 
 ## Context
 
@@ -11,6 +11,10 @@ Canonry already has two AI discovery signals:
 - GA4 attribution shows explicit known-AI human referrals when GA exposes a matching source, medium, or UTM signal.
 
 GA4 cannot recover crawler activity or referrer-stripped AI clicks. GA4 also automatically excludes known bot traffic before reporting and does not expose how much was excluded. Server-side ingestion is therefore a separate product layer: it captures request evidence before browser JavaScript, GA attribution, or GA bot filtering shape the data.
+
+See [`cloud-run-traffic-source-model-review.md`](./cloud-run-traffic-source-model-review.md)
+for the provider-capability review behind the Cloud Run starter adapter and the
+raw-event vs aggregate-bucket split.
 
 ## Goals
 
