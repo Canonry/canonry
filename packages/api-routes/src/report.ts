@@ -19,12 +19,18 @@ import {
   CitationStates,
   RunKinds,
   RunStatuses,
+  getProviderLocationHandling,
+  validationError,
   type CitationsTrendPoint,
   type CompetitorRow,
   type GscQueryRow,
+  type LocationContext,
   type ProjectReportDto,
   type RecommendedNextStep,
+  type ReportActionPlanItem,
+  type ReportAudience,
   type ReportInsight,
+  type ReportProviderLocationHandling,
   type SocialReferralSection,
 } from '@ainyc/canonry-contracts'
 import {
@@ -467,33 +473,56 @@ function buildCitationsTrend(
   db: DatabaseClient,
   projectId: string,
   queryLookup: QueryLookup,
+  // Same tri-state semantics as content-data's `LocationScope`:
+  //   `undefined` = unfiltered, `null` = locationless runs only, string = match label.
+  locationFilter: string | null | undefined,
 ): CitationsTrendPoint[] {
+  // Trend points must share a location with the latest run, otherwise a
+  // florida sweep and a michigan sweep get plotted on the same line. Match
+  // null-to-null so locationless projects still see a contiguous trend.
   const visibilityRuns = db
     .select()
     .from(runs)
     .where(and(eq(runs.projectId, projectId), eq(runs.kind, RunKinds['answer-visibility'])))
     .all()
+    .filter(r => locationFilter === undefined || (r.location ?? null) === locationFilter)
 
+  const totalQueries = queryLookup.byId.size
   const points: CitationsTrendPoint[] = []
   for (const run of visibilityRuns) {
     if (run.status !== RunStatuses.completed) continue
     const snaps = loadSnapshotsForRun(db, run.id)
     if (snaps.length === 0) continue
 
-    let cited = 0
+    // Headline rate is per-query (unique queries cited by ≥1 provider divided
+    // by total tracked queries) — invariant to provider count so a partial
+    // gemini-only run and a full 4-provider run can be compared honestly. See
+    // issue #422: per-(query × provider) ballooned the denominator and made
+    // real improvements look like declines whenever the provider mix shifted.
+    // mentionRate uses the same per-query denominator for symmetry.
+    const citedQueryIds = new Set<string>()
+    const mentionedQueryIds = new Set<string>()
     let considered = 0
     const providerCounts = new Map<string, { cited: number; total: number }>()
     for (const snap of snaps) {
       if (!queryLookup.byId.has(snap.queryId)) continue
       considered++
-      if (snap.citationState === CitationStates.cited) cited++
+      if (snap.citationState === CitationStates.cited) citedQueryIds.add(snap.queryId)
+      if (snap.answerMentioned) mentionedQueryIds.add(snap.queryId)
       const counts = providerCounts.get(snap.provider) ?? { cited: 0, total: 0 }
       counts.total++
       if (snap.citationState === CitationStates.cited) counts.cited++
       providerCounts.set(snap.provider, counts)
     }
     if (considered === 0) continue
-    const citationRate = Math.round((cited / considered) * 100)
+    const citedQueryCount = citedQueryIds.size
+    const mentionedQueryCount = mentionedQueryIds.size
+    const citationRate = totalQueries > 0
+      ? Math.round((citedQueryCount / totalQueries) * 100)
+      : 0
+    const mentionRate = totalQueries > 0
+      ? Math.round((mentionedQueryCount / totalQueries) * 100)
+      : 0
     const providerRates = [...providerCounts.entries()]
       .map(([provider, counts]) => ({
         provider,
@@ -505,6 +534,10 @@ function buildCitationsTrend(
       runId: run.id,
       date: run.finishedAt ?? run.createdAt,
       citationRate,
+      citedQueryCount,
+      totalQueryCount: totalQueries,
+      mentionRate,
+      mentionedQueryCount,
       providerRates,
     })
   }
@@ -513,12 +546,19 @@ function buildCitationsTrend(
   return points
 }
 
-function buildInsightList(db: DatabaseClient, projectId: string): ReportInsight[] {
+function buildInsightList(
+  db: DatabaseClient,
+  projectId: string,
+  // Same tri-state as buildCitationsTrend.
+  locationFilter: string | null | undefined,
+): ReportInsight[] {
   // Bound the report to the most recent N answer-visibility runs so stale,
   // long-undismissed insights from months ago don't pile up. Mirrors the
   // recurrence window used in intelligence-service for severity tiering.
+  // Insights are scoped to runs at the same location as the latest run so
+  // a florida regression isn't surfaced on a michigan-scoped report.
   const recentRunIds = db
-    .select({ id: runs.id })
+    .select({ id: runs.id, location: runs.location })
     .from(runs)
     .where(
       and(
@@ -528,8 +568,9 @@ function buildInsightList(db: DatabaseClient, projectId: string): ReportInsight[
       ),
     )
     .orderBy(desc(runs.createdAt))
-    .limit(INSIGHT_LOOKBACK_RUNS)
     .all()
+    .filter((r) => locationFilter === undefined || (r.location ?? null) === locationFilter)
+    .slice(0, INSIGHT_LOOKBACK_RUNS)
     .map((r) => r.id)
 
   if (recentRunIds.length === 0) return []
@@ -626,6 +667,8 @@ function buildRecommendedNextSteps(insightList: ReportInsight[]): RecommendedNex
 
 function buildExecutiveFindings(
   citationRate: number,
+  citedQueryCount: number,
+  totalQueryCount: number,
   trend: ProjectReportDto['executiveSummary']['trend'],
   trendsPoints: CitationsTrendPoint[],
   trendBaseline: boolean,
@@ -649,8 +692,12 @@ function buildExecutiveFindings(
         case 'unknown': detail = 'No prior run to compare against.'; break
       }
     }
+    const queryNoun = totalQueryCount === 1 ? 'query' : 'queries'
+    const ratioFragment = totalQueryCount > 0
+      ? ` (${citedQueryCount} of ${totalQueryCount} ${queryNoun} cited)`
+      : ''
     findings.push({
-      title: `Citation rate at ${citationRate}%`,
+      title: `Citation rate at ${citationRate}%${ratioFragment}`,
       detail,
       tone,
     })
@@ -677,6 +724,411 @@ function buildExecutiveFindings(
   return findings.slice(0, 5)
 }
 
+function buildLocationMeta(
+  runLocationLabel: string | null | undefined,
+  configuredLocations: LocationContext[],
+): ProjectReportDto['meta']['location'] {
+  if (!runLocationLabel) return null
+  // The run carries the label string only; resolve it to the full
+  // LocationContext so the report can name the city/region. If the label is
+  // unknown (e.g. config was edited after the run) fall back to the label
+  // alone — better to show the user what we have than to drop it silently.
+  const match = configuredLocations.find(loc => loc.label === runLocationLabel)
+  const others = configuredLocations
+    .map(loc => loc.label)
+    .filter(label => label !== runLocationLabel)
+  return {
+    label: runLocationLabel,
+    city: match?.city ?? '',
+    region: match?.region ?? '',
+    country: match?.country ?? '',
+    otherConfiguredLabels: others,
+  }
+}
+
+function buildProviderLocationHandling(
+  providersInRun: readonly string[],
+): ReportProviderLocationHandling[] {
+  // Sort alphabetically so the table layout stays stable across runs.
+  return [...providersInRun].sort().map(provider => {
+    const handling = getProviderLocationHandling(provider)
+    return {
+      provider,
+      treatment: handling.treatment,
+      description: handling.description,
+    }
+  })
+}
+
+function compactList(items: readonly string[], limit = 3): string {
+  const visible = items.slice(0, limit)
+  const extra = items.length - visible.length
+  return extra > 0 ? `${visible.join(', ')}, +${extra} more` : visible.join(', ')
+}
+
+function contentActionVerb(action: ProjectReportDto['contentOpportunities'][number]['action']): string {
+  switch (action) {
+    case 'create': return 'Create'
+    case 'expand': return 'Expand'
+    case 'refresh': return 'Refresh'
+    case 'add-schema': return 'Add schema to'
+  }
+}
+
+function confidenceFromEvidence(count: number): ReportActionPlanItem['confidence'] {
+  if (count >= 3) return 'high'
+  if (count >= 1) return 'medium'
+  return 'low'
+}
+
+function actionAudienceMatches(action: ReportActionPlanItem, audience: ReportAudience): boolean {
+  return action.audience === 'both' || action.audience === audience
+}
+
+interface ReportActionPlanInput {
+  canonicalDomain: string
+  competitorDomains: string[]
+  citationScorecard: ProjectReportDto['citationScorecard']
+  aiSourceOrigin: ProjectReportDto['aiSourceOrigin']
+  gsc: ProjectReportDto['gsc']
+  indexingHealth: ProjectReportDto['indexingHealth']
+  contentOpportunities: ProjectReportDto['contentOpportunities']
+  contentGaps: ProjectReportDto['contentGaps']
+  reportLocation: ProjectReportDto['meta']['location']
+  providerLocationHandling: ProjectReportDto['meta']['providerLocationHandling']
+}
+
+function buildReportActionPlan(input: ReportActionPlanInput): ReportActionPlanItem[] {
+  const actions: ReportActionPlanItem[] = []
+
+  if (input.competitorDomains.length === 0 && input.aiSourceOrigin.topDomains.length > 0) {
+    const topDomains = input.aiSourceOrigin.topDomains.slice(0, 5)
+    actions.push({
+      audience: 'both',
+      priority: 10,
+      horizon: 'immediate',
+      category: 'competitors',
+      title: 'Define the competitor set Canonry should benchmark against',
+      action: 'Review the recurring external source domains and add the true competitors before the next sweep.',
+      why: [
+        'The report can identify repeated external sources, but it cannot separate competitors from publishers until competitors are configured.',
+        'A clean competitor set makes future share-of-voice and content-gap reporting easier to explain to clients.',
+      ],
+      evidence: topDomains.map(d => `${d.domain} appeared in ${d.count} cited source${d.count === 1 ? '' : 's'}`),
+      successMetric: 'Next report separates tracked competitors from independent source domains in the competitor landscape.',
+      confidence: confidenceFromEvidence(topDomains.length),
+    })
+  }
+
+  for (const [index, opportunity] of input.contentOpportunities.slice(0, 2).entries()) {
+    const verb = contentActionVerb(opportunity.action)
+    const target = opportunity.ourBestPage?.url ?? `a new page for "${opportunity.query}"`
+    const evidence = [
+      `Opportunity score ${Math.round(opportunity.score)} with ${opportunity.actionConfidence} confidence`,
+      `Demand source: ${opportunity.demandSource}`,
+    ]
+    if (opportunity.winningCompetitor) {
+      evidence.push(`${opportunity.winningCompetitor.domain} is the current winning cited source`)
+    }
+    if (opportunity.ourBestPage) {
+      evidence.push(`Best matching owned page: ${opportunity.ourBestPage.url}`)
+    } else {
+      evidence.push('No matching owned page was found')
+    }
+
+    actions.push({
+      audience: 'both',
+      priority: 20 + index,
+      horizon: opportunity.actionConfidence === 'high' ? 'short-term' : 'medium-term',
+      category: 'content',
+      title: `${verb} content for "${opportunity.query}"`,
+      action: opportunity.ourBestPage
+        ? `${verb} ${target} so it directly answers the tracked query and cites the strongest supporting evidence.`
+        : `${verb} ${target} that directly answers the query and earns citations from AI answer engines.`,
+      why: opportunity.drivers.length > 0
+        ? opportunity.drivers
+        : ['Canonry ranked this as a content opportunity from search-demand and citation evidence.'],
+      evidence,
+      successMetric: `A future sweep cites ${input.canonicalDomain} for "${opportunity.query}" and the matching GSC query/page improves.`,
+      confidence: opportunity.actionConfidence,
+    })
+  }
+
+  if (input.indexingHealth && input.indexingHealth.total > 0 && input.indexingHealth.indexedPct < 70) {
+    const ih = input.indexingHealth
+    const evidence = [
+      `${ih.indexedPct}% indexed (${ih.indexed}/${ih.total})`,
+      `${ih.notIndexed} not indexed${ih.deindexed > 0 ? `, ${ih.deindexed} deindexed` : ''}`,
+    ]
+    actions.push({
+      audience: 'both',
+      priority: 30,
+      horizon: 'immediate',
+      category: 'indexing',
+      title: 'Fix indexing coverage before expanding the content plan',
+      action: 'Audit the not-indexed tracked URLs, resolve crawl/index blockers, and resubmit priority pages.',
+      why: [
+        'Pages missing from the search index are less likely to be retrieved or cited by AI answer engines.',
+        'Indexing issues can hide otherwise strong content from both search and AI systems.',
+      ],
+      evidence,
+      successMetric: 'Indexed share moves above 80% for tracked URLs and priority pages are eligible for retrieval.',
+      confidence: ih.total >= 5 ? 'high' : 'medium',
+    })
+  }
+
+  const zeroCitationProviders = input.citationScorecard.providerRates
+    .filter(p => p.totalCount > 0 && p.citedCount === 0)
+  if (zeroCitationProviders.length > 0) {
+    actions.push({
+      audience: 'agency',
+      priority: 40,
+      horizon: 'short-term',
+      category: 'provider',
+      title: 'Diagnose providers with zero citations',
+      action: 'Inspect zero-citation provider answers and compare their cited domains against the pages currently available on the client site.',
+      why: [
+        'Provider-level misses show where one model family is not retrieving the client even when others might.',
+        'This points the agency toward provider-specific evidence gaps instead of a generic content recommendation.',
+      ],
+      evidence: zeroCitationProviders.map(p => `${p.provider}: 0/${p.totalCount} cited query-provider pairs`),
+      successMetric: 'At least one zero-citation provider cites the client on a priority query in a later sweep.',
+      confidence: 'high',
+    })
+  }
+
+  if (input.gsc && (input.gsc.trackedButNoGsc.length > 0 || input.gsc.gscButNotTracked.length > 0)) {
+    const evidence: string[] = []
+    if (input.gsc.trackedButNoGsc.length > 0) {
+      evidence.push(`Tracked with no GSC demand: ${compactList(input.gsc.trackedButNoGsc)}`)
+    }
+    if (input.gsc.gscButNotTracked.length > 0) {
+      evidence.push(`Search demand not tracked in AEO: ${compactList(input.gsc.gscButNotTracked)}`)
+    }
+    actions.push({
+      audience: 'agency',
+      priority: 50,
+      horizon: 'short-term',
+      category: 'search-demand',
+      title: 'Align tracked AEO queries with search demand',
+      action: 'Prune or relabel tracked queries with no search demand and add high-impression non-brand GSC queries to the AEO tracking set.',
+      why: [
+        'The strongest report actions come from overlap between real search demand and AI citation gaps.',
+        'Mismatch here can make the client report feel interesting but hard to act on.',
+      ],
+      evidence,
+      successMetric: 'Next report has fewer no-demand tracked queries and includes the highest-impression non-brand GSC candidates.',
+      confidence: evidence.length > 1 ? 'high' : 'medium',
+    })
+  }
+
+  if (input.contentGaps.length > 0) {
+    const topGap = input.contentGaps[0]!
+    actions.push({
+      audience: 'agency',
+      priority: 60,
+      horizon: 'medium-term',
+      category: 'content',
+      title: 'Close competitor-cited content gaps',
+      action: 'Map the top missing queries to owned pages or new briefs, starting with the gaps where multiple competitors are already cited.',
+      why: [
+        'These are explicit places where AI engines found competitor sources but not the client.',
+        'They are stronger evidence than a generic topic list because the model is already retrieving competing content.',
+      ],
+      evidence: [
+        `"${topGap.query}" missed at ${Math.round(topGap.missRate * 100)}% with ${topGap.competitorCount} competitor${topGap.competitorCount === 1 ? '' : 's'} cited`,
+        `Cited competitors: ${compactList(topGap.competitorDomains)}`,
+      ],
+      successMetric: 'The top content-gap query moves from missed to cited or mentioned after the recommended content work ships.',
+      confidence: topGap.competitorCount >= 2 ? 'high' : 'medium',
+    })
+  }
+
+  if (input.reportLocation && input.reportLocation.otherConfiguredLabels.length > 0) {
+    const ignoredProviders = input.providerLocationHandling
+      .filter(p => p.treatment === 'ignored' || p.treatment === 'browser-geo')
+      .map(p => p.provider)
+    const evidence = [
+      `Current report location: ${input.reportLocation.label}`,
+      `Other configured locations: ${compactList(input.reportLocation.otherConfiguredLabels)}`,
+    ]
+    if (ignoredProviders.length > 0) {
+      evidence.push(`Providers with weak/indirect location handling: ${compactList(ignoredProviders)}`)
+    }
+    actions.push({
+      audience: 'agency',
+      priority: 70,
+      horizon: 'medium-term',
+      category: 'location',
+      title: 'Keep location-scoped reporting separate by market',
+      action: 'Run and compare separate sweeps for each configured location before making market-level recommendations.',
+      why: [
+        'A multi-location client can appear differently by market.',
+        'Keeping each report location-scoped avoids mixing Florida and Michigan evidence in the same client story.',
+      ],
+      evidence,
+      successMetric: 'Each configured market has its own current sweep and trend before cross-market decisions are made.',
+      confidence: 'high',
+    })
+  }
+
+  if (actions.length === 0) {
+    actions.push({
+      audience: 'both',
+      priority: 90,
+      horizon: 'short-term',
+      category: 'monitoring',
+      title: 'Keep monitoring citation and mention coverage',
+      action: 'Run the next scheduled visibility sweep and watch for citation gains, losses, and provider-specific misses.',
+      why: [
+        'No urgent corrective action surfaced from the current evidence.',
+        'AEO performance is directional; repeated sweeps are needed before overreacting to a single sample.',
+      ],
+      evidence: ['No critical insights, content gaps, indexing blockers, or provider-zero issues were detected in this report.'],
+      successMetric: 'Coverage stays stable or improves across the next trend window.',
+      confidence: 'medium',
+    })
+  }
+
+  return actions.sort((a, b) => a.priority - b.priority).slice(0, 10)
+}
+
+function trendSentence(trend: ProjectReportDto['executiveSummary']['trend']): string {
+  switch (trend) {
+    case 'up': return 'Citation coverage improved versus the prior comparable sweep.'
+    case 'down': return 'Citation coverage declined versus the prior comparable sweep.'
+    case 'flat': return 'Citation coverage is flat versus the prior comparable sweep.'
+    case 'unknown': return 'There is not enough comparable run history yet to call a trend.'
+  }
+}
+
+function buildClientSummary(
+  reportLike: {
+    canonicalDomain: string
+    reportLocation: ProjectReportDto['meta']['location']
+    executiveSummary: ProjectReportDto['executiveSummary']
+    citationsTrend: ProjectReportDto['citationsTrend']
+    gsc: ProjectReportDto['gsc']
+    actionPlan: ProjectReportDto['actionPlan']
+  },
+): ProjectReportDto['clientSummary'] {
+  const s = reportLike.executiveSummary
+  const queryNoun = s.totalQueryCount === 1 ? 'query' : 'queries'
+  const headline = s.totalQueryCount > 0
+    ? `${s.citedQueryCount} of ${s.totalQueryCount} tracked ${queryNoun} are cited by AI engines`
+    : 'No tracked queries have completed a visibility sweep yet'
+  const overview = s.totalQueryCount > 0
+    ? `${reportLike.canonicalDomain} is cited on ${s.citationRate}% of tracked queries and mentioned on ${s.mentionRate}% of tracked queries. ${trendSentence(s.trend)}`
+    : 'Canonry needs at least one completed visibility sweep before it can summarize how the brand appears in AI answers.'
+
+  const confidenceNotes: string[] = []
+  if (s.totalQueryCount === 0) {
+    confidenceNotes.push('Confidence is low until the first tracked query sweep completes.')
+  } else if (s.totalQueryCount < 5) {
+    confidenceNotes.push('Directional read: the tracked query set is still small, so each query has outsized impact on the percentage.')
+  }
+  if (isTrendBaseline(reportLike.citationsTrend)) {
+    confidenceNotes.push(`Trend confidence is still developing; ${MIN_TREND_POINTS} comparable sweeps are needed for a stable trend.`)
+  }
+  if (!reportLike.gsc) {
+    confidenceNotes.push('Search Console is not connected, so content recommendations lean more heavily on citation and competitor evidence.')
+  }
+  if (reportLike.reportLocation) {
+    confidenceNotes.push(`This summary is scoped to the ${reportLike.reportLocation.label} run location.`)
+  }
+
+  return {
+    headline,
+    overview,
+    actionItems: reportLike.actionPlan.filter(a => actionAudienceMatches(a, 'client')).slice(0, 3),
+    confidenceNotes,
+  }
+}
+
+function buildAgencyDiagnostics(input: ReportActionPlanInput & {
+  actionPlan: ProjectReportDto['actionPlan']
+}): ProjectReportDto['agencyDiagnostics'] {
+  const diagnostics: ProjectReportDto['agencyDiagnostics']['diagnostics'] = []
+
+  const zeroCitationProviders = input.citationScorecard.providerRates
+    .filter(p => p.totalCount > 0 && p.citedCount === 0)
+  diagnostics.push({
+    title: 'Provider citation coverage',
+    detail: zeroCitationProviders.length > 0
+      ? `${zeroCitationProviders.length} provider${zeroCitationProviders.length === 1 ? '' : 's'} returned zero client citations in the latest sweep.`
+      : 'Every provider with completed snapshots produced at least one client citation or no provider data is available yet.',
+    severity: zeroCitationProviders.length > 0 ? 'negative' : 'positive',
+    evidence: zeroCitationProviders.length > 0
+      ? zeroCitationProviders.map(p => `${p.provider}: 0/${p.totalCount}`)
+      : input.citationScorecard.providerRates.map(p => `${p.provider}: ${p.citedCount}/${p.totalCount}`),
+  })
+
+  diagnostics.push({
+    title: 'AI source domains',
+    detail: input.aiSourceOrigin.topDomains.length > 0
+      ? 'Repeated external source domains show what AI engines are currently trusting for this topic set.'
+      : 'No external source-domain evidence is available from the latest sweep yet.',
+    severity: input.aiSourceOrigin.topDomains.length > 0 ? 'neutral' : 'caution',
+    evidence: input.aiSourceOrigin.topDomains.slice(0, 5).map(d => `${d.domain}: ${d.count}`),
+  })
+
+  if (input.gsc) {
+    diagnostics.push({
+      title: 'GSC query mismatch',
+      detail: input.gsc.trackedButNoGsc.length > 0 || input.gsc.gscButNotTracked.length > 0
+        ? 'The tracked AEO query set and real search demand are not fully aligned.'
+        : 'Tracked AEO queries and high-impression non-brand GSC queries are aligned for the current window.',
+      severity: input.gsc.trackedButNoGsc.length > 0 || input.gsc.gscButNotTracked.length > 0 ? 'caution' : 'positive',
+      evidence: [
+        ...(input.gsc.trackedButNoGsc.length > 0 ? [`Tracked with no GSC demand: ${compactList(input.gsc.trackedButNoGsc)}`] : []),
+        ...(input.gsc.gscButNotTracked.length > 0 ? [`GSC queries not tracked in AEO: ${compactList(input.gsc.gscButNotTracked)}`] : []),
+      ],
+    })
+  }
+
+  if (input.indexingHealth) {
+    diagnostics.push({
+      title: 'Indexing health',
+      detail: `${input.indexingHealth.indexedPct}% of inspected URLs are indexed in ${input.indexingHealth.provider ?? 'the connected provider'}.`,
+      severity: input.indexingHealth.indexedPct >= 90 ? 'positive' : input.indexingHealth.indexedPct >= 70 ? 'caution' : 'negative',
+      evidence: [
+        `${input.indexingHealth.indexed}/${input.indexingHealth.total} indexed`,
+        `${input.indexingHealth.notIndexed} not indexed`,
+      ],
+    })
+  }
+
+  diagnostics.push({
+    title: 'Content opportunity pipeline',
+    detail: input.contentOpportunities.length > 0
+      ? `${input.contentOpportunities.length} ranked content opportunit${input.contentOpportunities.length === 1 ? 'y' : 'ies'} and ${input.contentGaps.length} content gap${input.contentGaps.length === 1 ? '' : 's'} are available.`
+      : 'No ranked content opportunities are available from the current evidence.',
+    severity: input.contentOpportunities.length > 0 ? 'caution' : 'neutral',
+    evidence: input.contentOpportunities.slice(0, 3).map(o => `${o.query}: ${o.action} (${Math.round(o.score)})`),
+  })
+
+  if (input.reportLocation) {
+    diagnostics.push({
+      title: 'Location caveat',
+      detail: input.reportLocation.otherConfiguredLabels.length > 0
+        ? 'This report is scoped to the latest run location; other configured locations need separate interpretation.'
+        : 'This report is scoped to one configured location.',
+      severity: input.reportLocation.otherConfiguredLabels.length > 0 ? 'caution' : 'neutral',
+      evidence: [
+        `Current location: ${input.reportLocation.label}`,
+        ...(input.reportLocation.otherConfiguredLabels.length > 0
+          ? [`Other configured locations: ${compactList(input.reportLocation.otherConfiguredLabels)}`]
+          : []),
+      ],
+    })
+  }
+
+  return {
+    priorities: input.actionPlan.filter(a => actionAudienceMatches(a, 'agency')).slice(0, 6),
+    diagnostics,
+  }
+}
+
 function buildProjectReport(db: DatabaseClient, projectName: string): ProjectReportDto {
   const project = resolveProject(db, projectName)
   const queryLookup = loadQueryLookup(db, project.id)
@@ -693,6 +1145,10 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
     r => r.status === RunStatuses.completed || r.status === RunStatuses.partial,
   ) ?? visibilityRuns[0]
   const latestSnapshots = latestRun ? loadSnapshotsForRun(db, latestRun.id) : []
+  // Used to scope history-derived sections (trend, insights, content
+  // orchestrator) to the same location as the latest run. `null` means
+  // "no-location runs only" — not "any run". See review thread on PR #423.
+  const latestRunLocation: string | null = latestRun?.location ?? null
 
   const competitorRows = db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
   const competitorDomains = competitorRows.map(c => c.domain)
@@ -729,10 +1185,10 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
   const socialSection = buildSocialReferrals(db, project.id)
   const aiReferralsSection = buildAiReferrals(db, project.id)
   const indexingHealthSection = buildIndexingHealth(db, project.id)
-  const citationsTrend = buildCitationsTrend(db, project.id, queryLookup)
-  const insightList = buildInsightList(db, project.id)
+  const citationsTrend = buildCitationsTrend(db, project.id, queryLookup, latestRunLocation)
+  const insightList = buildInsightList(db, project.id, latestRunLocation)
 
-  const orchestratorInput = loadOrchestratorInput(db, project)
+  const orchestratorInput = loadOrchestratorInput(db, project, latestRunLocation)
   const contentOpportunities = buildContentTargetRows(orchestratorInput)
   const contentGaps = buildContentGapRows(orchestratorInput)
   const groundingSources = buildContentSourceRows(orchestratorInput)
@@ -743,15 +1199,30 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
     insightDerivedSteps,
   )
 
-  let latestCited = 0
-  let latestConsidered = 0
+  // Headline rate is per-query — see buildCitationsTrend for the rationale.
+  // Same definition both places so the trend chart and the executive summary
+  // KPI move together; using different denominators in the two surfaces is
+  // how issue #422 originally manifested.
+  //
+  // Citation rate and mention rate are independent signals (per the canonry
+  // vocabulary rules in AGENTS.md): a query can be cited without being
+  // mentioned, mentioned without being cited, or both. We compute both
+  // here and surface them side-by-side in the executive summary.
+  const totalQueryCount = queryLookup.byId.size
+  const citedQueryIds = new Set<string>()
+  const mentionedQueryIds = new Set<string>()
   for (const snap of latestSnapshots) {
     if (!queryLookup.byId.has(snap.queryId)) continue
-    latestConsidered++
-    if (snap.citationState === CitationStates.cited) latestCited++
+    if (snap.citationState === CitationStates.cited) citedQueryIds.add(snap.queryId)
+    if (snap.answerMentioned) mentionedQueryIds.add(snap.queryId)
   }
-  const citationRate = latestConsidered > 0
-    ? Math.round((latestCited / latestConsidered) * 100)
+  const citedQueryCount = citedQueryIds.size
+  const mentionedQueryCount = mentionedQueryIds.size
+  const citationRate = totalQueryCount > 0
+    ? Math.round((citedQueryCount / totalQueryCount) * 100)
+    : 0
+  const mentionRate = totalQueryCount > 0
+    ? Math.round((mentionedQueryCount / totalQueryCount) * 100)
     : 0
 
   // Suppress trend computation until enough runs exist — a 5%→1% delta on
@@ -781,6 +1252,8 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
 
   const findings = buildExecutiveFindings(
     citationRate,
+    citedQueryCount,
+    totalQueryCount,
     trend,
     citationsTrend,
     trendBaseline,
@@ -790,6 +1263,80 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
 
   const periodStart = citationsTrend[0]?.date ?? null
   const periodEnd = citationsTrend.at(-1)?.date ?? null
+
+  const configuredLocations = parseJsonColumn<LocationContext[]>(project.locations, [])
+  const reportLocation = buildLocationMeta(latestRun?.location ?? null, configuredLocations)
+  // Per-provider handling only makes sense relative to an actual run location.
+  // For locationless runs, surfacing rows that say "Location appended to the
+  // prompt" or "Sent as user_location" contradicts the headline ("none — the
+  // queries went out verbatim"); leave the array empty so the renderer hides
+  // the breakdown table.
+  const providerLocationHandling = reportLocation
+    ? buildProviderLocationHandling(citationScorecard.providers)
+    : []
+
+  const executiveSummary: ProjectReportDto['executiveSummary'] = {
+    citationRate,
+    citedQueryCount,
+    totalQueryCount,
+    mentionRate,
+    mentionedQueryCount,
+    trend,
+    queryCount: queryLookup.byId.size,
+    competitorCount: competitorDomains.length,
+    providerCount: citationScorecard.providers.length,
+    gsc: gscSection
+      ? {
+          clicks: gscSection.totalClicks,
+          impressions: gscSection.totalImpressions,
+          ctr: gscSection.ctr,
+          avgPosition: gscSection.avgPosition,
+        }
+      : null,
+    ga: gaSection
+      ? {
+          sessions: gaSection.totalSessions,
+          users: gaSection.totalUsers,
+          periodStart: gaSection.periodStart,
+          periodEnd: gaSection.periodEnd,
+        }
+      : null,
+    findings,
+  }
+
+  const actionPlan = buildReportActionPlan({
+    canonicalDomain: project.canonicalDomain,
+    competitorDomains,
+    citationScorecard,
+    aiSourceOrigin,
+    gsc: gscSection,
+    indexingHealth: indexingHealthSection,
+    contentOpportunities,
+    contentGaps,
+    reportLocation,
+    providerLocationHandling,
+  })
+  const clientSummary = buildClientSummary({
+    canonicalDomain: project.canonicalDomain,
+    reportLocation,
+    executiveSummary,
+    citationsTrend,
+    gsc: gscSection,
+    actionPlan,
+  })
+  const agencyDiagnostics = buildAgencyDiagnostics({
+    canonicalDomain: project.canonicalDomain,
+    competitorDomains,
+    citationScorecard,
+    aiSourceOrigin,
+    gsc: gscSection,
+    indexingHealth: indexingHealthSection,
+    contentOpportunities,
+    contentGaps,
+    reportLocation,
+    providerLocationHandling,
+    actionPlan,
+  })
 
   return {
     meta: {
@@ -802,33 +1349,12 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
         country: project.country,
         language: project.language,
       },
+      location: reportLocation,
+      providerLocationHandling,
       periodStart,
       periodEnd,
     },
-    executiveSummary: {
-      citationRate,
-      trend,
-      queryCount: queryLookup.byId.size,
-      competitorCount: competitorDomains.length,
-      providerCount: citationScorecard.providers.length,
-      gsc: gscSection
-        ? {
-            clicks: gscSection.totalClicks,
-            impressions: gscSection.totalImpressions,
-            ctr: gscSection.ctr,
-            avgPosition: gscSection.avgPosition,
-          }
-        : null,
-      ga: gaSection
-        ? {
-            sessions: gaSection.totalSessions,
-            users: gaSection.totalUsers,
-            periodStart: gaSection.periodStart,
-            periodEnd: gaSection.periodEnd,
-          }
-        : null,
-      findings,
-    },
+    executiveSummary,
     citationScorecard,
     competitorLandscape,
     mentionLandscape,
@@ -841,15 +1367,28 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
     citationsTrend,
     insights: insightList,
     recommendedNextSteps,
+    actionPlan,
+    clientSummary,
+    agencyDiagnostics,
     contentOpportunities,
     contentGaps,
     groundingSources,
   }
 }
 
-function reportFilenameFor(project: ProjectReportDto['meta']['project'], generatedAt: string): string {
+function parseReportAudience(value: string | undefined): ReportAudience {
+  if (value === undefined || value === 'agency') return 'agency'
+  if (value === 'client') return 'client'
+  throw validationError('"audience" must be "agency" or "client"')
+}
+
+function reportFilenameFor(
+  project: ProjectReportDto['meta']['project'],
+  generatedAt: string,
+  audience: ReportAudience,
+): string {
   const date = generatedAt.slice(0, 10)
-  return `canonry-report-${project.name}-${date}.html`
+  return `canonry-report-${project.name}-${audience}-${date}.html`
 }
 
 export async function reportRoutes(app: FastifyInstance) {
@@ -858,10 +1397,11 @@ export async function reportRoutes(app: FastifyInstance) {
     return reply.send(dto)
   })
 
-  app.get<{ Params: { name: string } }>('/projects/:name/report.html', async (request, reply) => {
+  app.get<{ Params: { name: string }; Querystring: { audience?: string } }>('/projects/:name/report.html', async (request, reply) => {
+    const audience = parseReportAudience(request.query.audience)
     const dto = buildProjectReport(app.db, request.params.name)
-    const html = renderReportHtml(dto)
-    const filename = reportFilenameFor(dto.meta.project, dto.meta.generatedAt)
+    const html = renderReportHtml(dto, { audience })
+    const filename = reportFilenameFor(dto.meta.project, dto.meta.generatedAt, audience)
     reply.header('Content-Type', 'text/html; charset=utf-8')
     reply.header('Content-Disposition', `attachment; filename="${filename}"`)
     return reply.send(html)

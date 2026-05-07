@@ -9,21 +9,20 @@ import type {
   GscQueryRow,
   IndexingHealthSection,
   ProjectReportDto,
+  ReportActionPlanItem,
+  ReportAudience,
   RecommendedNextStep,
   ReportInsight,
 } from '@ainyc/canonry-contracts'
-import { absolutizeProjectUrl, CitationStates } from '@ainyc/canonry-contracts'
+import { absolutizeProjectUrl, CitationStates, reportActionTone } from '@ainyc/canonry-contracts'
 
 import {
   Bar,
   BarChart,
   CartesianGrid,
   Cell,
-  Legend,
   Line,
   LineChart,
-  Pie,
-  PieChart,
   RechartsTooltip,
   ResponsiveContainer,
   XAxis,
@@ -97,6 +96,30 @@ function trendTone(trend: ProjectReportDto['executiveSummary']['trend']): Metric
   }
 }
 
+function formatLocationLabel(location: NonNullable<ProjectReportDto['meta']['location']>): string {
+  const place = [location.city, location.region, location.country].filter(Boolean).join(', ')
+  return place ? `${location.label} (${place})` : location.label
+}
+
+function locationTreatmentTone(treatment: ProjectReportDto['meta']['providerLocationHandling'][number]['treatment']): MetricTone {
+  switch (treatment) {
+    case 'request-param':
+    case 'prompt':
+      return 'positive'
+    case 'browser-geo':
+      return 'caution'
+    case 'ignored':
+      return 'negative'
+  }
+}
+
+const LOCATION_TREATMENT_LABEL: Record<ProjectReportDto['meta']['providerLocationHandling'][number]['treatment'], string> = {
+  'request-param': 'Request parameter',
+  prompt: 'Prompt-injected',
+  'browser-geo': 'Browser geo',
+  ignored: 'Ignored',
+}
+
 function severityLabel(severity: ReportInsight['severity']): string {
   return severity.charAt(0).toUpperCase() + severity.slice(1)
 }
@@ -118,18 +141,34 @@ function actionLabel(action: ContentTargetRowDto['action']): string {
   }
 }
 
-function citationStateClass(cell: CitationCell | null): string {
-  if (!cell) return 'bg-zinc-900/30 text-zinc-700'
-  if (cell.citationState === CitationStates.cited) return 'bg-emerald-500/20 text-emerald-300'
-  if (cell.citationState === 'pending') return 'bg-amber-500/15 text-amber-300'
-  return 'bg-zinc-900/40 text-zinc-500'
-}
-
-function citationStateLabel(cell: CitationCell | null): string {
-  if (!cell) return '—'
-  if (cell.citationState === CitationStates.cited) return 'Cited'
-  if (cell.citationState === 'pending') return 'Pending'
-  return 'Not cited'
+function CitedMentionedGlyphs({ cell }: { cell: CitationCell | null }) {
+  if (!cell) {
+    return (
+      <span className="inline-flex items-center gap-1 font-mono text-[12px] text-zinc-700">
+        <span>—</span>
+        <span>—</span>
+      </span>
+    )
+  }
+  const cited = cell.citationState === CitationStates.cited
+  const mentioned = cell.answerMentioned
+  return (
+    <span className="inline-flex items-center gap-1 font-mono text-[12px]">
+      <span className={cited ? 'text-emerald-300' : 'text-zinc-500'} title={cited ? 'Cited (your domain in source list)' : 'Not cited'}>
+        {cited ? 'C' : 'c'}
+      </span>
+      <span
+        className={mentioned === true ? 'text-emerald-300' : mentioned === false ? 'text-zinc-500' : 'text-zinc-700'}
+        title={
+          mentioned === true ? 'Mentioned (your brand in answer text)'
+            : mentioned === false ? 'Not mentioned'
+            : 'No answer text'
+        }
+      >
+        {mentioned === true ? 'M' : mentioned === false ? 'm' : '–'}
+      </span>
+    </span>
+  )
 }
 
 function pressureTone(label: CompetitorRow['pressureLabel']): MetricTone {
@@ -144,6 +183,7 @@ function pressureTone(label: CompetitorRow['pressureLabel']): MetricTone {
 export function ReportPage({ projectName }: { projectName: string }) {
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
+  const [audience, setAudience] = useState<ReportAudience>('agency')
 
   const reportQuery = useQuery({
     queryKey: queryKeys.report(projectName),
@@ -154,7 +194,7 @@ export function ReportPage({ projectName }: { projectName: string }) {
     setDownloading(true)
     setDownloadError(null)
     try {
-      await downloadReportHtml(projectName)
+      await downloadReportHtml(projectName, audience)
     } catch (err) {
       const message = err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Download failed'
       setDownloadError(message)
@@ -184,11 +224,33 @@ export function ReportPage({ projectName }: { projectName: string }) {
           <p className="eyebrow">AEO Report</p>
           <h1 className="page-title">{report.meta.project.displayName}</h1>
           <p className="page-subtitle">
-            {report.meta.project.canonicalDomain} · {report.meta.project.country} / {report.meta.project.language.toUpperCase()} · Generated {formatDate(report.meta.generatedAt)}
+            {report.meta.project.canonicalDomain} · {report.meta.project.country} / {report.meta.project.language.toUpperCase()}
+            {report.meta.location
+              ? ` · Location: ${formatLocationLabel(report.meta.location)}`
+              : ' · No location set'}
+            {' · '}Generated {formatDate(report.meta.generatedAt)}
           </p>
           {downloadError && <p className="mt-2 text-xs text-rose-400">{downloadError}</p>}
         </div>
         <div className="page-header-right">
+          <div className="inline-flex rounded-lg border border-zinc-800/70 bg-zinc-950/60 p-1" role="tablist" aria-label="Report audience">
+            {(['agency', 'client'] as const).map(mode => (
+              <button
+                key={mode}
+                type="button"
+                role="tab"
+                aria-selected={audience === mode}
+                onClick={() => setAudience(mode)}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                  audience === mode
+                    ? 'bg-zinc-100 text-zinc-950'
+                    : 'text-zinc-400 hover:text-zinc-100'
+                }`}
+              >
+                {mode === 'agency' ? 'Agency' : 'Client'}
+              </button>
+            ))}
+          </div>
           <Button
             variant="secondary"
             size="sm"
@@ -201,20 +263,218 @@ export function ReportPage({ projectName }: { projectName: string }) {
         </div>
       </div>
 
-      <ExecutiveSummarySection report={report} />
-      <CitationScorecardSection report={report} />
-      <CompetitorLandscapeSection report={report} />
-      <AiSourceOriginSection report={report} />
-      <GscPerformanceSection report={report} />
-      <GaTrafficSection report={report} />
-      <SocialReferralsSection report={report} />
-      <AiReferralsSection report={report} />
-      <IndexingHealthSectionView report={report} />
-      <CitationsTrendSection report={report} />
-      <InsightsSection report={report} />
-      <ContentOpportunitiesSection report={report} />
-      <NextStepsSection report={report} />
+      {audience === 'client' ? (
+        <>
+          <ClientSummarySection report={report} />
+          <ActionPlanSection report={report} audience="client" />
+          <ClientEvidenceSection report={report} />
+        </>
+      ) : (
+        <>
+          <ExecutiveSummarySection report={report} />
+          <ActionPlanSection report={report} audience="agency" />
+          <AgencyDiagnosticsSection report={report} />
+          <CitationScorecardSection report={report} />
+          <CompetitorLandscapeSection report={report} />
+          <AiSourceOriginSection report={report} />
+          <GscPerformanceSection report={report} />
+          <GaTrafficSection report={report} />
+          <SocialReferralsSection report={report} />
+          <AiReferralsSection report={report} />
+          <IndexingHealthSectionView report={report} />
+          <CitationsTrendSection report={report} />
+          <InsightsSection report={report} />
+          <ContentOpportunitiesSection report={report} />
+          <ContentGapsSection report={report} />
+          <NextStepsSection report={report} />
+        </>
+      )}
     </div>
+  )
+}
+
+function actionAudienceMatches(action: ReportActionPlanItem, audience: ReportAudience): boolean {
+  return action.audience === 'both' || action.audience === audience
+}
+
+function ClientSummarySection({ report }: { report: ProjectReportDto }) {
+  const exec = report.executiveSummary
+  return (
+    <section className="page-section-divider">
+      <SectionHeading eyebrow="Client summary" title="How you're appearing" subtitle={report.clientSummary.overview} />
+      <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
+        <p className="text-sm font-medium text-zinc-100">{report.clientSummary.headline}</p>
+        <p className="mt-1 text-sm text-zinc-400">{report.clientSummary.overview}</p>
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Metric label="Citation coverage" value={formatPercent(exec.citationRate, 0)} tone={trendTone(exec.trend)} subtitle={`${exec.citedQueryCount}/${exec.totalQueryCount} tracked queries cited`} />
+        <Metric label="Mention coverage" value={formatPercent(exec.mentionRate, 0)} subtitle={`${exec.mentionedQueryCount}/${exec.totalQueryCount} tracked queries mentioned`} />
+        <Metric label="Providers checked" value={formatNumber(exec.providerCount)} subtitle={`${formatNumber(exec.queryCount)} tracked queries`} />
+        {exec.gsc && <Metric label="Search impressions" value={formatNumber(exec.gsc.impressions)} subtitle={`${formatNumber(exec.gsc.clicks)} clicks`} />}
+      </div>
+      {report.clientSummary.confidenceNotes.length > 0 && (
+        <div className="mt-4 grid gap-2">
+          {report.clientSummary.confidenceNotes.map((note, i) => (
+            <div key={i} className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-3 py-2 text-xs text-zinc-400">{note}</div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function ActionPlanSection({ report, audience }: { report: ProjectReportDto; audience: ReportAudience }) {
+  const actions = audience === 'client'
+    ? report.clientSummary.actionItems
+    : report.agencyDiagnostics.priorities.length > 0
+      ? report.agencyDiagnostics.priorities
+      : report.actionPlan.filter(a => actionAudienceMatches(a, audience))
+  return (
+    <section className="page-section-divider">
+      <SectionHeading
+        eyebrow={audience === 'client' ? 'Client actions' : 'Agency actions'}
+        title={audience === 'client' ? 'What we recommend next' : 'Agency action plan'}
+        subtitle={audience === 'client' ? 'Polished next steps backed by concise evidence.' : 'Technical priorities from the canonical action plan.'}
+      />
+      {actions.length === 0 ? (
+        <EmptyHint message="No prioritized actions yet." />
+      ) : (
+        <div className="grid gap-3 lg:grid-cols-2">
+          {actions.map(action => (
+            <div key={`${action.priority}-${action.title}`} className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
+              <div className="mb-3 flex flex-wrap gap-2">
+                <ToneBadge tone={reportActionTone(action)}>{horizonLabel(action.horizon)}</ToneBadge>
+                <ToneBadge tone="neutral">{action.category}</ToneBadge>
+                <ToneBadge tone="neutral">{action.confidence} confidence</ToneBadge>
+              </div>
+              <p className="text-sm font-medium text-zinc-100">{action.title}</p>
+              <p className="mt-1 text-sm text-zinc-400">{action.action}</p>
+              {action.why.length > 0 && (
+                <div className="mt-3">
+                  <p className="eyebrow-soft mb-1">Why</p>
+                  <ul className="list-disc space-y-1 pl-4 text-xs text-zinc-400">
+                    {action.why.map((item, i) => <li key={i}>{item}</li>)}
+                  </ul>
+                </div>
+              )}
+              {action.evidence.length > 0 && (
+                <div className="mt-3">
+                  <p className="eyebrow-soft mb-1">Evidence</p>
+                  <ul className="list-disc space-y-1 pl-4 text-xs text-zinc-400">
+                    {action.evidence.map((item, i) => <li key={i}>{item}</li>)}
+                  </ul>
+                </div>
+              )}
+              <p className="mt-3 border-t border-zinc-800/60 pt-3 text-xs text-zinc-300">
+                <span className="font-medium">Success metric:</span> {action.successMetric}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function AgencyDiagnosticsSection({ report }: { report: ProjectReportDto }) {
+  const diagnostics = report.agencyDiagnostics.diagnostics
+  if (diagnostics.length === 0) return null
+  return (
+    <section className="page-section-divider">
+      <SectionHeading eyebrow="Agency diagnostics" title="Technical diagnostics" subtitle="Operator-facing evidence for provider, source-domain, search-demand, indexing, content, and location follow-up." />
+      <div className="grid gap-3 lg:grid-cols-2">
+        {diagnostics.map(d => (
+          <div key={d.title} className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
+            <div className="mb-2 flex items-center gap-2">
+              <ToneBadge tone={d.severity}>{d.severity}</ToneBadge>
+              <p className="text-sm font-medium text-zinc-100">{d.title}</p>
+            </div>
+            <p className="text-sm text-zinc-400">{d.detail}</p>
+            {d.evidence.length > 0 && (
+              <ul className="mt-3 list-disc space-y-1 pl-4 text-xs text-zinc-500">
+                {d.evidence.map((item, i) => <li key={i}>{item}</li>)}
+              </ul>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function ClientEvidenceSection({ report }: { report: ProjectReportDto }) {
+  const cards: Array<{
+    key: string
+    tone: MetricTone
+    title: string
+    detail: string
+    items: string[]
+  }> = []
+
+  if (report.aiSourceOrigin.topDomains.length > 0) {
+    cards.push({
+      key: 'source-domains',
+      tone: 'neutral',
+      title: 'Sources AI engines trust',
+      detail: 'These domains appeared most often as cited sources outside your owned domain.',
+      items: report.aiSourceOrigin.topDomains.slice(0, 5).map(d => `${d.domain}: ${formatNumber(d.count)} citation${d.count === 1 ? '' : 's'}`),
+    })
+  }
+  if (report.gsc) {
+    cards.push({
+      key: 'search-demand',
+      tone: 'neutral',
+      title: 'Search demand',
+      detail: `Search Console shows ${formatNumber(report.gsc.totalImpressions)} impressions and ${formatNumber(report.gsc.totalClicks)} clicks in the report window.`,
+      items: report.gsc.topQueries.slice(0, 5).map(q => `${q.query}: ${formatNumber(q.impressions)} impressions`),
+    })
+  }
+  if (report.indexingHealth) {
+    cards.push({
+      key: 'indexing',
+      tone: report.indexingHealth.indexedPct >= 90 ? 'positive' : report.indexingHealth.indexedPct >= 70 ? 'caution' : 'negative',
+      title: 'Indexing readiness',
+      detail: `${report.indexingHealth.indexedPct}% of inspected URLs are indexed.`,
+      items: [
+        `${formatNumber(report.indexingHealth.indexed)} indexed`,
+        `${formatNumber(report.indexingHealth.notIndexed)} not indexed`,
+      ],
+    })
+  }
+  if (report.contentOpportunities.length > 0) {
+    cards.push({
+      key: 'content',
+      tone: 'caution',
+      title: 'Content opportunities',
+      detail: 'Canonry found topics where better content could improve AI citations.',
+      items: report.contentOpportunities.slice(0, 5).map(o => `${o.query}: ${actionLabel(o.action)} (${Math.round(o.score)})`),
+    })
+  }
+
+  return (
+    <section className="page-section-divider">
+      <SectionHeading eyebrow="Evidence" title="Why this is the plan" subtitle="Concise support for the client summary. Switch to Agency for the detailed tables and matrices." />
+      {cards.length === 0 ? (
+        <EmptyHint message="No supporting evidence sections are populated yet." />
+      ) : (
+        <div className="grid gap-3 lg:grid-cols-2">
+          {cards.map(card => (
+            <div key={card.key} className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <ToneBadge tone={card.tone}>{card.tone}</ToneBadge>
+                <p className="text-sm font-medium text-zinc-100">{card.title}</p>
+              </div>
+              <p className="text-sm text-zinc-400">{card.detail}</p>
+              {card.items.length > 0 && (
+                <ul className="mt-3 list-disc space-y-1 pl-4 text-xs text-zinc-500">
+                  {card.items.map((item, i) => <li key={i}>{item}</li>)}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -223,13 +483,25 @@ export function ReportPage({ projectName }: { projectName: string }) {
 function ExecutiveSummarySection({ report }: { report: ProjectReportDto }) {
   const exec = report.executiveSummary
   const trendArrow = exec.trend === 'up' ? '↑ Up' : exec.trend === 'down' ? '↓ Down' : exec.trend === 'flat' ? '→ Flat' : '—'
-  const providerSuffix = `${trendArrow} · ${exec.providerCount} provider${exec.providerCount === 1 ? '' : 's'}`
+  const queryNoun = exec.totalQueryCount === 1 ? 'query' : 'queries'
+  const citedFragment = exec.totalQueryCount > 0
+    ? `${exec.citedQueryCount}/${exec.totalQueryCount} ${queryNoun} cited`
+    : 'no queries'
+  const mentionedFragment = exec.totalQueryCount > 0
+    ? `${exec.mentionedQueryCount}/${exec.totalQueryCount} ${queryNoun} mentioned`
+    : 'no queries'
+  const citationSuffix = `${trendArrow} · ${citedFragment} · ${exec.providerCount} provider${exec.providerCount === 1 ? '' : 's'}`
   const competitorSuffix = `${exec.competitorCount} competitor${exec.competitorCount === 1 ? '' : 's'} tracked`
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 1" title="Executive summary" subtitle="Top-line citation rate with trend versus the prior run, plus the most actionable findings from the latest visibility sweep." />
+      <SectionHeading
+        eyebrow="Section 1"
+        title="Executive summary"
+        subtitle="Two independent signals: citation rate = your domain in the source list the AI used; mention rate = your brand in the answer text. A model can mention you without citing your domain, or vice versa. Both are computed per-query so they stay comparable when provider count changes."
+      />
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Metric label="Citation rate" value={formatPercent(exec.citationRate, 0)} tone={trendTone(exec.trend)} subtitle={providerSuffix} />
+        <Metric label="Citation rate" value={formatPercent(exec.citationRate, 0)} tone={trendTone(exec.trend)} subtitle={citationSuffix} />
+        <Metric label="Mention rate" value={formatPercent(exec.mentionRate, 0)} subtitle={mentionedFragment} />
         <Metric label="Queries tracked" value={formatNumber(exec.queryCount)} subtitle={competitorSuffix} />
         {exec.gsc && (
           <Metric
@@ -266,7 +538,54 @@ function ExecutiveSummarySection({ report }: { report: ProjectReportDto }) {
           ))}
         </div>
       )}
+      <LocationHandlingCard report={report} />
     </section>
+  )
+}
+
+function LocationHandlingCard({ report }: { report: ProjectReportDto }) {
+  const location = report.meta.location
+  const handling = report.meta.providerLocationHandling
+  if (!location && handling.length === 0) return null
+  return (
+    <div className="mt-5 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
+      <p className="eyebrow mb-2">Location handling</p>
+      <p className="text-sm text-zinc-300">
+        <span className="font-medium">Location for this run: </span>
+        {location ? formatLocationLabel(location) : 'none — providers received the queries verbatim with no geographic hint.'}
+        {location && location.otherConfiguredLabels.length > 0 && (
+          <span className="text-zinc-500">
+            {' '}— other configured locations ({location.otherConfiguredLabels.join(', ')}) need their own sweep to compare.
+          </span>
+        )}
+      </p>
+      {handling.length > 0 && (
+        <div className="evidence-table-wrap mt-3">
+          <table className="evidence-table">
+            <thead>
+              <tr>
+                <th>Provider</th>
+                <th>Treatment</th>
+                <th>How the location reached the model</th>
+              </tr>
+            </thead>
+            <tbody>
+              {handling.map(h => (
+                <tr key={h.provider}>
+                  <td>{h.provider}</td>
+                  <td>
+                    <ToneBadge tone={locationTreatmentTone(h.treatment)}>
+                      {LOCATION_TREATMENT_LABEL[h.treatment]}
+                    </ToneBadge>
+                  </td>
+                  <td className="text-zinc-400">{h.description}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -291,14 +610,14 @@ function CitationScorecardSection({ report }: { report: ProjectReportDto }) {
   if (sc.providers.length === 0 || sc.queries.length === 0) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 2" title="Citation scorecard" subtitle="Whether your domain appeared in each AI engine's source list for every tracked keyword in the latest sweep — green = cited, red = not cited, gray = no snapshot." />
+        <SectionHeading eyebrow="Section 2" title="Citation scorecard" subtitle="Per (query × provider) view of citations and mentions for the latest sweep." />
         <EmptyHint message="No completed answer-visibility runs yet." />
       </section>
     )
   }
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 2" title="Citation scorecard" subtitle="Whether your domain appeared in each AI engine's source list for every tracked keyword in the latest sweep — green = cited, red = not cited, gray = no snapshot." />
+      <SectionHeading eyebrow="Section 2" title="Citation scorecard" subtitle="Per (query × provider) view of both signals — citations (your domain in the source list) and mentions (your brand in the answer text) — for the latest sweep." />
       <div className="mb-4">
         <p className="eyebrow mb-2">Provider citation rate</p>
         <div className="h-48 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-3">
@@ -328,6 +647,14 @@ function CitationScorecardSection({ report }: { report: ProjectReportDto }) {
         </ul>
       </div>
       <p className="eyebrow mb-2">Query × provider</p>
+      <p className="mb-2 text-[11px] text-zinc-500">
+        Each cell shows two flags —{' '}
+        <span className="font-mono text-emerald-300">C</span>/
+        <span className="font-mono text-zinc-500">c</span> = cited / not cited (your domain in the source list),{' '}
+        <span className="font-mono text-emerald-300">M</span>/
+        <span className="font-mono text-zinc-500">m</span> = mentioned / not mentioned (your brand in the answer text),{' '}
+        <span className="font-mono text-zinc-700">–</span> = no data.
+      </p>
       <div className="evidence-table-wrap">
         <table className="evidence-table">
           <thead>
@@ -344,9 +671,7 @@ function CitationScorecardSection({ report }: { report: ProjectReportDto }) {
                   const cell = sc.matrix[i]?.[j] ?? null
                   return (
                     <td key={p}>
-                      <span className={`inline-flex items-center justify-center rounded-md px-2 py-1 text-[11px] font-semibold ${citationStateClass(cell)}`}>
-                        {citationStateLabel(cell)}
-                      </span>
+                      <CitedMentionedGlyphs cell={cell} />
                     </td>
                   )
                 })}
@@ -496,36 +821,23 @@ function AiSourceOriginSection({ report }: { report: ProjectReportDto }) {
   if (so.categories.length === 0 && so.topDomains.length === 0) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 4" title="AI citation sources" subtitle="Every external website AI engines cited as a source for your tracked keywords in the latest sweep — categorized by site type on the left and ranked by frequency on the right. Your own domains are excluded; tracked competitors are flagged." />
+        <SectionHeading eyebrow="Section 4" title="AI citation sources" subtitle="Every external website AI engines cited as a source for your tracked queries in the latest sweep, ranked by citation count. Tracked competitors are pulled into their own bucket. Your own domains are excluded." />
         <EmptyHint message="No source data yet. Run a visibility sweep first." />
       </section>
     )
   }
-  const pieData = so.categories.filter(c => c.count > 0).map(c => ({ name: c.label, value: c.count }))
+  const totalCitations = so.categories.reduce((s, c) => s + c.count, 0)
+  const competitor = so.categories.find(c => c.category === 'competitor')
+  const max = Math.max(1, ...so.categories.map(c => c.count))
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 4" title="AI citation sources" subtitle="Every external website AI engines cited as a source for your tracked keywords in the latest sweep — categorized by site type on the left and ranked by frequency on the right. Your own domains are excluded; tracked competitors are flagged." />
+      <SectionHeading eyebrow="Section 4" title="AI citation sources" subtitle="Every external website AI engines cited as a source for your tracked queries in the latest sweep, ranked by citation count. Tracked competitors are pulled into their own bucket. Your own domains are excluded." />
+      {competitor && (
+        <p className="mb-3 text-sm text-zinc-300">
+          <span className="font-semibold">{competitor.sharePct}%</span> of citations went to tracked competitors ({competitor.count} of {totalCitations}).
+        </p>
+      )}
       <div className="grid gap-4 lg:grid-cols-2">
-        <div>
-          <p className="eyebrow mb-2">AI source categories</p>
-          {pieData.length === 0 ? (
-            <EmptyHint message="No category data." />
-          ) : (
-            <div className="h-64 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-3">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={pieData} dataKey="value" nameKey="name" innerRadius={45} outerRadius={85} stroke="none">
-                    {pieData.map((_, i) => (
-                      <Cell key={i} fill={CHART_SERIES_COLORS[i % CHART_SERIES_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <RechartsTooltip {...CHART_TOOLTIP_STYLE} />
-                  <Legend wrapperStyle={{ fontSize: 11, color: '#a1a1aa' }} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-        </div>
         <div>
           <p className="eyebrow mb-2">Top source domains</p>
           {so.topDomains.length === 0 ? (
@@ -547,13 +859,40 @@ function AiSourceOriginSection({ report }: { report: ProjectReportDto }) {
                       <td>{d.count}</td>
                       <td>
                         {d.isCompetitor
-                          ? <ToneBadge tone="negative">Competitor</ToneBadge>
+                          ? <ToneBadge tone="negative">Tracked competitor</ToneBadge>
                           : <ToneBadge tone="neutral">External</ToneBadge>}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+        </div>
+        <div>
+          <p className="eyebrow mb-2">By source type</p>
+          {so.categories.length === 0 ? (
+            <EmptyHint message="No category data." />
+          ) : (
+            <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
+              <div className="space-y-2 text-sm">
+                {so.categories.map(c => {
+                  const pct = (c.count / max) * 100
+                  const tone = c.category === 'competitor' ? 'negative' : c.category === 'directory' || c.category === 'forum' ? 'caution' : 'neutral'
+                  const fill = tone === 'negative' ? 'bg-rose-400' : tone === 'caution' ? 'bg-amber-400' : 'bg-blue-400'
+                  return (
+                    <div key={c.category} className="grid grid-cols-[180px_1fr_90px] items-center gap-2">
+                      <div className="truncate text-xs text-zinc-400">{c.label}</div>
+                      <div className="h-3 rounded-sm bg-zinc-800">
+                        <div className={`h-full rounded-sm ${fill}`} style={{ width: `${pct.toFixed(1)}%` }} />
+                      </div>
+                      <div className="text-right text-xs text-zinc-200 tabular-nums">
+                        {c.count} <span className="text-zinc-500">({c.sharePct}%)</span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           )}
         </div>
@@ -917,7 +1256,7 @@ function CitationsTrendSection({ report }: { report: ProjectReportDto }) {
   if (trend.length === 0) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 10" title="Citations over time" subtitle="Citation rate across every visibility sweep — the share of (keyword × provider) pairs in each run where your domain appeared in the source list, with a per-provider breakdown beneath." />
+        <SectionHeading eyebrow="Section 10" title="Citations over time" subtitle="Citation rate across every visibility sweep — the share of tracked queries cited by at least one provider, with a per-provider breakdown beneath. Computed per-query so the headline stays comparable across runs that ran a different mix of providers." />
         <EmptyHint message="Run multiple visibility sweeps to see a trend." />
       </section>
     )
@@ -925,14 +1264,14 @@ function CitationsTrendSection({ report }: { report: ProjectReportDto }) {
   if (isTrendBaseline(trend)) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 10" title="Citations over time" subtitle="Citation rate across every visibility sweep — the share of (keyword × provider) pairs in each run where your domain appeared in the source list, with a per-provider breakdown beneath." />
+        <SectionHeading eyebrow="Section 10" title="Citations over time" subtitle="Citation rate across every visibility sweep — the share of tracked queries cited by at least one provider, with a per-provider breakdown beneath. Computed per-query so the headline stays comparable across runs that ran a different mix of providers." />
         <EmptyHint message={`Establishing baseline (${trend.length} of ${MIN_TREND_POINTS} runs collected). Trend will appear once more sweeps are recorded.`} />
       </section>
     )
   }
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 10" title="Citations over time" subtitle="Citation rate across every visibility sweep — the share of (keyword × provider) pairs in each run where your domain appeared in the source list, with a per-provider breakdown beneath." />
+      <SectionHeading eyebrow="Section 10" title="Citations over time" subtitle="Citation rate across every visibility sweep — the share of tracked queries cited by at least one provider, with a per-provider breakdown beneath. Computed per-query so the headline stays comparable across runs that ran a different mix of providers." />
       <div className="h-64 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-3">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={trend} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
@@ -963,7 +1302,7 @@ function PerProviderTrendTable({ trend }: { trend: CitationsTrendPoint[] }) {
           <thead>
             <tr>
               <th>Run</th>
-              <th>Overall rate</th>
+              <th>Cited queries</th>
               <th>Per-provider rates</th>
             </tr>
           </thead>
@@ -971,7 +1310,9 @@ function PerProviderTrendTable({ trend }: { trend: CitationsTrendPoint[] }) {
             {trend.map(t => (
               <tr key={t.runId}>
                 <td className="evidence-query-cell">{formatDate(t.date)}</td>
-                <td>{t.citationRate}%</td>
+                <td>
+                  {t.citationRate}% <span className="text-zinc-500">({t.citedQueryCount}/{t.totalQueryCount})</span>
+                </td>
                 <td className="text-xs text-zinc-400">
                   {t.providerRates.map(r => `${r.provider}: ${r.citationRate}%`).join(' · ')}
                 </td>
@@ -1040,7 +1381,11 @@ function ContentOpportunitiesSection({ report }: { report: ProjectReportDto }) {
   const canonical = report.meta.project.canonicalDomain
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 12" title="Content opportunities" subtitle="Queries where you have search demand or competitor citation pressure but aren't winning AI citations. Each row carries a suggested action (create / refresh / expand / add-schema). Top 10 shown." />
+      <SectionHeading
+        eyebrow="Section 12"
+        title="Content opportunities"
+        subtitle="Queries where you have search demand or competitor citation pressure but aren't winning AI citations. Each row pairs a suggested action with the signals driving the score, the best matching page on your domain, and the competitor URL the AI most often cites. Top 10 shown."
+      />
       <div className="evidence-table-wrap">
         <table className="evidence-table">
           <thead>
@@ -1048,9 +1393,9 @@ function ContentOpportunitiesSection({ report }: { report: ProjectReportDto }) {
               <th>Query</th>
               <th>Action</th>
               <th>Score</th>
+              <th>Why</th>
               <th>Our page</th>
               <th>Winning competitor</th>
-              <th>Demand</th>
               <th>Confidence</th>
             </tr>
           </thead>
@@ -1060,20 +1405,65 @@ function ContentOpportunitiesSection({ report }: { report: ProjectReportDto }) {
                 <td className="evidence-query-cell">{o.query}</td>
                 <td><ToneBadge tone="neutral">{actionLabel(o.action)}</ToneBadge></td>
                 <td>{Math.round(o.score)}</td>
+                <td className="text-xs text-zinc-400">
+                  {o.drivers.length > 0
+                    ? <ul className="list-disc pl-4 space-y-0.5">{o.drivers.map((d, i) => <li key={i}>{d}</li>)}</ul>
+                    : <span className="text-zinc-600">No driver signal yet</span>}
+                </td>
                 <td className="text-xs">
                   {o.ourBestPage
                     ? <a href={absolutizeProjectUrl(o.ourBestPage.url, canonical)} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline break-all">{o.ourBestPage.url}</a>
-                    : <span className="text-zinc-600">—</span>}
+                    : <span className="text-zinc-600">No page yet</span>}
                 </td>
                 <td className="text-xs">
                   {o.winningCompetitor
                     ? <a href={o.winningCompetitor.url} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">{o.winningCompetitor.domain}</a>
                     : <span className="text-zinc-600">—</span>}
                 </td>
-                <td><ToneBadge tone="neutral">{o.demandSource}</ToneBadge></td>
                 <td><ToneBadge tone="neutral">{o.actionConfidence}</ToneBadge></td>
               </tr>
             ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
+function ContentGapsSection({ report }: { report: ProjectReportDto }) {
+  if (report.contentGaps.length === 0) return null
+  return (
+    <section className="page-section-divider">
+      <SectionHeading
+        eyebrow="Section 13"
+        title="Content gaps"
+        subtitle="Tracked queries where multiple competitors are cited by AI engines but you are not — explicit “they're answering, you're missing” signal. Sorted by recent miss rate, then by competitor count. Top 10 shown."
+      />
+      <div className="evidence-table-wrap">
+        <table className="evidence-table">
+          <thead>
+            <tr>
+              <th>Query</th>
+              <th>Competitors cited</th>
+              <th>Domains</th>
+              <th>Miss rate</th>
+            </tr>
+          </thead>
+          <tbody>
+            {report.contentGaps.slice(0, 10).map(g => {
+              const visible = g.competitorDomains.slice(0, 5)
+              const more = g.competitorDomains.length - visible.length
+              return (
+                <tr key={g.query}>
+                  <td className="evidence-query-cell">{g.query}</td>
+                  <td>{g.competitorCount}</td>
+                  <td className="text-xs text-zinc-400">
+                    {visible.join(', ')}{more > 0 ? `, +${more} more` : ''}
+                  </td>
+                  <td>{Math.round(g.missRate * 100)}%</td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
@@ -1087,14 +1477,14 @@ function NextStepsSection({ report }: { report: ProjectReportDto }) {
   if (report.recommendedNextSteps.length === 0) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 13" title="Recommended next steps" subtitle="Action items bucketed by horizon (immediate, short-term, medium-term), drawn from open insights and the highest-ranked content opportunities." />
+        <SectionHeading eyebrow="Section 14" title="Recommended next steps" subtitle="Action items bucketed by horizon (immediate, short-term, medium-term), drawn from open insights and the highest-ranked content opportunities." />
         <EmptyHint message="No prioritized actions yet." />
       </section>
     )
   }
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 13" title="Recommended next steps" subtitle="Action items bucketed by horizon (immediate, short-term, medium-term), drawn from open insights and the highest-ranked content opportunities." />
+      <SectionHeading eyebrow="Section 14" title="Recommended next steps" subtitle="Action items bucketed by horizon (immediate, short-term, medium-term), drawn from open insights and the highest-ranked content opportunities." />
       <div className="grid gap-3 lg:grid-cols-3">
         {(['immediate', 'short-term', 'medium-term'] as const).map(h => {
           const steps = report.recommendedNextSteps.filter(s => s.horizon === h)

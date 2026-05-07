@@ -95,7 +95,7 @@ canonry report <project> --format json            # raw report payload to stdout
 One-command client-facing AEO report. Bundles the latest visibility sweep, competitor landscape, AI citation sources, GSC + GA4 performance, social and AI referrals, indexing health, citations trend, prioritized insights, and recommended next steps into a self-contained HTML file (inline CSS + SVG charts, no network dependencies). Backed by `GET /api/v1/projects/<name>/report` and the `canonry_report` MCP tool.
 
 Behavior to know when narrating numbers from the report:
-- `executiveSummary.citationRate` is sourced from the latest visibility run (completed **or** partial), so it always matches the scorecard table.
+- `executiveSummary.citationRate` is **per-query** — `citedQueryCount / totalQueryCount`, with a query counted as cited if any provider in the run cited it. The rate is invariant to provider count, so a gemini-only run and a 4-provider run can be compared honestly. The same definition powers `citationsTrend[].citationRate` so trend deltas track real movement, not provider-mix variance.
 - `citationsTrend` excludes partial runs to avoid skew. A project with only one completed run gets `trend: "unknown"` and the finding "No prior run to compare against." — not "Flat compared to the previous run."
 - Project ownership uses subdomain-aware matching against `project.canonicalDomain` plus any configured `ownedDomains`. `blog.example.com` and `brand.io` count as the project, not as external sources, when those rules apply.
 - Competitor tagging in `aiSourceOrigin.topDomains` uses the same subdomain-aware match — `blog.rival.com` is `isCompetitor: true` when `rival.com` is tracked.

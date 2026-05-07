@@ -46,7 +46,23 @@ interface ProjectRow {
   ownedDomains?: string | null
 }
 
-export function loadOrchestratorInput(db: DatabaseClient, project: ProjectRow): OrchestratorInput {
+/**
+ * Optional location scope for the orchestrator window.
+ *
+ * - `undefined` — no filter; include runs at every location (default for
+ *   non-report callers like the standalone /content endpoints, which have
+ *   no "latest run" anchor to scope against).
+ * - `null` — match locationless runs only (the latest run had no location
+ *   set, so the trend should compare against other locationless runs).
+ * - string — match that exact location label.
+ */
+export type LocationScope = string | null | undefined
+
+export function loadOrchestratorInput(
+  db: DatabaseClient,
+  project: ProjectRow,
+  locationFilter: LocationScope = undefined,
+): OrchestratorInput {
   const projectId = project.id
   const ownDomain = normalizeDomain(project.canonicalDomain)
   const ownedDomains = parseJsonColumn<string[]>(project.ownedDomains, [])
@@ -58,7 +74,11 @@ export function loadOrchestratorInput(db: DatabaseClient, project: ProjectRow): 
   const trackedCompetitors = listCompetitorDomains(db, projectId).map(normalizeDomain)
   const competitorSet = new Set(trackedCompetitors)
 
-  const recentRunIds = listRecentAnswerVisibilityRunIds(db, projectId, RECENT_RUNS_WINDOW)
+  // Limit the orchestrator window to runs at the latest run's location so
+  // content opportunities and gaps reflect the same geographic context as
+  // the rest of the report. Without this, a report scoped to "michigan"
+  // would surface gaps that live in florida runs and vice versa.
+  const recentRunIds = listRecentAnswerVisibilityRunIds(db, projectId, RECENT_RUNS_WINDOW, locationFilter)
   const latestRunId = recentRunIds[0] ?? ''
   const latestRunTimestamp = latestRunId ? lookupRunTimestamp(db, latestRunId) : ''
 
@@ -121,9 +141,14 @@ function listRecentAnswerVisibilityRunIds(
   db: DatabaseClient,
   projectId: string,
   limit: number,
+  locationFilter: LocationScope,
 ): string[] {
+  // Filtering by location at the application layer (not in SQL) keeps the
+  // null-matches-null semantics consistent across all callers — Drizzle's
+  // `eq()` would treat `null` as "always false", so a no-location project
+  // would match nothing. `undefined` means "no filter".
   const rows = db
-    .select({ id: runs.id })
+    .select({ id: runs.id, location: runs.location })
     .from(runs)
     .where(
       and(
@@ -136,9 +161,11 @@ function listRecentAnswerVisibilityRunIds(
       ),
     )
     .orderBy(desc(runs.createdAt))
-    .limit(limit)
     .all()
-  return rows.map((r) => r.id)
+  const filtered = locationFilter === undefined
+    ? rows
+    : rows.filter((r) => (r.location ?? null) === locationFilter)
+  return filtered.slice(0, limit).map((r) => r.id)
 }
 
 function lookupRunTimestamp(db: DatabaseClient, runId: string): string {

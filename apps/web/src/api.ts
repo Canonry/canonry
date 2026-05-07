@@ -1,4 +1,4 @@
-import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, HealthSnapshotDto, ProjectReportDto, RunKind, RunStatus, RunTrigger, RunErrorDto, CitationState, CitationVisibilityResponse, ComputedTransition, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto } from '@ainyc/canonry-contracts'
+import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, HealthSnapshotDto, ProjectReportDto, ReportAudience, RunKind, RunStatus, RunTrigger, RunErrorDto, CitationState, CitationVisibilityResponse, ComputedTransition, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto } from '@ainyc/canonry-contracts'
 export type { ProjectOverviewDto }
 export type { BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto }
 
@@ -958,9 +958,10 @@ function parseFilenameFromContentDisposition(header: string | null): string | nu
   return match?.[1] ?? null
 }
 
-export async function downloadReportHtml(project: string): Promise<void> {
+export async function downloadReportHtml(project: string, audience: ReportAudience = 'agency'): Promise<void> {
   const key = getApiKey()
-  const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(project)}/report.html`, {
+  const params = new URLSearchParams({ audience })
+  const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(project)}/report.html?${params.toString()}`, {
     credentials: 'same-origin',
     headers: key ? { Authorization: `Bearer ${key}` } : {},
   })

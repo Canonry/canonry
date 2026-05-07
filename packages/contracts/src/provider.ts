@@ -96,6 +96,60 @@ export const locationContextSchema = z.object({
   timezone: z.string().optional(),
 })
 
+/**
+ * How a provider applies a `LocationContext` to the LLM call. Surfaced in
+ * the report so non-technical readers can tell whether their location config
+ * actually shaped the answer they're looking at.
+ *
+ * - `prompt`        — appended to the query text the model receives
+ * - `request-param` — sent as a structured field on the search tool
+ * - `browser-geo`   — implicit via the browser session's IP/geo (CDP)
+ * - `ignored`       — provider does not consume location at all
+ */
+export type ProviderLocationTreatment = 'prompt' | 'request-param' | 'browser-geo' | 'ignored'
+
+export interface ProviderLocationHandling {
+  treatment: ProviderLocationTreatment
+  /** One-sentence description suitable for a non-technical reader. */
+  description: string
+}
+
+const PROVIDER_LOCATION_HANDLING: Record<string, ProviderLocationHandling> = {
+  gemini: {
+    treatment: 'prompt',
+    description: 'Location appended to the query text the Gemini model receives.',
+  },
+  perplexity: {
+    treatment: 'prompt',
+    description: 'Location appended to the query text the Perplexity model receives.',
+  },
+  local: {
+    treatment: 'prompt',
+    description: 'Location appended to the system message sent to the local model.',
+  },
+  openai: {
+    treatment: 'request-param',
+    description: 'Location sent as a structured `user_location` field on OpenAI’s web_search_preview tool.',
+  },
+  claude: {
+    treatment: 'request-param',
+    description: 'Location sent as a structured `user_location` field on Anthropic’s web_search_20250305 tool.',
+  },
+  'cdp:chatgpt': {
+    treatment: 'browser-geo',
+    description: 'CDP relies on the browser session’s own geolocation; canonry’s configured location is not forwarded.',
+  },
+}
+
+const UNKNOWN_PROVIDER_HANDLING: ProviderLocationHandling = {
+  treatment: 'ignored',
+  description: 'No documented location handling for this provider — assume the configured location was not applied.',
+}
+
+export function getProviderLocationHandling(provider: string): ProviderLocationHandling {
+  return PROVIDER_LOCATION_HANDLING[provider] ?? UNKNOWN_PROVIDER_HANDLING
+}
+
 export interface TrackedQueryInput {
   query: string
   canonicalDomains: string[]

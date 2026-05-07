@@ -12,6 +12,31 @@ import type {
   ContentSourceRowDto,
   ContentGapRowDto,
 } from './content.js'
+import type { ProviderLocationTreatment } from './provider.js'
+
+export interface ReportMetaLocation {
+  /** Human-readable label as configured on the project (e.g. "michigan"). */
+  label: string
+  /** Resolved city/region/country from the project's `LocationContext`. */
+  city: string
+  region: string
+  country: string
+  /**
+   * Other locations configured on the project that did NOT power this report.
+   * When non-empty, callers should make clear that the report is location-scoped:
+   * a separate sweep is needed to see how AI engines respond from each one.
+   */
+  otherConfiguredLabels: string[]
+}
+
+export interface ReportProviderLocationHandling {
+  /** Provider name (matches `query_snapshots.provider`). */
+  provider: string
+  /** How this provider applied the configured location during this run. */
+  treatment: ProviderLocationTreatment
+  /** One-sentence explanation suitable for the report. */
+  description: string
+}
 
 export interface ReportMeta {
   /** ISO timestamp the report was generated (server clock). */
@@ -25,6 +50,20 @@ export interface ReportMeta {
     country: string
     language: string
   }
+  /**
+   * The location that powered the latest visibility run, when one was set.
+   * `null` means the run had no location attached — providers received the
+   * query verbatim with no geographic hint.
+   */
+  location: ReportMetaLocation | null
+  /**
+   * Per-provider location handling for the providers that ran in the latest
+   * visibility sweep. Empty when there were no providers (or no run). Use
+   * this to tell the reader whether the configured location actually shaped
+   * each provider's answer — some providers append it to the prompt, some
+   * pass it as a structured request field, and some (CDP) ignore it.
+   */
+  providerLocationHandling: ReportProviderLocationHandling[]
   /** Earliest data point referenced by the report (ISO date). */
   periodStart: string | null
   /** Latest data point referenced by the report (ISO date). */
@@ -32,8 +71,27 @@ export interface ReportMeta {
 }
 
 export interface ReportExecutiveSummary {
-  /** 0..100 — share of (query × provider) pairs in the latest run that were cited. */
+  /**
+   * 0..100 — share of tracked queries that were cited by at least one
+   * provider in the latest run. "Cited" means the project's domain appeared
+   * in the source list / grounding the AI used to answer. Computed per-query
+   * (not per-(query × provider)) so the rate is invariant to provider count.
+   */
   citationRate: number
+  /** Numerator of `citationRate` — distinct tracked queries cited by ≥1 provider in the latest run. */
+  citedQueryCount: number
+  /** Denominator of `citationRate` — total tracked queries. */
+  totalQueryCount: number
+  /**
+   * 0..100 — share of tracked queries where the project's brand or domain
+   * appeared in at least one provider's answer text in the latest run.
+   * "Mentioned" is independent from "cited": a model can mention you in
+   * the prose without citing your domain in its sources, and vice versa.
+   * Same per-query denominator as `citationRate` for consistency.
+   */
+  mentionRate: number
+  /** Numerator of `mentionRate` — distinct tracked queries mentioned in ≥1 provider's answer text. */
+  mentionedQueryCount: number
   /** Compared to the previous run: 'up' | 'down' | 'flat' | 'unknown' (no prior run). */
   trend: 'up' | 'down' | 'flat' | 'unknown'
   /** Total tracked queries. */
@@ -272,9 +330,26 @@ export interface CitationsTrendPoint {
   runId: string
   /** ISO timestamp when the run finished (or createdAt fallback). */
   date: string
-  /** Citation rate for this run, 0..100. */
+  /**
+   * 0..100 — same per-query unique-cited definition as
+   * `ReportExecutiveSummary.citationRate`. Stable across runs with different
+   * provider counts so the trend line measures real movement rather than
+   * provider-count variance.
+   */
   citationRate: number
-  /** Per-provider rates for the same run. */
+  /** Numerator of `citationRate` for this run. */
+  citedQueryCount: number
+  /** Denominator of `citationRate` for this run. */
+  totalQueryCount: number
+  /** 0..100 — same per-query unique-mentioned definition as `ReportExecutiveSummary.mentionRate`. */
+  mentionRate: number
+  /** Numerator of `mentionRate` for this run. */
+  mentionedQueryCount: number
+  /**
+   * Per-provider rates for the same run. Each provider's rate is per-pair
+   * within that provider (`cited / scanned`), so it remains comparable
+   * between providers in the same run.
+   */
   providerRates: Array<{ provider: string; citationRate: number }>
 }
 
@@ -304,6 +379,69 @@ export interface RecommendedNextStep {
   rationale: string
 }
 
+export type ReportAudience = 'agency' | 'client'
+export type ReportActionAudience = ReportAudience | 'both'
+export type ReportActionHorizon = 'immediate' | 'short-term' | 'medium-term'
+export type ReportActionConfidence = 'high' | 'medium' | 'low'
+export type ReportTone = 'positive' | 'caution' | 'negative' | 'neutral'
+export type ReportActionCategory =
+  | 'content'
+  | 'competitors'
+  | 'provider'
+  | 'search-demand'
+  | 'indexing'
+  | 'location'
+  | 'monitoring'
+
+export interface ReportActionPlanItem {
+  /** Which report audience should see this action. `both` renders in both modes. */
+  audience: ReportActionAudience
+  /** Stable sort priority. Lower numbers render earlier. */
+  priority: number
+  /** When this should be tackled. */
+  horizon: ReportActionHorizon
+  category: ReportActionCategory
+  title: string
+  /** Direct next step written as an operator/client-friendly imperative. */
+  action: string
+  /** Why this matters. Keep each entry concise and evidence-backed. */
+  why: string[]
+  /** Specific observations that justify the action. */
+  evidence: string[]
+  /** What should move if the action worked. */
+  successMetric: string
+  /** Confidence in the recommendation based on the available evidence. */
+  confidence: ReportActionConfidence
+}
+
+export interface ReportClientSummary {
+  headline: string
+  overview: string
+  actionItems: ReportActionPlanItem[]
+  confidenceNotes: string[]
+}
+
+export interface ReportAgencyDiagnostic {
+  title: string
+  detail: string
+  severity: 'positive' | 'caution' | 'negative' | 'neutral'
+  evidence: string[]
+}
+
+export interface ReportAgencyDiagnostics {
+  priorities: ReportActionPlanItem[]
+  diagnostics: ReportAgencyDiagnostic[]
+}
+
+export function reportActionTone(
+  action: Pick<ReportActionPlanItem, 'horizon' | 'confidence'>,
+): ReportTone {
+  if (action.horizon === 'immediate') return 'negative'
+  if (action.confidence === 'high') return 'caution'
+  if (action.confidence === 'low') return 'neutral'
+  return 'caution'
+}
+
 export interface ProjectReportDto {
   meta: ReportMeta
   executiveSummary: ReportExecutiveSummary
@@ -319,6 +457,12 @@ export interface ProjectReportDto {
   citationsTrend: CitationsTrendPoint[]
   insights: ReportInsight[]
   recommendedNextSteps: RecommendedNextStep[]
+  /** Canonical structured actions shared by the client and agency render modes. */
+  actionPlan: ReportActionPlanItem[]
+  /** Polished client-facing summary and action shortlist. */
+  clientSummary: ReportClientSummary
+  /** Technical, evidence-oriented operator diagnostics for agency mode. */
+  agencyDiagnostics: ReportAgencyDiagnostics
   /**
    * Ranked, action-typed content opportunities sourced from the existing
    * intelligence layer (`buildContentTargetRows`). Empty when no run has

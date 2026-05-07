@@ -4,9 +4,11 @@ import type {
   CompetitorRow,
   GscQueryRow,
   ProjectReportDto,
+  ReportActionPlanItem,
+  ReportAudience,
   ReportInsight,
 } from '@ainyc/canonry-contracts'
-import { absolutizeProjectUrl, CitationStates } from '@ainyc/canonry-contracts'
+import { absolutizeProjectUrl, CitationStates, reportActionTone } from '@ainyc/canonry-contracts'
 import {
   groupInsights,
   isTrendBaseline,
@@ -222,6 +224,21 @@ section.report-section .section-intro {
 .finding.tone-neutral { border-left-color: ${COLORS.neutral}; }
 .finding strong { display: block; margin-bottom: 4px; }
 .finding span { color: ${COLORS.textMuted}; font-size: 13px; }
+.location-card { margin-top: 16px; }
+.location-card .location-line { margin: 0 0 12px; font-size: 13px; color: ${COLORS.text}; }
+.location-card .location-line strong { color: ${COLORS.text}; }
+.location-card .location-line .cell-pending { font-size: 12px; }
+.source-origin-headline { margin: 0 0 12px; font-size: 14px; color: ${COLORS.text}; }
+.source-origin-headline strong { color: ${COLORS.text}; }
+.source-bars { display: flex; flex-direction: column; gap: 6px; }
+.source-bar-row { display: grid; grid-template-columns: 220px 1fr 90px; align-items: center; gap: 12px; font-size: 13px; }
+.source-bar-label { color: ${COLORS.textMuted}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-bar-track { height: 14px; background: ${COLORS.border}; border-radius: 3px; overflow: hidden; }
+.source-bar-fill { height: 100%; border-radius: 3px; }
+.source-bar-value { color: ${COLORS.text}; text-align: right; font-variant-numeric: tabular-nums; }
+.source-bar-pct { color: ${COLORS.textFaint}; font-size: 11px; }
+.driver-list { margin: 0; padding-left: 16px; font-size: 12px; color: ${COLORS.textMuted}; }
+.driver-list li { margin: 2px 0; }
 table.report-table {
   width: 100%;
   border-collapse: collapse;
@@ -342,6 +359,77 @@ table.report-table td .badge {
 }
 .step .title { font-weight: 600; }
 .step .rationale { color: ${COLORS.textMuted}; font-size: 13px; }
+.action-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+.action-card {
+  background: ${COLORS.surface};
+  border: 1px solid ${COLORS.border};
+  border-radius: 8px;
+  padding: 18px 20px;
+}
+.action-card .action-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.action-card h3 {
+  font-size: 16px;
+  margin: 0 0 8px;
+}
+.action-card p {
+  margin: 0 0 12px;
+  color: ${COLORS.textMuted};
+}
+.action-card ul {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  color: ${COLORS.textMuted};
+  font-size: 13px;
+}
+.action-card li { margin: 4px 0; }
+.action-card .success-metric {
+  color: ${COLORS.text};
+  font-size: 13px;
+  border-top: 1px solid ${COLORS.border};
+  padding-top: 10px;
+  margin-top: 12px;
+}
+.client-notes {
+  margin-top: 18px;
+  display: grid;
+  gap: 8px;
+}
+.client-note {
+  color: ${COLORS.textMuted};
+  font-size: 13px;
+  background: ${COLORS.surface};
+  border: 1px solid ${COLORS.border};
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.diagnostic-card {
+  background: ${COLORS.surface};
+  border: 1px solid ${COLORS.border};
+  border-left-width: 3px;
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.diagnostic-card h3 { font-size: 14px; margin: 0 0 6px; }
+.diagnostic-card p { margin: 0 0 8px; color: ${COLORS.textMuted}; font-size: 13px; }
+.diagnostic-card ul { margin: 0; padding-left: 16px; color: ${COLORS.textMuted}; font-size: 12px; }
+.diagnostic-card.tone-positive { border-left-color: ${COLORS.positive}; }
+.diagnostic-card.tone-caution { border-left-color: ${COLORS.caution}; }
+.diagnostic-card.tone-negative { border-left-color: ${COLORS.negative}; }
+.diagnostic-card.tone-neutral { border-left-color: ${COLORS.neutral}; }
 .footer {
   margin-top: 96px;
   padding-top: 24px;
@@ -376,16 +464,92 @@ function renderEmpty(message: string): string {
   return `<div class="empty-state">${escapeHtml(message)}</div>`
 }
 
+function locationDisplay(location: ProjectReportDto['meta']['location']): string {
+  if (!location) return ''
+  const place = [location.city, location.region, location.country].filter(Boolean).join(', ')
+  return place ? `${location.label} (${place})` : location.label
+}
+
+function renderHeaderLocationFragment(location: ProjectReportDto['meta']['location']): string {
+  if (!location) return ' · No location set'
+  return ` · Location: ${escapeHtml(locationDisplay(location))}`
+}
+
+function renderLocationCard(report: ProjectReportDto): string {
+  const location = report.meta.location
+  const handling = report.meta.providerLocationHandling
+  if (!location && handling.length === 0) return ''
+
+  const treatmentTone: Record<string, 'positive' | 'caution' | 'negative' | 'neutral'> = {
+    'request-param': 'positive',
+    prompt: 'positive',
+    'browser-geo': 'caution',
+    ignored: 'negative',
+  }
+  const treatmentLabel: Record<string, string> = {
+    'request-param': 'Request parameter',
+    prompt: 'Prompt-injected',
+    'browser-geo': 'Browser geo',
+    ignored: 'Ignored',
+  }
+
+  const locationLine = location
+    ? `<p class="location-line"><strong>Location for this run:</strong> ${escapeHtml(locationDisplay(location))}${
+        location.otherConfiguredLabels.length > 0
+          ? ` <span class="cell-pending">— other configured locations (${location.otherConfiguredLabels
+              .map(escapeHtml)
+              .join(', ')}) need their own sweep to compare</span>`
+          : ''
+      }</p>`
+    : `<p class="location-line"><strong>Location for this run:</strong> none — providers received the queries verbatim with no geographic hint.</p>`
+
+  const handlingRows = handling.length > 0
+    ? handling.map(h => {
+        const tone = treatmentTone[h.treatment] ?? 'neutral'
+        const label = treatmentLabel[h.treatment] ?? h.treatment
+        return `<tr>
+          <td>${escapeHtml(h.provider)}</td>
+          <td><span class="badge tone-${tone}">${escapeHtml(label)}</span></td>
+          <td>${escapeHtml(h.description)}</td>
+        </tr>`
+      }).join('')
+    : ''
+  const handlingTable = handlingRows
+    ? `<table class="report-table">
+        <thead><tr><th>Provider</th><th>Treatment</th><th>How the location reached the model</th></tr></thead>
+        <tbody>${handlingRows}</tbody>
+      </table>`
+    : ''
+
+  return `<div class="chart-card location-card">
+    <h3>Location handling</h3>
+    ${locationLine}
+    ${handlingTable}
+  </div>`
+}
+
 function renderExecutiveSummary(report: ProjectReportDto): string {
   const s = report.executiveSummary
   const trendLabel = s.trend === 'up' ? '↑ Up' : s.trend === 'down' ? '↓ Down' : s.trend === 'flat' ? '→ Flat' : '—'
   const trendTone = s.trend === 'up' ? 'positive' : s.trend === 'down' ? 'negative' : 'neutral'
 
+  const queryNoun = s.totalQueryCount === 1 ? 'query' : 'queries'
+  const citedFragment = s.totalQueryCount > 0
+    ? `${s.citedQueryCount}/${s.totalQueryCount} ${queryNoun} cited`
+    : 'no queries'
+  const mentionedFragment = s.totalQueryCount > 0
+    ? `${s.mentionedQueryCount}/${s.totalQueryCount} ${queryNoun} mentioned`
+    : 'no queries'
   const metrics = [
     {
       label: 'Citation rate',
       value: `${s.citationRate}%`,
-      delta: `<span class="tone-${trendTone}">${trendLabel}</span> · ${s.providerCount} provider${s.providerCount === 1 ? '' : 's'}`,
+      delta: `<span class="tone-${trendTone}">${trendLabel}</span> · ${citedFragment} · ${s.providerCount} provider${s.providerCount === 1 ? '' : 's'}`,
+    },
+    {
+      label: 'Mention rate',
+      value: `${s.mentionRate}%`,
+      delta: mentionedFragment,
     },
     {
       label: 'Queries tracked',
@@ -424,14 +588,16 @@ function renderExecutiveSummary(report: ProjectReportDto): string {
         </div>`).join('')}</div>`
     : ''
 
+  const locationHtml = renderLocationCard(report)
+
   return section(
     {
       id: 'executive-summary',
       eyebrow: 'Section 1',
       title: 'Executive Summary',
-      intro: 'Top-line citation rate with trend versus the prior run, plus the most actionable findings from the latest visibility sweep.',
+      intro: 'Two independent signals: Citation rate = share of tracked queries where your domain appeared in the source list the AI used. Mention rate = share of tracked queries where your brand or domain appeared in the answer text itself. A model can mention you without citing your domain, or cite your domain without naming you in the prose. Both are computed per-query so they stay comparable when provider count changes.',
     },
-    metricsHtml + findingsHtml,
+    metricsHtml + findingsHtml + locationHtml,
   )
 }
 
@@ -473,17 +639,27 @@ function renderCitationMatrix(scorecard: ProjectReportDto['citationScorecard']):
     const cells = scorecard.providers.map((_, pi) => {
       const cell = scorecard.matrix[qi]?.[pi]
       if (!cell) {
-        return '<td><span class="cell-pending">—</span></td>'
+        return '<td><span class="cell-pending">— —</span></td>'
       }
-      if (cell.citationState === CitationStates.cited) {
-        return '<td><span class="cell-cited">Cited</span></td>'
-      }
-      return '<td><span class="cell-not-cited">Not cited</span></td>'
+      // Two-glyph cell — citation flag then mention flag — per the AGENTS.md
+      // vocabulary rules. A query can be cited without being mentioned and
+      // vice versa, so a single label would conflate independent signals.
+      const citedGlyph = cell.citationState === CitationStates.cited
+        ? '<span class="cell-cited">C</span>'
+        : '<span class="cell-not-cited">c</span>'
+      const mentionedGlyph = cell.answerMentioned === true
+        ? '<span class="cell-cited">M</span>'
+        : cell.answerMentioned === false
+          ? '<span class="cell-not-cited">m</span>'
+          : '<span class="cell-pending">–</span>'
+      return `<td>${citedGlyph} ${mentionedGlyph}</td>`
     }).join('')
     return `<tr><td>${escapeHtml(q)}</td>${cells}</tr>`
   }).join('')
 
-  return `<table class="report-table">
+  const legend = '<p class="section-intro" style="margin-top:0;font-size:11px;">Each cell shows two flags — <span class="cell-cited">C</span>/<span class="cell-not-cited">c</span> = cited / not cited (your domain in the source list), <span class="cell-cited">M</span>/<span class="cell-not-cited">m</span> = mentioned / not mentioned (your brand in the answer text), <span class="cell-pending">–</span> = no data.</p>'
+
+  return `${legend}<table class="report-table">
     <thead><tr><th>Query</th>${headers}</tr></thead>
     <tbody>${rows}</tbody>
   </table>`
@@ -495,7 +671,7 @@ function renderCitationScorecard(report: ProjectReportDto): string {
     ${renderCitationMatrix(report.citationScorecard)}
   `
   return section(
-    { id: 'citation-scorecard', eyebrow: 'Section 2', title: 'Citation Scorecard', intro: 'Whether your domain appeared in each AI engine’s source list for every tracked query in the latest sweep — a cell turns green when your domain was cited, red when it was not, and gray when no snapshot exists for that pair.' },
+    { id: 'citation-scorecard', eyebrow: 'Section 2', title: 'Citation Scorecard', intro: 'Per (query × provider) view of both signals — citations (your domain in the source list) and mentions (your brand in the answer text) — for every tracked query in the latest sweep.' },
     body,
   )
 }
@@ -605,46 +781,45 @@ function renderCompetitorLandscape(report: ProjectReportDto): string {
   )
 }
 
-function renderDonut(buckets: AiSourceCategoryBucket[]): string {
+const SOURCE_CATEGORY_TONE: Record<string, 'positive' | 'caution' | 'negative' | 'neutral'> = {
+  competitor: 'negative',
+  directory: 'caution',
+  forum: 'caution',
+  news: 'neutral',
+  reference: 'neutral',
+  blog: 'neutral',
+  social: 'neutral',
+  video: 'neutral',
+  ecommerce: 'neutral',
+  academic: 'neutral',
+  other: 'neutral',
+}
+
+function renderCategoryBars(buckets: AiSourceCategoryBucket[]): string {
   if (buckets.length === 0) return ''
   const total = buckets.reduce((s, b) => s + b.count, 0)
   if (total === 0) return ''
-  const cx = 110
-  const cy = 110
-  const r = 80
-  const innerR = 48
+  const max = Math.max(...buckets.map(b => b.count), 1)
 
-  let cumulative = 0
-  const slices: string[] = []
-  const legend: string[] = []
-  buckets.forEach((b, i) => {
-    const startAngle = (cumulative / total) * Math.PI * 2 - Math.PI / 2
-    const endAngle = ((cumulative + b.count) / total) * Math.PI * 2 - Math.PI / 2
-    cumulative += b.count
-    const x1 = cx + Math.cos(startAngle) * r
-    const y1 = cy + Math.sin(startAngle) * r
-    const x2 = cx + Math.cos(endAngle) * r
-    const y2 = cy + Math.sin(endAngle) * r
-    const ix1 = cx + Math.cos(endAngle) * innerR
-    const iy1 = cy + Math.sin(endAngle) * innerR
-    const ix2 = cx + Math.cos(startAngle) * innerR
-    const iy2 = cy + Math.sin(startAngle) * innerR
-    const largeArc = (endAngle - startAngle) > Math.PI ? 1 : 0
-    const color = COLORS.series[i % COLORS.series.length]
-    if (b.count > 0) {
-      slices.push(`<path d="M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} L ${ix1} ${iy1} A ${innerR} ${innerR} 0 ${largeArc} 0 ${ix2} ${iy2} Z" fill="${color}" />`)
-      legend.push(`<span><span class="legend-swatch" style="background:${color}"></span>${escapeHtml(b.label)} (${b.count})</span>`)
-    }
-  })
+  const rows = buckets.map((b) => {
+    const pct = (b.count / max) * 100
+    const tone = SOURCE_CATEGORY_TONE[b.category] ?? 'neutral'
+    const color = tone === 'negative' ? COLORS.negative
+      : tone === 'caution' ? COLORS.caution
+      : COLORS.accent
+    return `
+      <div class="source-bar-row">
+        <div class="source-bar-label">${escapeHtml(b.label)}</div>
+        <div class="source-bar-track">
+          <div class="source-bar-fill" style="width:${pct.toFixed(1)}%;background:${color}"></div>
+        </div>
+        <div class="source-bar-value">${b.count} <span class="source-bar-pct">(${b.sharePct}%)</span></div>
+      </div>`
+  }).join('')
 
   return `<div class="chart-card">
-    <h3>AI source categories</h3>
-    <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap;">
-      <svg viewBox="0 0 220 220" width="220" height="220" role="img" aria-label="AI source category donut chart">
-        ${slices.join('')}
-      </svg>
-      <div class="legend" style="flex-direction:column;align-items:flex-start;gap:6px;">${legend.join('')}</div>
-    </div>
+    <h3>By source type</h3>
+    <div class="source-bars">${rows}</div>
   </div>`
 }
 
@@ -657,18 +832,25 @@ function renderAiSourceOrigin(report: ProjectReportDto): string {
     )
   }
 
+  const competitorBucket = origin.categories.find(c => c.category === 'competitor')
+  const headlineFragment = competitorBucket
+    ? `<p class="source-origin-headline"><strong>${competitorBucket.sharePct}%</strong> of citations went to tracked competitors (${competitorBucket.count} of ${origin.categories.reduce((s, c) => s + c.count, 0)}).</p>`
+    : ''
+
   const rows = origin.topDomains.map(d => `
     <tr>
       <td>${escapeHtml(d.domain)}</td>
       <td class="numeric">${d.count}</td>
-      <td>${d.isCompetitor ? '<span class="badge tone-negative">Competitor</span>' : '<span class="badge tone-neutral">External</span>'}</td>
+      <td>${d.isCompetitor ? '<span class="badge tone-negative">Tracked competitor</span>' : '<span class="badge tone-neutral">External</span>'}</td>
     </tr>`).join('')
 
   const table = origin.topDomains.length > 0
-    ? `<table class="report-table">
-        <thead><tr><th>Domain</th><th>Citations</th><th>Tag</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>`
+    ? `<div class="chart-card"><h3>Top sources</h3>
+        <table class="report-table">
+          <thead><tr><th>Domain</th><th class="numeric">Citations</th><th>Tag</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`
     : ''
 
   return section(
@@ -676,9 +858,9 @@ function renderAiSourceOrigin(report: ProjectReportDto): string {
       id: 'ai-source-origin',
       eyebrow: 'Section 4',
       title: 'AI Citation Sources',
-      intro: 'Every external website AI engines cited as a source for your tracked keywords in the latest sweep — categorized by site type (Reddit, YouTube, news, etc.) on the left and ranked by citation count on the right. Your own domains are excluded; tracked competitors are flagged.',
+      intro: 'Every external website AI engines cited as a source for your tracked queries in the latest sweep, ranked by citation count. Tracked competitors are pulled into their own bucket so you can see how much of the AI’s answer came from rivals; the remaining buckets cover directories, forums, news, and other site types. Your own domains are excluded.',
     },
-    `${renderDonut(origin.categories)}${table}`,
+    `${headlineFragment}${table}${renderCategoryBars(origin.categories)}`,
   )
 }
 
@@ -1004,16 +1186,16 @@ function renderCitationsTrend(report: ProjectReportDto): string {
   const rows = trend.map((t: CitationsTrendPoint) => `
     <tr>
       <td>${formatDate(t.date)}</td>
-      <td class="numeric">${t.citationRate}%</td>
+      <td class="numeric">${t.citationRate}% <span class="cell-pending">(${t.citedQueryCount}/${t.totalQueryCount})</span></td>
       <td>${t.providerRates.map(r => `${escapeHtml(r.provider)}: ${r.citationRate}%`).join(' · ')}</td>
     </tr>`).join('')
 
   return section(
-    { id: 'citations-trend', eyebrow: 'Section 10', title: 'Citations Over Time', intro: 'Citation rate across every visibility sweep — the share of (keyword × provider) pairs in each run where your domain appeared in the source list, with a per-provider breakdown beneath.' },
+    { id: 'citations-trend', eyebrow: 'Section 10', title: 'Citations Over Time', intro: 'Citation rate across every visibility sweep — the share of tracked queries cited by at least one provider, with a per-provider breakdown beneath. Computed per-query so the headline stays comparable across runs that ran a different mix of providers.' },
     `${chart}
     <div class="chart-card"><h3>Run-by-run breakdown</h3>
       <table class="report-table">
-        <thead><tr><th>Run</th><th class="numeric">Overall rate</th><th>Per-provider rates</th></tr></thead>
+        <thead><tr><th>Run</th><th class="numeric">Cited queries</th><th>Per-provider rates</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`,
@@ -1065,17 +1247,20 @@ function renderOpportunities(report: ProjectReportDto): string {
   const rows = opps.slice(0, 10).map((o) => {
     const ourPage = o.ourBestPage
       ? `<a href="${escapeHtml(absolutizeProjectUrl(o.ourBestPage.url, canonical))}">${escapeHtml(o.ourBestPage.url)}</a>`
-      : '<span class="cell-not-cited">—</span>'
+      : '<span class="cell-not-cited">No page yet</span>'
     const winning = o.winningCompetitor
       ? `<a href="${escapeHtml(o.winningCompetitor.url)}">${escapeHtml(o.winningCompetitor.domain)}</a>`
       : '<span class="cell-not-cited">—</span>'
+    const drivers = o.drivers.length > 0
+      ? `<ul class="driver-list">${o.drivers.map(d => `<li>${escapeHtml(d)}</li>`).join('')}</ul>`
+      : '<span class="cell-not-cited">No driver signal yet</span>'
     return `<tr>
       <td>${escapeHtml(o.query)}</td>
       <td><span class="badge tone-neutral">${escapeHtml(o.action)}</span></td>
       <td class="numeric">${Math.round(o.score)}</td>
+      <td>${drivers}</td>
       <td>${ourPage}</td>
       <td>${winning}</td>
-      <td><span class="badge tone-neutral">${escapeHtml(o.demandSource)}</span></td>
       <td><span class="badge tone-neutral">${escapeHtml(o.actionConfidence)}</span></td>
     </tr>`
   }).join('')
@@ -1085,10 +1270,37 @@ function renderOpportunities(report: ProjectReportDto): string {
       id: 'content-opportunities',
       eyebrow: 'Section 12',
       title: 'Content Opportunities',
-      intro: 'Queries where you have search demand or competitor citation pressure but aren’t winning AI citations. Each row carries a suggested action (create / refresh / expand / add-schema). Top 10 shown.',
+      intro: 'Queries where you have search demand or competitor citation pressure but aren’t winning AI citations. Each row pairs a suggested action (create / refresh / expand / add-schema) with the signals driving the score, the best matching page on your domain, and the competitor URL the AI most often cites. Top 10 shown.',
     },
     `<table class="report-table">
-      <thead><tr><th>Query</th><th>Action</th><th class="numeric">Score</th><th>Our page</th><th>Winning competitor</th><th>Demand</th><th>Confidence</th></tr></thead>
+      <thead><tr><th>Query</th><th>Action</th><th class="numeric">Score</th><th>Why</th><th>Our page</th><th>Winning competitor</th><th>Confidence</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`,
+  )
+}
+
+function renderContentGaps(report: ProjectReportDto): string {
+  const gaps = report.contentGaps
+  if (gaps.length === 0) return ''
+  const rows = gaps.slice(0, 10).map(g => {
+    const competitorList = g.competitorDomains.slice(0, 5).map(escapeHtml).join(', ')
+    const more = g.competitorDomains.length > 5 ? `, +${g.competitorDomains.length - 5} more` : ''
+    return `<tr>
+      <td>${escapeHtml(g.query)}</td>
+      <td class="numeric">${g.competitorCount}</td>
+      <td>${competitorList}${more}</td>
+      <td class="numeric">${Math.round(g.missRate * 100)}%</td>
+    </tr>`
+  }).join('')
+  return section(
+    {
+      id: 'content-gaps',
+      eyebrow: 'Section 13',
+      title: 'Content Gaps',
+      intro: 'Tracked queries where multiple competitors are cited by AI engines but you are not — explicit "they are answering, you are missing" signal. Sorted by recent miss rate, then by number of competitors cited. Top 10 shown.',
+    },
+    `<table class="report-table">
+      <thead><tr><th>Query</th><th class="numeric">Competitors cited</th><th>Domains</th><th class="numeric">Miss rate</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`,
   )
@@ -1101,7 +1313,7 @@ function renderRecommendedNextSteps(report: ProjectReportDto): string {
   const steps = report.recommendedNextSteps
   if (steps.length === 0) {
     return section(
-      { id: 'recommended-next-steps', eyebrow: 'Section 13', title: 'Recommended Next Steps', intro: 'Action items bucketed by horizon (immediate, short-term, medium-term), drawn from open insights and the highest-ranked content opportunities.' },
+      { id: 'recommended-next-steps', eyebrow: 'Section 14', title: 'Recommended Next Steps', intro: 'Action items bucketed by horizon (immediate, short-term, medium-term), drawn from open insights and the highest-ranked content opportunities.' },
       renderEmpty('No outstanding actions.'),
     )
   }
@@ -1114,8 +1326,148 @@ function renderRecommendedNextSteps(report: ProjectReportDto): string {
     </div>`).join('')
 
   return section(
-    { id: 'recommended-next-steps', eyebrow: 'Section 13', title: 'Recommended Next Steps', intro: 'Action items bucketed by horizon (immediate, short-term, medium-term), drawn from open insights and the highest-ranked content opportunities.' },
+    { id: 'recommended-next-steps', eyebrow: 'Section 14', title: 'Recommended Next Steps', intro: 'Action items bucketed by horizon (immediate, short-term, medium-term), drawn from open insights and the highest-ranked content opportunities.' },
     `<div class="steps">${items}</div>`,
+  )
+}
+
+function actionAudienceMatches(action: ReportActionPlanItem, audience: ReportAudience): boolean {
+  return action.audience === 'both' || action.audience === audience
+}
+
+function renderActionCards(actions: readonly ReportActionPlanItem[]): string {
+  if (actions.length === 0) return renderEmpty('No prioritized actions yet.')
+  return `<div class="action-card-grid">
+    ${actions.map(action => {
+      const tone = reportActionTone(action)
+      const why = action.why.length > 0
+        ? `<ul>${action.why.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
+        : ''
+      const evidence = action.evidence.length > 0
+        ? `<ul>${action.evidence.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
+        : ''
+      return `<article class="action-card">
+        <div class="action-meta">
+          <span class="badge tone-${tone}">${escapeHtml(action.horizon)}</span>
+          <span class="badge tone-neutral">${escapeHtml(action.category)}</span>
+          <span class="badge tone-neutral">${escapeHtml(action.confidence)} confidence</span>
+        </div>
+        <h3>${escapeHtml(action.title)}</h3>
+        <p>${escapeHtml(action.action)}</p>
+        ${why ? `<div><strong>Why</strong>${why}</div>` : ''}
+        ${evidence ? `<div><strong>Evidence</strong>${evidence}</div>` : ''}
+        <div class="success-metric"><strong>Success metric:</strong> ${escapeHtml(action.successMetric)}</div>
+      </article>`
+    }).join('')}
+  </div>`
+}
+
+function renderAudienceActionPlan(report: ProjectReportDto, audience: ReportAudience): string {
+  const actions = audience === 'client'
+    ? report.clientSummary.actionItems
+    : report.agencyDiagnostics.priorities.length > 0
+      ? report.agencyDiagnostics.priorities
+      : report.actionPlan.filter(a => actionAudienceMatches(a, audience))
+  return section(
+    {
+      id: audience === 'client' ? 'client-action-plan' : 'agency-action-plan',
+      eyebrow: audience === 'client' ? 'Client actions' : 'Agency actions',
+      title: audience === 'client' ? 'What We Recommend Next' : 'Agency Action Plan',
+      intro: audience === 'client'
+        ? 'Polished next steps the client can understand, backed by concise evidence from the report.'
+        : 'Technical priorities pulled from the canonical action plan, sorted by urgency and evidence strength.',
+    },
+    renderActionCards(actions),
+  )
+}
+
+function renderClientSummary(report: ProjectReportDto): string {
+  const s = report.executiveSummary
+  const metrics = `<div class="metric-grid">
+    <div class="metric"><div class="label">Citation coverage</div><div class="value">${s.citationRate}%</div><div class="delta">${s.citedQueryCount}/${s.totalQueryCount} tracked queries cited</div></div>
+    <div class="metric"><div class="label">Mention coverage</div><div class="value">${s.mentionRate}%</div><div class="delta">${s.mentionedQueryCount}/${s.totalQueryCount} tracked queries mentioned</div></div>
+    <div class="metric"><div class="label">Providers checked</div><div class="value">${formatNumber(s.providerCount)}</div><div class="delta">${formatNumber(s.queryCount)} tracked queries</div></div>
+  </div>`
+  const notes = report.clientSummary.confidenceNotes.length > 0
+    ? `<div class="client-notes">${report.clientSummary.confidenceNotes.map(note => `<div class="client-note">${escapeHtml(note)}</div>`).join('')}</div>`
+    : ''
+  return section(
+    {
+      id: 'client-summary',
+      eyebrow: 'Client summary',
+      title: "How You're Appearing",
+      intro: report.clientSummary.overview,
+    },
+    `<div class="chart-card">
+      <h3>${escapeHtml(report.clientSummary.headline)}</h3>
+      <p class="source-origin-headline">${escapeHtml(report.clientSummary.overview)}</p>
+    </div>
+    ${metrics}
+    ${notes}`,
+  )
+}
+
+function renderClientEvidenceSummary(report: ProjectReportDto): string {
+  const evidenceCards: string[] = []
+  if (report.aiSourceOrigin.topDomains.length > 0) {
+    evidenceCards.push(`<div class="diagnostic-card tone-neutral">
+      <h3>Sources AI engines trust</h3>
+      <p>These domains appeared most often as cited sources outside your owned domain.</p>
+      <ul>${report.aiSourceOrigin.topDomains.slice(0, 5).map(d => `<li>${escapeHtml(d.domain)}: ${formatNumber(d.count)} citation${d.count === 1 ? '' : 's'}</li>`).join('')}</ul>
+    </div>`)
+  }
+  if (report.gsc) {
+    evidenceCards.push(`<div class="diagnostic-card tone-neutral">
+      <h3>Search demand</h3>
+      <p>Search Console shows ${formatNumber(report.gsc.totalImpressions)} impressions and ${formatNumber(report.gsc.totalClicks)} clicks in the report window.</p>
+      <ul>${report.gsc.topQueries.slice(0, 5).map(q => `<li>${escapeHtml(q.query)}: ${formatNumber(q.impressions)} impressions</li>`).join('')}</ul>
+    </div>`)
+  }
+  if (report.indexingHealth) {
+    const tone = report.indexingHealth.indexedPct >= 90 ? 'positive' : report.indexingHealth.indexedPct >= 70 ? 'caution' : 'negative'
+    evidenceCards.push(`<div class="diagnostic-card tone-${tone}">
+      <h3>Indexing readiness</h3>
+      <p>${report.indexingHealth.indexedPct}% of inspected URLs are indexed.</p>
+      <ul><li>${formatNumber(report.indexingHealth.indexed)} indexed</li><li>${formatNumber(report.indexingHealth.notIndexed)} not indexed</li></ul>
+    </div>`)
+  }
+  if (report.contentOpportunities.length > 0) {
+    evidenceCards.push(`<div class="diagnostic-card tone-caution">
+      <h3>Content opportunities</h3>
+      <p>Canonry found topics where better content could improve AI citations.</p>
+      <ul>${report.contentOpportunities.slice(0, 5).map(o => `<li>${escapeHtml(o.query)}: ${escapeHtml(o.action)} (${Math.round(o.score)})</li>`).join('')}</ul>
+    </div>`)
+  }
+  return section(
+    {
+      id: 'client-evidence-summary',
+      eyebrow: 'Evidence',
+      title: 'Why This Is The Plan',
+      intro: 'A concise evidence view for the client summary. The agency report keeps the full matrices and detailed tables.',
+    },
+    evidenceCards.length > 0 ? `<div class="diagnostics-grid">${evidenceCards.join('')}</div>` : renderEmpty('No supporting evidence sections are populated yet.'),
+  )
+}
+
+function renderAgencyDiagnostics(report: ProjectReportDto): string {
+  const diagnostics = report.agencyDiagnostics.diagnostics
+  const body = diagnostics.length > 0
+    ? `<div class="diagnostics-grid">
+        ${diagnostics.map(d => `<div class="diagnostic-card tone-${d.severity}">
+          <h3>${escapeHtml(d.title)}</h3>
+          <p>${escapeHtml(d.detail)}</p>
+          ${d.evidence.length > 0 ? `<ul>${d.evidence.map(e => `<li>${escapeHtml(e)}</li>`).join('')}</ul>` : ''}
+        </div>`).join('')}
+      </div>`
+    : renderEmpty('No agency diagnostics available yet.')
+  return section(
+    {
+      id: 'agency-diagnostics',
+      eyebrow: 'Agency diagnostics',
+      title: 'Technical Diagnostics',
+      intro: 'Operator-facing diagnostics for content, provider, source-domain, search-demand, indexing, and location follow-up.',
+    },
+    body,
   )
 }
 
@@ -1133,25 +1485,37 @@ function escapeJsonForScript(json: string): string {
 export interface RenderReportHtmlOptions {
   /** Override <title>. Default: `Canonry report — <project displayName>`. */
   title?: string
+  /** Audience render mode. JSON payload stays canonical either way. Default: agency. */
+  audience?: ReportAudience
 }
 
 export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtmlOptions = {}): string {
-  const title = opts.title ?? `Canonry report — ${report.meta.project.displayName}`
-  const sections = [
-    renderExecutiveSummary(report),
-    renderCitationScorecard(report),
-    renderCompetitorLandscape(report),
-    renderAiSourceOrigin(report),
-    renderGsc(report),
-    renderGa(report),
-    renderSocial(report),
-    renderAiReferrals(report),
-    renderIndexingHealth(report),
-    renderCitationsTrend(report),
-    renderInsights(report),
-    renderOpportunities(report),
-    renderRecommendedNextSteps(report),
-  ].join('\n')
+  const audience = opts.audience ?? 'agency'
+  const title = opts.title ?? `Canonry ${audience} report — ${report.meta.project.displayName}`
+  const sections = audience === 'client'
+    ? [
+        renderClientSummary(report),
+        renderAudienceActionPlan(report, 'client'),
+        renderClientEvidenceSummary(report),
+      ].join('\n')
+    : [
+        renderExecutiveSummary(report),
+        renderAudienceActionPlan(report, 'agency'),
+        renderAgencyDiagnostics(report),
+        renderCitationScorecard(report),
+        renderCompetitorLandscape(report),
+        renderAiSourceOrigin(report),
+        renderGsc(report),
+        renderGa(report),
+        renderSocial(report),
+        renderAiReferrals(report),
+        renderIndexingHealth(report),
+        renderCitationsTrend(report),
+        renderInsights(report),
+        renderOpportunities(report),
+        renderContentGaps(report),
+        renderRecommendedNextSteps(report),
+      ].join('\n')
 
   const json = escapeJsonForScript(JSON.stringify(report))
 
@@ -1166,9 +1530,9 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
 <body>
 <div class="container">
   <header class="header">
-    <div class="eyebrow">AEO Report</div>
+    <div class="eyebrow">${audience === 'client' ? 'AEO Client Summary' : 'AEO Agency Report'}</div>
     <h1>${escapeHtml(report.meta.project.displayName)}</h1>
-    <div class="subtitle">${escapeHtml(report.meta.project.canonicalDomain)} · ${escapeHtml(report.meta.project.country)} / ${escapeHtml(report.meta.project.language.toUpperCase())} · Generated ${formatDate(report.meta.generatedAt)}</div>
+    <div class="subtitle">${escapeHtml(report.meta.project.canonicalDomain)} · ${escapeHtml(report.meta.project.country)} / ${escapeHtml(report.meta.project.language.toUpperCase())}${renderHeaderLocationFragment(report.meta.location)} · Generated ${formatDate(report.meta.generatedAt)}</div>
   </header>
   ${sections}
   <footer class="footer">Generated by canonry · ${escapeHtml(report.meta.generatedAt)}</footer>

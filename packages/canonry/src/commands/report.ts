@@ -3,16 +3,19 @@ import path from 'node:path'
 import { createApiClient } from '../client.js'
 import { renderReportHtml } from '@ainyc/canonry-api-routes'
 import type { CliFormat } from '../cli-error.js'
+import type { ReportAudience } from '@ainyc/canonry-contracts'
 
 export interface RunReportCommandOptions {
   format?: CliFormat
-  /** Override the output path. Default: `<cwd>/canonry-report-<project>-<YYYY-MM-DD>.html`. */
+  /** Render audience for HTML output. JSON always prints the full canonical DTO. */
+  audience?: ReportAudience
+  /** Override the output path. Default: `<cwd>/canonry-report-<project>-<audience>-<YYYY-MM-DD>.html`. */
   output?: string
 }
 
-function defaultOutputPath(project: string): string {
+function defaultOutputPath(project: string, audience: ReportAudience): string {
   const date = new Date().toISOString().slice(0, 10)
-  return path.resolve(process.cwd(), `canonry-report-${project}-${date}.html`)
+  return path.resolve(process.cwd(), `canonry-report-${project}-${audience}-${date}.html`)
 }
 
 export async function runReportCommand(
@@ -21,14 +24,15 @@ export async function runReportCommand(
 ): Promise<void> {
   const client = createApiClient()
   const report = await client.getReport(project)
+  const audience = opts.audience ?? 'agency'
 
   if (opts.format === 'json') {
     console.log(JSON.stringify(report, null, 2))
     return
   }
 
-  const html = renderReportHtml(report)
-  const targetPath = opts.output ? path.resolve(opts.output) : defaultOutputPath(project)
+  const html = renderReportHtml(report, { audience })
+  const targetPath = opts.output ? path.resolve(opts.output) : defaultOutputPath(project, audience)
 
   const dir = path.dirname(targetPath)
   if (!fs.existsSync(dir)) {

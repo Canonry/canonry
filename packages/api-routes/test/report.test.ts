@@ -154,9 +154,15 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.meta.project.name).toBe('empty')
     expect(body.meta.project.canonicalDomain).toBe('empty.example.com')
     expect(typeof body.meta.generatedAt).toBe('string')
+    expect(body.meta.location).toBeNull()
+    expect(body.meta.providerLocationHandling).toEqual([])
 
     // executive summary defaults
     expect(body.executiveSummary.citationRate).toBe(0)
+    expect(body.executiveSummary.citedQueryCount).toBe(0)
+    expect(body.executiveSummary.totalQueryCount).toBe(0)
+    expect(body.executiveSummary.mentionRate).toBe(0)
+    expect(body.executiveSummary.mentionedQueryCount).toBe(0)
     expect(body.executiveSummary.trend).toBe('unknown')
     expect(body.executiveSummary.queryCount).toBe(0)
     expect(body.executiveSummary.competitorCount).toBe(0)
@@ -186,6 +192,10 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.citationsTrend).toEqual([])
     expect(body.insights).toEqual([])
     expect(body.recommendedNextSteps).toEqual([])
+    expect(body.actionPlan.length).toBeGreaterThan(0)
+    expect(body.clientSummary.headline).toContain('No tracked queries')
+    expect(body.clientSummary.actionItems.length).toBeGreaterThan(0)
+    expect(body.agencyDiagnostics.priorities.length).toBeGreaterThan(0)
   })
 
   test('citation scorecard reflects query × provider matrix', async () => {
@@ -216,7 +226,13 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(ratesByProvider.gemini).toMatchObject({ citedCount: 1, totalCount: 2, citationRate: 50 })
     expect(ratesByProvider.openai).toMatchObject({ citedCount: 1, totalCount: 2, citationRate: 50 })
 
-    expect(body.executiveSummary.citationRate).toBe(50)
+    // Headline citationRate is per-query: both kwA and kwB are cited by ≥1
+    // provider in this run, so 2/2 = 100% — not the per-pair 2/4 = 50%. The
+    // per-provider rates above stay at 50% because they're scoped to a single
+    // provider's denominator and stay meaningful within a run.
+    expect(body.executiveSummary.citationRate).toBe(100)
+    expect(body.executiveSummary.citedQueryCount).toBe(2)
+    expect(body.executiveSummary.totalQueryCount).toBe(2)
     expect(body.executiveSummary.providerCount).toBe(2)
     expect(body.executiveSummary.queryCount).toBe(2)
   })
@@ -331,6 +347,94 @@ describe('GET /api/v1/projects/:name/report', () => {
     )
     expect(topByDomain['reddit.com']).toBe(2)
     expect(topByDomain['youtube.com']).toBe(1)
+  })
+
+  test('builds audience action plan and diagnostics from azcoatings-style signals', async () => {
+    const projectId = insertProject(ctx.db, 'az-actions', {
+      displayName: 'AZ Coatings',
+      canonicalDomain: 'azcoatings.com',
+    })
+    const coatingQuery = insertQuery(ctx.db, projectId, 'best industrial coatings')
+    const guideQuery = insertQuery(ctx.db, projectId, 'commercial floor coating guide')
+    const runId = insertRun(ctx.db, projectId, {
+      createdAt: '2026-05-01T00:00:00Z',
+      finishedAt: '2026-05-01T00:01:00Z',
+    })
+
+    const externalGrounding = JSON.stringify({
+      groundingSources: [
+        { uri: 'https://external-directory.com/coatings', title: 'Coating directory' },
+        { uri: 'https://paintmag.com/industrial-coatings', title: 'Industrial coatings guide' },
+      ],
+    })
+    for (const queryId of [coatingQuery, guideQuery]) {
+      insertSnapshot(ctx.db, runId, queryId, {
+        provider: 'gemini',
+        citationState: 'not-cited',
+        answerMentioned: false,
+        citedDomains: JSON.stringify(['external-directory.com', 'paintmag.com']),
+        rawResponse: externalGrounding,
+      })
+      insertSnapshot(ctx.db, runId, queryId, {
+        provider: 'openai',
+        citationState: 'not-cited',
+        answerMentioned: false,
+        citedDomains: JSON.stringify(['external-directory.com']),
+        rawResponse: externalGrounding,
+      })
+    }
+
+    const syncRunId = insertRun(ctx.db, projectId, { kind: 'gsc-sync' })
+    ctx.db.insert(gscSearchData).values([
+      {
+        id: crypto.randomUUID(),
+        projectId,
+        syncRunId,
+        date: '2026-04-30',
+        query: 'best industrial coatings',
+        page: 'https://azcoatings.com/blog/best-industrial-coatings',
+        clicks: 12,
+        impressions: 1200,
+        ctr: '0.01',
+        position: '8',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: crypto.randomUUID(),
+        projectId,
+        syncRunId,
+        date: '2026-04-30',
+        query: 'epoxy floor coatings contractors',
+        page: 'https://azcoatings.com/blog/epoxy-floor-coatings',
+        clicks: 9,
+        impressions: 900,
+        ctr: '0.01',
+        position: '6',
+        createdAt: new Date().toISOString(),
+      },
+    ]).run()
+    ctx.db.insert(gscCoverageSnapshots).values({
+      id: crypto.randomUUID(),
+      projectId,
+      syncRunId,
+      date: '2026-04-30',
+      indexed: 2,
+      notIndexed: 8,
+      reasonBreakdown: '{}',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/az-actions/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.actionPlan.some(a => a.category === 'competitors' && a.audience === 'both')).toBe(true)
+    expect(body.actionPlan.some(a => a.category === 'content' && a.title.includes('best industrial coatings'))).toBe(true)
+    expect(body.actionPlan.some(a => a.category === 'indexing' && a.evidence.some(e => e.includes('20% indexed')))).toBe(true)
+    expect(body.actionPlan.some(a => a.category === 'provider' && a.evidence.some(e => e.includes('openai: 0/2')))).toBe(true)
+    expect(body.actionPlan.some(a => a.category === 'search-demand' && a.evidence.some(e => e.includes('epoxy floor coatings contractors')))).toBe(true)
+    expect(body.clientSummary.actionItems.length).toBeGreaterThan(0)
+    expect(body.agencyDiagnostics.priorities.some(a => a.category === 'provider')).toBe(true)
   })
 
   test('GSC section returns top queries, totals, category breakdown', async () => {
@@ -743,6 +847,227 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(immediate?.title).toContain('1 critical regression')
   })
 
+  test('exposes mention rate independently from citation rate', async () => {
+    // Per AGENTS.md vocabulary: a query can be cited without being mentioned
+    // and vice versa. The executive summary must surface both signals
+    // separately or readers will conflate them. Here:
+    //   - kwA: cited by gemini, NOT mentioned anywhere
+    //   - kwB: NOT cited by anyone, mentioned by gemini
+    // Per-query: 1/2 cited (50%) and 1/2 mentioned (50%) — independent.
+    const projectId = insertProject(ctx.db, 'cite-vs-mention')
+    const kwA = insertQuery(ctx.db, projectId, 'cited-not-mentioned')
+    const kwB = insertQuery(ctx.db, projectId, 'mentioned-not-cited')
+    const runId = insertRun(ctx.db, projectId)
+
+    insertSnapshot(ctx.db, runId, kwA, { provider: 'gemini', citationState: 'cited', answerMentioned: false })
+    insertSnapshot(ctx.db, runId, kwA, { provider: 'openai', citationState: 'not-cited', answerMentioned: false })
+    insertSnapshot(ctx.db, runId, kwB, { provider: 'gemini', citationState: 'not-cited', answerMentioned: true })
+    insertSnapshot(ctx.db, runId, kwB, { provider: 'openai', citationState: 'not-cited', answerMentioned: false })
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/cite-vs-mention/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.executiveSummary.citationRate).toBe(50)
+    expect(body.executiveSummary.citedQueryCount).toBe(1)
+    expect(body.executiveSummary.mentionRate).toBe(50)
+    expect(body.executiveSummary.mentionedQueryCount).toBe(1)
+    expect(body.executiveSummary.totalQueryCount).toBe(2)
+  })
+
+  test('history-derived sections (trend, insights) scope to the latest run\'s location', async () => {
+    // azcoatings-style: same project sweeps both florida and michigan. The
+    // report headline says "michigan", so the trend, insights, and content
+    // orchestrator must NOT mix in the florida runs — otherwise a Detroit
+    // analyst reading the report sees a Miami citation as part of "their"
+    // history. See review thread on PR #423.
+    const projectId = insertProject(ctx.db, 'loc-scope', {
+      locations: JSON.stringify([
+        { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' },
+        { label: 'florida', city: 'Miami', region: 'Florida', country: 'US' },
+      ]),
+      defaultLocation: 'michigan',
+    })
+    const kw = insertQuery(ctx.db, projectId, 'kw')
+
+    // Five michigan runs (so the trend chart isn't suppressed by the
+    // baseline gate) and three florida runs interleaved by date.
+    for (let i = 0; i < 5; i++) {
+      const day = String(i + 1).padStart(2, '0')
+      const id = insertRun(ctx.db, projectId, {
+        location: 'michigan',
+        createdAt: `2026-04-${day}T00:00:00Z`,
+        finishedAt: `2026-04-${day}T00:01:00Z`,
+      })
+      insertSnapshot(ctx.db, id, kw, { provider: 'gemini', citationState: i === 4 ? 'cited' : 'not-cited' })
+    }
+    const flRunIds: string[] = []
+    for (let i = 0; i < 3; i++) {
+      const day = String(i + 6).padStart(2, '0')
+      const id = insertRun(ctx.db, projectId, {
+        location: 'florida',
+        createdAt: `2026-04-${day}T00:00:00Z`,
+        finishedAt: `2026-04-${day}T00:01:00Z`,
+      })
+      flRunIds.push(id)
+      insertSnapshot(ctx.db, id, kw, { provider: 'gemini', citationState: 'cited' })
+    }
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/loc-scope/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    // Latest run is the most recent — that's florida (day 8).
+    expect(body.meta.location?.label).toBe('florida')
+    // Trend should only contain the three florida runs, not the five michigan ones.
+    expect(body.citationsTrend).toHaveLength(3)
+    for (const point of body.citationsTrend) {
+      expect(flRunIds).toContain(point.runId)
+    }
+  })
+
+  test('meta surfaces the latest run location and per-provider location handling', async () => {
+    // azcoatings-style: project has two locations configured; a sweep ran
+    // against the default (michigan). Report must say which location powered
+    // the data and explain how each provider in the run consumed it.
+    const projectId = insertProject(ctx.db, 'loc-meta', {
+      locations: JSON.stringify([
+        { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' },
+        { label: 'florida', city: 'Miami', region: 'Florida', country: 'US' },
+      ]),
+      defaultLocation: 'michigan',
+    })
+    const kw = insertQuery(ctx.db, projectId, 'kw')
+    const runId = insertRun(ctx.db, projectId, {
+      location: 'michigan',
+      createdAt: '2026-04-01T00:00:00Z',
+      finishedAt: '2026-04-01T00:01:00Z',
+    })
+    insertSnapshot(ctx.db, runId, kw, { provider: 'gemini', citationState: 'cited' })
+    insertSnapshot(ctx.db, runId, kw, { provider: 'openai', citationState: 'not-cited' })
+    insertSnapshot(ctx.db, runId, kw, { provider: 'cdp:chatgpt', citationState: 'not-cited' })
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/loc-meta/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.meta.location).toEqual({
+      label: 'michigan',
+      city: 'Detroit',
+      region: 'Michigan',
+      country: 'US',
+      otherConfiguredLabels: ['florida'],
+    })
+    const byProvider = Object.fromEntries(
+      body.meta.providerLocationHandling.map(h => [h.provider, h]),
+    )
+    expect(byProvider['gemini']?.treatment).toBe('prompt')
+    expect(byProvider['openai']?.treatment).toBe('request-param')
+    expect(byProvider['cdp:chatgpt']?.treatment).toBe('browser-geo')
+  })
+
+  test('meta.location is null when the latest run had no location attached', async () => {
+    // For locationless runs, providerLocationHandling stays empty so the
+    // renderer's "Location for this run: none" headline isn't contradicted
+    // by per-provider rows describing how the location was applied.
+    const projectId = insertProject(ctx.db, 'loc-empty')
+    const kw = insertQuery(ctx.db, projectId, 'kw')
+    const runId = insertRun(ctx.db, projectId, {
+      // no location field set
+      createdAt: '2026-04-01T00:00:00Z',
+      finishedAt: '2026-04-01T00:01:00Z',
+    })
+    insertSnapshot(ctx.db, runId, kw, { provider: 'gemini', citationState: 'cited' })
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/loc-empty/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.meta.location).toBeNull()
+    expect(body.meta.providerLocationHandling).toEqual([])
+  })
+
+  test('headline rate is per-query — partial-provider runs do not inflate the denominator (issue #422)', async () => {
+    // Issue #422 reproduction: a gemini-only run that cited 1 of 5 queries
+    // (per-pair 1/5 = 20%) was followed by a full 4-provider run where
+    // 2 distinct queries got cited (per-pair 3/24 = 13%). The old per-pair
+    // headline read this as a decline. Per-query reads it as 1/5 → 2/5 = up.
+    const projectId = insertProject(ctx.db, 'issue-422')
+    const queryIds: string[] = []
+    for (let i = 1; i <= 5; i++) {
+      queryIds.push(insertQuery(ctx.db, projectId, `query-${i}`))
+    }
+
+    // Establish four prior baseline runs at 0% so the trend chart isn't
+    // suppressed by isTrendBaseline (MIN_TREND_POINTS = 4).
+    for (let i = 0; i < 4; i++) {
+      const day = String(i + 1).padStart(2, '0')
+      const baselineId = insertRun(ctx.db, projectId, {
+        createdAt: `2026-04-${day}T00:00:00Z`,
+        finishedAt: `2026-04-${day}T00:01:00Z`,
+      })
+      // 4 providers × 5 queries × not-cited
+      for (const qid of queryIds) {
+        for (const provider of ['gemini', 'openai', 'claude', 'perplexity']) {
+          insertSnapshot(ctx.db, baselineId, qid, { provider, citationState: 'not-cited' })
+        }
+      }
+    }
+
+    // Run A: gemini-only, query-1 cited.
+    const runA = insertRun(ctx.db, projectId, {
+      createdAt: '2026-04-30T00:00:00Z',
+      finishedAt: '2026-04-30T00:01:00Z',
+    })
+    for (const qid of queryIds) {
+      insertSnapshot(ctx.db, runA, qid, {
+        provider: 'gemini',
+        citationState: qid === queryIds[0] ? 'cited' : 'not-cited',
+      })
+    }
+
+    // Run B: all four providers. query-1 still cited by gemini, query-2
+    // newly cited by gemini + claude + openai. Per-pair = 4/20 = 20% but
+    // the per-query rate is 2/5 = 40% — a real improvement, not a decline.
+    const runB = insertRun(ctx.db, projectId, {
+      createdAt: '2026-05-01T00:00:00Z',
+      finishedAt: '2026-05-01T00:01:00Z',
+    })
+    for (const qid of queryIds) {
+      for (const provider of ['gemini', 'openai', 'claude', 'perplexity']) {
+        const qIdx = queryIds.indexOf(qid)
+        let cited = false
+        if (qIdx === 0 && provider === 'gemini') cited = true
+        if (qIdx === 1 && provider !== 'perplexity') cited = true
+        insertSnapshot(ctx.db, runB, qid, { provider, citationState: cited ? 'cited' : 'not-cited' })
+      }
+    }
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/issue-422/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    // Latest run is run B: 2 of 5 queries cited = 40%.
+    expect(body.executiveSummary.citationRate).toBe(40)
+    expect(body.executiveSummary.citedQueryCount).toBe(2)
+    expect(body.executiveSummary.totalQueryCount).toBe(5)
+
+    // Trend points: 4 baselines (0%) + run A (1/5 = 20%) + run B (2/5 = 40%).
+    const trend = body.citationsTrend
+    expect(trend.length).toBe(6)
+    const last = trend.at(-1)!
+    const prev = trend.at(-2)!
+    expect(last.runId).toBe(runB)
+    expect(last.citationRate).toBe(40)
+    expect(last.citedQueryCount).toBe(2)
+    expect(last.totalQueryCount).toBe(5)
+    expect(prev.runId).toBe(runA)
+    expect(prev.citationRate).toBe(20)
+
+    // The whole point of the fix: the trend label reads 'up', not 'down'.
+    expect(body.executiveSummary.trend).toBe('up')
+  })
+
   test('trend label tracks the partial-run citation rate when the latest run is partial', async () => {
     // 4 completed runs at a stable 0% rate establish the trend chart, then a
     // partial latest run lifts the headline to 100%. The trend label drives
@@ -928,10 +1253,32 @@ describe('GET /api/v1/projects/:name/report.html', () => {
     const disposition = res.headers['content-disposition']
     expect(typeof disposition).toBe('string')
     expect(String(disposition)).toMatch(/^attachment;/)
-    expect(String(disposition)).toMatch(/canonry-report-html-report-\d{4}-\d{2}-\d{2}\.html/)
+    expect(String(disposition)).toMatch(/canonry-report-html-report-agency-\d{4}-\d{2}-\d{2}\.html/)
 
     expect(res.body).toMatch(/^<!DOCTYPE html>/)
     expect(res.body).toContain('HTML Report Co.')
+    expect(res.body).toContain('AEO Agency Report')
     expect(res.body).toContain('<title>')
+  })
+
+  test('renders client HTML when audience=client', async () => {
+    insertProject(ctx.db, 'client-html', { displayName: 'Client HTML Co.' })
+    await ctx.app.ready()
+
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/client-html/report.html?audience=client' })
+    expect(res.statusCode).toBe(200)
+    expect(String(res.headers['content-disposition'])).toMatch(/canonry-report-client-html-client-\d{4}-\d{2}-\d{2}\.html/)
+    expect(res.body).toContain('AEO Client Summary')
+    expect(res.body).toContain('id="client-summary"')
+    expect(res.body).not.toContain('id="citation-scorecard"')
+  })
+
+  test('rejects invalid report audience', async () => {
+    insertProject(ctx.db, 'bad-audience')
+    await ctx.app.ready()
+
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/bad-audience/report.html?audience=internal' })
+    expect(res.statusCode).toBe(400)
+    expect(JSON.parse(res.body).error.code).toBe('VALIDATION_ERROR')
   })
 })

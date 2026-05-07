@@ -14,11 +14,17 @@ function emptyReport(): ProjectReportDto {
         country: 'US',
         language: 'en',
       },
+      location: null,
+      providerLocationHandling: [],
       periodStart: null,
       periodEnd: null,
     },
     executiveSummary: {
       citationRate: 0,
+      citedQueryCount: 0,
+      totalQueryCount: 0,
+      mentionRate: 0,
+      mentionedQueryCount: 0,
       trend: 'unknown',
       queryCount: 0,
       competitorCount: 0,
@@ -39,6 +45,17 @@ function emptyReport(): ProjectReportDto {
     citationsTrend: [],
     insights: [],
     recommendedNextSteps: [],
+    actionPlan: [],
+    clientSummary: {
+      headline: 'No tracked queries have completed a visibility sweep yet',
+      overview: 'No visibility data yet.',
+      actionItems: [],
+      confidenceNotes: [],
+    },
+    agencyDiagnostics: {
+      priorities: [],
+      diagnostics: [],
+    },
     contentOpportunities: [],
     contentGaps: [],
     groundingSources: [],
@@ -46,6 +63,30 @@ function emptyReport(): ProjectReportDto {
 }
 
 function richReport(): ProjectReportDto {
+  const clientAction: ProjectReportDto['actionPlan'][number] = {
+    audience: 'both',
+    priority: 10,
+    horizon: 'short-term',
+    category: 'content',
+    title: 'Create content for "best aeo platform"',
+    action: 'Publish a client-safe guide that directly answers the priority query.',
+    why: ['AI engines already cite competitors for this query.'],
+    evidence: ['rival.com is the current winning cited source'],
+    successMetric: 'The client is cited for "best aeo platform" in a future sweep.',
+    confidence: 'high',
+  }
+  const agencyAction: ProjectReportDto['actionPlan'][number] = {
+    audience: 'agency',
+    priority: 20,
+    horizon: 'short-term',
+    category: 'provider',
+    title: 'Diagnose zero-citation providers',
+    action: 'Inspect provider answers and source lists for model-specific gaps.',
+    why: ['Provider-level misses isolate where retrieval differs by model family.'],
+    evidence: ['openai: 0/2 cited query-provider pairs'],
+    successMetric: 'OpenAI cites the client on at least one tracked query.',
+    confidence: 'high',
+  }
   return {
     meta: {
       generatedAt: '2026-05-02T12:00:00.000Z',
@@ -57,11 +98,26 @@ function richReport(): ProjectReportDto {
         country: 'US',
         language: 'en',
       },
+      location: {
+        label: 'michigan',
+        city: 'Detroit',
+        region: 'Michigan',
+        country: 'US',
+        otherConfiguredLabels: ['florida'],
+      },
+      providerLocationHandling: [
+        { provider: 'gemini', treatment: 'prompt', description: 'Location appended to the query text the Gemini model receives.' },
+        { provider: 'openai', treatment: 'request-param', description: 'Location sent as a structured `user_location` field on OpenAI’s web_search_preview tool.' },
+      ],
       periodStart: '2026-04-01T00:00:00Z',
       periodEnd: '2026-04-30T00:00:00Z',
     },
     executiveSummary: {
       citationRate: 65,
+      citedQueryCount: 3,
+      totalQueryCount: 5,
+      mentionRate: 40,
+      mentionedQueryCount: 2,
       trend: 'up',
       queryCount: 5,
       competitorCount: 3,
@@ -187,8 +243,8 @@ function richReport(): ProjectReportDto {
       indexedPct: 80,
     },
     citationsTrend: [
-      { runId: 'r-1', date: '2026-04-01T00:00:00Z', citationRate: 50, providerRates: [{ provider: 'gemini', citationRate: 50 }] },
-      { runId: 'r-2', date: '2026-04-15T00:00:00Z', citationRate: 65, providerRates: [{ provider: 'gemini', citationRate: 65 }] },
+      { runId: 'r-1', date: '2026-04-01T00:00:00Z', citationRate: 50, citedQueryCount: 2, totalQueryCount: 4, mentionRate: 25, mentionedQueryCount: 1, providerRates: [{ provider: 'gemini', citationRate: 50 }] },
+      { runId: 'r-2', date: '2026-04-15T00:00:00Z', citationRate: 65, citedQueryCount: 3, totalQueryCount: 5, mentionRate: 40, mentionedQueryCount: 2, providerRates: [{ provider: 'gemini', citationRate: 65 }] },
     ],
     insights: [
       {
@@ -206,6 +262,24 @@ function richReport(): ProjectReportDto {
     recommendedNextSteps: [
       { horizon: 'immediate', title: 'Resolve 1 critical regression', rationale: 'Lost citation on aeo platform.' },
     ],
+    actionPlan: [clientAction, agencyAction],
+    clientSummary: {
+      headline: '3 of 5 tracked queries are cited by AI engines',
+      overview: 'Rich Project is cited on 65% of tracked queries and mentioned on 40%. Citation coverage improved versus the prior comparable sweep.',
+      actionItems: [clientAction],
+      confidenceNotes: ['This summary is scoped to the michigan run location.'],
+    },
+    agencyDiagnostics: {
+      priorities: [clientAction, agencyAction],
+      diagnostics: [
+        {
+          title: 'Provider citation coverage',
+          detail: 'One provider returned zero client citations.',
+          severity: 'negative',
+          evidence: ['openai: 0/2'],
+        },
+      ],
+    },
     contentOpportunities: [
       {
         targetRef: 'rich:create:best-aeo-platform',
@@ -306,6 +380,8 @@ describe('renderReportHtml', () => {
     const html = renderReportHtml(richReport())
     const expectedSections = [
       'executive-summary',
+      'agency-action-plan',
+      'agency-diagnostics',
       'citation-scorecard',
       'competitor-landscape',
       'ai-source-origin',
@@ -316,11 +392,40 @@ describe('renderReportHtml', () => {
       'indexing-health',
       'citations-trend',
       'insights',
+      'content-opportunities',
       'recommended-next-steps',
     ]
     for (const section of expectedSections) {
       expect(html).toContain(`id="${section}"`)
     }
+  })
+
+  test('content opportunities table surfaces the drivers list as a Why column', () => {
+    const html = renderReportHtml(richReport())
+    expect(html).toContain('high competitor density')
+    expect(html).toContain('no own page')
+    // Drivers are rendered as a list, not a single comma-joined cell.
+    const block = html.split('id="content-opportunities"')[1]?.split('</section>')[0] ?? ''
+    expect(block).toContain('driver-list')
+  })
+
+  test('content gaps section renders when contentGaps has entries', () => {
+    const report = richReport()
+    report.contentGaps = [
+      { query: 'gap one', competitorDomains: ['a.com', 'b.com', 'c.com'], competitorCount: 3, missRate: 1, lastSeenInRunId: 'run-1' },
+      { query: 'gap two', competitorDomains: ['x.com'], competitorCount: 1, missRate: 0.5, lastSeenInRunId: 'run-1' },
+    ]
+    const html = renderReportHtml(report)
+    expect(html).toContain('id="content-gaps"')
+    expect(html).toContain('gap one')
+    expect(html).toContain('a.com, b.com, c.com')
+  })
+
+  test('content gaps section is omitted when contentGaps is empty', () => {
+    const report = richReport()
+    report.contentGaps = []
+    const html = renderReportHtml(report)
+    expect(html).not.toContain('id="content-gaps"')
   })
 
   test('renders project display name in the document title', () => {
@@ -337,6 +442,29 @@ describe('renderReportHtml', () => {
     expect(html).toContain('rival.com')
     expect(html).toContain('Lost citation on aeo platform')
     expect(html).toContain('chatgpt.com')
+  })
+
+  test('defaults to agency mode with diagnostics and detailed evidence sections', () => {
+    const html = renderReportHtml(richReport())
+    expect(html).toContain('AEO Agency Report')
+    expect(html).toContain('id="agency-diagnostics"')
+    expect(html).toContain('id="citation-scorecard"')
+    expect(html).toContain('Diagnose zero-citation providers')
+  })
+
+  test('client mode renders polished actions before concise evidence', () => {
+    const html = renderReportHtml(richReport(), { audience: 'client' })
+    expect(html).toContain('AEO Client Summary')
+    expect(html).toContain('id="client-summary"')
+    expect(html).toContain('id="client-action-plan"')
+    expect(html).toContain('What We Recommend Next')
+    expect(html).toContain('Publish a client-safe guide')
+    expect(html).not.toContain('id="citation-scorecard"')
+
+    const actionIndex = html.indexOf('id="client-action-plan"')
+    const evidenceIndex = html.indexOf('id="client-evidence-summary"')
+    expect(actionIndex).toBeGreaterThan(-1)
+    expect(evidenceIndex).toBeGreaterThan(actionIndex)
   })
 
   test('citation matrix shows cited vs not-cited cells', () => {
@@ -507,8 +635,8 @@ describe('renderReportHtml', () => {
   test('hides the citations trend chart and shows a baseline note when fewer than 4 points exist', () => {
     const report = richReport()
     report.citationsTrend = [
-      { runId: 'r-1', date: '2026-04-01T00:00:00Z', citationRate: 50, providerRates: [] },
-      { runId: 'r-2', date: '2026-04-02T00:00:00Z', citationRate: 1, providerRates: [] },
+      { runId: 'r-1', date: '2026-04-01T00:00:00Z', citationRate: 50, citedQueryCount: 2, totalQueryCount: 4, mentionRate: 25, mentionedQueryCount: 1, providerRates: [] },
+      { runId: 'r-2', date: '2026-04-02T00:00:00Z', citationRate: 1, citedQueryCount: 0, totalQueryCount: 4, mentionRate: 0, mentionedQueryCount: 0, providerRates: [] },
     ]
     const html = renderReportHtml(report)
     const block = html.split('id="citations-trend"')[1]?.split('</section>')[0] ?? ''
@@ -519,10 +647,10 @@ describe('renderReportHtml', () => {
   test('renders the citations trend chart when at least 4 points exist', () => {
     const report = richReport()
     report.citationsTrend = [
-      { runId: 'r-1', date: '2026-04-01T00:00:00Z', citationRate: 50, providerRates: [] },
-      { runId: 'r-2', date: '2026-04-02T00:00:00Z', citationRate: 60, providerRates: [] },
-      { runId: 'r-3', date: '2026-04-03T00:00:00Z', citationRate: 55, providerRates: [] },
-      { runId: 'r-4', date: '2026-04-04T00:00:00Z', citationRate: 65, providerRates: [] },
+      { runId: 'r-1', date: '2026-04-01T00:00:00Z', citationRate: 50, citedQueryCount: 2, totalQueryCount: 4, mentionRate: 25, mentionedQueryCount: 1, providerRates: [] },
+      { runId: 'r-2', date: '2026-04-02T00:00:00Z', citationRate: 60, citedQueryCount: 3, totalQueryCount: 5, mentionRate: 40, mentionedQueryCount: 2, providerRates: [] },
+      { runId: 'r-3', date: '2026-04-03T00:00:00Z', citationRate: 55, citedQueryCount: 3, totalQueryCount: 5, mentionRate: 40, mentionedQueryCount: 2, providerRates: [] },
+      { runId: 'r-4', date: '2026-04-04T00:00:00Z', citationRate: 65, citedQueryCount: 3, totalQueryCount: 5, mentionRate: 60, mentionedQueryCount: 3, providerRates: [] },
     ]
     const html = renderReportHtml(report)
     const block = html.split('id="citations-trend"')[1]?.split('</section>')[0] ?? ''
