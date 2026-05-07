@@ -383,6 +383,7 @@ export type ReportAudience = 'agency' | 'client'
 export type ReportActionAudience = ReportAudience | 'both'
 export type ReportActionHorizon = 'immediate' | 'short-term' | 'medium-term'
 export type ReportActionConfidence = 'high' | 'medium' | 'low'
+export type ReportTone = 'positive' | 'caution' | 'negative' | 'neutral'
 export type ReportActionCategory =
   | 'content'
   | 'competitors'
@@ -430,6 +431,15 @@ export interface ReportAgencyDiagnostic {
 export interface ReportAgencyDiagnostics {
   priorities: ReportActionPlanItem[]
   diagnostics: ReportAgencyDiagnostic[]
+}
+
+export function reportActionTone(
+  action: Pick<ReportActionPlanItem, 'horizon' | 'confidence'>,
+): ReportTone {
+  if (action.horizon === 'immediate') return 'negative'
+  if (action.confidence === 'high') return 'caution'
+  if (action.confidence === 'low') return 'neutral'
+  return 'caution'
 }
 
 export interface ProjectReportDto {

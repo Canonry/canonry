@@ -14,7 +14,7 @@ import type {
   RecommendedNextStep,
   ReportInsight,
 } from '@ainyc/canonry-contracts'
-import { absolutizeProjectUrl, CitationStates } from '@ainyc/canonry-contracts'
+import { absolutizeProjectUrl, CitationStates, reportActionTone } from '@ainyc/canonry-contracts'
 
 import {
   Bar,
@@ -297,12 +297,6 @@ function actionAudienceMatches(action: ReportActionPlanItem, audience: ReportAud
   return action.audience === 'both' || action.audience === audience
 }
 
-function actionTone(action: ReportActionPlanItem): MetricTone {
-  if (action.horizon === 'immediate') return 'negative'
-  if (action.confidence === 'high') return 'caution'
-  return 'neutral'
-}
-
 function ClientSummarySection({ report }: { report: ProjectReportDto }) {
   const exec = report.executiveSummary
   return (
@@ -349,7 +343,7 @@ function ActionPlanSection({ report, audience }: { report: ProjectReportDto; aud
           {actions.map(action => (
             <div key={`${action.priority}-${action.title}`} className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
               <div className="mb-3 flex flex-wrap gap-2">
-                <ToneBadge tone={actionTone(action)}>{horizonLabel(action.horizon)}</ToneBadge>
+                <ToneBadge tone={reportActionTone(action)}>{horizonLabel(action.horizon)}</ToneBadge>
                 <ToneBadge tone="neutral">{action.category}</ToneBadge>
                 <ToneBadge tone="neutral">{action.confidence} confidence</ToneBadge>
               </div>

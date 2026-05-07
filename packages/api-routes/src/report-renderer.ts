@@ -8,7 +8,7 @@ import type {
   ReportAudience,
   ReportInsight,
 } from '@ainyc/canonry-contracts'
-import { absolutizeProjectUrl, CitationStates } from '@ainyc/canonry-contracts'
+import { absolutizeProjectUrl, CitationStates, reportActionTone } from '@ainyc/canonry-contracts'
 import {
   groupInsights,
   isTrendBaseline,
@@ -350,88 +350,88 @@ table.report-table td .badge {
   display: grid;
   gap: 4px;
 }
-	.step .horizon {
-	  text-transform: uppercase;
-	  font-size: 10px;
-	  letter-spacing: 0.08em;
-	  color: ${COLORS.textFaint};
-	  font-weight: 600;
-	}
-	.step .title { font-weight: 600; }
-	.step .rationale { color: ${COLORS.textMuted}; font-size: 13px; }
-	.action-card-grid {
-	  display: grid;
-	  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-	  gap: 16px;
-	}
-	.action-card {
-	  background: ${COLORS.surface};
-	  border: 1px solid ${COLORS.border};
-	  border-radius: 8px;
-	  padding: 18px 20px;
-	}
-	.action-card .action-meta {
-	  display: flex;
-	  flex-wrap: wrap;
-	  gap: 8px;
-	  margin-bottom: 10px;
-	}
-	.action-card h3 {
-	  font-size: 16px;
-	  margin: 0 0 8px;
-	}
-	.action-card p {
-	  margin: 0 0 12px;
-	  color: ${COLORS.textMuted};
-	}
-	.action-card ul {
-	  margin: 0 0 12px;
-	  padding-left: 18px;
-	  color: ${COLORS.textMuted};
-	  font-size: 13px;
-	}
-	.action-card li { margin: 4px 0; }
-	.action-card .success-metric {
-	  color: ${COLORS.text};
-	  font-size: 13px;
-	  border-top: 1px solid ${COLORS.border};
-	  padding-top: 10px;
-	  margin-top: 12px;
-	}
-	.client-notes {
-	  margin-top: 18px;
-	  display: grid;
-	  gap: 8px;
-	}
-	.client-note {
-	  color: ${COLORS.textMuted};
-	  font-size: 13px;
-	  background: ${COLORS.surface};
-	  border: 1px solid ${COLORS.border};
-	  border-radius: 8px;
-	  padding: 10px 12px;
-	}
-	.diagnostics-grid {
-	  display: grid;
-	  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-	  gap: 12px;
-	}
-	.diagnostic-card {
-	  background: ${COLORS.surface};
-	  border: 1px solid ${COLORS.border};
-	  border-left-width: 3px;
-	  border-radius: 8px;
-	  padding: 14px 16px;
-	}
-	.diagnostic-card h3 { font-size: 14px; margin: 0 0 6px; }
-	.diagnostic-card p { margin: 0 0 8px; color: ${COLORS.textMuted}; font-size: 13px; }
-	.diagnostic-card ul { margin: 0; padding-left: 16px; color: ${COLORS.textMuted}; font-size: 12px; }
-	.diagnostic-card.tone-positive { border-left-color: ${COLORS.positive}; }
-	.diagnostic-card.tone-caution { border-left-color: ${COLORS.caution}; }
-	.diagnostic-card.tone-negative { border-left-color: ${COLORS.negative}; }
-	.diagnostic-card.tone-neutral { border-left-color: ${COLORS.neutral}; }
-	.footer {
-	  margin-top: 96px;
+.step .horizon {
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: ${COLORS.textFaint};
+  font-weight: 600;
+}
+.step .title { font-weight: 600; }
+.step .rationale { color: ${COLORS.textMuted}; font-size: 13px; }
+.action-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+.action-card {
+  background: ${COLORS.surface};
+  border: 1px solid ${COLORS.border};
+  border-radius: 8px;
+  padding: 18px 20px;
+}
+.action-card .action-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.action-card h3 {
+  font-size: 16px;
+  margin: 0 0 8px;
+}
+.action-card p {
+  margin: 0 0 12px;
+  color: ${COLORS.textMuted};
+}
+.action-card ul {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  color: ${COLORS.textMuted};
+  font-size: 13px;
+}
+.action-card li { margin: 4px 0; }
+.action-card .success-metric {
+  color: ${COLORS.text};
+  font-size: 13px;
+  border-top: 1px solid ${COLORS.border};
+  padding-top: 10px;
+  margin-top: 12px;
+}
+.client-notes {
+  margin-top: 18px;
+  display: grid;
+  gap: 8px;
+}
+.client-note {
+  color: ${COLORS.textMuted};
+  font-size: 13px;
+  background: ${COLORS.surface};
+  border: 1px solid ${COLORS.border};
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.diagnostic-card {
+  background: ${COLORS.surface};
+  border: 1px solid ${COLORS.border};
+  border-left-width: 3px;
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.diagnostic-card h3 { font-size: 14px; margin: 0 0 6px; }
+.diagnostic-card p { margin: 0 0 8px; color: ${COLORS.textMuted}; font-size: 13px; }
+.diagnostic-card ul { margin: 0; padding-left: 16px; color: ${COLORS.textMuted}; font-size: 12px; }
+.diagnostic-card.tone-positive { border-left-color: ${COLORS.positive}; }
+.diagnostic-card.tone-caution { border-left-color: ${COLORS.caution}; }
+.diagnostic-card.tone-negative { border-left-color: ${COLORS.negative}; }
+.diagnostic-card.tone-neutral { border-left-color: ${COLORS.neutral}; }
+.footer {
+  margin-top: 96px;
   padding-top: 24px;
   border-top: 1px solid ${COLORS.border};
   text-align: center;
@@ -1335,18 +1335,11 @@ function actionAudienceMatches(action: ReportActionPlanItem, audience: ReportAud
   return action.audience === 'both' || action.audience === audience
 }
 
-function actionTone(action: ReportActionPlanItem): 'positive' | 'caution' | 'negative' | 'neutral' {
-  if (action.horizon === 'immediate') return 'negative'
-  if (action.confidence === 'high') return 'caution'
-  if (action.confidence === 'low') return 'neutral'
-  return 'caution'
-}
-
 function renderActionCards(actions: readonly ReportActionPlanItem[]): string {
   if (actions.length === 0) return renderEmpty('No prioritized actions yet.')
   return `<div class="action-card-grid">
     ${actions.map(action => {
-      const tone = actionTone(action)
+      const tone = reportActionTone(action)
       const why = action.why.length > 0
         ? `<ul>${action.why.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
         : ''
@@ -1536,9 +1529,9 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
 </head>
 <body>
 <div class="container">
-	  <header class="header">
-	    <div class="eyebrow">${audience === 'client' ? 'AEO Client Summary' : 'AEO Agency Report'}</div>
-	    <h1>${escapeHtml(report.meta.project.displayName)}</h1>
+  <header class="header">
+    <div class="eyebrow">${audience === 'client' ? 'AEO Client Summary' : 'AEO Agency Report'}</div>
+    <h1>${escapeHtml(report.meta.project.displayName)}</h1>
     <div class="subtitle">${escapeHtml(report.meta.project.canonicalDomain)} · ${escapeHtml(report.meta.project.country)} / ${escapeHtml(report.meta.project.language.toUpperCase())}${renderHeaderLocationFragment(report.meta.location)} · Generated ${formatDate(report.meta.generatedAt)}</div>
   </header>
   ${sections}
