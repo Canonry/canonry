@@ -122,7 +122,7 @@ function richReport(): ProjectReportDto {
       queryCount: 5,
       competitorCount: 3,
       providerCount: 2,
-      gsc: { clicks: 1000, impressions: 5000, ctr: 0.2, avgPosition: 4.5 },
+      gsc: { clicks: 1000, impressions: 5000, ctr: 0.2, avgPosition: 4.5, periodStart: '2026-04-01', periodEnd: '2026-04-30' },
       ga: { sessions: 12000, users: 9000, periodStart: '2026-04-01', periodEnd: '2026-04-30' },
       findings: [
         { title: 'Citation rate at 65%', detail: 'Up from previous run.', tone: 'positive' },
@@ -173,6 +173,8 @@ function richReport(): ProjectReportDto {
       ],
     },
     gsc: {
+      periodStart: '2026-04-01',
+      periodEnd: '2026-04-30',
       totalClicks: 1000,
       totalImpressions: 5000,
       ctr: 0.2,
@@ -433,6 +435,20 @@ describe('renderReportHtml', () => {
     expect(html).toMatch(/<title>[^<]*Rich Project[^<]*<\/title>/)
   })
 
+  test('renders date-only reporting ranges without timezone shifting the day', () => {
+    const html = renderReportHtml(richReport())
+    expect(html).toContain('Apr 1, 2026')
+    expect(html).toContain('Apr 30, 2026')
+  })
+
+  test('renders the GSC date range beside the click metric', () => {
+    const html = renderReportHtml(richReport())
+    const executive = html.split('id="executive-summary"')[1]?.split('id="agency-action-plan"')[0] ?? ''
+    const gsc = html.split('id="gsc"')[1]?.split('</section>')[0] ?? ''
+    expect(executive).toContain('5.0K imp · 20.0% CTR · Apr 1, 2026 → Apr 30, 2026')
+    expect(gsc).toContain('Search demand signals to compare against AI visibility for Apr 1, 2026 → Apr 30, 2026.')
+  })
+
   test('handles empty data without throwing', () => {
     expect(() => renderReportHtml(emptyReport())).not.toThrow()
   })
@@ -450,6 +466,97 @@ describe('renderReportHtml', () => {
     expect(html).toContain('id="agency-diagnostics"')
     expect(html).toContain('id="citation-scorecard"')
     expect(html).toContain('Diagnose zero-citation providers')
+  })
+
+  test('renders market scope without visible provider implementation details', () => {
+    const html = renderReportHtml(richReport())
+    const executive = html.split('id="executive-summary"')[1]?.split('id="agency-action-plan"')[0] ?? ''
+    expect(executive).toContain('Market Scope')
+    expect(executive).toContain('Current sweep')
+    expect(executive).toContain('Not included')
+    expect(executive).toContain('florida')
+    expect(executive).not.toContain('Location handling')
+    expect(executive).not.toContain('web_search_preview')
+    expect(executive).not.toContain('How the location reached the model')
+  })
+
+  test('filters legacy location caveat diagnostics from the visible agency report', () => {
+    const report = richReport()
+    report.agencyDiagnostics.diagnostics.push({
+      title: 'Location caveat',
+      detail: 'This report is scoped to the latest run location.',
+      severity: 'caution',
+      evidence: ['Current location: michigan'],
+    })
+    const html = renderReportHtml(report)
+    const diagnostics = html.split('id="agency-diagnostics"')[1]?.split('</section>')[0] ?? ''
+    expect(diagnostics).not.toContain('Location caveat')
+  })
+
+  test('collapses market-modified duplicate content recommendations in saved report payloads', () => {
+    const report = richReport()
+    const baseAction: ProjectReportDto['actionPlan'][number] = {
+      audience: 'both',
+      priority: 20,
+      horizon: 'medium-term',
+      category: 'content',
+      title: 'Create content for "polyurea roof coating"',
+      action: 'Create / so it directly answers the tracked query.',
+      why: ['4 GSC impressions'],
+      evidence: ['Opportunity score 1 with medium confidence'],
+      successMetric: 'A future sweep cites demo.example.com for "polyurea roof coating".',
+      confidence: 'medium',
+    }
+    const marketAction: ProjectReportDto['actionPlan'][number] = {
+      ...baseAction,
+      priority: 21,
+      title: 'Create content for "polyurea roof coating michigan"',
+      action: 'Create a new page for "polyurea roof coating michigan".',
+      why: ['no existing page'],
+      evidence: ['Opportunity score 0 with low confidence'],
+      successMetric: 'A future sweep cites demo.example.com for "polyurea roof coating michigan".',
+      confidence: 'low',
+    }
+    report.actionPlan = [baseAction, marketAction]
+    report.clientSummary.actionItems = [baseAction, marketAction]
+    report.agencyDiagnostics.priorities = [baseAction, marketAction]
+    report.contentOpportunities = [
+      {
+        targetRef: 'polyurea',
+        query: 'polyurea roof coating',
+        action: 'create',
+        ourBestPage: null,
+        winningCompetitor: null,
+        score: 1,
+        scoreBreakdown: { demand: 1, competitor: 0, absence: 1, gapSeverity: 1 },
+        drivers: ['4 GSC impressions'],
+        demandSource: 'gsc',
+        actionConfidence: 'medium',
+        existingAction: null,
+      },
+      {
+        targetRef: 'polyurea-michigan',
+        query: 'polyurea roof coating michigan',
+        action: 'create',
+        ourBestPage: null,
+        winningCompetitor: null,
+        score: 0,
+        scoreBreakdown: { demand: 0, competitor: 0, absence: 1, gapSeverity: 1 },
+        drivers: ['no existing page'],
+        demandSource: 'gsc',
+        actionConfidence: 'low',
+        existingAction: null,
+      },
+    ]
+
+    const html = renderReportHtml(report)
+    const actions = html.split('id="agency-action-plan"')[1]?.split('</section>')[0] ?? ''
+    const opportunities = html.split('id="content-opportunities"')[1]?.split('</section>')[0] ?? ''
+
+    expect(actions).toContain('Create content for &quot;polyurea roof coating&quot;')
+    expect(actions).not.toContain('polyurea roof coating michigan')
+    expect(opportunities).toContain('polyurea roof coating')
+    expect(opportunities).not.toContain('polyurea roof coating michigan')
   })
 
   test('client mode renders polished actions before concise evidence', () => {

@@ -106,6 +106,8 @@ export interface ReportExecutiveSummary {
     impressions: number
     ctr: number
     avgPosition: number
+    periodStart: string
+    periodEnd: string
   } | null
   /** GA4 totals across the most-recent sync period. Null when GA4 is not connected. */
   ga: {
@@ -235,6 +237,8 @@ export interface GscQueryRow {
 }
 
 export interface GscSection {
+  periodStart: string
+  periodEnd: string
   totalClicks: number
   totalImpressions: number
   ctr: number

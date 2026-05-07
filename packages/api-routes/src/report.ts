@@ -194,6 +194,8 @@ function buildGscSection(
   const trend = [...trendAgg.entries()]
     .map(([date, agg]) => ({ date, clicks: agg.clicks, impressions: agg.impressions }))
     .sort((a, b) => a.date.localeCompare(b.date))
+  const periodStart = trend[0]?.date ?? ''
+  const periodEnd = trend.at(-1)?.date ?? ''
 
   const trackedSet = new Set(trackedQueries.map(q => q.toLowerCase()))
   const gscQuerySet = new Set([...queryAgg.keys()].map(q => q.toLowerCase()))
@@ -209,6 +211,8 @@ function buildGscSection(
     .slice(0, TOP_QUERIES_LIMIT)
 
   return {
+    periodStart,
+    periodEnd,
     totalClicks,
     totalImpressions,
     ctr,
@@ -1107,22 +1111,6 @@ function buildAgencyDiagnostics(input: ReportActionPlanInput & {
     evidence: input.contentOpportunities.slice(0, 3).map(o => `${o.query}: ${o.action} (${Math.round(o.score)})`),
   })
 
-  if (input.reportLocation) {
-    diagnostics.push({
-      title: 'Location caveat',
-      detail: input.reportLocation.otherConfiguredLabels.length > 0
-        ? 'This report is scoped to the latest run location; other configured locations need separate interpretation.'
-        : 'This report is scoped to one configured location.',
-      severity: input.reportLocation.otherConfiguredLabels.length > 0 ? 'caution' : 'neutral',
-      evidence: [
-        `Current location: ${input.reportLocation.label}`,
-        ...(input.reportLocation.otherConfiguredLabels.length > 0
-          ? [`Other configured locations: ${compactList(input.reportLocation.otherConfiguredLabels)}`]
-          : []),
-      ],
-    })
-  }
-
   return {
     priorities: input.actionPlan.filter(a => actionAudienceMatches(a, 'agency')).slice(0, 6),
     diagnostics,
@@ -1291,6 +1279,8 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
           impressions: gscSection.totalImpressions,
           ctr: gscSection.ctr,
           avgPosition: gscSection.avgPosition,
+          periodStart: gscSection.periodStart,
+          periodEnd: gscSection.periodEnd,
         }
       : null,
     ga: gaSection

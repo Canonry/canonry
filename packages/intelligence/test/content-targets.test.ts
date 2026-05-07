@@ -253,6 +253,42 @@ describe('buildContentTargetRows', () => {
     expect(rows[0].score).toBeGreaterThan(rows[1].score)
   })
 
+  it('dedupes market-modified query variants when intent modifiers are supplied', () => {
+    const baseQuery = emptyCandidate({
+      query: 'polyurea roof coating',
+      gscImpressions: 400,
+      gscClicks: 4,
+      recentMissRate: 1,
+      runsOfHistory: 5,
+    })
+    const marketQuery = emptyCandidate({
+      query: 'polyurea roof coating michigan',
+      gscImpressions: 25,
+      gscClicks: 0,
+      recentMissRate: 1,
+      runsOfHistory: 5,
+    })
+
+    const unscoped = buildContentTargetRows(
+      emptyInput({
+        candidateQueries: [baseQuery, marketQuery],
+      }),
+    )
+    expect(unscoped.map(row => row.query).sort()).toEqual([
+      'polyurea roof coating',
+      'polyurea roof coating michigan',
+    ])
+
+    const scoped = buildContentTargetRows(
+      emptyInput({
+        queryIntentModifiers: ['michigan', 'detroit', 'mi'],
+        candidateQueries: [baseQuery, marketQuery],
+      }),
+    )
+    expect(scoped).toHaveLength(1)
+    expect(scoped[0].query).toBe('polyurea roof coating')
+  })
+
   it('annotates rows with existingAction when in-progress actions exist', () => {
     const rows = buildContentTargetRows(
       emptyInput({

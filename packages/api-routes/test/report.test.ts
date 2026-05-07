@@ -390,7 +390,7 @@ describe('GET /api/v1/projects/:name/report', () => {
         id: crypto.randomUUID(),
         projectId,
         syncRunId,
-        date: '2026-04-30',
+        date: '2026-04-01',
         query: 'best industrial coatings',
         page: 'https://azcoatings.com/blog/best-industrial-coatings',
         clicks: 12,
@@ -445,7 +445,7 @@ describe('GET /api/v1/projects/:name/report', () => {
         id: crypto.randomUUID(),
         projectId,
         syncRunId,
-        date: '2026-04-30',
+        date: '2026-04-01',
         query: 'gsc-test brand',
         page: 'https://gsc-test.example.com/',
         clicks: 100,
@@ -476,13 +476,20 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.gsc).not.toBeNull()
     expect(body.gsc!.totalClicks).toBe(130)
     expect(body.gsc!.totalImpressions).toBe(1100)
+    expect(body.gsc!.periodStart).toBe('2026-04-01')
+    expect(body.gsc!.periodEnd).toBe('2026-04-30')
     expect(body.gsc!.topQueries.length).toBe(2)
     expect(body.gsc!.topQueries[0]!.query).toBe('gsc-test brand')
 
     const brandRow = body.gsc!.categoryBreakdown.find(c => c.category === 'brand')
     expect(brandRow?.clicks).toBe(100)
 
-    expect(body.executiveSummary.gsc).toMatchObject({ clicks: 130, impressions: 1100 })
+    expect(body.executiveSummary.gsc).toMatchObject({
+      clicks: 130,
+      impressions: 1100,
+      periodStart: '2026-04-01',
+      periodEnd: '2026-04-30',
+    })
   })
 
   test('GA traffic, social referral, AI referral sections aggregate from GA tables', async () => {
