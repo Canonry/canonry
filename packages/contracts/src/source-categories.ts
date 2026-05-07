@@ -1,4 +1,6 @@
 export type SourceCategory =
+  | 'competitor'
+  | 'directory'
   | 'social'
   | 'forum'
   | 'news'
@@ -16,6 +18,30 @@ export interface SourceCategoryRule {
 }
 
 export const SOURCE_CATEGORY_RULES: SourceCategoryRule[] = [
+  // Directories, marketplaces & review platforms — generic across industries.
+  // Industry-specific directories (NRCA, GAF, etc.) intentionally omitted;
+  // they would slip past for the next vertical and create maintenance churn.
+  { pattern: 'yelp.com', category: 'directory', label: 'Yelp' },
+  { pattern: 'angi.com', category: 'directory', label: 'Angi' },
+  { pattern: 'angieslist.com', category: 'directory', label: 'Angi' },
+  { pattern: 'homeadvisor.com', category: 'directory', label: 'HomeAdvisor' },
+  { pattern: 'bbb.org', category: 'directory', label: 'Better Business Bureau' },
+  { pattern: 'trustpilot.com', category: 'directory', label: 'Trustpilot' },
+  { pattern: 'houzz.com', category: 'directory', label: 'Houzz' },
+  { pattern: 'thumbtack.com', category: 'directory', label: 'Thumbtack' },
+  { pattern: 'nextdoor.com', category: 'directory', label: 'Nextdoor' },
+  { pattern: 'yellowpages.com', category: 'directory', label: 'Yellow Pages' },
+  { pattern: 'manta.com', category: 'directory', label: 'Manta' },
+  { pattern: 'foursquare.com', category: 'directory', label: 'Foursquare' },
+  { pattern: 'g2.com', category: 'directory', label: 'G2' },
+  { pattern: 'capterra.com', category: 'directory', label: 'Capterra' },
+  { pattern: 'getapp.com', category: 'directory', label: 'GetApp' },
+  { pattern: 'softwareadvice.com', category: 'directory', label: 'Software Advice' },
+  { pattern: 'trustradius.com', category: 'directory', label: 'TrustRadius' },
+  { pattern: 'producthunt.com', category: 'directory', label: 'Product Hunt' },
+  { pattern: 'glassdoor.com', category: 'directory', label: 'Glassdoor' },
+  { pattern: 'indeed.com', category: 'directory', label: 'Indeed' },
+
   // Forums
   { pattern: 'reddit.com', category: 'forum', label: 'Reddit' },
   { pattern: 'quora.com', category: 'forum', label: 'Quora' },
@@ -84,6 +110,8 @@ export const SOURCE_CATEGORY_RULES: SourceCategoryRule[] = [
 ]
 
 const CATEGORY_LABELS: Record<SourceCategory, string> = {
+  competitor: 'Tracked competitors',
+  directory: 'Directories & review sites',
   social: 'Social Media',
   forum: 'Forums & Q&A',
   news: 'News & Media',
@@ -92,7 +120,7 @@ const CATEGORY_LABELS: Record<SourceCategory, string> = {
   ecommerce: 'E-commerce',
   video: 'Video',
   academic: 'Academic',
-  other: 'Other',
+  other: 'Independent sites',
 }
 
 export function categorizeSource(uri: string): { category: SourceCategory; label: string; domain: string } {
@@ -117,6 +145,25 @@ export function categorizeSource(uri: string): { category: SourceCategory; label
   }
 
   return { category: 'other', label: CATEGORY_LABELS.other, domain }
+}
+
+/**
+ * Tracked competitors are categorized BEFORE rule matching — a tracked
+ * competitor that happens to also match a rule (e.g. a competitor whose
+ * domain ends in `.com` and happens to be on a directory) should still be
+ * counted as `competitor` so users see how often AI engines route them to
+ * the tracked rivals.
+ */
+export function categorizeSourceWithCompetitors(
+  uri: string,
+  competitorDomains: readonly string[],
+  isCompetitorMatch: (domain: string, competitors: readonly string[]) => boolean,
+): { category: SourceCategory; label: string; domain: string } {
+  const base = categorizeSource(uri)
+  if (isCompetitorMatch(base.domain, competitorDomains)) {
+    return { category: 'competitor', label: CATEGORY_LABELS.competitor, domain: base.domain }
+  }
+  return base
 }
 
 export function categoryLabel(category: SourceCategory): string {

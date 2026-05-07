@@ -226,6 +226,15 @@ section.report-section .section-intro {
 .location-card .location-line { margin: 0 0 12px; font-size: 13px; color: ${COLORS.text}; }
 .location-card .location-line strong { color: ${COLORS.text}; }
 .location-card .location-line .cell-pending { font-size: 12px; }
+.source-origin-headline { margin: 0 0 12px; font-size: 14px; color: ${COLORS.text}; }
+.source-origin-headline strong { color: ${COLORS.text}; }
+.source-bars { display: flex; flex-direction: column; gap: 6px; }
+.source-bar-row { display: grid; grid-template-columns: 220px 1fr 90px; align-items: center; gap: 12px; font-size: 13px; }
+.source-bar-label { color: ${COLORS.textMuted}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-bar-track { height: 14px; background: ${COLORS.border}; border-radius: 3px; overflow: hidden; }
+.source-bar-fill { height: 100%; border-radius: 3px; }
+.source-bar-value { color: ${COLORS.text}; text-align: right; font-variant-numeric: tabular-nums; }
+.source-bar-pct { color: ${COLORS.textFaint}; font-size: 11px; }
 table.report-table {
   width: 100%;
   border-collapse: collapse;
@@ -679,46 +688,45 @@ function renderCompetitorLandscape(report: ProjectReportDto): string {
   )
 }
 
-function renderDonut(buckets: AiSourceCategoryBucket[]): string {
+const SOURCE_CATEGORY_TONE: Record<string, 'positive' | 'caution' | 'negative' | 'neutral'> = {
+  competitor: 'negative',
+  directory: 'caution',
+  forum: 'caution',
+  news: 'neutral',
+  reference: 'neutral',
+  blog: 'neutral',
+  social: 'neutral',
+  video: 'neutral',
+  ecommerce: 'neutral',
+  academic: 'neutral',
+  other: 'neutral',
+}
+
+function renderCategoryBars(buckets: AiSourceCategoryBucket[]): string {
   if (buckets.length === 0) return ''
   const total = buckets.reduce((s, b) => s + b.count, 0)
   if (total === 0) return ''
-  const cx = 110
-  const cy = 110
-  const r = 80
-  const innerR = 48
+  const max = Math.max(...buckets.map(b => b.count), 1)
 
-  let cumulative = 0
-  const slices: string[] = []
-  const legend: string[] = []
-  buckets.forEach((b, i) => {
-    const startAngle = (cumulative / total) * Math.PI * 2 - Math.PI / 2
-    const endAngle = ((cumulative + b.count) / total) * Math.PI * 2 - Math.PI / 2
-    cumulative += b.count
-    const x1 = cx + Math.cos(startAngle) * r
-    const y1 = cy + Math.sin(startAngle) * r
-    const x2 = cx + Math.cos(endAngle) * r
-    const y2 = cy + Math.sin(endAngle) * r
-    const ix1 = cx + Math.cos(endAngle) * innerR
-    const iy1 = cy + Math.sin(endAngle) * innerR
-    const ix2 = cx + Math.cos(startAngle) * innerR
-    const iy2 = cy + Math.sin(startAngle) * innerR
-    const largeArc = (endAngle - startAngle) > Math.PI ? 1 : 0
-    const color = COLORS.series[i % COLORS.series.length]
-    if (b.count > 0) {
-      slices.push(`<path d="M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} L ${ix1} ${iy1} A ${innerR} ${innerR} 0 ${largeArc} 0 ${ix2} ${iy2} Z" fill="${color}" />`)
-      legend.push(`<span><span class="legend-swatch" style="background:${color}"></span>${escapeHtml(b.label)} (${b.count})</span>`)
-    }
-  })
+  const rows = buckets.map((b) => {
+    const pct = (b.count / max) * 100
+    const tone = SOURCE_CATEGORY_TONE[b.category] ?? 'neutral'
+    const color = tone === 'negative' ? COLORS.negative
+      : tone === 'caution' ? COLORS.caution
+      : COLORS.accent
+    return `
+      <div class="source-bar-row">
+        <div class="source-bar-label">${escapeHtml(b.label)}</div>
+        <div class="source-bar-track">
+          <div class="source-bar-fill" style="width:${pct.toFixed(1)}%;background:${color}"></div>
+        </div>
+        <div class="source-bar-value">${b.count} <span class="source-bar-pct">(${b.sharePct}%)</span></div>
+      </div>`
+  }).join('')
 
   return `<div class="chart-card">
-    <h3>AI source categories</h3>
-    <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap;">
-      <svg viewBox="0 0 220 220" width="220" height="220" role="img" aria-label="AI source category donut chart">
-        ${slices.join('')}
-      </svg>
-      <div class="legend" style="flex-direction:column;align-items:flex-start;gap:6px;">${legend.join('')}</div>
-    </div>
+    <h3>By source type</h3>
+    <div class="source-bars">${rows}</div>
   </div>`
 }
 
@@ -731,18 +739,25 @@ function renderAiSourceOrigin(report: ProjectReportDto): string {
     )
   }
 
+  const competitorBucket = origin.categories.find(c => c.category === 'competitor')
+  const headlineFragment = competitorBucket
+    ? `<p class="source-origin-headline"><strong>${competitorBucket.sharePct}%</strong> of citations went to tracked competitors (${competitorBucket.count} of ${origin.categories.reduce((s, c) => s + c.count, 0)}).</p>`
+    : ''
+
   const rows = origin.topDomains.map(d => `
     <tr>
       <td>${escapeHtml(d.domain)}</td>
       <td class="numeric">${d.count}</td>
-      <td>${d.isCompetitor ? '<span class="badge tone-negative">Competitor</span>' : '<span class="badge tone-neutral">External</span>'}</td>
+      <td>${d.isCompetitor ? '<span class="badge tone-negative">Tracked competitor</span>' : '<span class="badge tone-neutral">External</span>'}</td>
     </tr>`).join('')
 
   const table = origin.topDomains.length > 0
-    ? `<table class="report-table">
-        <thead><tr><th>Domain</th><th>Citations</th><th>Tag</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>`
+    ? `<div class="chart-card"><h3>Top sources</h3>
+        <table class="report-table">
+          <thead><tr><th>Domain</th><th class="numeric">Citations</th><th>Tag</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`
     : ''
 
   return section(
@@ -750,9 +765,9 @@ function renderAiSourceOrigin(report: ProjectReportDto): string {
       id: 'ai-source-origin',
       eyebrow: 'Section 4',
       title: 'AI Citation Sources',
-      intro: 'Every external website AI engines cited as a source for your tracked keywords in the latest sweep — categorized by site type (Reddit, YouTube, news, etc.) on the left and ranked by citation count on the right. Your own domains are excluded; tracked competitors are flagged.',
+      intro: 'Every external website AI engines cited as a source for your tracked queries in the latest sweep, ranked by citation count. Tracked competitors are pulled into their own bucket so you can see how much of the AI’s answer came from rivals; the remaining buckets cover directories, forums, news, and other site types. Your own domains are excluded.',
     },
-    `${renderDonut(origin.categories)}${table}`,
+    `${headlineFragment}${table}${renderCategoryBars(origin.categories)}`,
   )
 }
 

@@ -62,7 +62,7 @@ describe('categorizeSource', () => {
   it('falls back to other for unknown domains', () => {
     const result = categorizeSource('https://my-random-site.io/page')
     expect(result.category).toBe('other')
-    expect(result.label).toBe('Other')
+    expect(result.label).toBe('Independent sites')
     expect(result.domain).toBe('my-random-site.io')
   })
 
@@ -92,6 +92,8 @@ describe('categoryLabel', () => {
   it('returns human-readable labels', () => {
     expect(categoryLabel('forum')).toBe('Forums & Q&A')
     expect(categoryLabel('social')).toBe('Social Media')
-    expect(categoryLabel('other')).toBe('Other')
+    expect(categoryLabel('competitor')).toBe('Tracked competitors')
+    expect(categoryLabel('directory')).toBe('Directories & review sites')
+    expect(categoryLabel('other')).toBe('Independent sites')
   })
 })

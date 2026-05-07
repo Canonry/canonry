@@ -103,4 +103,28 @@ describe('buildAiSourceOrigin', () => {
     expect(result.categories).toEqual([])
     expect(result.topDomains).toEqual([])
   })
+
+  it('groups tracked competitor citations into the dedicated competitor bucket', () => {
+    // Without competitor bucketing this test exercises the regression that
+    // motivated the rework: rivals were spread across "other" alongside
+    // unrelated business sites and the donut became unreadable.
+    const snapshots = [
+      snap(['rival.com', 'rival.com', 'unrelated.com', 'wikipedia.org']),
+    ]
+    const result = buildAiSourceOrigin(snapshots, PROJECT_DOMAINS, COMPETITOR_DOMAINS)
+    const competitor = result.categories.find(c => c.category === 'competitor')
+    expect(competitor?.count).toBe(2)
+    expect(competitor?.label).toBe('Tracked competitors')
+    // The rival domain still appears in topDomains with its competitor flag.
+    const rival = result.topDomains.find(d => d.domain === 'rival.com')
+    expect(rival?.isCompetitor).toBe(true)
+  })
+
+  it('routes known directories to the directory bucket instead of "Other"', () => {
+    const snapshots = [snap(['yelp.com', 'angi.com', 'g2.com', 'unrelated.com'])]
+    const result = buildAiSourceOrigin(snapshots, PROJECT_DOMAINS, COMPETITOR_DOMAINS)
+    const directory = result.categories.find(c => c.category === 'directory')
+    expect(directory?.count).toBe(3)
+    expect(directory?.label).toBe('Directories & review sites')
+  })
 })

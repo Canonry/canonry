@@ -19,11 +19,8 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
-  Legend,
   Line,
   LineChart,
-  Pie,
-  PieChart,
   RechartsTooltip,
   ResponsiveContainer,
   XAxis,
@@ -575,36 +572,23 @@ function AiSourceOriginSection({ report }: { report: ProjectReportDto }) {
   if (so.categories.length === 0 && so.topDomains.length === 0) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 4" title="AI citation sources" subtitle="Every external website AI engines cited as a source for your tracked keywords in the latest sweep — categorized by site type on the left and ranked by frequency on the right. Your own domains are excluded; tracked competitors are flagged." />
+        <SectionHeading eyebrow="Section 4" title="AI citation sources" subtitle="Every external website AI engines cited as a source for your tracked queries in the latest sweep, ranked by citation count. Tracked competitors are pulled into their own bucket. Your own domains are excluded." />
         <EmptyHint message="No source data yet. Run a visibility sweep first." />
       </section>
     )
   }
-  const pieData = so.categories.filter(c => c.count > 0).map(c => ({ name: c.label, value: c.count }))
+  const totalCitations = so.categories.reduce((s, c) => s + c.count, 0)
+  const competitor = so.categories.find(c => c.category === 'competitor')
+  const max = Math.max(1, ...so.categories.map(c => c.count))
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 4" title="AI citation sources" subtitle="Every external website AI engines cited as a source for your tracked keywords in the latest sweep — categorized by site type on the left and ranked by frequency on the right. Your own domains are excluded; tracked competitors are flagged." />
+      <SectionHeading eyebrow="Section 4" title="AI citation sources" subtitle="Every external website AI engines cited as a source for your tracked queries in the latest sweep, ranked by citation count. Tracked competitors are pulled into their own bucket. Your own domains are excluded." />
+      {competitor && (
+        <p className="mb-3 text-sm text-zinc-300">
+          <span className="font-semibold">{competitor.sharePct}%</span> of citations went to tracked competitors ({competitor.count} of {totalCitations}).
+        </p>
+      )}
       <div className="grid gap-4 lg:grid-cols-2">
-        <div>
-          <p className="eyebrow mb-2">AI source categories</p>
-          {pieData.length === 0 ? (
-            <EmptyHint message="No category data." />
-          ) : (
-            <div className="h-64 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-3">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={pieData} dataKey="value" nameKey="name" innerRadius={45} outerRadius={85} stroke="none">
-                    {pieData.map((_, i) => (
-                      <Cell key={i} fill={CHART_SERIES_COLORS[i % CHART_SERIES_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <RechartsTooltip {...CHART_TOOLTIP_STYLE} />
-                  <Legend wrapperStyle={{ fontSize: 11, color: '#a1a1aa' }} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-        </div>
         <div>
           <p className="eyebrow mb-2">Top source domains</p>
           {so.topDomains.length === 0 ? (
@@ -626,13 +610,40 @@ function AiSourceOriginSection({ report }: { report: ProjectReportDto }) {
                       <td>{d.count}</td>
                       <td>
                         {d.isCompetitor
-                          ? <ToneBadge tone="negative">Competitor</ToneBadge>
+                          ? <ToneBadge tone="negative">Tracked competitor</ToneBadge>
                           : <ToneBadge tone="neutral">External</ToneBadge>}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+        </div>
+        <div>
+          <p className="eyebrow mb-2">By source type</p>
+          {so.categories.length === 0 ? (
+            <EmptyHint message="No category data." />
+          ) : (
+            <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
+              <div className="space-y-2 text-sm">
+                {so.categories.map(c => {
+                  const pct = (c.count / max) * 100
+                  const tone = c.category === 'competitor' ? 'negative' : c.category === 'directory' || c.category === 'forum' ? 'caution' : 'neutral'
+                  const fill = tone === 'negative' ? 'bg-rose-400' : tone === 'caution' ? 'bg-amber-400' : 'bg-blue-400'
+                  return (
+                    <div key={c.category} className="grid grid-cols-[180px_1fr_90px] items-center gap-2">
+                      <div className="truncate text-xs text-zinc-400">{c.label}</div>
+                      <div className="h-3 rounded-sm bg-zinc-800">
+                        <div className={`h-full rounded-sm ${fill}`} style={{ width: `${pct.toFixed(1)}%` }} />
+                      </div>
+                      <div className="text-right text-xs text-zinc-200 tabular-nums">
+                        {c.count} <span className="text-zinc-500">({c.sharePct}%)</span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           )}
         </div>

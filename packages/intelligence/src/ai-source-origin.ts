@@ -1,7 +1,9 @@
 import {
-  categorizeSource,
+  categorizeSourceWithCompetitors,
+  categoryLabel,
   type AiSourceCategoryBucket,
   type ProjectReportDto,
+  type SourceCategory,
 } from '@ainyc/canonry-contracts'
 import { citedDomainBelongsToProject } from './domain-matching.js'
 
@@ -24,8 +26,19 @@ export function buildAiSourceOrigin(
   for (const snap of snapshots) {
     for (const raw of snap.citedDomains) {
       if (citedDomainBelongsToProject(raw, projectDomains)) continue
-      const { category, label, domain } = categorizeSource(raw)
-      const cat = categoryCounts.get(category) ?? { label, count: 0 }
+      // Tracked competitors take priority over rule-based bucketing — readers
+      // care more about "X% of AI sources are tracked rivals" than which
+      // generic category each rival happens to fall into.
+      const { category, domain } = categorizeSourceWithCompetitors(
+        raw,
+        competitorDomains,
+        citedDomainBelongsToProject,
+      )
+      // Use the category's standard label, not the per-domain rule label —
+      // a forum bucket should read "Forums & Q&A", not whichever of
+      // Reddit/Quora/Stack Exchange happened to be matched first.
+      const bucketLabel = categoryLabel(category as SourceCategory)
+      const cat = categoryCounts.get(category) ?? { label: bucketLabel, count: 0 }
       cat.count++
       categoryCounts.set(category, cat)
       domainCounts.set(domain, (domainCounts.get(domain) ?? 0) + 1)
