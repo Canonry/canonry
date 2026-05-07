@@ -19,12 +19,15 @@ import {
   CitationStates,
   RunKinds,
   RunStatuses,
+  getProviderLocationHandling,
   type CitationsTrendPoint,
   type CompetitorRow,
   type GscQueryRow,
+  type LocationContext,
   type ProjectReportDto,
   type RecommendedNextStep,
   type ReportInsight,
+  type ReportProviderLocationHandling,
   type SocialReferralSection,
 } from '@ainyc/canonry-contracts'
 import {
@@ -694,6 +697,42 @@ function buildExecutiveFindings(
   return findings.slice(0, 5)
 }
 
+function buildLocationMeta(
+  runLocationLabel: string | null | undefined,
+  configuredLocations: LocationContext[],
+): ProjectReportDto['meta']['location'] {
+  if (!runLocationLabel) return null
+  // The run carries the label string only; resolve it to the full
+  // LocationContext so the report can name the city/region. If the label is
+  // unknown (e.g. config was edited after the run) fall back to the label
+  // alone — better to show the user what we have than to drop it silently.
+  const match = configuredLocations.find(loc => loc.label === runLocationLabel)
+  const others = configuredLocations
+    .map(loc => loc.label)
+    .filter(label => label !== runLocationLabel)
+  return {
+    label: runLocationLabel,
+    city: match?.city ?? '',
+    region: match?.region ?? '',
+    country: match?.country ?? '',
+    otherConfiguredLabels: others,
+  }
+}
+
+function buildProviderLocationHandling(
+  providersInRun: readonly string[],
+): ReportProviderLocationHandling[] {
+  // Sort alphabetically so the table layout stays stable across runs.
+  return [...providersInRun].sort().map(provider => {
+    const handling = getProviderLocationHandling(provider)
+    return {
+      provider,
+      treatment: handling.treatment,
+      description: handling.description,
+    }
+  })
+}
+
 function buildProjectReport(db: DatabaseClient, projectName: string): ProjectReportDto {
   const project = resolveProject(db, projectName)
   const queryLookup = loadQueryLookup(db, project.id)
@@ -814,6 +853,10 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
   const periodStart = citationsTrend[0]?.date ?? null
   const periodEnd = citationsTrend.at(-1)?.date ?? null
 
+  const configuredLocations = parseJsonColumn<LocationContext[]>(project.locations, [])
+  const reportLocation = buildLocationMeta(latestRun?.location ?? null, configuredLocations)
+  const providerLocationHandling = buildProviderLocationHandling(citationScorecard.providers)
+
   return {
     meta: {
       generatedAt: new Date().toISOString(),
@@ -825,6 +868,8 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
         country: project.country,
         language: project.language,
       },
+      location: reportLocation,
+      providerLocationHandling,
       periodStart,
       periodEnd,
     },

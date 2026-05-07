@@ -154,6 +154,8 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(body.meta.project.name).toBe('empty')
     expect(body.meta.project.canonicalDomain).toBe('empty.example.com')
     expect(typeof body.meta.generatedAt).toBe('string')
+    expect(body.meta.location).toBeNull()
+    expect(body.meta.providerLocationHandling).toEqual([])
 
     // executive summary defaults
     expect(body.executiveSummary.citationRate).toBe(0)
@@ -749,6 +751,65 @@ describe('GET /api/v1/projects/:name/report', () => {
     // Recommended next steps should count one critical regression, not three.
     const immediate = body.recommendedNextSteps.find(s => s.horizon === 'immediate')
     expect(immediate?.title).toContain('1 critical regression')
+  })
+
+  test('meta surfaces the latest run location and per-provider location handling', async () => {
+    // azcoatings-style: project has two locations configured; a sweep ran
+    // against the default (michigan). Report must say which location powered
+    // the data and explain how each provider in the run consumed it.
+    const projectId = insertProject(ctx.db, 'loc-meta', {
+      locations: JSON.stringify([
+        { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' },
+        { label: 'florida', city: 'Miami', region: 'Florida', country: 'US' },
+      ]),
+      defaultLocation: 'michigan',
+    })
+    const kw = insertQuery(ctx.db, projectId, 'kw')
+    const runId = insertRun(ctx.db, projectId, {
+      location: 'michigan',
+      createdAt: '2026-04-01T00:00:00Z',
+      finishedAt: '2026-04-01T00:01:00Z',
+    })
+    insertSnapshot(ctx.db, runId, kw, { provider: 'gemini', citationState: 'cited' })
+    insertSnapshot(ctx.db, runId, kw, { provider: 'openai', citationState: 'not-cited' })
+    insertSnapshot(ctx.db, runId, kw, { provider: 'cdp:chatgpt', citationState: 'not-cited' })
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/loc-meta/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.meta.location).toEqual({
+      label: 'michigan',
+      city: 'Detroit',
+      region: 'Michigan',
+      country: 'US',
+      otherConfiguredLabels: ['florida'],
+    })
+    const byProvider = Object.fromEntries(
+      body.meta.providerLocationHandling.map(h => [h.provider, h]),
+    )
+    expect(byProvider['gemini']?.treatment).toBe('prompt')
+    expect(byProvider['openai']?.treatment).toBe('request-param')
+    expect(byProvider['cdp:chatgpt']?.treatment).toBe('browser-geo')
+  })
+
+  test('meta.location is null when the latest run had no location attached', async () => {
+    const projectId = insertProject(ctx.db, 'loc-empty')
+    const kw = insertQuery(ctx.db, projectId, 'kw')
+    const runId = insertRun(ctx.db, projectId, {
+      // no location field set
+      createdAt: '2026-04-01T00:00:00Z',
+      finishedAt: '2026-04-01T00:01:00Z',
+    })
+    insertSnapshot(ctx.db, runId, kw, { provider: 'gemini', citationState: 'cited' })
+
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/loc-empty/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+
+    expect(body.meta.location).toBeNull()
+    expect(body.meta.providerLocationHandling).toHaveLength(1)
+    expect(body.meta.providerLocationHandling[0]?.provider).toBe('gemini')
   })
 
   test('headline rate is per-query — partial-provider runs do not inflate the denominator (issue #422)', async () => {

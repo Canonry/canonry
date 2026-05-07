@@ -222,6 +222,10 @@ section.report-section .section-intro {
 .finding.tone-neutral { border-left-color: ${COLORS.neutral}; }
 .finding strong { display: block; margin-bottom: 4px; }
 .finding span { color: ${COLORS.textMuted}; font-size: 13px; }
+.location-card { margin-top: 16px; }
+.location-card .location-line { margin: 0 0 12px; font-size: 13px; color: ${COLORS.text}; }
+.location-card .location-line strong { color: ${COLORS.text}; }
+.location-card .location-line .cell-pending { font-size: 12px; }
 table.report-table {
   width: 100%;
   border-collapse: collapse;
@@ -376,6 +380,70 @@ function renderEmpty(message: string): string {
   return `<div class="empty-state">${escapeHtml(message)}</div>`
 }
 
+function locationDisplay(location: ProjectReportDto['meta']['location']): string {
+  if (!location) return ''
+  const place = [location.city, location.region, location.country].filter(Boolean).join(', ')
+  return place ? `${location.label} (${place})` : location.label
+}
+
+function renderHeaderLocationFragment(location: ProjectReportDto['meta']['location']): string {
+  if (!location) return ' · No location set'
+  return ` · Location: ${escapeHtml(locationDisplay(location))}`
+}
+
+function renderLocationCard(report: ProjectReportDto): string {
+  const location = report.meta.location
+  const handling = report.meta.providerLocationHandling
+  if (!location && handling.length === 0) return ''
+
+  const treatmentTone: Record<string, 'positive' | 'caution' | 'negative' | 'neutral'> = {
+    'request-param': 'positive',
+    prompt: 'positive',
+    'browser-geo': 'caution',
+    ignored: 'negative',
+  }
+  const treatmentLabel: Record<string, string> = {
+    'request-param': 'Request parameter',
+    prompt: 'Prompt-injected',
+    'browser-geo': 'Browser geo',
+    ignored: 'Ignored',
+  }
+
+  const locationLine = location
+    ? `<p class="location-line"><strong>Location for this run:</strong> ${escapeHtml(locationDisplay(location))}${
+        location.otherConfiguredLabels.length > 0
+          ? ` <span class="cell-pending">— other configured locations (${location.otherConfiguredLabels
+              .map(escapeHtml)
+              .join(', ')}) need their own sweep to compare</span>`
+          : ''
+      }</p>`
+    : `<p class="location-line"><strong>Location for this run:</strong> none — providers received the queries verbatim with no geographic hint.</p>`
+
+  const handlingRows = handling.length > 0
+    ? handling.map(h => {
+        const tone = treatmentTone[h.treatment] ?? 'neutral'
+        const label = treatmentLabel[h.treatment] ?? h.treatment
+        return `<tr>
+          <td>${escapeHtml(h.provider)}</td>
+          <td><span class="badge tone-${tone}">${escapeHtml(label)}</span></td>
+          <td>${escapeHtml(h.description)}</td>
+        </tr>`
+      }).join('')
+    : ''
+  const handlingTable = handlingRows
+    ? `<table class="report-table">
+        <thead><tr><th>Provider</th><th>Treatment</th><th>How the location reached the model</th></tr></thead>
+        <tbody>${handlingRows}</tbody>
+      </table>`
+    : ''
+
+  return `<div class="chart-card location-card">
+    <h3>Location handling</h3>
+    ${locationLine}
+    ${handlingTable}
+  </div>`
+}
+
 function renderExecutiveSummary(report: ProjectReportDto): string {
   const s = report.executiveSummary
   const trendLabel = s.trend === 'up' ? '↑ Up' : s.trend === 'down' ? '↓ Down' : s.trend === 'flat' ? '→ Flat' : '—'
@@ -428,6 +496,8 @@ function renderExecutiveSummary(report: ProjectReportDto): string {
         </div>`).join('')}</div>`
     : ''
 
+  const locationHtml = renderLocationCard(report)
+
   return section(
     {
       id: 'executive-summary',
@@ -435,7 +505,7 @@ function renderExecutiveSummary(report: ProjectReportDto): string {
       title: 'Executive Summary',
       intro: 'Citation rate is the share of tracked queries cited by at least one AI engine in the latest sweep — invariant to provider count so it stays comparable run-to-run. The trend label compares this run to the previous one.',
     },
-    metricsHtml + findingsHtml,
+    metricsHtml + findingsHtml + locationHtml,
   )
 }
 
@@ -1172,7 +1242,7 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
   <header class="header">
     <div class="eyebrow">AEO Report</div>
     <h1>${escapeHtml(report.meta.project.displayName)}</h1>
-    <div class="subtitle">${escapeHtml(report.meta.project.canonicalDomain)} · ${escapeHtml(report.meta.project.country)} / ${escapeHtml(report.meta.project.language.toUpperCase())} · Generated ${formatDate(report.meta.generatedAt)}</div>
+    <div class="subtitle">${escapeHtml(report.meta.project.canonicalDomain)} · ${escapeHtml(report.meta.project.country)} / ${escapeHtml(report.meta.project.language.toUpperCase())}${renderHeaderLocationFragment(report.meta.location)} · Generated ${formatDate(report.meta.generatedAt)}</div>
   </header>
   ${sections}
   <footer class="footer">Generated by canonry · ${escapeHtml(report.meta.generatedAt)}</footer>

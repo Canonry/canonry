@@ -12,6 +12,31 @@ import type {
   ContentSourceRowDto,
   ContentGapRowDto,
 } from './content.js'
+import type { ProviderLocationTreatment } from './provider.js'
+
+export interface ReportMetaLocation {
+  /** Human-readable label as configured on the project (e.g. "michigan"). */
+  label: string
+  /** Resolved city/region/country from the project's `LocationContext`. */
+  city: string
+  region: string
+  country: string
+  /**
+   * Other locations configured on the project that did NOT power this report.
+   * When non-empty, callers should make clear that the report is location-scoped:
+   * a separate sweep is needed to see how AI engines respond from each one.
+   */
+  otherConfiguredLabels: string[]
+}
+
+export interface ReportProviderLocationHandling {
+  /** Provider name (matches `query_snapshots.provider`). */
+  provider: string
+  /** How this provider applied the configured location during this run. */
+  treatment: ProviderLocationTreatment
+  /** One-sentence explanation suitable for the report. */
+  description: string
+}
 
 export interface ReportMeta {
   /** ISO timestamp the report was generated (server clock). */
@@ -25,6 +50,20 @@ export interface ReportMeta {
     country: string
     language: string
   }
+  /**
+   * The location that powered the latest visibility run, when one was set.
+   * `null` means the run had no location attached — providers received the
+   * query verbatim with no geographic hint.
+   */
+  location: ReportMetaLocation | null
+  /**
+   * Per-provider location handling for the providers that ran in the latest
+   * visibility sweep. Empty when there were no providers (or no run). Use
+   * this to tell the reader whether the configured location actually shaped
+   * each provider's answer — some providers append it to the prompt, some
+   * pass it as a structured request field, and some (CDP) ignore it.
+   */
+  providerLocationHandling: ReportProviderLocationHandling[]
   /** Earliest data point referenced by the report (ISO date). */
   periodStart: string | null
   /** Latest data point referenced by the report (ISO date). */

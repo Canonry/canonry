@@ -16,6 +16,8 @@ function makeReport(): ProjectReportDto {
         country: 'US',
         language: 'en',
       },
+      location: null,
+      providerLocationHandling: [],
       periodStart: null,
       periodEnd: null,
     },

@@ -97,6 +97,30 @@ function trendTone(trend: ProjectReportDto['executiveSummary']['trend']): Metric
   }
 }
 
+function formatLocationLabel(location: NonNullable<ProjectReportDto['meta']['location']>): string {
+  const place = [location.city, location.region, location.country].filter(Boolean).join(', ')
+  return place ? `${location.label} (${place})` : location.label
+}
+
+function locationTreatmentTone(treatment: ProjectReportDto['meta']['providerLocationHandling'][number]['treatment']): MetricTone {
+  switch (treatment) {
+    case 'request-param':
+    case 'prompt':
+      return 'positive'
+    case 'browser-geo':
+      return 'caution'
+    case 'ignored':
+      return 'negative'
+  }
+}
+
+const LOCATION_TREATMENT_LABEL: Record<ProjectReportDto['meta']['providerLocationHandling'][number]['treatment'], string> = {
+  'request-param': 'Request parameter',
+  prompt: 'Prompt-injected',
+  'browser-geo': 'Browser geo',
+  ignored: 'Ignored',
+}
+
 function severityLabel(severity: ReportInsight['severity']): string {
   return severity.charAt(0).toUpperCase() + severity.slice(1)
 }
@@ -184,7 +208,11 @@ export function ReportPage({ projectName }: { projectName: string }) {
           <p className="eyebrow">AEO Report</p>
           <h1 className="page-title">{report.meta.project.displayName}</h1>
           <p className="page-subtitle">
-            {report.meta.project.canonicalDomain} · {report.meta.project.country} / {report.meta.project.language.toUpperCase()} · Generated {formatDate(report.meta.generatedAt)}
+            {report.meta.project.canonicalDomain} · {report.meta.project.country} / {report.meta.project.language.toUpperCase()}
+            {report.meta.location
+              ? ` · Location: ${formatLocationLabel(report.meta.location)}`
+              : ' · No location set'}
+            {' · '}Generated {formatDate(report.meta.generatedAt)}
           </p>
           {downloadError && <p className="mt-2 text-xs text-rose-400">{downloadError}</p>}
         </div>
@@ -270,7 +298,54 @@ function ExecutiveSummarySection({ report }: { report: ProjectReportDto }) {
           ))}
         </div>
       )}
+      <LocationHandlingCard report={report} />
     </section>
+  )
+}
+
+function LocationHandlingCard({ report }: { report: ProjectReportDto }) {
+  const location = report.meta.location
+  const handling = report.meta.providerLocationHandling
+  if (!location && handling.length === 0) return null
+  return (
+    <div className="mt-5 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
+      <p className="eyebrow mb-2">Location handling</p>
+      <p className="text-sm text-zinc-300">
+        <span className="font-medium">Location for this run: </span>
+        {location ? formatLocationLabel(location) : 'none — providers received the queries verbatim with no geographic hint.'}
+        {location && location.otherConfiguredLabels.length > 0 && (
+          <span className="text-zinc-500">
+            {' '}— other configured locations ({location.otherConfiguredLabels.join(', ')}) need their own sweep to compare.
+          </span>
+        )}
+      </p>
+      {handling.length > 0 && (
+        <div className="evidence-table-wrap mt-3">
+          <table className="evidence-table">
+            <thead>
+              <tr>
+                <th>Provider</th>
+                <th>Treatment</th>
+                <th>How the location reached the model</th>
+              </tr>
+            </thead>
+            <tbody>
+              {handling.map(h => (
+                <tr key={h.provider}>
+                  <td>{h.provider}</td>
+                  <td>
+                    <ToneBadge tone={locationTreatmentTone(h.treatment)}>
+                      {LOCATION_TREATMENT_LABEL[h.treatment]}
+                    </ToneBadge>
+                  </td>
+                  <td className="text-zinc-400">{h.description}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   )
 }
 
