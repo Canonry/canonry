@@ -1,6 +1,7 @@
-import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, HealthSnapshotDto, ProjectReportDto, ReportAudience, RunKind, RunStatus, RunTrigger, RunErrorDto, CitationState, CitationVisibilityResponse, ComputedTransition, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto } from '@ainyc/canonry-contracts'
+import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, HealthSnapshotDto, ProjectReportDto, ReportAudience, RunKind, RunStatus, RunTrigger, RunErrorDto, CitationState, CitationVisibilityResponse, ComputedTransition, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficSyncResponse } from '@ainyc/canonry-contracts'
 export type { ProjectOverviewDto }
 export type { BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto }
+export type { TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficSyncResponse }
 
 export type { GroundingSource }
 
@@ -1154,6 +1155,57 @@ export function disconnectGa(project: string): Promise<void> {
   return apiFetch(`/projects/${encodeURIComponent(project)}/ga/disconnect`, {
     method: 'DELETE',
     body: '{}',
+  })
+}
+
+// ── Server traffic (Cloud Run / log-based ingestion) ────────────────────────
+
+export type ApiTrafficSource = TrafficSourceDto
+export type ApiTrafficSourceDetail = TrafficSourceDetailDto
+export type ApiTrafficSourceList = TrafficSourceListResponse
+export type ApiTrafficEvents = TrafficEventsResponse
+export type ApiTrafficSyncResult = TrafficSyncResponse
+
+export function fetchServerTrafficSources(project: string): Promise<TrafficSourceListResponse> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/traffic/sources`)
+}
+
+export function fetchServerTrafficSource(project: string, sourceId: string): Promise<TrafficSourceDetailDto> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/traffic/sources/${encodeURIComponent(sourceId)}`)
+}
+
+export function fetchServerTrafficEvents(
+  project: string,
+  params?: { since?: string; until?: string; kind?: 'all' | 'crawler' | 'ai-referral'; sourceId?: string; limit?: number },
+): Promise<TrafficEventsResponse> {
+  const search: Record<string, string> = {}
+  if (params?.since) search.since = params.since
+  if (params?.until) search.until = params.until
+  if (params?.kind) search.kind = params.kind
+  if (params?.sourceId) search.sourceId = params.sourceId
+  if (params?.limit !== undefined) search.limit = String(params.limit)
+  const qs = Object.keys(search).length ? '?' + new URLSearchParams(search).toString() : ''
+  return apiFetch(`/projects/${encodeURIComponent(project)}/traffic/events${qs}`)
+}
+
+export function connectServerTrafficCloudRun(
+  project: string,
+  body: TrafficConnectCloudRunRequest,
+): Promise<TrafficSourceDto> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/traffic/connect/cloud-run`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export function triggerServerTrafficSync(
+  project: string,
+  sourceId: string,
+  body?: { sinceMinutes?: number },
+): Promise<TrafficSyncResponse> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/traffic/sources/${encodeURIComponent(sourceId)}/sync`, {
+    method: 'POST',
+    body: JSON.stringify(body ?? {}),
   })
 }
 

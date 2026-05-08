@@ -60,6 +60,11 @@ const expectedToolNames = [
   'canonry_ga_social_referral_trend',
   'canonry_ga_attribution_trend',
   'canonry_ga_session_history',
+  'canonry_traffic_sources_list',
+  'canonry_traffic_source_get',
+  'canonry_traffic_events',
+  'canonry_traffic_connect_cloud_run',
+  'canonry_traffic_sync',
   'canonry_project_upsert',
   'canonry_apply_config',
   'canonry_queries_generate',
@@ -87,8 +92,8 @@ const expectedToolNames = [
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(67)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(45)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(72)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(48)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -128,6 +133,7 @@ describe('MCP tool registry', () => {
     expect(counts.get('setup')).toBe(21)
     expect(counts.get('gsc')).toBe(7)
     expect(counts.get('ga')).toBe(8)
+    expect(counts.get('traffic')).toBe(5)
     expect(counts.get('agent')).toBe(5)
   })
 
@@ -349,7 +355,7 @@ describe('Dynamic tool catalog', () => {
       'canonry_run_cancel',
       'canonry_agent_webhook_attach',
     ])
-    expect(help.toolkits.map(t => t.name)).toEqual(['monitoring', 'setup', 'gsc', 'ga', 'agent'])
+    expect(help.toolkits.map(t => t.name)).toEqual(['monitoring', 'setup', 'gsc', 'ga', 'traffic', 'agent'])
     expect(help.toolkits.every(t => !t.loaded)).toBe(true)
 
     const monitoringFirst = catalog.loadToolkit('monitoring')
@@ -375,7 +381,7 @@ describe('Dynamic tool catalog', () => {
 
     const help = catalog.helpResult()
     expect(help.eager).toBe(true)
-    expect(help.loadedToolkits.sort()).toEqual(['agent', 'ga', 'gsc', 'monitoring', 'setup'])
+    expect(help.loadedToolkits.sort()).toEqual(['agent', 'ga', 'gsc', 'monitoring', 'setup', 'traffic'])
     expect(help.toolkits.every(t => t.loaded)).toBe(true)
   })
 
@@ -467,6 +473,26 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_ga_social_referral_trend', input: projectInput, methods: ['gaSocialReferralTrend'] },
   { tool: 'canonry_ga_attribution_trend', input: projectInput, methods: ['gaAttributionTrend'] },
   { tool: 'canonry_ga_session_history', input: { project: 'acme', window: '7d' }, methods: ['gaSessionHistory'] },
+  { tool: 'canonry_traffic_sources_list', input: projectInput, methods: ['trafficListSources'] },
+  { tool: 'canonry_traffic_source_get', input: { project: 'acme', sourceId: 'src-1' }, methods: ['trafficGetSource'] },
+  { tool: 'canonry_traffic_events', input: { project: 'acme', kind: 'crawler', limit: 50 }, methods: ['trafficListEvents'] },
+  {
+    tool: 'canonry_traffic_connect_cloud_run',
+    input: {
+      project: 'acme',
+      request: {
+        gcpProjectId: 'gcp-acme',
+        serviceName: 'web',
+        keyJson: '{"client_email":"sa@gcp-acme.iam.gserviceaccount.com","private_key":"-----BEGIN PRIVATE KEY-----\\nstub\\n-----END PRIVATE KEY-----\\n"}',
+      },
+    },
+    methods: ['trafficConnectCloudRun'],
+  },
+  {
+    tool: 'canonry_traffic_sync',
+    input: { project: 'acme', sourceId: 'src-1', sinceMinutes: 120 },
+    methods: ['trafficSync'],
+  },
   {
     tool: 'canonry_project_upsert',
     input: {

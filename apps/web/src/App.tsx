@@ -11,6 +11,7 @@ import {
   Link2,
   Menu,
   Play,
+  Radar,
   Rocket,
   Settings,
   X,
@@ -316,6 +317,8 @@ export function RootLayout() {
     if (path === '/settings') return 'Settings'
     if (path === '/setup') return 'Setup'
     if (path === '/backlinks') return 'Backlinks'
+    if (path === '/traffic') return 'Server traffic'
+    if (path.startsWith('/traffic/')) return 'Server traffic'
     if (path.startsWith('/projects/')) {
       // Try to find project name
       const segments = path.split('/').filter(Boolean)
@@ -368,6 +371,15 @@ export function RootLayout() {
           >
             <Play className="sidebar-icon" />
             <span>Runs</span>
+          </Link>
+          <Link
+            to="/traffic"
+            className="sidebar-link"
+            activeProps={{ className: 'sidebar-link sidebar-link-active' }}
+            activeOptions={{ exact: false }}
+          >
+            <Radar className="sidebar-icon" />
+            <span>Server traffic</span>
           </Link>
           <Link
             to="/backlinks"
@@ -517,6 +529,9 @@ export function RootLayout() {
           </Link>
           <Link to="/runs" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
             Runs
+          </Link>
+          <Link to="/traffic" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: false }}>
+            Server traffic
           </Link>
           <Link to="/settings" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
             Settings
