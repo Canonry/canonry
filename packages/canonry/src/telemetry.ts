@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import os from 'node:os'
 import { loadConfig, saveConfigPatch, configExists } from './config.js'
 
 import { createRequire } from 'node:module'
@@ -7,6 +8,9 @@ const { version: VERSION } = _require('../package.json') as { version: string }
 
 const TELEMETRY_ENDPOINT = 'https://ainyc.ai/api/telemetry'
 const TIMEOUT_MS = 3_000
+
+const ANON_ID_ENV_VAR = 'CANONRY_ANONYMOUS_ID'
+const ANON_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export interface TelemetryEvent {
   anonymousId: string
@@ -40,22 +44,104 @@ export function isTelemetryEnabled(): boolean {
 
 /**
  * Get or create the anonymous install ID.
- * Returns undefined if config doesn't exist yet (pre-init).
+ *
+ * Resolution order:
+ *   1. CANONRY_ANONYMOUS_ID env var — lets harnesses (e.g. a WordPress
+ *      plugin spawning canonry from PHP) pin a stable ID per install.
+ *   2. anonymousId from ~/.canonry/config.yaml — the normal path.
+ *   3. A new UUID, persisted back to config.yaml on first run.
+ *   4. A deterministic machine-derived fallback — used when config does
+ *      not exist or cannot be persisted (no $HOME, ephemeral container,
+ *      read-only fs). Without this, every invocation in such an
+ *      environment would emit a brand-new UUID and poison telemetry.
+ *
+ * Returns undefined only if every fallback fails (should not happen in
+ * practice — `os.hostname()` always returns something).
  */
 export function getOrCreateAnonymousId(): string | undefined {
-  if (!configExists()) return undefined
+  const fromEnv = readEnvAnonymousId()
+  if (fromEnv) return fromEnv
 
+  if (configExists()) {
+    try {
+      const config = loadConfig()
+      if (config.anonymousId) return config.anonymousId
+
+      const id = crypto.randomUUID()
+      config.anonymousId = id
+      try {
+        saveConfigPatch(config)
+      } catch {
+        // Config exists but can't be written (read-only fs, permission denied).
+        // Fall through to the deterministic fallback so we still emit a stable ID.
+        return getDeterministicAnonymousId()
+      }
+      return id
+    } catch {
+      return getDeterministicAnonymousId()
+    }
+  }
+
+  return getDeterministicAnonymousId()
+}
+
+function readEnvAnonymousId(): string | undefined {
+  const raw = process.env[ANON_ID_ENV_VAR]?.trim()
+  if (!raw) return undefined
+  if (!ANON_ID_PATTERN.test(raw)) {
+    // Invalid format — silently ignore so a typo doesn't poison the dataset
+    // with arbitrary strings. UUIDs only.
+    return undefined
+  }
+  return raw.toLowerCase()
+}
+
+/**
+ * Derive a stable per-machine ID from `os.hostname()` and the first non-internal
+ * MAC address. Same machine → same ID, so telemetry from a WP plugin running
+ * canonry as a subprocess in an ephemeral container collapses to one ID per
+ * host instead of one per invocation.
+ *
+ * Formatted as a UUIDv5-shaped string (8-4-4-4-12 hex) for compatibility with
+ * downstream pipelines that validate UUID shape. Not a real UUID — set the
+ * version nibble to "5" (name-based) just to keep parsers happy.
+ */
+function getDeterministicAnonymousId(): string | undefined {
   try {
-    const config = loadConfig()
-    if (config.anonymousId) return config.anonymousId
-
-    const id = crypto.randomUUID()
-    config.anonymousId = id
-    saveConfigPatch(config)
-    return id
+    const hostname = os.hostname() || ''
+    const mac = firstNonInternalMac()
+    const seed = `canonry-anon:${hostname}:${mac}`
+    const hex = crypto.createHash('sha256').update(seed).digest('hex')
+    // Reformat the first 32 hex chars as 8-4-4-4-12, with the UUID version
+    // nibble set to 5 so consumers that validate UUID shape accept it.
+    const a = hex.slice(0, 8)
+    const b = hex.slice(8, 12)
+    const c = '5' + hex.slice(13, 16)
+    // Variant nibble (8-b) for RFC 4122 compatibility
+    const dHi = ((parseInt(hex.slice(16, 18), 16) & 0x3f) | 0x80).toString(16).padStart(2, '0')
+    const d = dHi + hex.slice(18, 20)
+    const e = hex.slice(20, 32)
+    return `${a}-${b}-${c}-${d}-${e}`
   } catch {
     return undefined
   }
+}
+
+function firstNonInternalMac(): string {
+  try {
+    const interfaces = os.networkInterfaces()
+    for (const ifaces of Object.values(interfaces)) {
+      if (!ifaces) continue
+      for (const iface of ifaces) {
+        if (iface.internal) continue
+        if (!iface.mac || iface.mac === '00:00:00:00:00:00') continue
+        return iface.mac
+      }
+    }
+  } catch {
+    // ignore — fall through to constant
+  }
+  return 'no-mac'
 }
 
 /**

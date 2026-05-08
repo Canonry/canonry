@@ -34,6 +34,7 @@ describe('telemetry', () => {
     'CANONRY_TELEMETRY_DISABLED',
     'DO_NOT_TRACK',
     'CI',
+    'CANONRY_ANONYMOUS_ID',
   ]
 
   beforeEach(() => {
@@ -47,6 +48,7 @@ describe('telemetry', () => {
     delete process.env.CANONRY_TELEMETRY_DISABLED
     delete process.env.DO_NOT_TRACK
     delete process.env.CI
+    delete process.env.CANONRY_ANONYMOUS_ID
   })
 
   afterEach(() => {
@@ -158,9 +160,16 @@ describe('telemetry', () => {
       expect(id1).toBe(id2)
     })
 
-    it('returns undefined when no config exists', async () => {
+    it('falls back to a stable ID when no config exists (no longer returns undefined)', async () => {
+      // Pre-existing behavior was to return undefined when ~/.canonry/config.yaml
+      // didn't exist. That caused subprocess invocations (e.g. a WP plugin
+      // spawning canonry without a writable HOME) to either skip telemetry
+      // entirely OR — if init somehow fired — generate a fresh UUID per call,
+      // poisoning install counts. Now we always return a stable ID.
       const { getOrCreateAnonymousId } = await import('../src/telemetry.js')
-      expect(getOrCreateAnonymousId()).toBe(undefined)
+      const id = getOrCreateAnonymousId()
+      expect(id).toBeTruthy()
+      expect(id!).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
     })
 
     it('returns existing anonymousId from config without generating a new one', async () => {
@@ -171,6 +180,74 @@ describe('telemetry', () => {
 
       const id = getOrCreateAnonymousId()
       expect(id).toBe(existingId)
+    })
+
+    it('honours CANONRY_ANONYMOUS_ID env var (overrides config and pre-init state)', async () => {
+      const { getOrCreateAnonymousId } = await import('../src/telemetry.js')
+      const { saveConfig } = await import('../src/config.js')
+
+      const fixedId = '11111111-2222-3333-4444-555555555555'
+      process.env.CANONRY_ANONYMOUS_ID = fixedId
+
+      // Even with a different ID stored in config, env var wins.
+      saveConfig(makeConfig({ anonymousId: crypto.randomUUID() }))
+      expect(getOrCreateAnonymousId()).toBe(fixedId)
+    })
+
+    it('CANONRY_ANONYMOUS_ID applies even when no config exists (subprocess case)', async () => {
+      const { getOrCreateAnonymousId } = await import('../src/telemetry.js')
+
+      const fixedId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+      process.env.CANONRY_ANONYMOUS_ID = fixedId
+
+      // No config — but the env var still wins, so multiple invocations
+      // share the same ID instead of falling back.
+      expect(getOrCreateAnonymousId()).toBe(fixedId)
+    })
+
+    it('ignores CANONRY_ANONYMOUS_ID with invalid format (not a UUID)', async () => {
+      const { getOrCreateAnonymousId } = await import('../src/telemetry.js')
+
+      process.env.CANONRY_ANONYMOUS_ID = 'not-a-uuid'
+
+      // Invalid format → fall through to deterministic fallback (machine-derived).
+      const id = getOrCreateAnonymousId()
+      expect(id).toBeTruthy()
+      expect(id!).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+    })
+
+    it('falls back to a deterministic machine-derived ID when no config exists', async () => {
+      const { getOrCreateAnonymousId } = await import('../src/telemetry.js')
+
+      const id1 = getOrCreateAnonymousId()
+      const id2 = getOrCreateAnonymousId()
+
+      expect(id1).toBeTruthy()
+      // Same machine, same ID — this is the whole point of the fallback,
+      // so a WP plugin spawning canonry without a writable HOME doesn't
+      // emit a brand-new UUID per invocation.
+      expect(id1).toBe(id2)
+      expect(id1!).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+    })
+
+    it('deterministic fallback differs from a randomly generated config ID', async () => {
+      const { getOrCreateAnonymousId } = await import('../src/telemetry.js')
+      const { saveConfig, loadConfig } = await import('../src/config.js')
+
+      // First, let getOrCreateAnonymousId generate and persist a random UUID.
+      saveConfig(makeConfig())
+      const persistedId = getOrCreateAnonymousId()
+      expect(loadConfig().anonymousId).toBe(persistedId)
+
+      // Now switch CONFIG_DIR to a brand-new directory with no config; the
+      // deterministic fallback should NOT match the previously-persisted UUID.
+      const newDir = path.join(tmpDir, crypto.randomUUID())
+      fs.mkdirSync(newDir, { recursive: true })
+      process.env.CANONRY_CONFIG_DIR = newDir
+
+      const fallbackId = getOrCreateAnonymousId()
+      expect(fallbackId).toBeTruthy()
+      expect(fallbackId).not.toBe(persistedId)
     })
 
     it('preserves all existing config fields when saving the new ID', async () => {
@@ -260,19 +337,27 @@ describe('telemetry', () => {
       }
     })
 
-    it('is a no-op when no config exists (no anonymous ID)', async () => {
+    it('still fires (with deterministic ID) when no config exists, so subprocess invocations are tracked', async () => {
+      // This test pins the behavior we want: even without ~/.canonry/config.yaml,
+      // a subprocess invocation (e.g. WP plugin running canonry from PHP without
+      // a writable HOME) gets a stable, machine-derived anonymousId rather than
+      // emitting a fresh UUID per call.
       const { trackEvent } = await import('../src/telemetry.js')
 
+      let capturedBody: string | undefined
       const originalFetch = globalThis.fetch
-      let fetchCalled = false
-      globalThis.fetch = async () => {
-        fetchCalled = true
-        return new Response()
+      globalThis.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+        capturedBody = init?.body as string
+        return new Response(JSON.stringify({ ok: true }))
       }
 
       try {
-        trackEvent('test.event')
-        expect(fetchCalled, 'fetch should not be called when no config exists').toBe(false)
+        trackEvent('test.event', { foo: 'bar' })
+        await new Promise(resolve => setTimeout(resolve, 10))
+
+        expect(capturedBody, 'fetch should be called with a deterministic-ID payload').toBeTruthy()
+        const payload = JSON.parse(capturedBody!) as { anonymousId: string }
+        expect(payload.anonymousId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
       } finally {
         globalThis.fetch = originalFetch
       }
@@ -649,16 +734,14 @@ describe('telemetry', () => {
   // ── JobRunner outer-catch telemetry ─────────────────────────────────
 
   describe('JobRunner fatal failure telemetry', () => {
-    it('emits run.completed with status failed when no providers configured', async () => {
+    it('emits run.aborted with reason=no_provider when no providers configured (not run.completed=failed)', async () => {
       const { saveConfig } = await import('../src/config.js')
       saveConfig(makeConfig({ anonymousId: crypto.randomUUID() }))
 
-      // Set up an in-memory SQLite DB
       const dbPath = path.join(os.tmpdir(), `canonry-jr-test-${crypto.randomUUID()}`, 'test.db')
       const db = createClient(dbPath)
       migrate(db)
 
-      // Insert a project and a queued run
       const projectId = crypto.randomUUID()
       const runId = crypto.randomUUID()
       const now = new Date().toISOString()
@@ -686,7 +769,6 @@ describe('telemetry', () => {
       const registry = new ProviderRegistry()
       const runner = new JobRunner(db, registry)
 
-      // Capture telemetry POST
       const capturedPayloads: Array<Record<string, unknown>> = []
       const originalFetch = globalThis.fetch
       globalThis.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
@@ -698,24 +780,21 @@ describe('telemetry', () => {
 
       try {
         await runner.executeRun(runId, projectId)
-
-        // Give fire-and-forget fetch a tick
         await new Promise(resolve => setTimeout(resolve, 50))
 
-        // Verify telemetry was emitted with failure status
-        expect(capturedPayloads.length >= 1, 'expected at least one telemetry event').toBeTruthy()
-        const runEvent = capturedPayloads.find(p => p.event === 'run.completed')
-        expect(runEvent, 'expected a run.completed telemetry event').toBeTruthy()
-        expect(runEvent!.properties).toEqual({
-          status: 'failed',
-          providerCount: 0,
-          providers: [],
-          queryCount: 0,
-          durationMs: (runEvent!.properties as Record<string, unknown>).durationMs,
-        })
-        expect((runEvent!.properties as Record<string, unknown>).status).toBe('failed')
+        // The run never reached any provider work, so we must NOT pollute the
+        // run.completed=failed metric with this config bail.
+        const completedEvent = capturedPayloads.find(p => p.event === 'run.completed')
+        expect(completedEvent, 'no run.completed should be emitted for a config bail').toBeUndefined()
 
-        // Verify the run was marked as failed in the DB
+        const abortEvent = capturedPayloads.find(p => p.event === 'run.aborted')
+        expect(abortEvent, 'expected a run.aborted telemetry event').toBeTruthy()
+        expect((abortEvent!.properties as Record<string, unknown>).reason).toBe('no_provider')
+        expect((abortEvent!.properties as Record<string, unknown>).providerCount).toBe(0)
+        expect((abortEvent!.properties as Record<string, unknown>).queryCount).toBe(0)
+
+        // The run is still recorded as failed in the DB so the user sees it —
+        // the change is purely in the telemetry stream.
         const failedRun = db.select().from(runs).all().find(r => r.id === runId)
         expect(failedRun?.status).toBe('failed')
         expect(failedRun?.error?.includes('No providers configured')).toBeTruthy()
@@ -724,7 +803,7 @@ describe('telemetry', () => {
       }
     })
 
-    it('emits run.completed with status failed when project is missing', async () => {
+    it('emits run.aborted with reason=project_not_found when project is missing', async () => {
       const { saveConfig } = await import('../src/config.js')
       saveConfig(makeConfig({ anonymousId: crypto.randomUUID() }))
 
@@ -732,9 +811,6 @@ describe('telemetry', () => {
       const db = createClient(dbPath)
       migrate(db)
 
-      // Insert a project first (for FK), then a run, then delete the project
-      // Actually, simpler: insert a run with a projectId that references a real project,
-      // but we need FK. Let's create the project, create the run, then use a different projectId for lookup.
       const realProjectId = crypto.randomUUID()
       const runId = crypto.randomUUID()
       const fakeProjectId = crypto.randomUUID()
@@ -752,7 +828,6 @@ describe('telemetry', () => {
         updatedAt: now,
       }).run()
 
-      // Insert run referencing the real project (satisfies FK)
       db.insert(runs).values({
         id: runId,
         projectId: realProjectId,
@@ -773,14 +848,55 @@ describe('telemetry', () => {
       }
 
       try {
-        // Pass fakeProjectId — project lookup will fail
+        // Pass fakeProjectId — project lookup will fail with "Project ... not found"
         await runner.executeRun(runId, fakeProjectId)
         await new Promise(resolve => setTimeout(resolve, 50))
 
-        const runEvent = capturedPayloads.find(p => p.event === 'run.completed')
-        expect(runEvent, 'expected a run.completed telemetry event for missing project').toBeTruthy()
-        expect((runEvent!.properties as Record<string, unknown>).status).toBe('failed')
-        expect((runEvent!.properties as Record<string, unknown>).providerCount).toBe(0)
+        const completedEvent = capturedPayloads.find(p => p.event === 'run.completed')
+        expect(completedEvent, 'no run.completed should be emitted for a project-missing bail').toBeUndefined()
+
+        const abortEvent = capturedPayloads.find(p => p.event === 'run.aborted')
+        expect(abortEvent, 'expected a run.aborted telemetry event').toBeTruthy()
+        expect((abortEvent!.properties as Record<string, unknown>).reason).toBe('project_not_found')
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+    })
+
+    it('emits run.completed status=failed with errorCode=UNKNOWN for non-classified runtime failures', async () => {
+      const { saveConfig } = await import('../src/config.js')
+      saveConfig(makeConfig({ anonymousId: crypto.randomUUID() }))
+
+      const dbPath = path.join(os.tmpdir(), `canonry-jr-test-${crypto.randomUUID()}`, 'test.db')
+      const db = createClient(dbPath)
+      migrate(db)
+
+      // Run with a non-existent runId — triggers the "Run X not found" path,
+      // which is NOT a config-validation abort (it indicates a corrupted run
+      // queue, not a user setup problem).
+      const ghostRunId = crypto.randomUUID()
+      const projectId = crypto.randomUUID()
+
+      const registry = new ProviderRegistry()
+      const runner = new JobRunner(db, registry)
+
+      const capturedPayloads: Array<Record<string, unknown>> = []
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+        if (init?.body) {
+          capturedPayloads.push(JSON.parse(init.body as string))
+        }
+        return new Response(JSON.stringify({ ok: true }))
+      }
+
+      try {
+        await runner.executeRun(ghostRunId, projectId)
+        await new Promise(resolve => setTimeout(resolve, 50))
+
+        // "Run X not found" is classified as run_not_found → run.aborted (not a real audit failure)
+        const abortEvent = capturedPayloads.find(p => p.event === 'run.aborted')
+        expect(abortEvent, 'expected a run.aborted for a missing run').toBeTruthy()
+        expect((abortEvent!.properties as Record<string, unknown>).reason).toBe('run_not_found')
       } finally {
         globalThis.fetch = originalFetch
       }
