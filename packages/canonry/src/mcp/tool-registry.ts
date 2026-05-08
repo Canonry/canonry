@@ -788,6 +788,17 @@ export const canonryMcpTools = [
     handler: (client, input) => client.trafficGetSource(input.project, input.sourceId),
   }),
   defineTool({
+    name: 'canonry_traffic_status',
+    title: 'Traffic status (all sources)',
+    description: 'Single-call composite returning every non-archived traffic source plus its last-24h totals (crawler hits, AI-referral hits, sample count) and latest source-scoped traffic-sync run. Same per-entry shape as canonry_traffic_source_get, but one call covers all sources — prefer this over a list+per-source fan-out.',
+    access: 'read',
+    tier: 'traffic',
+    inputSchema: projectInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/traffic/status'],
+    handler: (client, input) => client.trafficStatus(input.project),
+  }),
+  defineTool({
     name: 'canonry_traffic_events',
     title: 'List traffic events',
     description: 'Read crawler and AI-referral hourly rollups from server-side traffic sources. Returns a discriminated list (kind="crawler" rows carry botId/operator/verificationStatus; kind="ai-referral" rows carry product/sourceDomain/evidenceType) plus totals over the full window even when limit truncates rows. Window defaults to last 24h.',
