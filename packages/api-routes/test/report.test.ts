@@ -1470,7 +1470,7 @@ describe('GET /api/v1/projects/:name/report.html', () => {
 
     expect(res.body).toMatch(/^<!DOCTYPE html>/)
     expect(res.body).toContain('HTML Report Co.')
-    expect(res.body).toContain('AEO Agency Report')
+    expect(res.body).toContain('AI Visibility Report')
     expect(res.body).toContain('<title>')
   })
 
@@ -1481,7 +1481,7 @@ describe('GET /api/v1/projects/:name/report.html', () => {
     const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/client-html/report.html?audience=client' })
     expect(res.statusCode).toBe(200)
     expect(String(res.headers['content-disposition'])).toMatch(/canonry-report-client-html-client-\d{4}-\d{2}-\d{2}\.html/)
-    expect(res.body).toContain('AEO Client Summary')
+    expect(res.body).toContain('AI Visibility Report')
     expect(res.body).toContain('id="client-summary"')
     expect(res.body).not.toContain('id="citation-scorecard"')
   })

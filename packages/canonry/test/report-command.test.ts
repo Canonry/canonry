@@ -122,7 +122,7 @@ describe('runReportCommand', () => {
       const html = fs.readFileSync(path.join(tmpDir, files[0]!), 'utf-8')
       expect(html).toMatch(/^<!DOCTYPE html>/)
       expect(html).toContain('id="executive-summary"')
-      expect(html).toContain('AEO Agency Report')
+      expect(html).toContain('AI Visibility Report')
 
       expect(logs.join('\n')).toContain(files[0]!)
     } finally {
@@ -148,7 +148,7 @@ describe('runReportCommand', () => {
     await runReportCommand('demo', { format: 'text', audience: 'client', output: target })
 
     const html = fs.readFileSync(target, 'utf-8')
-    expect(html).toContain('AEO Client Summary')
+    expect(html).toContain('AI Visibility Report')
     expect(html).toContain('id="client-summary"')
     expect(html).not.toContain('id="citation-scorecard"')
   })

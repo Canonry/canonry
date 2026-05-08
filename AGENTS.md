@@ -348,6 +348,51 @@ const totalBySource = referrals.reduce((acc, r) => { ... }, {})
 // GET /projects/:name/ga/attribution returns { channelBreakdown: [...] }
 ```
 
+### Report parity (Critical)
+
+**The downloadable HTML report and the in-app report SPA must always show the same sections, the same labels, the same numbers, and the same visual structure.** Clients and agencies see one report — only the surface differs. They are two renderers of the same DTO; never let them diverge.
+
+#### Rules
+
+1. **One DTO, two renderers.** `apps/web/src/pages/ReportPage.tsx` (SPA) and `packages/api-routes/src/report-renderer.ts` (HTML) consume the same `ProjectReportDto`. Any change to one must land in the other in the same change.
+2. **Section parity per audience.** For each `audience` (`'client' | 'agency'`), the SPA and HTML must render the same ordered set of sections with the same eyebrows, titles, and subtitles.
+3. **Same copy, same numbers.** Tile labels, headlines, action-card copy, evidence-card titles, and chart axis labels must match verbatim across both surfaces. If the SPA says "AI mentions your name", the HTML says "AI mentions your name" — not "Mention coverage".
+4. **Visual parity in spirit.** The HTML can't render React components, but every chart, progress bar, hero block, and badge in the SPA must have a visual equivalent in the HTML (inline SVG, CSS, or table). Don't ship a chart in one surface that doesn't exist in the other.
+5. **Test both renderers.** When you change client/agency copy or section structure, update `packages/api-routes/test/report-renderer.test.ts` so the HTML asserts the new strings, and verify the SPA visually before merging.
+
+#### Anti-patterns
+
+```typescript
+// ❌ Wrong — SPA renames a tile but HTML keeps the old label
+// ReportPage.tsx
+<Metric label="AI mentions your name" value={...} />
+// report-renderer.ts (unchanged, drifts)
+<div class="metric"><div class="label">Mention coverage</div>...</div>
+
+// ✅ Correct — both surfaces updated together
+// ReportPage.tsx
+<Metric label="AI mentions your name" value={...} />
+// report-renderer.ts
+<div class="metric"><div class="label">AI mentions your name</div>...</div>
+```
+
+```typescript
+// ❌ Wrong — adding a chart to the SPA only
+// ReportPage.tsx renders <ProviderBreakdownChart />
+// report-renderer.ts has no equivalent
+
+// ✅ Correct — add an inline-SVG version in the HTML renderer too
+```
+
+#### Checklist for any report change
+
+- [ ] Updated SPA section in `apps/web/src/pages/ReportPage.tsx`
+- [ ] Updated HTML section in `packages/api-routes/src/report-renderer.ts`
+- [ ] Section order matches between SPA and HTML for each audience
+- [ ] All visible strings (eyebrows, titles, subtitles, labels) match verbatim
+- [ ] Charts/progress bars/heroes have visual equivalents in both surfaces
+- [ ] `report-renderer.test.ts` updated to assert the new strings
+
 ### Agent & automation design principles
 
 The CLI and API **are** the agent interface. MCP is allowed only as an adapter over the public API client. It is not a parallel surface and must not introduce capabilities unavailable through API/CLI. No virtual filesystem, no privileged agent SDK. If an AI agent can't do something with `canonry <command> --format json` or an HTTP call, it's a bug.

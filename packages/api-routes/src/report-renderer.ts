@@ -141,6 +141,46 @@ function pluralize(count: number, singular: string, plural = `${singular}s`): st
   return count === 1 ? singular : plural
 }
 
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  gemini: 'Gemini',
+  openai: 'ChatGPT',
+  claude: 'Claude',
+  perplexity: 'Perplexity',
+  local: 'Local model',
+  'cdp:chatgpt': 'ChatGPT (browser)',
+}
+
+function providerDisplayName(name: string): string {
+  return PROVIDER_DISPLAY_NAMES[name] ?? name.charAt(0).toUpperCase() + name.slice(1)
+}
+
+function clientHorizonLabel(horizon: ReportActionPlanItem['horizon']): string {
+  switch (horizon) {
+    case 'immediate': return 'Do now'
+    case 'short-term': return 'This month'
+    case 'medium-term': return 'Next quarter'
+  }
+}
+
+function clientConfidenceLabel(confidence: ReportActionPlanItem['confidence']): string {
+  switch (confidence) {
+    case 'high': return 'Strong evidence'
+    case 'medium': return 'Some evidence'
+    case 'low': return 'Worth trying'
+  }
+}
+
+function clientTrendCopy(delta: ProjectReportDto['whatsChanged']['citationRate']): { text: string; tone: 'positive' | 'negative' | 'neutral'; arrow: string } | null {
+  if (!delta) return null
+  if (delta.direction === 'up') {
+    return { text: `Up ${delta.deltaAbs.toFixed(1)} points since last check (was ${delta.prior}%)`, tone: 'positive', arrow: '↑' }
+  }
+  if (delta.direction === 'down') {
+    return { text: `Down ${Math.abs(delta.deltaAbs).toFixed(1)} points since last check (was ${delta.prior}%)`, tone: 'negative', arrow: '↓' }
+  }
+  return { text: `Holding steady since last check (was ${delta.prior}%)`, tone: 'neutral', arrow: '→' }
+}
+
 function compactInlineList(items: readonly string[], limit = 3): string {
   const visible = items.slice(0, limit)
   const more = items.length - visible.length
@@ -670,6 +710,222 @@ table.report-table td .badge {
   color: ${COLORS.textFaint};
   font-size: 12px;
 }
+.client-hero {
+  background: ${COLORS.surface};
+  border: 1px solid ${COLORS.border};
+  border-radius: 16px;
+  padding: 32px;
+  margin-bottom: 24px;
+}
+.client-hero .client-hero-eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 11px;
+  font-weight: 600;
+  color: ${COLORS.textFaint};
+}
+.client-hero .client-hero-number {
+  font-size: 80px;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: ${COLORS.text};
+  margin: 14px 0 18px;
+}
+.client-hero .client-hero-sentence {
+  font-size: 17px;
+  color: #d4d4d8;
+  max-width: 720px;
+  margin: 0;
+}
+.client-hero .client-hero-trend {
+  margin-top: 14px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.client-hero .client-hero-trend.tone-positive { color: ${COLORS.positive}; }
+.client-hero .client-hero-trend.tone-negative { color: ${COLORS.negative}; }
+.client-hero .client-hero-trend.tone-neutral { color: ${COLORS.textMuted}; }
+.client-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.client-metric-tile {
+  background: ${COLORS.surface};
+  border: 1px solid ${COLORS.border};
+  border-radius: 12px;
+  padding: 22px 24px;
+}
+.client-metric-tile .label {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 11px;
+  font-weight: 600;
+  color: ${COLORS.textFaint};
+  margin-bottom: 14px;
+}
+.client-metric-tile .value {
+  font-size: 48px;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: ${COLORS.text};
+}
+.client-metric-tile .subtitle {
+  margin-top: 10px;
+  font-size: 12px;
+  color: ${COLORS.textMuted};
+}
+.client-card {
+  background: ${COLORS.surface};
+  border: 1px solid ${COLORS.border};
+  border-radius: 12px;
+  padding: 22px 24px;
+  margin-bottom: 16px;
+}
+.client-card h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+.client-card .card-subtitle {
+  font-size: 12px;
+  color: ${COLORS.textMuted};
+  margin: 0 0 18px;
+}
+.client-bar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.client-bar-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 130px;
+  align-items: center;
+  gap: 14px;
+  font-size: 13px;
+}
+.client-bar-row .bar-label { color: #d4d4d8; }
+.client-bar-row .bar-track {
+  height: 10px;
+  background: ${COLORS.border};
+  border-radius: 999px;
+  overflow: hidden;
+}
+.client-bar-row .bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: ${COLORS.positive}b3;
+}
+.client-bar-row .bar-fill.bar-fill-neutral { background: #a1a1aaaa; }
+.client-bar-row .bar-fill.bar-fill-sky { background: #38bdf8b3; }
+.client-bar-row .bar-value {
+  text-align: right;
+  font-size: 13px;
+  font-weight: 600;
+  color: ${COLORS.text};
+  font-variant-numeric: tabular-nums;
+}
+.client-bar-row .bar-value-sub { color: ${COLORS.textFaint}; font-weight: 400; }
+.client-progress-number {
+  font-size: 56px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  margin: 12px 0 4px;
+}
+.client-progress-number.tone-positive { color: ${COLORS.positive}; }
+.client-progress-number.tone-caution { color: ${COLORS.caution}; }
+.client-progress-number.tone-negative { color: ${COLORS.negative}; }
+.client-progress-bar {
+  height: 12px;
+  background: ${COLORS.border};
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 12px 0 14px;
+}
+.client-progress-fill { height: 100%; border-radius: 999px; }
+.client-progress-fill.tone-positive { background: ${COLORS.positive}b3; }
+.client-progress-fill.tone-caution { background: ${COLORS.caution}b3; }
+.client-progress-fill.tone-negative { background: ${COLORS.negative}b3; }
+.client-evidence-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 16px;
+}
+.client-opportunity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.client-opportunity-list li {
+  background: #09090b;
+  border: 1px solid ${COLORS.border};
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.client-opportunity-list li .op-query {
+  font-weight: 500;
+  color: ${COLORS.text};
+  font-size: 13px;
+}
+.client-opportunity-list li .op-action {
+  margin-top: 2px;
+  font-size: 11px;
+  color: ${COLORS.textMuted};
+}
+.client-confidence-note {
+  background: ${COLORS.surface};
+  border: 1px solid ${COLORS.border};
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: ${COLORS.textMuted};
+  margin-bottom: 6px;
+}
+.client-explainer {
+  background: #09090b;
+  border: 1px solid ${COLORS.border};
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-size: 12px;
+  color: ${COLORS.textMuted};
+  margin-bottom: 16px;
+  line-height: 1.6;
+}
+.client-explainer strong { color: ${COLORS.text}; }
+.client-explainer .term { color: #d4d4d8; font-weight: 500; }
+.client-questions-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.client-questions-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: #09090b;
+  border: 1px solid ${COLORS.border};
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: #d4d4d8;
+}
+.client-questions-list li .qnum {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: ${COLORS.textFaint};
+  font-variant-numeric: tabular-nums;
+}
 @media (max-width: 760px) {
   .container { padding: 32px 16px 72px; }
   .executive-hero { grid-template-columns: 1fr; }
@@ -677,6 +933,9 @@ table.report-table td .badge {
   .source-bar-row { grid-template-columns: 1fr; gap: 6px; }
   .source-bar-value { text-align: left; }
   .chart-grid { grid-template-columns: 1fr; }
+  .client-hero .client-hero-number { font-size: 56px; }
+  .client-metric-tile .value { font-size: 36px; }
+  .client-bar-row { grid-template-columns: 100px 1fr 100px; gap: 10px; }
 }
 @media print {
   body { background: white; color: black; }
@@ -931,21 +1190,27 @@ const WHATS_CHANGED_PERIOD_DAYS = 14
 
 function renderProviderMovements(
   movements: ProjectReportDto['whatsChanged']['providerMovements'],
+  audience: ReportAudience,
 ): string {
   const meaningful = movements.filter(m => m.direction !== 'flat')
   if (meaningful.length === 0) return ''
+  const isClient = audience === 'client'
   const rows = meaningful.map(m => {
     const sign = m.deltaAbs > 0 ? '+' : ''
     return `<tr>
-      <td>${escapeHtml(m.provider)}</td>
+      <td>${escapeHtml(isClient ? providerDisplayName(m.provider) : m.provider)}</td>
       <td class="numeric">${m.prior}%</td>
       <td class="numeric">${m.current}%</td>
       <td class="numeric ${deltaToneClass(m.direction)}">${sign}${m.deltaAbs.toFixed(1)}% ${deltaArrow(m.direction)}</td>
     </tr>`
   }).join('')
-  return `<div class="chart-card"><h3>AI engine movements</h3>
+  const heading = isClient ? 'How each AI tool changed' : 'AI engine movements'
+  const colA = isClient ? 'AI tool' : 'Engine'
+  const colB = isClient ? 'Was' : 'Prior'
+  const colC = isClient ? 'Now' : 'Current'
+  return `<div class="chart-card"><h3>${heading}</h3>
     <table class="report-table">
-      <thead><tr><th>Engine</th><th class="numeric">Prior</th><th class="numeric">Current</th><th class="numeric">Change</th></tr></thead>
+      <thead><tr><th>${colA}</th><th class="numeric">${colB}</th><th class="numeric">${colC}</th><th class="numeric">Change</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   </div>`
@@ -955,50 +1220,62 @@ function renderWinsLosses(
   insights: readonly ReportInsight[],
   heading: string,
   emptyMessage: string,
+  audience: ReportAudience,
 ): string {
   if (insights.length === 0) {
     return `<div class="chart-card"><h3>${escapeHtml(heading)}</h3>
       <p class="section-intro">${escapeHtml(emptyMessage)}</p>
     </div>`
   }
+  const isClient = audience === 'client'
   const rows = insights.map(i => {
     const tone = severityTone(i.severity)
     const countChip = i.instanceCount > 1 ? ` <span class="badge tone-neutral">× ${i.instanceCount}</span>` : ''
+    const severityCell = isClient ? '' : `<td><span class="badge tone-${tone}">${escapeHtml(reportSeverityLabel(i.severity))}</span></td>`
     return `<tr>
-      <td><span class="badge tone-${tone}">${escapeHtml(reportSeverityLabel(i.severity))}</span></td>
+      ${severityCell}
       <td>${escapeHtml(i.title)}${countChip}</td>
       <td>${escapeHtml(i.query)}</td>
-      <td>${escapeHtml(i.provider)}</td>
+      <td>${escapeHtml(isClient ? providerDisplayName(i.provider) : i.provider)}</td>
     </tr>`
   }).join('')
+  const headers = isClient
+    ? `<tr><th>What changed</th><th>Customer question</th><th>AI tool</th></tr>`
+    : `<tr><th>Severity</th><th>Title</th><th>Query</th><th>Provider</th></tr>`
   return `<div class="chart-card"><h3>${escapeHtml(heading)}</h3>
     <table class="report-table">
-      <thead><tr><th>Severity</th><th>Title</th><th>Query</th><th>Provider</th></tr></thead>
+      <thead>${headers}</thead>
       <tbody>${rows}</tbody>
     </table>
   </div>`
 }
 
-function renderWhatsChanged(report: ProjectReportDto): string {
+function renderWhatsChanged(report: ProjectReportDto, audience: ReportAudience): string {
   const w = report.whatsChanged
+  const isClient = audience === 'client'
+  const eyebrow = isClient ? 'Since last check' : 'Section 2'
+  const title = isClient ? "What's different since last check" : "What's Changed"
+  const intro = isClient ? '' : w.headline
   if (!w.enoughHistory && !w.gscClicksDelta && !w.aiReferralsDelta && w.wins.length === 0 && w.regressions.length === 0) {
     return section(
-      { id: 'whats-changed', eyebrow: 'Section 2', title: "What's Changed", intro: w.headline },
-      renderEmpty('Trends will appear after a few more checks.'),
+      { id: 'whats-changed', eyebrow, title, intro },
+      renderEmpty(isClient ? 'No comparison yet — trends will appear after a few more checks.' : 'Trends will appear after a few more checks.'),
     )
   }
   const rateTiles = `<div class="metric-grid">
-    ${renderRateDeltaTile('Citation rate', w.citationRate, '%')}
-    ${renderRateDeltaTile('Mention rate', w.mentionRate, '%')}
-    ${renderRateDeltaTile('Cited queries', w.citedQueryCount, 'count')}
-    ${renderTrafficDeltaTile('GSC clicks', w.gscClicksDelta, 'clicks')}
-    ${renderTrafficDeltaTile('AI referral sessions', w.aiReferralsDelta, 'sessions')}
+    ${renderRateDeltaTile(isClient ? 'AI links to your website' : 'Citation rate', w.citationRate, '%')}
+    ${renderRateDeltaTile(isClient ? 'AI mentions your name' : 'Mention rate', w.mentionRate, '%')}
+    ${renderRateDeltaTile(isClient ? 'Questions AI answered with you' : 'Cited queries', w.citedQueryCount, 'count')}
+    ${renderTrafficDeltaTile(isClient ? 'Visitors from Google' : 'GSC clicks', w.gscClicksDelta, isClient ? 'visits' : 'clicks')}
+    ${renderTrafficDeltaTile(isClient ? 'Visitors from AI tools' : 'AI referral sessions', w.aiReferralsDelta, isClient ? 'visits' : 'sessions')}
   </div>`
-  const movements = renderProviderMovements(w.providerMovements)
-  const wins = renderWinsLosses(w.wins, 'Wins', 'No new gains in the latest check.')
-  const regressions = renderWinsLosses(w.regressions, 'Regressions', 'No new regressions in the latest check.')
+  const movements = renderProviderMovements(w.providerMovements, audience)
+  const winsHeading = isClient ? 'What got better' : 'Wins'
+  const lossesHeading = isClient ? 'What got worse' : 'Regressions'
+  const wins = renderWinsLosses(w.wins, winsHeading, isClient ? 'No new wins this period.' : 'No new gains in the latest check.', audience)
+  const regressions = renderWinsLosses(w.regressions, lossesHeading, isClient ? 'Nothing got worse this period.' : 'No new regressions in the latest check.', audience)
   return section(
-    { id: 'whats-changed', eyebrow: 'Section 2', title: "What's Changed", intro: w.headline },
+    { id: 'whats-changed', eyebrow, title, intro },
     `${rateTiles}${movements}${wins}${regressions}`,
   )
 }
@@ -1773,8 +2050,9 @@ function actionAudienceMatches(action: ReportActionPlanItem, audience: ReportAud
   return action.audience === 'both' || action.audience === audience
 }
 
-function renderActionCards(actions: readonly ReportActionPlanItem[]): string {
-  if (actions.length === 0) return renderEmpty('No prioritized actions yet.')
+function renderActionCards(actions: readonly ReportActionPlanItem[], audience: ReportAudience): string {
+  const isClient = audience === 'client'
+  if (actions.length === 0) return renderEmpty(isClient ? 'No recommendations yet — run an AI check to populate this.' : 'No prioritized actions yet.')
   return `<div class="action-card-grid">
     ${actions.map((action, idx) => {
       const tone = reportActionTone(action)
@@ -1787,19 +2065,23 @@ function renderActionCards(actions: readonly ReportActionPlanItem[]): string {
       const proof = renderProofChips(action.evidence.length > 0 ? action.evidence : action.why, 3)
       const details = why || evidence
         ? `<details class="action-details">
-            <summary>Evidence details</summary>
-            ${why ? `<div><strong>Why</strong>${why}</div>` : ''}
-            ${evidence ? `<div><strong>Evidence</strong>${evidence}</div>` : ''}
+            <summary>${isClient ? 'See the data behind this' : 'Evidence details'}</summary>
+            ${why ? `<div><strong>${isClient ? 'Why this matters' : 'Why'}</strong>${why}</div>` : ''}
+            ${evidence ? `<div><strong>${isClient ? 'What we saw' : 'Evidence'}</strong>${evidence}</div>` : ''}
           </details>`
         : ''
+      const horizonLabel = isClient ? clientHorizonLabel(action.horizon) : reportHorizonLabel(action.horizon)
+      const confidenceLabel = isClient ? clientConfidenceLabel(action.confidence) : `${reportConfidenceLabel(action.confidence)} confidence`
+      const categoryBadge = isClient ? '' : `<span class="badge tone-neutral">${escapeHtml(reportActionCategoryLabel(action.category))}</span>`
+      const successLabel = isClient ? 'What success looks like:' : 'Win condition:'
       return `<article class="action-card">
         <div class="action-head">
-          <div class="action-rank" title="Impact rank — 1 is the highest-leverage action">${idx + 1}</div>
+          <div class="action-rank" title="${isClient ? 'Priority — 1 will move the needle fastest' : 'Impact rank — 1 is the highest-leverage action'}">${idx + 1}</div>
           <div>
             <div class="action-meta">
-              <span class="badge tone-${tone}">${escapeHtml(reportHorizonLabel(action.horizon))}</span>
-              <span class="badge tone-neutral">${escapeHtml(reportActionCategoryLabel(action.category))}</span>
-              <span class="badge tone-neutral">${escapeHtml(reportConfidenceLabel(action.confidence))} confidence</span>
+              <span class="badge tone-${tone}">${escapeHtml(horizonLabel)}</span>
+              ${categoryBadge}
+              <span class="badge tone-neutral">${escapeHtml(confidenceLabel)}</span>
             </div>
             <h3>${escapeHtml(action.title)}</h3>
           </div>
@@ -1807,7 +2089,7 @@ function renderActionCards(actions: readonly ReportActionPlanItem[]): string {
         <p>${escapeHtml(action.action)}</p>
         ${proof}
         ${details}
-        <div class="success-metric"><strong>Win condition:</strong> ${escapeHtml(action.successMetric)}</div>
+        <div class="success-metric"><strong>${successLabel}</strong> ${escapeHtml(action.successMetric)}</div>
       </article>`
     }).join('')}
   </div>`
@@ -1823,82 +2105,184 @@ function renderAudienceActionPlan(report: ProjectReportDto, audience: ReportAudi
   return section(
     {
       id: audience === 'client' ? 'client-action-plan' : 'agency-action-plan',
-      eyebrow: audience === 'client' ? 'Client actions' : 'Agency actions',
-      title: audience === 'client' ? 'What We Recommend Next' : 'Agency Action Plan',
+      eyebrow: audience === 'client' ? 'Action plan' : 'Agency actions',
+      title: audience === 'client' ? 'What to do next' : 'Agency Action Plan',
       intro: audience === 'client'
-        ? 'The short list to approve and execute.'
+        ? 'Approve these in order. They are sorted by what will move the needle fastest.'
         : 'The highest-leverage work, sorted by urgency and evidence strength.',
     },
-    renderActionCards(actions),
+    renderActionCards(actions, audience),
   )
 }
 
 function renderClientSummary(report: ProjectReportDto): string {
   const s = report.executiveSummary
-  const metrics = `<div class="metric-grid">
-    <div class="metric"><div class="label">Citation coverage</div><div class="value">${s.citationRate}%</div><div class="delta">${s.citedQueryCount}/${s.totalQueryCount} tracked queries cited</div></div>
-    <div class="metric"><div class="label">Mention coverage</div><div class="value">${s.mentionRate}%</div><div class="delta">${s.mentionedQueryCount}/${s.totalQueryCount} tracked queries mentioned</div></div>
-    <div class="metric"><div class="label">Providers checked</div><div class="value">${formatNumber(s.providerCount)}</div><div class="delta">${formatNumber(s.queryCount)} tracked queries</div></div>
-  </div>`
-  const notes = report.clientSummary.confidenceNotes.length > 0
-    ? `<div class="client-notes">${report.clientSummary.confidenceNotes.map(note => `<div class="client-note">${escapeHtml(note)}</div>`).join('')}</div>`
+  const sc = report.citationScorecard
+  const totalQ = s.totalQueryCount
+  const heroNumber = totalQ > 0 ? `${s.citationRate}%` : '—'
+  const heroSentence = totalQ > 0
+    ? `When customers asked AI ${totalQ} ${pluralize(totalQ, 'question')} about your industry, AI linked to your website in ${s.citedQueryCount} of ${totalQ === 1 ? 'them' : 'those answers'}.`
+    : 'No AI check has been run yet. Run a check to see how AI tools answer customer questions about your business.'
+  const trend = clientTrendCopy(report.whatsChanged.citationRate)
+  const heroTrend = trend
+    ? `<p class="client-hero-trend tone-${trend.tone}"><span style="margin-right:6px;">${trend.arrow}</span>${escapeHtml(trend.text)}</p>`
     : ''
-  return section(
-    {
-      id: 'client-summary',
-      eyebrow: 'Client summary',
-      title: "How You're Appearing",
-      intro: report.clientSummary.overview,
-    },
-    `<div class="chart-card">
-      <h3>${escapeHtml(report.clientSummary.headline)}</h3>
-      <p class="source-origin-headline">${escapeHtml(report.clientSummary.overview)}</p>
+  const hero = `<div class="client-hero">
+    <div class="client-hero-eyebrow">Overview</div>
+    <div class="client-hero-number">${heroNumber}</div>
+    <p class="client-hero-sentence">${escapeHtml(heroSentence)}</p>
+    ${heroTrend}
+  </div>`
+
+  const providerSubtitle = sc.providers.length > 0
+    ? sc.providers.map(providerDisplayName).join(', ')
+    : `${formatNumber(s.queryCount)} ${pluralize(s.queryCount, 'question')} tested`
+
+  const tiles = `<div class="client-metric-grid">
+    <div class="client-metric-tile">
+      <div class="label">AI mentions your name</div>
+      <div class="value">${s.mentionRate}%</div>
+      <div class="subtitle">${totalQ > 0 ? `Says your name in ${s.mentionedQueryCount} of ${totalQ} ${pluralize(totalQ, 'answer')}` : 'No data yet'}</div>
     </div>
-    ${metrics}
-    ${notes}`,
-  )
+    <div class="client-metric-tile">
+      <div class="label">AI links to your website</div>
+      <div class="value">${s.citationRate}%</div>
+      <div class="subtitle">${totalQ > 0 ? `Cites your site as a source in ${s.citedQueryCount} of ${totalQ} ${pluralize(totalQ, 'answer')}` : 'No data yet'}</div>
+    </div>
+    <div class="client-metric-tile">
+      <div class="label">AI tools tested</div>
+      <div class="value">${formatNumber(s.providerCount)}</div>
+      <div class="subtitle">${escapeHtml(providerSubtitle)}</div>
+    </div>
+  </div>`
+
+  const explainer = `<div class="client-explainer">
+    <strong>Mentions and links are different.</strong>
+    A <span class="term">mention</span> is when AI says your name out loud in its answer.
+    A <span class="term">link</span> is when AI lists your website as a source it used.
+    AI can do either, both, or neither — that's why we track both.
+  </div>`
+
+  const questions = sc.queries.length > 0
+    ? `<div class="client-card">
+        <h3>Customer questions we tested</h3>
+        <p class="card-subtitle">These are the ${sc.queries.length} ${pluralize(sc.queries.length, 'question we asked', 'questions we asked')} every AI tool. The numbers above measure how often you came up.</p>
+        <ol class="client-questions-list">
+          ${sc.queries.map((q, i) => `<li><span class="qnum">${String(i + 1).padStart(2, '0')}</span><span>"${escapeHtml(q)}"</span></li>`).join('')}
+        </ol>
+      </div>`
+    : ''
+
+  const providerBars = sc.providerRates.length > 0
+    ? `<div class="client-card">
+        <h3>How often each AI tool links to your website</h3>
+        <p class="card-subtitle">Higher is better. Each bar shows the share of customer questions where the AI cited your site.</p>
+        <div class="client-bar-list">
+          ${sc.providerRates.map(r => {
+            const pct = Math.max(r.citationRate, 1.5)
+            return `<div class="client-bar-row">
+              <span class="bar-label">${escapeHtml(providerDisplayName(r.provider))}</span>
+              <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+              <span class="bar-value">${r.citationRate}% <span class="bar-value-sub">(${r.citedCount}/${r.totalCount})</span></span>
+            </div>`
+          }).join('')}
+        </div>
+      </div>`
+    : ''
+
+  const notes = report.clientSummary.confidenceNotes.length > 0
+    ? `<div>${report.clientSummary.confidenceNotes.map(note => `<div class="client-confidence-note">${escapeHtml(note)}</div>`).join('')}</div>`
+    : ''
+
+  return `<section class="report-section" id="client-summary">${hero}${tiles}${explainer}${questions}${providerBars}${notes}</section>`
 }
 
 function renderClientEvidenceSummary(report: ProjectReportDto): string {
-  const evidenceCards: string[] = []
-  if (report.aiSourceOrigin.topDomains.length > 0) {
-    evidenceCards.push(`<div class="diagnostic-card tone-neutral">
-      <h3>Sources AI engines trust</h3>
-      <p>These domains appeared most often as cited sources outside your owned domain.</p>
-      <ul>${report.aiSourceOrigin.topDomains.slice(0, 5).map(d => `<li>${escapeHtml(d.domain)}: ${formatNumber(d.count)} citation${d.count === 1 ? '' : 's'}</li>`).join('')}</ul>
+  const ai = report.aiSourceOrigin.topDomains.slice(0, 5)
+  const gsc = report.gsc
+  const indexing = report.indexingHealth
+  const opportunities = dedupeReportOpportunities(report).slice(0, 5)
+
+  const aiMax = ai.length > 0 ? Math.max(...ai.map(d => d.count)) : 0
+  const gscMax = gsc ? Math.max(...gsc.topQueries.slice(0, 5).map(q => q.impressions), 1) : 0
+
+  const cards: string[] = []
+
+  if (ai.length > 0) {
+    cards.push(`<div class="client-card">
+      <h3>Where AI gets its answers</h3>
+      <p class="card-subtitle">The websites AI tools cited most often when answering customer questions about your industry.</p>
+      <div class="client-bar-list">
+        ${ai.map(d => {
+          const pct = aiMax > 0 ? Math.max((d.count / aiMax) * 100, 1.5) : 0
+          const label = escapeHtml(d.domain) + (d.isCompetitor ? ' <span style="color:'+COLORS.textFaint+';font-size:11px;">(competitor)</span>' : '')
+          return `<div class="client-bar-row">
+            <span class="bar-label">${label}</span>
+            <div class="bar-track"><div class="bar-fill bar-fill-neutral" style="width:${pct}%"></div></div>
+            <span class="bar-value">${formatNumber(d.count)}×</span>
+          </div>`
+        }).join('')}
+      </div>
     </div>`)
   }
-  if (report.gsc) {
-    evidenceCards.push(`<div class="diagnostic-card tone-neutral">
-      <h3>Search demand</h3>
-      <p>Search Console shows ${formatNumber(report.gsc.totalImpressions)} impressions and ${formatNumber(report.gsc.totalClicks)} clicks in the report window.</p>
-      <ul>${report.gsc.topQueries.slice(0, 5).map(q => `<li>${escapeHtml(q.query)}: ${formatNumber(q.impressions)} impressions</li>`).join('')}</ul>
+
+  if (indexing) {
+    const tone = indexing.indexedPct >= 90 ? 'positive' : indexing.indexedPct >= 70 ? 'caution' : 'negative'
+    const fillPct = Math.max(indexing.indexedPct, 1.5)
+    cards.push(`<div class="client-card">
+      <h3>Pages Google can find on your site</h3>
+      <p class="card-subtitle">Google indexing your site increases the chances of it appearing in AI search (especially Gemini).</p>
+      <div class="client-progress-number tone-${tone}">${indexing.indexedPct}%</div>
+      <div style="font-size:12px;color:${COLORS.textMuted};">${formatNumber(indexing.indexed)} of ${formatNumber(indexing.total)} pages indexed</div>
+      <div class="client-progress-bar"><div class="client-progress-fill tone-${tone}" style="width:${fillPct}%"></div></div>
+      <p style="margin:0;font-size:12px;color:${COLORS.textMuted};"><strong style="color:${COLORS.text};">${formatNumber(indexing.notIndexed)}</strong> ${pluralize(indexing.notIndexed, 'page is', 'pages are')} not indexed yet.</p>
     </div>`)
   }
-  if (report.indexingHealth) {
-    const tone = report.indexingHealth.indexedPct >= 90 ? 'positive' : report.indexingHealth.indexedPct >= 70 ? 'caution' : 'negative'
-    evidenceCards.push(`<div class="diagnostic-card tone-${tone}">
-      <h3>Indexing readiness</h3>
-      <p>${report.indexingHealth.indexedPct}% of inspected URLs are indexed.</p>
-      <ul><li>${formatNumber(report.indexingHealth.indexed)} indexed</li><li>${formatNumber(report.indexingHealth.notIndexed)} not indexed</li></ul>
+
+  if (gsc) {
+    const queries = gsc.topQueries.slice(0, 5)
+    const queryRows = queries.length > 0
+      ? `<div class="client-bar-list">
+          ${queries.map(q => {
+            const pct = gscMax > 0 ? Math.max((q.impressions / gscMax) * 100, 1.5) : 0
+            return `<div class="client-bar-row">
+              <span class="bar-label">${escapeHtml(q.query)}</span>
+              <div class="bar-track"><div class="bar-fill bar-fill-sky" style="width:${pct}%"></div></div>
+              <span class="bar-value">${formatNumber(q.impressions)} ${pluralize(q.impressions, 'search', 'searches')}</span>
+            </div>`
+          }).join('')}
+        </div>`
+      : ''
+    cards.push(`<div class="client-card">
+      <h3>What people search Google for</h3>
+      <p class="card-subtitle">You appeared in <strong style="color:${COLORS.text};">${formatNumber(gsc.totalImpressions)}</strong> Google searches and got <strong style="color:${COLORS.text};">${formatNumber(gsc.totalClicks)}</strong> ${pluralize(gsc.totalClicks, 'click')} this period.</p>
+      ${queryRows}
     </div>`)
   }
-  const opportunities = dedupeReportOpportunities(report)
+
   if (opportunities.length > 0) {
-    evidenceCards.push(`<div class="diagnostic-card tone-caution">
-      <h3>Content opportunities</h3>
-      <p>Canonry found topics where better content could improve AI citations.</p>
-      <ul>${opportunities.slice(0, 5).map(o => `<li>${escapeHtml(o.query)}: ${escapeHtml(o.action)} (${Math.round(o.score)})</li>`).join('')}</ul>
+    cards.push(`<div class="client-card">
+      <h3>Topics where you could improve</h3>
+      <p class="card-subtitle">Customer questions where better content on your site would help AI cite you.</p>
+      <ul class="client-opportunity-list">
+        ${opportunities.map(o => `<li>
+          <div class="op-query">${escapeHtml(o.query)}</div>
+          <div class="op-action">${escapeHtml(contentActionLabel(o.action))}</div>
+        </li>`).join('')}
+      </ul>
     </div>`)
   }
+
   return section(
     {
       id: 'client-evidence-summary',
-      eyebrow: 'Evidence',
-      title: 'Why This Is The Plan',
-      intro: 'A concise evidence view for the client summary. The agency report keeps the full matrices and detailed tables.',
+      eyebrow: 'What we based this on',
+      title: 'The signals behind this plan',
+      intro: 'The data behind the recommendations above. Switch to Agency for the full breakdowns.',
     },
-    evidenceCards.length > 0 ? `<div class="diagnostics-grid">${evidenceCards.join('')}</div>` : renderEmpty('No supporting evidence sections are populated yet.'),
+    cards.length > 0
+      ? `<div class="client-evidence-grid">${cards.join('')}</div>`
+      : renderEmpty('No supporting evidence yet — this fills in after the first AI check.'),
   )
 }
 
@@ -1949,13 +2333,13 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
   const sections = audience === 'client'
     ? [
         renderClientSummary(report),
-        renderWhatsChanged(report),
+        renderWhatsChanged(report, 'client'),
         renderAudienceActionPlan(report, 'client'),
         renderClientEvidenceSummary(report),
       ].join('\n')
     : [
         renderExecutiveSummary(report),
-        renderWhatsChanged(report),
+        renderWhatsChanged(report, 'agency'),
         renderAudienceActionPlan(report, 'agency'),
         renderAgencyDiagnostics(report),
         renderCitationScorecard(report),
@@ -1986,7 +2370,7 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
 <body>
 <div class="container">
   <header class="header">
-    <div class="eyebrow">${audience === 'client' ? 'AEO Client Summary' : 'AEO Agency Report'}</div>
+    <div class="eyebrow">AI Visibility Report</div>
     <h1>${escapeHtml(report.meta.project.displayName)}</h1>
     <div class="subtitle">${escapeHtml(report.meta.project.canonicalDomain)} · ${escapeHtml(report.meta.project.country)} / ${escapeHtml(report.meta.project.language.toUpperCase())}${renderHeaderLocationFragment(report.meta.location)} · Generated ${formatDate(report.meta.generatedAt)}</div>
   </header>
