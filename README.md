@@ -2,109 +2,72 @@
 
 [![npm version](https://img.shields.io/npm/v/@ainyc/canonry)](https://www.npmjs.com/package/@ainyc/canonry) [![License: FSL-1.1-ALv2](https://img.shields.io/badge/License-FSL--1.1--ALv2-blue.svg)](https://fsl.software/) [![Node.js >= 22.14](https://img.shields.io/badge/node-%3E%3D22.14-brightgreen)](https://nodejs.org)
 
-Canonry is an agent-first AEO operating platform. It ships a built-in AI agent — **Aero** — that reads project state, analyzes regressions, acts through a typed tool surface, and wakes up unprompted when runs complete. Users who prefer their own agent (Claude Code, Codex, custom) consume Canonry through the same CLI/API surface or subscribe via webhook. It tracks how ChatGPT, Gemini, Claude, and Perplexity cite your site, detects regressions, diagnoses causes, coordinates fixes, and reports results.
+## What Canonry does
 
-AEO (Answer Engine Optimization) is about making sure your content shows up accurately in AI-generated answers. As search shifts from links to synthesized responses, you need something that can monitor, analyze, and act across these engines continuously.
+Canonry tells you whether AI answer engines mention your site for the queries you care about, which competitors they cite instead, and what to fix.
+
+In one run, you can see:
+
+- whether your brand or domain appears in AI-generated answers
+- which sources are cited instead of you
+- evidence from each answer engine (Gemini, ChatGPT, Claude, Perplexity)
+- recommended content or authority gaps to address
 
 ![Canonry Dashboard](docs/images/dashboard.png)
 
-## Getting Started
+## What you get in 5 minutes
+
+1. Add your domain and a few queries
+2. Run a sweep across supported answer engines
+3. Review citation evidence and visibility gaps
+4. Get recommended fixes
 
 ```bash
 npm install -g @ainyc/canonry
 canonry init
-canonry serve
+canonry project create my-site --domain example.com
+canonry query add my-site "your first query here" "second query here"
+canonry run my-site --wait
+canonry evidence my-site
+canonry insights my-site
 ```
 
-Interactive prompts guide you through provider keys, or pass everything as flags:
+You should now see:
 
-```bash
-canonry init --gemini-key <key> --openai-key <key>
-canonry serve
-```
+- whether `example.com` was cited for each query
+- which competitors or sources appeared instead
+- raw answer evidence per provider
+- recommended next actions from the insight engine
 
-Open [http://localhost:4100](http://localhost:4100) for the web dashboard. Aero's command bar sits at the bottom of every project page.
+**No API key yet?** `canonry init` walks you through provider setup interactively. If you'd rather evaluate first, the init command lets you skip provider keys entirely — you can add them later from the dashboard at `/settings`. A zero-config demo mode (`canonry demo`) is on the roadmap.
 
-### Talking to Aero (built-in agent)
+## If you get stuck
 
-From the CLI:
+| Problem | Fix |
+|---------|-----|
+| No provider key configured | Add one: `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `PERPLEXITY_API_KEY` as an env var, or configure via `canonry init` or the dashboard at `/settings` |
+| No results after a run | Make sure you ran `canonry run <project> --wait` — sweeps are async by default |
+| Not sure what queries to test | Start with 3–5 commercial-intent queries your customers would ask an AI assistant. You can also try `canonry query generate <project> --provider gemini --save` |
+| `npm install` fails with `node-gyp` errors | Install build tools for `better-sqlite3`: `xcode-select --install` (macOS), `apt-get install python3 make g++` (Debian/Ubuntu) — see the [troubleshooting guide](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/troubleshooting.md) |
+| Want to evaluate without keys | `canonry init` can complete without provider keys. Configure them later from the dashboard |
 
-```bash
-# One-shot turn — Aero picks the right tools and analyzes on its own.
-canonry agent ask my-project "Why did the last run fail? Recommend a fix."
+## Provider Setup
 
-# Pick a specific LLM:
-ANTHROPIC_API_KEY=... canonry agent ask my-project "…" --provider anthropic
-ZAI_API_KEY=...        canonry agent ask my-project "…" --provider zai
-```
+Configure providers during `canonry init`, via the web dashboard at `/settings`, or as environment variables:
 
-Aero uses whichever LLM has an API key configured in `~/.canonry/config.yaml`
-or exported (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`,
-`ZAI_API_KEY`). Conversations persist across invocations per project.
+| Provider | Key source | Env var |
+|----------|-----------|---------|
+| Gemini | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | `GEMINI_API_KEY` |
+| OpenAI | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | `OPENAI_API_KEY` |
+| Claude | [console.anthropic.com](https://console.anthropic.com/settings/keys) | `ANTHROPIC_API_KEY` |
+| Perplexity | [perplexity.ai/settings/api](https://www.perplexity.ai/settings/api) | `PERPLEXITY_API_KEY` |
+| Local LLMs | Any OpenAI-compatible endpoint (Ollama, LM Studio, vLLM) | `LOCAL_LLM_URL` |
 
-Aero also wakes up **unprompted** after each run completes — analyzing the
-new data and writing the result back to the project's transcript so you see
-it next time you open the bar or run `canonry agent ask`.
-
-### Bringing your own agent (webhook)
-
-If you'd rather drive Canonry from Claude Code, Codex, or a custom agent,
-wire a webhook to receive run/insight events:
-
-```bash
-canonry agent attach my-project --url https://my-agent.example.com/hooks/canonry
-```
-
-Your agent receives `run.completed`, `insight.critical`, `insight.high`, and
-`citation.gained` notifications. Detach with `canonry agent detach my-project`.
-
-### Bringing your own agent (MCP)
-
-For MCP clients like Claude Desktop, Cursor, Codex, or custom shells that
-prefer a typed tool catalog over shell commands, Canonry ships a stdio
-adapter. The fastest path is the `canonry mcp install` helper:
-
-```bash
-canonry mcp install --client claude-desktop      # or: cursor
-canonry mcp install --client claude-desktop --read-only  # 45 read API tools only
-canonry mcp config  --client codex               # print snippet for unsupported clients
-```
-
-`install` merges a `canonry` entry into the client's config, backs up the
-original, and is idempotent. Restart the client after install to pick it up.
-
-The adapter exposes 67 API tools — projects, runs, snapshots, insights, health,
-query and competitor management, schedules, GSC and GA reads, and the
-config-as-code apply path. Auth and configuration are inherited from
-`~/.canonry/config.yaml`. See [`docs/mcp.md`](docs/mcp.md) for the full
-surface and safety rules.
-
-## How agents use Canonry
-
-Canonry's CLI and API are the agent interface. The optional `canonry-mcp` adapter is a thin wrapper over the same public API client — no parallel surface, no virtual filesystem, no privileged SDK. Every CLI command supports `--format json`; every dashboard view has a matching API endpoint.
-
-- **Monitor** visibility sweeps across providers on a schedule, tracking citation changes over time
-- **Analyze** regressions, emerging opportunities, and correlations with site changes
-- **Coordinate** fixes across content, schema markup, indexing submissions, and `llms.txt`
-- **Report** results in a machine-readable form agents can act on
-
-## Features
-
-- **Built-in AI agent (Aero).** Reads state, analyzes regressions, fires write tools (`run_sweep`, `dismiss_insight`, `update_schedule`, etc.), wakes up unprompted after runs. Backed by [`pi-agent-core`](https://github.com/badlogic/pi-mono) — 15+ LLM providers, streaming first.
-- **Agent-first.** Every CLI command supports `--format json`; every UI view has a matching API endpoint. An optional `canonry-mcp` stdio adapter exposes 67 API tools to MCP clients like Claude Desktop and Codex.
-- **Multi-provider.** Query Gemini, OpenAI, Claude, Perplexity, and local LLMs from a single platform.
-- **Content opportunity engine.** Per-query recommendations typed by action (`create` / `expand` / `refresh` / `add-schema`) with auditable score breakdowns, drivers, and demand-source labels. Combines GSC ranking signals with competitor citation evidence so zero-traffic gaps still surface. Available via `canonry content targets / gaps / sources`, the matching API endpoints, and Aero's tool surface.
-- **Config-as-code.** Kubernetes-style YAML files. Version control your monitoring, let agents apply changes declaratively.
-- **Self-hosted.** Runs locally with SQLite. No cloud account required.
-- **Full API parity.** REST API and CLI cover 100% of functionality. `--format json` on every command.
-- **Integrations.** Google Search Console, Google Analytics 4, Bing Webmaster Tools, WordPress.
-- **Backlinks (Common Crawl).** Workspace-level release sync via DuckDB, per-project inbound-link extraction, and an opt-in auto-extract on each new release — no third-party API key required.
-- **Location-aware.** Project-scoped locations for geo-targeted monitoring.
-- **Scheduled monitoring.** Cron-based recurring runs with webhook notifications.
+Integration setup guides: [Google Search Console](docs/google-search-console-setup.md) | [Google Analytics](docs/google-analytics-setup.md) | [Bing Webmaster](docs/bing-webmaster-setup.md) | [WordPress](docs/wordpress-setup.md)
 
 ## How It Works
 
-A typical cycle — run manually or from an external agent:
+A typical monitoring cycle — manual or agent-driven:
 
 ```bash
 canonry apply canonry.yaml --format json         # define projects from YAML specs
@@ -115,7 +78,12 @@ canonry health my-project --format json           # visibility health snapshot
 canonry content targets my-project --format json  # ranked content opportunities
 ```
 
-Schedule cron-based sweeps with `canonry schedule` and subscribe an agent webhook via `canonry agent attach` to act on results as they land.
+Schedule cron-based sweeps and subscribe a webhook for agent-driven workflows:
+
+```bash
+canonry schedule my-project --cron "0 6 * * *"
+canonry notify add my-project --url https://my-agent.example.com/hooks/canonry
+```
 
 ## Config-as-Code
 
@@ -145,12 +113,75 @@ canonry apply canonry.yaml
 canonry apply project-a.yaml project-b.yaml
 ```
 
+## Core Concepts
+
+Canonry is an agent-first AEO operating platform. AEO (Answer Engine Optimization) is about ensuring your content appears accurately in AI-generated answers. As search shifts from links to synthesized responses, you need something that monitors, analyzes, and acts across engines continuously.
+
+Canonry ships a built-in AI agent — **Aero** — that reads project state, analyzes regressions, acts through a typed tool surface, and wakes up unprompted when runs complete. Users who prefer their own agent (Claude Code, Codex, custom) consume Canonry through the same CLI/API surface.
+
+### Talking to Aero (built-in agent)
+
+```bash
+# One-shot turn — Aero picks the right tools and analyzes on its own.
+canonry agent ask my-project "Why did the last run fail? Recommend a fix."
+
+# Pick a specific LLM:
+ANTHROPIC_API_KEY=... canonry agent ask my-project "…" --provider anthropic
+ZAI_API_KEY=...        canonry agent ask my-project "…" --provider zai
+```
+
+Aero uses whichever LLM has an API key configured in `~/.canonry/config.yaml` or exported as an env var. Conversations persist across invocations per project. Aero also wakes up **unprompted** after each run completes — analyzing the new data and writing the result back to the project's transcript.
+
+### Agent roles
+
+Canonry's CLI and API are the agent interface. Every command supports `--format json`; every dashboard view has a matching API endpoint.
+
+- **Monitor** visibility sweeps across providers on a schedule, tracking citation changes over time
+- **Analyze** regressions, emerging opportunities, and correlations with site changes
+- **Coordinate** fixes across content, schema markup, indexing submissions, and `llms.txt`
+- **Report** results in a machine-readable form agents can act on
+
+### Features
+
+- **Multi-provider.** Query Gemini, OpenAI, Claude, Perplexity, and local LLMs from a single platform.
+- **Content opportunity engine.** Per-query recommendations typed by action (`create` / `expand` / `refresh` / `add-schema`) with auditable score breakdowns, drivers, and demand-source labels. Combines GSC ranking signals with competitor citation evidence.
+- **Config-as-code.** Kubernetes-style YAML files. Version control your monitoring, let agents apply changes declaratively.
+- **Self-hosted.** Runs locally with SQLite. No cloud account required.
+- **Integrations.** Google Search Console, Google Analytics 4, Bing Webmaster Tools, WordPress.
+- **Backlinks (Common Crawl).** Workspace-level release sync via DuckDB, per-project inbound-link extraction.
+- **Location-aware.** Project-scoped locations for geo-targeted monitoring.
+- **Scheduled monitoring.** Cron-based recurring runs with webhook notifications.
+
+## Advanced Integrations
+
+### MCP (Model Context Protocol)
+
+For MCP clients like Claude Desktop, Cursor, Codex, or custom shells that prefer a typed tool catalog over shell commands, Canonry ships a stdio adapter:
+
+```bash
+canonry mcp install --client claude-desktop      # or: cursor
+canonry mcp install --client claude-desktop --read-only  # 45 read API tools only
+canonry mcp config  --client codex               # print snippet for unsupported clients
+```
+
+`install` merges a `canonry` entry into the client's config, backs up the original, and is idempotent. Restart the client after install. The adapter exposes 67 API tools — projects, runs, snapshots, insights, health, query and competitor management, schedules, GSC and GA reads, and the config-as-code apply path. See [`docs/mcp.md`](docs/mcp.md) for the full surface.
+
+### Webhooks
+
+Wire a webhook for run/insight events if you prefer your own agent (Claude Code, Codex, custom):
+
+```bash
+canonry agent attach my-project --url https://my-agent.example.com/hooks/canonry
+```
+
+Your agent receives `run.completed`, `insight.critical`, `insight.high`, and `citation.gained` notifications. Detach with `canonry agent detach my-project`.
+
 ## API
 
 All endpoints under `/api/v1/`. Authenticate with `Authorization: Bearer cnry_...`.
-The canonical, always-up-to-date surface is served at `GET /api/v1/openapi.json` (no auth required).
+The canonical surface is served at `GET /api/v1/openapi.json` (no auth required).
 
-Canonry is **agent-first** — every dashboard view has a matching API endpoint and CLI command. The surface is grouped by domain:
+Every dashboard view has a matching API endpoint and CLI command. The surface is grouped by domain:
 
 | Domain | What it covers | Highlights |
 |--------|----------------|------------|
@@ -166,7 +197,7 @@ Canonry is **agent-first** — every dashboard view has a matching API endpoint 
 | **Analytics** | Aggregated dashboard analytics | `GET /projects/{name}/analytics` |
 | **Google (GSC + OAuth)** | Search Console integration, OAuth flow, property selection, URL inspection | `/google/*`, `/projects/{name}/google/*` |
 | **Google Analytics (GA4)** | Traffic, social referrals, attribution, AI referrals | `/projects/{name}/ga/*` |
-| **Bing Webmaster** | Coverage, URL inspection, keyword stats (Bing's term) | `/projects/{name}/bing/*` |
+| **Bing Webmaster** | Coverage, URL inspection, keyword stats | `/projects/{name}/bing/*` |
 | **WordPress** | Content publishing + site management integration | `/projects/{name}/wordpress/*` |
 | **CDP (ChatGPT browser provider)** | Chrome DevTools Protocol health and session status | `/cdp/*` |
 | **Settings / Auth / Telemetry** | Server config, API key management, opt-in telemetry | `/settings`, `/telemetry` |
@@ -174,33 +205,19 @@ Canonry is **agent-first** — every dashboard view has a matching API endpoint 
 
 For the complete list of ~118 endpoints with request/response schemas, query `GET /api/v1/openapi.json` or browse the per-domain route handlers under [`packages/api-routes/src/`](packages/api-routes/src/).
 
-## Provider Setup
-
-Configure providers during `canonry init`, via the web dashboard at `/settings`, or with the CLI:
-
-| Provider | Key source | CLI flag |
-|----------|-----------|----------|
-| Gemini | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | `--gemini-key` |
-| OpenAI | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | `--openai-key` |
-| Claude | [console.anthropic.com](https://console.anthropic.com/settings/keys) | `--claude-key` |
-| Perplexity | [perplexity.ai/settings/api](https://www.perplexity.ai/settings/api) | `--perplexity-key` |
-| Local LLMs | Any OpenAI-compatible endpoint (Ollama, LM Studio, vLLM) | `--local-url` |
-
-Integration setup guides: [Google Search Console](docs/google-search-console-setup.md) | [Google Analytics](docs/google-analytics-setup.md) | [Bing Webmaster](docs/bing-webmaster-setup.md) | [WordPress](docs/wordpress-setup.md)
-
 ## Skills
 
 Canonry ships a bundled `canonry-setup` skill that turns Aero (or any Claude-powered agent) into an AEO/SEO operator. **Claude Code** picks it up automatically from `.claude/skills/canonry-setup/` when you open this repo; the same content lives under [`skills/canonry-setup/`](skills/canonry-setup/) for portable use with other harnesses.
 
 The skill covers the end-to-end answer-engine optimization loop:
 
-- **AEO monitoring.** Running citation sweeps across Gemini, ChatGPT, Claude, and Perplexity via `canonry run` / `canonry evidence` / `canonry status`, including how to interpret per-query citation state and regressions.
+- **AEO monitoring.** Running citation sweeps via `canonry run` / `canonry evidence` / `canonry status`, including per-query citation state and regressions.
 - **Technical SEO audits.** Driving the companion [`@ainyc/aeo-audit`](https://www.npmjs.com/package/@ainyc/aeo-audit) CLI for 14-factor scoring — structured data (JSON-LD), content depth, AI-readable files (`llms.txt`, `llms-full.txt`), E-E-A-T signals, FAQ blocks, definition blocks, H1/alt/meta hygiene.
 - **Indexing diagnosis.** Google Search Console and Bing Webmaster Tools coverage, URL inspection, and one-shot submissions via `canonry google request-indexing` / `canonry bing request-indexing`.
-- **Schema & content execution.** Patterns for injecting LocalBusiness/FAQPage JSON-LD, writing `llms.txt` with service-area detail, trimming query lists to high-intent queries, and handling WordPress/Elementor specifics (REST API, Application Passwords, Elementor Custom Code).
+- **Schema & content execution.** Patterns for injecting LocalBusiness/FAQPage JSON-LD, writing `llms.txt` with service-area detail, trimming query lists to high-intent queries, and handling WordPress/Elementor specifics.
 - **Diagnose → prioritize → execute → monitor → report workflow.** Opinionated defaults for new sites (0 citations), regressions on established sites, and county-level targeting — with guardrails like "never fabricate citation data" and "back up `~/.canonry/config.yaml` before editing".
 
-See [`skills/canonry-setup/SKILL.md`](skills/canonry-setup/SKILL.md) plus the reference files under [`skills/canonry-setup/references/`](skills/canonry-setup/references/) (`canonry-cli.md`, `aeo-analysis.md`, `indexing.md`, `wordpress-integration.md`) for the full playbook. Aero loads the same material natively, so anything an external agent can do through the skill, Aero can do from the CLI or dashboard command bar.
+See [`skills/canonry-setup/SKILL.md`](skills/canonry-setup/SKILL.md) plus the reference files under [`skills/canonry-setup/references/`](skills/canonry-setup/references/) for the full playbook.
 
 ## Deployment
 
@@ -229,8 +246,6 @@ Create a Web Service with runtime Docker, attach a disk at `/data`. Health check
 
 - Node.js >= 22.14.0
 - At least one provider API key (configurable after startup)
-
-If `npm install` fails with `node-gyp` errors, install build tools for `better-sqlite3`: `xcode-select --install` (macOS), `apt-get install python3 make g++` (Debian), or see the [troubleshooting guide](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/troubleshooting.md).
 
 ## Development
 
