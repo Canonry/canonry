@@ -932,6 +932,20 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_raw_event_samples_event_type ON raw_event_samples(event_type)`,
     ],
   },
+  {
+    version: 50,
+    name: 'ga-ai-referral-channel-group',
+    statements: [],
+    run: (tx) => {
+      if (!tableExists(tx, 'ga_ai_referrals')) return
+      if (!columnExists(tx, 'ga_ai_referrals', 'channel_group')) {
+        tx.run(sql.raw(`ALTER TABLE ga_ai_referrals ADD COLUMN channel_group TEXT NOT NULL DEFAULT '(not set)'`))
+      }
+      tx.run(sql.raw(`DROP INDEX IF EXISTS idx_ga_ai_ref_unique_v3`))
+      tx.run(sql.raw(`CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_ai_ref_unique_v4
+         ON ga_ai_referrals(project_id, date, source, medium, source_dimension, channel_group, landing_page)`))
+    },
+  },
 ]
 
 /**

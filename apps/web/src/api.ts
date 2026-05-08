@@ -1027,6 +1027,20 @@ export interface ApiGaSocialReferral {
   users: number
 }
 
+export interface ApiGaChannelBucket {
+  sessions: number
+  sharePct: number
+  sharePctDisplay: string
+}
+
+export interface ApiGaChannelBreakdown {
+  organic: ApiGaChannelBucket
+  social: ApiGaChannelBucket
+  direct: ApiGaChannelBucket
+  ai: ApiGaChannelBucket
+  other: ApiGaChannelBucket
+}
+
 export interface ApiGaTraffic {
   totalSessions: number
   totalOrganicSessions: number
@@ -1040,7 +1054,7 @@ export interface ApiGaTraffic {
   aiSessionsDeduped: number
   /** Deduped AI user total. */
   aiUsersDeduped: number
-  /** AI sessions whose CURRENT sessionSource matched an AI engine. Disjoint from Direct/Organic/Social — used by the channel breakdown. */
+  /** AI sessions whose CURRENT sessionSource matched an AI engine. Can overlap with raw Organic/Social/Direct totals; channelBreakdown removes those overlaps for display. */
   aiSessionsBySession: number
   /** AI users whose CURRENT sessionSource matched an AI engine. */
   aiUsersBySession: number
@@ -1049,11 +1063,13 @@ export interface ApiGaTraffic {
   socialSessions: number
   /** Total social users (session-scoped via sessionDefaultChannelGroup). */
   socialUsers: number
+  /** Five disjoint buckets used for the channel breakdown cards. */
+  channelBreakdown: ApiGaChannelBreakdown
   /** Organic sessions as a percentage of total sessions (0–100, rounded). */
   organicSharePct: number
   /** Deduped AI sessions as a percentage of total sessions (0–100, rounded). Cross-cutting: can overlap with Direct/Organic/Social. */
   aiSharePct: number
-  /** Session-source-only AI sessions as a percentage of total sessions (0–100, rounded). Disjoint from Direct/Organic/Social. */
+  /** Session-source-only AI sessions as a percentage of total sessions (0–100, rounded). Can overlap with raw Organic/Social/Direct totals. */
   aiSharePctBySession: number
   /** Social sessions as a percentage of total sessions (0–100, rounded). */
   socialSharePct: number
@@ -1069,6 +1085,12 @@ export interface ApiGaTraffic {
   socialSharePctDisplay: string
   /** Display string for directSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   directSharePctDisplay: string
+  /** Sessions not covered by Organic, Social, Direct, or AI (session) channels — e.g. Referral, Email, Paid Search, Display. */
+  otherSessions: number
+  /** Other sessions as a percentage of total sessions (0–100, rounded). */
+  otherSharePct: number
+  /** Display string for otherSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
+  otherSharePctDisplay: string
   lastSyncedAt: string | null
   /** Start of the synced date range (YYYY-MM-DD), null if no data. */
   periodStart: string | null

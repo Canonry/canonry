@@ -64,6 +64,8 @@ export interface GA4AiReferralRow {
   date: string
   source: string
   medium: string
+  /** GA4 default channel group for the current session. */
+  channelGroup: string
   landingPage: string
   sessions: number
   users: number

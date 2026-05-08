@@ -64,6 +64,22 @@ export const ga4SocialReferralDtoSchema = z.object({
 })
 export type GA4SocialReferralDto = z.infer<typeof ga4SocialReferralDtoSchema>
 
+export const ga4ChannelBucketDtoSchema = z.object({
+  sessions: z.number(),
+  sharePct: z.number(),
+  sharePctDisplay: z.string(),
+})
+export type GA4ChannelBucketDto = z.infer<typeof ga4ChannelBucketDtoSchema>
+
+export const ga4ChannelBreakdownDtoSchema = z.object({
+  organic: ga4ChannelBucketDtoSchema,
+  social: ga4ChannelBucketDtoSchema,
+  direct: ga4ChannelBucketDtoSchema,
+  ai: ga4ChannelBucketDtoSchema,
+  other: ga4ChannelBucketDtoSchema,
+})
+export type GA4ChannelBreakdownDto = z.infer<typeof ga4ChannelBreakdownDtoSchema>
+
 export const ga4TrafficSummaryDtoSchema = z.object({
   totalSessions: z.number(),
   totalOrganicSessions: z.number(),
@@ -84,20 +100,22 @@ export const ga4TrafficSummaryDtoSchema = z.object({
   aiSessionsDeduped: z.number(),
   /** Deduped AI user total: MAX(users) per date+source+medium across attribution dimensions, then summed. */
   aiUsersDeduped: z.number(),
-  /** AI sessions whose CURRENT sessionSource matched an AI engine. Disjoint from Direct/Organic/Social — safe for the channel breakdown. */
+  /** AI sessions whose CURRENT sessionSource matched an AI engine. Can overlap with raw Organic/Social/Direct totals; `channelBreakdown` removes those overlaps for display. */
   aiSessionsBySession: z.number(),
-  /** AI users whose CURRENT sessionSource matched an AI engine. Disjoint from Direct/Organic/Social — safe for the channel breakdown. */
+  /** AI users whose CURRENT sessionSource matched an AI engine. Can overlap with raw Organic/Social/Direct totals. */
   aiUsersBySession: z.number(),
   socialReferrals: z.array(ga4SocialReferralDtoSchema),
   /** Total social sessions (session-scoped, no cross-dimension dedup needed). */
   socialSessions: z.number(),
   /** Total social users (session-scoped, no cross-dimension dedup needed). */
   socialUsers: z.number(),
+  /** Five disjoint buckets used for the channel breakdown. Known AI session-source matches are removed from their native GA4 bucket before shares are computed. */
+  channelBreakdown: ga4ChannelBreakdownDtoSchema,
   /** Organic sessions as a percentage of total sessions (0–100, rounded). */
   organicSharePct: z.number(),
   /** Deduped AI sessions as a percentage of total sessions (0–100, rounded). Cross-cutting: can overlap with Direct/Organic/Social. */
   aiSharePct: z.number(),
-  /** Session-source-only AI sessions as a percentage of total sessions (0–100, rounded). Disjoint from Direct/Organic/Social. */
+  /** Session-source-only AI sessions as a percentage of total sessions (0–100, rounded). Can overlap with raw Organic/Social/Direct totals. */
   aiSharePctBySession: z.number(),
   /** Direct-channel sessions as a percentage of total sessions (0–100, rounded). */
   directSharePct: z.number(),
@@ -113,6 +131,12 @@ export const ga4TrafficSummaryDtoSchema = z.object({
   directSharePctDisplay: z.string(),
   /** Display string for socialSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   socialSharePctDisplay: z.string(),
+  /** Sessions not covered by Organic, Social, Direct, or AI (session) channels — e.g. Referral, Email, Paid Search, Display. Always non-negative; clamped to 0 when the four disjoint channels sum above total (rounding edge). */
+  otherSessions: z.number(),
+  /** Other sessions as a percentage of total sessions (0–100, rounded). */
+  otherSharePct: z.number(),
+  /** Display string for otherSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
+  otherSharePctDisplay: z.string(),
   lastSyncedAt: z.string().nullable(),
 })
 export type GA4TrafficSummaryDto = z.infer<typeof ga4TrafficSummaryDtoSchema>
@@ -198,20 +222,28 @@ export interface GaTrafficResponse {
   aiSessionsDeduped: number
   /** Deduped AI user total: MAX(users) per date+source+medium across attribution dimensions, then summed. */
   aiUsersDeduped: number
-  /** AI sessions whose CURRENT sessionSource matched an AI engine. Disjoint from Direct/Organic/Social — safe for the channel breakdown. */
+  /** AI sessions whose CURRENT sessionSource matched an AI engine. Can overlap with raw Organic/Social/Direct totals; `channelBreakdown` removes those overlaps for display. */
   aiSessionsBySession: number
-  /** AI users whose CURRENT sessionSource matched an AI engine. Disjoint from Direct/Organic/Social — safe for the channel breakdown. */
+  /** AI users whose CURRENT sessionSource matched an AI engine. Can overlap with raw Organic/Social/Direct totals. */
   aiUsersBySession: number
   socialReferrals: Array<{ source: string; medium: string; sessions: number; users: number; channelGroup: string }>
   /** Total social sessions (session-scoped via sessionDefaultChannelGroup). */
   socialSessions: number
   /** Total social users (session-scoped via sessionDefaultChannelGroup). */
   socialUsers: number
+  /** Five disjoint buckets used for the channel breakdown. Known AI session-source matches are removed from their native GA4 bucket before shares are computed. */
+  channelBreakdown: {
+    organic: GA4ChannelBucketDto
+    social: GA4ChannelBucketDto
+    direct: GA4ChannelBucketDto
+    ai: GA4ChannelBucketDto
+    other: GA4ChannelBucketDto
+  }
   /** Organic sessions as a percentage of total sessions (0–100, rounded). */
   organicSharePct: number
   /** Deduped AI sessions as a percentage of total sessions (0–100, rounded). Cross-cutting: can overlap with Direct/Organic/Social. */
   aiSharePct: number
-  /** Session-source-only AI sessions as a percentage of total sessions (0–100, rounded). Disjoint from Direct/Organic/Social. */
+  /** Session-source-only AI sessions as a percentage of total sessions (0–100, rounded). Can overlap with raw Organic/Social/Direct totals. */
   aiSharePctBySession: number
   /** Direct-channel sessions as a percentage of total sessions (0–100, rounded). */
   directSharePct: number
@@ -227,6 +259,12 @@ export interface GaTrafficResponse {
   directSharePctDisplay: string
   /** Display string for socialSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   socialSharePctDisplay: string
+  /** Sessions not covered by Organic, Social, Direct, or AI (session) channels — e.g. Referral, Email, Paid Search, Display. Always non-negative; clamped to 0 when the four disjoint channels sum above total (rounding edge). */
+  otherSessions: number
+  /** Other sessions as a percentage of total sessions (0–100, rounded). */
+  otherSharePct: number
+  /** Display string for otherSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
+  otherSharePctDisplay: string
   lastSyncedAt: string | null
   /** Start of the synced date range (YYYY-MM-DD), null if no data. */
   periodStart: string | null

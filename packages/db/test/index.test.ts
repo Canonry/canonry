@@ -850,12 +850,12 @@ test('migrate is safe to replay after intermediate-state data is inserted', () =
   const rows = db2.all(sql.raw(`SELECT COUNT(*) as cnt FROM ga_ai_referrals`)) as Array<{ cnt: number }>
   expect(rows[0]?.cnt).toBe(3)
 
-  // The v3 unique index should be in place
+  // The latest unique index should be in place
   const sqlite = new Database(dbPath, { readonly: true })
   onTestFinished(() => sqlite.close())
   const indexes = sqlite.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_ga_ai_ref_unique%'").all() as Array<{ name: string }>
   const indexNames = indexes.map(i => i.name)
-  expect(indexNames).toContain('idx_ga_ai_ref_unique_v3')
+  expect(indexNames).toContain('idx_ga_ai_ref_unique_v4')
 })
 
 test('_migrations table is created on first migrate', () => {

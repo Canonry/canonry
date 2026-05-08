@@ -348,6 +348,20 @@ const totalBySource = referrals.reduce((acc, r) => { ... }, {})
 // GET /projects/:name/ga/attribution returns { channelBreakdown: [...] }
 ```
 
+### Calculation Testing (Critical)
+
+**Every calculation must have robust logical tests.** Any derived number, percentage,
+trend, score, rank, bucket, residual, roll-up, dedupe, or classification must be
+tested against the business invariant it claims to represent.
+
+#### Rules
+
+1. **Assert exact expected math, not shape only.** Tests like `toBeGreaterThanOrEqual(0)`, `typeof value === 'number'`, or "renders without crashing" are not sufficient for calculation changes.
+2. **Test the invariant.** If buckets are supposed to sum to a total, assert the sum. If a metric is supposed to be disjoint, seed overlap and prove it is not double-counted. If a rate uses a denominator, assert the numerator, denominator, rounded value, and display value.
+3. **Cover edge cases deliberately.** Include zero totals, missing/partial data, duplicate rows, overlapping categories, rounding boundaries (`<1%`, `0%`, `100%`), clamping behavior, and stale/legacy rows when the calculation can encounter them.
+4. **Keep calculations out of presentation-only tests.** Put the canonical calculation in the API/shared layer and test it there; UI tests should verify that the UI renders the API-provided values without recomputing them.
+5. **Protect agent-facing output.** When a calculation appears in CLI JSON, reports, MCP/API responses, or dashboard cards, add or update tests for the machine-readable contract as well as any human-readable display string.
+
 ### Report parity (Critical)
 
 **The downloadable HTML report and the in-app report SPA must always show the same sections, the same labels, the same numbers, and the same visual structure.** Clients and agencies see one report — only the surface differs. They are two renderers of the same DTO; never let them diverge.

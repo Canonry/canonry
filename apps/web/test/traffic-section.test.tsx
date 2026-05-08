@@ -129,7 +129,7 @@ test('loads connected GA4 data without changing hook order', async () => {
   ).toBe(false)
 })
 
-test('renders four-channel breakdown with Organic, Social, Direct, and Known AI referrers (lower bound)', async () => {
+test('renders five-channel breakdown with disjoint Organic, Social, Direct, Known AI, and Other buckets', async () => {
   const restoreFetch = mockFetch((url) => {
     const urlPath = url.split('?')[0]!
     if (urlPath.endsWith('/projects/test-project/ga/status')) {
@@ -163,7 +163,7 @@ test('renders four-channel breakdown with Organic, Social, Direct, and Known AI 
         // Cross-cutting dedup includes firstUserSource → 12 + 30 = 42
         aiSessionsDeduped: 42,
         aiUsersDeduped: 33,
-        // Session-source-only count is disjoint from Direct/Organic/Social → 12
+        // Session-source-only count becomes the dedicated Known AI bucket.
         aiSessionsBySession: 12,
         aiUsersBySession: 9,
         socialReferrals: [
@@ -171,6 +171,13 @@ test('renders four-channel breakdown with Organic, Social, Direct, and Known AI 
         ],
         socialSessions: 8,
         socialUsers: 6,
+        channelBreakdown: {
+          organic: { sessions: 70, sharePct: 58, sharePctDisplay: '58%' },
+          social: { sessions: 8, sharePct: 7, sharePctDisplay: '7%' },
+          direct: { sessions: 30, sharePct: 25, sharePctDisplay: '25%' },
+          ai: { sessions: 12, sharePct: 10, sharePctDisplay: '10%' },
+          other: { sessions: 0, sharePct: 0, sharePctDisplay: '0%' },
+        },
         organicSharePct: 58,
         aiSharePct: 35,
         aiSharePctBySession: 10,
@@ -181,6 +188,9 @@ test('renders four-channel breakdown with Organic, Social, Direct, and Known AI 
         aiSharePctBySessionDisplay: '10%',
         directSharePctDisplay: '25%',
         socialSharePctDisplay: '7%',
+        otherSessions: 0,
+        otherSharePct: 0,
+        otherSharePctDisplay: '0%',
         lastSyncedAt: '2026-03-31T12:00:00.000Z',
       })
     }
@@ -202,18 +212,19 @@ test('renders four-channel breakdown with Organic, Social, Direct, and Known AI 
   expect(card).toBeTruthy()
   const breakdown = within(card)
 
-  // Four labeled channels appear in the breakdown card
+  // Five labeled channels appear in the breakdown card
   expect(breakdown.getByText('Organic')).toBeTruthy()
   expect(breakdown.getByText('Social')).toBeTruthy()
   expect(breakdown.getByText('Direct')).toBeTruthy()
   expect(breakdown.getByText(/Known AI referrers/)).toBeTruthy()
+  expect(breakdown.getByText('Other channels')).toBeTruthy()
   expect(breakdown.getByText(/lower bound/i)).toBeTruthy()
 
   // Direct cell shows the share from API (25%)
   expect(breakdown.getByText('25%')).toBeTruthy()
 
-  // AI cell uses the session-source-only share (10%, disjoint from Direct/Organic/Social),
-  // NOT the cross-cutting aiSharePct (35%) which would overlap with other channels.
+  // AI cell uses the dedicated channelBreakdown AI share (10%), NOT the
+  // cross-cutting aiSharePct (35%) which would overlap with other channels.
   expect(breakdown.getByText('10%')).toBeTruthy()
   expect(breakdown.queryByText('35%')).toBeNull()
 

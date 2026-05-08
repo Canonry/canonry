@@ -349,17 +349,24 @@ export function TrafficSection({ projectName }: { projectName: string }) {
   }
 
   const organicPctDisplay = traffic?.organicSharePctDisplay ?? '0%'
-  const organicSessions = traffic?.totalOrganicSessions ?? 0
+  const breakdownOrganicPctDisplay = traffic?.channelBreakdown?.organic.sharePctDisplay ?? organicPctDisplay
+  const breakdownOrganicSessions = traffic?.channelBreakdown?.organic.sessions ?? traffic?.totalOrganicSessions ?? 0
   const aiSessions = traffic?.aiSessionsDeduped ?? 0
-  const aiSessionsBySession = traffic?.aiSessionsBySession ?? 0
-  const aiSharePctBySessionDisplay = traffic?.aiSharePctBySessionDisplay ?? '0%'
+  const aiSessionsBySession = traffic?.channelBreakdown?.ai.sessions ?? traffic?.aiSessionsBySession ?? 0
+  const aiSharePctBySessionDisplay = traffic?.channelBreakdown?.ai.sharePctDisplay ?? traffic?.aiSharePctBySessionDisplay ?? '0%'
   const aiSourceCount = traffic ? new Set(traffic.aiReferrals.map((referral) => referral.source.toLowerCase())).size : 0
   const topAiSource = sortedAiReferrals[0] ?? null
   const directSessions = traffic?.totalDirectSessions ?? 0
   const directSharePctDisplay = traffic?.directSharePctDisplay ?? '0%'
+  const breakdownDirectSessions = traffic?.channelBreakdown?.direct.sessions ?? directSessions
+  const breakdownDirectPctDisplay = traffic?.channelBreakdown?.direct.sharePctDisplay ?? directSharePctDisplay
+  const otherSessions = traffic?.channelBreakdown?.other.sessions ?? traffic?.otherSessions ?? 0
+  const otherSharePctDisplay = traffic?.channelBreakdown?.other.sharePctDisplay ?? traffic?.otherSharePctDisplay ?? '0%'
 
   const socialSessions = traffic?.socialSessions ?? 0
   const socialSharePctDisplay = traffic?.socialSharePctDisplay ?? '0%'
+  const breakdownSocialSessions = traffic?.channelBreakdown?.social.sessions ?? socialSessions
+  const breakdownSocialPctDisplay = traffic?.channelBreakdown?.social.sharePctDisplay ?? socialSharePctDisplay
   const socialSourceCount = traffic ? new Set(traffic.socialReferrals.map((r) => r.source.toLowerCase())).size : 0
   const topSocialSource = sortedSocialReferrals[0] ?? null
 
@@ -480,7 +487,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">Traffic Attribution</p>
                 <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">
                   Traffic by channel
-                  <InfoTooltip text="Decomposes GA4 sessions into four disjoint channels — organic search, social, direct, and known AI referrers. The AI cell is rendered separately so AI-driven traffic never inflates the Direct count. Detected via sessionDefaultChannelGrouping plus AI-source matching on sessionSource/firstUserSource/sessionManualSource (generic search sources excluded)." />
+                  <InfoTooltip text="Decomposes GA4 sessions into five disjoint channels — known AI referrers first, then organic search, social, direct, and other channels. Known AI referrers are removed from their native GA4 channel before the residual Other bucket is computed. Other channels are the remaining GA4 session default channel groups, such as Referral, Email, Paid Search, Display, Cross-network, Shopping, Video, Affiliates, SMS, and Paid Other." />
                 </h2>
               </div>
               {dateRange && (
@@ -580,34 +587,41 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                 <h3 className="text-sm font-semibold text-zinc-100">Channel breakdown</h3>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
                 <AttributionStat
                   label="Organic"
-                  value={organicPctDisplay}
-                  hint={`${organicSessions.toLocaleString()} sessions`}
+                  value={breakdownOrganicPctDisplay}
+                  hint={`${breakdownOrganicSessions.toLocaleString()} sessions`}
                   tone="positive"
-                  tooltip="Sessions from Google organic search (sessionDefaultChannelGrouping = 'Organic Search')."
+                  tooltip="Sessions from Google organic search (sessionDefaultChannelGrouping = 'Organic Search'), after known AI referrers are removed for a disjoint channel breakdown."
                 />
                 <AttributionStat
                   label="Social"
-                  value={socialSharePctDisplay}
-                  hint={`${socialSessions.toLocaleString()} sessions`}
+                  value={breakdownSocialPctDisplay}
+                  hint={`${breakdownSocialSessions.toLocaleString()} sessions`}
                   tone="neutral"
-                  tooltip="Sessions from social platforms (sessionDefaultChannelGrouping = 'Organic Social' or 'Paid Social')."
+                  tooltip="Sessions from social platforms (sessionDefaultChannelGrouping = 'Organic Social' or 'Paid Social'), after known AI referrers are removed for a disjoint channel breakdown."
                 />
                 <AttributionStat
                   label="Direct"
-                  value={directSharePctDisplay}
-                  hint={`${directSessions.toLocaleString()} sessions`}
+                  value={breakdownDirectPctDisplay}
+                  hint={`${breakdownDirectSessions.toLocaleString()} sessions`}
                   tone="neutral"
-                  tooltip="Sessions with no source — bookmarks, typed URLs, untagged email, in-app browsers, and AI-driven traffic whose referrer header was stripped."
+                  tooltip="Sessions with no source — bookmarks, typed URLs, untagged email, in-app browsers, and AI-driven traffic whose referrer header was stripped. Known AI referrers are removed if GA4 classified them as Direct."
                 />
                 <AttributionStat
                   label="Known AI referrers (lower bound)"
                   value={aiSharePctBySessionDisplay}
                   hint={`${aiSessionsBySession.toLocaleString()} sessions`}
                   tone="positive"
-                  tooltip="Sessions whose current sessionSource matched a known AI engine (e.g. chatgpt.com, claude.ai, gemini.google.com). Disjoint from Direct/Organic/Social. This is a strict lower bound: most AI traffic strips the referrer and falls into Direct, so the true AI share is typically higher than what's shown here. The detail table below also surfaces firstUserSource and UTM-tagged AI signals."
+                  tooltip="Sessions whose current sessionSource matched a known AI engine (e.g. chatgpt.com, claude.ai, gemini.google.com). These sessions are removed from their native GA4 channel in this card grid so the five buckets stay disjoint. This is a strict lower bound: most AI traffic strips the referrer and falls into Direct, so the true AI share is typically higher than what's shown here. The detail table below also surfaces firstUserSource and UTM-tagged AI signals."
+                />
+                <AttributionStat
+                  label="Other channels"
+                  value={otherSharePctDisplay}
+                  hint={`${otherSessions.toLocaleString()} sessions`}
+                  tone="neutral"
+                  tooltip="Remaining GA4 session default channel groups after Known AI, Organic Search, Organic/Paid Social, and Direct are accounted for. This is a residual bucket, not a single source. It can include Referral, Email, Paid Search, Display, Cross-network, Shopping, Video, Affiliates, SMS, Mobile Push Notifications, Paid Other, and unclassified traffic."
                 />
               </div>
 
