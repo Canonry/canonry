@@ -36,6 +36,11 @@ import {
   removeGa4Connection,
 } from './ga4-config.js'
 import {
+  getCloudRunConnection,
+  upsertCloudRunConnection,
+  removeCloudRunConnection,
+} from './cloud-run-config.js'
+import {
   getWordpressConnection,
   patchWordpressConnection,
   removeWordpressConnection,
@@ -465,6 +470,36 @@ export async function createServer(opts: {
     },
     deleteConnection: (projectName: string) => {
       const removed = removeGa4Connection(opts.config, projectName)
+      if (removed) saveConfigPatch(opts.config)
+      return removed
+    },
+  } as const
+
+  // Cloud Run credential store — stores SA keys / OAuth tokens in ~/.canonry/config.yaml
+  const cloudRunCredentialStore = {
+    getConnection: (projectName: string) => {
+      return getCloudRunConnection(opts.config, projectName)
+    },
+    upsertConnection: (record: {
+      projectName: string
+      gcpProjectId: string
+      serviceName?: string
+      location?: string
+      authMode: 'oauth' | 'service-account'
+      clientEmail?: string
+      privateKey?: string
+      refreshToken?: string
+      tokenExpiresAt?: string
+      scopes?: string[]
+      createdAt: string
+      updatedAt: string
+    }) => {
+      const updated = upsertCloudRunConnection(opts.config, record)
+      saveConfigPatch(opts.config)
+      return updated
+    },
+    deleteConnection: (projectName: string) => {
+      const removed = removeCloudRunConnection(opts.config, projectName)
       if (removed) saveConfigPatch(opts.config)
       return removed
     },
@@ -921,6 +956,7 @@ export async function createServer(opts: {
     },
     wordpressConnectionStore,
     ga4CredentialStore,
+    cloudRunCredentialStore,
     onRunCreated: (runId: string, projectId: string, providers?: string[], location?: import('@ainyc/canonry-contracts').LocationContext | null) => {
       // Fire and forget — run executes in background
       jobRunner.executeRun(runId, projectId, providers, location).catch((err: unknown) => {

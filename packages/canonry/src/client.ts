@@ -71,6 +71,9 @@ import type {
   ProjectSearchResponseDto,
   DoctorReportDto,
   ProjectReportDto,
+  TrafficSourceDto,
+  TrafficConnectCloudRunRequest,
+  TrafficSyncResponse,
 } from '@ainyc/canonry-contracts'
 
 export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry, CompetitorDto, KeywordDto, QueryDto }
@@ -784,6 +787,27 @@ export class ApiClient {
   async gaSessionHistory(project: string, params?: Record<string, string>): Promise<GA4SessionHistoryEntry[]> {
     const qs = params ? '?' + new URLSearchParams(params).toString() : ''
     return this.request<GA4SessionHistoryEntry[]>('GET', `/projects/${encodeURIComponent(project)}/ga/session-history${qs}`)
+  }
+
+  // Traffic — server-side ingestion
+  async trafficConnectCloudRun(project: string, body: TrafficConnectCloudRunRequest): Promise<TrafficSourceDto> {
+    return this.request<TrafficSourceDto>(
+      'POST',
+      `/projects/${encodeURIComponent(project)}/traffic/connect/cloud-run`,
+      body,
+    )
+  }
+
+  async trafficSync(
+    project: string,
+    sourceId: string,
+    body?: { sinceMinutes?: number },
+  ): Promise<TrafficSyncResponse> {
+    return this.request<TrafficSyncResponse>(
+      'POST',
+      `/projects/${encodeURIComponent(project)}/traffic/sources/${encodeURIComponent(sourceId)}/sync`,
+      body ?? {},
+    )
   }
 
   async wordpressConnect(

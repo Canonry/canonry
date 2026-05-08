@@ -184,6 +184,9 @@ importers:
       '@ainyc/canonry-integration-bing':
         specifier: workspace:*
         version: link:../integration-bing
+      '@ainyc/canonry-integration-cloud-run':
+        specifier: workspace:*
+        version: link:../integration-cloud-run
       '@ainyc/canonry-integration-commoncrawl':
         specifier: workspace:*
         version: link:../integration-commoncrawl
@@ -193,6 +196,9 @@ importers:
       '@ainyc/canonry-integration-google-analytics':
         specifier: workspace:*
         version: link:../integration-google-analytics
+      '@ainyc/canonry-integration-traffic':
+        specifier: workspace:*
+        version: link:../integration-traffic
       '@ainyc/canonry-integration-wordpress':
         specifier: workspace:*
         version: link:../integration-wordpress
@@ -278,12 +284,18 @@ importers:
       '@ainyc/canonry-integration-bing':
         specifier: workspace:*
         version: link:../integration-bing
+      '@ainyc/canonry-integration-cloud-run':
+        specifier: workspace:*
+        version: link:../integration-cloud-run
       '@ainyc/canonry-integration-commoncrawl':
         specifier: workspace:*
         version: link:../integration-commoncrawl
       '@ainyc/canonry-integration-google':
         specifier: workspace:*
         version: link:../integration-google
+      '@ainyc/canonry-integration-traffic':
+        specifier: workspace:*
+        version: link:../integration-traffic
       '@ainyc/canonry-integration-wordpress':
         specifier: workspace:*
         version: link:../integration-wordpress

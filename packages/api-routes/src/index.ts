@@ -41,6 +41,8 @@ import { wordpressRoutes } from './wordpress.js'
 import type { WordpressRoutesOptions } from './wordpress.js'
 import { backlinksRoutes } from './backlinks.js'
 import type { BacklinksRoutesOptions } from './backlinks.js'
+import { trafficRoutes } from './traffic.js'
+import type { TrafficRoutesOptions, CloudRunCredentialStore } from './traffic.js'
 import { doctorRoutes } from './doctor.js'
 
 declare module 'fastify' {
@@ -105,6 +107,12 @@ export interface ApiRoutesOptions {
   onCdpConfigure?: CDPRoutesOptions['onCdpConfigure']
   /** GA4 credential store — stores service account keys in config, not DB */
   ga4CredentialStore?: Ga4CredentialStore
+  /** Cloud Run credential store — stores SA keys / OAuth tokens in config, not DB */
+  cloudRunCredentialStore?: CloudRunCredentialStore
+  /** Override Cloud Run pull (tests) — see `TrafficRoutesOptions` */
+  pullCloudRunEvents?: TrafficRoutesOptions['pullCloudRunEvents']
+  /** Override Cloud Run access-token resolver (tests) — see `TrafficRoutesOptions` */
+  resolveCloudRunAccessToken?: TrafficRoutesOptions['resolveCloudRunAccessToken']
   /** Backlinks feature callbacks — see `backlinksRoutes` for details. */
   getBacklinksStatus?: BacklinksRoutesOptions['getBacklinksStatus']
   onInstallBacklinks?: BacklinksRoutesOptions['onInstallBacklinks']
@@ -262,6 +270,11 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       googleConnectionStore: opts.googleConnectionStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
     } satisfies GA4RoutesOptions)
+    await api.register(trafficRoutes, {
+      cloudRunCredentialStore: opts.cloudRunCredentialStore,
+      pullCloudRunEvents: opts.pullCloudRunEvents,
+      resolveCloudRunAccessToken: opts.resolveCloudRunAccessToken,
+    } satisfies TrafficRoutesOptions)
     // Always mount the backlinks routes so read endpoints (summary, domains,
     // history, sync list) work off the shared DB. Action routes (install,
     // sync, extract, cache prune) throw MISSING_DEPENDENCY when the host

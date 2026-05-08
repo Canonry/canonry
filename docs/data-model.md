@@ -34,6 +34,11 @@ erDiagram
   projects ||--o{ bing_keyword_stats : has
   projects ||--o{ bing_coverage_snapshots : has
 
+  projects ||--o{ traffic_sources : has
+  traffic_sources ||--o{ crawler_events_hourly : "rolls up"
+  traffic_sources ||--o{ ai_referral_events_hourly : "rolls up"
+  traffic_sources ||--o{ raw_event_samples : "samples"
+
   projects ||--o| agent_sessions : "has (1:1)"
   projects ||--o{ agent_memory : has
 ```
@@ -80,6 +85,15 @@ erDiagram
 | **ga_traffic_summaries** | Aggregated traffic summaries |
 | **ga_ai_referrals** | AI engine referral tracking. Unique: `(projectId, date, source, medium, sourceDimension)` |
 | **ga_social_referrals** | Social media referral tracking. Unique: `(projectId, date, source, medium, channelGroup)` |
+
+### Server-Side Traffic Ingestion
+
+| Table | Purpose |
+|-------|---------|
+| **traffic_sources** | Per-connection metadata (Cloud Run today; future WordPress / Cloudflare / Vercel). Status `connected` / `paused` / `error` / `archived`. Credentials live in `~/.canonry/config.yaml`, never here. FK: projectId → projects. |
+| **crawler_events_hourly** | Hourly rollup of server-observed AI crawler hits. Composite PK `(projectId, sourceId, tsHour, botId, verificationStatus, pathNormalized, status)` so repeat syncs upsert via `hits + ?`. |
+| **ai_referral_events_hourly** | Hourly rollup of server-observed human AI-referral clicks (UTM or referer evidence). Composite PK matches the crawler bucket pattern. |
+| **raw_event_samples** | Bounded sample tail for classifier debugging (default 30-day retention). FK: sourceId → traffic_sources. |
 
 ### Intelligence
 

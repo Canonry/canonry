@@ -1,0 +1,191 @@
+import { describe, it, beforeEach, afterEach, expect } from 'vitest'
+import os from 'node:os'
+import fs from 'node:fs'
+import path from 'node:path'
+import crypto from 'node:crypto'
+import { parse } from 'yaml'
+import { createClient, migrate, apiKeys, trafficSources } from '@ainyc/canonry-db'
+import { createServer } from '../src/server.js'
+import { ApiClient } from '../src/client.js'
+import { invokeCli, parseJsonOutput } from './cli-test-utils.js'
+
+describe('traffic CLI commands', () => {
+  let tmpDir: string
+  let origConfigDir: string | undefined
+  let client: ApiClient
+  let db: ReturnType<typeof createClient>
+  let close: () => Promise<void>
+
+  beforeEach(async () => {
+    tmpDir = path.join(os.tmpdir(), `canonry-cli-traffic-${crypto.randomUUID()}`)
+    fs.mkdirSync(tmpDir, { recursive: true })
+    origConfigDir = process.env.CANONRY_CONFIG_DIR
+    process.env.CANONRY_CONFIG_DIR = tmpDir
+
+    const dbPath = path.join(tmpDir, 'data.db')
+    const configPath = path.join(tmpDir, 'config.yaml')
+
+    db = createClient(dbPath)
+    migrate(db)
+
+    const apiKeyPlain = `cnry_${crypto.randomBytes(16).toString('hex')}`
+    const hashed = crypto.createHash('sha256').update(apiKeyPlain).digest('hex')
+    db.insert(apiKeys).values({
+      id: crypto.randomUUID(),
+      name: 'test',
+      keyHash: hashed,
+      keyPrefix: apiKeyPlain.slice(0, 8),
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    const config = {
+      apiUrl: 'http://localhost:0',
+      database: dbPath,
+      apiKey: apiKeyPlain,
+      providers: {},
+    }
+    fs.writeFileSync(configPath, JSON.stringify(config), 'utf-8')
+
+    const app = await createServer({
+      config: config as Parameters<typeof createServer>[0]['config'],
+      db,
+      logger: false,
+    })
+    await app.listen({ host: '127.0.0.1', port: 0 })
+
+    const addr = app.server.address()
+    const port = typeof addr === 'object' && addr ? addr.port : 0
+    const serverUrl = `http://127.0.0.1:${port}`
+    config.apiUrl = serverUrl
+    fs.writeFileSync(configPath, JSON.stringify(config), 'utf-8')
+
+    close = () => app.close()
+    client = new ApiClient(serverUrl, apiKeyPlain)
+
+    await client.putProject('test-proj', {
+      displayName: 'Test Project',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+    })
+  })
+
+  afterEach(async () => {
+    await close()
+    if (origConfigDir === undefined) delete process.env.CANONRY_CONFIG_DIR
+    else process.env.CANONRY_CONFIG_DIR = origConfigDir
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('rejects traffic connect cloud-run without --gcp-project', async () => {
+    const result = await invokeCli([
+      'traffic',
+      'connect',
+      'cloud-run',
+      'test-proj',
+      '--service-account-key',
+      '/tmp/does-not-exist.json',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/--gcp-project/)
+  })
+
+  it('rejects traffic connect cloud-run without --service-account-key', async () => {
+    const result = await invokeCli([
+      'traffic',
+      'connect',
+      'cloud-run',
+      'test-proj',
+      '--gcp-project',
+      'openclaw-nyc',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/--service-account-key/)
+  })
+
+  it('reports a clear error when the key file cannot be read', async () => {
+    const result = await invokeCli([
+      'traffic',
+      'connect',
+      'cloud-run',
+      'test-proj',
+      '--gcp-project',
+      'openclaw-nyc',
+      '--service-account-key',
+      '/tmp/this-file-really-does-not-exist-xyzzy.json',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/failed to read --service-account-key/i)
+  })
+
+  it('connects via service-account key file and persists creds + source row', async () => {
+    const keyPath = path.join(tmpDir, 'sa-key.json')
+    fs.writeFileSync(
+      keyPath,
+      JSON.stringify({
+        client_email: 'sa@openclaw-nyc.iam.gserviceaccount.com',
+        private_key: '-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----',
+      }),
+      'utf-8',
+    )
+
+    const result = await invokeCli([
+      'traffic',
+      'connect',
+      'cloud-run',
+      'test-proj',
+      '--gcp-project',
+      'openclaw-nyc',
+      '--service',
+      'openclaw-nyc',
+      '--location',
+      'us-east1',
+      '--service-account-key',
+      keyPath,
+      '--format',
+      'json',
+    ])
+
+    expect(result.exitCode).toBeUndefined()
+    const dto = parseJsonOutput(result.stdout) as { id: string; status: string; config: Record<string, unknown> }
+    expect(dto.id).toBeTruthy()
+    expect(dto.status).toBe('connected')
+    expect(dto.config.gcpProjectId).toBe('openclaw-nyc')
+    expect(dto.config.serviceName).toBe('openclaw-nyc')
+
+    const rows = db.select().from(trafficSources).all()
+    expect(rows.length).toBe(1)
+    expect(rows[0].status).toBe('connected')
+
+    // Credentials persisted to ~/.canonry/config.yaml (CANONRY_CONFIG_DIR points at tmpDir)
+    const yaml = parse(fs.readFileSync(path.join(tmpDir, 'config.yaml'), 'utf-8')) as {
+      cloudRun?: { connections?: Array<{ projectName: string; clientEmail: string }> }
+    }
+    expect(yaml.cloudRun?.connections?.[0]?.projectName).toBe('test-proj')
+    expect(yaml.cloudRun?.connections?.[0]?.clientEmail).toBe('sa@openclaw-nyc.iam.gserviceaccount.com')
+  })
+
+  it('rejects traffic sync without --source', async () => {
+    const result = await invokeCli(['traffic', 'sync', 'test-proj'])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/--source/)
+  })
+
+  it('reports 404 for an unknown traffic source on sync', async () => {
+    const result = await invokeCli([
+      'traffic',
+      'sync',
+      'test-proj',
+      '--source',
+      'no-such-source-id',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/not found/i)
+  })
+
+  it('errors on bare `traffic` invocation', async () => {
+    const result = await invokeCli(['traffic'])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/unknown traffic subcommand/i)
+  })
+})
