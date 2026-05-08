@@ -30,8 +30,11 @@ export function invalidateQueriesForRunKind(
       void queryClient.invalidateQueries({ queryKey: queryKeys.gsc.project(projectName) })
       return
     case RunKinds['ga-sync']:
+      void queryClient.invalidateQueries({ queryKey: queryKeys.traffic.project(projectName) })
+      return
     case RunKinds['traffic-sync']:
       void queryClient.invalidateQueries({ queryKey: queryKeys.traffic.project(projectName) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.serverTraffic.project(projectName) })
       return
     case RunKinds['bing-inspect']:
     case RunKinds['bing-inspect-sitemap']:

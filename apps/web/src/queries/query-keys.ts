@@ -46,4 +46,15 @@ export const queryKeys = {
     sessionHistory: (project: string, window: string) => ['traffic', project, 'session-history', window] as const,
     socialHistory: (project: string, window: string) => ['traffic', project, 'social-history', window] as const,
   },
+  serverTraffic: {
+    all: ['server-traffic'] as const,
+    project: (project: string) => ['server-traffic', project] as const,
+    sources: (project: string) => ['server-traffic', project, 'sources'] as const,
+    sourceDetail: (project: string, sourceId: string) =>
+      ['server-traffic', project, 'sources', sourceId] as const,
+    events: (
+      project: string,
+      filters: { kind?: string; sourceId?: string; sinceMinutes?: number; limit?: number },
+    ) => ['server-traffic', project, 'events', filters] as const,
+  },
 }

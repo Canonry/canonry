@@ -1,7 +1,7 @@
-export const CANONRY_MCP_TIERS = ['core', 'monitoring', 'setup', 'gsc', 'ga', 'agent'] as const
+export const CANONRY_MCP_TIERS = ['core', 'monitoring', 'setup', 'gsc', 'ga', 'traffic', 'agent'] as const
 export type CanonryMcpTier = typeof CANONRY_MCP_TIERS[number]
 
-export const CANONRY_MCP_TOOLKIT_NAMES = ['monitoring', 'setup', 'gsc', 'ga', 'agent'] as const
+export const CANONRY_MCP_TOOLKIT_NAMES = ['monitoring', 'setup', 'gsc', 'ga', 'traffic', 'agent'] as const
 export type CanonryMcpToolkitName = typeof CANONRY_MCP_TOOLKIT_NAMES[number]
 
 export interface CanonryMcpToolkit {
@@ -35,6 +35,12 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
     title: 'Google Analytics 4',
     description: 'Read GA traffic, AI/social referral history, attribution trend, and session history.',
     whenToLoad: 'Load when you need traffic, referral, or attribution data from Google Analytics 4.',
+  },
+  {
+    name: 'traffic',
+    title: 'Server-side traffic ingestion',
+    description: 'Connect Cloud Run traffic sources, trigger syncs, and read crawler / AI-referral hourly rollups straight from server logs (no GA dependency).',
+    whenToLoad: 'Load when you need server-log evidence of crawler hits or AI-referral arrivals (e.g. confirming GPTBot or ChatGPT-User on a page), or when wiring up / syncing a Cloud Run traffic source.',
   },
   {
     name: 'agent',
