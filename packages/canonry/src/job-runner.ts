@@ -9,6 +9,7 @@ import type { ProviderName, NormalizedQueryResult, LocationContext } from '@ainy
 import { buildRunErrorFromMessages, determineAnswerMentioned, effectiveDomains, isBrowserProvider, serializeRunError } from '@ainyc/canonry-contracts'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
+import { buildRunCompletedProps, hashDomain, type RunPhaseTimings } from './run-telemetry.js'
 import { createLogger } from './logger.js'
 import {
   computeCompetitorOverlap,
@@ -129,6 +130,11 @@ type RunExecutionContext = {
   providers: ProviderName[]
   queryCount: number
   location?: string
+  /** Trigger source from the `runs` row — passed through to telemetry so
+   *  scheduled vs manual vs config-apply runs can be cohorted. */
+  trigger?: string
+  /** Project canonical domain — hashed for telemetry; never stored raw. */
+  canonicalDomain?: string
 }
 
 /**
@@ -245,9 +251,13 @@ export class JobRunner {
   async executeRun(runId: string, projectId: string, providerOverride?: ProviderName[], locationOverride?: LocationContext | null): Promise<void> {
     const now = new Date().toISOString()
     const startTime = Date.now()
+    let providerCallStart: number | undefined
+    let providerCallEnd: number | undefined
     let runLocation: LocationContext | undefined
     let activeProviders: RegisteredProvider[] = []
     let projectQueries: typeof queries.$inferSelect[] = []
+    let runTrigger: string | undefined
+    let canonicalDomain: string | undefined
     const providerDispatchCounts = new Map<ProviderName, number>()
 
     try {
@@ -255,11 +265,13 @@ export class JobRunner {
       if (!existingRun) {
         throw new Error(`Run ${runId} not found`)
       }
+      runTrigger = existingRun.trigger ?? undefined
       if (existingRun.status === 'cancelled') {
         this.handleCancelledRun(runId, projectId, startTime, {
           providerCount: 0,
           providers: [],
           queryCount: 0,
+          ...(runTrigger ? { trigger: runTrigger } : {}),
         })
         return
       }
@@ -286,6 +298,7 @@ export class JobRunner {
       if (!project) {
         throw new Error(`Project ${projectId} not found`)
       }
+      canonicalDomain = project.canonicalDomain
 
       // Resolve location: explicit override > project default > none
       // locationOverride === null means explicitly no location (--no-location)
@@ -335,6 +348,8 @@ export class JobRunner {
         providers: activeProviders.map(provider => provider.adapter.name),
         queryCount: projectQueries.length,
         ...(runLocation ? { location: runLocation.label } : {}),
+        ...(runTrigger ? { trigger: runTrigger } : {}),
+        ...(canonicalDomain ? { canonicalDomain } : {}),
       }
 
       // Enforce daily quota per provider — each provider receives one request per query.
@@ -498,6 +513,7 @@ export class JobRunner {
         }
       }
 
+      providerCallStart = Date.now()
       await runWithConcurrency(apiProviders, resolveProviderFanout(), async (registeredProvider) => {
         await Promise.all(projectQueries.map(async (q) => {
           await processQueryForProvider(registeredProvider, q)
@@ -510,6 +526,7 @@ export class JobRunner {
           await processQueryForProvider(registeredProvider, q)
         }
       }
+      providerCallEnd = Date.now()
 
       this.throwIfRunCancelled(runId)
 
@@ -549,15 +566,22 @@ export class JobRunner {
       const failureCode = providerErrors.size > 0
         ? classifyProviderErrors(providerErrors)
         : undefined
-      trackEvent('run.completed', {
-        status: finalStatus,
-        providerCount: executionContext.providerCount,
-        providers: executionContext.providers,
-        queryCount: executionContext.queryCount,
-        durationMs: Date.now() - startTime,
-        ...(failureCode ? { errorCode: failureCode } : {}),
-        ...(executionContext.location ? { location: executionContext.location } : {}),
-      })
+      const phases = buildPhases({ startTime, providerCallStart, providerCallEnd })
+      trackEvent(
+        'run.completed',
+        buildRunCompletedProps({
+          status: finalStatus,
+          providerCount: executionContext.providerCount,
+          providers: executionContext.providers,
+          queryCount: executionContext.queryCount,
+          startTime,
+          trigger: executionContext.trigger,
+          canonicalDomain: executionContext.canonicalDomain,
+          phases,
+          location: executionContext.location,
+        }),
+        failureCode ? { errorCode: failureCode } : undefined,
+      )
 
       this.incrementUsage(projectId, 'runs', 1)
 
@@ -573,6 +597,8 @@ export class JobRunner {
         providers: activeProviders.map(provider => provider.adapter.name),
         queryCount: projectQueries.length,
         ...(runLocation ? { location: runLocation.label } : {}),
+        ...(runTrigger ? { trigger: runTrigger } : {}),
+        ...(canonicalDomain ? { canonicalDomain } : {}),
       }
 
       if (err instanceof RunCancelledError || this.isRunCancelled(runId)) {
@@ -603,25 +629,36 @@ export class JobRunner {
       // failed in the DB above so the user sees it, but the telemetry stream
       // stays clean for monitoring real audit failures.
       const abortReason = classifyRunAbortReason(errorMessage)
+      const phases = buildPhases({ startTime, providerCallStart, providerCallEnd })
       if (abortReason) {
+        const domainHash = hashDomain(executionContext.canonicalDomain ?? null)
         trackEvent('run.aborted', {
           reason: abortReason,
           providerCount: executionContext.providerCount,
           providers: executionContext.providers,
           queryCount: executionContext.queryCount,
           durationMs: Date.now() - startTime,
+          ...(executionContext.trigger ? { trigger: executionContext.trigger } : {}),
+          ...(domainHash ? { domainHash } : {}),
+          ...(phases ? { phases } : {}),
           ...(executionContext.location ? { location: executionContext.location } : {}),
         })
       } else {
-        trackEvent('run.completed', {
-          status: 'failed',
-          errorCode: 'UNKNOWN',
-          providerCount: executionContext.providerCount,
-          providers: executionContext.providers,
-          queryCount: executionContext.queryCount,
-          durationMs: Date.now() - startTime,
-          ...(executionContext.location ? { location: executionContext.location } : {}),
-        })
+        trackEvent(
+          'run.completed',
+          buildRunCompletedProps({
+            status: 'failed',
+            providerCount: executionContext.providerCount,
+            providers: executionContext.providers,
+            queryCount: executionContext.queryCount,
+            startTime,
+            trigger: executionContext.trigger,
+            canonicalDomain: executionContext.canonicalDomain,
+            phases,
+            location: executionContext.location,
+          }),
+          { errorCode: 'UNKNOWN' },
+        )
       }
 
       // Notify on failure too
@@ -657,12 +694,13 @@ export class JobRunner {
     }
   }
 
-  private getRunState(runId: string): { status: string; finishedAt: string | null; error: string | null } | undefined {
+  private getRunState(runId: string): { status: string; finishedAt: string | null; error: string | null; trigger: string | null } | undefined {
     return this.db
       .select({
         status: runs.status,
         finishedAt: runs.finishedAt,
         error: runs.error,
+        trigger: runs.trigger,
       })
       .from(runs)
       .where(eq(runs.id, runId))
@@ -697,14 +735,20 @@ export class JobRunner {
         .run()
     }
 
-    trackEvent('run.completed', {
-      status: 'cancelled',
-      providerCount: context.providerCount,
-      providers: context.providers,
-      queryCount: context.queryCount,
-      durationMs: Date.now() - startTime,
-      ...(context.location ? { location: context.location } : {}),
-    })
+    trackEvent(
+      'run.completed',
+      buildRunCompletedProps({
+        status: 'cancelled',
+        providerCount: context.providerCount,
+        providers: context.providers,
+        queryCount: context.queryCount,
+        startTime,
+        trigger: context.trigger,
+        canonicalDomain: context.canonicalDomain,
+        location: context.location,
+      }),
+      { errorCode: 'RUN_CANCELLED' },
+    )
 
     if (this.onRunCompleted) {
       this.onRunCompleted(runId, projectId).catch((err: unknown) => {
@@ -716,4 +760,21 @@ export class JobRunner {
 
 function getCurrentUsageDay(): string {
   return new Date().toISOString().slice(0, 10)
+}
+
+function buildPhases(input: {
+  startTime: number
+  providerCallStart: number | undefined
+  providerCallEnd: number | undefined
+}): RunPhaseTimings | undefined {
+  const total_ms = Date.now() - input.startTime
+  // Pre-provider failures (missing project, no providers, quota) never reach
+  // the provider-call section, so report only total_ms in that case rather
+  // than emit zeros that would skew percentile dashboards.
+  if (input.providerCallStart === undefined) {
+    return { setup_ms: total_ms, provider_call_ms: 0, total_ms }
+  }
+  const setup_ms = input.providerCallStart - input.startTime
+  const provider_call_ms = (input.providerCallEnd ?? Date.now()) - input.providerCallStart
+  return { setup_ms, provider_call_ms, total_ms }
 }

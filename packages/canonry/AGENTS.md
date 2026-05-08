@@ -9,6 +9,9 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | File | Role |
 |------|------|
 | `src/cli.ts` | CLI entry point — shebang, telemetry, command dispatch |
+| `src/telemetry.ts` | `trackEvent`, source attribution, per-process `sessionId`, `cli.upgraded` detection |
+| `src/run-telemetry.ts` | `classifyRunError`, `buildRunCompletedProps` — keeps the `run.completed` payload composition in one spot |
+| `src/setup-state.ts` | `buildSetupState` — `{ provider_count, has_keywords, project_count, is_first_run }` snapshot ridden on every `cli.command` |
 | `src/cli-commands.ts` | `REGISTERED_CLI_COMMANDS` array — declarative command specs |
 | `src/commands/` | Command implementations (one file per domain) |
 | `src/commands/competitor.ts` | Competitor commands: `competitor add`, `remove`/`delete`, `list` |
@@ -181,6 +184,60 @@ The `<memory>` hydrate block is appended at session-build time by
 webhook subscribing to `run.completed`, `insight.critical`, `insight.high`,
 `citation.gained`. Idempotent — skipped if one already exists on the project.
 `canonry agent detach <project>` removes it.
+
+## Telemetry events
+
+Anonymous fire-and-forget telemetry, opt-out via `canonry telemetry disable`,
+`CANONRY_TELEMETRY_DISABLED=1`, `DO_NOT_TRACK=1`, or any truthy `CI` env var.
+All events POST to `https://ainyc.ai/api/telemetry` with the following
+top-level envelope:
+
+```jsonc
+{
+  "anonymousId": "uuid-v4",          // stable per-install (~/.canonry/config.yaml)
+  "sessionId":   "uuid-v4",          // per-process — same for every event in one CLI invocation / serve boot
+  "source":      "cli",              // surface that emitted; see TelemetrySource below
+  "sourceContext": "...",            // optional sub-source ("php/8.2 wp-cron")
+  "event":       "cli.command",
+  "timestamp":   "...",
+  "version":     "4.15.0",
+  "nodeVersion": "...",
+  "os":          "darwin",
+  "arch":        "arm64",
+  "errorCode":   "NO_PROVIDERS",     // present only when the event represents a failure
+  "properties":  { ... }
+}
+```
+
+### Source taxonomy (`TelemetrySource`)
+
+| Source | When |
+|--------|------|
+| `cli` | One-shot CLI command (`canonry run`, `canonry status`, …) |
+| `cli-server` | Long-running `canonry serve` process (set via `setTelemetrySource('cli-server')` after the server boots, so dashboard/API/scheduler-driven events ride this source) |
+| `api` | Reserved — direct API caller (cloud `apps/api`) |
+| `mcp-server` | Reserved — `canonry-mcp` stdio adapter (currently forbidden from emitting per `Surface Priority → Agent & automation design principles → MCP adapter boundary`; emission would require a separate adapter) |
+| `wp-plugin` | Reserved — WordPress plugin |
+| `dashboard` | Reserved — browser-side emissions from `apps/web/` |
+| `agent-runtime` | Reserved — Aero / external agent runtimes |
+
+### Event catalog
+
+| Event | Properties | Notes |
+|-------|-----------|-------|
+| `cli.command` | `{ command, setup_state? }` | Fires on every CLI invocation except `telemetry` and `--help`. `setup_state: { provider_count, has_keywords, project_count, is_first_run }` lets the receiver cohort by configured / not-configured. |
+| `cli.init` | `{ providerCount, providers }` | Fires from `canonry init`. |
+| `cli.upgraded` | `{ fromVersion, toVersion }` | Fires once when the on-disk `lastSeenVersion` differs from the running build. Suppressed on a fresh install (no prior version recorded). |
+| `serve.started` | `{ providerCount, providers }` | Fires after `canonry serve` opens its listener; this is also when `source` flips to `cli-server`. |
+| `run.completed` | `{ status, providerCount, providers, queryCount, durationMs, trigger?, domainHash?, phases?, location? }` | `trigger` mirrors `runs.trigger` (`manual` / `scheduled` / `config-apply`). `domainHash` = SHA-256 of the project canonical hostname (no raw domains stored). `phases = { setup_ms, provider_call_ms, total_ms }`. Failures additionally set top-level `errorCode` from `RunErrorCode` (`PROJECT_NOT_FOUND` / `RUN_NOT_FOUND` / `RUN_NOT_EXECUTABLE` / `NO_PROVIDERS` / `QUOTA_EXCEEDED` / `RUN_CANCELLED` / `PROVIDER_ERROR` / `INTERNAL`). |
+
+### Adding a new event
+
+1. Pick a stable `event` name and add it to the catalog above.
+2. Call `trackEvent(event, properties, options)` from the originating code path. Pass `options.source` if the default global source is wrong; pass `options.errorCode` for failure events.
+3. If the event represents a run/job result, compose the payload through a helper in `src/run-telemetry.ts` (or a sibling) so the shape stays in one place — never inline a new property bag in three call sites.
+4. Add tests that assert the new field/event in `packages/canonry/test/telemetry.test.ts` (or a dedicated file like `run-telemetry.test.ts`).
+5. Bump the version in both `package.json` files.
 
 ## See Also
 

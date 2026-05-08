@@ -401,6 +401,13 @@ describe('telemetry', () => {
         expect(payload.version).toBeTruthy()
         expect(payload.timestamp, 'timestamp should be set').toBeTruthy()
         expect(payload.properties).toEqual({ command: 'run' })
+        // Source attribution + session id ride on every event so the
+        // receiving end can cohort by surface and reconstruct sessions.
+        expect(payload.source).toBe('cli')
+        expect(typeof payload.sessionId).toBe('string')
+        expect(payload.sessionId).toMatch(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+        )
       } finally {
         globalThis.fetch = originalFetch
       }
@@ -731,6 +738,86 @@ describe('telemetry', () => {
     })
   })
 
+  // ── cli.upgraded detection ──────────────────────────────────────────
+
+  describe('detectAndTrackUpgrade', () => {
+    async function captureFetch(
+      run: () => void | Promise<void>,
+    ): Promise<Array<Record<string, unknown>>> {
+      const captured: Array<Record<string, unknown>> = []
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+        if (init?.body) captured.push(JSON.parse(init.body as string))
+        return new Response(JSON.stringify({ ok: true }))
+      }
+      try {
+        await run()
+        await new Promise((resolve) => setTimeout(resolve, 30))
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+      return captured
+    }
+
+    it('does not emit cli.upgraded on a fresh install (no prior version)', async () => {
+      const { saveConfig, loadConfig } = await import('../src/config.js')
+      saveConfig(makeConfig({ anonymousId: crypto.randomUUID() }))
+      const { detectAndTrackUpgrade } = await import('../src/telemetry.js')
+
+      const events = await captureFetch(() => detectAndTrackUpgrade())
+      expect(events.find((e) => e.event === 'cli.upgraded')).toBe(undefined)
+
+      // The current version is still recorded, so a real upgrade later does fire.
+      expect(loadConfig().lastSeenVersion).toBeTruthy()
+    })
+
+    it('does not emit when the stored version matches current', async () => {
+      const { saveConfig } = await import('../src/config.js')
+      const { trackEvent: _t } = await import('../src/telemetry.js') // load module to read VERSION
+      // Read the current version through the public API by emitting once
+      // and inspecting payload.version.
+      let currentVersion: string | undefined
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = async (_u: string | URL | Request, init?: RequestInit) => {
+        if (init?.body) currentVersion = (JSON.parse(init.body as string) as { version: string }).version
+        return new Response()
+      }
+      try {
+        saveConfig(makeConfig({ anonymousId: crypto.randomUUID() }))
+        _t('seed')
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+      expect(currentVersion).toBeTruthy()
+
+      saveConfig(makeConfig({ anonymousId: crypto.randomUUID(), lastSeenVersion: currentVersion }))
+      const { detectAndTrackUpgrade } = await import('../src/telemetry.js')
+      const events = await captureFetch(() => detectAndTrackUpgrade())
+      expect(events.find((e) => e.event === 'cli.upgraded')).toBe(undefined)
+    })
+
+    it('emits cli.upgraded when the stored version differs and updates the config', async () => {
+      const { saveConfig, loadConfig } = await import('../src/config.js')
+      saveConfig(makeConfig({ anonymousId: crypto.randomUUID(), lastSeenVersion: '0.0.1-test' }))
+      const { detectAndTrackUpgrade } = await import('../src/telemetry.js')
+
+      const events = await captureFetch(() => detectAndTrackUpgrade())
+      const upgrade = events.find((e) => e.event === 'cli.upgraded')
+      expect(upgrade).toBeTruthy()
+      expect((upgrade!.properties as Record<string, unknown>).fromVersion).toBe('0.0.1-test')
+      expect((upgrade!.properties as Record<string, unknown>).toVersion).toBeTruthy()
+
+      // Subsequent calls must be a no-op — lastSeenVersion is now current.
+      const after = loadConfig().lastSeenVersion
+      expect(after).toBeTruthy()
+      expect(after).not.toBe('0.0.1-test')
+
+      const second = await captureFetch(() => detectAndTrackUpgrade())
+      expect(second.find((e) => e.event === 'cli.upgraded')).toBe(undefined)
+    })
+  })
+
   // ── JobRunner outer-catch telemetry ─────────────────────────────────
 
   describe('JobRunner fatal failure telemetry', () => {
@@ -789,9 +876,22 @@ describe('telemetry', () => {
 
         const abortEvent = capturedPayloads.find(p => p.event === 'run.aborted')
         expect(abortEvent, 'expected a run.aborted telemetry event').toBeTruthy()
-        expect((abortEvent!.properties as Record<string, unknown>).reason).toBe('no_provider')
-        expect((abortEvent!.properties as Record<string, unknown>).providerCount).toBe(0)
-        expect((abortEvent!.properties as Record<string, unknown>).queryCount).toBe(0)
+        const abortProps = abortEvent!.properties as Record<string, unknown>
+        expect(abortProps.reason).toBe('no_provider')
+        expect(abortProps.providerCount).toBe(0)
+        expect(abortProps.queryCount).toBe(0)
+        // runs.trigger defaults to 'manual' on the row inserted above.
+        expect(abortProps.trigger).toBe('manual')
+        // SHA256 of 'example.com' (canonical domain on the project row).
+        expect(abortProps.domainHash).toBe('a379a6f6eeafb9a55e378c118034e2751e682fab9f2d30ab13d2125586ce1947')
+        const phases = abortProps.phases as Record<string, unknown>
+        expect(phases).toBeTruthy()
+        expect(typeof phases.total_ms).toBe('number')
+        expect(phases.provider_call_ms).toBe(0) // aborted before provider call
+        // Source attribution: tests run synchronously via JobRunner without
+        // calling setTelemetrySource — the default is 'cli'.
+        expect(abortEvent!.source).toBe('cli')
+        expect(typeof abortEvent!.sessionId).toBe('string')
 
         // The run is still recorded as failed in the DB so the user sees it —
         // the change is purely in the telemetry stream.
@@ -857,13 +957,18 @@ describe('telemetry', () => {
 
         const abortEvent = capturedPayloads.find(p => p.event === 'run.aborted')
         expect(abortEvent, 'expected a run.aborted telemetry event').toBeTruthy()
-        expect((abortEvent!.properties as Record<string, unknown>).reason).toBe('project_not_found')
+        const abortProps = abortEvent!.properties as Record<string, unknown>
+        expect(abortProps.reason).toBe('project_not_found')
+        // The lookup failed before we read the project row, so the
+        // canonical domain isn't known and `domainHash` must be omitted
+        // rather than reported as a hash of an empty string.
+        expect(abortProps.domainHash).toBe(undefined)
       } finally {
         globalThis.fetch = originalFetch
       }
     })
 
-    it('emits run.completed status=failed with errorCode=UNKNOWN for non-classified runtime failures', async () => {
+    it('emits run.aborted with reason=run_not_found when the run row is missing', async () => {
       const { saveConfig } = await import('../src/config.js')
       saveConfig(makeConfig({ anonymousId: crypto.randomUUID() }))
 
@@ -871,9 +976,7 @@ describe('telemetry', () => {
       const db = createClient(dbPath)
       migrate(db)
 
-      // Run with a non-existent runId — triggers the "Run X not found" path,
-      // which is NOT a config-validation abort (it indicates a corrupted run
-      // queue, not a user setup problem).
+      // Run with a non-existent runId — triggers the "Run X not found" path.
       const ghostRunId = crypto.randomUUID()
       const projectId = crypto.randomUUID()
 

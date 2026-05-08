@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import os from 'node:os'
-import { loadConfig, saveConfigPatch, configExists } from './config.js'
+import { loadConfig, saveConfigPatch, configExists, loadConfigRaw } from './config.js'
 
 import { createRequire } from 'node:module'
 const _require = createRequire(import.meta.url)
@@ -12,15 +12,87 @@ const TIMEOUT_MS = 3_000
 const ANON_ID_ENV_VAR = 'CANONRY_ANONYMOUS_ID'
 const ANON_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+/**
+ * Surface that emitted the event. Lets us slice metrics by origin instead of
+ * inferring from event names. The CLI process defaults to `'cli'`; long-lived
+ * `canonry serve` switches itself to `'cli-server'` so dashboard/API-driven
+ * runs can be told apart from one-shot `canonry run` invocations.
+ *
+ * Future surfaces (`'wp-plugin'`, `'mcp-server'`, `'api'`, `'dashboard'`,
+ * `'agent-runtime'`) are reserved here so receivers can validate against a
+ * stable enum even before each emitter exists.
+ */
+export type TelemetrySource =
+  | 'cli'
+  | 'cli-server'
+  | 'api'
+  | 'mcp-server'
+  | 'wp-plugin'
+  | 'dashboard'
+  | 'agent-runtime'
+
+/**
+ * Free-shape JSON-serializable property bag. Nested objects are allowed for
+ * grouped fields like `phases` (run.completed) and `setupState` (cli.command).
+ * Non-JSON values (functions, symbols) silently drop in `JSON.stringify`.
+ */
+export type TelemetryProperties = Record<string, unknown>
+
 export interface TelemetryEvent {
+  /** Stable per-install UUID stored in `~/.canonry/config.yaml`. */
   anonymousId: string
+  /** Per-process UUID — groups the events from one CLI invocation or one
+   *  server boot together so a single user-session can be reconstructed. */
+  sessionId: string
+  /** Origin surface; see `TelemetrySource`. */
+  source: TelemetrySource
+  /** Optional sub-source ("php/8.2 wp-cron", "claude-desktop"). */
+  sourceContext?: string
+  /** Event name (`'cli.command'`, `'run.completed'`, …). */
   event: string
+  /** ISO-8601 timestamp at emission time. */
   timestamp: string
+  /** Canonry CLI version. */
   version: string
   nodeVersion: string
   os: string
   arch: string
-  properties?: Record<string, string | number | boolean | string[]>
+  /** Stable error classifier when the event represents a failure. */
+  errorCode?: string
+  /** Free-shape per-event payload. */
+  properties?: TelemetryProperties
+}
+
+export interface TrackEventOptions {
+  /** Override the global default source — used by `canonry serve` to flip
+   *  to `'cli-server'` and by tests. */
+  source?: TelemetrySource
+  /** Free-form sub-source for finer attribution. */
+  sourceContext?: string
+  /** Stable error classifier (see `RUN_ERROR_CODES` etc. in callers). */
+  errorCode?: string
+}
+
+// ── Per-process state ──────────────────────────────────────────────────
+
+const SESSION_ID = crypto.randomUUID()
+let CURRENT_SOURCE: TelemetrySource = 'cli'
+
+/** Returns the per-process session ID. Stable for the lifetime of the process. */
+export function getSessionId(): string {
+  return SESSION_ID
+}
+
+/**
+ * Override the global default source for subsequent `trackEvent` calls.
+ * Callers can still pass `options.source` to override per-event.
+ */
+export function setTelemetrySource(source: TelemetrySource): void {
+  CURRENT_SOURCE = source
+}
+
+export function getTelemetrySource(): TelemetrySource {
+  return CURRENT_SOURCE
 }
 
 /**
@@ -170,12 +242,48 @@ export function showFirstRunNotice(): void {
 }
 
 /**
+ * If the on-disk `lastSeenVersion` differs from the current build, emit a
+ * `cli.upgraded` event with `{ fromVersion, toVersion }` and persist the new
+ * version. No-op when telemetry is disabled, no config exists, or the version
+ * is unchanged. Idempotent: subsequent calls in the same process will not
+ * re-emit because the config has been updated.
+ */
+export function detectAndTrackUpgrade(): void {
+  if (!isTelemetryEnabled()) return
+  if (!configExists()) return
+
+  let lastSeen: string | undefined
+  try {
+    const raw = loadConfigRaw()
+    lastSeen = raw?.lastSeenVersion
+  } catch {
+    return
+  }
+
+  if (lastSeen === VERSION) return
+
+  // Persist the new version first so a thrown trackEvent never reverts state.
+  try {
+    saveConfigPatch({ lastSeenVersion: VERSION })
+  } catch {
+    return
+  }
+
+  // Skip the event itself on a fresh install (no prior version recorded);
+  // we already have `cli.init` for that. Only emit on an actual upgrade.
+  if (!lastSeen) return
+
+  trackEvent('cli.upgraded', { fromVersion: lastSeen, toVersion: VERSION })
+}
+
+/**
  * Fire a telemetry event. Non-blocking, fire-and-forget.
  * Never throws, never blocks the CLI.
  */
 export function trackEvent(
   event: string,
-  properties?: Record<string, string | number | boolean | string[]>,
+  properties?: TelemetryProperties,
+  options?: TrackEventOptions,
 ): void {
   if (!isTelemetryEnabled()) return
 
@@ -184,13 +292,17 @@ export function trackEvent(
 
   const payload: TelemetryEvent = {
     anonymousId,
+    sessionId: SESSION_ID,
+    source: options?.source ?? CURRENT_SOURCE,
     event,
     timestamp: new Date().toISOString(),
     version: VERSION,
     nodeVersion: process.versions.node,
     os: process.platform,
     arch: process.arch,
-    properties,
+    ...(options?.sourceContext ? { sourceContext: options.sourceContext } : {}),
+    ...(options?.errorCode ? { errorCode: options.errorCode } : {}),
+    ...(properties ? { properties } : {}),
   }
 
   const controller = new AbortController()

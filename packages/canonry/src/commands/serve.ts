@@ -1,7 +1,7 @@
 import { loadConfig } from '../config.js'
 import { createClient, migrate } from '@ainyc/canonry-db'
 import { createServer } from '../server.js'
-import { trackEvent } from '../telemetry.js'
+import { trackEvent, setTelemetrySource } from '../telemetry.js'
 import { CliError, type CliFormat } from '../cli-error.js'
 import { backfillAiReferralPaths, backfillNormalizedPaths } from './backfill.js'
 
@@ -100,6 +100,12 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
       console.log(`\nCanonry server running at ${url}`)
       console.log('Press Ctrl+C to stop.\n')
     }
+
+    // Switch the source for the rest of this process — every event emitted
+    // while `canonry serve` is running (run.completed, scheduled runs, future
+    // dashboard-driven actions) needs to be distinguishable from one-shot
+    // CLI events.
+    setTelemetrySource('cli-server')
 
     const providerNames = Object.keys(config.providers ?? {}).filter(
       k => config.providers?.[k as keyof typeof config.providers]?.apiKey || config.providers?.[k as keyof typeof config.providers]?.baseUrl,
