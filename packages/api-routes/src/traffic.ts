@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { eq, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, lte, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   trafficSources,
@@ -11,6 +11,7 @@ import {
 } from '@ainyc/canonry-db'
 import {
   notFound,
+  providerError,
   validationError,
   RunKinds,
   RunStatuses,
@@ -18,12 +19,18 @@ import {
   TrafficSourceStatuses,
   TrafficSourceTypes,
   TrafficSourceAuthModes,
+  TrafficEventKinds,
 } from '@ainyc/canonry-contracts'
 import type {
   TrafficSourceDto,
+  TrafficSourceDetailDto,
+  TrafficSourceListResponse,
   TrafficSyncResponse,
   TrafficSourceStatus,
   TrafficSourceAuthMode,
+  TrafficEventEntry,
+  TrafficEventKind,
+  TrafficEventsResponse,
 } from '@ainyc/canonry-contracts'
 import {
   listCloudRunTrafficEvents,
@@ -312,22 +319,29 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       })
       .run()
 
+    const markFailed = (msg: string) => {
+      const failedAt = new Date().toISOString()
+      app.db.transaction((tx) => {
+        tx
+          .update(runs)
+          .set({ status: RunStatuses.failed, error: msg, finishedAt: failedAt })
+          .where(eq(runs.id, runId))
+          .run()
+        tx
+          .update(trafficSources)
+          .set({ status: TrafficSourceStatuses.error, lastError: msg, updatedAt: failedAt })
+          .where(eq(trafficSources.id, sourceRow.id))
+          .run()
+      })
+    }
+
     let accessToken: string
     try {
       accessToken = await resolveAccessToken(credential)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      app.db
-        .update(runs)
-        .set({ status: RunStatuses.failed, error: msg, finishedAt: new Date().toISOString() })
-        .where(eq(runs.id, runId))
-        .run()
-      app.db
-        .update(trafficSources)
-        .set({ status: TrafficSourceStatuses.error, lastError: msg, updatedAt: new Date().toISOString() })
-        .where(eq(trafficSources.id, sourceRow.id))
-        .run()
-      throw validationError(`Failed to resolve Cloud Run access token: ${msg}`)
+      markFailed(msg)
+      throw providerError(`Failed to resolve Cloud Run access token: ${msg}`)
     }
 
     let allEvents: CloudRunTrafficEventsPage['events'] = []
@@ -344,17 +358,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       allEvents = page.events
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      app.db
-        .update(runs)
-        .set({ status: RunStatuses.failed, error: msg, finishedAt: new Date().toISOString() })
-        .where(eq(runs.id, runId))
-        .run()
-      app.db
-        .update(trafficSources)
-        .set({ status: TrafficSourceStatuses.error, lastError: msg, updatedAt: new Date().toISOString() })
-        .where(eq(trafficSources.id, sourceRow.id))
-        .run()
-      throw validationError(`Cloud Run pull failed: ${msg}`)
+      markFailed(msg)
+      throw providerError(`Cloud Run pull failed: ${msg}`)
     }
 
     const report = buildTrafficProbeReport(allEvents, { sampleLimit })
@@ -515,6 +520,246 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       sampleRows,
       windowStart: windowStart.toISOString(),
       windowEnd: windowEnd.toISOString(),
+    }
+    return response
+  })
+
+  // GET /projects/:name/traffic/sources
+  app.get<{ Params: { name: string } }>('/projects/:name/traffic/sources', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const rows = app.db
+      .select()
+      .from(trafficSources)
+      .where(eq(trafficSources.projectId, project.id))
+      .orderBy(desc(trafficSources.createdAt))
+      .all()
+    const sources: TrafficSourceDto[] = rows
+      .filter((row) => row.status !== TrafficSourceStatuses.archived)
+      .map(rowToDto)
+    const response: TrafficSourceListResponse = { sources }
+    return response
+  })
+
+  // GET /projects/:name/traffic/sources/:id
+  app.get<{ Params: { name: string; id: string } }>(
+    '/projects/:name/traffic/sources/:id',
+    async (request) => {
+      const project = resolveProject(app.db, request.params.name)
+      const row = app.db
+        .select()
+        .from(trafficSources)
+        .where(eq(trafficSources.id, request.params.id))
+        .get()
+      if (!row || row.projectId !== project.id) {
+        throw notFound('Traffic source', request.params.id)
+      }
+
+      const since = new Date(Date.now() - 24 * 60 * 60_000).toISOString()
+
+      const crawlerTotals = app.db
+        .select({ total: sql<number>`COALESCE(SUM(${crawlerEventsHourly.hits}), 0)` })
+        .from(crawlerEventsHourly)
+        .where(
+          and(
+            eq(crawlerEventsHourly.sourceId, row.id),
+            gte(crawlerEventsHourly.tsHour, since),
+          ),
+        )
+        .get()
+
+      const aiTotals = app.db
+        .select({ total: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.sessionsOrHits}), 0)` })
+        .from(aiReferralEventsHourly)
+        .where(
+          and(
+            eq(aiReferralEventsHourly.sourceId, row.id),
+            gte(aiReferralEventsHourly.tsHour, since),
+          ),
+        )
+        .get()
+
+      const sampleTotals = app.db
+        .select({ total: sql<number>`COUNT(*)` })
+        .from(rawEventSamples)
+        .where(
+          and(
+            eq(rawEventSamples.sourceId, row.id),
+            gte(rawEventSamples.ts, since),
+          ),
+        )
+        .get()
+
+      const latestRun = app.db
+        .select()
+        .from(runs)
+        .where(
+          and(
+            eq(runs.projectId, project.id),
+            eq(runs.kind, RunKinds['traffic-sync']),
+          ),
+        )
+        .orderBy(desc(runs.startedAt))
+        .limit(1)
+        .get()
+
+      const detail: TrafficSourceDetailDto = {
+        ...rowToDto(row),
+        totals24h: {
+          crawlerHits: Number(crawlerTotals?.total ?? 0),
+          aiReferralHits: Number(aiTotals?.total ?? 0),
+          sampleCount: Number(sampleTotals?.total ?? 0),
+        },
+        latestRun: latestRun
+          ? {
+              runId: latestRun.id,
+              status: latestRun.status,
+              startedAt: latestRun.startedAt,
+              finishedAt: latestRun.finishedAt ?? null,
+              error: latestRun.error ?? null,
+            }
+          : null,
+      }
+      return detail
+    },
+  )
+
+  // GET /projects/:name/traffic/events
+  app.get<{
+    Params: { name: string }
+    Querystring: { since?: string; until?: string; kind?: string; limit?: string; sourceId?: string }
+  }>('/projects/:name/traffic/events', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+
+    const now = new Date()
+    const defaultSince = new Date(now.getTime() - 24 * 60 * 60_000)
+
+    const sinceParam = request.query?.since
+    const untilParam = request.query?.until
+    const since = sinceParam ? new Date(sinceParam) : defaultSince
+    const until = untilParam ? new Date(untilParam) : now
+    if (Number.isNaN(since.getTime())) {
+      throw validationError('"since" must be an ISO-8601 timestamp')
+    }
+    if (Number.isNaN(until.getTime())) {
+      throw validationError('"until" must be an ISO-8601 timestamp')
+    }
+    if (since.getTime() > until.getTime()) {
+      throw validationError('"since" must be ≤ "until"')
+    }
+
+    const kindParam = request.query?.kind
+    let kind: TrafficEventKind | 'all' = 'all'
+    if (kindParam !== undefined) {
+      if (kindParam === 'all' || kindParam === TrafficEventKinds.crawler || kindParam === TrafficEventKinds['ai-referral']) {
+        kind = kindParam
+      } else {
+        throw validationError(`"kind" must be one of: all, ${TrafficEventKinds.crawler}, ${TrafficEventKinds['ai-referral']}`)
+      }
+    }
+
+    const limitParam = request.query?.limit
+    const requestedLimit = limitParam ? parseInt(limitParam, 10) : 500
+    if (!Number.isFinite(requestedLimit) || requestedLimit <= 0) {
+      throw validationError('"limit" must be a positive integer')
+    }
+    const limit = Math.min(requestedLimit, 5000)
+
+    const sourceIdParam = request.query?.sourceId
+    const sinceIso = since.toISOString()
+    const untilIso = until.toISOString()
+
+    const events: TrafficEventEntry[] = []
+    let crawlerTotal = 0
+    let aiReferralTotal = 0
+
+    if (kind === 'all' || kind === TrafficEventKinds.crawler) {
+      const crawlerFilters = [
+        eq(crawlerEventsHourly.projectId, project.id),
+        gte(crawlerEventsHourly.tsHour, sinceIso),
+        lte(crawlerEventsHourly.tsHour, untilIso),
+      ]
+      if (sourceIdParam) crawlerFilters.push(eq(crawlerEventsHourly.sourceId, sourceIdParam))
+      const crawlerWhere = and(...crawlerFilters)
+
+      const total = app.db
+        .select({ total: sql<number>`COALESCE(SUM(${crawlerEventsHourly.hits}), 0)` })
+        .from(crawlerEventsHourly)
+        .where(crawlerWhere)
+        .get()
+      crawlerTotal = Number(total?.total ?? 0)
+
+      const rows = app.db
+        .select()
+        .from(crawlerEventsHourly)
+        .where(crawlerWhere)
+        .orderBy(desc(crawlerEventsHourly.tsHour))
+        .limit(limit)
+        .all()
+      for (const r of rows) {
+        events.push({
+          kind: TrafficEventKinds.crawler,
+          sourceId: r.sourceId,
+          tsHour: r.tsHour,
+          botId: r.botId,
+          operator: r.operator,
+          verificationStatus: r.verificationStatus,
+          pathNormalized: r.pathNormalized,
+          status: r.status,
+          hits: r.hits,
+        })
+      }
+    }
+
+    if (kind === 'all' || kind === TrafficEventKinds['ai-referral']) {
+      const aiFilters = [
+        eq(aiReferralEventsHourly.projectId, project.id),
+        gte(aiReferralEventsHourly.tsHour, sinceIso),
+        lte(aiReferralEventsHourly.tsHour, untilIso),
+      ]
+      if (sourceIdParam) aiFilters.push(eq(aiReferralEventsHourly.sourceId, sourceIdParam))
+      const aiWhere = and(...aiFilters)
+
+      const total = app.db
+        .select({ total: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.sessionsOrHits}), 0)` })
+        .from(aiReferralEventsHourly)
+        .where(aiWhere)
+        .get()
+      aiReferralTotal = Number(total?.total ?? 0)
+
+      const rows = app.db
+        .select()
+        .from(aiReferralEventsHourly)
+        .where(aiWhere)
+        .orderBy(desc(aiReferralEventsHourly.tsHour))
+        .limit(limit)
+        .all()
+      for (const r of rows) {
+        events.push({
+          kind: TrafficEventKinds['ai-referral'],
+          sourceId: r.sourceId,
+          tsHour: r.tsHour,
+          product: r.product,
+          operator: r.operator,
+          sourceDomain: r.sourceDomain,
+          evidenceType: r.evidenceType,
+          landingPathNormalized: r.landingPathNormalized,
+          status: r.status,
+          hits: r.sessionsOrHits,
+        })
+      }
+    }
+
+    events.sort((a, b) => (a.tsHour < b.tsHour ? 1 : a.tsHour > b.tsHour ? -1 : 0))
+    const trimmed = events.slice(0, limit)
+
+    const response: TrafficEventsResponse = {
+      windowStart: sinceIso,
+      windowEnd: untilIso,
+      totals: {
+        crawlerHits: crawlerTotal,
+        aiReferralHits: aiReferralTotal,
+      },
+      events: trimmed,
     }
     return response
   })
