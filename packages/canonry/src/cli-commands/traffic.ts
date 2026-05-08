@@ -1,4 +1,10 @@
-import { trafficConnectCloudRun, trafficSync } from '../commands/traffic.js'
+import {
+  trafficConnectCloudRun,
+  trafficEvents,
+  trafficSources,
+  trafficStatus,
+  trafficSync,
+} from '../commands/traffic.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getString, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 
@@ -71,13 +77,70 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['traffic', 'sources'],
+    usage: 'canonry traffic sources <project> [--format json]',
+    run: async (input) => {
+      const project = requireProject(
+        input,
+        'traffic.sources',
+        'canonry traffic sources <project>',
+      )
+      await trafficSources(project, { format: input.format })
+    },
+  },
+  {
+    path: ['traffic', 'status'],
+    usage: 'canonry traffic status <project> [--format json]',
+    run: async (input) => {
+      const project = requireProject(
+        input,
+        'traffic.status',
+        'canonry traffic status <project>',
+      )
+      await trafficStatus(project, { format: input.format })
+    },
+  },
+  {
+    path: ['traffic', 'events'],
+    usage: 'canonry traffic events <project> [--kind crawler|ai-referral|all] [--source <id>] [--since-minutes 1440] [--since <iso>] [--until <iso>] [--limit 500] [--format json]',
+    options: {
+      kind: stringOption(),
+      source: stringOption(),
+      'since-minutes': stringOption(),
+      since: stringOption(),
+      until: stringOption(),
+      limit: stringOption(),
+    },
+    run: async (input) => {
+      const project = requireProject(
+        input,
+        'traffic.events',
+        'canonry traffic events <project>',
+      )
+      const sinceMinutesStr = getString(input.values, 'since-minutes')
+      const sinceMinutes = sinceMinutesStr ? parseInt(sinceMinutesStr, 10) : undefined
+      const limitStr = getString(input.values, 'limit')
+      const limit = limitStr ? parseInt(limitStr, 10) : undefined
+
+      await trafficEvents(project, {
+        kind: getString(input.values, 'kind'),
+        source: getString(input.values, 'source'),
+        sinceMinutes,
+        since: getString(input.values, 'since'),
+        until: getString(input.values, 'until'),
+        limit,
+        format: input.format,
+      })
+    },
+  },
+  {
     path: ['traffic'],
     usage: 'canonry traffic <subcommand> <project> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'traffic',
         usage: 'canonry traffic <subcommand> <project> [args]',
-        available: ['connect', 'sync'],
+        available: ['connect', 'sync', 'status', 'sources', 'events'],
       })
     },
   },
