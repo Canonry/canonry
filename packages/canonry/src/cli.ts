@@ -1,6 +1,7 @@
 #!/usr/bin/env node --import tsx
 import { pathToFileURL } from 'node:url'
-import { trackEvent, isTelemetryEnabled, isFirstRun, getOrCreateAnonymousId, showFirstRunNotice } from './telemetry.js'
+import { trackEvent, isTelemetryEnabled, isFirstRun, getOrCreateAnonymousId, showFirstRunNotice, detectAndTrackUpgrade } from './telemetry.js'
+import { buildSetupState } from './setup-state.js'
 import { CliError, EXIT_SYSTEM_ERROR, EXIT_USER_ERROR, printCliError, usageError } from './cli-error.js'
 import { dispatchRegisteredCommand } from './cli-dispatch.js'
 import { REGISTERED_CLI_COMMANDS } from './cli-commands.js'
@@ -115,7 +116,14 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
   // Track CLI command usage (fire-and-forget).
   // Skip for `telemetry` commands and help requests.
   if (!isHelpRequest && command !== 'telemetry') {
-    trackEvent('cli.command', { command: resolvedCommand })
+    // Emit `cli.upgraded` once per version bump, before `cli.command`, so
+    // upgrade events are correlated with the first command on the new build.
+    detectAndTrackUpgrade()
+    const setupState = buildSetupState()
+    trackEvent('cli.command', {
+      command: resolvedCommand,
+      ...(setupState ? { setup_state: setupState } : {}),
+    })
   }
 
   try {

@@ -141,6 +141,9 @@ export interface CanonryConfig {
   // Telemetry (opt-out: undefined/true = enabled, false = disabled)
   telemetry?: boolean
   anonymousId?: string
+  // Last canonry CLI version observed by this install — used to fire a
+  // single `cli.upgraded` event when the running binary version changes.
+  lastSeenVersion?: string
   // Agent layer configuration (reserved — native loop TBD)
   agent?: AgentConfigEntry
 }
