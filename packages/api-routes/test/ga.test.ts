@@ -1210,6 +1210,158 @@ describe('GA4 routes', () => {
     }
   })
 
+  it('GET /ga/traffic dedupes aiReferrals + aiReferralLandingPages to the winning attribution dimension', async () => {
+    // Regression for the inflated-row-count bug: GA4 emits one row per
+    // attribution dimension (session, first_user, manual_utm) and our SQL
+    // groups by all three, so the pre-fix response had three rows for what
+    // the user perceives as a single source. The fix collapses to the
+    // winning dimension per (source, medium) and per (source, medium,
+    // landingPage) so the table reflects reality.
+    const now = new Date().toISOString()
+    credentials.set('test-project', {
+      projectName: 'test-project',
+      propertyId: '999888',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    // Seed three dimensions for the same (source, medium, landingPage)
+    // tuple. session=4 wins for chatgpt.com (>2 first_user, 1 manual_utm).
+    const idChatgptSession = crypto.randomUUID()
+    const idChatgptFirst = crypto.randomUUID()
+    const idChatgptUtm = crypto.randomUUID()
+    // Plus a separate (source, medium) where first_user beats session.
+    const idClaudeSession = crypto.randomUUID()
+    const idClaudeFirst = crypto.randomUUID()
+    const seededIds = [idChatgptSession, idChatgptFirst, idChatgptUtm, idClaudeSession, idClaudeFirst]
+    const dedupDate = '2025-11-15'
+    db.insert(gaAiReferrals).values([
+      {
+        id: idChatgptSession,
+        projectId,
+        date: dedupDate,
+        source: 'dedup-chatgpt.com',
+        medium: 'referral',
+        sourceDimension: 'session',
+        landingPage: '/dedup-page',
+        sessions: 4,
+        users: 3,
+        syncedAt: now,
+      },
+      {
+        id: idChatgptFirst,
+        projectId,
+        date: dedupDate,
+        source: 'dedup-chatgpt.com',
+        medium: 'referral',
+        sourceDimension: 'first_user',
+        landingPage: '/dedup-page',
+        sessions: 2,
+        users: 2,
+        syncedAt: now,
+      },
+      {
+        id: idChatgptUtm,
+        projectId,
+        date: dedupDate,
+        source: 'dedup-chatgpt.com',
+        medium: 'referral',
+        sourceDimension: 'manual_utm',
+        landingPage: '/dedup-page',
+        sessions: 1,
+        users: 1,
+        syncedAt: now,
+      },
+      {
+        id: idClaudeSession,
+        projectId,
+        date: dedupDate,
+        source: 'dedup-claude.ai',
+        medium: 'referral',
+        sourceDimension: 'session',
+        landingPage: '/dedup-other',
+        sessions: 3,
+        users: 2,
+        syncedAt: now,
+      },
+      {
+        id: idClaudeFirst,
+        projectId,
+        date: dedupDate,
+        source: 'dedup-claude.ai',
+        medium: 'referral',
+        sourceDimension: 'first_user',
+        landingPage: '/dedup-other',
+        sessions: 9,
+        users: 7,
+        syncedAt: now,
+      },
+    ]).run()
+
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/ga/traffic',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+
+      // Three rows seeded for chatgpt.com → exactly one row in the API
+      // response, surfacing the winning dimension.
+      const chatgptRows = body.aiReferrals.filter((r: { source: string }) => r.source === 'dedup-chatgpt.com')
+      expect(chatgptRows).toHaveLength(1)
+      expect(chatgptRows[0]).toMatchObject({
+        source: 'dedup-chatgpt.com',
+        medium: 'referral',
+        sourceDimension: 'session',
+        sessions: 4,
+      })
+
+      // Two rows seeded for claude.ai → one winning-dimension row.
+      const claudeRows = body.aiReferrals.filter((r: { source: string }) => r.source === 'dedup-claude.ai')
+      expect(claudeRows).toHaveLength(1)
+      expect(claudeRows[0]).toMatchObject({
+        source: 'dedup-claude.ai',
+        medium: 'referral',
+        sourceDimension: 'first_user',
+        sessions: 9,
+      })
+
+      // Landing-page table dedupes per (source, medium, landingPage).
+      const chatgptLanding = body.aiReferralLandingPages.filter(
+        (r: { source: string; landingPage: string }) =>
+          r.source === 'dedup-chatgpt.com' && r.landingPage === '/dedup-page',
+      )
+      expect(chatgptLanding).toHaveLength(1)
+      expect(chatgptLanding[0]).toMatchObject({
+        source: 'dedup-chatgpt.com',
+        sourceDimension: 'session',
+        sessions: 4,
+      })
+      const claudeLanding = body.aiReferralLandingPages.filter(
+        (r: { source: string; landingPage: string }) =>
+          r.source === 'dedup-claude.ai' && r.landingPage === '/dedup-other',
+      )
+      expect(claudeLanding).toHaveLength(1)
+      expect(claudeLanding[0]).toMatchObject({
+        source: 'dedup-claude.ai',
+        sourceDimension: 'first_user',
+        sessions: 9,
+      })
+
+      // Output is sorted by sessions descending — the claude.ai winner (9)
+      // ranks above the chatgpt.com winner (4).
+      const dedupRows = body.aiReferrals.filter((r: { source: string }) => r.source.startsWith('dedup-'))
+      expect(dedupRows[0].source).toBe('dedup-claude.ai')
+      expect(dedupRows[1].source).toBe('dedup-chatgpt.com')
+    } finally {
+      db.delete(gaAiReferrals).where(inArray(gaAiReferrals.id, seededIds)).run()
+      credentials.delete('test-project')
+    }
+  })
+
   it('GET /ga/attribution-trend ai channel uses sessionSource only (matches breakdown cell)', async () => {
     const now = new Date().toISOString()
     const daysAgo = (n: number): string => {
