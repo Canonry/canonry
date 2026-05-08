@@ -345,9 +345,7 @@ describe('POST /traffic/sources/:id/sync', () => {
     // Event sits inside the default 60-min sync window for the first sync. After
     // the first sync, lastSyncedAt is "now-ish", so the second sync's window
     // collapses to roughly [lastSyncedAt, now] and no longer covers the event.
-    const baseTime = new Date(Date.now() - 30 * 60_000)
-    baseTime.setMinutes(0, 0, 0)
-    const observedAt = new Date(baseTime.getTime() + 5 * 60_000).toISOString()
+    const observedAt = new Date(Date.now() - 30 * 60_000).toISOString()
 
     const events: NormalizedTrafficRequest[] = [
       buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt }),
