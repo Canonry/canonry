@@ -113,6 +113,12 @@ export const ga4TrafficSummaryDtoSchema = z.object({
   directSharePctDisplay: z.string(),
   /** Display string for socialSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   socialSharePctDisplay: z.string(),
+  /** Sessions not covered by Organic, Social, Direct, or AI (session) channels — e.g. Referral, Email, Paid Search, Display. Always non-negative; clamped to 0 when the four disjoint channels sum above total (rounding edge). */
+  otherSessions: z.number(),
+  /** Other sessions as a percentage of total sessions (0–100, rounded). */
+  otherSharePct: z.number(),
+  /** Display string for otherSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
+  otherSharePctDisplay: z.string(),
   lastSyncedAt: z.string().nullable(),
 })
 export type GA4TrafficSummaryDto = z.infer<typeof ga4TrafficSummaryDtoSchema>
@@ -227,6 +233,12 @@ export interface GaTrafficResponse {
   directSharePctDisplay: string
   /** Display string for socialSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   socialSharePctDisplay: string
+  /** Sessions not covered by Organic, Social, Direct, or AI (session) channels — e.g. Referral, Email, Paid Search, Display. Always non-negative; clamped to 0 when the four disjoint channels sum above total (rounding edge). */
+  otherSessions: number
+  /** Other sessions as a percentage of total sessions (0–100, rounded). */
+  otherSharePct: number
+  /** Display string for otherSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
+  otherSharePctDisplay: string
   lastSyncedAt: string | null
   /** Start of the synced date range (YYYY-MM-DD), null if no data. */
   periodStart: string | null

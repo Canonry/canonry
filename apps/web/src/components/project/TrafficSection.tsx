@@ -357,6 +357,8 @@ export function TrafficSection({ projectName }: { projectName: string }) {
   const topAiSource = sortedAiReferrals[0] ?? null
   const directSessions = traffic?.totalDirectSessions ?? 0
   const directSharePctDisplay = traffic?.directSharePctDisplay ?? '0%'
+  const otherSessions = traffic?.otherSessions ?? 0
+  const otherSharePctDisplay = traffic?.otherSharePctDisplay ?? '0%'
 
   const socialSessions = traffic?.socialSessions ?? 0
   const socialSharePctDisplay = traffic?.socialSharePctDisplay ?? '0%'
@@ -480,7 +482,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">Traffic Attribution</p>
                 <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">
                   Traffic by channel
-                  <InfoTooltip text="Decomposes GA4 sessions into four disjoint channels — organic search, social, direct, and known AI referrers. The AI cell is rendered separately so AI-driven traffic never inflates the Direct count. Detected via sessionDefaultChannelGrouping plus AI-source matching on sessionSource/firstUserSource/sessionManualSource (generic search sources excluded)." />
+                  <InfoTooltip text="Decomposes GA4 sessions into five disjoint channels — organic search, social, direct, known AI referrers, and other channels. The AI cell is rendered separately so AI-driven traffic never inflates the Direct count. Other channels capture Referral, Email, Paid Search, Display, and any remaining default channel groups. Detected via sessionDefaultChannelGrouping plus AI-source matching on sessionSource/firstUserSource/sessionManualSource (generic search sources excluded)." />
                 </h2>
               </div>
               {dateRange && (
@@ -580,7 +582,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                 <h3 className="text-sm font-semibold text-zinc-100">Channel breakdown</h3>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
                 <AttributionStat
                   label="Organic"
                   value={organicPctDisplay}
@@ -608,6 +610,13 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                   hint={`${aiSessionsBySession.toLocaleString()} sessions`}
                   tone="positive"
                   tooltip="Sessions whose current sessionSource matched a known AI engine (e.g. chatgpt.com, claude.ai, gemini.google.com). Disjoint from Direct/Organic/Social. This is a strict lower bound: most AI traffic strips the referrer and falls into Direct, so the true AI share is typically higher than what's shown here. The detail table below also surfaces firstUserSource and UTM-tagged AI signals."
+                />
+                <AttributionStat
+                  label="Other channels"
+                  value={otherSharePctDisplay}
+                  hint={`${otherSessions.toLocaleString()} sessions`}
+                  tone="neutral"
+                  tooltip="Sessions from all other GA4 default channel groups not covered above — Referral, Email, Paid Search, Display, Affiliates, Audio, SMS, etc. Computed as total sessions minus (Organic + Social + Direct + AI by session)."
                 />
               </div>
 

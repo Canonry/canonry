@@ -1069,6 +1069,12 @@ export interface ApiGaTraffic {
   socialSharePctDisplay: string
   /** Display string for directSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
   directSharePctDisplay: string
+  /** Sessions not covered by Organic, Social, Direct, or AI (session) channels — e.g. Referral, Email, Paid Search, Display. */
+  otherSessions: number
+  /** Other sessions as a percentage of total sessions (0–100, rounded). */
+  otherSharePct: number
+  /** Display string for otherSharePct: 'X%', '<1%' for non-zero shares that round below 1, or '—' when sessions exist but total is unknown (partial sync). */
+  otherSharePctDisplay: string
   lastSyncedAt: string | null
   /** Start of the synced date range (YYYY-MM-DD), null if no data. */
   periodStart: string | null

@@ -685,6 +685,8 @@ describe('GA4 routes', () => {
     expect(body.aiSharePctBySessionDisplay).toBe('5%')
     expect(body.socialSharePctDisplay).toBe('0%')
     expect(body.directSharePctDisplay).toBe('0%')
+    expect(body.otherSessions).toBeGreaterThanOrEqual(0)
+    expect(body.otherSharePctDisplay).toBe('45%')
     expect(body.lastSyncedAt).toBe(now)
     expect(body.periodStart).toBe('2026-02-19')
     expect(body.periodEnd).toBe('2026-03-20')
@@ -770,6 +772,8 @@ describe('GA4 routes', () => {
       expect(body.socialSharePctDisplay).toBe('0%')
       // 600 / 6000 = 10%
       expect(body.organicSharePctDisplay).toBe('10%')
+      expect(body.otherSessions).toBeGreaterThanOrEqual(0)
+      expect(typeof body.otherSharePctDisplay).toBe('string')
     } finally {
       db.delete(gaAiReferrals).where(eq(gaAiReferrals.id, aiId)).run()
       db.delete(gaTrafficSnapshots).where(eq(gaTrafficSnapshots.id, snapshotId)).run()
@@ -832,6 +836,7 @@ describe('GA4 routes', () => {
       expect(body.socialSharePct).toBe(0)
       // No summary, no snapshots — surface the data gap honestly.
       expect(body.socialSharePctDisplay).toBe('—')
+      expect(body.otherSharePctDisplay).toBe('—')
     } finally {
       db.delete(gaSocialReferrals).where(eq(gaSocialReferrals.id, socialId)).run()
       credentials.delete('no-summary')

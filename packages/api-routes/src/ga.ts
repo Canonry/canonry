@@ -897,6 +897,20 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       aiSharePctBySession: total > 0 ? Math.round(((aiBySession?.sessions ?? 0) / total) * 100) : 0,
       directSharePct: total > 0 ? Math.round((totalDirectSessions / total) * 100) : 0,
       socialSharePct: total > 0 ? Math.round(((socialTotals?.sessions ?? 0) / total) * 100) : 0,
+      otherSessions: (() => {
+        const covered = (summaryRow?.totalOrganicSessions ?? 0) + totalDirectSessions + (socialTotals?.sessions ?? 0) + (aiBySession?.sessions ?? 0)
+        return Math.max(0, total - covered)
+      })(),
+      otherSharePct: (() => {
+        if (total <= 0) return 0
+        const covered = (summaryRow?.totalOrganicSessions ?? 0) + totalDirectSessions + (socialTotals?.sessions ?? 0) + (aiBySession?.sessions ?? 0)
+        return Math.round((Math.max(0, total - covered) / total) * 100)
+      })(),
+      otherSharePctDisplay: (() => {
+        const covered = (summaryRow?.totalOrganicSessions ?? 0) + totalDirectSessions + (socialTotals?.sessions ?? 0) + (aiBySession?.sessions ?? 0)
+        if (total <= 0 && covered > 0) return '—'
+        return formatSharePct(Math.max(0, total - covered), total)
+      })(),
       organicSharePctDisplay: formatSharePct(summaryRow?.totalOrganicSessions ?? 0, total),
       aiSharePctDisplay: formatSharePct(aiDeduped?.sessions ?? 0, total),
       aiSharePctBySessionDisplay: formatSharePct(aiBySession?.sessions ?? 0, total),
