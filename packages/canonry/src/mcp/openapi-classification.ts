@@ -95,6 +95,8 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/projects/{name}/bing/request-indexing': 'deferred',
   'GET /api/v1/projects/{name}/bing/performance': 'deferred',
   'POST /api/v1/projects/{name}/wordpress/connect': 'deferred',
+  'POST /api/v1/projects/{name}/traffic/connect/cloud-run': 'deferred',
+  'POST /api/v1/projects/{name}/traffic/sources/{id}/sync': 'deferred',
   'DELETE /api/v1/projects/{name}/wordpress/disconnect': 'deferred',
   'GET /api/v1/projects/{name}/wordpress/status': 'deferred',
   'GET /api/v1/projects/{name}/wordpress/pages': 'deferred',

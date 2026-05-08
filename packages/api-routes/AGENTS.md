@@ -22,6 +22,7 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/report.ts` | `GET /projects/:name/report` (JSON DTO) and `GET /projects/:name/report.html` (standalone downloadable HTML) — aggregated client-facing AEO report bundle (13 sections) |
 | `src/report-renderer.ts` | `renderReportHtml(report)` — server-side HTML renderer with inline SVG charts and inline CSS, re-exported from `@ainyc/canonry-api-routes` for the CLI |
 | `src/wordpress.ts` | WordPress integration routes |
+| `src/traffic.ts` | Server-side traffic ingestion routes — `POST /traffic/connect/cloud-run`, `POST /traffic/sources/:id/sync`. Credentials resolved through an injected `cloudRunCredentialStore`; the Cloud Logging pull and access-token resolver are also injectable for tests. |
 | `src/backlinks.ts` | Backlinks (Common Crawl sync + per-project extract/summary/domains/history) routes |
 | `src/doctor.ts` | `GET /doctor` and `GET /projects/:name/doctor` — runs check registry, returns `DoctorReport` |
 | `src/doctor/registry.ts` | `ALL_CHECKS` — single source of truth for the doctor check catalog |

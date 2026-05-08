@@ -1,6 +1,6 @@
 {
   "name": "@ainyc/canonry",
-  "version": "4.11.1",
+  "version": "4.12.0",
   "type": "module",
   "description": "Agent-first open-source AEO operating platform - track how answer engines cite your domain",
   "license": "FSL-1.1-ALv2",
@@ -69,8 +69,10 @@
     "@ainyc/canonry-db": "workspace:*",
     "@ainyc/canonry-intelligence": "workspace:*",
     "@ainyc/canonry-integration-bing": "workspace:*",
+    "@ainyc/canonry-integration-cloud-run": "workspace:*",
     "@ainyc/canonry-integration-commoncrawl": "workspace:*",
     "@ainyc/canonry-integration-google": "workspace:*",
+    "@ainyc/canonry-integration-traffic": "workspace:*",
     "@ainyc/canonry-integration-wordpress": "workspace:*",
     "@ainyc/canonry-provider-cdp": "workspace:*",
     "@ainyc/canonry-provider-claude": "workspace:*",

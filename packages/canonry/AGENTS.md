@@ -40,6 +40,8 @@ The publishable npm package (`@ainyc/canonry`). Bundles the CLI, local Fastify s
 | `src/commands/report.ts` | `runReportCommand` — `canonry report <project>` — fetches `/report` JSON, renders self-contained HTML to disk via `renderReportHtml` from `@ainyc/canonry-api-routes` |
 | `src/cli-commands/report.ts` | CLI spec for `canonry report <project> [--output <path>] [--format json]` |
 | `src/commands/ga.ts` | GA4 commands: `ga sync`, `ga traffic`, `ga status`, `ga social-referral-history`, `ga social-referral-summary`, `ga attribution` |
+| `src/commands/traffic.ts` | Server-side traffic commands: `traffic connect cloud-run` (writes SA key to `~/.canonry/config.yaml`, creates a `traffic_sources` row) and `traffic sync` (pulls Cloud Logging, classifies, upserts hourly buckets + samples). |
+| `src/cloud-run-config.ts` | Helpers for `cloudRun:` connection block in `~/.canonry/config.yaml` (mirrors `ga4-config.ts` / `google-config.ts`). |
 | `src/commands/backlinks.ts` | Backlinks commands: `backlinks install`, `doctor`, `status`, `sync`, `list`, `extract`, `releases`, `cache prune` |
 | `src/commoncrawl-sync.ts` | `executeReleaseSync` — workspace-level Common Crawl release download + DuckDB query job |
 | `src/backlink-extract.ts` | `executeBacklinkExtract` — per-project backlink extraction run |

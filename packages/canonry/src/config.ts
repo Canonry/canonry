@@ -70,6 +70,29 @@ export interface Ga4ConfigEntry {
   connections?: Ga4ConnectionConfigEntry[]
 }
 
+export type CloudRunAuthMode = 'oauth' | 'service-account'
+
+export interface CloudRunConnectionConfigEntry {
+  projectName: string
+  gcpProjectId: string
+  serviceName?: string
+  location?: string
+  authMode: CloudRunAuthMode
+  // service-account fields
+  clientEmail?: string
+  privateKey?: string
+  // oauth fields
+  refreshToken?: string
+  tokenExpiresAt?: string
+  scopes?: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CloudRunConfigEntry {
+  connections?: CloudRunConnectionConfigEntry[]
+}
+
 export type WordpressEnv = 'live' | 'staging'
 
 export interface WordpressConnectionConfigEntry {
@@ -111,6 +134,7 @@ export interface CanonryConfig {
   google?: GoogleConfigEntry
   bing?: BingConfigEntry
   ga4?: Ga4ConfigEntry
+  cloudRun?: CloudRunConfigEntry
   wordpress?: WordpressConfigEntry
   // Dashboard password hash (SHA-256 hex) — set during first dashboard visit
   dashboardPasswordHash?: string

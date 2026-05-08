@@ -1,4 +1,4 @@
-import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -544,6 +544,115 @@ export const agentMemory = sqliteTable('agent_memory', {
 }, (table) => [
   uniqueIndex('uniq_agent_memory_project_key').on(table.projectId, table.key),
   index('idx_agent_memory_project_updated').on(table.projectId, table.updatedAt),
+])
+
+// --- Server-side traffic ingestion ---
+// Per-source connection metadata. Credentials live in ~/.canonry/config.yaml,
+// not here. `archived_at` retains the row after a host migration so historical
+// crawler/referral buckets keep their FK target.
+export const trafficSources = sqliteTable('traffic_sources', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  sourceType: text('source_type').notNull(),
+  displayName: text('display_name').notNull(),
+  status: text('status').notNull(),
+  lastSyncedAt: text('last_synced_at'),
+  lastCursor: text('last_cursor'),
+  lastError: text('last_error'),
+  archivedAt: text('archived_at'),
+  configJson: text('config_json').notNull().default('{}'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_traffic_sources_project').on(table.projectId),
+  index('idx_traffic_sources_project_status').on(table.projectId, table.status),
+])
+
+// Hourly rollup of server-observed crawler hits. Composite PK so the same
+// (project, source, hour, bot, verification, path, status) tuple can be
+// upserted to accumulate `hits` without a surrogate row id.
+export const crawlerEventsHourly = sqliteTable('crawler_events_hourly', {
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  sourceId: text('source_id').notNull().references(() => trafficSources.id, { onDelete: 'cascade' }),
+  tsHour: text('ts_hour').notNull(),
+  botId: text('bot_id').notNull(),
+  operator: text('operator').notNull(),
+  verificationStatus: text('verification_status').notNull(),
+  pathNormalized: text('path_normalized').notNull(),
+  status: integer('status').notNull(),
+  hits: integer('hits').notNull().default(0),
+  sampledUserAgent: text('sampled_user_agent'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  primaryKey({
+    columns: [
+      table.projectId,
+      table.sourceId,
+      table.tsHour,
+      table.botId,
+      table.verificationStatus,
+      table.pathNormalized,
+      table.status,
+    ],
+  }),
+  index('idx_crawler_hourly_project_ts').on(table.projectId, table.tsHour),
+  index('idx_crawler_hourly_path').on(table.projectId, table.pathNormalized),
+])
+
+// Hourly rollup of human visits with explicit AI-origin evidence (referer
+// host or UTM source). Independent from `crawler_events_hourly` — never
+// collapse the two; they answer different questions.
+export const aiReferralEventsHourly = sqliteTable('ai_referral_events_hourly', {
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  sourceId: text('source_id').notNull().references(() => trafficSources.id, { onDelete: 'cascade' }),
+  tsHour: text('ts_hour').notNull(),
+  product: text('product').notNull(),
+  operator: text('operator').notNull(),
+  sourceDomain: text('source_domain').notNull(),
+  evidenceType: text('evidence_type').notNull(),
+  landingPathNormalized: text('landing_path_normalized').notNull(),
+  status: integer('status').notNull(),
+  sessionsOrHits: integer('sessions_or_hits').notNull().default(0),
+  usersEstimated: integer('users_estimated'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  primaryKey({
+    columns: [
+      table.projectId,
+      table.sourceId,
+      table.tsHour,
+      table.product,
+      table.sourceDomain,
+      table.evidenceType,
+      table.landingPathNormalized,
+      table.status,
+    ],
+  }),
+  index('idx_ai_referral_hourly_project_ts').on(table.projectId, table.tsHour),
+  index('idx_ai_referral_hourly_landing').on(table.projectId, table.landingPathNormalized),
+])
+
+// Short-retention raw evidence for classifier debugging and replay.
+// Default retention is 30 days; older rows are pruned out-of-band.
+export const rawEventSamples = sqliteTable('raw_event_samples', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  sourceId: text('source_id').notNull().references(() => trafficSources.id, { onDelete: 'cascade' }),
+  ts: text('ts').notNull(),
+  eventType: text('event_type').notNull(),
+  ipHash: text('ip_hash'),
+  userAgent: text('user_agent'),
+  pathNormalized: text('path_normalized').notNull(),
+  status: integer('status'),
+  refererHost: text('referer_host'),
+  classifierDetailsJson: text('classifier_details_json').notNull().default('{}'),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_raw_event_samples_project_ts').on(table.projectId, table.ts),
+  index('idx_raw_event_samples_source_ts').on(table.sourceId, table.ts),
+  index('idx_raw_event_samples_event_type').on(table.eventType),
 ])
 
 /**

@@ -2735,6 +2735,68 @@ const routeCatalog: OpenApiOperation[] = [
       404: { description: 'Project not found.' },
     },
   },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/traffic/connect/cloud-run',
+    summary: 'Connect a Cloud Run traffic source',
+    description:
+      'Stores the service-account JSON in `~/.canonry/config.yaml` and creates a `traffic_sources` row for the project. Reconnecting updates the existing active source rather than creating a duplicate.',
+    tags: ['traffic'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['gcpProjectId', 'keyJson'],
+            properties: {
+              gcpProjectId: stringSchema,
+              serviceName: stringSchema,
+              location: stringSchema,
+              displayName: stringSchema,
+              keyJson: { ...stringSchema, description: 'Service-account JSON content.' },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Traffic source DTO returned.' },
+      400: { description: 'Invalid Cloud Run connection request.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/traffic/sources/{id}/sync',
+    summary: 'Trigger a sync run for a traffic source',
+    description:
+      'Pulls request logs from the configured Cloud Run service for the lookback window, classifies crawler / AI-referral hits, and upserts hourly buckets and a bounded sample tail.',
+    tags: ['traffic'],
+    parameters: [
+      nameParameter,
+      { name: 'id', in: 'path', required: true, description: 'Traffic source ID.', schema: stringSchema },
+    ],
+    requestBody: {
+      required: false,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            properties: {
+              sinceMinutes: { ...integerSchema, description: 'Lookback window in minutes (default 60).' },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Sync summary returned.' },
+      400: { description: 'Invalid sync request, missing credentials, or upstream pull error.' },
+      404: { description: 'Project or traffic source not found.' },
+    },
+  },
 ]
 
 /**

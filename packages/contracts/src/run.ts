@@ -14,6 +14,7 @@ export const runKindSchema = z.enum([
   'bing-inspect',
   'bing-inspect-sitemap',
   'backlink-extract',
+  'traffic-sync',
 ])
 export type RunKind = z.infer<typeof runKindSchema>
 export const RunKinds = runKindSchema.enum

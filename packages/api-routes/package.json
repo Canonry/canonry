@@ -21,9 +21,11 @@
     "@ainyc/canonry-db": "workspace:*",
     "@ainyc/canonry-intelligence": "workspace:*",
     "@ainyc/canonry-integration-bing": "workspace:*",
+    "@ainyc/canonry-integration-cloud-run": "workspace:*",
     "@ainyc/canonry-integration-google": "workspace:*",
     "@ainyc/canonry-integration-commoncrawl": "workspace:*",
     "@ainyc/canonry-integration-google-analytics": "workspace:*",
+    "@ainyc/canonry-integration-traffic": "workspace:*",
     "@ainyc/canonry-integration-wordpress": "workspace:*",
     "drizzle-orm": "^0.45.1",
     "fastify": "^5.4.0"

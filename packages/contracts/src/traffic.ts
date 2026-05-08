@@ -68,3 +68,61 @@ export const normalizedTrafficPullPageSchema = z.object({
   filter: z.string(),
 })
 export type NormalizedTrafficPullPage = z.infer<typeof normalizedTrafficPullPageSchema>
+
+export const trafficSourceStatusSchema = z.enum(['connected', 'paused', 'error', 'archived'])
+export type TrafficSourceStatus = z.infer<typeof trafficSourceStatusSchema>
+export const TrafficSourceStatuses = trafficSourceStatusSchema.enum
+
+export const trafficSourceAuthModeSchema = z.enum(['oauth', 'service-account'])
+export type TrafficSourceAuthMode = z.infer<typeof trafficSourceAuthModeSchema>
+export const TrafficSourceAuthModes = trafficSourceAuthModeSchema.enum
+
+export const cloudRunSourceConfigSchema = z.object({
+  gcpProjectId: z.string().min(1),
+  serviceName: z.string().nullable().optional(),
+  location: z.string().nullable().optional(),
+  authMode: trafficSourceAuthModeSchema,
+})
+export type CloudRunSourceConfig = z.infer<typeof cloudRunSourceConfigSchema>
+
+export const trafficSourceDtoSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  sourceType: trafficSourceTypeSchema,
+  displayName: z.string(),
+  status: trafficSourceStatusSchema,
+  lastSyncedAt: z.string().nullable(),
+  lastCursor: z.string().nullable(),
+  lastError: z.string().nullable(),
+  archivedAt: z.string().nullable(),
+  config: z.record(z.string(), z.unknown()),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+})
+export type TrafficSourceDto = z.infer<typeof trafficSourceDtoSchema>
+
+export const trafficConnectCloudRunRequestSchema = z.object({
+  gcpProjectId: z.string().min(1),
+  serviceName: z.string().min(1).optional(),
+  location: z.string().min(1).optional(),
+  displayName: z.string().min(1).optional(),
+  /** Service-account JSON content (string). When omitted, defaults to OAuth via `canonry google connect <project> --type ga4` flow. */
+  keyJson: z.string().optional(),
+})
+export type TrafficConnectCloudRunRequest = z.infer<typeof trafficConnectCloudRunRequestSchema>
+
+export const trafficSyncResponseSchema = z.object({
+  sourceId: z.string(),
+  runId: z.string(),
+  syncedAt: z.string(),
+  pulledEvents: z.number().int().nonnegative(),
+  crawlerHits: z.number().int().nonnegative(),
+  aiReferralHits: z.number().int().nonnegative(),
+  unknownHits: z.number().int().nonnegative(),
+  crawlerBucketRows: z.number().int().nonnegative(),
+  aiReferralBucketRows: z.number().int().nonnegative(),
+  sampleRows: z.number().int().nonnegative(),
+  windowStart: z.string(),
+  windowEnd: z.string(),
+})
+export type TrafficSyncResponse = z.infer<typeof trafficSyncResponseSchema>
