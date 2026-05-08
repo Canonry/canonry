@@ -575,7 +575,7 @@ export function RootLayout() {
 
         <footer className="footer">
           <span className="footer-brand">
-            <span>Canonry</span>
+            <span><a href='https://canonry.ai'>Canonry</a></span>
             {healthSnapshot.apiStatus.version && healthSnapshot.apiStatus.version !== 'unknown' ? (
               <span className="footer-version">v{healthSnapshot.apiStatus.version}</span>
             ) : null}

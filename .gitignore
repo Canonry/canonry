@@ -5,6 +5,7 @@ node_modules/
 coverage/
 dist/
 .tmp/
+.zed
 # Web SPA build output (built by build-web.ts)
 packages/canonry/assets/web/
 # Build-time copies of skills from repo root (copied by copy-agent-assets.ts)
