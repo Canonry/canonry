@@ -23,13 +23,13 @@ canonry init
 canonry serve
 ```
 
-Open [http://localhost:4100](http://localhost:4100). From the dashboard:
+Open [http://localhost:4100/setup](http://localhost:4100/setup). A guided wizard walks you through:
 
-1. **Create a project** — add your domain
-2. **Add queries** — 3–5 questions your customers would ask an AI assistant
-3. **Configure a provider** — Settings tab, paste an API key (you can also set `GEMINI_API_KEY` etc. as env vars)
-4. **Run a sweep** — hit Run from the project page
-5. **Review the evidence** — see which queries earned citations, which competitors appeared instead, and what to fix
+1. **System check** — verifies your instance is ready and providers are configured
+2. **Create project** — name, domain, and locale
+3. **Add queries** — type them in or auto-generate from your site with AI
+4. **Add competitors** (optional) — domains you want to benchmark against
+5. **Launch** — triggers your first visibility sweep, then opens the project
 
 Prefer the terminal?
 
@@ -52,9 +52,9 @@ You should now see:
 
 | Problem | Fix |
 |---------|-----|
-| No provider key configured | Get one from [aistudio.google.com](https://aistudio.google.com/apikey) (Gemini, free tier) and paste into the dashboard at `/settings`, or set `GEMINI_API_KEY` as an env var |
-| No results after a run | Sweeps are async. Check the Runs tab for status, or use `canonry run <project> --wait` from the CLI |
-| Not sure what queries to test | Start with 3–5 commercial-intent queries your customers would ask an AI assistant |
+| No provider key configured | The setup wizard checks this in step 1. Grab a free Gemini key from [aistudio.google.com](https://aistudio.google.com/apikey) and paste it at `/settings`, or set `GEMINI_API_KEY` as an env var and restart `canonry serve` |
+| No results after a run | Sweeps are async. The wizard navigates you to the project page when done — check the Runs tab, or use `canonry run <project> --wait` from the CLI |
+| Not sure what queries to test | The wizard's step 3 can auto-generate queries by analyzing your site with AI. Or start with 3–5 commercial-intent queries your customers would ask an AI assistant |
 | `npm install` fails with `node-gyp` errors | Install build tools for `better-sqlite3`: `xcode-select --install` (macOS), `apt-get install python3 make g++` (Debian/Ubuntu) — see the [troubleshooting guide](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/troubleshooting.md) |
 
 ## Provider Setup
