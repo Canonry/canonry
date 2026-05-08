@@ -176,7 +176,6 @@ function pressureTone(label: CompetitorRow['pressureLabel']): MetricTone {
 export function ReportPage({ projectName }: { projectName: string }) {
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
-  const [audience, setAudience] = useState<ReportAudience>('agency')
 
   const reportQuery = useQuery({
     queryKey: queryKeys.report(projectName),
@@ -187,7 +186,7 @@ export function ReportPage({ projectName }: { projectName: string }) {
     setDownloading(true)
     setDownloadError(null)
     try {
-      await downloadReportHtml(projectName, audience)
+      await downloadReportHtml(projectName, 'client')
     } catch (err) {
       const message = err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Download failed'
       setDownloadError(message)
@@ -226,24 +225,6 @@ export function ReportPage({ projectName }: { projectName: string }) {
           {downloadError && <p className="mt-2 text-xs text-rose-400">{downloadError}</p>}
         </div>
         <div className="page-header-right">
-          <div className="inline-flex rounded-lg border border-zinc-800/70 bg-zinc-950/60 p-1" role="tablist" aria-label="Report audience">
-            {(['agency', 'client'] as const).map(mode => (
-              <button
-                key={mode}
-                type="button"
-                role="tab"
-                aria-selected={audience === mode}
-                onClick={() => setAudience(mode)}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                  audience === mode
-                    ? 'bg-zinc-100 text-zinc-950'
-                    : 'text-zinc-400 hover:text-zinc-100'
-                }`}
-              >
-                {mode === 'agency' ? 'Agency' : 'Client'}
-              </button>
-            ))}
-          </div>
           <Button
             variant="secondary"
             size="sm"
@@ -256,34 +237,10 @@ export function ReportPage({ projectName }: { projectName: string }) {
         </div>
       </div>
 
-      {audience === 'client' ? (
-        <>
-          <ClientSummarySection report={report} />
-          <WhatsChangedSection report={report} audience="client" />
-          <ActionPlanSection report={report} audience="client" />
-          <ClientEvidenceSection report={report} />
-        </>
-      ) : (
-        <>
-          <ExecutiveSummarySection report={report} />
-          <WhatsChangedSection report={report} audience="agency" />
-          <ActionPlanSection report={report} audience="agency" />
-          <AgencyDiagnosticsSection report={report} />
-          <CitationScorecardSection report={report} />
-          <CompetitorLandscapeSection report={report} />
-          <AiSourceOriginSection report={report} />
-          <GscPerformanceSection report={report} />
-          <GaTrafficSection report={report} />
-          <SocialReferralsSection report={report} />
-          <AiReferralsSection report={report} />
-          <IndexingHealthSectionView report={report} />
-          <CitationsTrendSection report={report} />
-          <InsightsSection report={report} />
-          <ContentOpportunitiesSection report={report} />
-          <ContentGapsSection report={report} />
-          <NextStepsSection report={report} />
-        </>
-      )}
+      <ClientSummarySection report={report} />
+      <WhatsChangedSection report={report} audience="client" />
+      <ActionPlanSection report={report} audience="client" />
+      <ClientEvidenceSection report={report} />
     </div>
   )
 }

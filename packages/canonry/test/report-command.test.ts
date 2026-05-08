@@ -122,7 +122,7 @@ describe('runReportCommand', () => {
       const html = fs.readFileSync(path.join(tmpDir, files[0]!), 'utf-8')
       expect(html).toMatch(/^<!DOCTYPE html>/)
       expect(html).toContain('id="executive-summary"')
-      expect(html).toContain('AEO Agency Report')
+      expect(html).toContain('AI Visibility Report')
 
       expect(logs.join('\n')).toContain(files[0]!)
     } finally {

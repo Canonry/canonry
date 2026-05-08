@@ -2370,7 +2370,7 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
 <body>
 <div class="container">
   <header class="header">
-    <div class="eyebrow">${audience === 'client' ? 'AI Visibility Report' : 'AEO Agency Report'}</div>
+    <div class="eyebrow">AI Visibility Report</div>
     <h1>${escapeHtml(report.meta.project.displayName)}</h1>
     <div class="subtitle">${escapeHtml(report.meta.project.canonicalDomain)} · ${escapeHtml(report.meta.project.country)} / ${escapeHtml(report.meta.project.language.toUpperCase())}${renderHeaderLocationFragment(report.meta.location)} · Generated ${formatDate(report.meta.generatedAt)}</div>
   </header>

@@ -486,7 +486,7 @@ describe('renderReportHtml', () => {
 
   test('defaults to agency mode with diagnostics and detailed evidence sections', () => {
     const html = renderReportHtml(richReport())
-    expect(html).toContain('AEO Agency Report')
+    expect(html).toContain('AI Visibility Report')
     expect(html).toContain('id="agency-diagnostics"')
     expect(html).toContain('id="citation-scorecard"')
     expect(html).toContain('Diagnose zero-citation providers')

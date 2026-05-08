@@ -1470,7 +1470,7 @@ describe('GET /api/v1/projects/:name/report.html', () => {
 
     expect(res.body).toMatch(/^<!DOCTYPE html>/)
     expect(res.body).toContain('HTML Report Co.')
-    expect(res.body).toContain('AEO Agency Report')
+    expect(res.body).toContain('AI Visibility Report')
     expect(res.body).toContain('<title>')
   })
 
