@@ -41,6 +41,26 @@ function formatSharePct(numerator: number, total: number): string {
   return `${rounded}%`
 }
 
+// For each tuple key, keep the row with the highest sessions and discard the
+// others. GA4 returns one row per attribution dimension (session, first_user,
+// manual_utm), but those dimensions are overlapping lenses on the same visit
+// — summing them across dimensions would double-count. Result is sorted by
+// sessions descending.
+function pickWinningDimension<T extends { sessions: number | null }>(
+  rows: T[],
+  tupleKey: (row: T) => string,
+): T[] {
+  const winners = new Map<string, T>()
+  for (const row of rows) {
+    const key = tupleKey(row)
+    const existing = winners.get(key)
+    if (!existing || (row.sessions ?? 0) > (existing.sessions ?? 0)) {
+      winners.set(key, row)
+    }
+  }
+  return [...winners.values()].sort((a, b) => (b.sessions ?? 0) - (a.sessions ?? 0))
+}
+
 export interface Ga4CredentialRecord {
   projectName: string
   propertyId: string
@@ -707,7 +727,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .limit(limit)
       .all()
 
-    const aiReferrals = app.db
+    const aiReferralRows = app.db
       .select({
         source: gaAiReferrals.source,
         medium: gaAiReferrals.medium,
@@ -718,10 +738,9 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .from(gaAiReferrals)
       .where(and(...aiConditions))
       .groupBy(gaAiReferrals.source, gaAiReferrals.medium, gaAiReferrals.sourceDimension)
-      .orderBy(sql`SUM(${gaAiReferrals.sessions}) DESC`)
       .all()
 
-    const aiReferralLandingPages = app.db
+    const aiReferralLandingPageRows = app.db
       .select({
         source: gaAiReferrals.source,
         medium: gaAiReferrals.medium,
@@ -738,8 +757,24 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         gaAiReferrals.sourceDimension,
         sql`COALESCE(${gaAiReferrals.landingPageNormalized}, ${gaAiReferrals.landingPage})`,
       )
-      .orderBy(sql`SUM(${gaAiReferrals.sessions}) DESC`)
       .all()
+
+    // Dedupe across attribution dimensions: 'session', 'first_user', and
+    // 'manual_utm' are overlapping lenses on the same visit, not disjoint
+    // events. Returning all three would inflate the row count (e.g. 1 source
+    // showing as 6 rows). Keep the winning dimension — the one with the
+    // highest session count — per (source, medium) for `aiReferrals` and per
+    // (source, medium, landingPage) for `aiReferralLandingPages`. The cross-
+    // cutting / session-only totals (`aiSessionsDeduped`, `aiSessionsBySession`)
+    // are computed independently below and are unaffected.
+    const aiReferrals = pickWinningDimension(
+      aiReferralRows,
+      (r) => `${r.source} ${r.medium}`,
+    )
+    const aiReferralLandingPages = pickWinningDimension(
+      aiReferralLandingPageRows,
+      (r) => `${r.source} ${r.medium} ${r.landingPage}`,
+    )
 
     // Deduplicated AI totals: sessionSource, firstUserSource, and manualSource are
     // overlapping attribution lenses, not disjoint visits. To avoid double-counting,

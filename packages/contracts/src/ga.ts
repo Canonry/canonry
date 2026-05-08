@@ -29,6 +29,13 @@ export const ga4AiReferralDtoSchema = z.object({
   medium: z.string(),
   sessions: z.number(),
   users: z.number(),
+  /**
+   * The winning attribution dimension for this (source, medium) tuple — the
+   * one with the highest session count. GA4 emits one row per dimension
+   * (session, first_user, manual_utm), but they're overlapping lenses on the
+   * same visit; only the dominant dimension is surfaced here so the table is
+   * not inflated.
+   */
   sourceDimension: ga4SourceDimensionSchema,
 })
 export type GA4AiReferralDto = z.infer<typeof ga4AiReferralDtoSchema>
@@ -36,6 +43,10 @@ export type GA4AiReferralDto = z.infer<typeof ga4AiReferralDtoSchema>
 export const ga4AiReferralLandingPageDtoSchema = z.object({
   source: z.string(),
   medium: z.string(),
+  /**
+   * The winning attribution dimension for this (source, medium, landingPage)
+   * tuple — the one with the highest session count.
+   */
   sourceDimension: ga4SourceDimensionSchema,
   landingPage: z.string(),
   sessions: z.number(),
@@ -179,7 +190,9 @@ export interface GaTrafficResponse {
   totalDirectSessions: number
   totalUsers: number
   topPages: Array<{ landingPage: string; sessions: number; organicSessions: number; directSessions: number; users: number }>
+  /** Deduped to the winning attribution dimension (highest sessions) per (source, medium). */
   aiReferrals: Array<{ source: string; medium: string; sessions: number; users: number; sourceDimension: GA4SourceDimension }>
+  /** Deduped to the winning attribution dimension (highest sessions) per (source, medium, landingPage). */
   aiReferralLandingPages: Array<{ source: string; medium: string; sourceDimension: GA4SourceDimension; landingPage: string; sessions: number; users: number }>
   /** Deduped AI session total: MAX(sessions) per date+source+medium across attribution dimensions, then summed. Cross-cutting: can overlap with Direct/Organic/Social via firstUserSource. */
   aiSessionsDeduped: number
