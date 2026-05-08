@@ -672,6 +672,7 @@ export async function fetchAiReferrals(
           { name: 'date' },
           { name: sourceDim },
           { name: mediumDim },
+          { name: 'sessionDefaultChannelGroup' },
           { name: 'landingPagePlusQueryString' },
         ],
         metrics: [
@@ -699,7 +700,8 @@ export async function fetchAiReferrals(
         date: row.dimensionValues[0]!.value,
         source: row.dimensionValues[1]!.value,
         medium: row.dimensionValues[2]!.value,
-        landingPage: row.dimensionValues[3]?.value ?? '(not set)',
+        channelGroup: row.dimensionValues[3]?.value ?? '(not set)',
+        landingPage: row.dimensionValues[4]?.value ?? '(not set)',
         sessions: parseInt(row.metricValues[0]!.value, 10) || 0,
         users: parseInt(row.metricValues[1]!.value, 10) || 0,
         sourceDimension: dimLabel,
@@ -713,11 +715,11 @@ export async function fetchAiReferrals(
     }
   }
 
-  // Deduplicate within each dimension: if the same date+source+medium+page+dimension
+  // Deduplicate within each dimension: if the same date+source+medium+channel+page+dimension
   // appears multiple times (shouldn't happen, but defensive), keep the higher count.
   const deduped = new Map<string, GA4AiReferralRow>()
   for (const row of rows) {
-    const key = `${row.date}::${row.source}::${row.medium}::${row.sourceDimension}::${row.landingPage}`
+    const key = `${row.date}::${row.source}::${row.medium}::${row.sourceDimension}::${row.channelGroup}::${row.landingPage}`
     const existing = deduped.get(key)
     if (!existing) {
       deduped.set(key, row)

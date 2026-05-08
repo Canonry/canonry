@@ -30,6 +30,13 @@ describe('GA contracts', () => {
       socialReferrals: [],
       socialSessions: 0,
       socialUsers: 0,
+      channelBreakdown: {
+        organic: { sessions: 30, sharePct: 30, sharePctDisplay: '30%' },
+        social: { sessions: 0, sharePct: 0, sharePctDisplay: '0%' },
+        direct: { sessions: 20, sharePct: 20, sharePctDisplay: '20%' },
+        ai: { sessions: 12, sharePct: 12, sharePctDisplay: '12%' },
+        other: { sessions: 38, sharePct: 38, sharePctDisplay: '38%' },
+      },
       organicSharePct: 30,
       aiSharePct: 12,
       aiSharePctBySession: 12,
@@ -40,9 +47,9 @@ describe('GA contracts', () => {
       aiSharePctBySessionDisplay: '12%',
       directSharePctDisplay: '20%',
       socialSharePctDisplay: '0%',
-      otherSessions: 0,
-      otherSharePct: 0,
-      otherSharePctDisplay: '0%',
+      otherSessions: 38,
+      otherSharePct: 38,
+      otherSharePctDisplay: '38%',
       lastSyncedAt: null,
     })
 

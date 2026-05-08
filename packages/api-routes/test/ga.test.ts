@@ -248,7 +248,7 @@ describe('GA4 routes', () => {
       totalUsers: windowKey === '7d' ? 15 : windowKey === '30d' ? 55 : 140,
     }))
     const fetchAiReferralsSpy = vi.spyOn(gaModule, 'fetchAiReferrals').mockResolvedValue([
-      { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', landingPage: '/pricing?utm_source=chatgpt.com', sessions: 12, users: 9, sourceDimension: 'session' },
+      { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', channelGroup: 'Referral', landingPage: '/pricing?utm_source=chatgpt.com', sessions: 12, users: 9, sourceDimension: 'session' },
     ])
     const fetchSocialReferralsSpy = vi.spyOn(gaModule, 'fetchSocialReferrals').mockResolvedValue([
       { date: '2026-03-20', source: 'facebook.com', medium: 'social', sessions: 8, users: 6, channelGroup: 'Organic Social' },
@@ -692,6 +692,127 @@ describe('GA4 routes', () => {
     expect(body.periodEnd).toBe('2026-03-20')
 
     credentials.delete('test-project')
+  })
+
+  it('GET /ga/traffic computes disjoint channel breakdown when AI overlaps native GA4 channels', async () => {
+    const now = new Date().toISOString()
+    const projectRes = await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/channel-overlap',
+      payload: {
+        displayName: 'Channel Overlap',
+        canonicalDomain: 'overlap.example',
+        country: 'US',
+        language: 'en',
+      },
+    })
+    const overlapProjectId = JSON.parse(projectRes.payload).id as string
+    credentials.set('channel-overlap', {
+      projectName: 'channel-overlap',
+      propertyId: '999888',
+      clientEmail: 'sa@test.iam.gserviceaccount.com',
+      privateKey: 'fake-key',
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    const aiOrganicId = crypto.randomUUID()
+    const aiSocialId = crypto.randomUUID()
+    const socialId = crypto.randomUUID()
+
+    try {
+      db.insert(gaTrafficSnapshots).values({
+        id: crypto.randomUUID(),
+        projectId: overlapProjectId,
+        date: '2026-03-20',
+        landingPage: '/overlap',
+        sessions: 100,
+        organicSessions: 40,
+        directSessions: 20,
+        users: 80,
+        syncedAt: now,
+      }).run()
+      db.insert(gaTrafficSummaries).values({
+        id: crypto.randomUUID(),
+        projectId: overlapProjectId,
+        periodStart: '2026-02-19',
+        periodEnd: '2026-03-20',
+        totalSessions: 100,
+        totalOrganicSessions: 40,
+        totalUsers: 80,
+        syncedAt: now,
+      }).run()
+      db.insert(gaSocialReferrals).values({
+        id: socialId,
+        projectId: overlapProjectId,
+        date: '2026-03-20',
+        source: 'meta.ai',
+        medium: 'social',
+        channelGroup: 'Organic Social',
+        sessions: 15,
+        users: 12,
+        syncedAt: now,
+      }).run()
+      db.insert(gaAiReferrals).values([
+        {
+          id: aiOrganicId,
+          projectId: overlapProjectId,
+          date: '2026-03-20',
+          source: 'gemini.google.com',
+          medium: 'organic',
+          sourceDimension: 'session',
+          channelGroup: 'Organic Search',
+          landingPage: '/overlap',
+          landingPageNormalized: '/overlap',
+          sessions: 10,
+          users: 8,
+          syncedAt: now,
+        },
+        {
+          id: aiSocialId,
+          projectId: overlapProjectId,
+          date: '2026-03-20',
+          source: 'meta.ai',
+          medium: 'social',
+          sourceDimension: 'session',
+          channelGroup: 'Organic Social',
+          landingPage: '/overlap',
+          landingPageNormalized: '/overlap',
+          sessions: 5,
+          users: 4,
+          syncedAt: now,
+        },
+      ]).run()
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/channel-overlap/ga/traffic',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+
+      expect(body.totalOrganicSessions).toBe(40)
+      expect(body.socialSessions).toBe(15)
+      expect(body.aiSessionsBySession).toBe(15)
+      expect(body.channelBreakdown).toEqual({
+        organic: { sessions: 30, sharePct: 30, sharePctDisplay: '30%' },
+        social: { sessions: 10, sharePct: 10, sharePctDisplay: '10%' },
+        direct: { sessions: 20, sharePct: 20, sharePctDisplay: '20%' },
+        ai: { sessions: 15, sharePct: 15, sharePctDisplay: '15%' },
+        other: { sessions: 25, sharePct: 25, sharePctDisplay: '25%' },
+      })
+      expect(body.otherSessions).toBe(25)
+      expect(body.otherSharePctDisplay).toBe('25%')
+      const totalBreakdownSessions = Object.values(body.channelBreakdown as Record<string, { sessions: number }>)
+        .reduce((sum, bucket) => sum + bucket.sessions, 0)
+      expect(totalBreakdownSessions).toBe(100)
+    } finally {
+      credentials.delete('channel-overlap')
+      db.delete(gaAiReferrals).where(inArray(gaAiReferrals.id, [aiOrganicId, aiSocialId])).run()
+      db.delete(gaSocialReferrals).where(eq(gaSocialReferrals.id, socialId)).run()
+      db.delete(gaTrafficSnapshots).where(eq(gaTrafficSnapshots.projectId, overlapProjectId)).run()
+      db.delete(gaTrafficSummaries).where(eq(gaTrafficSummaries.projectId, overlapProjectId)).run()
+    }
   })
 
   it('GET /ga/traffic returns "<1%" display when AI sessions are present but rounded pct is 0', async () => {

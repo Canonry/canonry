@@ -182,15 +182,25 @@ describe('canonry ga attribution --format json', () => {
       aiSessionsBySession: number
       aiSharePct: number
       aiSharePctBySession: number
+      channelBreakdown: {
+        organic: { sessions: number }
+        direct: { sessions: number }
+        ai: { sessions: number }
+        other: { sessions: number }
+      }
       aiReferralLandingPages: Array<{ landingPage: string; source: string; sessions: number }>
       trend: { direct: { sessions7d: number; sessionsPrev7d: number; trend7dPct: number | null } }
     }
     expect(parsed.directSessions).toBeGreaterThanOrEqual(75)
     expect(parsed.directSharePct).toBeGreaterThan(0)
-    // Cross-cutting dedup includes firstUserSource → 12; bySession is the disjoint 5.
+    // Cross-cutting dedup includes firstUserSource → 12; bySession is the dedicated AI channel bucket.
     expect(parsed.aiSessions).toBe(12)
     expect(parsed.aiSessionsBySession).toBe(5)
     expect(parsed.aiSharePctBySession).toBeLessThan(parsed.aiSharePct)
+    expect(parsed.channelBreakdown.organic.sessions).toBe(20)
+    expect(parsed.channelBreakdown.direct.sessions).toBeGreaterThanOrEqual(75)
+    expect(parsed.channelBreakdown.ai.sessions).toBe(5)
+    expect(parsed.channelBreakdown.other.sessions).toBe(0)
     expect(parsed.aiReferralLandingPages).toEqual(expect.arrayContaining([
       expect.objectContaining({ landingPage: '/pricing', source: 'chatgpt.com', sessions: 12 }),
     ]))

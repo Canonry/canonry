@@ -231,7 +231,7 @@ describe('fetchAiReferrals', () => {
       return mockFetchResponse({
         rows: [
           {
-            dimensionValues: [{ value: '20260320' }, { value: 'chatgpt.com' }, { value: 'referral' }, { value: '/pricing?utm_source=chatgpt.com' }],
+            dimensionValues: [{ value: '20260320' }, { value: 'chatgpt.com' }, { value: 'referral' }, { value: 'Referral' }, { value: '/pricing?utm_source=chatgpt.com' }],
             metricValues: [{ value: '12' }, { value: '10' }],
           },
         ],
@@ -244,9 +244,9 @@ describe('fetchAiReferrals', () => {
     // Returns one row per dimension (session, first_user, manual_utm) since
     // the mock returns the same data for all three queries
     expect(rows).toEqual([
-      { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', landingPage: '/pricing?utm_source=chatgpt.com', sessions: 12, users: 10, sourceDimension: 'session' },
-      { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', landingPage: '/pricing?utm_source=chatgpt.com', sessions: 12, users: 10, sourceDimension: 'first_user' },
-      { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', landingPage: '/pricing?utm_source=chatgpt.com', sessions: 12, users: 10, sourceDimension: 'manual_utm' },
+      { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', channelGroup: 'Referral', landingPage: '/pricing?utm_source=chatgpt.com', sessions: 12, users: 10, sourceDimension: 'session' },
+      { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', channelGroup: 'Referral', landingPage: '/pricing?utm_source=chatgpt.com', sessions: 12, users: 10, sourceDimension: 'first_user' },
+      { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', channelGroup: 'Referral', landingPage: '/pricing?utm_source=chatgpt.com', sessions: 12, users: 10, sourceDimension: 'manual_utm' },
     ])
 
     // Verify all three dimension pairs were queried
@@ -275,9 +275,15 @@ describe('fetchAiReferrals', () => {
     })
     expect(mediumDims).toEqual(['sessionMedium', 'firstUserMedium', 'sessionManualMedium'])
 
-    const landingDims = requestBodies.map((b) => {
+    const channelGroupDims = requestBodies.map((b) => {
       const dimensions = b.dimensions as Array<{ name: string }>
       return dimensions[3]?.name
+    })
+    expect(channelGroupDims).toEqual(['sessionDefaultChannelGroup', 'sessionDefaultChannelGroup', 'sessionDefaultChannelGroup'])
+
+    const landingDims = requestBodies.map((b) => {
+      const dimensions = b.dimensions as Array<{ name: string }>
+      return dimensions[4]?.name
     })
     expect(landingDims).toEqual(['landingPagePlusQueryString', 'landingPagePlusQueryString', 'landingPagePlusQueryString'])
   })

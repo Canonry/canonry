@@ -3,6 +3,7 @@ import { eq, desc, and, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaAiReferrals, gaSocialReferrals, runs } from '@ainyc/canonry-db'
 import { validationError, notFound, RunKinds, RunStatuses, RunTriggers, parseWindow, windowCutoff, normalizeUrlPath } from '@ainyc/canonry-contracts'
+import type { GA4ChannelBreakdownDto } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import {
   getAccessToken,
@@ -39,6 +40,50 @@ function formatSharePct(numerator: number, total: number): string {
   const rounded = Math.round(pct)
   if (rounded === 0) return '<1%'
   return `${rounded}%`
+}
+
+const SOCIAL_CHANNEL_GROUPS = new Set(['Organic Social', 'Paid Social'])
+
+function buildChannelBreakdown(input: {
+  totalSessions: number
+  organicSessions: number
+  socialSessions: number
+  directSessions: number
+  aiSessionsByChannelGroup: Map<string, number>
+}): GA4ChannelBreakdownDto {
+  const aiSessions = [...input.aiSessionsByChannelGroup.values()].reduce((sum, sessions) => sum + sessions, 0)
+  const aiOrganicOverlap = Math.min(input.organicSessions, input.aiSessionsByChannelGroup.get('Organic Search') ?? 0)
+  const aiSocialOverlap = Math.min(
+    input.socialSessions,
+    [...input.aiSessionsByChannelGroup.entries()]
+      .filter(([channelGroup]) => SOCIAL_CHANNEL_GROUPS.has(channelGroup))
+      .reduce((sum, [, sessions]) => sum + sessions, 0),
+  )
+  const aiDirectOverlap = Math.min(input.directSessions, input.aiSessionsByChannelGroup.get('Direct') ?? 0)
+
+  const organicSessions = Math.max(0, input.organicSessions - aiOrganicOverlap)
+  const socialSessions = Math.max(0, input.socialSessions - aiSocialOverlap)
+  const directSessions = Math.max(0, input.directSessions - aiDirectOverlap)
+  const coveredSessions = organicSessions + socialSessions + directSessions + aiSessions
+  const otherSessions = Math.max(0, input.totalSessions - coveredSessions)
+
+  const bucket = (sessions: number) => ({
+    sessions,
+    sharePct: input.totalSessions > 0 ? Math.round((sessions / input.totalSessions) * 100) : 0,
+    sharePctDisplay: formatSharePct(sessions, input.totalSessions),
+  })
+
+  return {
+    organic: bucket(organicSessions),
+    social: bucket(socialSessions),
+    direct: bucket(directSessions),
+    ai: bucket(aiSessions),
+    other: {
+      sessions: otherSessions,
+      sharePct: input.totalSessions > 0 ? Math.round((otherSessions / input.totalSessions) * 100) : 0,
+      sharePctDisplay: input.totalSessions <= 0 && coveredSessions > 0 ? '—' : formatSharePct(otherSessions, input.totalSessions),
+    },
+  }
 }
 
 // For each tuple key, keep the row with the highest sessions and discard the
@@ -488,6 +533,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
               source: row.source,
               medium: row.medium,
               sourceDimension: row.sourceDimension,
+              channelGroup: row.channelGroup,
               landingPage: row.landingPage,
               landingPageNormalized: normalizeUrlPath(row.landingPage),
               sessions: row.sessions,
@@ -804,17 +850,27 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .get()
 
     // Session-source-only AI total: sessions whose CURRENT sessionSource matched
-    // an AI engine. Disjoint from sessionDefaultChannelGrouping = 'Direct' (those
-    // sessions have no source by definition), so it's safe to display alongside
-    // Organic/Social/Direct in a four-channel breakdown without overlap.
-    const aiBySession = app.db
+    // an AI engine. The stored GA4 default channel group lets the channel
+    // breakdown remove known-AI sessions from their native bucket before
+    // computing the residual "Other" bucket.
+    const aiBySessionRows = app.db
       .select({
+        channelGroup: gaAiReferrals.channelGroup,
         sessions: sql<number>`COALESCE(SUM(${gaAiReferrals.sessions}), 0)`,
         users: sql<number>`COALESCE(SUM(${gaAiReferrals.users}), 0)`,
       })
       .from(gaAiReferrals)
       .where(and(...aiConditions, eq(gaAiReferrals.sourceDimension, 'session')))
-      .get()
+      .groupBy(gaAiReferrals.channelGroup)
+      .all()
+
+    const aiSessionsByChannelGroup = new Map<string, number>()
+    let aiBySessionUsers = 0
+    for (const row of aiBySessionRows) {
+      aiSessionsByChannelGroup.set(row.channelGroup, row.sessions ?? 0)
+      aiBySessionUsers += row.users ?? 0
+    }
+    const aiBySessionSessions = [...aiSessionsByChannelGroup.values()].reduce((sum, sessions) => sum + sessions, 0)
 
     const socialReferrals = app.db
       .select({
@@ -851,10 +907,19 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
 
     const total = summaryRow?.totalSessions ?? 0
     const totalDirectSessions = directTotalRow?.totalDirectSessions ?? 0
+    const totalOrganicSessions = summaryRow?.totalOrganicSessions ?? 0
+    const socialSessions = socialTotals?.sessions ?? 0
+    const channelBreakdown = buildChannelBreakdown({
+      totalSessions: total,
+      organicSessions: totalOrganicSessions,
+      socialSessions,
+      directSessions: totalDirectSessions,
+      aiSessionsByChannelGroup,
+    })
 
     return {
       totalSessions: total,
-      totalOrganicSessions: summaryRow?.totalOrganicSessions ?? 0,
+      totalOrganicSessions,
       totalDirectSessions,
       totalUsers: summaryRow?.totalUsers ?? 0,
       topPages: rows.map((r) => ({
@@ -881,8 +946,8 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       })),
       aiSessionsDeduped: aiDeduped?.sessions ?? 0,
       aiUsersDeduped: aiDeduped?.users ?? 0,
-      aiSessionsBySession: aiBySession?.sessions ?? 0,
-      aiUsersBySession: aiBySession?.users ?? 0,
+      aiSessionsBySession: aiBySessionSessions,
+      aiUsersBySession: aiBySessionUsers,
       socialReferrals: socialReferrals.map((r) => ({
         source: r.source,
         medium: r.medium,
@@ -890,32 +955,22 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         sessions: r.sessions ?? 0,
         users: r.users ?? 0,
       })),
-      socialSessions: socialTotals?.sessions ?? 0,
+      socialSessions,
       socialUsers: socialTotals?.users ?? 0,
-      organicSharePct: total > 0 ? Math.round(((summaryRow?.totalOrganicSessions ?? 0) / total) * 100) : 0,
+      channelBreakdown,
+      organicSharePct: total > 0 ? Math.round((totalOrganicSessions / total) * 100) : 0,
       aiSharePct: total > 0 ? Math.round(((aiDeduped?.sessions ?? 0) / total) * 100) : 0,
-      aiSharePctBySession: total > 0 ? Math.round(((aiBySession?.sessions ?? 0) / total) * 100) : 0,
+      aiSharePctBySession: total > 0 ? Math.round((aiBySessionSessions / total) * 100) : 0,
       directSharePct: total > 0 ? Math.round((totalDirectSessions / total) * 100) : 0,
-      socialSharePct: total > 0 ? Math.round(((socialTotals?.sessions ?? 0) / total) * 100) : 0,
-      otherSessions: (() => {
-        const covered = (summaryRow?.totalOrganicSessions ?? 0) + totalDirectSessions + (socialTotals?.sessions ?? 0) + (aiBySession?.sessions ?? 0)
-        return Math.max(0, total - covered)
-      })(),
-      otherSharePct: (() => {
-        if (total <= 0) return 0
-        const covered = (summaryRow?.totalOrganicSessions ?? 0) + totalDirectSessions + (socialTotals?.sessions ?? 0) + (aiBySession?.sessions ?? 0)
-        return Math.round((Math.max(0, total - covered) / total) * 100)
-      })(),
-      otherSharePctDisplay: (() => {
-        const covered = (summaryRow?.totalOrganicSessions ?? 0) + totalDirectSessions + (socialTotals?.sessions ?? 0) + (aiBySession?.sessions ?? 0)
-        if (total <= 0 && covered > 0) return '—'
-        return formatSharePct(Math.max(0, total - covered), total)
-      })(),
-      organicSharePctDisplay: formatSharePct(summaryRow?.totalOrganicSessions ?? 0, total),
+      socialSharePct: total > 0 ? Math.round((socialSessions / total) * 100) : 0,
+      otherSessions: channelBreakdown.other.sessions,
+      otherSharePct: channelBreakdown.other.sharePct,
+      otherSharePctDisplay: channelBreakdown.other.sharePctDisplay,
+      organicSharePctDisplay: formatSharePct(totalOrganicSessions, total),
       aiSharePctDisplay: formatSharePct(aiDeduped?.sessions ?? 0, total),
-      aiSharePctBySessionDisplay: formatSharePct(aiBySession?.sessions ?? 0, total),
+      aiSharePctBySessionDisplay: formatSharePct(aiBySessionSessions, total),
       directSharePctDisplay: formatSharePct(totalDirectSessions, total),
-      socialSharePctDisplay: formatSharePct(socialTotals?.sessions ?? 0, total),
+      socialSharePctDisplay: formatSharePct(socialSessions, total),
       lastSyncedAt: latestSync?.syncedAt ?? null,
       periodStart: (() => {
         const start = cutoffDate ?? summaryMeta?.periodStart ?? null
