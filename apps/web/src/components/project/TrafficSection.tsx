@@ -482,7 +482,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">Traffic Attribution</p>
                 <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">
                   Traffic by channel
-                  <InfoTooltip text="Decomposes GA4 sessions into five disjoint channels — organic search, social, direct, known AI referrers, and other channels. The AI cell is rendered separately so AI-driven traffic never inflates the Direct count. Other channels capture Referral, Email, Paid Search, Display, and any remaining default channel groups. Detected via sessionDefaultChannelGrouping plus AI-source matching on sessionSource/firstUserSource/sessionManualSource (generic search sources excluded)." />
+                  <InfoTooltip text="Decomposes GA4 sessions into five disjoint channels — organic search, social, direct, known AI referrers, and other channels. The AI cell is rendered separately so AI-driven traffic never inflates the Direct count. Other channels capture Referral, Email, Display, and any remaining default channel groups. Detected via sessionDefaultChannelGrouping plus AI-source matching on sessionSource/firstUserSource/sessionManualSource (generic search sources excluded)." />
                 </h2>
               </div>
               {dateRange && (
@@ -616,7 +616,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                   value={otherSharePctDisplay}
                   hint={`${otherSessions.toLocaleString()} sessions`}
                   tone="neutral"
-                  tooltip="Sessions from all other GA4 default channel groups not covered above — Referral, Email, Paid Search, Display, Affiliates, Audio, SMS, etc. Computed as total sessions minus (Organic + Social + Direct + AI by session)."
+                  tooltip="Sessions from all other GA4 default channel groups not covered above — most commonly Referral, Email, and Display. Computed as total sessions minus (Organic + Social + Direct + AI by session)."
                 />
               </div>
 
