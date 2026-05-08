@@ -660,10 +660,10 @@ describe('renderReportHtml', () => {
 
   test('client mode renders polished actions before concise evidence', () => {
     const html = renderReportHtml(richReport(), { audience: 'client' })
-    expect(html).toContain('AEO Client Summary')
+    expect(html).toContain('AI Visibility Report')
     expect(html).toContain('id="client-summary"')
     expect(html).toContain('id="client-action-plan"')
-    expect(html).toContain('What We Recommend Next')
+    expect(html).toContain('What to do next')
     expect(html).toContain('Publish a client-safe guide')
     expect(html).not.toContain('id="citation-scorecard"')
 
@@ -671,6 +671,58 @@ describe('renderReportHtml', () => {
     const evidenceIndex = html.indexOf('id="client-evidence-summary"')
     expect(actionIndex).toBeGreaterThan(-1)
     expect(evidenceIndex).toBeGreaterThan(actionIndex)
+  })
+
+  test('client mode uses plain-English labels — no AEO/SEO jargon', () => {
+    const html = renderReportHtml(richReport(), { audience: 'client' })
+    // Strip the embedded JSON payload — it carries the canonical DTO with
+    // analyst vocabulary, but is invisible to the reader.
+    const visible = html.split('<script')[0]
+    // Hero + tile labels
+    expect(visible).toContain('>Overview<')
+    expect(visible).toContain('AI mentions your name')
+    expect(visible).toContain('AI links to your website')
+    expect(visible).toContain('AI tools tested')
+    expect(visible).toContain('How often each AI tool links to your website')
+    // Mentions vs links explainer must exist
+    expect(visible).toContain('Mentions and links are different')
+    // Customer questions list must render the queries
+    expect(visible).toContain('Customer questions we tested')
+    expect(visible).toContain('aeo platform')
+    // Action plan + evidence
+    expect(visible).toContain('What to do next')
+    expect(visible).toContain('What success looks like:')
+    expect(visible).toContain('What we based this on')
+    expect(visible).toContain('The signals behind this plan')
+    // The old jargon labels must not appear in the rendered UI
+    expect(visible).not.toContain('Citation coverage')
+    expect(visible).not.toContain('Mention coverage')
+    expect(visible).not.toContain('Providers checked')
+    expect(visible).not.toContain('Win condition:')
+    expect(visible).not.toContain('Why This Is The Plan')
+    expect(visible).not.toContain('Sources AI engines trust')
+  })
+
+  test('client whats-changed uses plain-English tile labels', () => {
+    const html = renderReportHtml(richReport(), { audience: 'client' })
+    const visible = html.split('<script')[0]
+    expect(visible).toContain('Since last check')
+    // Apostrophe is HTML-escaped in the rendered title
+    expect(visible).toContain('different since last check')
+    // Engine column header should be the client label, not 'Engine'
+    expect(visible).not.toContain('>Engine<')
+    expect(visible).not.toContain('>Prior<')
+  })
+
+  test('agency mode keeps analyst vocabulary (no client labels leak)', () => {
+    const html = renderReportHtml(richReport(), { audience: 'agency' })
+    const visible = html.split('<script')[0]
+    expect(visible).toContain('Citation rate')
+    expect(visible).toContain('Mention rate')
+    expect(visible).toContain('Win condition:')
+    expect(visible).not.toContain('AI links to your website')
+    expect(visible).not.toContain('What success looks like:')
+    expect(visible).not.toContain('id="client-summary"')
   })
 
   test('citation matrix shows cited vs not-cited cells', () => {

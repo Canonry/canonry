@@ -214,7 +214,7 @@ export function ReportPage({ projectName }: { projectName: string }) {
     <div>
       <div className="page-header">
         <div className="page-header-left">
-          <p className="eyebrow">AEO Report</p>
+          <p className="eyebrow">AI Visibility Report</p>
           <h1 className="page-title">{report.meta.project.displayName}</h1>
           <p className="page-subtitle">
             {report.meta.project.canonicalDomain} · {report.meta.project.country} / {report.meta.project.language.toUpperCase()}
@@ -259,14 +259,14 @@ export function ReportPage({ projectName }: { projectName: string }) {
       {audience === 'client' ? (
         <>
           <ClientSummarySection report={report} />
-          <WhatsChangedSection report={report} />
+          <WhatsChangedSection report={report} audience="client" />
           <ActionPlanSection report={report} audience="client" />
           <ClientEvidenceSection report={report} />
         </>
       ) : (
         <>
           <ExecutiveSummarySection report={report} />
-          <WhatsChangedSection report={report} />
+          <WhatsChangedSection report={report} audience="agency" />
           <ActionPlanSection report={report} audience="agency" />
           <AgencyDiagnosticsSection report={report} />
           <CitationScorecardSection report={report} />
@@ -292,21 +292,116 @@ function actionAudienceMatches(action: ReportActionPlanItem, audience: ReportAud
   return action.audience === 'both' || action.audience === audience
 }
 
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  gemini: 'Gemini',
+  openai: 'ChatGPT',
+  claude: 'Claude',
+  perplexity: 'Perplexity',
+  local: 'Local model',
+  'cdp:chatgpt': 'ChatGPT (browser)',
+}
+
+function providerDisplayName(name: string): string {
+  return PROVIDER_DISPLAY_NAMES[name] ?? name.charAt(0).toUpperCase() + name.slice(1)
+}
+
+function clientTrendCopy(delta: ProjectReportDto['whatsChanged']['citationRate']): { text: string; tone: MetricTone; arrow: string } | null {
+  if (!delta) return null
+  if (delta.direction === 'up') {
+    return { text: `Up ${delta.deltaAbs.toFixed(1)} points since last check (was ${delta.prior}%)`, tone: 'positive', arrow: '↑' }
+  }
+  if (delta.direction === 'down') {
+    return { text: `Down ${Math.abs(delta.deltaAbs).toFixed(1)} points since last check (was ${delta.prior}%)`, tone: 'negative', arrow: '↓' }
+  }
+  return { text: `Holding steady since last check (was ${delta.prior}%)`, tone: 'neutral', arrow: '→' }
+}
+
 function ClientSummarySection({ report }: { report: ProjectReportDto }) {
   const exec = report.executiveSummary
+  const sc = report.citationScorecard
+  const totalQ = exec.totalQueryCount
+  const heroNumber = totalQ > 0 ? `${exec.citationRate}%` : '—'
+  const heroSentence = totalQ > 0
+    ? `When customers asked AI ${totalQ} ${totalQ === 1 ? 'question' : 'questions'} about your industry, AI linked to your website in ${exec.citedQueryCount} of ${totalQ === 1 ? 'them' : 'those answers'}.`
+    : 'No AI check has been run yet. Run a check to see how AI tools answer customer questions about your business.'
+  const trend = clientTrendCopy(report.whatsChanged.citationRate)
+  const providerSubtitle = sc.providers.length > 0
+    ? sc.providers.map(providerDisplayName).join(', ')
+    : `${formatNumber(exec.queryCount)} ${exec.queryCount === 1 ? 'question' : 'questions'} tested`
+
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Client summary" title="How you're appearing" subtitle={report.clientSummary.overview} />
-      <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
-        <p className="text-sm font-medium text-zinc-100">{report.clientSummary.headline}</p>
-        <p className="mt-1 text-sm text-zinc-400">{report.clientSummary.overview}</p>
+      <div className="rounded-2xl border border-zinc-800/60 bg-zinc-900/40 p-6 sm:p-8">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Overview</p>
+        <p className="mt-3 text-6xl font-bold tracking-tight text-zinc-50 sm:text-7xl">{heroNumber}</p>
+        <p className="mt-3 max-w-2xl text-base text-zinc-300 sm:text-lg">{heroSentence}</p>
+        {trend && (
+          <p className={`mt-3 text-sm font-medium ${trend.tone === 'positive' ? 'text-emerald-400' : trend.tone === 'negative' ? 'text-rose-400' : 'text-zinc-400'}`}>
+            <span className="mr-1">{trend.arrow}</span>{trend.text}
+          </p>
+        )}
       </div>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Metric label="Citation coverage" value={formatPercent(exec.citationRate, 0)} tone={trendTone(exec.trend)} subtitle={`${exec.citedQueryCount}/${exec.totalQueryCount} tracked queries cited`} />
-        <Metric label="Mention coverage" value={formatPercent(exec.mentionRate, 0)} subtitle={`${exec.mentionedQueryCount}/${exec.totalQueryCount} tracked queries mentioned`} />
-        <Metric label="Providers checked" value={formatNumber(exec.providerCount)} subtitle={`${formatNumber(exec.queryCount)} tracked queries`} />
-        {exec.gsc && <Metric label="Search impressions" value={formatNumber(exec.gsc.impressions)} subtitle={`${formatNumber(exec.gsc.clicks)} clicks`} />}
+
+      <div className="mt-5 grid gap-4 sm:grid-cols-3">
+        <BigMetricTile
+          label="AI mentions your name"
+          value={`${exec.mentionRate}%`}
+          subtitle={totalQ > 0 ? `Says your name in ${exec.mentionedQueryCount} of ${totalQ} ${totalQ === 1 ? 'answer' : 'answers'}` : 'No data yet'}
+        />
+        <BigMetricTile
+          label="AI links to your website"
+          value={`${exec.citationRate}%`}
+          subtitle={totalQ > 0 ? `Cites your site as a source in ${exec.citedQueryCount} of ${totalQ} ${totalQ === 1 ? 'answer' : 'answers'}` : 'No data yet'}
+        />
+        <BigMetricTile
+          label="AI tools tested"
+          value={formatNumber(exec.providerCount)}
+          subtitle={providerSubtitle}
+        />
       </div>
+
+      <div className="mt-4 rounded-xl border border-zinc-800/60 bg-zinc-950/40 px-4 py-3 text-xs text-zinc-400">
+        <span className="font-semibold text-zinc-200">Mentions and links are different.</span>{' '}
+        A <span className="font-medium text-zinc-200">mention</span> is when AI says your name out loud in its answer.
+        A <span className="font-medium text-zinc-200">link</span> is when AI lists your website as a source it used.
+        AI can do either, both, or neither — that's why we track both.
+      </div>
+
+      {sc.queries.length > 0 && (
+        <div className="mt-5 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-5">
+          <p className="text-sm font-semibold text-zinc-100">Customer questions we tested</p>
+          <p className="mt-1 text-xs text-zinc-500">These are the {sc.queries.length} {sc.queries.length === 1 ? 'question we asked' : 'questions we asked'} every AI tool. The numbers above measure how often you came up.</p>
+          <ol className="mt-4 grid gap-2 sm:grid-cols-2">
+            {sc.queries.map((q, i) => (
+              <li key={i} className="flex items-start gap-3 rounded-lg border border-zinc-800/60 bg-zinc-950/40 px-3 py-2 text-sm text-zinc-200">
+                <span className="shrink-0 text-xs font-semibold tabular-nums text-zinc-500">{String(i + 1).padStart(2, '0')}</span>
+                <span>"{q}"</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {sc.providerRates.length > 0 && (
+        <div className="mt-5 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-5">
+          <p className="text-sm font-semibold text-zinc-100">How often each AI tool links to your website</p>
+          <p className="mt-1 text-xs text-zinc-500">Higher is better. Each bar shows the share of customer questions where the AI cited your site.</p>
+          <div className="mt-4 space-y-3">
+            {sc.providerRates.map(r => (
+              <div key={r.provider} className="grid grid-cols-[120px_1fr_120px] items-center gap-3">
+                <span className="text-sm text-zinc-300">{providerDisplayName(r.provider)}</span>
+                <div className="h-3 overflow-hidden rounded-full bg-zinc-800/80">
+                  <div className="h-full rounded-full bg-emerald-500/70" style={{ width: `${Math.max(r.citationRate, 1.5)}%` }} />
+                </div>
+                <span className="text-right text-sm font-semibold text-zinc-100">
+                  {r.citationRate}% <span className="font-normal text-zinc-500">({r.citedCount}/{r.totalCount})</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {report.clientSummary.confidenceNotes.length > 0 && (
         <div className="mt-4 grid gap-2">
           {report.clientSummary.confidenceNotes.map((note, i) => (
@@ -318,6 +413,32 @@ function ClientSummarySection({ report }: { report: ProjectReportDto }) {
   )
 }
 
+function BigMetricTile({ label, value, subtitle }: { label: string; value: string; subtitle: string }) {
+  return (
+    <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-5">
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{label}</p>
+      <p className="mt-3 text-4xl font-bold tracking-tight text-zinc-50 sm:text-5xl">{value}</p>
+      <p className="mt-2 text-xs text-zinc-500">{subtitle}</p>
+    </div>
+  )
+}
+
+function clientHorizonLabel(horizon: ReportActionPlanItem['horizon']): string {
+  switch (horizon) {
+    case 'immediate': return 'Do now'
+    case 'short-term': return 'This month'
+    case 'medium-term': return 'Next quarter'
+  }
+}
+
+function clientConfidenceLabel(confidence: ReportActionPlanItem['confidence']): string {
+  switch (confidence) {
+    case 'high': return 'Strong evidence'
+    case 'medium': return 'Some evidence'
+    case 'low': return 'Worth trying'
+  }
+}
+
 function ActionPlanSection({ report, audience }: { report: ProjectReportDto; audience: ReportAudience }) {
   const rawActions = audience === 'client'
     ? report.clientSummary.actionItems
@@ -325,15 +446,16 @@ function ActionPlanSection({ report, audience }: { report: ProjectReportDto; aud
       ? report.agencyDiagnostics.priorities
       : report.actionPlan.filter(a => actionAudienceMatches(a, audience))
   const actions = dedupeReportActions(report, rawActions)
+  const isClient = audience === 'client'
   return (
     <section className="page-section-divider">
       <SectionHeading
-        eyebrow={audience === 'client' ? 'Client actions' : 'Agency actions'}
-        title={audience === 'client' ? 'What We Recommend Next' : 'Agency Action Plan'}
-        subtitle={audience === 'client' ? 'The short list to approve and execute.' : 'The highest-leverage work, sorted by urgency and evidence strength.'}
+        eyebrow={isClient ? 'Action plan' : 'Agency actions'}
+        title={isClient ? 'What to do next' : 'Agency Action Plan'}
+        subtitle={isClient ? 'Approve these in order. They are sorted by what will move the needle fastest.' : 'The highest-leverage work, sorted by urgency and evidence strength.'}
       />
       {actions.length === 0 ? (
-        <EmptyHint message="No prioritized actions yet." />
+        <EmptyHint message="No recommendations yet — run an AI check to populate this." />
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
           {actions.map((action, idx) => {
@@ -344,15 +466,15 @@ function ActionPlanSection({ report, audience }: { report: ProjectReportDto; aud
                 <div className="flex items-start gap-3">
                   <div
                     className="flex size-8 shrink-0 items-center justify-center rounded-full bg-zinc-800/80 text-sm font-semibold text-zinc-100"
-                    title="Impact rank — 1 is the highest-leverage action"
+                    title="Priority — 1 will move the needle fastest"
                   >
                     {idx + 1}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="mb-2 flex flex-wrap gap-2">
-                      <ToneBadge tone={reportActionTone(action)}>{reportHorizonLabel(action.horizon)}</ToneBadge>
-                      <ToneBadge tone="neutral">{reportActionCategoryLabel(action.category)}</ToneBadge>
-                      <ToneBadge tone="neutral">{reportConfidenceLabel(action.confidence)} confidence</ToneBadge>
+                      <ToneBadge tone={reportActionTone(action)}>{isClient ? clientHorizonLabel(action.horizon) : reportHorizonLabel(action.horizon)}</ToneBadge>
+                      {!isClient && <ToneBadge tone="neutral">{reportActionCategoryLabel(action.category)}</ToneBadge>}
+                      <ToneBadge tone="neutral">{isClient ? clientConfidenceLabel(action.confidence) : `${reportConfidenceLabel(action.confidence)} confidence`}</ToneBadge>
                     </div>
                     <p className="text-sm font-medium text-zinc-100">{action.title}</p>
                   </div>
@@ -361,10 +483,10 @@ function ActionPlanSection({ report, audience }: { report: ProjectReportDto; aud
                 <ProofChips items={proof} limit={3} className="mt-3" />
                 {hasDetails && (
                   <details className="mt-3 text-xs text-zinc-400">
-                    <summary className="cursor-pointer text-zinc-500 hover:text-zinc-300">Evidence details</summary>
+                    <summary className="cursor-pointer text-zinc-500 hover:text-zinc-300">{isClient ? 'See the data behind this' : 'Evidence details'}</summary>
                     {action.why.length > 0 && (
                       <div className="mt-2">
-                        <p className="eyebrow-soft mb-1">Why</p>
+                        <p className="eyebrow-soft mb-1">{isClient ? 'Why this matters' : 'Why'}</p>
                         <ul className="list-disc space-y-1 pl-4">
                           {action.why.map((item, i) => <li key={i}>{item}</li>)}
                         </ul>
@@ -372,7 +494,7 @@ function ActionPlanSection({ report, audience }: { report: ProjectReportDto; aud
                     )}
                     {action.evidence.length > 0 && (
                       <div className="mt-2">
-                        <p className="eyebrow-soft mb-1">Evidence</p>
+                        <p className="eyebrow-soft mb-1">{isClient ? 'What we saw' : 'Evidence'}</p>
                         <ul className="list-disc space-y-1 pl-4">
                           {action.evidence.map((item, i) => <li key={i}>{item}</li>)}
                         </ul>
@@ -381,7 +503,7 @@ function ActionPlanSection({ report, audience }: { report: ProjectReportDto; aud
                   </details>
                 )}
                 <p className="mt-3 border-t border-zinc-800/60 pt-3 text-xs text-zinc-300">
-                  <span className="font-medium">Win condition:</span> {action.successMetric}
+                  <span className="font-medium">{isClient ? 'What success looks like:' : 'Win condition:'}</span> {action.successMetric}
                 </p>
               </article>
             )
@@ -414,77 +536,116 @@ function AgencyDiagnosticsSection({ report }: { report: ProjectReportDto }) {
   )
 }
 
-function ClientEvidenceSection({ report }: { report: ProjectReportDto }) {
-  const cards: Array<{
-    key: string
-    tone: MetricTone
-    title: string
-    detail: string
-    items: string[]
-  }> = []
+function HorizontalBarRow({ label, value, displayValue, max, barClass }: { label: string; value: number; displayValue: string; max: number; barClass: string }) {
+  const pct = max > 0 ? Math.max((value / max) * 100, 1.5) : 0
+  return (
+    <div className="grid grid-cols-[1fr_auto] items-center gap-3 text-sm">
+      <div className="min-w-0">
+        <p className="truncate text-zinc-300" title={label}>{label}</p>
+        <div className="mt-1 h-2 overflow-hidden rounded-full bg-zinc-800/80">
+          <div className={`h-full rounded-full ${barClass}`} style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+      <span className="whitespace-nowrap text-sm font-semibold text-zinc-100">{displayValue}</span>
+    </div>
+  )
+}
 
-  if (report.aiSourceOrigin.topDomains.length > 0) {
-    cards.push({
-      key: 'source-domains',
-      tone: 'neutral',
-      title: 'Sources AI engines trust',
-      detail: 'These domains appeared most often as cited sources outside your owned domain.',
-      items: report.aiSourceOrigin.topDomains.slice(0, 5).map(d => `${d.domain}: ${formatNumber(d.count)} citation${d.count === 1 ? '' : 's'}`),
-    })
-  }
-  if (report.gsc) {
-    cards.push({
-      key: 'search-demand',
-      tone: 'neutral',
-      title: 'Search demand',
-      detail: `Search Console shows ${formatNumber(report.gsc.totalImpressions)} impressions and ${formatNumber(report.gsc.totalClicks)} clicks in the report window.`,
-      items: report.gsc.topQueries.slice(0, 5).map(q => `${q.query}: ${formatNumber(q.impressions)} impressions`),
-    })
-  }
-  if (report.indexingHealth) {
-    cards.push({
-      key: 'indexing',
-      tone: report.indexingHealth.indexedPct >= 90 ? 'positive' : report.indexingHealth.indexedPct >= 70 ? 'caution' : 'negative',
-      title: 'Indexing readiness',
-      detail: `${report.indexingHealth.indexedPct}% of inspected URLs are indexed.`,
-      items: [
-        `${formatNumber(report.indexingHealth.indexed)} indexed`,
-        `${formatNumber(report.indexingHealth.notIndexed)} not indexed`,
-      ],
-    })
-  }
-  const dedupedOpportunities = dedupeReportOpportunities(report)
-  if (dedupedOpportunities.length > 0) {
-    cards.push({
-      key: 'content',
-      tone: 'caution',
-      title: 'Content opportunities',
-      detail: 'Canonry found topics where better content could improve AI citations.',
-      items: dedupedOpportunities.slice(0, 5).map(o => `${o.query}: ${o.action} (${Math.round(o.score)})`),
-    })
-  }
+function ClientEvidenceSection({ report }: { report: ProjectReportDto }) {
+  const ai = report.aiSourceOrigin.topDomains.slice(0, 5)
+  const gsc = report.gsc
+  const indexing = report.indexingHealth
+  const opportunities = dedupeReportOpportunities(report).slice(0, 5)
+
+  const aiMax = ai.length > 0 ? Math.max(...ai.map(d => d.count)) : 0
+  const gscMax = gsc ? Math.max(...gsc.topQueries.slice(0, 5).map(q => q.impressions), 1) : 0
+
+  const hasAnything = ai.length > 0 || gsc !== null || indexing !== null || opportunities.length > 0
 
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Evidence" title="Why this is the plan" subtitle="Concise support for the client summary. Switch to Agency for the detailed tables and matrices." />
-      {cards.length === 0 ? (
-        <EmptyHint message="No supporting evidence sections are populated yet." />
+      <SectionHeading
+        eyebrow="What we based this on"
+        title="The signals behind this plan"
+        subtitle="The data behind the recommendations above. Switch to Agency for the full breakdowns."
+      />
+      {!hasAnything ? (
+        <EmptyHint message="No supporting evidence yet — this fills in after the first AI check." />
       ) : (
-        <div className="grid gap-3 lg:grid-cols-2">
-          {cards.map(card => (
-            <div key={card.key} className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-4">
-              <div className="mb-2 flex items-center gap-2">
-                <ToneBadge tone={card.tone}>{card.tone}</ToneBadge>
-                <p className="text-sm font-medium text-zinc-100">{card.title}</p>
+        <div className="grid gap-4 lg:grid-cols-2">
+          {ai.length > 0 && (
+            <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-5">
+              <p className="text-sm font-semibold text-zinc-100">Where AI gets its answers</p>
+              <p className="mt-1 text-xs text-zinc-500">The websites AI tools cited most often when answering customer questions about your industry.</p>
+              <div className="mt-4 space-y-3">
+                {ai.map(d => (
+                  <HorizontalBarRow
+                    key={d.domain}
+                    label={d.domain + (d.isCompetitor ? ' (competitor)' : '')}
+                    value={d.count}
+                    displayValue={`${formatNumber(d.count)}×`}
+                    max={aiMax}
+                    barClass="bg-zinc-400/70"
+                  />
+                ))}
               </div>
-              <p className="text-sm text-zinc-400">{card.detail}</p>
-              {card.items.length > 0 && (
-                <ul className="mt-3 list-disc space-y-1 pl-4 text-xs text-zinc-500">
-                  {card.items.map((item, i) => <li key={i}>{item}</li>)}
-                </ul>
+            </div>
+          )}
+          {indexing && (
+            <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-5">
+              <p className="text-sm font-semibold text-zinc-100">Pages Google can find on your site</p>
+              <p className="mt-1 text-xs text-zinc-500">Google indexing your site increases the chances of it appearing in AI search (especially Gemini).</p>
+              <p className={`mt-4 text-5xl font-bold tracking-tight ${indexing.indexedPct >= 90 ? 'text-emerald-400' : indexing.indexedPct >= 70 ? 'text-amber-400' : 'text-rose-400'}`}>
+                {indexing.indexedPct}%
+              </p>
+              <p className="mt-1 text-xs text-zinc-500">{formatNumber(indexing.indexed)} of {formatNumber(indexing.total)} pages indexed</p>
+              <div className="mt-3 h-3 overflow-hidden rounded-full bg-zinc-800/80">
+                <div
+                  className={`h-full rounded-full ${indexing.indexedPct >= 90 ? 'bg-emerald-500/70' : indexing.indexedPct >= 70 ? 'bg-amber-500/70' : 'bg-rose-500/70'}`}
+                  style={{ width: `${Math.max(indexing.indexedPct, 1.5)}%` }}
+                />
+              </div>
+              <p className="mt-3 text-xs text-zinc-400">
+                <span className="font-medium text-zinc-200">{formatNumber(indexing.notIndexed)}</span> {indexing.notIndexed === 1 ? 'page is' : 'pages are'} not indexed yet.
+              </p>
+            </div>
+          )}
+          {gsc && (
+            <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-5">
+              <p className="text-sm font-semibold text-zinc-100">What people search Google for</p>
+              <p className="mt-1 text-xs text-zinc-500">
+                You appeared in <span className="font-semibold text-zinc-200">{formatNumber(gsc.totalImpressions)}</span> Google searches and got <span className="font-semibold text-zinc-200">{formatNumber(gsc.totalClicks)}</span> {gsc.totalClicks === 1 ? 'click' : 'clicks'} this period.
+              </p>
+              {gsc.topQueries.length > 0 && (
+                <div className="mt-4 space-y-3">
+                  {gsc.topQueries.slice(0, 5).map(q => (
+                    <HorizontalBarRow
+                      key={q.query}
+                      label={q.query}
+                      value={q.impressions}
+                      displayValue={`${formatNumber(q.impressions)} ${q.impressions === 1 ? 'search' : 'searches'}`}
+                      max={gscMax}
+                      barClass="bg-sky-500/70"
+                    />
+                  ))}
+                </div>
               )}
             </div>
-          ))}
+          )}
+          {opportunities.length > 0 && (
+            <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-5">
+              <p className="text-sm font-semibold text-zinc-100">Topics where you could improve</p>
+              <p className="mt-1 text-xs text-zinc-500">Customer questions where better content on your site would help AI cite you.</p>
+              <ul className="mt-4 space-y-2 text-sm text-zinc-300">
+                {opportunities.map((o, i) => (
+                  <li key={i} className="rounded-lg border border-zinc-800/60 bg-zinc-950/40 px-3 py-2">
+                    <p className="font-medium text-zinc-100">{o.query}</p>
+                    <p className="mt-0.5 text-xs text-zinc-400">{contentActionLabel(o.action)}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
     </section>
@@ -686,21 +847,24 @@ function TrafficDeltaTile({
 
 function ProviderMovementsTable({
   movements,
+  audience,
 }: {
   movements: ProjectReportDto['whatsChanged']['providerMovements']
+  audience: ReportAudience
 }) {
   const meaningful = movements.filter(m => m.direction !== 'flat')
   if (meaningful.length === 0) return null
+  const isClient = audience === 'client'
   return (
     <div className="mt-4">
-      <p className="eyebrow mb-2">AI engine movements</p>
+      <p className="eyebrow mb-2">{isClient ? 'How each AI tool changed' : 'AI engine movements'}</p>
       <div className="evidence-table-wrap">
         <table className="evidence-table">
           <thead>
             <tr>
-              <th>Engine</th>
-              <th>Prior</th>
-              <th>Current</th>
+              <th>{isClient ? 'AI tool' : 'Engine'}</th>
+              <th>{isClient ? 'Was' : 'Prior'}</th>
+              <th>{isClient ? 'Now' : 'Current'}</th>
               <th>Change</th>
             </tr>
           </thead>
@@ -713,7 +877,7 @@ function ProviderMovementsTable({
                 : 'text-zinc-300'
               return (
                 <tr key={m.provider}>
-                  <td>{m.provider}</td>
+                  <td>{isClient ? providerDisplayName(m.provider) : m.provider}</td>
                   <td>{m.prior}%</td>
                   <td>{m.current}%</td>
                   <td className={cellClass}>
@@ -733,10 +897,12 @@ function WinsLossesTable({
   insights,
   heading,
   emptyMessage,
+  audience,
 }: {
   insights: readonly ReportInsight[]
   heading: string
   emptyMessage: string
+  audience: ReportAudience
 }) {
   if (insights.length === 0) {
     return (
@@ -746,6 +912,7 @@ function WinsLossesTable({
       </div>
     )
   }
+  const isClient = audience === 'client'
   return (
     <div className="mt-4">
       <p className="eyebrow mb-2">{heading}</p>
@@ -753,22 +920,24 @@ function WinsLossesTable({
         <table className="evidence-table">
           <thead>
             <tr>
-              <th>Severity</th>
-              <th>Title</th>
-              <th>Query</th>
-              <th>Provider</th>
+              {!isClient && <th>Severity</th>}
+              <th>{isClient ? 'What changed' : 'Title'}</th>
+              <th>{isClient ? 'Customer question' : 'Query'}</th>
+              <th>{isClient ? 'AI tool' : 'Provider'}</th>
             </tr>
           </thead>
           <tbody>
             {insights.map(i => (
               <tr key={i.id}>
-                <td>
-                  <ToneBadge tone={SEVERITY_TONE[i.severity]}>{reportSeverityLabel(i.severity)}</ToneBadge>
-                  {i.instanceCount > 1 && <span className="ml-2 text-[11px] text-zinc-500">×{i.instanceCount}</span>}
-                </td>
-                <td className="evidence-query-cell">{i.title}</td>
+                {!isClient && (
+                  <td>
+                    <ToneBadge tone={SEVERITY_TONE[i.severity]}>{reportSeverityLabel(i.severity)}</ToneBadge>
+                    {i.instanceCount > 1 && <span className="ml-2 text-[11px] text-zinc-500">×{i.instanceCount}</span>}
+                  </td>
+                )}
+                <td className="evidence-query-cell">{i.title}{isClient && i.instanceCount > 1 && <span className="ml-2 text-[11px] text-zinc-500">×{i.instanceCount}</span>}</td>
                 <td className="text-xs text-zinc-400">{i.query}</td>
-                <td className="text-xs text-zinc-400">{i.provider}</td>
+                <td className="text-xs text-zinc-400">{isClient ? providerDisplayName(i.provider) : i.provider}</td>
               </tr>
             ))}
           </tbody>
@@ -778,34 +947,42 @@ function WinsLossesTable({
   )
 }
 
-function WhatsChangedSection({ report }: { report: ProjectReportDto }) {
+function WhatsChangedSection({ report, audience }: { report: ProjectReportDto; audience: ReportAudience }) {
   const w = report.whatsChanged
+  const isClient = audience === 'client'
   const everythingEmpty = !w.enoughHistory
     && !w.gscClicksDelta
     && !w.aiReferralsDelta
     && w.wins.length === 0
     && w.regressions.length === 0
+  const heading = (
+    <SectionHeading
+      eyebrow={isClient ? 'Since last check' : 'Section 2'}
+      title={isClient ? "What's different since last check" : "What's Changed"}
+      subtitle={isClient ? undefined : w.headline}
+    />
+  )
   if (everythingEmpty) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 2" title="What's Changed" subtitle={w.headline} />
-        <EmptyHint message="Trends will appear after a few more checks." />
+        {heading}
+        <EmptyHint message={isClient ? 'No comparison yet — trends will appear after a few more checks.' : 'Trends will appear after a few more checks.'} />
       </section>
     )
   }
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 2" title="What's Changed" subtitle={w.headline} />
+      {heading}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <RateDeltaTile label="Citation rate" delta={w.citationRate} unit="%" />
-        <RateDeltaTile label="Mention rate" delta={w.mentionRate} unit="%" />
-        <RateDeltaTile label="Cited queries" delta={w.citedQueryCount} unit="count" />
-        <TrafficDeltaTile label="GSC clicks" delta={w.gscClicksDelta} countLabel="clicks" />
-        <TrafficDeltaTile label="AI referral sessions" delta={w.aiReferralsDelta} countLabel="sessions" />
+        <RateDeltaTile label={isClient ? 'AI links to your website' : 'Citation rate'} delta={w.citationRate} unit="%" />
+        <RateDeltaTile label={isClient ? 'AI mentions your name' : 'Mention rate'} delta={w.mentionRate} unit="%" />
+        <RateDeltaTile label={isClient ? 'Questions AI answered with you' : 'Cited queries'} delta={w.citedQueryCount} unit="count" />
+        <TrafficDeltaTile label={isClient ? 'Visitors from Google' : 'GSC clicks'} delta={w.gscClicksDelta} countLabel={isClient ? 'visits' : 'clicks'} />
+        <TrafficDeltaTile label={isClient ? 'Visitors from AI tools' : 'AI referral sessions'} delta={w.aiReferralsDelta} countLabel={isClient ? 'visits' : 'sessions'} />
       </div>
-      <ProviderMovementsTable movements={w.providerMovements} />
-      <WinsLossesTable insights={w.wins} heading="Wins" emptyMessage="No new gains in the latest check." />
-      <WinsLossesTable insights={w.regressions} heading="Regressions" emptyMessage="No new regressions in the latest check." />
+      <ProviderMovementsTable movements={w.providerMovements} audience={audience} />
+      <WinsLossesTable insights={w.wins} heading={isClient ? 'What got better' : 'Wins'} emptyMessage={isClient ? 'No new wins this period.' : 'No new gains in the latest check.'} audience={audience} />
+      <WinsLossesTable insights={w.regressions} heading={isClient ? 'What got worse' : 'Regressions'} emptyMessage={isClient ? 'Nothing got worse this period.' : 'No new regressions in the latest check.'} audience={audience} />
     </section>
   )
 }

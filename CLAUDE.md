@@ -54,6 +54,10 @@ The web dashboard follows a dark, professional analytics aesthetic inspired by *
 - Custom SVG is allowed only for non-chart visualizations (gauges, sparklines, timelines) where Recharts is overkill.
 - If Recharts is missing a feature, extend `ChartPrimitives.tsx` rather than adding a second library.
 
+### Report parity (Critical)
+
+**The downloadable HTML report (`canonry report` / `GET /report.html`) and the in-app SPA report view must stay perfectly aligned.** They are two renderers of the same `ProjectReportDto` — clients and agencies see one report. Any change to a section, label, headline, chart, tile, or order in `apps/web/src/pages/ReportPage.tsx` must ship the same change in `packages/api-routes/src/report-renderer.ts` in the same commit, and vice versa. Tile labels, eyebrows, titles, subtitles, action-card copy, and evidence-card titles must match verbatim across both. Update `packages/api-routes/test/report-renderer.test.ts` whenever client/agency strings change. See AGENTS.md "Report parity" for the full rule set.
+
 ### Don'ts
 - Don't use hero grids with large descriptive text blocks on the project page. Keep headers compact.
 - Don't put evidence or findings in card grids. Use tables.
@@ -61,6 +65,7 @@ The web dashboard follows a dark, professional analytics aesthetic inspired by *
 - Don't create new component files unless the component is reused across 3+ pages.
 - Don't import `recharts` directly — use `ChartPrimitives.js`.
 - Don't add alternative charting libraries (Highcharts, Chart.js, D3, etc.).
+- Don't change report copy or sections in only one of the SPA / HTML surfaces — they must move together.
 
 ## Skills Maintenance
 
