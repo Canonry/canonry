@@ -288,6 +288,8 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
     }
   }
 
+  const nextSteps = buildNextSteps()
+
   if (format === 'json') {
     console.log(JSON.stringify({
       initialized: true,
@@ -299,6 +301,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
       googleConfigured: !!google,
       skills: skillsSummary,
       skillsTip,
+      nextSteps,
     }, null, 2))
   } else {
     console.log(`\nConfig saved to ${getConfigPath()}`)
@@ -346,13 +349,64 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
   // we generate the anonymousId and fire any telemetry events.
   if (format !== 'json') {
     showFirstRunNotice()
-    console.log('Run "canonry serve" to start the server.')
+    console.log('\nNext steps:')
+    for (const line of nextSteps) {
+      console.log(`  ${line}`)
+    }
   }
 
   trackEvent('cli.init', {
     providerCount: providerNames.length,
     providers: providerNames,
+    setupState: encodeSetupState({
+      hasProvider: !!hasProvider,
+      hasGoogle: !!google,
+      hasAgent: !!agentLLM,
+    }),
+    skillsInstalled: !!skillsSummary,
   })
 
   return agentLLM
+}
+
+/**
+ * Concrete next-step instructions printed after `canonry init`. Listed in
+ * the order the user should follow — analytics on the install funnel show a
+ * large "silent bounce" cohort that runs init and never runs another command,
+ * so the goal is to make the next action unambiguous and immediate (project
+ * → query → run).
+ */
+function buildNextSteps(): string[] {
+  return [
+    '1. Create a project for the domain you want to track:',
+    '     canonry project create my-site --domain example.com --country US --language en',
+    '',
+    '2. Add the questions your customers ask AI assistants:',
+    '     canonry query add my-site "best <category> for <use case>"',
+    '',
+    '3. Run your first sweep:',
+    '     canonry run my-site',
+    '',
+    'Tip: "canonry doctor" verifies your setup. "canonry serve" opens the dashboard.',
+  ]
+}
+
+/**
+ * Compact, stable encoding of the user's post-init configuration state.
+ * Sent with `cli.init` so the install funnel can split bouncers from
+ * activated users by what they actually configured.
+ *
+ * Format: pipe-joined flags (`provider|google` / `provider` / `none`).
+ * Sorted alphabetically so the cardinality stays low.
+ */
+function encodeSetupState(state: {
+  hasProvider: boolean
+  hasGoogle: boolean
+  hasAgent: boolean
+}): string {
+  const flags: string[] = []
+  if (state.hasProvider) flags.push('provider')
+  if (state.hasGoogle) flags.push('google')
+  if (state.hasAgent) flags.push('agent')
+  return flags.length > 0 ? flags.sort().join('|') : 'none'
 }

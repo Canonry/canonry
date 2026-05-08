@@ -590,6 +590,108 @@ describe('canonry', () => {
     }
   })
 
+  it('initCommand prints concrete next-steps so users do not bounce after install', async () => {
+    const tmpDir = path.join(os.tmpdir(), `canonry-init-nextsteps-${crypto.randomUUID()}`)
+    vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
+    vi.stubEnv('CANONRY_TELEMETRY_DISABLED', '1') // suppress telemetry POST in tests
+
+    const logs: string[] = []
+    const originalLog = console.log
+    console.log = (msg: string) => logs.push(msg)
+
+    try {
+      await initCommand({
+        force: true,
+        geminiKey: 'test-gemini-key',
+        skipSkills: true,
+      })
+
+      const output = logs.join('\n')
+      // The user must see how to create a project, add a query, and run a sweep.
+      // These are the three steps that determine whether init translates into
+      // a successful first sweep — too many users today bounce after init
+      // because the next move isn't obvious.
+      expect(output).toMatch(/canonry project create/)
+      expect(output).toMatch(/canonry query add/)
+      expect(output).toMatch(/canonry run /)
+      expect(output).toMatch(/canonry doctor/)
+    } finally {
+      console.log = originalLog
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('initCommand --format json includes nextSteps array for agents', async () => {
+    const tmpDir = path.join(os.tmpdir(), `canonry-init-json-nextsteps-${crypto.randomUUID()}`)
+    vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
+    vi.stubEnv('CANONRY_TELEMETRY_DISABLED', '1')
+
+    const logs: string[] = []
+    const originalLog = console.log
+    console.log = (msg: string) => logs.push(msg)
+
+    try {
+      await initCommand({
+        force: true,
+        geminiKey: 'test-gemini-key',
+        skipSkills: true,
+        format: 'json',
+      })
+
+      // Last logged line is the JSON payload.
+      const jsonLine = logs.find(l => l.trim().startsWith('{'))
+      expect(jsonLine).toBeTruthy()
+      const payload = JSON.parse(jsonLine!) as { initialized: boolean; nextSteps?: string[] }
+      expect(payload.initialized).toBe(true)
+      expect(Array.isArray(payload.nextSteps)).toBe(true)
+      expect(payload.nextSteps!.some(s => s.includes('canonry project create'))).toBe(true)
+      expect(payload.nextSteps!.some(s => s.includes('canonry run'))).toBe(true)
+    } finally {
+      console.log = originalLog
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('initCommand fires cli.init telemetry with setupState reflecting configured surfaces', async () => {
+    const tmpDir = path.join(os.tmpdir(), `canonry-init-setup-state-${crypto.randomUUID()}`)
+    vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
+    vi.stubEnv('CANONRY_TELEMETRY_DISABLED', undefined as unknown as string)
+    vi.stubEnv('DO_NOT_TRACK', undefined as unknown as string)
+    vi.stubEnv('CI', undefined as unknown as string)
+
+    const captured: Array<Record<string, unknown>> = []
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.body) {
+        try { captured.push(JSON.parse(init.body as string)) } catch { /* ignore */ }
+      }
+      return new Response(JSON.stringify({ ok: true }))
+    }
+
+    try {
+      await initCommand({
+        force: true,
+        geminiKey: 'test-gemini-key',
+        googleClientId: 'gid',
+        googleClientSecret: 'gsecret',
+        skipSkills: true,
+      })
+
+      // Give fire-and-forget telemetry a tick.
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      const initEvent = captured.find(p => p.event === 'cli.init')
+      expect(initEvent, 'expected a cli.init telemetry event').toBeTruthy()
+      const props = initEvent!.properties as Record<string, unknown>
+      // The install funnel uses setupState to slice "configured a provider" cohorts.
+      expect(props.setupState).toBe('google|provider')
+      expect(props.providerCount).toBe(1)
+    } finally {
+      globalThis.fetch = originalFetch
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
   it('ApiClient gives clear error when server is not running', async () => {
     const client = new ApiClient('http://localhost:19999', 'cnry_fake_key')
     await expect(() => client.listProjects()).rejects.toThrow('Could not connect to canonry server')

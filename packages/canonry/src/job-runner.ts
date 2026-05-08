@@ -131,6 +131,87 @@ type RunExecutionContext = {
   location?: string
 }
 
+/**
+ * Stable categorization for run failures, used for telemetry only.
+ *
+ * `abort` reasons mean the run never reached any provider work — so the
+ * "failure" is a config/setup problem, not a downstream audit failure.
+ * Those are emitted as `run.aborted` so they don't pollute the
+ * `run.completed status=failed` rate, which should reflect real audit
+ * failures (provider crashes, network errors, etc.).
+ */
+type RunAbortReason =
+  | 'no_provider'
+  | 'project_not_found'
+  | 'quota_exceeded'
+  | 'run_not_found'
+  | 'run_not_executable'
+
+function classifyRunAbortReason(message: string): RunAbortReason | undefined {
+  if (/^No providers configured\b/.test(message)) return 'no_provider'
+  if (/^Project [^ ]+ not found$/.test(message)) return 'project_not_found'
+  if (/^Daily quota exceeded\b/.test(message)) return 'quota_exceeded'
+  if (/^Run [^ ]+ not found$/.test(message)) return 'run_not_found'
+  if (/^Run [^ ]+ is not executable\b/.test(message)) return 'run_not_executable'
+  return undefined
+}
+
+/**
+ * Coarse error category for runtime provider failures, used for telemetry
+ * only. Best-effort regex match — not load-bearing for any control flow,
+ * just a histogram bucket so dashboards can answer "why are real audit
+ * failures happening?" without reading raw error strings.
+ */
+type ProviderErrorCode =
+  | 'PROVIDER_AUTH'
+  | 'RATE_LIMITED'
+  | 'NETWORK'
+  | 'TIMEOUT'
+  | 'PARSE_ERROR'
+  | 'UNKNOWN'
+
+function classifyProviderErrors(
+  errors: ReadonlyMap<ProviderName, string>,
+): ProviderErrorCode {
+  // If every provider failed with the same category, report it. Otherwise
+  // report the most-severe-looking one with a documented priority order.
+  const codes = new Set<ProviderErrorCode>()
+  for (const message of errors.values()) {
+    codes.add(classifyOneProviderError(message))
+  }
+  const priority: ProviderErrorCode[] = [
+    'PROVIDER_AUTH',
+    'RATE_LIMITED',
+    'TIMEOUT',
+    'NETWORK',
+    'PARSE_ERROR',
+    'UNKNOWN',
+  ]
+  for (const code of priority) {
+    if (codes.has(code)) return code
+  }
+  return 'UNKNOWN'
+}
+
+function classifyOneProviderError(message: string): ProviderErrorCode {
+  if (/\b401\b|\b403\b|unauthorized|forbidden|invalid[_ -]?api[_ -]?key|missing[_ -]?api[_ -]?key|authentication/i.test(message)) {
+    return 'PROVIDER_AUTH'
+  }
+  if (/\b429\b|rate[_ -]?limit|too many requests|quota[_ -]?exceeded/i.test(message)) {
+    return 'RATE_LIMITED'
+  }
+  if (/timeout|timed out|ETIMEDOUT/i.test(message)) {
+    return 'TIMEOUT'
+  }
+  if (/ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|network|fetch failed|socket hang up/i.test(message)) {
+    return 'NETWORK'
+  }
+  if (/parse|unexpected token|invalid json|malformed|JSON\.parse/i.test(message)) {
+    return 'PARSE_ERROR'
+  }
+  return 'UNKNOWN'
+}
+
 export class JobRunner {
   private db: DatabaseClient
   private registry: ProviderRegistry
@@ -460,14 +541,21 @@ export class JobRunner {
 
       this.flushProviderUsage(projectId, providerDispatchCounts)
 
-      // Track run completion telemetry
+      // Track run completion telemetry. When providers actually ran but some
+      // failed, emit an `errorCode` so dashboards can break down real failures
+      // by category (auth, rate-limit, network, parse, …) instead of lumping
+      // them all into "failed."
       const finalStatus = allFailed ? 'failed' : someFailed ? 'partial' : 'completed'
+      const failureCode = providerErrors.size > 0
+        ? classifyProviderErrors(providerErrors)
+        : undefined
       trackEvent('run.completed', {
         status: finalStatus,
         providerCount: executionContext.providerCount,
         providers: executionContext.providers,
         queryCount: executionContext.queryCount,
         durationMs: Date.now() - startTime,
+        ...(failureCode ? { errorCode: failureCode } : {}),
         ...(executionContext.location ? { location: executionContext.location } : {}),
       })
 
@@ -507,15 +595,34 @@ export class JobRunner {
 
       this.flushProviderUsage(projectId, providerDispatchCounts)
 
-      // Track fatal run failures (missing project, quota exceeded, no providers, etc.)
-      trackEvent('run.completed', {
-        status: 'failed',
-        providerCount: executionContext.providerCount,
-        providers: executionContext.providers,
-        queryCount: executionContext.queryCount,
-        durationMs: Date.now() - startTime,
-        ...(executionContext.location ? { location: executionContext.location } : {}),
-      })
+      // Distinguish config-validation aborts (no providers configured, project
+      // missing, quota exceeded) from real runtime failures. The former never
+      // reach any provider work, so reporting them as `run.completed` with
+      // status=failed conflates "user has no providers" with "audit failed."
+      // Emit `run.aborted` with a reason instead — the run is still marked
+      // failed in the DB above so the user sees it, but the telemetry stream
+      // stays clean for monitoring real audit failures.
+      const abortReason = classifyRunAbortReason(errorMessage)
+      if (abortReason) {
+        trackEvent('run.aborted', {
+          reason: abortReason,
+          providerCount: executionContext.providerCount,
+          providers: executionContext.providers,
+          queryCount: executionContext.queryCount,
+          durationMs: Date.now() - startTime,
+          ...(executionContext.location ? { location: executionContext.location } : {}),
+        })
+      } else {
+        trackEvent('run.completed', {
+          status: 'failed',
+          errorCode: 'UNKNOWN',
+          providerCount: executionContext.providerCount,
+          providers: executionContext.providers,
+          queryCount: executionContext.queryCount,
+          durationMs: Date.now() - startTime,
+          ...(executionContext.location ? { location: executionContext.location } : {}),
+        })
+      }
 
       // Notify on failure too
       if (this.onRunCompleted) {
