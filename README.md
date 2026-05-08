@@ -17,16 +17,25 @@ In one run, you can see:
 
 ## What you get in 5 minutes
 
-1. Add your domain and a few queries
-2. Run a sweep across supported answer engines
-3. Review citation evidence and visibility gaps
-4. Get recommended fixes
-
 ```bash
 npm install -g @ainyc/canonry
 canonry init
+canonry serve
+```
+
+Open [http://localhost:4100](http://localhost:4100). From the dashboard:
+
+1. **Create a project** — add your domain
+2. **Add queries** — 3–5 questions your customers would ask an AI assistant
+3. **Configure a provider** — Settings tab, paste an API key (you can also set `GEMINI_API_KEY` etc. as env vars)
+4. **Run a sweep** — hit Run from the project page
+5. **Review the evidence** — see which queries earned citations, which competitors appeared instead, and what to fix
+
+Prefer the terminal?
+
+```bash
 canonry project create my-site --domain example.com
-canonry query add my-site "your first query here" "second query here"
+canonry query add my-site "your first query" "second query"
 canonry run my-site --wait
 canonry evidence my-site
 canonry insights my-site
@@ -34,22 +43,19 @@ canonry insights my-site
 
 You should now see:
 
-- whether `example.com` was cited for each query
+- whether your domain was cited for each query
 - which competitors or sources appeared instead
 - raw answer evidence per provider
 - recommended next actions from the insight engine
-
-**No API key yet?** `canonry init` walks you through provider setup interactively. If you'd rather evaluate first, the init command lets you skip provider keys entirely — you can add them later from the dashboard at `/settings`. A zero-config demo mode (`canonry demo`) is on the roadmap.
 
 ## If you get stuck
 
 | Problem | Fix |
 |---------|-----|
-| No provider key configured | Add one: `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `PERPLEXITY_API_KEY` as an env var, or configure via `canonry init` or the dashboard at `/settings` |
-| No results after a run | Make sure you ran `canonry run <project> --wait` — sweeps are async by default |
-| Not sure what queries to test | Start with 3–5 commercial-intent queries your customers would ask an AI assistant. You can also try `canonry query generate <project> --provider gemini --save` |
+| No provider key configured | Get one from [aistudio.google.com](https://aistudio.google.com/apikey) (Gemini, free tier) and paste into the dashboard at `/settings`, or set `GEMINI_API_KEY` as an env var |
+| No results after a run | Sweeps are async. Check the Runs tab for status, or use `canonry run <project> --wait` from the CLI |
+| Not sure what queries to test | Start with 3–5 commercial-intent queries your customers would ask an AI assistant |
 | `npm install` fails with `node-gyp` errors | Install build tools for `better-sqlite3`: `xcode-select --install` (macOS), `apt-get install python3 make g++` (Debian/Ubuntu) — see the [troubleshooting guide](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/troubleshooting.md) |
-| Want to evaluate without keys | `canonry init` can complete without provider keys. Configure them later from the dashboard |
 
 ## Provider Setup
 
