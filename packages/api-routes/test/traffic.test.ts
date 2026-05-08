@@ -67,16 +67,25 @@ async function buildHarness(events: NormalizedTrafficRequest[]) {
   }
 
   let pullInvocations = 0
+  const observedWindows: Array<{ startTime: string; endTime: string }> = []
   const app = Fastify()
   app.register(apiRoutes, {
     db,
     skipAuth: true,
     cloudRunCredentialStore,
-    pullCloudRunEvents: async (_token, _options): Promise<CloudRunTrafficEventsPage> => {
+    pullCloudRunEvents: async (_token, options): Promise<CloudRunTrafficEventsPage> => {
       pullInvocations += 1
+      observedWindows.push({ startTime: options.startTime, endTime: options.endTime })
+      // Mirror Cloud Logging's behavior: only return events inside the requested window.
+      const startMs = new Date(options.startTime).getTime()
+      const endMs = new Date(options.endTime).getTime()
+      const filtered = events.filter((e) => {
+        const t = new Date(e.observedAt).getTime()
+        return t >= startMs && t <= endMs
+      })
       return {
-        events,
-        rawEntryCount: events.length,
+        events: filtered,
+        rawEntryCount: filtered.length,
         skippedEntryCount: 0,
         nextPageToken: undefined,
         filter: 'mock',
@@ -104,6 +113,7 @@ async function buildHarness(events: NormalizedTrafficRequest[]) {
     credentials,
     tmpDir,
     getPullCount: () => pullInvocations,
+    getObservedWindows: () => observedWindows,
     close: async () => {
       await app.close()
       fs.rmSync(tmpDir, { recursive: true, force: true })
@@ -247,20 +257,27 @@ describe('POST /traffic/sources/:id/sync', () => {
   })
 
   it('pulls events, classifies, writes hourly buckets + samples + a completed run', async () => {
+    // Anchor events inside the 120-min sync window the test requests below,
+    // and snap to the top of an hour so the two crawler hits land in the
+    // same hourly bucket regardless of when the test runs.
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+
     const events: NormalizedTrafficRequest[] = [
       // Two crawler hits same hour same path → should accumulate to hits=2 in one bucket
-      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: '2026-05-07T17:00:01.000Z' }),
-      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: '2026-05-07T17:30:00.000Z' }),
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(30) }),
       // One AI referral via UTM
       buildEvent({
         userAgent: 'Mozilla/5.0',
         path: '/landing',
         queryString: 'utm_source=chatgpt.com',
         status: 200,
-        observedAt: '2026-05-07T17:15:00.000Z',
+        observedAt: fromBase(15),
       }),
       // One unclassified hit
-      buildEvent({ userAgent: 'curl/7.x', path: '/anything', status: 404 }),
+      buildEvent({ userAgent: 'curl/7.x', path: '/anything', status: 404, observedAt: fromBase(32) }),
     ]
 
     const h = await buildHarness(events)
@@ -324,9 +341,16 @@ describe('POST /traffic/sources/:id/sync', () => {
     }
   })
 
-  it('repeated sync upserts hits into the same hourly bucket', async () => {
+  it('clamps windowStart to lastSyncedAt so overlapping syncs do not double-count', async () => {
+    // Event sits inside the default 60-min sync window for the first sync. After
+    // the first sync, lastSyncedAt is "now-ish", so the second sync's window
+    // collapses to roughly [lastSyncedAt, now] and no longer covers the event.
+    const baseTime = new Date(Date.now() - 30 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const observedAt = new Date(baseTime.getTime() + 5 * 60_000).toISOString()
+
     const events: NormalizedTrafficRequest[] = [
-      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: '2026-05-07T17:00:01.000Z' }),
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt }),
     ]
     const h = await buildHarness(events)
     try {
@@ -337,20 +361,31 @@ describe('POST /traffic/sources/:id/sync', () => {
       })
       const sourceId = JSON.parse(connectRes.payload).id
 
-      await h.app.inject({
+      const first = await h.app.inject({
         method: 'POST',
         url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
         payload: {},
       })
-      await h.app.inject({
+      expect(JSON.parse(first.payload).pulledEvents).toBe(1)
+
+      const second = await h.app.inject({
         method: 'POST',
         url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
         payload: {},
       })
+      expect(JSON.parse(second.payload).pulledEvents).toBe(0)
 
       const rows = h.db.select().from(crawlerEventsHourly).all()
       expect(rows.length).toBe(1)
-      expect(rows[0].hits).toBe(2)
+      expect(rows[0].hits).toBe(1)
+
+      // The second sync's startTime should have been clamped to the first sync's
+      // lastSyncedAt — i.e. ≥ the first sync's endTime.
+      const windows = h.getObservedWindows()
+      expect(windows.length).toBe(2)
+      expect(new Date(windows[1].startTime).getTime()).toBeGreaterThanOrEqual(
+        new Date(windows[0].endTime).getTime(),
+      )
     } finally {
       await h.close()
     }

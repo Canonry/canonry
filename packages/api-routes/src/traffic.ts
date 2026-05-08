@@ -287,7 +287,15 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       : syncWindowMinutes
 
     const windowEnd = new Date()
-    const windowStart = new Date(windowEnd.getTime() - windowMinutes * 60_000)
+    // Clamp windowStart forward to lastSyncedAt so back-to-back syncs don't
+    // re-pull the previous window and double-count via the `hits + ?` upsert.
+    const requestedStartMs = windowEnd.getTime() - windowMinutes * 60_000
+    const lastSyncedMs = sourceRow.lastSyncedAt
+      ? new Date(sourceRow.lastSyncedAt).getTime()
+      : Number.NEGATIVE_INFINITY
+    const windowStart = new Date(
+      Math.min(windowEnd.getTime(), Math.max(requestedStartMs, lastSyncedMs)),
+    )
 
     const startedAt = windowEnd.toISOString()
     const runId = crypto.randomUUID()
