@@ -646,6 +646,155 @@ describe('GET /traffic/sources/:id', () => {
       expect(body.totals24h).toEqual({ crawlerHits: 0, aiReferralHits: 0, sampleCount: 0 })
     } finally { await h.close() }
   })
+
+  it('isolates latestRun per source — source A does not see source B\'s sync runs', async () => {
+    // Single Cloud Run source from connect, plus a manually-inserted second source for the same project.
+    const h = await buildHarness([
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200 }),
+    ])
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceAId = JSON.parse(connectRes.payload).id
+
+      // Sync only against source A — this writes runs.source_id = sourceAId.
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceAId}/sync`,
+        payload: { sinceMinutes: 120 },
+      })
+
+      // Seed a second non-archived source for the same project (manual insert; the API
+      // doesn't currently support multi-source connect, but DB and reads must be correct).
+      const { projects } = await import('@ainyc/canonry-db')
+      const projectRow = h.db.select().from(projects).all()[0]
+      const now = new Date().toISOString()
+      const sourceBId = 'src_b_isolation_test'
+      h.db.insert(trafficSources).values({
+        id: sourceBId,
+        projectId: projectRow.id,
+        sourceType: TrafficSourceTypes['cloud-run'],
+        displayName: 'second source',
+        status: TrafficSourceStatuses.connected,
+        configJson: '{}',
+        createdAt: now,
+        updatedAt: now,
+      }).run()
+
+      const detailA = await h.app.inject({
+        method: 'GET',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceAId}`,
+      })
+      const bodyA = JSON.parse(detailA.payload)
+      expect(bodyA.latestRun).not.toBeNull()
+      expect(bodyA.latestRun.status).toBe(RunStatuses.completed)
+
+      // Source B has never synced — must surface null even though source A has a run on the same project.
+      const detailB = await h.app.inject({
+        method: 'GET',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceBId}`,
+      })
+      const bodyB = JSON.parse(detailB.payload)
+      expect(bodyB.latestRun).toBeNull()
+    } finally { await h.close() }
+  })
+})
+
+describe('GET /traffic/status', () => {
+  it('returns an empty list when no sources are connected', async () => {
+    const h = await buildHarness([])
+    try {
+      const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/status' })
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.payload)).toEqual({ sources: [] })
+    } finally { await h.close() }
+  })
+
+  it('returns the same per-source detail shape as /traffic/sources/:id without a fan-out', async () => {
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(30) }),
+      buildEvent({
+        userAgent: 'Mozilla/5.0',
+        path: '/landing',
+        queryString: 'utm_source=chatgpt.com',
+        status: 200,
+        observedAt: fromBase(15),
+      }),
+    ]
+    const h = await buildHarness(events)
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: { sinceMinutes: 120 },
+      })
+
+      const statusRes = await h.app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/traffic/status',
+      })
+      expect(statusRes.statusCode).toBe(200)
+      const status = JSON.parse(statusRes.payload)
+      expect(status.sources.length).toBe(1)
+      expect(status.sources[0].id).toBe(sourceId)
+      expect(status.sources[0].totals24h.crawlerHits).toBe(2)
+      expect(status.sources[0].totals24h.aiReferralHits).toBe(1)
+      expect(status.sources[0].latestRun.status).toBe(RunStatuses.completed)
+
+      // Same shape as /traffic/sources/:id — entries should be byte-for-byte equivalent.
+      const detailRes = await h.app.inject({
+        method: 'GET',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}`,
+      })
+      expect(JSON.parse(detailRes.payload)).toEqual(status.sources[0])
+    } finally { await h.close() }
+  })
+
+  it('omits archived sources', async () => {
+    const h = await buildHarness([])
+    try {
+      const { projects } = await import('@ainyc/canonry-db')
+      const projectRow = h.db.select().from(projects).all()[0]
+      const now = new Date().toISOString()
+      h.db.insert(trafficSources).values({
+        id: 'src_archived',
+        projectId: projectRow.id,
+        sourceType: TrafficSourceTypes['cloud-run'],
+        displayName: 'old',
+        status: TrafficSourceStatuses.archived,
+        archivedAt: now,
+        configJson: '{}',
+        createdAt: now,
+        updatedAt: now,
+      }).run()
+
+      const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/status' })
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.payload).sources.length).toBe(0)
+    } finally { await h.close() }
+  })
+
+  it('404s for an unknown project', async () => {
+    const h = await buildHarness([])
+    try {
+      const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/no-such/traffic/status' })
+      expect(res.statusCode).toBe(404)
+    } finally { await h.close() }
+  })
 })
 
 describe('GET /traffic/events', () => {

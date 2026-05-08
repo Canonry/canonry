@@ -946,6 +946,14 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
          ON ga_ai_referrals(project_id, date, source, medium, source_dimension, channel_group, landing_page)`))
     },
   },
+  {
+    version: 51,
+    name: 'runs-source-id',
+    statements: [
+      `ALTER TABLE runs ADD COLUMN source_id TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_runs_source ON runs(source_id)`,
+    ],
+  },
 ]
 
 /**

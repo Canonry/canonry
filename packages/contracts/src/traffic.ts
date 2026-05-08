@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { runStatusSchema } from './run.js'
 
 export const trafficSourceTypeSchema = z.enum([
   'cloud-run',
@@ -144,7 +145,7 @@ export const trafficSourceDetailDtoSchema = trafficSourceDtoSchema.extend({
   latestRun: z
     .object({
       runId: z.string(),
-      status: z.string(),
+      status: runStatusSchema,
       startedAt: z.string().nullable(),
       finishedAt: z.string().nullable(),
       error: z.string().nullable(),
@@ -152,6 +153,11 @@ export const trafficSourceDetailDtoSchema = trafficSourceDtoSchema.extend({
     .nullable(),
 })
 export type TrafficSourceDetailDto = z.infer<typeof trafficSourceDetailDtoSchema>
+
+export const trafficStatusResponseSchema = z.object({
+  sources: z.array(trafficSourceDetailDtoSchema),
+})
+export type TrafficStatusResponse = z.infer<typeof trafficStatusResponseSchema>
 
 export const trafficEventKindSchema = z.enum(['crawler', 'ai-referral'])
 export type TrafficEventKind = z.infer<typeof trafficEventKindSchema>

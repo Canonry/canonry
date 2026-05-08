@@ -1,9 +1,9 @@
 import type {
   TrafficEventEntry,
   TrafficEventsResponse,
-  TrafficSourceDetailDto,
   TrafficSourceDto,
   TrafficSourceListResponse,
+  TrafficStatusResponse,
   TrafficSyncResponse,
 } from '@ainyc/canonry-contracts'
 import { TrafficEventKinds } from '@ainyc/canonry-contracts'
@@ -149,16 +149,11 @@ export async function trafficSources(project: string, opts: { format?: string })
 
 export async function trafficStatus(project: string, opts: { format?: string }): Promise<void> {
   const client = createApiClient()
-  const list: TrafficSourceListResponse = await client.trafficListSources(project)
-
-  const details: TrafficSourceDetailDto[] = []
-  for (const source of list.sources) {
-    const detail = await client.trafficGetSource(project, source.id)
-    details.push(detail)
-  }
+  const result: TrafficStatusResponse = await client.trafficStatus(project)
+  const details = result.sources
 
   if (opts.format === 'json') {
-    console.log(JSON.stringify({ sources: details }, null, 2))
+    console.log(JSON.stringify(result, null, 2))
     return
   }
 

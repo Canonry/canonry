@@ -98,6 +98,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/projects/{name}/traffic/connect/cloud-run': 'included',
   'POST /api/v1/projects/{name}/traffic/sources/{id}/sync': 'included',
   'GET /api/v1/projects/{name}/traffic/sources': 'included',
+  'GET /api/v1/projects/{name}/traffic/status': 'included',
   'GET /api/v1/projects/{name}/traffic/sources/{id}': 'included',
   'GET /api/v1/projects/{name}/traffic/events': 'included',
   'DELETE /api/v1/projects/{name}/wordpress/disconnect': 'deferred',

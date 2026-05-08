@@ -74,6 +74,7 @@ import type {
   TrafficSourceDto,
   TrafficSourceDetailDto,
   TrafficSourceListResponse,
+  TrafficStatusResponse,
   TrafficEventsResponse,
   TrafficConnectCloudRunRequest,
   TrafficSyncResponse,
@@ -817,6 +818,13 @@ export class ApiClient {
     return this.request<TrafficSourceListResponse>(
       'GET',
       `/projects/${encodeURIComponent(project)}/traffic/sources`,
+    )
+  }
+
+  async trafficStatus(project: string): Promise<TrafficStatusResponse> {
+    return this.request<TrafficStatusResponse>(
+      'GET',
+      `/projects/${encodeURIComponent(project)}/traffic/status`,
     )
   }
 

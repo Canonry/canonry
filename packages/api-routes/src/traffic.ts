@@ -22,9 +22,11 @@ import {
   TrafficEventKinds,
 } from '@ainyc/canonry-contracts'
 import type {
+  RunStatus,
   TrafficSourceDto,
   TrafficSourceDetailDto,
   TrafficSourceListResponse,
+  TrafficStatusResponse,
   TrafficSyncResponse,
   TrafficSourceStatus,
   TrafficSourceAuthMode,
@@ -314,6 +316,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         kind: RunKinds['traffic-sync'],
         status: RunStatuses.running,
         trigger: RunTriggers.manual,
+        sourceId: sourceRow.id,
         startedAt,
         createdAt: startedAt,
       })
@@ -524,6 +527,77 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     return response
   })
 
+  function buildSourceDetail(
+    projectId: string,
+    row: typeof trafficSources.$inferSelect,
+    since: string,
+  ): TrafficSourceDetailDto {
+    const crawlerTotals = app.db
+      .select({ total: sql<number>`COALESCE(SUM(${crawlerEventsHourly.hits}), 0)` })
+      .from(crawlerEventsHourly)
+      .where(
+        and(
+          eq(crawlerEventsHourly.sourceId, row.id),
+          gte(crawlerEventsHourly.tsHour, since),
+        ),
+      )
+      .get()
+
+    const aiTotals = app.db
+      .select({ total: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.sessionsOrHits}), 0)` })
+      .from(aiReferralEventsHourly)
+      .where(
+        and(
+          eq(aiReferralEventsHourly.sourceId, row.id),
+          gte(aiReferralEventsHourly.tsHour, since),
+        ),
+      )
+      .get()
+
+    const sampleTotals = app.db
+      .select({ total: sql<number>`COUNT(*)` })
+      .from(rawEventSamples)
+      .where(
+        and(
+          eq(rawEventSamples.sourceId, row.id),
+          gte(rawEventSamples.ts, since),
+        ),
+      )
+      .get()
+
+    const latestRun = app.db
+      .select()
+      .from(runs)
+      .where(
+        and(
+          eq(runs.projectId, projectId),
+          eq(runs.kind, RunKinds['traffic-sync']),
+          eq(runs.sourceId, row.id),
+        ),
+      )
+      .orderBy(desc(runs.startedAt))
+      .limit(1)
+      .get()
+
+    return {
+      ...rowToDto(row),
+      totals24h: {
+        crawlerHits: Number(crawlerTotals?.total ?? 0),
+        aiReferralHits: Number(aiTotals?.total ?? 0),
+        sampleCount: Number(sampleTotals?.total ?? 0),
+      },
+      latestRun: latestRun
+        ? {
+            runId: latestRun.id,
+            status: latestRun.status as RunStatus,
+            startedAt: latestRun.startedAt,
+            finishedAt: latestRun.finishedAt ?? null,
+            error: latestRun.error ?? null,
+          }
+        : null,
+    }
+  }
+
   // GET /projects/:name/traffic/sources
   app.get<{ Params: { name: string } }>('/projects/:name/traffic/sources', async (request) => {
     const project = resolveProject(app.db, request.params.name)
@@ -537,6 +611,23 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       .filter((row) => row.status !== TrafficSourceStatuses.archived)
       .map(rowToDto)
     const response: TrafficSourceListResponse = { sources }
+    return response
+  })
+
+  // GET /projects/:name/traffic/status
+  app.get<{ Params: { name: string } }>('/projects/:name/traffic/status', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const rows = app.db
+      .select()
+      .from(trafficSources)
+      .where(eq(trafficSources.projectId, project.id))
+      .orderBy(desc(trafficSources.createdAt))
+      .all()
+    const since = new Date(Date.now() - 24 * 60 * 60_000).toISOString()
+    const sources: TrafficSourceDetailDto[] = rows
+      .filter((row) => row.status !== TrafficSourceStatuses.archived)
+      .map((row) => buildSourceDetail(project.id, row, since))
+    const response: TrafficStatusResponse = { sources }
     return response
   })
 
@@ -555,71 +646,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       }
 
       const since = new Date(Date.now() - 24 * 60 * 60_000).toISOString()
-
-      const crawlerTotals = app.db
-        .select({ total: sql<number>`COALESCE(SUM(${crawlerEventsHourly.hits}), 0)` })
-        .from(crawlerEventsHourly)
-        .where(
-          and(
-            eq(crawlerEventsHourly.sourceId, row.id),
-            gte(crawlerEventsHourly.tsHour, since),
-          ),
-        )
-        .get()
-
-      const aiTotals = app.db
-        .select({ total: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.sessionsOrHits}), 0)` })
-        .from(aiReferralEventsHourly)
-        .where(
-          and(
-            eq(aiReferralEventsHourly.sourceId, row.id),
-            gte(aiReferralEventsHourly.tsHour, since),
-          ),
-        )
-        .get()
-
-      const sampleTotals = app.db
-        .select({ total: sql<number>`COUNT(*)` })
-        .from(rawEventSamples)
-        .where(
-          and(
-            eq(rawEventSamples.sourceId, row.id),
-            gte(rawEventSamples.ts, since),
-          ),
-        )
-        .get()
-
-      const latestRun = app.db
-        .select()
-        .from(runs)
-        .where(
-          and(
-            eq(runs.projectId, project.id),
-            eq(runs.kind, RunKinds['traffic-sync']),
-          ),
-        )
-        .orderBy(desc(runs.startedAt))
-        .limit(1)
-        .get()
-
-      const detail: TrafficSourceDetailDto = {
-        ...rowToDto(row),
-        totals24h: {
-          crawlerHits: Number(crawlerTotals?.total ?? 0),
-          aiReferralHits: Number(aiTotals?.total ?? 0),
-          sampleCount: Number(sampleTotals?.total ?? 0),
-        },
-        latestRun: latestRun
-          ? {
-              runId: latestRun.id,
-              status: latestRun.status,
-              startedAt: latestRun.startedAt,
-              finishedAt: latestRun.finishedAt ?? null,
-              error: latestRun.error ?? null,
-            }
-          : null,
-      }
-      return detail
+      return buildSourceDetail(project.id, row, since)
     },
   )
 

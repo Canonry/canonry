@@ -2811,6 +2811,19 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/traffic/status',
+    summary: 'List non-archived traffic sources with last-24h totals and the latest sync run for each',
+    description:
+      'Single-call composite for the `canonry traffic status` view: same shape as `GET /traffic/sources/{id}` but returned as `{ sources: TrafficSourceDetailDto[] }` for every non-archived source. Lets agents and the dashboard avoid an N+1 fan-out.',
+    tags: ['traffic'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'Status returned.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/traffic/sources/{id}',
     summary: 'Get a single traffic source with last-24h totals and the latest sync run',
     tags: ['traffic'],
