@@ -243,6 +243,23 @@ describe('traffic CLI commands', () => {
     expect(result.stderr).toMatch(/--kind must be/i)
   })
 
+  it('rejects a non-numeric --since-minutes without crashing', async () => {
+    const result = await invokeCli([
+      'traffic', 'events', 'test-proj', '--since-minutes', 'abc',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/--since-minutes/)
+    expect(result.stderr).not.toMatch(/Invalid time value/)
+  })
+
+  it('rejects a non-numeric --limit', async () => {
+    const result = await invokeCli([
+      'traffic', 'events', 'test-proj', '--limit', 'abc',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/--limit/)
+  })
+
   it('reports no sources for `traffic status` when none are connected', async () => {
     const result = await invokeCli(['traffic', 'status', 'test-proj', '--format', 'json'])
     expect(result.exitCode).toBeUndefined()

@@ -6,7 +6,7 @@ import {
   trafficSync,
 } from '../commands/traffic.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
-import { getString, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
+import { getString, parseIntegerOption, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 
 export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
@@ -66,8 +66,11 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       )
       const source = getString(input.values, 'source')
       if (!source) throw new Error('--source <id> is required')
-      const sinceStr = getString(input.values, 'since-minutes')
-      const sinceMinutes = sinceStr ? parseInt(sinceStr, 10) : undefined
+      const sinceMinutes = parseIntegerOption(input, 'since-minutes', {
+        command: 'traffic.sync',
+        usage: 'canonry traffic sync <project> --source <id> [--since-minutes 60]',
+        message: '--since-minutes must be an integer',
+      })
 
       await trafficSync(project, {
         source,
@@ -117,10 +120,16 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
         'traffic.events',
         'canonry traffic events <project>',
       )
-      const sinceMinutesStr = getString(input.values, 'since-minutes')
-      const sinceMinutes = sinceMinutesStr ? parseInt(sinceMinutesStr, 10) : undefined
-      const limitStr = getString(input.values, 'limit')
-      const limit = limitStr ? parseInt(limitStr, 10) : undefined
+      const sinceMinutes = parseIntegerOption(input, 'since-minutes', {
+        command: 'traffic.events',
+        usage: 'canonry traffic events <project> [--since-minutes 1440]',
+        message: '--since-minutes must be an integer',
+      })
+      const limit = parseIntegerOption(input, 'limit', {
+        command: 'traffic.events',
+        usage: 'canonry traffic events <project> [--limit 500]',
+        message: '--limit must be an integer',
+      })
 
       await trafficEvents(project, {
         kind: getString(input.values, 'kind'),
