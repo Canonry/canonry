@@ -487,7 +487,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">Traffic Attribution</p>
                 <h2 className="text-base font-semibold text-zinc-50 flex items-center gap-1.5">
                   Traffic by channel
-                  <InfoTooltip text="Decomposes GA4 sessions into five disjoint channels — known AI referrers first, then organic search, social, direct, and other channels. Known AI referrers are removed from their native GA4 channel before the residual Other bucket is computed. Other channels capture Referral, Email, Display, and any remaining default channel groups. Detected via sessionDefaultChannelGrouping plus AI-source matching on sessionSource/firstUserSource/sessionManualSource (generic search sources excluded)." />
+                  <InfoTooltip text="Decomposes GA4 sessions into five disjoint channels — known AI referrers first, then organic search, social, direct, and other channels. Known AI referrers are removed from their native GA4 channel before the residual Other bucket is computed. Other channels are the remaining GA4 session default channel groups, such as Referral, Email, Paid Search, Display, Cross-network, Shopping, Video, Affiliates, SMS, and Paid Other." />
                 </h2>
               </div>
               {dateRange && (
@@ -621,7 +621,7 @@ export function TrafficSection({ projectName }: { projectName: string }) {
                   value={otherSharePctDisplay}
                   hint={`${otherSessions.toLocaleString()} sessions`}
                   tone="neutral"
-                  tooltip="Sessions from all other GA4 default channel groups not covered above — most commonly Referral, Email, and Display. Computed after known AI referrers have been removed from their native GA4 channel so the five buckets stay disjoint."
+                  tooltip="Remaining GA4 session default channel groups after Known AI, Organic Search, Organic/Paid Social, and Direct are accounted for. This is a residual bucket, not a single source. It can include Referral, Email, Paid Search, Display, Cross-network, Shopping, Video, Affiliates, SMS, Mobile Push Notifications, Paid Other, and unclassified traffic."
                 />
               </div>
 
