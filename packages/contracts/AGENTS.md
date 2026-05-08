@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Shared DTOs, enums, Zod schemas, error codes, and config validation — the type backbone of the monorepo. Every package imports from here. Never define shared types in consuming packages.
+Shared DTOs, enums, Zod schemas, error codes, config validation, and **generic utilities** — the type and helper backbone of the monorepo. Every package imports from here. Never define shared types or generic helpers in consuming packages — see the "Shared Utilities" section in the root `AGENTS.md`.
 
 ## Key Files
 
@@ -16,6 +16,9 @@ Shared DTOs, enums, Zod schemas, error codes, and config validation — the type
 | `src/config-schema.ts` | Config file Zod validation |
 | `src/models.ts` | Shared model types |
 | `src/analytics.ts` | Analytics response DTOs |
+| `src/formatting.ts` | Generic formatters: `formatRatio`, `formatNumber`, `formatDate`, `formatIsoDate`, `formatDateRange` |
+| `src/url-normalize.ts` | Domain / URL normalization helpers |
+| `src/report-dedup.ts` | Report action / opportunity dedup utilities |
 | `src/index.ts` | Barrel re-export of all modules |
 
 ## Patterns
@@ -37,6 +40,14 @@ Shared DTOs, enums, Zod schemas, error codes, and config validation — the type
 2. Re-export from `src/index.ts` (barrel export).
 3. Use the DTO in both API routes (request/response validation) and the ApiClient (typed returns).
 
+### Adding a generic utility
+
+1. Pick the right home: `formatting.ts` for formatters, `url-normalize.ts` for URL helpers, `report-dedup.ts` for dedup logic. Create a new topic file (e.g. `parsing.ts`, `time.ts`) when no existing file fits.
+2. Keep it pure — no side effects, no I/O, no logging, no DB. Take values, return values.
+3. Re-export from `src/index.ts`.
+4. Add a test file in `test/<topic>.test.ts` with happy path + edge cases (empty input, invalid input, boundary values).
+5. Migrate any inline duplicates you discover in the same change — don't leave duplication for "later."
+
 ### Error factory functions
 
 Always use factory functions — never hand-construct error JSON:
@@ -56,6 +67,7 @@ Available factories: `validationError()`, `notFound()`, `alreadyExists()`, `auth
 
 - **Hand-constructing error JSON** — always use factory functions from `errors.ts`.
 - **Defining shared types in consuming packages** — types used across packages belong here.
+- **Defining generic helpers (formatters, parsers, normalizers) inline in consumer files** — they belong in this package. See "Shared Utilities" in the root `AGENTS.md`.
 - **Forgetting to re-export from `index.ts`** — consumers import from `@ainyc/canonry-contracts`.
 - **Creating Zod schema without corresponding TypeScript type** — keep them paired.
 

@@ -448,6 +448,59 @@ The CLI and API **are** the agent interface. MCP is allowed only as an adapter o
 - Keep the canonry app independent from the audit package repo except for the published npm dependency.
 - Raw observation snapshots only (`cited`/`not-cited`); transitions computed at query time.
 
+## Shared Utilities (Critical)
+
+**Generic, pure helpers belong in `packages/contracts/` — not duplicated inline in consumer files.** When you find yourself writing a `formatX`, `parseX`, `normalizeX`, `clampX`, or any other small helper that doesn't depend on domain state, the rule is: write it once, in `contracts`, and import it everywhere it's needed.
+
+### Rules
+
+1. **Default to centralizing.** Before defining a helper inline, check `packages/contracts/src/` for an existing equivalent. Specifically check `formatting.ts`, `url-normalize.ts`, `report-dedup.ts`, and `errors.ts` — those are the established homes for cross-package utilities.
+2. **Make helpers as generic as possible.** A helper named `formatGscDate` that handles only GSC's date format is a missed abstraction. Name and shape it so the next caller (GA, BWT, reports) can reuse it without modification. Domain-specific wrappers can live in the consumer file and call into the generic core.
+3. **No duplicate implementations.** If two packages both need to convert ISO 8601 to `YYYY-MM-DD`, there is exactly one function for that — `formatIsoDate` in `contracts/formatting.ts` — and both packages import it. Catch this in review: if you see a second implementation appearing, replace it with the import.
+4. **Pure functions only.** Utilities in `contracts` must have no side effects, no I/O, no DB access, no logging. They take values and return values. Anything else belongs in the consuming package.
+5. **Test the utility, not the caller.** Tests for shared helpers live alongside the helper (`packages/contracts/test/<name>.test.ts`). Consumer tests should not re-test the helper's logic — they should trust it.
+6. **When you discover an inline helper that should be generic, migrate it.** Don't leave duplication for "later." Pull it into `contracts`, update all callers in the same change, and delete the inline copies.
+
+### Where utilities live
+
+| Concern | File |
+|---------|------|
+| Date / number / ratio formatting | `packages/contracts/src/formatting.ts` |
+| URL / domain normalization | `packages/contracts/src/url-normalize.ts` |
+| Report action / opportunity dedup | `packages/contracts/src/report-dedup.ts` |
+| Error factories | `packages/contracts/src/errors.ts` |
+| JSON column parsing (DB-only) | `packages/db` (`parseJsonColumn`) |
+
+Add new utility files to `packages/contracts/src/` and re-export them from `index.ts`. Keep modules small and focused — a `formatting.ts` for formatters, a separate file for the next category. One file per concern.
+
+### Anti-patterns
+
+```typescript
+// ❌ Wrong — defining a generic helper inline in a domain file
+// packages/api-routes/src/report-renderer.ts
+function formatNumber(value: number): string {
+  if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(1)}K`
+  return value.toLocaleString('en-US')
+}
+
+// ✅ Correct — single source of truth, imported everywhere
+// packages/contracts/src/formatting.ts
+export function formatNumber(value: number): string { /* ... */ }
+
+// packages/api-routes/src/report-renderer.ts
+import { formatNumber } from '@ainyc/canonry-contracts'
+```
+
+```typescript
+// ❌ Wrong — three packages each define their own formatDate
+// packages/canonry/src/gsc-sync.ts: function formatDate(d: Date) { ... }
+// packages/integration-google-analytics/src/ga4-client.ts: function formatDate(d: Date) { ... }
+// packages/api-routes/src/report-renderer.ts: function formatDate(iso: string) { ... }
+
+// ✅ Correct — one shared helper, imported by all three
+// packages/contracts/src/formatting.ts: export function formatIsoDate(iso: string) { ... }
+```
+
 ## Error Handling in API Routes (Critical)
 
 The global error handler in `packages/api-routes/src/index.ts` catches `AppError` instances and serializes them with the correct status code and JSON envelope. Route handlers must leverage this — never duplicate the serialization logic.
@@ -744,6 +797,7 @@ This repo uses per-package `AGENTS.md` files for local context. **These must sta
 | Add a new integration package | Create `packages/integration-<name>/AGENTS.md` |
 | Change a critical pattern (error handling, DB access, auth) | Update the relevant package's AGENTS.md patterns section |
 | Add a new dependency between packages | Update `docs/architecture.md` module dependency graph |
+| Add a generic utility (formatter, parser, normalizer) | Add it to `packages/contracts/src/<topic>.ts`, re-export from `index.ts`, add tests in `packages/contracts/test/<topic>.test.ts`. Update the "Where utilities live" table in this file if introducing a new category. |
 
 **Documentation-only changes do not require a version bump.**
 

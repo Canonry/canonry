@@ -394,6 +394,21 @@ describe('renderReportHtml', () => {
     expect(html).toMatch(/<style[\s\S]*?<\/style>/)
   })
 
+  test('footer renders date as YYYY-MM-DD and preserves the canonry link', () => {
+    const html = renderReportHtml(emptyReport())
+    expect(html).toContain('<a href="https://canonry.ai">canonry</a> · 2026-05-01</footer>')
+    expect(html).not.toContain('2026-05-01T12:00:00.000Z</footer>')
+  })
+
+  test('@media print block preserves the dark theme (no white-on-black inversion)', () => {
+    const html = renderReportHtml(emptyReport())
+    expect(html).toContain('@media print')
+    expect(html).toContain('print-color-adjust: exact')
+    expect(html).toContain('break-inside: avoid')
+    expect(html).not.toMatch(/@media print\s*\{[^}]*background:\s*white/)
+    expect(html).not.toMatch(/@media print\s*\{[^}]*color:\s*black/)
+  })
+
   test('embeds the report JSON in a <script type="application/json"> block', () => {
     const html = renderReportHtml(richReport())
     expect(html).toContain('id="canonry-report-data"')
