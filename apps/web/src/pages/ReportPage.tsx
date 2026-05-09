@@ -239,10 +239,104 @@ export function ReportPage({ projectName }: { projectName: string }) {
 
       <ClientSummarySection report={report} />
       <WhatsChangedSection report={report} audience="client" />
+      <ServerActivityClientView report={report} />
       <ActionPlanSection report={report} audience="client" />
       <ClientEvidenceSection report={report} />
     </div>
   )
+}
+
+/**
+ * Client-friendly summary of server-side AI visibility data.
+ * Hidden when no source is connected (per the agreed empty-state policy: silent for client).
+ * When `hasData=false` (source connected but nothing synced yet), shows one short
+ * line so users know their connection is healthy.
+ */
+function ServerActivityClientView({ report }: { report: ProjectReportDto }) {
+  const sa = report.serverActivity
+  if (!sa) return null
+
+  if (!sa.hasData) {
+    return (
+      <section className="page-section-divider">
+        <SectionHeading
+          eyebrow="AI engine attention"
+          title="Server-side AI visibility"
+          subtitle="Live telemetry from your server logs."
+        />
+        <p className="text-sm text-zinc-500">
+          Your server-side traffic source is connected. Numbers will appear after the next sync.
+        </p>
+      </section>
+    )
+  }
+
+  const verifiedDelta = renderClientDelta(sa.verifiedCrawlerHits, 'crawls')
+  const referralDelta = renderClientDelta(sa.referralArrivals, 'arrivals')
+  // For the client view we cap at the top 5 entries — agencies see the full breakdown in the HTML report.
+  const topOperators = sa.byOperator.filter(o => o.verifiedHits > 0 || o.referralArrivals > 0).slice(0, 5)
+
+  return (
+    <section className="page-section-divider">
+      <SectionHeading
+        eyebrow="AI engine attention"
+        title="Server-side AI visibility"
+        subtitle="What AI engines actually do in your server logs over the last 7 days — the other half of citations."
+      />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Metric
+          label="AI bots visited your site"
+          value={formatNumber(sa.verifiedCrawlerHits.current)}
+          subtitle={verifiedDelta}
+        />
+        <Metric
+          label="People clicked through from AI"
+          value={formatNumber(sa.referralArrivals.current)}
+          subtitle={referralDelta}
+        />
+      </div>
+      {topOperators.length > 0 && (
+        <div className="mt-4">
+          <p className="eyebrow mb-2">By AI engine</p>
+          <div className="evidence-table-wrap">
+            <table className="evidence-table">
+              <thead>
+                <tr>
+                  <th>Engine</th>
+                  <th>Bot visits (7d)</th>
+                  <th>Click-throughs</th>
+                </tr>
+              </thead>
+              <tbody>
+                {topOperators.map(o => (
+                  <tr key={o.operator}>
+                    <td className="evidence-query-cell">{o.operator}</td>
+                    <td>{formatNumber(o.verifiedHits)}</td>
+                    <td>{formatNumber(o.referralArrivals)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-2 text-[11px] text-zinc-500">
+            Verified visits only. We confirm each bot via reverse-DNS so the numbers above can't be inflated by anyone faking a user agent.
+          </p>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function renderClientDelta(
+  d: { current: number; prior: number; deltaPct: number | null },
+  countLabel: string,
+): string {
+  if (d.deltaPct === null) {
+    return d.prior === 0 ? 'First baseline week' : ''
+  }
+  if (d.deltaPct > 0) return `Up ${d.deltaPct}% vs prior 7 days (${formatNumber(d.prior)} ${countLabel})`
+  if (d.deltaPct < 0) return `Down ${Math.abs(d.deltaPct)}% vs prior 7 days (${formatNumber(d.prior)} ${countLabel})`
+  return `Flat vs prior 7 days (${formatNumber(d.prior)} ${countLabel})`
 }
 
 function actionAudienceMatches(action: ReportActionPlanItem, audience: ReportAudience): boolean {
@@ -1619,7 +1713,7 @@ function IndexingHealthSectionView({ report }: { report: ProjectReportDto }) {
   if (!ih || !ih.provider) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 10" title="Indexing Health" subtitle="Connect Google Search Console or Bing Webmaster Tools to populate this section." />
+        <SectionHeading eyebrow="Section 11" title="Indexing Health" subtitle="Connect Google Search Console or Bing Webmaster Tools to populate this section." />
         <EmptyHint message="No indexing data — connect Google Search Console or Bing Webmaster Tools." />
       </section>
     )
@@ -1627,7 +1721,7 @@ function IndexingHealthSectionView({ report }: { report: ProjectReportDto }) {
   const indexingSubtitle = `Pages absent from ${ih.provider === 'google' ? 'Google' : 'Bing'} are harder for AI engines to retrieve.`
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 10" title="Indexing Health" subtitle={indexingSubtitle} />
+      <SectionHeading eyebrow="Section 11" title="Indexing Health" subtitle={indexingSubtitle} />
       <div className="grid gap-3 sm:grid-cols-3">
         <Metric label="Indexed" value={formatNumber(ih.indexed)} tone="positive" />
         <Metric label="Total inspected" value={formatNumber(ih.total)} />
@@ -1679,7 +1773,7 @@ function CitationsTrendSection({ report }: { report: ProjectReportDto }) {
   if (trend.length === 0) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 11" title="Citations Over Time" subtitle="Citation coverage across recent checks." />
+        <SectionHeading eyebrow="Section 12" title="Citations Over Time" subtitle="Citation coverage across recent checks." />
         <EmptyHint message="Run multiple checks to see a trend." />
       </section>
     )
@@ -1687,14 +1781,14 @@ function CitationsTrendSection({ report }: { report: ProjectReportDto }) {
   if (isTrendBaseline(trend)) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 11" title="Citations Over Time" subtitle="Citation coverage across recent checks." />
+        <SectionHeading eyebrow="Section 12" title="Citations Over Time" subtitle="Citation coverage across recent checks." />
         <EmptyHint message={`Building baseline (${trend.length} of ${MIN_TREND_POINTS} checks completed). Trend will appear once more checks are recorded.`} />
       </section>
     )
   }
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 11" title="Citations Over Time" subtitle="Citation coverage across recent checks." />
+      <SectionHeading eyebrow="Section 12" title="Citations Over Time" subtitle="Citation coverage across recent checks." />
       <div className="h-64 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-3">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={trend} margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
@@ -1754,14 +1848,14 @@ function InsightsSection({ report }: { report: ProjectReportDto }) {
   if (report.insights.length === 0) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 12" title="Insights &amp; Alerts" subtitle="Regressions, gains, and recurring alerts ordered by severity." />
+        <SectionHeading eyebrow="Section 13" title="Insights &amp; Alerts" subtitle="Regressions, gains, and recurring alerts ordered by severity." />
         <EmptyHint message="No active insights — everything looks stable." />
       </section>
     )
   }
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 12" title="Insights &amp; Alerts" subtitle="Regressions, gains, and recurring alerts ordered by severity." />
+      <SectionHeading eyebrow="Section 13" title="Insights &amp; Alerts" subtitle="Regressions, gains, and recurring alerts ordered by severity." />
       <div className="evidence-table-wrap">
         <table className="evidence-table">
           <thead>
@@ -1805,7 +1899,7 @@ function ContentOpportunitiesSection({ report }: { report: ProjectReportDto }) {
   return (
     <section className="page-section-divider">
       <SectionHeading
-        eyebrow="Section 13"
+        eyebrow="Section 14"
         title="Content Opportunities"
         subtitle="Queries where content work has the clearest path to more AI citations. Opportunity score is 0–100, higher = stronger."
       />
@@ -1873,7 +1967,7 @@ function ContentGapsSection({ report }: { report: ProjectReportDto }) {
   return (
     <section className="page-section-divider">
       <SectionHeading
-        eyebrow="Section 14"
+        eyebrow="Section 15"
         title="Content Gaps"
         subtitle="Tracked queries where competitors are cited and the client is missing."
       />
@@ -1915,14 +2009,14 @@ function NextStepsSection({ report }: { report: ProjectReportDto }) {
   if (report.recommendedNextSteps.length === 0) {
     return (
       <section className="page-section-divider">
-        <SectionHeading eyebrow="Section 15" title="Recommended Next Steps" subtitle="Action items bucketed by timing." />
+        <SectionHeading eyebrow="Section 16" title="Recommended Next Steps" subtitle="Action items bucketed by timing." />
         <EmptyHint message="No prioritized actions yet." />
       </section>
     )
   }
   return (
     <section className="page-section-divider">
-      <SectionHeading eyebrow="Section 15" title="Recommended Next Steps" subtitle="Action items bucketed by timing." />
+      <SectionHeading eyebrow="Section 16" title="Recommended Next Steps" subtitle="Action items bucketed by timing." />
       <div className="space-y-2">
         {report.recommendedNextSteps.map((s, i) => (
           <div key={i} className="flex items-start gap-3 rounded-lg border border-zinc-800/60 bg-zinc-900/30 px-3 py-2.5">

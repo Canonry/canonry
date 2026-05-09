@@ -20,6 +20,9 @@ import {
   gaTrafficWindowSummaries,
   gaAiReferrals,
   gaSocialReferrals,
+  trafficSources,
+  crawlerEventsHourly,
+  aiReferralEventsHourly,
 } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { ProjectReportDto } from '@ainyc/canonry-contracts'
@@ -1441,6 +1444,224 @@ describe('GET /api/v1/projects/:name/report', () => {
     expect(Object.keys(body1.executiveSummary).sort()).toEqual(
       Object.keys(body2.executiveSummary).sort(),
     )
+  })
+})
+
+describe('serverActivity (AI visibility — server-side)', () => {
+  let ctx: ReturnType<typeof buildApp>
+  beforeEach(() => { ctx = buildApp() })
+  afterEach(async () => {
+    await ctx.app.close()
+    fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
+  })
+
+  function insertTrafficSource(projectId: string, status = 'connected') {
+    const sourceId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    ctx.db.insert(trafficSources).values({
+      id: sourceId,
+      projectId,
+      sourceType: 'cloud-run',
+      displayName: 'Test source',
+      status,
+      lastSyncedAt: null,
+      lastCursor: null,
+      lastError: null,
+      lastEventIds: null,
+      archivedAt: status === 'archived' ? now : null,
+      configJson: '{}',
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+    return sourceId
+  }
+
+  function isoMinusDays(days: number): string {
+    return new Date(Date.now() - days * 24 * 60 * 60_000).toISOString()
+  }
+
+  function insertCrawler(
+    projectId: string,
+    sourceId: string,
+    args: {
+      tsHour?: string
+      operator?: string
+      verificationStatus?: string
+      pathNormalized?: string
+      hits: number
+      botId?: string
+    },
+  ) {
+    const now = new Date().toISOString()
+    ctx.db.insert(crawlerEventsHourly).values({
+      projectId,
+      sourceId,
+      tsHour: args.tsHour ?? isoMinusDays(1),
+      botId: args.botId ?? 'gptbot',
+      operator: args.operator ?? 'OpenAI',
+      verificationStatus: args.verificationStatus ?? 'verified',
+      pathNormalized: args.pathNormalized ?? '/blog',
+      status: 200,
+      hits: args.hits,
+      sampledUserAgent: null,
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+  }
+
+  function insertReferral(
+    projectId: string,
+    sourceId: string,
+    args: {
+      tsHour?: string
+      product?: string
+      operator?: string
+      sourceDomain?: string
+      landingPathNormalized?: string
+      hits: number
+    },
+  ) {
+    const now = new Date().toISOString()
+    ctx.db.insert(aiReferralEventsHourly).values({
+      projectId,
+      sourceId,
+      tsHour: args.tsHour ?? isoMinusDays(1),
+      product: args.product ?? 'ChatGPT',
+      operator: args.operator ?? 'OpenAI',
+      sourceDomain: args.sourceDomain ?? 'chatgpt.com',
+      evidenceType: 'utm',
+      landingPathNormalized: args.landingPathNormalized ?? '/landing',
+      status: 200,
+      sessionsOrHits: args.hits,
+      usersEstimated: null,
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+  }
+
+  test('returns null when no traffic source is connected', async () => {
+    insertProject(ctx.db, 'no-source')
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/no-source/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+    expect(body.serverActivity).toBeNull()
+  })
+
+  test('treats archived-only sources as no source', async () => {
+    const projectId = insertProject(ctx.db, 'archived-only')
+    insertTrafficSource(projectId, 'archived')
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/archived-only/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+    expect(body.serverActivity).toBeNull()
+  })
+
+  test('returns hasData=false when source connected but no events yet', async () => {
+    const projectId = insertProject(ctx.db, 'no-events')
+    insertTrafficSource(projectId)
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/no-events/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+    expect(body.serverActivity).not.toBeNull()
+    expect(body.serverActivity!.hasData).toBe(false)
+    expect(body.serverActivity!.verifiedCrawlerHits.current).toBe(0)
+    expect(body.serverActivity!.byOperator.length).toBe(0)
+    expect(body.serverActivity!.topCrawledPaths.length).toBe(0)
+    expect(body.serverActivity!.referralProducts.length).toBe(0)
+  })
+
+  test('headline crawler total uses verified-only; unverified is per-operator only', async () => {
+    const projectId = insertProject(ctx.db, 'verified-isolation')
+    const sourceId = insertTrafficSource(projectId)
+    // 7-day window — events at d-1
+    insertCrawler(projectId, sourceId, { hits: 30, verificationStatus: 'verified' })
+    insertCrawler(projectId, sourceId, { hits: 17, verificationStatus: 'claimed_unverified', operator: 'OpenAI' })
+    insertCrawler(projectId, sourceId, { hits: 5, verificationStatus: 'unknown_ai_like', operator: 'Other' })
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/verified-isolation/report' })
+    const body = JSON.parse(res.body) as ProjectReportDto
+    const sa = body.serverActivity!
+    // Headline counts ONLY verified
+    expect(sa.verifiedCrawlerHits.current).toBe(30)
+    // OpenAI row contains both verified + unverified, isolated
+    const openai = sa.byOperator.find(o => o.operator === 'OpenAI')!
+    expect(openai.verifiedHits).toBe(30)
+    expect(openai.unverifiedHits).toBe(17)
+    // Other row only has unverified — verified=0
+    const other = sa.byOperator.find(o => o.operator === 'Other')!
+    expect(other.verifiedHits).toBe(0)
+    expect(other.unverifiedHits).toBe(5)
+  })
+
+  test('deltaPct compares last-7d to prior 7d on verified hits', async () => {
+    const projectId = insertProject(ctx.db, 'delta-pct')
+    const sourceId = insertTrafficSource(projectId)
+    // current window (d-1): 100 verified
+    insertCrawler(projectId, sourceId, { tsHour: isoMinusDays(1), hits: 100 })
+    // prior window (d-10): 50 verified — 100% increase
+    insertCrawler(projectId, sourceId, { tsHour: isoMinusDays(10), hits: 50 })
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/delta-pct/report' })
+    const sa = (JSON.parse(res.body) as ProjectReportDto).serverActivity!
+    expect(sa.verifiedCrawlerHits.current).toBe(100)
+    expect(sa.verifiedCrawlerHits.prior).toBe(50)
+    expect(sa.verifiedCrawlerHits.deltaPct).toBe(100)
+  })
+
+  test('deltaPct is null when prior window is empty (no false 100% jumps from zero)', async () => {
+    const projectId = insertProject(ctx.db, 'delta-null')
+    const sourceId = insertTrafficSource(projectId)
+    insertCrawler(projectId, sourceId, { tsHour: isoMinusDays(1), hits: 100 })
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/delta-null/report' })
+    const sa = (JSON.parse(res.body) as ProjectReportDto).serverActivity!
+    expect(sa.verifiedCrawlerHits.deltaPct).toBeNull()
+  })
+
+  test('top crawled paths sorted descending by hits, verified only', async () => {
+    const projectId = insertProject(ctx.db, 'top-paths')
+    const sourceId = insertTrafficSource(projectId)
+    insertCrawler(projectId, sourceId, { pathNormalized: '/a', hits: 5 })
+    insertCrawler(projectId, sourceId, { pathNormalized: '/b', hits: 20 })
+    insertCrawler(projectId, sourceId, { pathNormalized: '/c', hits: 10 })
+    insertCrawler(projectId, sourceId, { pathNormalized: '/d', hits: 999, verificationStatus: 'claimed_unverified' })
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/top-paths/report' })
+    const sa = (JSON.parse(res.body) as ProjectReportDto).serverActivity!
+    // Verified only — /d (unverified) excluded
+    expect(sa.topCrawledPaths.map(p => p.path)).toEqual(['/b', '/c', '/a'])
+    expect(sa.topCrawledPaths[0]!.verifiedHits).toBe(20)
+  })
+
+  test('referral products aggregated and counted with distinct landing paths', async () => {
+    const projectId = insertProject(ctx.db, 'referral-products')
+    const sourceId = insertTrafficSource(projectId)
+    insertReferral(projectId, sourceId, { product: 'ChatGPT', landingPathNormalized: '/p1', hits: 3 })
+    insertReferral(projectId, sourceId, { product: 'ChatGPT', landingPathNormalized: '/p2', hits: 2 })
+    insertReferral(projectId, sourceId, { product: 'Claude', landingPathNormalized: '/p1', hits: 1 })
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/referral-products/report' })
+    const sa = (JSON.parse(res.body) as ProjectReportDto).serverActivity!
+    expect(sa.referralProducts).toHaveLength(2)
+    const chatgpt = sa.referralProducts.find(p => p.product === 'ChatGPT')!
+    expect(chatgpt.arrivals).toBe(5)
+    expect(chatgpt.distinctLandingPaths).toBe(2)
+    const claude = sa.referralProducts.find(p => p.product === 'Claude')!
+    expect(claude.arrivals).toBe(1)
+    expect(claude.distinctLandingPaths).toBe(1)
+  })
+
+  test('events outside the 14-day trend window are excluded', async () => {
+    const projectId = insertProject(ctx.db, 'trend-window')
+    const sourceId = insertTrafficSource(projectId)
+    insertCrawler(projectId, sourceId, { tsHour: isoMinusDays(2), hits: 7 })
+    insertCrawler(projectId, sourceId, { tsHour: isoMinusDays(20), hits: 999 })
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/trend-window/report' })
+    const sa = (JSON.parse(res.body) as ProjectReportDto).serverActivity!
+    // 999 is older than 14d — must not appear in dailyTrend
+    const totalTrendHits = sa.dailyTrend.reduce((acc, d) => acc + d.verifiedCrawlerHits, 0)
+    expect(totalTrendHits).toBe(7)
   })
 })
 
