@@ -8,7 +8,7 @@
 - Diagnose against real traffic with built-in [GSC](docs/google-search-console-setup.md), [GA4](docs/google-analytics-setup.md), and [Bing Webmaster](docs/bing-webmaster-setup.md)
 - Execute fixes via [WordPress](docs/wordpress-setup.md), JSON-LD schema, and indexing submissions
 - Manage many clients declaratively — config-as-code YAML + `canonry apply`
-- Schedule recurring sweeps with webhook alerts on regressions
+- Schedule recurring visibility checks with webhook alerts on regressions
 - Generate client-ready HTML reports — `canonry report <project>`
 - Drive from your own agent via the [67-tool MCP adapter](docs/mcp.md) or webhooks
 - Or use **Aero** — Canonry's built-in agent that wakes up after every run
@@ -17,7 +17,7 @@ Every dashboard view has a matching CLI command and API endpoint. The CLI is the
 
 ![Canonry Dashboard](docs/images/dashboard.png)
 
-## Get to your first sweep in 5 minutes
+## Run your first AI visibility check in 5 minutes
 
 ```bash
 npm install -g @ainyc/canonry
@@ -25,7 +25,7 @@ canonry init
 canonry serve
 ```
 
-Open [http://localhost:4100/setup](http://localhost:4100/setup). A guided wizard walks you through provider keys, project setup, queries, and your first sweep.
+Open [http://localhost:4100/setup](http://localhost:4100/setup). A guided wizard walks you through provider keys, project setup, queries, and your first visibility check.
 
 Prefer the terminal?
 
@@ -42,7 +42,7 @@ canonry insights my-site
 | Problem | Fix |
 |---------|-----|
 | No provider key configured | Grab a free [Gemini key](https://aistudio.google.com/apikey), set `GEMINI_API_KEY`, restart `canonry serve`. |
-| No results after a run | Sweeps are async — check the Runs tab or use `canonry run <project> --wait`. |
+| No results after a run | Visibility checks are async — check the Runs tab or use `canonry run <project> --wait`. |
 | Not sure what queries to test | The setup wizard auto-generates them by analyzing your site. |
 | `npm install` fails on `node-gyp` | Install build tools for `better-sqlite3` ([guide](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/troubleshooting.md)). |
 
