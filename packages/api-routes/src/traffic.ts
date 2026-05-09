@@ -66,6 +66,25 @@ export interface CloudRunCredentialStore {
   deleteConnection: (projectName: string) => boolean
 }
 
+export interface TrafficSyncedEvent {
+  /** 'completed' = transactional rollup write succeeded. 'failed' = pull or auth failed before any rollup writes. */
+  status: 'completed' | 'failed'
+  /** Stable enum value (e.g. 'cloud-run', 'wp-plugin'). Mirrors `traffic_sources.source_type`. */
+  sourceType: string
+  /** Source row UUID — opaque, no PII. */
+  sourceId: string
+  /** Number of normalized events processed (post-dedupe). 0 for failed syncs. */
+  pulledEvents: number
+  /** Crawler hourly bucket inserts/updates. 0 for failed syncs. */
+  crawlerHits: number
+  /** AI-referral hourly bucket inserts/updates. 0 for failed syncs. */
+  aiReferralHits: number
+  /** End-to-end duration including pull, classification, rollup write. */
+  durationMs: number
+  /** Stable error code on failure. Present only when status === 'failed'. */
+  errorCode?: 'NO_CREDENTIAL' | 'PROVIDER_AUTH' | 'PROVIDER_PULL' | 'INTERNAL'
+}
+
 export interface TrafficRoutesOptions {
   cloudRunCredentialStore?: CloudRunCredentialStore
   /** Override the Cloud Run pull function (for tests). Defaults to `listCloudRunTrafficEvents`. */
@@ -83,6 +102,8 @@ export interface TrafficRoutesOptions {
   defaultMaxPages?: number
   /** Cap on the number of raw_event_samples written per sync. */
   defaultSampleLimit?: number
+  /** Fire-and-forget hook called after every sync completes (success OR failure). Used by canonry to emit telemetry. */
+  onTrafficSynced?: (event: TrafficSyncedEvent) => void
 }
 
 const DEFAULT_SYNC_WINDOW_MINUTES = 43_200
@@ -313,6 +334,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     )
 
     const startedAt = windowEnd.toISOString()
+    const syncStartedAtMs = windowEnd.getTime()
     const runId = crypto.randomUUID()
     app.db
       .insert(runs)
@@ -328,7 +350,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       })
       .run()
 
-    const markFailed = (msg: string) => {
+    const markFailed = (msg: string, errorCode: TrafficSyncedEvent['errorCode']) => {
       const failedAt = new Date().toISOString()
       app.db.transaction((tx) => {
         tx
@@ -342,6 +364,21 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           .where(eq(trafficSources.id, sourceRow.id))
           .run()
       })
+      // Fire-and-forget: never let a telemetry hook take down the sync.
+      try {
+        opts.onTrafficSynced?.({
+          status: 'failed',
+          sourceType: sourceRow.sourceType,
+          sourceId: sourceRow.id,
+          pulledEvents: 0,
+          crawlerHits: 0,
+          aiReferralHits: 0,
+          durationMs: Date.now() - syncStartedAtMs,
+          errorCode,
+        })
+      } catch {
+        // swallow — never block on telemetry
+      }
     }
 
     let accessToken: string
@@ -349,7 +386,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       accessToken = await resolveAccessToken(credential)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      markFailed(msg)
+      markFailed(msg, 'PROVIDER_AUTH')
       throw providerError(`Failed to resolve Cloud Run access token: ${msg}`)
     }
 
@@ -367,7 +404,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       allEvents = page.events
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      markFailed(msg)
+      markFailed(msg, 'PROVIDER_PULL')
       throw providerError(`Cloud Run pull failed: ${msg}`)
     }
 
@@ -545,6 +582,21 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       entityType: 'traffic_source',
       entityId: sourceRow.id,
     })
+
+    // Fire-and-forget telemetry. Never let a hook block the response.
+    try {
+      opts.onTrafficSynced?.({
+        status: 'completed',
+        sourceType: sourceRow.sourceType,
+        sourceId: sourceRow.id,
+        pulledEvents: report.totals.normalizedEvents,
+        crawlerHits: report.totals.crawlerHits,
+        aiReferralHits: report.totals.aiReferralHits,
+        durationMs: Date.now() - syncStartedAtMs,
+      })
+    } catch {
+      // swallow — never block on telemetry
+    }
 
     const response: TrafficSyncResponse = {
       sourceId: sourceRow.id,

@@ -46,7 +46,7 @@ import {
   removeWordpressConnection,
   upsertWordpressConnection,
 } from './wordpress-config.js'
-import { isTelemetryEnabled, getOrCreateAnonymousId } from './telemetry.js'
+import { isTelemetryEnabled, getOrCreateAnonymousId, trackEvent } from './telemetry.js'
 import { JobRunner } from './job-runner.js'
 import { executeGscSync } from './gsc-sync.js'
 import { executeInspectSitemap } from './gsc-inspect-sitemap.js'
@@ -965,6 +965,21 @@ export async function createServer(opts: {
     wordpressConnectionStore,
     ga4CredentialStore,
     cloudRunCredentialStore,
+    onTrafficSynced: (event) => {
+      // Emit anonymous canonry telemetry for every sync (success + fail).
+      // Same envelope shape as run.completed (top-level `errorCode` on
+      // failure, payload in `properties`). Counts are aggregate, sourceId
+      // is an opaque UUID — no PII surface.
+      trackEvent('traffic.synced', {
+        status: event.status,
+        sourceType: event.sourceType,
+        sourceId: event.sourceId,
+        pulledEvents: event.pulledEvents,
+        crawlerHits: event.crawlerHits,
+        aiReferralHits: event.aiReferralHits,
+        durationMs: event.durationMs,
+      }, event.errorCode ? { errorCode: event.errorCode } : undefined)
+    },
     onRunCreated: (runId: string, projectId: string, providers?: string[], location?: import('@ainyc/canonry-contracts').LocationContext | null) => {
       // Fire and forget — run executes in background
       jobRunner.executeRun(runId, projectId, providers, location).catch((err: unknown) => {

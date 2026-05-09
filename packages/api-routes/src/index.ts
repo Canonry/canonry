@@ -115,6 +115,8 @@ export interface ApiRoutesOptions {
   pullCloudRunEvents?: TrafficRoutesOptions['pullCloudRunEvents']
   /** Override Cloud Run access-token resolver (tests) — see `TrafficRoutesOptions` */
   resolveCloudRunAccessToken?: TrafficRoutesOptions['resolveCloudRunAccessToken']
+  /** Fired after every traffic sync (success OR failure). Used by canonry to emit `traffic.synced` telemetry. */
+  onTrafficSynced?: TrafficRoutesOptions['onTrafficSynced']
   /** Backlinks feature callbacks — see `backlinksRoutes` for details. */
   getBacklinksStatus?: BacklinksRoutesOptions['getBacklinksStatus']
   onInstallBacklinks?: BacklinksRoutesOptions['onInstallBacklinks']
@@ -276,6 +278,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       cloudRunCredentialStore: opts.cloudRunCredentialStore,
       pullCloudRunEvents: opts.pullCloudRunEvents,
       resolveCloudRunAccessToken: opts.resolveCloudRunAccessToken,
+      onTrafficSynced: opts.onTrafficSynced,
     } satisfies TrafficRoutesOptions)
     // Always mount the backlinks routes so read endpoints (summary, domains,
     // history, sync list) work off the shared DB. Action routes (install,
