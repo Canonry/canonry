@@ -117,7 +117,7 @@ function rowToDto(row: typeof trafficSources.$inferSelect): TrafficSourceDto {
   }
 }
 
-async function defaultResolveAccessToken(record: CloudRunCredentialRecord): Promise<string> {
+export async function defaultResolveAccessToken(record: CloudRunCredentialRecord): Promise<string> {
   if (record.authMode === TrafficSourceAuthModes['service-account']) {
     if (!record.clientEmail || !record.privateKey) {
       throw validationError('Service-account credentials missing client_email or private_key')
