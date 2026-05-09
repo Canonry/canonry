@@ -83,10 +83,10 @@ export const projectReportRoute = createRoute({
   component: () => <ProjectPage tab="report" />,
 })
 
-export const projectTrafficRoute = createRoute({
+export const projectActivityRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
-  path: '/traffic',
-  component: () => <ProjectPage tab="traffic" />,
+  path: '/activity',
+  component: () => <ProjectPage tab="activity" />,
 })
 
 export const projectInboundRoute = createRoute({
@@ -153,7 +153,7 @@ export const routeTree = rootRoute.addChildren([
     projectOverviewRoute,
     projectSearchConsoleRoute,
     projectReportRoute,
-    projectTrafficRoute,
+    projectActivityRoute,
     projectInboundRoute,
   ]),
   runsRoute,

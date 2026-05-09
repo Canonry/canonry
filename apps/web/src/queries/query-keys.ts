@@ -50,6 +50,7 @@ export const queryKeys = {
     all: ['server-traffic'] as const,
     project: (project: string) => ['server-traffic', project] as const,
     sources: (project: string) => ['server-traffic', project, 'sources'] as const,
+    status: (project: string) => ['server-traffic', project, 'status'] as const,
     sourceDetail: (project: string, sourceId: string) =>
       ['server-traffic', project, 'sources', sourceId] as const,
     events: (

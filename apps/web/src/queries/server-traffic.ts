@@ -8,10 +8,12 @@ import {
   fetchServerTrafficEvents,
   fetchServerTrafficSource,
   fetchServerTrafficSources,
+  fetchServerTrafficStatus,
   triggerServerTrafficSync,
   type ApiTrafficEvents,
   type ApiTrafficSourceDetail,
   type ApiTrafficSourceList,
+  type ApiTrafficStatus,
   type ApiTrafficSyncResult,
   type TrafficConnectCloudRunRequest,
 } from '../api.js'
@@ -59,6 +61,15 @@ export function useServerTrafficSources(project: string | null) {
   return useQuery<ApiTrafficSourceList>({
     queryKey: project ? queryKeys.serverTraffic.sources(project) : ['server-traffic', 'disabled'],
     queryFn: () => fetchServerTrafficSources(project!),
+    enabled: Boolean(project),
+    staleTime: TRAFFIC_STALE_MS,
+  })
+}
+
+export function useServerTrafficStatus(project: string | null) {
+  return useQuery<ApiTrafficStatus>({
+    queryKey: project ? queryKeys.serverTraffic.status(project) : ['server-traffic', 'status-disabled'],
+    queryFn: () => fetchServerTrafficStatus(project!),
     enabled: Boolean(project),
     staleTime: TRAFFIC_STALE_MS,
   })
