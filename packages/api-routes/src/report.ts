@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, lte, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, lte, ne, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   aiReferralEventsHourly,
@@ -23,6 +23,7 @@ import {
   CitationStates,
   RunKinds,
   RunStatuses,
+  TrafficSourceStatuses,
   getProviderLocationHandling,
   validationError,
   type CitationsTrendPoint,
@@ -526,15 +527,15 @@ function buildAiReferrals(db: DatabaseClient, projectId: string): ProjectReportD
  */
 function buildServerActivity(db: DatabaseClient, projectId: string): ProjectReportDto['serverActivity'] {
   // 1. Bail if no traffic source is connected at all.
+  // Treat archived sources as "not connected" — we don't want to surface
+  // historical data for a host migration the user has moved past.
   const sourceRows = db
     .select({ id: trafficSources.id })
     .from(trafficSources)
     .where(
       and(
         eq(trafficSources.projectId, projectId),
-        // Treat archived sources as "not connected" — we don't want to surface
-        // historical data for a host migration the user has moved past.
-        sql`${trafficSources.status} != 'archived'`,
+        ne(trafficSources.status, TrafficSourceStatuses.archived),
       ),
     )
     .all()

@@ -41,6 +41,7 @@ function emptyReport(): ProjectReportDto {
     ga: null,
     socialReferrals: null,
     aiReferrals: null,
+    serverActivity: null,
     indexingHealth: null,
     citationsTrend: [],
     whatsChanged: {
@@ -245,6 +246,33 @@ function richReport(): ProjectReportDto {
       ],
       topLandingPages: [
         { page: '/', sessions: 120, users: 90 },
+      ],
+    },
+    serverActivity: {
+      windowStart: '2026-04-25T00:00:00.000Z',
+      windowEnd: '2026-05-02T00:00:00.000Z',
+      hasData: true,
+      verifiedCrawlerHits: { current: 234, prior: 117, deltaPct: 100 },
+      referralArrivals: { current: 12, prior: 6, deltaPct: 100 },
+      byOperator: [
+        { operator: 'OpenAI', verifiedHits: 140, unverifiedHits: 10, referralArrivals: 8, deltaPct: 75 },
+        { operator: 'Anthropic', verifiedHits: 70, unverifiedHits: 0, referralArrivals: 3, deltaPct: 40 },
+        { operator: 'Google AI', verifiedHits: 24, unverifiedHits: 5, referralArrivals: 1, deltaPct: null },
+      ],
+      topCrawledPaths: [
+        { path: '/blog/foo', verifiedHits: 80, distinctOperators: 2 },
+        { path: '/pricing', verifiedHits: 50, distinctOperators: 1 },
+      ],
+      referralProducts: [
+        { product: 'ChatGPT', arrivals: 8, distinctLandingPaths: 3 },
+        { product: 'Claude', arrivals: 3, distinctLandingPaths: 1 },
+      ],
+      dailyTrend: [
+        { date: '2026-04-29', verifiedCrawlerHits: 30, referralArrivals: 2 },
+        { date: '2026-04-30', verifiedCrawlerHits: 45, referralArrivals: 3 },
+      ],
+      topReferralLandingPaths: [
+        { path: '/landing', arrivals: 5, distinctProducts: 2 },
       ],
     },
     indexingHealth: {
@@ -486,6 +514,83 @@ describe('renderReportHtml', () => {
     const gsc = html.split('id="gsc"')[1]?.split('</section>')[0] ?? ''
     expect(executive).toContain('5.0K imp · 20.0% CTR · Apr 1, 2026 → Apr 30, 2026')
     expect(gsc).toContain('Search demand signals to compare against AI visibility for Apr 1, 2026 → Apr 30, 2026.')
+  })
+
+  test('agency HTML includes the AI Visibility — Server-Side section with Section 10 eyebrow', () => {
+    const html = renderReportHtml(richReport(), { audience: 'agency' })
+    expect(html).toContain('id="server-activity"')
+    expect(html).toContain('AI Visibility — Server-Side')
+    expect(html).toContain('Section 10')
+    // Headline numbers and explanatory copy that anchor analyst trust
+    expect(html).toContain('Verified crawler hits (7d)')
+    expect(html).toContain('AI-referral arrivals (7d)')
+    expect(html).toContain('rDNS-confirmed')
+    // Per-operator breakdown headings
+    expect(html).toContain('Per AI operator')
+    expect(html).toContain('Top crawled paths')
+    expect(html).toContain('Click-throughs by AI product')
+    // Specific row values from richReport()
+    expect(html).toContain('OpenAI')
+    expect(html).toContain('Anthropic')
+    expect(html).toContain('/blog/foo')
+  })
+
+  test('client HTML includes the AI Visibility — Server-Side section between WhatsChanged and the action plan', () => {
+    const html = renderReportHtml(richReport(), { audience: 'client' })
+    // Per the report-parity rule, what the SPA shows the client (between
+    // WhatsChanged and ActionPlan) must also be in the downloadable HTML.
+    expect(html).toContain('id="server-activity"')
+    expect(html).toContain('AI Visibility — Server-Side')
+    // Plain-English client labels (NOT the analyst "Verified crawler hits" copy)
+    expect(html).toContain('AI bots visited your site')
+    expect(html).toContain('People clicked through from AI')
+    expect(html).toContain('reverse-DNS')
+    // Section eyebrow in client view is the friendlier "AI engine attention" label
+    expect(html).toContain('AI engine attention')
+    // Per-engine breakdown rendered with operator names
+    expect(html).toContain('OpenAI')
+    // The agency-only labels MUST NOT appear in the client view
+    expect(html).not.toContain('Verified crawler hits (7d)')
+    expect(html).not.toContain('Top crawled paths')
+    // Section 10 eyebrow is agency-only
+    expect(html).not.toContain('Section 10')
+  })
+
+  test('client HTML hides the section entirely when no traffic source is connected', () => {
+    const report = richReport()
+    report.serverActivity = null
+    const html = renderReportHtml(report, { audience: 'client' })
+    expect(html).not.toContain('id="server-activity"')
+    expect(html).not.toContain('AI Visibility — Server-Side')
+  })
+
+  test('agency HTML shows the connect prompt when no source is connected', () => {
+    const report = richReport()
+    report.serverActivity = null
+    const html = renderReportHtml(report, { audience: 'agency' })
+    expect(html).toContain('id="server-activity"')
+    expect(html).toContain('Connect a server-side traffic source')
+  })
+
+  test('renumbered agency sections 11-16 retain their post-Server-Side ordering', () => {
+    const html = renderReportHtml(richReport(), { audience: 'agency' })
+    // Section 10 = AI Visibility — Server-Side (added by this PR)
+    // Section 11 = Indexing Health (was Section 10)
+    // Section 12 = Citations Over Time (was Section 11)
+    // Section 13 = Insights (was Section 12)
+    // Sections after that are not anchored on these eyebrows in the agency
+    // assembly, but we assert 11–13 to lock in the renumbering invariant.
+    expect(html).toContain('Section 11')
+    expect(html).toContain('Indexing Health')
+    expect(html).toContain('Section 12')
+    expect(html).toContain('Citations Over Time')
+    // The `serverActivity` block must come BEFORE Indexing Health in the
+    // emitted HTML — this enforces section ordering at the rendered level.
+    const saIdx = html.indexOf('id="server-activity"')
+    const ihIdx = html.indexOf('id="indexing-health"')
+    expect(saIdx).toBeGreaterThan(0)
+    expect(ihIdx).toBeGreaterThan(0)
+    expect(saIdx).toBeLessThan(ihIdx)
   })
 
   test('handles empty data without throwing', () => {

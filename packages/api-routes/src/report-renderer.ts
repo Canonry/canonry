@@ -1812,18 +1812,26 @@ function renderAiReferrals(report: ProjectReportDto): string {
   )
 }
 
-function renderServerActivity(report: ProjectReportDto): string {
+function renderServerActivity(report: ProjectReportDto, audience: ReportAudience): string {
   const sa = report.serverActivity
+  const isClient = audience === 'client'
+  // Client view stays silent when no source is connected — surfacing a
+  // "connect a Cloud Run source" call-to-action to a client who has no
+  // technical access produces noise. Agency view shows the prompt because
+  // the operator is the audience that can act on it.
   if (!sa) {
+    if (isClient) return ''
     return section(
       { id: 'server-activity', eyebrow: 'Section 10', title: 'AI Visibility — Server-Side' },
-      renderEmpty('Connect a server-side traffic source (e.g. Cloud Run logs) to surface what AI engines do directly in your server logs — distinct from GA4 click-throughs.'),
+      renderEmpty('Connect a server-side traffic source to surface what AI engines do directly in your server logs — distinct from GA4 click-throughs.'),
     )
   }
   if (!sa.hasData) {
     return section(
       { id: 'server-activity', eyebrow: 'Section 10', title: 'AI Visibility — Server-Side' },
-      renderEmpty('Source connected — collecting your first data. Numbers will appear after the next sync.'),
+      renderEmpty(isClient
+        ? 'Your server-side traffic source is connected. Numbers will appear after the next sync.'
+        : 'Source connected — collecting your first data. Numbers will appear after the next sync.'),
     )
   }
 
@@ -1836,6 +1844,48 @@ function renderServerActivity(report: ProjectReportDto): string {
     return `<span class="${tone}">${arrow} ${Math.abs(d.deltaPct)}% vs prior 7d (${formatNumber(d.prior)} ${suffix})</span>`
   }
 
+  // ── Client view (lightweight; mirrors the SPA's ServerActivityClientView) ──
+  if (isClient) {
+    const clientOperators = sa.byOperator
+      .filter(o => o.verifiedHits > 0 || o.referralArrivals > 0)
+      .slice(0, 5)
+    const clientOperatorRows = clientOperators.map(o => `
+    <tr>
+      <td>${escapeHtml(o.operator)}</td>
+      <td class="numeric">${formatNumber(o.verifiedHits)}</td>
+      <td class="numeric">${formatNumber(o.referralArrivals)}</td>
+    </tr>`).join('')
+
+    return section(
+      {
+        id: 'server-activity',
+        eyebrow: 'AI engine attention',
+        title: 'AI Visibility — Server-Side',
+        intro: 'What AI engines actually do in your server logs over the last 7 days — the other half of citations.',
+      },
+      `<div class="metric-grid">
+        <div class="metric">
+          <div class="label">AI bots visited your site</div>
+          <div class="value">${formatNumber(sa.verifiedCrawlerHits.current)}</div>
+          <div class="subtitle">${formatDelta(sa.verifiedCrawlerHits, 'crawls')}</div>
+        </div>
+        <div class="metric">
+          <div class="label">People clicked through from AI</div>
+          <div class="value">${formatNumber(sa.referralArrivals.current)}</div>
+          <div class="subtitle">${formatDelta(sa.referralArrivals, 'arrivals')}</div>
+        </div>
+      </div>
+      ${clientOperatorRows ? `<div class="chart-card"><h3>By AI tool</h3>
+        <table class="report-table">
+          <thead><tr><th>AI tool</th><th class="numeric">Bot visits (7d)</th><th class="numeric">Click-throughs</th></tr></thead>
+          <tbody>${clientOperatorRows}</tbody>
+        </table>
+        <p class="meta">Verified visits only. We confirm each bot via reverse-DNS so the numbers above can't be inflated by anyone faking a user agent.</p>
+      </div>` : ''}`,
+    )
+  }
+
+  // ── Agency view (full forensic detail) ──
   const operatorRows = sa.byOperator.map(o => {
     const deltaText = o.deltaPct === null
       ? '—'
@@ -2448,6 +2498,10 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
     ? [
         renderClientSummary(report),
         renderWhatsChanged(report, 'client'),
+        // Server-side AI visibility runs between WhatsChanged and the action
+        // plan in BOTH the SPA and HTML so clients see the same ordered set
+        // of sections in either surface (per the report-parity rule).
+        renderServerActivity(report, 'client'),
         renderAudienceActionPlan(report, 'client'),
         renderClientEvidenceSummary(report),
       ].join('\n')
@@ -2463,7 +2517,7 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
         renderGa(report),
         renderSocial(report),
         renderAiReferrals(report),
-        renderServerActivity(report),
+        renderServerActivity(report, 'agency'),
         renderIndexingHealth(report),
         renderCitationsTrend(report),
         renderInsights(report),

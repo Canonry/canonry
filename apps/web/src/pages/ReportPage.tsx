@@ -297,12 +297,12 @@ function ServerActivityClientView({ report }: { report: ProjectReportDto }) {
       </div>
       {topOperators.length > 0 && (
         <div className="mt-4">
-          <p className="eyebrow mb-2">By AI engine</p>
+          <p className="eyebrow mb-2">By AI tool</p>
           <div className="evidence-table-wrap">
             <table className="evidence-table">
               <thead>
                 <tr>
-                  <th>Engine</th>
+                  <th>AI tool</th>
                   <th>Bot visits (7d)</th>
                   <th>Click-throughs</th>
                 </tr>
