@@ -1,8 +1,9 @@
-import { and, eq, gte, sql } from 'drizzle-orm'
+import { and, eq, gte, ne, sql } from 'drizzle-orm'
 import {
   CheckCategories,
   CheckScopes,
   CheckStatuses,
+  TrafficSourceStatuses,
 } from '@ainyc/canonry-contracts'
 import {
   aiReferralEventsHourly,
@@ -42,7 +43,7 @@ function loadProbes(ctx: DoctorContext): TrafficSourceProbe[] {
     .where(
       and(
         eq(trafficSources.projectId, ctx.project.id),
-        sql`${trafficSources.status} != 'archived'`,
+        ne(trafficSources.status, TrafficSourceStatuses.archived),
       ),
     )
     .all()
