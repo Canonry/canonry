@@ -954,6 +954,16 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_runs_source ON runs(source_id)`,
     ],
   },
+  {
+    version: 52,
+    name: 'traffic-sources-last-event-ids',
+    statements: [
+      // JSON-encoded array of normalized event IDs from the previous sync,
+      // used for cross-sync boundary-window dedupe so a longer default
+      // sync window (or any overlapping re-sync) cannot double-count.
+      `ALTER TABLE traffic_sources ADD COLUMN last_event_ids TEXT`,
+    ],
+  },
 ]
 
 /**

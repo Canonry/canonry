@@ -53,7 +53,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['traffic', 'sync'],
-    usage: 'canonry traffic sync <project> --source <id> [--since-minutes 60] [--format json]',
+    usage: 'canonry traffic sync <project> --source <id> [--since-minutes 43200] [--format json]',
     options: {
       source: stringOption(),
       'since-minutes': stringOption(),
@@ -62,13 +62,13 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const project = requireProject(
         input,
         'traffic.sync',
-        'canonry traffic sync <project> --source <id> [--since-minutes 60]',
+        'canonry traffic sync <project> --source <id> [--since-minutes 43200]',
       )
       const source = getString(input.values, 'source')
       if (!source) throw new Error('--source <id> is required')
       const sinceMinutes = parseIntegerOption(input, 'since-minutes', {
         command: 'traffic.sync',
-        usage: 'canonry traffic sync <project> --source <id> [--since-minutes 60]',
+        usage: 'canonry traffic sync <project> --source <id> [--since-minutes 43200]',
         message: '--since-minutes must be an integer',
       })
 

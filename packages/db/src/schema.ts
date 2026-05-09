@@ -563,6 +563,11 @@ export const trafficSources = sqliteTable('traffic_sources', {
   lastSyncedAt: text('last_synced_at'),
   lastCursor: text('last_cursor'),
   lastError: text('last_error'),
+  // JSON-encoded array of normalized event IDs (e.g. `cloud-run:<ts>:<insertId>`)
+  // observed in the most recent successful sync. Bounded ring buffer used to
+  // dedupe across sync runs at the boundary timestamp where lastSyncedAt
+  // clamping alone leaves a small overlap window.
+  lastEventIds: text('last_event_ids'),
   archivedAt: text('archived_at'),
   configJson: text('config_json').notNull().default('{}'),
   createdAt: text('created_at').notNull(),

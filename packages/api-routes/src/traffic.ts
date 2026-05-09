@@ -85,10 +85,16 @@ export interface TrafficRoutesOptions {
   defaultSampleLimit?: number
 }
 
-const DEFAULT_SYNC_WINDOW_MINUTES = 60
+const DEFAULT_SYNC_WINDOW_MINUTES = 43_200
 const DEFAULT_PAGE_SIZE = 1000
 const DEFAULT_MAX_PAGES = 5
 const DEFAULT_SAMPLE_LIMIT = 100
+// Bounded ring buffer of the most-recent normalized event IDs from the last
+// sync. Used to dedupe events that fall in the small overlap window between
+// `lastSyncedAt` and the new sync's `windowStart`. Sized for the practical
+// boundary case (a few seconds of overlap × peak QPS) — well above what a
+// realistic Cloud Logging burst produces in that window.
+const MAX_TRACKED_EVENT_IDS = 1_000
 
 function parseSourceConfig(row: typeof trafficSources.$inferSelect): Record<string, unknown> {
   return parseJsonColumn<Record<string, unknown>>(row.configJson, {})
@@ -365,7 +371,36 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       throw providerError(`Cloud Run pull failed: ${msg}`)
     }
 
-    const report = buildTrafficProbeReport(allEvents, { sampleLimit })
+    // Cross-sync dedupe: drop events whose normalized eventId was already
+    // observed in the previous successful sync. The lastSyncedAt clamp
+    // narrows the fetch window, but events with timestamp == lastSyncedAt
+    // (boundary second) can still appear in two consecutive pulls.
+    const seenEventIds = new Set(parseJsonColumn<string[]>(sourceRow.lastEventIds, []))
+    const dedupedEvents = seenEventIds.size === 0
+      ? allEvents
+      : allEvents.filter(e => !seenEventIds.has(e.eventId))
+
+    // Build the next sync's seen-set: new event IDs (newest-first) PREPENDED
+    // to the previous seen IDs, deduplicated, capped at MAX_TRACKED_EVENT_IDS.
+    // We must retain the previous IDs because Cloud Logging can re-return the
+    // same boundary event on more than one subsequent sync; replacing would
+    // let it re-enter on the third sync.
+    const newSorted = dedupedEvents
+      .slice()
+      .sort((a, b) => (a.observedAt < b.observedAt ? 1 : a.observedAt > b.observedAt ? -1 : 0))
+      .map(e => e.eventId)
+    const previousIds = parseJsonColumn<string[]>(sourceRow.lastEventIds, [])
+    const merged: string[] = []
+    const mergedSet = new Set<string>()
+    for (const id of [...newSorted, ...previousIds]) {
+      if (mergedSet.has(id)) continue
+      mergedSet.add(id)
+      merged.push(id)
+      if (merged.length >= MAX_TRACKED_EVENT_IDS) break
+    }
+    const nextEventIds = merged
+
+    const report = buildTrafficProbeReport(dedupedEvents, { sampleLimit })
     const finishedAt = new Date().toISOString()
 
     let crawlerBucketRows = 0
@@ -490,6 +525,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           status: TrafficSourceStatuses.connected,
           lastSyncedAt: finishedAt,
           lastError: null,
+          lastEventIds: JSON.stringify(nextEventIds),
           updatedAt: finishedAt,
         })
         .where(eq(trafficSources.id, sourceRow.id))

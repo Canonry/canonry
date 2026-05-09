@@ -50,7 +50,10 @@ function buildEvent(overrides: Partial<NormalizedTrafficRequest> = {}): Normaliz
   return { ...base, ...overrides }
 }
 
-async function buildHarness(events: NormalizedTrafficRequest[]) {
+async function buildHarness(
+  events: NormalizedTrafficRequest[],
+  options: { bypassTimeFilter?: boolean } = {},
+) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'traffic-routes-test-'))
   const dbPath = path.join(tmpDir, 'test.db')
   const db = createClient(dbPath)
@@ -73,16 +76,20 @@ async function buildHarness(events: NormalizedTrafficRequest[]) {
     db,
     skipAuth: true,
     cloudRunCredentialStore,
-    pullCloudRunEvents: async (_token, options): Promise<CloudRunTrafficEventsPage> => {
+    pullCloudRunEvents: async (_token, pullOptions): Promise<CloudRunTrafficEventsPage> => {
       pullInvocations += 1
-      observedWindows.push({ startTime: options.startTime, endTime: options.endTime })
-      // Mirror Cloud Logging's behavior: only return events inside the requested window.
-      const startMs = new Date(options.startTime).getTime()
-      const endMs = new Date(options.endTime).getTime()
-      const filtered = events.filter((e) => {
-        const t = new Date(e.observedAt).getTime()
-        return t >= startMs && t <= endMs
-      })
+      observedWindows.push({ startTime: pullOptions.startTime, endTime: pullOptions.endTime })
+      // Default: mirror Cloud Logging's behavior and only return events inside the
+      // requested window. Tests that exercise cross-sync boundary semantics
+      // (where Cloud Logging may legitimately re-return the same event in two
+      // adjacent pulls) opt out via `bypassTimeFilter`.
+      const filtered = options.bypassTimeFilter
+        ? events.slice()
+        : events.filter((e) => {
+          const t = new Date(e.observedAt).getTime()
+          return t >= new Date(pullOptions.startTime).getTime()
+            && t <= new Date(pullOptions.endTime).getTime()
+        })
       return {
         events: filtered,
         rawEntryCount: filtered.length,
@@ -342,7 +349,7 @@ describe('POST /traffic/sources/:id/sync', () => {
   })
 
   it('clamps windowStart to lastSyncedAt so overlapping syncs do not double-count', async () => {
-    // Event sits inside the default 60-min sync window for the first sync. After
+    // Event sits inside the default sync window for the first sync. After
     // the first sync, lastSyncedAt is "now-ish", so the second sync's window
     // collapses to roughly [lastSyncedAt, now] and no longer covers the event.
     const observedAt = new Date(Date.now() - 30 * 60_000).toISOString()
@@ -384,6 +391,118 @@ describe('POST /traffic/sources/:id/sync', () => {
       expect(new Date(windows[1].startTime).getTime()).toBeGreaterThanOrEqual(
         new Date(windows[0].endTime).getTime(),
       )
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('dedupes by eventId across syncs when the boundary window re-returns the same event', async () => {
+    // Cloud Logging can legitimately re-return events whose timestamp equals
+    // the boundary lastSyncedAt second. Without insertId-based dedupe the
+    // hourly rollup `hits + N` upsert would double-count those rows. We
+    // bypass the harness's time-window filter to simulate that overlap and
+    // assert the second sync drops the duplicate while accepting any genuinely
+    // new event.
+    const observedAt = new Date(Date.now() - 30 * 60_000).toISOString()
+    const dup = buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt, eventId: 'cloud-run:dup-1' })
+    const fresh = buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/bar', status: 200, observedAt, eventId: 'cloud-run:fresh-1' })
+
+    const events: NormalizedTrafficRequest[] = [dup]
+    const h = await buildHarness(events, { bypassTimeFilter: true })
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+
+      // First sync ingests the duplicate event for the first time.
+      const first = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      expect(JSON.parse(first.payload).pulledEvents).toBe(1)
+
+      // The dup event ID should be persisted on the source row.
+      const afterFirst = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).all()
+      expect(JSON.parse(afterFirst[0].lastEventIds ?? '[]')).toContain('cloud-run:dup-1')
+
+      // Push a new event into the harness's array — Cloud Logging's
+      // bypass-time-filter mock will now return [dup, fresh]. The deduper
+      // must drop dup and only roll up fresh.
+      events.push(fresh)
+
+      const second = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      // Only the genuinely-new event made it past dedupe.
+      expect(JSON.parse(second.payload).pulledEvents).toBe(1)
+
+      // The crawler rollup should now have exactly two distinct (path) rows,
+      // each with hits=1 — proves the dup was not double-counted.
+      const rows = h.db.select().from(crawlerEventsHourly).all()
+      const byPath = Object.fromEntries(rows.map((r) => [r.pathNormalized, r.hits]))
+      expect(byPath['/blog/foo']).toBe(1)
+      expect(byPath['/blog/bar']).toBe(1)
+
+      // Third sync with no new events: expect zero ingested, zero new rows.
+      const third = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      expect(JSON.parse(third.payload).pulledEvents).toBe(0)
+      const finalRows = h.db.select().from(crawlerEventsHourly).all()
+      expect(finalRows.length).toBe(2)
+      expect(finalRows.find((r) => r.pathNormalized === '/blog/foo')?.hits).toBe(1)
+      expect(finalRows.find((r) => r.pathNormalized === '/blog/bar')?.hits).toBe(1)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('caps lastEventIds at MAX_TRACKED_EVENT_IDS so the ring buffer cannot grow unbounded', async () => {
+    // Generate many distinct events; assert the persisted ring buffer
+    // stays bounded and contains the most-recent IDs.
+    const N = 1100
+    const baseMs = Date.now() - 60 * 60_000
+    const events: NormalizedTrafficRequest[] = []
+    for (let i = 0; i < N; i++) {
+      events.push(buildEvent({
+        userAgent: 'GPTBot/1.0',
+        path: `/p/${i}`,
+        status: 200,
+        observedAt: new Date(baseMs + i * 1_000).toISOString(),
+        eventId: `cloud-run:bulk:${i.toString().padStart(4, '0')}`,
+      }))
+    }
+    const h = await buildHarness(events, { bypassTimeFilter: true })
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+
+      const rows = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).all()
+      const persisted: string[] = JSON.parse(rows[0].lastEventIds ?? '[]')
+      // Ring buffer must be bounded.
+      expect(persisted.length).toBeLessThanOrEqual(1_000)
+      expect(persisted.length).toBeGreaterThan(0)
+      // Must keep the most-recent IDs (highest indices), not the oldest.
+      expect(persisted).toContain('cloud-run:bulk:1099')
+      expect(persisted).not.toContain('cloud-run:bulk:0000')
     } finally {
       await h.close()
     }

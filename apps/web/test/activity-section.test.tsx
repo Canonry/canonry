@@ -18,15 +18,15 @@ vi.mock('recharts', () => {
   }
 })
 
-import { TrafficSection } from '../src/components/project/TrafficSection.js'
+import { ActivitySection } from '../src/components/project/ActivitySection.js'
 
-function renderTrafficSection() {
+function renderActivitySection() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   return render(
     <QueryClientProvider client={queryClient}>
-      <TrafficSection projectName="test-project" />
+      <ActivitySection projectName="test-project" />
     </QueryClientProvider>,
   )
 }
@@ -114,7 +114,7 @@ test('loads connected GA4 data without changing hook order', async () => {
   const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
   onTestFinished(() => consoleErrorSpy.mockRestore())
 
-  renderTrafficSection()
+  renderActivitySection()
 
   await waitFor(() => {
     expect(screen.getByText('AI vs. total sessions')).toBeTruthy()
@@ -201,7 +201,7 @@ test('renders five-channel breakdown with disjoint Organic, Social, Direct, Know
   })
   onTestFinished(restoreFetch)
 
-  renderTrafficSection()
+  renderActivitySection()
 
   await waitFor(() => {
     expect(screen.getByText('Channel breakdown')).toBeTruthy()
@@ -301,7 +301,7 @@ test('social table collapses to top 25 with show-all toggle and surfaces Other-s
   })
   onTestFinished(restoreFetch)
 
-  renderTrafficSection()
+  renderActivitySection()
 
   await waitFor(() => {
     expect(screen.getByText('Source / medium')).toBeTruthy()

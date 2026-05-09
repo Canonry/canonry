@@ -17,11 +17,17 @@ import {
   formatChartDateTick,
 } from '../shared/ChartPrimitives.js'
 
+import { Link } from '@tanstack/react-router'
 import { Button } from '../ui/button.js'
 import { Card } from '../ui/card.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
+import { ToneBadge } from '../shared/ToneBadge.js'
 import type { MetricsWindow } from '@ainyc/canonry-contracts'
 import type { MetricTone } from '../../view-models.js'
+import {
+  toneFromTrafficSourceStatus,
+  useServerTrafficStatus,
+} from '../../queries/server-traffic.js'
 import {
   connectGa,
   fetchGaStatus,
@@ -74,7 +80,107 @@ function relativeTime(iso: string): string {
   return `${days}d ago`
 }
 
-export function TrafficSection({ projectName }: { projectName: string }) {
+function ServerActivityPanel({ projectName }: { projectName: string }) {
+  const { data, isLoading, isError } = useServerTrafficStatus(projectName)
+
+  if (isLoading) {
+    return (
+      <Card className="p-5">
+        <div className="text-sm text-zinc-500">Loading server activity…</div>
+      </Card>
+    )
+  }
+  if (isError) {
+    return (
+      <Card className="p-5">
+        <div className="text-sm text-rose-400">Failed to load server activity.</div>
+      </Card>
+    )
+  }
+  const sources = data?.sources ?? []
+
+  return (
+    <section>
+      <div className="flex items-baseline justify-between mb-3">
+        <div>
+          <div className="eyebrow">Server activity (last 24h)</div>
+          <h2 className="text-lg font-semibold text-zinc-50">Engine crawler &amp; AI-referral hits</h2>
+          <p className="text-xs text-zinc-500 mt-1">
+            Server-side log evidence of bots crawling the site and AI-referral arrivals — orthogonal
+            to GA4 click-through traffic below. {' '}
+            <Link to="/traffic" className="text-blue-400 hover:underline">Manage sources →</Link>
+          </p>
+        </div>
+      </div>
+
+      {sources.length === 0 ? (
+        <Card className="p-5">
+          <div className="text-sm text-zinc-400">
+            No server traffic source connected yet.{' '}
+            <Link to="/traffic" className="text-blue-400 hover:underline">
+              Connect a Cloud Run source
+            </Link>{' '}
+            to surface bot crawls and AI referrals straight from server logs.
+          </div>
+        </Card>
+      ) : (
+        <Card className="overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-zinc-900/50 text-[10px] uppercase tracking-wide text-zinc-500">
+              <tr>
+                <th className="text-left px-4 py-2 font-medium">Source</th>
+                <th className="text-left px-4 py-2 font-medium">Status</th>
+                <th className="text-right px-4 py-2 font-medium">Crawler hits 24h</th>
+                <th className="text-right px-4 py-2 font-medium">AI-referral 24h</th>
+                <th className="text-right px-4 py-2 font-medium">Last sync</th>
+                <th className="text-left px-4 py-2 font-medium" aria-label="open" />
+              </tr>
+            </thead>
+            <tbody>
+              {sources.map((s) => (
+                <tr key={s.id} className="border-t border-zinc-800/60">
+                  <td className="px-4 py-3 text-zinc-100">{s.displayName}</td>
+                  <td className="px-4 py-3">
+                    <ToneBadge tone={toneFromTrafficSourceStatus(s.status)}>{s.status}</ToneBadge>
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-zinc-100">
+                    {s.totals24h.crawlerHits.toLocaleString('en-US')}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-zinc-100">
+                    {s.totals24h.aiReferralHits.toLocaleString('en-US')}
+                  </td>
+                  <td className="px-4 py-3 text-right text-zinc-400 text-xs">
+                    {s.lastSyncedAt ? relativeTime(s.lastSyncedAt) : 'never'}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <Link
+                      to="/traffic/$projectName/$sourceId"
+                      params={{ projectName, sourceId: s.id }}
+                      className="text-blue-400 hover:underline text-xs"
+                    >
+                      Detail →
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
+    </section>
+  )
+}
+
+export function ActivitySection({ projectName }: { projectName: string }) {
+  return (
+    <div className="space-y-10">
+      <ServerActivityPanel projectName={projectName} />
+      <ClickThroughActivity projectName={projectName} />
+    </div>
+  )
+}
+
+function ClickThroughActivity({ projectName }: { projectName: string }) {
   const queryClient = useQueryClient()
   const [status, setStatus] = useState<ApiGaStatus | null>(null)
   const [traffic, setTraffic] = useState<ApiGaTraffic | null>(null)
