@@ -1,15 +1,30 @@
 import cron from 'node-cron'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { queueRunIfProjectIdle } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import { schedules, projects, parseJsonColumn } from '@ainyc/canonry-db'
-import type { ProviderName, LocationContext } from '@ainyc/canonry-contracts'
+import type { ProviderName, LocationContext, SchedulableRunKind } from '@ainyc/canonry-contracts'
+import { SchedulableRunKinds } from '@ainyc/canonry-contracts'
 import { createLogger } from './logger.js'
 
 const log = createLogger('Scheduler')
 
 export interface SchedulerCallbacks {
+  /** Fired when an answer-visibility schedule triggers. Existing canonry callsites wire this to the JobRunner. */
   onRunCreated: (runId: string, projectId: string, providers?: ProviderName[], location?: LocationContext | null) => void
+  /**
+   * Fired when a traffic-sync schedule triggers. Receives the project's name
+   * and the configured source UUID — the host wires this to the existing
+   * `POST /traffic/sources/:id/sync` flow (typically via `ApiClient.trafficSync`).
+   * Fire-and-forget: errors are logged by the host, not by the scheduler.
+   */
+  onTrafficSyncRequested?: (projectName: string, sourceId: string) => void
+}
+
+/** Scheduler tasks are keyed by `(projectId, kind)` so a project can run an
+ *  answer-visibility schedule AND a traffic-sync schedule independently. */
+function taskKey(projectId: string, kind: SchedulableRunKind): string {
+  return `${projectId}::${kind}`
 }
 
 export class Scheduler {
@@ -39,8 +54,8 @@ export class Scheduler {
       // Catch-up: if the scheduled slot was set but the server was down when
       // it was supposed to fire, trigger immediately.
       if (missedRunAt && new Date(missedRunAt) < new Date()) {
-        log.info('run.catch-up', { projectId: schedule.projectId, missedRunAt })
-        this.triggerRun(schedule.id, schedule.projectId)
+        log.info('run.catch-up', { projectId: schedule.projectId, kind: schedule.kind, missedRunAt })
+        this.triggerRun(schedule.id, schedule.projectId, schedule.kind as SchedulableRunKind)
       }
     }
 
@@ -49,26 +64,29 @@ export class Scheduler {
 
   /** Stop all cron tasks for graceful shutdown. */
   stop(): void {
-    for (const [projectId, task] of this.tasks) {
-      this.stopTask(projectId, task, 'Stopped')
+    for (const [key, task] of this.tasks) {
+      this.stopTask(key, task, 'Stopped')
     }
     this.tasks.clear()
   }
 
-  /** Add or update a cron registration at runtime (called when schedule API is used). */
-  upsert(projectId: string): void {
-    // Remove existing task if any
-    const existing = this.tasks.get(projectId)
+  /**
+   * Add or update a cron registration at runtime (called when schedule API
+   * is used). Keyed by `(projectId, kind)` so a project's traffic-sync and
+   * answer-visibility schedules can coexist independently.
+   */
+  upsert(projectId: string, kind: SchedulableRunKind): void {
+    const key = taskKey(projectId, kind)
+    const existing = this.tasks.get(key)
     if (existing) {
-      this.stopTask(projectId, existing, 'Stopped')
-      this.tasks.delete(projectId)
+      this.stopTask(key, existing, 'Stopped')
+      this.tasks.delete(key)
     }
 
-    // Load fresh from DB
     const schedule = this.db
       .select()
       .from(schedules)
-      .where(eq(schedules.projectId, projectId))
+      .where(and(eq(schedules.projectId, projectId), eq(schedules.kind, kind)))
       .get()
 
     if (schedule && schedule.enabled === 1) {
@@ -76,67 +94,100 @@ export class Scheduler {
     }
   }
 
-  /** Remove a cron registration (called when schedule is deleted). */
-  remove(projectId: string): void {
-    const existing = this.tasks.get(projectId)
+  /** Remove a single cron registration (kind-scoped). */
+  remove(projectId: string, kind: SchedulableRunKind): void {
+    const key = taskKey(projectId, kind)
+    const existing = this.tasks.get(key)
     if (existing) {
-      this.stopTask(projectId, existing, 'Removed')
-      this.tasks.delete(projectId)
+      this.stopTask(key, existing, 'Removed')
+      this.tasks.delete(key)
     }
   }
 
-  private stopTask(projectId: string, task: cron.ScheduledTask, verb: 'Stopped' | 'Removed'): void {
+  /** Remove ALL cron registrations for a project (used on project delete). */
+  removeAllForProject(projectId: string): void {
+    for (const kind of Object.values(SchedulableRunKinds)) {
+      this.remove(projectId, kind)
+    }
+  }
+
+  private stopTask(key: string, task: cron.ScheduledTask, verb: 'Stopped' | 'Removed'): void {
     task.stop()
     task.destroy()
-    log.info(`task.${verb.toLowerCase()}`, { projectId })
+    log.info(`task.${verb.toLowerCase()}`, { key })
   }
 
   private registerCronTask(schedule: typeof schedules.$inferSelect): void {
     const { id: scheduleId, projectId, cronExpr, timezone } = schedule
+    const kind = schedule.kind as SchedulableRunKind
 
     if (!cron.validate(cronExpr)) {
-      log.error('cron.invalid', { projectId, cronExpr })
+      log.error('cron.invalid', { projectId, kind, cronExpr })
       return
     }
 
     const task = cron.schedule(cronExpr, () => {
-      this.triggerRun(scheduleId, projectId)
+      this.triggerRun(scheduleId, projectId, kind)
     }, {
       timezone,
     })
 
-    this.tasks.set(projectId, task)
+    this.tasks.set(taskKey(projectId, kind), task)
     this.db.update(schedules).set({
       nextRunAt: task.getNextRun()?.toISOString() ?? null,
       updatedAt: new Date().toISOString(),
     }).where(eq(schedules.id, scheduleId)).run()
 
     const label = schedule.preset ?? cronExpr
-    log.info('cron.registered', { projectId, schedule: label, timezone })
+    log.info('cron.registered', { projectId, kind, schedule: label, timezone })
   }
 
-  private triggerRun(scheduleId: string, projectId: string): void {
+  private triggerRun(scheduleId: string, projectId: string, kind: SchedulableRunKind): void {
     try {
       const now = new Date().toISOString()
       const currentSchedule = this.db.select().from(schedules).where(eq(schedules.id, scheduleId)).get()
       if (!currentSchedule || currentSchedule.enabled !== 1) {
-        log.warn('schedule.stale', { scheduleId, projectId, msg: 'schedule no longer exists or is disabled' })
-        this.remove(projectId)
+        log.warn('schedule.stale', { scheduleId, projectId, kind, msg: 'schedule no longer exists or is disabled' })
+        this.remove(projectId, kind)
         return
       }
 
-      const task = this.tasks.get(projectId)
+      const task = this.tasks.get(taskKey(projectId, kind))
       const nextRunAt = task?.getNextRun()?.toISOString() ?? null
 
       // Check if project still exists
       const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
       if (!project) {
-        log.error('project.not-found', { projectId, msg: 'skipping scheduled run' })
-        this.remove(projectId)
+        log.error('project.not-found', { projectId, kind, msg: 'skipping scheduled run' })
+        this.remove(projectId, kind)
         return
       }
 
-      // Resolve default location for this project
+      if (kind === SchedulableRunKinds['traffic-sync']) {
+        // Traffic-sync schedules dispatch through the existing
+        // POST /traffic/sources/:id/sync flow via the host-injected callback.
+        // The endpoint handles run-row creation, dedupe, and rollup writes —
+        // the scheduler only needs to fire the trigger.
+        const sourceId = currentSchedule.sourceId
+        if (!sourceId) {
+          log.warn('traffic-sync.missing-source', { scheduleId, projectId })
+          return
+        }
+        if (!this.callbacks.onTrafficSyncRequested) {
+          log.warn('traffic-sync.no-callback', { scheduleId, projectId, msg: 'host did not register onTrafficSyncRequested' })
+          return
+        }
+        this.db.update(schedules).set({
+          lastRunAt: now,
+          nextRunAt,
+          updatedAt: now,
+        }).where(eq(schedules.id, currentSchedule.id)).run()
+        log.info('traffic-sync.triggered', { projectName: project.name, sourceId })
+        this.callbacks.onTrafficSyncRequested(project.name, sourceId)
+        return
+      }
+
+      // answer-visibility (default) — original flow.
       const projectLocations = parseJsonColumn<LocationContext[]>(project.locations, [])
       let resolvedLocation: LocationContext | undefined
       if (project.defaultLocation) {
@@ -180,7 +231,7 @@ export class Scheduler {
       log.info('run.triggered', { runId, projectName: project.name, providers: providers ?? 'all' })
       this.callbacks.onRunCreated(runId, projectId, providers, resolvedLocation)
     } catch (err: unknown) {
-      log.error('trigger.error', { scheduleId, projectId, error: err instanceof Error ? err.message : String(err) })
+      log.error('trigger.error', { scheduleId, projectId, kind, error: err instanceof Error ? err.message : String(err) })
     }
   }
 }

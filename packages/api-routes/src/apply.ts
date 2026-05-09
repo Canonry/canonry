@@ -8,7 +8,7 @@ import { resolvePreset, validateCron, isValidTimezone } from './schedule-utils.j
 import { resolveWebhookTarget } from './webhooks.js'
 
 export interface ApplyRoutesOptions {
-  onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string) => void
+  onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string, kind: import('@ainyc/canonry-contracts').SchedulableRunKind) => void
   onProjectUpserted?: (projectId: string, projectName: string) => void
   onGoogleConnectionPropertyUpdated?: (domain: string, connectionType: 'gsc' | 'ga4', propertyId: string) => void
   /** Valid provider names from registered adapters — used to reject unknown providers */
@@ -252,9 +252,12 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       }
     })
 
-    // Fire callbacks after transaction commits
+    // Fire callbacks after transaction commits.
+    // `canonry apply` only manages the answer-visibility schedule (no
+    // traffic-sync surface in the YAML config-as-code spec), so the kind
+    // is fixed here.
     if (scheduleAction) {
-      opts?.onScheduleUpdated?.(scheduleAction, projectId!)
+      opts?.onScheduleUpdated?.(scheduleAction, projectId!, 'answer-visibility')
     }
     if (!hasNotifications) {
       opts?.onProjectUpserted?.(projectId!, config.metadata.name)

@@ -964,6 +964,48 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE traffic_sources ADD COLUMN last_event_ids TEXT`,
     ],
   },
+  {
+    version: 53,
+    name: 'schedules-kind-and-source',
+    // The legacy schedules table carries an inline `UNIQUE(project_id)`
+    // constraint (see MIGRATION_SQL). SQLite doesn't support dropping inline
+    // table constraints, so we use the canonical table-rebuild pattern:
+    // create a new table with the desired schema, copy the data, drop the
+    // old, rename. All 4 statements run inside the migration runner's
+    // single transaction so a partial failure rolls everything back.
+    statements: [
+      `CREATE TABLE IF NOT EXISTS schedules_v53 (
+         id          TEXT PRIMARY KEY,
+         project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+         kind        TEXT NOT NULL DEFAULT 'answer-visibility',
+         cron_expr   TEXT NOT NULL,
+         preset      TEXT,
+         timezone    TEXT NOT NULL DEFAULT 'UTC',
+         enabled     INTEGER NOT NULL DEFAULT 1,
+         providers   TEXT NOT NULL DEFAULT '[]',
+         source_id   TEXT,
+         last_run_at TEXT,
+         next_run_at TEXT,
+         created_at  TEXT NOT NULL,
+         updated_at  TEXT NOT NULL,
+         UNIQUE(project_id, kind)
+       )`,
+      `INSERT INTO schedules_v53 (
+         id, project_id, kind, cron_expr, preset, timezone, enabled,
+         providers, source_id, last_run_at, next_run_at, created_at, updated_at
+       )
+       SELECT id, project_id, 'answer-visibility', cron_expr, preset, timezone, enabled,
+              providers, NULL, last_run_at, next_run_at, created_at, updated_at
+       FROM schedules`,
+      `DROP TABLE schedules`,
+      `ALTER TABLE schedules_v53 RENAME TO schedules`,
+      // The legacy single-column unique index doesn't survive the table
+      // rename, but explicitly DROP IF EXISTS to keep the migration
+      // idempotent across edge-case re-runs.
+      `DROP INDEX IF EXISTS idx_schedules_project`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_schedules_project_kind ON schedules(project_id, kind)`,
+    ],
+  },
 ]
 
 /**

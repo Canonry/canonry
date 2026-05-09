@@ -71,8 +71,8 @@ export interface ApiRoutesOptions {
   /** Google OAuth configuration summary + update callback */
   googleSettingsSummary?: SettingsRoutesOptions['google']
   onGoogleSettingsUpdate?: SettingsRoutesOptions['onGoogleUpdate']
-  /** Callback when a schedule is created/updated/deleted */
-  onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string) => void
+  /** Callback when a schedule is created/updated/deleted. `kind` scopes which run-kind schedule changed. */
+  onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string, kind: import('@ainyc/canonry-contracts').SchedulableRunKind) => void
   /** Callback when a project is deleted */
   onProjectDeleted?: (projectId: string) => void
   /** Callback when a project is created or updated */
