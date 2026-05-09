@@ -1,7 +1,7 @@
-import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, HealthSnapshotDto, ProjectReportDto, ReportAudience, RunKind, RunStatus, RunTrigger, RunErrorDto, CitationState, CitationVisibilityResponse, ComputedTransition, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficSyncResponse } from '@ainyc/canonry-contracts'
+import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, HealthSnapshotDto, ProjectReportDto, ReportAudience, RunKind, RunStatus, RunTrigger, RunErrorDto, CitationState, CitationVisibilityResponse, ComputedTransition, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficSyncResponse } from '@ainyc/canonry-contracts'
 export type { ProjectOverviewDto }
 export type { BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto }
-export type { TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficSyncResponse }
+export type { TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficSyncResponse }
 
 export type { GroundingSource }
 
@@ -1163,11 +1163,16 @@ export function disconnectGa(project: string): Promise<void> {
 export type ApiTrafficSource = TrafficSourceDto
 export type ApiTrafficSourceDetail = TrafficSourceDetailDto
 export type ApiTrafficSourceList = TrafficSourceListResponse
+export type ApiTrafficStatus = TrafficStatusResponse
 export type ApiTrafficEvents = TrafficEventsResponse
 export type ApiTrafficSyncResult = TrafficSyncResponse
 
 export function fetchServerTrafficSources(project: string): Promise<TrafficSourceListResponse> {
   return apiFetch(`/projects/${encodeURIComponent(project)}/traffic/sources`)
+}
+
+export function fetchServerTrafficStatus(project: string): Promise<TrafficStatusResponse> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/traffic/status`)
 }
 
 export function fetchServerTrafficSource(project: string, sourceId: string): Promise<TrafficSourceDetailDto> {
