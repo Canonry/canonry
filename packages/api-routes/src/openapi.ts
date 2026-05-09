@@ -2793,8 +2793,68 @@ const routeCatalog: OpenApiOperation[] = [
     },
     responses: {
       200: { description: 'Sync summary returned.' },
-      400: { description: 'Invalid sync request, missing credentials, or upstream pull error.' },
+      400: { description: 'Invalid sync request or missing credentials.' },
       404: { description: 'Project or traffic source not found.' },
+      502: { description: 'Upstream Cloud Run pull or auth-token resolution failed.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/traffic/sources',
+    summary: 'List non-archived traffic sources for a project',
+    tags: ['traffic'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'Source list returned.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/traffic/status',
+    summary: 'List non-archived traffic sources with last-24h totals and the latest sync run for each',
+    description:
+      'Single-call composite for the `canonry traffic status` view: same shape as `GET /traffic/sources/{id}` but returned as `{ sources: TrafficSourceDetailDto[] }` for every non-archived source. Lets agents and the dashboard avoid an N+1 fan-out.',
+    tags: ['traffic'],
+    parameters: [nameParameter],
+    responses: {
+      200: { description: 'Status returned.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/traffic/sources/{id}',
+    summary: 'Get a single traffic source with last-24h totals and the latest sync run',
+    tags: ['traffic'],
+    parameters: [
+      nameParameter,
+      { name: 'id', in: 'path', required: true, description: 'Traffic source ID.', schema: stringSchema },
+    ],
+    responses: {
+      200: { description: 'Source detail returned.' },
+      404: { description: 'Project or source not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/traffic/events',
+    summary: 'List rolled-up crawler and AI-referral hits within a window',
+    description:
+      'Returns hourly rollup rows from `crawler_events_hourly` and `ai_referral_events_hourly`. Defaults to the last 24h. Totals reflect the full window; the `events` array is capped by `limit` (default 500, max 5000).',
+    tags: ['traffic'],
+    parameters: [
+      nameParameter,
+      { name: 'since', in: 'query', description: 'ISO-8601 window start (defaults to 24h ago).', schema: stringSchema },
+      { name: 'until', in: 'query', description: 'ISO-8601 window end (defaults to now).', schema: stringSchema },
+      { name: 'kind', in: 'query', description: 'Filter to "crawler", "ai-referral", or "all" (default).', schema: stringSchema },
+      { name: 'limit', in: 'query', description: 'Max rows per kind in the events array (default 500, max 5000).', schema: stringSchema },
+      { name: 'sourceId', in: 'query', description: 'Restrict to a single traffic source.', schema: stringSchema },
+    ],
+    responses: {
+      200: { description: 'Events returned with windowed totals.' },
+      400: { description: 'Invalid query parameters.' },
+      404: { description: 'Project not found.' },
     },
   },
 ]

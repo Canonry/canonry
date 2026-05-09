@@ -188,4 +188,82 @@ describe('traffic CLI commands', () => {
     expect(result.exitCode).not.toBe(0)
     expect(result.stderr).toMatch(/unknown traffic subcommand/i)
   })
+
+  it('lists no sources when none are connected (`traffic sources --format json`)', async () => {
+    const result = await invokeCli(['traffic', 'sources', 'test-proj', '--format', 'json'])
+    expect(result.exitCode).toBeUndefined()
+    const body = parseJsonOutput(result.stdout) as { sources: unknown[] }
+    expect(Array.isArray(body.sources)).toBe(true)
+    expect(body.sources.length).toBe(0)
+  })
+
+  it('lists the source after connect (`traffic sources --format json`)', async () => {
+    const keyPath = path.join(tmpDir, 'sa-key.json')
+    fs.writeFileSync(keyPath, JSON.stringify({
+      client_email: 'sa@openclaw-nyc.iam.gserviceaccount.com',
+      private_key: '-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----',
+    }), 'utf-8')
+    await invokeCli([
+      'traffic', 'connect', 'cloud-run', 'test-proj',
+      '--gcp-project', 'openclaw-nyc',
+      '--service-account-key', keyPath,
+    ])
+
+    const result = await invokeCli(['traffic', 'sources', 'test-proj', '--format', 'json'])
+    expect(result.exitCode).toBeUndefined()
+    const body = parseJsonOutput(result.stdout) as {
+      sources: Array<{ sourceType: string; status: string }>
+    }
+    expect(body.sources.length).toBe(1)
+    expect(body.sources[0].sourceType).toBe('cloud-run')
+    expect(body.sources[0].status).toBe('connected')
+  })
+
+  it('returns empty events with totals=0 when no events have been ingested (`traffic events`)', async () => {
+    const result = await invokeCli(['traffic', 'events', 'test-proj', '--format', 'json'])
+    expect(result.exitCode).toBeUndefined()
+    const body = parseJsonOutput(result.stdout) as {
+      windowStart: string
+      windowEnd: string
+      totals: { crawlerHits: number; aiReferralHits: number }
+      events: unknown[]
+    }
+    expect(body.windowStart).toBeTruthy()
+    expect(body.windowEnd).toBeTruthy()
+    expect(body.totals.crawlerHits).toBe(0)
+    expect(body.totals.aiReferralHits).toBe(0)
+    expect(body.events.length).toBe(0)
+  })
+
+  it('rejects an invalid --kind value', async () => {
+    const result = await invokeCli([
+      'traffic', 'events', 'test-proj', '--kind', 'bogus',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/--kind must be/i)
+  })
+
+  it('rejects a non-numeric --since-minutes without crashing', async () => {
+    const result = await invokeCli([
+      'traffic', 'events', 'test-proj', '--since-minutes', 'abc',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/--since-minutes/)
+    expect(result.stderr).not.toMatch(/Invalid time value/)
+  })
+
+  it('rejects a non-numeric --limit', async () => {
+    const result = await invokeCli([
+      'traffic', 'events', 'test-proj', '--limit', 'abc',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/--limit/)
+  })
+
+  it('reports no sources for `traffic status` when none are connected', async () => {
+    const result = await invokeCli(['traffic', 'status', 'test-proj', '--format', 'json'])
+    expect(result.exitCode).toBeUndefined()
+    const body = parseJsonOutput(result.stdout) as { sources: unknown[] }
+    expect(body.sources.length).toBe(0)
+  })
 })

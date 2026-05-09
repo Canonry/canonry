@@ -10,6 +10,8 @@ import { RunsPage } from '../pages/RunsPage.js'
 import { SettingsPage } from '../pages/SettingsPage.js'
 import { SetupPage } from '../pages/SetupPage.js'
 import { BacklinksPage } from '../pages/BacklinksPage.js'
+import { TrafficPage } from '../pages/TrafficPage.js'
+import { TrafficSourceDetailPage } from '../pages/TrafficSourceDetailPage.js'
 import { NotFoundPage } from '../pages/NotFoundPage.js'
 import { queryKeys } from '../queries/query-keys.js'
 
@@ -126,6 +128,18 @@ export const backlinksRoute = createRoute({
   component: BacklinksPage,
 })
 
+export const trafficRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/traffic',
+  component: TrafficPage,
+})
+
+export const trafficSourceDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/traffic/$projectName/$sourceId',
+  component: TrafficSourceDetailPage,
+})
+
 export const notFoundRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '*',
@@ -146,5 +160,7 @@ export const routeTree = rootRoute.addChildren([
   settingsRoute,
   setupRoute,
   backlinksRoute,
+  trafficRoute,
+  trafficSourceDetailRoute,
   notFoundRoute,
 ])

@@ -432,7 +432,11 @@ describe('POST /traffic/sources/:id/sync', () => {
       url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
       payload: {},
     })
-    expect(syncRes.statusCode).toBe(400)
+    // Upstream pull failure surfaces as PROVIDER_ERROR (502) so CLI exit code is
+    // 2 (system error → retry) rather than 1 (user error). The DB transaction
+    // for the failed run + source must commit before the error is thrown.
+    expect(syncRes.statusCode).toBe(502)
+    expect(JSON.parse(syncRes.payload).error.code).toBe('PROVIDER_ERROR')
 
     const sourceRow = db.select().from(trafficSources).all()[0]
     expect(sourceRow.status).toBe(TrafficSourceStatuses.error)
@@ -444,5 +448,491 @@ describe('POST /traffic/sources/:id/sync', () => {
 
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('marks the source as error and returns PROVIDER_ERROR (502) when access-token resolution fails', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'traffic-routes-test-'))
+    const dbPath = path.join(tmpDir, 'test.db')
+    const db = createClient(dbPath)
+    migrate(db)
+
+    const credentials = new Map<string, CloudRunCredentialRecord>()
+    const cloudRunCredentialStore: CloudRunCredentialStore = {
+      getConnection: (n) => credentials.get(n),
+      upsertConnection: (r) => { credentials.set(r.projectName, r); return r },
+      deleteConnection: (n) => credentials.delete(n),
+    }
+
+    const app = Fastify()
+    app.register(apiRoutes, {
+      db,
+      skipAuth: true,
+      cloudRunCredentialStore,
+      pullCloudRunEvents: async () => ({
+        events: [], rawEntryCount: 0, skippedEntryCount: 0, nextPageToken: undefined, filter: 'mock',
+      }),
+      resolveCloudRunAccessToken: async () => {
+        throw new Error('IAM signBlob denied')
+      },
+    })
+    await app.ready()
+
+    await app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/test-project',
+      payload: { displayName: 'Test', canonicalDomain: 'example.com', country: 'US', language: 'en' },
+    })
+    const connectRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+      payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+    })
+    const sourceId = JSON.parse(connectRes.payload).id
+
+    const syncRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+      payload: {},
+    })
+    expect(syncRes.statusCode).toBe(502)
+    expect(JSON.parse(syncRes.payload).error.code).toBe('PROVIDER_ERROR')
+    expect(JSON.parse(syncRes.payload).error.message).toMatch(/IAM signBlob denied/)
+
+    const sourceRow = db.select().from(trafficSources).all()[0]
+    expect(sourceRow.status).toBe(TrafficSourceStatuses.error)
+    const runRow = db.select().from(runs).all()[0]
+    expect(runRow.status).toBe(RunStatuses.failed)
+
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+})
+
+describe('GET /traffic/sources', () => {
+  it('returns an empty list when no sources are connected', async () => {
+    const h = await buildHarness([])
+    try {
+      const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/sources' })
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.payload)).toEqual({ sources: [] })
+    } finally { await h.close() }
+  })
+
+  it('returns the connected source after connect', async () => {
+    const h = await buildHarness([])
+    try {
+      await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/sources' })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(body.sources.length).toBe(1)
+      expect(body.sources[0].sourceType).toBe(TrafficSourceTypes['cloud-run'])
+      expect(body.sources[0].status).toBe(TrafficSourceStatuses.connected)
+    } finally { await h.close() }
+  })
+
+  it('omits archived sources', async () => {
+    const h = await buildHarness([])
+    try {
+      const { projects } = await import('@ainyc/canonry-db')
+      const projectRow = h.db.select().from(projects).all()[0]
+      const now = new Date().toISOString()
+      h.db.insert(trafficSources).values({
+        id: 'src_archived',
+        projectId: projectRow.id,
+        sourceType: TrafficSourceTypes['cloud-run'],
+        displayName: 'old',
+        status: TrafficSourceStatuses.archived,
+        archivedAt: now,
+        configJson: '{}',
+        createdAt: now,
+        updatedAt: now,
+      }).run()
+
+      const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/sources' })
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.payload).sources.length).toBe(0)
+    } finally { await h.close() }
+  })
+
+  it('404s for an unknown project', async () => {
+    const h = await buildHarness([])
+    try {
+      const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/no-such/traffic/sources' })
+      expect(res.statusCode).toBe(404)
+    } finally { await h.close() }
+  })
+})
+
+describe('GET /traffic/sources/:id', () => {
+  it('returns 404 when the source does not belong to the project', async () => {
+    const h = await buildHarness([])
+    try {
+      const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/sources/no-such' })
+      expect(res.statusCode).toBe(404)
+    } finally { await h.close() }
+  })
+
+  it('returns the source detail with 24h totals after a sync', async () => {
+    // Snap to top-of-hour inside a fresh window so all events count toward totals24h.
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(30) }),
+      buildEvent({
+        userAgent: 'Mozilla/5.0',
+        path: '/landing',
+        queryString: 'utm_source=chatgpt.com',
+        status: 200,
+        observedAt: fromBase(15),
+      }),
+    ]
+
+    const h = await buildHarness(events)
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: { sinceMinutes: 120 },
+      })
+
+      const res = await h.app.inject({
+        method: 'GET',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}`,
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(body.id).toBe(sourceId)
+      expect(body.status).toBe(TrafficSourceStatuses.connected)
+      expect(body.totals24h.crawlerHits).toBe(2)
+      expect(body.totals24h.aiReferralHits).toBe(1)
+      expect(body.totals24h.sampleCount).toBe(3)
+      expect(body.latestRun).not.toBeNull()
+      expect(body.latestRun.status).toBe(RunStatuses.completed)
+    } finally { await h.close() }
+  })
+
+  it('returns null latestRun when the source has never synced', async () => {
+    const h = await buildHarness([])
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+
+      const res = await h.app.inject({
+        method: 'GET',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}`,
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(body.latestRun).toBeNull()
+      expect(body.totals24h).toEqual({ crawlerHits: 0, aiReferralHits: 0, sampleCount: 0 })
+    } finally { await h.close() }
+  })
+
+  it('isolates latestRun per source — source A does not see source B\'s sync runs', async () => {
+    // Single Cloud Run source from connect, plus a manually-inserted second source for the same project.
+    const h = await buildHarness([
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200 }),
+    ])
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceAId = JSON.parse(connectRes.payload).id
+
+      // Sync only against source A — this writes runs.source_id = sourceAId.
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceAId}/sync`,
+        payload: { sinceMinutes: 120 },
+      })
+
+      // Seed a second non-archived source for the same project (manual insert; the API
+      // doesn't currently support multi-source connect, but DB and reads must be correct).
+      const { projects } = await import('@ainyc/canonry-db')
+      const projectRow = h.db.select().from(projects).all()[0]
+      const now = new Date().toISOString()
+      const sourceBId = 'src_b_isolation_test'
+      h.db.insert(trafficSources).values({
+        id: sourceBId,
+        projectId: projectRow.id,
+        sourceType: TrafficSourceTypes['cloud-run'],
+        displayName: 'second source',
+        status: TrafficSourceStatuses.connected,
+        configJson: '{}',
+        createdAt: now,
+        updatedAt: now,
+      }).run()
+
+      const detailA = await h.app.inject({
+        method: 'GET',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceAId}`,
+      })
+      const bodyA = JSON.parse(detailA.payload)
+      expect(bodyA.latestRun).not.toBeNull()
+      expect(bodyA.latestRun.status).toBe(RunStatuses.completed)
+
+      // Source B has never synced — must surface null even though source A has a run on the same project.
+      const detailB = await h.app.inject({
+        method: 'GET',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceBId}`,
+      })
+      const bodyB = JSON.parse(detailB.payload)
+      expect(bodyB.latestRun).toBeNull()
+    } finally { await h.close() }
+  })
+})
+
+describe('GET /traffic/status', () => {
+  it('returns an empty list when no sources are connected', async () => {
+    const h = await buildHarness([])
+    try {
+      const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/status' })
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.payload)).toEqual({ sources: [] })
+    } finally { await h.close() }
+  })
+
+  it('returns the same per-source detail shape as /traffic/sources/:id without a fan-out', async () => {
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(30) }),
+      buildEvent({
+        userAgent: 'Mozilla/5.0',
+        path: '/landing',
+        queryString: 'utm_source=chatgpt.com',
+        status: 200,
+        observedAt: fromBase(15),
+      }),
+    ]
+    const h = await buildHarness(events)
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: { sinceMinutes: 120 },
+      })
+
+      const statusRes = await h.app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/traffic/status',
+      })
+      expect(statusRes.statusCode).toBe(200)
+      const status = JSON.parse(statusRes.payload)
+      expect(status.sources.length).toBe(1)
+      expect(status.sources[0].id).toBe(sourceId)
+      expect(status.sources[0].totals24h.crawlerHits).toBe(2)
+      expect(status.sources[0].totals24h.aiReferralHits).toBe(1)
+      expect(status.sources[0].latestRun.status).toBe(RunStatuses.completed)
+
+      // Same shape as /traffic/sources/:id — entries should be byte-for-byte equivalent.
+      const detailRes = await h.app.inject({
+        method: 'GET',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}`,
+      })
+      expect(JSON.parse(detailRes.payload)).toEqual(status.sources[0])
+    } finally { await h.close() }
+  })
+
+  it('omits archived sources', async () => {
+    const h = await buildHarness([])
+    try {
+      const { projects } = await import('@ainyc/canonry-db')
+      const projectRow = h.db.select().from(projects).all()[0]
+      const now = new Date().toISOString()
+      h.db.insert(trafficSources).values({
+        id: 'src_archived',
+        projectId: projectRow.id,
+        sourceType: TrafficSourceTypes['cloud-run'],
+        displayName: 'old',
+        status: TrafficSourceStatuses.archived,
+        archivedAt: now,
+        configJson: '{}',
+        createdAt: now,
+        updatedAt: now,
+      }).run()
+
+      const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/status' })
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.payload).sources.length).toBe(0)
+    } finally { await h.close() }
+  })
+
+  it('404s for an unknown project', async () => {
+    const h = await buildHarness([])
+    try {
+      const res = await h.app.inject({ method: 'GET', url: '/api/v1/projects/no-such/traffic/status' })
+      expect(res.statusCode).toBe(404)
+    } finally { await h.close() }
+  })
+})
+
+describe('GET /traffic/events', () => {
+  async function syncedHarness() {
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(30) }),
+      buildEvent({
+        userAgent: 'Mozilla/5.0',
+        path: '/landing',
+        queryString: 'utm_source=chatgpt.com',
+        status: 200,
+        observedAt: fromBase(15),
+      }),
+    ]
+
+    const h = await buildHarness(events)
+    const connectRes = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+      payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+    })
+    const sourceId = JSON.parse(connectRes.payload).id
+    await h.app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+      payload: { sinceMinutes: 120 },
+    })
+    return { h, sourceId }
+  }
+
+  it('returns crawler + AI-referral rollups within the default 24h window', async () => {
+    const { h } = await syncedHarness()
+    try {
+      const res = await h.app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/traffic/events',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(body.totals.crawlerHits).toBe(2)
+      expect(body.totals.aiReferralHits).toBe(1)
+      expect(body.events.length).toBe(2)
+      const kinds = body.events.map((e: { kind: string }) => e.kind).sort()
+      expect(kinds).toEqual(['ai-referral', 'crawler'])
+    } finally { await h.close() }
+  })
+
+  it('filters by kind=crawler', async () => {
+    const { h } = await syncedHarness()
+    try {
+      const res = await h.app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/traffic/events?kind=crawler',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(body.totals.crawlerHits).toBe(2)
+      expect(body.totals.aiReferralHits).toBe(0)
+      expect(body.events.length).toBe(1)
+      expect(body.events[0].kind).toBe('crawler')
+      expect(body.events[0].hits).toBe(2)
+    } finally { await h.close() }
+  })
+
+  it('filters by kind=ai-referral', async () => {
+    const { h } = await syncedHarness()
+    try {
+      const res = await h.app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/traffic/events?kind=ai-referral',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      expect(body.totals.crawlerHits).toBe(0)
+      expect(body.totals.aiReferralHits).toBe(1)
+      expect(body.events.length).toBe(1)
+      expect(body.events[0].kind).toBe('ai-referral')
+    } finally { await h.close() }
+  })
+
+  it('rejects invalid kind', async () => {
+    const { h } = await syncedHarness()
+    try {
+      const res = await h.app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/traffic/events?kind=bogus',
+      })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.payload).error.message).toMatch(/kind/)
+    } finally { await h.close() }
+  })
+
+  it('rejects invalid since/until and reversed windows', async () => {
+    const { h } = await syncedHarness()
+    try {
+      const bad = await h.app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/traffic/events?since=not-a-date',
+      })
+      expect(bad.statusCode).toBe(400)
+
+      const reversed = await h.app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/traffic/events?since=2026-05-07T00:00:00Z&until=2026-05-06T00:00:00Z',
+      })
+      expect(reversed.statusCode).toBe(400)
+    } finally { await h.close() }
+  })
+
+  it('returns totals over the full window even when limit truncates the events array', async () => {
+    const { h } = await syncedHarness()
+    try {
+      const res = await h.app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/test-project/traffic/events?limit=1',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.payload)
+      // limit=1 trims the events array but totals must still reflect the full window.
+      expect(body.events.length).toBe(1)
+      expect(body.totals.crawlerHits).toBe(2)
+      expect(body.totals.aiReferralHits).toBe(1)
+    } finally { await h.close() }
+  })
+
+  it('returns 404 for an unknown project', async () => {
+    const h = await buildHarness([])
+    try {
+      const res = await h.app.inject({
+        method: 'GET',
+        url: '/api/v1/projects/no-such/traffic/events',
+      })
+      expect(res.statusCode).toBe(404)
+    } finally { await h.close() }
   })
 })

@@ -1,6 +1,12 @@
-import { trafficConnectCloudRun, trafficSync } from '../commands/traffic.js'
+import {
+  trafficConnectCloudRun,
+  trafficEvents,
+  trafficSources,
+  trafficStatus,
+  trafficSync,
+} from '../commands/traffic.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
-import { getString, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
+import { getString, parseIntegerOption, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 
 export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
@@ -60,12 +66,78 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       )
       const source = getString(input.values, 'source')
       if (!source) throw new Error('--source <id> is required')
-      const sinceStr = getString(input.values, 'since-minutes')
-      const sinceMinutes = sinceStr ? parseInt(sinceStr, 10) : undefined
+      const sinceMinutes = parseIntegerOption(input, 'since-minutes', {
+        command: 'traffic.sync',
+        usage: 'canonry traffic sync <project> --source <id> [--since-minutes 60]',
+        message: '--since-minutes must be an integer',
+      })
 
       await trafficSync(project, {
         source,
         sinceMinutes,
+        format: input.format,
+      })
+    },
+  },
+  {
+    path: ['traffic', 'sources'],
+    usage: 'canonry traffic sources <project> [--format json]',
+    run: async (input) => {
+      const project = requireProject(
+        input,
+        'traffic.sources',
+        'canonry traffic sources <project>',
+      )
+      await trafficSources(project, { format: input.format })
+    },
+  },
+  {
+    path: ['traffic', 'status'],
+    usage: 'canonry traffic status <project> [--format json]',
+    run: async (input) => {
+      const project = requireProject(
+        input,
+        'traffic.status',
+        'canonry traffic status <project>',
+      )
+      await trafficStatus(project, { format: input.format })
+    },
+  },
+  {
+    path: ['traffic', 'events'],
+    usage: 'canonry traffic events <project> [--kind crawler|ai-referral|all] [--source <id>] [--since-minutes 1440] [--since <iso>] [--until <iso>] [--limit 500] [--format json]',
+    options: {
+      kind: stringOption(),
+      source: stringOption(),
+      'since-minutes': stringOption(),
+      since: stringOption(),
+      until: stringOption(),
+      limit: stringOption(),
+    },
+    run: async (input) => {
+      const project = requireProject(
+        input,
+        'traffic.events',
+        'canonry traffic events <project>',
+      )
+      const sinceMinutes = parseIntegerOption(input, 'since-minutes', {
+        command: 'traffic.events',
+        usage: 'canonry traffic events <project> [--since-minutes 1440]',
+        message: '--since-minutes must be an integer',
+      })
+      const limit = parseIntegerOption(input, 'limit', {
+        command: 'traffic.events',
+        usage: 'canonry traffic events <project> [--limit 500]',
+        message: '--limit must be an integer',
+      })
+
+      await trafficEvents(project, {
+        kind: getString(input.values, 'kind'),
+        source: getString(input.values, 'source'),
+        sinceMinutes,
+        since: getString(input.values, 'since'),
+        until: getString(input.values, 'until'),
+        limit,
         format: input.format,
       })
     },
@@ -77,7 +149,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       unknownSubcommand(input.positionals[0], {
         command: 'traffic',
         usage: 'canonry traffic <subcommand> <project> [args]',
-        available: ['connect', 'sync'],
+        available: ['connect', 'sync', 'status', 'sources', 'events'],
       })
     },
   },

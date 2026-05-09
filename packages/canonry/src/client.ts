@@ -72,6 +72,10 @@ import type {
   DoctorReportDto,
   ProjectReportDto,
   TrafficSourceDto,
+  TrafficSourceDetailDto,
+  TrafficSourceListResponse,
+  TrafficStatusResponse,
+  TrafficEventsResponse,
   TrafficConnectCloudRunRequest,
   TrafficSyncResponse,
 } from '@ainyc/canonry-contracts'
@@ -807,6 +811,44 @@ export class ApiClient {
       'POST',
       `/projects/${encodeURIComponent(project)}/traffic/sources/${encodeURIComponent(sourceId)}/sync`,
       body ?? {},
+    )
+  }
+
+  async trafficListSources(project: string): Promise<TrafficSourceListResponse> {
+    return this.request<TrafficSourceListResponse>(
+      'GET',
+      `/projects/${encodeURIComponent(project)}/traffic/sources`,
+    )
+  }
+
+  async trafficStatus(project: string): Promise<TrafficStatusResponse> {
+    return this.request<TrafficStatusResponse>(
+      'GET',
+      `/projects/${encodeURIComponent(project)}/traffic/status`,
+    )
+  }
+
+  async trafficGetSource(project: string, sourceId: string): Promise<TrafficSourceDetailDto> {
+    return this.request<TrafficSourceDetailDto>(
+      'GET',
+      `/projects/${encodeURIComponent(project)}/traffic/sources/${encodeURIComponent(sourceId)}`,
+    )
+  }
+
+  async trafficListEvents(
+    project: string,
+    params?: { since?: string; until?: string; kind?: string; limit?: number; sourceId?: string },
+  ): Promise<TrafficEventsResponse> {
+    const search: Record<string, string> = {}
+    if (params?.since) search.since = params.since
+    if (params?.until) search.until = params.until
+    if (params?.kind) search.kind = params.kind
+    if (params?.limit !== undefined) search.limit = String(params.limit)
+    if (params?.sourceId) search.sourceId = params.sourceId
+    const qs = Object.keys(search).length ? '?' + new URLSearchParams(search).toString() : ''
+    return this.request<TrafficEventsResponse>(
+      'GET',
+      `/projects/${encodeURIComponent(project)}/traffic/events${qs}`,
     )
   }
 

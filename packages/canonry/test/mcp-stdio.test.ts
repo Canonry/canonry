@@ -65,7 +65,7 @@ describe('canonry-mcp stdio', () => {
     const help = await client.callTool({ name: 'canonry_help', arguments: {} })
     expect(help.isError).not.toBe(true)
     const helpPayload = jsonText(help) as { toolkits: Array<{ name: string; toolCount: number }> }
-    expect(helpPayload.toolkits.map(t => t.name)).toEqual(['monitoring', 'setup', 'gsc', 'ga', 'agent'])
+    expect(helpPayload.toolkits.map(t => t.name)).toEqual(['monitoring', 'setup', 'gsc', 'ga', 'traffic', 'agent'])
 
     const projects = await client.callTool({ name: 'canonry_projects_list', arguments: {} })
     expect(projects.isError).not.toBe(true)
@@ -116,6 +116,23 @@ describe('canonry-mcp stdio', () => {
     expect(envelope.error.code).toBe('VALIDATION_ERROR')
     expect(envelope.error.details?.issues).toBeTruthy()
 
+    const trafficLoad = await client.callTool({ name: 'canonry_load_toolkit', arguments: { name: 'traffic' } })
+    expect(trafficLoad.isError).not.toBe(true)
+
+    const trafficSources = await client.callTool({
+      name: 'canonry_traffic_sources_list',
+      arguments: { project: 'acme' },
+    })
+    expect(trafficSources.isError).not.toBe(true)
+    expect(jsonText(trafficSources)).toEqual({ sources: [] })
+
+    const trafficSync = await client.callTool({
+      name: 'canonry_traffic_sync',
+      arguments: { project: 'acme', sourceId: 'src-1', sinceMinutes: 30 },
+    })
+    expect(trafficSync.isError).not.toBe(true)
+    expect(jsonText(trafficSync)).toMatchObject({ runId: 'run-traffic-1', sourceId: 'src-1' })
+
     expect(stderrChunks.join('')).toBe('')
   })
 
@@ -154,7 +171,7 @@ describe('canonry-mcp stdio', () => {
     await client.connect(transport)
 
     const list = await client.listTools()
-    expect(list.tools).toHaveLength(69)
+    expect(list.tools).toHaveLength(75)
     const names = list.tools.map(tool => tool.name)
     expect(names).toContain('canonry_insights_list')
     expect(names).toContain('canonry_project_overview')
@@ -189,6 +206,28 @@ function handleRequest(request: IncomingMessage, response: ServerResponse): void
   if (request.method === 'POST' && url.pathname === '/api/v1/projects/acme/queries') {
     request.resume()
     send(response, [{ id: 'k1', query: 'alpha', createdAt: '2026-04-27T00:00:00Z' }])
+    return
+  }
+  if (request.method === 'GET' && url.pathname === '/api/v1/projects/acme/traffic/sources') {
+    send(response, { sources: [] })
+    return
+  }
+  if (request.method === 'POST' && url.pathname === '/api/v1/projects/acme/traffic/sources/src-1/sync') {
+    request.resume()
+    send(response, {
+      sourceId: 'src-1',
+      runId: 'run-traffic-1',
+      syncedAt: '2026-05-08T00:00:00Z',
+      pulledEvents: 0,
+      crawlerHits: 0,
+      aiReferralHits: 0,
+      unknownHits: 0,
+      crawlerBucketRows: 0,
+      aiReferralBucketRows: 0,
+      sampleRows: 0,
+      windowStart: '2026-05-07T23:30:00Z',
+      windowEnd: '2026-05-08T00:00:00Z',
+    })
     return
   }
   send(response, { error: { code: 'NOT_FOUND', message: `${request.method} ${url.pathname}` } }, 404)

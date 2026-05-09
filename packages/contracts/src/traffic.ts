@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { runStatusSchema } from './run.js'
 
 export const trafficSourceTypeSchema = z.enum([
   'cloud-run',
@@ -126,3 +127,82 @@ export const trafficSyncResponseSchema = z.object({
   windowEnd: z.string(),
 })
 export type TrafficSyncResponse = z.infer<typeof trafficSyncResponseSchema>
+
+export const trafficSourceTotalsSchema = z.object({
+  crawlerHits: z.number().int().nonnegative(),
+  aiReferralHits: z.number().int().nonnegative(),
+  sampleCount: z.number().int().nonnegative(),
+})
+export type TrafficSourceTotals = z.infer<typeof trafficSourceTotalsSchema>
+
+export const trafficSourceListResponseSchema = z.object({
+  sources: z.array(trafficSourceDtoSchema),
+})
+export type TrafficSourceListResponse = z.infer<typeof trafficSourceListResponseSchema>
+
+export const trafficSourceDetailDtoSchema = trafficSourceDtoSchema.extend({
+  totals24h: trafficSourceTotalsSchema,
+  latestRun: z
+    .object({
+      runId: z.string(),
+      status: runStatusSchema,
+      startedAt: z.string().nullable(),
+      finishedAt: z.string().nullable(),
+      error: z.string().nullable(),
+    })
+    .nullable(),
+})
+export type TrafficSourceDetailDto = z.infer<typeof trafficSourceDetailDtoSchema>
+
+export const trafficStatusResponseSchema = z.object({
+  sources: z.array(trafficSourceDetailDtoSchema),
+})
+export type TrafficStatusResponse = z.infer<typeof trafficStatusResponseSchema>
+
+export const trafficEventKindSchema = z.enum(['crawler', 'ai-referral'])
+export type TrafficEventKind = z.infer<typeof trafficEventKindSchema>
+export const TrafficEventKinds = trafficEventKindSchema.enum
+
+export const trafficCrawlerEventEntrySchema = z.object({
+  kind: z.literal(TrafficEventKinds.crawler),
+  sourceId: z.string(),
+  tsHour: z.string(),
+  botId: z.string(),
+  operator: z.string(),
+  verificationStatus: z.string(),
+  pathNormalized: z.string(),
+  status: z.number().int(),
+  hits: z.number().int().nonnegative(),
+})
+export type TrafficCrawlerEventEntry = z.infer<typeof trafficCrawlerEventEntrySchema>
+
+export const trafficAiReferralEventEntrySchema = z.object({
+  kind: z.literal(TrafficEventKinds['ai-referral']),
+  sourceId: z.string(),
+  tsHour: z.string(),
+  product: z.string(),
+  operator: z.string(),
+  sourceDomain: z.string(),
+  evidenceType: z.string(),
+  landingPathNormalized: z.string(),
+  status: z.number().int(),
+  hits: z.number().int().nonnegative(),
+})
+export type TrafficAiReferralEventEntry = z.infer<typeof trafficAiReferralEventEntrySchema>
+
+export const trafficEventEntrySchema = z.discriminatedUnion('kind', [
+  trafficCrawlerEventEntrySchema,
+  trafficAiReferralEventEntrySchema,
+])
+export type TrafficEventEntry = z.infer<typeof trafficEventEntrySchema>
+
+export const trafficEventsResponseSchema = z.object({
+  windowStart: z.string(),
+  windowEnd: z.string(),
+  totals: z.object({
+    crawlerHits: z.number().int().nonnegative(),
+    aiReferralHits: z.number().int().nonnegative(),
+  }),
+  events: z.array(trafficEventEntrySchema),
+})
+export type TrafficEventsResponse = z.infer<typeof trafficEventsResponseSchema>

@@ -13,6 +13,8 @@ import {
   projectUpsertRequestSchema,
   runTriggerRequestSchema,
   scheduleUpsertRequestSchema,
+  trafficConnectCloudRunRequestSchema,
+  trafficEventKindSchema,
   type NotificationEvent,
 } from '@ainyc/canonry-contracts'
 import { z } from 'zod'
@@ -214,6 +216,37 @@ const memoryUpsertInputSchema = z.object({
 const memoryForgetInputSchema = z.object({
   project: projectNameSchema,
   key: z.string().min(1).max(AGENT_MEMORY_KEY_MAX_LENGTH).describe('Exact key of the note to remove. No-op (status=missing) when no note exists for that key.'),
+})
+
+const trafficConnectCloudRunInputSchema = z.object({
+  project: projectNameSchema,
+  request: trafficConnectCloudRunRequestSchema,
+})
+
+const trafficSyncInputSchema = z.object({
+  project: projectNameSchema,
+  sourceId: z.string().min(1).describe('Traffic source ID returned by canonry_traffic_connect_cloud_run or canonry_traffic_sources_list.'),
+  sinceMinutes: z
+    .number()
+    .int()
+    .positive()
+    .max(7 * 24 * 60)
+    .optional()
+    .describe('Lookback window in minutes. Defaults to the source\'s configured window (60 min) when omitted; clamped forward to lastSyncedAt to avoid double-counting.'),
+})
+
+const trafficEventsInputSchema = z.object({
+  project: projectNameSchema,
+  since: z.string().optional().describe('ISO 8601 lower bound. Defaults to 24h ago when omitted.'),
+  until: z.string().optional().describe('ISO 8601 upper bound. Defaults to now when omitted.'),
+  kind: z.union([trafficEventKindSchema, z.literal('all')]).optional().describe('Filter to "crawler" or "ai-referral"; "all" (default) returns both.'),
+  sourceId: z.string().min(1).optional().describe('Restrict to a single traffic source ID.'),
+  limit: z.number().int().positive().max(5000).optional().describe('Max combined rows. Defaults to 500, max 5000. Totals always reflect the full window.'),
+})
+
+const trafficSourceIdInputSchema = z.object({
+  project: projectNameSchema,
+  sourceId: z.string().min(1).describe('Traffic source ID.'),
 })
 
 const AGENT_WEBHOOK_EVENTS = [
@@ -731,6 +764,80 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/ga/session-history'],
     handler: (client, input) => client.gaSessionHistory(input.project, compactStringParams(input, ['window'])),
+  }),
+  defineTool({
+    name: 'canonry_traffic_sources_list',
+    title: 'List traffic sources',
+    description: 'List server-side traffic sources for a Canonry project (Cloud Run, etc.). Returns non-archived sources with status, last sync timestamp, last error, and the stored config (gcpProjectId, serviceName, location, authMode). Pair with canonry_traffic_source_get for last-24h totals on a single source.',
+    access: 'read',
+    tier: 'traffic',
+    inputSchema: projectInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/traffic/sources'],
+    handler: (client, input) => client.trafficListSources(input.project),
+  }),
+  defineTool({
+    name: 'canonry_traffic_source_get',
+    title: 'Get traffic source detail',
+    description: 'Get one traffic source plus 24h totals (crawler hits, AI-referral hits, raw event sample count) and the latest traffic-sync run summary. Use to confirm a source is healthy and observing traffic before drilling into events.',
+    access: 'read',
+    tier: 'traffic',
+    inputSchema: trafficSourceIdInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/traffic/sources/{id}'],
+    handler: (client, input) => client.trafficGetSource(input.project, input.sourceId),
+  }),
+  defineTool({
+    name: 'canonry_traffic_status',
+    title: 'Traffic status (all sources)',
+    description: 'Single-call composite returning every non-archived traffic source plus its last-24h totals (crawler hits, AI-referral hits, sample count) and latest source-scoped traffic-sync run. Same per-entry shape as canonry_traffic_source_get, but one call covers all sources — prefer this over a list+per-source fan-out.',
+    access: 'read',
+    tier: 'traffic',
+    inputSchema: projectInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/traffic/status'],
+    handler: (client, input) => client.trafficStatus(input.project),
+  }),
+  defineTool({
+    name: 'canonry_traffic_events',
+    title: 'List traffic events',
+    description: 'Read crawler and AI-referral hourly rollups from server-side traffic sources. Returns a discriminated list (kind="crawler" rows carry botId/operator/verificationStatus; kind="ai-referral" rows carry product/sourceDomain/evidenceType) plus totals over the full window even when limit truncates rows. Window defaults to last 24h.',
+    access: 'read',
+    tier: 'traffic',
+    inputSchema: trafficEventsInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/traffic/events'],
+    handler: (client, input) => {
+      const params: { since?: string; until?: string; kind?: string; limit?: number; sourceId?: string } = {}
+      if (input.since) params.since = input.since
+      if (input.until) params.until = input.until
+      if (input.kind) params.kind = input.kind
+      if (input.sourceId) params.sourceId = input.sourceId
+      if (input.limit !== undefined) params.limit = input.limit
+      return client.trafficListEvents(input.project, params)
+    },
+  }),
+  defineTool({
+    name: 'canonry_traffic_connect_cloud_run',
+    title: 'Connect Cloud Run traffic source',
+    description: 'Connect a Google Cloud Run service as a server-side traffic source. v1 requires service-account JSON content (paste the file contents into `keyJson`); OAuth-mode is not yet supported. Reconnecting an existing source updates the credential and config in place. The private key is stored in ~/.canonry/config.yaml (not the DB) and never echoed back.',
+    access: 'write',
+    tier: 'traffic',
+    inputSchema: trafficConnectCloudRunInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/traffic/connect/cloud-run'],
+    handler: (client, input) => client.trafficConnectCloudRun(input.project, input.request),
+  }),
+  defineTool({
+    name: 'canonry_traffic_sync',
+    title: 'Sync Cloud Run traffic source',
+    description: 'Pull the most recent Cloud Logging entries for a Cloud Run traffic source, classify them as crawler / AI-referral / unknown, and upsert hourly rollups + raw samples. Returns totals, bucket counts, and the run id. The window auto-clamps forward to lastSyncedAt to avoid double-counting on back-to-back calls.',
+    access: 'write',
+    tier: 'traffic',
+    inputSchema: trafficSyncInputSchema,
+    annotations: writeAnnotations({ idempotentHint: false, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/traffic/sources/{id}/sync'],
+    handler: (client, input) => client.trafficSync(input.project, input.sourceId, input.sinceMinutes !== undefined ? { sinceMinutes: input.sinceMinutes } : undefined),
   }),
   defineTool({
     name: 'canonry_project_upsert',

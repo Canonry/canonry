@@ -47,6 +47,7 @@ export const runs = sqliteTable('runs', {
   status: text('status').notNull().default('queued'),
   trigger: text('trigger').notNull().default('manual'),
   location: text('location'),
+  sourceId: text('source_id'),
   startedAt: text('started_at'),
   finishedAt: text('finished_at'),
   error: text('error'),
@@ -54,6 +55,7 @@ export const runs = sqliteTable('runs', {
 }, (table) => [
   index('idx_runs_project').on(table.projectId),
   index('idx_runs_status').on(table.status),
+  index('idx_runs_source').on(table.sourceId),
 ])
 
 export const querySnapshots = sqliteTable('query_snapshots', {
