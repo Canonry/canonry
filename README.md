@@ -271,7 +271,3 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md).
 ## License
 
 [FSL-1.1-ALv2](./LICENSE). Free to use, modify, and self-host. Each version converts to Apache 2.0 after two years.
-
----
-
-Built by [AI NYC](https://ainyc.ai)
