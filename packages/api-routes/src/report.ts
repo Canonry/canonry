@@ -1,8 +1,10 @@
-import { and, desc, eq, inArray, or } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, lte, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
+  aiReferralEventsHourly,
   bingCoverageSnapshots,
   competitors,
+  crawlerEventsHourly,
   gaAiReferrals,
   gaSocialReferrals,
   gaTrafficSnapshots,
@@ -15,6 +17,7 @@ import {
   parseJsonColumn,
   querySnapshots,
   runs,
+  trafficSources,
 } from '@ainyc/canonry-db'
 import {
   CitationStates,
@@ -75,6 +78,11 @@ const INSIGHT_LOOKBACK_RUNS = 5
 // usable when a sync hasn't run for a few days; the two sections may end
 // on slightly different dates but always span the same number of days.
 const REPORT_WINDOW_DAYS = 30
+
+// Server-side AI visibility section windows (last-7d headline + 7d prior for delta + 14d trend).
+const SERVER_ACTIVITY_HEADLINE_DAYS = 7
+const SERVER_ACTIVITY_TREND_DAYS = 14
+const SERVER_ACTIVITY_TOP_PATHS_LIMIT = 10
 
 // Returns the inclusive start-date string (YYYY-MM-DD) for a window of
 // `windowDays` ending on `endDate`. `endDate` must already be YYYY-MM-DD.
@@ -499,6 +507,324 @@ function buildAiReferrals(db: DatabaseClient, projectId: string): ProjectReportD
     .slice(0, TOP_AI_REFERRAL_PAGES_LIMIT)
 
   return { totalSessions: total, totalUsers, bySource, trend, topLandingPages }
+}
+
+/**
+ * Server-side AI Visibility section.
+ *
+ * Reads from the traffic-sync rollup tables (`crawler_events_hourly`,
+ * `ai_referral_events_hourly`) and packages them into a renderer-friendly
+ * shape. Returns null when the project has no non-archived traffic source
+ * connected at all (different signal from "connected but no data yet" —
+ * the latter returns a populated section with `hasData=false` and zeroed
+ * counters so the UI can show a "we're collecting" empty state).
+ *
+ * Headline numbers use VERIFIED crawler hits only — claimed-unverified
+ * bots are common (anyone can put GPTBot in their UA) and would inflate
+ * trust. Unverified counts are surfaced separately in the per-operator
+ * breakdown for the agency audience.
+ */
+function buildServerActivity(db: DatabaseClient, projectId: string): ProjectReportDto['serverActivity'] {
+  // 1. Bail if no traffic source is connected at all.
+  const sourceRows = db
+    .select({ id: trafficSources.id })
+    .from(trafficSources)
+    .where(
+      and(
+        eq(trafficSources.projectId, projectId),
+        // Treat archived sources as "not connected" — we don't want to surface
+        // historical data for a host migration the user has moved past.
+        sql`${trafficSources.status} != 'archived'`,
+      ),
+    )
+    .all()
+  if (sourceRows.length === 0) return null
+
+  const now = new Date()
+  const headlineEnd = now.toISOString()
+  const headlineStartMs = now.getTime() - SERVER_ACTIVITY_HEADLINE_DAYS * 24 * 60 * 60_000
+  const priorStartMs = headlineStartMs - SERVER_ACTIVITY_HEADLINE_DAYS * 24 * 60 * 60_000
+  const trendStartMs = now.getTime() - SERVER_ACTIVITY_TREND_DAYS * 24 * 60 * 60_000
+
+  const headlineStart = new Date(headlineStartMs).toISOString()
+  const priorStart = new Date(priorStartMs).toISOString()
+  const trendStart = new Date(trendStartMs).toISOString()
+
+  // 2. Headline + prior totals (verified crawlers + referral arrivals).
+  const sumVerifiedCrawlers = (windowStartIso: string, windowEndIso: string) =>
+    Number(
+      db
+        .select({ total: sql<number>`COALESCE(SUM(${crawlerEventsHourly.hits}), 0)` })
+        .from(crawlerEventsHourly)
+        .where(
+          and(
+            eq(crawlerEventsHourly.projectId, projectId),
+            eq(crawlerEventsHourly.verificationStatus, 'verified'),
+            gte(crawlerEventsHourly.tsHour, windowStartIso),
+            lte(crawlerEventsHourly.tsHour, windowEndIso),
+          ),
+        )
+        .get()?.total ?? 0,
+    )
+
+  const sumReferrals = (windowStartIso: string, windowEndIso: string) =>
+    Number(
+      db
+        .select({ total: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.sessionsOrHits}), 0)` })
+        .from(aiReferralEventsHourly)
+        .where(
+          and(
+            eq(aiReferralEventsHourly.projectId, projectId),
+            gte(aiReferralEventsHourly.tsHour, windowStartIso),
+            lte(aiReferralEventsHourly.tsHour, windowEndIso),
+          ),
+        )
+        .get()?.total ?? 0,
+    )
+
+  const verifiedCurrent = sumVerifiedCrawlers(headlineStart, headlineEnd)
+  const verifiedPrior = sumVerifiedCrawlers(priorStart, headlineStart)
+  const referralCurrent = sumReferrals(headlineStart, headlineEnd)
+  const referralPrior = sumReferrals(priorStart, headlineStart)
+
+  // 3. Per-operator: verified hits, unverified hits, referral arrivals over headline window.
+  const crawlerByOperatorRows = db
+    .select({
+      operator: crawlerEventsHourly.operator,
+      verificationStatus: crawlerEventsHourly.verificationStatus,
+      hits: sql<number>`COALESCE(SUM(${crawlerEventsHourly.hits}), 0)`,
+    })
+    .from(crawlerEventsHourly)
+    .where(
+      and(
+        eq(crawlerEventsHourly.projectId, projectId),
+        gte(crawlerEventsHourly.tsHour, headlineStart),
+        lte(crawlerEventsHourly.tsHour, headlineEnd),
+      ),
+    )
+    .groupBy(crawlerEventsHourly.operator, crawlerEventsHourly.verificationStatus)
+    .all()
+
+  const crawlerByOperatorPriorRows = db
+    .select({
+      operator: crawlerEventsHourly.operator,
+      hits: sql<number>`COALESCE(SUM(${crawlerEventsHourly.hits}), 0)`,
+    })
+    .from(crawlerEventsHourly)
+    .where(
+      and(
+        eq(crawlerEventsHourly.projectId, projectId),
+        eq(crawlerEventsHourly.verificationStatus, 'verified'),
+        gte(crawlerEventsHourly.tsHour, priorStart),
+        lte(crawlerEventsHourly.tsHour, headlineStart),
+      ),
+    )
+    .groupBy(crawlerEventsHourly.operator)
+    .all()
+
+  const referralByOperatorRows = db
+    .select({
+      operator: aiReferralEventsHourly.operator,
+      hits: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.sessionsOrHits}), 0)`,
+    })
+    .from(aiReferralEventsHourly)
+    .where(
+      and(
+        eq(aiReferralEventsHourly.projectId, projectId),
+        gte(aiReferralEventsHourly.tsHour, headlineStart),
+        lte(aiReferralEventsHourly.tsHour, headlineEnd),
+      ),
+    )
+    .groupBy(aiReferralEventsHourly.operator)
+    .all()
+
+  const operatorAgg = new Map<string, {
+    verified: number; unverified: number; referrals: number; prior: number
+  }>()
+  const ensureOp = (op: string) => {
+    let entry = operatorAgg.get(op)
+    if (!entry) {
+      entry = { verified: 0, unverified: 0, referrals: 0, prior: 0 }
+      operatorAgg.set(op, entry)
+    }
+    return entry
+  }
+  for (const r of crawlerByOperatorRows) {
+    const entry = ensureOp(r.operator)
+    if (r.verificationStatus === 'verified') entry.verified += Number(r.hits)
+    else entry.unverified += Number(r.hits)
+  }
+  for (const r of crawlerByOperatorPriorRows) {
+    ensureOp(r.operator).prior += Number(r.hits)
+  }
+  for (const r of referralByOperatorRows) {
+    ensureOp(r.operator).referrals += Number(r.hits)
+  }
+
+  const byOperator = [...operatorAgg.entries()]
+    .map(([operator, v]) => ({
+      operator,
+      verifiedHits: v.verified,
+      unverifiedHits: v.unverified,
+      referralArrivals: v.referrals,
+      deltaPct: deltaPercent(v.verified, v.prior),
+    }))
+    // Sort by total signal: verified hits first, then referrals as tiebreaker.
+    .sort((a, b) =>
+      b.verifiedHits - a.verifiedHits || b.referralArrivals - a.referralArrivals,
+    )
+
+  // 4. Top crawled paths (verified only).
+  const topPathsRows = db
+    .select({
+      path: crawlerEventsHourly.pathNormalized,
+      hits: sql<number>`COALESCE(SUM(${crawlerEventsHourly.hits}), 0)`,
+      operators: sql<number>`COUNT(DISTINCT ${crawlerEventsHourly.operator})`,
+    })
+    .from(crawlerEventsHourly)
+    .where(
+      and(
+        eq(crawlerEventsHourly.projectId, projectId),
+        eq(crawlerEventsHourly.verificationStatus, 'verified'),
+        gte(crawlerEventsHourly.tsHour, headlineStart),
+        lte(crawlerEventsHourly.tsHour, headlineEnd),
+      ),
+    )
+    .groupBy(crawlerEventsHourly.pathNormalized)
+    .orderBy(desc(sql`SUM(${crawlerEventsHourly.hits})`))
+    .limit(SERVER_ACTIVITY_TOP_PATHS_LIMIT)
+    .all()
+  const topCrawledPaths = topPathsRows.map(r => ({
+    path: r.path,
+    verifiedHits: Number(r.hits),
+    distinctOperators: Number(r.operators),
+  }))
+
+  // 5. AI products that sent referrals + their distinct landing pages.
+  const referralProductsRows = db
+    .select({
+      product: aiReferralEventsHourly.product,
+      arrivals: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.sessionsOrHits}), 0)`,
+      landingPaths: sql<number>`COUNT(DISTINCT ${aiReferralEventsHourly.landingPathNormalized})`,
+    })
+    .from(aiReferralEventsHourly)
+    .where(
+      and(
+        eq(aiReferralEventsHourly.projectId, projectId),
+        gte(aiReferralEventsHourly.tsHour, headlineStart),
+        lte(aiReferralEventsHourly.tsHour, headlineEnd),
+      ),
+    )
+    .groupBy(aiReferralEventsHourly.product)
+    .orderBy(desc(sql`SUM(${aiReferralEventsHourly.sessionsOrHits})`))
+    .all()
+  const referralProducts = referralProductsRows.map(r => ({
+    product: r.product,
+    arrivals: Number(r.arrivals),
+    distinctLandingPaths: Number(r.landingPaths),
+  }))
+
+  // 6. Top referral landing paths (where humans actually land coming from AI products).
+  const topReferralRows = db
+    .select({
+      path: aiReferralEventsHourly.landingPathNormalized,
+      arrivals: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.sessionsOrHits}), 0)`,
+      products: sql<number>`COUNT(DISTINCT ${aiReferralEventsHourly.product})`,
+    })
+    .from(aiReferralEventsHourly)
+    .where(
+      and(
+        eq(aiReferralEventsHourly.projectId, projectId),
+        gte(aiReferralEventsHourly.tsHour, headlineStart),
+        lte(aiReferralEventsHourly.tsHour, headlineEnd),
+      ),
+    )
+    .groupBy(aiReferralEventsHourly.landingPathNormalized)
+    .orderBy(desc(sql`SUM(${aiReferralEventsHourly.sessionsOrHits})`))
+    .limit(SERVER_ACTIVITY_TOP_PATHS_LIMIT)
+    .all()
+  const topReferralLandingPaths = topReferralRows.map(r => ({
+    path: r.path,
+    arrivals: Number(r.arrivals),
+    distinctProducts: Number(r.products),
+  }))
+
+  // 7. Daily trend (last 14d) — bucket tsHour to YYYY-MM-DD via SQLite SUBSTR.
+  const crawlerTrendRows = db
+    .select({
+      date: sql<string>`SUBSTR(${crawlerEventsHourly.tsHour}, 1, 10)`,
+      hits: sql<number>`COALESCE(SUM(${crawlerEventsHourly.hits}), 0)`,
+    })
+    .from(crawlerEventsHourly)
+    .where(
+      and(
+        eq(crawlerEventsHourly.projectId, projectId),
+        eq(crawlerEventsHourly.verificationStatus, 'verified'),
+        gte(crawlerEventsHourly.tsHour, trendStart),
+        lte(crawlerEventsHourly.tsHour, headlineEnd),
+      ),
+    )
+    .groupBy(sql`SUBSTR(${crawlerEventsHourly.tsHour}, 1, 10)`)
+    .all()
+  const referralTrendRows = db
+    .select({
+      date: sql<string>`SUBSTR(${aiReferralEventsHourly.tsHour}, 1, 10)`,
+      hits: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.sessionsOrHits}), 0)`,
+    })
+    .from(aiReferralEventsHourly)
+    .where(
+      and(
+        eq(aiReferralEventsHourly.projectId, projectId),
+        gte(aiReferralEventsHourly.tsHour, trendStart),
+        lte(aiReferralEventsHourly.tsHour, headlineEnd),
+      ),
+    )
+    .groupBy(sql`SUBSTR(${aiReferralEventsHourly.tsHour}, 1, 10)`)
+    .all()
+
+  const dailyTrendMap = new Map<string, { verifiedCrawlerHits: number; referralArrivals: number }>()
+  for (const r of crawlerTrendRows) {
+    const e = dailyTrendMap.get(r.date) ?? { verifiedCrawlerHits: 0, referralArrivals: 0 }
+    e.verifiedCrawlerHits += Number(r.hits)
+    dailyTrendMap.set(r.date, e)
+  }
+  for (const r of referralTrendRows) {
+    const e = dailyTrendMap.get(r.date) ?? { verifiedCrawlerHits: 0, referralArrivals: 0 }
+    e.referralArrivals += Number(r.hits)
+    dailyTrendMap.set(r.date, e)
+  }
+  const dailyTrend = [...dailyTrendMap.entries()]
+    .map(([date, v]) => ({ date, ...v }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+
+  return {
+    windowStart: headlineStart,
+    windowEnd: headlineEnd,
+    hasData: verifiedCurrent + referralCurrent + verifiedPrior + referralPrior > 0
+      || byOperator.length > 0
+      || topCrawledPaths.length > 0
+      || referralProducts.length > 0,
+    verifiedCrawlerHits: {
+      current: verifiedCurrent,
+      prior: verifiedPrior,
+      deltaPct: deltaPercent(verifiedCurrent, verifiedPrior),
+    },
+    referralArrivals: {
+      current: referralCurrent,
+      prior: referralPrior,
+      deltaPct: deltaPercent(referralCurrent, referralPrior),
+    },
+    byOperator,
+    topCrawledPaths,
+    referralProducts,
+    dailyTrend,
+    topReferralLandingPaths,
+  }
+}
+
+function deltaPercent(current: number, prior: number): number | null {
+  if (prior <= 0) return null
+  return Math.round(((current - prior) / prior) * 100)
 }
 
 function buildIndexingHealth(db: DatabaseClient, projectId: string): ProjectReportDto['indexingHealth'] {
@@ -1396,6 +1722,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
   const gaSection = buildGaSection(db, project.id)
   const socialSection = buildSocialReferrals(db, project.id)
   const aiReferralsSection = buildAiReferrals(db, project.id)
+  const serverActivitySection = buildServerActivity(db, project.id)
   const indexingHealthSection = buildIndexingHealth(db, project.id)
   const citationsTrend = buildCitationsTrend(db, project.id, queryLookup, latestRunLocation)
   const insightList = buildInsightList(db, project.id, latestRunLocation)
@@ -1584,6 +1911,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
     ga: gaSection,
     socialReferrals: socialSection,
     aiReferrals: aiReferralsSection,
+    serverActivity: serverActivitySection,
     indexingHealth: indexingHealthSection,
     citationsTrend,
     whatsChanged,
