@@ -64,6 +64,85 @@ describe('traffic analysis', () => {
     })
   })
 
+  it('classifies AI referrals from utm_source carried in the referer URL (cache-bypass asset hits)', () => {
+    // Edge-cached HTML hit doesn't reach origin; the JS chunk request does,
+    // and its referer is the landing page URL with utm_source preserved.
+    expect(classifyAiReferral(event({
+      requestUrl: 'https://example.com/_next/static/chunks/app/page-abc.js',
+      path: '/_next/static/chunks/app/page-abc.js',
+      queryString: null,
+      referer: 'https://example.com/blog/post?utm_source=chatgpt.com',
+    }))).toMatchObject({
+      product: 'ChatGPT',
+      operator: 'OpenAI',
+      evidenceType: 'referer-utm',
+      sourceDomain: 'chatgpt.com',
+    })
+
+    // claude.ai via referer UTM, with extra query params, mixed case
+    expect(classifyAiReferral(event({
+      queryString: null,
+      referer: 'https://example.com/landing?foo=bar&utm_source=Claude.ai&utm_medium=referral',
+    }))).toMatchObject({
+      product: 'Claude',
+      operator: 'Anthropic',
+      evidenceType: 'referer-utm',
+      sourceDomain: 'claude.ai',
+    })
+  })
+
+  it('prefers referer-host evidence over UTM when both are present', () => {
+    // Direct citation click: chatgpt.com referer + utm_source on the request URL.
+    // Should classify as 'referer' (most authoritative), not 'utm'.
+    const result = classifyAiReferral(event({
+      requestUrl: 'https://example.com/foo?utm_source=chatgpt.com',
+      queryString: 'utm_source=chatgpt.com',
+      referer: 'https://chatgpt.com/c/abc',
+    }))
+    expect(result?.evidenceType).toBe('referer')
+  })
+
+  it('prefers request-URL UTM over referer-URL UTM when both are present', () => {
+    // The two UTM signals would normally agree, but when they don't we trust
+    // the request URL (closer to the landing event) over the referer URL.
+    const result = classifyAiReferral(event({
+      requestUrl: 'https://example.com/foo?utm_source=chatgpt.com',
+      queryString: 'utm_source=chatgpt.com',
+      referer: 'https://example.com/other?utm_source=perplexity.ai',
+    }))
+    expect(result).toMatchObject({ sourceDomain: 'chatgpt.com', evidenceType: 'utm' })
+  })
+
+  it('returns null when referer UTM points at a non-AI source', () => {
+    expect(classifyAiReferral(event({
+      queryString: null,
+      referer: 'https://example.com/landing?utm_source=newsletter',
+    }))).toBeNull()
+  })
+
+  it('rolls referer-utm referrals into hourly buckets', () => {
+    const report = buildTrafficProbeReport([
+      event({
+        eventId: 'asset-1',
+        observedAt: '2026-05-01T13:05:00.000Z',
+        requestUrl: 'https://example.com/_next/static/chunks/page.js',
+        path: '/_next/static/chunks/page.js',
+        userAgent: 'Mozilla/5.0',
+        referer: 'https://example.com/blog/post?utm_source=chatgpt.com',
+      }),
+    ], { generatedAt: '2026-05-01T14:00:00.000Z' })
+
+    expect(report.totals.aiReferralHits).toBe(1)
+    expect(report.aiReferralEventsHourly).toEqual([
+      expect.objectContaining({
+        product: 'ChatGPT',
+        sourceDomain: 'chatgpt.com',
+        evidenceType: 'referer-utm',
+        hits: 1,
+      }),
+    ])
+  })
+
   it('normalizes high-cardinality path IDs without rewriting ordinary slugs', () => {
     expect(normalizeTrafficPathPattern('/blog/how-to-rank-in-ai')).toBe('/blog/how-to-rank-in-ai')
     expect(normalizeTrafficPathPattern('/products/12345/reviews')).toBe('/products/:id/reviews')

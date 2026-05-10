@@ -78,6 +78,7 @@ async function buildHarness(
 
   let pullInvocations = 0
   const observedWindows: Array<{ startTime: string; endTime: string }> = []
+  const observedFirstSync: Array<boolean | undefined> = []
   const app = Fastify()
   app.register(apiRoutes, {
     db,
@@ -86,6 +87,7 @@ async function buildHarness(
     pullCloudRunEvents: async (_token, pullOptions): Promise<CloudRunTrafficEventsPage> => {
       pullInvocations += 1
       observedWindows.push({ startTime: pullOptions.startTime, endTime: pullOptions.endTime })
+      observedFirstSync.push(pullOptions.firstSync)
       if (options.failPullWith) throw new Error(options.failPullWith)
       // Default: mirror Cloud Logging's behavior and only return events inside the
       // requested window. Tests that exercise cross-sync boundary semantics
@@ -133,6 +135,7 @@ async function buildHarness(
     tmpDir,
     getPullCount: () => pullInvocations,
     getObservedWindows: () => observedWindows,
+    getObservedFirstSync: () => observedFirstSync,
     getTrafficSyncedEvents: () => trafficSyncedEvents,
     close: async () => {
       await app.close()
@@ -404,6 +407,72 @@ describe('POST /traffic/sources/:id/sync', () => {
       expect(new Date(windows[1].startTime).getTime()).toBeGreaterThanOrEqual(
         new Date(windows[0].endTime).getTime(),
       )
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('flags the first sync to the Cloud Run pull and clears it on subsequent syncs', async () => {
+    // The route signals "first-time backfill" via a semantic flag — the
+    // adapter decides what pull strategy that implies (timestamp desc here,
+    // larger budget tomorrow). Steady-state syncs reset the flag so the
+    // adapter's incremental defaults apply.
+    const observedAt = new Date(Date.now() - 30 * 60_000).toISOString()
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt }),
+    ]
+    const h = await buildHarness(events)
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+
+      expect(h.getObservedFirstSync()).toEqual([true, false])
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('keeps firstSync=true after a failed first sync (lastSyncedAt still null)', async () => {
+    // A first sync that fails before commit leaves `lastSyncedAt` null, so the
+    // next attempt is still effectively the first sync and must keep the flag —
+    // otherwise a busy site that fails once at boot would silently skip its
+    // recent week on the retry.
+    const h = await buildHarness([], { failPullWith: 'transient 503' })
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+
+      expect(h.getObservedFirstSync()).toEqual([true, true])
     } finally {
       await h.close()
     }
@@ -730,6 +799,387 @@ describe('POST /traffic/sources/:id/sync', () => {
       const fired = h.getTrafficSyncedEvents()
       expect(fired.length).toBe(1)
       expect((fired[0] as { errorCode: string }).errorCode).toBe('PROVIDER_PULL')
+    } finally {
+      await h.close()
+    }
+  })
+})
+
+describe('POST /traffic/sources/:id/backfill', () => {
+  // Helper that polls the run row until status moves off 'running' or
+  // the timeout trips, so async tests don't depend on internal scheduling.
+  async function waitForRunComplete(
+    db: ReturnType<typeof createClient>,
+    runId: string,
+    timeoutMs = 2000,
+  ): Promise<typeof runs.$inferSelect> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      const row = db.select().from(runs).where(eq(runs.id, runId)).get()
+      if (row && row.status !== RunStatuses.running) return row
+      await new Promise<void>((resolve) => setTimeout(resolve, 25))
+    }
+    throw new Error(`run ${runId} did not finish within ${timeoutMs}ms`)
+  }
+
+  it('returns runId + status=running synchronously, then replaces rollups in the window once the background task finishes', async () => {
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(15) }),
+      buildEvent({
+        userAgent: 'Mozilla/5.0',
+        path: '/landing',
+        queryString: 'utm_source=chatgpt.com',
+        status: 200,
+        observedAt: fromBase(30),
+      }),
+    ]
+    const h = await buildHarness(events, { bypassTimeFilter: true })
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+
+      const submitRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`,
+        payload: { days: 7 },
+      })
+      expect(submitRes.statusCode).toBe(200)
+      const submitted = JSON.parse(submitRes.payload)
+      // Synchronous response: just the run handle, no counts yet.
+      expect(submitted.status).toBe(RunStatuses.running)
+      expect(submitted.runId).toBeDefined()
+      expect(submitted.daysApplied).toBe(7)
+      expect(submitted.daysRequested).toBe(7)
+
+      // Wait for the background task to complete, then assert state.
+      const finalRun = await waitForRunComplete(h.db, submitted.runId)
+      expect(finalRun.status).toBe(RunStatuses.completed)
+      expect(finalRun.trigger).toBe('backfill')
+      expect(finalRun.kind).toBe(RunKinds['traffic-sync'])
+
+      const crawlerRows = h.db.select().from(crawlerEventsHourly).all()
+      expect(crawlerRows.length).toBe(1)
+      expect(crawlerRows[0].hits).toBe(2)
+
+      const aiRows = h.db.select().from(aiReferralEventsHourly).all()
+      expect(aiRows.length).toBe(1)
+      expect(aiRows[0].sessionsOrHits).toBe(1)
+      expect(aiRows[0].evidenceType).toBe('utm')
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('replaces existing buckets in the window rather than accumulating (no double-counting)', async () => {
+    // Seed via a normal sync, then backfill the same window with the same
+    // source events. Crawler hits must stay at 2, not 4.
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(15) }),
+    ]
+    const h = await buildHarness(events, { bypassTimeFilter: true })
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+
+      // Initial sync — accumulates hits=2.
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: { sinceMinutes: 120 },
+      })
+      const afterSync = h.db.select().from(crawlerEventsHourly).all()
+      expect(afterSync[0].hits).toBe(2)
+
+      // Backfill the same window. Replace mode should reset to hits=2,
+      // not add to existing for hits=4.
+      const submitRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`,
+        payload: { days: 1 },
+      })
+      const submitted = JSON.parse(submitRes.payload)
+      await waitForRunComplete(h.db, submitted.runId)
+
+      const afterBackfill = h.db.select().from(crawlerEventsHourly).all()
+      expect(afterBackfill.length).toBe(1)
+      expect(afterBackfill[0].hits).toBe(2)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('caps days at MAX_BACKFILL_DAYS (30) when a larger value is requested', async () => {
+    const h = await buildHarness([])
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+
+      const submitRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`,
+        payload: { days: 365 },
+      })
+      expect(submitRes.statusCode).toBe(200)
+      const submitted = JSON.parse(submitRes.payload)
+      expect(submitted.daysRequested).toBe(365)
+      expect(submitted.daysApplied).toBe(30)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('rejects non-positive days', async () => {
+    const h = await buildHarness([])
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+
+      const zero = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`,
+        payload: { days: 0 },
+      })
+      expect(zero.statusCode).toBe(400)
+      const negative = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`,
+        payload: { days: -3 },
+      })
+      expect(negative.statusCode).toBe(400)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('returns 404 when the source does not belong to the project', async () => {
+    const h = await buildHarness([])
+    try {
+      const res = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/sources/no-such/backfill',
+        payload: {},
+      })
+      expect(res.statusCode).toBe(404)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('does not roll lastSyncedAt backward when the existing cursor is ahead of windowEnd', async () => {
+    // First, seed a source with a lastSyncedAt that's > windowEnd (future).
+    // The backfill must keep the existing cursor, not reset it to the older
+    // backfill window — otherwise next incremental sync would re-pull a gap.
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({
+        userAgent: 'GPTBot/1.0',
+        path: '/blog/foo',
+        status: 200,
+        observedAt: new Date(Date.now() - 30 * 60_000).toISOString(),
+      }),
+    ]
+    const h = await buildHarness(events, { bypassTimeFilter: true })
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+
+      // Manually advance lastSyncedAt to 1h in the future.
+      const future = new Date(Date.now() + 60 * 60_000).toISOString()
+      h.db
+        .update(trafficSources)
+        .set({ lastSyncedAt: future, updatedAt: future })
+        .where(eq(trafficSources.id, sourceId))
+        .run()
+
+      const submitRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`,
+        payload: { days: 7 },
+      })
+      const submitted = JSON.parse(submitRes.payload)
+      await waitForRunComplete(h.db, submitted.runId)
+
+      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()
+      expect(sourceRow?.lastSyncedAt).toBe(future)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('treats an empty Cloud Run pull as a no-op and preserves existing rollup data', async () => {
+    // Misconfigured serviceName, transient permission glitch, or genuinely
+    // quiet site → pull returns 0 events. Backfill must NOT delete the
+    // existing rollup buckets in the window (otherwise a misconfigured
+    // backfill silently wipes historical data).
+    const h = await buildHarness([])
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const source = JSON.parse(connectRes.payload)
+
+      // Seed an existing crawler bucket inside what will become the backfill
+      // window. If the empty-pull guard is wrong, this row gets deleted.
+      const seedTime = new Date().toISOString()
+      const seededHour = new Date(Date.now() - 2 * 60 * 60_000)
+      seededHour.setUTCMinutes(0, 0, 0)
+      h.db.insert(crawlerEventsHourly).values({
+        projectId: source.projectId,
+        sourceId: source.id,
+        tsHour: seededHour.toISOString(),
+        botId: 'openai-gptbot',
+        operator: 'OpenAI',
+        verificationStatus: 'claimed_unverified',
+        pathNormalized: '/blog/foo',
+        status: 200,
+        hits: 7,
+        sampledUserAgent: 'GPTBot/1.0',
+        createdAt: seedTime,
+        updatedAt: seedTime,
+      }).run()
+
+      const submitRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${source.id}/backfill`,
+        payload: { days: 1 },
+      })
+      const submitted = JSON.parse(submitRes.payload)
+      const finalRun = await waitForRunComplete(h.db, submitted.runId)
+      expect(finalRun.status).toBe(RunStatuses.completed)
+
+      const buckets = h.db.select().from(crawlerEventsHourly).all()
+      expect(buckets.length).toBe(1)
+      expect(buckets[0].hits).toBe(7)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('replaces the boundary-hour bucket cleanly when windowStart falls mid-hour', async () => {
+    // Without hour-flooring, an existing bucket at floor(windowStart, hour)
+    // has tsHour < raw windowStart so the delete misses it, but the new pull
+    // re-emits a bucket at the same tsHour — the plain insert then trips the
+    // composite primary key and rolls the whole transaction back.
+    const now = Date.now()
+    const rawWindowStart = new Date(now - 86_400_000) // matches days=1
+    const boundaryHour = new Date(rawWindowStart)
+    boundaryHour.setUTCMinutes(0, 0, 0)
+    const boundaryHourIso = boundaryHour.toISOString()
+    // New event sits inside the boundary hour, after raw windowStart.
+    const eventInBoundaryHour = new Date(boundaryHour.getTime() + 35 * 60_000).toISOString()
+
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({
+        userAgent: 'GPTBot/1.0',
+        path: '/blog/foo',
+        status: 200,
+        observedAt: eventInBoundaryHour,
+      }),
+    ]
+    const h = await buildHarness(events, { bypassTimeFilter: true })
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const source = JSON.parse(connectRes.payload)
+
+      // Pre-seed an existing bucket at the boundary hour with the SAME
+      // (bot, verification, path, status) tuple as what the new event
+      // would produce — that's what triggers the PK conflict.
+      const seedTime = new Date().toISOString()
+      h.db.insert(crawlerEventsHourly).values({
+        projectId: source.projectId,
+        sourceId: source.id,
+        tsHour: boundaryHourIso,
+        botId: 'openai-gptbot',
+        operator: 'OpenAI',
+        verificationStatus: 'claimed_unverified',
+        pathNormalized: '/blog/foo',
+        status: 200,
+        hits: 5,
+        sampledUserAgent: 'GPTBot/1.0',
+        createdAt: seedTime,
+        updatedAt: seedTime,
+      }).run()
+
+      const submitRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${source.id}/backfill`,
+        payload: { days: 1 },
+      })
+      const submitted = JSON.parse(submitRes.payload)
+      const finalRun = await waitForRunComplete(h.db, submitted.runId)
+      expect(finalRun.status).toBe(RunStatuses.completed)
+
+      const buckets = h.db.select().from(crawlerEventsHourly).all()
+      expect(buckets.length).toBe(1)
+      expect(buckets[0].tsHour).toBe(boundaryHourIso)
+      // Replaced (1), not the seeded 5 nor the additive 6.
+      expect(buckets[0].hits).toBe(1)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('marks the run as failed when the pull throws and surfaces lastError on the source', async () => {
+    const h = await buildHarness([], { failPullWith: 'Cloud Logging 503' })
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+
+      const submitRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`,
+        payload: { days: 7 },
+      })
+      // Async — synchronous response is still 200; the failure shows up
+      // on the run row and traffic_sources.last_error.
+      expect(submitRes.statusCode).toBe(200)
+      const submitted = JSON.parse(submitRes.payload)
+
+      const finalRun = await waitForRunComplete(h.db, submitted.runId)
+      expect(finalRun.status).toBe(RunStatuses.failed)
+      expect(finalRun.error).toMatch(/503/)
+
+      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()
+      expect(sourceRow?.status).toBe(TrafficSourceStatuses.error)
+      expect(sourceRow?.lastError).toMatch(/503/)
     } finally {
       await h.close()
     }

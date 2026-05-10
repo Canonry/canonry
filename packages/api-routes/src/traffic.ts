@@ -28,6 +28,7 @@ import type {
   TrafficSourceListResponse,
   TrafficStatusResponse,
   TrafficSyncResponse,
+  TrafficBackfillResponse,
   TrafficSourceStatus,
   TrafficSourceAuthMode,
   TrafficEventEntry,
@@ -116,6 +117,15 @@ const DEFAULT_SAMPLE_LIMIT = 100
 // boundary case (a few seconds of overlap × peak QPS) — well above what a
 // realistic Cloud Logging burst produces in that window.
 const MAX_TRACKED_EVENT_IDS = 1_000
+// Backfill knobs. The 30-day cap matches Cloud Logging `_Default` retention —
+// requesting more produces empty results from GCP, so we clamp rather than
+// silently waste round-trips. Page budget is generous because backfill is a
+// one-shot operation; a busy site with ~30K events/30d still completes in well
+// under a minute.
+const DEFAULT_BACKFILL_DAYS = 30
+const MAX_BACKFILL_DAYS = 30
+const BACKFILL_MAX_PAGES = 1_000
+const BACKFILL_SAMPLE_LIMIT = 500
 
 function parseSourceConfig(row: typeof trafficSources.$inferSelect): Record<string, unknown> {
   return parseJsonColumn<Record<string, unknown>>(row.configJson, {})
@@ -148,6 +158,268 @@ export async function defaultResolveAccessToken(record: CloudRunCredentialRecord
   throw validationError(
     'OAuth-mode Cloud Run sync is not yet supported in v1. Provide a service-account key file.',
   )
+}
+
+interface RunBackfillTaskOptions {
+  app: FastifyInstance
+  runId: string
+  project: { id: string; name: string }
+  sourceRow: typeof trafficSources.$inferSelect
+  gcpProjectId: string
+  serviceName: string | undefined
+  location: string | undefined
+  credential: CloudRunCredentialRecord
+  windowStart: Date
+  windowEnd: Date
+  appliedDays: number
+  pullEvents: (
+    accessToken: string,
+    options: ListCloudRunTrafficEventsOptions,
+  ) => Promise<CloudRunTrafficEventsPage>
+  resolveAccessToken: (record: CloudRunCredentialRecord) => Promise<string>
+}
+
+async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
+  const {
+    app,
+    runId,
+    project,
+    sourceRow,
+    gcpProjectId,
+    serviceName,
+    location,
+    credential,
+    windowStart,
+    windowEnd,
+    pullEvents,
+    resolveAccessToken,
+  } = options
+
+  const markFailed = (msg: string) => {
+    const failedAt = new Date().toISOString()
+    try {
+      app.db.transaction((tx) => {
+        tx
+          .update(runs)
+          .set({ status: RunStatuses.failed, error: msg, finishedAt: failedAt })
+          .where(eq(runs.id, runId))
+          .run()
+        tx
+          .update(trafficSources)
+          .set({ status: TrafficSourceStatuses.error, lastError: msg, updatedAt: failedAt })
+          .where(eq(trafficSources.id, sourceRow.id))
+          .run()
+      })
+    } catch {
+      // Last-ditch — if even the failure-recording transaction throws, we
+      // can't surface it anywhere without crashing the process. The run row
+      // will stay 'running' until the next sync overwrites it.
+    }
+  }
+
+  let accessToken: string
+  try {
+    accessToken = await resolveAccessToken(credential)
+  } catch (e) {
+    markFailed(`Failed to resolve Cloud Run access token: ${e instanceof Error ? e.message : String(e)}`)
+    return
+  }
+
+  const allEvents: CloudRunTrafficEventsPage['events'] = []
+  try {
+    // Single call with a generous page budget. The integration internally
+    // paginates via nextPageToken until exhausted or the cap is hit.
+    const page = await pullEvents(accessToken, {
+      gcpProjectId,
+      serviceName,
+      location,
+      startTime: windowStart.toISOString(),
+      endTime: windowEnd.toISOString(),
+      pageSize: DEFAULT_PAGE_SIZE,
+      maxPages: BACKFILL_MAX_PAGES,
+      // Backfill is intentionally `firstSync: false`. We don't want desc
+      // ordering — the in-memory rollup builder handles any order, and the
+      // ring-buffer reseed at the end takes the most-recent IDs from the
+      // dedupedEvents anyway.
+      firstSync: false,
+      orderBy: 'timestamp asc',
+    })
+    allEvents.push(...page.events)
+  } catch (e) {
+    markFailed(`Cloud Run pull failed: ${e instanceof Error ? e.message : String(e)}`)
+    return
+  }
+
+  // Empty pull — could be a misconfigured serviceName, transient permission
+  // glitch on the service log, or a genuinely quiet site. Treat as a no-op:
+  // skip the destructive replace below so existing rollup data isn't
+  // silently wiped, and just close out the run row.
+  if (allEvents.length === 0) {
+    const finishedAt = new Date().toISOString()
+    try {
+      app.db
+        .update(runs)
+        .set({ status: RunStatuses.completed, finishedAt })
+        .where(eq(runs.id, runId))
+        .run()
+    } catch {
+      // swallow — same last-ditch behavior as markFailed
+    }
+    return
+  }
+
+  const report = buildTrafficProbeReport(allEvents, { sampleLimit: BACKFILL_SAMPLE_LIMIT })
+  const finishedAt = new Date().toISOString()
+  const windowStartIso = windowStart.toISOString()
+  const windowEndIso = windowEnd.toISOString()
+
+  // Reseed the cross-sync dedup ring with the most-recent IDs from the
+  // backfill so subsequent incremental syncs continue to dedupe at the
+  // boundary. lastSyncedAt advances to max(current, backfillEnd) — never
+  // backwards, so a backfill never undoes incremental progress that ran
+  // ahead of it.
+  const newSorted = allEvents
+    .slice()
+    .sort((a, b) => (a.observedAt < b.observedAt ? 1 : a.observedAt > b.observedAt ? -1 : 0))
+    .map((e) => e.eventId)
+  const newRingBuffer = newSorted.slice(0, MAX_TRACKED_EVENT_IDS)
+  const currentLastSyncedMs = sourceRow.lastSyncedAt
+    ? new Date(sourceRow.lastSyncedAt).getTime()
+    : Number.NEGATIVE_INFINITY
+  const nextLastSyncedAt = Math.max(currentLastSyncedMs, windowEnd.getTime()) === windowEnd.getTime()
+    ? finishedAt
+    : sourceRow.lastSyncedAt!
+
+  try {
+    app.db.transaction((tx) => {
+      // Replace mode: clear the rollup window first, then ingest fresh.
+      // Boundaries are inclusive on both ends; windowStart is hour-floored
+      // upstream so the boundary hour gets cleanly deleted and reinserted.
+      tx
+        .delete(crawlerEventsHourly)
+        .where(
+          and(
+            eq(crawlerEventsHourly.sourceId, sourceRow.id),
+            gte(crawlerEventsHourly.tsHour, windowStartIso),
+            lte(crawlerEventsHourly.tsHour, windowEndIso),
+          ),
+        )
+        .run()
+      tx
+        .delete(aiReferralEventsHourly)
+        .where(
+          and(
+            eq(aiReferralEventsHourly.sourceId, sourceRow.id),
+            gte(aiReferralEventsHourly.tsHour, windowStartIso),
+            lte(aiReferralEventsHourly.tsHour, windowEndIso),
+          ),
+        )
+        .run()
+      tx
+        .delete(rawEventSamples)
+        .where(
+          and(
+            eq(rawEventSamples.sourceId, sourceRow.id),
+            gte(rawEventSamples.ts, windowStartIso),
+            lte(rawEventSamples.ts, windowEndIso),
+          ),
+        )
+        .run()
+
+      for (const bucket of report.crawlerEventsHourly) {
+        tx
+          .insert(crawlerEventsHourly)
+          .values({
+            projectId: project.id,
+            sourceId: sourceRow.id,
+            tsHour: bucket.tsHour,
+            botId: bucket.botId,
+            operator: bucket.operator,
+            verificationStatus: bucket.verificationStatus,
+            pathNormalized: bucket.pathNormalized,
+            status: bucket.status ?? 0,
+            hits: bucket.hits,
+            sampledUserAgent: bucket.sampledUserAgent,
+            createdAt: finishedAt,
+            updatedAt: finishedAt,
+          })
+          .run()
+      }
+
+      for (const bucket of report.aiReferralEventsHourly) {
+        tx
+          .insert(aiReferralEventsHourly)
+          .values({
+            projectId: project.id,
+            sourceId: sourceRow.id,
+            tsHour: bucket.tsHour,
+            product: bucket.product,
+            operator: bucket.operator,
+            sourceDomain: bucket.sourceDomain,
+            evidenceType: bucket.evidenceType,
+            landingPathNormalized: bucket.landingPathNormalized,
+            status: bucket.status ?? 0,
+            sessionsOrHits: bucket.hits,
+            usersEstimated: null,
+            createdAt: finishedAt,
+            updatedAt: finishedAt,
+          })
+          .run()
+      }
+
+      for (const sample of report.samples) {
+        const eventType = sample.crawler ? 'crawler' : sample.aiReferral ? 'ai_referral' : 'unknown'
+        const refererHost = (() => {
+          if (!sample.referer) return null
+          try {
+            return new URL(sample.referer).hostname
+          } catch {
+            return null
+          }
+        })()
+        tx
+          .insert(rawEventSamples)
+          .values({
+            id: crypto.randomUUID(),
+            projectId: project.id,
+            sourceId: sourceRow.id,
+            ts: sample.observedAt,
+            eventType,
+            ipHash: null,
+            userAgent: sample.userAgent,
+            pathNormalized: sample.pathNormalized,
+            status: sample.status,
+            refererHost,
+            classifierDetailsJson: JSON.stringify({
+              crawler: sample.crawler,
+              aiReferral: sample.aiReferral,
+            }),
+            createdAt: finishedAt,
+          })
+          .run()
+      }
+
+      tx
+        .update(trafficSources)
+        .set({
+          status: TrafficSourceStatuses.connected,
+          lastSyncedAt: nextLastSyncedAt,
+          lastError: null,
+          lastEventIds: JSON.stringify(newRingBuffer),
+          updatedAt: finishedAt,
+        })
+        .where(eq(trafficSources.id, sourceRow.id))
+        .run()
+
+      tx
+        .update(runs)
+        .set({ status: RunStatuses.completed, finishedAt })
+        .where(eq(runs.id, runId))
+        .run()
+    })
+  } catch (e) {
+    markFailed(`Backfill rollup write failed: ${e instanceof Error ? e.message : String(e)}`)
+  }
 }
 
 export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOptions) {
@@ -390,6 +662,11 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       throw providerError(`Failed to resolve Cloud Run access token: ${msg}`)
     }
 
+    // Tell the Cloud Run client this is a first-time backfill if no prior
+    // cursor exists, so its bounded page budget targets the most-recent
+    // entries instead of exhausting on the oldest. Adapter-specific pull
+    // strategy lives in @ainyc/canonry-integration-cloud-run, not here.
+    const isFirstSync = !sourceRow.lastSyncedAt
     let allEvents: CloudRunTrafficEventsPage['events'] = []
     try {
       const page = await pullEvents(accessToken, {
@@ -400,6 +677,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         endTime: windowEnd.toISOString(),
         pageSize,
         maxPages,
+        firstSync: isFirstSync,
       })
       allEvents = page.events
     } catch (e) {
@@ -611,6 +889,117 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       sampleRows,
       windowStart: windowStart.toISOString(),
       windowEnd: windowEnd.toISOString(),
+    }
+    return response
+  })
+
+  // POST /projects/:name/traffic/sources/:id/backfill
+  //
+  // One-shot reclassification of historical Cloud Run logs. Returns
+  // immediately with `runId`; the caller polls `GET /runs/:id` for status.
+  // On success: rebuilds the hourly rollup buckets for the requested window
+  // by deleting then re-inserting them inside one transaction (replace
+  // semantics — additive would double-count, since the cross-sync ring
+  // buffer can only hold MAX_TRACKED_EVENT_IDS IDs). Sample buffer for the
+  // window is also replaced so it stays consistent with the rollups.
+  app.post<{
+    Params: { name: string; id: string }
+    Body: { days?: number }
+  }>('/projects/:name/traffic/sources/:id/backfill', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const sourceRow = app.db
+      .select()
+      .from(trafficSources)
+      .where(eq(trafficSources.id, request.params.id))
+      .get()
+    if (!sourceRow || sourceRow.projectId !== project.id) {
+      throw notFound('Traffic source', request.params.id)
+    }
+    if (sourceRow.sourceType !== TrafficSourceTypes['cloud-run']) {
+      throw validationError(
+        `Backfill for source type "${sourceRow.sourceType}" is not implemented yet — only cloud-run is supported in v1.`,
+      )
+    }
+
+    const credentialStore = opts.cloudRunCredentialStore
+    if (!credentialStore) {
+      throw validationError('Cloud Run credential storage is not configured for this deployment')
+    }
+    const credential = credentialStore.getConnection(project.name)
+    if (!credential) {
+      throw validationError(
+        `No Cloud Run credential found for project "${project.name}". Run "canonry traffic connect cloud-run" first.`,
+      )
+    }
+
+    const requestedDays = request.body?.days ?? DEFAULT_BACKFILL_DAYS
+    if (!Number.isInteger(requestedDays) || requestedDays <= 0) {
+      throw validationError('"days" must be a positive integer')
+    }
+    const appliedDays = Math.min(requestedDays, MAX_BACKFILL_DAYS)
+
+    const config = parseSourceConfig(sourceRow)
+    const gcpProjectId = (config.gcpProjectId as string | undefined) ?? credential.gcpProjectId
+    const serviceName = (config.serviceName as string | null | undefined) ?? credential.serviceName ?? undefined
+    const location = (config.location as string | null | undefined) ?? credential.location ?? undefined
+
+    const windowEnd = new Date()
+    const windowStart = new Date(windowEnd.getTime() - appliedDays * 86_400_000)
+    // Floor windowStart to the hour boundary so the boundary hour is fully
+    // replaced. Rollup `tsHour` is hour-truncated, so a raw mid-hour
+    // windowStart would leave an existing bucket at floor(windowStart, hour)
+    // outside the delete range while the new pull re-emits a bucket at the
+    // same tsHour, tripping the composite primary key on (projectId,
+    // sourceId, tsHour, botId, verificationStatus, pathNormalized, status).
+    windowStart.setUTCMinutes(0, 0, 0)
+    const startedAt = windowEnd.toISOString()
+    const runId = crypto.randomUUID()
+    app.db
+      .insert(runs)
+      .values({
+        id: runId,
+        projectId: project.id,
+        kind: RunKinds['traffic-sync'],
+        status: RunStatuses.running,
+        trigger: RunTriggers.backfill,
+        sourceId: sourceRow.id,
+        startedAt,
+        createdAt: startedAt,
+      })
+      .run()
+
+    // Fire-and-forget. The route returns immediately; the run row carries
+    // status until the background task finishes. Errors inside the task are
+    // recorded on the run row + traffic_sources.last_error — never thrown
+    // back to this scope (the response has already been sent).
+    void runBackfillTask({
+      app,
+      runId,
+      project,
+      sourceRow,
+      gcpProjectId,
+      serviceName,
+      location,
+      credential,
+      windowStart,
+      windowEnd,
+      appliedDays,
+      pullEvents,
+      resolveAccessToken,
+    }).catch(() => {
+      // runBackfillTask handles its own error recording. The catch here
+      // exists only so an unhandled rejection cannot crash the process if
+      // an internal bug bypasses the task's own try/catch.
+    })
+
+    const response: TrafficBackfillResponse = {
+      sourceId: sourceRow.id,
+      runId,
+      status: RunStatuses.running,
+      windowStart: windowStart.toISOString(),
+      windowEnd: windowEnd.toISOString(),
+      daysRequested: requestedDays,
+      daysApplied: appliedDays,
     }
     return response
   })

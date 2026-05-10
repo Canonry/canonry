@@ -41,6 +41,14 @@ export interface ListCloudRunTrafficEventsOptions extends CloudRunLogFilterOptio
   pageSize?: number
   pageToken?: string
   orderBy?: 'timestamp asc' | 'timestamp desc'
+  /**
+   * When true, this is a first-time backfill (no prior sync cursor). The
+   * client picks `orderBy=timestamp desc` so the bounded `maxPages * pageSize`
+   * budget covers the most recent entries inside a long lookback window
+   * instead of exhausting on the oldest ones. Ignored if `orderBy` is set
+   * explicitly.
+   */
+  firstSync?: boolean
   maxPages?: number
   timeoutMs?: number
 }

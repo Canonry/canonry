@@ -28,6 +28,15 @@ function utmSourceFromQuery(queryString: string | null): string | null {
   return source ? normalizeHost(source) : null
 }
 
+function utmSourceFromUrl(value: string | null): string | null {
+  if (!value) return null
+  try {
+    return utmSourceFromQuery(new URL(value).search.replace(/^\?/, ''))
+  } catch {
+    return null
+  }
+}
+
 export function classifyCrawler(event: NormalizedTrafficRequest): ClassifiedCrawler | null {
   const userAgent = event.userAgent?.trim()
   if (!userAgent) return null
@@ -71,6 +80,24 @@ export function classifyAiReferral(event: NormalizedTrafficRequest): ClassifiedA
         product: rule.product,
         sourceDomain: utmSource,
         evidenceType: 'utm',
+      }
+    }
+  }
+
+  // Edge-cached pages serve the HTML hit from the CDN; only the cache-busting
+  // sub-resource requests (JS chunks, fonts, etc.) reach the origin. Those
+  // requests carry the original landing-URL UTM in their referer's query
+  // string, so we look there too — without it we lose ~all human AI-referral
+  // signal on cached sites.
+  const refererUtmSource = utmSourceFromUrl(event.referer)
+  if (refererUtmSource) {
+    const rule = DEFAULT_AI_REFERRER_RULES.find((candidate) => hostMatches(refererUtmSource, candidate.domain))
+    if (rule) {
+      return {
+        operator: rule.operator,
+        product: rule.product,
+        sourceDomain: refererUtmSource,
+        evidenceType: 'referer-utm',
       }
     }
   }

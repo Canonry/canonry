@@ -1,4 +1,6 @@
 import type {
+  RunDetailDto,
+  TrafficBackfillResponse,
   TrafficEventEntry,
   TrafficEventsResponse,
   TrafficSourceDto,
@@ -6,7 +8,7 @@ import type {
   TrafficStatusResponse,
   TrafficSyncResponse,
 } from '@ainyc/canonry-contracts'
-import { TrafficEventKinds } from '@ainyc/canonry-contracts'
+import { RunStatuses, TrafficEventKinds } from '@ainyc/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError } from '../cli-error.js'
 
@@ -77,6 +79,91 @@ export async function trafficConnectCloudRun(project: string, opts: {
   if (result.config.location) console.log(`  Location:     ${result.config.location}`)
   console.log('')
   console.log(`Next: canonry traffic sync ${project} --source ${result.id}`)
+}
+
+export async function trafficBackfill(project: string, opts: {
+  source: string
+  days?: number
+  wait?: boolean
+  pollIntervalMs?: number
+  format?: string
+}): Promise<void> {
+  if (!opts.source) {
+    throw new CliError({
+      code: 'TRAFFIC_SOURCE_REQUIRED',
+      message: '--source <id> is required',
+      displayMessage: 'Error: --source <id> is required (run `canonry traffic sources` to list connected sources)',
+      details: { project },
+    })
+  }
+
+  const client = getClient()
+  const submitted: TrafficBackfillResponse = await client.trafficBackfill(project, opts.source, {
+    days: opts.days,
+  })
+
+  if (!opts.wait) {
+    if (opts.format === 'json') {
+      console.log(JSON.stringify(submitted, null, 2))
+      return
+    }
+    console.log(`Backfill submitted for "${project}" (source ${opts.source}).`)
+    console.log(`  Run ID:        ${submitted.runId}`)
+    console.log(`  Window:        ${submitted.windowStart}  →  ${submitted.windowEnd}`)
+    console.log(`  Days applied:  ${submitted.daysApplied} (requested ${submitted.daysRequested})`)
+    console.log(`  Status:        ${submitted.status}`)
+    console.log('')
+    console.log(`Poll: canonry runs get ${submitted.runId}`)
+    return
+  }
+
+  // Poll until terminal. Backfill at ainyc volume completes in seconds; cap
+  // the wait at 5 minutes so a stuck run doesn't hang the CLI forever.
+  const intervalMs = opts.pollIntervalMs ?? 1500
+  const deadlineMs = Date.now() + 5 * 60_000
+  let final: RunDetailDto | null = null
+  while (Date.now() < deadlineMs) {
+    const run = await client.getRun(submitted.runId)
+    if (run.status !== RunStatuses.running && run.status !== RunStatuses.queued) {
+      final = run
+      break
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, intervalMs))
+  }
+
+  if (!final) {
+    throw new CliError({
+      code: 'TRAFFIC_BACKFILL_TIMEOUT',
+      message: `Backfill did not complete within 5 minutes (run ${submitted.runId} still running)`,
+      displayMessage: `Error: backfill run ${submitted.runId} did not finish within 5 minutes — check status with "canonry runs get ${submitted.runId}"`,
+      details: { project, runId: submitted.runId },
+    })
+  }
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify({ ...submitted, finalStatus: final.status, finalRun: final }, null, 2))
+    return
+  }
+
+  if (final.status === RunStatuses.completed) {
+    console.log(`Backfill complete for "${project}" (source ${opts.source}).`)
+    console.log(`  Run ID:        ${final.id}`)
+    console.log(`  Window:        ${submitted.windowStart}  →  ${submitted.windowEnd}`)
+    console.log(`  Days applied:  ${submitted.daysApplied}`)
+    console.log(`  Started:       ${final.startedAt ?? 'unknown'}`)
+    console.log(`  Finished:      ${final.finishedAt ?? 'unknown'}`)
+    console.log('')
+    console.log(`Inspect rebuilt rollups: canonry traffic events ${project} --source ${opts.source} --since-minutes ${submitted.daysApplied * 24 * 60}`)
+    return
+  }
+
+  const errorMessage = final.error?.message ?? null
+  throw new CliError({
+    code: 'TRAFFIC_BACKFILL_FAILED',
+    message: errorMessage ?? 'backfill run did not complete successfully',
+    displayMessage: `Error: backfill run ${final.id} ${final.status}${errorMessage ? ` — ${errorMessage}` : ''}`,
+    details: { project, runId: final.id, status: final.status },
+  })
 }
 
 export async function trafficSync(project: string, opts: {

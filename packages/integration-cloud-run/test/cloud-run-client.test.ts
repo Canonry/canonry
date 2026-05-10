@@ -165,4 +165,50 @@ describe('listCloudRunTrafficEvents', () => {
     expect(result.skippedEntryCount).toBe(0)
     expect(result.nextPageToken).toBeUndefined()
   })
+
+  it('defaults orderBy to "timestamp desc" when firstSync is true and "timestamp asc" otherwise', async () => {
+    const bodies: unknown[] = []
+    fetchSpy.mockImplementation(async (_input: string | URL | Request, init?: RequestInit) => {
+      bodies.push(JSON.parse(init?.body as string))
+      return new Response(JSON.stringify({ entries: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    })
+
+    await listCloudRunTrafficEvents('token', {
+      gcpProjectId: 'sample-project',
+      firstSync: true,
+    })
+    await listCloudRunTrafficEvents('token', {
+      gcpProjectId: 'sample-project',
+      firstSync: false,
+    })
+    await listCloudRunTrafficEvents('token', {
+      gcpProjectId: 'sample-project',
+    })
+
+    expect((bodies[0] as { orderBy: string }).orderBy).toBe('timestamp desc')
+    expect((bodies[1] as { orderBy: string }).orderBy).toBe('timestamp asc')
+    expect((bodies[2] as { orderBy: string }).orderBy).toBe('timestamp asc')
+  })
+
+  it('respects an explicit orderBy override even when firstSync is true', async () => {
+    const bodies: unknown[] = []
+    fetchSpy.mockImplementation(async (_input: string | URL | Request, init?: RequestInit) => {
+      bodies.push(JSON.parse(init?.body as string))
+      return new Response(JSON.stringify({ entries: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    })
+
+    await listCloudRunTrafficEvents('token', {
+      gcpProjectId: 'sample-project',
+      firstSync: true,
+      orderBy: 'timestamp asc',
+    })
+
+    expect((bodies[0] as { orderBy: string }).orderBy).toBe('timestamp asc')
+  })
 })

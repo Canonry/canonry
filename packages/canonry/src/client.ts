@@ -78,6 +78,7 @@ import type {
   TrafficEventsResponse,
   TrafficConnectCloudRunRequest,
   TrafficSyncResponse,
+  TrafficBackfillResponse,
 } from '@ainyc/canonry-contracts'
 
 export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry, CompetitorDto, KeywordDto, QueryDto }
@@ -812,6 +813,18 @@ export class ApiClient {
     return this.request<TrafficSyncResponse>(
       'POST',
       `/projects/${encodeURIComponent(project)}/traffic/sources/${encodeURIComponent(sourceId)}/sync`,
+      body ?? {},
+    )
+  }
+
+  async trafficBackfill(
+    project: string,
+    sourceId: string,
+    body?: { days?: number },
+  ): Promise<TrafficBackfillResponse> {
+    return this.request<TrafficBackfillResponse>(
+      'POST',
+      `/projects/${encodeURIComponent(project)}/traffic/sources/${encodeURIComponent(sourceId)}/backfill`,
       body ?? {},
     )
   }
