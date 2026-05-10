@@ -78,6 +78,13 @@ export const trafficSourceAuthModeSchema = z.enum(['oauth', 'service-account'])
 export type TrafficSourceAuthMode = z.infer<typeof trafficSourceAuthModeSchema>
 export const TrafficSourceAuthModes = trafficSourceAuthModeSchema.enum
 
+// Crawler verification tiers. See `packages/integration-traffic/AGENTS.md`:
+// UA-only matches stay `claimed_unverified` until IP/rDNS verification is wired;
+// `unknown_ai_like` is reserved for behavioral heuristics.
+export const verificationStatusSchema = z.enum(['verified', 'claimed_unverified', 'unknown_ai_like'])
+export type VerificationStatus = z.infer<typeof verificationStatusSchema>
+export const VerificationStatuses = verificationStatusSchema.enum
+
 export const cloudRunSourceConfigSchema = z.object({
   gcpProjectId: z.string().min(1),
   serviceName: z.string().nullable().optional(),

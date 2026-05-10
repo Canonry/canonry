@@ -19,6 +19,7 @@ import {
   contentActionLabel,
   dedupeReportActions,
   dedupeReportOpportunities,
+  formatDeltaCopy,
   reportActionCategoryLabel,
   reportActionTone,
   reportConfidenceLabel,
@@ -246,6 +247,14 @@ export function ReportPage({ projectName }: { projectName: string }) {
   )
 }
 
+// Section heading for the server-side AI visibility view. Mirrors the
+// HTML renderer's `serverActivityHeading('client', …)` per the
+// report-parity rule — eyebrow, title, and subtitle must match verbatim.
+const SERVER_ACTIVITY_TITLE = 'AI Visibility — Server-Side'
+const SERVER_ACTIVITY_EYEBROW_CLIENT = 'AI engine attention'
+const SERVER_ACTIVITY_INTRO_HAS_DATA = 'What AI engines actually do in your server logs over the last 7 days — the other half of citations.'
+const SERVER_ACTIVITY_INTRO_NO_DATA = 'Live telemetry from your server logs.'
+
 /**
  * Client-friendly summary of server-side AI visibility data.
  * Hidden when no source is connected (per the agreed empty-state policy: silent for client).
@@ -260,9 +269,9 @@ function ServerActivityClientView({ report }: { report: ProjectReportDto }) {
     return (
       <section className="page-section-divider">
         <SectionHeading
-          eyebrow="AI engine attention"
-          title="Server-side AI visibility"
-          subtitle="Live telemetry from your server logs."
+          eyebrow={SERVER_ACTIVITY_EYEBROW_CLIENT}
+          title={SERVER_ACTIVITY_TITLE}
+          subtitle={SERVER_ACTIVITY_INTRO_NO_DATA}
         />
         <p className="text-sm text-zinc-500">
           Your server-side traffic source is connected. Numbers will appear after the next sync.
@@ -271,17 +280,17 @@ function ServerActivityClientView({ report }: { report: ProjectReportDto }) {
     )
   }
 
-  const verifiedDelta = renderClientDelta(sa.verifiedCrawlerHits, 'crawls')
-  const referralDelta = renderClientDelta(sa.referralArrivals, 'arrivals')
+  const verifiedDelta = formatDeltaCopy(sa.verifiedCrawlerHits, 'crawls')
+  const referralDelta = formatDeltaCopy(sa.referralArrivals, 'arrivals')
   // For the client view we cap at the top 5 entries — agencies see the full breakdown in the HTML report.
   const topOperators = sa.byOperator.filter(o => o.verifiedHits > 0 || o.referralArrivals > 0).slice(0, 5)
 
   return (
     <section className="page-section-divider">
       <SectionHeading
-        eyebrow="AI engine attention"
-        title="Server-side AI visibility"
-        subtitle="What AI engines actually do in your server logs over the last 7 days — the other half of citations."
+        eyebrow={SERVER_ACTIVITY_EYEBROW_CLIENT}
+        title={SERVER_ACTIVITY_TITLE}
+        subtitle={SERVER_ACTIVITY_INTRO_HAS_DATA}
       />
       <div className="grid gap-3 sm:grid-cols-2">
         <Metric
@@ -325,18 +334,6 @@ function ServerActivityClientView({ report }: { report: ProjectReportDto }) {
       )}
     </section>
   )
-}
-
-function renderClientDelta(
-  d: { current: number; prior: number; deltaPct: number | null },
-  countLabel: string,
-): string {
-  if (d.deltaPct === null) {
-    return d.prior === 0 ? 'First baseline week' : ''
-  }
-  if (d.deltaPct > 0) return `Up ${d.deltaPct}% vs prior 7 days (${formatNumber(d.prior)} ${countLabel})`
-  if (d.deltaPct < 0) return `Down ${Math.abs(d.deltaPct)}% vs prior 7 days (${formatNumber(d.prior)} ${countLabel})`
-  return `Flat vs prior 7 days (${formatNumber(d.prior)} ${countLabel})`
 }
 
 function actionAudienceMatches(action: ReportActionPlanItem, audience: ReportAudience): boolean {

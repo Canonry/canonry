@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, lte, ne, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, lt, lte, ne, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   aiReferralEventsHourly,
@@ -24,6 +24,8 @@ import {
   RunKinds,
   RunStatuses,
   TrafficSourceStatuses,
+  VerificationStatuses,
+  deltaPercent,
   getProviderLocationHandling,
   validationError,
   type CitationsTrendPoint,
@@ -552,7 +554,11 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
   const trendStart = new Date(trendStartMs).toISOString()
 
   // 2. Headline + prior totals (verified crawlers + referral arrivals).
-  const sumVerifiedCrawlers = (windowStartIso: string, windowEndIso: string) =>
+  // The headline upper bound uses `lte` (inclusive) so the current hour bucket
+  // counts. The prior upper bound uses `lt` (strict) against `headlineStart` so a
+  // row with `tsHour` exactly equal to the boundary lands in the headline window
+  // only — never both. Latent double-count if `now` aligned to an hour exactly.
+  const sumVerifiedCrawlers = (windowStartIso: string, windowEndIso: string, exclusiveEnd = false) =>
     Number(
       db
         .select({ total: sql<number>`COALESCE(SUM(${crawlerEventsHourly.hits}), 0)` })
@@ -560,15 +566,17 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
         .where(
           and(
             eq(crawlerEventsHourly.projectId, projectId),
-            eq(crawlerEventsHourly.verificationStatus, 'verified'),
+            eq(crawlerEventsHourly.verificationStatus, VerificationStatuses.verified),
             gte(crawlerEventsHourly.tsHour, windowStartIso),
-            lte(crawlerEventsHourly.tsHour, windowEndIso),
+            exclusiveEnd
+              ? lt(crawlerEventsHourly.tsHour, windowEndIso)
+              : lte(crawlerEventsHourly.tsHour, windowEndIso),
           ),
         )
         .get()?.total ?? 0,
     )
 
-  const sumReferrals = (windowStartIso: string, windowEndIso: string) =>
+  const sumReferrals = (windowStartIso: string, windowEndIso: string, exclusiveEnd = false) =>
     Number(
       db
         .select({ total: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.sessionsOrHits}), 0)` })
@@ -577,16 +585,18 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
           and(
             eq(aiReferralEventsHourly.projectId, projectId),
             gte(aiReferralEventsHourly.tsHour, windowStartIso),
-            lte(aiReferralEventsHourly.tsHour, windowEndIso),
+            exclusiveEnd
+              ? lt(aiReferralEventsHourly.tsHour, windowEndIso)
+              : lte(aiReferralEventsHourly.tsHour, windowEndIso),
           ),
         )
         .get()?.total ?? 0,
     )
 
   const verifiedCurrent = sumVerifiedCrawlers(headlineStart, headlineEnd)
-  const verifiedPrior = sumVerifiedCrawlers(priorStart, headlineStart)
+  const verifiedPrior = sumVerifiedCrawlers(priorStart, headlineStart, true)
   const referralCurrent = sumReferrals(headlineStart, headlineEnd)
-  const referralPrior = sumReferrals(priorStart, headlineStart)
+  const referralPrior = sumReferrals(priorStart, headlineStart, true)
 
   // 3. Per-operator: verified hits, unverified hits, referral arrivals over headline window.
   const crawlerByOperatorRows = db
@@ -615,9 +625,9 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
     .where(
       and(
         eq(crawlerEventsHourly.projectId, projectId),
-        eq(crawlerEventsHourly.verificationStatus, 'verified'),
+        eq(crawlerEventsHourly.verificationStatus, VerificationStatuses.verified),
         gte(crawlerEventsHourly.tsHour, priorStart),
-        lte(crawlerEventsHourly.tsHour, headlineStart),
+        lt(crawlerEventsHourly.tsHour, headlineStart),
       ),
     )
     .groupBy(crawlerEventsHourly.operator)
@@ -652,7 +662,7 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
   }
   for (const r of crawlerByOperatorRows) {
     const entry = ensureOp(r.operator)
-    if (r.verificationStatus === 'verified') entry.verified += Number(r.hits)
+    if (r.verificationStatus === VerificationStatuses.verified) entry.verified += Number(r.hits)
     else entry.unverified += Number(r.hits)
   }
   for (const r of crawlerByOperatorPriorRows) {
@@ -686,7 +696,7 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
     .where(
       and(
         eq(crawlerEventsHourly.projectId, projectId),
-        eq(crawlerEventsHourly.verificationStatus, 'verified'),
+        eq(crawlerEventsHourly.verificationStatus, VerificationStatuses.verified),
         gte(crawlerEventsHourly.tsHour, headlineStart),
         lte(crawlerEventsHourly.tsHour, headlineEnd),
       ),
@@ -760,7 +770,7 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
     .where(
       and(
         eq(crawlerEventsHourly.projectId, projectId),
-        eq(crawlerEventsHourly.verificationStatus, 'verified'),
+        eq(crawlerEventsHourly.verificationStatus, VerificationStatuses.verified),
         gte(crawlerEventsHourly.tsHour, trendStart),
         lte(crawlerEventsHourly.tsHour, headlineEnd),
       ),
@@ -821,11 +831,6 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
     dailyTrend,
     topReferralLandingPaths,
   }
-}
-
-function deltaPercent(current: number, prior: number): number | null {
-  if (prior <= 0) return null
-  return Math.round(((current - prior) / prior) * 100)
 }
 
 function buildIndexingHealth(db: DatabaseClient, projectId: string): ProjectReportDto['indexingHealth'] {

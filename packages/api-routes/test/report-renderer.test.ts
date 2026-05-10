@@ -593,6 +593,42 @@ describe('renderReportHtml', () => {
     expect(saIdx).toBeLessThan(ihIdx)
   })
 
+  // Locks in the report-parity rule for the metric subtitle: the SPA's
+  // `formatDeltaCopy` from contracts is the canonical text format; the
+  // HTML wraps it in a tone span but emits the same human-readable copy.
+  test('server-activity metric subtitle uses the shared formatDeltaCopy text', () => {
+    const agencyHtml = renderReportHtml(richReport(), { audience: 'agency' })
+    expect(agencyHtml).toContain('Up 100% vs prior 7 days (117 hits)')
+    expect(agencyHtml).toContain('Up 100% vs prior 7 days (6 arrivals)')
+    // Tone class wraps the copy
+    expect(agencyHtml).toMatch(/<span class="tone-positive">Up 100% vs prior 7 days/)
+
+    const clientHtml = renderReportHtml(richReport(), { audience: 'client' })
+    expect(clientHtml).toContain('Up 100% vs prior 7 days (117 crawls)')
+    expect(clientHtml).toContain('Up 100% vs prior 7 days (6 arrivals)')
+  })
+
+  test('client view of empty server-activity uses the friendly heading, not "Section 10"', () => {
+    const report = richReport()
+    report.serverActivity = {
+      ...report.serverActivity!,
+      hasData: false,
+      verifiedCrawlerHits: { current: 0, prior: 0, deltaPct: null },
+      referralArrivals: { current: 0, prior: 0, deltaPct: null },
+      byOperator: [],
+      topCrawledPaths: [],
+      referralProducts: [],
+      dailyTrend: [],
+      topReferralLandingPaths: [],
+    }
+    const html = renderReportHtml(report, { audience: 'client' })
+    expect(html).toContain('id="server-activity"')
+    expect(html).toContain('AI engine attention')
+    expect(html).toContain('AI Visibility — Server-Side')
+    // Section 10 is the agency-numbered eyebrow and must not leak to clients
+    expect(html).not.toContain('Section 10')
+  })
+
   test('handles empty data without throwing', () => {
     expect(() => renderReportHtml(emptyReport())).not.toThrow()
   })

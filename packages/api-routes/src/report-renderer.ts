@@ -15,8 +15,10 @@ import {
   contentActionLabel,
   dedupeReportActions,
   dedupeReportOpportunities,
+  deltaTone,
   formatDate,
   formatDateRange,
+  formatDeltaCopy,
   formatIsoDate,
   formatNumber,
   formatRatio,
@@ -1812,6 +1814,28 @@ function renderAiReferrals(report: ProjectReportDto): string {
   )
 }
 
+// Section heading metadata for "AI Visibility — Server-Side". The SPA and
+// HTML must render the SAME eyebrow/title/intro per audience — see the
+// report-parity rule in `AGENTS.md`.
+function serverActivityHeading(audience: ReportAudience, hasData: boolean): {
+  id: string
+  eyebrow: string
+  title: string
+  intro: string
+} {
+  const isClient = audience === 'client'
+  return {
+    id: 'server-activity',
+    eyebrow: isClient ? 'AI engine attention' : 'Section 10',
+    title: 'AI Visibility — Server-Side',
+    intro: isClient
+      ? hasData
+        ? 'What AI engines actually do in your server logs over the last 7 days — the other half of citations.'
+        : 'Live telemetry from your server logs.'
+      : 'What AI engines actually do in your server logs — direct evidence, complementary to citations (which measure what they say).',
+  }
+}
+
 function renderServerActivity(report: ProjectReportDto, audience: ReportAudience): string {
   const sa = report.serverActivity
   const isClient = audience === 'client'
@@ -1822,13 +1846,13 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
   if (!sa) {
     if (isClient) return ''
     return section(
-      { id: 'server-activity', eyebrow: 'Section 10', title: 'AI Visibility — Server-Side' },
+      serverActivityHeading('agency', false),
       renderEmpty('Connect a server-side traffic source to surface what AI engines do directly in your server logs — distinct from GA4 click-throughs.'),
     )
   }
   if (!sa.hasData) {
     return section(
-      { id: 'server-activity', eyebrow: 'Section 10', title: 'AI Visibility — Server-Side' },
+      serverActivityHeading(audience, false),
       renderEmpty(isClient
         ? 'Your server-side traffic source is connected. Numbers will appear after the next sync.'
         : 'Source connected — collecting your first data. Numbers will appear after the next sync.'),
@@ -1836,12 +1860,9 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
   }
 
   const formatDelta = (d: { current: number; prior: number; deltaPct: number | null }, suffix: string) => {
-    if (d.deltaPct === null) {
-      return d.prior === 0 ? `<span class="meta">no prior baseline</span>` : ''
-    }
-    const tone = d.deltaPct > 0 ? 'tone-positive' : d.deltaPct < 0 ? 'tone-negative' : 'tone-neutral'
-    const arrow = d.deltaPct > 0 ? '↑' : d.deltaPct < 0 ? '↓' : '→'
-    return `<span class="${tone}">${arrow} ${Math.abs(d.deltaPct)}% vs prior 7d (${formatNumber(d.prior)} ${suffix})</span>`
+    const copy = formatDeltaCopy(d, suffix)
+    if (!copy) return ''
+    return `<span class="tone-${deltaTone(d.deltaPct)}">${escapeHtml(copy)}</span>`
   }
 
   // ── Client view (lightweight; mirrors the SPA's ServerActivityClientView) ──
@@ -1857,12 +1878,7 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
     </tr>`).join('')
 
     return section(
-      {
-        id: 'server-activity',
-        eyebrow: 'AI engine attention',
-        title: 'AI Visibility — Server-Side',
-        intro: 'What AI engines actually do in your server logs over the last 7 days — the other half of citations.',
-      },
+      serverActivityHeading('client', true),
       `<div class="metric-grid">
         <div class="metric">
           <div class="label">AI bots visited your site</div>
@@ -1890,14 +1906,14 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
     const deltaText = o.deltaPct === null
       ? '—'
       : `${o.deltaPct > 0 ? '+' : ''}${o.deltaPct}%`
-    const deltaTone = o.deltaPct === null ? '' : (o.deltaPct > 0 ? 'tone-positive' : o.deltaPct < 0 ? 'tone-negative' : 'tone-neutral')
+    const toneClass = o.deltaPct === null ? '' : `tone-${deltaTone(o.deltaPct)}`
     return `
     <tr>
       <td>${escapeHtml(o.operator)}</td>
       <td class="numeric">${formatNumber(o.verifiedHits)}</td>
       <td class="numeric meta">${formatNumber(o.unverifiedHits)}</td>
       <td class="numeric">${formatNumber(o.referralArrivals)}</td>
-      <td class="numeric ${deltaTone}">${deltaText}</td>
+      <td class="numeric ${toneClass}">${deltaText}</td>
     </tr>`
   }).join('')
 
@@ -1931,12 +1947,7 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
     : ''
 
   return section(
-    {
-      id: 'server-activity',
-      eyebrow: 'Section 10',
-      title: 'AI Visibility — Server-Side',
-      intro: 'What AI engines actually do in your server logs — direct evidence, complementary to citations (which measure what they say).',
-    },
+    serverActivityHeading('agency', true),
     `<div class="metric-grid">
       <div class="metric">
         <div class="label">Verified crawler hits (7d)</div>
