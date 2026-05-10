@@ -462,7 +462,7 @@
   }
 
   .project-subnav {
-    @apply mt-6 flex flex-wrap gap-2 border-b border-zinc-800/50 pb-3;
+    @apply mt-5 mb-4 flex flex-wrap gap-2 border-b border-zinc-800/50 pb-2;
   }
 
   .project-subnav-link {
