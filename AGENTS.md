@@ -59,6 +59,14 @@ canonry report <project>                         # client-facing AEO report → 
 canonry report <project> --output dist/aeo.html
 canonry report <project> --format json           # raw report payload to stdout
 
+# Schedules — one row per (project, kind) where kind ∈ {answer-visibility, traffic-sync}
+canonry schedule set <project> --preset daily                                                # answer-visibility (default kind)
+canonry schedule set <project> --kind traffic-sync --cron "*/15 * * * *" --source <id>       # traffic-sync (sourceId required)
+canonry schedule show <project> [--kind answer-visibility|traffic-sync]                      # default kind is answer-visibility
+canonry schedule enable  <project> [--kind ...]
+canonry schedule disable <project> [--kind ...]
+canonry schedule remove  <project> [--kind ...]                                              # delete the schedule for that kind
+
 # Agent layer
 canonry agent ask <project> "<prompt>"               # one-shot turn against built-in Aero
 canonry agent ask <project> "<prompt>" --provider zai --format json

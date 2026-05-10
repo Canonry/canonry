@@ -144,6 +144,13 @@ const locationQueryParameter: OpenApiParameter = {
   schema: stringSchema,
 }
 
+const scheduleKindQueryParameter: OpenApiParameter = {
+  name: 'kind',
+  in: 'query',
+  description: 'Schedulable run kind. Defaults to "answer-visibility" for backward compatibility.',
+  schema: { type: 'string', enum: ['answer-visibility', 'traffic-sync'] },
+}
+
 const reportAudienceQueryParameter: OpenApiParameter = {
   name: 'audience',
   in: 'query',
@@ -1005,7 +1012,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/schedule',
     summary: 'Create or update a schedule',
     tags: ['schedules'],
-    parameters: [nameParameter],
+    parameters: [nameParameter, scheduleKindQueryParameter],
     requestBody: {
       required: true,
       content: {
@@ -1013,11 +1020,13 @@ const routeCatalog: OpenApiOperation[] = [
           schema: {
             type: 'object',
             properties: {
+              kind: { type: 'string', enum: ['answer-visibility', 'traffic-sync'] },
               preset: stringSchema,
               cron: stringSchema,
               timezone: stringSchema,
               providers: stringArraySchema,
               enabled: booleanSchema,
+              sourceId: stringSchema,
             },
           },
         },
@@ -1026,6 +1035,7 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: { description: 'Schedule updated.' },
       201: { description: 'Schedule created.' },
+      400: { description: 'Invalid payload (e.g. sourceId missing for kind=traffic-sync, or providers set for kind=traffic-sync).' },
     },
   },
   {
@@ -1033,7 +1043,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/schedule',
     summary: 'Get a schedule',
     tags: ['schedules'],
-    parameters: [nameParameter],
+    parameters: [nameParameter, scheduleKindQueryParameter],
     responses: {
       200: { description: 'Schedule returned.' },
       404: { description: 'Schedule not found.' },
@@ -1044,7 +1054,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/schedule',
     summary: 'Delete a schedule',
     tags: ['schedules'],
-    parameters: [nameParameter],
+    parameters: [nameParameter, scheduleKindQueryParameter],
     responses: {
       204: { description: 'Schedule deleted.' },
       404: { description: 'Schedule not found.' },

@@ -974,6 +974,10 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     // old, rename. All 4 statements run inside the migration runner's
     // single transaction so a partial failure rolls everything back.
     statements: [
+      // (project_id, kind) uniqueness is enforced by the explicit
+      // `CREATE UNIQUE INDEX idx_schedules_project_kind` below — that's the
+      // canonical drizzle-side index name (see schema.ts), so don't duplicate
+      // it as an inline UNIQUE() in CREATE TABLE.
       `CREATE TABLE IF NOT EXISTS schedules_v53 (
          id          TEXT PRIMARY KEY,
          project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -987,8 +991,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
          last_run_at TEXT,
          next_run_at TEXT,
          created_at  TEXT NOT NULL,
-         updated_at  TEXT NOT NULL,
-         UNIQUE(project_id, kind)
+         updated_at  TEXT NOT NULL
        )`,
       `INSERT INTO schedules_v53 (
          id, project_id, kind, cron_expr, preset, timezone, enabled,

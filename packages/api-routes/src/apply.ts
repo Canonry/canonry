@@ -1,8 +1,8 @@
 import crypto from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { projects, queries, competitors, schedules, notifications, parseJsonColumn } from '@ainyc/canonry-db'
-import { normalizeProjectDomain, projectConfigSchema, registrableDomain, resolveConfigSpecQueries, validationError } from '@ainyc/canonry-contracts'
+import { normalizeProjectDomain, projectConfigSchema, registrableDomain, resolveConfigSpecQueries, SchedulableRunKinds, validationError } from '@ainyc/canonry-contracts'
 import { writeAuditLog } from './helpers.js'
 import { resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
 import { resolveWebhookTarget } from './webhooks.js'
@@ -192,9 +192,18 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         diff: { competitors: normalizedCompetitors },
       })
 
-      // Handle schedule
+      // Handle schedule. `canonry apply` only manages the answer-visibility
+      // schedule — traffic-sync schedules have no surface in the YAML config-
+      // as-code spec, so every schedules query in this block must be scoped
+      // to kind='answer-visibility' or it will silently destroy / corrupt
+      // the user's traffic-sync schedule on the same project.
+      const AV_KIND = SchedulableRunKinds['answer-visibility']
       if (resolvedSchedule) {
-        const existingSched = tx.select().from(schedules).where(eq(schedules.projectId, projectId)).get()
+        const existingSched = tx
+          .select()
+          .from(schedules)
+          .where(and(eq(schedules.projectId, projectId), eq(schedules.kind, AV_KIND)))
+          .get()
         if (existingSched) {
           tx.update(schedules).set({
             cronExpr: resolvedSchedule.cronExpr,
@@ -208,6 +217,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           tx.insert(schedules).values({
             id: crypto.randomUUID(),
             projectId,
+            kind: AV_KIND,
             cronExpr: resolvedSchedule.cronExpr,
             preset: resolvedSchedule.preset,
             timezone: resolvedSchedule.timezone,
@@ -219,9 +229,15 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         }
         scheduleAction = 'upsert'
       } else if (deleteSchedule) {
-        const existingSched = tx.select().from(schedules).where(eq(schedules.projectId, projectId)).get()
+        const existingSched = tx
+          .select()
+          .from(schedules)
+          .where(and(eq(schedules.projectId, projectId), eq(schedules.kind, AV_KIND)))
+          .get()
         if (existingSched) {
-          tx.delete(schedules).where(eq(schedules.projectId, projectId)).run()
+          tx.delete(schedules)
+            .where(and(eq(schedules.projectId, projectId), eq(schedules.kind, AV_KIND)))
+            .run()
           scheduleAction = 'delete'
         }
       }
@@ -253,11 +269,8 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     })
 
     // Fire callbacks after transaction commits.
-    // `canonry apply` only manages the answer-visibility schedule (no
-    // traffic-sync surface in the YAML config-as-code spec), so the kind
-    // is fixed here.
     if (scheduleAction) {
-      opts?.onScheduleUpdated?.(scheduleAction, projectId!, 'answer-visibility')
+      opts?.onScheduleUpdated?.(scheduleAction, projectId!, SchedulableRunKinds['answer-visibility'])
     }
     if (!hasNotifications) {
       opts?.onProjectUpserted?.(projectId!, config.metadata.name)

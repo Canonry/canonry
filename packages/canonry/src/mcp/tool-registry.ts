@@ -12,6 +12,7 @@ import {
   projectConfigSchema,
   projectUpsertRequestSchema,
   runTriggerRequestSchema,
+  schedulableRunKindSchema,
   scheduleUpsertRequestSchema,
   trafficConnectCloudRunRequestSchema,
   trafficEventKindSchema,
@@ -183,6 +184,11 @@ const applyConfigInputSchema = z.object({
 const scheduleSetInputSchema = z.object({
   project: projectNameSchema,
   schedule: scheduleUpsertRequestSchema,
+})
+
+const scheduleReadInputSchema = z.object({
+  project: projectNameSchema,
+  kind: schedulableRunKindSchema.optional().describe('Schedulable run kind. Defaults to "answer-visibility" if omitted.'),
 })
 
 const agentWebhookAttachInputSchema = z.object({
@@ -555,13 +561,13 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_schedule_get',
     title: 'Get schedule',
-    description: 'Get the scheduled run configuration for a Canonry project.',
+    description: 'Get the scheduled run configuration for a Canonry project. Pass `kind` to read a non-default schedule (e.g. "traffic-sync"); defaults to "answer-visibility".',
     access: 'read',
     tier: 'setup',
-    inputSchema: projectInputSchema,
+    inputSchema: scheduleReadInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/schedule'],
-    handler: (client, input) => client.getSchedule(input.project),
+    handler: (client, input) => client.getSchedule(input.project, input.kind),
   }),
   defineTool({
     name: 'canonry_backlinks_latest_release',
@@ -1024,14 +1030,14 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_schedule_delete',
     title: 'Delete schedule',
-    description: 'Delete the scheduled run configuration for a Canonry project.',
+    description: 'Delete the scheduled run configuration for a Canonry project. Pass `kind` to delete a non-default schedule (e.g. "traffic-sync"); defaults to "answer-visibility".',
     access: 'write',
     tier: 'setup',
-    inputSchema: projectInputSchema,
+    inputSchema: scheduleReadInputSchema,
     annotations: writeAnnotations({ idempotentHint: false, destructiveHint: true }),
     openApiOperations: ['DELETE /api/v1/projects/{name}/schedule'],
     handler: async (client, input) => {
-      await client.deleteSchedule(input.project)
+      await client.deleteSchedule(input.project, input.kind)
     },
   }),
   defineTool({
