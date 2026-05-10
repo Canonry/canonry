@@ -116,8 +116,8 @@ export function TrafficSourceDetailPage() {
   )
 
   const chartData = useMemo(
-    () => buildChartData(allEvents, activeWindow.granularity),
-    [allEvents, activeWindow.granularity],
+    () => buildChartData(allEvents, activeWindow.granularity, eventsQuery.data?.windowStart, eventsQuery.data?.windowEnd),
+    [allEvents, activeWindow.granularity, eventsQuery.data?.windowStart, eventsQuery.data?.windowEnd],
   )
 
   const toggleSeries = (series: SeriesKind) => {
@@ -367,6 +367,8 @@ function bucketLabelFor(key: string, granularity: Granularity): string {
 function buildChartData(
   events: readonly TrafficEventEntry[],
   granularity: Granularity,
+  windowStart?: string,
+  windowEnd?: string,
 ): ChartRow[] {
   const byBucket = new Map<string, ChartRow>()
   for (const event of events) {
@@ -382,6 +384,39 @@ function buildChartData(
       row.aiReferral += event.hits
     }
   }
+
+  // Pad zero-value buckets for every partition in the window so the
+  // chart renders a bar for each day (30d/90d) or hour (1h–7d).
+  if (windowStart && windowEnd) {
+    const start = new Date(windowStart)
+    const end = new Date(windowEnd)
+
+    if (granularity === 'day') {
+      const current = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()))
+      const endDay = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()))
+      while (current <= endDay) {
+        const y = current.getUTCFullYear()
+        const m = String(current.getUTCMonth() + 1).padStart(2, '0')
+        const d = String(current.getUTCDate()).padStart(2, '0')
+        const key = `${y}-${m}-${d}`
+        if (!byBucket.has(key)) {
+          byBucket.set(key, { bucket: key, label: bucketLabelFor(key, granularity), crawler: 0, aiReferral: 0 })
+        }
+        current.setUTCDate(current.getUTCDate() + 1)
+      }
+    } else {
+      const current = new Date(start)
+      current.setUTCMinutes(0, 0, 0)
+      while (current <= end) {
+        const key = current.toISOString()
+        if (!byBucket.has(key)) {
+          byBucket.set(key, { bucket: key, label: bucketLabelFor(key, granularity), crawler: 0, aiReferral: 0 })
+        }
+        current.setUTCHours(current.getUTCHours() + 1)
+      }
+    }
+  }
+
   return [...byBucket.values()].sort((a, b) => (a.bucket < b.bucket ? -1 : a.bucket > b.bucket ? 1 : 0))
 }
 
