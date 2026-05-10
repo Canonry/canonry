@@ -52,8 +52,15 @@ function buildEvent(overrides: Partial<NormalizedTrafficRequest> = {}): Normaliz
 
 async function buildHarness(
   events: NormalizedTrafficRequest[],
-  options: { bypassTimeFilter?: boolean } = {},
+  options: {
+    bypassTimeFilter?: boolean
+    /** Force the access-token resolver to fail with this message. */
+    failResolveAccessTokenWith?: string
+    /** Force the Cloud Run pull to fail with this message. */
+    failPullWith?: string
+  } = {},
 ) {
+  const trafficSyncedEvents: Array<unknown> = []
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'traffic-routes-test-'))
   const dbPath = path.join(tmpDir, 'test.db')
   const db = createClient(dbPath)
@@ -79,6 +86,7 @@ async function buildHarness(
     pullCloudRunEvents: async (_token, pullOptions): Promise<CloudRunTrafficEventsPage> => {
       pullInvocations += 1
       observedWindows.push({ startTime: pullOptions.startTime, endTime: pullOptions.endTime })
+      if (options.failPullWith) throw new Error(options.failPullWith)
       // Default: mirror Cloud Logging's behavior and only return events inside the
       // requested window. Tests that exercise cross-sync boundary semantics
       // (where Cloud Logging may legitimately re-return the same event in two
@@ -98,7 +106,11 @@ async function buildHarness(
         filter: 'mock',
       }
     },
-    resolveCloudRunAccessToken: async () => 'mock-access-token',
+    resolveCloudRunAccessToken: async () => {
+      if (options.failResolveAccessTokenWith) throw new Error(options.failResolveAccessTokenWith)
+      return 'mock-access-token'
+    },
+    onTrafficSynced: (event) => { trafficSyncedEvents.push(event) },
   })
   await app.ready()
 
@@ -121,6 +133,7 @@ async function buildHarness(
     tmpDir,
     getPullCount: () => pullInvocations,
     getObservedWindows: () => observedWindows,
+    getTrafficSyncedEvents: () => trafficSyncedEvents,
     close: async () => {
       await app.close()
       fs.rmSync(tmpDir, { recursive: true, force: true })
@@ -624,6 +637,102 @@ describe('POST /traffic/sources/:id/sync', () => {
 
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('fires onTrafficSynced with status=completed and aggregated counts on success', async () => {
+    const observedAt = new Date(Date.now() - 30 * 60_000).toISOString()
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt }),
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/bar', status: 200, observedAt, eventId: 'evt-2' }),
+    ]
+    const h = await buildHarness(events)
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+
+      const syncRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      expect(syncRes.statusCode).toBe(200)
+
+      const fired = h.getTrafficSyncedEvents()
+      expect(fired.length).toBe(1)
+      const ev = fired[0] as {
+        status: string; sourceType: string; sourceId: string
+        pulledEvents: number; crawlerHits: number; aiReferralHits: number
+        durationMs: number; errorCode?: string
+      }
+      expect(ev.status).toBe('completed')
+      expect(ev.sourceType).toBe('cloud-run')
+      expect(ev.sourceId).toBe(sourceId)
+      expect(ev.pulledEvents).toBe(2)
+      expect(ev.crawlerHits).toBeGreaterThanOrEqual(2)
+      expect(ev.aiReferralHits).toBe(0)
+      expect(ev.durationMs).toBeGreaterThanOrEqual(0)
+      expect(ev.errorCode).toBeUndefined()
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('fires onTrafficSynced with status=failed and errorCode=PROVIDER_AUTH when token resolution fails', async () => {
+    const h = await buildHarness([], { failResolveAccessTokenWith: 'invalid_grant' })
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+
+      const syncRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      expect(syncRes.statusCode).toBe(502)
+
+      const fired = h.getTrafficSyncedEvents()
+      expect(fired.length).toBe(1)
+      const ev = fired[0] as {
+        status: string; pulledEvents: number; errorCode?: string
+      }
+      expect(ev.status).toBe('failed')
+      expect(ev.errorCode).toBe('PROVIDER_AUTH')
+      expect(ev.pulledEvents).toBe(0)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('fires onTrafficSynced with errorCode=PROVIDER_PULL when the pull throws', async () => {
+    const h = await buildHarness([], { failPullWith: 'Cloud Logging 503 backend unavailable' })
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+      const syncRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      expect(syncRes.statusCode).toBe(502)
+
+      const fired = h.getTrafficSyncedEvents()
+      expect(fired.length).toBe(1)
+      expect((fired[0] as { errorCode: string }).errorCode).toBe('PROVIDER_PULL')
+    } finally {
+      await h.close()
+    }
   })
 })
 
