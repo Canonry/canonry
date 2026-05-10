@@ -156,6 +156,10 @@ Each check returns `status: ok | warn | fail | skipped`, a stable machine-readab
 | auth | `google.auth.redirect-uri` | project | `publicUrl`-derived redirect URI is valid + advertised |
 | auth | `google.auth.scopes` | project | Granted GSC + Indexing scopes match what's stored |
 | auth | `ga.auth.connection` | project | GA4 service account verifies against the configured property |
+| auth | `traffic.source.credentials` | project | Per-source-type credential validation (today: Cloud Run service-account access token resolves) |
+| auth | `traffic.source.scopes` | project | Per-source-type scope validation (skipped where the adapter has no explicit scope check) |
+| integrations | `traffic.source.connected` | project | At least one non-archived server-side traffic source exists for the project |
+| integrations | `traffic.source.recent-data` | project | Connected sources have crawler/AI-referral events in the last 7d (warn) or 30d (fail) |
 | providers | `config.providers` | global | At least one provider key configured |
 
 ### Adding a new check

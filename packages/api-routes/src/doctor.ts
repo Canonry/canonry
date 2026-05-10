@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { ALL_CHECKS } from './doctor/registry.js'
 import { runChecks } from './doctor/runner.js'
-import type { DoctorContext } from './doctor/types.js'
+import type { DoctorContext, TrafficSourceValidator } from './doctor/types.js'
 import type { GoogleConnectionStore } from './google.js'
 import type { BingConnectionStore } from './bing.js'
 import type { Ga4CredentialStore } from './ga.js'
@@ -16,6 +16,12 @@ export interface DoctorRoutesOptions {
   /** Used to derive the redirect URI displayed by the redirect-uri check. */
   publicUrl?: string
   providerSummary?: ProviderSummaryEntry[]
+  /**
+   * Map of `traffic_sources.source_type` → adapter validator. Optional — the
+   * generic `traffic.source.credentials` / `traffic.source.scopes` checks
+   * skip with a clear `no-validator` code when an adapter doesn't register.
+   */
+  trafficSourceValidators?: Record<string, TrafficSourceValidator>
 }
 
 function parseCheckIds(raw: string | undefined): string[] {
@@ -49,6 +55,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
       redirectUri,
       providerSummary: opts.providerSummary,
+      trafficSourceValidators: opts.trafficSourceValidators,
     }
     return runChecks(ctx, ALL_CHECKS, { checkIds })
   })
@@ -74,6 +81,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
       redirectUri,
       providerSummary: opts.providerSummary,
+      trafficSourceValidators: opts.trafficSourceValidators,
     }
     return runChecks(ctx, ALL_CHECKS, { checkIds })
   })

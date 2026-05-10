@@ -315,6 +315,80 @@ export interface AiReferralSection {
   }>
 }
 
+/**
+ * Server-side AI visibility — what AI engines actually do in your server logs.
+ * Distinct from `aiReferrals` (GA4 click-throughs) and `mentions/cited`
+ * (model-side answer presence). Sourced from `crawler_events_hourly` and
+ * `ai_referral_events_hourly` populated by the traffic-sync pipeline.
+ *
+ * Headline framing: "AI Visibility — Server-Side" (parallels "AI Citations").
+ *
+ * Section is null when the project has no traffic source connected at all.
+ * When `hasData=false`, a source is connected but no events have synced yet
+ * (different empty state from "no source").
+ */
+export interface ServerActivitySection {
+  /** ISO8601 inclusive lower bound of the report window (default: 7 days). */
+  windowStart: string
+  /** ISO8601 inclusive upper bound. */
+  windowEnd: string
+  hasData: boolean
+
+  /** Last-7d total verified crawler hits, with prior 7d for delta. */
+  verifiedCrawlerHits: { current: number; prior: number; deltaPct: number | null }
+  /** Last-7d AI-referral arrivals (clicks landing on the site). */
+  referralArrivals: { current: number; prior: number; deltaPct: number | null }
+
+  /** Per-AI-operator breakdown (OpenAI, Anthropic, Google AI, Perplexity, …). */
+  byOperator: Array<{
+    operator: string
+    verifiedHits: number
+    /** Shown to agency audience only — claimed-bot UA, rDNS not confirmed. */
+    unverifiedHits: number
+    referralArrivals: number
+    deltaPct: number | null
+  }>
+
+  /**
+   * Top crawled paths (verified only, last-7d). Path-level citation cross-reference
+   * is intentionally NOT included today — the citation store is domain-grain
+   * (`query_snapshots.cited_domains` is a JSON array of hostnames), so a path-level
+   * "cited?" flag would be misleading. A future iteration that lands URL-grain
+   * citation evidence can extend this entry with a `citationState` field without
+   * breaking the contract.
+   */
+  topCrawledPaths: Array<{
+    path: string
+    verifiedHits: number
+    /** How many distinct AI operators crawled this path in the window. */
+    distinctOperators: number
+  }>
+
+  /** AI products that sent ≥1 click-through in the window (referral by destination). */
+  referralProducts: Array<{
+    product: string
+    arrivals: number
+    distinctLandingPaths: number
+  }>
+
+  /** Daily trend, last 14d for sparkline / chart rendering. */
+  dailyTrend: Array<{
+    date: string
+    verifiedCrawlerHits: number
+    referralArrivals: number
+  }>
+
+  /**
+   * Top landing paths for AI-referral arrivals (last-7d).
+   * Complements `topCrawledPaths` (what bots fetch) with what humans actually land on.
+   */
+  topReferralLandingPaths: Array<{
+    path: string
+    arrivals: number
+    distinctProducts: number
+  }>
+}
+
 export interface IndexingHealthSection {
   /** Source: 'google' | 'bing' | null when neither is connected. */
   provider: 'google' | 'bing' | null
@@ -580,6 +654,8 @@ export interface ProjectReportDto {
   ga: GaTrafficSection | null
   socialReferrals: SocialReferralSection | null
   aiReferrals: AiReferralSection | null
+  /** Server-side log-evidence visibility (crawls + click-through arrivals). Null when no traffic source connected. */
+  serverActivity: ServerActivitySection | null
   indexingHealth: IndexingHealthSection | null
   citationsTrend: CitationsTrendPoint[]
   /**

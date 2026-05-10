@@ -5,6 +5,36 @@ import type { BingConnectionStore } from '../bing.js'
 import type { Ga4CredentialStore } from '../ga.js'
 import type { ProviderSummaryEntry } from '../settings.js'
 
+/**
+ * Generic traffic-source row shape passed to a `TrafficSourceValidator`.
+ * Mirrors the public columns of `trafficSources`; this surface stays
+ * deliberately loose so future adapters (WordPress plugin, others) don't
+ * need to teach the doctor framework anything new.
+ */
+export interface TrafficSourceProbe {
+  id: string
+  projectId: string
+  projectName: string
+  sourceType: string
+  displayName: string
+  status: string
+  lastSyncedAt: string | null
+  lastError: string | null
+  configJson: string
+}
+
+/**
+ * Per-source-type validation hook. Adapters register a validator under their
+ * `sourceType` key (e.g. `'cloud-run'`, `'wp-plugin'`). Each method returns a
+ * `CheckOutput` (ok / warn / fail / skipped) for a single source row, or null
+ * to indicate the validator does not implement that check (the runner will
+ * surface a `skipped` result with `code: '<id>.no-validator'`).
+ */
+export interface TrafficSourceValidator {
+  validateCredentials?(source: TrafficSourceProbe): Promise<CheckOutput | null> | CheckOutput | null
+  validateScopes?(source: TrafficSourceProbe): Promise<CheckOutput | null> | CheckOutput | null
+}
+
 export interface DoctorContext {
   db: DatabaseClient
   /** When the check is project-scoped, this resolves to the project row. */
@@ -16,6 +46,13 @@ export interface DoctorContext {
   /** Resolved redirect URI (publicUrl + /api/v1/google/callback) used by the OAuth flow. */
   redirectUri?: string
   providerSummary?: ProviderSummaryEntry[]
+  /**
+   * Map of `traffic_sources.source_type` → adapter-specific validator. The
+   * generic `traffic.source.credentials` / `traffic.source.scopes` checks
+   * dispatch to the matching entry. Sources whose type has no validator
+   * registered surface a `skipped` result rather than a fail.
+   */
+  trafficSourceValidators?: Record<string, TrafficSourceValidator>
 }
 
 export interface ProjectInfo {

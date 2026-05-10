@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'vitest'
 import {
+  deltaPercent,
+  deltaTone,
   formatDate,
   formatDateRange,
+  formatDeltaCopy,
   formatIsoDate,
   formatNumber,
   formatRatio,
@@ -95,5 +98,69 @@ describe('formatDateRange', () => {
   test('only one side falls through to a single formatted date', () => {
     expect(formatDateRange('2026-05-01', '')).toBe('May 1, 2026')
     expect(formatDateRange('', '2026-05-08')).toBe('May 8, 2026')
+  })
+})
+
+describe('deltaPercent', () => {
+  test('returns null when prior is zero or negative', () => {
+    expect(deltaPercent(100, 0)).toBeNull()
+    expect(deltaPercent(0, 0)).toBeNull()
+    expect(deltaPercent(50, -1)).toBeNull()
+  })
+
+  test('rounds to nearest integer percent', () => {
+    expect(deltaPercent(150, 100)).toBe(50)
+    expect(deltaPercent(50, 100)).toBe(-50)
+    expect(deltaPercent(100, 100)).toBe(0)
+    expect(deltaPercent(101, 100)).toBe(1)
+    expect(deltaPercent(102, 99)).toBe(3) // (102-99)/99 = 0.0303 → 3
+  })
+})
+
+describe('deltaTone', () => {
+  test('null and zero are neutral', () => {
+    expect(deltaTone(null)).toBe('neutral')
+    expect(deltaTone(0)).toBe('neutral')
+  })
+
+  test('positive deltas are positive tone', () => {
+    expect(deltaTone(1)).toBe('positive')
+    expect(deltaTone(100)).toBe('positive')
+  })
+
+  test('negative deltas are negative tone', () => {
+    expect(deltaTone(-1)).toBe('negative')
+    expect(deltaTone(-100)).toBe('negative')
+  })
+})
+
+describe('formatDeltaCopy', () => {
+  test('null deltaPct with zero prior signals first baseline week', () => {
+    expect(formatDeltaCopy({ current: 100, prior: 0, deltaPct: null }, 'crawls'))
+      .toBe('First baseline week')
+  })
+
+  test('null deltaPct with non-zero prior renders empty (no signal)', () => {
+    expect(formatDeltaCopy({ current: 0, prior: 50, deltaPct: null }, 'crawls')).toBe('')
+  })
+
+  test('positive delta uses Up phrasing with prior count', () => {
+    expect(formatDeltaCopy({ current: 200, prior: 100, deltaPct: 100 }, 'crawls'))
+      .toBe('Up 100% vs prior 7 days (100 crawls)')
+  })
+
+  test('negative delta uses Down phrasing with absolute value', () => {
+    expect(formatDeltaCopy({ current: 50, prior: 100, deltaPct: -50 }, 'arrivals'))
+      .toBe('Down 50% vs prior 7 days (100 arrivals)')
+  })
+
+  test('zero delta uses Flat phrasing', () => {
+    expect(formatDeltaCopy({ current: 100, prior: 100, deltaPct: 0 }, 'hits'))
+      .toBe('Flat vs prior 7 days (100 hits)')
+  })
+
+  test('windowLabel can be overridden', () => {
+    expect(formatDeltaCopy({ current: 200, prior: 100, deltaPct: 100 }, 'hits', 'vs prior 30 days'))
+      .toBe('Up 100% vs prior 30 days (100 hits)')
   })
 })

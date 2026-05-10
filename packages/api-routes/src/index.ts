@@ -41,9 +41,11 @@ import { wordpressRoutes } from './wordpress.js'
 import type { WordpressRoutesOptions } from './wordpress.js'
 import { backlinksRoutes } from './backlinks.js'
 import type { BacklinksRoutesOptions } from './backlinks.js'
-import { trafficRoutes } from './traffic.js'
+import { trafficRoutes, defaultResolveAccessToken } from './traffic.js'
 import type { TrafficRoutesOptions, CloudRunCredentialStore } from './traffic.js'
 import { doctorRoutes } from './doctor.js'
+import { CheckStatuses } from '@ainyc/canonry-contracts'
+import type { CheckOutput, TrafficSourceProbe, TrafficSourceValidator } from './doctor/types.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -296,6 +298,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
       publicUrl: opts.publicUrl,
       providerSummary: opts.providerSummary,
+      trafficSourceValidators: buildTrafficSourceValidators(opts),
     })
     // Local-only extension hook: canonry passes the Aero agent routes here
     // so they live inside the authenticated scope. Cloud leaves it undefined.
@@ -313,3 +316,56 @@ export type { SafeWebhookTarget } from './webhooks.js'
 export type { RunRoutesOptions } from './runs.js'
 export { renderReportHtml } from './report-renderer.js'
 export type { RenderReportHtmlOptions } from './report-renderer.js'
+
+/**
+ * Build the per-source-type validator map consumed by the generic
+ * `traffic.source.credentials` and `traffic.source.scopes` doctor checks.
+ *
+ * Today only Cloud Run has an adapter, so this returns at most one entry
+ * (`'cloud-run'`). Future adapters (WordPress plugin, others) plug in by
+ * adding their own entry here behind the same `TrafficSourceValidator`
+ * interface — no doctor-side changes needed.
+ */
+function buildTrafficSourceValidators(opts: ApiRoutesOptions): Record<string, TrafficSourceValidator> | undefined {
+  const validators: Record<string, TrafficSourceValidator> = {}
+  if (opts.cloudRunCredentialStore) {
+    const store = opts.cloudRunCredentialStore
+    const resolveToken = opts.resolveCloudRunAccessToken ?? defaultResolveAccessToken
+    validators['cloud-run'] = {
+      validateCredentials: async (source: TrafficSourceProbe): Promise<CheckOutput> => {
+        const record = store.getConnection(source.projectName)
+        if (!record) {
+          return {
+            status: CheckStatuses.fail,
+            code: 'traffic.credentials.missing',
+            summary: `No Cloud Run credential found in ~/.canonry/config.yaml for project "${source.projectName}".`,
+            remediation: 'Re-run `canonry traffic connect cloud-run <project> --gcp-project <id> --service-account-key <path>`.',
+          }
+        }
+        try {
+          await resolveToken(record)
+          return {
+            status: CheckStatuses.ok,
+            code: 'traffic.credentials.resolved',
+            summary: `Cloud Run access token resolves for "${source.displayName}" (project ${record.gcpProjectId}).`,
+          }
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          return {
+            status: CheckStatuses.fail,
+            code: 'traffic.credentials.resolve-failed',
+            summary: `Failed to resolve Cloud Run access token: ${msg}.`,
+            remediation: 'Verify the service-account key in ~/.canonry/config.yaml is unexpired and well-formed. Re-connect the source if needed.',
+          }
+        }
+      },
+      // Cloud Run scopes are implicit in the service-account key — Cloud
+      // Logging viewer is the only required scope today, and it's enforced
+      // at the IAM layer rather than baked into the token. We surface a
+      // skipped result so the framework is uniform without producing a
+      // false signal.
+      validateScopes: () => null,
+    }
+  }
+  return Object.keys(validators).length > 0 ? validators : undefined
+}

@@ -15,8 +15,10 @@ import {
   contentActionLabel,
   dedupeReportActions,
   dedupeReportOpportunities,
+  deltaTone,
   formatDate,
   formatDateRange,
+  formatDeltaCopy,
   formatIsoDate,
   formatNumber,
   formatRatio,
@@ -1812,11 +1814,188 @@ function renderAiReferrals(report: ProjectReportDto): string {
   )
 }
 
+// Section heading metadata for "AI Visibility — Server-Side". The SPA and
+// HTML must render the SAME eyebrow/title/intro per audience — see the
+// report-parity rule in `AGENTS.md`.
+function serverActivityHeading(audience: ReportAudience, hasData: boolean): {
+  id: string
+  eyebrow: string
+  title: string
+  intro: string
+} {
+  const isClient = audience === 'client'
+  return {
+    id: 'server-activity',
+    eyebrow: isClient ? 'AI engine attention' : 'Section 10',
+    title: 'AI Visibility — Server-Side',
+    intro: isClient
+      ? hasData
+        ? 'What AI engines actually do in your server logs over the last 7 days — the other half of citations.'
+        : 'Live telemetry from your server logs.'
+      : 'What AI engines actually do in your server logs — direct evidence, complementary to citations (which measure what they say).',
+  }
+}
+
+function renderServerActivity(report: ProjectReportDto, audience: ReportAudience): string {
+  const sa = report.serverActivity
+  const isClient = audience === 'client'
+  // Client view stays silent when no source is connected — surfacing a
+  // "connect a Cloud Run source" call-to-action to a client who has no
+  // technical access produces noise. Agency view shows the prompt because
+  // the operator is the audience that can act on it.
+  if (!sa) {
+    if (isClient) return ''
+    return section(
+      serverActivityHeading('agency', false),
+      renderEmpty('Connect a server-side traffic source to surface what AI engines do directly in your server logs — distinct from GA4 click-throughs.'),
+    )
+  }
+  if (!sa.hasData) {
+    return section(
+      serverActivityHeading(audience, false),
+      renderEmpty(isClient
+        ? 'Your server-side traffic source is connected. Numbers will appear after the next sync.'
+        : 'Source connected — collecting your first data. Numbers will appear after the next sync.'),
+    )
+  }
+
+  const formatDelta = (d: { current: number; prior: number; deltaPct: number | null }, suffix: string) => {
+    const copy = formatDeltaCopy(d, suffix)
+    if (!copy) return ''
+    return `<span class="tone-${deltaTone(d.deltaPct)}">${escapeHtml(copy)}</span>`
+  }
+
+  // ── Client view (lightweight; mirrors the SPA's ServerActivityClientView) ──
+  if (isClient) {
+    const clientOperators = sa.byOperator
+      .filter(o => o.verifiedHits > 0 || o.referralArrivals > 0)
+      .slice(0, 5)
+    const clientOperatorRows = clientOperators.map(o => `
+    <tr>
+      <td>${escapeHtml(o.operator)}</td>
+      <td class="numeric">${formatNumber(o.verifiedHits)}</td>
+      <td class="numeric">${formatNumber(o.referralArrivals)}</td>
+    </tr>`).join('')
+
+    return section(
+      serverActivityHeading('client', true),
+      `<div class="metric-grid">
+        <div class="metric">
+          <div class="label">AI bots visited your site</div>
+          <div class="value">${formatNumber(sa.verifiedCrawlerHits.current)}</div>
+          <div class="subtitle">${formatDelta(sa.verifiedCrawlerHits, 'crawls')}</div>
+        </div>
+        <div class="metric">
+          <div class="label">People clicked through from AI</div>
+          <div class="value">${formatNumber(sa.referralArrivals.current)}</div>
+          <div class="subtitle">${formatDelta(sa.referralArrivals, 'arrivals')}</div>
+        </div>
+      </div>
+      ${clientOperatorRows ? `<div class="chart-card"><h3>By AI tool</h3>
+        <table class="report-table">
+          <thead><tr><th>AI tool</th><th class="numeric">Bot visits (7d)</th><th class="numeric">Click-throughs</th></tr></thead>
+          <tbody>${clientOperatorRows}</tbody>
+        </table>
+        <p class="meta">Verified visits only. We confirm each bot via reverse-DNS so the numbers above can't be inflated by anyone faking a user agent.</p>
+      </div>` : ''}`,
+    )
+  }
+
+  // ── Agency view (full forensic detail) ──
+  const operatorRows = sa.byOperator.map(o => {
+    const deltaText = o.deltaPct === null
+      ? '—'
+      : `${o.deltaPct > 0 ? '+' : ''}${o.deltaPct}%`
+    const toneClass = o.deltaPct === null ? '' : `tone-${deltaTone(o.deltaPct)}`
+    return `
+    <tr>
+      <td>${escapeHtml(o.operator)}</td>
+      <td class="numeric">${formatNumber(o.verifiedHits)}</td>
+      <td class="numeric meta">${formatNumber(o.unverifiedHits)}</td>
+      <td class="numeric">${formatNumber(o.referralArrivals)}</td>
+      <td class="numeric ${toneClass}">${deltaText}</td>
+    </tr>`
+  }).join('')
+
+  const pathRows = sa.topCrawledPaths.map(p => `
+    <tr>
+      <td class="page-cell">${formatLandingPageHtml(p.path)}</td>
+      <td class="numeric">${formatNumber(p.verifiedHits)}</td>
+      <td class="numeric">${p.distinctOperators}</td>
+    </tr>`).join('')
+
+  const referralProductRows = sa.referralProducts.map(p => `
+    <tr>
+      <td>${escapeHtml(p.product)}</td>
+      <td class="numeric">${formatNumber(p.arrivals)}</td>
+      <td class="numeric">${p.distinctLandingPaths}</td>
+    </tr>`).join('')
+
+  const referralLandingRows = sa.topReferralLandingPaths.map(p => `
+    <tr>
+      <td class="page-cell">${formatLandingPageHtml(p.path)}</td>
+      <td class="numeric">${formatNumber(p.arrivals)}</td>
+      <td class="numeric">${p.distinctProducts}</td>
+    </tr>`).join('')
+
+  const trendChart = sa.dailyTrend.length > 0
+    ? renderLineChart(
+        sa.dailyTrend.map(d => ({ x: d.date, y: d.verifiedCrawlerHits, label: d.date.slice(5) })),
+        COLORS.series[1]!,
+        'Verified crawler hits over time (last 14 days)',
+      )
+    : ''
+
+  return section(
+    serverActivityHeading('agency', true),
+    `<div class="metric-grid">
+      <div class="metric">
+        <div class="label">Verified crawler hits (7d)</div>
+        <div class="value">${formatNumber(sa.verifiedCrawlerHits.current)}</div>
+        <div class="subtitle">${formatDelta(sa.verifiedCrawlerHits, 'hits')}</div>
+      </div>
+      <div class="metric">
+        <div class="label">AI-referral arrivals (7d)</div>
+        <div class="value">${formatNumber(sa.referralArrivals.current)}</div>
+        <div class="subtitle">${formatDelta(sa.referralArrivals, 'arrivals')}</div>
+      </div>
+    </div>
+    ${trendChart}
+    ${operatorRows ? `<div class="chart-card"><h3>Per AI operator</h3>
+      <p class="meta">Verified means rDNS-confirmed. Unverified bots claim the user-agent but couldn't be verified — could be the real bot or an imitator.</p>
+      <table class="report-table">
+        <thead><tr><th>Operator</th><th class="numeric">Verified hits</th><th class="numeric">Unverified</th><th class="numeric">Referral arrivals</th><th class="numeric">7d delta</th></tr></thead>
+        <tbody>${operatorRows}</tbody>
+      </table>
+    </div>` : ''}
+    ${pathRows ? `<div class="chart-card"><h3>Top crawled paths</h3>
+      <p class="meta">Pages AI bots fetched most often (verified only, last 7d).</p>
+      <table class="report-table">
+        <thead><tr><th>Path</th><th class="numeric">Verified hits</th><th class="numeric">Distinct operators</th></tr></thead>
+        <tbody>${pathRows}</tbody>
+      </table>
+    </div>` : ''}
+    ${referralProductRows ? `<div class="chart-card"><h3>Click-throughs by AI product</h3>
+      <p class="meta">Where humans landed coming from each AI product (chatgpt.com, claude.ai, …).</p>
+      <table class="report-table">
+        <thead><tr><th>Product</th><th class="numeric">Arrivals</th><th class="numeric">Distinct landing paths</th></tr></thead>
+        <tbody>${referralProductRows}</tbody>
+      </table>
+    </div>` : ''}
+    ${referralLandingRows ? `<div class="chart-card"><h3>Top AI-referral landing paths</h3>
+      <table class="report-table">
+        <thead><tr><th>Path</th><th class="numeric">Arrivals</th><th class="numeric">Distinct products</th></tr></thead>
+        <tbody>${referralLandingRows}</tbody>
+      </table>
+    </div>` : ''}`,
+  )
+}
+
 function renderIndexingHealth(report: ProjectReportDto): string {
   const ih = report.indexingHealth
   if (!ih) {
     return section(
-      { id: 'indexing-health', eyebrow: 'Section 10', title: 'Indexing Health' },
+      { id: 'indexing-health', eyebrow: 'Section 11', title: 'Indexing Health' },
       renderEmpty('Connect Google Search Console or Bing Webmaster Tools and run a sitemap inspection.'),
     )
   }
@@ -1843,7 +2022,7 @@ function renderIndexingHealth(report: ProjectReportDto): string {
   const legend = segments.map(s => `<span><span class="legend-swatch" style="background:${s.color}"></span>${escapeHtml(s.label)}: ${s.count}</span>`).join('')
 
   return section(
-    { id: 'indexing-health', eyebrow: 'Section 10', title: 'Indexing Health', intro: `Pages absent from ${ih.provider === 'google' ? 'Google' : 'Bing'} are harder for AI engines to retrieve.` },
+    { id: 'indexing-health', eyebrow: 'Section 11', title: 'Indexing Health', intro: `Pages absent from ${ih.provider === 'google' ? 'Google' : 'Bing'} are harder for AI engines to retrieve.` },
     `<div class="metric-grid">
       <div class="metric"><div class="label">Indexed</div><div class="value tone-positive">${formatNumber(ih.indexed)}</div></div>
       <div class="metric"><div class="label">Total inspected</div><div class="value">${formatNumber(ih.total)}</div></div>
@@ -1861,14 +2040,14 @@ function renderCitationsTrend(report: ProjectReportDto): string {
   const trend = report.citationsTrend
   if (trend.length === 0) {
     return section(
-      { id: 'citations-trend', eyebrow: 'Section 11', title: 'Citations Over Time' },
+      { id: 'citations-trend', eyebrow: 'Section 12', title: 'Citations Over Time' },
       renderEmpty('Run multiple checks to see a trend.'),
     )
   }
 
   if (isTrendBaseline(trend)) {
     return section(
-      { id: 'citations-trend', eyebrow: 'Section 11', title: 'Citations Over Time' },
+      { id: 'citations-trend', eyebrow: 'Section 12', title: 'Citations Over Time' },
       renderEmpty(`Building baseline (${trend.length} of ${MIN_TREND_POINTS} checks completed). Trend will appear once more checks are recorded.`),
     )
   }
@@ -1888,7 +2067,7 @@ function renderCitationsTrend(report: ProjectReportDto): string {
     </tr>`).join('')
 
   return section(
-    { id: 'citations-trend', eyebrow: 'Section 11', title: 'Citations Over Time', intro: 'Citation coverage across recent checks.' },
+    { id: 'citations-trend', eyebrow: 'Section 12', title: 'Citations Over Time', intro: 'Citation coverage across recent checks.' },
     `${chart}
     <div class="chart-card"><h3>Check-by-check breakdown</h3>
       <table class="report-table">
@@ -1903,7 +2082,7 @@ function renderInsights(report: ProjectReportDto): string {
   const list = report.insights
   if (list.length === 0) {
     return section(
-      { id: 'insights', eyebrow: 'Section 12', title: 'Insights & Alerts' },
+      { id: 'insights', eyebrow: 'Section 13', title: 'Insights & Alerts' },
       renderEmpty('No insights yet — run a check to generate alerts.'),
     )
   }
@@ -1928,7 +2107,7 @@ function renderInsights(report: ProjectReportDto): string {
     }).join('')
 
   return section(
-    { id: 'insights', eyebrow: 'Section 12', title: 'Insights & Alerts', intro: 'Regressions, gains, and recurring alerts ordered by severity.' },
+    { id: 'insights', eyebrow: 'Section 13', title: 'Insights & Alerts', intro: 'Regressions, gains, and recurring alerts ordered by severity.' },
     `<table class="report-table insights-table">
       <thead><tr>
         <th class="col-severity">Severity</th>
@@ -1979,7 +2158,7 @@ function renderOpportunities(report: ProjectReportDto): string {
   return section(
     {
       id: 'content-opportunities',
-      eyebrow: 'Section 13',
+      eyebrow: 'Section 14',
       title: 'Content Opportunities',
       intro: 'Queries where content work has the clearest path to more AI citations. Opportunity score is 0–100, higher = stronger.',
     },
@@ -2006,7 +2185,7 @@ function renderContentGaps(report: ProjectReportDto): string {
   return section(
     {
       id: 'content-gaps',
-      eyebrow: 'Section 14',
+      eyebrow: 'Section 15',
       title: 'Content Gaps',
       intro: 'Tracked queries where competitors are cited and the client is missing.',
     },
@@ -2024,7 +2203,7 @@ function renderRecommendedNextSteps(report: ProjectReportDto): string {
   const steps = report.recommendedNextSteps
   if (steps.length === 0) {
     return section(
-      { id: 'recommended-next-steps', eyebrow: 'Section 15', title: 'Recommended Next Steps', intro: 'Action items bucketed by timing.' },
+      { id: 'recommended-next-steps', eyebrow: 'Section 16', title: 'Recommended Next Steps', intro: 'Action items bucketed by timing.' },
       renderEmpty('No outstanding actions.'),
     )
   }
@@ -2037,7 +2216,7 @@ function renderRecommendedNextSteps(report: ProjectReportDto): string {
     </div>`).join('')
 
   return section(
-    { id: 'recommended-next-steps', eyebrow: 'Section 15', title: 'Recommended Next Steps', intro: 'Action items bucketed by timing.' },
+    { id: 'recommended-next-steps', eyebrow: 'Section 16', title: 'Recommended Next Steps', intro: 'Action items bucketed by timing.' },
     `<div class="steps">${items}</div>`,
   )
 }
@@ -2330,6 +2509,10 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
     ? [
         renderClientSummary(report),
         renderWhatsChanged(report, 'client'),
+        // Server-side AI visibility runs between WhatsChanged and the action
+        // plan in BOTH the SPA and HTML so clients see the same ordered set
+        // of sections in either surface (per the report-parity rule).
+        renderServerActivity(report, 'client'),
         renderAudienceActionPlan(report, 'client'),
         renderClientEvidenceSummary(report),
       ].join('\n')
@@ -2345,6 +2528,7 @@ export function renderReportHtml(report: ProjectReportDto, opts: RenderReportHtm
         renderGa(report),
         renderSocial(report),
         renderAiReferrals(report),
+        renderServerActivity(report, 'agency'),
         renderIndexingHealth(report),
         renderCitationsTrend(report),
         renderInsights(report),

@@ -44,3 +44,33 @@ export function formatDateRange(start: string, end: string): string {
   if (start && end) return `${formatDate(start)} → ${formatDate(end)}`
   return formatDate(start || end)
 }
+
+export interface DeltaWindow {
+  current: number
+  prior: number
+  deltaPct: number | null
+}
+
+export function deltaPercent(current: number, prior: number): number | null {
+  if (prior <= 0) return null
+  return Math.round(((current - prior) / prior) * 100)
+}
+
+export type DeltaTone = 'positive' | 'negative' | 'neutral'
+
+export function deltaTone(deltaPct: number | null): DeltaTone {
+  if (deltaPct === null || deltaPct === 0) return 'neutral'
+  return deltaPct > 0 ? 'positive' : 'negative'
+}
+
+// Canonical subtitle copy for a "current vs prior window" tile. Used by
+// both the SPA and the HTML renderer so they stay verbatim-identical per
+// the report-parity rule.
+export function formatDeltaCopy(d: DeltaWindow, suffix: string, windowLabel = 'vs prior 7 days'): string {
+  if (d.deltaPct === null) {
+    return d.prior === 0 ? 'First baseline week' : ''
+  }
+  if (d.deltaPct > 0) return `Up ${d.deltaPct}% ${windowLabel} (${formatNumber(d.prior)} ${suffix})`
+  if (d.deltaPct < 0) return `Down ${Math.abs(d.deltaPct)}% ${windowLabel} (${formatNumber(d.prior)} ${suffix})`
+  return `Flat ${windowLabel} (${formatNumber(d.prior)} ${suffix})`
+}
