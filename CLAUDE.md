@@ -12,7 +12,7 @@ The web dashboard follows a dark, professional analytics aesthetic inspired by *
 
 ### Color & Theme
 - Background: `bg-zinc-950`. Cards/surfaces: `bg-zinc-900/30` with `border-zinc-800/60`.
-- Font: **Manrope** (400–800 weights), `text-zinc-50` primary, `text-zinc-400` secondary, `text-zinc-500`/`text-zinc-600` for labels.
+- Font: **Geist Sans** (400–800 weights) for UI text, **Geist Mono** for code/numerics. Globally enabled OpenType features `cv11`, `ss01`, `ss03` for sharper i/l/I/0 disambiguation. Headings tighten tracking (`-0.015em`, `-0.02em` on h1). `text-zinc-50` primary, `text-zinc-400` secondary, `text-zinc-500`/`text-zinc-600` for labels.
 - Tone colors: **positive** = emerald, **caution** = amber, **negative** = rose, **neutral** = zinc.
 - No decorative background gradients. Keep it clean and flat.
 
