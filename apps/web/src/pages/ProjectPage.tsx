@@ -44,6 +44,7 @@ import {
   fetchBingCoverage,
   fetchBingInspections,
   inspectBingUrl,
+  inspectBingSitemap,
   bingRequestIndexing,
   triggerGscSync,
   fetchRunDetail,
@@ -782,13 +783,18 @@ function SearchConsoleSection({
         }
       }
 
-      // --- Bing: re-inspect previously known URLs with concurrency limit ---
+      // --- Bing: re-inspect previously known URLs, or fall back to sitemap ---
       const BING_CONCURRENCY = 10
       async function syncBing() {
         if (!bingConnection?.connected) return
         const inspections = await fetchBingInspections(projectName).catch(() => [] as ApiBingInspection[])
         const uniqueUrls = [...new Set(inspections.map((i) => i.url))]
-        if (uniqueUrls.length === 0) return
+
+        if (uniqueUrls.length === 0) {
+          // No prior inspections — launch a sitemap inspection to discover URLs
+          await inspectBingSitemap(projectName).catch(() => null)
+          return
+        }
 
         for (let i = 0; i < uniqueUrls.length; i += BING_CONCURRENCY) {
           if (signal.aborted) return

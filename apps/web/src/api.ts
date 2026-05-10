@@ -924,6 +924,13 @@ export function inspectBingUrl(project: string, url: string): Promise<ApiBingIns
   })
 }
 
+export function inspectBingSitemap(project: string, opts?: { sitemapUrl?: string }): Promise<ApiRun> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/bing/inspect-sitemap`, {
+    method: 'POST',
+    body: opts?.sitemapUrl ? JSON.stringify({ sitemapUrl: opts.sitemapUrl }) : undefined,
+  })
+}
+
 export function bingRequestIndexing(
   project: string,
   body: { urls?: string[]; allUnindexed?: boolean },
