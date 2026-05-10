@@ -6,6 +6,8 @@ function getClient() {
 }
 
 export async function setSchedule(project: string, opts: {
+  kind?: string
+  sourceId?: string
   preset?: string
   cron?: string
   timezone?: string
@@ -14,6 +16,8 @@ export async function setSchedule(project: string, opts: {
 }): Promise<void> {
   const client = getClient()
   const body: Record<string, unknown> = {}
+  if (opts.kind) body.kind = opts.kind
+  if (opts.sourceId) body.sourceId = opts.sourceId
   if (opts.preset) body.preset = opts.preset
   if (opts.cron) body.cron = opts.cron
   if (opts.timezone) body.timezone = opts.timezone
@@ -24,13 +28,13 @@ export async function setSchedule(project: string, opts: {
     console.log(JSON.stringify(result, null, 2))
     return
   }
-  console.log(`Schedule set for "${project}":`)
+  console.log(`Schedule set for "${project}" (kind: ${result.kind}):`)
   printSchedule(result)
 }
 
-export async function showSchedule(project: string, format?: string): Promise<void> {
+export async function showSchedule(project: string, format?: string, kind?: string): Promise<void> {
   const client = getClient()
-  const result: ScheduleDto = await client.getSchedule(project)
+  const result: ScheduleDto = await client.getSchedule(project, kind)
 
   if (format === 'json') {
     console.log(JSON.stringify(result, null, 2))
@@ -40,54 +44,61 @@ export async function showSchedule(project: string, format?: string): Promise<vo
   printSchedule(result)
 }
 
-export async function enableSchedule(project: string, format?: string): Promise<void> {
+export async function enableSchedule(project: string, format?: string, kind?: string): Promise<void> {
   const client = getClient()
-  const current: ScheduleDto = await client.getSchedule(project)
-  const body: Record<string, unknown> = { timezone: current.timezone, enabled: true }
+  const current: ScheduleDto = await client.getSchedule(project, kind)
+  const body: Record<string, unknown> = { kind: current.kind, timezone: current.timezone, enabled: true }
   if (current.preset) body.preset = current.preset
   else body.cron = current.cronExpr
   if (current.providers.length) body.providers = current.providers
+  if (current.sourceId) body.sourceId = current.sourceId
 
   const result: ScheduleDto = await client.putSchedule(project, body)
   if (format === 'json') {
     console.log(JSON.stringify(result, null, 2))
     return
   }
-  console.log(`Schedule enabled for "${project}"`)
+  console.log(`Schedule enabled for "${project}" (kind: ${result.kind})`)
 }
 
-export async function disableSchedule(project: string, format?: string): Promise<void> {
+export async function disableSchedule(project: string, format?: string, kind?: string): Promise<void> {
   const client = getClient()
-  const current: ScheduleDto = await client.getSchedule(project)
-  const body: Record<string, unknown> = { timezone: current.timezone, enabled: false }
+  const current: ScheduleDto = await client.getSchedule(project, kind)
+  const body: Record<string, unknown> = { kind: current.kind, timezone: current.timezone, enabled: false }
   if (current.preset) body.preset = current.preset
   else body.cron = current.cronExpr
   if (current.providers.length) body.providers = current.providers
+  if (current.sourceId) body.sourceId = current.sourceId
 
   const result: ScheduleDto = await client.putSchedule(project, body)
   if (format === 'json') {
     console.log(JSON.stringify(result, null, 2))
     return
   }
-  console.log(`Schedule disabled for "${project}"`)
+  console.log(`Schedule disabled for "${project}" (kind: ${result.kind})`)
 }
 
-export async function removeSchedule(project: string, format?: string): Promise<void> {
+export async function removeSchedule(project: string, format?: string, kind?: string): Promise<void> {
   const client = getClient()
-  await client.deleteSchedule(project)
+  await client.deleteSchedule(project, kind)
+  const resolvedKind = kind ?? 'answer-visibility'
   if (format === 'json') {
-    console.log(JSON.stringify({ project, removed: true }, null, 2))
+    console.log(JSON.stringify({ project, kind: resolvedKind, removed: true }, null, 2))
     return
   }
-  console.log(`Schedule removed for "${project}"`)
+  console.log(`Schedule removed for "${project}" (kind: ${resolvedKind})`)
 }
 
 function printSchedule(s: ScheduleDto): void {
   const label = s.preset ?? s.cronExpr
+  console.log(`  Kind:      ${s.kind}`)
   console.log(`  Schedule:  ${label}`)
   console.log(`  Cron:      ${s.cronExpr}`)
   console.log(`  Timezone:  ${s.timezone}`)
   console.log(`  Enabled:   ${s.enabled ? 'yes' : 'no'}`)
+  if (s.kind === 'traffic-sync' && s.sourceId) {
+    console.log(`  Source:    ${s.sourceId}`)
+  }
   if (s.providers.length) {
     console.log(`  Providers: ${s.providers.join(', ')}`)
   }

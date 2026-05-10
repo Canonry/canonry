@@ -382,6 +382,14 @@ export async function createServer(opts: {
         app.log.error({ runId, err }, 'Scheduled job runner failed')
       })
     },
+    onTrafficSyncRequested: (projectName, sourceId) => {
+      // Reuse the same in-process API client Aero uses. The traffic-sync
+      // endpoint owns run-row creation, dedupe, rollup writes, and emits
+      // the `traffic.synced` telemetry — the scheduler only triggers it.
+      aeroClient.trafficSync(projectName, sourceId).catch((err: unknown) => {
+        app.log.error({ projectName, sourceId, err: err instanceof Error ? err.message : String(err) }, 'Scheduled traffic sync failed')
+      })
+    },
   })
 
   // Build provider summary for API routes (dynamic from adapter list)
@@ -1077,12 +1085,12 @@ export async function createServer(opts: {
         return null
       }
     },
-    onScheduleUpdated: (action: 'upsert' | 'delete', projectId: string) => {
-      if (action === 'upsert') scheduler.upsert(projectId)
-      if (action === 'delete') scheduler.remove(projectId)
+    onScheduleUpdated: (action: 'upsert' | 'delete', projectId: string, kind: import('@ainyc/canonry-contracts').SchedulableRunKind) => {
+      if (action === 'upsert') scheduler.upsert(projectId, kind)
+      if (action === 'delete') scheduler.remove(projectId, kind)
     },
     onProjectDeleted: (projectId: string) => {
-      scheduler.remove(projectId)
+      scheduler.removeAllForProject(projectId)
     },
     getTelemetryStatus: () => {
       const enabled = isTelemetryEnabled()

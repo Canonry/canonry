@@ -128,7 +128,10 @@ CREATE TABLE IF NOT EXISTS notifications (
 
 CREATE INDEX IF NOT EXISTS idx_api_keys_prefix ON api_keys(key_prefix);
 CREATE INDEX IF NOT EXISTS idx_usage_scope_period ON usage_counters(scope, period);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_schedules_project ON schedules(project_id);
+-- NOTE: the (project_id) UNIQUE INDEX that used to live here was replaced by
+-- v53's (project_id, kind) index. MIGRATION_SQL re-runs on every boot, so we
+-- must NOT recreate the single-column index — it would conflict with v53 and
+-- break traffic-sync schedule creation.
 CREATE INDEX IF NOT EXISTS idx_notifications_project ON notifications(project_id);
 
 -- Migration tracking: records which version has been applied.
@@ -962,6 +965,66 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       // used for cross-sync boundary-window dedupe so a longer default
       // sync window (or any overlapping re-sync) cannot double-count.
       `ALTER TABLE traffic_sources ADD COLUMN last_event_ids TEXT`,
+    ],
+  },
+  {
+    version: 53,
+    name: 'schedules-kind-and-source',
+    // The legacy schedules table carries an inline `UNIQUE(project_id)`
+    // constraint (see MIGRATION_SQL). SQLite doesn't support dropping inline
+    // table constraints, so we use the canonical table-rebuild pattern:
+    // create a new table with the desired schema, copy the data, drop the
+    // old, rename. All 4 statements run inside the migration runner's
+    // single transaction so a partial failure rolls everything back.
+    statements: [
+      // (project_id, kind) uniqueness is enforced by the explicit
+      // `CREATE UNIQUE INDEX idx_schedules_project_kind` below — that's the
+      // canonical drizzle-side index name (see schema.ts), so don't duplicate
+      // it as an inline UNIQUE() in CREATE TABLE.
+      `CREATE TABLE IF NOT EXISTS schedules_v53 (
+         id          TEXT PRIMARY KEY,
+         project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+         kind        TEXT NOT NULL DEFAULT 'answer-visibility',
+         cron_expr   TEXT NOT NULL,
+         preset      TEXT,
+         timezone    TEXT NOT NULL DEFAULT 'UTC',
+         enabled     INTEGER NOT NULL DEFAULT 1,
+         providers   TEXT NOT NULL DEFAULT '[]',
+         source_id   TEXT,
+         last_run_at TEXT,
+         next_run_at TEXT,
+         created_at  TEXT NOT NULL,
+         updated_at  TEXT NOT NULL
+       )`,
+      `INSERT INTO schedules_v53 (
+         id, project_id, kind, cron_expr, preset, timezone, enabled,
+         providers, source_id, last_run_at, next_run_at, created_at, updated_at
+       )
+       SELECT id, project_id, 'answer-visibility', cron_expr, preset, timezone, enabled,
+              providers, NULL, last_run_at, next_run_at, created_at, updated_at
+       FROM schedules`,
+      `DROP TABLE schedules`,
+      `ALTER TABLE schedules_v53 RENAME TO schedules`,
+      // The legacy single-column unique index doesn't survive the table
+      // rename, but explicitly DROP IF EXISTS to keep the migration
+      // idempotent across edge-case re-runs.
+      `DROP INDEX IF EXISTS idx_schedules_project`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_schedules_project_kind ON schedules(project_id, kind)`,
+    ],
+  },
+  {
+    version: 54,
+    name: 'drop-resurrected-schedules-project-index',
+    // v53 dropped `idx_schedules_project`, but `MIGRATION_SQL` (which runs on
+    // every boot, before versioned migrations) was still creating it. On any
+    // boot AFTER the one that applied v53, Phase 1 re-created the legacy
+    // single-column UNIQUE index, which then collided with the new
+    // (project_id, kind) semantics and broke traffic-sync schedule creation
+    // (`UNIQUE constraint failed: schedules.project_id`). MIGRATION_SQL no
+    // longer creates that index; this migration removes it from any DB that
+    // already booted past v53 with the resurrected index.
+    statements: [
+      `DROP INDEX IF EXISTS idx_schedules_project`,
     ],
   },
 ]

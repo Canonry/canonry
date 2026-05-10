@@ -126,13 +126,13 @@ export function TrafficSourceDetailPage() {
   }
 
   return (
-    <div className="page-container">
+    <div className="page-container space-y-8">
       <div className="page-header">
         <div className="page-header-left">
           <Link to="/traffic" className="inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-200">
             <ArrowLeft className="size-3" /> All sources
           </Link>
-          <h1 className="page-title mt-1">{detail.displayName}</h1>
+          <h1 className="page-title mt-2">{detail.displayName}</h1>
           <p className="page-subtitle">
             {detail.sourceType} · project <span className="text-zinc-300">{projectName}</span> ·
             <span className="ml-1 font-mono text-zinc-400">{detail.id}</span>
@@ -154,10 +154,10 @@ export function TrafficSourceDetailPage() {
       </div>
 
       {syncError ? (
-        <div className="mb-4 rounded-md border border-rose-800/50 bg-rose-950/30 px-3 py-2 text-xs text-rose-200">{syncError}</div>
+        <div className="rounded-md border border-rose-800/50 bg-rose-950/30 px-3 py-2 text-xs text-rose-200">{syncError}</div>
       ) : null}
       {syncResult ? (
-        <div className="mb-4 rounded-md border border-emerald-800/50 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-200">{syncResult}</div>
+        <div className="rounded-md border border-emerald-800/50 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-200">{syncResult}</div>
       ) : null}
 
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -191,9 +191,7 @@ export function TrafficSourceDetailPage() {
       </section>
 
       <section>
-        <div className="mb-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Latest sync run</p>
-        </div>
+        <p className="mb-4 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Latest sync run</p>
         {detail.latestRun ? (
           <Card className="p-4 text-sm">
             <div className="flex flex-wrap items-center gap-x-6 gap-y-1.5">
@@ -211,23 +209,23 @@ export function TrafficSourceDetailPage() {
             ) : null}
           </Card>
         ) : (
-          <Card className="p-4 text-sm text-zinc-500">No traffic-sync runs recorded yet. Hit "Sync now" above to create one.</Card>
+          <Card className="px-4 py-3 text-sm text-zinc-500">No traffic-sync runs recorded yet. Hit "Sync now" above to create one.</Card>
         )}
       </section>
 
       <section>
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="mb-5 flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Events</p>
-            <h2 className="text-base font-semibold text-zinc-50">Hourly rollups</h2>
+            <h2 className="mt-1 text-base font-semibold text-zinc-50">Hourly rollups</h2>
             {totals ? (
-              <p className="mt-1 text-xs text-zinc-500">
+              <p className="mt-1.5 text-xs text-zinc-500">
                 {totals.crawlerHits} crawler · {totals.aiReferralHits} AI referral · over the selected window
               </p>
             ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
-            <div className="filter-row" role="toolbar" aria-label="Window">
+            <div className="filter-row mb-0" role="toolbar" aria-label="Window">
               {WINDOW_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
@@ -240,7 +238,7 @@ export function TrafficSourceDetailPage() {
                 </button>
               ))}
             </div>
-            <div className="filter-row" role="toolbar" aria-label="Event kind">
+            <div className="filter-row mb-0" role="toolbar" aria-label="Event kind">
               {(['all', TrafficEventKinds.crawler, TrafficEventKinds['ai-referral']] as const).map((option) => (
                 <button
                   key={option}
@@ -278,7 +276,7 @@ export function TrafficSourceDetailPage() {
       </section>
 
       <section>
-        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Event rows</p>
+        <p className="mb-4 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Event rows</p>
         <EventsTable events={events} />
       </section>
     </div>

@@ -330,6 +330,9 @@ describe('MCP tool handlers', () => {
       expect(tool, testCase.tool).toBeTruthy()
       await tool!.handler(client, testCase.input)
       expect(calls.map(call => call.method)).toEqual(testCase.methods)
+      if (testCase.expectedArgs) {
+        expect(calls.map(call => call.args)).toEqual(testCase.expectedArgs)
+      }
     }
   })
 })
@@ -431,6 +434,7 @@ type HandlerCase = {
   tool: string
   input: Record<string, unknown>
   methods: string[]
+  expectedArgs?: unknown[][]
   fixture?: 'agent-notification'
 }
 
@@ -456,7 +460,8 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_queries_list', input: projectInput, methods: ['listQueries'] },
   { tool: 'canonry_keywords_list', input: projectInput, methods: ['listKeywords'] },
   { tool: 'canonry_competitors_list', input: projectInput, methods: ['listCompetitors'] },
-  { tool: 'canonry_schedule_get', input: projectInput, methods: ['getSchedule'] },
+  { tool: 'canonry_schedule_get', input: { project: 'acme', kind: 'traffic-sync' }, methods: ['getSchedule'], expectedArgs: [['acme', 'traffic-sync']] },
+  { tool: 'canonry_schedule_get', input: projectInput, methods: ['getSchedule'], expectedArgs: [['acme', undefined]] },
   { tool: 'canonry_backlinks_latest_release', input: {}, methods: ['backlinksLatestRelease'] },
   { tool: 'canonry_settings_get', input: {}, methods: ['getSettings'] },
   { tool: 'canonry_google_connections_list', input: projectInput, methods: ['googleConnections'] },
@@ -538,7 +543,8 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_competitors_add', input: { project: 'acme', request: { competitors: ['other.example.com'] } }, methods: ['appendCompetitors'] },
   { tool: 'canonry_competitors_remove', input: { project: 'acme', request: { competitors: ['other.example.com'] } }, methods: ['deleteCompetitors'] },
   { tool: 'canonry_schedule_set', input: { project: 'acme', schedule: { preset: 'daily', timezone: 'UTC' } }, methods: ['putSchedule'] },
-  { tool: 'canonry_schedule_delete', input: projectInput, methods: ['deleteSchedule'] },
+  { tool: 'canonry_schedule_delete', input: { project: 'acme', kind: 'traffic-sync' }, methods: ['deleteSchedule'], expectedArgs: [['acme', 'traffic-sync']] },
+  { tool: 'canonry_schedule_delete', input: projectInput, methods: ['deleteSchedule'], expectedArgs: [['acme', undefined]] },
   { tool: 'canonry_insight_dismiss', input: { project: 'acme', insightId: 'insight-1' }, methods: ['dismissInsight'] },
   { tool: 'canonry_content_targets', input: { project: 'acme', limit: 5 }, methods: ['getContentTargets'] },
   { tool: 'canonry_content_sources', input: projectInput, methods: ['getContentSources'] },

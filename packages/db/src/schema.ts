@@ -113,17 +113,24 @@ export const apiKeys = sqliteTable('api_keys', {
 export const schedules = sqliteTable('schedules', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  // Run kind dispatched by this schedule. Must be a value of `RunKinds` —
+  // currently 'answer-visibility' and 'traffic-sync' are user-facing schedulable kinds.
+  // Defaults to 'answer-visibility' for backward compatibility with rows
+  // created before migration 53.
+  kind: text('kind').notNull().default('answer-visibility'),
   cronExpr: text('cron_expr').notNull(),
   preset: text('preset'),
   timezone: text('timezone').notNull().default('UTC'),
   enabled: integer('enabled').notNull().default(1),
   providers: text('providers').notNull().default('[]'),
+  /** Optional traffic-source UUID for traffic-sync schedules. Null for other kinds. */
+  sourceId: text('source_id'),
   lastRunAt: text('last_run_at'),
   nextRunAt: text('next_run_at'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [
-  uniqueIndex('idx_schedules_project').on(table.projectId),
+  uniqueIndex('idx_schedules_project_kind').on(table.projectId, table.kind),
 ])
 
 export const notifications = sqliteTable('notifications', {

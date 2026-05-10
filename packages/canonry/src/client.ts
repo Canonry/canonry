@@ -525,12 +525,14 @@ export class ApiClient {
     return this.request<ScheduleDto>('PUT', `/projects/${encodeURIComponent(project)}/schedule`, body)
   }
 
-  async getSchedule(project: string): Promise<ScheduleDto> {
-    return this.request<ScheduleDto>('GET', `/projects/${encodeURIComponent(project)}/schedule`)
+  async getSchedule(project: string, kind?: string): Promise<ScheduleDto> {
+    const qs = kind ? `?kind=${encodeURIComponent(kind)}` : ''
+    return this.request<ScheduleDto>('GET', `/projects/${encodeURIComponent(project)}/schedule${qs}`)
   }
 
-  async deleteSchedule(project: string): Promise<void> {
-    await this.request<void>('DELETE', `/projects/${encodeURIComponent(project)}/schedule`)
+  async deleteSchedule(project: string, kind?: string): Promise<void> {
+    const qs = kind ? `?kind=${encodeURIComponent(kind)}` : ''
+    await this.request<void>('DELETE', `/projects/${encodeURIComponent(project)}/schedule${qs}`)
   }
 
   async createNotification(project: string, body: object): Promise<NotificationDto> {
