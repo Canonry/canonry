@@ -1034,6 +1034,125 @@ describe('POST /traffic/sources/:id/backfill', () => {
     }
   })
 
+  it('treats an empty Cloud Run pull as a no-op and preserves existing rollup data', async () => {
+    // Misconfigured serviceName, transient permission glitch, or genuinely
+    // quiet site → pull returns 0 events. Backfill must NOT delete the
+    // existing rollup buckets in the window (otherwise a misconfigured
+    // backfill silently wipes historical data).
+    const h = await buildHarness([])
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const source = JSON.parse(connectRes.payload)
+
+      // Seed an existing crawler bucket inside what will become the backfill
+      // window. If the empty-pull guard is wrong, this row gets deleted.
+      const seedTime = new Date().toISOString()
+      const seededHour = new Date(Date.now() - 2 * 60 * 60_000)
+      seededHour.setUTCMinutes(0, 0, 0)
+      h.db.insert(crawlerEventsHourly).values({
+        projectId: source.projectId,
+        sourceId: source.id,
+        tsHour: seededHour.toISOString(),
+        botId: 'openai-gptbot',
+        operator: 'OpenAI',
+        verificationStatus: 'claimed_unverified',
+        pathNormalized: '/blog/foo',
+        status: 200,
+        hits: 7,
+        sampledUserAgent: 'GPTBot/1.0',
+        createdAt: seedTime,
+        updatedAt: seedTime,
+      }).run()
+
+      const submitRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${source.id}/backfill`,
+        payload: { days: 1 },
+      })
+      const submitted = JSON.parse(submitRes.payload)
+      const finalRun = await waitForRunComplete(h.db, submitted.runId)
+      expect(finalRun.status).toBe(RunStatuses.completed)
+
+      const buckets = h.db.select().from(crawlerEventsHourly).all()
+      expect(buckets.length).toBe(1)
+      expect(buckets[0].hits).toBe(7)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('replaces the boundary-hour bucket cleanly when windowStart falls mid-hour', async () => {
+    // Without hour-flooring, an existing bucket at floor(windowStart, hour)
+    // has tsHour < raw windowStart so the delete misses it, but the new pull
+    // re-emits a bucket at the same tsHour — the plain insert then trips the
+    // composite primary key and rolls the whole transaction back.
+    const now = Date.now()
+    const rawWindowStart = new Date(now - 86_400_000) // matches days=1
+    const boundaryHour = new Date(rawWindowStart)
+    boundaryHour.setUTCMinutes(0, 0, 0)
+    const boundaryHourIso = boundaryHour.toISOString()
+    // New event sits inside the boundary hour, after raw windowStart.
+    const eventInBoundaryHour = new Date(boundaryHour.getTime() + 35 * 60_000).toISOString()
+
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({
+        userAgent: 'GPTBot/1.0',
+        path: '/blog/foo',
+        status: 200,
+        observedAt: eventInBoundaryHour,
+      }),
+    ]
+    const h = await buildHarness(events, { bypassTimeFilter: true })
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const source = JSON.parse(connectRes.payload)
+
+      // Pre-seed an existing bucket at the boundary hour with the SAME
+      // (bot, verification, path, status) tuple as what the new event
+      // would produce — that's what triggers the PK conflict.
+      const seedTime = new Date().toISOString()
+      h.db.insert(crawlerEventsHourly).values({
+        projectId: source.projectId,
+        sourceId: source.id,
+        tsHour: boundaryHourIso,
+        botId: 'openai-gptbot',
+        operator: 'OpenAI',
+        verificationStatus: 'claimed_unverified',
+        pathNormalized: '/blog/foo',
+        status: 200,
+        hits: 5,
+        sampledUserAgent: 'GPTBot/1.0',
+        createdAt: seedTime,
+        updatedAt: seedTime,
+      }).run()
+
+      const submitRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${source.id}/backfill`,
+        payload: { days: 1 },
+      })
+      const submitted = JSON.parse(submitRes.payload)
+      const finalRun = await waitForRunComplete(h.db, submitted.runId)
+      expect(finalRun.status).toBe(RunStatuses.completed)
+
+      const buckets = h.db.select().from(crawlerEventsHourly).all()
+      expect(buckets.length).toBe(1)
+      expect(buckets[0].tsHour).toBe(boundaryHourIso)
+      // Replaced (1), not the seeded 5 nor the additive 6.
+      expect(buckets[0].hits).toBe(1)
+    } finally {
+      await h.close()
+    }
+  })
+
   it('marks the run as failed when the pull throws and surfaces lastError on the source', async () => {
     const h = await buildHarness([], { failPullWith: 'Cloud Logging 503' })
     try {

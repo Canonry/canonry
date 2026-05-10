@@ -250,6 +250,24 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
     return
   }
 
+  // Empty pull — could be a misconfigured serviceName, transient permission
+  // glitch on the service log, or a genuinely quiet site. Treat as a no-op:
+  // skip the destructive replace below so existing rollup data isn't
+  // silently wiped, and just close out the run row.
+  if (allEvents.length === 0) {
+    const finishedAt = new Date().toISOString()
+    try {
+      app.db
+        .update(runs)
+        .set({ status: RunStatuses.completed, finishedAt })
+        .where(eq(runs.id, runId))
+        .run()
+    } catch {
+      // swallow — same last-ditch behavior as markFailed
+    }
+    return
+  }
+
   const report = buildTrafficProbeReport(allEvents, { sampleLimit: BACKFILL_SAMPLE_LIMIT })
   const finishedAt = new Date().toISOString()
   const windowStartIso = windowStart.toISOString()
@@ -275,8 +293,8 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
   try {
     app.db.transaction((tx) => {
       // Replace mode: clear the rollup window first, then ingest fresh.
-      // Boundaries are inclusive on `windowStart` (>=) and exclusive on
-      // `windowEnd` (<) so two contiguous backfill windows can't overlap.
+      // Boundaries are inclusive on both ends; windowStart is hour-floored
+      // upstream so the boundary hour gets cleanly deleted and reinserted.
       tx
         .delete(crawlerEventsHourly)
         .where(
@@ -927,6 +945,13 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
 
     const windowEnd = new Date()
     const windowStart = new Date(windowEnd.getTime() - appliedDays * 86_400_000)
+    // Floor windowStart to the hour boundary so the boundary hour is fully
+    // replaced. Rollup `tsHour` is hour-truncated, so a raw mid-hour
+    // windowStart would leave an existing bucket at floor(windowStart, hour)
+    // outside the delete range while the new pull re-emits a bucket at the
+    // same tsHour, tripping the composite primary key on (projectId,
+    // sourceId, tsHour, botId, verificationStatus, pathNormalized, status).
+    windowStart.setUTCMinutes(0, 0, 0)
     const startedAt = windowEnd.toISOString()
     const runId = crypto.randomUUID()
     app.db
