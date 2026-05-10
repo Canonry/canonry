@@ -18,7 +18,6 @@ import {
   CHART_GRID_STROKE,
   CHART_SERIES_COLORS,
   CHART_TOOLTIP_STYLE,
-  Legend,
   RechartsTooltip,
   ResponsiveContainer,
   XAxis,
@@ -31,14 +30,26 @@ import {
   useSyncServerTrafficSource,
 } from '../queries/server-traffic.js'
 
-type EventKindFilter = 'all' | 'crawler' | 'ai-referral'
+type SeriesKind = 'crawler' | 'ai-referral'
+type Granularity = 'hour' | 'day'
 
-const WINDOW_OPTIONS = [
-  { value: 60, label: 'Last hour' },
-  { value: 6 * 60, label: 'Last 6h' },
-  { value: 24 * 60, label: 'Last 24h' },
-  { value: 7 * 24 * 60, label: 'Last 7d' },
+interface WindowOption {
+  value: number
+  label: string
+  granularity: Granularity
+  fetchLimit: number
+}
+
+const WINDOW_OPTIONS: readonly WindowOption[] = [
+  { value: 60, label: '1h', granularity: 'hour', fetchLimit: 500 },
+  { value: 6 * 60, label: '6h', granularity: 'hour', fetchLimit: 500 },
+  { value: 24 * 60, label: '24h', granularity: 'hour', fetchLimit: 500 },
+  { value: 7 * 24 * 60, label: '7d', granularity: 'hour', fetchLimit: 1000 },
+  { value: 30 * 24 * 60, label: '30d', granularity: 'day', fetchLimit: 2000 },
+  { value: 90 * 24 * 60, label: '90d', granularity: 'day', fetchLimit: 5000 },
 ] as const
+
+const DEFAULT_WINDOW = WINDOW_OPTIONS.find((w) => w.label === '7d') ?? WINDOW_OPTIONS[2]
 
 const CRAWLER_COLOR = CHART_SERIES_COLORS[0]
 const AI_REFERRAL_COLOR = CHART_SERIES_COLORS[1]
@@ -46,6 +57,11 @@ const AI_REFERRAL_COLOR = CHART_SERIES_COLORS[1]
 function formatHourLabel(iso: string): string {
   const d = new Date(iso)
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:00`
+}
+
+function formatDayLabel(yyyymmdd: string): string {
+  const d = new Date(`${yyyymmdd}T00:00:00`)
+  return `${d.getMonth() + 1}/${d.getDate()}`
 }
 
 function formatRelative(iso: string | null): string {
@@ -64,25 +80,57 @@ export function TrafficSourceDetailPage() {
   const projectName = params.projectName ?? ''
   const sourceId = params.sourceId ?? ''
 
-  const [kind, setKind] = useState<EventKindFilter>('all')
-  const [windowMinutes, setWindowMinutes] = useState<number>(24 * 60)
+  const [windowMinutes, setWindowMinutes] = useState<number>(DEFAULT_WINDOW.value)
+  const [visibleSeries, setVisibleSeries] = useState<Set<SeriesKind>>(
+    () => new Set<SeriesKind>(['crawler', 'ai-referral']),
+  )
   const [syncError, setSyncError] = useState<string | null>(null)
   const [syncResult, setSyncResult] = useState<string | null>(null)
 
+  const activeWindow = useMemo<WindowOption>(
+    () => WINDOW_OPTIONS.find((w) => w.value === windowMinutes) ?? DEFAULT_WINDOW,
+    [windowMinutes],
+  )
+
   const sourceQuery = useServerTrafficSource(projectName || null, sourceId || null)
   const eventsQuery = useServerTrafficEvents(projectName || null, {
-    kind,
+    kind: 'all',
     sourceId: sourceId || undefined,
     sinceMinutes: windowMinutes,
-    limit: 500,
+    limit: activeWindow.fetchLimit,
   })
   const sync = useSyncServerTrafficSource(projectName || null, sourceId || null)
 
   const detail = sourceQuery.data
-  const events = eventsQuery.data?.events ?? []
+  const allEvents = eventsQuery.data?.events ?? []
   const totals = eventsQuery.data?.totals
 
-  const chartData = useMemo(() => buildChartData(events), [events])
+  const visibleEvents = useMemo(
+    () =>
+      allEvents.filter((event) =>
+        event.kind === TrafficEventKinds.crawler
+          ? visibleSeries.has('crawler')
+          : visibleSeries.has('ai-referral'),
+      ),
+    [allEvents, visibleSeries],
+  )
+
+  const chartData = useMemo(
+    () => buildChartData(allEvents, activeWindow.granularity),
+    [allEvents, activeWindow.granularity],
+  )
+
+  const toggleSeries = (series: SeriesKind) => {
+    setVisibleSeries((prev) => {
+      const next = new Set(prev)
+      if (next.has(series)) {
+        if (next.size > 1) next.delete(series)
+      } else {
+        next.add(series)
+      }
+      return next
+    })
+  }
 
   const handleSync = async () => {
     setSyncError(null)
@@ -214,60 +262,73 @@ export function TrafficSourceDetailPage() {
       </section>
 
       <section>
-        <div className="mb-5 flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Events</p>
-            <h2 className="mt-1 text-base font-semibold text-zinc-50">Hourly rollups</h2>
+            <h2 className="mt-1 text-base font-semibold text-zinc-50">
+              {activeWindow.granularity === 'day' ? 'Daily rollups' : 'Hourly rollups'}
+            </h2>
             {totals ? (
               <p className="mt-1.5 text-xs text-zinc-500">
-                {totals.crawlerHits} crawler · {totals.aiReferralHits} AI referral · over the selected window
+                {totals.crawlerHits.toLocaleString('en-US')} crawler ·{' '}
+                {totals.aiReferralHits.toLocaleString('en-US')} AI referral · last {activeWindow.label}
               </p>
             ) : null}
           </div>
-          <div className="flex flex-wrap gap-2">
-            <div className="filter-row mb-0" role="toolbar" aria-label="Window">
-              {WINDOW_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  className={`filter-chip ${windowMinutes === opt.value ? 'filter-chip-active' : ''}`}
-                  aria-pressed={windowMinutes === opt.value}
-                  onClick={() => setWindowMinutes(opt.value)}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-            <div className="filter-row mb-0" role="toolbar" aria-label="Event kind">
-              {(['all', TrafficEventKinds.crawler, TrafficEventKinds['ai-referral']] as const).map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  className={`filter-chip ${kind === option ? 'filter-chip-active' : ''}`}
-                  aria-pressed={kind === option}
-                  onClick={() => setKind(option)}
-                >
-                  {option === 'all' ? 'All' : option === 'crawler' ? 'Crawler' : 'AI referral'}
-                </button>
-              ))}
-            </div>
+          <div className="filter-row mb-0" role="toolbar" aria-label="Window">
+            {WINDOW_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                className={`filter-chip ${windowMinutes === opt.value ? 'filter-chip-active' : ''}`}
+                aria-pressed={windowMinutes === opt.value}
+                onClick={() => setWindowMinutes(opt.value)}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
         </div>
 
         <Card className="p-4">
+          <div className="mb-3 flex flex-wrap items-center gap-2" role="toolbar" aria-label="Series">
+            <SeriesToggle
+              label="Crawler"
+              color={CRAWLER_COLOR}
+              count={totals?.crawlerHits ?? 0}
+              active={visibleSeries.has('crawler')}
+              onToggle={() => toggleSeries('crawler')}
+            />
+            <SeriesToggle
+              label="AI referral"
+              color={AI_REFERRAL_COLOR}
+              count={totals?.aiReferralHits ?? 0}
+              active={visibleSeries.has('ai-referral')}
+              onToggle={() => toggleSeries('ai-referral')}
+            />
+          </div>
           {chartData.length === 0 ? (
             <p className="py-12 text-center text-xs text-zinc-500">No events in this window.</p>
           ) : (
             <div className="h-72">
               <ResponsiveContainer>
-                <BarChart data={chartData}>
+                <BarChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
                   <CartesianGrid stroke={CHART_GRID_STROKE} strokeDasharray="3 3" />
-                  <XAxis dataKey="label" tick={CHART_AXIS_TICK} stroke={CHART_AXIS_STROKE} />
+                  <XAxis
+                    dataKey="label"
+                    tick={CHART_AXIS_TICK}
+                    stroke={CHART_AXIS_STROKE}
+                    interval="preserveStartEnd"
+                    minTickGap={activeWindow.granularity === 'day' ? 24 : 32}
+                  />
                   <YAxis tick={CHART_AXIS_TICK} stroke={CHART_AXIS_STROKE} allowDecimals={false} />
                   <RechartsTooltip {...CHART_TOOLTIP_STYLE} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Bar dataKey="crawler" name="Crawler" fill={CRAWLER_COLOR} stackId="a" />
-                  <Bar dataKey="aiReferral" name="AI referral" fill={AI_REFERRAL_COLOR} stackId="a" />
+                  {visibleSeries.has('crawler') ? (
+                    <Bar dataKey="crawler" name="Crawler" fill={CRAWLER_COLOR} stackId="a" />
+                  ) : null}
+                  {visibleSeries.has('ai-referral') ? (
+                    <Bar dataKey="aiReferral" name="AI referral" fill={AI_REFERRAL_COLOR} stackId="a" />
+                  ) : null}
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -277,26 +338,43 @@ export function TrafficSourceDetailPage() {
 
       <section>
         <p className="mb-4 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Event rows</p>
-        <EventsTable events={events} />
+        <EventsTable events={visibleEvents} />
       </section>
     </div>
   )
 }
 
 interface ChartRow {
-  hour: string
+  bucket: string
   label: string
   crawler: number
   aiReferral: number
 }
 
-function buildChartData(events: readonly TrafficEventEntry[]): ChartRow[] {
-  const byHour = new Map<string, ChartRow>()
+function bucketKeyFor(tsHour: string, granularity: Granularity): string {
+  if (granularity === 'hour') return tsHour
+  const d = new Date(tsHour)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function bucketLabelFor(key: string, granularity: Granularity): string {
+  return granularity === 'day' ? formatDayLabel(key) : formatHourLabel(key)
+}
+
+function buildChartData(
+  events: readonly TrafficEventEntry[],
+  granularity: Granularity,
+): ChartRow[] {
+  const byBucket = new Map<string, ChartRow>()
   for (const event of events) {
-    let row = byHour.get(event.tsHour)
+    const key = bucketKeyFor(event.tsHour, granularity)
+    let row = byBucket.get(key)
     if (!row) {
-      row = { hour: event.tsHour, label: formatHourLabel(event.tsHour), crawler: 0, aiReferral: 0 }
-      byHour.set(event.tsHour, row)
+      row = { bucket: key, label: bucketLabelFor(key, granularity), crawler: 0, aiReferral: 0 }
+      byBucket.set(key, row)
     }
     if (event.kind === TrafficEventKinds.crawler) {
       row.crawler += event.hits
@@ -304,7 +382,44 @@ function buildChartData(events: readonly TrafficEventEntry[]): ChartRow[] {
       row.aiReferral += event.hits
     }
   }
-  return [...byHour.values()].sort((a, b) => (a.hour < b.hour ? -1 : a.hour > b.hour ? 1 : 0))
+  return [...byBucket.values()].sort((a, b) => (a.bucket < b.bucket ? -1 : a.bucket > b.bucket ? 1 : 0))
+}
+
+function SeriesToggle({
+  label,
+  color,
+  count,
+  active,
+  onToggle,
+}: {
+  label: string
+  color: string
+  count: number
+  active: boolean
+  onToggle: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={active}
+      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium transition ${
+        active
+          ? 'border-zinc-700 bg-zinc-800/60 text-zinc-100'
+          : 'border-zinc-800 bg-transparent text-zinc-500 hover:text-zinc-300'
+      }`}
+    >
+      <span
+        aria-hidden="true"
+        className={`size-2 rounded-full transition-opacity ${active ? 'opacity-100' : 'opacity-30'}`}
+        style={{ backgroundColor: color }}
+      />
+      <span>{label}</span>
+      <span className={`tabular-nums ${active ? 'text-zinc-400' : 'text-zinc-600'}`}>
+        {count.toLocaleString('en-US')}
+      </span>
+    </button>
+  )
 }
 
 function EventsTable({ events }: { events: readonly TrafficEventEntry[] }) {
