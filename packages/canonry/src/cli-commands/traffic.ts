@@ -1,4 +1,5 @@
 import {
+  trafficBackfill,
   trafficConnectCloudRun,
   trafficEvents,
   trafficSources,
@@ -6,7 +7,7 @@ import {
   trafficSync,
 } from '../commands/traffic.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
-import { getString, parseIntegerOption, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
+import { getBoolean, getString, parseIntegerOption, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 
 export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
@@ -75,6 +76,36 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       await trafficSync(project, {
         source,
         sinceMinutes,
+        format: input.format,
+      })
+    },
+  },
+  {
+    path: ['traffic', 'backfill'],
+    usage: 'canonry traffic backfill <project> --source <id> [--days 30] [--wait] [--format json]',
+    options: {
+      source: stringOption(),
+      days: stringOption(),
+      wait: { type: 'boolean' },
+    },
+    run: async (input) => {
+      const project = requireProject(
+        input,
+        'traffic.backfill',
+        'canonry traffic backfill <project> --source <id> [--days 30] [--wait]',
+      )
+      const source = getString(input.values, 'source')
+      if (!source) throw new Error('--source <id> is required')
+      const days = parseIntegerOption(input, 'days', {
+        command: 'traffic.backfill',
+        usage: 'canonry traffic backfill <project> --source <id> [--days 30] [--wait]',
+        message: '--days must be a positive integer',
+      })
+
+      await trafficBackfill(project, {
+        source,
+        days,
+        wait: getBoolean(input.values, 'wait'),
         format: input.format,
       })
     },
@@ -149,7 +180,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       unknownSubcommand(input.positionals[0], {
         command: 'traffic',
         usage: 'canonry traffic <subcommand> <project> [args]',
-        available: ['connect', 'sync', 'status', 'sources', 'events'],
+        available: ['connect', 'sync', 'backfill', 'status', 'sources', 'events'],
       })
     },
   },

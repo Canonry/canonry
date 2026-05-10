@@ -241,6 +241,18 @@ const trafficSyncInputSchema = z.object({
     .describe('Lookback window in minutes. Defaults to the source\'s configured window (60 min) when omitted; clamped forward to lastSyncedAt to avoid double-counting.'),
 })
 
+const trafficBackfillInputSchema = z.object({
+  project: projectNameSchema,
+  sourceId: z.string().min(1).describe('Traffic source ID returned by canonry_traffic_sources_list.'),
+  days: z
+    .number()
+    .int()
+    .positive()
+    .max(30)
+    .optional()
+    .describe('Lookback window in days. Default 30, capped server-side at the upstream log retention ceiling (Cloud Logging _Default = 30d).'),
+})
+
 const trafficEventsInputSchema = z.object({
   project: projectNameSchema,
   since: z.string().optional().describe('ISO 8601 lower bound. Defaults to 24h ago when omitted.'),
@@ -844,6 +856,17 @@ export const canonryMcpTools = [
     annotations: writeAnnotations({ idempotentHint: false, openWorldHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/traffic/sources/{id}/sync'],
     handler: (client, input) => client.trafficSync(input.project, input.sourceId, input.sinceMinutes !== undefined ? { sinceMinutes: input.sinceMinutes } : undefined),
+  }),
+  defineTool({
+    name: 'canonry_traffic_backfill',
+    title: 'Backfill Cloud Run traffic source',
+    description: 'Async one-shot reclassification of historical Cloud Run logs. Pulls the last `days` of request logs (capped at the 30d Cloud Logging retention ceiling), classifies them with current rules, and replaces the hourly rollup buckets + sample slice in the window. Returns immediately with `{ runId, status: "running" }`; poll canonry_run_get for completion. lastSyncedAt only advances forward — a backfill never undoes incremental sync progress that ran ahead of it.',
+    access: 'write',
+    tier: 'traffic',
+    inputSchema: trafficBackfillInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/traffic/sources/{id}/backfill'],
+    handler: (client, input) => client.trafficBackfill(input.project, input.sourceId, input.days !== undefined ? { days: input.days } : undefined),
   }),
   defineTool({
     name: 'canonry_project_upsert',

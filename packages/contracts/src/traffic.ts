@@ -135,6 +135,30 @@ export const trafficSyncResponseSchema = z.object({
 })
 export type TrafficSyncResponse = z.infer<typeof trafficSyncResponseSchema>
 
+export const trafficBackfillRequestSchema = z.object({
+  /** Lookback window in days. Capped server-side at the upstream log retention ceiling (Cloud Logging _Default = 30d). Default: 30. */
+  days: z.number().int().positive().optional(),
+})
+export type TrafficBackfillRequest = z.infer<typeof trafficBackfillRequestSchema>
+
+/**
+ * Async backfill response — returned as soon as the run row is created and the
+ * background pull starts. Poll `GET /runs/:runId` for completion. Concrete
+ * counts are not in this response; once the run is `completed`, query
+ * `/traffic/sources/:id` and `/traffic/events` for the rebuilt rollup data.
+ */
+export const trafficBackfillResponseSchema = z.object({
+  sourceId: z.string(),
+  runId: z.string(),
+  status: runStatusSchema,
+  windowStart: z.string(),
+  windowEnd: z.string(),
+  /** Days actually used after server-side clamping (≤ requested). */
+  daysRequested: z.number().int().positive(),
+  daysApplied: z.number().int().positive(),
+})
+export type TrafficBackfillResponse = z.infer<typeof trafficBackfillResponseSchema>
+
 export const trafficSourceTotalsSchema = z.object({
   crawlerHits: z.number().int().nonnegative(),
   aiReferralHits: z.number().int().nonnegative(),

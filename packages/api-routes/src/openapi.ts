@@ -2809,6 +2809,36 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'post',
+    path: '/api/v1/projects/{name}/traffic/sources/{id}/backfill',
+    summary: 'Reclassify historical Cloud Run logs for a traffic source',
+    description:
+      'Async one-shot backfill: pulls the last `days` of request logs (clamped server-side to the upstream retention ceiling — 30d for Cloud Logging `_Default`), classifies them with the current rules, and replaces the hourly rollup buckets + sample slice in the window inside one transaction. Returns immediately with `{ runId, status: "running" }`; poll `GET /runs/{id}` for completion. lastSyncedAt only advances forward, so a backfill never undoes incremental sync progress that ran ahead of it.',
+    tags: ['traffic'],
+    parameters: [
+      nameParameter,
+      { name: 'id', in: 'path', required: true, description: 'Traffic source ID.', schema: stringSchema },
+    ],
+    requestBody: {
+      required: false,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            properties: {
+              days: { ...integerSchema, description: 'Lookback window in days (default 30, capped at the upstream retention ceiling).' },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Backfill submitted; poll the returned runId for completion.' },
+      400: { description: 'Invalid backfill request or missing credentials.' },
+      404: { description: 'Project or traffic source not found.' },
+    },
+  },
+  {
     method: 'get',
     path: '/api/v1/projects/{name}/traffic/sources',
     summary: 'List non-archived traffic sources for a project',

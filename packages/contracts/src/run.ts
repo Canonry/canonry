@@ -19,7 +19,7 @@ export const runKindSchema = z.enum([
 export type RunKind = z.infer<typeof runKindSchema>
 export const RunKinds = runKindSchema.enum
 
-export const runTriggerSchema = z.enum(['manual', 'scheduled', 'config-apply'])
+export const runTriggerSchema = z.enum(['manual', 'scheduled', 'config-apply', 'backfill'])
 export type RunTrigger = z.infer<typeof runTriggerSchema>
 export const RunTriggers = runTriggerSchema.enum
 
