@@ -2,6 +2,7 @@ import { BING_AUTH_CHECKS } from './checks/bing-auth.js'
 import { GA_AUTH_CHECKS } from './checks/ga-auth.js'
 import { GOOGLE_AUTH_CHECKS } from './checks/google-auth.js'
 import { PROVIDERS_CHECKS } from './checks/providers.js'
+import { TRAFFIC_SOURCE_CHECKS } from './checks/traffic-source.js'
 import type { CheckDefinition } from './types.js'
 
 export const ALL_CHECKS: readonly CheckDefinition[] = [
@@ -9,6 +10,7 @@ export const ALL_CHECKS: readonly CheckDefinition[] = [
   ...BING_AUTH_CHECKS,
   ...GA_AUTH_CHECKS,
   ...PROVIDERS_CHECKS,
+  ...TRAFFIC_SOURCE_CHECKS,
 ]
 
 export const CHECK_BY_ID: Record<string, CheckDefinition> = Object.fromEntries(

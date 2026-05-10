@@ -27,7 +27,7 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 | `src/doctor.ts` | `GET /doctor` and `GET /projects/:name/doctor` — runs check registry, returns `DoctorReport` |
 | `src/doctor/registry.ts` | `ALL_CHECKS` — single source of truth for the doctor check catalog |
 | `src/doctor/runner.ts` | `runChecks()` and `matchesCheckId()` — execute filtered checks, build the report |
-| `src/doctor/checks/*.ts` | Individual `CheckDefinition`s (google-auth, ga-auth, providers) |
+| `src/doctor/checks/*.ts` | Individual `CheckDefinition`s (google-auth, bing-auth, ga-auth, providers, traffic-source). The `traffic-source` checks are adapter-agnostic — they query `traffic_sources` directly for connection/recent-data, and dispatch credential / scope validation through `DoctorContext.trafficSourceValidators[<sourceType>]`. Today only the `cloud-run` validator is registered (built in `index.ts` from the existing `cloudRunCredentialStore` + `resolveCloudRunAccessToken`); future adapters (`wp-plugin`, etc.) plug in by adding a key to that map — no doctor-side changes needed. |
 
 ## Patterns
 
