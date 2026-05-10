@@ -390,6 +390,13 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       throw providerError(`Failed to resolve Cloud Run access token: ${msg}`)
     }
 
+    // First sync (no `lastSyncedAt`) uses `timestamp desc` so the bounded
+    // page budget pulls the newest entries first. With the default `asc`
+    // ordering, a 30d backfill on a busy site exhausts `maxPages * pageSize`
+    // on the oldest entries and silently skips the recent week — the cliff
+    // we just shipped a fix for. Steady-state syncs stay `asc` so the
+    // dedupe ring buffer keeps tracking the most-recent boundary IDs.
+    const isFirstSync = !sourceRow.lastSyncedAt
     let allEvents: CloudRunTrafficEventsPage['events'] = []
     try {
       const page = await pullEvents(accessToken, {
@@ -400,6 +407,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         endTime: windowEnd.toISOString(),
         pageSize,
         maxPages,
+        orderBy: isFirstSync ? 'timestamp desc' : 'timestamp asc',
       })
       allEvents = page.events
     } catch (e) {

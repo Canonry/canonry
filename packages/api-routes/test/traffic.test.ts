@@ -78,6 +78,7 @@ async function buildHarness(
 
   let pullInvocations = 0
   const observedWindows: Array<{ startTime: string; endTime: string }> = []
+  const observedOrderBy: Array<string | undefined> = []
   const app = Fastify()
   app.register(apiRoutes, {
     db,
@@ -86,6 +87,7 @@ async function buildHarness(
     pullCloudRunEvents: async (_token, pullOptions): Promise<CloudRunTrafficEventsPage> => {
       pullInvocations += 1
       observedWindows.push({ startTime: pullOptions.startTime, endTime: pullOptions.endTime })
+      observedOrderBy.push(pullOptions.orderBy)
       if (options.failPullWith) throw new Error(options.failPullWith)
       // Default: mirror Cloud Logging's behavior and only return events inside the
       // requested window. Tests that exercise cross-sync boundary semantics
@@ -133,6 +135,7 @@ async function buildHarness(
     tmpDir,
     getPullCount: () => pullInvocations,
     getObservedWindows: () => observedWindows,
+    getObservedOrderBy: () => observedOrderBy,
     getTrafficSyncedEvents: () => trafficSyncedEvents,
     close: async () => {
       await app.close()
@@ -404,6 +407,74 @@ describe('POST /traffic/sources/:id/sync', () => {
       expect(new Date(windows[1].startTime).getTime()).toBeGreaterThanOrEqual(
         new Date(windows[0].endTime).getTime(),
       )
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('uses timestamp desc on the first sync and timestamp asc on subsequent syncs', async () => {
+    // First sync of a brand-new source must request newest-first so the bounded
+    // page budget covers the most recent entries inside a long backfill window;
+    // steady-state syncs revert to asc so the dedupe ring buffer keeps the most
+    // recent boundary IDs.
+    const observedAt = new Date(Date.now() - 30 * 60_000).toISOString()
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt }),
+    ]
+    const h = await buildHarness(events)
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+
+      const ordering = h.getObservedOrderBy()
+      expect(ordering).toEqual(['timestamp desc', 'timestamp asc'])
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('uses timestamp desc again after a failed first sync (lastSyncedAt still null)', async () => {
+    // A first sync that fails before commit leaves `lastSyncedAt` null, so the
+    // next attempt is still effectively the first sync and must keep desc
+    // ordering — otherwise a busy site that fails once at boot would silently
+    // skip its recent week on the retry.
+    const h = await buildHarness([], { failPullWith: 'transient 503' })
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+
+      const ordering = h.getObservedOrderBy()
+      expect(ordering).toEqual(['timestamp desc', 'timestamp desc'])
     } finally {
       await h.close()
     }

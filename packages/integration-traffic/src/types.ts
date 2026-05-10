@@ -1,7 +1,7 @@
 import type { NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
 
 export type CrawlerVerificationStatus = 'verified' | 'claimed_unverified' | 'unknown_ai_like'
-export type AiReferralEvidenceType = 'referer' | 'utm'
+export type AiReferralEvidenceType = 'referer' | 'utm' | 'referer-utm'
 
 export interface AiCrawlerRule {
   id: string
