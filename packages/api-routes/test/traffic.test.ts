@@ -78,7 +78,7 @@ async function buildHarness(
 
   let pullInvocations = 0
   const observedWindows: Array<{ startTime: string; endTime: string }> = []
-  const observedOrderBy: Array<string | undefined> = []
+  const observedFirstSync: Array<boolean | undefined> = []
   const app = Fastify()
   app.register(apiRoutes, {
     db,
@@ -87,7 +87,7 @@ async function buildHarness(
     pullCloudRunEvents: async (_token, pullOptions): Promise<CloudRunTrafficEventsPage> => {
       pullInvocations += 1
       observedWindows.push({ startTime: pullOptions.startTime, endTime: pullOptions.endTime })
-      observedOrderBy.push(pullOptions.orderBy)
+      observedFirstSync.push(pullOptions.firstSync)
       if (options.failPullWith) throw new Error(options.failPullWith)
       // Default: mirror Cloud Logging's behavior and only return events inside the
       // requested window. Tests that exercise cross-sync boundary semantics
@@ -135,7 +135,7 @@ async function buildHarness(
     tmpDir,
     getPullCount: () => pullInvocations,
     getObservedWindows: () => observedWindows,
-    getObservedOrderBy: () => observedOrderBy,
+    getObservedFirstSync: () => observedFirstSync,
     getTrafficSyncedEvents: () => trafficSyncedEvents,
     close: async () => {
       await app.close()
@@ -412,11 +412,11 @@ describe('POST /traffic/sources/:id/sync', () => {
     }
   })
 
-  it('uses timestamp desc on the first sync and timestamp asc on subsequent syncs', async () => {
-    // First sync of a brand-new source must request newest-first so the bounded
-    // page budget covers the most recent entries inside a long backfill window;
-    // steady-state syncs revert to asc so the dedupe ring buffer keeps the most
-    // recent boundary IDs.
+  it('flags the first sync to the Cloud Run pull and clears it on subsequent syncs', async () => {
+    // The route signals "first-time backfill" via a semantic flag — the
+    // adapter decides what pull strategy that implies (timestamp desc here,
+    // larger budget tomorrow). Steady-state syncs reset the flag so the
+    // adapter's incremental defaults apply.
     const observedAt = new Date(Date.now() - 30 * 60_000).toISOString()
     const events: NormalizedTrafficRequest[] = [
       buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt }),
@@ -441,18 +441,17 @@ describe('POST /traffic/sources/:id/sync', () => {
         payload: {},
       })
 
-      const ordering = h.getObservedOrderBy()
-      expect(ordering).toEqual(['timestamp desc', 'timestamp asc'])
+      expect(h.getObservedFirstSync()).toEqual([true, false])
     } finally {
       await h.close()
     }
   })
 
-  it('uses timestamp desc again after a failed first sync (lastSyncedAt still null)', async () => {
+  it('keeps firstSync=true after a failed first sync (lastSyncedAt still null)', async () => {
     // A first sync that fails before commit leaves `lastSyncedAt` null, so the
-    // next attempt is still effectively the first sync and must keep desc
-    // ordering — otherwise a busy site that fails once at boot would silently
-    // skip its recent week on the retry.
+    // next attempt is still effectively the first sync and must keep the flag —
+    // otherwise a busy site that fails once at boot would silently skip its
+    // recent week on the retry.
     const h = await buildHarness([], { failPullWith: 'transient 503' })
     try {
       const connectRes = await h.app.inject({
@@ -473,8 +472,7 @@ describe('POST /traffic/sources/:id/sync', () => {
         payload: {},
       })
 
-      const ordering = h.getObservedOrderBy()
-      expect(ordering).toEqual(['timestamp desc', 'timestamp desc'])
+      expect(h.getObservedFirstSync()).toEqual([true, true])
     } finally {
       await h.close()
     }

@@ -73,11 +73,13 @@ export async function listCloudRunTrafficEvents(
   let skippedEntryCount = 0
   const events: CloudRunTrafficEventsPage['events'] = []
 
+  const orderBy = options.orderBy ?? (options.firstSync ? 'timestamp desc' : 'timestamp asc')
+
   for (let page = 0; page < maxPages; page += 1) {
     const requestBody: Record<string, unknown> = {
       resourceNames: [`projects/${options.gcpProjectId}`],
       filter,
-      orderBy: options.orderBy ?? 'timestamp asc',
+      orderBy,
       pageSize,
     }
     if (pageToken) {
