@@ -128,7 +128,10 @@ CREATE TABLE IF NOT EXISTS notifications (
 
 CREATE INDEX IF NOT EXISTS idx_api_keys_prefix ON api_keys(key_prefix);
 CREATE INDEX IF NOT EXISTS idx_usage_scope_period ON usage_counters(scope, period);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_schedules_project ON schedules(project_id);
+-- NOTE: the (project_id) UNIQUE INDEX that used to live here was replaced by
+-- v53's (project_id, kind) index. MIGRATION_SQL re-runs on every boot, so we
+-- must NOT recreate the single-column index — it would conflict with v53 and
+-- break traffic-sync schedule creation.
 CREATE INDEX IF NOT EXISTS idx_notifications_project ON notifications(project_id);
 
 -- Migration tracking: records which version has been applied.
@@ -1007,6 +1010,21 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       // idempotent across edge-case re-runs.
       `DROP INDEX IF EXISTS idx_schedules_project`,
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_schedules_project_kind ON schedules(project_id, kind)`,
+    ],
+  },
+  {
+    version: 54,
+    name: 'drop-resurrected-schedules-project-index',
+    // v53 dropped `idx_schedules_project`, but `MIGRATION_SQL` (which runs on
+    // every boot, before versioned migrations) was still creating it. On any
+    // boot AFTER the one that applied v53, Phase 1 re-created the legacy
+    // single-column UNIQUE index, which then collided with the new
+    // (project_id, kind) semantics and broke traffic-sync schedule creation
+    // (`UNIQUE constraint failed: schedules.project_id`). MIGRATION_SQL no
+    // longer creates that index; this migration removes it from any DB that
+    // already booted past v53 with the resurrected index.
+    statements: [
+      `DROP INDEX IF EXISTS idx_schedules_project`,
     ],
   },
 ]
