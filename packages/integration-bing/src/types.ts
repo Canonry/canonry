@@ -39,8 +39,9 @@ export interface BingKeywordStats {
   Impressions: number
   Clicks: number
   Ctr: number
-  AverageClickPosition: number
-  AverageImpressionPosition: number
+  /** -1 when there are zero clicks (Bing sentinel). */
+  AvgClickPosition: number
+  AvgImpressionPosition: number
 }
 
 export interface BingCrawlStats {

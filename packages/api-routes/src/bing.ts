@@ -707,7 +707,11 @@ export async function bingRoutes(app: FastifyInstance, opts: BingRoutesOptions) 
       impressions: s.Impressions,
       clicks: s.Clicks,
       ctr: s.Impressions > 0 ? s.Clicks / s.Impressions : 0,
-      averagePosition: s.AverageClickPosition ?? s.AverageImpressionPosition ?? 0,
+      averagePosition: s.AvgClickPosition > 0
+        ? s.AvgClickPosition
+        : s.AvgImpressionPosition > 0
+          ? s.AvgImpressionPosition
+          : 0,
     }))
   })
 }
