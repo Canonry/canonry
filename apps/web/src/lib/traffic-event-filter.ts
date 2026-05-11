@@ -44,13 +44,27 @@ export function filterTrafficEvents(
 // Recharts 3.x BarChart onClick passes `MouseHandlerDataParam` (activeTooltipIndex /
 // activeLabel), not the v2 shape with `activePayload`. Look up the bucket from chartData
 // using the index instead.
+//
+// The runtime value of `activeTooltipIndex` is always a string (e.g. `"5"`) — recharts
+// internals wrap numeric indices via `String()` (see `combineActiveTooltipIndex.js` and
+// `selectors.js`) even though the TS type advertises `number | TooltipIndex | undefined`.
+// Accept both shapes so the function works against the real recharts output, not just
+// the type.
 export function bucketForChartClick(
   state: unknown,
   chartData: readonly { bucket: string }[],
 ): string | null {
   if (!state || typeof state !== 'object') return null
-  const idx = (state as { activeTooltipIndex?: unknown }).activeTooltipIndex
-  if (typeof idx !== 'number' || !Number.isInteger(idx)) return null
+  const raw = (state as { activeTooltipIndex?: unknown }).activeTooltipIndex
+  let idx: number
+  if (typeof raw === 'number') {
+    idx = raw
+  } else if (typeof raw === 'string' && raw !== '') {
+    idx = Number(raw)
+  } else {
+    return null
+  }
+  if (!Number.isInteger(idx)) return null
   if (idx < 0 || idx >= chartData.length) return null
   return chartData[idx]?.bucket ?? null
 }

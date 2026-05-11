@@ -166,15 +166,23 @@ describe('bucketForChartClick', () => {
     { bucket: '2026-05-07T02:00:00.000Z' },
   ]
 
-  test('returns the bucket at activeTooltipIndex (recharts v3 shape)', () => {
-    // Recharts 3.x BarChart.onClick fires with MouseHandlerDataParam — no activePayload.
+  test('returns the bucket at activeTooltipIndex (real recharts v3 shape — STRING)', () => {
+    // Recharts 3.x wraps every numeric tooltip index in String() before storing it
+    // (combineActiveTooltipIndex.js: `return String(clampedIndex)`), so the value
+    // surfaced via the BarChart.onClick MouseHandlerDataParam is a STRING — even though
+    // the TS type advertises `number | TooltipIndex | undefined`. PR #458 tested with
+    // a number and missed this in production.
     const state = {
-      activeTooltipIndex: 2,
+      activeTooltipIndex: '2',
       isTooltipActive: true,
-      activeIndex: 2,
+      activeIndex: '2',
       activeLabel: '5/7 02:00',
     }
     expect(bucketForChartClick(state, chartData)).toBe('2026-05-07T02:00:00.000Z')
+  })
+
+  test('also accepts a number activeTooltipIndex (matches the TS type)', () => {
+    expect(bucketForChartClick({ activeTooltipIndex: 2 }, chartData)).toBe('2026-05-07T02:00:00.000Z')
   })
 
   test('returns null when state is null/undefined', () => {
@@ -185,17 +193,21 @@ describe('bucketForChartClick', () => {
   test('returns null when activeTooltipIndex is missing or non-numeric', () => {
     expect(bucketForChartClick({}, chartData)).toBeNull()
     expect(bucketForChartClick({ activeTooltipIndex: undefined }, chartData)).toBeNull()
+    expect(bucketForChartClick({ activeTooltipIndex: null }, chartData)).toBeNull()
+    expect(bucketForChartClick({ activeTooltipIndex: '' }, chartData)).toBeNull()
     expect(bucketForChartClick({ activeTooltipIndex: 'foo' }, chartData)).toBeNull()
+    expect(bucketForChartClick({ activeTooltipIndex: true }, chartData)).toBeNull()
   })
 
-  test('returns null for out-of-range index', () => {
+  test('returns null for out-of-range index (number or string)', () => {
     expect(bucketForChartClick({ activeTooltipIndex: -1 }, chartData)).toBeNull()
-    expect(bucketForChartClick({ activeTooltipIndex: 3 }, chartData)).toBeNull()
-    expect(bucketForChartClick({ activeTooltipIndex: 99 }, chartData)).toBeNull()
+    expect(bucketForChartClick({ activeTooltipIndex: '3' }, chartData)).toBeNull()
+    expect(bucketForChartClick({ activeTooltipIndex: '99' }, chartData)).toBeNull()
   })
 
   test('rejects non-integer activeTooltipIndex', () => {
     expect(bucketForChartClick({ activeTooltipIndex: 1.5 }, chartData)).toBeNull()
+    expect(bucketForChartClick({ activeTooltipIndex: '1.5' }, chartData)).toBeNull()
     expect(bucketForChartClick({ activeTooltipIndex: Number.NaN }, chartData)).toBeNull()
   })
 
