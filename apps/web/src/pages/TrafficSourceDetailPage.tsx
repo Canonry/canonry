@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link, useParams } from '@tanstack/react-router'
-import { ArrowLeft, RefreshCw } from 'lucide-react'
+import { ArrowLeft, RefreshCw, X } from 'lucide-react'
 
 import { TrafficEventKinds, type TrafficEventEntry } from '@ainyc/canonry-contracts'
 
@@ -13,6 +13,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   CHART_AXIS_STROKE,
   CHART_AXIS_TICK,
   CHART_GRID_STROKE,
@@ -29,9 +30,15 @@ import {
   useServerTrafficSource,
   useSyncServerTrafficSource,
 } from '../queries/server-traffic.js'
+import {
+  bucketKeyFor,
+  filterTrafficEvents,
+  identityOf,
+  type EventGranularity,
+} from '../lib/traffic-event-filter.js'
 
 type SeriesKind = 'crawler' | 'ai-referral'
-type Granularity = 'hour' | 'day'
+type Granularity = EventGranularity
 
 interface WindowOption {
   value: number
@@ -84,6 +91,10 @@ export function TrafficSourceDetailPage() {
   const [visibleSeries, setVisibleSeries] = useState<Set<SeriesKind>>(
     () => new Set<SeriesKind>(['crawler', 'ai-referral']),
   )
+  const [selectedBucket, setSelectedBucket] = useState<string | null>(null)
+  const [identityFilter, setIdentityFilter] = useState<string>('')
+  const [operatorFilter, setOperatorFilter] = useState<string>('')
+  const [pathFilter, setPathFilter] = useState<string>('')
   const [syncError, setSyncError] = useState<string | null>(null)
   const [syncResult, setSyncResult] = useState<string | null>(null)
 
@@ -115,6 +126,40 @@ export function TrafficSourceDetailPage() {
     [allEvents, visibleSeries],
   )
 
+  const identityOptions = useMemo(() => {
+    const set = new Set<string>()
+    for (const e of allEvents) set.add(identityOf(e))
+    if (identityFilter) set.add(identityFilter)
+    return [...set].sort((a, b) => a.localeCompare(b))
+  }, [allEvents, identityFilter])
+
+  const operatorOptions = useMemo(() => {
+    const set = new Set<string>()
+    for (const e of allEvents) set.add(e.operator)
+    if (operatorFilter) set.add(operatorFilter)
+    return [...set].sort((a, b) => a.localeCompare(b))
+  }, [allEvents, operatorFilter])
+
+  const filteredEvents = useMemo(
+    () =>
+      filterTrafficEvents(
+        visibleEvents,
+        {
+          selectedBucket,
+          identity: identityFilter,
+          operator: operatorFilter,
+          pathQuery: pathFilter,
+        },
+        activeWindow.granularity,
+      ),
+    [visibleEvents, selectedBucket, identityFilter, operatorFilter, pathFilter, activeWindow.granularity],
+  )
+
+  const selectedBucketLabel = useMemo(
+    () => (selectedBucket ? bucketLabelFor(selectedBucket, activeWindow.granularity) : null),
+    [selectedBucket, activeWindow.granularity],
+  )
+
   const chartData = useMemo(
     () => buildChartData(allEvents, activeWindow.granularity, eventsQuery.data?.windowStart, eventsQuery.data?.windowEnd),
     [allEvents, activeWindow.granularity, eventsQuery.data?.windowStart, eventsQuery.data?.windowEnd],
@@ -131,6 +176,25 @@ export function TrafficSourceDetailPage() {
       return next
     })
   }
+
+  const handleChartClick = (state: unknown) => {
+    const payload =
+      state && typeof state === 'object' && 'activePayload' in state
+        ? (state as { activePayload?: Array<{ payload?: ChartRow }> }).activePayload
+        : undefined
+    const bucket = payload?.[0]?.payload?.bucket
+    if (!bucket) return
+    setSelectedBucket((prev) => (prev === bucket ? null : bucket))
+  }
+
+  const clearAllFilters = () => {
+    setSelectedBucket(null)
+    setIdentityFilter('')
+    setOperatorFilter('')
+    setPathFilter('')
+  }
+
+  const hasRowFilter = Boolean(selectedBucket || identityFilter || operatorFilter || pathFilter.trim())
 
   const handleSync = async () => {
     setSyncError(null)
@@ -282,7 +346,10 @@ export function TrafficSourceDetailPage() {
                 type="button"
                 className={`filter-chip ${windowMinutes === opt.value ? 'filter-chip-active' : ''}`}
                 aria-pressed={windowMinutes === opt.value}
-                onClick={() => setWindowMinutes(opt.value)}
+                onClick={() => {
+                  setWindowMinutes(opt.value)
+                  setSelectedBucket(null)
+                }}
               >
                 {opt.label}
               </button>
@@ -312,7 +379,12 @@ export function TrafficSourceDetailPage() {
           ) : (
             <div className="h-72">
               <ResponsiveContainer>
-                <BarChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+                <BarChart
+                  data={chartData}
+                  margin={{ top: 4, right: 4, bottom: 0, left: 0 }}
+                  onClick={handleChartClick}
+                  style={{ cursor: 'pointer' }}
+                >
                   <CartesianGrid stroke={CHART_GRID_STROKE} strokeDasharray="3 3" />
                   <XAxis
                     dataKey="label"
@@ -324,10 +396,24 @@ export function TrafficSourceDetailPage() {
                   <YAxis tick={CHART_AXIS_TICK} stroke={CHART_AXIS_STROKE} allowDecimals={false} />
                   <RechartsTooltip {...CHART_TOOLTIP_STYLE} />
                   {visibleSeries.has('crawler') ? (
-                    <Bar dataKey="crawler" name="Crawler" fill={CRAWLER_COLOR} stackId="a" />
+                    <Bar dataKey="crawler" name="Crawler" fill={CRAWLER_COLOR} stackId="a">
+                      {chartData.map((row) => (
+                        <Cell
+                          key={row.bucket}
+                          fillOpacity={selectedBucket && selectedBucket !== row.bucket ? 0.25 : 1}
+                        />
+                      ))}
+                    </Bar>
                   ) : null}
                   {visibleSeries.has('ai-referral') ? (
-                    <Bar dataKey="aiReferral" name="AI referral" fill={AI_REFERRAL_COLOR} stackId="a" />
+                    <Bar dataKey="aiReferral" name="AI referral" fill={AI_REFERRAL_COLOR} stackId="a">
+                      {chartData.map((row) => (
+                        <Cell
+                          key={row.bucket}
+                          fillOpacity={selectedBucket && selectedBucket !== row.bucket ? 0.25 : 1}
+                        />
+                      ))}
+                    </Bar>
                   ) : null}
                 </BarChart>
               </ResponsiveContainer>
@@ -337,8 +423,77 @@ export function TrafficSourceDetailPage() {
       </section>
 
       <section>
-        <p className="mb-4 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Event rows</p>
-        <EventsTable events={visibleEvents} />
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Event rows</p>
+            <p className="mt-1 text-xs text-zinc-500">
+              Showing <span className="tabular-nums text-zinc-300">{filteredEvents.length.toLocaleString('en-US')}</span> of{' '}
+              <span className="tabular-nums text-zinc-500">{visibleEvents.length.toLocaleString('en-US')}</span> events
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              aria-label="Filter by identity"
+              value={identityFilter}
+              onChange={(e) => setIdentityFilter(e.target.value)}
+              className="rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-600"
+            >
+              <option value="">All identities</option>
+              {identityOptions.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Filter by operator"
+              value={operatorFilter}
+              onChange={(e) => setOperatorFilter(e.target.value)}
+              className="rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-600"
+            >
+              <option value="">All operators</option>
+              {operatorOptions.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+            <input
+              type="search"
+              aria-label="Filter by path"
+              placeholder="path contains…"
+              value={pathFilter}
+              onChange={(e) => setPathFilter(e.target.value)}
+              className="w-44 rounded-md border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-600"
+            />
+          </div>
+        </div>
+
+        {hasRowFilter ? (
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            {selectedBucketLabel ? (
+              <ActiveFilterPill label={`Bucket: ${selectedBucketLabel}`} onClear={() => setSelectedBucket(null)} />
+            ) : null}
+            {identityFilter ? (
+              <ActiveFilterPill label={`Identity: ${identityFilter}`} onClear={() => setIdentityFilter('')} />
+            ) : null}
+            {operatorFilter ? (
+              <ActiveFilterPill label={`Operator: ${operatorFilter}`} onClear={() => setOperatorFilter('')} />
+            ) : null}
+            {pathFilter.trim() ? (
+              <ActiveFilterPill label={`Path: ${pathFilter.trim()}`} onClear={() => setPathFilter('')} />
+            ) : null}
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              className="text-xs text-zinc-500 underline-offset-4 hover:text-zinc-200 hover:underline"
+            >
+              Clear all
+            </button>
+          </div>
+        ) : null}
+
+        <EventsTable events={filteredEvents} />
       </section>
     </div>
   )
@@ -349,15 +504,6 @@ interface ChartRow {
   label: string
   crawler: number
   aiReferral: number
-}
-
-function bucketKeyFor(tsHour: string, granularity: Granularity): string {
-  if (granularity === 'hour') return tsHour
-  const d = new Date(tsHour)
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
 }
 
 function bucketLabelFor(key: string, granularity: Granularity): string {
@@ -418,6 +564,22 @@ function buildChartData(
   }
 
   return [...byBucket.values()].sort((a, b) => (a.bucket < b.bucket ? -1 : a.bucket > b.bucket ? 1 : 0))
+}
+
+function ActiveFilterPill({ label, onClear }: { label: string; onClear: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-800/60 px-2.5 py-1 text-[11px] text-zinc-200">
+      {label}
+      <button
+        type="button"
+        onClick={onClear}
+        aria-label={`Clear ${label}`}
+        className="rounded-full p-0.5 text-zinc-400 hover:bg-zinc-700/60 hover:text-zinc-100"
+      >
+        <X className="size-3" />
+      </button>
+    </span>
+  )
 }
 
 function SeriesToggle({
