@@ -18,6 +18,7 @@ export function AuthGate() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [sessionExpired, setSessionExpired] = useState(false)
 
   // Lazy-initialize router + query client only when needed for rendering
   const routerRef = useRef<ReturnType<typeof createAppRouter> | null>(null)
@@ -56,25 +57,34 @@ export function AuthGate() {
     }
   }, [])
 
-  // Periodic session re-check + auth expiry callback while authenticated
+  // Periodic session re-check + auth expiry callback while authenticated.
+  // Skipped in explicit-API-key mode — those users have no login form to fall
+  // back to, so kicking them out of the dashboard would strand them.
   useEffect(() => {
     if (authState !== 'ready') return
+    if (hasExplicitBrowserApiKey()) return
 
-    // Periodic re-check
+    // Periodic re-check. Only kick on a confirmed `authenticated: false`
+    // response — transient network errors should not silently log the user
+    // out. A real session loss will surface through the apiFetch 401/403
+    // interceptor below the next time any request fires.
     const interval = setInterval(() => {
       fetchSession()
         .then((session) => {
           if (!session.authenticated) {
+            setSessionExpired(true)
             setAuthState(session.setupRequired ? 'setup' : 'login')
           }
         })
         .catch(() => {
-          setAuthState('login')
+          // Network error or transient failure — leave the user on the
+          // dashboard; the next real API call will catch a 401/403.
         })
     }, SESSION_RECHECK_MS)
 
     // Immediate auth expiry handler (triggered by apiFetch on 401/403)
     setOnAuthExpired(() => {
+      setSessionExpired(true)
       setAuthState('login')
     })
 
@@ -105,6 +115,7 @@ export function AuthGate() {
       }
       setPassword('')
       setConfirmPassword('')
+      setSessionExpired(false)
       setAuthState('ready')
     } catch (err) {
       setError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Setup failed')
@@ -126,6 +137,7 @@ export function AuthGate() {
         return
       }
       setPassword('')
+      setSessionExpired(false)
       setAuthState('ready')
     } catch (err) {
       setError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Authentication failed')
@@ -200,6 +212,11 @@ export function AuthGate() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
+                {sessionExpired ? (
+                  <p className="mb-4 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-300">
+                    Your session expired — please sign in again.
+                  </p>
+                ) : null}
                 <form className="space-y-4" onSubmit={handleLogin}>
                   <label className="block space-y-1.5">
                     <span className="text-xs font-medium text-zinc-400">Password</span>

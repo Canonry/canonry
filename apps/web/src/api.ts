@@ -123,7 +123,10 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
         message = bodyText
       }
     }
-    if (res.status === 401 || res.status === 403) {
+    // Don't trigger auth-expiry on the session endpoints themselves — those
+    // are the login/setup paths, and a 401 there means "wrong password", not
+    // "your session expired."
+    if ((res.status === 401 || res.status === 403) && !path.startsWith('/session')) {
       handleAuthExpired()
     }
     throw new ApiError(message, res.status, code)

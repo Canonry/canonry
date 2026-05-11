@@ -1,6 +1,6 @@
-import { test, expect, onTestFinished, describe, vi } from 'vitest'
+import { test, expect, onTestFinished, describe, vi, beforeEach } from 'vitest'
 
-import { fetchProjects, setOnAuthExpired, handleAuthExpired } from '../src/api.js'
+import { fetchProjects, loginWithPassword, setupDashboardPassword, setOnAuthExpired, handleAuthExpired } from '../src/api.js'
 
 function mockFetch(status: number, body?: unknown) {
   const realFetch = globalThis.fetch
@@ -18,6 +18,12 @@ function mockFetch(status: number, body?: unknown) {
 }
 
 describe('apiFetch auth expiry', () => {
+  // Reset the module-level handler before each test so a previous test's
+  // failed cleanup can't leak into later tests.
+  beforeEach(() => {
+    setOnAuthExpired(null)
+  })
+
   test('calls auth expired handler on 401', async () => {
     mockFetch(401, { error: 'Unauthorized' })
     const handler = vi.fn()
@@ -25,8 +31,6 @@ describe('apiFetch auth expiry', () => {
 
     await expect(fetchProjects()).rejects.toThrow()
     expect(handler).toHaveBeenCalledOnce()
-
-    setOnAuthExpired(null)
   })
 
   test('calls auth expired handler on 403', async () => {
@@ -36,8 +40,6 @@ describe('apiFetch auth expiry', () => {
 
     await expect(fetchProjects()).rejects.toThrow()
     expect(handler).toHaveBeenCalledOnce()
-
-    setOnAuthExpired(null)
   })
 
   test('does NOT call auth expired handler on 404', async () => {
@@ -47,8 +49,6 @@ describe('apiFetch auth expiry', () => {
 
     await expect(fetchProjects()).rejects.toThrow()
     expect(handler).not.toHaveBeenCalled()
-
-    setOnAuthExpired(null)
   })
 
   test('does NOT call auth expired handler on 500', async () => {
@@ -58,8 +58,24 @@ describe('apiFetch auth expiry', () => {
 
     await expect(fetchProjects()).rejects.toThrow()
     expect(handler).not.toHaveBeenCalled()
+  })
 
-    setOnAuthExpired(null)
+  test('does NOT call auth expired handler on 401 from /session (wrong password)', async () => {
+    mockFetch(401, { error: { code: 'AUTH_INVALID', message: 'Incorrect password' } })
+    const handler = vi.fn()
+    setOnAuthExpired(handler)
+
+    await expect(loginWithPassword('wrong')).rejects.toThrow()
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  test('does NOT call auth expired handler on 401 from /session/setup', async () => {
+    mockFetch(401, { error: { code: 'AUTH_INVALID', message: 'Server API key not found' } })
+    const handler = vi.fn()
+    setOnAuthExpired(handler)
+
+    await expect(setupDashboardPassword('password123')).rejects.toThrow()
+    expect(handler).not.toHaveBeenCalled()
   })
 
   test('does nothing when no handler is registered (401)', async () => {
@@ -85,8 +101,6 @@ describe('apiFetch auth expiry', () => {
     handleAuthExpired()
 
     expect(handler).toHaveBeenCalledOnce()
-
-    setOnAuthExpired(null)
   })
 
   test('handleAuthExpired is safe when no handler is registered', () => {
