@@ -4,6 +4,8 @@ import {
   TrafficEvidenceKinds,
   TrafficSourceTypes,
   normalizedTrafficRequestSchema,
+  trafficConnectWordpressRequestSchema,
+  wordpressTrafficSourceConfigSchema,
 } from '../src/traffic.js'
 
 describe('traffic contracts', () => {
@@ -41,5 +43,60 @@ describe('traffic contracts', () => {
     expect(parsed.evidenceKind).toBe(TrafficEvidenceKinds['raw-request'])
     expect(parsed.confidence).toBe(TrafficEventConfidences.observed)
     expect(parsed.path).toBe('/blog/post')
+  })
+})
+
+describe('wordpressTrafficSourceConfigSchema', () => {
+  it('accepts a valid WordPress traffic source config', () => {
+    const parsed = wordpressTrafficSourceConfigSchema.parse({
+      baseUrl: 'https://example.com',
+      username: 'canonry-bot',
+    })
+    expect(parsed.baseUrl).toBe('https://example.com')
+    expect(parsed.username).toBe('canonry-bot')
+  })
+
+  it('rejects an invalid baseUrl', () => {
+    expect(() => wordpressTrafficSourceConfigSchema.parse({
+      baseUrl: 'not-a-url',
+      username: 'canonry-bot',
+    })).toThrow()
+  })
+
+  it('rejects an empty username', () => {
+    expect(() => wordpressTrafficSourceConfigSchema.parse({
+      baseUrl: 'https://example.com',
+      username: '',
+    })).toThrow()
+  })
+})
+
+describe('trafficConnectWordpressRequestSchema', () => {
+  it('accepts a connect request with all required fields', () => {
+    const parsed = trafficConnectWordpressRequestSchema.parse({
+      baseUrl: 'https://example.com',
+      username: 'canonry-bot',
+      applicationPassword: 'xxxx xxxx xxxx xxxx xxxx xxxx',
+      displayName: 'Example WordPress',
+    })
+    expect(parsed.applicationPassword).toBe('xxxx xxxx xxxx xxxx xxxx xxxx')
+    expect(parsed.displayName).toBe('Example WordPress')
+  })
+
+  it('allows omitting displayName', () => {
+    const parsed = trafficConnectWordpressRequestSchema.parse({
+      baseUrl: 'https://example.com',
+      username: 'canonry-bot',
+      applicationPassword: 'pw',
+    })
+    expect(parsed.displayName).toBeUndefined()
+  })
+
+  it('rejects an empty applicationPassword', () => {
+    expect(() => trafficConnectWordpressRequestSchema.parse({
+      baseUrl: 'https://example.com',
+      username: 'canonry-bot',
+      applicationPassword: '',
+    })).toThrow()
   })
 })

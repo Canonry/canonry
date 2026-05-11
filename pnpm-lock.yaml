@@ -410,6 +410,12 @@ importers:
         specifier: workspace:*
         version: link:../contracts
 
+  packages/integration-wordpress-traffic:
+    dependencies:
+      '@ainyc/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
   packages/intelligence:
     dependencies:
       '@ainyc/canonry-contracts':
