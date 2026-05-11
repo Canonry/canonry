@@ -71,6 +71,24 @@ export function hasExplicitBrowserApiKey(): boolean {
   return Boolean(getApiKey())
 }
 
+let _onAuthExpired: (() => void) | null = null
+
+/**
+ * Register a handler to call when any API request returns 401 or 403.
+ * Pass null to clear. Only one handler is active at a time.
+ */
+export function setOnAuthExpired(handler: (() => void) | null): void {
+  _onAuthExpired = handler
+}
+
+/**
+ * Trigger the registered auth-expiry handler. Called automatically by
+ * apiFetch on 401/403 responses; also callable from tests.
+ */
+export function handleAuthExpired(): void {
+  _onAuthExpired?.()
+}
+
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const key = getApiKey()
   const hasBody = options?.body != null
@@ -104,6 +122,12 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
       } catch {
         message = bodyText
       }
+    }
+    // Don't trigger auth-expiry on the session endpoints themselves — those
+    // are the login/setup paths, and a 401 there means "wrong password", not
+    // "your session expired."
+    if ((res.status === 401 || res.status === 403) && !path.startsWith('/session')) {
+      handleAuthExpired()
     }
     throw new ApiError(message, res.status, code)
   }
