@@ -31,6 +31,7 @@ import {
   useSyncServerTrafficSource,
 } from '../queries/server-traffic.js'
 import {
+  bucketForChartClick,
   bucketKeyFor,
   filterTrafficEvents,
   identityOf,
@@ -178,11 +179,7 @@ export function TrafficSourceDetailPage() {
   }
 
   const handleChartClick = (state: unknown) => {
-    const payload =
-      state && typeof state === 'object' && 'activePayload' in state
-        ? (state as { activePayload?: Array<{ payload?: ChartRow }> }).activePayload
-        : undefined
-    const bucket = payload?.[0]?.payload?.bucket
+    const bucket = bucketForChartClick(state, chartData)
     if (!bucket) return
     setSelectedBucket((prev) => (prev === bucket ? null : bucket))
   }
