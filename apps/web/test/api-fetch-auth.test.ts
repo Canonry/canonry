@@ -1,6 +1,7 @@
 import { test, expect, onTestFinished, describe, vi, beforeEach } from 'vitest'
 
 import { fetchProjects, loginWithPassword, setupDashboardPassword, setOnAuthExpired, handleAuthExpired } from '../src/api.js'
+import { fetchAeroTranscript, fetchAgentProviders, resetAeroTranscript, promptAero } from '../src/api-aero.js'
 
 function mockFetch(status: number, body?: unknown) {
   const realFetch = globalThis.fetch
@@ -106,5 +107,71 @@ describe('apiFetch auth expiry', () => {
   test('handleAuthExpired is safe when no handler is registered', () => {
     // Should not throw
     expect(() => handleAuthExpired()).not.toThrow()
+  })
+})
+
+describe('api-aero auth expiry', () => {
+  // Aero endpoints bypass apiFetch (the prompt endpoint streams its SSE body),
+  // so they wire handleAuthExpired() in independently. These tests guard the
+  // long-lived-dashboard case: if the agent stream is the only active request
+  // when the session expires, the user should still be kicked to login.
+  beforeEach(() => {
+    setOnAuthExpired(null)
+  })
+
+  test('fetchAeroTranscript triggers auth expiry on 401', async () => {
+    mockFetch(401, { error: { code: 'AUTH_REQUIRED', message: 'Unauthorized' } })
+    const handler = vi.fn()
+    setOnAuthExpired(handler)
+
+    await expect(fetchAeroTranscript('demo')).rejects.toThrow()
+    expect(handler).toHaveBeenCalledOnce()
+  })
+
+  test('fetchAeroTranscript triggers auth expiry on 403', async () => {
+    mockFetch(403, { error: 'Forbidden' })
+    const handler = vi.fn()
+    setOnAuthExpired(handler)
+
+    await expect(fetchAeroTranscript('demo')).rejects.toThrow()
+    expect(handler).toHaveBeenCalledOnce()
+  })
+
+  test('fetchAeroTranscript does NOT trigger auth expiry on 404', async () => {
+    mockFetch(404, { error: 'Not found' })
+    const handler = vi.fn()
+    setOnAuthExpired(handler)
+
+    await expect(fetchAeroTranscript('demo')).rejects.toThrow()
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  test('fetchAgentProviders triggers auth expiry on 401', async () => {
+    mockFetch(401, { error: 'Unauthorized' })
+    const handler = vi.fn()
+    setOnAuthExpired(handler)
+
+    await expect(fetchAgentProviders('demo')).rejects.toThrow()
+    expect(handler).toHaveBeenCalledOnce()
+  })
+
+  test('resetAeroTranscript triggers auth expiry on 401', async () => {
+    mockFetch(401, { error: 'Unauthorized' })
+    const handler = vi.fn()
+    setOnAuthExpired(handler)
+
+    await expect(resetAeroTranscript('demo')).rejects.toThrow()
+    expect(handler).toHaveBeenCalledOnce()
+  })
+
+  test('promptAero triggers auth expiry on 401 before the stream opens', async () => {
+    mockFetch(401, { error: 'Unauthorized' })
+    const handler = vi.fn()
+    setOnAuthExpired(handler)
+
+    await expect(
+      promptAero({ project: 'demo', prompt: 'hi', onEvent: () => {} }),
+    ).rejects.toThrow()
+    expect(handler).toHaveBeenCalledOnce()
   })
 })

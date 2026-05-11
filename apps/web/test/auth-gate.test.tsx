@@ -9,9 +9,9 @@ import { AuthGate } from '../src/components/auth/AuthGate.js'
 function mockFetch(handler: (url: string, init?: RequestInit) => Response | Promise<Response>) {
   const realFetch = globalThis.fetch
   globalThis.fetch = handler as typeof fetch
-  return () => {
+  onTestFinished(() => {
     globalThis.fetch = realFetch
-  }
+  })
 }
 
 function jsonResponse(body: unknown, status = 200) {
@@ -36,34 +36,31 @@ afterEach(() => {
 describe('AuthGate', () => {
   describe('initial auth state', () => {
     test('renders login form when session is unauthenticated', async () => {
-      const restore = mockFetch((url) => {
+      mockFetch((url) => {
         if (String(url).includes(API_SESSION)) return jsonResponse({ authenticated: false })
         return jsonResponse({})
       })
-      onTestFinished(restore)
 
       render(<AuthGate />)
       expect(await screen.findByText('Sign in to Canonry')).toBeTruthy()
     })
 
     test('renders setup form when session returns setupRequired', async () => {
-      const restore = mockFetch((url) => {
+      mockFetch((url) => {
         if (String(url).includes(API_SESSION)) return jsonResponse({ authenticated: false, setupRequired: true })
         return jsonResponse({})
       })
-      onTestFinished(restore)
 
       render(<AuthGate />)
       expect(await screen.findByText('Create a dashboard password')).toBeTruthy()
     })
 
     test('renders dashboard when session is authenticated', async () => {
-      const restore = mockFetch((url) => {
+      mockFetch((url) => {
         const urlStr = String(url)
         if (urlStr.includes(API_SESSION)) return jsonResponse({ authenticated: true })
         return dashboardFallback(urlStr)
       })
-      onTestFinished(restore)
 
       render(<AuthGate />)
       expect(await screen.findByText('Portfolio')).toBeTruthy()
@@ -71,13 +68,12 @@ describe('AuthGate', () => {
 
     test('shows connecting state while session check is pending', async () => {
       let resolveSession: (value: Response) => void
-      const restore = mockFetch((url) => {
+      mockFetch((url) => {
         if (String(url).includes(API_SESSION)) {
           return new Promise((resolve) => { resolveSession = resolve })
         }
         return jsonResponse({})
       })
-      onTestFinished(restore)
 
       render(<AuthGate />)
       expect(screen.getByText('Connecting to Canonry…')).toBeTruthy()
@@ -92,12 +88,11 @@ describe('AuthGate', () => {
 
   describe('auth expiry callback', () => {
     test('transitions to login immediately when handleAuthExpired fires', async () => {
-      const restore = mockFetch((url) => {
+      mockFetch((url) => {
         const urlStr = String(url)
         if (urlStr.includes(API_SESSION)) return jsonResponse({ authenticated: true })
         return dashboardFallback(urlStr)
       })
-      onTestFinished(restore)
 
       render(<AuthGate />)
       expect(await screen.findByText('Portfolio')).toBeTruthy()
@@ -110,12 +105,11 @@ describe('AuthGate', () => {
     })
 
     test('shows session-expired message when bounced back to login', async () => {
-      const restore = mockFetch((url) => {
+      mockFetch((url) => {
         const urlStr = String(url)
         if (urlStr.includes(API_SESSION)) return jsonResponse({ authenticated: true })
         return dashboardFallback(urlStr)
       })
-      onTestFinished(restore)
 
       render(<AuthGate />)
       expect(await screen.findByText('Portfolio')).toBeTruthy()
@@ -133,12 +127,11 @@ describe('AuthGate', () => {
       // Use a mutable object for session so we can change responses mid-test
       const sessionState = { authenticated: true, setupRequired: false }
 
-      const restore = mockFetch((url) => {
+      mockFetch((url) => {
         const urlStr = String(url)
         if (urlStr.includes(API_SESSION)) return jsonResponse(sessionState)
         return dashboardFallback(urlStr)
       })
-      onTestFinished(restore)
 
       vi.useFakeTimers({ shouldAdvanceTime: true })
 
@@ -166,7 +159,7 @@ describe('AuthGate', () => {
       const sessionState = { authenticated: true, setupRequired: false }
       let shouldThrow = false
 
-      const restore = mockFetch((url) => {
+      mockFetch((url) => {
         const urlStr = String(url)
         if (urlStr.includes(API_SESSION)) {
           if (shouldThrow) throw new Error('Network error')
@@ -174,7 +167,6 @@ describe('AuthGate', () => {
         }
         return dashboardFallback(urlStr)
       })
-      onTestFinished(restore)
 
       vi.useFakeTimers({ shouldAdvanceTime: true })
 

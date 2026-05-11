@@ -1,4 +1,4 @@
-import { ApiError } from './api.js'
+import { ApiError, handleAuthExpired } from './api.js'
 import type { AgentProviderId, AgentProvidersResponse } from '@ainyc/canonry-contracts'
 
 export type { AgentProviderId, AgentProviderOption, AgentProvidersResponse } from '@ainyc/canonry-contracts'
@@ -62,11 +62,23 @@ export interface AeroTranscript {
   updatedAt: string | null
 }
 
+// Aero endpoints bypass apiFetch (the prompt endpoint needs the raw SSE stream
+// body, and the others share that file for cohesion), so they need their own
+// 401/403 → handleAuthExpired() trigger. Without this, a long-lived dashboard
+// whose only active request is the agent stream wouldn't be kicked when its
+// session expires.
+function triggerAuthExpiredOn401Or403(status: number): void {
+  if (status === 401 || status === 403) {
+    handleAuthExpired()
+  }
+}
+
 export async function fetchAeroTranscript(project: string): Promise<AeroTranscript> {
   const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(project)}/agent/transcript`, {
     credentials: 'include',
   })
   if (!res.ok) {
+    triggerAuthExpiredOn401Or403(res.status)
     const body = await res.json().catch(() => ({}))
     throw new ApiError(body?.error?.message ?? `transcript fetch failed: ${res.status}`, res.status, body?.error?.code)
   }
@@ -78,6 +90,7 @@ export async function fetchAgentProviders(project: string): Promise<AgentProvide
     credentials: 'include',
   })
   if (!res.ok) {
+    triggerAuthExpiredOn401Or403(res.status)
     const body = await res.json().catch(() => ({}))
     throw new ApiError(
       body?.error?.message ?? `providers fetch failed: ${res.status}`,
@@ -94,6 +107,7 @@ export async function resetAeroTranscript(project: string): Promise<void> {
     credentials: 'include',
   })
   if (!res.ok) {
+    triggerAuthExpiredOn401Or403(res.status)
     const body = await res.json().catch(() => ({}))
     throw new ApiError(body?.error?.message ?? `reset failed: ${res.status}`, res.status, body?.error?.code)
   }
@@ -144,6 +158,7 @@ export async function promptAero({
     signal,
   })
   if (!res.ok || !res.body) {
+    triggerAuthExpiredOn401Or403(res.status)
     const body = await res.json().catch(() => ({}))
     throw new ApiError(body?.error?.message ?? `prompt failed: ${res.status}`, res.status, body?.error?.code)
   }
