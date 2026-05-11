@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest'
 import { TrafficEventKinds, type TrafficEventEntry } from '@ainyc/canonry-contracts'
 
 import {
+  bucketForChartClick,
   bucketKeyFor,
   filterTrafficEvents,
   identityOf,
@@ -155,5 +156,55 @@ describe('filterTrafficEvents', () => {
       'hour',
     )
     expect(result).toEqual([])
+  })
+})
+
+describe('bucketForChartClick', () => {
+  const chartData = [
+    { bucket: '2026-05-07T00:00:00.000Z' },
+    { bucket: '2026-05-07T01:00:00.000Z' },
+    { bucket: '2026-05-07T02:00:00.000Z' },
+  ]
+
+  test('returns the bucket at activeTooltipIndex (recharts v3 shape)', () => {
+    // Recharts 3.x BarChart.onClick fires with MouseHandlerDataParam — no activePayload.
+    const state = {
+      activeTooltipIndex: 2,
+      isTooltipActive: true,
+      activeIndex: 2,
+      activeLabel: '5/7 02:00',
+    }
+    expect(bucketForChartClick(state, chartData)).toBe('2026-05-07T02:00:00.000Z')
+  })
+
+  test('returns null when state is null/undefined', () => {
+    expect(bucketForChartClick(null, chartData)).toBeNull()
+    expect(bucketForChartClick(undefined, chartData)).toBeNull()
+  })
+
+  test('returns null when activeTooltipIndex is missing or non-numeric', () => {
+    expect(bucketForChartClick({}, chartData)).toBeNull()
+    expect(bucketForChartClick({ activeTooltipIndex: undefined }, chartData)).toBeNull()
+    expect(bucketForChartClick({ activeTooltipIndex: 'foo' }, chartData)).toBeNull()
+  })
+
+  test('returns null for out-of-range index', () => {
+    expect(bucketForChartClick({ activeTooltipIndex: -1 }, chartData)).toBeNull()
+    expect(bucketForChartClick({ activeTooltipIndex: 3 }, chartData)).toBeNull()
+    expect(bucketForChartClick({ activeTooltipIndex: 99 }, chartData)).toBeNull()
+  })
+
+  test('rejects non-integer activeTooltipIndex', () => {
+    expect(bucketForChartClick({ activeTooltipIndex: 1.5 }, chartData)).toBeNull()
+    expect(bucketForChartClick({ activeTooltipIndex: Number.NaN }, chartData)).toBeNull()
+  })
+
+  test('reading activePayload (the v2 shape) returns null — guards against regression', () => {
+    // If someone re-introduces the v2 read pattern, this would have been the v2 shape.
+    // We deliberately ignore activePayload in v3 and only use activeTooltipIndex.
+    const v2Shape = {
+      activePayload: [{ payload: { bucket: '2026-05-07T01:00:00.000Z' } }],
+    }
+    expect(bucketForChartClick(v2Shape, chartData)).toBeNull()
   })
 })
