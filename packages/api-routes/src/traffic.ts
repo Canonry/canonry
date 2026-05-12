@@ -20,6 +20,7 @@ import {
   TrafficSourceTypes,
   TrafficSourceAuthModes,
   TrafficEventKinds,
+  trafficConnectWordpressRequestSchema,
 } from '@ainyc/canonry-contracts'
 import type {
   RunStatus,
@@ -44,6 +45,14 @@ import type {
   ListCloudRunTrafficEventsOptions,
 } from '@ainyc/canonry-integration-cloud-run'
 import { buildTrafficProbeReport } from '@ainyc/canonry-integration-traffic'
+import {
+  listWordpressTrafficEvents,
+  WordpressTrafficApiError,
+} from '@ainyc/canonry-integration-wordpress-traffic'
+import type {
+  ListWordpressTrafficEventsOptions,
+  WordpressTrafficEventsPage,
+} from '@ainyc/canonry-integration-wordpress-traffic'
 import { resolveProject, writeAuditLog } from './helpers.js'
 
 export interface CloudRunCredentialRecord {
@@ -64,6 +73,21 @@ export interface CloudRunCredentialRecord {
 export interface CloudRunCredentialStore {
   getConnection: (projectName: string) => CloudRunCredentialRecord | undefined
   upsertConnection: (record: CloudRunCredentialRecord) => CloudRunCredentialRecord
+  deleteConnection: (projectName: string) => boolean
+}
+
+export interface WordpressTrafficCredentialRecord {
+  projectName: string
+  baseUrl: string
+  username: string
+  applicationPassword: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface WordpressTrafficCredentialStore {
+  getConnection: (projectName: string) => WordpressTrafficCredentialRecord | undefined
+  upsertConnection: (record: WordpressTrafficCredentialRecord) => WordpressTrafficCredentialRecord
   deleteConnection: (projectName: string) => boolean
 }
 
@@ -95,6 +119,15 @@ export interface TrafficRoutesOptions {
   ) => Promise<CloudRunTrafficEventsPage>
   /** Override the access-token resolver (for tests). Defaults to service-account JWT exchange. */
   resolveCloudRunAccessToken?: (record: CloudRunCredentialRecord) => Promise<string>
+  /**
+   * Store for WordPress traffic-logger Application Password credentials. When
+   * absent, the WordPress connect / sync routes return a configuration error.
+   */
+  wordpressTrafficCredentialStore?: WordpressTrafficCredentialStore
+  /** Override the WordPress traffic pull function (for tests). Defaults to `listWordpressTrafficEvents`. */
+  pullWordpressTrafficEvents?: (
+    options: ListWordpressTrafficEventsOptions,
+  ) => Promise<WordpressTrafficEventsPage>
   /** Default lookback window in minutes when a sync is triggered without an explicit `since`. */
   defaultSyncWindowMinutes?: number
   /** Default page size for entries.list pulls. */
@@ -427,6 +460,7 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
 export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOptions) {
   const pullEvents = opts.pullCloudRunEvents ?? listCloudRunTrafficEvents
   const resolveAccessToken = opts.resolveCloudRunAccessToken ?? defaultResolveAccessToken
+  const pullWordpressEvents = opts.pullWordpressTrafficEvents ?? listWordpressTrafficEvents
   const syncWindowMinutes = opts.defaultSyncWindowMinutes ?? DEFAULT_SYNC_WINDOW_MINUTES
   const pageSize = opts.defaultPageSize ?? DEFAULT_PAGE_SIZE
   const maxPages = opts.defaultMaxPages ?? DEFAULT_MAX_PAGES
@@ -548,6 +582,132 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       projectId: project.id,
       actor: 'api',
       action: 'traffic.cloud-run.connected',
+      entityType: 'traffic_source',
+      entityId: sourceRow.id,
+    })
+
+    return rowToDto(sourceRow)
+  })
+
+  // POST /projects/:name/traffic/connect/wordpress
+  //
+  // Probes the WordPress traffic-logger plugin endpoint with the supplied
+  // Application Password (single-page, limit=1) before persisting — a probe
+  // failure surfaces as `providerError()` so the caller sees a meaningful
+  // diagnostic up front instead of discovering it at the first sync.
+  app.post<{
+    Params: { name: string }
+    Body: {
+      baseUrl?: string
+      username?: string
+      applicationPassword?: string
+      displayName?: string
+    }
+  }>('/projects/:name/traffic/connect/wordpress', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    if (!opts.wordpressTrafficCredentialStore) {
+      throw validationError('WordPress traffic credential storage is not configured for this deployment')
+    }
+    const credentialStore = opts.wordpressTrafficCredentialStore
+
+    const parsed = trafficConnectWordpressRequestSchema.safeParse(request.body ?? {})
+    if (!parsed.success) {
+      throw validationError(parsed.error.issues.map((i) => i.message).join('; '))
+    }
+    const { baseUrl, username, applicationPassword, displayName } = parsed.data
+
+    // Probe the plugin endpoint up-front so the caller learns about a bad
+    // URL / wrong credential before we touch any persistent state.
+    try {
+      await pullWordpressEvents({
+        baseUrl,
+        username,
+        applicationPassword,
+        pageSize: 1,
+        maxPages: 1,
+      })
+    } catch (e) {
+      if (e instanceof WordpressTrafficApiError) {
+        throw providerError(
+          `WordPress traffic probe failed (HTTP ${e.status}): ${e.message}${e.body ? ` — ${e.body}` : ''}`,
+        )
+      }
+      const msg = e instanceof Error ? e.message : String(e)
+      throw providerError(`WordPress traffic probe failed: ${msg}`)
+    }
+
+    const now = new Date().toISOString()
+    const existing = credentialStore.getConnection(project.name)
+    credentialStore.upsertConnection({
+      projectName: project.name,
+      baseUrl,
+      username,
+      applicationPassword,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    })
+
+    // Single active WordPress source per project; reconnect updates it.
+    const activeSource = app.db
+      .select()
+      .from(trafficSources)
+      .where(eq(trafficSources.projectId, project.id))
+      .all()
+      .find((row) => row.sourceType === TrafficSourceTypes.wordpress && row.status !== TrafficSourceStatuses.archived)
+
+    // Only non-secret config goes on the row — the Application Password lives
+    // in ~/.canonry/config.yaml via the credential store.
+    const config: Record<string, unknown> = { baseUrl, username }
+    const fallbackName = displayName ?? `WordPress · ${new URL(baseUrl).host}`
+
+    let sourceRow: typeof trafficSources.$inferSelect
+    if (activeSource) {
+      app.db
+        .update(trafficSources)
+        .set({
+          displayName: fallbackName,
+          status: TrafficSourceStatuses.connected,
+          lastError: null,
+          configJson: JSON.stringify(config),
+          updatedAt: now,
+        })
+        .where(eq(trafficSources.id, activeSource.id))
+        .run()
+      sourceRow = app.db
+        .select()
+        .from(trafficSources)
+        .where(eq(trafficSources.id, activeSource.id))
+        .get()!
+    } else {
+      const newId = crypto.randomUUID()
+      app.db
+        .insert(trafficSources)
+        .values({
+          id: newId,
+          projectId: project.id,
+          sourceType: TrafficSourceTypes.wordpress,
+          displayName: fallbackName,
+          status: TrafficSourceStatuses.connected,
+          lastSyncedAt: null,
+          lastCursor: null,
+          lastError: null,
+          archivedAt: null,
+          configJson: JSON.stringify(config),
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run()
+      sourceRow = app.db
+        .select()
+        .from(trafficSources)
+        .where(eq(trafficSources.id, newId))
+        .get()!
+    }
+
+    writeAuditLog(app.db, {
+      projectId: project.id,
+      actor: 'api',
+      action: 'traffic.wordpress.connected',
       entityType: 'traffic_source',
       entityId: sourceRow.id,
     })

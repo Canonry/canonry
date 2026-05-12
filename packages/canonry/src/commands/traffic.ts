@@ -16,6 +16,61 @@ function getClient() {
   return createApiClient()
 }
 
+export async function trafficConnectWordpress(project: string, opts: {
+  url: string
+  username: string
+  appPassword: string
+  displayName?: string
+  format?: string
+}): Promise<void> {
+  if (!opts.url) {
+    throw new CliError({
+      code: 'TRAFFIC_WP_URL_REQUIRED',
+      message: '--url is required',
+      displayMessage: 'Error: --url is required',
+      details: { project },
+    })
+  }
+  if (!opts.username) {
+    throw new CliError({
+      code: 'TRAFFIC_WP_USERNAME_REQUIRED',
+      message: '--username is required',
+      displayMessage: 'Error: --username is required',
+      details: { project },
+    })
+  }
+  if (!opts.appPassword) {
+    throw new CliError({
+      code: 'TRAFFIC_WP_APP_PASSWORD_REQUIRED',
+      message: '--app-password is required',
+      displayMessage: 'Error: --app-password is required',
+      details: { project },
+    })
+  }
+
+  const client = getClient()
+  const result: TrafficSourceDto = await client.trafficConnectWordpress(project, {
+    baseUrl: opts.url,
+    username: opts.username,
+    applicationPassword: opts.appPassword,
+    displayName: opts.displayName,
+  })
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  console.log(`WordPress traffic source connected for project "${project}".`)
+  console.log(`  Source ID:    ${result.id}`)
+  console.log(`  Display name: ${result.displayName}`)
+  console.log(`  Status:       ${result.status}`)
+  console.log(`  Site URL:     ${result.config.baseUrl ?? '(unset)'}`)
+  console.log(`  Username:     ${result.config.username ?? '(unset)'}`)
+  console.log('')
+  console.log(`Next: canonry traffic sync ${project} --source ${result.id}`)
+}
+
 export async function trafficConnectCloudRun(project: string, opts: {
   gcpProject: string
   service?: string

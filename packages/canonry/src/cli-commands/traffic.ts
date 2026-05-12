@@ -1,6 +1,7 @@
 import {
   trafficBackfill,
   trafficConnectCloudRun,
+  trafficConnectWordpress,
   trafficEvents,
   trafficSources,
   trafficStatus,
@@ -42,13 +43,44 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['traffic', 'connect', 'wordpress'],
+    usage: 'canonry traffic connect wordpress <project> --url <wp-site-url> --username <wp-user> --app-password <app-password> [--display-name <name>] [--format json]',
+    options: {
+      url: stringOption(),
+      username: stringOption(),
+      'app-password': stringOption(),
+      'display-name': stringOption(),
+    },
+    run: async (input) => {
+      const project = requireProject(
+        input,
+        'traffic.connect.wordpress',
+        'canonry traffic connect wordpress <project> --url <wp-site-url> --username <wp-user> --app-password <app-password>',
+      )
+      const url = getString(input.values, 'url')
+      if (!url) throw new Error('--url is required')
+      const username = getString(input.values, 'username')
+      if (!username) throw new Error('--username is required')
+      const appPassword = getString(input.values, 'app-password')
+      if (!appPassword) throw new Error('--app-password is required')
+
+      await trafficConnectWordpress(project, {
+        url,
+        username,
+        appPassword,
+        displayName: getString(input.values, 'display-name'),
+        format: input.format,
+      })
+    },
+  },
+  {
     path: ['traffic', 'connect'],
     usage: 'canonry traffic connect <provider> <project> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'traffic connect',
         usage: 'canonry traffic connect <provider> <project> [args]',
-        available: ['cloud-run'],
+        available: ['cloud-run', 'wordpress'],
       })
     },
   },

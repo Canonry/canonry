@@ -165,6 +165,36 @@ describe('traffic CLI commands', () => {
     expect(yaml.cloudRun?.connections?.[0]?.clientEmail).toBe('sa@openclaw-nyc.iam.gserviceaccount.com')
   })
 
+  it('rejects traffic connect wordpress without --url', async () => {
+    const result = await invokeCli([
+      'traffic', 'connect', 'wordpress', 'test-proj',
+      '--username', 'bot',
+      '--app-password', 'pw',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/--url/)
+  })
+
+  it('rejects traffic connect wordpress without --username', async () => {
+    const result = await invokeCli([
+      'traffic', 'connect', 'wordpress', 'test-proj',
+      '--url', 'https://example.com',
+      '--app-password', 'pw',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/--username/)
+  })
+
+  it('rejects traffic connect wordpress without --app-password', async () => {
+    const result = await invokeCli([
+      'traffic', 'connect', 'wordpress', 'test-proj',
+      '--url', 'https://example.com',
+      '--username', 'bot',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/--app-password/)
+  })
+
   it('rejects traffic sync without --source', async () => {
     const result = await invokeCli(['traffic', 'sync', 'test-proj'])
     expect(result.exitCode).not.toBe(0)
