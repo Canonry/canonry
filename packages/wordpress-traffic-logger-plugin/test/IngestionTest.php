@@ -76,6 +76,22 @@ final class IngestionTest extends TestCase {
         $this->assertCount(0, $rows);
     }
 
+    public function test_skips_post_requests(): void {
+        $request = [
+            'REQUEST_METHOD' => 'POST',
+            'HTTP_HOST'      => 'example.com',
+            'REQUEST_URI'    => '/2026/05/12/hello-world/',
+            'HTTP_USER_AGENT'=> 'Mozilla/5.0',
+            'REMOTE_ADDR'    => '203.0.113.4',
+        ];
+
+        \Canonry\TrafficLogger\Recorder::record($request, 200);
+
+        global $wpdb;
+        $rows = $wpdb->rows[$wpdb->prefix . 'canonry_traffic_events'] ?? [];
+        $this->assertCount(0, $rows);
+    }
+
     public function test_null_query_when_no_query_string(): void {
         $request = [
             'REQUEST_METHOD' => 'GET',

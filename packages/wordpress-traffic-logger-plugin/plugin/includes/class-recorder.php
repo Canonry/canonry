@@ -74,10 +74,6 @@ final class Recorder {
 
     /** @param array<string, mixed> $server */
     private static function shouldRecord(array $server): bool {
-        // Skip wp-admin / admin-ajax. We do not skip POST because legitimate
-        // page-loads (e.g. comment submissions, form posts) can still produce
-        // traffic the server-side classifier wants to see. The admin guard
-        // catches the common WP back-office sources of write traffic.
         $uri = (string) ($server['REQUEST_URI'] ?? '');
         if ($uri === '') return false;
         if (strpos($uri, '/wp-admin/') !== false) return false;
@@ -85,6 +81,12 @@ final class Recorder {
 
         // WP defines DOING_AJAX during admin-ajax handling. Skip if set.
         if (defined('DOING_AJAX') && DOING_AJAX) return false;
+
+        // Skip non-GET. AI crawlers and human clicks from AI referrers are
+        // always GET; POSTs are comment submissions, logins, admin saves —
+        // noise the server-side classifier discards anyway.
+        $method = strtoupper((string) ($server['REQUEST_METHOD'] ?? ''));
+        if ($method !== '' && $method !== 'GET') return false;
 
         return true;
     }
