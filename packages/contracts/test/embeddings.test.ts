@@ -80,6 +80,43 @@ test('clusterByCosine throws on out-of-range threshold', () => {
   expect(() => clusterByCosine(['a'], [[1]], -0.1)).toThrow()
 })
 
+test('clusterByCosine merges existing clusters when a bridge item arrives LAST (true single-link)', () => {
+  // Setup: a ≈ b via b as bridge, b ≈ c via b as bridge, a ≢ c directly.
+  // Critical: b is inserted LAST so the buggy greedy implementation would
+  // merge b into a's cluster and leave c isolated.
+  const items = ['a', 'c', 'b']
+  const vectors = [
+    [1.0, 0.0, 0.0], // a
+    [0.5, 0.87, 0.0], // c — sim(a,c) ≈ 0.5
+    [0.9, 0.44, 0.0], // b — sim(a,b) ≈ 0.9, sim(b,c) ≈ 0.83
+  ]
+  // Pin the pair similarities so the test is self-evident.
+  expect(cosineSimilarity(vectors[0]!, vectors[1]!)).toBeLessThan(0.8)
+  expect(cosineSimilarity(vectors[0]!, vectors[2]!)).toBeGreaterThan(0.8)
+  expect(cosineSimilarity(vectors[1]!, vectors[2]!)).toBeGreaterThan(0.8)
+
+  const clusters = clusterByCosine(items, vectors, 0.8)
+  // True single-link: all three end up in one cluster via the b-bridge.
+  // Greedy-first-match would (incorrectly) return [['a','b'], ['c']].
+  expect(clusters).toEqual([['a', 'c', 'b']])
+})
+
+test('clusterByCosine merges two pre-existing clusters when a bridge item connects them', () => {
+  // Variant: insert two well-separated clusters first, then the bridge.
+  // a₁ ≈ a₂ form a cluster; c₁ ≈ c₂ form another; b bridges both.
+  const items = ['a1', 'a2', 'c1', 'c2', 'b']
+  const vectors = [
+    [1.0, 0.0, 0.0, 0.0], // a1
+    [0.99, 0.0, 0.0, 0.0], // a2 — sim(a1,a2) ≈ 1
+    [0.0, 0.0, 1.0, 0.0], // c1 — sim(a*,c*) ≈ 0
+    [0.0, 0.0, 0.99, 0.0], // c2 — sim(c1,c2) ≈ 1
+    [0.7, 0.0, 0.7, 0.0], // b — sim(a*,b) ≈ 0.7, sim(c*,b) ≈ 0.7
+  ]
+  const clusters = clusterByCosine(items, vectors, 0.65)
+  expect(clusters).toHaveLength(1)
+  expect(clusters[0]).toEqual(['a1', 'a2', 'c1', 'c2', 'b'])
+})
+
 test('pickClusterRepresentative returns the shortest member by default', () => {
   expect(pickClusterRepresentative(['best ai home estimating tools for contractors', 'ai quoting'])).toBe(
     'ai quoting',

@@ -23,15 +23,25 @@ export function cosineSimilarity(a: number[], b: number[]): number {
 }
 
 /**
- * Greedy single-link clustering by cosine similarity. Each item is assigned
- * to the first existing cluster where any member has similarity ≥ threshold;
- * otherwise it forms its own cluster. Order within a cluster preserves
- * insertion order from `items`.
+ * Single-link clustering by cosine similarity (a.k.a. connected components
+ * over the similarity graph). Two items end up in the same cluster iff there
+ * is a chain `i → j₁ → … → jₖ → k` of pairs each with similarity ≥ threshold.
+ * Implementation: union-find over all O(N²) pairs.
  *
  * Single-link (rather than complete-link or average-link) suits the
- * discovery dedup use case: we want to collapse a chain like
+ * discovery dedup use case: collapse a chain like
  * "ai quoting" ≈ "home quoting" ≈ "instant home estimate" into one cluster
  * even when the endpoints are below threshold.
+ *
+ * Output ordering:
+ *   - Cluster order is the position at which each cluster's first member
+ *     appeared in `items` (so the cluster containing items[0] comes first).
+ *   - Within a cluster, items preserve their original insertion order.
+ *
+ * Earlier implementations placed each item in the *first* cluster it
+ * matched and broke out — that was greedy, not single-link: a bridge item
+ * arriving last would only merge into one of the two clusters it should
+ * have joined, leaving the second isolated. Union-find avoids this.
  */
 export function clusterByCosine<T>(
   items: T[],
@@ -46,22 +56,43 @@ export function clusterByCosine<T>(
   }
   if (items.length === 0) return []
 
-  const clusters: number[][] = []
-  for (let i = 0; i < items.length; i++) {
-    let placed = false
-    for (const cluster of clusters) {
-      for (const j of cluster) {
-        if (cosineSimilarity(vectors[i]!, vectors[j]!) >= threshold) {
-          cluster.push(i)
-          placed = true
-          break
-        }
-      }
-      if (placed) break
+  const parent: number[] = items.map((_, i) => i)
+  const find = (x: number): number => {
+    let root = x
+    while (parent[root]! !== root) root = parent[root]!
+    // path compression
+    let cur = x
+    while (parent[cur]! !== root) {
+      const next = parent[cur]!
+      parent[cur] = root
+      cur = next
     }
-    if (!placed) clusters.push([i])
+    return root
   }
-  return clusters.map((indices) => indices.map((idx) => items[idx]!))
+  const union = (a: number, b: number): void => {
+    const ra = find(a)
+    const rb = find(b)
+    if (ra !== rb) parent[ra] = rb
+  }
+
+  for (let i = 0; i < items.length; i++) {
+    for (let j = i + 1; j < items.length; j++) {
+      if (cosineSimilarity(vectors[i]!, vectors[j]!) >= threshold) {
+        union(i, j)
+      }
+    }
+  }
+
+  // Bucket items by their root, preserving insertion order both for cluster
+  // emission (the iteration order of the Map) and for items within a cluster.
+  const byRoot = new Map<number, number[]>()
+  for (let i = 0; i < items.length; i++) {
+    const root = find(i)
+    const existing = byRoot.get(root)
+    if (existing) existing.push(i)
+    else byRoot.set(root, [i])
+  }
+  return Array.from(byRoot.values()).map((indices) => indices.map((idx) => items[idx]!))
 }
 
 /**
