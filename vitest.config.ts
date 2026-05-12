@@ -37,6 +37,7 @@ const NODE_PACKAGES = [
   'integration-google-analytics',
   'integration-traffic',
   'integration-wordpress',
+  'integration-wordpress-traffic',
   'intelligence',
   'provider-cdp',
   'provider-claude',

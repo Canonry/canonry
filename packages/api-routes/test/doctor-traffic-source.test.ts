@@ -9,6 +9,7 @@ import {
   projects,
   trafficSources,
   crawlerEventsHourly,
+  aiReferralEventsHourly,
 } from '@ainyc/canonry-db'
 import { TRAFFIC_SOURCE_CHECKS } from '../src/doctor/checks/traffic-source.js'
 import type { CheckOutput, DoctorContext, ProjectInfo, TrafficSourceProbe, TrafficSourceValidator } from '../src/doctor/types.js'
@@ -105,6 +106,24 @@ function insertCrawlerHit(h: Harness, sourceId: string, opts: { tsHour?: string;
   }).run()
 }
 
+function insertReferralHit(h: Harness, sourceId: string, opts: { tsHour?: string; hits?: number } = {}) {
+  h.db.insert(aiReferralEventsHourly).values({
+    projectId: h.project.id,
+    sourceId,
+    tsHour: opts.tsHour ?? isoMinusDays(1),
+    product: 'ChatGPT',
+    operator: 'OpenAI',
+    sourceDomain: 'chatgpt.com',
+    evidenceType: 'referer',
+    landingPathNormalized: '/blog',
+    status: 200,
+    sessionsOrHits: opts.hits ?? 1,
+    usersEstimated: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }).run()
+}
+
 function ctxFor(h: Harness, validators?: Record<string, TrafficSourceValidator>): DoctorContext {
   return {
     db: h.db,
@@ -176,6 +195,18 @@ describe('traffic.source.recent-data', () => {
   it('warns when older data exists but recent window is empty', async () => {
     const sourceId = insertTrafficSource(h, { lastSyncedAt: isoMinusDays(15) })
     insertCrawlerHit(h, sourceId, { tsHour: isoMinusDays(15) })
+    const r = await recentDataCheck.run(ctxFor(h))
+    expect(r.status).toBe('warn')
+    expect(r.code).toBe('traffic.recent-data.stale')
+  })
+
+  it('warns (not fails) when only older AI referrals exist and lastSyncedAt is null', async () => {
+    // Regression: the older-data fallback used to count only crawler hits;
+    // a project with AI-referral history but no crawler history and a
+    // nulled-out lastSyncedAt (e.g. data inserted via backfill/migration
+    // without advancing the cursor) would be misreported as `empty`.
+    const sourceId = insertTrafficSource(h, { lastSyncedAt: null })
+    insertReferralHit(h, sourceId, { tsHour: isoMinusDays(15) })
     const r = await recentDataCheck.run(ctxFor(h))
     expect(r.status).toBe('warn')
     expect(r.code).toBe('traffic.recent-data.stale')

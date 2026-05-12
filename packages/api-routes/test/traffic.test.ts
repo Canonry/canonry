@@ -22,8 +22,18 @@ import {
 } from '@ainyc/canonry-contracts'
 import type { NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
 import type { CloudRunTrafficEventsPage } from '@ainyc/canonry-integration-cloud-run'
+import type {
+  ListWordpressTrafficEventsOptions,
+  WordpressTrafficEventsPage,
+} from '@ainyc/canonry-integration-wordpress-traffic'
+import { WordpressTrafficApiError } from '@ainyc/canonry-integration-wordpress-traffic'
 import { apiRoutes } from '../src/index.js'
-import type { CloudRunCredentialRecord, CloudRunCredentialStore } from '../src/traffic.js'
+import type {
+  CloudRunCredentialRecord,
+  CloudRunCredentialStore,
+  WordpressTrafficCredentialRecord,
+  WordpressTrafficCredentialStore,
+} from '../src/traffic.js'
 
 function buildEvent(overrides: Partial<NormalizedTrafficRequest> = {}): NormalizedTrafficRequest {
   const base: NormalizedTrafficRequest = {
@@ -58,6 +68,8 @@ async function buildHarness(
     failResolveAccessTokenWith?: string
     /** Force the Cloud Run pull to fail with this message. */
     failPullWith?: string
+    /** Force the WordPress traffic pull (used for probe) to throw a `WordpressTrafficApiError`. */
+    failWpProbeWith?: { status: number; message: string; body?: string }
   } = {},
 ) {
   const trafficSyncedEvents: Array<unknown> = []
@@ -75,6 +87,18 @@ async function buildHarness(
     },
     deleteConnection: (projectName) => credentials.delete(projectName),
   }
+
+  const wpCredentials = new Map<string, WordpressTrafficCredentialRecord>()
+  const wordpressTrafficCredentialStore: WordpressTrafficCredentialStore = {
+    getConnection: (projectName) => wpCredentials.get(projectName),
+    upsertConnection: (record) => {
+      wpCredentials.set(record.projectName, record)
+      return record
+    },
+    deleteConnection: (projectName) => wpCredentials.delete(projectName),
+  }
+
+  const wpProbeInvocations: ListWordpressTrafficEventsOptions[] = []
 
   let pullInvocations = 0
   const observedWindows: Array<{ startTime: string; endTime: string }> = []
@@ -112,6 +136,24 @@ async function buildHarness(
       if (options.failResolveAccessTokenWith) throw new Error(options.failResolveAccessTokenWith)
       return 'mock-access-token'
     },
+    wordpressTrafficCredentialStore,
+    pullWordpressTrafficEvents: async (pullOptions): Promise<WordpressTrafficEventsPage> => {
+      wpProbeInvocations.push(pullOptions)
+      if (options.failWpProbeWith) {
+        throw new WordpressTrafficApiError(
+          options.failWpProbeWith.message,
+          options.failWpProbeWith.status,
+          options.failWpProbeWith.body,
+        )
+      }
+      return {
+        events: [],
+        rawEntryCount: 0,
+        skippedEntryCount: 0,
+        nextCursor: undefined,
+        endpoint: `${pullOptions.baseUrl}/wp-json/canonry/v1/events`,
+      }
+    },
     onTrafficSynced: (event) => { trafficSyncedEvents.push(event) },
   })
   await app.ready()
@@ -132,11 +174,13 @@ async function buildHarness(
     app,
     db,
     credentials,
+    wpCredentials,
     tmpDir,
     getPullCount: () => pullInvocations,
     getObservedWindows: () => observedWindows,
     getObservedFirstSync: () => observedFirstSync,
     getTrafficSyncedEvents: () => trafficSyncedEvents,
+    getWpProbeInvocations: () => wpProbeInvocations,
     close: async () => {
       await app.close()
       fs.rmSync(tmpDir, { recursive: true, force: true })
@@ -233,6 +277,103 @@ describe('POST /traffic/connect/cloud-run', () => {
     const config = JSON.parse(sources[0].configJson) as Record<string, unknown>
     expect(config.gcpProjectId).toBe('new-project')
     expect(config.serviceName).toBe('new-svc')
+  })
+})
+
+describe('POST /traffic/connect/wordpress', () => {
+  let h: Awaited<ReturnType<typeof buildHarness>>
+  beforeEach(async () => { h = await buildHarness([]) })
+  afterEach(async () => { await h.close() })
+
+  const validBody = {
+    baseUrl: 'https://example.com',
+    username: 'canonry-bot',
+    applicationPassword: 'xxxx xxxx xxxx xxxx xxxx xxxx',
+  }
+
+  it('rejects requests with an invalid baseUrl', async () => {
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/wordpress',
+      payload: { ...validBody, baseUrl: 'not-a-url' },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('rejects requests with empty applicationPassword', async () => {
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/wordpress',
+      payload: { ...validBody, applicationPassword: '' },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('probes the plugin endpoint, persists credentials, and creates the source row', async () => {
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/wordpress',
+      payload: { ...validBody, displayName: 'Example WP' },
+    })
+    expect(res.statusCode).toBe(200)
+    const dto = JSON.parse(res.payload)
+    expect(dto.sourceType).toBe(TrafficSourceTypes.wordpress)
+    expect(dto.status).toBe(TrafficSourceStatuses.connected)
+    expect(dto.displayName).toBe('Example WP')
+    expect(dto.config.baseUrl).toBe('https://example.com')
+    expect(dto.config.username).toBe('canonry-bot')
+    // Application password must never leak into the row config; it lives in
+    // ~/.canonry/config.yaml only.
+    expect(dto.config.applicationPassword).toBeUndefined()
+
+    // Probe ran once before any persistence.
+    const probes = h.getWpProbeInvocations()
+    expect(probes.length).toBe(1)
+    expect(probes[0]!.baseUrl).toBe('https://example.com')
+    expect(probes[0]!.pageSize).toBe(1)
+
+    const stored = h.wpCredentials.get('test-project')
+    expect(stored?.applicationPassword).toBe('xxxx xxxx xxxx xxxx xxxx xxxx')
+
+    const sourceRows = h.db.select().from(trafficSources).all()
+    expect(sourceRows.length).toBe(1)
+    expect(sourceRows[0].sourceType).toBe(TrafficSourceTypes.wordpress)
+  })
+
+  it('returns 502 and persists nothing when the probe fails with bad credentials', async () => {
+    await h.close()
+    h = await buildHarness([], {
+      failWpProbeWith: { status: 401, message: 'Unauthorized', body: 'bad password' },
+    })
+
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/wordpress',
+      payload: validBody,
+    })
+    expect(res.statusCode).toBe(502)
+    expect(JSON.parse(res.payload).error.message).toMatch(/HTTP 401/)
+    // Probe ran but neither credential nor source row was written.
+    expect(h.wpCredentials.get('test-project')).toBeUndefined()
+    expect(h.db.select().from(trafficSources).all().length).toBe(0)
+  })
+
+  it('reuses the existing source row on reconnect rather than creating a duplicate', async () => {
+    await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/wordpress',
+      payload: validBody,
+    })
+    const second = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/wordpress',
+      payload: { ...validBody, baseUrl: 'https://example.com', username: 'new-bot' },
+    })
+    expect(second.statusCode).toBe(200)
+    const sources = h.db.select().from(trafficSources).all()
+    expect(sources.length).toBe(1)
+    const config = JSON.parse(sources[0].configJson) as Record<string, unknown>
+    expect(config.username).toBe('new-bot')
   })
 })
 
@@ -359,6 +500,68 @@ describe('POST /traffic/sources/:id/sync', () => {
       expect(runRows.length).toBe(1)
       expect(runRows[0].kind).toBe(RunKinds['traffic-sync'])
       expect(runRows[0].status).toBe(RunStatuses.completed)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('advances lastSyncedAt to windowEnd (not finishedAt) so events in the processing gap survive into the next sync', async () => {
+    // Regression: if lastSyncedAt rolled forward to the transaction's
+    // finishedAt instead of the pull's windowEnd, then events with
+    // observedAt in (windowEnd, finishedAt] would be lost forever — sync 1
+    // didn't pull them (timestamp > endTime) and sync 2 would clamp past
+    // them. Assert the cursor matches windowEnd exactly, and that a new
+    // event at the boundary is picked up by the next sync.
+    const observedAt = new Date(Date.now() - 30 * 60_000).toISOString()
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({ eventId: 'evt-1', userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt }),
+    ]
+    const h = await buildHarness(events)
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      const firstWindow = h.getObservedWindows()[0]!
+
+      const sourceAfterFirst = h.db
+        .select()
+        .from(trafficSources)
+        .where(eq(trafficSources.id, sourceId))
+        .get()!
+      expect(sourceAfterFirst.lastSyncedAt).toBe(firstWindow.endTime)
+
+      // Inject a new event AT the boundary timestamp — observable only by
+      // sync 2 if its windowStart equals sync 1's windowEnd.
+      events.push(buildEvent({
+        eventId: 'evt-boundary',
+        userAgent: 'GPTBot/1.0',
+        path: '/blog/boundary',
+        status: 200,
+        observedAt: firstWindow.endTime,
+      }))
+
+      const second = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      expect(JSON.parse(second.payload).pulledEvents).toBe(1)
+      const paths = h.db
+        .select()
+        .from(crawlerEventsHourly)
+        .all()
+        .map((r) => r.pathNormalized)
+        .sort()
+      expect(paths).toEqual(['/blog/boundary', '/blog/foo'])
     } finally {
       await h.close()
     }

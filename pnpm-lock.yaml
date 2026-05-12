@@ -202,6 +202,9 @@ importers:
       '@ainyc/canonry-integration-wordpress':
         specifier: workspace:*
         version: link:../integration-wordpress
+      '@ainyc/canonry-integration-wordpress-traffic':
+        specifier: workspace:*
+        version: link:../integration-wordpress-traffic
       '@ainyc/canonry-intelligence':
         specifier: workspace:*
         version: link:../intelligence
@@ -405,6 +408,12 @@ importers:
         version: link:../contracts
 
   packages/integration-wordpress:
+    dependencies:
+      '@ainyc/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
+  packages/integration-wordpress-traffic:
     dependencies:
       '@ainyc/canonry-contracts':
         specifier: workspace:*

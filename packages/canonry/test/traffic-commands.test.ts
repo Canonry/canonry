@@ -165,6 +165,59 @@ describe('traffic CLI commands', () => {
     expect(yaml.cloudRun?.connections?.[0]?.clientEmail).toBe('sa@openclaw-nyc.iam.gserviceaccount.com')
   })
 
+  it('rejects traffic connect wordpress without --url', async () => {
+    const result = await invokeCli([
+      'traffic', 'connect', 'wordpress', 'test-proj',
+      '--username', 'bot',
+      '--app-password', 'pw',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/--url/)
+  })
+
+  it('rejects traffic connect wordpress without --username', async () => {
+    const result = await invokeCli([
+      'traffic', 'connect', 'wordpress', 'test-proj',
+      '--url', 'https://example.com',
+      '--app-password', 'pw',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/--username/)
+  })
+
+  it('rejects traffic connect wordpress without --app-password or --app-password-file', async () => {
+    const result = await invokeCli([
+      'traffic', 'connect', 'wordpress', 'test-proj',
+      '--url', 'https://example.com',
+      '--username', 'bot',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/--app-password/)
+  })
+
+  it('rejects traffic connect wordpress when both --app-password and --app-password-file are passed', async () => {
+    const result = await invokeCli([
+      'traffic', 'connect', 'wordpress', 'test-proj',
+      '--url', 'https://example.com',
+      '--username', 'bot',
+      '--app-password', 'pw',
+      '--app-password-file', '/tmp/pw.txt',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/not both/i)
+  })
+
+  it('reports a clear error when --app-password-file cannot be read', async () => {
+    const result = await invokeCli([
+      'traffic', 'connect', 'wordpress', 'test-proj',
+      '--url', 'https://example.com',
+      '--username', 'bot',
+      '--app-password-file', '/tmp/this-file-really-does-not-exist-wpxyzzy.txt',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/failed to read --app-password-file/i)
+  })
+
   it('rejects traffic sync without --source', async () => {
     const result = await invokeCli(['traffic', 'sync', 'test-proj'])
     expect(result.exitCode).not.toBe(0)

@@ -93,6 +93,16 @@ export const cloudRunSourceConfigSchema = z.object({
 })
 export type CloudRunSourceConfig = z.infer<typeof cloudRunSourceConfigSchema>
 
+/**
+ * Persisted in `traffic_sources.configJson` for `sourceType = 'wordpress'`.
+ * Credentials (Application Password) live in `~/.canonry/config.yaml`, never here.
+ */
+export const wordpressTrafficSourceConfigSchema = z.object({
+  baseUrl: z.string().url(),
+  username: z.string().min(1),
+})
+export type WordpressTrafficSourceConfig = z.infer<typeof wordpressTrafficSourceConfigSchema>
+
 export const trafficSourceDtoSchema = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -118,6 +128,15 @@ export const trafficConnectCloudRunRequestSchema = z.object({
   keyJson: z.string().optional(),
 })
 export type TrafficConnectCloudRunRequest = z.infer<typeof trafficConnectCloudRunRequestSchema>
+
+export const trafficConnectWordpressRequestSchema = z.object({
+  baseUrl: z.string().url(),
+  username: z.string().min(1),
+  /** WordPress Application Password (the same auth used by the content client). */
+  applicationPassword: z.string().min(1),
+  displayName: z.string().min(1).optional(),
+})
+export type TrafficConnectWordpressRequest = z.infer<typeof trafficConnectWordpressRequestSchema>
 
 export const trafficSyncResponseSchema = z.object({
   sourceId: z.string(),

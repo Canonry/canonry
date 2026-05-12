@@ -173,8 +173,20 @@ const recentDataCheck: CheckDefinition = {
         )
         .get()?.total ?? 0,
     )
+    const olderReferrals = Number(
+      ctx.db
+        .select({ total: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.sessionsOrHits}), 0)` })
+        .from(aiReferralEventsHourly)
+        .where(
+          and(
+            eq(aiReferralEventsHourly.projectId, ctx.project.id),
+            gte(aiReferralEventsHourly.tsHour, failCutoff),
+          ),
+        )
+        .get()?.total ?? 0,
+    )
     const lastSyncedAt = sources.map((s) => s.lastSyncedAt).filter(Boolean).sort().at(-1) ?? null
-    if (olderCrawlers > 0 || lastSyncedAt) {
+    if (olderCrawlers > 0 || olderReferrals > 0 || lastSyncedAt) {
       return {
         status: CheckStatuses.warn,
         code: 'traffic.recent-data.stale',

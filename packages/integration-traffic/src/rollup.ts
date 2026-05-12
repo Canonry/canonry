@@ -147,20 +147,23 @@ export function buildTrafficProbeReport(
 
     if (!crawler && !aiReferral) unknownHits += 1
 
-    if (samples.length < sampleLimit) {
-      samples.push({
-        eventId: event.eventId,
-        observedAt: event.observedAt,
-        sourceType: event.sourceType,
-        path: event.path,
-        pathNormalized,
-        status: event.status,
-        userAgent: event.userAgent,
-        referer: event.referer,
-        crawler,
-        aiReferral,
-      })
-    }
+    // Keep the most-recent `sampleLimit` events by iteration order, not the
+    // first ones we see. Pulls run timestamp-asc, so a FIFO retention would
+    // surface only the oldest slice of the window — the least useful for
+    // classifier debugging.
+    samples.push({
+      eventId: event.eventId,
+      observedAt: event.observedAt,
+      sourceType: event.sourceType,
+      path: event.path,
+      pathNormalized,
+      status: event.status,
+      userAgent: event.userAgent,
+      referer: event.referer,
+      crawler,
+      aiReferral,
+    })
+    if (samples.length > sampleLimit) samples.shift()
   }
 
   return {

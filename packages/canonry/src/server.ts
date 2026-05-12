@@ -41,6 +41,11 @@ import {
   removeCloudRunConnection,
 } from './cloud-run-config.js'
 import {
+  getWordpressTrafficConnection,
+  upsertWordpressTrafficConnection,
+  removeWordpressTrafficConnection,
+} from './wordpress-traffic-config.js'
+import {
   getWordpressConnection,
   patchWordpressConnection,
   removeWordpressConnection,
@@ -513,6 +518,31 @@ export async function createServer(opts: {
     },
   } as const
 
+  // WordPress traffic-logger credential store — stores Application Passwords
+  // in ~/.canonry/config.yaml under `wordpressTraffic.connections`.
+  const wordpressTrafficCredentialStore = {
+    getConnection: (projectName: string) => {
+      return getWordpressTrafficConnection(opts.config, projectName)
+    },
+    upsertConnection: (record: {
+      projectName: string
+      baseUrl: string
+      username: string
+      applicationPassword: string
+      createdAt: string
+      updatedAt: string
+    }) => {
+      const updated = upsertWordpressTrafficConnection(opts.config, record)
+      saveConfigPatch(opts.config)
+      return updated
+    },
+    deleteConnection: (projectName: string) => {
+      const removed = removeWordpressTrafficConnection(opts.config, projectName)
+      if (removed) saveConfigPatch(opts.config)
+      return removed
+    },
+  } as const
+
   const googleStateSecret = process.env.GOOGLE_STATE_SECRET ?? crypto.randomBytes(32).toString('hex')
 
   const googleConnectionStore = {
@@ -965,6 +995,7 @@ export async function createServer(opts: {
     wordpressConnectionStore,
     ga4CredentialStore,
     cloudRunCredentialStore,
+    wordpressTrafficCredentialStore,
     onTrafficSynced: (event) => {
       // Emit anonymous canonry telemetry for every sync (success + fail).
       // Same envelope shape as run.completed (top-level `errorCode` on
