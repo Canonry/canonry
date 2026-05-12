@@ -797,7 +797,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_traffic_source_get',
     title: 'Get traffic source detail',
-    description: 'Get one traffic source plus 24h totals (crawler hits, AI-referral hits, raw event sample count) and the latest traffic-sync run summary. Use to confirm a source is healthy and observing traffic before drilling into events.',
+    description: 'Get one traffic source plus 24h totals (crawler hits, AI-referral sessions, raw event sample count) and the latest traffic-sync run summary. Use to confirm a source is healthy and observing traffic before drilling into events.',
     access: 'read',
     tier: 'traffic',
     inputSchema: trafficSourceIdInputSchema,
@@ -808,7 +808,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_traffic_status',
     title: 'Traffic status (all sources)',
-    description: 'Single-call composite returning every non-archived traffic source plus its last-24h totals (crawler hits, AI-referral hits, sample count) and latest source-scoped traffic-sync run. Same per-entry shape as canonry_traffic_source_get, but one call covers all sources — prefer this over a list+per-source fan-out.',
+    description: 'Single-call composite returning every non-archived traffic source plus its last-24h totals (crawler hits, AI-referral sessions, sample count) and latest source-scoped traffic-sync run. Same per-entry shape as canonry_traffic_source_get, but one call covers all sources — prefer this over a list+per-source fan-out.',
     access: 'read',
     tier: 'traffic',
     inputSchema: projectInputSchema,

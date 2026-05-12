@@ -40,7 +40,7 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
     name: 'traffic',
     title: 'Server-side traffic ingestion',
     description: 'Connect Cloud Run traffic sources, trigger syncs, and read crawler / AI-referral hourly rollups straight from server logs (no GA dependency).',
-    whenToLoad: 'Load when you need server-log evidence of crawler hits or AI-referral arrivals (e.g. confirming GPTBot or ChatGPT-User on a page), or when wiring up / syncing a Cloud Run traffic source.',
+    whenToLoad: 'Load when you need server-log evidence of crawler hits or AI-referral sessions (e.g. confirming GPTBot or ChatGPT-User on a page), or when wiring up / syncing a Cloud Run traffic source.',
   },
   {
     name: 'agent',

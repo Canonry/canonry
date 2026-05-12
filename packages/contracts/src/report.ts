@@ -336,7 +336,9 @@ export interface ServerActivitySection {
 
   /** Last-7d total verified crawler hits, with prior 7d for delta. */
   verifiedCrawlerHits: { current: number; prior: number; deltaPct: number | null }
-  /** Last-7d AI-referral arrivals (clicks landing on the site). */
+  /** Last-7d total unverified crawler hits, separated from verified trust metrics. */
+  unverifiedCrawlerHits: { current: number; prior: number; deltaPct: number | null }
+  /** Last-7d AI-referral sessions (sessionized from server-side request evidence). */
   referralArrivals: { current: number; prior: number; deltaPct: number | null }
 
   /** Per-AI-operator breakdown (OpenAI, Anthropic, Google AI, Perplexity, …). */
@@ -364,7 +366,7 @@ export interface ServerActivitySection {
     distinctOperators: number
   }>
 
-  /** AI products that sent ≥1 click-through in the window (referral by destination). */
+  /** AI products that sent ≥1 session in the window (referral by destination). */
   referralProducts: Array<{
     product: string
     arrivals: number
@@ -379,7 +381,7 @@ export interface ServerActivitySection {
   }>
 
   /**
-   * Top landing paths for AI-referral arrivals (last-7d).
+   * Top landing paths for AI-referral sessions (last-7d).
    * Complements `topCrawledPaths` (what bots fetch) with what humans actually land on.
    */
   topReferralLandingPaths: Array<{
@@ -654,7 +656,7 @@ export interface ProjectReportDto {
   ga: GaTrafficSection | null
   socialReferrals: SocialReferralSection | null
   aiReferrals: AiReferralSection | null
-  /** Server-side log-evidence visibility (crawls + click-through arrivals). Null when no traffic source connected. */
+  /** Server-side log-evidence visibility (crawls + click-through sessions). Null when no traffic source connected. */
   serverActivity: ServerActivitySection | null
   indexingHealth: IndexingHealthSection | null
   citationsTrend: CitationsTrendPoint[]
