@@ -167,7 +167,11 @@ async function buildHarness(
           options.failWpProbeWith.body,
         )
       }
-      if (options.failWpPullWith) throw new Error(options.failWpPullWith)
+      // `failWpPullWith` simulates a sync-time failure. The connect route
+      // uses pageSize=1 for its up-front probe — gate the injection on
+      // pageSize !== 1 so the same harness can still connect successfully
+      // before the sync fails.
+      if (pullOptions.pageSize !== 1 && options.failWpPullWith) throw new Error(options.failWpPullWith)
       if (options.wpPullPages) {
         const page = options.wpPullPages({
           cursor: pullOptions.cursor,
