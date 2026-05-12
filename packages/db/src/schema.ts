@@ -1,4 +1,4 @@
-import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -16,6 +16,7 @@ export const projects = sqliteTable('projects', {
   autoExtractBacklinks: integer('auto_extract_backlinks').notNull().default(0),
   configSource: text('config_source').notNull().default('cli'),
   configRevision: integer('config_revision').notNull().default(1),
+  icpDescription: text('icp_description'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 })
@@ -24,6 +25,7 @@ export const queries = sqliteTable('queries', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   query: text('query').notNull(),
+  provenance: text('provenance'),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_queries_project').on(table.projectId),
@@ -34,6 +36,7 @@ export const competitors = sqliteTable('competitors', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   domain: text('domain').notNull(),
+  provenance: text('provenance'),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_competitors_project').on(table.projectId),
@@ -669,6 +672,45 @@ export const rawEventSamples = sqliteTable('raw_event_samples', {
   index('idx_raw_event_samples_project_ts').on(table.projectId, table.ts),
   index('idx_raw_event_samples_source_ts').on(table.sourceId, table.ts),
   index('idx_raw_event_samples_event_type').on(table.eventType),
+])
+
+export const discoverySessions = sqliteTable('discovery_sessions', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  status: text('status').notNull().default('queued'),
+  icpDescription: text('icp_description'),
+  seedProvider: text('seed_provider'),
+  seedCountRaw: integer('seed_count_raw'),
+  seedCount: integer('seed_count'),
+  dedupThreshold: real('dedup_threshold'),
+  probeCount: integer('probe_count'),
+  citedCount: integer('cited_count'),
+  aspirationalCount: integer('aspirational_count'),
+  wastedCount: integer('wasted_count'),
+  competitorMap: text('competitor_map').notNull().default('{}'),
+  error: text('error'),
+  startedAt: text('started_at'),
+  finishedAt: text('finished_at'),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_discovery_sessions_project').on(table.projectId),
+  index('idx_discovery_sessions_status').on(table.status),
+])
+
+export const discoveryProbes = sqliteTable('discovery_probes', {
+  id: text('id').primaryKey(),
+  sessionId: text('session_id').notNull().references(() => discoverySessions.id, { onDelete: 'cascade' }),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  query: text('query').notNull(),
+  bucket: text('bucket'),
+  citationState: text('citation_state').notNull(),
+  citedDomains: text('cited_domains').notNull().default('[]'),
+  rawResponse: text('raw_response'),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_discovery_probes_session').on(table.sessionId),
+  index('idx_discovery_probes_project').on(table.projectId),
+  index('idx_discovery_probes_bucket').on(table.bucket),
 ])
 
 /**

@@ -40,6 +40,9 @@ export function invalidateQueriesForRunKind(
     case RunKinds['bing-inspect-sitemap']:
       void queryClient.invalidateQueries({ queryKey: queryKeys.bing.project(projectName) })
       return
+    case RunKinds['aeo-discover-seed']:
+    case RunKinds['aeo-discover-probe']:
+      return
     default: {
       const _exhaustive: never = kind
       return _exhaustive
