@@ -2779,6 +2779,38 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'post',
+    path: '/api/v1/projects/{name}/traffic/connect/wordpress',
+    summary: 'Connect a WordPress traffic-logger source',
+    description:
+      'Probes the WordPress traffic-logger plugin endpoint with the supplied Application Password (single page, `limit=1`) before persisting. On success, stores the credential in `~/.canonry/config.yaml` and creates / updates the project\'s active WordPress `traffic_sources` row. A probe failure (HTTP 4xx/5xx, network error) surfaces as 502 with the upstream status in the message so the caller learns about a bad credential up front instead of at the first sync.',
+    tags: ['traffic'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['baseUrl', 'username', 'applicationPassword'],
+            properties: {
+              baseUrl: { ...stringSchema, description: 'Absolute base URL of the WordPress site (e.g. `https://example.com`).' },
+              username: { ...stringSchema, description: 'WordPress username paired with the Application Password.' },
+              applicationPassword: { ...stringSchema, description: 'WordPress Application Password (raw; the server base64-encodes it for Basic auth).' },
+              displayName: stringSchema,
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Traffic source DTO returned.' },
+      400: { description: 'Invalid WordPress connection request.' },
+      404: { description: 'Project not found.' },
+      502: { description: 'WordPress plugin endpoint probe failed (bad credentials, unreachable host, etc.).' },
+    },
+  },
+  {
+    method: 'post',
     path: '/api/v1/projects/{name}/traffic/sources/{id}/sync',
     summary: 'Trigger a sync run for a traffic source',
     description:

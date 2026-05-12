@@ -15,6 +15,7 @@ import {
   schedulableRunKindSchema,
   scheduleUpsertRequestSchema,
   trafficConnectCloudRunRequestSchema,
+  trafficConnectWordpressRequestSchema,
   trafficEventKindSchema,
   type NotificationEvent,
 } from '@ainyc/canonry-contracts'
@@ -227,6 +228,11 @@ const memoryForgetInputSchema = z.object({
 const trafficConnectCloudRunInputSchema = z.object({
   project: projectNameSchema,
   request: trafficConnectCloudRunRequestSchema,
+})
+
+const trafficConnectWordpressInputSchema = z.object({
+  project: projectNameSchema,
+  request: trafficConnectWordpressRequestSchema,
 })
 
 const trafficSyncInputSchema = z.object({
@@ -845,6 +851,17 @@ export const canonryMcpTools = [
     annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/traffic/connect/cloud-run'],
     handler: (client, input) => client.trafficConnectCloudRun(input.project, input.request),
+  }),
+  defineTool({
+    name: 'canonry_traffic_connect_wordpress',
+    title: 'Connect WordPress traffic-logger source',
+    description: 'Connect a WordPress site (running the canonry traffic-logger plugin) as a server-side traffic source. Probes the plugin endpoint with the supplied Application Password before persisting — a bad credential or unreachable host surfaces as a 502 error. Reconnecting updates the existing active WordPress source in place. The Application Password is stored in ~/.canonry/config.yaml (not the DB) and never echoed back.',
+    access: 'write',
+    tier: 'traffic',
+    inputSchema: trafficConnectWordpressInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/traffic/connect/wordpress'],
+    handler: (client, input) => client.trafficConnectWordpress(input.project, input.request),
   }),
   defineTool({
     name: 'canonry_traffic_sync',
