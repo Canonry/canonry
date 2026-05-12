@@ -187,6 +187,7 @@ async function buildHarness(
         rawEntryCount: 0,
         skippedEntryCount: 0,
         nextCursor: undefined,
+        hasMore: false,
         endpoint: `${pullOptions.baseUrl}/wp-json/canonry/v1/events`,
       }
     },
@@ -1122,10 +1123,10 @@ describe('POST /traffic/sources/:id/sync — WordPress', () => {
       wpPullPages: ({ cursor }) => {
         cursorObservations.push(cursor)
         if (cursor === undefined || cursor === '') {
-          return { events: page1Events, rawEntryCount: 2, skippedEntryCount: 0, nextCursor: 'PAGE2', endpoint: '' }
+          return { events: page1Events, rawEntryCount: 2, skippedEntryCount: 0, nextCursor: 'PAGE2', hasMore: true, endpoint: '' }
         }
         if (cursor === 'PAGE2') {
-          return { events: page2Events, rawEntryCount: 1, skippedEntryCount: 0, nextCursor: 'PAGE_DONE', endpoint: '' }
+          return { events: page2Events, rawEntryCount: 1, skippedEntryCount: 0, nextCursor: 'PAGE_DONE', hasMore: false, endpoint: '' }
         }
         throw new Error(`Unexpected cursor: ${cursor}`)
       },
@@ -1202,7 +1203,7 @@ describe('POST /traffic/sources/:id/sync — WordPress', () => {
         invocation += 1
         if (invocation === 1) {
           // Probe (pageSize=1, no cursor). Empty.
-          return { events: [], rawEntryCount: 0, skippedEntryCount: 0, nextCursor: undefined, endpoint: '' }
+          return { events: [], rawEntryCount: 0, skippedEntryCount: 0, nextCursor: undefined, hasMore: false, endpoint: '' }
         }
         if (invocation === 2) {
           // First sync: returns one event and a cursor for next time.
@@ -1211,6 +1212,7 @@ describe('POST /traffic/sources/:id/sync — WordPress', () => {
             rawEntryCount: 1,
             skippedEntryCount: 0,
             nextCursor: 'RESUME_HERE',
+            hasMore: false,
             endpoint: '',
           }
         }
@@ -1220,6 +1222,7 @@ describe('POST /traffic/sources/:id/sync — WordPress', () => {
           rawEntryCount: 1,
           skippedEntryCount: 0,
           nextCursor: 'AFTER_RESUME',
+          hasMore: false,
           endpoint: '',
         }
       },
@@ -1316,11 +1319,11 @@ describe('POST /traffic/sources/:id/sync — WordPress', () => {
         pullCall += 1
         if (pullCall === 1) {
           // Probe — empty.
-          return { events: [], rawEntryCount: 0, skippedEntryCount: 0, nextCursor: undefined, endpoint: '' }
+          return { events: [], rawEntryCount: 0, skippedEntryCount: 0, nextCursor: undefined, hasMore: false, endpoint: '' }
         }
         if (pullCall === 2) {
           // First sync: just the dup, single page, has_more=false.
-          return { events: [dupEvent], rawEntryCount: 1, skippedEntryCount: 0, nextCursor: 'CURSOR_AFTER_FIRST', endpoint: '' }
+          return { events: [dupEvent], rawEntryCount: 1, skippedEntryCount: 0, nextCursor: 'CURSOR_AFTER_FIRST', hasMore: false, endpoint: '' }
         }
         // Second sync: plugin re-emits dup AND emits the fresh event.
         return {
@@ -1328,6 +1331,7 @@ describe('POST /traffic/sources/:id/sync — WordPress', () => {
           rawEntryCount: 2,
           skippedEntryCount: 0,
           nextCursor: 'CURSOR_AFTER_SECOND',
+          hasMore: false,
           endpoint: '',
         }
       },
