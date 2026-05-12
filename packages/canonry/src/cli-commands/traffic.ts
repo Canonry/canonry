@@ -44,30 +44,30 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['traffic', 'connect', 'wordpress'],
-    usage: 'canonry traffic connect wordpress <project> --url <wp-site-url> --username <wp-user> --app-password <app-password> [--display-name <name>] [--format json]',
+    usage: 'canonry traffic connect wordpress <project> --url <wp-site-url> --username <wp-user> (--app-password <pw> | --app-password-file <path>) [--display-name <name>] [--format json]',
     options: {
       url: stringOption(),
       username: stringOption(),
       'app-password': stringOption(),
+      'app-password-file': stringOption(),
       'display-name': stringOption(),
     },
     run: async (input) => {
       const project = requireProject(
         input,
         'traffic.connect.wordpress',
-        'canonry traffic connect wordpress <project> --url <wp-site-url> --username <wp-user> --app-password <app-password>',
+        'canonry traffic connect wordpress <project> --url <wp-site-url> --username <wp-user> (--app-password <pw> | --app-password-file <path>)',
       )
       const url = getString(input.values, 'url')
       if (!url) throw new Error('--url is required')
       const username = getString(input.values, 'username')
       if (!username) throw new Error('--username is required')
-      const appPassword = getString(input.values, 'app-password')
-      if (!appPassword) throw new Error('--app-password is required')
 
       await trafficConnectWordpress(project, {
         url,
         username,
-        appPassword,
+        appPassword: getString(input.values, 'app-password'),
+        appPasswordFile: getString(input.values, 'app-password-file'),
         displayName: getString(input.values, 'display-name'),
         format: input.format,
       })

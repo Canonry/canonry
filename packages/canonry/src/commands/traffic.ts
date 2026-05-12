@@ -19,7 +19,10 @@ function getClient() {
 export async function trafficConnectWordpress(project: string, opts: {
   url: string
   username: string
-  appPassword: string
+  /** Inline Application Password value. Mutually exclusive with `appPasswordFile`. */
+  appPassword?: string
+  /** Path to a file containing the Application Password. Preferred — keeps the secret out of shell history. */
+  appPasswordFile?: string
   displayName?: string
   format?: string
 }): Promise<void> {
@@ -39,11 +42,34 @@ export async function trafficConnectWordpress(project: string, opts: {
       details: { project },
     })
   }
-  if (!opts.appPassword) {
+  if (opts.appPassword && opts.appPasswordFile) {
+    throw new CliError({
+      code: 'TRAFFIC_WP_APP_PASSWORD_CONFLICT',
+      message: '--app-password and --app-password-file are mutually exclusive',
+      displayMessage: 'Error: pass either --app-password <pw> or --app-password-file <path>, not both',
+      details: { project },
+    })
+  }
+  let applicationPassword = opts.appPassword?.trim() ?? ''
+  if (!applicationPassword && opts.appPasswordFile) {
+    const fs = await import('node:fs')
+    try {
+      applicationPassword = fs.readFileSync(opts.appPasswordFile, 'utf-8').trim()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      throw new CliError({
+        code: 'TRAFFIC_WP_APP_PASSWORD_FILE_READ_ERROR',
+        message: `Failed to read --app-password-file: ${msg}`,
+        displayMessage: `Error: failed to read --app-password-file "${opts.appPasswordFile}": ${msg}`,
+        details: { project, appPasswordFile: opts.appPasswordFile },
+      })
+    }
+  }
+  if (!applicationPassword) {
     throw new CliError({
       code: 'TRAFFIC_WP_APP_PASSWORD_REQUIRED',
-      message: '--app-password is required',
-      displayMessage: 'Error: --app-password is required',
+      message: '--app-password or --app-password-file is required',
+      displayMessage: 'Error: pass --app-password <pw> or --app-password-file <path>',
       details: { project },
     })
   }
@@ -52,7 +78,7 @@ export async function trafficConnectWordpress(project: string, opts: {
   const result: TrafficSourceDto = await client.trafficConnectWordpress(project, {
     baseUrl: opts.url,
     username: opts.username,
-    applicationPassword: opts.appPassword,
+    applicationPassword,
     displayName: opts.displayName,
   })
 

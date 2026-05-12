@@ -18,7 +18,9 @@ on:
       - 'scripts/**'
       - 'AGENTS.md'
   pull_request:
-    branches: [main]
+    # No `branches:` filter — run CI on every PR, including stacked PRs
+    # targeting feature branches. This keeps each step of a stack green
+    # without waiting until rebase-to-main.
     paths:
       - '.github/workflows/ci.yml'
       - '.dockerignore'
