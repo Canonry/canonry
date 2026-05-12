@@ -280,11 +280,11 @@ export function TrafficSourceDetailPage() {
           progress={Math.min(100, Math.round((detail.totals24h.crawlerHits / 1000) * 100))}
         />
         <ScoreGauge
-          label="24h AI referral hits"
+          label="24h AI referral sessions"
           value={String(detail.totals24h.aiReferralHits)}
           delta={detail.lastSyncedAt ? `last sync ${formatRelative(detail.lastSyncedAt)}` : 'never synced'}
           tone={detail.totals24h.aiReferralHits > 0 ? 'positive' : 'neutral'}
-          description="Visits arriving from chat.openai.com, perplexity.ai, etc. (Referer header evidence)."
+          description="Sessionized visits arriving from chat.openai.com, perplexity.ai, etc. (Referer header evidence)."
           isNumeric
           progress={Math.min(100, Math.round((detail.totals24h.aiReferralHits / 1000) * 100))}
         />
@@ -332,7 +332,7 @@ export function TrafficSourceDetailPage() {
             {totals ? (
               <p className="mt-1.5 text-xs text-zinc-500">
                 {totals.crawlerHits.toLocaleString('en-US')} crawler ·{' '}
-                {totals.aiReferralHits.toLocaleString('en-US')} AI referral · last {activeWindow.label}
+                {totals.aiReferralHits.toLocaleString('en-US')} AI referral sessions · last {activeWindow.label}
               </p>
             ) : null}
           </div>
@@ -364,7 +364,7 @@ export function TrafficSourceDetailPage() {
               onToggle={() => toggleSeries('crawler')}
             />
             <SeriesToggle
-              label="AI referral"
+              label="AI referral sessions"
               color={AI_REFERRAL_COLOR}
               count={totals?.aiReferralHits ?? 0}
               active={visibleSeries.has('ai-referral')}

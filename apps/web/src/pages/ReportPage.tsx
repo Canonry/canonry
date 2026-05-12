@@ -19,6 +19,7 @@ import {
   contentActionLabel,
   dedupeReportActions,
   dedupeReportOpportunities,
+  deltaPercent,
   formatDeltaCopy,
   reportActionCategoryLabel,
   reportActionTone,
@@ -280,10 +281,19 @@ function ServerActivityClientView({ report }: { report: ProjectReportDto }) {
     )
   }
 
-  const verifiedDelta = formatDeltaCopy(sa.verifiedCrawlerHits, 'crawls')
-  const referralDelta = formatDeltaCopy(sa.referralArrivals, 'arrivals')
+  const crawlerRequests = {
+    current: sa.verifiedCrawlerHits.current + sa.unverifiedCrawlerHits.current,
+    prior: sa.verifiedCrawlerHits.prior + sa.unverifiedCrawlerHits.prior,
+    deltaPct: deltaPercent(
+      sa.verifiedCrawlerHits.current + sa.unverifiedCrawlerHits.current,
+      sa.verifiedCrawlerHits.prior + sa.unverifiedCrawlerHits.prior,
+    ),
+  }
+  const crawlerDelta = formatDeltaCopy(crawlerRequests, 'requests')
+  const crawlerSubtitle = `${formatNumber(sa.verifiedCrawlerHits.current)} verified · ${formatNumber(sa.unverifiedCrawlerHits.current)} unverified${crawlerDelta ? ` · ${crawlerDelta}` : ''}`
+  const referralDelta = formatDeltaCopy(sa.referralArrivals, 'sessions')
   // For the client view we cap at the top 5 entries — agencies see the full breakdown in the HTML report.
-  const topOperators = sa.byOperator.filter(o => o.verifiedHits > 0 || o.referralArrivals > 0).slice(0, 5)
+  const topOperators = sa.byOperator.filter(o => o.verifiedHits > 0 || o.unverifiedHits > 0 || o.referralArrivals > 0).slice(0, 5)
 
   return (
     <section className="page-section-divider">
@@ -294,12 +304,12 @@ function ServerActivityClientView({ report }: { report: ProjectReportDto }) {
       />
       <div className="grid gap-3 sm:grid-cols-2">
         <Metric
-          label="AI bots visited your site"
-          value={formatNumber(sa.verifiedCrawlerHits.current)}
-          subtitle={verifiedDelta}
+          label="AI bot requests observed"
+          value={formatNumber(crawlerRequests.current)}
+          subtitle={crawlerSubtitle}
         />
         <Metric
-          label="People clicked through from AI"
+          label="AI referral sessions"
           value={formatNumber(sa.referralArrivals.current)}
           subtitle={referralDelta}
         />
@@ -312,15 +322,15 @@ function ServerActivityClientView({ report }: { report: ProjectReportDto }) {
               <thead>
                 <tr>
                   <th>AI tool</th>
-                  <th>Bot visits (7d)</th>
-                  <th>Click-throughs</th>
+                  <th>Bot requests (7d)</th>
+                  <th>Referral sessions</th>
                 </tr>
               </thead>
               <tbody>
                 {topOperators.map(o => (
                   <tr key={o.operator}>
                     <td className="evidence-query-cell">{o.operator}</td>
-                    <td>{formatNumber(o.verifiedHits)}</td>
+                    <td>{formatNumber(o.verifiedHits + o.unverifiedHits)}</td>
                     <td>{formatNumber(o.referralArrivals)}</td>
                   </tr>
                 ))}
@@ -328,7 +338,7 @@ function ServerActivityClientView({ report }: { report: ProjectReportDto }) {
             </table>
           </div>
           <p className="mt-2 text-[11px] text-zinc-500">
-            Verified visits only. We confirm each bot via reverse-DNS so the numbers above can't be inflated by anyone faking a user agent.
+            Verified requests are reverse-DNS confirmed. Unverified requests are user-agent claims shown separately in agency diagnostics.
           </p>
         </div>
       )}

@@ -104,9 +104,9 @@ function ServerActivityPanel({ projectName }: { projectName: string }) {
       <div className="flex items-baseline justify-between mb-3">
         <div>
           <div className="eyebrow">Server activity (last 24h)</div>
-          <h2 className="text-lg font-semibold text-zinc-50">Engine crawler &amp; AI-referral hits</h2>
+          <h2 className="text-lg font-semibold text-zinc-50">Engine crawler hits &amp; AI-referral sessions</h2>
           <p className="text-xs text-zinc-500 mt-1">
-            Server-side log evidence of bots crawling the site and AI-referral arrivals — orthogonal
+            Server-side log evidence of bots crawling the site and AI-referral sessions — orthogonal
             to GA4 click-through traffic below. {' '}
             <Link to="/traffic" className="text-blue-400 hover:underline">Manage sources →</Link>
           </p>
@@ -131,7 +131,7 @@ function ServerActivityPanel({ projectName }: { projectName: string }) {
                 <th className="text-left px-4 py-2 font-medium">Source</th>
                 <th className="text-left px-4 py-2 font-medium">Status</th>
                 <th className="text-right px-4 py-2 font-medium">Crawler hits 24h</th>
-                <th className="text-right px-4 py-2 font-medium">AI-referral 24h</th>
+                <th className="text-right px-4 py-2 font-medium">AI sessions 24h</th>
                 <th className="text-right px-4 py-2 font-medium">Last sync</th>
                 <th className="text-left px-4 py-2 font-medium" aria-label="open" />
               </tr>

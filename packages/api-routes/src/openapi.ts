@@ -2814,7 +2814,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/traffic/sources/{id}/sync',
     summary: 'Trigger a sync run for a traffic source',
     description:
-      'Pulls request logs from the configured Cloud Run service for the lookback window, classifies crawler / AI-referral hits, and upserts hourly buckets and a bounded sample tail.',
+      'Pulls request logs from the configured Cloud Run service for the lookback window, classifies crawler hits / AI-referral sessions, and upserts hourly buckets and a bounded sample tail.',
     tags: ['traffic'],
     parameters: [
       nameParameter,
@@ -2911,7 +2911,7 @@ const routeCatalog: OpenApiOperation[] = [
   {
     method: 'get',
     path: '/api/v1/projects/{name}/traffic/events',
-    summary: 'List rolled-up crawler and AI-referral hits within a window',
+    summary: 'List rolled-up crawler hits and AI-referral sessions within a window',
     description:
       'Returns hourly rollup rows from `crawler_events_hourly` and `ai_referral_events_hourly`. Defaults to the last 24h. Totals reflect the full window; the `events` array is capped by `limit` (default 500, max 5000).',
     tags: ['traffic'],
