@@ -123,7 +123,7 @@ erDiagram
 
 | Table | Purpose |
 |-------|---------|
-| **discovery_sessions** | One row per `canonry discover run` invocation. Captures the research artifact for a session: ICP snapshot, seed/dedup/probe phase counts, bucket counts (cited / aspirational / wasted-surface), and a JSON `competitor_map` of domains → hit count. Status flows `queued → seeding → probing → completed` (or `failed`). FK: projectId → projects |
+| **discovery_sessions** | One row per `canonry discover run` invocation. Captures the research artifact for a session: ICP snapshot, seed/dedup/probe phase counts, bucket counts (cited / aspirational / wasted-surface), and `competitor_map` as a JSON array of `{domain, hits}` entries (default `'[]'`). Status flows `queued → seeding → probing → completed` (or `failed`). FK: projectId → projects |
 | **discovery_probes** | One row per (session × candidate query) probe. Stores the query text (free-form — not promoted to `queries` until the operator adopts it), citation_state, cited_domains, bucket classification, and raw provider response. **No `UNIQUE(session_id, query)`** so v2 multi-provider amplification can probe the same query across Gemini + ChatGPT + Claude in one session without a migration. FK: sessionId → discovery_sessions, projectId → projects |
 
 ## JSON Columns

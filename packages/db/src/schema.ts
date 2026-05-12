@@ -687,14 +687,13 @@ export const discoverySessions = sqliteTable('discovery_sessions', {
   citedCount: integer('cited_count'),
   aspirationalCount: integer('aspirational_count'),
   wastedCount: integer('wasted_count'),
-  competitorMap: text('competitor_map').notNull().default('{}'),
+  competitorMap: text('competitor_map').notNull().default('[]'),
   error: text('error'),
   startedAt: text('started_at'),
   finishedAt: text('finished_at'),
   createdAt: text('created_at').notNull(),
 }, (table) => [
-  index('idx_discovery_sessions_project').on(table.projectId),
-  index('idx_discovery_sessions_status').on(table.status),
+  index('idx_discovery_sessions_project_created').on(table.projectId, table.createdAt),
 ])
 
 export const discoveryProbes = sqliteTable('discovery_probes', {
@@ -710,7 +709,6 @@ export const discoveryProbes = sqliteTable('discovery_probes', {
 }, (table) => [
   index('idx_discovery_probes_session').on(table.sessionId),
   index('idx_discovery_probes_project').on(table.projectId),
-  index('idx_discovery_probes_bucket').on(table.bucket),
 ])
 
 /**

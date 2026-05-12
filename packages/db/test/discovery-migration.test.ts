@@ -6,6 +6,7 @@ import { sql } from 'drizzle-orm'
 import {
   createClient,
   migrate,
+  parseJsonColumn,
   projects,
   queries,
   competitors,
@@ -78,7 +79,7 @@ test('v55 creates discovery_sessions table', () => {
     icpDescription: 'Boutique destination hotel in Williamsburg',
     seedProvider: 'gemini',
     dedupThreshold: 0.85,
-    competitorMap: '{}',
+    competitorMap: '[]',
     createdAt: now,
   }).run()
 
@@ -100,7 +101,7 @@ test('v55 creates discovery_probes table without (session_id, query) UNIQUE so v
     id: 'sess_1',
     projectId: 'proj_1',
     status: 'completed',
-    competitorMap: '{}',
+    competitorMap: '[]',
     createdAt: now,
   }).run()
 
@@ -140,7 +141,7 @@ test('discovery_sessions cascades on project delete', () => {
     id: 'sess_cascade',
     projectId: 'proj_1',
     status: 'completed',
-    competitorMap: '{}',
+    competitorMap: '[]',
     createdAt: now,
   }).run()
   db.insert(discoveryProbes).values({
@@ -201,4 +202,52 @@ test('competitors.provenance round-trips', () => {
   }).run()
   const [row] = db.select().from(competitors).all()
   expect(row.provenance).toBe('discovery:sess_1')
+})
+
+test('v55 backfills queries/competitors provenance="cli" when re-applied to a DB with NULL rows', () => {
+  // The backfill targets rows that existed when v55 ran. To test it, we
+  // simulate a "pre-v55" state: insert a row, NULL its provenance, delete the
+  // v55 record from _migrations, then call migrate() again. The runner re-runs
+  // v55 (idempotent ALTER COLUMN swallows duplicate-column errors); the UPDATE
+  // backfill fires and sets provenance='cli'.
+  const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
+  seedProject(db)
+
+  const now = new Date().toISOString()
+  db.insert(queries).values({ id: 'q_legacy', projectId: 'proj_1', query: 'legacy q', createdAt: now }).run()
+  db.insert(competitors).values({ id: 'c_legacy', projectId: 'proj_1', domain: 'legacy.com', createdAt: now }).run()
+
+  // Wipe provenance + remove the v55 record so migrate() will rerun it.
+  db.run(sql.raw(`UPDATE queries SET provenance = NULL`))
+  db.run(sql.raw(`UPDATE competitors SET provenance = NULL`))
+  db.run(sql.raw(`DELETE FROM _migrations WHERE version = 55`))
+
+  migrate(db)
+
+  const [q] = db.select().from(queries).all()
+  const [c] = db.select().from(competitors).all()
+  expect(q.provenance).toBe('cli')
+  expect(c.provenance).toBe('cli')
+})
+
+test('discovery_sessions.competitor_map default is an array, not an object (regression: must match DTO shape)', () => {
+  // The DTO in `packages/contracts/src/discovery.ts` models competitorMap as
+  // `Array<{domain, hits}>`. A DB default of '{}' would parse to an object
+  // and Zod would reject it on the first read. Pin the default to '[]'.
+  const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
+  seedProject(db)
+
+  const now = new Date().toISOString()
+  db.insert(discoverySessions).values({
+    id: 'sess_default',
+    projectId: 'proj_1',
+    createdAt: now,
+  }).run()
+
+  const [row] = db.select().from(discoverySessions).all()
+  expect(row.status).toBe('queued')
+  expect(row.competitorMap).toBe('[]')
+  expect(parseJsonColumn(row.competitorMap, null)).toEqual([])
 })

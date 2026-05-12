@@ -53,9 +53,32 @@ export const discoverySessionDetailDtoSchema = discoverySessionDtoSchema.extend(
 })
 export type DiscoverySessionDetailDto = z.infer<typeof discoverySessionDetailDtoSchema>
 
+/**
+ * Per-session probe budget ceiling. Spec §9 caps per-session at 100 by default
+ * and 500 absolute; the contract enforces the absolute cap here so a bad input
+ * cannot burn through quota before the service-layer guard kicks in.
+ */
+export const DISCOVERY_MAX_PROBES_CAP = 500
+
 export const discoveryRunRequestSchema = z.object({
   icpDescription: z.string().min(1).optional(),
   dedupThreshold: z.number().min(0).max(1).optional(),
-  maxProbes: z.number().int().positive().optional(),
+  maxProbes: z.number().int().positive().max(DISCOVERY_MAX_PROBES_CAP).optional(),
 })
 export type DiscoveryRunRequest = z.infer<typeof discoveryRunRequestSchema>
+
+/**
+ * `queries.provenance` / `competitors.provenance` value vocabulary.
+ *
+ * - `'cli'` — operator-entered via `canonry query add` / `competitor add` (or
+ *   the v55 backfill for pre-discovery rows).
+ * - `'discovery:<sessionId>'` — promoted out of a discovery session (PR 2 +).
+ *
+ * NULL means a post-v55 row whose writer forgot to set provenance; treat as a
+ * bug rather than as a meaningful state.
+ */
+export const queryProvenanceSchema = z.union([
+  z.literal('cli'),
+  z.string().regex(/^discovery:.+$/),
+])
+export type QueryProvenance = z.infer<typeof queryProvenanceSchema>

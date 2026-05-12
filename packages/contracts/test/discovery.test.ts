@@ -6,11 +6,13 @@ import {
   discoveryBucketSchema,
   DiscoverySessionStatuses,
   discoverySessionStatusSchema,
+  DISCOVERY_MAX_PROBES_CAP,
   discoveryProbeDtoSchema,
   discoverySessionDtoSchema,
   discoverySessionDetailDtoSchema,
   discoveryCompetitorMapEntrySchema,
   discoveryRunRequestSchema,
+  queryProvenanceSchema,
 } from '../src/index.js'
 
 test('RunKinds includes the two discovery kinds', () => {
@@ -164,4 +166,28 @@ test('discoveryRunRequestSchema accepts empty object (use project defaults)', ()
 test('discoveryRunRequestSchema rejects out-of-range dedupThreshold', () => {
   expect(() => discoveryRunRequestSchema.parse({ dedupThreshold: 1.5 })).toThrow()
   expect(() => discoveryRunRequestSchema.parse({ dedupThreshold: -0.1 })).toThrow()
+})
+
+test('discoveryRunRequestSchema caps maxProbes at DISCOVERY_MAX_PROBES_CAP', () => {
+  expect(discoveryRunRequestSchema.parse({ maxProbes: DISCOVERY_MAX_PROBES_CAP }).maxProbes).toBe(
+    DISCOVERY_MAX_PROBES_CAP,
+  )
+  expect(() =>
+    discoveryRunRequestSchema.parse({ maxProbes: DISCOVERY_MAX_PROBES_CAP + 1 }),
+  ).toThrow()
+  expect(() => discoveryRunRequestSchema.parse({ maxProbes: 10_000 })).toThrow()
+})
+
+test('queryProvenanceSchema accepts "cli" and "discovery:<sessionId>" shapes', () => {
+  expect(queryProvenanceSchema.parse('cli')).toBe('cli')
+  expect(queryProvenanceSchema.parse('discovery:abc-123-def')).toBe('discovery:abc-123-def')
+  expect(queryProvenanceSchema.parse('discovery:550e8400-e29b-41d4-a716-446655440000')).toBe(
+    'discovery:550e8400-e29b-41d4-a716-446655440000',
+  )
+})
+
+test('queryProvenanceSchema rejects other strings', () => {
+  expect(() => queryProvenanceSchema.parse('manual')).toThrow()
+  expect(() => queryProvenanceSchema.parse('discovery:')).toThrow()
+  expect(() => queryProvenanceSchema.parse('')).toThrow()
 })
