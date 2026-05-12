@@ -112,6 +112,37 @@ describe('normalizeWordpressTrafficEvent', () => {
     expect(event?.userAgent).toBeNull()
     expect(event?.queryString).toBeNull()
   })
+
+  it('trims surrounding whitespace on path and rejects whitespace-only paths', () => {
+    const trimmed = normalizeWordpressTrafficEvent({
+      id: 1,
+      observed_at: '2026-05-11T12:00:00.000Z',
+      method: 'GET',
+      host: 'example.com',
+      path: '  /blog  ',
+      query_string: null,
+      status: 200,
+      user_agent: 'GPTBot/1.2',
+      remote_ip_hash: null,
+      referer: null,
+    })
+
+    expect(trimmed?.path).toBe('/blog')
+    expect(trimmed?.requestUrl).toBe('https://example.com/blog')
+
+    expect(normalizeWordpressTrafficEvent({
+      id: 1,
+      observed_at: '2026-05-11T12:00:00.000Z',
+      method: 'GET',
+      host: 'example.com',
+      path: '   ',
+      query_string: null,
+      status: 200,
+      user_agent: 'GPTBot/1.2',
+      remote_ip_hash: null,
+      referer: null,
+    })).toBeNull()
+  })
 })
 
 describe('listWordpressTrafficEvents', () => {

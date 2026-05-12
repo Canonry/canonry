@@ -20,10 +20,10 @@ export function normalizeWordpressTrafficEvent(
   event: WordpressTrafficEventPayload,
 ): NormalizedTrafficRequest | null {
   if (!event.observed_at) return null
-  if (!event.path || event.path.trim().length === 0) return null
   if (typeof event.id !== 'number' || !Number.isFinite(event.id)) return null
 
-  const path = event.path
+  const path = event.path?.trim()
+  if (!path) return null
   const queryString = trimOrNull(event.query_string)
   const host = trimOrNull(event.host)
   const requestUrl = host
