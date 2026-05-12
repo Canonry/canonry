@@ -83,6 +83,7 @@ export async function listWordpressTrafficEvents(
   let cursor = options.cursor
   let rawEntryCount = 0
   let skippedEntryCount = 0
+  let hasMore = false
   const events: WordpressTrafficEventsPage['events'] = []
 
   for (let page = 0; page < maxPages; page += 1) {
@@ -124,6 +125,10 @@ export async function listWordpressTrafficEvents(
     }
 
     cursor = body.next_cursor ?? undefined
+    // Track the latest `has_more` so a single-page call (maxPages=1)
+    // surfaces the plugin's continuation signal to the caller. Internal
+    // pagination still uses the same break rule as before.
+    hasMore = Boolean(body.has_more) && Boolean(cursor)
     if (!body.has_more || !cursor) break
   }
 
@@ -132,6 +137,7 @@ export async function listWordpressTrafficEvents(
     rawEntryCount,
     skippedEntryCount,
     nextCursor: cursor,
+    hasMore,
     endpoint,
   }
 }
