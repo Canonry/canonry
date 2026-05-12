@@ -197,4 +197,38 @@ describe('traffic analysis', () => {
     expect(report.topBots[0]).toEqual({ botId: 'openai-gptbot', operator: 'OpenAI', hits: 2 })
     expect(report.topAiReferrers[0]).toEqual({ sourceDomain: 'claude.ai', product: 'Claude', hits: 1 })
   })
+
+  it('matches short-form utm_source tokens against the rule domain first label', () => {
+    // Real sites frequently emit `utm_source=chatgpt` instead of the
+    // fully-qualified `chatgpt.com`. Both should classify identically.
+    expect(classifyAiReferral(event({
+      referer: null,
+      queryString: 'utm_source=chatgpt',
+    }))).toMatchObject({ product: 'ChatGPT', evidenceType: 'utm' })
+    expect(classifyAiReferral(event({
+      referer: null,
+      queryString: 'utm_source=perplexity',
+    }))).toMatchObject({ product: 'Perplexity', evidenceType: 'utm' })
+    expect(classifyAiReferral(event({
+      referer: null,
+      queryString: 'utm_source=claude',
+    }))).toMatchObject({ product: 'Claude', evidenceType: 'utm' })
+    // Non-rule short tokens stay unmatched.
+    expect(classifyAiReferral(event({
+      referer: null,
+      queryString: 'utm_source=newsletter',
+    }))).toBeNull()
+  })
+
+  it('keeps the newest sampleLimit events instead of the oldest', () => {
+    // Pulls run timestamp-asc — a FIFO cap would surface only the oldest
+    // events in the window, the least useful slice for classifier debugging.
+    const events = Array.from({ length: 5 }, (_, i) => event({
+      eventId: `e-${i}`,
+      observedAt: `2026-05-01T12:0${i}:00.000Z`,
+      path: `/p${i}`,
+    }))
+    const report = buildTrafficProbeReport(events, { sampleLimit: 2 })
+    expect(report.samples.map((s) => s.eventId)).toEqual(['e-3', 'e-4'])
+  })
 })

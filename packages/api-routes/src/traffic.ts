@@ -286,8 +286,10 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
   const currentLastSyncedMs = sourceRow.lastSyncedAt
     ? new Date(sourceRow.lastSyncedAt).getTime()
     : Number.NEGATIVE_INFINITY
+  // Advance to windowEnd (the pull's upper bound), not finishedAt — see the
+  // sync-route comment for why. Backfill never moves the cursor backwards.
   const nextLastSyncedAt = Math.max(currentLastSyncedMs, windowEnd.getTime()) === windowEnd.getTime()
-    ? finishedAt
+    ? windowEndIso
     : sourceRow.lastSyncedAt!
 
   try {
@@ -686,43 +688,65 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       throw providerError(`Cloud Run pull failed: ${msg}`)
     }
 
-    // Cross-sync dedupe: drop events whose normalized eventId was already
-    // observed in the previous successful sync. The lastSyncedAt clamp
-    // narrows the fetch window, but events with timestamp == lastSyncedAt
-    // (boundary second) can still appear in two consecutive pulls.
-    const seenEventIds = new Set(parseJsonColumn<string[]>(sourceRow.lastEventIds, []))
-    const dedupedEvents = seenEventIds.size === 0
-      ? allEvents
-      : allEvents.filter(e => !seenEventIds.has(e.eventId))
-
-    // Build the next sync's seen-set: new event IDs (newest-first) PREPENDED
-    // to the previous seen IDs, deduplicated, capped at MAX_TRACKED_EVENT_IDS.
-    // We must retain the previous IDs because Cloud Logging can re-return the
-    // same boundary event on more than one subsequent sync; replacing would
-    // let it re-enter on the third sync.
-    const newSorted = dedupedEvents
-      .slice()
-      .sort((a, b) => (a.observedAt < b.observedAt ? 1 : a.observedAt > b.observedAt ? -1 : 0))
-      .map(e => e.eventId)
-    const previousIds = parseJsonColumn<string[]>(sourceRow.lastEventIds, [])
-    const merged: string[] = []
-    const mergedSet = new Set<string>()
-    for (const id of [...newSorted, ...previousIds]) {
-      if (mergedSet.has(id)) continue
-      mergedSet.add(id)
-      merged.push(id)
-      if (merged.length >= MAX_TRACKED_EVENT_IDS) break
-    }
-    const nextEventIds = merged
-
-    const report = buildTrafficProbeReport(dedupedEvents, { sampleLimit })
-    const finishedAt = new Date().toISOString()
-
     let crawlerBucketRows = 0
     let aiReferralBucketRows = 0
     let sampleRows = 0
+    // These get assigned inside the transaction (after we re-read the row to
+    // beat the read-then-write race on concurrent syncs) and read after the
+    // transaction commits for the response + telemetry payload.
+    let finishedAt = new Date().toISOString()
+    let pulledEventsCount = 0
+    let crawlerHitsCount = 0
+    let aiReferralHitsCount = 0
+    let unknownHitsCount = 0
 
     app.db.transaction((tx) => {
+      // Re-read sourceRow inside the txn so a concurrent sync that committed
+      // first is visible — otherwise both syncs would dedupe against the same
+      // stale lastEventIds and the second commit would clobber the first
+      // sync's ring buffer.
+      const latestRow = tx
+        .select()
+        .from(trafficSources)
+        .where(eq(trafficSources.id, sourceRow.id))
+        .get()!
+
+      // Cross-sync dedupe: drop events whose normalized eventId was already
+      // observed in the previous successful sync. The lastSyncedAt clamp
+      // narrows the fetch window, but events with timestamp == lastSyncedAt
+      // (boundary second) can still appear in two consecutive pulls.
+      const previousIds = parseJsonColumn<string[]>(latestRow.lastEventIds, [])
+      const seenEventIds = new Set(previousIds)
+      const dedupedEvents = seenEventIds.size === 0
+        ? allEvents
+        : allEvents.filter(e => !seenEventIds.has(e.eventId))
+
+      // Build the next sync's seen-set: new event IDs (newest-first) PREPENDED
+      // to the previous seen IDs, deduplicated, capped at MAX_TRACKED_EVENT_IDS.
+      // We must retain the previous IDs because Cloud Logging can re-return
+      // the same boundary event on more than one subsequent sync; replacing
+      // would let it re-enter on the third sync.
+      const newSorted = dedupedEvents
+        .slice()
+        .sort((a, b) => (a.observedAt < b.observedAt ? 1 : a.observedAt > b.observedAt ? -1 : 0))
+        .map(e => e.eventId)
+      const merged: string[] = []
+      const mergedSet = new Set<string>()
+      for (const id of [...newSorted, ...previousIds]) {
+        if (mergedSet.has(id)) continue
+        mergedSet.add(id)
+        merged.push(id)
+        if (merged.length >= MAX_TRACKED_EVENT_IDS) break
+      }
+      const nextEventIds = merged
+
+      const report = buildTrafficProbeReport(dedupedEvents, { sampleLimit })
+      finishedAt = new Date().toISOString()
+      pulledEventsCount = report.totals.normalizedEvents
+      crawlerHitsCount = report.totals.crawlerHits
+      aiReferralHitsCount = report.totals.aiReferralHits
+      unknownHitsCount = report.totals.unknownHits
+
       // Upsert crawler hourly buckets — composite PK lets us accumulate `hits`.
       for (const bucket of report.crawlerEventsHourly) {
         const status = bucket.status ?? 0
@@ -838,7 +862,11 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         .update(trafficSources)
         .set({
           status: TrafficSourceStatuses.connected,
-          lastSyncedAt: finishedAt,
+          // Advance to windowEnd, not finishedAt — events arriving at the
+          // source between windowEnd and finishedAt aren't in this pull's
+          // range. If we stored finishedAt, the next sync's clamp would skip
+          // past them and they'd be lost.
+          lastSyncedAt: windowEnd.toISOString(),
           lastError: null,
           lastEventIds: JSON.stringify(nextEventIds),
           updatedAt: finishedAt,
@@ -867,9 +895,9 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         status: 'completed',
         sourceType: sourceRow.sourceType,
         sourceId: sourceRow.id,
-        pulledEvents: report.totals.normalizedEvents,
-        crawlerHits: report.totals.crawlerHits,
-        aiReferralHits: report.totals.aiReferralHits,
+        pulledEvents: pulledEventsCount,
+        crawlerHits: crawlerHitsCount,
+        aiReferralHits: aiReferralHitsCount,
         durationMs: Date.now() - syncStartedAtMs,
       })
     } catch {
@@ -880,10 +908,10 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       sourceId: sourceRow.id,
       runId,
       syncedAt: finishedAt,
-      pulledEvents: report.totals.normalizedEvents,
-      crawlerHits: report.totals.crawlerHits,
-      aiReferralHits: report.totals.aiReferralHits,
-      unknownHits: report.totals.unknownHits,
+      pulledEvents: pulledEventsCount,
+      crawlerHits: crawlerHitsCount,
+      aiReferralHits: aiReferralHitsCount,
+      unknownHits: unknownHitsCount,
       crawlerBucketRows,
       aiReferralBucketRows,
       sampleRows,

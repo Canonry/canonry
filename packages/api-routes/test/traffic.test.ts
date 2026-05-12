@@ -364,6 +364,68 @@ describe('POST /traffic/sources/:id/sync', () => {
     }
   })
 
+  it('advances lastSyncedAt to windowEnd (not finishedAt) so events in the processing gap survive into the next sync', async () => {
+    // Regression: if lastSyncedAt rolled forward to the transaction's
+    // finishedAt instead of the pull's windowEnd, then events with
+    // observedAt in (windowEnd, finishedAt] would be lost forever — sync 1
+    // didn't pull them (timestamp > endTime) and sync 2 would clamp past
+    // them. Assert the cursor matches windowEnd exactly, and that a new
+    // event at the boundary is picked up by the next sync.
+    const observedAt = new Date(Date.now() - 30 * 60_000).toISOString()
+    const events: NormalizedTrafficRequest[] = [
+      buildEvent({ eventId: 'evt-1', userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt }),
+    ]
+    const h = await buildHarness(events)
+    try {
+      const connectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connectRes.payload).id
+
+      await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      const firstWindow = h.getObservedWindows()[0]!
+
+      const sourceAfterFirst = h.db
+        .select()
+        .from(trafficSources)
+        .where(eq(trafficSources.id, sourceId))
+        .get()!
+      expect(sourceAfterFirst.lastSyncedAt).toBe(firstWindow.endTime)
+
+      // Inject a new event AT the boundary timestamp — observable only by
+      // sync 2 if its windowStart equals sync 1's windowEnd.
+      events.push(buildEvent({
+        eventId: 'evt-boundary',
+        userAgent: 'GPTBot/1.0',
+        path: '/blog/boundary',
+        status: 200,
+        observedAt: firstWindow.endTime,
+      }))
+
+      const second = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      expect(JSON.parse(second.payload).pulledEvents).toBe(1)
+      const paths = h.db
+        .select()
+        .from(crawlerEventsHourly)
+        .all()
+        .map((r) => r.pathNormalized)
+        .sort()
+      expect(paths).toEqual(['/blog/boundary', '/blog/foo'])
+    } finally {
+      await h.close()
+    }
+  })
+
   it('clamps windowStart to lastSyncedAt so overlapping syncs do not double-count', async () => {
     // Event sits inside the default sync window for the first sync. After
     // the first sync, lastSyncedAt is "now-ish", so the second sync's window
