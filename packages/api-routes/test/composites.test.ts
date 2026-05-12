@@ -277,6 +277,55 @@ describe('GET /api/v1/projects/:name/overview', () => {
     expect(body.scores.visibility.value).toBe('No data')
   })
 
+  it('does NOT raise a stale-visibility attention item when the most recent non-visibility run is a discovery run (aeo-discover-probe)', async () => {
+    // Stale-visibility hint should fire only for real upstream integration
+    // syncs. After PR 1a, discovery has its own run kinds; without the
+    // INTEGRATION_SYNC_KINDS allowlist, an active discovery session would
+    // wrongly trigger the warning.
+    const { app, db, projectId } = seedProjectWithRuns()
+    // Insert a discovery probe that ran AFTER the latest visibility sweep
+    // (which is at 2026-04-18T14:20:00.000Z per the seed). Use ample lag
+    // (> 1 day) so the hint would have fired if the predicate were wrong.
+    db.insert(runs).values({
+      id: crypto.randomUUID(),
+      projectId,
+      kind: 'aeo-discover-probe',
+      status: 'completed',
+      trigger: 'manual',
+      createdAt: '2026-04-20T14:00:00.000Z',
+      finishedAt: '2026-04-20T14:01:00.000Z',
+    }).run()
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/overview' })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload) as ProjectOverviewDto
+
+    expect(body.attentionItems.find((i) => i.id === 'stale_visibility')).toBeUndefined()
+  })
+
+  it('DOES raise a stale-visibility attention item when a real integration sync (gsc-sync) ran more recently', async () => {
+    const { app, db, projectId } = seedProjectWithRuns()
+    db.insert(runs).values({
+      id: crypto.randomUUID(),
+      projectId,
+      kind: 'gsc-sync',
+      status: 'completed',
+      trigger: 'manual',
+      createdAt: '2026-04-20T14:00:00.000Z',
+      finishedAt: '2026-04-20T14:01:00.000Z',
+    }).run()
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/overview' })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload) as ProjectOverviewDto
+
+    const stale = body.attentionItems.find((i) => i.id === 'stale_visibility')
+    expect(stale).toBeDefined()
+    expect(stale?.tone).toBe('caution')
+  })
+
   it('returns empty counts and null transitions when project has no runs', async () => {
     const { app, db, tmpDir } = buildApp()
     cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
