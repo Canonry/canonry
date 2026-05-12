@@ -53,6 +53,7 @@ import { executeInspectSitemap } from './gsc-inspect-sitemap.js'
 import { executeBingInspectSitemap } from './bing-inspect-sitemap.js'
 import { executeReleaseSync } from './commoncrawl-sync.js'
 import { executeBacklinkExtract } from './backlink-extract.js'
+import { executeDiscoveryRun } from './discovery-run.js'
 import {
   DUCKDB_SPEC,
   PLUGIN_DIR,
@@ -339,23 +340,43 @@ export async function createServer(opts: {
   })
 
   const runCoordinator = new RunCoordinator(
+    opts.db,
     notifier,
     intelligenceService,
     (runId, projectId, result) => notifier.dispatchInsightWebhooks(runId, projectId, result),
-    async ({ runId, projectId, insightCount, criticalOrHigh }) => {
+    async (ctx) => {
       const project = opts.db
         .select({ name: projects.name })
         .from(projects)
-        .where(eq(projects.id, projectId))
+        .where(eq(projects.id, ctx.projectId))
         .get()
       if (!project) return
+
+      let content: string
+      if (ctx.kind === RunKinds['aeo-discover-probe']) {
+        if (ctx.status === 'failed') {
+          content =
+            `[system] Discovery run ${ctx.runId} failed for project ${project.name}: ${ctx.error ?? 'unknown error'}. ` +
+            `Surface a one-line diagnosis and a suggested next step.`
+        } else {
+          const top = ctx.topCompetitors.map(c => `${c.domain}(${c.hits})`).join(', ') || 'none'
+          content =
+            `[system] Discovery run ${ctx.runId} completed for project ${project.name} (session ${ctx.sessionId}). ` +
+            `Buckets — cited:${ctx.buckets.cited}, wasted-surface:${ctx.buckets['wasted-surface']}, aspirational:${ctx.buckets.aspirational} ` +
+            `(${ctx.probeCount} probes; seed provider: ${ctx.seedProvider ?? 'unknown'}). Top recurring competitor domains: ${top}. ` +
+            `Use canonry_discover_session_get to pull per-query buckets and call out anything worth promoting to the tracked basket. Keep it tight.`
+        }
+      } else {
+        content =
+          `[system] Run ${ctx.runId} completed for project ${project.name}. ` +
+          `${ctx.insightCount} insights generated (${ctx.criticalOrHigh} critical/high). ` +
+          `Use canonry_run_get to inspect the run and canonry_insights_list to review new findings. ` +
+          `Surface anything notable briefly — skip chit-chat.`
+      }
+
       sessionRegistry.queueFollowUp(project.name, {
         role: 'user',
-        content:
-          `[system] Run ${runId} completed for project ${project.name}. ` +
-          `${insightCount} insights generated (${criticalOrHigh} critical/high). ` +
-          `Use canonry_run_get to inspect the run and canonry_insights_list to review new findings. ` +
-          `Surface anything notable briefly — skip chit-chat.`,
+        content,
         timestamp: Date.now(),
       })
       // Fire-and-forget drain — the registry logs drain errors internally.
@@ -913,6 +934,25 @@ export async function createServer(opts: {
       executeBacklinkExtract(opts.db, runId, projectId, { release }).catch((err: unknown) => {
         app.log.error({ runId, err }, 'Backlink extract failed')
       })
+    },
+    onDiscoveryRunRequested: (input) => {
+      // Run discovery in the background; the handler captures and persists
+      // its own errors, so we only need to log a top-level failure if the
+      // handler itself threw before reaching that recovery path.
+      executeDiscoveryRun({
+        db: opts.db,
+        registry,
+        runId: input.runId,
+        sessionId: input.sessionId,
+        projectId: input.projectId,
+        icpDescription: input.icpDescription,
+        dedupThreshold: input.dedupThreshold,
+        maxProbes: input.maxProbes,
+      })
+        .then(() => runCoordinator.onRunCompleted(input.runId, input.projectId))
+        .catch((err: unknown) => {
+          app.log.error({ runId: input.runId, err }, 'Discovery run failed')
+        })
     },
     onBacklinksPruneCache: (release: string) => {
       try {

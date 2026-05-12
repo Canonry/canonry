@@ -78,7 +78,7 @@ describe('RunCoordinator', () => {
 
     const notifier = createMockNotifier()
     const service = new IntelligenceService(db)
-    const coordinator = new RunCoordinator(notifier as Notifier, service)
+    const coordinator = new RunCoordinator(db, notifier as Notifier, service)
 
     await coordinator.onRunCompleted(runId, projectId)
 
@@ -101,7 +101,7 @@ describe('RunCoordinator', () => {
       throw new Error('analysis exploded')
     })
 
-    const coordinator = new RunCoordinator(notifier as Notifier, service)
+    const coordinator = new RunCoordinator(db, notifier as Notifier, service)
     await coordinator.onRunCompleted(runId, projectId)
 
     // Notifier should still be called despite intelligence failure
@@ -116,7 +116,7 @@ describe('RunCoordinator', () => {
     notifier.onRunCompleted.mockRejectedValue(new Error('webhook down'))
 
     const service = new IntelligenceService(db)
-    const coordinator = new RunCoordinator(notifier as Notifier, service)
+    const coordinator = new RunCoordinator(db, notifier as Notifier, service)
 
     // Should not throw
     await expect(coordinator.onRunCompleted(runId, projectId)).resolves.toBeUndefined()
@@ -144,7 +144,7 @@ describe('RunCoordinator', () => {
       return null
     })
 
-    const coordinator = new RunCoordinator(notifier as Notifier, service)
+    const coordinator = new RunCoordinator(db, notifier as Notifier, service)
     await coordinator.onRunCompleted(runId, projectId)
 
     expect(notifier.onRunCompleted).toHaveBeenCalled()
@@ -168,7 +168,7 @@ describe('RunCoordinator', () => {
       return origAnalyze(...args)
     })
 
-    const coordinator = new RunCoordinator(notifier as Notifier, service)
+    const coordinator = new RunCoordinator(db, notifier as Notifier, service)
     await coordinator.onRunCompleted(runId, projectId)
 
     expect(callOrder).toEqual(['intelligence', 'notifier'])

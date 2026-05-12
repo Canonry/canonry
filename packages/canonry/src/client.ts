@@ -79,6 +79,10 @@ import type {
   TrafficConnectCloudRunRequest,
   TrafficSyncResponse,
   TrafficBackfillResponse,
+  DiscoverySessionDto,
+  DiscoverySessionDetailDto,
+  DiscoveryCompetitorMapEntry,
+  DiscoveryBucket,
 } from '@ainyc/canonry-contracts'
 
 export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry, CompetitorDto, KeywordDto, QueryDto }
@@ -144,6 +148,22 @@ export interface CdpScreenshotResultDto {
     answerText: string
     citations: { uri: string; title: string }[]
   }>
+}
+
+/** Response shape of POST /projects/:name/discover/run */
+export interface DiscoveryRunStartResponse {
+  runId: string
+  sessionId: string
+  status: 'running'
+}
+
+/** Response shape of GET /projects/:name/discover/sessions/:id/promote */
+export interface DiscoveryPromotePreview {
+  sessionId: string
+  projectId: string
+  queriesByBucket: Record<DiscoveryBucket, string[]>
+  suggestedCompetitors: DiscoveryCompetitorMapEntry[]
+  status: string
 }
 
 /**
@@ -864,6 +884,39 @@ export class ApiClient {
     return this.request<TrafficEventsResponse>(
       'GET',
       `/projects/${encodeURIComponent(project)}/traffic/events${qs}`,
+    )
+  }
+
+  async triggerDiscoveryRun(
+    project: string,
+    body?: { icpDescription?: string; dedupThreshold?: number; maxProbes?: number },
+  ): Promise<DiscoveryRunStartResponse> {
+    return this.request<DiscoveryRunStartResponse>(
+      'POST',
+      `/projects/${encodeURIComponent(project)}/discover/run`,
+      body ?? {},
+    )
+  }
+
+  async listDiscoverySessions(project: string, opts?: { limit?: number }): Promise<DiscoverySessionDto[]> {
+    const qs = opts?.limit ? `?limit=${encodeURIComponent(String(opts.limit))}` : ''
+    return this.request<DiscoverySessionDto[]>(
+      'GET',
+      `/projects/${encodeURIComponent(project)}/discover/sessions${qs}`,
+    )
+  }
+
+  async getDiscoverySession(project: string, sessionId: string): Promise<DiscoverySessionDetailDto> {
+    return this.request<DiscoverySessionDetailDto>(
+      'GET',
+      `/projects/${encodeURIComponent(project)}/discover/sessions/${encodeURIComponent(sessionId)}`,
+    )
+  }
+
+  async previewDiscoveryPromote(project: string, sessionId: string): Promise<DiscoveryPromotePreview> {
+    return this.request<DiscoveryPromotePreview>(
+      'GET',
+      `/projects/${encodeURIComponent(project)}/discover/sessions/${encodeURIComponent(sessionId)}/promote`,
     )
   }
 

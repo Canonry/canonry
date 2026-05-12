@@ -90,12 +90,16 @@ const expectedToolNames = [
   'canonry_agent_clear',
   'canonry_agent_webhook_attach',
   'canonry_agent_webhook_detach',
+  'canonry_discover_run_start',
+  'canonry_discover_sessions_list',
+  'canonry_discover_session_get',
+  'canonry_discover_promote_preview',
 ] as const
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(74)
-    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(49)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(78)
+    expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(52)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -137,6 +141,7 @@ describe('MCP tool registry', () => {
     expect(counts.get('ga')).toBe(8)
     expect(counts.get('traffic')).toBe(7)
     expect(counts.get('agent')).toBe(5)
+    expect(counts.get('discovery')).toBe(4)
   })
 
   it('generates JSON schema from every Zod input schema', () => {
@@ -360,7 +365,7 @@ describe('Dynamic tool catalog', () => {
       'canonry_run_cancel',
       'canonry_agent_webhook_attach',
     ])
-    expect(help.toolkits.map(t => t.name)).toEqual(['monitoring', 'setup', 'gsc', 'ga', 'traffic', 'agent'])
+    expect(help.toolkits.map(t => t.name)).toEqual(['monitoring', 'setup', 'gsc', 'ga', 'traffic', 'agent', 'discovery'])
     expect(help.toolkits.every(t => !t.loaded)).toBe(true)
 
     const monitoringFirst = catalog.loadToolkit('monitoring')
@@ -386,7 +391,7 @@ describe('Dynamic tool catalog', () => {
 
     const help = catalog.helpResult()
     expect(help.eager).toBe(true)
-    expect(help.loadedToolkits.sort()).toEqual(['agent', 'ga', 'gsc', 'monitoring', 'setup', 'traffic'])
+    expect(help.loadedToolkits.sort()).toEqual(['agent', 'discovery', 'ga', 'gsc', 'monitoring', 'setup', 'traffic'])
     expect(help.toolkits.every(t => t.loaded)).toBe(true)
   })
 
@@ -557,6 +562,10 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_agent_clear', input: projectInput, methods: ['resetAgentTranscript'] },
   { tool: 'canonry_agent_webhook_attach', input: { project: 'acme', url: 'https://agent.example.com/hook' }, methods: ['listNotifications', 'createNotification'] },
   { tool: 'canonry_agent_webhook_detach', input: projectInput, methods: ['listNotifications', 'deleteNotification'], fixture: 'agent-notification' },
+  { tool: 'canonry_discover_run_start', input: { project: 'acme', request: { icpDescription: 'AEO analyst tool' } }, methods: ['triggerDiscoveryRun'] },
+  { tool: 'canonry_discover_sessions_list', input: { project: 'acme', limit: 5 }, methods: ['listDiscoverySessions'] },
+  { tool: 'canonry_discover_session_get', input: { project: 'acme', sessionId: 'sess-1' }, methods: ['getDiscoverySession'] },
+  { tool: 'canonry_discover_promote_preview', input: { project: 'acme', sessionId: 'sess-1' }, methods: ['previewDiscoveryPromote'] },
 ]
 
 function makeClient(calls: Array<{ method: string; args: unknown[] }>, fixture?: 'agent-notification'): ApiClient {
