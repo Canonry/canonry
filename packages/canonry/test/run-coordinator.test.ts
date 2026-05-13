@@ -3,10 +3,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect, vi, onTestFinished } from 'vitest'
-import { createClient, migrate, projects, runs, queries, querySnapshots, healthSnapshots } from '@ainyc/canonry-db'
+import { createClient, discoverySessions, migrate, projects, runs, queries, querySnapshots, healthSnapshots } from '@ainyc/canonry-db'
 import { Notifier } from '../src/notifier.js'
 import { IntelligenceService } from '../src/intelligence-service.js'
-import { RunCoordinator } from '../src/run-coordinator.js'
+import { RunCoordinator, type AeroEventContext } from '../src/run-coordinator.js'
 
 function createTempDb(prefix: string) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -172,5 +172,83 @@ describe('RunCoordinator', () => {
     await coordinator.onRunCompleted(runId, projectId)
 
     expect(callOrder).toEqual(['intelligence', 'notifier'])
+  })
+
+  it('discovery aero context resolves the session by runId, not by "latest non-queued"', async () => {
+    // Regression: two discovery sessions on the same project must be
+    // disambiguated by runId. Picking the most recent non-queued session
+    // would surface the WRONG session's bucket counts to Aero when the
+    // older run completes.
+    const { db } = createTempDb('coord-discovery-')
+    const now = new Date().toISOString()
+    const projectId = crypto.randomUUID()
+    db.insert(projects).values({
+      id: projectId,
+      name: 'disc-project',
+      displayName: 'Disc',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+
+    const olderRunId = crypto.randomUUID()
+    const newerRunId = crypto.randomUUID()
+    for (const [runId, kindStatus] of [[olderRunId, 'completed'], [newerRunId, 'running']] as const) {
+      db.insert(runs).values({
+        id: runId,
+        projectId,
+        kind: 'aeo-discover-probe',
+        status: kindStatus,
+        trigger: 'manual',
+        createdAt: now,
+      }).run()
+    }
+
+    // Older session — the one whose run is completing now.
+    db.insert(discoverySessions).values({
+      id: 'sess_older',
+      projectId,
+      runId: olderRunId,
+      status: 'completed',
+      citedCount: 7,
+      aspirationalCount: 1,
+      wastedCount: 2,
+      probeCount: 10,
+      seedProvider: 'gemini-older',
+      competitorMap: '[]',
+      createdAt: '2026-05-10T00:00:00.000Z',
+    }).run()
+    // Newer session — would have been picked by "latest non-queued" heuristic.
+    db.insert(discoverySessions).values({
+      id: 'sess_newer',
+      projectId,
+      runId: newerRunId,
+      status: 'probing',
+      citedCount: 0,
+      aspirationalCount: 0,
+      wastedCount: 99,
+      probeCount: 99,
+      seedProvider: 'gemini-newer',
+      competitorMap: '[]',
+      createdAt: '2026-05-11T00:00:00.000Z',
+    }).run()
+
+    const notifier = createMockNotifier()
+    const service = new IntelligenceService(db)
+    let captured: AeroEventContext | undefined
+    const coordinator = new RunCoordinator(db, notifier as Notifier, service, undefined, async (ctx) => {
+      captured = ctx
+    })
+    await coordinator.onRunCompleted(olderRunId, projectId)
+
+    expect(captured).toBeDefined()
+    expect(captured!.kind).toBe('aeo-discover-probe')
+    if (captured!.kind !== 'aeo-discover-probe') throw new Error('kind narrow failed')
+    expect(captured!.sessionId).toBe('sess_older')
+    expect(captured!.seedProvider).toBe('gemini-older')
+    expect(captured!.buckets).toEqual({ cited: 7, aspirational: 1, 'wasted-surface': 2 })
+    expect(captured!.probeCount).toBe(10)
   })
 })

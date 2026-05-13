@@ -230,7 +230,7 @@ describe('executeDiscoveryRun', () => {
     expect(runRow.status).toBe('failed')
   })
 
-  it('insight severity downgrades to "medium" when wasted is small relative to cited', async () => {
+  it('insight severity downgrades to "low" when wasted is small relative to cited', async () => {
     const { db, projectId, sessionId, runId } = setup()
 
     // 4 cited, 1 wasted → wasted ratio = 20%, cited ratio = 80% → severity should be 'low'

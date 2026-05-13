@@ -126,7 +126,10 @@ export class RunCoordinator {
    * Pull the discovery session that owns this run and project a payload Aero
    * can act on: bucket counts, top competitors, the seed provider, and the
    * session ID it can pass to `canonry_discover_session_get` for the per-query
-   * breakdown. Falls back to a zero payload when the session row is missing
+   * breakdown. Looked up by `runId` (the POST handler populates
+   * `discovery_sessions.runId` in the same transaction that creates the run)
+   * so two concurrent discovery sessions on the same project don't get
+   * cross-wired. Falls back to a zero payload when the session row is missing
    * so the Aero queue is never starved of a follow-up.
    */
   private buildDiscoveryAeroContext(
@@ -138,10 +141,8 @@ export class RunCoordinator {
     const session = this.db
       .select()
       .from(discoverySessions)
-      .where(eq(discoverySessions.projectId, projectId))
-      .all()
-      .filter(s => s.status !== 'queued')
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
+      .where(eq(discoverySessions.runId, runId))
+      .get()
 
     const competitorMap = session
       ? parseJsonColumn<DiscoveryCompetitorMapEntry[]>(session.competitorMap, [])

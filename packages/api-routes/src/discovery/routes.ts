@@ -9,6 +9,8 @@ import {
   runs,
 } from '@ainyc/canonry-db'
 import {
+  DiscoveryBuckets,
+  DiscoverySessionStatuses,
   RunKinds,
   RunStatuses,
   RunTriggers,
@@ -88,7 +90,8 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
       tx.insert(discoverySessions).values({
         id: sessionId,
         projectId: project.id,
-        status: 'queued',
+        runId,
+        status: DiscoverySessionStatuses.queued,
         icpDescription,
         dedupThreshold: parsed.data.dedupThreshold,
         competitorMap: '[]',
@@ -207,9 +210,9 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
       for (const probe of probeRows) {
         const bucket = probe.bucket
         if (!bucket) continue
-        if (bucket === 'cited') cited.add(probe.query)
-        else if (bucket === 'aspirational') aspirational.add(probe.query)
-        else if (bucket === 'wasted-surface') wasted.add(probe.query)
+        if (bucket === DiscoveryBuckets.cited) cited.add(probe.query)
+        else if (bucket === DiscoveryBuckets.aspirational) aspirational.add(probe.query)
+        else if (bucket === DiscoveryBuckets['wasted-surface']) wasted.add(probe.query)
       }
 
       const competitorMap = parseJsonColumn<DiscoveryCompetitorMapEntry[]>(session.competitorMap, [])

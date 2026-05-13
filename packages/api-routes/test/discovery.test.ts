@@ -448,6 +448,9 @@ describe('discovery routes', () => {
     const sessionRow = db.select().from(discoverySessions).get()!
     expect(sessionRow.icpDescription).toBe('Boutique hotels in Williamsburg')
     expect(sessionRow.status).toBe('queued')
+    // The session row must carry the run ID so the run-coordinator can find
+    // the right session when two discovery runs overlap on the same project.
+    expect(sessionRow.runId).toBe(body.runId)
 
     const runRow = db.select().from(runs).get()!
     expect(runRow.kind).toBe('aeo-discover-probe')
