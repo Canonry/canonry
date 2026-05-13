@@ -984,7 +984,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_run_trigger',
     title: 'Trigger run',
-    description: 'Trigger an answer-visibility run for a Canonry project.',
+    description: "Trigger an answer-visibility run for a Canonry project. Pass request.queries[] to scope the sweep to a subset of the project's tracked queries; omit for a full sweep.",
     access: 'write',
     tier: 'core',
     inputSchema: runTriggerInputSchema,

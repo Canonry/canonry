@@ -1096,6 +1096,17 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_discovery_sessions_run ON discovery_sessions(run_id)`,
     ],
   },
+  {
+    version: 57,
+    name: 'runs-scoped-queries',
+    // Persists an optional subset of tracked queries to sweep on a per-run
+    // basis. NULL = full sweep (the default and only behavior pre-v57); a JSON
+    // array of query strings = scope. The job runner reads this to filter the
+    // query fetch via `inArray`.
+    statements: [
+      `ALTER TABLE runs ADD COLUMN queries TEXT`,
+    ],
+  },
 ]
 
 /**

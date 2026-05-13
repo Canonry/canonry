@@ -1,6 +1,6 @@
 import { cancelRun, listRuns, showRun, triggerRun, triggerRunAll } from '../commands/run.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
-import { getBoolean, getString, parseIntegerOption, requirePositional, requireProject, stringOption } from '../cli-command-helpers.js'
+import { getBoolean, getString, getStringArray, multiStringOption, parseIntegerOption, requirePositional, requireProject, stringOption } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
 
 export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
@@ -26,9 +26,10 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['run'],
-    usage: 'canonry run <project|--all> [--provider <name>] [--location <label>] [--all-locations] [--no-location] [--wait] [--format json]',
+    usage: 'canonry run <project|--all> [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--wait] [--format json]',
     options: {
       provider: stringOption(),
+      query: multiStringOption(),
       wait: { type: 'boolean', default: false },
       all: { type: 'boolean', default: false },
       location: stringOption(),
@@ -59,12 +60,13 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const project = requireProject(
         input,
         'run',
-        'canonry run <project> [--provider <name>] [--wait] [--format json]',
+        'canonry run <project> [--provider <name>] [--query <q>...] [--wait] [--format json]',
         'project name is required (or use --all)',
       )
 
       await triggerRun(project, {
         provider: getString(input.values, 'provider'),
+        queries: getStringArray(input.values, 'query'),
         wait: getBoolean(input.values, 'wait'),
         location: getString(input.values, 'location'),
         allLocations: getBoolean(input.values, 'all-locations'),

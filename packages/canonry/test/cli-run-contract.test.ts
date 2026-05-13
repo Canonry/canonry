@@ -3,7 +3,8 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { createClient, migrate, apiKeys, runs } from '@ainyc/canonry-db'
+import { eq } from 'drizzle-orm'
+import { createClient, migrate, apiKeys, runs, parseJsonColumn } from '@ainyc/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 import { invokeCli } from './cli-test-utils.js'
@@ -184,6 +185,38 @@ describe('run lifecycle CLI contract', () => {
     expect(parsed).toHaveLength(1)
     expect(parsed[0]?.id).toBe(latestRunId)
     expect(parsed[0]?.id).not.toBe(olderRunId)
+  })
+
+  it('forwards repeatable --query flags as a queries[] body field', async () => {
+    await client.appendQueries('test-proj', ['alpha', 'beta', 'gamma'])
+
+    const result = await invokeCli([
+      'run', 'test-proj',
+      '--query', 'alpha',
+      '--query', 'beta',
+      '--format', 'json',
+    ])
+
+    expect(result.exitCode).toBe(undefined)
+    const parsed = JSON.parse(result.stdout) as { id: string; queries: string[] }
+    expect(parsed.queries).toEqual(['alpha', 'beta'])
+
+    const row = db.select().from(runs).where(eq(runs.id, parsed.id)).get()
+    expect(row).toBeTruthy()
+    expect(parseJsonColumn<string[]>(row!.queries, [])).toEqual(['alpha', 'beta'])
+  })
+
+  it('returns 400 when --query lists an untracked query', async () => {
+    await client.appendQueries('test-proj', ['alpha'])
+
+    const result = await invokeCli([
+      'run', 'test-proj',
+      '--query', 'untracked',
+      '--format', 'json',
+    ])
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain('untracked')
   })
 
   it('prints a JSON usage error for runs <project> --limit with a non-integer value', async () => {

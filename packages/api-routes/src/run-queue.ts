@@ -9,6 +9,8 @@ export interface QueueRunParams {
   trigger?: string
   createdAt?: string
   location?: string | null
+  /** JSON-serialized array of tracked query strings to scope the sweep to. Null = full sweep. */
+  queries?: string | null
 }
 
 export type QueueRunResult =
@@ -44,6 +46,7 @@ export function queueRunIfProjectIdle(db: DatabaseClient, params: QueueRunParams
       status: 'queued',
       trigger,
       location: params.location ?? null,
+      queries: params.queries ?? null,
       createdAt,
     }).run()
 

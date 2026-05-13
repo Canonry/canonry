@@ -53,6 +53,28 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     }
     const providers = rawProviders?.length ? rawProviders : undefined
 
+    // Validate that body.queries (if provided) is a subset of the project's
+    // tracked queries. Untracked queries can't produce snapshots (no queries
+    // row to FK against), so we reject up-front rather than silently dropping.
+    let scopedQueries: string[] | null = null
+    if (body.queries?.length) {
+      const trackedRows = app.db
+        .select({ query: queries.query })
+        .from(queries)
+        .where(eq(queries.projectId, project.id))
+        .all()
+      const tracked = new Set(trackedRows.map(r => r.query))
+      const missing = body.queries.filter(q => !tracked.has(q))
+      if (missing.length) {
+        throw validationError(`Queries not tracked on project "${project.name}": ${missing.join(', ')}`, {
+          missing,
+          tracked: [...tracked],
+        })
+      }
+      scopedQueries = body.queries
+    }
+    const queriesColumn = scopedQueries ? JSON.stringify(scopedQueries) : null
+
     // Resolve location for this run
     let resolvedLocation: LocationContext | null | undefined
     const projectLocations = parseJsonColumn<LocationContext[]>(project.locations, [])
@@ -95,6 +117,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
           status: 'queued',
           trigger,
           location: loc.label,
+          queries: queriesColumn,
           createdAt: now,
         }).run()
         newRuns.push({ runId, loc })
@@ -125,6 +148,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       projectId: project.id,
       trigger,
       location: locationLabel,
+      queries: queriesColumn,
     })
 
     if (queueResult.conflict) throw runInProgress(project.name)
@@ -344,6 +368,7 @@ function formatRun(row: {
   status: string
   trigger: string
   location: string | null
+  queries: string | null
   startedAt: string | null
   finishedAt: string | null
   error: string | null
@@ -356,6 +381,7 @@ function formatRun(row: {
     status: row.status,
     trigger: row.trigger,
     location: row.location,
+    queries: parseJsonColumn<string[] | null>(row.queries, null),
     startedAt: row.startedAt,
     finishedAt: row.finishedAt,
     error: parseRunError(row.error),

@@ -41,6 +41,7 @@ export const runTriggerRequestSchema = z.object({
   kind: z.literal(RunKinds['answer-visibility']).optional(),
   trigger: z.literal(RunTriggers.manual).optional(),
   providers: z.array(providerNameSchema).optional(),
+  queries: z.array(z.string().min(1)).min(1).optional(),
   location: z.string().min(1).optional(),
   allLocations: z.boolean().optional(),
   noLocation: z.boolean().optional(),

@@ -8,7 +8,7 @@ function getClient() {
 
 const TERMINAL_STATUSES = new Set(['completed', 'partial', 'failed', 'cancelled'])
 
-export async function triggerRun(project: string, opts?: { provider?: string; wait?: boolean; format?: string; location?: string; allLocations?: boolean; noLocation?: boolean }): Promise<void> {
+export async function triggerRun(project: string, opts?: { provider?: string; queries?: string[]; wait?: boolean; format?: string; location?: string; allLocations?: boolean; noLocation?: boolean }): Promise<void> {
   const client = getClient()
   const body: Record<string, unknown> = {}
   if (opts?.provider) {
@@ -16,6 +16,9 @@ export async function triggerRun(project: string, opts?: { provider?: string; wa
     const providerInputs = opts.provider.split(',').map(s => s.trim()).filter(Boolean)
     const resolved = providerInputs.flatMap(p => resolveProviderInput(p))
     body.providers = resolved.length > 0 ? resolved : providerInputs
+  }
+  if (opts?.queries?.length) {
+    body.queries = opts.queries
   }
   if (opts?.location) {
     body.location = opts.location
