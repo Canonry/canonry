@@ -188,21 +188,41 @@ function buildEvidenceFromTimeline(
       const latestRun = entry.runs.at(-1)
       const transition = latestRun?.transition ?? 'not-cited'
       for (const provider of providers) {
-        // Emit one evidence row per location observed in the latest-run group.
-        // `null` represents the "no location configured" case (single-location or
-        // project-wide runs); when set, each row carries that location's snapshot.
-        for (const location of locationsInLatestRun) {
+        // Determine which locations actually have a snapshot for this
+        // (query × provider). When at least one does, emit a row per
+        // snap-carrying location. When none do but the provider has
+        // history, emit a single synthetic fallback row so the badge
+        // still appears without multiplying it N× across locations.
+        const locationsWithSnap = [...locationsInLatestRun]
+          .filter(loc => snapshotsByKey.has(`${entry.query}::${provider}::${loc ?? ''}`))
+        const hasHistory = (entry.providerRuns?.[provider]?.length ?? 0) > 0
+        const rowLocations: (string | null)[] = locationsWithSnap.length > 0
+          ? locationsWithSnap
+          : (hasHistory ? [null] : [])
+        for (const location of rowLocations) {
           const locKey = location ?? ''
           const snap = snapshotsByKey.get(`${entry.query}::${provider}::${locKey}`)
-          // Only skip if provider has zero history for this query AND no snapshot in this location
-          const hasHistory = (entry.providerRuns?.[provider]?.length ?? 0) > 0
-          if (!snap && !hasHistory) continue
 
-          // Prefer provider-level history for continuity across model changes; fall back to model-scoped then query-level
+          // Prefer provider-level history for continuity across model changes;
+          // fall back to model-scoped then query-level. Filter to this loop's
+          // location so transition/streak labels reflect the actual location
+          // being rendered — otherwise the most recent cross-location snapshot
+          // would leak into every per-location row.
           const model = snap?.model ?? null
           const modelKey = model ? `${provider}:${model}` : null
-          const modelHistory = modelKey ? entry.modelRuns?.[modelKey] : undefined
-          const providerHistory = entry.providerRuns?.[provider]
+          const rawProviderHistory = entry.providerRuns?.[provider]
+          const rawModelHistory = modelKey ? entry.modelRuns?.[modelKey] : undefined
+          const filterByLocation = <T extends { location?: string | null }>(rows: T[] | undefined): T[] | undefined =>
+            rows?.filter(r => (r.location ?? null) === location)
+          // History-only synthetic rows (location === null, snap missing)
+          // legitimately summarize cross-location continuity, so keep the
+          // unfiltered series in that case.
+          const providerHistory = locationsWithSnap.length > 0
+            ? filterByLocation(rawProviderHistory)
+            : rawProviderHistory
+          const modelHistory = locationsWithSnap.length > 0
+            ? filterByLocation(rawModelHistory)
+            : rawModelHistory
           const effectiveHistory = (providerHistory?.length ? providerHistory : null)
             ?? (modelHistory?.length ? modelHistory : null)
           const baseHistoryScope: EvidenceHistoryScope = providerHistory?.length
@@ -450,7 +470,10 @@ export interface ProjectData {
    * location for a multi-location sweep, or a single-element array for a
    * single-location / project-wide run. Empty when the project has never run. */
   latestRunDetails: ApiRunDetail[]
-  previousRunDetail: ApiRunDetail | null
+  /** All runs in the previous fan-out group (same `createdAt`). Mirrors
+   * `latestRunDetails` so snapshot-diff and other consumers see every
+   * location, not just an arbitrary one. */
+  previousRunDetails: ApiRunDetail[]
   gscCoverage?: ApiGscCoverageSummary | null
   bingCoverage?: ApiBingCoverageSummary | null
   dbInsights?: InsightDto[] | null

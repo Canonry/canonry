@@ -65,19 +65,24 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
       // dashboard collapses to a single non-deterministic location and the other
       // locations' snapshots silently disappear.
       const latestCreatedAt = completedRuns[0]?.createdAt ?? null
-      const latestRunGroup = latestCreatedAt
-        ? completedRuns.filter(r => r.createdAt === latestCreatedAt)
+      const latestRunIds = latestCreatedAt
+        ? completedRuns.filter(r => r.createdAt === latestCreatedAt).map(r => r.id)
         : []
-      const latestRunIds = latestRunGroup.map(r => r.id)
-      const previousCreatedAt = completedRuns.find(r => r.createdAt !== latestCreatedAt)?.createdAt ?? null
-      const previousRun = previousCreatedAt
-        ? completedRuns.find(r => r.createdAt === previousCreatedAt) ?? null
-        : null
+      // Mirror the fan-out grouping for the previous batch so snapshot-diff
+      // and any other consumer of "previous run" sees every location, not
+      // just the first one we happen to encounter.
+      const previousBatchCreatedAt = completedRuns.find(r => r.createdAt !== latestCreatedAt)?.createdAt ?? null
+      const previousRunIds = previousBatchCreatedAt
+        ? completedRuns.filter(r => r.createdAt === previousBatchCreatedAt).map(r => r.id)
+        : []
+      // Sort IDs so the query key stays stable regardless of upstream ordering
+      // (`GET /runs` has no ORDER BY, so SQLite can return rows in any order).
+      const latestRunIdsKey = [...latestRunIds].sort().join(',')
 
       return {
-        queryKey: queryKeys.projects.detail(project.id, latestRunIds.join(',') || undefined),
+        queryKey: queryKeys.projects.detail(project.id, latestRunIdsKey || undefined),
         queryFn: async (): Promise<ProjectData> => {
-          const [qs, comps, timeline, latestRunDetails, previousRunDetail, gscCoverage, bingCoverage, dbInsights, overview] = await Promise.all([
+          const [qs, comps, timeline, latestRunDetails, previousRunDetails, gscCoverage, bingCoverage, dbInsights, overview] = await Promise.all([
             fetchQueries(project.name).catch(() => []),
             fetchCompetitors(project.name).catch(() => []),
             fetchTimeline(project.name).catch(() => []),
@@ -85,10 +90,15 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
               ? Promise.all(latestRunIds.map(id => fetchRunDetail(id).catch(() => null)))
                   .then(results => results.filter((r): r is NonNullable<typeof r> => r != null))
               : Promise.resolve([]),
-            previousRun ? fetchRunDetail(previousRun.id).catch(() => null) : Promise.resolve(null),
+            previousRunIds.length
+              ? Promise.all(previousRunIds.map(id => fetchRunDetail(id).catch(() => null)))
+                  .then(results => results.filter((r): r is NonNullable<typeof r> => r != null))
+              : Promise.resolve([]),
             fetchGscCoverage(project.name).catch(() => null),
             fetchBingCoverage(project.name).catch(() => null),
-            latestRunIds[0] ? fetchInsights(project.name, latestRunIds[0]).catch(() => null) : Promise.resolve(null),
+            // Project-wide insights — per-run filtering would miss the other
+            // locations' runs when an answer-visibility sweep fans out.
+            fetchInsights(project.name).catch(() => null),
             fetchProjectOverview(project.name).catch(() => null),
           ])
 
@@ -99,7 +109,7 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
             competitors: comps,
             timeline,
             latestRunDetails,
-            previousRunDetail,
+            previousRunDetails,
             gscCoverage,
             bingCoverage,
             dbInsights,
