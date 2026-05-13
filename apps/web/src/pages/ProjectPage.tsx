@@ -1657,6 +1657,7 @@ export function ProjectPage({
             )}
             <EvidenceTable
               evidence={filteredEvidence}
+              compareLocations={compareLocations}
             />
           </section>
 
