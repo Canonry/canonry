@@ -1,7 +1,7 @@
-import { eq, desc, and, or } from 'drizzle-orm'
+import { eq, desc, and, inArray, or } from 'drizzle-orm'
 import { deliverWebhook, redactNotificationUrl, resolveWebhookTarget } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { notifications, runs, querySnapshots, queries, projects, auditLog, parseJsonColumn } from '@ainyc/canonry-db'
+import { auditLog, groupRunsByCreatedAt, notifications, parseJsonColumn, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
 import type { NotificationEvent, WebhookPayload, InsightWebhookPayload } from '@ainyc/canonry-contracts'
 import type { AnalysisResult } from '@ainyc/canonry-intelligence'
 import crypto from 'node:crypto'
@@ -157,64 +157,153 @@ export class Notifier {
   }
 
   private computeTransitions(runId: string, projectId: string): Array<{
-    query: string; from: string; to: string; provider: string
+    query: string; from: string; to: string; provider: string; location: string | null
   }> {
-    // Get the two most recent completed/partial runs for this project.
-    // Status filter is pushed into SQL (not applied in JS) so that a concurrent
-    // run completing after this one does not displace it from position [0].
+    // Multi-location `--all-locations` sweeps fan out into N runs sharing the
+    // same `createdAt`. Each run-completion event independently triggers this
+    // code path; we need exactly one webhook per group regardless of async
+    // dispatch ordering or how many notifier events fire near-simultaneously.
+    //
+    // Two corrections vs pre-#480 logic:
+    //
+    //   1. The "previous" run must come from a strictly earlier fan-out group,
+    //      not from a sibling location's current run (the pre-#480 code did
+    //      exactly that, firing spurious citation.lost/gained webhooks on
+    //      every multi-location sweep).
+    //   2. Dedup gate uses two stateless conditions, both recomputed on each
+    //      call so concurrent async notifier events arrive at the same answer:
+    //        (a) "All siblings finished" — at least one sibling still in
+    //            queued/running blocks the diff; subsequent completions retry.
+    //        (b) "I am the winner" — the completed/partial sibling with the
+    //            greatest `finishedAt` (tiebreak: greatest id). Only the
+    //            winner proceeds to fire. The winner is determined by stable
+    //            DB columns, not by async event ordering, so two parallel
+    //            notifier invocations compute the same winner — only one
+    //            actually fires the webhook.
+    //
+    // The transition key is `(queryId, provider, location)` so a regression
+    // in florida doesn't get masked by an unchanged michigan reading. The
+    // webhook payload carries an optional `location` field on each transition
+    // for the same reason.
+    //
+    // Limitation: cross-process deployments (multiple canonry servers behind
+    // a load balancer) would each compute "I'm the winner" — exactly-once
+    // becomes exactly-once-per-process. The current canonry deployment model
+    // is single-server (one PM2 process); if that changes, the gate should
+    // promote to a DB-backed marker table.
+    const thisRun = this.db.select().from(runs).where(eq(runs.id, runId)).get()
+    if (!thisRun) return []
+
+    // Siblings at the same (project, kind, createdAt). The `kind` filter
+    // avoids cross-kind interference — a queued traffic-sync that happened
+    // to land at the same millisecond as this answer-visibility run must
+    // not block this webhook.
+    const groupSiblings = this.db
+      .select()
+      .from(runs)
+      .where(and(
+        eq(runs.projectId, projectId),
+        eq(runs.kind, thisRun.kind),
+        eq(runs.createdAt, thisRun.createdAt),
+      ))
+      .all()
+
+    // Gate (a): wait for the rest of the fan-out to finish.
+    const stillPending = groupSiblings.some(r => r.status === 'queued' || r.status === 'running')
+    if (stillPending) return []
+
+    // Gate (b): determine the winner among completed/partial siblings.
+    // `finishedAt` is written atomically with `status` in the job runner's
+    // UPDATE, so it's stable when we observe status=completed or partial.
+    // Tiebreak on id DESC matches the /runs/latest convention from PR #479.
+    const completedPartialSiblings = groupSiblings.filter(
+      r => r.status === 'completed' || r.status === 'partial',
+    )
+    if (completedPartialSiblings.length === 0) return []
+    const winner = completedPartialSiblings.reduce((best, candidate) => {
+      const candFinish = candidate.finishedAt ?? ''
+      const bestFinish = best.finishedAt ?? ''
+      if (candFinish > bestFinish) return candidate
+      if (candFinish < bestFinish) return best
+      return candidate.id > best.id ? candidate : best
+    })
+    if (winner.id !== runId) return []
+
+    // Walk backward to find the previous distinct-createdAt group containing
+    // at least one completed/partial run. RECENT_FETCH_LIMIT bounds the
+    // backward walk; scaling it by project location count handles projects
+    // with N>2 configured locations where an 8-row limit could be exhausted
+    // by two fan-out groups alone.
+    const projectLocations = this.db
+      .select({ locations: projects.locations })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .get()
+    const locationCount = Math.max(
+      1,
+      parseJsonColumn<unknown[]>(projectLocations?.locations ?? null, []).length,
+    )
+    const RECENT_FETCH_LIMIT = Math.max(8, locationCount * 4)
     const recentRuns = this.db
       .select()
       .from(runs)
       .where(
         and(
           eq(runs.projectId, projectId),
+          eq(runs.kind, thisRun.kind),
           or(eq(runs.status, 'completed'), eq(runs.status, 'partial')),
         ),
       )
-      .orderBy(desc(runs.createdAt))
-      .limit(2)
+      .orderBy(desc(runs.createdAt), desc(runs.id))
+      .limit(RECENT_FETCH_LIMIT)
       .all()
 
-    if (recentRuns.length < 2) return []
+    const groups = groupRunsByCreatedAt(recentRuns)
+    const currentGroupIdx = groups.findIndex(g => g[0]?.createdAt === thisRun.createdAt)
+    if (currentGroupIdx < 0) return []  // unexpected, but defensive
+    const currentGroup = groups[currentGroupIdx] ?? []
+    const previousGroup = groups[currentGroupIdx + 1] ?? []
 
-    const currentRunId = recentRuns[0]!.id
-    const previousRunId = recentRuns[1]!.id
+    if (currentGroup.length === 0 || previousGroup.length === 0) return []
 
-    // Only compute for the run that just finished
-    if (currentRunId !== runId) return []
+    const currentRunIds = currentGroup.map(r => r.id)
+    const previousRunIds = previousGroup.map(r => r.id)
 
     const currentSnapshots = this.db
       .select({
         queryId: querySnapshots.queryId,
         query: queries.query,
         provider: querySnapshots.provider,
+        location: querySnapshots.location,
         citationState: querySnapshots.citationState,
       })
       .from(querySnapshots)
       .leftJoin(queries, eq(querySnapshots.queryId, queries.id))
-      .where(eq(querySnapshots.runId, currentRunId))
+      .where(inArray(querySnapshots.runId, currentRunIds))
       .all()
 
     const previousSnapshots = this.db
       .select({
         queryId: querySnapshots.queryId,
         provider: querySnapshots.provider,
+        location: querySnapshots.location,
         citationState: querySnapshots.citationState,
       })
       .from(querySnapshots)
-      .where(eq(querySnapshots.runId, previousRunId))
+      .where(inArray(querySnapshots.runId, previousRunIds))
       .all()
 
-    // Build lookup: key = `${queryId}:${provider}`
+    // Key by (queryId, provider, location) so a florida regression is not
+    // masked by an unchanged michigan reading (or vice versa) when both
+    // locations are present in the current+previous groups.
     const prevMap = new Map<string, string>()
     for (const s of previousSnapshots) {
-      prevMap.set(`${s.queryId}:${s.provider}`, s.citationState)
+      prevMap.set(`${s.queryId}:${s.provider}:${s.location ?? ''}`, s.citationState)
     }
 
-    const transitions: Array<{ query: string; from: string; to: string; provider: string }> = []
-
+    const transitions: Array<{ query: string; from: string; to: string; provider: string; location: string | null }> = []
     for (const s of currentSnapshots) {
-      const key = `${s.queryId}:${s.provider}`
+      const key = `${s.queryId}:${s.provider}:${s.location ?? ''}`
       const prevState = prevMap.get(key)
       if (prevState && prevState !== s.citationState) {
         transitions.push({
@@ -222,6 +311,7 @@ export class Notifier {
           from: prevState,
           to: s.citationState,
           provider: s.provider,
+          location: s.location,
         })
       }
     }

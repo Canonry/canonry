@@ -608,3 +608,100 @@ describe('analytics routes', () => {
     expect(JSON.parse(sourcesRes.payload).overall).toEqual([])
   })
 })
+
+// Regression suite for #480: multi-location `--all-locations` fan-out used to
+// collapse to a single non-deterministic location's run for both gap-analysis
+// classification and the source-breakdown's `latestRunId` field.
+describe('analytics fan-out (#480)', () => {
+  let app: ReturnType<typeof Fastify>
+  let tmpDir: string
+
+  beforeAll(async () => {
+    const ctx = buildApp()
+    app = ctx.app
+    tmpDir = ctx.tmpDir
+    const db = ctx.db
+    await app.ready()
+
+    const projectId = crypto.randomUUID()
+    const queryId = crypto.randomUUID()
+    const flLatestId = '00000000-0000-0000-0000-0000000000a1'
+    const miLatestId = 'ffffffff-ffff-ffff-ffff-fffffffff0a1'
+    const latestCreatedAt = '2026-05-13T17:23:20.060Z'
+
+    db.insert(projects).values({
+      id: projectId,
+      name: 'fanout-analytics',
+      displayName: 'Fan-out Analytics',
+      canonicalDomain: 'azcoatings.example',
+      country: 'US',
+      language: 'en',
+      ownedDomains: '[]',
+      tags: '[]',
+      labels: '{}',
+      providers: '["gemini"]',
+      locations: JSON.stringify([
+        { label: 'florida',  city: 'Orlando', region: 'Florida',  country: 'US' },
+        { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' },
+      ]),
+      defaultLocation: null,
+      configSource: 'api',
+      configRevision: 1,
+      createdAt: '2026-05-10T00:00:00.000Z',
+      updatedAt: latestCreatedAt,
+    }).run()
+    db.insert(queries).values({
+      id: queryId,
+      projectId,
+      query: 'polyurea roof coating',
+      createdAt: '2026-05-10T00:00:00.000Z',
+    }).run()
+    db.insert(runs).values([
+      { id: flLatestId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: 'florida',  startedAt: latestCreatedAt, finishedAt: latestCreatedAt, error: null, createdAt: latestCreatedAt },
+      { id: miLatestId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: 'michigan', startedAt: latestCreatedAt, finishedAt: latestCreatedAt, error: null, createdAt: latestCreatedAt },
+    ]).run()
+    // Florida: cited. Michigan: not cited. Aggregating across the group means
+    // the query is "cited" project-wide but the not-cited michigan snapshot
+    // should still surface providers in the cited/gap classification logic.
+    db.insert(querySnapshots).values([
+      { id: crypto.randomUUID(), runId: flLatestId, queryId, provider: 'gemini', model: 'gemini-2.5', citationState: 'cited',     answerMentioned: true,  answerText: 'florida answer', citedDomains: '["azcoatings.example"]', competitorOverlap: '[]', recommendedCompetitors: '[]', location: 'florida',  rawResponse: '{}', createdAt: latestCreatedAt },
+      { id: crypto.randomUUID(), runId: miLatestId, queryId, provider: 'gemini', model: 'gemini-2.5', citationState: 'not-cited', answerMentioned: false, answerText: 'michigan answer', citedDomains: '[]',                       competitorOverlap: '[]', recommendedCompetitors: '[]', location: 'michigan', rawResponse: '{}', createdAt: latestCreatedAt },
+    ]).run()
+  })
+
+  afterAll(async () => {
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('/analytics/gaps classification spans both fan-out locations', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/fanout-analytics/analytics/gaps' })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload)
+    // The query has at least one cited provider (florida-gemini); it should
+    // appear in `cited` rather than `gap` or `uncited`. Pre-fix, depending on
+    // which location's run won the non-deterministic tiebreak, the query
+    // could be classified differently across calls.
+    const allCited = body.cited.map((q: { query: string }) => q.query)
+    expect(allCited).toContain('polyurea roof coating')
+  })
+
+  it('/analytics/gaps returns a deterministic representative runId', async () => {
+    const res1 = await app.inject({ method: 'GET', url: '/api/v1/projects/fanout-analytics/analytics/gaps' })
+    const res2 = await app.inject({ method: 'GET', url: '/api/v1/projects/fanout-analytics/analytics/gaps' })
+    const body1 = JSON.parse(res1.payload)
+    const body2 = JSON.parse(res2.payload)
+    expect(body1.runId).toBe(body2.runId)
+    // The id-DESC tiebreak picks michigan (its id is lexicographically greater).
+    expect(body1.runId).toBe('ffffffff-ffff-ffff-ffff-fffffffff0a1')
+  })
+
+  it('/analytics/sources returns a deterministic representative runId', async () => {
+    const res1 = await app.inject({ method: 'GET', url: '/api/v1/projects/fanout-analytics/analytics/sources' })
+    const res2 = await app.inject({ method: 'GET', url: '/api/v1/projects/fanout-analytics/analytics/sources' })
+    const body1 = JSON.parse(res1.payload)
+    const body2 = JSON.parse(res2.payload)
+    expect(body1.runId).toBe(body2.runId)
+    expect(body1.runId).toBe('ffffffff-ffff-ffff-ffff-fffffffff0a1')
+  })
+})

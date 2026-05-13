@@ -1,6 +1,6 @@
 import { eq, desc, asc, and, or, inArray } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { projects, runs, querySnapshots, queries, competitors, insights, healthSnapshots, gscSearchData, parseJsonColumn } from '@ainyc/canonry-db'
+import { competitors, groupRunsByCreatedAt, gscSearchData, healthSnapshots, insights, parseJsonColumn, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
 import { analyzeRuns, classifyRegressionSeverity, PERSISTENT_GAP_THRESHOLD } from '@ainyc/canonry-intelligence'
 import type { RunData, Snapshot, AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
 import { CitationStates, RunKinds } from '@ainyc/canonry-contracts'
@@ -346,8 +346,29 @@ export class IntelligenceService {
     // in the last RECURRENCE_LOOKBACK_RUNS runs, excluding this run's own.
     // Distinguish "no prior runs to compare against" (undefined) from "prior
     // runs exist but never regressed this pair" (0).
-    const recentRunIds = this.db
-      .select({ id: runs.id })
+    // Walk fan-out groups (one group per distinct `createdAt`) so the
+    // recurrence lookback covers N time-points, not N rows — a 2-location
+    // `--all-locations` sweep would otherwise consume two slots for the same
+    // time-point and halve the effective look-back. Insights still aggregate
+    // across all run ids in each kept group. See #480.
+    //
+    // SQL fetch limit must accommodate up to (LOOKBACK + 1) groups worth of
+    // rows. Each group's row count caps at the project's configured location
+    // count. Scaling the limit by `max(2, locationCount)` keeps the query
+    // bounded while letting 5+ location projects span the full lookback
+    // window without short-circuiting.
+    const projectRow = this.db
+      .select({ locations: projects.locations })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .get()
+    const locationCount = Math.max(
+      1,
+      parseJsonColumn<unknown[]>(projectRow?.locations ?? null, []).length,
+    )
+    const ROWS_PER_GROUP_BUDGET = Math.max(2, locationCount)
+    const recentRunRows = this.db
+      .select({ id: runs.id, createdAt: runs.createdAt })
       .from(runs)
       .where(
         and(
@@ -356,24 +377,53 @@ export class IntelligenceService {
           or(eq(runs.status, 'completed'), eq(runs.status, 'partial')),
         ),
       )
-      .orderBy(desc(runs.createdAt))
-      .limit(RECURRENCE_LOOKBACK_RUNS + 1)
+      .orderBy(desc(runs.createdAt), desc(runs.id))
+      .limit((RECURRENCE_LOOKBACK_RUNS + 1) * ROWS_PER_GROUP_BUDGET)
       .all()
-      .map((r) => r.id)
-      .filter((id) => id !== excludeRunId)
-      .slice(0, RECURRENCE_LOOKBACK_RUNS)
+    const recentGroups = groupRunsByCreatedAt(recentRunRows)
+    const recentRunIds: string[] = []
+    // Track which createdAt each runId belongs to so the regression count
+    // below can be deduped to "groups that had this regression" rather
+    // than "rows that had this regression." Without this, under fan-out,
+    // a single time-point with the same regression at both florida and
+    // michigan inflates the recurrence count by 2× per group.
+    const recentRunIdToCreatedAt = new Map<string, string>()
+    let consumedGroups = 0
+    for (const group of recentGroups) {
+      // Skip the group containing the current run so we count *prior* sweeps.
+      const groupIds = group.map((r) => r.id)
+      if (groupIds.includes(excludeRunId)) continue
+      for (const r of group) recentRunIdToCreatedAt.set(r.id, r.createdAt)
+      recentRunIds.push(...groupIds)
+      consumedGroups++
+      if (consumedGroups >= RECURRENCE_LOOKBACK_RUNS) break
+    }
 
     const haveHistory = recentRunIds.length > 0
     const priorRegressionsByPair = new Map<string, number>()
     if (haveHistory) {
       const priorRows = this.db
-        .select({ query: insights.query, provider: insights.provider })
+        .select({ query: insights.query, provider: insights.provider, runId: insights.runId })
         .from(insights)
         .where(and(eq(insights.type, 'regression'), inArray(insights.runId, recentRunIds)))
         .all()
+      // Dedupe by (query, provider, groupCreatedAt): one regression at florida
+      // + one regression at michigan in the same fan-out group counts as a
+      // single time-point of regression, not two.
+      const regressionGroups = new Map<string, Set<string>>()
       for (const row of priorRows) {
+        if (!row.runId) continue
         const key = `${row.query}:${row.provider}`
-        priorRegressionsByPair.set(key, (priorRegressionsByPair.get(key) ?? 0) + 1)
+        const groupKey = recentRunIdToCreatedAt.get(row.runId) ?? row.runId
+        let groups = regressionGroups.get(key)
+        if (!groups) {
+          groups = new Set()
+          regressionGroups.set(key, groups)
+        }
+        groups.add(groupKey)
+      }
+      for (const [key, groups] of regressionGroups) {
+        priorRegressionsByPair.set(key, groups.size)
       }
     }
 

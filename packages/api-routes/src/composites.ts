@@ -3,10 +3,12 @@ import type { FastifyInstance } from 'fastify'
 import {
   bingCoverageSnapshots,
   competitors,
+  groupRunsByCreatedAt,
   gscCoverageSnapshots,
   gscUrlInspections,
   insights,
   healthSnapshots,
+  pickGroupRepresentative,
   queries,
   parseJsonColumn,
   projects,
@@ -100,7 +102,7 @@ export async function compositeRoutes(app: FastifyInstance) {
       .select()
       .from(runs)
       .where(eq(runs.projectId, project.id))
-      .orderBy(desc(runs.createdAt))
+      .orderBy(desc(runs.createdAt), desc(runs.id))
       .all()
     const allRuns = allRunsRaw.filter(r => runMatchesFilters(r, filterLocation, sinceIso))
     const totalRuns = allRuns.length
@@ -109,8 +111,20 @@ export async function compositeRoutes(app: FastifyInstance) {
     const completedVisRuns = visibilityRuns.filter(
       r => r.status === RunStatuses.completed || r.status === RunStatuses.partial,
     )
-    const latestVisibilityRun = completedVisRuns[0] ?? null
-    const previousVisibilityRun = completedVisRuns[1] ?? null
+    // Group completed visibility runs by `createdAt`. A `--all-locations` fan-out
+    // creates N runs sharing the same timestamp; the group is the unit, not the
+    // row. Latest group = current state; previous group = the next-most-recent
+    // distinct timestamp. Picking `[0]`/`[1]` raw misclassifies the sibling
+    // location's current run as "previous." See #480.
+    const visRunGroups = groupRunsByCreatedAt(completedVisRuns)
+    const latestVisRunGroup = visRunGroups[0] ?? []
+    const previousVisRunGroup = visRunGroups[1] ?? []
+    // Representative previous run is only needed for the transition's `since`
+    // timestamp; all snapshots from the previous group feed the snapshot-derived
+    // metrics below. Using `pickGroupRepresentative` rather than `[0]` decouples
+    // this from the SQL ordering — if anyone later removes the `desc(runs.id)`
+    // tiebreak, the rep is still stable.
+    const previousVisibilityRun = pickGroupRepresentative(previousVisRunGroup)
     const latestRunRow = allRuns[0] ?? null
 
     const latestRun: LatestProjectRunDto = latestRunRow
@@ -142,12 +156,12 @@ export async function compositeRoutes(app: FastifyInstance) {
     // all so we don't fan out per-primitive.
     const sparklineRunIds = visibilityRuns.slice(0, DEFAULT_RUN_HISTORY_LIMIT).map(r => r.id)
     const snapshotRunIds = new Set<string>(sparklineRunIds)
-    if (latestVisibilityRun) snapshotRunIds.add(latestVisibilityRun.id)
-    if (previousVisibilityRun) snapshotRunIds.add(previousVisibilityRun.id)
+    for (const run of latestVisRunGroup) snapshotRunIds.add(run.id)
+    for (const run of previousVisRunGroup) snapshotRunIds.add(run.id)
 
     const snapshotsByRun = loadSnapshotsByRunIds(app, [...snapshotRunIds])
-    const latestSnapshots = latestVisibilityRun ? snapshotsByRun.get(latestVisibilityRun.id) ?? [] : []
-    const previousSnapshots = previousVisibilityRun ? snapshotsByRun.get(previousVisibilityRun.id) ?? [] : []
+    const latestSnapshots = latestVisRunGroup.flatMap(r => snapshotsByRun.get(r.id) ?? [])
+    const previousSnapshots = previousVisRunGroup.flatMap(r => snapshotsByRun.get(r.id) ?? [])
 
     const { queryCounts, providers } = summarizeFromSnapshots(latestSnapshots)
     const transitions = summarizeTransitionsFromSnapshots(

@@ -63,6 +63,13 @@ export interface WebhookPayload {
     from: string
     to: string
     provider: string
+    /**
+     * Location label this transition was observed at. Optional for backward
+     * compatibility with subscribers built before multi-location fan-out was
+     * supported; the field is populated for all transitions produced by
+     * canonry post-#480 when the underlying snapshot carries a location.
+     */
+    location?: string | null
   }>
   dashboardUrl: string
 }

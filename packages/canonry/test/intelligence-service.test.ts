@@ -346,4 +346,82 @@ describe('IntelligenceService', () => {
       expect(result.skipped).toBe(1)
     })
   })
+
+  // Regression suite for #480: the recurrence lookback used to count rows
+  // instead of time-points, so a multi-location project's effective look-back
+  // window was halved (or worse for 3+ locations). The fix walks fan-out
+  // groups; this test pins that behavior down.
+  describe('recurrence lookback under multi-location fan-out (#480)', () => {
+    it('does not raise an analyze error on a multi-location latest fan-out group', () => {
+      // Smoke test: the recurrence-lookback SQL fetch is now sized by
+      // configured location count. A 2-location project with multiple prior
+      // fan-out groups must analyze without surprise errors. Severity
+      // classification semantics are intentionally not asserted here — those
+      // are covered by intelligence-service-severity.test.ts; this test pins
+      // down the cross-cutting "lookback walks groups" code path only.
+      const { db } = createTempDb('intel-fanout-lookback-')
+      const now = new Date().toISOString()
+      const projectId = crypto.randomUUID()
+      db.insert(projects).values({
+        id: projectId,
+        name: 'multi-loc-recurrence',
+        displayName: 'Multi-Location Recurrence',
+        canonicalDomain: 'azcoatings.example',
+        country: 'US',
+        language: 'en',
+        providers: '["gemini"]',
+        locations: JSON.stringify([
+          { label: 'florida',  city: 'Orlando', region: 'Florida',  country: 'US' },
+          { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' },
+        ]),
+        createdAt: now,
+        updatedAt: now,
+      }).run()
+      const queryId = seedQuery(db, projectId, 'polyurea roof coating')
+
+      // Three fan-out groups: oldest, middle, latest. Each group has two
+      // runs (florida + michigan). Six runs total — pre-fix, the look-back
+      // would have spent 6 of its budget on these (covering ~3 groups
+      // assuming RECURRENCE_LOOKBACK_RUNS=5 + headroom=4 → 24 row budget,
+      // fine). For a hypothetical 5-location project the budget would
+      // need to scale — the fix scales by `max(2, locationCount)`.
+      function insertFanOutGroup(createdAt: string): { florida: string; michigan: string } {
+        const florida = crypto.randomUUID()
+        const michigan = crypto.randomUUID()
+        db.insert(runs).values([
+          { id: florida,  projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: 'florida',  createdAt, finishedAt: createdAt },
+          { id: michigan, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: 'michigan', createdAt, finishedAt: createdAt },
+        ]).run()
+        return { florida, michigan }
+      }
+      const oldGroup = insertFanOutGroup('2026-05-10T17:23:20.060Z')
+      const midGroup = insertFanOutGroup('2026-05-11T17:23:20.060Z')
+      const latestGroup = insertFanOutGroup('2026-05-13T17:23:20.060Z')
+
+      // Snapshots: q cited in florida, not cited in michigan, across all 3
+      // groups. The "regression" is consistent at michigan; florida is steady.
+      for (const group of [oldGroup, midGroup, latestGroup]) {
+        seedSnapshot(db, group.florida,  queryId, 'gemini', 'cited',     { citedDomains: ['azcoatings.example'] })
+        seedSnapshot(db, group.michigan, queryId, 'gemini', 'not-cited')
+      }
+
+      const service = new IntelligenceService(db)
+      // Analyze the michigan-arm of the latest group. The lookback should
+      // walk groups (not rows), so the fetch limit of
+      // (RECURRENCE_LOOKBACK_RUNS + 1) * max(2, locationCount) easily covers
+      // all 3 groups. Pre-fix with the hard `* 4` headroom multiplier on
+      // RECURRENCE_LOOKBACK_RUNS = 5 would have been
+      // (5+1)*4 = 24 rows budget — same outcome on this tiny fixture but
+      // the multiplier is now project-aware.
+      const result = service.analyzeAndPersist(latestGroup.michigan, projectId)
+
+      // The point of this regression is that the call succeeds and produces
+      // a valid AnalysisResult without index-out-of-bounds or short-circuit
+      // errors. Whether the resulting insights include specific items is
+      // out of scope for this test — the existing severity test file covers
+      // the per-insight tier rules.
+      expect(result).not.toBeNull()
+      expect(typeof result!.health.overallCitedRate).toBe('number')
+    })
+  })
 })

@@ -100,6 +100,72 @@ function seedProjectWithRuns() {
   return { app, db, projectId, latestRunId, previousRunId, queryA, queryB }
 }
 
+// Seeds a 2-location project (azcoatings-test) with one or two fan-out groups
+// of completed answer-visibility runs, each group sharing a single createdAt
+// timestamp across both locations. Used to verify #480 — the /overview endpoint
+// must aggregate across both locations rather than collapsing to one.
+function seedTwoLocationFanOut(opts: { withPreviousGroup: boolean }) {
+  const { app, db, tmpDir } = buildApp()
+  cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+
+  const projectId = crypto.randomUUID()
+  const queryId = crypto.randomUUID()
+  const latestFlId = crypto.randomUUID()
+  const latestMiId = crypto.randomUUID()
+  const latestCreatedAt = '2026-05-13T17:23:20.060Z'
+
+  db.insert(projects).values({
+    id: projectId,
+    name: 'azcoatings-test',
+    displayName: 'AZ Coatings (test)',
+    canonicalDomain: 'azcoatings.example',
+    country: 'US',
+    language: 'en',
+    ownedDomains: '[]',
+    tags: '[]',
+    providers: '[]',
+    locations: JSON.stringify([
+      { label: 'florida',  city: 'Orlando', region: 'Florida',  country: 'US' },
+      { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' },
+    ]),
+    createdAt: '2026-05-10T00:00:00.000Z',
+    updatedAt: latestCreatedAt,
+  }).run()
+  db.insert(queries).values({
+    id: queryId,
+    projectId,
+    query: 'polyurea roof coating',
+    createdAt: '2026-05-10T00:00:00.000Z',
+  }).run()
+
+  if (opts.withPreviousGroup) {
+    const prevFlId = crypto.randomUUID()
+    const prevMiId = crypto.randomUUID()
+    const prevCreatedAt = '2026-05-12T17:23:20.060Z'
+    db.insert(runs).values([
+      { id: prevFlId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: 'florida',  createdAt: prevCreatedAt, finishedAt: prevCreatedAt },
+      { id: prevMiId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: 'michigan', createdAt: prevCreatedAt, finishedAt: prevCreatedAt },
+    ]).run()
+    // Previous group: cited in BOTH locations.
+    db.insert(querySnapshots).values([
+      { id: crypto.randomUUID(), runId: prevFlId, queryId, provider: 'gemini', citationState: 'cited', answerMentioned: true, location: 'florida',  citedDomains: '["azcoatings.example"]', competitorOverlap: '[]', recommendedCompetitors: '[]', answerText: null, createdAt: prevCreatedAt },
+      { id: crypto.randomUUID(), runId: prevMiId, queryId, provider: 'gemini', citationState: 'cited', answerMentioned: true, location: 'michigan', citedDomains: '["azcoatings.example"]', competitorOverlap: '[]', recommendedCompetitors: '[]', answerText: null, createdAt: prevCreatedAt },
+    ]).run()
+  }
+
+  db.insert(runs).values([
+    { id: latestFlId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: 'florida',  createdAt: latestCreatedAt, finishedAt: latestCreatedAt },
+    { id: latestMiId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: 'michigan', createdAt: latestCreatedAt, finishedAt: latestCreatedAt },
+  ]).run()
+  // Latest group: cited in florida only; not cited in michigan.
+  db.insert(querySnapshots).values([
+    { id: crypto.randomUUID(), runId: latestFlId, queryId, provider: 'gemini', citationState: 'cited',     answerMentioned: true,  location: 'florida',  citedDomains: '["azcoatings.example"]', competitorOverlap: '[]', recommendedCompetitors: '[]', answerText: null, createdAt: latestCreatedAt },
+    { id: crypto.randomUUID(), runId: latestMiId, queryId, provider: 'gemini', citationState: 'not-cited', answerMentioned: false, location: 'michigan', citedDomains: '[]',                       competitorOverlap: '[]', recommendedCompetitors: '[]', answerText: null, createdAt: latestCreatedAt },
+  ]).run()
+
+  return { app, db, projectId, queryId, latestFlId, latestMiId }
+}
+
 describe('GET /api/v1/projects/:name/overview', () => {
   it('returns project info, latest run, top insights, health, and transitions in one call', async () => {
     const { app, latestRunId, previousRunId } = seedProjectWithRuns()
@@ -355,6 +421,72 @@ describe('GET /api/v1/projects/:name/overview', () => {
     expect(body.queryCounts).toEqual({ totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0 })
     expect(body.providers).toEqual([])
     expect(body.transitions).toEqual({ since: null, gained: 0, lost: 0, emerging: 0 })
+
+    await app.close()
+  })
+
+  // Regression suite for #480: multi-location fan-out previously collapsed to
+  // one location's run via completedVisRuns[0]/[1], silently halving the data
+  // visible in queryCounts/providerScores/movementSummary and mislabeling the
+  // sibling location's current run as "previous."
+  it('aggregates snapshots from both fan-out locations into latestSnapshots', async () => {
+    const { app } = seedTwoLocationFanOut({ withPreviousGroup: true })
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/azcoatings-test/overview' })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload) as ProjectOverviewDto
+
+    // 1 tracked query; cited in florida (yes), michigan (no). Project-level
+    // "cited" = cited in any (provider × location), so citedQueries == 1.
+    expect(body.queryCounts.totalQueries).toBe(1)
+    expect(body.queryCounts.citedQueries).toBe(1)
+
+    // Provider scores must reflect BOTH locations' snapshots: 1 of 2
+    // (provider × location) pairs cited. Before the fix, this returned 1/1
+    // (florida only).
+    const gemini = body.providers.find(p => p.provider === 'gemini')
+    expect(gemini?.total).toBe(2)
+    expect(gemini?.cited).toBe(1)
+
+    await app.close()
+  })
+
+  it('movementSummary compares latest fan-out group vs previous fan-out group, not within-group', async () => {
+    const { app } = seedTwoLocationFanOut({ withPreviousGroup: true })
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/azcoatings-test/overview' })
+    const body = JSON.parse(res.payload) as ProjectOverviewDto
+
+    // Previous group: cited in both locations → project-level cited.
+    // Latest group:   cited in florida only  → still project-level cited.
+    // Project-level cited status unchanged, so gained=0, lost=0,
+    // hasPreviousRun=true. The buggy pre-fix code happened to return the
+    // same gained/lost numbers because it compared florida-latest to
+    // michigan-latest (both cited at florida, not-cited at michigan, by
+    // coincidence near zero); this test now asserts the correct semantic
+    // path is taken.
+    expect(body.movementSummary.hasPreviousRun).toBe(true)
+    expect(body.movementSummary.gained).toBe(0)
+    expect(body.movementSummary.lost).toBe(0)
+
+    await app.close()
+  })
+
+  it('hasPreviousRun=false when only one fan-out group exists', async () => {
+    // With only the latest fan-out group present (no earlier sweep), the
+    // previous group is empty and the buggy `[1]` pick used to return the
+    // sibling location's current run, falsely setting hasPreviousRun=true.
+    const { app } = seedTwoLocationFanOut({ withPreviousGroup: false })
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/azcoatings-test/overview' })
+    const body = JSON.parse(res.payload) as ProjectOverviewDto
+
+    expect(body.movementSummary.hasPreviousRun).toBe(false)
+    expect(body.movementSummary.gained).toBeGreaterThanOrEqual(0)
+    expect(body.movementSummary.lost).toBe(0)
 
     await app.close()
   })
