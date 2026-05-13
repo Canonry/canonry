@@ -100,7 +100,7 @@ export async function compositeRoutes(app: FastifyInstance) {
       .select()
       .from(runs)
       .where(eq(runs.projectId, project.id))
-      .orderBy(desc(runs.createdAt))
+      .orderBy(desc(runs.createdAt), desc(runs.id))
       .all()
     const allRuns = allRunsRaw.filter(r => runMatchesFilters(r, filterLocation, sinceIso))
     const totalRuns = allRuns.length
@@ -109,8 +109,18 @@ export async function compositeRoutes(app: FastifyInstance) {
     const completedVisRuns = visibilityRuns.filter(
       r => r.status === RunStatuses.completed || r.status === RunStatuses.partial,
     )
-    const latestVisibilityRun = completedVisRuns[0] ?? null
-    const previousVisibilityRun = completedVisRuns[1] ?? null
+    // Group completed visibility runs by `createdAt`. A `--all-locations` fan-out
+    // creates N runs sharing the same timestamp; the group is the unit, not the
+    // row. Latest group = current state; previous group = the next-most-recent
+    // distinct timestamp. Picking `[0]`/`[1]` raw misclassifies the sibling
+    // location's current run as "previous." See #480.
+    const visRunGroups = groupRunsByCreatedAt(completedVisRuns)
+    const latestVisRunGroup = visRunGroups[0] ?? []
+    const previousVisRunGroup = visRunGroups[1] ?? []
+    // Representative previous run is only needed for the transition's `since`
+    // timestamp; all snapshots from the previous group feed the snapshot-derived
+    // metrics below.
+    const previousVisibilityRun = previousVisRunGroup[0] ?? null
     const latestRunRow = allRuns[0] ?? null
 
     const latestRun: LatestProjectRunDto = latestRunRow
@@ -142,12 +152,12 @@ export async function compositeRoutes(app: FastifyInstance) {
     // all so we don't fan out per-primitive.
     const sparklineRunIds = visibilityRuns.slice(0, DEFAULT_RUN_HISTORY_LIMIT).map(r => r.id)
     const snapshotRunIds = new Set<string>(sparklineRunIds)
-    if (latestVisibilityRun) snapshotRunIds.add(latestVisibilityRun.id)
-    if (previousVisibilityRun) snapshotRunIds.add(previousVisibilityRun.id)
+    for (const run of latestVisRunGroup) snapshotRunIds.add(run.id)
+    for (const run of previousVisRunGroup) snapshotRunIds.add(run.id)
 
     const snapshotsByRun = loadSnapshotsByRunIds(app, [...snapshotRunIds])
-    const latestSnapshots = latestVisibilityRun ? snapshotsByRun.get(latestVisibilityRun.id) ?? [] : []
-    const previousSnapshots = previousVisibilityRun ? snapshotsByRun.get(previousVisibilityRun.id) ?? [] : []
+    const latestSnapshots = latestVisRunGroup.flatMap(r => snapshotsByRun.get(r.id) ?? [])
+    const previousSnapshots = previousVisRunGroup.flatMap(r => snapshotsByRun.get(r.id) ?? [])
 
     const { queryCounts, providers } = summarizeFromSnapshots(latestSnapshots)
     const transitions = summarizeTransitionsFromSnapshots(
@@ -322,6 +332,36 @@ function runMatchesFilters(
   if (location !== null && (run.location ?? '') !== location) return false
   if (sinceIso !== null && run.createdAt < sinceIso) return false
   return true
+}
+
+/**
+ * Group runs by `createdAt`. Assumes the input is pre-sorted by `createdAt`
+ * DESC (matches the query in this file). Returns an array of groups where
+ * each group's runs share the same timestamp. A multi-location `--all-locations`
+ * sweep produces a group of size N (one run per configured location); a
+ * single-location sweep produces a group of size 1.
+ *
+ * Module-private here; promote to packages/db/src/run-helpers.ts once a second
+ * consumer needs it (e.g. when the follow-up PR for report.ts / notifier.ts
+ * lands).
+ */
+function groupRunsByCreatedAt(
+  rows: readonly (typeof runs.$inferSelect)[],
+): (typeof runs.$inferSelect)[][] {
+  const groups: (typeof runs.$inferSelect)[][] = []
+  let current: (typeof runs.$inferSelect)[] = []
+  let currentCreatedAt: string | null = null
+  for (const row of rows) {
+    if (row.createdAt === currentCreatedAt) {
+      current.push(row)
+    } else {
+      if (current.length > 0) groups.push(current)
+      current = [row]
+      currentCreatedAt = row.createdAt
+    }
+  }
+  if (current.length > 0) groups.push(current)
+  return groups
 }
 
 function clampSearchLimit(raw: string | undefined): number {
