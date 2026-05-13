@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import type { MetricsWindow } from '@ainyc/canonry-contracts'
@@ -41,6 +41,7 @@ import { GSC_STALE_MS } from '../../queries/query-client.js'
 import { queryKeys } from '../../queries/query-keys.js'
 
 const GSC_WINDOWS: MetricsWindow[] = ['7d', '30d', '90d', 'all']
+const EXPANDED_PERFORMANCE_LIMIT = 500
 
 export function GscSection({
   projectName,
@@ -69,6 +70,11 @@ export function GscSection({
   })
   const [performanceOffset, setPerformanceOffset] = useState(0)
   const [performanceHasMore, setPerformanceHasMore] = useState(false)
+  const [performanceTotalLoaded, setPerformanceTotalLoaded] = useState(0)
+  // Mode the *currently displayed* rows were fetched in. Decoupled from the
+  // live filter inputs so the footer stays consistent with the table until
+  // the user clicks Apply filters.
+  const [performanceDisplayedExpanded, setPerformanceDisplayedExpanded] = useState(false)
   const [inspectionFilterUrl, setInspectionFilterUrl] = useState('')
   const [loading, setLoading] = useState(true)
   const [connecting, setConnecting] = useState(false)
@@ -86,6 +92,15 @@ export function GscSection({
   const [setupExpanded, setSetupExpanded] = useState(false)
   const [coverageTab, setCoverageTab] = useState<'indexed' | 'notIndexed' | 'deindexed'>('indexed')
   const [perfSort, setPerfSort] = useState<{ key: SearchMetric; dir: 'asc' | 'desc' } | null>(null)
+
+  // Expanded mode: when any filter or sort is active, fetch up to EXPANDED_PERFORMANCE_LIMIT
+  // rows so client-side sort/filter operates over the full matching set instead of one page.
+  const isPerformanceExpanded = Boolean(
+    performanceFilters.query.trim() ||
+      performanceFilters.page.trim() ||
+      perfSort,
+  )
+  const hasPerfSort = perfSort !== null
 
   const sortedPerformance = useMemo(() => {
     if (!perfSort) return performance
@@ -137,17 +152,18 @@ export function GscSection({
     const offset = offsetOverride ?? performanceOffset
     try {
       const pageSize = parseInt(performanceFilters.limit, 10) || 20
-      // Fetch one extra row to detect whether a next page exists without a
-      // separate COUNT query — backed off when the API trims the result back
-      // to `pageSize` for display.
-      const fetchLimit = pageSize + 1
+      // Expanded mode (filter or sort active) fetches up to EXPANDED_PERFORMANCE_LIMIT
+      // so client-side sort/filter sees the full matching set, not just one page.
+      // Paged mode fetches pageSize+1 to detect "has more" without a COUNT query.
+      const fetchLimit = isPerformanceExpanded ? EXPANDED_PERFORMANCE_LIMIT : pageSize + 1
+      const fetchOffset = isPerformanceExpanded ? 0 : offset
       const filters = {
         startDate: performanceFilters.startDate,
         endDate: performanceFilters.endDate,
         query: performanceFilters.query,
         page: performanceFilters.page,
         limit: String(fetchLimit),
-        offset: String(offset),
+        offset: String(fetchOffset),
         window: gscWindow,
       }
       const rows = await queryClient.fetchQuery({
@@ -158,16 +174,26 @@ export function GscSection({
           query: performanceFilters.query || undefined,
           page: performanceFilters.page || undefined,
           limit: fetchLimit,
-          offset,
+          offset: fetchOffset,
           window: gscWindow,
         }),
         staleTime: GSC_STALE_MS,
       })
-      setPerformanceHasMore(rows.length > pageSize)
-      setPerformance(rows.slice(0, pageSize))
+      if (isPerformanceExpanded) {
+        setPerformanceHasMore(false)
+        setPerformance(rows)
+        setPerformanceTotalLoaded(rows.length)
+        setPerformanceDisplayedExpanded(true)
+      } else {
+        setPerformanceHasMore(rows.length > pageSize)
+        setPerformance(rows.slice(0, pageSize))
+        setPerformanceTotalLoaded(0)
+        setPerformanceDisplayedExpanded(false)
+      }
     } catch (err) {
       setPerformance([])
       setPerformanceHasMore(false)
+      setPerformanceTotalLoaded(0)
       setError(err instanceof Error ? err.message : 'Failed to load GSC performance data')
     } finally {
       setLoadingPerformance(false)
@@ -367,6 +393,19 @@ export function GscSection({
     setPerformanceOffset(0)
     void loadPerformanceRows(0)
   }, [gscWindow])
+
+  // Refetch when sort toggles between "off" and "on" so the fetched row set
+  // matches the mode (paged vs expanded). Direction flips within "on" don't
+  // refetch — client-side sort handles those over the already-fetched 500.
+  const perfSortMountRef = useRef(false)
+  useEffect(() => {
+    if (!perfSortMountRef.current) {
+      perfSortMountRef.current = true
+      return
+    }
+    setPerformanceOffset(0)
+    void loadPerformanceRows(0)
+  }, [hasPerfSort])
 
   async function handleConnect() {
     if (!googleConfigured) {
@@ -1080,26 +1119,34 @@ export function GscSection({
                   <input
                     className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
                     type="date"
+                    aria-label="Start date"
+                    title="Start date (inclusive). Leave blank to use the window above."
                     value={performanceFilters.startDate}
                     onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, startDate: e.target.value }))}
                   />
                   <input
                     className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
                     type="date"
+                    aria-label="End date"
+                    title="End date (inclusive)."
                     value={performanceFilters.endDate}
                     onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, endDate: e.target.value }))}
                   />
                   <input
                     className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
                     type="text"
-                    placeholder="Filter query"
+                    placeholder="Contains query…"
+                    aria-label="Filter query (substring match)"
+                    title="Case-insensitive substring match on the query column."
                     value={performanceFilters.query}
                     onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, query: e.target.value }))}
                   />
                   <input
                     className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
                     type="text"
-                    placeholder="Filter page"
+                    placeholder="Contains page URL…"
+                    aria-label="Filter page (substring match)"
+                    title="Case-insensitive substring match on the page URL."
                     value={performanceFilters.page}
                     onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, page: e.target.value }))}
                   />
@@ -1107,11 +1154,17 @@ export function GscSection({
                     className="rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
                     type="number"
                     min="1"
-                    placeholder="Limit"
+                    placeholder="Rows per page (20)"
+                    aria-label="Rows per page"
+                    title="Rows per page. Ignored while a filter or column sort is active — then up to 500 matches are loaded."
                     value={performanceFilters.limit}
                     onChange={(e) => setPerformanceFilters((prev) => ({ ...prev, limit: e.target.value }))}
                   />
                 </div>
+                <p className="mt-2 text-xs text-zinc-500">
+                  Query and page filters match case-insensitive substrings. Click Apply filters to run.
+                  When a filter or column sort is active, up to {EXPANDED_PERFORMANCE_LIMIT.toLocaleString()} matching rows load so sorting covers the full set.
+                </p>
                 {performance.length > 0 ? (
                   <>
                     <div className="mt-3 overflow-x-auto">
@@ -1162,7 +1215,16 @@ export function GscSection({
                         </tbody>
                       </table>
                     </div>
-                    {(performanceOffset > 0 || performanceHasMore) && (() => {
+                    {performanceDisplayedExpanded ? (
+                      <div className="mt-3 text-xs text-zinc-500">
+                        <span className="tabular-nums">
+                          Showing {performanceTotalLoaded.toLocaleString()} matching row{performanceTotalLoaded === 1 ? '' : 's'}
+                          {performanceTotalLoaded >= EXPANDED_PERFORMANCE_LIMIT
+                            ? ` (capped at ${EXPANDED_PERFORMANCE_LIMIT.toLocaleString()} \u2014 narrow the filter to see more)`
+                            : ''}
+                        </span>
+                      </div>
+                    ) : (performanceOffset > 0 || performanceHasMore) && (() => {
                       const pageSize = parseInt(performanceFilters.limit, 10) || 20
                       const from = performanceOffset + 1
                       const to = performanceOffset + performance.length
