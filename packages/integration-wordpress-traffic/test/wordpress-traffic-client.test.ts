@@ -342,4 +342,72 @@ describe('listWordpressTrafficEvents', () => {
     })).rejects.toBeInstanceOf(WordpressTrafficApiError)
     expect(fetchSpy).not.toHaveBeenCalled()
   })
+
+  it('passes since/until ISO 8601 bounds through as query params on every page', async () => {
+    const urls: string[] = []
+    fetchSpy.mockImplementation(async (input) => {
+      urls.push(String(input))
+      const u = new URL(String(input))
+      const cursor = u.searchParams.get('cursor')
+      if (!cursor) {
+        return new Response(JSON.stringify({
+          events: [
+            { id: 1, observed_at: '2026-05-11T12:00:00.000Z', method: 'GET', host: 'x', path: '/a', query_string: null, status: 200, user_agent: 'a', remote_ip_hash: null, referer: null },
+          ],
+          next_cursor: 'NEXT',
+          has_more: true,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return new Response(JSON.stringify({
+        events: [
+          { id: 2, observed_at: '2026-05-11T12:30:00.000Z', method: 'GET', host: 'x', path: '/b', query_string: null, status: 200, user_agent: 'a', remote_ip_hash: null, referer: null },
+        ],
+        next_cursor: null,
+        has_more: false,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    })
+
+    await listWordpressTrafficEvents({
+      baseUrl: 'https://example.com',
+      username: 'u',
+      applicationPassword: 'p',
+      since: '2026-05-11T11:00:00.000Z',
+      until: '2026-05-11T13:00:00.000Z',
+      maxPages: 5,
+      pageSize: 100,
+    })
+
+    expect(urls).toHaveLength(2)
+    // Both pages carry the same window bounds; cursor advances on page 2.
+    const u1 = new URL(urls[0]!)
+    expect(u1.searchParams.get('since')).toBe('2026-05-11T11:00:00.000Z')
+    expect(u1.searchParams.get('until')).toBe('2026-05-11T13:00:00.000Z')
+    expect(u1.searchParams.get('cursor')).toBeNull()
+
+    const u2 = new URL(urls[1]!)
+    expect(u2.searchParams.get('since')).toBe('2026-05-11T11:00:00.000Z')
+    expect(u2.searchParams.get('until')).toBe('2026-05-11T13:00:00.000Z')
+    expect(u2.searchParams.get('cursor')).toBe('NEXT')
+  })
+
+  it('omits since/until when the caller does not supply them (backwards compatible default)', async () => {
+    const urls: string[] = []
+    fetchSpy.mockImplementation(async (input) => {
+      urls.push(String(input))
+      return new Response(JSON.stringify({ events: [], next_cursor: null, has_more: false }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      })
+    })
+
+    await listWordpressTrafficEvents({
+      baseUrl: 'https://example.com',
+      username: 'u',
+      applicationPassword: 'p',
+    })
+
+    expect(urls).toHaveLength(1)
+    const u = new URL(urls[0]!)
+    expect(u.searchParams.has('since')).toBe(false)
+    expect(u.searchParams.has('until')).toBe(false)
+  })
 })

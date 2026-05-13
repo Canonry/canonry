@@ -1809,10 +1809,10 @@ describe('POST /traffic/sources/:id/backfill — WordPress', () => {
       }),
     ]
 
-    const observedWindows: Array<{ since: string | undefined; until: string | undefined }> = []
+    const observedWindows: Array<{ since: string | undefined; until: string | undefined; pageSize: number }> = []
     const h = await buildHarness([], {
-      wpPullPages: ({ cursor, since, until }) => {
-        observedWindows.push({ since, until })
+      wpPullPages: ({ cursor, since, until, pageSize }) => {
+        observedWindows.push({ since, until, pageSize })
         if (cursor === undefined || cursor === '') {
           return { events: page1Events, rawEntryCount: 2, skippedEntryCount: 0, nextCursor: 'BPAGE2', hasMore: true, endpoint: '' }
         }
@@ -1837,10 +1837,13 @@ describe('POST /traffic/sources/:id/backfill — WordPress', () => {
       expect(submitted.daysApplied).toBe(7)
       expect(submitted.daysRequested).toBe(7)
       // windowStart and windowEnd are ISO timestamps roughly 7 days apart.
+      // windowStart is hour-floored upstream so the lower bound can sit up
+      // to 59m59s earlier than (windowEnd - 7d); the span is therefore in
+      // [7d, 7d + 1h].
       const span = new Date(submitted.windowEnd).getTime() - new Date(submitted.windowStart).getTime()
       const sevenDays = 7 * 86_400_000
-      expect(span).toBeGreaterThanOrEqual(sevenDays - 60_000)
-      expect(span).toBeLessThanOrEqual(sevenDays + 60_000)
+      expect(span).toBeGreaterThanOrEqual(sevenDays)
+      expect(span).toBeLessThanOrEqual(sevenDays + 60 * 60_000)
 
       const finalRun = await waitForRunComplete(h.db, submitted.runId)
       expect(finalRun.status).toBe(RunStatuses.completed)
@@ -1849,14 +1852,15 @@ describe('POST /traffic/sources/:id/backfill — WordPress', () => {
 
       // The backfill must page through cursors WITHOUT changing since/until
       // between requests — every call sees the same window so the plugin
-      // returns events from that window only.
-      // (Cursor-only assertions belong to the cursor-pagination test; here
-      // we verify the window was actually propagated.)
-      expect(observedWindows.length).toBeGreaterThanOrEqual(2)
-      expect(observedWindows[0].since).toBe(submitted.windowStart)
-      expect(observedWindows[0].until).toBe(submitted.windowEnd)
-      expect(observedWindows[1].since).toBe(submitted.windowStart)
-      expect(observedWindows[1].until).toBe(submitted.windowEnd)
+      // returns events from that window only. Filter out the connect-time
+      // probe (pageSize=1, no window) so the assertions only see backfill
+      // pulls.
+      const backfillCalls = observedWindows.filter((c) => c.pageSize !== 1)
+      expect(backfillCalls.length).toBeGreaterThanOrEqual(2)
+      for (const call of backfillCalls) {
+        expect(call.since).toBe(submitted.windowStart)
+        expect(call.until).toBe(submitted.windowEnd)
+      }
 
       // Crawler + AI-referral rollups land the same way as Cloud Run backfill.
       const crawlerRows = h.db.select().from(crawlerEventsHourly).all()

@@ -62,6 +62,20 @@ export interface ListWordpressTrafficEventsOptions {
   pageSize?: number
   maxPages?: number
   timeoutMs?: number
+  /**
+   * Optional INCLUSIVE lower bound on `observed_at` — ISO 8601. When set,
+   * the plugin returns only events with `observed_at >= since`. Used by the
+   * backfill route to scope a historical pull to a specific window.
+   * Composes with `cursor` for pagination within the window.
+   */
+  since?: string
+  /**
+   * Optional EXCLUSIVE upper bound on `observed_at` — ISO 8601. When set,
+   * the plugin returns only events with `observed_at < until`. The
+   * half-open convention `[since, until)` lets adjacent windows tile
+   * without overlap.
+   */
+  until?: string
 }
 
 export interface WordpressTrafficEventsPage {
