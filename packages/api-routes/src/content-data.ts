@@ -367,7 +367,19 @@ interface AggregateGscEntry {
   ctr: number
 }
 
-function aggregateGscByQuery(
+interface QueryAccumulator {
+  // GSC stores `page` as a full URL for url-prefix properties; normalize to
+  // a path so it can be joined against `gaTrafficByPage` (which is keyed by
+  // path) and so `ourBestPage.url` / `targetRef` stay consistent regardless
+  // of whether the page is sourced from GSC or from inventory.
+  bestPage: string
+  bestPageImpressions: number
+  totalClicks: number
+  totalImpressions: number
+  weightedPositionSum: number
+}
+
+export function aggregateGscByQuery(
   rows: Array<{
     query: string
     page: string
@@ -377,27 +389,45 @@ function aggregateGscByQuery(
     position: string
   }>,
 ): Map<string, AggregateGscEntry> {
-  const byQuery = new Map<string, AggregateGscEntry>()
+  const accumulators = new Map<string, QueryAccumulator>()
   for (const r of rows) {
-    const existing = byQuery.get(r.query)
-    const candidate: AggregateGscEntry = {
-      // GSC stores `page` as a full URL for url-prefix properties; normalize to
-      // a path so it can be joined against `gaTrafficByPage` (which is keyed by
-      // path) and so `ourBestPage.url` / `targetRef` stay consistent regardless
-      // of whether the page is sourced from GSC or from inventory.
-      page: extractPath(r.page),
-      position: Number(r.position) || 0,
-      impressions: r.impressions,
-      clicks: r.clicks,
-      ctr: Number(r.ctr) || 0,
-    }
+    const page = extractPath(r.page)
+    const position = Number(r.position) || 0
+    const existing = accumulators.get(r.query)
     if (!existing) {
-      byQuery.set(r.query, candidate)
+      accumulators.set(r.query, {
+        bestPage: page,
+        bestPageImpressions: r.impressions,
+        totalClicks: r.clicks,
+        totalImpressions: r.impressions,
+        weightedPositionSum: position * r.impressions,
+      })
       continue
     }
-    if (candidate.impressions > existing.impressions) {
-      byQuery.set(r.query, candidate)
+    existing.totalClicks += r.clicks
+    existing.totalImpressions += r.impressions
+    existing.weightedPositionSum += position * r.impressions
+    if (r.impressions > existing.bestPageImpressions) {
+      existing.bestPage = page
+      existing.bestPageImpressions = r.impressions
     }
+  }
+
+  const byQuery = new Map<string, AggregateGscEntry>()
+  for (const [query, acc] of accumulators) {
+    // CTR and average position must come from the aggregates, not from any
+    // single row. GSC splits a query across many dimension rows (page,
+    // country, device, date); a single click usually lands on one row with
+    // ctr=1.0 while the bulk of impressions sit on separate ctr=0 rows. The
+    // old "pick the row with the most impressions" logic almost always
+    // selected a row with no clicks, so per-query CTR rendered as 0%.
+    byQuery.set(query, {
+      page: acc.bestPage,
+      position: acc.totalImpressions > 0 ? acc.weightedPositionSum / acc.totalImpressions : 0,
+      impressions: acc.totalImpressions,
+      clicks: acc.totalClicks,
+      ctr: acc.totalImpressions > 0 ? acc.totalClicks / acc.totalImpressions : 0,
+    })
   }
   return byQuery
 }

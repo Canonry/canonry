@@ -338,7 +338,7 @@ export async function trafficStatus(project: string, opts: { format?: string }):
     console.log(`  Last synced:     ${d.lastSyncedAt ?? 'never'}`)
     if (d.lastError) console.log(`  Last error:      ${d.lastError}`)
     console.log(`  24h crawler:     ${d.totals24h.crawlerHits} hits`)
-    console.log(`  24h AI referral: ${d.totals24h.aiReferralHits} hits`)
+    console.log(`  24h AI referral: ${d.totals24h.aiReferralHits} sessions`)
     console.log(`  24h samples:     ${d.totals24h.sampleCount}`)
     if (d.latestRun) {
       console.log(`  Latest run:      ${d.latestRun.runId} (${d.latestRun.status})`)
@@ -415,7 +415,7 @@ export async function trafficEvents(project: string, opts: {
 
   console.log(`Traffic events for "${project}"  ${result.windowStart}  →  ${result.windowEnd}`)
   console.log(`  Crawler hits (window):     ${result.totals.crawlerHits}`)
-  console.log(`  AI referral hits (window): ${result.totals.aiReferralHits}`)
+  console.log(`  AI referral sessions (window): ${result.totals.aiReferralHits}`)
   console.log('')
 
   if (result.events.length === 0) {
@@ -423,7 +423,7 @@ export async function trafficEvents(project: string, opts: {
     return
   }
 
-  console.log('  TS_HOUR  KIND  IDENTITY  EVIDENCE/STATUS  PATH  HITS')
+  console.log('  TS_HOUR  KIND  IDENTITY  EVIDENCE/STATUS  PATH  COUNT')
   for (const event of result.events) {
     console.log(`  ${formatEventLine(event)}`)
   }

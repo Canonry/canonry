@@ -1565,6 +1565,7 @@ describe('serverActivity (AI visibility — server-side)', () => {
     expect(body.serverActivity).not.toBeNull()
     expect(body.serverActivity!.hasData).toBe(false)
     expect(body.serverActivity!.verifiedCrawlerHits.current).toBe(0)
+    expect(body.serverActivity!.unverifiedCrawlerHits.current).toBe(0)
     expect(body.serverActivity!.byOperator.length).toBe(0)
     expect(body.serverActivity!.topCrawledPaths.length).toBe(0)
     expect(body.serverActivity!.referralProducts.length).toBe(0)
@@ -1583,6 +1584,8 @@ describe('serverActivity (AI visibility — server-side)', () => {
     const sa = body.serverActivity!
     // Headline counts ONLY verified
     expect(sa.verifiedCrawlerHits.current).toBe(30)
+    // Claimed/unknown bots are exposed separately so activity does not look like zero.
+    expect(sa.unverifiedCrawlerHits.current).toBe(22)
     // OpenAI row contains both verified + unverified, isolated
     const openai = sa.byOperator.find(o => o.operator === 'OpenAI')!
     expect(openai.verifiedHits).toBe(30)
@@ -1649,6 +1652,25 @@ describe('serverActivity (AI visibility — server-side)', () => {
     const claude = sa.referralProducts.find(p => p.product === 'Claude')!
     expect(claude.arrivals).toBe(1)
     expect(claude.distinctLandingPaths).toBe(1)
+  })
+
+  test('referral session metrics exclude static sub-resource buckets', async () => {
+    const projectId = insertProject(ctx.db, 'referral-subresources')
+    const sourceId = insertTrafficSource(projectId)
+    insertReferral(projectId, sourceId, { product: 'ChatGPT', landingPathNormalized: '/blog/post', hits: 2 })
+    insertReferral(projectId, sourceId, { product: 'ChatGPT', landingPathNormalized: '/_next/static/chunks/app.js', hits: 8 })
+    insertReferral(projectId, sourceId, { product: 'ChatGPT', landingPathNormalized: '/favicon.svg', hits: 1 })
+    await ctx.app.ready()
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/referral-subresources/report' })
+    const sa = (JSON.parse(res.body) as ProjectReportDto).serverActivity!
+
+    expect(sa.referralArrivals.current).toBe(2)
+    expect(sa.referralProducts).toEqual([
+      { product: 'ChatGPT', arrivals: 2, distinctLandingPaths: 1 },
+    ])
+    expect(sa.topReferralLandingPaths).toEqual([
+      { path: '/blog/post', arrivals: 2, distinctProducts: 1 },
+    ])
   })
 
   test('events outside the 14-day trend window are excluded', async () => {

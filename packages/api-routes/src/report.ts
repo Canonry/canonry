@@ -512,6 +512,30 @@ function buildAiReferrals(db: DatabaseClient, projectId: string): ProjectReportD
   return { totalSessions: total, totalUsers, bySource, trend, topLandingPages }
 }
 
+function nonSubresourceReferralPathCondition() {
+  return sql`
+    LOWER(${aiReferralEventsHourly.landingPathNormalized}) NOT LIKE '/_next/static/%'
+    AND LOWER(${aiReferralEventsHourly.landingPathNormalized}) NOT LIKE '/assets/%'
+    AND LOWER(${aiReferralEventsHourly.landingPathNormalized}) NOT LIKE '/static/%'
+    AND LOWER(${aiReferralEventsHourly.landingPathNormalized}) NOT LIKE '/favicon.%'
+    AND LOWER(${aiReferralEventsHourly.landingPathNormalized}) NOT LIKE '%.avif'
+    AND LOWER(${aiReferralEventsHourly.landingPathNormalized}) NOT LIKE '%.css'
+    AND LOWER(${aiReferralEventsHourly.landingPathNormalized}) NOT LIKE '%.gif'
+    AND LOWER(${aiReferralEventsHourly.landingPathNormalized}) NOT LIKE '%.ico'
+    AND LOWER(${aiReferralEventsHourly.landingPathNormalized}) NOT LIKE '%.jpeg'
+    AND LOWER(${aiReferralEventsHourly.landingPathNormalized}) NOT LIKE '%.jpg'
+    AND LOWER(${aiReferralEventsHourly.landingPathNormalized}) NOT LIKE '%.js'
+    AND LOWER(${aiReferralEventsHourly.landingPathNormalized}) NOT LIKE '%.map'
+    AND LOWER(${aiReferralEventsHourly.landingPathNormalized}) NOT LIKE '%.mjs'
+    AND LOWER(${aiReferralEventsHourly.landingPathNormalized}) NOT LIKE '%.otf'
+    AND LOWER(${aiReferralEventsHourly.landingPathNormalized}) NOT LIKE '%.png'
+    AND LOWER(${aiReferralEventsHourly.landingPathNormalized}) NOT LIKE '%.svg'
+    AND LOWER(${aiReferralEventsHourly.landingPathNormalized}) NOT LIKE '%.webmanifest'
+    AND LOWER(${aiReferralEventsHourly.landingPathNormalized}) NOT LIKE '%.woff'
+    AND LOWER(${aiReferralEventsHourly.landingPathNormalized}) NOT LIKE '%.woff2'
+  `
+}
+
 /**
  * Server-side AI Visibility section.
  *
@@ -522,10 +546,9 @@ function buildAiReferrals(db: DatabaseClient, projectId: string): ProjectReportD
  * the latter returns a populated section with `hasData=false` and zeroed
  * counters so the UI can show a "we're collecting" empty state).
  *
- * Headline numbers use VERIFIED crawler hits only — claimed-unverified
- * bots are common (anyone can put GPTBot in their UA) and would inflate
- * trust. Unverified counts are surfaced separately in the per-operator
- * breakdown for the agency audience.
+ * Crawler trust is split: verified hits are rDNS-confirmed, while
+ * claimed-unverified hits are still surfaced separately so a real crawl
+ * burst does not look like zero activity before verification lands.
  */
 function buildServerActivity(db: DatabaseClient, projectId: string): ProjectReportDto['serverActivity'] {
   // 1. Bail if no traffic source is connected at all.
@@ -553,7 +576,7 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
   const priorStart = new Date(priorStartMs).toISOString()
   const trendStart = new Date(trendStartMs).toISOString()
 
-  // 2. Headline + prior totals (verified crawlers + referral arrivals).
+  // 2. Headline + prior totals (verified crawlers + referral sessions).
   // The headline upper bound uses `lte` (inclusive) so the current hour bucket
   // counts. The prior upper bound uses `lt` (strict) against `headlineStart` so a
   // row with `tsHour` exactly equal to the boundary lands in the headline window
@@ -576,6 +599,24 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
         .get()?.total ?? 0,
     )
 
+  const sumUnverifiedCrawlers = (windowStartIso: string, windowEndIso: string, exclusiveEnd = false) =>
+    Number(
+      db
+        .select({ total: sql<number>`COALESCE(SUM(${crawlerEventsHourly.hits}), 0)` })
+        .from(crawlerEventsHourly)
+        .where(
+          and(
+            eq(crawlerEventsHourly.projectId, projectId),
+            ne(crawlerEventsHourly.verificationStatus, VerificationStatuses.verified),
+            gte(crawlerEventsHourly.tsHour, windowStartIso),
+            exclusiveEnd
+              ? lt(crawlerEventsHourly.tsHour, windowEndIso)
+              : lte(crawlerEventsHourly.tsHour, windowEndIso),
+          ),
+        )
+        .get()?.total ?? 0,
+    )
+
   const sumReferrals = (windowStartIso: string, windowEndIso: string, exclusiveEnd = false) =>
     Number(
       db
@@ -584,6 +625,7 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
         .where(
           and(
             eq(aiReferralEventsHourly.projectId, projectId),
+            nonSubresourceReferralPathCondition(),
             gte(aiReferralEventsHourly.tsHour, windowStartIso),
             exclusiveEnd
               ? lt(aiReferralEventsHourly.tsHour, windowEndIso)
@@ -595,10 +637,12 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
 
   const verifiedCurrent = sumVerifiedCrawlers(headlineStart, headlineEnd)
   const verifiedPrior = sumVerifiedCrawlers(priorStart, headlineStart, true)
+  const unverifiedCurrent = sumUnverifiedCrawlers(headlineStart, headlineEnd)
+  const unverifiedPrior = sumUnverifiedCrawlers(priorStart, headlineStart, true)
   const referralCurrent = sumReferrals(headlineStart, headlineEnd)
   const referralPrior = sumReferrals(priorStart, headlineStart, true)
 
-  // 3. Per-operator: verified hits, unverified hits, referral arrivals over headline window.
+  // 3. Per-operator: verified hits, unverified hits, referral sessions over headline window.
   const crawlerByOperatorRows = db
     .select({
       operator: crawlerEventsHourly.operator,
@@ -642,6 +686,7 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
     .where(
       and(
         eq(aiReferralEventsHourly.projectId, projectId),
+        nonSubresourceReferralPathCondition(),
         gte(aiReferralEventsHourly.tsHour, headlineStart),
         lte(aiReferralEventsHourly.tsHour, headlineEnd),
       ),
@@ -680,9 +725,11 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
       referralArrivals: v.referrals,
       deltaPct: deltaPercent(v.verified, v.prior),
     }))
-    // Sort by total signal: verified hits first, then referrals as tiebreaker.
+    // Sort by total signal: verified hits first, then unverified and referrals as tiebreakers.
     .sort((a, b) =>
-      b.verifiedHits - a.verifiedHits || b.referralArrivals - a.referralArrivals,
+      b.verifiedHits - a.verifiedHits ||
+      b.unverifiedHits - a.unverifiedHits ||
+      b.referralArrivals - a.referralArrivals,
     )
 
   // 4. Top crawled paths (verified only).
@@ -722,6 +769,7 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
     .where(
       and(
         eq(aiReferralEventsHourly.projectId, projectId),
+        nonSubresourceReferralPathCondition(),
         gte(aiReferralEventsHourly.tsHour, headlineStart),
         lte(aiReferralEventsHourly.tsHour, headlineEnd),
       ),
@@ -746,6 +794,7 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
     .where(
       and(
         eq(aiReferralEventsHourly.projectId, projectId),
+        nonSubresourceReferralPathCondition(),
         gte(aiReferralEventsHourly.tsHour, headlineStart),
         lte(aiReferralEventsHourly.tsHour, headlineEnd),
       ),
@@ -786,6 +835,7 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
     .where(
       and(
         eq(aiReferralEventsHourly.projectId, projectId),
+        nonSubresourceReferralPathCondition(),
         gte(aiReferralEventsHourly.tsHour, trendStart),
         lte(aiReferralEventsHourly.tsHour, headlineEnd),
       ),
@@ -811,7 +861,7 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
   return {
     windowStart: headlineStart,
     windowEnd: headlineEnd,
-    hasData: verifiedCurrent + referralCurrent + verifiedPrior + referralPrior > 0
+    hasData: verifiedCurrent + unverifiedCurrent + referralCurrent + verifiedPrior + unverifiedPrior + referralPrior > 0
       || byOperator.length > 0
       || topCrawledPaths.length > 0
       || referralProducts.length > 0,
@@ -819,6 +869,11 @@ function buildServerActivity(db: DatabaseClient, projectId: string): ProjectRepo
       current: verifiedCurrent,
       prior: verifiedPrior,
       deltaPct: deltaPercent(verifiedCurrent, verifiedPrior),
+    },
+    unverifiedCrawlerHits: {
+      current: unverifiedCurrent,
+      prior: unverifiedPrior,
+      deltaPct: deltaPercent(unverifiedCurrent, unverifiedPrior),
     },
     referralArrivals: {
       current: referralCurrent,

@@ -253,6 +253,7 @@ function richReport(): ProjectReportDto {
       windowEnd: '2026-05-02T00:00:00.000Z',
       hasData: true,
       verifiedCrawlerHits: { current: 234, prior: 117, deltaPct: 100 },
+      unverifiedCrawlerHits: { current: 15, prior: 5, deltaPct: 200 },
       referralArrivals: { current: 12, prior: 6, deltaPct: 100 },
       byOperator: [
         { operator: 'OpenAI', verifiedHits: 140, unverifiedHits: 10, referralArrivals: 8, deltaPct: 75 },
@@ -523,12 +524,13 @@ describe('renderReportHtml', () => {
     expect(html).toContain('Section 10')
     // Headline numbers and explanatory copy that anchor analyst trust
     expect(html).toContain('Verified crawler hits (7d)')
-    expect(html).toContain('AI-referral arrivals (7d)')
+    expect(html).toContain('Unverified crawler hits (7d)')
+    expect(html).toContain('AI-referral sessions (7d)')
     expect(html).toContain('rDNS-confirmed')
     // Per-operator breakdown headings
     expect(html).toContain('Per AI operator')
     expect(html).toContain('Top crawled paths')
-    expect(html).toContain('Click-throughs by AI product')
+    expect(html).toContain('AI-referral sessions by product')
     // Specific row values from richReport()
     expect(html).toContain('OpenAI')
     expect(html).toContain('Anthropic')
@@ -542,8 +544,8 @@ describe('renderReportHtml', () => {
     expect(html).toContain('id="server-activity"')
     expect(html).toContain('AI Visibility — Server-Side')
     // Plain-English client labels (NOT the analyst "Verified crawler hits" copy)
-    expect(html).toContain('AI bots visited your site')
-    expect(html).toContain('People clicked through from AI')
+    expect(html).toContain('AI bot requests observed')
+    expect(html).toContain('AI referral sessions')
     expect(html).toContain('reverse-DNS')
     // Section eyebrow in client view is the friendlier "AI engine attention" label
     expect(html).toContain('AI engine attention')
@@ -599,13 +601,15 @@ describe('renderReportHtml', () => {
   test('server-activity metric subtitle uses the shared formatDeltaCopy text', () => {
     const agencyHtml = renderReportHtml(richReport(), { audience: 'agency' })
     expect(agencyHtml).toContain('Up 100% vs prior 7 days (117 hits)')
-    expect(agencyHtml).toContain('Up 100% vs prior 7 days (6 arrivals)')
+    expect(agencyHtml).toContain('Up 200% vs prior 7 days (5 hits)')
+    expect(agencyHtml).toContain('Up 100% vs prior 7 days (6 sessions)')
     // Tone class wraps the copy
     expect(agencyHtml).toMatch(/<span class="tone-positive">Up 100% vs prior 7 days/)
 
     const clientHtml = renderReportHtml(richReport(), { audience: 'client' })
-    expect(clientHtml).toContain('Up 100% vs prior 7 days (117 crawls)')
-    expect(clientHtml).toContain('Up 100% vs prior 7 days (6 arrivals)')
+    expect(clientHtml).toContain('234 verified · 15 unverified')
+    expect(clientHtml).toContain('Up 104% vs prior 7 days (122 requests)')
+    expect(clientHtml).toContain('Up 100% vs prior 7 days (6 sessions)')
   })
 
   test('client view of empty server-activity uses the friendly heading, not "Section 10"', () => {
@@ -614,6 +618,7 @@ describe('renderReportHtml', () => {
       ...report.serverActivity!,
       hasData: false,
       verifiedCrawlerHits: { current: 0, prior: 0, deltaPct: null },
+      unverifiedCrawlerHits: { current: 0, prior: 0, deltaPct: null },
       referralArrivals: { current: 0, prior: 0, deltaPct: null },
       byOperator: [],
       topCrawledPaths: [],
