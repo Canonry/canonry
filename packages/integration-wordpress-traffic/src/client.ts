@@ -92,6 +92,14 @@ export async function listWordpressTrafficEvents(
     if (cursor !== undefined && cursor !== '') {
       url.searchParams.set('cursor', cursor)
     }
+    if (options.since !== undefined && options.since !== '') {
+      // INCLUSIVE lower bound — the plugin filters `observed_at >= since`.
+      url.searchParams.set('since', options.since)
+    }
+    if (options.until !== undefined && options.until !== '') {
+      // EXCLUSIVE upper bound — the plugin filters `observed_at < until`.
+      url.searchParams.set('until', options.until)
+    }
 
     const response = await fetch(url, {
       method: 'GET',
