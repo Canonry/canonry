@@ -52,6 +52,7 @@ canonry snapshot "Acme Corp" --domain acme.example.com --format json
 
 canonry run <project>                             # sweep all configured providers
 canonry run <project> --provider gemini           # single provider only
+canonry run <project> --query "alpha" --query "beta"  # scope sweep to a subset of tracked queries (repeatable)
 canonry run <project> --wait                      # block until complete
 canonry run <project> --location <label>          # run with specific location context
 canonry run <project> --all-locations             # run for every configured location

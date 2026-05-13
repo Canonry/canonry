@@ -324,12 +324,19 @@ export class JobRunner {
 
       log.info('run.dispatch', { runId, providerCount: activeProviders.length, providers: activeProviders.map(p => p.adapter.name) })
 
-      // Fetch queries for the project
-      projectQueries = this.db
-        .select()
-        .from(queries)
-        .where(eq(queries.projectId, projectId))
-        .all()
+      // Fetch queries for the project (scope to existingRun.queries if set)
+      const scopedQueryNames = parseJsonColumn<string[] | null>(existingRun.queries, null)
+      projectQueries = scopedQueryNames
+        ? this.db
+            .select()
+            .from(queries)
+            .where(and(eq(queries.projectId, projectId), inArray(queries.query, scopedQueryNames)))
+            .all()
+        : this.db
+            .select()
+            .from(queries)
+            .where(eq(queries.projectId, projectId))
+            .all()
 
       // Fetch competitors for the project
       const projectCompetitors = this.db
@@ -694,13 +701,14 @@ export class JobRunner {
     }
   }
 
-  private getRunState(runId: string): { status: string; finishedAt: string | null; error: string | null; trigger: string | null } | undefined {
+  private getRunState(runId: string): { status: string; finishedAt: string | null; error: string | null; trigger: string | null; queries: string | null } | undefined {
     return this.db
       .select({
         status: runs.status,
         finishedAt: runs.finishedAt,
         error: runs.error,
         trigger: runs.trigger,
+        queries: runs.queries,
       })
       .from(runs)
       .where(eq(runs.id, runId))

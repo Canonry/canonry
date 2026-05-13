@@ -655,6 +655,7 @@ const routeCatalog: OpenApiOperation[] = [
               kind: stringSchema,
               trigger: stringSchema,
               providers: stringArraySchema,
+              queries: stringArraySchema,
               location: stringSchema,
               allLocations: booleanSchema,
               noLocation: booleanSchema,
