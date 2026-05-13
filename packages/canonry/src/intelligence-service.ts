@@ -382,11 +382,18 @@ export class IntelligenceService {
       .all()
     const recentGroups = groupRunsByCreatedAt(recentRunRows)
     const recentRunIds: string[] = []
+    // Track which createdAt each runId belongs to so the regression count
+    // below can be deduped to "groups that had this regression" rather
+    // than "rows that had this regression." Without this, under fan-out,
+    // a single time-point with the same regression at both florida and
+    // michigan inflates the recurrence count by 2× per group.
+    const recentRunIdToCreatedAt = new Map<string, string>()
     let consumedGroups = 0
     for (const group of recentGroups) {
       // Skip the group containing the current run so we count *prior* sweeps.
       const groupIds = group.map((r) => r.id)
       if (groupIds.includes(excludeRunId)) continue
+      for (const r of group) recentRunIdToCreatedAt.set(r.id, r.createdAt)
       recentRunIds.push(...groupIds)
       consumedGroups++
       if (consumedGroups >= RECURRENCE_LOOKBACK_RUNS) break
@@ -396,13 +403,27 @@ export class IntelligenceService {
     const priorRegressionsByPair = new Map<string, number>()
     if (haveHistory) {
       const priorRows = this.db
-        .select({ query: insights.query, provider: insights.provider })
+        .select({ query: insights.query, provider: insights.provider, runId: insights.runId })
         .from(insights)
         .where(and(eq(insights.type, 'regression'), inArray(insights.runId, recentRunIds)))
         .all()
+      // Dedupe by (query, provider, groupCreatedAt): one regression at florida
+      // + one regression at michigan in the same fan-out group counts as a
+      // single time-point of regression, not two.
+      const regressionGroups = new Map<string, Set<string>>()
       for (const row of priorRows) {
+        if (!row.runId) continue
         const key = `${row.query}:${row.provider}`
-        priorRegressionsByPair.set(key, (priorRegressionsByPair.get(key) ?? 0) + 1)
+        const groupKey = recentRunIdToCreatedAt.get(row.runId) ?? row.runId
+        let groups = regressionGroups.get(key)
+        if (!groups) {
+          groups = new Set()
+          regressionGroups.set(key, groups)
+        }
+        groups.add(groupKey)
+      }
+      for (const [key, groups] of regressionGroups) {
+        priorRegressionsByPair.set(key, groups.size)
       }
     }
 

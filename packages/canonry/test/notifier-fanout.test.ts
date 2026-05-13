@@ -189,6 +189,52 @@ describe('Notifier multi-location fan-out (#480)', () => {
     expect(transitions.some(t => t.location === 'florida')).toBe(false)
   })
 
+  it('only the winner (max finishedAt, tiebreak max id) fires; loser returns [] even when all siblings are done', () => {
+    // This is the core dedup gate that makes the notifier safe against
+    // async-dispatch races. Even when BOTH siblings have completed and a
+    // delayed notifier event for the loser sees "all siblings finished",
+    // the loser independently computes the winner and bails — guaranteeing
+    // exactly one webhook fires per group regardless of dispatch ordering.
+    const { db, projectId, latestFlId, latestMiId } = seedFanOutScenario()
+    const notifier = new Notifier(db, 'http://localhost:4100')
+
+    // florida has the lex-lesser id ('0000...0002'); michigan's id is
+    // 'ffff...0002'. Both share the same finishedAt, so the id tiebreak
+    // applies — michigan wins. Calling compute with florida (the loser)
+    // must return [].
+    const floridaTransitions = callCompute(notifier, latestFlId, projectId)
+    expect(floridaTransitions).toEqual([])
+
+    // michigan (the winner) computes the diff.
+    const michiganTransitions = callCompute(notifier, latestMiId, projectId)
+    expect(michiganTransitions.length).toBeGreaterThan(0)
+  })
+
+  it('does not block on a queued sibling of a different `kind`', () => {
+    // A queued traffic-sync sharing the answer-visibility group's createdAt
+    // millisecond must not block the answer-visibility webhook. The sibling
+    // query is filtered by `kind` so cross-kind interference is impossible.
+    const { db, projectId, latestMiId } = seedFanOutScenario()
+
+    // Add a same-createdAt traffic-sync row in 'queued' state. Without the
+    // kind filter, this would trigger the "still pending" early return and
+    // suppress the answer-visibility webhook.
+    db.insert(runs).values({
+      id: crypto.randomUUID(),
+      projectId,
+      kind: 'traffic-sync',
+      status: 'queued',
+      trigger: 'scheduled',
+      location: null,
+      createdAt: '2026-05-13T17:23:20.060Z',
+      finishedAt: null,
+    }).run()
+
+    const notifier = new Notifier(db, 'http://localhost:4100')
+    const transitions = callCompute(notifier, latestMiId, projectId)
+    expect(transitions.length).toBeGreaterThan(0)
+  })
+
   it('returns no transitions when the previous fan-out group is missing entirely', () => {
     // First-ever sweep of a multi-location project — only one fan-out
     // group exists, no previous to compare against.

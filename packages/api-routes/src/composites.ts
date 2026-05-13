@@ -8,6 +8,7 @@ import {
   gscUrlInspections,
   insights,
   healthSnapshots,
+  pickGroupRepresentative,
   queries,
   parseJsonColumn,
   projects,
@@ -120,8 +121,10 @@ export async function compositeRoutes(app: FastifyInstance) {
     const previousVisRunGroup = visRunGroups[1] ?? []
     // Representative previous run is only needed for the transition's `since`
     // timestamp; all snapshots from the previous group feed the snapshot-derived
-    // metrics below.
-    const previousVisibilityRun = previousVisRunGroup[0] ?? null
+    // metrics below. Using `pickGroupRepresentative` rather than `[0]` decouples
+    // this from the SQL ordering — if anyone later removes the `desc(runs.id)`
+    // tiebreak, the rep is still stable.
+    const previousVisibilityRun = pickGroupRepresentative(previousVisRunGroup)
     const latestRunRow = allRuns[0] ?? null
 
     const latestRun: LatestProjectRunDto = latestRunRow

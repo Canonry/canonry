@@ -138,8 +138,14 @@ export async function analyticsRoutes(app: FastifyInstance) {
       .filter(r => !cutoff || r.createdAt >= cutoff)
 
     const windowRunIds = windowRuns.map(r => r.id)
+    // Map runId → createdAt so we can key consistency sets by time-point
+    // instead of by raw runId. Under `--all-locations` fan-out, a single
+    // time-point has N runs (one per location); keying by runId would
+    // double-count the same time-point N times for multi-location projects.
+    // See #480.
+    const runIdToCreatedAt = new Map(windowRuns.map(r => [r.id, r.createdAt]))
 
-    // Consistency: for each query, count how many runs cited/mentioned it
+    // Consistency: for each query, count how many *time-points* cited/mentioned it
     const consistencyMap = new Map<string, { citedRuns: Set<string>; totalRuns: Set<string>; mentionedRuns: Set<string> }>()
     if (windowRunIds.length > 0) {
       const allWindowSnaps = app.db
@@ -155,14 +161,17 @@ export async function analyticsRoutes(app: FastifyInstance) {
         .all()
 
       for (const s of allWindowSnaps) {
+        const timePoint = runIdToCreatedAt.get(s.runId) ?? s.runId
         let entry = consistencyMap.get(s.queryId)
         if (!entry) {
           entry = { citedRuns: new Set(), totalRuns: new Set(), mentionedRuns: new Set() }
           consistencyMap.set(s.queryId, entry)
         }
-        entry.totalRuns.add(s.runId)
-        if (s.citationState === CitationStates.cited) entry.citedRuns.add(s.runId)
-        if (resolveSnapshotAnswerMentioned(s, project)) entry.mentionedRuns.add(s.runId)
+        // A query is "cited at a time-point" if ANY snapshot in any of the
+        // fanned-out runs at that timestamp is cited. Same for mentions.
+        entry.totalRuns.add(timePoint)
+        if (s.citationState === CitationStates.cited) entry.citedRuns.add(timePoint)
+        if (resolveSnapshotAnswerMentioned(s, project)) entry.mentionedRuns.add(timePoint)
       }
     }
 

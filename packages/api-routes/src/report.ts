@@ -133,7 +133,21 @@ interface SnapshotRow {
 }
 
 function loadSnapshotsForRun(db: DatabaseClient, runId: string): SnapshotRow[] {
-  const rows = db.select().from(querySnapshots).where(eq(querySnapshots.runId, runId)).all()
+  return loadSnapshotsForRunIds(db, [runId])
+}
+
+/**
+ * Batched version of `loadSnapshotsForRun` — single SQL query for multiple
+ * run IDs. Used by the multi-location fan-out aggregation in the report
+ * builder so an N-location sweep doesn't fan out into N DB round-trips.
+ */
+function loadSnapshotsForRunIds(db: DatabaseClient, runIds: readonly string[]): SnapshotRow[] {
+  if (runIds.length === 0) return []
+  const rows = db
+    .select()
+    .from(querySnapshots)
+    .where(inArray(querySnapshots.runId, [...runIds]))
+    .all()
   return rows.map(r => ({
     id: r.id,
     runId: r.runId,
@@ -1761,7 +1775,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
   const representativeLatestRun = pickGroupRepresentative(latestVisRunGroup)
     ?? visibilityRuns[0]
     ?? null
-  const latestSnapshots = latestVisRunGroup.flatMap(r => loadSnapshotsForRun(db, r.id))
+  const latestSnapshots = loadSnapshotsForRunIds(db, latestVisRunGroup.map(r => r.id))
   const latestRunLocation: string | null = representativeLatestRun?.location ?? null
 
   const competitorRows = db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
