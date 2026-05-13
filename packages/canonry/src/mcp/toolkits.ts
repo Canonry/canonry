@@ -1,7 +1,7 @@
-export const CANONRY_MCP_TIERS = ['core', 'monitoring', 'setup', 'gsc', 'ga', 'traffic', 'agent'] as const
+export const CANONRY_MCP_TIERS = ['core', 'monitoring', 'setup', 'gsc', 'ga', 'traffic', 'agent', 'discovery'] as const
 export type CanonryMcpTier = typeof CANONRY_MCP_TIERS[number]
 
-export const CANONRY_MCP_TOOLKIT_NAMES = ['monitoring', 'setup', 'gsc', 'ga', 'traffic', 'agent'] as const
+export const CANONRY_MCP_TOOLKIT_NAMES = ['monitoring', 'setup', 'gsc', 'ga', 'traffic', 'agent', 'discovery'] as const
 export type CanonryMcpToolkitName = typeof CANONRY_MCP_TOOLKIT_NAMES[number]
 
 export interface CanonryMcpToolkit {
@@ -47,6 +47,12 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
     title: 'Aero agent lifecycle and memory',
     description: 'Manage the built-in Aero agent: durable project-scoped memory (list/set/forget), clear the rolling transcript, and detach the external-agent webhook.',
     whenToLoad: 'Load when reading or writing project-scoped Aero notes, clearing a stuck conversation, or removing an external agent webhook.',
+  },
+  {
+    name: 'discovery',
+    title: 'Tracked-basket discovery (ICP → buckets)',
+    description: 'Start and inspect discovery sessions. Each session expands an ICP description into a deduped set of representative queries, probes them against Gemini grounding, classifies each probe into cited / aspirational / wasted-surface, and aggregates a competitor map for the project.',
+    whenToLoad: 'Load when the operator wants to expand or audit a project\'s tracked-query basket, audit competitive surface, or preview a promotion plan from a discovery session.',
   },
 ] as const
 

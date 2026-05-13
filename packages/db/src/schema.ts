@@ -677,6 +677,7 @@ export const rawEventSamples = sqliteTable('raw_event_samples', {
 export const discoverySessions = sqliteTable('discovery_sessions', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  runId: text('run_id'),
   status: text('status').notNull().default('queued'),
   icpDescription: text('icp_description'),
   seedProvider: text('seed_provider'),
@@ -694,6 +695,7 @@ export const discoverySessions = sqliteTable('discovery_sessions', {
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_discovery_sessions_project_created').on(table.projectId, table.createdAt),
+  index('idx_discovery_sessions_run').on(table.runId),
 ])
 
 export const discoveryProbes = sqliteTable('discovery_probes', {

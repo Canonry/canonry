@@ -1084,6 +1084,18 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_discovery_probes_project ON discovery_probes(project_id)`,
     ],
   },
+  {
+    version: 56,
+    name: 'discovery-sessions-run-id',
+    // Links a discovery_sessions row back to the runs row that drove it. Without
+    // this column the run-coordinator can't tell two concurrent discovery
+    // sessions apart for the same project — it would fall back to "latest
+    // non-queued session" and surface the wrong bucket counts to Aero.
+    statements: [
+      `ALTER TABLE discovery_sessions ADD COLUMN run_id TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_discovery_sessions_run ON discovery_sessions(run_id)`,
+    ],
+  },
 ]
 
 /**

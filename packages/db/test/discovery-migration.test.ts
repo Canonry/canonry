@@ -90,6 +90,25 @@ test('v55 creates discovery_sessions table', () => {
   expect(rows[0].dedupThreshold).toBe(0.85)
 })
 
+test('v56 adds discovery_sessions.run_id column for run ↔ session linking', () => {
+  const { db, tmpDir } = createTempDb()
+  onTestFinished(() => cleanup(tmpDir))
+  expect(columnExists(db, 'discovery_sessions', 'run_id')).toBe(true)
+
+  seedProject(db)
+  const now = new Date().toISOString()
+  db.insert(discoverySessions).values({
+    id: 'sess_link',
+    projectId: 'proj_1',
+    runId: 'run_xyz',
+    competitorMap: '[]',
+    createdAt: now,
+  }).run()
+
+  const [row] = db.select().from(discoverySessions).all()
+  expect(row.runId).toBe('run_xyz')
+})
+
 test('v55 creates discovery_probes table without (session_id, query) UNIQUE so v2 multi-provider can amplify', () => {
   const { db, tmpDir } = createTempDb()
   onTestFinished(() => cleanup(tmpDir))
@@ -218,10 +237,12 @@ test('v55 backfills queries/competitors provenance="cli" when re-applied to a DB
   db.insert(queries).values({ id: 'q_legacy', projectId: 'proj_1', query: 'legacy q', createdAt: now }).run()
   db.insert(competitors).values({ id: 'c_legacy', projectId: 'proj_1', domain: 'legacy.com', createdAt: now }).run()
 
-  // Wipe provenance + remove the v55 record so migrate() will rerun it.
+  // Wipe provenance + remove every record at or after v55 so migrate() reruns
+  // v55. Anything later than v55 has to be removed too, otherwise the runner
+  // computes `MAX(version) >= 55` and skips v55 on the rerun.
   db.run(sql.raw(`UPDATE queries SET provenance = NULL`))
   db.run(sql.raw(`UPDATE competitors SET provenance = NULL`))
-  db.run(sql.raw(`DELETE FROM _migrations WHERE version = 55`))
+  db.run(sql.raw(`DELETE FROM _migrations WHERE version >= 55`))
 
   migrate(db)
 

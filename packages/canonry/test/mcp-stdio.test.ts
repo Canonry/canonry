@@ -65,7 +65,7 @@ describe('canonry-mcp stdio', () => {
     const help = await client.callTool({ name: 'canonry_help', arguments: {} })
     expect(help.isError).not.toBe(true)
     const helpPayload = jsonText(help) as { toolkits: Array<{ name: string; toolCount: number }> }
-    expect(helpPayload.toolkits.map(t => t.name)).toEqual(['monitoring', 'setup', 'gsc', 'ga', 'traffic', 'agent'])
+    expect(helpPayload.toolkits.map(t => t.name)).toEqual(['monitoring', 'setup', 'gsc', 'ga', 'traffic', 'agent', 'discovery'])
 
     const projects = await client.callTool({ name: 'canonry_projects_list', arguments: {} })
     expect(projects.isError).not.toBe(true)
@@ -171,7 +171,7 @@ describe('canonry-mcp stdio', () => {
     await client.connect(transport)
 
     const list = await client.listTools()
-    expect(list.tools).toHaveLength(76)
+    expect(list.tools).toHaveLength(80)
     const names = list.tools.map(tool => tool.name)
     expect(names).toContain('canonry_insights_list')
     expect(names).toContain('canonry_project_overview')
