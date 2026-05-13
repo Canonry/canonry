@@ -47,6 +47,15 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
             },
           })
         }
+        if (getStringArray(input.values, 'query')?.length) {
+          throw usageError('Error: --query cannot be combined with --all (query scope is project-specific)', {
+            message: '--query cannot be combined with --all (query scope is project-specific)',
+            details: {
+              command: 'run',
+              usage: 'canonry run <project> --query <q>... [--provider <name>] [--wait] [--format json]',
+            },
+          })
+        }
         await triggerRunAll({
           provider: getString(input.values, 'provider'),
           wait: getBoolean(input.values, 'wait'),

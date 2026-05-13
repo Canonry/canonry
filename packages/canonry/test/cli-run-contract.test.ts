@@ -219,6 +219,19 @@ describe('run lifecycle CLI contract', () => {
     expect(result.stderr).toContain('untracked')
   })
 
+  it('rejects --query when combined with --all', async () => {
+    const result = await invokeCli([
+      'run', '--all',
+      '--query', 'alpha',
+      '--format', 'json',
+    ])
+
+    expect(result.exitCode).toBe(1)
+    const parsed = JSON.parse(result.stderr) as { error: { code: string; message: string } }
+    expect(parsed.error.code).toBe('CLI_USAGE_ERROR')
+    expect(parsed.error.message).toContain('--query cannot be combined with --all')
+  })
+
   it('prints a JSON usage error for runs <project> --limit with a non-integer value', async () => {
     const result = await invokeCli(['runs', 'test-proj', '--limit', 'bogus', '--format', 'json'])
 

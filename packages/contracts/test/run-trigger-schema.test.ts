@@ -1,5 +1,31 @@
 import { describe, expect, it } from 'vitest'
-import { runTriggerRequestSchema } from '../src/run.js'
+import { runDtoSchema, runTriggerRequestSchema } from '../src/run.js'
+
+describe('runDtoSchema.queries', () => {
+  it('parses a run row with a queries array', () => {
+    const result = runDtoSchema.parse({
+      id: 'run_1',
+      projectId: 'proj_1',
+      kind: 'answer-visibility',
+      status: 'queued',
+      queries: ['alpha', 'beta'],
+      createdAt: '2026-05-13T00:00:00.000Z',
+    })
+    expect(result.queries).toEqual(['alpha', 'beta'])
+  })
+
+  it('parses a run row with queries explicitly null (full sweep)', () => {
+    const result = runDtoSchema.parse({
+      id: 'run_1',
+      projectId: 'proj_1',
+      kind: 'answer-visibility',
+      status: 'queued',
+      queries: null,
+      createdAt: '2026-05-13T00:00:00.000Z',
+    })
+    expect(result.queries).toBeNull()
+  })
+})
 
 describe('runTriggerRequestSchema.queries', () => {
   it('accepts requests with no queries field (full-sweep default)', () => {
