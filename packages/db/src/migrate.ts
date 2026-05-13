@@ -1027,6 +1027,75 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `DROP INDEX IF EXISTS idx_schedules_project`,
     ],
   },
+  {
+    version: 55,
+    name: 'discovery-foundation',
+    // Adds the three-ring discovery foundation: per-project ICP, query/competitor
+    // provenance (so we can trace adopted basket entries back to a discovery
+    // session), and the two tables that hold a discovery session's research
+    // output. No UNIQUE(session_id, query) on discovery_probes — v2 will probe
+    // the same query across multiple providers in the same session.
+    //
+    // `competitor_map` defaults to '[]' (JSON array) — see DTO
+    // `discoveryCompetitorMapEntrySchema` for the entry shape `{domain, hits}`.
+    // Backfill of `provenance='cli'` runs once: existing pre-v55 rows are
+    // attributed to manual CLI entry so a future NULL distinctly means
+    // "post-v55 row missing provenance" (a bug to catch in review).
+    statements: [
+      `ALTER TABLE projects ADD COLUMN icp_description TEXT`,
+      `ALTER TABLE queries ADD COLUMN provenance TEXT`,
+      `ALTER TABLE competitors ADD COLUMN provenance TEXT`,
+      `UPDATE queries SET provenance = 'cli' WHERE provenance IS NULL`,
+      `UPDATE competitors SET provenance = 'cli' WHERE provenance IS NULL`,
+      `CREATE TABLE IF NOT EXISTS discovery_sessions (
+         id                  TEXT PRIMARY KEY,
+         project_id          TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+         status              TEXT NOT NULL DEFAULT 'queued',
+         icp_description     TEXT,
+         seed_provider       TEXT,
+         seed_count_raw      INTEGER,
+         seed_count          INTEGER,
+         dedup_threshold     REAL,
+         probe_count         INTEGER,
+         cited_count         INTEGER,
+         aspirational_count  INTEGER,
+         wasted_count        INTEGER,
+         competitor_map      TEXT NOT NULL DEFAULT '[]',
+         error               TEXT,
+         started_at          TEXT,
+         finished_at         TEXT,
+         created_at          TEXT NOT NULL
+       )`,
+      // "Latest session per project" is the access pattern; SQLite walks the
+      // composite index backwards for ORDER BY created_at DESC.
+      `CREATE INDEX IF NOT EXISTS idx_discovery_sessions_project_created ON discovery_sessions(project_id, created_at)`,
+      `CREATE TABLE IF NOT EXISTS discovery_probes (
+         id              TEXT PRIMARY KEY,
+         session_id      TEXT NOT NULL REFERENCES discovery_sessions(id) ON DELETE CASCADE,
+         project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+         query           TEXT NOT NULL,
+         bucket          TEXT,
+         citation_state  TEXT NOT NULL,
+         cited_domains   TEXT NOT NULL DEFAULT '[]',
+         raw_response    TEXT,
+         created_at      TEXT NOT NULL
+       )`,
+      `CREATE INDEX IF NOT EXISTS idx_discovery_probes_session ON discovery_probes(session_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_discovery_probes_project ON discovery_probes(project_id)`,
+    ],
+  },
+  {
+    version: 56,
+    name: 'discovery-sessions-run-id',
+    // Links a discovery_sessions row back to the runs row that drove it. Without
+    // this column the run-coordinator can't tell two concurrent discovery
+    // sessions apart for the same project — it would fall back to "latest
+    // non-queued session" and surface the wrong bucket counts to Aero.
+    statements: [
+      `ALTER TABLE discovery_sessions ADD COLUMN run_id TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_discovery_sessions_run ON discovery_sessions(run_id)`,
+    ],
+  },
 ]
 
 /**

@@ -223,6 +223,20 @@ canonry google request-indexing <project> <url>           # push URL to Google
 canonry google request-indexing <project> --all-unindexed # push all unknown pages
 ```
 
+## Discovery (Tracked-Basket Expansion)
+
+```bash
+canonry discover run <project> --icp "..." --wait --format json    # full pipeline: seed → embed → cluster → probe → bucket
+canonry discover run <project> --icp "..." --dedup-threshold 0.85  # tune cosine threshold (default 0.85)
+canonry discover run <project> --icp "..." --max-probes 100         # per-session probe budget (default 100, hard cap 500)
+
+canonry discover list <project>                                     # newest-first session list
+canonry discover show <project> <session-id>                        # per-query probe rows + buckets
+canonry discover promote preview <project> <session-id>             # preview the basket PR 2 will write (read-only)
+```
+
+Discovery requires Gemini configured (API key today; Vertex-mode embeddings are deferred). The pipeline writes a `discovery_sessions` row, a `runs` row (kind `aeo-discover-probe`), and one `discovery.basket-divergence` insight when the session completes. Aero wakes unprompted with the bucket-count payload so the operator can act without polling.
+
 ## Bing Webmaster Tools
 
 ```bash

@@ -20,6 +20,7 @@ import {
   RunStatuses,
   type AttentionItemDto,
   type CitationState,
+  type RunKind,
   type HealthSnapshotDto,
   type InsightDto,
   type LatestProjectRunDto,
@@ -57,6 +58,21 @@ import { resolveProject } from './helpers.js'
 const TOP_INSIGHT_LIMIT = 5
 const SEARCH_HIT_HARD_LIMIT = 50
 const SEARCH_SNIPPET_RADIUS = 80
+
+// Run kinds that count as upstream-data syncs for the "stale visibility"
+// dashboard hint. Allowlist style so future non-sync kinds (e.g. discovery)
+// don't silently start triggering the warning. Typed as ReadonlySet<string>
+// because `runs.kind` from the DB is plain text — the values are RunKind
+// in practice but TypeScript can't prove that from a Drizzle row.
+const INTEGRATION_SYNC_KINDS: ReadonlySet<string> = new Set<RunKind>([
+  RunKinds['gsc-sync'],
+  RunKinds['inspect-sitemap'],
+  RunKinds['ga-sync'],
+  RunKinds['bing-inspect'],
+  RunKinds['bing-inspect-sitemap'],
+  RunKinds['backlink-extract'],
+  RunKinds['traffic-sync'],
+])
 
 type SnapshotMatchedField = ProjectSearchSnapshotHitDto['matchedField']
 type InsightMatchedField = ProjectSearchInsightHitDto['matchedField']
@@ -657,9 +673,15 @@ function buildAttentionItems(
 
   // Surface a stale-visibility hint when integration syncs ran more recently
   // than the latest visibility sweep — the dashboard's existing rule.
+  //
+  // INTEGRATION_SYNC_KINDS is an explicit allowlist (not "everything that
+  // isn't answer-visibility"): discovery runs (`aeo-discover-*`) and site
+  // audits are NOT syncs, so an active discovery session would otherwise
+  // spuriously trigger "integration syncs have run since." Keep this list
+  // tight to what literally pulls upstream third-party data.
   const sortedRuns = [...allRuns].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   const latestVisRun = sortedRuns.find(r => r.kind === RunKinds['answer-visibility'])
-  const latestSyncRun = sortedRuns.find(r => r.kind !== RunKinds['answer-visibility'])
+  const latestSyncRun = sortedRuns.find(r => INTEGRATION_SYNC_KINDS.has(r.kind))
   if (latestVisRun && latestSyncRun) {
     const visibilityAge = new Date(latestSyncRun.createdAt).getTime() - new Date(latestVisRun.createdAt).getTime()
     const ONE_DAY = 24 * 60 * 60 * 1000

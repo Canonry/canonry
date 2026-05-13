@@ -48,6 +48,8 @@ import {
   WordpressTrafficApiError,
 } from '@ainyc/canonry-integration-wordpress-traffic'
 import { doctorRoutes } from './doctor.js'
+import { discoveryRoutes } from './discovery/index.js'
+import type { DiscoveryRoutesOptions } from './discovery/index.js'
 import { CheckStatuses, TrafficSourceTypes } from '@ainyc/canonry-contracts'
 import type { CheckOutput, TrafficSourceProbe, TrafficSourceValidator } from './doctor/types.js'
 
@@ -125,6 +127,8 @@ export interface ApiRoutesOptions {
   pullWordpressTrafficEvents?: TrafficRoutesOptions['pullWordpressTrafficEvents']
   /** Fired after every traffic sync (success OR failure). Used by canonry to emit `traffic.synced` telemetry. */
   onTrafficSynced?: TrafficRoutesOptions['onTrafficSynced']
+  /** Discovery feature callback — fires after a discovery_sessions row + matching runs row are inserted. */
+  onDiscoveryRunRequested?: DiscoveryRoutesOptions['onDiscoveryRunRequested']
   /** Backlinks feature callbacks — see `backlinksRoutes` for details. */
   getBacklinksStatus?: BacklinksRoutesOptions['getBacklinksStatus']
   onInstallBacklinks?: BacklinksRoutesOptions['onInstallBacklinks']
@@ -304,6 +308,9 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       listCachedReleases: opts.listCachedReleases,
       discoverLatestRelease: opts.discoverLatestRelease,
     } satisfies BacklinksRoutesOptions)
+    await api.register(discoveryRoutes, {
+      onDiscoveryRunRequested: opts.onDiscoveryRunRequested,
+    } satisfies DiscoveryRoutesOptions)
     await api.register(doctorRoutes, {
       googleConnectionStore: opts.googleConnectionStore,
       bingConnectionStore: opts.bingConnectionStore,
@@ -323,6 +330,22 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
 
 export type { DatabaseClient } from '@ainyc/canonry-db'
 export { queueRunIfProjectIdle } from './run-queue.js'
+export {
+  executeDiscovery,
+  classifyProbeBucket,
+  buildCompetitorMap,
+  markSessionFailed,
+  pickCanonicals,
+} from './discovery/index.js'
+export type {
+  DiscoveryDeps,
+  DiscoveryProjectContext,
+  DiscoverySeedResult,
+  DiscoveryProbeResult,
+  ExecuteDiscoveryOptions,
+  ExecuteDiscoveryResult,
+  OnDiscoveryRunRequested,
+} from './discovery/index.js'
 export { deliverWebhook, resolveWebhookTarget } from './webhooks.js'
 export { redactNotificationDiff, redactNotificationUrl } from './notification-redaction.js'
 export type { SafeWebhookTarget } from './webhooks.js'

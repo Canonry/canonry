@@ -2930,6 +2930,80 @@ const routeCatalog: OpenApiOperation[] = [
       404: { description: 'Project not found.' },
     },
   },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/discover/run',
+    summary: 'Start a tracked-basket discovery session',
+    description:
+      'Kicks off a discovery session for the project. The pipeline: ICP description → Gemini grounded seed prompt → embed + cluster (cosine ≥ 0.85 by default) → pick canonical representatives → probe each canonical via Gemini grounding → classify into cited / aspirational / wasted-surface → aggregate competitor map. Returns immediately with `{ runId, sessionId, status: "running" }`; the actual work runs in the background. Poll `GET /projects/{name}/discover/sessions/{id}` until `status` is `completed` or `failed`.',
+    tags: ['discovery'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: false,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            properties: {
+              icpDescription: { type: 'string', description: 'Free-text ICP. Required if the project does not have spec.icpDescription stored.' },
+              dedupThreshold: { type: 'number', description: 'Cosine similarity threshold for clustering. Defaults to 0.85.' },
+              maxProbes: { type: 'integer', description: 'Max canonical queries to probe in this session. Default 100, hard cap 500.' },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      201: { description: 'Discovery session enqueued; returns { runId, sessionId, status }.' },
+      400: { description: 'Missing or invalid ICP / parameters.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/discover/sessions',
+    summary: 'List discovery sessions for a project',
+    description: 'Returns sessions newest-first. Each row carries seed counts, bucket counts, the competitor map, and timing fields. Drill into `GET /projects/{name}/discover/sessions/{id}` for per-query probe rows.',
+    tags: ['discovery'],
+    parameters: [
+      nameParameter,
+      { name: 'limit', in: 'query', description: 'Max sessions returned. Default 50.', schema: stringSchema },
+    ],
+    responses: {
+      200: { description: 'Sessions returned.' },
+      404: { description: 'Project not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/discover/sessions/{id}',
+    summary: 'Get a discovery session with its probe list',
+    description: 'Returns one discovery session plus the full list of per-canonical probes (query, bucket, cited domains, citation state). Use this to answer "what did discovery find for project X?" in a single call.',
+    tags: ['discovery'],
+    parameters: [
+      nameParameter,
+      { name: 'id', in: 'path', required: true, description: 'Discovery session ID.', schema: stringSchema },
+    ],
+    responses: {
+      200: { description: 'Session detail returned.' },
+      404: { description: 'Project or session not found.' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/discover/sessions/{id}/promote',
+    summary: 'Preview a discovery promotion plan (read-only)',
+    description: 'Returns the payload `canonry discover promote` (PR 2) will persist: queries grouped by bucket, plus suggested new competitor domains. v1 is preview-only; the actual merge ships in PR 2.',
+    tags: ['discovery'],
+    parameters: [
+      nameParameter,
+      { name: 'id', in: 'path', required: true, description: 'Discovery session ID.', schema: stringSchema },
+    ],
+    responses: {
+      200: { description: 'Promote preview returned.' },
+      404: { description: 'Project or session not found.' },
+    },
+  },
 ]
 
 /**

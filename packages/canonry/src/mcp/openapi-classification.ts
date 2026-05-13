@@ -165,4 +165,8 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'DELETE /api/v1/projects/{name}/agent/memory': 'included',
   'GET /api/v1/projects/{name}/agent/providers': 'deferred',
   'POST /api/v1/projects/{name}/agent/prompt': 'excluded-protocol',
+  'POST /api/v1/projects/{name}/discover/run': 'included',
+  'GET /api/v1/projects/{name}/discover/sessions': 'included',
+  'GET /api/v1/projects/{name}/discover/sessions/{id}': 'included',
+  'GET /api/v1/projects/{name}/discover/sessions/{id}/promote': 'included',
 } as const satisfies Record<string, OpenApiMcpClassification>
