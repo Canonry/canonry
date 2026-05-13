@@ -1,6 +1,6 @@
 import { eq, desc, asc, and, or, inArray } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { projects, runs, querySnapshots, queries, competitors, insights, healthSnapshots, gscSearchData, parseJsonColumn } from '@ainyc/canonry-db'
+import { competitors, groupRunsByCreatedAt, gscSearchData, healthSnapshots, insights, parseJsonColumn, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
 import { analyzeRuns, classifyRegressionSeverity, PERSISTENT_GAP_THRESHOLD } from '@ainyc/canonry-intelligence'
 import type { RunData, Snapshot, AnalysisResult, Insight } from '@ainyc/canonry-intelligence'
 import { CitationStates, RunKinds } from '@ainyc/canonry-contracts'
@@ -346,8 +346,14 @@ export class IntelligenceService {
     // in the last RECURRENCE_LOOKBACK_RUNS runs, excluding this run's own.
     // Distinguish "no prior runs to compare against" (undefined) from "prior
     // runs exist but never regressed this pair" (0).
-    const recentRunIds = this.db
-      .select({ id: runs.id })
+    // Walk fan-out groups (one group per distinct `createdAt`) so the
+    // recurrence lookback covers N time-points, not N rows — a 2-location
+    // `--all-locations` sweep would otherwise consume two slots for the same
+    // time-point and halve the effective look-back. Insights still aggregate
+    // across all run ids in each kept group. See #480.
+    const RECURRENCE_FETCH_HEADROOM = 4
+    const recentRunRows = this.db
+      .select({ id: runs.id, createdAt: runs.createdAt })
       .from(runs)
       .where(
         and(
@@ -356,12 +362,20 @@ export class IntelligenceService {
           or(eq(runs.status, 'completed'), eq(runs.status, 'partial')),
         ),
       )
-      .orderBy(desc(runs.createdAt))
-      .limit(RECURRENCE_LOOKBACK_RUNS + 1)
+      .orderBy(desc(runs.createdAt), desc(runs.id))
+      .limit((RECURRENCE_LOOKBACK_RUNS + 1) * RECURRENCE_FETCH_HEADROOM)
       .all()
-      .map((r) => r.id)
-      .filter((id) => id !== excludeRunId)
-      .slice(0, RECURRENCE_LOOKBACK_RUNS)
+    const recentGroups = groupRunsByCreatedAt(recentRunRows)
+    const recentRunIds: string[] = []
+    let consumedGroups = 0
+    for (const group of recentGroups) {
+      // Skip the group containing the current run so we count *prior* sweeps.
+      const groupIds = group.map((r) => r.id)
+      if (groupIds.includes(excludeRunId)) continue
+      recentRunIds.push(...groupIds)
+      consumedGroups++
+      if (consumedGroups >= RECURRENCE_LOOKBACK_RUNS) break
+    }
 
     const haveHistory = recentRunIds.length > 0
     const priorRegressionsByPair = new Map<string, number>()

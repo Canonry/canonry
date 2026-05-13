@@ -1,6 +1,6 @@
 import { eq, desc, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { querySnapshots, runs, queries, parseJsonColumn } from '@ainyc/canonry-db'
+import { groupRunsByCreatedAt, pickGroupRepresentative, querySnapshots, runs, queries, parseJsonColumn } from '@ainyc/canonry-db'
 import { categorizeSource, categoryLabel, CitationStates, parseWindow, windowCutoff } from '@ainyc/canonry-contracts'
 import type {
   BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto,
@@ -107,14 +107,21 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const window = parseWindow(request.query.window)
     const cutoff = windowCutoff(window)
 
-    // Find the latest completed or partial run (determines classification)
-    const latestRun = app.db
+    // Find the latest completed-or-partial fan-out group. Multi-location
+    // `--all-locations` sweeps share `createdAt`; the group is the unit and
+    // classification reads snapshots across all locations in it. The single
+    // `runId` returned in the response is the deterministic representative
+    // (id DESC tiebreak) so callers get a stable id. See #480.
+    const completedRuns = app.db
       .select()
       .from(runs)
       .where(eq(runs.projectId, project.id))
-      .orderBy(desc(runs.createdAt))
+      .orderBy(desc(runs.createdAt), desc(runs.id))
       .all()
-      .find(r => r.status === 'completed' || r.status === 'partial')
+      .filter(r => r.status === 'completed' || r.status === 'partial')
+    const latestGroup = groupRunsByCreatedAt(completedRuns)[0] ?? []
+    const latestGroupRunIds = latestGroup.map(r => r.id)
+    const latestRun = pickGroupRepresentative(latestGroup)
 
     if (!latestRun) {
       return reply.send({ cited: [], gap: [], uncited: [], mentionedQueries: [], mentionGap: [], notMentioned: [], runId: '', window } satisfies GapAnalysisDto)
@@ -172,7 +179,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       })
       .from(querySnapshots)
       .leftJoin(queries, eq(querySnapshots.queryId, queries.id))
-      .where(eq(querySnapshots.runId, latestRun.id))
+      .where(inArray(querySnapshots.runId, latestGroupRunIds))
       .all()
 
     // Resolve answer mentions
@@ -287,7 +294,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       .select()
       .from(runs)
       .where(eq(runs.projectId, project.id))
-      .orderBy(desc(runs.createdAt))
+      .orderBy(desc(runs.createdAt), desc(runs.id))
       .all()
       .filter(r => r.status === 'completed' || r.status === 'partial')
       .filter(r => !cutoff || r.createdAt >= cutoff)
@@ -296,7 +303,13 @@ export async function analyticsRoutes(app: FastifyInstance) {
       return reply.send({ overall: [], byQuery: {}, runId: '', window } satisfies SourceBreakdownDto)
     }
 
-    const latestRunId = windowRuns[0]!.id
+    // Pick the deterministic representative of the latest fan-out group as
+    // the single `runId` for the response. windowRunIds still includes every
+    // run in the window — per-query consistency aggregation operates on the
+    // full window so multi-location and single-location callers see the same
+    // shape. See #480.
+    const latestGroup = groupRunsByCreatedAt(windowRuns)[0] ?? []
+    const latestRunId = pickGroupRepresentative(latestGroup)?.id ?? windowRuns[0]!.id
     const windowRunIds = windowRuns.map(r => r.id)
 
     const snapshots = app.db

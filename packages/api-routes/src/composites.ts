@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import {
   bingCoverageSnapshots,
   competitors,
+  groupRunsByCreatedAt,
   gscCoverageSnapshots,
   gscUrlInspections,
   insights,
@@ -332,36 +333,6 @@ function runMatchesFilters(
   if (location !== null && (run.location ?? '') !== location) return false
   if (sinceIso !== null && run.createdAt < sinceIso) return false
   return true
-}
-
-/**
- * Group runs by `createdAt`. Assumes the input is pre-sorted by `createdAt`
- * DESC (matches the query in this file). Returns an array of groups where
- * each group's runs share the same timestamp. A multi-location `--all-locations`
- * sweep produces a group of size N (one run per configured location); a
- * single-location sweep produces a group of size 1.
- *
- * Module-private here; promote to packages/db/src/run-helpers.ts once a second
- * consumer needs it (e.g. when the follow-up PR for report.ts / notifier.ts
- * lands).
- */
-function groupRunsByCreatedAt(
-  rows: readonly (typeof runs.$inferSelect)[],
-): (typeof runs.$inferSelect)[][] {
-  const groups: (typeof runs.$inferSelect)[][] = []
-  let current: (typeof runs.$inferSelect)[] = []
-  let currentCreatedAt: string | null = null
-  for (const row of rows) {
-    if (row.createdAt === currentCreatedAt) {
-      current.push(row)
-    } else {
-      if (current.length > 0) groups.push(current)
-      current = [row]
-      currentCreatedAt = row.createdAt
-    }
-  }
-  if (current.length > 0) groups.push(current)
-  return groups
 }
 
 function clampSearchLimit(raw: string | undefined): number {

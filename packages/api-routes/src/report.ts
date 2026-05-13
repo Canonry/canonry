@@ -10,9 +10,11 @@ import {
   gaTrafficSnapshots,
   gaTrafficSummaries,
   gaTrafficWindowSummaries,
+  groupRunsByCreatedAt,
   gscCoverageSnapshots,
   gscSearchData,
   insights,
+  pickGroupRepresentative,
   queries,
   parseJsonColumn,
   querySnapshots,
@@ -1736,18 +1738,31 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
     .select()
     .from(runs)
     .where(eq(runs.projectId, project.id))
-    .orderBy(desc(runs.createdAt))
+    .orderBy(desc(runs.createdAt), desc(runs.id))
     .all()
 
   const visibilityRuns = allRuns.filter(r => r.kind === RunKinds['answer-visibility'])
-  const latestRun = visibilityRuns.find(
-    r => r.status === RunStatuses.completed || r.status === RunStatuses.partial,
-  ) ?? visibilityRuns[0]
-  const latestSnapshots = latestRun ? loadSnapshotsForRun(db, latestRun.id) : []
-  // Used to scope history-derived sections (trend, insights, content
-  // orchestrator) to the same location as the latest run. `null` means
-  // "no-location runs only" — not "any run". See review thread on PR #423.
-  const latestRunLocation: string | null = latestRun?.location ?? null
+  // Multi-location `--all-locations` sweeps fan out into N runs sharing the
+  // same `createdAt`. Group the visibility runs, pick the latest completed
+  // group, and aggregate snapshots across the group so the report's per-query
+  // sections (citationScorecard, competitorLandscape, mentionLandscape,
+  // aiSourceOrigin) reflect both florida AND michigan instead of whichever
+  // sibling won an arbitrary tiebreak. See #480.
+  const completedVisRunGroups = groupRunsByCreatedAt(
+    visibilityRuns.filter(r => r.status === RunStatuses.completed || r.status === RunStatuses.partial),
+  )
+  const latestVisRunGroup = completedVisRunGroups[0] ?? []
+  // Representative is used as the "primary" run id/location for the report
+  // header and for the *history-scoped* sections below — those still scope
+  // per-location to keep the trend line and orchestrator inputs single-series
+  // (see review thread on PR #423; mixing locations on one trend line was the
+  // bug that scoping originally fixed). The representative is deterministic
+  // (id DESC tiebreak) so the same project always renders the same report.
+  const representativeLatestRun = pickGroupRepresentative(latestVisRunGroup)
+    ?? visibilityRuns[0]
+    ?? null
+  const latestSnapshots = latestVisRunGroup.flatMap(r => loadSnapshotsForRun(db, r.id))
+  const latestRunLocation: string | null = representativeLatestRun?.location ?? null
 
   const competitorRows = db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
   const competitorDomains = competitorRows.map(c => c.domain)
@@ -1847,7 +1862,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
   // last-vs-prior comparison between two trend points.
   let trend: ProjectReportDto['executiveSummary']['trend'] = 'unknown'
   if (!trendBaseline && latestPoint) {
-    const latestRunOnTrend = latestRun?.id === latestPoint.runId
+    const latestRunOnTrend = representativeLatestRun?.id === latestPoint.runId
     const currentRate = latestRunOnTrend ? latestPoint.citationRate : citationRate
     const priorRate = latestRunOnTrend ? previousPoint?.citationRate : latestPoint.citationRate
     if (priorRate !== undefined) {
@@ -1872,7 +1887,7 @@ function buildProjectReport(db: DatabaseClient, projectName: string): ProjectRep
   const periodEnd = citationsTrend.at(-1)?.date ?? null
 
   const configuredLocations = parseJsonColumn<LocationContext[]>(project.locations, [])
-  const reportLocation = buildLocationMeta(latestRun?.location ?? null, configuredLocations)
+  const reportLocation = buildLocationMeta(representativeLatestRun?.location ?? null, configuredLocations)
   // Per-provider handling only makes sense relative to an actual run location.
   // For locationless runs, surfacing rows that say "Location appended to the
   // prompt" or "Sent as user_location" contradicts the headline ("none — the
