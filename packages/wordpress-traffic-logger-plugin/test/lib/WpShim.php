@@ -357,9 +357,17 @@ class WpdbMock {
         $table = $m[1];
         $rows = $this->rows[$table] ?? [];
 
-        // Optional cursor filter: WHERE (observed_at > 'x') OR (observed_at = 'x' AND id > n)
+        // Optional cursor + window filters. The plugin composes the WHERE
+        // clause from up to three independent ANDed predicates, all anchored
+        // on `observed_at`:
+        //   - cursor:  ((observed_at > 'x') OR (observed_at = 'x' AND id > n))
+        //   - since:   observed_at >= 'x'
+        //   - until:   observed_at < 'x'
+        // Each predicate is detected with its own regex so the order /
+        // combination doesn't matter — the shim filters the row set down by
+        // every clause it finds.
         if (preg_match(
-            "/WHERE\\s+\\(observed_at\\s*>\\s*'([^']*)'\\)\\s+OR\\s+\\(observed_at\\s*=\\s*'([^']*)'\\s+AND\\s+id\\s*>\\s*(\\d+)\\)/i",
+            "/\\(\\(observed_at\\s*>\\s*'([^']*)'\\)\\s+OR\\s+\\(observed_at\\s*=\\s*'([^']*)'\\s+AND\\s+id\\s*>\\s*(\\d+)\\)\\)/i",
             $sql,
             $cur
         )) {
@@ -370,6 +378,16 @@ class WpdbMock {
                 if ($r['observed_at'] === $afterTs && (int) $r['id'] > $afterId) return true;
                 return false;
             }));
+        }
+
+        if (preg_match("/observed_at\\s*>=\\s*'([^']*)'/i", $sql, $sm)) {
+            $since = $sm[1];
+            $rows = array_values(array_filter($rows, fn($r) => ((string) $r['observed_at']) >= $since));
+        }
+
+        if (preg_match("/observed_at\\s*<\\s*'([^']*)'/i", $sql, $um)) {
+            $until = $um[1];
+            $rows = array_values(array_filter($rows, fn($r) => ((string) $r['observed_at']) < $until));
         }
 
         // ORDER BY observed_at ASC, id ASC (only ordering we use).
