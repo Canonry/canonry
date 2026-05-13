@@ -1,7 +1,7 @@
 import { eq, desc, and, inArray, or } from 'drizzle-orm'
 import { deliverWebhook, redactNotificationUrl, resolveWebhookTarget } from '@ainyc/canonry-api-routes'
 import type { DatabaseClient } from '@ainyc/canonry-db'
-import { auditLog, groupRunsByCreatedAt, notifications, parseJsonColumn, pickGroupRepresentative, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
+import { auditLog, groupRunsByCreatedAt, notifications, parseJsonColumn, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
 import type { NotificationEvent, WebhookPayload, InsightWebhookPayload } from '@ainyc/canonry-contracts'
 import type { AnalysisResult } from '@ainyc/canonry-intelligence'
 import crypto from 'node:crypto'
@@ -159,25 +159,56 @@ export class Notifier {
   private computeTransitions(runId: string, projectId: string): Array<{
     query: string; from: string; to: string; provider: string; location: string | null
   }> {
-    // Multi-location `--all-locations` sweeps fan out into N completed runs
-    // sharing the same `createdAt`. Two corrections vs the pre-#480 logic:
+    // Multi-location `--all-locations` sweeps fan out into N runs sharing the
+    // same `createdAt`. Two corrections vs the pre-#480 logic:
     //
     //   1. The "previous" run must come from a strictly earlier fan-out group,
     //      not from a sibling location's current run (the pre-#480 code did
     //      exactly that, firing spurious citation.lost/gained webhooks every
     //      multi-location sweep).
-    //   2. Each run-completion event for a group fires this code path, so we
-    //      need to gate the webhook to only fire once per group — otherwise
-    //      a 2-location sweep produces two near-identical webhook deliveries.
-    //      Gate: only the lexicographically-greatest run id in the latest
-    //      group proceeds. The race window where two completions land at
-    //      identical wall-clock times is narrow and SQLite serializes writes.
+    //   2. The fanned-out runs complete one-at-a-time, and each completion
+    //      triggers this code path. We need exactly one webhook per group.
+    //      Strategy: only the LAST run to finish (the one whose completion
+    //      leaves zero siblings in `queued`/`running` state) fires the diff.
+    //      Earlier completions see at least one still-pending sibling and
+    //      return []. Race window where two siblings complete in the same
+    //      sub-millisecond is theoretically possible — SQLite serializes
+    //      writes so the second completion's "is anyone still pending?" query
+    //      sees the first as already-completed; the first sees the second
+    //      still pending. Sequential progression keeps it single-fire.
     //
     // The transition key is `(queryId, provider, location)` so a regression
     // in florida doesn't get masked by an unchanged michigan reading. The
-    // webhook payload now carries an optional `location` field on each
-    // transition for the same reason.
-    const RECENT_FETCH_LIMIT = 8
+    // webhook payload carries an optional `location` field on each transition
+    // for the same reason.
+    const thisRun = this.db.select().from(runs).where(eq(runs.id, runId)).get()
+    if (!thisRun) return []
+
+    // Sibling runs at the same `createdAt` (any status). If any are still
+    // queued/running, this isn't the last-to-finish — wait for them.
+    const groupSiblings = this.db
+      .select()
+      .from(runs)
+      .where(and(eq(runs.projectId, projectId), eq(runs.createdAt, thisRun.createdAt)))
+      .all()
+    const stillPending = groupSiblings.some(r => r.status === 'queued' || r.status === 'running')
+    if (stillPending) return []
+
+    // Walk backward to find the previous distinct-createdAt group containing
+    // at least one completed/partial run. RECENT_FETCH_LIMIT bounds the
+    // backward walk; scaling it by project location count handles projects
+    // with N>2 configured locations where a 8-row limit could be exhausted
+    // by two fan-out groups alone.
+    const projectLocations = this.db
+      .select({ locations: projects.locations })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .get()
+    const locationCount = Math.max(
+      1,
+      parseJsonColumn<unknown[]>(projectLocations?.locations ?? null, []).length,
+    )
+    const RECENT_FETCH_LIMIT = Math.max(8, locationCount * 4)
     const recentRuns = this.db
       .select()
       .from(runs)
@@ -192,14 +223,12 @@ export class Notifier {
       .all()
 
     const groups = groupRunsByCreatedAt(recentRuns)
-    const currentGroup = groups[0] ?? []
-    const previousGroup = groups[1] ?? []
+    const currentGroupIdx = groups.findIndex(g => g[0]?.createdAt === thisRun.createdAt)
+    if (currentGroupIdx < 0) return []  // unexpected, but defensive
+    const currentGroup = groups[currentGroupIdx] ?? []
+    const previousGroup = groups[currentGroupIdx + 1] ?? []
 
     if (currentGroup.length === 0 || previousGroup.length === 0) return []
-    // Bail unless this is the representative of the current group — exactly
-    // one webhook per fan-out, no duplicates.
-    const representative = pickGroupRepresentative(currentGroup)
-    if (representative?.id !== runId) return []
 
     const currentRunIds = currentGroup.map(r => r.id)
     const previousRunIds = previousGroup.map(r => r.id)

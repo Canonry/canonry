@@ -351,7 +351,22 @@ export class IntelligenceService {
     // `--all-locations` sweep would otherwise consume two slots for the same
     // time-point and halve the effective look-back. Insights still aggregate
     // across all run ids in each kept group. See #480.
-    const RECURRENCE_FETCH_HEADROOM = 4
+    //
+    // SQL fetch limit must accommodate up to (LOOKBACK + 1) groups worth of
+    // rows. Each group's row count caps at the project's configured location
+    // count. Scaling the limit by `max(2, locationCount)` keeps the query
+    // bounded while letting 5+ location projects span the full lookback
+    // window without short-circuiting.
+    const projectRow = this.db
+      .select({ locations: projects.locations })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .get()
+    const locationCount = Math.max(
+      1,
+      parseJsonColumn<unknown[]>(projectRow?.locations ?? null, []).length,
+    )
+    const ROWS_PER_GROUP_BUDGET = Math.max(2, locationCount)
     const recentRunRows = this.db
       .select({ id: runs.id, createdAt: runs.createdAt })
       .from(runs)
@@ -363,7 +378,7 @@ export class IntelligenceService {
         ),
       )
       .orderBy(desc(runs.createdAt), desc(runs.id))
-      .limit((RECURRENCE_LOOKBACK_RUNS + 1) * RECURRENCE_FETCH_HEADROOM)
+      .limit((RECURRENCE_LOOKBACK_RUNS + 1) * ROWS_PER_GROUP_BUDGET)
       .all()
     const recentGroups = groupRunsByCreatedAt(recentRunRows)
     const recentRunIds: string[] = []
