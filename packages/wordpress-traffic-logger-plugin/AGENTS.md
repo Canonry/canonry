@@ -105,6 +105,10 @@ Test files cover:
   shape matches `WordpressTrafficEventsResponseBody`.
 - **CursorPaginationTest** — three-page walk in `(observed_at, id)` order;
   invalid cursor → 400.
+- **WindowFilterTest** — optional `since`/`until` ISO 8601 query params
+  filter events to the half-open window `[since, until)`; cursor pagination
+  still walks inside the window; invalid timestamps → 400. Used by the TS
+  backfill route to scope historical pulls.
 - **UninstallTest** — table dropped + options deleted.
 
 ## See also

@@ -154,7 +154,7 @@ final class Rest {
             'has_more'    => $hasMore,
             'site'        => [
                 'url'             => function_exists('home_url') ? home_url() : null,
-                'plugin_version'  => '0.1.0',
+                'plugin_version'  => '0.2.0',
             ],
         ], 200);
     }
