@@ -95,3 +95,60 @@ test('still returns 404 when the project itself does not exist', async () => {
   expect(res.statusCode).toBe(404)
   expect(JSON.parse(res.body).error.code).toBe('NOT_FOUND')
 })
+
+test('aggregates healthSnapshots across the latest fan-out group when a multi-location sweep wrote one snapshot per location (#480)', async () => {
+  const { runs } = await import('@ainyc/canonry-db')
+  const projectId = insertProject(ctx.db, 'multi-loc-health')
+  const createdAt = '2026-05-13T17:23:20.060Z'
+  const flRunId = '00000000-0000-0000-0000-0000000000ff'
+  const miRunId = 'ffffffff-ffff-ffff-ffff-ffffffffff00'
+
+  // Two runs, one per location, same `createdAt`.
+  ctx.db.insert(runs).values([
+    { id: flRunId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: 'florida',  createdAt, finishedAt: createdAt },
+    { id: miRunId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', location: 'michigan', createdAt, finishedAt: createdAt },
+  ]).run()
+
+  // florida: 6 of 10 pairs cited. michigan: 2 of 10 pairs cited.
+  // Project-level aggregate: 8 of 20 (40%).
+  ctx.db.insert(healthSnapshots).values([
+    {
+      id: 'snap-fl',
+      projectId,
+      runId: flRunId,
+      overallCitedRate: '0.6',
+      totalPairs: 10,
+      citedPairs: 6,
+      providerBreakdown: JSON.stringify({ gemini: { citedRate: 0.6, cited: 6, total: 10 } }),
+      createdAt,
+    },
+    {
+      id: 'snap-mi',
+      projectId,
+      runId: miRunId,
+      overallCitedRate: '0.2',
+      totalPairs: 10,
+      citedPairs: 2,
+      providerBreakdown: JSON.stringify({ gemini: { citedRate: 0.2, cited: 2, total: 10 } }),
+      createdAt,
+    },
+  ]).run()
+
+  await ctx.app.ready()
+  const res = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/multi-loc-health/health/latest' })
+  expect(res.statusCode).toBe(200)
+  const body = JSON.parse(res.body) as HealthSnapshotDto
+
+  // Sums across both locations:
+  expect(body.totalPairs).toBe(20)
+  expect(body.citedPairs).toBe(8)
+  expect(body.overallCitedRate).toBeCloseTo(0.4, 5)
+
+  // Per-provider breakdown also aggregated.
+  expect(body.providerBreakdown.gemini?.total).toBe(20)
+  expect(body.providerBreakdown.gemini?.cited).toBe(8)
+  expect(body.providerBreakdown.gemini?.citedRate).toBeCloseTo(0.4, 5)
+
+  // Synthesized id signals this is a group aggregate.
+  expect(body.id).toMatch(/^group:/)
+})
