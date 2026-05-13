@@ -1101,9 +1101,26 @@ export function ProjectPage({
     r => r.kind === RunKinds['answer-visibility'] && (r.status === RunStatuses.running || r.status === RunStatuses.queued),
   )
 
+  // Show every configured location as a filter chip, regardless of whether the
+  // current evidence aggregate has rows for it. Multi-location sweeps can land
+  // a chip-less location whenever the latest-run aggregate drops snapshots; we
+  // still want the user to be able to select it (the table renders an empty
+  // state if there are no matching rows).
+  const configuredLocationLabels = useMemo(
+    () => (model?.project.locations ?? []).map((loc: { label: string }) => loc.label),
+    [model?.project.locations],
+  )
   const locationLabelsInEvidence = useMemo(() => new Set(visibilityEvidence.map(e => e.location ?? '')), [visibilityEvidence])
   const hasNullLocationEvidence = locationLabelsInEvidence.has('')
-  const distinctLocationsWithEvidence = useMemo(() => [...locationLabelsInEvidence].filter(Boolean), [locationLabelsInEvidence])
+  const distinctLocationsForCompare = useMemo(() => {
+    // "Compare" needs ≥2 locations with selectable data. Prefer evidence-backed
+    // locations, but fall back to configured locations so a fresh project that
+    // hasn't aggregated evidence yet still surfaces the compare control once
+    // it has multiple locations configured.
+    const evidenceLabels = [...locationLabelsInEvidence].filter(Boolean)
+    if (evidenceLabels.length > 1) return evidenceLabels
+    return configuredLocationLabels
+  }, [locationLabelsInEvidence, configuredLocationLabels])
 
   useEffect(() => {
     if (locationFilter === undefined || locationFilter === '' || !projectName) {
@@ -1605,17 +1622,15 @@ export function ProjectPage({
                   All locations
                 </button>
                 {model.project.locations.map((loc: { label: string }) => (
-                  locationLabelsInEvidence.has(loc.label) && (
-                    <button
-                      key={loc.label}
-                      className={`filter-chip ${locationFilter === loc.label ? 'filter-chip-active' : ''}`}
-                      type="button"
-                      aria-pressed={locationFilter === loc.label}
-                      onClick={() => { setLocationFilter(loc.label); setCompareLocations(false) }}
-                    >
-                      {loc.label}
-                    </button>
-                  )
+                  <button
+                    key={loc.label}
+                    className={`filter-chip ${locationFilter === loc.label ? 'filter-chip-active' : ''}`}
+                    type="button"
+                    aria-pressed={locationFilter === loc.label}
+                    onClick={() => { setLocationFilter(loc.label); setCompareLocations(false) }}
+                  >
+                    {loc.label}
+                  </button>
                 ))}
                 {hasNullLocationEvidence && (
                   <button
@@ -1627,7 +1642,7 @@ export function ProjectPage({
                     No location
                   </button>
                 )}
-                {distinctLocationsWithEvidence.length > 1 && locationFilter === undefined && (
+                {distinctLocationsForCompare.length > 1 && locationFilter === undefined && (
                   <button
                     className={`filter-chip filter-chip-compare ${compareLocations ? 'filter-chip-active' : ''}`}
                     type="button"

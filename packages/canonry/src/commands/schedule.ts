@@ -89,10 +89,14 @@ export async function removeSchedule(project: string, format?: string, kind?: st
   console.log(`Schedule removed for "${project}" (kind: ${resolvedKind})`)
 }
 
-function printSchedule(s: ScheduleDto): void {
-  const label = s.preset ?? s.cronExpr
+export function printSchedule(s: ScheduleDto): void {
   console.log(`  Kind:      ${s.kind}`)
-  console.log(`  Schedule:  ${label}`)
+  // Only show the friendly preset name when set — without this guard, schedules
+  // configured via `--cron` print the cron expression twice (once on this line,
+  // once on the next).
+  if (s.preset) {
+    console.log(`  Preset:    ${s.preset}`)
+  }
   console.log(`  Cron:      ${s.cronExpr}`)
   console.log(`  Timezone:  ${s.timezone}`)
   console.log(`  Enabled:   ${s.enabled ? 'yes' : 'no'}`)

@@ -104,7 +104,7 @@ test('buildProjectCommandCenter preserves provider continuity while marking mixe
         ],
       },
     }],
-    latestRunDetail: {
+    latestRunDetails: [{
       id: 'run_2',
       projectId: 'proj_1',
       kind: 'answer-visibility',
@@ -129,8 +129,8 @@ test('buildProjectCommandCenter preserves provider continuity while marking mixe
         searchQueries: [],
         createdAt: '2026-03-15T00:00:00Z',
       }],
-    },
-    previousRunDetail: {
+    }],
+    previousRunDetails: [{
       id: 'run_1',
       projectId: 'proj_1',
       kind: 'answer-visibility',
@@ -155,7 +155,7 @@ test('buildProjectCommandCenter preserves provider continuity while marking mixe
         searchQueries: [],
         createdAt: '2026-03-14T00:00:00Z',
       }],
-    },
+    }],
   }
 
   const evidence = buildProjectCommandCenter(data).visibilityEvidence[0]!
@@ -235,7 +235,7 @@ test('buildProjectCommandCenter keeps historical-only provider badges on their o
       },
       modelRuns: {},
     }],
-    latestRunDetail: {
+    latestRunDetails: [{
       id: 'run_2',
       projectId: 'proj_history',
       kind: 'answer-visibility',
@@ -261,8 +261,8 @@ test('buildProjectCommandCenter keeps historical-only provider badges on their o
         location: null,
         createdAt: '2026-03-22T00:00:00Z',
       }],
-    },
-    previousRunDetail: null,
+    }],
+    previousRunDetails: [],
   }
 
   const evidence = buildProjectCommandCenter(data).visibilityEvidence
@@ -297,8 +297,8 @@ test('buildProjectCommandCenter populates score gauges from the overview DTO whe
     queries: [],
     competitors: [],
     timeline: [],
-    latestRunDetail: null,
-    previousRunDetail: null,
+    latestRunDetails: [],
+    previousRunDetails: [],
     overview: {
       project: {
         id: 'proj_overview',
@@ -372,8 +372,8 @@ test('buildProjectCommandCenter surfaces synthesized attention items (e.g. stale
     queries: [],
     competitors: [],
     timeline: [],
-    latestRunDetail: null,
-    previousRunDetail: null,
+    latestRunDetails: [],
+    previousRunDetails: [],
     overview: {
       project: {
         id: 'proj_attention',
@@ -428,4 +428,374 @@ test('buildProjectCommandCenter surfaces synthesized attention items (e.g. stale
   const stale = vm.insights.find(i => i.id === 'stale_visibility')!
   expect(stale.tone).toBe('caution')
   expect(stale.actionLabel).toBe('Stale')
+})
+
+test('buildProjectCommandCenter emits one evidence row per location when a multi-location sweep fans out', () => {
+  // Regression test for issue #477. Two same-timestamp runs (one per location)
+  // must both surface evidence rows; the latest-run aggregate previously
+  // collapsed to one non-deterministic location and dropped the other.
+  const sharedCreatedAt = '2026-05-13T17:23:20.060Z'
+  const data: ProjectData = {
+    project: {
+      id: 'proj_multi',
+      name: 'azcoatings',
+      displayName: 'AZ Coatings',
+      canonicalDomain: 'azcoatings.example',
+      ownedDomains: [],
+      country: 'US',
+      language: 'en',
+      tags: [],
+      labels: {},
+      providers: ['gemini'],
+      configSource: 'api',
+      configRevision: 1,
+      createdAt: '2026-05-10T00:00:00Z',
+      updatedAt: '2026-05-13T00:00:00Z',
+      locations: [
+        { label: 'florida', city: 'Orlando', region: 'Florida', country: 'US' },
+        { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' },
+      ],
+    },
+    runs: [
+      { id: 'run_fl', projectId: 'proj_multi', kind: 'answer-visibility', status: 'completed', trigger: 'manual', startedAt: sharedCreatedAt, finishedAt: sharedCreatedAt, error: null, createdAt: sharedCreatedAt },
+      { id: 'run_mi', projectId: 'proj_multi', kind: 'answer-visibility', status: 'completed', trigger: 'manual', startedAt: sharedCreatedAt, finishedAt: sharedCreatedAt, error: null, createdAt: sharedCreatedAt },
+    ],
+    queries: [{ id: 'kw_1', query: 'polyurea roof coating', createdAt: '2026-05-10T00:00:00Z' }],
+    competitors: [],
+    timeline: [{
+      query: 'polyurea roof coating',
+      runs: [
+        { runId: 'run_fl', createdAt: sharedCreatedAt, citationState: 'cited', transition: 'new' },
+        { runId: 'run_mi', createdAt: sharedCreatedAt, citationState: 'not-cited', transition: 'new' },
+      ],
+      providerRuns: {
+        gemini: [
+          { runId: 'run_fl', createdAt: sharedCreatedAt, citationState: 'cited', transition: 'new' },
+          { runId: 'run_mi', createdAt: sharedCreatedAt, citationState: 'not-cited', transition: 'new' },
+        ],
+      },
+      modelRuns: {},
+    }],
+    latestRunDetails: [
+      {
+        id: 'run_fl',
+        projectId: 'proj_multi',
+        kind: 'answer-visibility',
+        status: 'completed',
+        trigger: 'manual',
+        startedAt: sharedCreatedAt,
+        finishedAt: sharedCreatedAt,
+        error: null,
+        createdAt: sharedCreatedAt,
+        snapshots: [{
+          id: 'snap_fl',
+          runId: 'run_fl',
+          queryId: 'kw_1',
+          query: 'polyurea roof coating',
+          provider: 'gemini',
+          model: 'gemini-3-flash',
+          citationState: 'cited',
+          answerMentioned: true,
+          answerText: 'AZ Coatings is one Florida vendor for polyurea roof coating.',
+          citedDomains: ['azcoatings.example'],
+          competitorOverlap: [],
+          groundingSources: [],
+          searchQueries: [],
+          location: 'florida',
+          createdAt: sharedCreatedAt,
+        }],
+      },
+      {
+        id: 'run_mi',
+        projectId: 'proj_multi',
+        kind: 'answer-visibility',
+        status: 'completed',
+        trigger: 'manual',
+        startedAt: sharedCreatedAt,
+        finishedAt: sharedCreatedAt,
+        error: null,
+        createdAt: sharedCreatedAt,
+        snapshots: [{
+          id: 'snap_mi',
+          runId: 'run_mi',
+          queryId: 'kw_1',
+          query: 'polyurea roof coating',
+          provider: 'gemini',
+          model: 'gemini-3-flash',
+          citationState: 'not-cited',
+          answerMentioned: false,
+          answerText: 'Several Michigan suppliers offer roof coatings.',
+          citedDomains: [],
+          competitorOverlap: [],
+          groundingSources: [],
+          searchQueries: [],
+          location: 'michigan',
+          createdAt: sharedCreatedAt,
+        }],
+      },
+    ],
+    previousRunDetails: [],
+  }
+
+  const vm = buildProjectCommandCenter(data)
+  const evidence = vm.visibilityEvidence
+  const florida = evidence.find(e => e.location === 'florida')
+  const michigan = evidence.find(e => e.location === 'michigan')
+
+  expect(florida).toBeDefined()
+  expect(michigan).toBeDefined()
+  expect(florida?.citationState).toBe('cited')
+  expect(michigan?.citationState).toBe('not-cited')
+  expect(florida?.citedDomains).toEqual(['azcoatings.example'])
+  expect(michigan?.citedDomains).toEqual([])
+  expect(florida?.answerSnippet).toContain('Florida')
+  expect(michigan?.answerSnippet).toContain('Michigan')
+})
+
+test('buildProjectCommandCenter scopes per-location streak/changeLabel to that location only', () => {
+  // Florida has been "cited" consistently across both prior and current runs.
+  // Michigan was "cited" previously but is "not-cited" in the latest run, so
+  // its row should display a "lost" transition derived from michigan's own
+  // history, not florida's continued-cited streak.
+  const prevCreatedAt = '2026-05-12T17:23:20.060Z'
+  const latestCreatedAt = '2026-05-13T17:23:20.060Z'
+  const data: ProjectData = {
+    project: {
+      id: 'proj_loc_history',
+      name: 'azcoatings',
+      displayName: 'AZ Coatings',
+      canonicalDomain: 'azcoatings.example',
+      ownedDomains: [],
+      country: 'US',
+      language: 'en',
+      tags: [],
+      labels: {},
+      providers: ['gemini'],
+      configSource: 'api',
+      configRevision: 1,
+      createdAt: '2026-05-10T00:00:00Z',
+      updatedAt: latestCreatedAt,
+      locations: [
+        { label: 'florida', city: 'Orlando', region: 'Florida', country: 'US' },
+        { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' },
+      ],
+    },
+    runs: [
+      { id: 'run_fl_prev', projectId: 'proj_loc_history', kind: 'answer-visibility', status: 'completed', trigger: 'manual', startedAt: prevCreatedAt, finishedAt: prevCreatedAt, error: null, createdAt: prevCreatedAt },
+      { id: 'run_mi_prev', projectId: 'proj_loc_history', kind: 'answer-visibility', status: 'completed', trigger: 'manual', startedAt: prevCreatedAt, finishedAt: prevCreatedAt, error: null, createdAt: prevCreatedAt },
+      { id: 'run_fl', projectId: 'proj_loc_history', kind: 'answer-visibility', status: 'completed', trigger: 'manual', startedAt: latestCreatedAt, finishedAt: latestCreatedAt, error: null, createdAt: latestCreatedAt },
+      { id: 'run_mi', projectId: 'proj_loc_history', kind: 'answer-visibility', status: 'completed', trigger: 'manual', startedAt: latestCreatedAt, finishedAt: latestCreatedAt, error: null, createdAt: latestCreatedAt },
+    ],
+    queries: [{ id: 'kw_1', query: 'polyurea roof coating', createdAt: '2026-05-10T00:00:00Z' }],
+    competitors: [],
+    timeline: [{
+      query: 'polyurea roof coating',
+      runs: [
+        { runId: 'run_fl_prev', createdAt: prevCreatedAt, citationState: 'cited', transition: 'new', location: 'florida' },
+        { runId: 'run_mi_prev', createdAt: prevCreatedAt, citationState: 'cited', transition: 'cited', location: 'michigan' },
+        { runId: 'run_fl', createdAt: latestCreatedAt, citationState: 'cited', transition: 'cited', location: 'florida' },
+        { runId: 'run_mi', createdAt: latestCreatedAt, citationState: 'not-cited', transition: 'lost', location: 'michigan' },
+      ],
+      providerRuns: {
+        gemini: [
+          { runId: 'run_fl_prev', createdAt: prevCreatedAt, citationState: 'cited', transition: 'new', location: 'florida' },
+          { runId: 'run_mi_prev', createdAt: prevCreatedAt, citationState: 'cited', transition: 'cited', location: 'michigan' },
+          { runId: 'run_fl', createdAt: latestCreatedAt, citationState: 'cited', transition: 'cited', location: 'florida' },
+          { runId: 'run_mi', createdAt: latestCreatedAt, citationState: 'not-cited', transition: 'lost', location: 'michigan' },
+        ],
+      },
+      modelRuns: {},
+    }],
+    latestRunDetails: [
+      {
+        id: 'run_fl',
+        projectId: 'proj_loc_history',
+        kind: 'answer-visibility',
+        status: 'completed',
+        trigger: 'manual',
+        startedAt: latestCreatedAt,
+        finishedAt: latestCreatedAt,
+        error: null,
+        createdAt: latestCreatedAt,
+        snapshots: [{
+          id: 'snap_fl',
+          runId: 'run_fl',
+          queryId: 'kw_1',
+          query: 'polyurea roof coating',
+          provider: 'gemini',
+          model: 'gemini-3-flash',
+          citationState: 'cited',
+          answerMentioned: true,
+          answerText: 'florida snap',
+          citedDomains: ['azcoatings.example'],
+          competitorOverlap: [],
+          groundingSources: [],
+          searchQueries: [],
+          location: 'florida',
+          createdAt: latestCreatedAt,
+        }],
+      },
+      {
+        id: 'run_mi',
+        projectId: 'proj_loc_history',
+        kind: 'answer-visibility',
+        status: 'completed',
+        trigger: 'manual',
+        startedAt: latestCreatedAt,
+        finishedAt: latestCreatedAt,
+        error: null,
+        createdAt: latestCreatedAt,
+        snapshots: [{
+          id: 'snap_mi',
+          runId: 'run_mi',
+          queryId: 'kw_1',
+          query: 'polyurea roof coating',
+          provider: 'gemini',
+          model: 'gemini-3-flash',
+          citationState: 'not-cited',
+          answerMentioned: false,
+          answerText: 'michigan snap',
+          citedDomains: [],
+          competitorOverlap: [],
+          groundingSources: [],
+          searchQueries: [],
+          location: 'michigan',
+          createdAt: latestCreatedAt,
+        }],
+      },
+    ],
+    previousRunDetails: [],
+  }
+
+  const evidence = buildProjectCommandCenter(data).visibilityEvidence
+  const florida = evidence.find(e => e.location === 'florida')
+  const michigan = evidence.find(e => e.location === 'michigan')
+
+  expect(florida?.citationState).toBe('cited')
+  expect(michigan?.citationState).toBe('lost')
+  // Florida's runHistory should contain only florida entries — michigan's
+  // "lost" transition must not leak into florida's chart.
+  expect(florida?.runHistory.map(r => r.runId)).toEqual(['run_fl_prev', 'run_fl'])
+  expect(michigan?.runHistory.map(r => r.runId)).toEqual(['run_mi_prev', 'run_mi'])
+})
+
+test('buildProjectCommandCenter emits a single history-only row when no location has a snap', () => {
+  // openai has no snapshot in the latest run for either location but does
+  // have provider-level history. Pre-fix, this would emit one row per
+  // configured location with identical data; the fix should produce a
+  // single synthetic fallback row with null location.
+  const sharedCreatedAt = '2026-05-13T17:23:20.060Z'
+  const data: ProjectData = {
+    project: {
+      id: 'proj_history_only',
+      name: 'azcoatings',
+      displayName: 'AZ Coatings',
+      canonicalDomain: 'azcoatings.example',
+      ownedDomains: [],
+      country: 'US',
+      language: 'en',
+      tags: [],
+      labels: {},
+      providers: ['gemini', 'openai'],
+      configSource: 'api',
+      configRevision: 1,
+      createdAt: '2026-05-10T00:00:00Z',
+      updatedAt: sharedCreatedAt,
+      locations: [
+        { label: 'florida', city: 'Orlando', region: 'Florida', country: 'US' },
+        { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' },
+      ],
+    },
+    runs: [
+      { id: 'run_fl', projectId: 'proj_history_only', kind: 'answer-visibility', status: 'completed', trigger: 'manual', startedAt: sharedCreatedAt, finishedAt: sharedCreatedAt, error: null, createdAt: sharedCreatedAt },
+      { id: 'run_mi', projectId: 'proj_history_only', kind: 'answer-visibility', status: 'completed', trigger: 'manual', startedAt: sharedCreatedAt, finishedAt: sharedCreatedAt, error: null, createdAt: sharedCreatedAt },
+    ],
+    queries: [{ id: 'kw_1', query: 'polyurea roof coating', createdAt: '2026-05-10T00:00:00Z' }],
+    competitors: [],
+    timeline: [{
+      query: 'polyurea roof coating',
+      runs: [
+        { runId: 'run_fl', createdAt: sharedCreatedAt, citationState: 'cited', transition: 'new', location: 'florida' },
+        { runId: 'run_mi', createdAt: sharedCreatedAt, citationState: 'not-cited', transition: 'new', location: 'michigan' },
+      ],
+      providerRuns: {
+        gemini: [
+          { runId: 'run_fl', createdAt: sharedCreatedAt, citationState: 'cited', transition: 'new', location: 'florida' },
+          { runId: 'run_mi', createdAt: sharedCreatedAt, citationState: 'not-cited', transition: 'new', location: 'michigan' },
+        ],
+        openai: [
+          { runId: 'older_run', createdAt: '2026-05-01T00:00:00Z', citationState: 'cited', transition: 'cited', location: 'florida' },
+        ],
+      },
+      modelRuns: {},
+    }],
+    latestRunDetails: [
+      {
+        id: 'run_fl',
+        projectId: 'proj_history_only',
+        kind: 'answer-visibility',
+        status: 'completed',
+        trigger: 'manual',
+        startedAt: sharedCreatedAt,
+        finishedAt: sharedCreatedAt,
+        error: null,
+        createdAt: sharedCreatedAt,
+        snapshots: [{
+          id: 'snap_fl',
+          runId: 'run_fl',
+          queryId: 'kw_1',
+          query: 'polyurea roof coating',
+          provider: 'gemini',
+          model: 'gemini-3-flash',
+          citationState: 'cited',
+          answerMentioned: true,
+          answerText: 'florida gemini snap',
+          citedDomains: ['azcoatings.example'],
+          competitorOverlap: [],
+          groundingSources: [],
+          searchQueries: [],
+          location: 'florida',
+          createdAt: sharedCreatedAt,
+        }],
+      },
+      {
+        id: 'run_mi',
+        projectId: 'proj_history_only',
+        kind: 'answer-visibility',
+        status: 'completed',
+        trigger: 'manual',
+        startedAt: sharedCreatedAt,
+        finishedAt: sharedCreatedAt,
+        error: null,
+        createdAt: sharedCreatedAt,
+        snapshots: [{
+          id: 'snap_mi',
+          runId: 'run_mi',
+          queryId: 'kw_1',
+          query: 'polyurea roof coating',
+          provider: 'gemini',
+          model: 'gemini-3-flash',
+          citationState: 'not-cited',
+          answerMentioned: false,
+          answerText: 'michigan gemini snap',
+          citedDomains: [],
+          competitorOverlap: [],
+          groundingSources: [],
+          searchQueries: [],
+          location: 'michigan',
+          createdAt: sharedCreatedAt,
+        }],
+      },
+    ],
+    previousRunDetails: [],
+  }
+
+  const evidence = buildProjectCommandCenter(data).visibilityEvidence
+  const openaiRows = evidence.filter(e => e.provider === 'openai')
+  // History-only provider must not multiply across configured locations.
+  expect(openaiRows).toHaveLength(1)
+  expect(openaiRows[0]?.location).toBeNull()
+  // Gemini has a snap per location and should still emit two rows.
+  const geminiRows = evidence.filter(e => e.provider === 'gemini')
+  expect(geminiRows).toHaveLength(2)
 })

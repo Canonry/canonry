@@ -699,6 +699,105 @@ describe('api-routes', () => {
     }))
   })
 
+  it('GET /api/v1/projects/:name/timeline?location=X returns only that location and exposes location on run entries', async () => {
+    const projectId = crypto.randomUUID()
+    const queryId = crypto.randomUUID()
+    const flRunId = crypto.randomUUID()
+    const miRunId = crypto.randomUUID()
+    const sharedCreatedAt = new Date(Date.now() + 60_000).toISOString()
+
+    db.insert(projects).values({
+      id: projectId,
+      name: 'timeline-location-project',
+      displayName: 'Timeline Location Project',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+      providers: '[]',
+      createdAt: sharedCreatedAt,
+      updatedAt: sharedCreatedAt,
+    }).run()
+
+    db.insert(queries).values({
+      id: queryId,
+      projectId,
+      query: 'polyurea roof coating',
+      createdAt: sharedCreatedAt,
+    }).run()
+
+    db.insert(runs).values([
+      {
+        id: flRunId,
+        projectId,
+        kind: 'answer-visibility',
+        status: 'completed',
+        trigger: 'manual',
+        location: 'florida',
+        createdAt: sharedCreatedAt,
+        finishedAt: sharedCreatedAt,
+      },
+      {
+        id: miRunId,
+        projectId,
+        kind: 'answer-visibility',
+        status: 'completed',
+        trigger: 'manual',
+        location: 'michigan',
+        createdAt: sharedCreatedAt,
+        finishedAt: sharedCreatedAt,
+      },
+    ]).run()
+
+    db.insert(querySnapshots).values([
+      {
+        id: crypto.randomUUID(),
+        runId: flRunId,
+        queryId,
+        provider: 'gemini',
+        citationState: 'cited',
+        answerMentioned: true,
+        location: 'florida',
+        citedDomains: '["example.com"]',
+        competitorOverlap: '[]',
+        recommendedCompetitors: '[]',
+        rawResponse: '{}',
+        createdAt: sharedCreatedAt,
+      },
+      {
+        id: crypto.randomUUID(),
+        runId: miRunId,
+        queryId,
+        provider: 'gemini',
+        citationState: 'not-cited',
+        answerMentioned: false,
+        location: 'michigan',
+        citedDomains: '[]',
+        competitorOverlap: '[]',
+        recommendedCompetitors: '[]',
+        rawResponse: '{}',
+        createdAt: sharedCreatedAt,
+      },
+    ]).run()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/timeline-location-project/timeline?location=florida' })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload) as Array<{
+      runs: Array<{ runId: string; location?: string | null }>
+      providerRuns?: Record<string, Array<{ runId: string; location?: string | null }>>
+    }>
+
+    expect(body[0]?.runs).toHaveLength(1)
+    expect(body[0]?.runs[0]?.runId).toBe(flRunId)
+    expect(body[0]?.runs[0]?.location).toBe('florida')
+    // None of the run entries (top-level or per-provider) should carry the wrong location.
+    for (const entry of body) {
+      for (const r of entry.runs) expect(r.location).toBe('florida')
+      for (const arr of Object.values(entry.providerRuns ?? {})) {
+        for (const r of arr) expect(r.location).toBe('florida')
+      }
+    }
+  })
+
   it('GET /api/v1/projects/:name/snapshots/diff includes visibility comparison fields', async () => {
     const projectId = crypto.randomUUID()
     const queryId = crypto.randomUUID()
