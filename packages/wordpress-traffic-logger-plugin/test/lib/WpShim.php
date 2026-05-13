@@ -29,6 +29,21 @@ if (!isset($GLOBALS['__wp_options'])) {
 if (!isset($GLOBALS['__wp_scheduled'])) {
     $GLOBALS['__wp_scheduled'] = [];
 }
+if (!isset($GLOBALS['__wp_scheduled_recurrence'])) {
+    $GLOBALS['__wp_scheduled_recurrence'] = [];
+}
+if (!isset($GLOBALS['__wp_options_pages'])) {
+    $GLOBALS['__wp_options_pages'] = [];
+}
+if (!isset($GLOBALS['__wp_registered_settings'])) {
+    $GLOBALS['__wp_registered_settings'] = [];
+}
+if (!isset($GLOBALS['__wp_settings_fields'])) {
+    $GLOBALS['__wp_settings_fields'] = [];
+}
+if (!isset($GLOBALS['__wp_settings_sections'])) {
+    $GLOBALS['__wp_settings_sections'] = [];
+}
 
 if (!function_exists('add_action')) {
     function add_action(string $hook, callable $callback, int $priority = 10, int $accepted_args = 1): bool {
@@ -189,6 +204,7 @@ if (!function_exists('wp_next_scheduled')) {
 if (!function_exists('wp_schedule_event')) {
     function wp_schedule_event(int $timestamp, string $recurrence, string $hook): bool {
         $GLOBALS['__wp_scheduled'][$hook] = $timestamp;
+        $GLOBALS['__wp_scheduled_recurrence'][$hook] = $recurrence;
         return true;
     }
 }
@@ -196,6 +212,99 @@ if (!function_exists('wp_schedule_event')) {
 if (!function_exists('wp_clear_scheduled_hook')) {
     function wp_clear_scheduled_hook(string $hook): void {
         unset($GLOBALS['__wp_scheduled'][$hook]);
+        unset($GLOBALS['__wp_scheduled_recurrence'][$hook]);
+    }
+}
+
+// --- Admin menu & Settings API -------------------------------------------
+
+if (!function_exists('add_options_page')) {
+    function add_options_page(
+        string $page_title,
+        string $menu_title,
+        string $capability,
+        string $menu_slug,
+        $callback = null
+    ): string {
+        $GLOBALS['__wp_options_pages'][] = [
+            'page_title' => $page_title,
+            'menu_title' => $menu_title,
+            'capability' => $capability,
+            'menu_slug'  => $menu_slug,
+            'callback'   => $callback,
+        ];
+        return $menu_slug;
+    }
+}
+
+if (!function_exists('register_setting')) {
+    function register_setting(string $option_group, string $option_name, array $args = []): void {
+        $GLOBALS['__wp_registered_settings'][$option_name] = [
+            'option_group' => $option_group,
+            'option_name'  => $option_name,
+            'args'         => $args,
+        ];
+    }
+}
+
+if (!function_exists('add_settings_section')) {
+    function add_settings_section(string $id, string $title, $callback, string $page): void {
+        $GLOBALS['__wp_settings_sections'][$page][$id] = [
+            'id'       => $id,
+            'title'    => $title,
+            'callback' => $callback,
+        ];
+    }
+}
+
+if (!function_exists('add_settings_field')) {
+    function add_settings_field(
+        string $id,
+        string $title,
+        $callback,
+        string $page,
+        string $section = 'default',
+        array $args = []
+    ): void {
+        $GLOBALS['__wp_settings_fields'][$page][$section][$id] = [
+            'id'       => $id,
+            'title'    => $title,
+            'callback' => $callback,
+            'args'     => $args,
+        ];
+    }
+}
+
+if (!function_exists('settings_fields')) {
+    function settings_fields(string $option_group): void {
+        echo '<input type="hidden" name="option_page" value="' . esc_attr($option_group) . '" />';
+    }
+}
+
+if (!function_exists('do_settings_sections')) {
+    function do_settings_sections(string $page): void {
+        foreach ($GLOBALS['__wp_settings_sections'][$page] ?? [] as $section) {
+            if (is_callable($section['callback'])) {
+                ($section['callback'])();
+            }
+            foreach ($GLOBALS['__wp_settings_fields'][$page][$section['id']] ?? [] as $field) {
+                if (is_callable($field['callback'])) {
+                    ($field['callback'])($field['args']);
+                }
+            }
+        }
+    }
+}
+
+if (!function_exists('submit_button')) {
+    function submit_button(string $text = 'Save Changes'): void {
+        echo '<input type="submit" value="' . esc_attr($text) . '" />';
+    }
+}
+
+if (!function_exists('wp_die')) {
+    function wp_die(string $message = '', string $title = '', $args = []): void {
+        throw new \RuntimeException($message !== '' ? $message : 'wp_die invoked');
     }
 }
 
@@ -407,6 +516,23 @@ class WpdbMock {
         return array_map(fn($r) => (object) $r, $rows);
     }
 
+    public function get_var(string $sql) {
+        $this->last_query = $sql;
+        if (!preg_match('/FROM\s+([a-z0-9_]+)/i', $sql, $m)) return null;
+        $table = $m[1];
+        $rows = $this->rows[$table] ?? [];
+        if (preg_match('/SELECT\s+COUNT\s*\(\s*\*\s*\)/i', $sql)) {
+            return count($rows);
+        }
+        if (preg_match('/SELECT\s+MIN\s*\(\s*observed_at\s*\)/i', $sql)) {
+            if (count($rows) === 0) return null;
+            $values = array_map(fn($r) => (string) ($r['observed_at'] ?? ''), $rows);
+            sort($values);
+            return $values[0];
+        }
+        return null;
+    }
+
     public function query(string $sql): int {
         $this->last_query = $sql;
         // Support DELETE FROM <table> WHERE observed_at < 'x'
@@ -440,6 +566,11 @@ function wpshim_reset(): void {
     $GLOBALS['__wp_rest_routes'] = [];
     $GLOBALS['__wp_options'] = [];
     $GLOBALS['__wp_scheduled'] = [];
+    $GLOBALS['__wp_scheduled_recurrence'] = [];
+    $GLOBALS['__wp_options_pages'] = [];
+    $GLOBALS['__wp_registered_settings'] = [];
+    $GLOBALS['__wp_settings_sections'] = [];
+    $GLOBALS['__wp_settings_fields'] = [];
     $GLOBALS['__wp_current_user_can'] = false;
     $GLOBALS['wpdb'] = new WpdbMock();
 }

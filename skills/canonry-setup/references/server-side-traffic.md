@@ -30,8 +30,14 @@ Two tables, populated from server-log adapters:
 | `raw_event_samples` | Bounded forensic samples (≤100 per sync) for spot-checking |
 
 Each `traffic_sources` row is one server-log integration for a project.
-Today's only adapter is `cloud-run`; future adapters slot in by
-implementing the same contract.
+Adapters today:
+
+| Adapter | Source | Best for |
+|---|---|---|
+| `cloud-run` | GCP Cloud Run request logs via Logging API | Any service running on Cloud Run |
+| `wordpress` | The Canonry Traffic Logger WP plugin's REST endpoint | WordPress sites where you control wp-admin |
+
+Future adapters slot in by implementing the same contract.
 
 ## Connecting a Cloud Run source
 
@@ -55,6 +61,48 @@ canonry traffic connect cloud-run <project> \
 Credentials are stored in `~/.canonry/config.yaml` (not the DB). The
 canonical key lives only on the host that runs `canonry serve`. The
 sync flow does NOT echo the private key back in any response.
+
+## Connecting a WordPress source
+
+The WordPress adapter pulls events from the **Canonry Traffic Logger**
+WordPress plugin, which captures every non-admin GET page-load and
+exposes a paginated REST endpoint protected by an Application Password.
+
+```bash
+# 1. Install the plugin. Download the latest release zip from the
+#    canonry-traffic-logger plugin's GitHub release (the repo CI workflow
+#    publishes a zip on every plugin-file change), then in wp-admin:
+#    Plugins → Add New → Upload Plugin → upload + activate.
+
+# 2. In wp-admin, create an Application Password for the operator user:
+#    Users → Profile → Application Passwords. Copy the generated password.
+
+# 3. (Optional) Adjust the retention window:
+#    Settings → Canonry Traffic Logger. The retention input clamps to
+#    7–365 days; default is 90. The page also shows the current event
+#    count and the oldest event timestamp.
+
+# 4. Connect from canonry CLI:
+canonry traffic connect wordpress <project> \
+  --url https://example.com \
+  --username admin \
+  --app-password "xxxx xxxx xxxx xxxx xxxx xxxx"
+```
+
+What the events table looks like (mirrors the TS
+`WordpressTrafficEventPayload`):
+
+| Column | Meaning |
+|---|---|
+| `observed_at` | ISO 8601 UTC timestamp with millisecond precision |
+| `method`, `host`, `path`, `query_string` | Split `REQUEST_URI` parts |
+| `status` | HTTP response status code |
+| `user_agent`, `referer` | Headers as captured at request time |
+| `remote_ip_hash` | First 12 hex chars of `sha256(ip + per-site-salt)` |
+
+The plugin auto-prunes events older than the retention window (default
+90 days) once per day via WP-Cron. Operators who want a different
+window change it in `Settings → Canonry Traffic Logger`.
 
 ## Syncing data
 
@@ -160,8 +208,7 @@ domains, or PII are surfaced.
   rDNS-verified hits. Unverified bots claim a known UA but couldn't be
   cross-confirmed via reverse-DNS — they may be the real bot or an
   imitator. Don't promote unverified counts in client-facing copy.
-- **Cloud Run only in v1.** WordPress plugin and other adapters are
-  planned. The doctor checks and the report renderer are already
-  adapter-agnostic — adding a new adapter is just a new entry in
-  `traffic_sources.source_type` and a `TrafficSourceValidator`
-  registration.
+- **Two adapters shipped (Cloud Run + WordPress); more planned.** The
+  doctor checks and the report renderer are adapter-agnostic — adding
+  a new adapter is just a new entry in `traffic_sources.source_type`
+  and a `TrafficSourceValidator` registration.
