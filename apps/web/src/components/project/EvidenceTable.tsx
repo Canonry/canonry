@@ -77,28 +77,35 @@ function projectItemsForMode(items: CitationInsightVm[], mode: CoverageMode): Ci
 
 export function EvidenceTable({
   evidence,
+  compareLocations = false,
 }: {
   evidence: CitationInsightVm[]
+  compareLocations?: boolean
 }) {
   const { openEvidence } = useDrawer()
-  const [expandedPhrases, setExpandedPhrases] = useState<Set<string>>(new Set())
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [mode, setMode] = useState<CoverageMode>('citations')
 
   const groups = useMemo(() => {
     const projected = projectItemsForMode(evidence, mode)
-    const map = new Map<string, CitationInsightVm[]>()
+    type Group = { key: string; phrase: string; location: string | null; items: CitationInsightVm[] }
+    const map = new Map<string, Group>()
     for (const item of projected) {
-      const existing = map.get(item.query) ?? []
-      map.set(item.query, [...existing, item])
+      const phrase = item.query
+      const location = compareLocations ? (item.location ?? null) : null
+      const key = compareLocations ? JSON.stringify([phrase, location]) : phrase
+      const existing = map.get(key) ?? { key, phrase, location, items: [] }
+      existing.items.push(item)
+      map.set(key, existing)
     }
-    return [...map.entries()].map(([phrase, items]) => ({ phrase, items }))
-  }, [evidence, mode])
+    return [...map.values()]
+  }, [evidence, mode, compareLocations])
 
-  const togglePhrase = (phrase: string) => {
-    setExpandedPhrases(prev => {
+  const toggleRow = (key: string) => {
+    setExpandedRows(prev => {
       const next = new Set(prev)
-      if (next.has(phrase)) next.delete(phrase)
-      else next.add(phrase)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
   }
@@ -162,8 +169,8 @@ export function EvidenceTable({
             </tr>
           </thead>
           <tbody>
-            {groups.map(({ phrase, items }) => {
-              const isExpanded = expandedPhrases.has(phrase)
+            {groups.map(({ key: groupKey, phrase, location, items }) => {
+              const isExpanded = expandedRows.has(groupKey)
               const states = items.map(i => i.citationState)
               const aggState: CitationState =
                 states.includes('cited') ? 'cited' :
@@ -176,10 +183,10 @@ export function EvidenceTable({
               const aggChangeLabel = describeChange(mergedHistory, mode)
 
               return (
-                <Fragment key={phrase}>
+                <Fragment key={groupKey}>
                   <tr
                     className="evidence-phrase-row cursor-pointer hover:bg-zinc-800/40"
-                    onClick={() => togglePhrase(phrase)}
+                    onClick={() => toggleRow(groupKey)}
                     aria-expanded={isExpanded}
                   >
                     <td>
@@ -191,6 +198,11 @@ export function EvidenceTable({
                     <td className="evidence-query-cell">
                       <div>
                         <span className="font-medium text-zinc-100">{phrase}</span>
+                        {compareLocations && (
+                          <span className="ml-2 text-[10px] uppercase tracking-wide text-zinc-500">
+                            {location ?? 'No location'}
+                          </span>
+                        )}
                         <div className="flex flex-wrap gap-1 mt-1">
                           {items.map(item => (
                             <ProviderBadge key={item.id} provider={item.provider} />
