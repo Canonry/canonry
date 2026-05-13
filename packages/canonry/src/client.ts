@@ -77,6 +77,7 @@ import type {
   TrafficStatusResponse,
   TrafficEventsResponse,
   TrafficConnectCloudRunRequest,
+  TrafficConnectWordpressRequest,
   TrafficSyncResponse,
   TrafficBackfillResponse,
   DiscoverySessionDto,
@@ -821,6 +822,14 @@ export class ApiClient {
     return this.request<TrafficSourceDto>(
       'POST',
       `/projects/${encodeURIComponent(project)}/traffic/connect/cloud-run`,
+      body,
+    )
+  }
+
+  async trafficConnectWordpress(project: string, body: TrafficConnectWordpressRequest): Promise<TrafficSourceDto> {
+    return this.request<TrafficSourceDto>(
+      'POST',
+      `/projects/${encodeURIComponent(project)}/traffic/connect/wordpress`,
       body,
     )
   }

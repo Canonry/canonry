@@ -73,7 +73,7 @@ const sourceConnectedCheck: CheckDefinition = {
         status: CheckStatuses.skipped,
         code: 'traffic.source.none',
         summary: 'No server-side traffic source connected — server-log AI visibility data unavailable for this project.',
-        remediation: 'Connect a traffic source via `canonry traffic connect <type> <project>` to surface crawler hits and AI-referral arrivals from your server logs.',
+        remediation: 'Connect a traffic source via `canonry traffic connect <type> <project>` to surface crawler hits and AI-referral sessions from your server logs.',
         details: { sourceCount: 0 },
       }
     }
@@ -173,12 +173,24 @@ const recentDataCheck: CheckDefinition = {
         )
         .get()?.total ?? 0,
     )
+    const olderReferrals = Number(
+      ctx.db
+        .select({ total: sql<number>`COALESCE(SUM(${aiReferralEventsHourly.sessionsOrHits}), 0)` })
+        .from(aiReferralEventsHourly)
+        .where(
+          and(
+            eq(aiReferralEventsHourly.projectId, ctx.project.id),
+            gte(aiReferralEventsHourly.tsHour, failCutoff),
+          ),
+        )
+        .get()?.total ?? 0,
+    )
     const lastSyncedAt = sources.map((s) => s.lastSyncedAt).filter(Boolean).sort().at(-1) ?? null
-    if (olderCrawlers > 0 || lastSyncedAt) {
+    if (olderCrawlers > 0 || olderReferrals > 0 || lastSyncedAt) {
       return {
         status: CheckStatuses.warn,
         code: 'traffic.recent-data.stale',
-        summary: `No crawler hits or AI-referral arrivals in the last ${RECENT_DATA_WARN_DAYS} days, though older data exists.`,
+        summary: `No crawler hits or AI-referral sessions in the last ${RECENT_DATA_WARN_DAYS} days, though older data exists.`,
         remediation: lastSyncedAt
           ? `Last sync: ${lastSyncedAt}. Run \`canonry traffic sync <project>\` to refresh, or check the source connection.`
           : 'Run `canonry traffic sync <project>` to pull recent events.',

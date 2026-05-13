@@ -43,10 +43,14 @@ import { backlinksRoutes } from './backlinks.js'
 import type { BacklinksRoutesOptions } from './backlinks.js'
 import { trafficRoutes, defaultResolveAccessToken } from './traffic.js'
 import type { TrafficRoutesOptions, CloudRunCredentialStore } from './traffic.js'
+import {
+  listWordpressTrafficEvents,
+  WordpressTrafficApiError,
+} from '@ainyc/canonry-integration-wordpress-traffic'
 import { doctorRoutes } from './doctor.js'
 import { discoveryRoutes } from './discovery/index.js'
 import type { DiscoveryRoutesOptions } from './discovery/index.js'
-import { CheckStatuses } from '@ainyc/canonry-contracts'
+import { CheckStatuses, TrafficSourceTypes } from '@ainyc/canonry-contracts'
 import type { CheckOutput, TrafficSourceProbe, TrafficSourceValidator } from './doctor/types.js'
 
 declare module 'fastify' {
@@ -117,6 +121,10 @@ export interface ApiRoutesOptions {
   pullCloudRunEvents?: TrafficRoutesOptions['pullCloudRunEvents']
   /** Override Cloud Run access-token resolver (tests) — see `TrafficRoutesOptions` */
   resolveCloudRunAccessToken?: TrafficRoutesOptions['resolveCloudRunAccessToken']
+  /** WordPress traffic-logger credential store — stores Application Passwords in config, not DB */
+  wordpressTrafficCredentialStore?: TrafficRoutesOptions['wordpressTrafficCredentialStore']
+  /** Override WordPress traffic pull (tests) — see `TrafficRoutesOptions` */
+  pullWordpressTrafficEvents?: TrafficRoutesOptions['pullWordpressTrafficEvents']
   /** Fired after every traffic sync (success OR failure). Used by canonry to emit `traffic.synced` telemetry. */
   onTrafficSynced?: TrafficRoutesOptions['onTrafficSynced']
   /** Discovery feature callback — fires after a discovery_sessions row + matching runs row are inserted. */
@@ -282,6 +290,8 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       cloudRunCredentialStore: opts.cloudRunCredentialStore,
       pullCloudRunEvents: opts.pullCloudRunEvents,
       resolveCloudRunAccessToken: opts.resolveCloudRunAccessToken,
+      wordpressTrafficCredentialStore: opts.wordpressTrafficCredentialStore,
+      pullWordpressTrafficEvents: opts.pullWordpressTrafficEvents,
       onTrafficSynced: opts.onTrafficSynced,
     } satisfies TrafficRoutesOptions)
     // Always mount the backlinks routes so read endpoints (summary, domains,
@@ -390,6 +400,54 @@ function buildTrafficSourceValidators(opts: ApiRoutesOptions): Record<string, Tr
       // at the IAM layer rather than baked into the token. We surface a
       // skipped result so the framework is uniform without producing a
       // false signal.
+      validateScopes: () => null,
+    }
+  }
+  if (opts.wordpressTrafficCredentialStore) {
+    const store = opts.wordpressTrafficCredentialStore
+    const pullEvents = opts.pullWordpressTrafficEvents ?? listWordpressTrafficEvents
+    validators[TrafficSourceTypes.wordpress] = {
+      validateCredentials: async (source: TrafficSourceProbe): Promise<CheckOutput> => {
+        const record = store.getConnection(source.projectName)
+        if (!record) {
+          return {
+            status: CheckStatuses.fail,
+            code: 'traffic.credentials.missing',
+            summary: `No WordPress traffic credential found in ~/.canonry/config.yaml for project "${source.projectName}".`,
+            remediation: 'Re-run `canonry traffic connect wordpress <project> --url <site> --username <user> --app-password <password>`.',
+          }
+        }
+        try {
+          await pullEvents({
+            baseUrl: record.baseUrl,
+            username: record.username,
+            applicationPassword: record.applicationPassword,
+            pageSize: 1,
+            maxPages: 1,
+          })
+          return {
+            status: CheckStatuses.ok,
+            code: 'traffic.credentials.resolved',
+            summary: `WordPress endpoint responds for "${source.displayName}" (${new URL(record.baseUrl).host}).`,
+          }
+        } catch (e) {
+          const httpStatus = e instanceof WordpressTrafficApiError ? e.status : null
+          const msg = e instanceof Error ? e.message : String(e)
+          return {
+            status: CheckStatuses.fail,
+            code: httpStatus === 401 || httpStatus === 403
+              ? 'traffic.credentials.unauthorized'
+              : 'traffic.credentials.resolve-failed',
+            summary: httpStatus
+              ? `WordPress endpoint returned HTTP ${httpStatus}: ${msg}.`
+              : `WordPress endpoint probe failed: ${msg}.`,
+            remediation: 'Verify the site URL is reachable and the Application Password is valid. Re-connect the source if needed.',
+          }
+        }
+      },
+      // WordPress Application Passwords have no scope concept — auth is
+      // strictly "valid credential or not". Surface a skipped result so the
+      // framework is uniform without producing a false signal.
       validateScopes: () => null,
     }
   }

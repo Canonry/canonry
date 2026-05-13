@@ -110,6 +110,24 @@ export interface WordpressConfigEntry {
   connections?: WordpressConnectionConfigEntry[]
 }
 
+/**
+ * Per-project WordPress traffic-logger connection. Separate from `wordpress.connections`,
+ * which is the content-publishing client. Authenticates against the WP traffic plugin's
+ * REST endpoint using a WordPress Application Password.
+ */
+export interface WordpressTrafficConnectionConfigEntry {
+  projectName: string
+  baseUrl: string
+  username: string
+  applicationPassword: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface WordpressTrafficConfigEntry {
+  connections?: WordpressTrafficConnectionConfigEntry[]
+}
+
 export interface AgentConfigEntry {
   /** Agent mode. Only 'disabled' is valid until the native loop ships. */
   mode?: 'disabled'
@@ -136,6 +154,7 @@ export interface CanonryConfig {
   ga4?: Ga4ConfigEntry
   cloudRun?: CloudRunConfigEntry
   wordpress?: WordpressConfigEntry
+  wordpressTraffic?: WordpressTrafficConfigEntry
   // Dashboard password hash (SHA-256 hex) — set during first dashboard visit
   dashboardPasswordHash?: string
   // Telemetry (opt-out: undefined/true = enabled, false = disabled)

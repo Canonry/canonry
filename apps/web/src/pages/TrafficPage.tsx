@@ -58,7 +58,7 @@ export function TrafficPage() {
         <div className="page-header-left">
           <h1 className="page-title">Server traffic</h1>
           <p className="page-subtitle">
-            Crawler hits and AI-referral arrivals pulled directly from server logs (Cloud Run, etc.). Independent of GA — useful when you need server-side evidence that GPTBot or ChatGPT-User actually hit a page.
+            Crawler hits and AI-referral sessions pulled directly from server logs (Cloud Run, etc.). Independent of GA — useful when you need server-side evidence that GPTBot or ChatGPT-User actually hit a page.
           </p>
         </div>
         <Button
@@ -95,7 +95,7 @@ export function TrafficPage() {
         ) : sources.length === 0 ? (
           <Card className="p-8 text-center">
             <p className="text-sm text-zinc-300">No traffic sources connected for {activeProject}.</p>
-            <p className="mt-1 text-xs text-zinc-500">Connect a Cloud Run service to start ingesting crawler and AI-referral hits from server logs.</p>
+            <p className="mt-1 text-xs text-zinc-500">Connect a Cloud Run service to start ingesting crawler hits and AI-referral sessions from server logs.</p>
             <div className="mt-4">
               <Button type="button" variant="outline" size="sm" onClick={() => setConnectOpen(true)}>
                 <Plus className="size-3.5" />
@@ -144,7 +144,7 @@ function SourcesTable({ projectName, sources }: { projectName: string; sources: 
             <th className="px-4 py-2 text-left">Status</th>
             <th className="px-4 py-2 text-left">Last sync</th>
             <th className="px-4 py-2 text-right">24h crawler</th>
-            <th className="px-4 py-2 text-right">24h AI referral</th>
+            <th className="px-4 py-2 text-right">24h AI sessions</th>
             <th className="px-4 py-2 text-right">24h samples</th>
             <th className="px-4 py-2 text-right" />
           </tr>

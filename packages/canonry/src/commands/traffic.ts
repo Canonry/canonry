@@ -16,6 +16,87 @@ function getClient() {
   return createApiClient()
 }
 
+export async function trafficConnectWordpress(project: string, opts: {
+  url: string
+  username: string
+  /** Inline Application Password value. Mutually exclusive with `appPasswordFile`. */
+  appPassword?: string
+  /** Path to a file containing the Application Password. Preferred — keeps the secret out of shell history. */
+  appPasswordFile?: string
+  displayName?: string
+  format?: string
+}): Promise<void> {
+  if (!opts.url) {
+    throw new CliError({
+      code: 'TRAFFIC_WP_URL_REQUIRED',
+      message: '--url is required',
+      displayMessage: 'Error: --url is required',
+      details: { project },
+    })
+  }
+  if (!opts.username) {
+    throw new CliError({
+      code: 'TRAFFIC_WP_USERNAME_REQUIRED',
+      message: '--username is required',
+      displayMessage: 'Error: --username is required',
+      details: { project },
+    })
+  }
+  if (opts.appPassword && opts.appPasswordFile) {
+    throw new CliError({
+      code: 'TRAFFIC_WP_APP_PASSWORD_CONFLICT',
+      message: '--app-password and --app-password-file are mutually exclusive',
+      displayMessage: 'Error: pass either --app-password <pw> or --app-password-file <path>, not both',
+      details: { project },
+    })
+  }
+  let applicationPassword = opts.appPassword?.trim() ?? ''
+  if (!applicationPassword && opts.appPasswordFile) {
+    const fs = await import('node:fs')
+    try {
+      applicationPassword = fs.readFileSync(opts.appPasswordFile, 'utf-8').trim()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      throw new CliError({
+        code: 'TRAFFIC_WP_APP_PASSWORD_FILE_READ_ERROR',
+        message: `Failed to read --app-password-file: ${msg}`,
+        displayMessage: `Error: failed to read --app-password-file "${opts.appPasswordFile}": ${msg}`,
+        details: { project, appPasswordFile: opts.appPasswordFile },
+      })
+    }
+  }
+  if (!applicationPassword) {
+    throw new CliError({
+      code: 'TRAFFIC_WP_APP_PASSWORD_REQUIRED',
+      message: '--app-password or --app-password-file is required',
+      displayMessage: 'Error: pass --app-password <pw> or --app-password-file <path>',
+      details: { project },
+    })
+  }
+
+  const client = getClient()
+  const result: TrafficSourceDto = await client.trafficConnectWordpress(project, {
+    baseUrl: opts.url,
+    username: opts.username,
+    applicationPassword,
+    displayName: opts.displayName,
+  })
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  console.log(`WordPress traffic source connected for project "${project}".`)
+  console.log(`  Source ID:    ${result.id}`)
+  console.log(`  Display name: ${result.displayName}`)
+  console.log(`  Status:       ${result.status}`)
+  console.log(`  Site URL:     ${result.config.baseUrl ?? '(unset)'}`)
+  console.log(`  Username:     ${result.config.username ?? '(unset)'}`)
+  console.log('')
+  console.log(`Next: canonry traffic sync ${project} --source ${result.id}`)
+}
+
 export async function trafficConnectCloudRun(project: string, opts: {
   gcpProject: string
   service?: string
@@ -257,7 +338,7 @@ export async function trafficStatus(project: string, opts: { format?: string }):
     console.log(`  Last synced:     ${d.lastSyncedAt ?? 'never'}`)
     if (d.lastError) console.log(`  Last error:      ${d.lastError}`)
     console.log(`  24h crawler:     ${d.totals24h.crawlerHits} hits`)
-    console.log(`  24h AI referral: ${d.totals24h.aiReferralHits} hits`)
+    console.log(`  24h AI referral: ${d.totals24h.aiReferralHits} sessions`)
     console.log(`  24h samples:     ${d.totals24h.sampleCount}`)
     if (d.latestRun) {
       console.log(`  Latest run:      ${d.latestRun.runId} (${d.latestRun.status})`)
@@ -334,7 +415,7 @@ export async function trafficEvents(project: string, opts: {
 
   console.log(`Traffic events for "${project}"  ${result.windowStart}  →  ${result.windowEnd}`)
   console.log(`  Crawler hits (window):     ${result.totals.crawlerHits}`)
-  console.log(`  AI referral hits (window): ${result.totals.aiReferralHits}`)
+  console.log(`  AI referral sessions (window): ${result.totals.aiReferralHits}`)
   console.log('')
 
   if (result.events.length === 0) {
@@ -342,7 +423,7 @@ export async function trafficEvents(project: string, opts: {
     return
   }
 
-  console.log('  TS_HOUR  KIND  IDENTITY  EVIDENCE/STATUS  PATH  HITS')
+  console.log('  TS_HOUR  KIND  IDENTITY  EVIDENCE/STATUS  PATH  COUNT')
   for (const event of result.events) {
     console.log(`  ${formatEventLine(event)}`)
   }

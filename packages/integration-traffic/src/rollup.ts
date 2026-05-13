@@ -2,15 +2,39 @@ import type { NormalizedTrafficRequest } from '@ainyc/canonry-contracts'
 import { classifyAiReferral, classifyCrawler } from './classifier.js'
 import type {
   AiReferralEventHourlyBucket,
+  AiReferralEvidenceType,
   BuildTrafficProbeReportOptions,
+  ClassifiedAiReferral,
   CrawlerEventHourlyBucket,
   TrafficProbeReport,
 } from './types.js'
 
 const DEFAULT_SAMPLE_LIMIT = 25
+const DEFAULT_AI_REFERRAL_SESSION_WINDOW_MS = 60_000
 const UUID_SEGMENT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const LONG_HEX_SEGMENT = /^[0-9a-f]{16,}$/i
 const NUMERIC_SEGMENT = /^\d+$/
+const ASSET_EXTENSION_PATTERN = /\.(?:avif|bmp|css|gif|ico|jpe?g|js|json|map|mjs|mp4|otf|png|svg|webm|webmanifest|woff2?|xml)$/i
+const ASSET_PATH_PREFIXES = [
+  '/_next/static/',
+  '/assets/',
+  '/build/',
+  '/dist/',
+  '/fonts/',
+  '/images/',
+  '/img/',
+  '/static/',
+]
+
+interface AiReferralSession {
+  tsHour: string
+  operator: string
+  product: string
+  sourceDomain: string
+  evidenceType: AiReferralEvidenceType
+  landingPathNormalized: string
+  status: number | null
+}
 
 export function normalizeTrafficPathPattern(path: string): string {
   const cleanPath = path.trim() || '/'
@@ -31,6 +55,88 @@ function hourBucket(value: string): string {
   if (Number.isNaN(date.getTime())) return value
   date.setUTCMinutes(0, 0, 0)
   return date.toISOString()
+}
+
+function sessionWindowBucket(value: string, windowMs: number): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Date(Math.floor(date.getTime() / windowMs) * windowMs).toISOString()
+}
+
+function normalizeHost(host: string | null): string | null {
+  if (!host) return null
+  return host.trim().toLowerCase().replace(/^www\./, '') || null
+}
+
+function sameHost(a: string | null, b: string | null): boolean {
+  const normalizedA = normalizeHost(a)
+  const normalizedB = normalizeHost(b)
+  return !!normalizedA && !!normalizedB && normalizedA === normalizedB
+}
+
+function pathFromSameOriginReferer(event: NormalizedTrafficRequest): string | null {
+  if (!event.referer) return null
+  try {
+    const refererUrl = new URL(event.referer)
+    if (!sameHost(refererUrl.hostname, event.host)) return null
+    return refererUrl.pathname || '/'
+  } catch {
+    return null
+  }
+}
+
+function resolveAiReferralLandingPath(
+  event: NormalizedTrafficRequest,
+  evidenceType: AiReferralEvidenceType,
+): string {
+  if (evidenceType === 'referer-utm') {
+    const refererPath = pathFromSameOriginReferer(event)
+    if (refererPath) return normalizeTrafficPathPattern(refererPath)
+  }
+  return normalizeTrafficPathPattern(event.path)
+}
+
+function isLikelySubresourcePath(path: string): boolean {
+  const cleanPath = path.split('?')[0] || '/'
+  return ASSET_PATH_PREFIXES.some(prefix => cleanPath.startsWith(prefix)) ||
+    ASSET_EXTENSION_PATTERN.test(cleanPath)
+}
+
+function actorKey(event: NormalizedTrafficRequest): string {
+  const remoteIp = event.remoteIp?.trim()
+  const userAgent = event.userAgent?.trim()
+  if (remoteIp || userAgent) return `${remoteIp ?? 'unknown-ip'}\t${userAgent ?? 'unknown-ua'}`
+  return `event:${event.eventId}`
+}
+
+function aiReferralSessionKey(
+  event: NormalizedTrafficRequest,
+  aiReferral: ClassifiedAiReferral,
+  landingPathNormalized: string,
+  windowMs: number,
+): string {
+  return [
+    hourBucket(event.observedAt),
+    sessionWindowBucket(event.observedAt, windowMs),
+    actorKey(event),
+    aiReferral.sourceDomain,
+    landingPathNormalized,
+  ].join('\t')
+}
+
+function evidenceRank(evidenceType: AiReferralEvidenceType): number {
+  switch (evidenceType) {
+    case 'referer': return 3
+    case 'utm': return 2
+    case 'referer-utm': return 1
+  }
+}
+
+function strongerReferralEvidence(
+  current: AiReferralSession,
+  next: AiReferralSession,
+): AiReferralSession {
+  return evidenceRank(next.evidenceType) > evidenceRank(current.evidenceType) ? next : current
 }
 
 function sortCrawlerBuckets(a: CrawlerEventHourlyBucket, b: CrawlerEventHourlyBucket): number {
@@ -63,8 +169,13 @@ export function buildTrafficProbeReport(
   options: BuildTrafficProbeReportOptions = {},
 ): TrafficProbeReport {
   const sampleLimit = options.sampleLimit ?? DEFAULT_SAMPLE_LIMIT
+  const configuredSessionWindowMs = options.aiReferralSessionWindowMs ?? DEFAULT_AI_REFERRAL_SESSION_WINDOW_MS
+  const aiReferralSessionWindowMs = configuredSessionWindowMs > 0
+    ? configuredSessionWindowMs
+    : DEFAULT_AI_REFERRAL_SESSION_WINDOW_MS
   const crawlerBuckets = new Map<string, CrawlerEventHourlyBucket>()
   const aiReferralBuckets = new Map<string, AiReferralEventHourlyBucket>()
+  const aiReferralSessions = new Map<string, AiReferralSession>()
   const topBots = new Map<string, { fields: { botId: string; operator: string }; hits: number }>()
   const topCrawlerPaths = new Map<string, { fields: { pathNormalized: string }; hits: number }>()
   const topAiReferrers = new Map<string, { fields: { sourceDomain: string; product: string }; hits: number }>()
@@ -115,52 +226,69 @@ export function buildTrafficProbeReport(
 
     if (aiReferral) {
       aiReferralHits += 1
-      const key = [
-        tsHour,
-        aiReferral.product,
-        aiReferral.sourceDomain,
-        aiReferral.evidenceType,
-        pathNormalized,
-        event.status ?? 'null',
-      ].join('\t')
-      const existing = aiReferralBuckets.get(key)
-      if (existing) {
-        existing.hits += 1
-      } else {
-        aiReferralBuckets.set(key, {
+      const landingPathNormalized = resolveAiReferralLandingPath(event, aiReferral.evidenceType)
+      if (!isLikelySubresourcePath(landingPathNormalized)) {
+        const session: AiReferralSession = {
           tsHour,
           operator: aiReferral.operator,
           product: aiReferral.product,
           sourceDomain: aiReferral.sourceDomain,
           evidenceType: aiReferral.evidenceType,
-          landingPathNormalized: pathNormalized,
+          landingPathNormalized,
           status: event.status,
-          hits: 1,
-        })
+        }
+        const key = aiReferralSessionKey(event, aiReferral, landingPathNormalized, aiReferralSessionWindowMs)
+        const existing = aiReferralSessions.get(key)
+        aiReferralSessions.set(key, existing ? strongerReferralEvidence(existing, session) : session)
       }
-      incrementBucket(topAiReferrers, aiReferral.sourceDomain, {
-        sourceDomain: aiReferral.sourceDomain,
-        product: aiReferral.product,
-      })
-      incrementBucket(topAiReferralLandingPaths, pathNormalized, { landingPathNormalized: pathNormalized })
     }
 
     if (!crawler && !aiReferral) unknownHits += 1
 
-    if (samples.length < sampleLimit) {
-      samples.push({
-        eventId: event.eventId,
-        observedAt: event.observedAt,
-        sourceType: event.sourceType,
-        path: event.path,
-        pathNormalized,
-        status: event.status,
-        userAgent: event.userAgent,
-        referer: event.referer,
-        crawler,
-        aiReferral,
+    // Keep the most-recent `sampleLimit` events by iteration order, not the
+    // first ones we see. Pulls run timestamp-asc, so a FIFO retention would
+    // surface only the oldest slice of the window — the least useful for
+    // classifier debugging.
+    samples.push({
+      eventId: event.eventId,
+      observedAt: event.observedAt,
+      sourceType: event.sourceType,
+      path: event.path,
+      pathNormalized,
+      status: event.status,
+      userAgent: event.userAgent,
+      referer: event.referer,
+      crawler,
+      aiReferral,
+    })
+    if (samples.length > sampleLimit) samples.shift()
+  }
+
+  for (const session of aiReferralSessions.values()) {
+    const key = [
+      session.tsHour,
+      session.product,
+      session.sourceDomain,
+      session.evidenceType,
+      session.landingPathNormalized,
+      session.status ?? 'null',
+    ].join('\t')
+    const existing = aiReferralBuckets.get(key)
+    if (existing) {
+      existing.hits += 1
+    } else {
+      aiReferralBuckets.set(key, {
+        ...session,
+        hits: 1,
       })
     }
+    incrementBucket(topAiReferrers, session.sourceDomain, {
+      sourceDomain: session.sourceDomain,
+      product: session.product,
+    })
+    incrementBucket(topAiReferralLandingPaths, session.landingPathNormalized, {
+      landingPathNormalized: session.landingPathNormalized,
+    })
   }
 
   return {
@@ -168,6 +296,7 @@ export function buildTrafficProbeReport(
     totals: {
       normalizedEvents: events.length,
       crawlerHits,
+      aiReferralSessions: aiReferralSessions.size,
       aiReferralHits,
       unknownHits,
     },

@@ -20,6 +20,7 @@ import {
   TrafficSourceTypes,
   TrafficSourceAuthModes,
   TrafficEventKinds,
+  trafficConnectWordpressRequestSchema,
 } from '@ainyc/canonry-contracts'
 import type {
   RunStatus,
@@ -44,6 +45,14 @@ import type {
   ListCloudRunTrafficEventsOptions,
 } from '@ainyc/canonry-integration-cloud-run'
 import { buildTrafficProbeReport } from '@ainyc/canonry-integration-traffic'
+import {
+  listWordpressTrafficEvents,
+  WordpressTrafficApiError,
+} from '@ainyc/canonry-integration-wordpress-traffic'
+import type {
+  ListWordpressTrafficEventsOptions,
+  WordpressTrafficEventsPage,
+} from '@ainyc/canonry-integration-wordpress-traffic'
 import { resolveProject, writeAuditLog } from './helpers.js'
 
 export interface CloudRunCredentialRecord {
@@ -64,6 +73,21 @@ export interface CloudRunCredentialRecord {
 export interface CloudRunCredentialStore {
   getConnection: (projectName: string) => CloudRunCredentialRecord | undefined
   upsertConnection: (record: CloudRunCredentialRecord) => CloudRunCredentialRecord
+  deleteConnection: (projectName: string) => boolean
+}
+
+export interface WordpressTrafficCredentialRecord {
+  projectName: string
+  baseUrl: string
+  username: string
+  applicationPassword: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface WordpressTrafficCredentialStore {
+  getConnection: (projectName: string) => WordpressTrafficCredentialRecord | undefined
+  upsertConnection: (record: WordpressTrafficCredentialRecord) => WordpressTrafficCredentialRecord
   deleteConnection: (projectName: string) => boolean
 }
 
@@ -95,6 +119,15 @@ export interface TrafficRoutesOptions {
   ) => Promise<CloudRunTrafficEventsPage>
   /** Override the access-token resolver (for tests). Defaults to service-account JWT exchange. */
   resolveCloudRunAccessToken?: (record: CloudRunCredentialRecord) => Promise<string>
+  /**
+   * Store for WordPress traffic-logger Application Password credentials. When
+   * absent, the WordPress connect / sync routes return a configuration error.
+   */
+  wordpressTrafficCredentialStore?: WordpressTrafficCredentialStore
+  /** Override the WordPress traffic pull function (for tests). Defaults to `listWordpressTrafficEvents`. */
+  pullWordpressTrafficEvents?: (
+    options: ListWordpressTrafficEventsOptions,
+  ) => Promise<WordpressTrafficEventsPage>
   /** Default lookback window in minutes when a sync is triggered without an explicit `since`. */
   defaultSyncWindowMinutes?: number
   /** Default page size for entries.list pulls. */
@@ -286,8 +319,10 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
   const currentLastSyncedMs = sourceRow.lastSyncedAt
     ? new Date(sourceRow.lastSyncedAt).getTime()
     : Number.NEGATIVE_INFINITY
+  // Advance to windowEnd (the pull's upper bound), not finishedAt — see the
+  // sync-route comment for why. Backfill never moves the cursor backwards.
   const nextLastSyncedAt = Math.max(currentLastSyncedMs, windowEnd.getTime()) === windowEnd.getTime()
-    ? finishedAt
+    ? windowEndIso
     : sourceRow.lastSyncedAt!
 
   try {
@@ -425,6 +460,7 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
 export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOptions) {
   const pullEvents = opts.pullCloudRunEvents ?? listCloudRunTrafficEvents
   const resolveAccessToken = opts.resolveCloudRunAccessToken ?? defaultResolveAccessToken
+  const pullWordpressEvents = opts.pullWordpressTrafficEvents ?? listWordpressTrafficEvents
   const syncWindowMinutes = opts.defaultSyncWindowMinutes ?? DEFAULT_SYNC_WINDOW_MINUTES
   const pageSize = opts.defaultPageSize ?? DEFAULT_PAGE_SIZE
   const maxPages = opts.defaultMaxPages ?? DEFAULT_MAX_PAGES
@@ -546,6 +582,132 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       projectId: project.id,
       actor: 'api',
       action: 'traffic.cloud-run.connected',
+      entityType: 'traffic_source',
+      entityId: sourceRow.id,
+    })
+
+    return rowToDto(sourceRow)
+  })
+
+  // POST /projects/:name/traffic/connect/wordpress
+  //
+  // Probes the WordPress traffic-logger plugin endpoint with the supplied
+  // Application Password (single-page, limit=1) before persisting — a probe
+  // failure surfaces as `providerError()` so the caller sees a meaningful
+  // diagnostic up front instead of discovering it at the first sync.
+  app.post<{
+    Params: { name: string }
+    Body: {
+      baseUrl?: string
+      username?: string
+      applicationPassword?: string
+      displayName?: string
+    }
+  }>('/projects/:name/traffic/connect/wordpress', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    if (!opts.wordpressTrafficCredentialStore) {
+      throw validationError('WordPress traffic credential storage is not configured for this deployment')
+    }
+    const credentialStore = opts.wordpressTrafficCredentialStore
+
+    const parsed = trafficConnectWordpressRequestSchema.safeParse(request.body ?? {})
+    if (!parsed.success) {
+      throw validationError(parsed.error.issues.map((i) => i.message).join('; '))
+    }
+    const { baseUrl, username, applicationPassword, displayName } = parsed.data
+
+    // Probe the plugin endpoint up-front so the caller learns about a bad
+    // URL / wrong credential before we touch any persistent state.
+    try {
+      await pullWordpressEvents({
+        baseUrl,
+        username,
+        applicationPassword,
+        pageSize: 1,
+        maxPages: 1,
+      })
+    } catch (e) {
+      if (e instanceof WordpressTrafficApiError) {
+        throw providerError(
+          `WordPress traffic probe failed (HTTP ${e.status}): ${e.message}${e.body ? ` — ${e.body}` : ''}`,
+        )
+      }
+      const msg = e instanceof Error ? e.message : String(e)
+      throw providerError(`WordPress traffic probe failed: ${msg}`)
+    }
+
+    const now = new Date().toISOString()
+    const existing = credentialStore.getConnection(project.name)
+    credentialStore.upsertConnection({
+      projectName: project.name,
+      baseUrl,
+      username,
+      applicationPassword,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    })
+
+    // Single active WordPress source per project; reconnect updates it.
+    const activeSource = app.db
+      .select()
+      .from(trafficSources)
+      .where(eq(trafficSources.projectId, project.id))
+      .all()
+      .find((row) => row.sourceType === TrafficSourceTypes.wordpress && row.status !== TrafficSourceStatuses.archived)
+
+    // Only non-secret config goes on the row — the Application Password lives
+    // in ~/.canonry/config.yaml via the credential store.
+    const config: Record<string, unknown> = { baseUrl, username }
+    const fallbackName = displayName ?? `WordPress · ${new URL(baseUrl).host}`
+
+    let sourceRow: typeof trafficSources.$inferSelect
+    if (activeSource) {
+      app.db
+        .update(trafficSources)
+        .set({
+          displayName: fallbackName,
+          status: TrafficSourceStatuses.connected,
+          lastError: null,
+          configJson: JSON.stringify(config),
+          updatedAt: now,
+        })
+        .where(eq(trafficSources.id, activeSource.id))
+        .run()
+      sourceRow = app.db
+        .select()
+        .from(trafficSources)
+        .where(eq(trafficSources.id, activeSource.id))
+        .get()!
+    } else {
+      const newId = crypto.randomUUID()
+      app.db
+        .insert(trafficSources)
+        .values({
+          id: newId,
+          projectId: project.id,
+          sourceType: TrafficSourceTypes.wordpress,
+          displayName: fallbackName,
+          status: TrafficSourceStatuses.connected,
+          lastSyncedAt: null,
+          lastCursor: null,
+          lastError: null,
+          archivedAt: null,
+          configJson: JSON.stringify(config),
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run()
+      sourceRow = app.db
+        .select()
+        .from(trafficSources)
+        .where(eq(trafficSources.id, newId))
+        .get()!
+    }
+
+    writeAuditLog(app.db, {
+      projectId: project.id,
+      actor: 'api',
+      action: 'traffic.wordpress.connected',
       entityType: 'traffic_source',
       entityId: sourceRow.id,
     })
@@ -686,43 +848,65 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       throw providerError(`Cloud Run pull failed: ${msg}`)
     }
 
-    // Cross-sync dedupe: drop events whose normalized eventId was already
-    // observed in the previous successful sync. The lastSyncedAt clamp
-    // narrows the fetch window, but events with timestamp == lastSyncedAt
-    // (boundary second) can still appear in two consecutive pulls.
-    const seenEventIds = new Set(parseJsonColumn<string[]>(sourceRow.lastEventIds, []))
-    const dedupedEvents = seenEventIds.size === 0
-      ? allEvents
-      : allEvents.filter(e => !seenEventIds.has(e.eventId))
-
-    // Build the next sync's seen-set: new event IDs (newest-first) PREPENDED
-    // to the previous seen IDs, deduplicated, capped at MAX_TRACKED_EVENT_IDS.
-    // We must retain the previous IDs because Cloud Logging can re-return the
-    // same boundary event on more than one subsequent sync; replacing would
-    // let it re-enter on the third sync.
-    const newSorted = dedupedEvents
-      .slice()
-      .sort((a, b) => (a.observedAt < b.observedAt ? 1 : a.observedAt > b.observedAt ? -1 : 0))
-      .map(e => e.eventId)
-    const previousIds = parseJsonColumn<string[]>(sourceRow.lastEventIds, [])
-    const merged: string[] = []
-    const mergedSet = new Set<string>()
-    for (const id of [...newSorted, ...previousIds]) {
-      if (mergedSet.has(id)) continue
-      mergedSet.add(id)
-      merged.push(id)
-      if (merged.length >= MAX_TRACKED_EVENT_IDS) break
-    }
-    const nextEventIds = merged
-
-    const report = buildTrafficProbeReport(dedupedEvents, { sampleLimit })
-    const finishedAt = new Date().toISOString()
-
     let crawlerBucketRows = 0
     let aiReferralBucketRows = 0
     let sampleRows = 0
+    // These get assigned inside the transaction (after we re-read the row to
+    // beat the read-then-write race on concurrent syncs) and read after the
+    // transaction commits for the response + telemetry payload.
+    let finishedAt = new Date().toISOString()
+    let pulledEventsCount = 0
+    let crawlerHitsCount = 0
+    let aiReferralHitsCount = 0
+    let unknownHitsCount = 0
 
     app.db.transaction((tx) => {
+      // Re-read sourceRow inside the txn so a concurrent sync that committed
+      // first is visible — otherwise both syncs would dedupe against the same
+      // stale lastEventIds and the second commit would clobber the first
+      // sync's ring buffer.
+      const latestRow = tx
+        .select()
+        .from(trafficSources)
+        .where(eq(trafficSources.id, sourceRow.id))
+        .get()!
+
+      // Cross-sync dedupe: drop events whose normalized eventId was already
+      // observed in the previous successful sync. The lastSyncedAt clamp
+      // narrows the fetch window, but events with timestamp == lastSyncedAt
+      // (boundary second) can still appear in two consecutive pulls.
+      const previousIds = parseJsonColumn<string[]>(latestRow.lastEventIds, [])
+      const seenEventIds = new Set(previousIds)
+      const dedupedEvents = seenEventIds.size === 0
+        ? allEvents
+        : allEvents.filter(e => !seenEventIds.has(e.eventId))
+
+      // Build the next sync's seen-set: new event IDs (newest-first) PREPENDED
+      // to the previous seen IDs, deduplicated, capped at MAX_TRACKED_EVENT_IDS.
+      // We must retain the previous IDs because Cloud Logging can re-return
+      // the same boundary event on more than one subsequent sync; replacing
+      // would let it re-enter on the third sync.
+      const newSorted = dedupedEvents
+        .slice()
+        .sort((a, b) => (a.observedAt < b.observedAt ? 1 : a.observedAt > b.observedAt ? -1 : 0))
+        .map(e => e.eventId)
+      const merged: string[] = []
+      const mergedSet = new Set<string>()
+      for (const id of [...newSorted, ...previousIds]) {
+        if (mergedSet.has(id)) continue
+        mergedSet.add(id)
+        merged.push(id)
+        if (merged.length >= MAX_TRACKED_EVENT_IDS) break
+      }
+      const nextEventIds = merged
+
+      const report = buildTrafficProbeReport(dedupedEvents, { sampleLimit })
+      finishedAt = new Date().toISOString()
+      pulledEventsCount = report.totals.normalizedEvents
+      crawlerHitsCount = report.totals.crawlerHits
+      aiReferralHitsCount = report.totals.aiReferralHits
+      unknownHitsCount = report.totals.unknownHits
+
       // Upsert crawler hourly buckets — composite PK lets us accumulate `hits`.
       for (const bucket of report.crawlerEventsHourly) {
         const status = bucket.status ?? 0
@@ -838,7 +1022,11 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         .update(trafficSources)
         .set({
           status: TrafficSourceStatuses.connected,
-          lastSyncedAt: finishedAt,
+          // Advance to windowEnd, not finishedAt — events arriving at the
+          // source between windowEnd and finishedAt aren't in this pull's
+          // range. If we stored finishedAt, the next sync's clamp would skip
+          // past them and they'd be lost.
+          lastSyncedAt: windowEnd.toISOString(),
           lastError: null,
           lastEventIds: JSON.stringify(nextEventIds),
           updatedAt: finishedAt,
@@ -867,9 +1055,9 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         status: 'completed',
         sourceType: sourceRow.sourceType,
         sourceId: sourceRow.id,
-        pulledEvents: report.totals.normalizedEvents,
-        crawlerHits: report.totals.crawlerHits,
-        aiReferralHits: report.totals.aiReferralHits,
+        pulledEvents: pulledEventsCount,
+        crawlerHits: crawlerHitsCount,
+        aiReferralHits: aiReferralHitsCount,
         durationMs: Date.now() - syncStartedAtMs,
       })
     } catch {
@@ -880,10 +1068,10 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       sourceId: sourceRow.id,
       runId,
       syncedAt: finishedAt,
-      pulledEvents: report.totals.normalizedEvents,
-      crawlerHits: report.totals.crawlerHits,
-      aiReferralHits: report.totals.aiReferralHits,
-      unknownHits: report.totals.unknownHits,
+      pulledEvents: pulledEventsCount,
+      crawlerHits: crawlerHitsCount,
+      aiReferralHits: aiReferralHitsCount,
+      unknownHits: unknownHitsCount,
       crawlerBucketRows,
       aiReferralBucketRows,
       sampleRows,

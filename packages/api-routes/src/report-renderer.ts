@@ -15,6 +15,7 @@ import {
   contentActionLabel,
   dedupeReportActions,
   dedupeReportOpportunities,
+  deltaPercent,
   deltaTone,
   formatDate,
   formatDateRange,
@@ -1867,13 +1868,26 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
 
   // ── Client view (lightweight; mirrors the SPA's ServerActivityClientView) ──
   if (isClient) {
+    const crawlerRequests = {
+      current: sa.verifiedCrawlerHits.current + sa.unverifiedCrawlerHits.current,
+      prior: sa.verifiedCrawlerHits.prior + sa.unverifiedCrawlerHits.prior,
+      deltaPct: deltaPercent(
+        sa.verifiedCrawlerHits.current + sa.unverifiedCrawlerHits.current,
+        sa.verifiedCrawlerHits.prior + sa.unverifiedCrawlerHits.prior,
+      ),
+    }
+    const crawlerTrustSummary = `${formatNumber(sa.verifiedCrawlerHits.current)} verified · ${formatNumber(sa.unverifiedCrawlerHits.current)} unverified`
+    const crawlerDelta = formatDelta(crawlerRequests, 'requests')
+    const crawlerSubtitle = crawlerDelta
+      ? `${escapeHtml(crawlerTrustSummary)} · ${crawlerDelta}`
+      : escapeHtml(crawlerTrustSummary)
     const clientOperators = sa.byOperator
-      .filter(o => o.verifiedHits > 0 || o.referralArrivals > 0)
+      .filter(o => o.verifiedHits > 0 || o.unverifiedHits > 0 || o.referralArrivals > 0)
       .slice(0, 5)
     const clientOperatorRows = clientOperators.map(o => `
     <tr>
       <td>${escapeHtml(o.operator)}</td>
-      <td class="numeric">${formatNumber(o.verifiedHits)}</td>
+      <td class="numeric">${formatNumber(o.verifiedHits + o.unverifiedHits)}</td>
       <td class="numeric">${formatNumber(o.referralArrivals)}</td>
     </tr>`).join('')
 
@@ -1881,22 +1895,22 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
       serverActivityHeading('client', true),
       `<div class="metric-grid">
         <div class="metric">
-          <div class="label">AI bots visited your site</div>
-          <div class="value">${formatNumber(sa.verifiedCrawlerHits.current)}</div>
-          <div class="subtitle">${formatDelta(sa.verifiedCrawlerHits, 'crawls')}</div>
+          <div class="label">AI bot requests observed</div>
+          <div class="value">${formatNumber(crawlerRequests.current)}</div>
+          <div class="subtitle">${crawlerSubtitle}</div>
         </div>
         <div class="metric">
-          <div class="label">People clicked through from AI</div>
+          <div class="label">AI referral sessions</div>
           <div class="value">${formatNumber(sa.referralArrivals.current)}</div>
-          <div class="subtitle">${formatDelta(sa.referralArrivals, 'arrivals')}</div>
+          <div class="subtitle">${formatDelta(sa.referralArrivals, 'sessions')}</div>
         </div>
       </div>
       ${clientOperatorRows ? `<div class="chart-card"><h3>By AI tool</h3>
         <table class="report-table">
-          <thead><tr><th>AI tool</th><th class="numeric">Bot visits (7d)</th><th class="numeric">Click-throughs</th></tr></thead>
+          <thead><tr><th>AI tool</th><th class="numeric">Bot requests (7d)</th><th class="numeric">Referral sessions</th></tr></thead>
           <tbody>${clientOperatorRows}</tbody>
         </table>
-        <p class="meta">Verified visits only. We confirm each bot via reverse-DNS so the numbers above can't be inflated by anyone faking a user agent.</p>
+        <p class="meta">Verified requests are reverse-DNS confirmed. Unverified requests are user-agent claims shown separately in agency diagnostics.</p>
       </div>` : ''}`,
     )
   }
@@ -1955,16 +1969,21 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
         <div class="subtitle">${formatDelta(sa.verifiedCrawlerHits, 'hits')}</div>
       </div>
       <div class="metric">
-        <div class="label">AI-referral arrivals (7d)</div>
+        <div class="label">Unverified crawler hits (7d)</div>
+        <div class="value">${formatNumber(sa.unverifiedCrawlerHits.current)}</div>
+        <div class="subtitle">${formatDelta(sa.unverifiedCrawlerHits, 'hits')}</div>
+      </div>
+      <div class="metric">
+        <div class="label">AI-referral sessions (7d)</div>
         <div class="value">${formatNumber(sa.referralArrivals.current)}</div>
-        <div class="subtitle">${formatDelta(sa.referralArrivals, 'arrivals')}</div>
+        <div class="subtitle">${formatDelta(sa.referralArrivals, 'sessions')}</div>
       </div>
     </div>
     ${trendChart}
     ${operatorRows ? `<div class="chart-card"><h3>Per AI operator</h3>
       <p class="meta">Verified means rDNS-confirmed. Unverified bots claim the user-agent but couldn't be verified — could be the real bot or an imitator.</p>
       <table class="report-table">
-        <thead><tr><th>Operator</th><th class="numeric">Verified hits</th><th class="numeric">Unverified</th><th class="numeric">Referral arrivals</th><th class="numeric">7d delta</th></tr></thead>
+        <thead><tr><th>Operator</th><th class="numeric">Verified hits</th><th class="numeric">Unverified</th><th class="numeric">Referral sessions</th><th class="numeric">7d delta</th></tr></thead>
         <tbody>${operatorRows}</tbody>
       </table>
     </div>` : ''}
@@ -1975,16 +1994,16 @@ function renderServerActivity(report: ProjectReportDto, audience: ReportAudience
         <tbody>${pathRows}</tbody>
       </table>
     </div>` : ''}
-    ${referralProductRows ? `<div class="chart-card"><h3>Click-throughs by AI product</h3>
+    ${referralProductRows ? `<div class="chart-card"><h3>AI-referral sessions by product</h3>
       <p class="meta">Where humans landed coming from each AI product (chatgpt.com, claude.ai, …).</p>
       <table class="report-table">
-        <thead><tr><th>Product</th><th class="numeric">Arrivals</th><th class="numeric">Distinct landing paths</th></tr></thead>
+        <thead><tr><th>Product</th><th class="numeric">Sessions</th><th class="numeric">Distinct landing paths</th></tr></thead>
         <tbody>${referralProductRows}</tbody>
       </table>
     </div>` : ''}
     ${referralLandingRows ? `<div class="chart-card"><h3>Top AI-referral landing paths</h3>
       <table class="report-table">
-        <thead><tr><th>Path</th><th class="numeric">Arrivals</th><th class="numeric">Distinct products</th></tr></thead>
+        <thead><tr><th>Path</th><th class="numeric">Sessions</th><th class="numeric">Distinct products</th></tr></thead>
         <tbody>${referralLandingRows}</tbody>
       </table>
     </div>` : ''}`,

@@ -133,13 +133,88 @@ describe('traffic analysis', () => {
     ], { generatedAt: '2026-05-01T14:00:00.000Z' })
 
     expect(report.totals.aiReferralHits).toBe(1)
+    expect(report.totals.aiReferralSessions).toBe(1)
     expect(report.aiReferralEventsHourly).toEqual([
       expect.objectContaining({
         product: 'ChatGPT',
         sourceDomain: 'chatgpt.com',
         evidenceType: 'referer-utm',
+        landingPathNormalized: '/blog/post',
         hits: 1,
       }),
+    ])
+  })
+
+  it('sessionizes AI referral sub-resource bursts into landing-page sessions', () => {
+    const report = buildTrafficProbeReport([
+      event({
+        eventId: 'page-1',
+        observedAt: '2026-05-01T13:05:00.000Z',
+        requestUrl: 'https://example.com/blog/post?utm_source=chatgpt.com',
+        path: '/blog/post',
+        queryString: 'utm_source=chatgpt.com',
+        userAgent: 'Mozilla/5.0',
+        remoteIp: '203.0.113.10',
+      }),
+      event({
+        eventId: 'asset-1',
+        observedAt: '2026-05-01T13:05:05.000Z',
+        requestUrl: 'https://example.com/_next/static/chunks/page.js',
+        path: '/_next/static/chunks/page.js',
+        queryString: null,
+        userAgent: 'Mozilla/5.0',
+        remoteIp: '203.0.113.10',
+        referer: 'https://example.com/blog/post?utm_source=chatgpt.com',
+      }),
+      event({
+        eventId: 'asset-2',
+        observedAt: '2026-05-01T13:05:10.000Z',
+        requestUrl: 'https://example.com/favicon.svg',
+        path: '/favicon.svg',
+        queryString: null,
+        userAgent: 'Mozilla/5.0',
+        remoteIp: '203.0.113.10',
+        referer: 'https://example.com/blog/post?utm_source=chatgpt.com',
+      }),
+      event({
+        eventId: 'asset-only-1',
+        observedAt: '2026-05-01T13:05:15.000Z',
+        requestUrl: 'https://example.com/_next/static/chunks/app.js',
+        path: '/_next/static/chunks/app.js',
+        queryString: null,
+        userAgent: 'Mozilla/5.0',
+        remoteIp: '198.51.100.22',
+        referer: 'https://example.com/open-source?utm_source=chatgpt.com',
+      }),
+      event({
+        eventId: 'asset-only-2',
+        observedAt: '2026-05-01T13:05:20.000Z',
+        requestUrl: 'https://example.com/_next/static/css/app.css',
+        path: '/_next/static/css/app.css',
+        queryString: null,
+        userAgent: 'Mozilla/5.0',
+        remoteIp: '198.51.100.22',
+        referer: 'https://example.com/open-source?utm_source=chatgpt.com',
+      }),
+    ], { generatedAt: '2026-05-01T14:00:00.000Z' })
+
+    expect(report.totals.aiReferralHits).toBe(5)
+    expect(report.totals.aiReferralSessions).toBe(2)
+    expect(report.aiReferralEventsHourly).toEqual([
+      expect.objectContaining({
+        evidenceType: 'utm',
+        landingPathNormalized: '/blog/post',
+        hits: 1,
+      }),
+      expect.objectContaining({
+        evidenceType: 'referer-utm',
+        landingPathNormalized: '/open-source',
+        hits: 1,
+      }),
+    ])
+    expect(report.topAiReferralLandingPaths).toEqual([
+      { landingPathNormalized: '/blog/post', hits: 1 },
+      { landingPathNormalized: '/open-source', hits: 1 },
     ])
   })
 
@@ -196,5 +271,39 @@ describe('traffic analysis', () => {
     ])
     expect(report.topBots[0]).toEqual({ botId: 'openai-gptbot', operator: 'OpenAI', hits: 2 })
     expect(report.topAiReferrers[0]).toEqual({ sourceDomain: 'claude.ai', product: 'Claude', hits: 1 })
+  })
+
+  it('matches short-form utm_source tokens against the rule domain first label', () => {
+    // Real sites frequently emit `utm_source=chatgpt` instead of the
+    // fully-qualified `chatgpt.com`. Both should classify identically.
+    expect(classifyAiReferral(event({
+      referer: null,
+      queryString: 'utm_source=chatgpt',
+    }))).toMatchObject({ product: 'ChatGPT', evidenceType: 'utm' })
+    expect(classifyAiReferral(event({
+      referer: null,
+      queryString: 'utm_source=perplexity',
+    }))).toMatchObject({ product: 'Perplexity', evidenceType: 'utm' })
+    expect(classifyAiReferral(event({
+      referer: null,
+      queryString: 'utm_source=claude',
+    }))).toMatchObject({ product: 'Claude', evidenceType: 'utm' })
+    // Non-rule short tokens stay unmatched.
+    expect(classifyAiReferral(event({
+      referer: null,
+      queryString: 'utm_source=newsletter',
+    }))).toBeNull()
+  })
+
+  it('keeps the newest sampleLimit events instead of the oldest', () => {
+    // Pulls run timestamp-asc — a FIFO cap would surface only the oldest
+    // events in the window, the least useful slice for classifier debugging.
+    const events = Array.from({ length: 5 }, (_, i) => event({
+      eventId: `e-${i}`,
+      observedAt: `2026-05-01T12:0${i}:00.000Z`,
+      path: `/p${i}`,
+    }))
+    const report = buildTrafficProbeReport(events, { sampleLimit: 2 })
+    expect(report.samples.map((s) => s.eventId)).toEqual(['e-3', 'e-4'])
   })
 })

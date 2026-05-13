@@ -12,6 +12,16 @@ function hostMatches(host: string, domain: string): boolean {
   return normalizedHost === normalizedDomain || normalizedHost.endsWith(`.${normalizedDomain}`)
 }
 
+// UTM source values are often a short label rather than a hostname (e.g.
+// `utm_source=chatgpt` for `chatgpt.com`). Match against the first DNS label
+// of the rule's domain so we don't miss the short form.
+function utmTokenMatchesDomain(utmSource: string, domain: string): boolean {
+  if (hostMatches(utmSource, domain)) return true
+  const normalizedUtm = normalizeHost(utmSource)
+  const firstLabel = normalizeHost(domain).split('.')[0]
+  return Boolean(firstLabel) && normalizedUtm === firstLabel
+}
+
 function hostFromUrl(value: string | null): string | null {
   if (!value) return null
   try {
@@ -73,7 +83,7 @@ export function classifyAiReferral(event: NormalizedTrafficRequest): ClassifiedA
 
   const utmSource = utmSourceFromQuery(event.queryString)
   if (utmSource) {
-    const rule = DEFAULT_AI_REFERRER_RULES.find((candidate) => hostMatches(utmSource, candidate.domain))
+    const rule = DEFAULT_AI_REFERRER_RULES.find((candidate) => utmTokenMatchesDomain(utmSource, candidate.domain))
     if (rule) {
       return {
         operator: rule.operator,
@@ -91,7 +101,7 @@ export function classifyAiReferral(event: NormalizedTrafficRequest): ClassifiedA
   // signal on cached sites.
   const refererUtmSource = utmSourceFromUrl(event.referer)
   if (refererUtmSource) {
-    const rule = DEFAULT_AI_REFERRER_RULES.find((candidate) => hostMatches(refererUtmSource, candidate.domain))
+    const rule = DEFAULT_AI_REFERRER_RULES.find((candidate) => utmTokenMatchesDomain(refererUtmSource, candidate.domain))
     if (rule) {
       return {
         operator: rule.operator,

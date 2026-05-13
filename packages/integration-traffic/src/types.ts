@@ -74,6 +74,7 @@ export interface TrafficProbeReport {
   totals: {
     normalizedEvents: number
     crawlerHits: number
+    aiReferralSessions: number
     aiReferralHits: number
     unknownHits: number
   }
@@ -89,4 +90,5 @@ export interface TrafficProbeReport {
 export interface BuildTrafficProbeReportOptions {
   generatedAt?: string
   sampleLimit?: number
+  aiReferralSessionWindowMs?: number
 }
