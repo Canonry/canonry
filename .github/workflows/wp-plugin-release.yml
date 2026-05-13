@@ -1,0 +1,57 @@
+name: Release WordPress Traffic Logger Plugin
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/wordpress-traffic-logger-plugin/plugin/**'
+      - 'packages/wordpress-traffic-logger-plugin/package.json'
+      - '.github/workflows/wp-plugin-release.yml'
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read plugin version
+        id: version
+        run: |
+          version=$(node -p "require('./packages/wordpress-traffic-logger-plugin/package.json').version")
+          tag="wp-traffic-logger-v${version}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if tag already exists
+        id: exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Release ${{ steps.version.outputs.tag }} already exists — bump packages/wordpress-traffic-logger-plugin/package.json to publish a new one."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build plugin zip
+        if: steps.exists.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          mkdir -p dist staging
+          cp -r packages/wordpress-traffic-logger-plugin/plugin staging/canonry-traffic-logger
+          (cd staging && zip -r "../dist/canonry-traffic-logger-${{ steps.version.outputs.version }}.zip" canonry-traffic-logger -x '*.DS_Store')
+          ls -la dist/
+
+      - name: Create release
+        if: steps.exists.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            "dist/canonry-traffic-logger-${{ steps.version.outputs.version }}.zip" \
+            --title "WordPress Traffic Logger v${{ steps.version.outputs.version }}" \
+            --notes "Install: download the zip, upload via wp-admin → Plugins → Add New → Upload Plugin, activate. Create an Application Password under Users → Profile and connect with \`canonry traffic connect wordpress --url https://your-site --username <user> --app-password '<app pw>'\`."
