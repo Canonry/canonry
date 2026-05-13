@@ -216,6 +216,7 @@ export async function historyRoutes(app: FastifyInstance) {
           answerMentioned: snap.answerMentioned,
           visibilityState: snap.answerMentioned ? 'visible' : 'not-visible',
           visibilityTransition,
+          location: snap.location,
         }
       })
     }

@@ -104,7 +104,7 @@ test('buildProjectCommandCenter preserves provider continuity while marking mixe
         ],
       },
     }],
-    latestRunDetail: {
+    latestRunDetails: [{
       id: 'run_2',
       projectId: 'proj_1',
       kind: 'answer-visibility',
@@ -129,7 +129,7 @@ test('buildProjectCommandCenter preserves provider continuity while marking mixe
         searchQueries: [],
         createdAt: '2026-03-15T00:00:00Z',
       }],
-    },
+    }],
     previousRunDetail: {
       id: 'run_1',
       projectId: 'proj_1',
@@ -235,7 +235,7 @@ test('buildProjectCommandCenter keeps historical-only provider badges on their o
       },
       modelRuns: {},
     }],
-    latestRunDetail: {
+    latestRunDetails: [{
       id: 'run_2',
       projectId: 'proj_history',
       kind: 'answer-visibility',
@@ -261,7 +261,7 @@ test('buildProjectCommandCenter keeps historical-only provider badges on their o
         location: null,
         createdAt: '2026-03-22T00:00:00Z',
       }],
-    },
+    }],
     previousRunDetail: null,
   }
 
@@ -297,7 +297,7 @@ test('buildProjectCommandCenter populates score gauges from the overview DTO whe
     queries: [],
     competitors: [],
     timeline: [],
-    latestRunDetail: null,
+    latestRunDetails: [],
     previousRunDetail: null,
     overview: {
       project: {
@@ -372,7 +372,7 @@ test('buildProjectCommandCenter surfaces synthesized attention items (e.g. stale
     queries: [],
     competitors: [],
     timeline: [],
-    latestRunDetail: null,
+    latestRunDetails: [],
     previousRunDetail: null,
     overview: {
       project: {
@@ -428,4 +428,126 @@ test('buildProjectCommandCenter surfaces synthesized attention items (e.g. stale
   const stale = vm.insights.find(i => i.id === 'stale_visibility')!
   expect(stale.tone).toBe('caution')
   expect(stale.actionLabel).toBe('Stale')
+})
+
+test('buildProjectCommandCenter emits one evidence row per location when a multi-location sweep fans out', () => {
+  // Regression test for issue #477. Two same-timestamp runs (one per location)
+  // must both surface evidence rows; the latest-run aggregate previously
+  // collapsed to one non-deterministic location and dropped the other.
+  const sharedCreatedAt = '2026-05-13T17:23:20.060Z'
+  const data: ProjectData = {
+    project: {
+      id: 'proj_multi',
+      name: 'azcoatings',
+      displayName: 'AZ Coatings',
+      canonicalDomain: 'azcoatings.example',
+      ownedDomains: [],
+      country: 'US',
+      language: 'en',
+      tags: [],
+      labels: {},
+      providers: ['gemini'],
+      configSource: 'api',
+      configRevision: 1,
+      createdAt: '2026-05-10T00:00:00Z',
+      updatedAt: '2026-05-13T00:00:00Z',
+      locations: [
+        { label: 'florida', kind: 'state', value: 'Florida' },
+        { label: 'michigan', kind: 'state', value: 'Michigan' },
+      ],
+    },
+    runs: [
+      { id: 'run_fl', projectId: 'proj_multi', kind: 'answer-visibility', status: 'completed', trigger: 'manual', startedAt: sharedCreatedAt, finishedAt: sharedCreatedAt, error: null, createdAt: sharedCreatedAt },
+      { id: 'run_mi', projectId: 'proj_multi', kind: 'answer-visibility', status: 'completed', trigger: 'manual', startedAt: sharedCreatedAt, finishedAt: sharedCreatedAt, error: null, createdAt: sharedCreatedAt },
+    ],
+    queries: [{ id: 'kw_1', query: 'polyurea roof coating', createdAt: '2026-05-10T00:00:00Z' }],
+    competitors: [],
+    timeline: [{
+      query: 'polyurea roof coating',
+      runs: [
+        { runId: 'run_fl', createdAt: sharedCreatedAt, citationState: 'cited', transition: 'new' },
+        { runId: 'run_mi', createdAt: sharedCreatedAt, citationState: 'not-cited', transition: 'new' },
+      ],
+      providerRuns: {
+        gemini: [
+          { runId: 'run_fl', createdAt: sharedCreatedAt, citationState: 'cited', transition: 'new' },
+          { runId: 'run_mi', createdAt: sharedCreatedAt, citationState: 'not-cited', transition: 'new' },
+        ],
+      },
+      modelRuns: {},
+    }],
+    latestRunDetails: [
+      {
+        id: 'run_fl',
+        projectId: 'proj_multi',
+        kind: 'answer-visibility',
+        status: 'completed',
+        trigger: 'manual',
+        startedAt: sharedCreatedAt,
+        finishedAt: sharedCreatedAt,
+        error: null,
+        createdAt: sharedCreatedAt,
+        snapshots: [{
+          id: 'snap_fl',
+          runId: 'run_fl',
+          queryId: 'kw_1',
+          query: 'polyurea roof coating',
+          provider: 'gemini',
+          model: 'gemini-3-flash',
+          citationState: 'cited',
+          answerMentioned: true,
+          answerText: 'AZ Coatings is one Florida vendor for polyurea roof coating.',
+          citedDomains: ['azcoatings.example'],
+          competitorOverlap: [],
+          groundingSources: [],
+          searchQueries: [],
+          location: 'florida',
+          createdAt: sharedCreatedAt,
+        }],
+      },
+      {
+        id: 'run_mi',
+        projectId: 'proj_multi',
+        kind: 'answer-visibility',
+        status: 'completed',
+        trigger: 'manual',
+        startedAt: sharedCreatedAt,
+        finishedAt: sharedCreatedAt,
+        error: null,
+        createdAt: sharedCreatedAt,
+        snapshots: [{
+          id: 'snap_mi',
+          runId: 'run_mi',
+          queryId: 'kw_1',
+          query: 'polyurea roof coating',
+          provider: 'gemini',
+          model: 'gemini-3-flash',
+          citationState: 'not-cited',
+          answerMentioned: false,
+          answerText: 'Several Michigan suppliers offer roof coatings.',
+          citedDomains: [],
+          competitorOverlap: [],
+          groundingSources: [],
+          searchQueries: [],
+          location: 'michigan',
+          createdAt: sharedCreatedAt,
+        }],
+      },
+    ],
+    previousRunDetail: null,
+  }
+
+  const vm = buildProjectCommandCenter(data)
+  const evidence = vm.visibilityEvidence
+  const florida = evidence.find(e => e.location === 'florida')
+  const michigan = evidence.find(e => e.location === 'michigan')
+
+  expect(florida).toBeDefined()
+  expect(michigan).toBeDefined()
+  expect(florida?.citationState).toBe('cited')
+  expect(michigan?.citationState).toBe('not-cited')
+  expect(florida?.citedDomains).toEqual(['azcoatings.example'])
+  expect(michigan?.citedDomains).toEqual([])
+  expect(florida?.answerSnippet).toContain('Florida')
+  expect(michigan?.answerSnippet).toContain('Michigan')
 })

@@ -215,7 +215,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       .select()
       .from(runs)
       .where(eq(runs.projectId, project.id))
-      .orderBy(desc(runs.createdAt))
+      .orderBy(desc(runs.createdAt), desc(runs.id))
       .limit(1)
       .get()
 

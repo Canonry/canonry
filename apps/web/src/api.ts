@@ -224,35 +224,22 @@ export interface ApiCompetitor {
   createdAt: string
 }
 
+export interface ApiTimelineRunEntry {
+  runId: string
+  createdAt: string
+  citationState: string
+  transition: string
+  answerMentioned?: boolean
+  visibilityState?: string
+  visibilityTransition?: string
+  location?: string | null
+}
+
 export interface ApiTimelineEntry {
   query: string
-  runs: {
-    runId: string
-    createdAt: string
-    citationState: string
-    transition: string
-    answerMentioned?: boolean
-    visibilityState?: string
-    visibilityTransition?: string
-  }[]
-  providerRuns?: Record<string, {
-    runId: string
-    createdAt: string
-    citationState: string
-    transition: string
-    answerMentioned?: boolean
-    visibilityState?: string
-    visibilityTransition?: string
-  }[]>
-  modelRuns?: Record<string, {
-    runId: string
-    createdAt: string
-    citationState: string
-    transition: string
-    answerMentioned?: boolean
-    visibilityState?: string
-    visibilityTransition?: string
-  }[]>
+  runs: ApiTimelineRunEntry[]
+  providerRuns?: Record<string, ApiTimelineRunEntry[]>
+  modelRuns?: Record<string, ApiTimelineRunEntry[]>
 }
 
 export interface ApiAuditEntry {

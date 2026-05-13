@@ -99,6 +99,69 @@ describe('GET /api/v1/projects/:name/runs/latest', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
+  it('breaks ties deterministically when runs share the same createdAt (multi-location fan-out)', async () => {
+    const { app, db, tmpDir } = buildApp()
+    await app.ready()
+
+    const projectId = crypto.randomUUID()
+    // IDs deliberately set so that lexicographically-greater id wins the tiebreak,
+    // not whatever the DB happens to return first.
+    const runAId = '00000000-0000-0000-0000-000000000001'
+    const runBId = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
+    const sharedCreatedAt = '2026-05-13T17:23:20.060Z'
+
+    db.insert(projects).values({
+      id: projectId,
+      name: 'azcoatings',
+      displayName: 'AZ Coatings',
+      canonicalDomain: 'azcoatings.example',
+      country: 'US',
+      language: 'en',
+      ownedDomains: '[]',
+      tags: '[]',
+      providers: '[]',
+      createdAt: '2026-05-10T00:00:00.000Z',
+      updatedAt: '2026-05-10T00:00:00.000Z',
+    }).run()
+    db.insert(runs).values([
+      {
+        id: runAId,
+        projectId,
+        kind: 'answer-visibility',
+        status: 'completed',
+        trigger: 'manual',
+        location: 'florida',
+        createdAt: sharedCreatedAt,
+        finishedAt: sharedCreatedAt,
+      },
+      {
+        id: runBId,
+        projectId,
+        kind: 'answer-visibility',
+        status: 'completed',
+        trigger: 'manual',
+        location: 'michigan',
+        createdAt: sharedCreatedAt,
+        finishedAt: sharedCreatedAt,
+      },
+    ]).run()
+
+    // The same call should yield the same run id every time — no
+    // insertion-order or storage-order influence.
+    const first = await app.inject({ method: 'GET', url: '/api/v1/projects/azcoatings/runs/latest' })
+    const second = await app.inject({ method: 'GET', url: '/api/v1/projects/azcoatings/runs/latest' })
+    expect(first.statusCode).toBe(200)
+    expect(second.statusCode).toBe(200)
+    const firstBody = JSON.parse(first.payload) as { run: { id: string } }
+    const secondBody = JSON.parse(second.payload) as { run: { id: string } }
+    expect(firstBody.run.id).toBe(secondBody.run.id)
+    // With desc(id) as tiebreak, the lexicographically-greater id wins.
+    expect(firstBody.run.id).toBe(runBId)
+
+    await app.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
   it('returns null when a project has no runs', async () => {
     const { app, db, tmpDir } = buildApp()
     await app.ready()

@@ -145,26 +145,35 @@ function summaryFromRun(run: ApiRun): string {
 function buildEvidenceFromTimeline(
   projectName: string,
   timeline: ApiTimelineEntry[],
-  latestRunDetail: ApiRunDetail | null,
+  latestRunDetails: ApiRunDetail[],
   savedQueries: ApiQuery[],
 ): CitationInsightVm[] {
   const results: CitationInsightVm[] = []
   let idx = 0
   const seenQueries = new Set<string>()
 
-  if (latestRunDetail) {
-    // Group snapshots by query+provider for multi-provider support
+  if (latestRunDetails.length > 0) {
+    // Multi-location runs fan out as one ApiRunDetail per location, all with the
+    // same `createdAt`. Bucket snapshots by (query × provider × location) so each
+    // location's evidence row survives the aggregate instead of being clobbered.
+    const allSnapshots = latestRunDetails.flatMap(r => r.snapshots)
     const snapshotsByKey = new Map<string, ApiRunDetail['snapshots'][number]>()
-    for (const snap of latestRunDetail.snapshots) {
+    for (const snap of allSnapshots) {
       if (snap.query) {
-        const key = `${snap.query}::${snap.provider}`
+        const key = `${snap.query}::${snap.provider}::${snap.location ?? ''}`
         snapshotsByKey.set(key, snap)
       }
     }
 
+    // Locations seen across the latest-run group (one entry per fan-out location).
+    // When a project runs without any location, the set contains a single null entry
+    // so the (query × provider) loop still emits a row.
+    const locationsInLatestRun = new Set<string | null>(allSnapshots.map(s => s.location ?? null))
+    if (locationsInLatestRun.size === 0) locationsInLatestRun.add(null)
+
     // Collect unique providers from the full timeline history (not just the latest run)
     // so that providers that errored or were absent in the latest run still show badges.
-    const providersFromLatestRun = new Set(latestRunDetail.snapshots.map(s => s.provider))
+    const providersFromLatestRun = new Set(allSnapshots.map(s => s.provider))
     const providersFromHistory = new Set(
       timeline.flatMap(entry =>
         Object.keys(entry.providerRuns ?? {})
@@ -179,97 +188,103 @@ function buildEvidenceFromTimeline(
       const latestRun = entry.runs.at(-1)
       const transition = latestRun?.transition ?? 'not-cited'
       for (const provider of providers) {
-        const snap = snapshotsByKey.get(`${entry.query}::${provider}`)
-        // Only skip if provider has zero history for this query AND no snapshot in latest run
-        const hasHistory = (entry.providerRuns?.[provider]?.length ?? 0) > 0
-        if (!snap && !hasHistory) continue
+        // Emit one evidence row per location observed in the latest-run group.
+        // `null` represents the "no location configured" case (single-location or
+        // project-wide runs); when set, each row carries that location's snapshot.
+        for (const location of locationsInLatestRun) {
+          const locKey = location ?? ''
+          const snap = snapshotsByKey.get(`${entry.query}::${provider}::${locKey}`)
+          // Only skip if provider has zero history for this query AND no snapshot in this location
+          const hasHistory = (entry.providerRuns?.[provider]?.length ?? 0) > 0
+          if (!snap && !hasHistory) continue
 
-        // Prefer provider-level history for continuity across model changes; fall back to model-scoped then query-level
-        const model = snap?.model ?? null
-        const modelKey = model ? `${provider}:${model}` : null
-        const modelHistory = modelKey ? entry.modelRuns?.[modelKey] : undefined
-        const providerHistory = entry.providerRuns?.[provider]
-        const effectiveHistory = (providerHistory?.length ? providerHistory : null)
-          ?? (modelHistory?.length ? modelHistory : null)
-        const baseHistoryScope: EvidenceHistoryScope = providerHistory?.length
-          ? 'provider'
-          : modelHistory?.length
+          // Prefer provider-level history for continuity across model changes; fall back to model-scoped then query-level
+          const model = snap?.model ?? null
+          const modelKey = model ? `${provider}:${model}` : null
+          const modelHistory = modelKey ? entry.modelRuns?.[modelKey] : undefined
+          const providerHistory = entry.providerRuns?.[provider]
+          const effectiveHistory = (providerHistory?.length ? providerHistory : null)
+            ?? (modelHistory?.length ? modelHistory : null)
+          const baseHistoryScope: EvidenceHistoryScope = providerHistory?.length
+            ? 'provider'
+            : modelHistory?.length
+              ? 'model'
+              : 'query'
+
+          const effectiveTransition = effectiveHistory
+            ? effectiveHistory.at(-1)!.transition
+            : transition
+          const effectiveVisibilityTransition = effectiveHistory
+            ? (effectiveHistory.at(-1)!.visibilityTransition ?? (effectiveHistory.at(-1)!.visibilityState === 'visible' ? 'visible' : 'not-visible'))
+            : (latestRun?.visibilityTransition ?? (latestRun?.visibilityState === 'visible' ? 'visible' : 'not-visible'))
+
+          // When a provider is missing from the latest run, keep showing its last
+          // observed provider-level state instead of leaking the query-level
+          // transition from another provider into this synthetic badge row.
+          const latestProviderState = effectiveHistory?.at(-1)?.citationState
+          const latestProviderVisibilityState = effectiveHistory?.at(-1)?.visibilityState
+          const snapState: CitationState = snap
+            ? effectiveTransition === 'lost' ? 'lost'
+              : effectiveTransition === 'emerging' ? 'emerging'
+              : snap.citationState === CitationStates.cited ? 'cited' : 'not-cited'
+            : latestProviderState === CitationStates.cited ? 'cited' : 'not-cited'
+          const snapVisibilityState = (snap?.visibilityState as CitationInsightVm['visibilityState'] | undefined)
+            ?? (latestProviderVisibilityState === 'visible' ? 'visible' : latestProviderVisibilityState === 'pending' ? 'pending' : 'not-visible')
+
+          const streak = effectiveHistory
+            ? computeStreak(effectiveHistory)
+            : computeStreak(entry.runs)
+          const visibilityStreak = effectiveHistory
+            ? computeVisibilityStreak(effectiveHistory)
+            : computeVisibilityStreak(entry.runs)
+
+          const runModels = buildRunModelMap(entry, provider)
+          const runHistory = (effectiveHistory ?? entry.runs)
+            .map(r => ({
+              runId: r.runId,
+              citationState: r.citationState,
+              createdAt: r.createdAt,
+              model: runModels.get(r.runId) ?? null,
+              answerMentioned: r.answerMentioned,
+              visibilityState: r.visibilityState as RunHistoryPoint['visibilityState'] | undefined,
+              visibilityTransition: r.visibilityTransition,
+            }))
+          const modelsSeen = collectModels(runHistory)
+          const historyScope: EvidenceHistoryScope = baseHistoryScope === 'provider' && modelsSeen.length <= 1
             ? 'model'
-            : 'query'
+            : baseHistoryScope
+          const modelTransitions = computeModelTransitions(runHistory)
 
-        const effectiveTransition = effectiveHistory
-          ? effectiveHistory.at(-1)!.transition
-          : transition
-        const effectiveVisibilityTransition = effectiveHistory
-          ? (effectiveHistory.at(-1)!.visibilityTransition ?? (effectiveHistory.at(-1)!.visibilityState === 'visible' ? 'visible' : 'not-visible'))
-          : (latestRun?.visibilityTransition ?? (latestRun?.visibilityState === 'visible' ? 'visible' : 'not-visible'))
-
-        // When a provider is missing from the latest run, keep showing its last
-        // observed provider-level state instead of leaking the query-level
-        // transition from another provider into this synthetic badge row.
-        const latestProviderState = effectiveHistory?.at(-1)?.citationState
-        const latestProviderVisibilityState = effectiveHistory?.at(-1)?.visibilityState
-        const snapState: CitationState = snap
-          ? effectiveTransition === 'lost' ? 'lost'
-            : effectiveTransition === 'emerging' ? 'emerging'
-            : snap.citationState === CitationStates.cited ? 'cited' : 'not-cited'
-          : latestProviderState === CitationStates.cited ? 'cited' : 'not-cited'
-        const snapVisibilityState = (snap?.visibilityState as CitationInsightVm['visibilityState'] | undefined)
-          ?? (latestProviderVisibilityState === 'visible' ? 'visible' : latestProviderVisibilityState === 'pending' ? 'pending' : 'not-visible')
-
-        const streak = effectiveHistory
-          ? computeStreak(effectiveHistory)
-          : computeStreak(entry.runs)
-        const visibilityStreak = effectiveHistory
-          ? computeVisibilityStreak(effectiveHistory)
-          : computeVisibilityStreak(entry.runs)
-
-        const runModels = buildRunModelMap(entry, provider)
-        const runHistory = (effectiveHistory ?? entry.runs)
-          .map(r => ({
-            runId: r.runId,
-            citationState: r.citationState,
-            createdAt: r.createdAt,
-            model: runModels.get(r.runId) ?? null,
-            answerMentioned: r.answerMentioned,
-            visibilityState: r.visibilityState as RunHistoryPoint['visibilityState'] | undefined,
-            visibilityTransition: r.visibilityTransition,
-          }))
-        const modelsSeen = collectModels(runHistory)
-        const historyScope: EvidenceHistoryScope = baseHistoryScope === 'provider' && modelsSeen.length <= 1
-          ? 'model'
-          : baseHistoryScope
-        const modelTransitions = computeModelTransitions(runHistory)
-
-        results.push({
-          id: `evidence_${projectName}_${idx++}`,
-          query: entry.query,
-          provider: snap?.provider ?? provider,
-          model: snap?.model ?? null,
-          location: snap?.location ?? null,
-          citationState: snapState,
-          answerMentioned: snap?.answerMentioned,
-          visibilityState: snapVisibilityState,
-          visibilityChangeLabel: changeLabel(effectiveVisibilityTransition, visibilityStreak, {
-            positive: 'visible',
-            negative: 'not visible',
-            first: 'first visibility',
-          }),
-          changeLabel: changeLabel(effectiveTransition, streak),
-          answerSnippet: snap?.answerText ?? '',
-          citedDomains: snap?.citedDomains ?? [],
-          evidenceUrls: [],
-          competitorDomains: snap?.competitorOverlap ?? [],
-          recommendedCompetitors: snap?.recommendedCompetitors ?? [],
-          matchedTerms: snap?.matchedTerms ?? [],
-          relatedTechnicalSignals: [],
-          groundingSources: snap?.groundingSources ?? [],
-          summary: visibilityEvidenceSummary(snapVisibilityState, effectiveVisibilityTransition, entry.query),
-          runHistory,
-          historyScope,
-          modelsSeen,
-          modelTransitions,
-        })
+          results.push({
+            id: `evidence_${projectName}_${idx++}`,
+            query: entry.query,
+            provider: snap?.provider ?? provider,
+            model: snap?.model ?? null,
+            location: snap?.location ?? location,
+            citationState: snapState,
+            answerMentioned: snap?.answerMentioned,
+            visibilityState: snapVisibilityState,
+            visibilityChangeLabel: changeLabel(effectiveVisibilityTransition, visibilityStreak, {
+              positive: 'visible',
+              negative: 'not visible',
+              first: 'first visibility',
+            }),
+            changeLabel: changeLabel(effectiveTransition, streak),
+            answerSnippet: snap?.answerText ?? '',
+            citedDomains: snap?.citedDomains ?? [],
+            evidenceUrls: [],
+            competitorDomains: snap?.competitorOverlap ?? [],
+            recommendedCompetitors: snap?.recommendedCompetitors ?? [],
+            matchedTerms: snap?.matchedTerms ?? [],
+            relatedTechnicalSignals: [],
+            groundingSources: snap?.groundingSources ?? [],
+            summary: visibilityEvidenceSummary(snapVisibilityState, effectiveVisibilityTransition, entry.query),
+            runHistory,
+            historyScope,
+            modelsSeen,
+            modelTransitions,
+          })
+        }
       }
     }
   }
@@ -431,7 +446,10 @@ export interface ProjectData {
   queries: ApiQuery[]
   competitors: ApiCompetitor[]
   timeline: ApiTimelineEntry[]
-  latestRunDetail: ApiRunDetail | null
+  /** All runs in the latest fan-out group (same `createdAt`). Each entry is one
+   * location for a multi-location sweep, or a single-element array for a
+   * single-location / project-wide run. Empty when the project has never run. */
+  latestRunDetails: ApiRunDetail[]
   previousRunDetail: ApiRunDetail | null
   gscCoverage?: ApiGscCoverageSummary | null
   bingCoverage?: ApiBingCoverageSummary | null
@@ -447,7 +465,7 @@ export function buildProjectCommandCenter(data: ProjectData): ProjectCommandCent
   // Evidence cards stay client-side for now: per Q8 of the deepening plan, the
   // /timeline endpoint is the source for per-query history. Eventually a
   // dedicated /evidence endpoint replaces this client-side derivation.
-  const evidence = buildEvidenceFromTimeline(dto.name, data.timeline, data.latestRunDetail, data.queries)
+  const evidence = buildEvidenceFromTimeline(dto.name, data.timeline, data.latestRunDetails, data.queries)
 
   const sortedRuns = [...data.runs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   const runItems = sortedRuns.map(r => toRunListItem(r, data.project.displayName || data.project.name))

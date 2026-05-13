@@ -59,19 +59,36 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
         .filter(r => (r.status === 'completed' || r.status === 'partial') && r.kind === 'answer-visibility')
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 
+      // Multi-location sweeps fan out into one run per location with an identical
+      // `createdAt`. Group the top run with any siblings that share its timestamp
+      // so all locations land in the latest-run aggregate. Without this, the
+      // dashboard collapses to a single non-deterministic location and the other
+      // locations' snapshots silently disappear.
+      const latestCreatedAt = completedRuns[0]?.createdAt ?? null
+      const latestRunGroup = latestCreatedAt
+        ? completedRuns.filter(r => r.createdAt === latestCreatedAt)
+        : []
+      const latestRunIds = latestRunGroup.map(r => r.id)
+      const previousCreatedAt = completedRuns.find(r => r.createdAt !== latestCreatedAt)?.createdAt ?? null
+      const previousRun = previousCreatedAt
+        ? completedRuns.find(r => r.createdAt === previousCreatedAt) ?? null
+        : null
+
       return {
-        queryKey: queryKeys.projects.detail(project.id, completedRuns[0]?.id),
+        queryKey: queryKeys.projects.detail(project.id, latestRunIds.join(',') || undefined),
         queryFn: async (): Promise<ProjectData> => {
-          const latestRunId = completedRuns[0]?.id
-          const [qs, comps, timeline, latestRunDetail, previousRunDetail, gscCoverage, bingCoverage, dbInsights, overview] = await Promise.all([
+          const [qs, comps, timeline, latestRunDetails, previousRunDetail, gscCoverage, bingCoverage, dbInsights, overview] = await Promise.all([
             fetchQueries(project.name).catch(() => []),
             fetchCompetitors(project.name).catch(() => []),
             fetchTimeline(project.name).catch(() => []),
-            latestRunId ? fetchRunDetail(latestRunId).catch(() => null) : Promise.resolve(null),
-            completedRuns[1] ? fetchRunDetail(completedRuns[1].id).catch(() => null) : Promise.resolve(null),
+            latestRunIds.length
+              ? Promise.all(latestRunIds.map(id => fetchRunDetail(id).catch(() => null)))
+                  .then(results => results.filter((r): r is NonNullable<typeof r> => r != null))
+              : Promise.resolve([]),
+            previousRun ? fetchRunDetail(previousRun.id).catch(() => null) : Promise.resolve(null),
             fetchGscCoverage(project.name).catch(() => null),
             fetchBingCoverage(project.name).catch(() => null),
-            latestRunId ? fetchInsights(project.name, latestRunId).catch(() => null) : Promise.resolve(null),
+            latestRunIds[0] ? fetchInsights(project.name, latestRunIds[0]).catch(() => null) : Promise.resolve(null),
             fetchProjectOverview(project.name).catch(() => null),
           ])
 
@@ -81,7 +98,7 @@ export function useDashboard(initialDashboard?: DashboardVm | null) {
             queries: qs,
             competitors: comps,
             timeline,
-            latestRunDetail,
+            latestRunDetails,
             previousRunDetail,
             gscCoverage,
             bingCoverage,
