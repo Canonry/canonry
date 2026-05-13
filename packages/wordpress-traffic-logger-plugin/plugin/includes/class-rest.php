@@ -31,6 +31,12 @@ final class Rest {
             'args' => [
                 'limit'  => ['type' => 'integer', 'required' => false],
                 'cursor' => ['type' => 'string',  'required' => false],
+                // Window filter: ISO 8601 timestamps. `since` is INCLUSIVE,
+                // `until` is EXCLUSIVE, so adjacent backfill windows tile
+                // without overlap or gap. Both are optional and can combine
+                // with `cursor` for pagination inside the window.
+                'since'  => ['type' => 'string',  'required' => false],
+                'until'  => ['type' => 'string',  'required' => false],
             ],
         ]);
     }
@@ -63,33 +69,69 @@ final class Rest {
             }
         }
 
+        $sinceRaw = $request->get_param('since');
+        $untilRaw = $request->get_param('until');
+        $since = self::parseWindowBound($sinceRaw);
+        if ($since === false) {
+            return new \WP_Error(
+                'invalid_since',
+                '`since` must be an ISO 8601 timestamp.',
+                ['status' => 400]
+            );
+        }
+        $until = self::parseWindowBound($untilRaw);
+        if ($until === false) {
+            return new \WP_Error(
+                'invalid_until',
+                '`until` must be an ISO 8601 timestamp.',
+                ['status' => 400]
+            );
+        }
+
         global $wpdb;
         $table = $wpdb->prefix . Recorder::TABLE;
 
         // Fetch limit+1 so we can tell `has_more` without a second COUNT round-trip.
         $fetch = $limit + 1;
 
-        if ($cursor === null) {
-            $sql = $wpdb->prepare(
-                "SELECT id, observed_at, method, host, path, query_string, status, user_agent, remote_ip_hash, referer "
-                . "FROM {$table} "
-                . "ORDER BY observed_at ASC, id ASC "
-                . "LIMIT %d",
-                $fetch
-            );
-        } else {
-            $sql = $wpdb->prepare(
-                "SELECT id, observed_at, method, host, path, query_string, status, user_agent, remote_ip_hash, referer "
-                . "FROM {$table} "
-                . "WHERE (observed_at > %s) OR (observed_at = %s AND id > %d) "
-                . "ORDER BY observed_at ASC, id ASC "
-                . "LIMIT %d",
-                $cursor['ts'],
-                $cursor['ts'],
-                (int) $cursor['id'],
-                $fetch
-            );
+        // Compose the WHERE clause. Cursor + window filters are independent
+        // and both narrow the result set; building the SQL by appending AND
+        // clauses keeps the cursor (observed_at, id) keyset semantics intact
+        // because the window predicates apply to the same `observed_at`
+        // column already used by the cursor walk.
+        $whereParts = [];
+        $whereArgs  = [];
+        if ($cursor !== null) {
+            $whereParts[] = '((observed_at > %s) OR (observed_at = %s AND id > %d))';
+            $whereArgs[] = $cursor['ts'];
+            $whereArgs[] = $cursor['ts'];
+            $whereArgs[] = (int) $cursor['id'];
         }
+        if ($since !== null) {
+            // Lower bound INCLUSIVE so a window that starts at second N
+            // captures the row written at second N (typical when the caller
+            // hands back the previous window's `until` as the next window's
+            // `since`).
+            $whereParts[] = 'observed_at >= %s';
+            $whereArgs[] = $since;
+        }
+        if ($until !== null) {
+            // Upper bound EXCLUSIVE so [since, until) tiles cleanly with the
+            // next [until, ...) window without double-counting the boundary
+            // row.
+            $whereParts[] = 'observed_at < %s';
+            $whereArgs[] = $until;
+        }
+        $whereClause = $whereParts === [] ? '' : ('WHERE ' . implode(' AND ', $whereParts) . ' ');
+
+        $sql = $wpdb->prepare(
+            "SELECT id, observed_at, method, host, path, query_string, status, user_agent, remote_ip_hash, referer "
+            . "FROM {$table} "
+            . $whereClause
+            . "ORDER BY observed_at ASC, id ASC "
+            . "LIMIT %d",
+            ...array_merge($whereArgs, [$fetch])
+        );
 
         $rows = $wpdb->get_results($sql, ARRAY_A) ?: [];
 
@@ -112,7 +154,7 @@ final class Rest {
             'has_more'    => $hasMore,
             'site'        => [
                 'url'             => function_exists('home_url') ? home_url() : null,
-                'plugin_version'  => '0.1.0',
+                'plugin_version'  => '0.2.0',
             ],
         ], 200);
     }
@@ -139,6 +181,32 @@ final class Rest {
         if ($n < 1) return self::DEFAULT_LIMIT;
         if ($n > self::MAX_LIMIT) return self::MAX_LIMIT;
         return $n;
+    }
+
+    /**
+     * Parse an optional ISO 8601 timestamp window bound. Returns:
+     *   - null  if the param is absent/empty (no bound)
+     *   - false on invalid input (caller should emit 400)
+     *   - string on success — the original ISO string, used in SQL string
+     *     comparisons against `observed_at` (also stored as ISO 8601), so
+     *     we don't need to re-format.
+     *
+     * @return null|false|string
+     */
+    private static function parseWindowBound($raw) {
+        if ($raw === null || $raw === '') return null;
+        if (!is_string($raw)) return false;
+        // `DateTime` is the cheapest cross-version (PHP 7.4+) way to validate
+        // an ISO 8601 string without pulling in a parser dep. We pass on the
+        // verbatim string to the SQL layer to preserve precision (sub-second
+        // fragments are part of the lexicographic comparison key).
+        try {
+            $dt = new \DateTime($raw);
+            if ($dt === false) return false;
+        } catch (\Throwable $e) {
+            return false;
+        }
+        return $raw;
     }
 
     private static function encodeCursor(string $observedAt, int $id): string {

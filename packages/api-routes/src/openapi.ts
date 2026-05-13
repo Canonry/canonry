@@ -2844,9 +2844,9 @@ const routeCatalog: OpenApiOperation[] = [
   {
     method: 'post',
     path: '/api/v1/projects/{name}/traffic/sources/{id}/backfill',
-    summary: 'Reclassify historical Cloud Run logs for a traffic source',
+    summary: 'Reclassify historical traffic-source logs',
     description:
-      'Async one-shot backfill: pulls the last `days` of request logs (clamped server-side to the upstream retention ceiling — 30d for Cloud Logging `_Default`), classifies them with the current rules, and replaces the hourly rollup buckets + sample slice in the window inside one transaction. Returns immediately with `{ runId, status: "running" }`; poll `GET /runs/{id}` for completion. lastSyncedAt only advances forward, so a backfill never undoes incremental sync progress that ran ahead of it.',
+      'Async one-shot backfill: pulls the last `days` of events (clamped server-side to the upstream retention ceiling — 30d for Cloud Logging `_Default`; the WordPress plugin honours the same window via `since`/`until` query params), classifies them with the current rules, and replaces the hourly rollup buckets + sample slice in the window inside one transaction. Returns immediately with `{ runId, status: "running" }`; poll `GET /runs/{id}` for completion. lastSyncedAt only advances forward, so a backfill never undoes incremental sync progress that ran ahead of it. Supported source types: `cloud-run`, `wordpress`.',
     tags: ['traffic'],
     parameters: [
       nameParameter,

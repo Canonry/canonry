@@ -23,6 +23,7 @@ import {
   trafficConnectWordpressRequestSchema,
 } from '@ainyc/canonry-contracts'
 import type {
+  NormalizedTrafficRequest,
   RunStatus,
   TrafficSourceDto,
   TrafficSourceDetailDto,
@@ -134,6 +135,17 @@ export interface TrafficRoutesOptions {
   defaultPageSize?: number
   /** Default max pages for entries.list pulls. */
   defaultMaxPages?: number
+  /**
+   * Default page size for the WordPress traffic puller. WP uses opaque-cursor
+   * pagination, so this is a per-page cap rather than a window size.
+   */
+  defaultWordpressPageSize?: number
+  /**
+   * Default max pages per WordPress sync invocation. Bounds the fan-out of a
+   * single sync so a misconfigured cursor or runaway plugin can't exhaust the
+   * route — the next sync resumes from the persisted cursor.
+   */
+  defaultWordpressMaxPages?: number
   /** Cap on the number of raw_event_samples written per sync. */
   defaultSampleLimit?: number
   /** Fire-and-forget hook called after every sync completes (success OR failure). Used by canonry to emit telemetry. */
@@ -144,6 +156,12 @@ const DEFAULT_SYNC_WINDOW_MINUTES = 43_200
 const DEFAULT_PAGE_SIZE = 1000
 const DEFAULT_MAX_PAGES = 5
 const DEFAULT_SAMPLE_LIMIT = 100
+// WordPress traffic pulls page through the plugin via opaque cursors rather
+// than a time window. Caps below match Cloud Run's per-sync budget shape:
+// a moderate page size with a bounded fan-out so a misconfigured cursor or
+// runaway plugin can't exhaust the route. Adjust via TrafficRoutesOptions.
+const DEFAULT_WP_PAGE_SIZE = 500
+const DEFAULT_WP_MAX_PAGES = 20
 // Bounded ring buffer of the most-recent normalized event IDs from the last
 // sync. Used to dedupe events that fall in the small overlap window between
 // `lastSyncedAt` and the new sync's `windowStart`. Sized for the practical
@@ -193,23 +211,55 @@ export async function defaultResolveAccessToken(record: CloudRunCredentialRecord
   )
 }
 
+/**
+ * Result of pulling events from a source-type-specific adapter during a sync.
+ * Both adapters return normalized events; only adapters that paginate via an
+ * opaque cursor (currently WordPress) populate `nextCursor` for the rollup
+ * transaction to persist on the source row.
+ */
+interface SyncPullOutcome {
+  events: NormalizedTrafficRequest[]
+  /**
+   * Opaque cursor returned by the adapter for resume on the next sync. Only
+   * cursor-pull adapters populate this; time-window adapters leave it
+   * undefined and the transaction does not touch `lastCursor`.
+   */
+  nextCursor?: string
+}
+
+/**
+ * Per-source-type pull function for a backfill window. Receives the
+ * `[windowStart, windowEnd)` bounds and returns a flat list of
+ * `NormalizedTrafficRequest` for the entire window. Each adapter handles
+ * its own pagination internally (Cloud Run via nextPageToken, WordPress
+ * via opaque cursor against `since`/`until` on the plugin endpoint).
+ *
+ * Returning the events directly keeps the shared rollup-write path source-
+ * agnostic and bounds error attribution: anything thrown here surfaces as
+ * a "pull failed" run failure with the adapter-specific prefix from the
+ * route's closure.
+ */
+type BackfillPullFn = () => Promise<NormalizedTrafficRequest[]>
+
 interface RunBackfillTaskOptions {
   app: FastifyInstance
   runId: string
   project: { id: string; name: string }
   sourceRow: typeof trafficSources.$inferSelect
-  gcpProjectId: string
-  serviceName: string | undefined
-  location: string | undefined
-  credential: CloudRunCredentialRecord
   windowStart: Date
   windowEnd: Date
-  appliedDays: number
-  pullEvents: (
-    accessToken: string,
-    options: ListCloudRunTrafficEventsOptions,
-  ) => Promise<CloudRunTrafficEventsPage>
-  resolveAccessToken: (record: CloudRunCredentialRecord) => Promise<string>
+  /**
+   * Adapter-supplied window pull. Closure encloses the per-source-type
+   * credentials, page-size budget, and pagination. See `BackfillPullFn`.
+   */
+  pullForBackfill: BackfillPullFn
+  /**
+   * Prefix for the user-visible failure message when `pullForBackfill`
+   * throws. Cloud Run uses "Cloud Run pull failed", WordPress uses
+   * "WordPress pull failed" — keeps the run-failure surface attributable
+   * without coupling the task itself to a source type.
+   */
+  pullErrorPrefix: string
 }
 
 async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
@@ -218,14 +268,10 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
     runId,
     project,
     sourceRow,
-    gcpProjectId,
-    serviceName,
-    location,
-    credential,
     windowStart,
     windowEnd,
-    pullEvents,
-    resolveAccessToken,
+    pullForBackfill,
+    pullErrorPrefix,
   } = options
 
   const markFailed = (msg: string) => {
@@ -250,43 +296,18 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
     }
   }
 
-  let accessToken: string
+  let allEvents: NormalizedTrafficRequest[]
   try {
-    accessToken = await resolveAccessToken(credential)
+    allEvents = await pullForBackfill()
   } catch (e) {
-    markFailed(`Failed to resolve Cloud Run access token: ${e instanceof Error ? e.message : String(e)}`)
+    markFailed(`${pullErrorPrefix}: ${e instanceof Error ? e.message : String(e)}`)
     return
   }
 
-  const allEvents: CloudRunTrafficEventsPage['events'] = []
-  try {
-    // Single call with a generous page budget. The integration internally
-    // paginates via nextPageToken until exhausted or the cap is hit.
-    const page = await pullEvents(accessToken, {
-      gcpProjectId,
-      serviceName,
-      location,
-      startTime: windowStart.toISOString(),
-      endTime: windowEnd.toISOString(),
-      pageSize: DEFAULT_PAGE_SIZE,
-      maxPages: BACKFILL_MAX_PAGES,
-      // Backfill is intentionally `firstSync: false`. We don't want desc
-      // ordering — the in-memory rollup builder handles any order, and the
-      // ring-buffer reseed at the end takes the most-recent IDs from the
-      // dedupedEvents anyway.
-      firstSync: false,
-      orderBy: 'timestamp asc',
-    })
-    allEvents.push(...page.events)
-  } catch (e) {
-    markFailed(`Cloud Run pull failed: ${e instanceof Error ? e.message : String(e)}`)
-    return
-  }
-
-  // Empty pull — could be a misconfigured serviceName, transient permission
-  // glitch on the service log, or a genuinely quiet site. Treat as a no-op:
-  // skip the destructive replace below so existing rollup data isn't
-  // silently wiped, and just close out the run row.
+  // Empty pull — could be a misconfigured serviceName / WP plugin not
+  // serving the window, transient upstream glitch, or a genuinely quiet
+  // site. Treat as a no-op: skip the destructive replace below so existing
+  // rollup data isn't silently wiped, and just close out the run row.
   if (allEvents.length === 0) {
     const finishedAt = new Date().toISOString()
     try {
@@ -716,6 +737,13 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
   })
 
   // POST /projects/:name/traffic/sources/:id/sync
+  //
+  // Source-type-agnostic shell. The handler resolves the source row, sets up
+  // the run row and shared error path, then dispatches to one of two
+  // per-source adapters that each return `{ events, nextCursor? }`. Cloud Run
+  // uses a clamped time window; WordPress pages through an opaque cursor.
+  // Everything from dedupe through rollup transaction to telemetry/audit log
+  // is shared.
   app.post<{
     Params: { name: string; id: string }
     Body: { sinceMinutes?: number }
@@ -729,44 +757,20 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     if (!sourceRow || sourceRow.projectId !== project.id) {
       throw notFound('Traffic source', request.params.id)
     }
-    if (sourceRow.sourceType !== TrafficSourceTypes['cloud-run']) {
+    if (
+      sourceRow.sourceType !== TrafficSourceTypes['cloud-run']
+      && sourceRow.sourceType !== TrafficSourceTypes.wordpress
+    ) {
       throw validationError(
-        `Sync for source type "${sourceRow.sourceType}" is not implemented yet — only cloud-run is supported in v1.`,
+        `Sync for source type "${sourceRow.sourceType}" is not implemented yet — only cloud-run and wordpress are supported in v1.`,
       )
     }
 
-    const credentialStore = opts.cloudRunCredentialStore
-    if (!credentialStore) {
-      throw validationError('Cloud Run credential storage is not configured for this deployment')
-    }
-    const credential = credentialStore.getConnection(project.name)
-    if (!credential) {
-      throw validationError(
-        `No Cloud Run credential found for project "${project.name}". Run "canonry traffic connect cloud-run" first.`,
-      )
-    }
-
-    const config = parseSourceConfig(sourceRow)
-    const gcpProjectId = (config.gcpProjectId as string | undefined) ?? credential.gcpProjectId
-    const serviceName = (config.serviceName as string | null | undefined) ?? credential.serviceName ?? undefined
-    const location = (config.location as string | null | undefined) ?? credential.location ?? undefined
-
-    const requestedMinutes = request.body?.sinceMinutes
-    const windowMinutes = Number.isFinite(requestedMinutes) && requestedMinutes && requestedMinutes > 0
-      ? Math.floor(requestedMinutes)
-      : syncWindowMinutes
-
+    // windowEnd is "sync started at" — used as the upper bound of the Cloud
+    // Run time window and as the value we advance `lastSyncedAt` to on
+    // success. WP doesn't use it for the actual pull (cursor pagination
+    // ignores time), but persisting it keeps both adapters uniform.
     const windowEnd = new Date()
-    // Clamp windowStart forward to lastSyncedAt so back-to-back syncs don't
-    // re-pull the previous window and double-count via the `hits + ?` upsert.
-    const requestedStartMs = windowEnd.getTime() - windowMinutes * 60_000
-    const lastSyncedMs = sourceRow.lastSyncedAt
-      ? new Date(sourceRow.lastSyncedAt).getTime()
-      : Number.NEGATIVE_INFINITY
-    const windowStart = new Date(
-      Math.min(windowEnd.getTime(), Math.max(requestedStartMs, lastSyncedMs)),
-    )
-
     const startedAt = windowEnd.toISOString()
     const syncStartedAtMs = windowEnd.getTime()
     const runId = crypto.randomUUID()
@@ -815,37 +819,143 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       }
     }
 
-    let accessToken: string
-    try {
-      accessToken = await resolveAccessToken(credential)
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      markFailed(msg, 'PROVIDER_AUTH')
-      throw providerError(`Failed to resolve Cloud Run access token: ${msg}`)
-    }
+    // Per-source dispatch: each branch validates its own credential store and
+    // pulls events. windowStart is meaningful for Cloud Run (time-window
+    // pull) and informational for WP (cursor pull — set to lastSyncedAt or
+    // sync start). nextCursor is only set by WP.
+    let windowStart: Date
+    let allEvents: NormalizedTrafficRequest[]
+    let nextCursor: string | undefined
+    let auditAction: string
 
-    // Tell the Cloud Run client this is a first-time backfill if no prior
-    // cursor exists, so its bounded page budget targets the most-recent
-    // entries instead of exhausting on the oldest. Adapter-specific pull
-    // strategy lives in @ainyc/canonry-integration-cloud-run, not here.
-    const isFirstSync = !sourceRow.lastSyncedAt
-    let allEvents: CloudRunTrafficEventsPage['events'] = []
-    try {
-      const page = await pullEvents(accessToken, {
-        gcpProjectId,
-        serviceName,
-        location,
-        startTime: windowStart.toISOString(),
-        endTime: windowEnd.toISOString(),
-        pageSize,
-        maxPages,
-        firstSync: isFirstSync,
-      })
-      allEvents = page.events
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      markFailed(msg, 'PROVIDER_PULL')
-      throw providerError(`Cloud Run pull failed: ${msg}`)
+    if (sourceRow.sourceType === TrafficSourceTypes['cloud-run']) {
+      auditAction = 'traffic.cloud-run.synced'
+      const credentialStore = opts.cloudRunCredentialStore
+      if (!credentialStore) {
+        throw validationError('Cloud Run credential storage is not configured for this deployment')
+      }
+      const credential = credentialStore.getConnection(project.name)
+      if (!credential) {
+        throw validationError(
+          `No Cloud Run credential found for project "${project.name}". Run "canonry traffic connect cloud-run" first.`,
+        )
+      }
+
+      const config = parseSourceConfig(sourceRow)
+      const gcpProjectId = (config.gcpProjectId as string | undefined) ?? credential.gcpProjectId
+      const serviceName = (config.serviceName as string | null | undefined) ?? credential.serviceName ?? undefined
+      const location = (config.location as string | null | undefined) ?? credential.location ?? undefined
+
+      const requestedMinutes = request.body?.sinceMinutes
+      const windowMinutes = Number.isFinite(requestedMinutes) && requestedMinutes && requestedMinutes > 0
+        ? Math.floor(requestedMinutes)
+        : syncWindowMinutes
+
+      // Clamp windowStart forward to lastSyncedAt so back-to-back syncs don't
+      // re-pull the previous window and double-count via the `hits + ?` upsert.
+      const requestedStartMs = windowEnd.getTime() - windowMinutes * 60_000
+      const lastSyncedMs = sourceRow.lastSyncedAt
+        ? new Date(sourceRow.lastSyncedAt).getTime()
+        : Number.NEGATIVE_INFINITY
+      windowStart = new Date(
+        Math.min(windowEnd.getTime(), Math.max(requestedStartMs, lastSyncedMs)),
+      )
+
+      let accessToken: string
+      try {
+        accessToken = await resolveAccessToken(credential)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        markFailed(msg, 'PROVIDER_AUTH')
+        throw providerError(`Failed to resolve Cloud Run access token: ${msg}`)
+      }
+
+      // Tell the Cloud Run client this is a first-time backfill if no prior
+      // cursor exists, so its bounded page budget targets the most-recent
+      // entries instead of exhausting on the oldest. Adapter-specific pull
+      // strategy lives in @ainyc/canonry-integration-cloud-run, not here.
+      const isFirstSync = !sourceRow.lastSyncedAt
+      try {
+        const page = await pullEvents(accessToken, {
+          gcpProjectId,
+          serviceName,
+          location,
+          startTime: windowStart.toISOString(),
+          endTime: windowEnd.toISOString(),
+          pageSize,
+          maxPages,
+          firstSync: isFirstSync,
+        })
+        allEvents = page.events
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        markFailed(msg, 'PROVIDER_PULL')
+        throw providerError(`Cloud Run pull failed: ${msg}`)
+      }
+    } else {
+      // WordPress traffic-logger adapter. Pages through `next_cursor` until
+      // exhausted, then persists the final cursor + advances `lastSyncedAt`
+      // to windowEnd. The `lastCursor` column drives resume semantics; the
+      // time-window clamp does not apply.
+      auditAction = 'traffic.wordpress.synced'
+      const credentialStore = opts.wordpressTrafficCredentialStore
+      if (!credentialStore) {
+        throw validationError('WordPress traffic credential storage is not configured for this deployment')
+      }
+      const credential = credentialStore.getConnection(project.name)
+      if (!credential) {
+        // Audit log + markFailed would over-rotate the source row; this is a
+        // user-config error before any pull happens, so the global handler's
+        // validationError envelope is the right surface.
+        app.db
+          .delete(runs)
+          .where(eq(runs.id, runId))
+          .run()
+        throw validationError(
+          `No WordPress credential found for project "${project.name}". Run "canonry traffic connect wordpress" first.`,
+        )
+      }
+
+      // For WP, windowStart is purely informational on the response — there
+      // is no time-window pull. Use lastSyncedAt if present so the response
+      // matches "events since previous sync"; otherwise use windowEnd (which
+      // yields `windowStart == windowEnd` for the first sync, signalling a
+      // cursor-driven adapter to consumers).
+      windowStart = sourceRow.lastSyncedAt ? new Date(sourceRow.lastSyncedAt) : windowEnd
+
+      const wpPageSize = opts.defaultWordpressPageSize ?? DEFAULT_WP_PAGE_SIZE
+      const wpMaxPages = opts.defaultWordpressMaxPages ?? DEFAULT_WP_MAX_PAGES
+
+      const collected: NormalizedTrafficRequest[] = []
+      let cursor: string | undefined = sourceRow.lastCursor ?? undefined
+      try {
+        for (let page = 0; page < wpMaxPages; page += 1) {
+          const pageResult = await pullWordpressEvents({
+            baseUrl: credential.baseUrl,
+            username: credential.username,
+            applicationPassword: credential.applicationPassword,
+            cursor,
+            pageSize: wpPageSize,
+            maxPages: 1,
+          })
+          collected.push(...pageResult.events)
+          const previousCursor = cursor
+          cursor = pageResult.nextCursor
+          // The plugin emits a fresh `next_cursor` on every response (even
+          // the last page) so it doubles as the resume token for the next
+          // sync. `has_more` is the only authoritative "fetch another page
+          // in this sync" signal. Also guard against cursor stagnation in
+          // case a plugin bug echoes the same token forever.
+          if (!pageResult.hasMore) break
+          if (!cursor || cursor === previousCursor) break
+        }
+        allEvents = collected
+        nextCursor = cursor
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        markFailed(msg, 'PROVIDER_PULL')
+        throw providerError(`WordPress pull failed: ${msg}`)
+      }
     }
 
     let crawlerBucketRows = 0
@@ -1018,19 +1128,27 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         sampleRows += 1
       }
 
+      // For WP we persist the final cursor inside the same transaction so a
+      // mid-sync crash either rolls back the rollup and the cursor together,
+      // or commits both. Cloud Run does not use `lastCursor`; leave it
+      // untouched (drizzle omits undefined fields from the SET clause).
+      const sourceUpdate: Partial<typeof trafficSources.$inferInsert> = {
+        status: TrafficSourceStatuses.connected,
+        // Advance to windowEnd, not finishedAt — events arriving at the
+        // source between windowEnd and finishedAt aren't in this pull's
+        // range. If we stored finishedAt, the next sync's clamp would skip
+        // past them and they'd be lost.
+        lastSyncedAt: windowEnd.toISOString(),
+        lastError: null,
+        lastEventIds: JSON.stringify(nextEventIds),
+        updatedAt: finishedAt,
+      }
+      if (sourceRow.sourceType === TrafficSourceTypes.wordpress) {
+        sourceUpdate.lastCursor = nextCursor ?? null
+      }
       tx
         .update(trafficSources)
-        .set({
-          status: TrafficSourceStatuses.connected,
-          // Advance to windowEnd, not finishedAt — events arriving at the
-          // source between windowEnd and finishedAt aren't in this pull's
-          // range. If we stored finishedAt, the next sync's clamp would skip
-          // past them and they'd be lost.
-          lastSyncedAt: windowEnd.toISOString(),
-          lastError: null,
-          lastEventIds: JSON.stringify(nextEventIds),
-          updatedAt: finishedAt,
-        })
+        .set(sourceUpdate)
         .where(eq(trafficSources.id, sourceRow.id))
         .run()
 
@@ -1044,7 +1162,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     writeAuditLog(app.db, {
       projectId: project.id,
       actor: 'api',
-      action: 'traffic.cloud-run.synced',
+      action: auditAction,
       entityType: 'traffic_source',
       entityId: sourceRow.id,
     })
@@ -1103,20 +1221,12 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     if (!sourceRow || sourceRow.projectId !== project.id) {
       throw notFound('Traffic source', request.params.id)
     }
-    if (sourceRow.sourceType !== TrafficSourceTypes['cloud-run']) {
+    if (
+      sourceRow.sourceType !== TrafficSourceTypes['cloud-run']
+      && sourceRow.sourceType !== TrafficSourceTypes.wordpress
+    ) {
       throw validationError(
-        `Backfill for source type "${sourceRow.sourceType}" is not implemented yet — only cloud-run is supported in v1.`,
-      )
-    }
-
-    const credentialStore = opts.cloudRunCredentialStore
-    if (!credentialStore) {
-      throw validationError('Cloud Run credential storage is not configured for this deployment')
-    }
-    const credential = credentialStore.getConnection(project.name)
-    if (!credential) {
-      throw validationError(
-        `No Cloud Run credential found for project "${project.name}". Run "canonry traffic connect cloud-run" first.`,
+        `Backfill for source type "${sourceRow.sourceType}" is not implemented yet — only cloud-run and wordpress are supported in v1.`,
       )
     }
 
@@ -1125,11 +1235,6 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       throw validationError('"days" must be a positive integer')
     }
     const appliedDays = Math.min(requestedDays, MAX_BACKFILL_DAYS)
-
-    const config = parseSourceConfig(sourceRow)
-    const gcpProjectId = (config.gcpProjectId as string | undefined) ?? credential.gcpProjectId
-    const serviceName = (config.serviceName as string | null | undefined) ?? credential.serviceName ?? undefined
-    const location = (config.location as string | null | undefined) ?? credential.location ?? undefined
 
     const windowEnd = new Date()
     const windowStart = new Date(windowEnd.getTime() - appliedDays * 86_400_000)
@@ -1140,6 +1245,99 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     // same tsHour, tripping the composite primary key on (projectId,
     // sourceId, tsHour, botId, verificationStatus, pathNormalized, status).
     windowStart.setUTCMinutes(0, 0, 0)
+
+    // Build the per-source-type window pull closure. Credential and config
+    // validation happens up-front (synchronously throws validationError on
+    // miss) so the run row never gets created for an obviously-misconfigured
+    // request. The closure itself does all I/O lazily — invoked by
+    // runBackfillTask after the run row is in place.
+    let pullForBackfill: BackfillPullFn
+    let pullErrorPrefix: string
+
+    if (sourceRow.sourceType === TrafficSourceTypes['cloud-run']) {
+      const credentialStore = opts.cloudRunCredentialStore
+      if (!credentialStore) {
+        throw validationError('Cloud Run credential storage is not configured for this deployment')
+      }
+      const credential = credentialStore.getConnection(project.name)
+      if (!credential) {
+        throw validationError(
+          `No Cloud Run credential found for project "${project.name}". Run "canonry traffic connect cloud-run" first.`,
+        )
+      }
+
+      const config = parseSourceConfig(sourceRow)
+      const gcpProjectId = (config.gcpProjectId as string | undefined) ?? credential.gcpProjectId
+      const serviceName = (config.serviceName as string | null | undefined) ?? credential.serviceName ?? undefined
+      const location = (config.location as string | null | undefined) ?? credential.location ?? undefined
+
+      pullErrorPrefix = 'Cloud Run pull failed'
+      pullForBackfill = async () => {
+        const accessToken = await resolveAccessToken(credential)
+        const page = await pullEvents(accessToken, {
+          gcpProjectId,
+          serviceName,
+          location,
+          startTime: windowStart.toISOString(),
+          endTime: windowEnd.toISOString(),
+          pageSize: DEFAULT_PAGE_SIZE,
+          maxPages: BACKFILL_MAX_PAGES,
+          // Backfill is intentionally `firstSync: false`. We don't want desc
+          // ordering — the in-memory rollup builder handles any order, and the
+          // ring-buffer reseed at the end takes the most-recent IDs from the
+          // dedupedEvents anyway.
+          firstSync: false,
+          orderBy: 'timestamp asc',
+        })
+        return page.events
+      }
+    } else {
+      const credentialStore = opts.wordpressTrafficCredentialStore
+      if (!credentialStore) {
+        throw validationError('WordPress traffic credential storage is not configured for this deployment')
+      }
+      const credential = credentialStore.getConnection(project.name)
+      if (!credential) {
+        throw validationError(
+          `No WordPress credential found for project "${project.name}". Run "canonry traffic connect wordpress" first.`,
+        )
+      }
+
+      const wpPageSize = opts.defaultWordpressPageSize ?? DEFAULT_WP_PAGE_SIZE
+      pullErrorPrefix = 'WordPress pull failed'
+      pullForBackfill = async () => {
+        // Page through the plugin's `[since, until)` window via opaque
+        // cursors. The window is fixed for the entire backfill — only the
+        // cursor advances — so each page sees the same bounds. Stops on
+        // `hasMore=false` OR an exhausted cursor (defensive guard against a
+        // misbehaving plugin emitting the same cursor forever).
+        const collected: NormalizedTrafficRequest[] = []
+        const windowStartIso = windowStart.toISOString()
+        const windowEndIso = windowEnd.toISOString()
+        let cursor: string | undefined = undefined
+        for (let page = 0; page < BACKFILL_MAX_PAGES; page += 1) {
+          const pageResult = await pullWordpressEvents({
+            baseUrl: credential.baseUrl,
+            username: credential.username,
+            applicationPassword: credential.applicationPassword,
+            cursor,
+            pageSize: wpPageSize,
+            // Each call fetches a single page; the for-loop drives
+            // continuation. Matches the WP sync path's pattern.
+            maxPages: 1,
+            since: windowStartIso,
+            until: windowEndIso,
+          })
+          collected.push(...pageResult.events)
+          const previousCursor: string | undefined = cursor
+          cursor = pageResult.nextCursor
+          if (!pageResult.hasMore) break
+          if (!cursor || cursor === previousCursor) break
+        }
+        return collected
+      }
+    }
+
     const startedAt = windowEnd.toISOString()
     const runId = crypto.randomUUID()
     app.db
@@ -1165,15 +1363,10 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       runId,
       project,
       sourceRow,
-      gcpProjectId,
-      serviceName,
-      location,
-      credential,
       windowStart,
       windowEnd,
-      appliedDays,
-      pullEvents,
-      resolveAccessToken,
+      pullForBackfill,
+      pullErrorPrefix,
     }).catch(() => {
       // runBackfillTask handles its own error recording. The catch here
       // exists only so an unhandled rejection cannot crash the process if

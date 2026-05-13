@@ -29,14 +29,14 @@ plugin/
   includes/
     class-plugin.php            Activation + uninstall + retention prune callback
     class-recorder.php          Request -> row writer (shutdown hook entry point)
-    class-rest.php              GET /wp-json/canonry/v1/events handler + cursor pagination
+    class-rest.php              GET /wp-json/canonry/v1/events handler + cursor pagination + since/until
     class-ip-hasher.php         Pure sha256-prefix hashing utility
     class-settings-page.php     Settings → Canonry Traffic Logger admin form
 test/
   run-tests.php                 Discovers *Test.php, runs every public test_* method
   lib/TestCase.php              Minimal assertion API (no PHPUnit dependency)
   lib/WpShim.php                In-memory stub of the WP API surface the plugin touches
-  *Test.php                     Test cases (Activation, Ingestion, IpHash, EndpointAuth, CursorPagination, Uninstall, Retention, SettingsPage)
+  *Test.php                     Test cases (Activation, Ingestion, IpHash, EndpointAuth, CursorPagination, WindowFilter, Uninstall, Retention, SettingsPage)
 ```
 
 ## Auth
@@ -76,6 +76,10 @@ again after the request hook returns.
 - **Settings page.** `Settings → Canonry Traffic Logger` renders the
   retention input, the current event count, and the oldest event
   timestamp. Capability gate: `manage_options`.
+- **Window filter on the REST endpoint.** `GET /wp-json/canonry/v1/events`
+  accepts optional `since` / `until` ISO 8601 query params and filters
+  events to the half-open window `[since, until)`. Powers the TS backfill
+  route's historical pulls.
 
 ## What's out of scope (deferred)
 
@@ -113,6 +117,10 @@ Test files cover:
   shape matches `WordpressTrafficEventsResponseBody`.
 - **CursorPaginationTest** — three-page walk in `(observed_at, id)` order;
   invalid cursor → 400.
+- **WindowFilterTest** — optional `since`/`until` ISO 8601 query params
+  filter events to the half-open window `[since, until)`; cursor pagination
+  still walks inside the window; invalid timestamps → 400. Used by the TS
+  backfill route to scope historical pulls.
 - **UninstallTest** — table dropped + options deleted; scheduled prune cleared.
 - **RetentionTest** — daily cron scheduled at activation, cleared at
   uninstall; `pruneExpired()` deletes rows older than the configured
