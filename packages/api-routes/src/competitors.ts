@@ -62,6 +62,7 @@ export async function competitorRoutes(app: FastifyInstance) {
           id: crypto.randomUUID(),
           projectId: project.id,
           domain,
+          provenance: 'cli',
           createdAt: now,
         }).run()
       }
@@ -106,6 +107,7 @@ export async function competitorRoutes(app: FastifyInstance) {
           id: crypto.randomUUID(),
           projectId: project.id,
           domain,
+          provenance: 'cli',
           createdAt: now,
         }).onConflictDoNothing({
           target: [competitors.projectId, competitors.domain],

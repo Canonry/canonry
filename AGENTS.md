@@ -81,6 +81,14 @@ canonry doctor                                                # global checks (p
 canonry doctor --project <name>                               # project-scoped checks (Google/GA auth, redirect URI, scopes)
 canonry doctor --project <name> --check google.auth.* --format json   # filter by id/wildcard, JSON output
 
+# Discovery — expand a tracked-query basket from an ICP description
+canonry discover run <project> --icp "..." [--wait] [--format json]
+canonry discover run <project> --dedup-threshold 0.85 --max-probes 100 --wait     # tune dedup / per-session probe budget (cap 500)
+canonry discover list <project> [--limit 20] [--format json]
+canonry discover show <project> <session-id> [--format json]
+canonry discover probe <project> <session-id> [--format json]                       # alias of show (read-only) until PR 2 splits phases
+canonry discover promote preview <project> <session-id> [--format json]             # preview-only; PR 2 ships the actual merge step
+
 # MCP adapter (separate bin, stdio only)
 canonry-mcp                                          # core tier (~12 tools); load toolkits on demand
 canonry-mcp --read-only                              # core read tier; toolkits load read-only tools only

@@ -41,6 +41,9 @@ erDiagram
 
   projects ||--o| agent_sessions : "has (1:1)"
   projects ||--o{ agent_memory : has
+
+  projects ||--o{ discovery_sessions : has
+  discovery_sessions ||--o{ discovery_probes : contains
 ```
 
 ## Table Groups
@@ -49,9 +52,9 @@ erDiagram
 
 | Table | Purpose | Key Constraints |
 |-------|---------|----------------|
-| **projects** | Root entity — domain, location config, provider list | Unique: `name` |
-| **queries** | Tracked queries per project | Unique: `(projectId, query)` |
-| **competitors** | Competitor domains per project | Unique: `(projectId, domain)` |
+| **projects** | Root entity — domain, location config, provider list, optional `icp_description` (free-text ICP used by discovery seed phase) | Unique: `name` |
+| **queries** | Tracked queries per project. `provenance` tags where the entry came from (e.g. `cli`, `discovery:<session_id>`) so adopted basket entries can be traced back to a discovery run. | Unique: `(projectId, query)` |
+| **competitors** | Competitor domains per project. `provenance` tags origin (`cli`, `discovery:<session_id>`) for the same traceability reason. | Unique: `(projectId, domain)` |
 | **runs** | Visibility sweep executions | FK: projectId → projects |
 | **query_snapshots** | Per-query per-provider results | FK: runId → runs, queryId → queries |
 | **schedules** | Cron schedules (1:1 with project) | Unique: projectId |
@@ -116,6 +119,13 @@ erDiagram
 | **agent_sessions** | One rolling Aero session per project. Durable half of the hybrid session registry — stores transcript, queued follow-ups, and chosen provider/model so a live pi-agent-core Agent can be rehydrated after a restart. Unique: `projectId`. FK: projectId → projects |
 | **agent_memory** | Project-scoped durable notes written by Aero (`remember`), the operator (CLI / API), or the compaction summarizer. Hydrated into every new session's system prompt under `<memory>`. Keys starting with `compaction:` are reserved for summarized transcript slices. Unique: `(projectId, key)`. FK: projectId → projects |
 
+### Discovery (three-ring model)
+
+| Table | Purpose |
+|-------|---------|
+| **discovery_sessions** | One row per `canonry discover run` invocation. Captures the research artifact for a session: ICP snapshot, seed/dedup/probe phase counts, bucket counts (cited / aspirational / wasted-surface), and `competitor_map` as a JSON array of `{domain, hits}` entries (default `'[]'`). Status flows `queued → seeding → probing → completed` (or `failed`). FK: projectId → projects |
+| **discovery_probes** | One row per (session × candidate query) probe. Stores the query text (free-form — not promoted to `queries` until the operator adopts it), citation_state, cited_domains, bucket classification, and raw provider response. **No `UNIQUE(session_id, query)`** so v2 multi-provider amplification can probe the same query across Gemini + ChatGPT + Claude in one session without a migration. FK: sessionId → discovery_sessions, projectId → projects |
+
 ## JSON Columns
 
 Several text columns store serialized JSON. Always use `parseJsonColumn()` from `@ainyc/canonry-db`:
@@ -133,6 +143,8 @@ Several text columns store serialized JSON. Always use `parseJsonColumn()` from 
 | `insights.recommendation` | `{ action: string; detail?: string }` |
 | `insights.cause` | `{ category: string; detail?: string }` |
 | `health_snapshots.providerBreakdown` | `Record<string, { total: number; cited: number; rate: number }>` |
+| `discovery_sessions.competitorMap` | `Array<{ domain: string; hits: number }>` |
+| `discovery_probes.citedDomains` | `string[]` |
 
 ## Conventions
 

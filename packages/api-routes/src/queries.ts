@@ -44,6 +44,7 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
           id: crypto.randomUUID(),
           projectId: project.id,
           query: q,
+          provenance: 'cli',
           createdAt: now,
         }).run()
       }
@@ -129,6 +130,7 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
           id: crypto.randomUUID(),
           projectId: project.id,
           query: q,
+          provenance: 'cli',
           createdAt: now,
         }).run()
         added.push(q)
@@ -228,6 +230,7 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
           id: crypto.randomUUID(),
           projectId: project.id,
           query: keyword,
+          provenance: 'cli',
           createdAt: now,
         }).run()
       }
@@ -311,6 +314,7 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
           id: crypto.randomUUID(),
           projectId: project.id,
           query: keyword,
+          provenance: 'cli',
           createdAt: now,
         }).run()
         added.push(keyword)

@@ -198,7 +198,7 @@ function extractAnswerText(rawResponse: Record<string, unknown>): string {
   }
 }
 
-function extractGroundingMetadataFromRaw(rawResponse: Record<string, unknown>): GroundingSource[] {
+export function extractGroundingMetadataFromRaw(rawResponse: Record<string, unknown>): GroundingSource[] {
   try {
     // Google documents `groundingChunks` as the pool of retrieved sources and
     // `groundingSupports` as the mapping from answer segments to
@@ -257,7 +257,7 @@ function extractGroundingMetadataFromRaw(rawResponse: Record<string, unknown>): 
   }
 }
 
-function extractSearchQueriesFromRaw(rawResponse: Record<string, unknown>): string[] {
+export function extractSearchQueriesFromRaw(rawResponse: Record<string, unknown>): string[] {
   try {
     const candidates = rawResponse.candidates as Array<{
       groundingMetadata?: {

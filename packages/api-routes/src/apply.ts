@@ -161,6 +161,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           id: crypto.randomUUID(),
           projectId,
           query: q,
+          provenance: 'cli',
           createdAt: now,
         }).run()
       }
@@ -180,6 +181,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           id: crypto.randomUUID(),
           projectId,
           domain,
+          provenance: 'cli',
           createdAt: now,
         }).run()
       }

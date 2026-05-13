@@ -3,6 +3,8 @@ import {
   AGENT_MEMORY_KEY_MAX_LENGTH,
   AGENT_MEMORY_VALUE_MAX_BYTES,
   competitorBatchRequestSchema,
+  DISCOVERY_MAX_PROBES_CAP,
+  discoveryRunRequestSchema,
   keywordBatchRequestSchema,
   keywordGenerateRequestSchema,
   queryGenerateRequestSchema,
@@ -271,6 +273,29 @@ const trafficEventsInputSchema = z.object({
 const trafficSourceIdInputSchema = z.object({
   project: projectNameSchema,
   sourceId: z.string().min(1).describe('Traffic source ID.'),
+})
+
+const discoveryRunInputSchema = z.object({
+  project: projectNameSchema,
+  request: discoveryRunRequestSchema
+    .extend({
+      // Stronger descriptions for the LLM. The base Zod schema enforces the
+      // upper bound; this just clarifies the meaning of each knob.
+      icpDescription: z.string().min(1).optional().describe('Free-text ICP description. If omitted, the project must already have spec.icpDescription stored.'),
+      dedupThreshold: z.number().min(0).max(1).optional().describe('Cosine similarity threshold for clustering seed candidates. Defaults to 0.85. Lower values dedupe more aggressively.'),
+      maxProbes: z.number().int().positive().max(DISCOVERY_MAX_PROBES_CAP).optional().describe(`Max canonical queries to probe in this session. Default 100, hard cap ${DISCOVERY_MAX_PROBES_CAP}.`),
+    })
+    .optional(),
+})
+
+const discoverySessionsListInputSchema = z.object({
+  project: projectNameSchema,
+  limit: z.number().int().positive().max(200).optional().describe('Max sessions returned. Default 50.'),
+})
+
+const discoverySessionIdInputSchema = z.object({
+  project: projectNameSchema,
+  sessionId: z.string().min(1).describe('Discovery session ID returned by canonry_discover_run_start.'),
 })
 
 const AGENT_WEBHOOK_EVENTS = [
@@ -1181,6 +1206,51 @@ export const canonryMcpTools = [
       await client.deleteNotification(input.project, agentNotification.id)
       return { status: 'detached', project: input.project }
     },
+  }),
+  defineTool({
+    name: 'canonry_discover_run_start',
+    title: 'Start discovery run',
+    description:
+      'Kick off a discovery session for a project: ICP → seed (Gemini grounded prompt) → embed + cluster + pick representative → probe each canonical → classify into cited / aspirational / wasted-surface → aggregate competitor map. Returns {runId, sessionId, status:"running"} immediately; the work runs in the background. Poll canonry_discover_session_get with the returned sessionId until status is "completed" or "failed". Costs roughly $1 / session at default budget; budget capped at 500 probes / session.',
+    access: 'write',
+    tier: 'discovery',
+    inputSchema: discoveryRunInputSchema,
+    annotations: writeAnnotations({ idempotentHint: false, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/discover/run'],
+    handler: (client, input) => client.triggerDiscoveryRun(input.project, input.request),
+  }),
+  defineTool({
+    name: 'canonry_discover_sessions_list',
+    title: 'List discovery sessions',
+    description: 'List recent discovery sessions for a project, newest first. Returns the session-level summary (status, seed counts, bucket counts, competitor map). Use canonry_discover_session_get to drill into per-query probe rows.',
+    access: 'read',
+    tier: 'discovery',
+    inputSchema: discoverySessionsListInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/discover/sessions'],
+    handler: (client, input) => client.listDiscoverySessions(input.project, input.limit !== undefined ? { limit: input.limit } : undefined),
+  }),
+  defineTool({
+    name: 'canonry_discover_session_get',
+    title: 'Get discovery session',
+    description: 'Get one discovery session with the full probe list (per-query bucket + cited domains). Use after canonry_discover_run_start to inspect what the discovery pipeline produced; this is the canonical read for "what did discovery find" before PR 2 lands `canonry discover promote`.',
+    access: 'read',
+    tier: 'discovery',
+    inputSchema: discoverySessionIdInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/discover/sessions/{id}'],
+    handler: (client, input) => client.getDiscoverySession(input.project, input.sessionId),
+  }),
+  defineTool({
+    name: 'canonry_discover_promote_preview',
+    title: 'Preview discovery promotion',
+    description: 'Read-only preview of what `canonry discover promote` (PR 2) would persist for a session: bucketed query lists and suggested new competitor domains (those not already in the project\'s tracked competitor list). v1 returns the preview only; use it to confirm a basket before PR 2 ships the merge step.',
+    access: 'read',
+    tier: 'discovery',
+    inputSchema: discoverySessionIdInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/discover/sessions/{id}/promote'],
+    handler: (client, input) => client.previewDiscoveryPromote(input.project, input.sessionId),
   }),
 ] as const
 
