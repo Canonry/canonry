@@ -87,7 +87,12 @@ async function buildHarness(
      * sync use this to model multi-page cursor pagination; the probe path
      * (limit=1, no cursor) is also routed through it.
      */
-    wpPullPages?: (call: { cursor: string | undefined; pageSize: number }) => WordpressTrafficEventsPage
+    wpPullPages?: (call: {
+      cursor: string | undefined
+      pageSize: number
+      since: string | undefined
+      until: string | undefined
+    }) => WordpressTrafficEventsPage
   } = {},
 ) {
   const trafficSyncedEvents: Array<unknown> = []
@@ -176,6 +181,8 @@ async function buildHarness(
         const page = options.wpPullPages({
           cursor: pullOptions.cursor,
           pageSize: pullOptions.pageSize ?? 500,
+          since: pullOptions.since,
+          until: pullOptions.until,
         })
         return {
           ...page,
@@ -1739,6 +1746,320 @@ describe('POST /traffic/sources/:id/backfill', () => {
       const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()
       expect(sourceRow?.status).toBe(TrafficSourceStatuses.error)
       expect(sourceRow?.lastError).toMatch(/503/)
+    } finally {
+      await h.close()
+    }
+  })
+})
+
+describe('POST /traffic/sources/:id/backfill — WordPress', () => {
+  const wpConnectBody = {
+    baseUrl: 'https://example.com',
+    username: 'canonry-bot',
+    applicationPassword: 'xxxx xxxx xxxx xxxx xxxx xxxx',
+  }
+
+  async function connectWp(h: Awaited<ReturnType<typeof buildHarness>>): Promise<string> {
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/wordpress',
+      payload: wpConnectBody,
+    })
+    if (res.statusCode !== 200) throw new Error(`connect failed: ${res.statusCode} ${res.payload}`)
+    return JSON.parse(res.payload).id
+  }
+
+  async function waitForRunComplete(
+    db: ReturnType<typeof createClient>,
+    runId: string,
+    timeoutMs = 2000,
+  ): Promise<typeof runs.$inferSelect> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      const row = db.select().from(runs).where(eq(runs.id, runId)).get()
+      if (row && row.status !== RunStatuses.running) return row
+      await new Promise<void>((resolve) => setTimeout(resolve, 25))
+    }
+    throw new Error(`run ${runId} did not finish within ${timeoutMs}ms`)
+  }
+
+  it('returns runId + status=running synchronously, then pages WP events in [windowStart, windowEnd) and replaces rollups', async () => {
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+
+    // Two pages of historical WP events, cursor-paginated by the plugin's
+    // window endpoint. Page 1 returns next_cursor=BPAGE2 (has_more=true),
+    // page 2 returns the final cursor with has_more=false. Backfill must
+    // follow the cursor to exhaustion inside the requested [since, until)
+    // window — the per-call `since`/`until` should be identical across
+    // both invocations.
+    const page1Events: NormalizedTrafficRequest[] = [
+      buildWpEvent({ eventId: 'wp-bf:p1:1', userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
+      buildWpEvent({ eventId: 'wp-bf:p1:2', userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(20) }),
+    ]
+    const page2Events: NormalizedTrafficRequest[] = [
+      buildWpEvent({
+        eventId: 'wp-bf:p2:3',
+        userAgent: 'Mozilla/5.0',
+        path: '/landing',
+        queryString: 'utm_source=chatgpt.com',
+        status: 200,
+        observedAt: fromBase(35),
+      }),
+    ]
+
+    const observedWindows: Array<{ since: string | undefined; until: string | undefined }> = []
+    const h = await buildHarness([], {
+      wpPullPages: ({ cursor, since, until }) => {
+        observedWindows.push({ since, until })
+        if (cursor === undefined || cursor === '') {
+          return { events: page1Events, rawEntryCount: 2, skippedEntryCount: 0, nextCursor: 'BPAGE2', hasMore: true, endpoint: '' }
+        }
+        if (cursor === 'BPAGE2') {
+          return { events: page2Events, rawEntryCount: 1, skippedEntryCount: 0, nextCursor: 'BPAGE_DONE', hasMore: false, endpoint: '' }
+        }
+        throw new Error(`Unexpected cursor: ${cursor}`)
+      },
+    })
+    try {
+      const sourceId = await connectWp(h)
+
+      const submitRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`,
+        payload: { days: 7 },
+      })
+      expect(submitRes.statusCode).toBe(200)
+      const submitted = JSON.parse(submitRes.payload)
+      expect(submitted.status).toBe(RunStatuses.running)
+      expect(submitted.runId).toBeDefined()
+      expect(submitted.daysApplied).toBe(7)
+      expect(submitted.daysRequested).toBe(7)
+      // windowStart and windowEnd are ISO timestamps roughly 7 days apart.
+      const span = new Date(submitted.windowEnd).getTime() - new Date(submitted.windowStart).getTime()
+      const sevenDays = 7 * 86_400_000
+      expect(span).toBeGreaterThanOrEqual(sevenDays - 60_000)
+      expect(span).toBeLessThanOrEqual(sevenDays + 60_000)
+
+      const finalRun = await waitForRunComplete(h.db, submitted.runId)
+      expect(finalRun.status).toBe(RunStatuses.completed)
+      expect(finalRun.trigger).toBe('backfill')
+      expect(finalRun.kind).toBe(RunKinds['traffic-sync'])
+
+      // The backfill must page through cursors WITHOUT changing since/until
+      // between requests — every call sees the same window so the plugin
+      // returns events from that window only.
+      // (Cursor-only assertions belong to the cursor-pagination test; here
+      // we verify the window was actually propagated.)
+      expect(observedWindows.length).toBeGreaterThanOrEqual(2)
+      expect(observedWindows[0].since).toBe(submitted.windowStart)
+      expect(observedWindows[0].until).toBe(submitted.windowEnd)
+      expect(observedWindows[1].since).toBe(submitted.windowStart)
+      expect(observedWindows[1].until).toBe(submitted.windowEnd)
+
+      // Crawler + AI-referral rollups land the same way as Cloud Run backfill.
+      const crawlerRows = h.db.select().from(crawlerEventsHourly).all()
+      expect(crawlerRows.length).toBe(1)
+      expect(crawlerRows[0].hits).toBe(2)
+
+      const aiRows = h.db.select().from(aiReferralEventsHourly).all()
+      expect(aiRows.length).toBe(1)
+      expect(aiRows[0].sessionsOrHits).toBe(1)
+      expect(aiRows[0].evidenceType).toBe('utm')
+
+      const samples = h.db.select().from(rawEventSamples).all()
+      expect(samples.length).toBe(3)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('does not roll lastSyncedAt backwards when the existing cursor is ahead of windowEnd', async () => {
+    // Seed lastSyncedAt to a future timestamp (incremental sync already
+    // ran ahead of the backfill window). Backfill replaces the rollup in
+    // [windowStart, windowEnd) but must NOT clobber the forward cursor —
+    // otherwise the next incremental sync would re-pull a gap.
+    const h = await buildHarness([], {
+      wpPullPages: ({ cursor }) => {
+        if (cursor === undefined || cursor === '') {
+          return {
+            events: [
+              buildWpEvent({
+                eventId: 'wp-bf-future:1',
+                userAgent: 'GPTBot/1.0',
+                path: '/blog/foo',
+                status: 200,
+                observedAt: new Date(Date.now() - 30 * 60_000).toISOString(),
+              }),
+            ],
+            rawEntryCount: 1,
+            skippedEntryCount: 0,
+            nextCursor: 'AFTER_BACKFILL',
+            hasMore: false,
+            endpoint: '',
+          }
+        }
+        throw new Error(`Unexpected cursor: ${cursor}`)
+      },
+    })
+    try {
+      const sourceId = await connectWp(h)
+
+      const future = new Date(Date.now() + 60 * 60_000).toISOString()
+      h.db
+        .update(trafficSources)
+        .set({ lastSyncedAt: future, updatedAt: future })
+        .where(eq(trafficSources.id, sourceId))
+        .run()
+
+      const submitRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`,
+        payload: { days: 7 },
+      })
+      const submitted = JSON.parse(submitRes.payload)
+      await waitForRunComplete(h.db, submitted.runId)
+
+      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()
+      expect(sourceRow?.lastSyncedAt).toBe(future)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('caps days at MAX_BACKFILL_DAYS (30) when a larger value is requested', async () => {
+    const h = await buildHarness([])
+    try {
+      const sourceId = await connectWp(h)
+
+      const submitRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`,
+        payload: { days: 365 },
+      })
+      expect(submitRes.statusCode).toBe(200)
+      const submitted = JSON.parse(submitRes.payload)
+      expect(submitted.daysRequested).toBe(365)
+      expect(submitted.daysApplied).toBe(30)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('returns validationError pointing to `canonry traffic connect wordpress` when no WP credential is stored', async () => {
+    const h = await buildHarness([])
+    try {
+      const { projects } = await import('@ainyc/canonry-db')
+      const projectRow = h.db.select().from(projects).all()[0]
+      const now = new Date().toISOString()
+      // Seed a connected WP source row without a credential record.
+      h.db.insert(trafficSources).values({
+        id: 'src_wp_bf_orphan',
+        projectId: projectRow.id,
+        sourceType: TrafficSourceTypes.wordpress,
+        displayName: 'orphan wp',
+        status: TrafficSourceStatuses.connected,
+        configJson: JSON.stringify({ baseUrl: 'https://example.com', username: 'bot' }),
+        createdAt: now,
+        updatedAt: now,
+      }).run()
+
+      const res = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/sources/src_wp_bf_orphan/backfill',
+        payload: { days: 7 },
+      })
+      expect(res.statusCode).toBe(400)
+      const body = JSON.parse(res.payload)
+      expect(body.error.message).toMatch(/canonry traffic connect wordpress/)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('isolates rollups by sourceId — a WP backfill does not delete a parallel Cloud Run source\'s buckets', async () => {
+    // Cross-source isolation: backfilling source A must not touch source B's
+    // rollups. The replace-window delete is keyed by sourceId; if anyone ever
+    // accidentally drops the sourceId predicate, this test trips.
+    const h = await buildHarness([], {
+      wpPullPages: () => ({
+        events: [
+          buildWpEvent({
+            eventId: 'wp-bf-iso:1',
+            userAgent: 'GPTBot/1.0',
+            path: '/wp-only',
+            status: 200,
+            observedAt: new Date(Date.now() - 45 * 60_000).toISOString(),
+          }),
+        ],
+        rawEntryCount: 1,
+        skippedEntryCount: 0,
+        nextCursor: 'ISO_DONE',
+        hasMore: false,
+        endpoint: '',
+      }),
+    })
+    try {
+      const wpSourceId = await connectWp(h)
+      // Connect a Cloud Run source in the SAME project — different sourceId.
+      const crConnectRes = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'openclaw-nyc', keyJson: SA_KEY },
+      })
+      const crSourceId = JSON.parse(crConnectRes.payload).id
+
+      // Seed a crawler bucket on the Cloud Run source inside what will be
+      // the WP backfill window.
+      const { projects } = await import('@ainyc/canonry-db')
+      const projectRow = h.db.select().from(projects).all()[0]
+      const sentinelHour = new Date(Date.now() - 30 * 60_000)
+      sentinelHour.setUTCMinutes(0, 0, 0)
+      const sentinelHourIso = sentinelHour.toISOString()
+      const seedTime = new Date().toISOString()
+      h.db.insert(crawlerEventsHourly).values({
+        projectId: projectRow.id,
+        sourceId: crSourceId,
+        tsHour: sentinelHourIso,
+        botId: 'openai-gptbot',
+        operator: 'OpenAI',
+        verificationStatus: 'claimed_unverified',
+        pathNormalized: '/cloud-run-only',
+        status: 200,
+        hits: 42,
+        sampledUserAgent: 'GPTBot/1.0',
+        createdAt: seedTime,
+        updatedAt: seedTime,
+      }).run()
+
+      const submitRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${wpSourceId}/backfill`,
+        payload: { days: 1 },
+      })
+      const submitted = JSON.parse(submitRes.payload)
+      const finalRun = await waitForRunComplete(h.db, submitted.runId)
+      expect(finalRun.status).toBe(RunStatuses.completed)
+
+      // The Cloud Run bucket must still exist exactly as seeded.
+      const crBuckets = h.db
+        .select()
+        .from(crawlerEventsHourly)
+        .where(eq(crawlerEventsHourly.sourceId, crSourceId))
+        .all()
+      expect(crBuckets.length).toBe(1)
+      expect(crBuckets[0].hits).toBe(42)
+      expect(crBuckets[0].pathNormalized).toBe('/cloud-run-only')
+
+      // And the WP source got its own bucket from the backfill pull.
+      const wpBuckets = h.db
+        .select()
+        .from(crawlerEventsHourly)
+        .where(eq(crawlerEventsHourly.sourceId, wpSourceId))
+        .all()
+      expect(wpBuckets.length).toBe(1)
+      expect(wpBuckets[0].pathNormalized).toBe('/wp-only')
     } finally {
       await h.close()
     }
