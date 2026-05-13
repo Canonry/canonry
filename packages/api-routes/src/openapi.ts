@@ -1407,6 +1407,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'query', in: 'query', description: 'Filter by search query.', schema: stringSchema },
       { name: 'page', in: 'query', description: 'Filter by page URL.', schema: stringSchema },
       limitQueryParameter,
+      offsetQueryParameter,
       analyticsWindowParameter,
     ],
     responses: {

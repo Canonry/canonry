@@ -67,6 +67,8 @@ export function GscSection({
     page: '',
     limit: '20',
   })
+  const [performanceOffset, setPerformanceOffset] = useState(0)
+  const [performanceHasMore, setPerformanceHasMore] = useState(false)
   const [inspectionFilterUrl, setInspectionFilterUrl] = useState('')
   const [loading, setLoading] = useState(true)
   const [connecting, setConnecting] = useState(false)
@@ -130,15 +132,22 @@ export function GscSection({
     }
   }
 
-  async function loadPerformanceRows() {
+  async function loadPerformanceRows(offsetOverride?: number) {
     setLoadingPerformance(true)
+    const offset = offsetOverride ?? performanceOffset
     try {
+      const pageSize = parseInt(performanceFilters.limit, 10) || 20
+      // Fetch one extra row to detect whether a next page exists without a
+      // separate COUNT query — backed off when the API trims the result back
+      // to `pageSize` for display.
+      const fetchLimit = pageSize + 1
       const filters = {
         startDate: performanceFilters.startDate,
         endDate: performanceFilters.endDate,
         query: performanceFilters.query,
         page: performanceFilters.page,
-        limit: performanceFilters.limit,
+        limit: String(fetchLimit),
+        offset: String(offset),
         window: gscWindow,
       }
       const rows = await queryClient.fetchQuery({
@@ -148,14 +157,17 @@ export function GscSection({
           endDate: performanceFilters.endDate || undefined,
           query: performanceFilters.query || undefined,
           page: performanceFilters.page || undefined,
-          limit: parseInt(performanceFilters.limit, 10) || 20,
+          limit: fetchLimit,
+          offset,
           window: gscWindow,
         }),
         staleTime: GSC_STALE_MS,
       })
-      setPerformance(rows)
+      setPerformanceHasMore(rows.length > pageSize)
+      setPerformance(rows.slice(0, pageSize))
     } catch (err) {
       setPerformance([])
+      setPerformanceHasMore(false)
       setError(err instanceof Error ? err.message : 'Failed to load GSC performance data')
     } finally {
       setLoadingPerformance(false)
@@ -352,7 +364,8 @@ export function GscSection({
   }, [projectName])
 
   useEffect(() => {
-    void loadPerformanceRows()
+    setPerformanceOffset(0)
+    void loadPerformanceRows(0)
   }, [gscWindow])
 
   async function handleConnect() {
@@ -492,7 +505,7 @@ export function GscSection({
             ))}
           </div>
           {gscConn && (
-            <Button type="button" variant="outline" size="sm" disabled={loadingPerformance} onClick={() => void loadPerformanceRows()}>
+            <Button type="button" variant="outline" size="sm" disabled={loadingPerformance} onClick={() => { setPerformanceOffset(0); void loadPerformanceRows(0) }}>
               {loadingPerformance ? 'Refreshing\u2026' : 'Refresh data'}
             </Button>
           )}
@@ -944,7 +957,7 @@ export function GscSection({
                     <p className="eyebrow eyebrow-soft">Performance</p>
                     <h3>Search performance</h3>
                   </div>
-                  <Button type="button" variant="outline" size="sm" disabled={loadingPerformance} onClick={() => void loadPerformanceRows()}>
+                  <Button type="button" variant="outline" size="sm" disabled={loadingPerformance} onClick={() => { setPerformanceOffset(0); void loadPerformanceRows(0) }}>
                     {loadingPerformance ? 'Loading\u2026' : 'Apply filters'}
                   </Button>
                 </div>
@@ -1100,54 +1113,97 @@ export function GscSection({
                   />
                 </div>
                 {performance.length > 0 ? (
-                  <div className="mt-3 overflow-x-auto">
-                    <table className="data-table w-full text-sm">
-                      <thead>
-                        <tr>
-                          <th className="text-left">Date</th>
-                          <th className="text-left">Query</th>
-                          <th className="text-left">Page</th>
-                          {Object.values(SearchMetric).map((col) => (
-                            <th
-                              key={col}
-                              className="text-right"
-                              aria-sort={perfSort?.key === col ? (perfSort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
-                            >
-                              <button
-                                type="button"
-                                className="w-full cursor-pointer select-none text-right hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 rounded px-1 -mx-1"
-                                onClick={() =>
-                                  setPerfSort((prev) =>
-                                    prev?.key === col
-                                      ? prev.dir === 'desc'
-                                        ? { key: col, dir: 'asc' }
-                                        : null
-                                      : { key: col, dir: 'desc' },
-                                  )
-                                }
+                  <>
+                    <div className="mt-3 overflow-x-auto">
+                      <table className="data-table w-full text-sm">
+                        <thead>
+                          <tr>
+                            <th className="text-left">Date</th>
+                            <th className="text-left">Query</th>
+                            <th className="text-left">Page</th>
+                            {Object.values(SearchMetric).map((col) => (
+                              <th
+                                key={col}
+                                className="text-right"
+                                aria-sort={perfSort?.key === col ? (perfSort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
                               >
-                                {SEARCH_METRIC_LABELS[col]}
-                                {perfSort?.key === col ? (perfSort.dir === 'desc' ? ' \u2193' : ' \u2191') : ''}
-                              </button>
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sortedPerformance.map((row, i) => (
-                          <tr key={`${row.date}:${row.query}:${row.page}:${i}`}>
-                            <td className="text-zinc-400">{row.date}</td>
-                            <td className="max-w-xs truncate text-zinc-200">{row.query}</td>
-                            <td className="max-w-xs truncate text-zinc-400">{row.page}</td>
-                            <td className="text-right tabular-nums text-zinc-300">{row.clicks.toLocaleString()}</td>
-                            <td className="text-right tabular-nums text-zinc-400">{row.impressions.toLocaleString()}</td>
-                            <td className="text-right tabular-nums text-zinc-400">{(Number.isFinite(row.ctr) ? row.ctr * 100 : 0).toFixed(1)}%</td>
-                            <td className="text-right tabular-nums text-zinc-400">{row.position.toFixed(1)}</td>
+                                <button
+                                  type="button"
+                                  className="w-full cursor-pointer select-none text-right hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 rounded px-1 -mx-1"
+                                  onClick={() =>
+                                    setPerfSort((prev) =>
+                                      prev?.key === col
+                                        ? prev.dir === 'desc'
+                                          ? { key: col, dir: 'asc' }
+                                          : null
+                                        : { key: col, dir: 'desc' },
+                                    )
+                                  }
+                                >
+                                  {SEARCH_METRIC_LABELS[col]}
+                                  {perfSort?.key === col ? (perfSort.dir === 'desc' ? ' \u2193' : ' \u2191') : ''}
+                                </button>
+                              </th>
+                            ))}
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody>
+                          {sortedPerformance.map((row, i) => (
+                            <tr key={`${row.date}:${row.query}:${row.page}:${i}`}>
+                              <td className="text-zinc-400">{row.date}</td>
+                              <td className="max-w-xs truncate text-zinc-200">{row.query}</td>
+                              <td className="max-w-xs truncate text-zinc-400">{row.page}</td>
+                              <td className="text-right tabular-nums text-zinc-300">{row.clicks.toLocaleString()}</td>
+                              <td className="text-right tabular-nums text-zinc-400">{row.impressions.toLocaleString()}</td>
+                              <td className="text-right tabular-nums text-zinc-400">{(Number.isFinite(row.ctr) ? row.ctr * 100 : 0).toFixed(1)}%</td>
+                              <td className="text-right tabular-nums text-zinc-400">{row.position.toFixed(1)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {(performanceOffset > 0 || performanceHasMore) && (() => {
+                      const pageSize = parseInt(performanceFilters.limit, 10) || 20
+                      const from = performanceOffset + 1
+                      const to = performanceOffset + performance.length
+                      return (
+                        <div className="mt-3 flex items-center justify-between text-xs text-zinc-500">
+                          <span className="tabular-nums">
+                            Showing {from.toLocaleString()}{' \u2013 '}{to.toLocaleString()}
+                            {performanceHasMore ? '+' : ''}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={loadingPerformance || performanceOffset === 0}
+                              onClick={() => {
+                                const next = Math.max(0, performanceOffset - pageSize)
+                                setPerformanceOffset(next)
+                                void loadPerformanceRows(next)
+                              }}
+                            >
+                              Previous
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={loadingPerformance || !performanceHasMore}
+                              onClick={() => {
+                                const next = performanceOffset + pageSize
+                                setPerformanceOffset(next)
+                                void loadPerformanceRows(next)
+                              }}
+                            >
+                              Next
+                            </Button>
+                          </div>
+                        </div>
+                      )
+                    })()}
+                  </>
                 ) : (
                   <p className="mt-3 text-sm text-zinc-500">No performance rows match the current filters yet.</p>
                 )}

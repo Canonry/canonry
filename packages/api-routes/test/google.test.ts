@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
-import { createClient, migrate, projects, runs, gscCoverageSnapshots, gscUrlInspections } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs, gscCoverageSnapshots, gscUrlInspections, gscSearchData } from '@ainyc/canonry-db'
 import { AppError } from '@ainyc/canonry-contracts'
 import { googleRoutes } from '../src/google.js'
 
@@ -1217,5 +1217,127 @@ describe('googleRoutes: performance filter conditions', () => {
     expect(conditions).toContain('date <= ?')
     expect(conditions).toContain('query LIKE ?')
     expect(conditions).toContain('page LIKE ?')
+  })
+})
+
+describe('googleRoutes: GET /projects/:name/google/gsc/performance offset pagination', () => {
+  let context: ReturnType<typeof buildApp>
+  let projectId: string
+
+  beforeEach(async () => {
+    context = buildApp({ googleClientId: 'cid', googleClientSecret: 'csec' })
+    await context.app.ready()
+    projectId = crypto.randomUUID()
+    const now = '2026-01-01T00:00:00.000Z'
+    context.db.insert(projects).values({
+      id: projectId,
+      name: 'perf',
+      displayName: 'Perf',
+      canonicalDomain: 'perf.example.com',
+      country: 'US',
+      language: 'en',
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+    const syncRunId = crypto.randomUUID()
+    context.db.insert(runs).values({
+      id: syncRunId,
+      projectId,
+      kind: 'gsc-sync',
+      status: 'completed',
+      trigger: 'manual',
+      createdAt: now,
+    }).run()
+    // Seed 6 rows with distinct dates so we can identify each page of results
+    // by date. Ordered by date desc, the rows return: d6, d5, d4, d3, d2, d1.
+    for (let i = 1; i <= 6; i++) {
+      const date = `2026-01-0${i}`
+      context.db.insert(gscSearchData).values({
+        id: crypto.randomUUID(),
+        projectId,
+        syncRunId,
+        date,
+        query: `q${i}`,
+        page: `/p${i}`,
+        country: 'usa',
+        device: 'DESKTOP',
+        impressions: i * 10,
+        clicks: i,
+        ctr: '0.1',
+        position: String(i + 1),
+        createdAt: now,
+      }).run()
+    }
+  })
+
+  afterEach(async () => {
+    await context.app.close()
+    fs.rmSync(context.tmpDir, { recursive: true, force: true })
+  })
+
+  it('paginates rows by offset (issue #470 — drizzle .offset() must apply)', async () => {
+    const page1 = await context.app.inject({
+      method: 'GET',
+      url: '/projects/perf/google/gsc/performance?limit=2&offset=0',
+    })
+    expect(page1.statusCode).toBe(200)
+    const rows1 = page1.json() as Array<{ date: string }>
+    expect(rows1.map(r => r.date)).toEqual(['2026-01-06', '2026-01-05'])
+
+    const page2 = await context.app.inject({
+      method: 'GET',
+      url: '/projects/perf/google/gsc/performance?limit=2&offset=2',
+    })
+    expect(page2.statusCode).toBe(200)
+    const rows2 = page2.json() as Array<{ date: string }>
+    expect(rows2.map(r => r.date)).toEqual(['2026-01-04', '2026-01-03'])
+
+    const page3 = await context.app.inject({
+      method: 'GET',
+      url: '/projects/perf/google/gsc/performance?limit=2&offset=4',
+    })
+    expect(page3.statusCode).toBe(200)
+    const rows3 = page3.json() as Array<{ date: string }>
+    expect(rows3.map(r => r.date)).toEqual(['2026-01-02', '2026-01-01'])
+
+    // Past the end returns an empty page (not the same first page).
+    const page4 = await context.app.inject({
+      method: 'GET',
+      url: '/projects/perf/google/gsc/performance?limit=2&offset=6',
+    })
+    expect(page4.statusCode).toBe(200)
+    expect(page4.json()).toEqual([])
+  })
+
+  it('treats omitted offset as 0 and behaves identically to offset=0', async () => {
+    const noOffset = await context.app.inject({
+      method: 'GET',
+      url: '/projects/perf/google/gsc/performance?limit=3',
+    })
+    const withZero = await context.app.inject({
+      method: 'GET',
+      url: '/projects/perf/google/gsc/performance?limit=3&offset=0',
+    })
+    expect(noOffset.statusCode).toBe(200)
+    expect(withZero.statusCode).toBe(200)
+    expect(noOffset.json()).toEqual(withZero.json())
+  })
+
+  it('clamps negative or non-numeric offset to 0', async () => {
+    const res = await context.app.inject({
+      method: 'GET',
+      url: '/projects/perf/google/gsc/performance?limit=2&offset=-5',
+    })
+    expect(res.statusCode).toBe(200)
+    const rows = res.json() as Array<{ date: string }>
+    expect(rows.map(r => r.date)).toEqual(['2026-01-06', '2026-01-05'])
+
+    const garbage = await context.app.inject({
+      method: 'GET',
+      url: '/projects/perf/google/gsc/performance?limit=2&offset=abc',
+    })
+    expect(garbage.statusCode).toBe(200)
+    const garbageRows = garbage.json() as Array<{ date: string }>
+    expect(garbageRows.map(r => r.date)).toEqual(['2026-01-06', '2026-01-05'])
   })
 })

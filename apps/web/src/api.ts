@@ -713,7 +713,7 @@ export function triggerGscSync(project: string, opts?: { days?: number; full?: b
 
 export function fetchGscPerformance(
   project: string,
-  params?: { startDate?: string; endDate?: string; query?: string; page?: string; limit?: number; window?: MetricsWindow },
+  params?: { startDate?: string; endDate?: string; query?: string; page?: string; limit?: number; offset?: number; window?: MetricsWindow },
 ): Promise<ApiGscPerformanceRow[]> {
   const qs = new URLSearchParams()
   if (params?.startDate) qs.set('startDate', params.startDate)
@@ -722,6 +722,7 @@ export function fetchGscPerformance(
   if (params?.query) qs.set('query', params.query)
   if (params?.page) qs.set('page', params.page)
   if (params?.limit !== undefined) qs.set('limit', String(params.limit))
+  if (params?.offset !== undefined && params.offset > 0) qs.set('offset', String(params.offset))
   const query = qs.toString() ? `?${qs.toString()}` : ''
   return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/performance${query}`)
 }
