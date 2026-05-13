@@ -19,6 +19,7 @@ use Canonry\TrafficLogger\Test\TestCase;
 final class SettingsPageTest extends TestCase {
     public function setUp(): void {
         wpshim_reset();
+        canonry_traffic_logger_register_hooks();
         \Canonry\TrafficLogger\Plugin::activate();
     }
 

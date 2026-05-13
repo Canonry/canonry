@@ -1,8 +1,16 @@
 <?php
 /**
- * Plugin lifecycle: activate / uninstall. Deactivate is intentionally absent
- * — deactivating should not destroy data; the operator may re-activate later
- * and expect their event log to still be present.
+ * Plugin lifecycle: activate / uninstall + retention auto-prune.
+ *
+ * Deactivate is intentionally absent for the table: deactivating should not
+ * destroy data, the operator may re-activate later and expect their event
+ * log to still be present. We *do* unschedule the cron event on uninstall
+ * so a removed plugin does not leave a phantom hook behind.
+ *
+ * Retention auto-prune: WP-Cron runs `canonry_traffic_logger_prune` once a
+ * day, which deletes events older than the configured retention window
+ * (`canonry_traffic_logger_retention_days`, default 90, clamped to 7..365).
+ * The cron event is registered at activation and unscheduled at uninstall.
  */
 
 declare(strict_types=1);
@@ -12,6 +20,13 @@ namespace Canonry\TrafficLogger;
 final class Plugin {
     public const SCHEMA_VERSION = '1';
     public const SCHEMA_VERSION_OPTION = 'canonry_traffic_logger_schema_version';
+
+    public const RETENTION_OPTION = 'canonry_traffic_logger_retention_days';
+    public const RETENTION_DEFAULT = 90;
+    public const RETENTION_MIN = 7;
+    public const RETENTION_MAX = 365;
+
+    public const PRUNE_HOOK = 'canonry_traffic_logger_prune';
 
     public static function activate(): void {
         global $wpdb;
@@ -55,6 +70,14 @@ final class Plugin {
         if (get_option(self::SCHEMA_VERSION_OPTION, null) === null) {
             add_option(self::SCHEMA_VERSION_OPTION, self::SCHEMA_VERSION);
         }
+
+        // Schedule daily prune only if not already scheduled (re-activation
+        // should be idempotent and not push the next-fire timestamp forward).
+        if (function_exists('wp_next_scheduled') && function_exists('wp_schedule_event')) {
+            if (!wp_next_scheduled(self::PRUNE_HOOK)) {
+                wp_schedule_event(time() + DAY_IN_SECONDS_FALLBACK, 'daily', self::PRUNE_HOOK);
+            }
+        }
     }
 
     public static function uninstall(): void {
@@ -64,6 +87,50 @@ final class Plugin {
 
         delete_option(Recorder::SALT_OPTION);
         delete_option(self::SCHEMA_VERSION_OPTION);
+        delete_option(self::RETENTION_OPTION);
+
+        if (function_exists('wp_clear_scheduled_hook')) {
+            wp_clear_scheduled_hook(self::PRUNE_HOOK);
+        }
+    }
+
+    /**
+     * Resolve the configured retention window, clamping any out-of-range
+     * value to [RETENTION_MIN, RETENTION_MAX]. Non-numeric / unset values
+     * fall back to RETENTION_DEFAULT.
+     */
+    public static function retentionDays(): int {
+        $raw = get_option(self::RETENTION_OPTION, null);
+        if ($raw === null || $raw === '' || !is_numeric($raw)) {
+            return self::RETENTION_DEFAULT;
+        }
+        $n = (int) $raw;
+        if ($n < self::RETENTION_MIN) return self::RETENTION_MIN;
+        if ($n > self::RETENTION_MAX) return self::RETENTION_MAX;
+        return $n;
+    }
+
+    /**
+     * WP-Cron callback. Delete events older than the configured retention
+     * window. Stored timestamps are ISO 8601 UTC (`observed_at`), which
+     * sort lexicographically against any same-format cutoff string — so
+     * a simple `observed_at < <iso-cutoff>` comparison is sound.
+     */
+    public static function pruneExpired(): void {
+        global $wpdb;
+        $table = $wpdb->prefix . Recorder::TABLE;
+        $days = self::retentionDays();
+
+        try {
+            $cutoff = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))
+                ->modify('-' . $days . ' days')
+                ->format('Y-m-d\\TH:i:s.v\\Z');
+        } catch (\Throwable $e) {
+            return; // If we can't compute a cutoff, do nothing rather than wipe.
+        }
+
+        $sql = $wpdb->prepare("DELETE FROM {$table} WHERE observed_at < %s", $cutoff);
+        $wpdb->query($sql);
     }
 
     private static function generateSalt(): string {
@@ -72,4 +139,11 @@ final class Plugin {
         }
         return bin2hex(random_bytes(32));
     }
+}
+
+// WP defines DAY_IN_SECONDS in wp-includes/default-constants.php; provide a
+// fallback so the class loads in test/MU bootstrap environments that haven't
+// loaded constants yet.
+if (!defined('Canonry\\TrafficLogger\\DAY_IN_SECONDS_FALLBACK')) {
+    define('Canonry\\TrafficLogger\\DAY_IN_SECONDS_FALLBACK', defined('DAY_IN_SECONDS') ? DAY_IN_SECONDS : 86400);
 }
