@@ -375,10 +375,10 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
   // GET /projects/:name/google/gsc/performance
   app.get<{
     Params: { name: string }
-    Querystring: { startDate?: string; endDate?: string; query?: string; page?: string; limit?: string; window?: string }
+    Querystring: { startDate?: string; endDate?: string; query?: string; page?: string; limit?: string; offset?: string; window?: string }
   }>('/projects/:name/google/gsc/performance', async (request) => {
     const project = resolveProject(app.db, request.params.name)
-    const { startDate, endDate, query, page, limit } = request.query
+    const { startDate, endDate, query, page, limit, offset } = request.query
 
     // Window-based filtering: when no explicit startDate is provided,
     // use the window param to compute a cutoff date.
@@ -391,12 +391,20 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     if (query) conditions.push(sql`${gscSearchData.query} LIKE ${'%' + query + '%'}`)
     if (page) conditions.push(sql`${gscSearchData.page} LIKE ${'%' + page + '%'}`)
 
+    const limitVal = Math.max(parseInt(limit ?? '500', 10) || 0, 1)
+    const offsetVal = Math.max(parseInt(offset ?? '0', 10) || 0, 0)
+
+    // Always chain `.offset()` in a single expression — drizzle 0.45 on
+    // better-sqlite3 silently drops `.offset()` when called separately on a
+    // saved query builder (issue #470). The single-expression chain matches
+    // the working pattern used in backlinks.ts.
     const rows = app.db
       .select()
       .from(gscSearchData)
       .where(and(...conditions))
       .orderBy(desc(gscSearchData.date))
-      .limit(parseInt(limit ?? '500', 10))
+      .limit(limitVal)
+      .offset(offsetVal)
       .all()
 
     return rows.map((r) => ({
