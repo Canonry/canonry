@@ -27,15 +27,16 @@ defines the wire contract this plugin satisfies (`WordpressTrafficEventPayload`,
 plugin/
   canonry-traffic-logger.php    Main plugin file: WP header, hook wiring
   includes/
-    class-plugin.php            Activation + uninstall (table, salt, schema-version option)
+    class-plugin.php            Activation + uninstall + retention prune callback
     class-recorder.php          Request -> row writer (shutdown hook entry point)
     class-rest.php              GET /wp-json/canonry/v1/events handler + cursor pagination
     class-ip-hasher.php         Pure sha256-prefix hashing utility
+    class-settings-page.php     Settings → Canonry Traffic Logger admin form
 test/
   run-tests.php                 Discovers *Test.php, runs every public test_* method
   lib/TestCase.php              Minimal assertion API (no PHPUnit dependency)
   lib/WpShim.php                In-memory stub of the WP API surface the plugin touches
-  *Test.php                     Test cases (Activation, Ingestion, IpHash, EndpointAuth, CursorPagination, Uninstall)
+  *Test.php                     Test cases (Activation, Ingestion, IpHash, EndpointAuth, CursorPagination, Uninstall, Retention, SettingsPage)
 ```
 
 ## Auth
@@ -66,17 +67,24 @@ again after the request hook returns.
   the salt while keeping collisions inside a single rolling window negligible
   for any plausible visitor volume.
 
-## What's out of scope (wave 2)
+## What's in scope (wave 2 shipped)
 
-The following are deliberately deferred:
+- **Retention auto-prune.** WP-Cron event `canonry_traffic_logger_prune` runs
+  daily, deleting events older than `canonry_traffic_logger_retention_days`
+  (default 90, clamped to 7–365). Scheduled at activation, cleared at
+  uninstall.
+- **Settings page.** `Settings → Canonry Traffic Logger` renders the
+  retention input, the current event count, and the oldest event
+  timestamp. Capability gate: `manage_options`.
 
-- Settings page / admin UI (no UI; everything is hook-driven).
-- Retention / auto-prune of old events (server keeps everything; operator
-  drops the table or uses MySQL TTL).
-- Salt rotation UI.
-- "Test endpoint" admin button.
-- Multisite-aware activation (works in single-site mode only; multisite ships
-  in wave 2).
+## What's out of scope (deferred)
+
+- Salt rotation UI. The operator can edit the `canonry_traffic_logger_ip_salt`
+  option in `wp_options` directly (or via WP-CLI) if rotation is needed.
+- "Test endpoint" admin button. The operator can curl the REST endpoint
+  with a WP Application Password.
+- Multisite-aware activation (works in single-site mode only; multisite
+  ships in a future slice — table-per-site vs shared with `blog_id`).
 
 ## Testing
 
@@ -105,7 +113,14 @@ Test files cover:
   shape matches `WordpressTrafficEventsResponseBody`.
 - **CursorPaginationTest** — three-page walk in `(observed_at, id)` order;
   invalid cursor → 400.
-- **UninstallTest** — table dropped + options deleted.
+- **UninstallTest** — table dropped + options deleted; scheduled prune cleared.
+- **RetentionTest** — daily cron scheduled at activation, cleared at
+  uninstall; `pruneExpired()` deletes rows older than the configured
+  window; clamps to 7..365; default 90 when unset.
+- **SettingsPageTest** — admin options page registered under Settings;
+  retention setting registered with clamp-to-range sanitizer; render
+  requires `manage_options` and shows current retention + event count
+  + oldest event.
 
 ## See also
 
