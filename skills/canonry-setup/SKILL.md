@@ -88,7 +88,7 @@ GA4 is a first-class signal alongside citation tracking. Connect once with `cano
 | `references/aeo-analysis.md` | Interpreting sweep output, diagnosing regressions, planning content fixes |
 | `references/indexing.md` | Submitting URLs, checking GSC/Bing coverage, fixing indexing gaps |
 | `references/wordpress-integration.md` | Connecting to WordPress, editing pages, pushing staging → live |
-| `references/server-side-traffic.md` | Wiring server-log evidence (Cloud Run today; WordPress / others later) for AI Visibility — Server-Side. Connect, sync, manage sources, troubleshoot. |
+| `references/server-side-traffic.md` | Wiring server-log evidence (Cloud Run + WordPress adapters; more planned) for AI Visibility — Server-Side. Connect, sync, manage sources, troubleshoot. |
 
 ---
 

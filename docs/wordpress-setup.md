@@ -5,7 +5,7 @@ Canonry integrates with WordPress through the core REST API using **Application 
 - **Automated via REST:** page reads and writes, title/slug/content updates, page audits, staging-vs-live diffs, and SEO meta updates when the site exposes writable REST meta fields.
 - **Manual-assist only:** `llms.txt`, schema injection, and WP STAGING push-to-live. Canonry generates the content and next steps, but it does not click wp-admin buttons or write arbitrary files on the server.
 
-There is currently **no WordPress web UI** in canonry. Use the CLI or API.
+Content operations are CLI/API-first. The dashboard can connect a WordPress server-log traffic source under `/traffic`, but page/content automation remains on the CLI and API.
 
 ---
 
