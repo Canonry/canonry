@@ -2,9 +2,9 @@ import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-describe('canonry setup skill metadata', () => {
+describe('canonry skill metadata', () => {
   it('points install metadata at the published canonry package', () => {
-    const skillPath = fileURLToPath(new URL('../../../skills/canonry-setup/SKILL.md', import.meta.url))
+    const skillPath = fileURLToPath(new URL('../../../skills/canonry/SKILL.md', import.meta.url))
     const body = fs.readFileSync(skillPath, 'utf-8')
 
     expect(body).toContain('"package": "@ainyc/canonry"')

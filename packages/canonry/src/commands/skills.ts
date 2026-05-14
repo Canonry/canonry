@@ -13,7 +13,7 @@ import { CliError } from '../cli-error.js'
 export { CodingAgents, SkillsClients }
 export type { CodingAgent, SkillsClient }
 
-export const BUNDLED_SKILL_NAMES = ['canonry-setup', 'aero'] as const
+export const BUNDLED_SKILL_NAMES = ['canonry', 'aero'] as const
 export type BundledSkillName = (typeof BUNDLED_SKILL_NAMES)[number]
 
 export interface BundledSkillInfo {

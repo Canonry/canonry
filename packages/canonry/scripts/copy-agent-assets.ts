@@ -14,7 +14,7 @@ const pkgRoot = path.resolve(__dirname, '..')
 const repoRoot = path.resolve(pkgRoot, '../..')
 const targetDir = path.join(pkgRoot, 'assets', 'agent-workspace', 'skills')
 
-const MANAGED_SKILLS = ['aero', 'canonry-setup']
+const MANAGED_SKILLS = ['aero', 'canonry']
 
 function copyDirRecursive(src: string, dest: string) {
   fs.mkdirSync(dest, { recursive: true })

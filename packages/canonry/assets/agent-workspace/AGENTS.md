@@ -78,7 +78,7 @@ Provider APIs have rate limits. Follow these guidelines:
 
 Reference skills are available in `skills/` for domain-specific guidance:
 
-- `skills/canonry-setup/` -- Canonry installation and configuration reference
+- `skills/canonry/` -- Canonry operator playbook
 
 ## Error Handling
 
