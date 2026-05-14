@@ -1600,10 +1600,12 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       }
     } else {
       // Vercel `request-logs` window backfill. Pulls the fixed
-      // `[windowStart, windowEnd]` window with a large page budget — replace
-      // mode (runBackfillTask clears + re-ingests the window) so a budget
-      // exhaustion here just means the operator can re-run with a narrower
-      // window; no incremental cursor is at risk.
+      // `[windowStart, windowEnd]` window with a large page budget. Backfill
+      // is replace mode — runBackfillTask deletes the window's rollup buckets
+      // before re-ingesting — so a truncated pull would wipe existing data
+      // and leave only a partial set. If the budget is exhausted with
+      // `hasMore` still true, fail loudly (mirrors the sync path) so the
+      // operator re-runs with a narrower `--days` instead of losing rows.
       const credentialStore = opts.vercelTrafficCredentialStore
       if (!credentialStore) {
         throw validationError('Vercel traffic credential storage is not configured for this deployment')
@@ -1632,6 +1634,11 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           endDate: windowEnd.getTime(),
           maxPages: BACKFILL_MAX_PAGES,
         })
+        if (page.hasMore) {
+          throw new Error(
+            `backfill window exceeded the ${BACKFILL_MAX_PAGES}-page budget — narrow the window with --days`,
+          )
+        }
         return page.events
       }
     }

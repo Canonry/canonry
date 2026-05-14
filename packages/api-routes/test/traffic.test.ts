@@ -942,6 +942,54 @@ describe('POST /traffic/sources/:id/backfill — Vercel', () => {
     }
   })
 
+  it('fails the backfill run when the window overflows the page budget (hasMore=true)', async () => {
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    // The adapter reports hasMore=true — the window has more pages than the
+    // backfill budget could drain. Backfill is replace mode, so a truncated
+    // pull would delete the window's existing rollups and leave only a
+    // partial set; the run must fail instead of completing.
+    const h = await buildHarness([], {
+      vercelPullPages: ({ maxPages }) => {
+        if (maxPages === 1) {
+          return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: false, endpoint: '' }
+        }
+        return {
+          events: [buildVercelEvent({ eventId: 'vercel:bf:overflow:1', userAgent: 'GPTBot/1.0', path: '/x', observedAt: baseTime.toISOString() })],
+          rawEntryCount: 1,
+          skippedEntryCount: 0,
+          hasMore: true,
+          endpoint: '',
+        }
+      },
+    })
+    try {
+      const sourceId = await connectVercel(h)
+
+      const submitRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`,
+        payload: { days: 7 },
+      })
+      expect(submitRes.statusCode).toBe(200)
+      const submitted = JSON.parse(submitRes.payload)
+
+      const finalRun = await waitForRunComplete(h.db, submitted.runId)
+      expect(finalRun.status).toBe(RunStatuses.failed)
+      expect(finalRun.error).toMatch(/page budget/)
+      expect(finalRun.error).toMatch(/--days/)
+
+      // Replace mode never ran — no rollup rows were written, and the
+      // source row carries the error.
+      expect(h.db.select().from(crawlerEventsHourly).all().length).toBe(0)
+      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      expect(sourceRow.status).toBe(TrafficSourceStatuses.error)
+      expect(sourceRow.lastError).toMatch(/page budget/)
+    } finally {
+      await h.close()
+    }
+  })
+
   it('returns validationError pointing to `canonry traffic connect vercel` when no Vercel credential is stored', async () => {
     const h = await buildHarness([])
     try {
