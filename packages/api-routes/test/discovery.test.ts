@@ -911,13 +911,24 @@ describe('POST /discover/sessions/:id/promote', () => {
     const { app, db, tmpDir } = buildAppWithRoutes()
     cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
     const { projectId } = seedProject(db)
-    // 25 new competitor domains, already sorted by hits desc (as the
-    // orchestrator persists the competitor map).
+    // 25 new competitor domains in intentionally unsorted order. The promote
+    // route sorts defensively instead of relying on the orchestrator's persisted
+    // order before applying the cap.
     const competitorMap = Array.from({ length: 25 }, (_, i) => ({
       domain: `comp-${String(i).padStart(2, '0')}.com`,
-      hits: 25 - i,
+      hits: i + 2,
     }))
     const sessionId = seedSession(db, projectId, { competitorMap })
+
+    const preview = await app.inject({
+      method: 'GET',
+      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+    })
+    expect(preview.statusCode).toBe(200)
+    expect((preview.json() as { suggestedCompetitors: Array<{ domain: string; hits: number }> }).suggestedCompetitors[0]).toEqual({
+      domain: 'comp-24.com',
+      hits: 26,
+    })
 
     const response = await app.inject({
       method: 'POST',
@@ -927,8 +938,8 @@ describe('POST /discover/sessions/:id/promote', () => {
     expect(response.statusCode).toBe(200)
     const body = response.json() as DiscoveryPromoteResult
     expect(body.promoted.competitors).toHaveLength(20)
-    expect(body.promoted.competitors[0]).toBe('comp-00.com') // highest hits
-    expect(body.promoted.competitors).not.toContain('comp-20.com') // beyond the cap
+    expect(body.promoted.competitors[0]).toBe('comp-24.com') // highest hits
+    expect(body.promoted.competitors).not.toContain('comp-04.com') // beyond the cap
     expect(db.select().from(competitors).all()).toHaveLength(22) // 2 seeded + 20 promoted
   })
 

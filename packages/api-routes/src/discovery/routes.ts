@@ -429,5 +429,6 @@ function selectEligibleCompetitors(
 ): DiscoveryCompetitorMapEntry[] {
   return competitorMap
     .filter(entry => entry.hits >= DISCOVERY_PROMOTE_COMPETITOR_MIN_HITS)
+    .sort((a, b) => b.hits - a.hits || a.domain.localeCompare(b.domain))
     .slice(0, DISCOVERY_PROMOTE_COMPETITOR_CAP)
 }
