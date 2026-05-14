@@ -4,11 +4,14 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createClient, migrate, projects } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, trafficSources } from '@ainyc/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
 import type { GoogleConnectionRecord, GoogleConnectionStore } from '../src/google.js'
 import type { Ga4CredentialStore } from '../src/ga.js'
+import type { VercelTrafficCredentialRecord, VercelTrafficCredentialStore } from '../src/traffic.js'
+import { VercelLogsApiError } from '@ainyc/canonry-integration-vercel'
+import { TrafficSourceStatuses, TrafficSourceTypes } from '@ainyc/canonry-contracts'
 import type { DoctorReportDto } from '@ainyc/canonry-contracts'
 
 const refreshAccessTokenMock = vi.fn()
@@ -195,6 +198,102 @@ describe('GET /api/v1/projects/:name/doctor', () => {
       redirectUri: 'https://example.com/canonry/api/v1/google/callback',
     })
     await app.close()
+  })
+})
+
+describe('traffic.source.credentials — Vercel validator', () => {
+  function vercelStore(record?: VercelTrafficCredentialRecord): VercelTrafficCredentialStore {
+    return {
+      getConnection: (projectName) => (record && record.projectName === projectName ? record : undefined),
+      upsertConnection: (r) => r,
+      deleteConnection: () => true,
+    }
+  }
+
+  const validRecord: VercelTrafficCredentialRecord = {
+    projectName: 'demo',
+    projectId: 'prj_abc',
+    teamId: 'team_xyz',
+    token: 'vcp_test_token',
+    environment: 'production',
+    createdAt: '2026-04-01T00:00:00.000Z',
+    updatedAt: '2026-04-01T00:00:00.000Z',
+  }
+
+  function seedVercelSource(db: ReturnType<typeof createClient>) {
+    const projectRow = db.select().from(projects).all()[0]!
+    const now = new Date().toISOString()
+    db.insert(trafficSources).values({
+      id: 'src_vercel_doctor',
+      projectId: projectRow.id,
+      sourceType: TrafficSourceTypes.vercel,
+      displayName: 'Vercel · prj_abc',
+      status: TrafficSourceStatuses.connected,
+      configJson: JSON.stringify({ projectId: 'prj_abc', teamId: 'team_xyz', environment: 'production' }),
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+  }
+
+  async function runCredentialsCheck(opts: Partial<ApiRoutesOptions>): Promise<DoctorReportDto> {
+    const { app, db } = buildApp(opts)
+    seedVercelSource(db)
+    await app.ready()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/demo/doctor?check=traffic.source.credentials',
+    })
+    expect(res.statusCode).toBe(200)
+    const body = JSON.parse(res.payload) as DoctorReportDto
+    await app.close()
+    return body
+  }
+
+  it('returns ok when the request-logs probe succeeds', async () => {
+    const body = await runCredentialsCheck({
+      vercelTrafficCredentialStore: vercelStore(validRecord),
+      pullVercelTrafficEvents: async () => ({
+        events: [],
+        rawEntryCount: 0,
+        skippedEntryCount: 0,
+        hasMore: false,
+        endpoint: 'https://vercel.com/api/logs/request-logs',
+      }),
+    })
+    const check = body.checks.find((c) => c.id === 'traffic.source.credentials')!
+    expect(check.status).toBe('ok')
+    expect(check.code).toBe('traffic.credentials.ok')
+  })
+
+  it('fails with traffic.credentials.unauthorized on a 403 from request-logs', async () => {
+    const body = await runCredentialsCheck({
+      vercelTrafficCredentialStore: vercelStore(validRecord),
+      pullVercelTrafficEvents: async () => {
+        throw new VercelLogsApiError('Forbidden', 403, 'bad token')
+      },
+    })
+    const check = body.checks.find((c) => c.id === 'traffic.source.credentials')!
+    expect(check.status).toBe('fail')
+    const detail = check.details as { sources: Array<{ code: string }> }
+    expect(detail.sources[0]!.code).toBe('traffic.credentials.unauthorized')
+  })
+
+  it('fails with traffic.credentials.missing when no credential is stored', async () => {
+    const body = await runCredentialsCheck({
+      // Store has no record for this project.
+      vercelTrafficCredentialStore: vercelStore(),
+      pullVercelTrafficEvents: async () => ({
+        events: [],
+        rawEntryCount: 0,
+        skippedEntryCount: 0,
+        hasMore: false,
+        endpoint: 'https://vercel.com/api/logs/request-logs',
+      }),
+    })
+    const check = body.checks.find((c) => c.id === 'traffic.source.credentials')!
+    expect(check.status).toBe('fail')
+    const detail = check.details as { sources: Array<{ code: string }> }
+    expect(detail.sources[0]!.code).toBe('traffic.credentials.missing')
   })
 })
 

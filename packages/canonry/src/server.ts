@@ -46,6 +46,11 @@ import {
   removeWordpressTrafficConnection,
 } from './wordpress-traffic-config.js'
 import {
+  getVercelTrafficConnection,
+  upsertVercelTrafficConnection,
+  removeVercelTrafficConnection,
+} from './vercel-traffic-config.js'
+import {
   getWordpressConnection,
   patchWordpressConnection,
   removeWordpressConnection,
@@ -564,6 +569,32 @@ export async function createServer(opts: {
     },
   } as const
 
+  // Vercel traffic credential store — stores Vercel API tokens in
+  // ~/.canonry/config.yaml under `vercelTraffic.connections`.
+  const vercelTrafficCredentialStore = {
+    getConnection: (projectName: string) => {
+      return getVercelTrafficConnection(opts.config, projectName)
+    },
+    upsertConnection: (record: {
+      projectName: string
+      projectId: string
+      teamId: string
+      token: string
+      environment: 'production' | 'preview'
+      createdAt: string
+      updatedAt: string
+    }) => {
+      const updated = upsertVercelTrafficConnection(opts.config, record)
+      saveConfigPatch(opts.config)
+      return updated
+    },
+    deleteConnection: (projectName: string) => {
+      const removed = removeVercelTrafficConnection(opts.config, projectName)
+      if (removed) saveConfigPatch(opts.config)
+      return removed
+    },
+  } as const
+
   const googleStateSecret = process.env.GOOGLE_STATE_SECRET ?? crypto.randomBytes(32).toString('hex')
 
   const googleConnectionStore = {
@@ -1036,6 +1067,7 @@ export async function createServer(opts: {
     ga4CredentialStore,
     cloudRunCredentialStore,
     wordpressTrafficCredentialStore,
+    vercelTrafficCredentialStore,
     onTrafficSynced: (event) => {
       // Emit anonymous canonry telemetry for every sync (success + fail).
       // Same envelope shape as run.completed (top-level `errorCode` on

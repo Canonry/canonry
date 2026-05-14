@@ -47,6 +47,10 @@ import {
   listWordpressTrafficEvents,
   WordpressTrafficApiError,
 } from '@ainyc/canonry-integration-wordpress-traffic'
+import {
+  listVercelTrafficEvents,
+  VercelLogsApiError,
+} from '@ainyc/canonry-integration-vercel'
 import { doctorRoutes } from './doctor.js'
 import { discoveryRoutes } from './discovery/index.js'
 import type { DiscoveryRoutesOptions } from './discovery/index.js'
@@ -125,6 +129,10 @@ export interface ApiRoutesOptions {
   wordpressTrafficCredentialStore?: TrafficRoutesOptions['wordpressTrafficCredentialStore']
   /** Override WordPress traffic pull (tests) — see `TrafficRoutesOptions` */
   pullWordpressTrafficEvents?: TrafficRoutesOptions['pullWordpressTrafficEvents']
+  /** Vercel traffic credential store — stores Vercel API tokens in config, not DB */
+  vercelTrafficCredentialStore?: TrafficRoutesOptions['vercelTrafficCredentialStore']
+  /** Override Vercel traffic pull (tests) — see `TrafficRoutesOptions` */
+  pullVercelTrafficEvents?: TrafficRoutesOptions['pullVercelTrafficEvents']
   /** Fired after every traffic sync (success OR failure). Used by canonry to emit `traffic.synced` telemetry. */
   onTrafficSynced?: TrafficRoutesOptions['onTrafficSynced']
   /** Discovery feature callback — fires after a discovery_sessions row + matching runs row are inserted. */
@@ -292,6 +300,8 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       resolveCloudRunAccessToken: opts.resolveCloudRunAccessToken,
       wordpressTrafficCredentialStore: opts.wordpressTrafficCredentialStore,
       pullWordpressTrafficEvents: opts.pullWordpressTrafficEvents,
+      vercelTrafficCredentialStore: opts.vercelTrafficCredentialStore,
+      pullVercelTrafficEvents: opts.pullVercelTrafficEvents,
       onTrafficSynced: opts.onTrafficSynced,
     } satisfies TrafficRoutesOptions)
     // Always mount the backlinks routes so read endpoints (summary, domains,
@@ -449,6 +459,60 @@ function buildTrafficSourceValidators(opts: ApiRoutesOptions): Record<string, Tr
       // WordPress Application Passwords have no scope concept — auth is
       // strictly "valid credential or not". Surface a skipped result so the
       // framework is uniform without producing a false signal.
+      validateScopes: () => null,
+    }
+  }
+  if (opts.vercelTrafficCredentialStore) {
+    const store = opts.vercelTrafficCredentialStore
+    const pullEvents = opts.pullVercelTrafficEvents ?? listVercelTrafficEvents
+    validators[TrafficSourceTypes.vercel] = {
+      validateCredentials: async (source: TrafficSourceProbe): Promise<CheckOutput> => {
+        const record = store.getConnection(source.projectName)
+        if (!record) {
+          return {
+            status: CheckStatuses.fail,
+            code: 'traffic.credentials.missing',
+            summary: `No Vercel credential found in ~/.canonry/config.yaml for project "${source.projectName}".`,
+            remediation: 'Re-run `canonry traffic connect vercel <project> --project-id <prj> --team-id <team> --token <token>`.',
+          }
+        }
+        try {
+          // Tiny recent window — we only need an HTTP 2xx to confirm the
+          // token + project/team ids resolve against `request-logs`.
+          const probeEnd = Date.now()
+          await pullEvents({
+            token: record.token,
+            projectId: record.projectId,
+            teamId: record.teamId,
+            environment: record.environment,
+            startDate: probeEnd - 60 * 60_000,
+            endDate: probeEnd,
+            maxPages: 1,
+          })
+          return {
+            status: CheckStatuses.ok,
+            code: 'traffic.credentials.resolved',
+            summary: `Vercel request-logs responds for "${source.displayName}" (project ${record.projectId}).`,
+          }
+        } catch (e) {
+          const httpStatus = e instanceof VercelLogsApiError ? e.status : null
+          const msg = e instanceof Error ? e.message : String(e)
+          return {
+            status: CheckStatuses.fail,
+            code: httpStatus === 401 || httpStatus === 403
+              ? 'traffic.credentials.unauthorized'
+              : 'traffic.credentials.resolve-failed',
+            summary: httpStatus
+              ? `Vercel request-logs returned HTTP ${httpStatus}: ${msg}.`
+              : `Vercel request-logs probe failed: ${msg}.`,
+            remediation: 'Verify the Vercel API token is unexpired and the project / team ids are correct. Vercel tokens can expire — re-connect the source with a fresh token if needed.',
+          }
+        }
+      },
+      // Vercel API tokens have no granular per-resource scopes — a token
+      // inherits the user's team access, so there is no "missing scope"
+      // failure mode. Surface a skipped result so the framework stays
+      // uniform without producing a false signal.
       validateScopes: () => null,
     }
   }

@@ -199,6 +199,9 @@ importers:
       '@ainyc/canonry-integration-traffic':
         specifier: workspace:*
         version: link:../integration-traffic
+      '@ainyc/canonry-integration-vercel':
+        specifier: workspace:*
+        version: link:../integration-vercel
       '@ainyc/canonry-integration-wordpress':
         specifier: workspace:*
         version: link:../integration-wordpress

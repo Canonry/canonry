@@ -27,12 +27,19 @@ import type {
   WordpressTrafficEventsPage,
 } from '@ainyc/canonry-integration-wordpress-traffic'
 import { WordpressTrafficApiError } from '@ainyc/canonry-integration-wordpress-traffic'
+import type {
+  ListVercelTrafficEventsOptions,
+  VercelTrafficEventsPage,
+} from '@ainyc/canonry-integration-vercel'
+import { VercelLogsApiError } from '@ainyc/canonry-integration-vercel'
 import { apiRoutes } from '../src/index.js'
 import type {
   CloudRunCredentialRecord,
   CloudRunCredentialStore,
   WordpressTrafficCredentialRecord,
   WordpressTrafficCredentialStore,
+  VercelTrafficCredentialRecord,
+  VercelTrafficCredentialStore,
 } from '../src/traffic.js'
 
 function buildEvent(overrides: Partial<NormalizedTrafficRequest> = {}): NormalizedTrafficRequest {
@@ -69,6 +76,17 @@ function buildWpEvent(overrides: Partial<NormalizedTrafficRequest> = {}): Normal
   })
 }
 
+function buildVercelEvent(overrides: Partial<NormalizedTrafficRequest> = {}): NormalizedTrafficRequest {
+  return buildEvent({
+    sourceType: 'vercel',
+    eventId: `vercel:${overrides.observedAt ?? '2026-05-07T17:32:00.000Z'}:${Math.floor(Math.random() * 1_000_000)}`,
+    // The Vercel request-logs endpoint does not expose a client IP.
+    remoteIp: null,
+    providerResource: { type: 'vercel_deployment', labels: {} },
+    ...overrides,
+  })
+}
+
 async function buildHarness(
   events: NormalizedTrafficRequest[],
   options: {
@@ -93,6 +111,22 @@ async function buildHarness(
       since: string | undefined
       until: string | undefined
     }) => WordpressTrafficEventsPage
+    /** Force the Vercel traffic pull (used for the connect probe) to throw a `VercelLogsApiError`. */
+    failVercelProbeWith?: { status: number; message: string; body?: string }
+    /** Force the Vercel traffic pull (used by sync / backfill) to throw an Error with this message. */
+    failVercelPullWith?: string
+    /**
+     * Programmable Vercel sync / backfill pull. When provided, replaces the
+     * default empty-page stub. The probe path (maxPages=1) is also routed
+     * through it unless `failVercelProbeWith` is set. A test exercises the
+     * hasMore-overflow path by returning `hasMore: true` from this callback.
+     */
+    vercelPullPages?: (call: {
+      startDate: number
+      endDate: number
+      maxPages: number | undefined
+      environment: string | undefined
+    }) => VercelTrafficEventsPage
   } = {},
 ) {
   const trafficSyncedEvents: Array<unknown> = []
@@ -122,6 +156,18 @@ async function buildHarness(
   }
 
   const wpProbeInvocations: ListWordpressTrafficEventsOptions[] = []
+
+  const vercelCredentials = new Map<string, VercelTrafficCredentialRecord>()
+  const vercelTrafficCredentialStore: VercelTrafficCredentialStore = {
+    getConnection: (projectName) => vercelCredentials.get(projectName),
+    upsertConnection: (record) => {
+      vercelCredentials.set(record.projectName, record)
+      return record
+    },
+    deleteConnection: (projectName) => vercelCredentials.delete(projectName),
+  }
+
+  const vercelProbeInvocations: ListVercelTrafficEventsOptions[] = []
 
   let pullInvocations = 0
   const observedWindows: Array<{ startTime: string; endTime: string }> = []
@@ -198,6 +244,44 @@ async function buildHarness(
         endpoint: `${pullOptions.baseUrl}/wp-json/canonry/v1/events`,
       }
     },
+    vercelTrafficCredentialStore,
+    pullVercelTrafficEvents: async (pullOptions): Promise<VercelTrafficEventsPage> => {
+      vercelProbeInvocations.push(pullOptions)
+      const toMs = (v: number | string | Date): number =>
+        typeof v === 'number' ? v : new Date(v).getTime()
+      // Probe path: connect-route + doctor validator call with maxPages=1 —
+      // surface the probe-failure injection here so the connect-route test
+      // works the same way the WordPress one does.
+      if (pullOptions.maxPages === 1 && options.failVercelProbeWith) {
+        throw new VercelLogsApiError(
+          options.failVercelProbeWith.message,
+          options.failVercelProbeWith.status,
+          options.failVercelProbeWith.body,
+        )
+      }
+      // `failVercelPullWith` simulates a sync/backfill-time failure. The
+      // connect route uses maxPages=1 for its probe — gate the injection on
+      // maxPages !== 1 so the harness can still connect successfully first.
+      if (pullOptions.maxPages !== 1 && options.failVercelPullWith) {
+        throw new Error(options.failVercelPullWith)
+      }
+      if (options.vercelPullPages) {
+        const page = options.vercelPullPages({
+          startDate: toMs(pullOptions.startDate),
+          endDate: toMs(pullOptions.endDate),
+          maxPages: pullOptions.maxPages,
+          environment: pullOptions.environment,
+        })
+        return { ...page, endpoint: 'https://vercel.com/api/logs/request-logs' }
+      }
+      return {
+        events: [],
+        rawEntryCount: 0,
+        skippedEntryCount: 0,
+        hasMore: false,
+        endpoint: 'https://vercel.com/api/logs/request-logs',
+      }
+    },
     onTrafficSynced: (event) => { trafficSyncedEvents.push(event) },
   })
   await app.ready()
@@ -219,12 +303,14 @@ async function buildHarness(
     db,
     credentials,
     wpCredentials,
+    vercelCredentials,
     tmpDir,
     getPullCount: () => pullInvocations,
     getObservedWindows: () => observedWindows,
     getObservedFirstSync: () => observedFirstSync,
     getTrafficSyncedEvents: () => trafficSyncedEvents,
     getWpProbeInvocations: () => wpProbeInvocations,
+    getVercelProbeInvocations: () => vercelProbeInvocations,
     close: async () => {
       await app.close()
       fs.rmSync(tmpDir, { recursive: true, force: true })
@@ -418,6 +504,471 @@ describe('POST /traffic/connect/wordpress', () => {
     expect(sources.length).toBe(1)
     const config = JSON.parse(sources[0].configJson) as Record<string, unknown>
     expect(config.username).toBe('new-bot')
+  })
+})
+
+describe('POST /traffic/connect/vercel', () => {
+  let h: Awaited<ReturnType<typeof buildHarness>>
+  beforeEach(async () => { h = await buildHarness([]) })
+  afterEach(async () => { await h.close() })
+
+  const validBody = {
+    projectId: 'prj_abc',
+    teamId: 'team_xyz',
+    token: 'vcp_test_token',
+  }
+
+  it('rejects requests with an empty projectId', async () => {
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: { ...validBody, projectId: '' },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('rejects requests with an empty token', async () => {
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: { ...validBody, token: '' },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('rejects requests with an invalid environment', async () => {
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: { ...validBody, environment: 'staging' },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('probes request-logs, persists the token, and creates the source row', async () => {
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: { ...validBody, environment: 'preview', displayName: 'Example Vercel' },
+    })
+    expect(res.statusCode).toBe(200)
+    const dto = JSON.parse(res.payload)
+    expect(dto.sourceType).toBe(TrafficSourceTypes.vercel)
+    expect(dto.status).toBe(TrafficSourceStatuses.connected)
+    expect(dto.displayName).toBe('Example Vercel')
+    expect(dto.config.projectId).toBe('prj_abc')
+    expect(dto.config.teamId).toBe('team_xyz')
+    expect(dto.config.environment).toBe('preview')
+    // The API token must never leak into the row config; it lives in
+    // ~/.canonry/config.yaml only.
+    expect(dto.config.token).toBeUndefined()
+
+    // Probe ran once (maxPages=1) before any persistence.
+    const probes = h.getVercelProbeInvocations()
+    expect(probes.length).toBe(1)
+    expect(probes[0]!.projectId).toBe('prj_abc')
+    expect(probes[0]!.maxPages).toBe(1)
+
+    const stored = h.vercelCredentials.get('test-project')
+    expect(stored?.token).toBe('vcp_test_token')
+    expect(stored?.environment).toBe('preview')
+
+    const sourceRows = h.db.select().from(trafficSources).all()
+    expect(sourceRows.length).toBe(1)
+    expect(sourceRows[0].sourceType).toBe(TrafficSourceTypes.vercel)
+  })
+
+  it('defaults environment to production when omitted', async () => {
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: validBody,
+    })
+    expect(res.statusCode).toBe(200)
+    expect(JSON.parse(res.payload).config.environment).toBe('production')
+    expect(h.vercelCredentials.get('test-project')?.environment).toBe('production')
+  })
+
+  it('returns 502 and persists nothing when the probe fails with a bad token', async () => {
+    await h.close()
+    h = await buildHarness([], {
+      failVercelProbeWith: { status: 403, message: 'Forbidden', body: 'bad token' },
+    })
+
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: validBody,
+    })
+    expect(res.statusCode).toBe(502)
+    expect(JSON.parse(res.payload).error.message).toMatch(/HTTP 403/)
+    // Probe ran but neither credential nor source row was written.
+    expect(h.vercelCredentials.get('test-project')).toBeUndefined()
+    expect(h.db.select().from(trafficSources).all().length).toBe(0)
+  })
+
+  it('reuses the existing source row on reconnect rather than creating a duplicate', async () => {
+    await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: validBody,
+    })
+    const second = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: { ...validBody, projectId: 'prj_new', teamId: 'team_new' },
+    })
+    expect(second.statusCode).toBe(200)
+    const sources = h.db.select().from(trafficSources).all()
+    expect(sources.length).toBe(1)
+    const config = JSON.parse(sources[0].configJson) as Record<string, unknown>
+    expect(config.projectId).toBe('prj_new')
+    expect(config.teamId).toBe('team_new')
+    // Credential record updated in place too.
+    expect(h.vercelCredentials.get('test-project')?.projectId).toBe('prj_new')
+  })
+})
+
+describe('POST /traffic/sources/:id/sync — Vercel', () => {
+  const vercelConnectBody = {
+    projectId: 'prj_abc',
+    teamId: 'team_xyz',
+    token: 'vcp_test_token',
+  }
+
+  async function connectVercel(h: Awaited<ReturnType<typeof buildHarness>>): Promise<string> {
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: vercelConnectBody,
+    })
+    if (res.statusCode !== 200) throw new Error(`connect failed: ${res.statusCode} ${res.payload}`)
+    return JSON.parse(res.payload).id
+  }
+
+  it('returns validationError pointing to `canonry traffic connect vercel` when no Vercel credential is stored', async () => {
+    // Seed a Vercel traffic source row WITHOUT going through the connect
+    // route, so the credential store stays empty. Sync must surface a helpful
+    // 400 that points to the connect CLI rather than a 500.
+    const h = await buildHarness([])
+    try {
+      const { projects } = await import('@ainyc/canonry-db')
+      const projectRow = h.db.select().from(projects).all()[0]
+      const now = new Date().toISOString()
+      h.db.insert(trafficSources).values({
+        id: 'src_vercel_orphan',
+        projectId: projectRow.id,
+        sourceType: TrafficSourceTypes.vercel,
+        displayName: 'orphan vercel',
+        status: TrafficSourceStatuses.connected,
+        configJson: JSON.stringify({ projectId: 'prj_abc', teamId: 'team_xyz', environment: 'production' }),
+        createdAt: now,
+        updatedAt: now,
+      }).run()
+
+      const res = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/sources/src_vercel_orphan/sync',
+        payload: {},
+      })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.payload).error.message).toMatch(/canonry traffic connect vercel/)
+      // The run row must not linger as 'running'.
+      expect(h.db.select().from(runs).all().length).toBe(0)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('drains the window, lands rollups, advances lastSyncedAt to windowEnd, and finalizes the run as completed', async () => {
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+
+    const events: NormalizedTrafficRequest[] = [
+      buildVercelEvent({ eventId: 'vercel:s:1', userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
+      buildVercelEvent({ eventId: 'vercel:s:2', userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(20) }),
+      buildVercelEvent({
+        eventId: 'vercel:s:3',
+        userAgent: 'Mozilla/5.0',
+        path: '/landing',
+        queryString: 'utm_source=chatgpt.com',
+        status: 200,
+        observedAt: fromBase(35),
+      }),
+    ]
+
+    const observedMaxPages: Array<number | undefined> = []
+    const h = await buildHarness([], {
+      vercelPullPages: ({ maxPages }) => {
+        observedMaxPages.push(maxPages)
+        // Probe call (maxPages=1) returns nothing; the real sync pull walks
+        // the whole window in one drained page (hasMore=false).
+        if (maxPages === 1) {
+          return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: false, endpoint: '' }
+        }
+        return { events, rawEntryCount: 3, skippedEntryCount: 0, hasMore: false, endpoint: '' }
+      },
+    })
+    try {
+      const sourceId = await connectVercel(h)
+
+      const syncRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      expect(syncRes.statusCode).toBe(200)
+      const body = JSON.parse(syncRes.payload)
+      expect(body.pulledEvents).toBe(3)
+      expect(body.crawlerHits).toBe(2)
+      expect(body.aiReferralHits).toBe(1)
+      expect(body.crawlerBucketRows).toBe(1)
+      expect(body.aiReferralBucketRows).toBe(1)
+      expect(body.sampleRows).toBe(3)
+      expect(body.runId).toBeDefined()
+
+      // The sync pull used the generous default page budget — not the
+      // probe's maxPages=1.
+      expect(observedMaxPages).toContain(50)
+
+      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      // Time-window adapter — no opaque cursor is persisted.
+      expect(sourceRow.lastCursor).toBeNull()
+      expect(sourceRow.lastSyncedAt).toBeTruthy()
+      expect(new Date(sourceRow.lastSyncedAt!).getTime()).toBeGreaterThan(0)
+      expect(sourceRow.lastError).toBeNull()
+      expect(sourceRow.status).toBe(TrafficSourceStatuses.connected)
+
+      const crawlerRows = h.db.select().from(crawlerEventsHourly).all()
+      expect(crawlerRows.length).toBe(1)
+      expect(crawlerRows[0].hits).toBe(2)
+      expect(crawlerRows[0].botId).toBe('openai-gptbot')
+
+      const aiRows = h.db.select().from(aiReferralEventsHourly).all()
+      expect(aiRows.length).toBe(1)
+      expect(aiRows[0].evidenceType).toBe('utm')
+      expect(aiRows[0].sessionsOrHits).toBe(1)
+
+      expect(h.db.select().from(rawEventSamples).all().length).toBe(3)
+
+      const runRows = h.db.select().from(runs).all()
+      expect(runRows.length).toBe(1)
+      expect(runRows[0].kind).toBe(RunKinds['traffic-sync'])
+      expect(runRows[0].status).toBe(RunStatuses.completed)
+      expect(runRows[0].sourceId).toBe(sourceId)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('fails loudly without advancing lastSyncedAt when the window overflows the page budget (hasMore=true)', async () => {
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    // The adapter reports hasMore=true — the window has more pages than the
+    // per-sync budget could drain. The sync must refuse to advance the cursor.
+    const h = await buildHarness([], {
+      vercelPullPages: ({ maxPages }) => {
+        if (maxPages === 1) {
+          return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: false, endpoint: '' }
+        }
+        return {
+          events: [buildVercelEvent({ eventId: 'vercel:overflow:1', userAgent: 'GPTBot/1.0', path: '/x', observedAt: baseTime.toISOString() })],
+          rawEntryCount: 1,
+          skippedEntryCount: 0,
+          hasMore: true,
+          endpoint: '',
+        }
+      },
+    })
+    try {
+      const sourceId = await connectVercel(h)
+
+      const syncRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      // providerError → 502; the message must point the operator at the fix.
+      expect(syncRes.statusCode).toBe(502)
+      expect(JSON.parse(syncRes.payload).error.message).toMatch(/page budget/)
+      expect(JSON.parse(syncRes.payload).error.message).toMatch(/--since-minutes/)
+
+      // The cursor must NOT advance — a partially-drained window means the
+      // next sync (or a narrower one) still has to cover it.
+      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      expect(sourceRow.lastSyncedAt).toBeNull()
+      expect(sourceRow.status).toBe(TrafficSourceStatuses.error)
+      expect(sourceRow.lastError).toMatch(/page budget/)
+
+      // Run finalized as failed; no rollup rows were written.
+      const runRows = h.db.select().from(runs).all()
+      expect(runRows.length).toBe(1)
+      expect(runRows[0].status).toBe(RunStatuses.failed)
+      expect(h.db.select().from(crawlerEventsHourly).all().length).toBe(0)
+
+      // Telemetry hook saw a failed sync with the PROVIDER_PULL error code.
+      const synced = h.getTrafficSyncedEvents() as Array<{ status: string; errorCode?: string }>
+      expect(synced.at(-1)?.status).toBe('failed')
+      expect(synced.at(-1)?.errorCode).toBe('PROVIDER_PULL')
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('returns 502 and marks the run failed when the Vercel pull throws', async () => {
+    const h = await buildHarness([], { failVercelPullWith: 'request-logs 500: gateway' })
+    try {
+      const sourceId = await connectVercel(h)
+      const syncRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+      expect(syncRes.statusCode).toBe(502)
+      expect(JSON.parse(syncRes.payload).error.message).toMatch(/Vercel pull failed/)
+
+      const sourceRow = h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!
+      expect(sourceRow.status).toBe(TrafficSourceStatuses.error)
+      expect(sourceRow.lastSyncedAt).toBeNull()
+
+      const runRows = h.db.select().from(runs).all()
+      expect(runRows.length).toBe(1)
+      expect(runRows[0].status).toBe(RunStatuses.failed)
+    } finally {
+      await h.close()
+    }
+  })
+})
+
+describe('POST /traffic/sources/:id/backfill — Vercel', () => {
+  const vercelConnectBody = {
+    projectId: 'prj_abc',
+    teamId: 'team_xyz',
+    token: 'vcp_test_token',
+  }
+
+  async function connectVercel(h: Awaited<ReturnType<typeof buildHarness>>): Promise<string> {
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/vercel',
+      payload: vercelConnectBody,
+    })
+    if (res.statusCode !== 200) throw new Error(`connect failed: ${res.statusCode} ${res.payload}`)
+    return JSON.parse(res.payload).id
+  }
+
+  async function waitForRunComplete(
+    db: ReturnType<typeof createClient>,
+    runId: string,
+    timeoutMs = 2000,
+  ): Promise<typeof runs.$inferSelect> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      const row = db.select().from(runs).where(eq(runs.id, runId)).get()
+      if (row && row.status !== RunStatuses.running) return row
+      await new Promise<void>((resolve) => setTimeout(resolve, 25))
+    }
+    throw new Error(`run ${runId} did not finish within ${timeoutMs}ms`)
+  }
+
+  it('returns runId + status=running synchronously, then pulls the window and replaces rollups', async () => {
+    const baseTime = new Date(Date.now() - 60 * 60_000)
+    baseTime.setMinutes(0, 0, 0)
+    const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
+
+    const events: NormalizedTrafficRequest[] = [
+      buildVercelEvent({ eventId: 'vercel:bf:1', userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
+      buildVercelEvent({ eventId: 'vercel:bf:2', userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(20) }),
+      buildVercelEvent({
+        eventId: 'vercel:bf:3',
+        userAgent: 'Mozilla/5.0',
+        path: '/landing',
+        queryString: 'utm_source=chatgpt.com',
+        status: 200,
+        observedAt: fromBase(35),
+      }),
+    ]
+
+    const observedWindows: Array<{ startDate: number; endDate: number; maxPages: number | undefined }> = []
+    const h = await buildHarness([], {
+      vercelPullPages: ({ startDate, endDate, maxPages }) => {
+        observedWindows.push({ startDate, endDate, maxPages })
+        if (maxPages === 1) {
+          return { events: [], rawEntryCount: 0, skippedEntryCount: 0, hasMore: false, endpoint: '' }
+        }
+        return { events, rawEntryCount: 3, skippedEntryCount: 0, hasMore: false, endpoint: '' }
+      },
+    })
+    try {
+      const sourceId = await connectVercel(h)
+
+      const submitRes = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`,
+        payload: { days: 7 },
+      })
+      expect(submitRes.statusCode).toBe(200)
+      const submitted = JSON.parse(submitRes.payload)
+      expect(submitted.status).toBe(RunStatuses.running)
+      expect(submitted.runId).toBeDefined()
+      expect(submitted.daysApplied).toBe(7)
+
+      const finalRun = await waitForRunComplete(h.db, submitted.runId)
+      expect(finalRun.status).toBe(RunStatuses.completed)
+      expect(finalRun.trigger).toBe('backfill')
+      expect(finalRun.kind).toBe(RunKinds['traffic-sync'])
+
+      // The backfill pull walked the requested window with the large
+      // backfill page budget — not the probe's maxPages=1.
+      const backfillCalls = observedWindows.filter((c) => c.maxPages !== 1)
+      expect(backfillCalls.length).toBeGreaterThanOrEqual(1)
+      expect(backfillCalls[0]!.maxPages).toBe(1000)
+      expect(backfillCalls[0]!.startDate).toBe(new Date(submitted.windowStart).getTime())
+      expect(backfillCalls[0]!.endDate).toBe(new Date(submitted.windowEnd).getTime())
+
+      const crawlerRows = h.db.select().from(crawlerEventsHourly).all()
+      expect(crawlerRows.length).toBe(1)
+      expect(crawlerRows[0].hits).toBe(2)
+
+      const aiRows = h.db.select().from(aiReferralEventsHourly).all()
+      expect(aiRows.length).toBe(1)
+      expect(aiRows[0].sessionsOrHits).toBe(1)
+      expect(aiRows[0].evidenceType).toBe('utm')
+
+      expect(h.db.select().from(rawEventSamples).all().length).toBe(3)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('returns validationError pointing to `canonry traffic connect vercel` when no Vercel credential is stored', async () => {
+    const h = await buildHarness([])
+    try {
+      const { projects } = await import('@ainyc/canonry-db')
+      const projectRow = h.db.select().from(projects).all()[0]
+      const now = new Date().toISOString()
+      h.db.insert(trafficSources).values({
+        id: 'src_vercel_bf_orphan',
+        projectId: projectRow.id,
+        sourceType: TrafficSourceTypes.vercel,
+        displayName: 'orphan vercel',
+        status: TrafficSourceStatuses.connected,
+        configJson: JSON.stringify({ projectId: 'prj_abc', teamId: 'team_xyz', environment: 'production' }),
+        createdAt: now,
+        updatedAt: now,
+      }).run()
+
+      const res = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/sources/src_vercel_bf_orphan/backfill',
+        payload: { days: 7 },
+      })
+      expect(res.statusCode).toBe(400)
+      expect(JSON.parse(res.payload).error.message).toMatch(/canonry traffic connect vercel/)
+    } finally {
+      await h.close()
+    }
   })
 })
 

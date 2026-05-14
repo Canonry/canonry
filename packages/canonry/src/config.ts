@@ -128,6 +128,28 @@ export interface WordpressTrafficConfigEntry {
   connections?: WordpressTrafficConnectionConfigEntry[]
 }
 
+export type VercelTrafficEnvironment = 'production' | 'preview'
+
+/**
+ * Per-project Vercel traffic connection. Authenticates against Vercel's
+ * internal `request-logs` endpoint using a Vercel API token. The project id,
+ * team id, and environment are non-secret and also mirrored onto the
+ * `traffic_sources` row; the token lives only here.
+ */
+export interface VercelTrafficConnectionConfigEntry {
+  projectName: string
+  projectId: string
+  teamId: string
+  token: string
+  environment: VercelTrafficEnvironment
+  createdAt: string
+  updatedAt: string
+}
+
+export interface VercelTrafficConfigEntry {
+  connections?: VercelTrafficConnectionConfigEntry[]
+}
+
 export interface AgentConfigEntry {
   /** Agent mode. Only 'disabled' is valid until the native loop ships. */
   mode?: 'disabled'
@@ -155,6 +177,7 @@ export interface CanonryConfig {
   cloudRun?: CloudRunConfigEntry
   wordpress?: WordpressConfigEntry
   wordpressTraffic?: WordpressTrafficConfigEntry
+  vercelTraffic?: VercelTrafficConfigEntry
   // Dashboard password hash (SHA-256 hex) — set during first dashboard visit
   dashboardPasswordHash?: string
   // Telemetry (opt-out: undefined/true = enabled, false = disabled)
