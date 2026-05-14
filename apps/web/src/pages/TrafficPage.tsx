@@ -9,8 +9,7 @@ import { fetchProjects, fetchServerTrafficSource, type ApiProject, type ApiTraff
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
-import { ConnectCloudRunDrawer } from '../components/server-traffic/ConnectCloudRunDrawer.js'
-import { ConnectWordpressDrawer } from '../components/server-traffic/ConnectWordpressDrawer.js'
+import { ConnectSourceDrawer } from '../components/server-traffic/ConnectSourceDrawer.js'
 import { queryKeys } from '../queries/query-keys.js'
 import {
   toneFromTrafficSourceStatus,
@@ -37,8 +36,7 @@ function formatCompact(n: number): string {
 
 export function TrafficPage() {
   const [selectedProject, setSelectedProject] = useState<string>('')
-  const [cloudRunConnectOpen, setCloudRunConnectOpen] = useState(false)
-  const [wordpressConnectOpen, setWordpressConnectOpen] = useState(false)
+  const [connectOpen, setConnectOpen] = useState(false)
 
   const projectsQuery = useQuery({
     queryKey: queryKeys.projects.all,
@@ -68,21 +66,11 @@ export function TrafficPage() {
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => setWordpressConnectOpen(true)}
+            onClick={() => setConnectOpen(true)}
             disabled={!activeProject}
           >
             <Plus className="size-3.5" />
-            Connect WordPress
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setCloudRunConnectOpen(true)}
-            disabled={!activeProject}
-          >
-            <Plus className="size-3.5" />
-            Connect Cloud Run
+            Connect a source
           </Button>
         </div>
       </div>
@@ -111,13 +99,9 @@ export function TrafficPage() {
             <p className="text-sm text-zinc-300">No traffic sources connected for {activeProject}.</p>
             <p className="mt-1 text-xs text-zinc-500">Connect a WordPress site or Cloud Run service to start ingesting crawler hits and AI-referral sessions from server logs.</p>
             <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setWordpressConnectOpen(true)}>
+              <Button type="button" variant="outline" size="sm" onClick={() => setConnectOpen(true)}>
                 <Plus className="size-3.5" />
-                Connect WordPress
-              </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => setCloudRunConnectOpen(true)}>
-                <Plus className="size-3.5" />
-                Connect Cloud Run
+                Connect a source
               </Button>
             </div>
           </Card>
@@ -126,14 +110,9 @@ export function TrafficPage() {
         )}
       </section>
 
-      <ConnectCloudRunDrawer
-        open={cloudRunConnectOpen}
-        onOpenChange={setCloudRunConnectOpen}
-        projectName={activeProject}
-      />
-      <ConnectWordpressDrawer
-        open={wordpressConnectOpen}
-        onOpenChange={setWordpressConnectOpen}
+      <ConnectSourceDrawer
+        open={connectOpen}
+        onOpenChange={setConnectOpen}
         projectName={activeProject}
       />
     </div>

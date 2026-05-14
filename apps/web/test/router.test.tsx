@@ -80,6 +80,12 @@ test('/projects/$id/report renders the report tab', async () => {
   expect(container.innerHTML).toMatch(/Loading report/)
 })
 
+test('/projects/$id/discovery renders the discovery tab with plain-language copy', async () => {
+  const { container } = await renderRoute('/projects/project_citypoint/discovery')
+  expect(container.innerHTML).toMatch(/Find new queries to track/)
+  expect(container.innerHTML).toMatch(/Describe your customer/)
+})
+
 // ── Smart redirects ──
 
 test('/ redirects to /setup when portfolio is empty', async () => {

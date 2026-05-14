@@ -1312,10 +1312,10 @@ export function ProjectPage({
   const projectTabItems: Array<{ key: ProjectPageTab; label: string; href: string }> = [
     { key: 'overview', label: 'Overview', href: `/projects/${model.project.id}` },
     { key: 'search-console', label: 'Search Engine Intelligence', href: `/projects/${model.project.id}/search-console` },
-    { key: 'discovery', label: 'Discovery', href: `/projects/${model.project.id}/discovery` },
     { key: 'activity', label: 'Activity', href: `/projects/${model.project.id}/activity` },
     { key: 'report', label: 'Report', href: `/projects/${model.project.id}/report` },
     { key: 'inbound', label: 'Inbound', href: `/projects/${model.project.id}/inbound` },
+    { key: 'discovery', label: 'Discovery', href: `/projects/${model.project.id}/discovery` },
   ]
 
   return (
