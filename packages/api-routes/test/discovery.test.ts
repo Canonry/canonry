@@ -5,6 +5,7 @@ import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  auditLog,
   competitors,
   createClient,
   discoveryProbes,
@@ -24,7 +25,11 @@ import {
   type DiscoveryDeps,
   type DiscoveryProjectContext,
 } from '../src/discovery/index.js'
-import type { DiscoverySessionDetailDto, DiscoverySessionDto } from '@ainyc/canonry-contracts'
+import type {
+  DiscoveryPromoteResult,
+  DiscoverySessionDetailDto,
+  DiscoverySessionDto,
+} from '@ainyc/canonry-contracts'
 
 function buildApp() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-discovery-'))
@@ -696,8 +701,8 @@ describe('discovery routes', () => {
 
 describe('queries.provenance is unaffected by route registration', () => {
   // Regression: discovery hooks must NOT silently set provenance on existing
-  // writers. PR 2's `promote` is what'll write provenance='discovery:<id>';
-  // PR 1's route registration alone must not change anything in `queries`.
+  // writers. The `promote` route is what writes provenance='discovery:<id>';
+  // merely registering the discovery routes must not change `queries` writes.
   it('inserting a query through POST /queries still records provenance="cli"', async () => {
     const { app, db, tmpDir } = buildApp()
     cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
@@ -714,5 +719,282 @@ describe('queries.provenance is unaffected by route registration', () => {
     const rows = db.select().from(queries).all()
     const inserted = rows.find(r => r.projectId === projectId && r.query === 'probe sanity check')
     expect(inserted?.provenance).toBe('cli')
+  })
+})
+
+describe('POST /discover/sessions/:id/promote', () => {
+  function buildAppWithRoutes() {
+    const { app, db, tmpDir } = buildApp()
+    app.register(apiRoutes, { db, skipAuth: true, onDiscoveryRunRequested: () => {} } satisfies ApiRoutesOptions)
+    return { app, db, tmpDir }
+  }
+
+  function seedSession(
+    db: ReturnType<typeof createClient>,
+    projectId: string,
+    opts: {
+      status?: string
+      probes?: Array<{ query: string; bucket: string }>
+      competitorMap?: Array<{ domain: string; hits: number }>
+    } = {},
+  ): string {
+    const sessionId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    db.insert(discoverySessions).values({
+      id: sessionId,
+      projectId,
+      status: opts.status ?? 'completed',
+      competitorMap: JSON.stringify(opts.competitorMap ?? []),
+      createdAt: now,
+    }).run()
+    for (const p of opts.probes ?? []) {
+      db.insert(discoveryProbes).values({
+        id: crypto.randomUUID(),
+        sessionId,
+        projectId,
+        query: p.query,
+        bucket: p.bucket,
+        citationState: p.bucket === 'cited' ? 'cited' : 'not-cited',
+        citedDomains: '[]',
+        createdAt: now,
+      }).run()
+    }
+    return sessionId
+  }
+
+  it('promotes all buckets by default, tags discovery provenance, and writes one audit log row', async () => {
+    const { app, db, tmpDir } = buildAppWithRoutes()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db) // tracks aurora-solar.com, enerflo.com
+
+    const sessionId = seedSession(db, projectId, {
+      probes: [
+        { query: 'best solar quoting tool', bucket: 'cited' },
+        { query: 'solar crm for installers', bucket: 'aspirational' },
+        { query: 'aurora solar alternatives', bucket: 'wasted-surface' },
+      ],
+      competitorMap: [
+        { domain: 'aurora-solar.com', hits: 3 }, // already tracked
+        { domain: 'helioscope.com', hits: 2 }, // new
+        { domain: 'solargraf.com', hits: 1 }, // new
+      ],
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+      payload: {},
+    })
+    expect(response.statusCode).toBe(200)
+    const body = response.json() as DiscoveryPromoteResult
+    expect(body.promoted.queries).toEqual([
+      'aurora solar alternatives',
+      'best solar quoting tool',
+      'solar crm for installers',
+    ])
+    expect(body.promoted.competitors).toEqual(['helioscope.com', 'solargraf.com'])
+    expect(body.skipped.queries).toEqual([])
+    expect(body.skipped.competitors).toEqual(['aurora-solar.com'])
+
+    // Every promoted query carries discovery provenance.
+    const queryRows = db.select().from(queries).all()
+    expect(queryRows).toHaveLength(3)
+    expect(new Set(queryRows.map(r => r.provenance))).toEqual(new Set([`discovery:${sessionId}`]))
+
+    // Competitors: 2 seeded ('cli') + 2 promoted ('discovery:<id>').
+    const compRows = db.select().from(competitors).all()
+    expect(compRows).toHaveLength(4)
+    const promotedComps = compRows.filter(c => c.provenance === `discovery:${sessionId}`)
+    expect(promotedComps.map(c => c.domain).sort()).toEqual(['helioscope.com', 'solargraf.com'])
+
+    // Exactly one discovery.promoted audit row, pointed at the session.
+    const promoteAudits = db.select().from(auditLog).all().filter(a => a.action === 'discovery.promoted')
+    expect(promoteAudits).toHaveLength(1)
+    expect(promoteAudits[0]!.entityId).toBe(sessionId)
+  })
+
+  it('promotes only the requested buckets, and skips competitors when includeCompetitors is false', async () => {
+    const { app, db, tmpDir } = buildAppWithRoutes()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db)
+
+    const sessionId = seedSession(db, projectId, {
+      probes: [
+        { query: 'cited query', bucket: 'cited' },
+        { query: 'aspirational query', bucket: 'aspirational' },
+        { query: 'wasted query', bucket: 'wasted-surface' },
+      ],
+      competitorMap: [{ domain: 'helioscope.com', hits: 1 }],
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+      payload: { buckets: ['aspirational'], includeCompetitors: false },
+    })
+    expect(response.statusCode).toBe(200)
+    const body = response.json() as DiscoveryPromoteResult
+    expect(body.promoted.queries).toEqual(['aspirational query'])
+    expect(body.promoted.competitors).toEqual([])
+
+    // Only the aspirational query landed; the cited/wasted ones did not.
+    expect(db.select().from(queries).all().map(r => r.query)).toEqual(['aspirational query'])
+    // includeCompetitors=false → helioscope.com was not merged.
+    expect(db.select().from(competitors).all()).toHaveLength(2)
+  })
+
+  it('is idempotent — a second promote skips already-tracked rows and writes no audit log', async () => {
+    const { app, db, tmpDir } = buildAppWithRoutes()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db)
+
+    const sessionId = seedSession(db, projectId, {
+      probes: [{ query: 'best solar quoting tool', bucket: 'cited' }],
+      competitorMap: [{ domain: 'helioscope.com', hits: 2 }],
+    })
+    const url = `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`
+
+    const first = await app.inject({ method: 'POST', url, payload: {} })
+    expect(first.statusCode).toBe(200)
+    expect((first.json() as DiscoveryPromoteResult).promoted).toEqual({
+      queries: ['best solar quoting tool'],
+      competitors: ['helioscope.com'],
+    })
+
+    const second = await app.inject({ method: 'POST', url, payload: {} })
+    expect(second.statusCode).toBe(200)
+    const body = second.json() as DiscoveryPromoteResult
+    expect(body.promoted).toEqual({ queries: [], competitors: [] })
+    expect(body.skipped).toEqual({
+      queries: ['best solar quoting tool'],
+      competitors: ['helioscope.com'],
+    })
+
+    // No duplicate rows from the re-run.
+    expect(db.select().from(queries).all()).toHaveLength(1)
+    expect(db.select().from(competitors).all()).toHaveLength(3) // 2 seeded + 1 promoted
+    // The empty second run must not write an audit row.
+    expect(db.select().from(auditLog).all().filter(a => a.action === 'discovery.promoted')).toHaveLength(1)
+  })
+
+  it('dedupes case-insensitively against the existing basket', async () => {
+    const { app, db, tmpDir } = buildAppWithRoutes()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db)
+    // Existing tracked query — same text, different casing from the probe.
+    db.insert(queries).values({
+      id: crypto.randomUUID(),
+      projectId,
+      query: 'Best Solar Quoting Tool',
+      provenance: 'cli',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    const sessionId = seedSession(db, projectId, {
+      probes: [{ query: 'best solar quoting tool', bucket: 'cited' }],
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+      payload: { includeCompetitors: false },
+    })
+    expect(response.statusCode).toBe(200)
+    const body = response.json() as DiscoveryPromoteResult
+    expect(body.promoted.queries).toEqual([])
+    expect(body.skipped.queries).toEqual(['best solar quoting tool'])
+    // No near-duplicate row added.
+    expect(db.select().from(queries).all()).toHaveLength(1)
+  })
+
+  it('caps promoted competitors at the preview cap (20), highest-hit first', async () => {
+    const { app, db, tmpDir } = buildAppWithRoutes()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db)
+    // 25 new competitor domains, already sorted by hits desc (as the
+    // orchestrator persists the competitor map).
+    const competitorMap = Array.from({ length: 25 }, (_, i) => ({
+      domain: `comp-${String(i).padStart(2, '0')}.com`,
+      hits: 25 - i,
+    }))
+    const sessionId = seedSession(db, projectId, { competitorMap })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+      payload: {},
+    })
+    expect(response.statusCode).toBe(200)
+    const body = response.json() as DiscoveryPromoteResult
+    expect(body.promoted.competitors).toHaveLength(20)
+    expect(body.promoted.competitors[0]).toBe('comp-00.com') // highest hits
+    expect(body.promoted.competitors).not.toContain('comp-20.com') // beyond the cap
+    expect(db.select().from(competitors).all()).toHaveLength(22) // 2 seeded + 20 promoted
+  })
+
+  it('rejects promotion of a session that is not completed', async () => {
+    const { app, db, tmpDir } = buildAppWithRoutes()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db)
+
+    for (const status of ['queued', 'seeding', 'probing', 'failed']) {
+      const sessionId = seedSession(db, projectId, {
+        status,
+        probes: [{ query: `q-${status}`, bucket: 'cited' }],
+      })
+      const response = await app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+        payload: {},
+      })
+      expect(response.statusCode).toBe(400)
+      expect(response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } })
+    }
+    // Nothing promoted from any of the non-completed sessions.
+    expect(db.select().from(queries).all()).toHaveLength(0)
+  })
+
+  it('rejects an invalid bucket value', async () => {
+    const { app, db, tmpDir } = buildAppWithRoutes()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db)
+    const sessionId = seedSession(db, projectId, {
+      probes: [{ query: 'q', bucket: 'cited' }],
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+      payload: { buckets: ['not-a-bucket'] },
+    })
+    expect(response.statusCode).toBe(400)
+    expect(response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } })
+  })
+
+  it('404s for a session that does not belong to the project', async () => {
+    const { app, db, tmpDir } = buildAppWithRoutes()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    seedProject(db)
+    const otherProjectId = crypto.randomUUID()
+    db.insert(projects).values({
+      id: otherProjectId,
+      name: 'other',
+      displayName: 'Other',
+      canonicalDomain: 'other.com',
+      country: 'US',
+      language: 'en',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }).run()
+    const sessionId = seedSession(db, otherProjectId, {
+      probes: [{ query: 'q', bucket: 'cited' }],
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+      payload: {},
+    })
+    expect(response.statusCode).toBe(404)
   })
 })

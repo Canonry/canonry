@@ -233,10 +233,12 @@ canonry discover run <project> --icp "..." --max-probes 100         # per-sessio
 
 canonry discover list <project>                                     # newest-first session list
 canonry discover show <project> <session-id>                        # per-query probe rows + buckets
-canonry discover promote preview <project> <session-id>             # preview the basket PR 2 will write (read-only)
+canonry discover promote preview <project> <session-id>             # preview the bucketed basket + suggested competitors (read-only)
+canonry discover promote <project> <session-id>                     # adopt the session's queries + competitors into the project
+canonry discover promote <project> <session-id> --bucket aspirational --no-competitors   # scope to a bucket subset / skip competitor merge
 ```
 
-Discovery requires Gemini configured (API key today; Vertex-mode embeddings are deferred). The pipeline writes a `discovery_sessions` row, a `runs` row (kind `aeo-discover-probe`), and one `discovery.basket-divergence` insight when the session completes. Aero wakes unprompted with the bucket-count payload so the operator can act without polling.
+Discovery requires Gemini configured (API key today; Vertex-mode embeddings are deferred). The pipeline writes a `discovery_sessions` row, a `runs` row (kind `aeo-discover-probe`), and one `discovery.basket-divergence` insight when the session completes. Aero wakes unprompted with the bucket-count payload so the operator can act without polling. `discover promote` is add-only and idempotent — queries/domains already tracked are reported as skipped, never inserted twice — and only works on `completed` sessions; promoted rows carry `provenance="discovery:<sessionId>"`.
 
 ## Bing Webmaster Tools
 

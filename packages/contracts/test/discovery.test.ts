@@ -12,6 +12,8 @@ import {
   discoverySessionDetailDtoSchema,
   discoveryCompetitorMapEntrySchema,
   discoveryRunRequestSchema,
+  discoveryPromoteRequestSchema,
+  discoveryPromoteResultSchema,
   queryProvenanceSchema,
 } from '../src/index.js'
 
@@ -190,4 +192,36 @@ test('queryProvenanceSchema rejects other strings', () => {
   expect(() => queryProvenanceSchema.parse('manual')).toThrow()
   expect(() => queryProvenanceSchema.parse('discovery:')).toThrow()
   expect(() => queryProvenanceSchema.parse('')).toThrow()
+})
+
+test('discoveryPromoteRequestSchema accepts an empty object (promote all buckets + competitors)', () => {
+  const req = discoveryPromoteRequestSchema.parse({})
+  expect(req.buckets).toBeUndefined()
+  expect(req.includeCompetitors).toBeUndefined()
+})
+
+test('discoveryPromoteRequestSchema accepts a bucket subset and includeCompetitors', () => {
+  const req = discoveryPromoteRequestSchema.parse({
+    buckets: ['cited', 'aspirational'],
+    includeCompetitors: false,
+  })
+  expect(req.buckets).toEqual(['cited', 'aspirational'])
+  expect(req.includeCompetitors).toBe(false)
+})
+
+test('discoveryPromoteRequestSchema rejects an empty buckets array and unknown bucket names', () => {
+  expect(() => discoveryPromoteRequestSchema.parse({ buckets: [] })).toThrow()
+  expect(() => discoveryPromoteRequestSchema.parse({ buckets: ['not-a-bucket'] })).toThrow()
+})
+
+test('discoveryPromoteResultSchema requires promoted + skipped query/competitor lists', () => {
+  const result = discoveryPromoteResultSchema.parse({
+    sessionId: 'sess-1',
+    projectId: 'proj-1',
+    promoted: { queries: ['q1', 'q2'], competitors: ['a.com'] },
+    skipped: { queries: ['q3'], competitors: [] },
+  })
+  expect(result.promoted.queries).toEqual(['q1', 'q2'])
+  expect(result.skipped.competitors).toEqual([])
+  expect(() => discoveryPromoteResultSchema.parse({ sessionId: 'x', projectId: 'y' })).toThrow()
 })

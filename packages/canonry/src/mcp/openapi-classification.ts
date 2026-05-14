@@ -169,4 +169,5 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/discover/sessions': 'included',
   'GET /api/v1/projects/{name}/discover/sessions/{id}': 'included',
   'GET /api/v1/projects/{name}/discover/sessions/{id}/promote': 'included',
+  'POST /api/v1/projects/{name}/discover/sessions/{id}/promote': 'included',
 } as const satisfies Record<string, OpenApiMcpClassification>

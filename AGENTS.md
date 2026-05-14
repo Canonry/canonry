@@ -86,8 +86,9 @@ canonry discover run <project> --icp "..." [--wait] [--format json]
 canonry discover run <project> --dedup-threshold 0.85 --max-probes 100 --wait     # tune dedup / per-session probe budget (cap 500)
 canonry discover list <project> [--limit 20] [--format json]
 canonry discover show <project> <session-id> [--format json]
-canonry discover probe <project> <session-id> [--format json]                       # alias of show (read-only) until PR 2 splits phases
-canonry discover promote preview <project> <session-id> [--format json]             # preview-only; PR 2 ships the actual merge step
+canonry discover probe <project> <session-id> [--format json]                       # alias of show (read-only) until a later PR splits phases
+canonry discover promote preview <project> <session-id> [--format json]             # preview the bucketed basket + suggested competitors (read-only)
+canonry discover promote <project> <session-id> [--bucket cited,aspirational,wasted-surface] [--no-competitors] [--format json]   # adopt the session's queries + competitors into the project
 
 # MCP adapter (separate bin, stdio only)
 canonry-mcp                                          # core tier (~12 tools); load toolkits on demand
