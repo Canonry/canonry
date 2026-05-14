@@ -645,7 +645,8 @@ describe('discovery routes', () => {
       competitorMap: JSON.stringify([
         { domain: 'aurora-solar.com', hits: 3 }, // already tracked
         { domain: 'enerflo.com', hits: 2 }, // already tracked
-        { domain: 'helioscope.com', hits: 1 }, // new
+        { domain: 'helioscope.com', hits: 2 }, // new + recurring
+        { domain: 'oneoff.example', hits: 1 }, // new but too noisy to suggest
       ]),
       createdAt: new Date().toISOString(),
     }).run()
@@ -694,8 +695,8 @@ describe('discovery routes', () => {
     expect(body.queriesByBucket.cited).toEqual(['q1'])
     expect(body.queriesByBucket.aspirational).toEqual(['q2'])
     expect(body.queriesByBucket['wasted-surface']).toEqual(['q3'])
-    // Only helioscope.com is suggested — the others are already tracked.
-    expect(body.suggestedCompetitors).toEqual([{ domain: 'helioscope.com', hits: 1 }])
+    // Only recurring new domains are suggested — tracked and one-off domains are skipped.
+    expect(body.suggestedCompetitors).toEqual([{ domain: 'helioscope.com', hits: 2 }])
   })
 })
 
@@ -762,7 +763,7 @@ describe('POST /discover/sessions/:id/promote', () => {
     return sessionId
   }
 
-  it('promotes all buckets by default, tags discovery provenance, and writes one audit log row', async () => {
+  it('promotes cited + aspirational by default, tags discovery provenance, and writes one audit log row', async () => {
     const { app, db, tmpDir } = buildAppWithRoutes()
     cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
     const { projectId } = seedProject(db) // tracks aurora-solar.com, enerflo.com
@@ -775,8 +776,8 @@ describe('POST /discover/sessions/:id/promote', () => {
       ],
       competitorMap: [
         { domain: 'aurora-solar.com', hits: 3 }, // already tracked
-        { domain: 'helioscope.com', hits: 2 }, // new
-        { domain: 'solargraf.com', hits: 1 }, // new
+        { domain: 'helioscope.com', hits: 2 }, // recurring new
+        { domain: 'solargraf.com', hits: 1 }, // one-off new
       ],
     })
 
@@ -788,24 +789,23 @@ describe('POST /discover/sessions/:id/promote', () => {
     expect(response.statusCode).toBe(200)
     const body = response.json() as DiscoveryPromoteResult
     expect(body.promoted.queries).toEqual([
-      'aurora solar alternatives',
       'best solar quoting tool',
       'solar crm for installers',
     ])
-    expect(body.promoted.competitors).toEqual(['helioscope.com', 'solargraf.com'])
+    expect(body.promoted.competitors).toEqual(['helioscope.com'])
     expect(body.skipped.queries).toEqual([])
     expect(body.skipped.competitors).toEqual(['aurora-solar.com'])
 
     // Every promoted query carries discovery provenance.
     const queryRows = db.select().from(queries).all()
-    expect(queryRows).toHaveLength(3)
+    expect(queryRows).toHaveLength(2)
     expect(new Set(queryRows.map(r => r.provenance))).toEqual(new Set([`discovery:${sessionId}`]))
 
-    // Competitors: 2 seeded ('cli') + 2 promoted ('discovery:<id>').
+    // Competitors: 2 seeded ('cli') + 1 promoted ('discovery:<id>').
     const compRows = db.select().from(competitors).all()
-    expect(compRows).toHaveLength(4)
+    expect(compRows).toHaveLength(3)
     const promotedComps = compRows.filter(c => c.provenance === `discovery:${sessionId}`)
-    expect(promotedComps.map(c => c.domain).sort()).toEqual(['helioscope.com', 'solargraf.com'])
+    expect(promotedComps.map(c => c.domain).sort()).toEqual(['helioscope.com'])
 
     // Exactly one discovery.promoted audit row, pointed at the session.
     const promoteAudits = db.select().from(auditLog).all().filter(a => a.action === 'discovery.promoted')
@@ -813,7 +813,7 @@ describe('POST /discover/sessions/:id/promote', () => {
     expect(promoteAudits[0]!.entityId).toBe(sessionId)
   })
 
-  it('promotes only the requested buckets, and skips competitors when includeCompetitors is false', async () => {
+  it('promotes only the requested buckets, including wasted-surface when explicit, and skips competitors when includeCompetitors is false', async () => {
     const { app, db, tmpDir } = buildAppWithRoutes()
     cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
     const { projectId } = seedProject(db)
@@ -830,15 +830,15 @@ describe('POST /discover/sessions/:id/promote', () => {
     const response = await app.inject({
       method: 'POST',
       url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
-      payload: { buckets: ['aspirational'], includeCompetitors: false },
+      payload: { buckets: ['wasted-surface'], includeCompetitors: false },
     })
     expect(response.statusCode).toBe(200)
     const body = response.json() as DiscoveryPromoteResult
-    expect(body.promoted.queries).toEqual(['aspirational query'])
+    expect(body.promoted.queries).toEqual(['wasted query'])
     expect(body.promoted.competitors).toEqual([])
 
-    // Only the aspirational query landed; the cited/wasted ones did not.
-    expect(db.select().from(queries).all().map(r => r.query)).toEqual(['aspirational query'])
+    // Only the explicitly requested wasted-surface query landed.
+    expect(db.select().from(queries).all().map(r => r.query)).toEqual(['wasted query'])
     // includeCompetitors=false → helioscope.com was not merged.
     expect(db.select().from(competitors).all()).toHaveLength(2)
   })

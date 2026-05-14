@@ -129,7 +129,8 @@ export async function discoverPromotePreview(project: string, sessionId: string,
     console.log(`  Suggested new competitors:`)
     for (const c of preview.suggestedCompetitors) console.log(`    - ${c.domain} (${c.hits} hits)`)
   }
-  console.log(`\n  Run \`canonry discover promote ${project} ${sessionId}\` to merge these into the project.`)
+  console.log(`\n  Run \`canonry discover promote ${project} ${sessionId}\` to merge cited + aspirational queries.`)
+  console.log('  Add `--bucket wasted-surface` only when off-ICP competitor gaps should be tracked.')
 }
 
 export interface DiscoverPromoteOptions {

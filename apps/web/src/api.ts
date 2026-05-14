@@ -1,7 +1,8 @@
-import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, HealthSnapshotDto, ProjectReportDto, ReportAudience, RunKind, RunStatus, RunTrigger, RunErrorDto, CitationState, CitationVisibilityResponse, ComputedTransition, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficSyncResponse } from '@ainyc/canonry-contracts'
+import type { ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, IndexingRequestResultDto, MetricsWindow, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, InsightDto, HealthSnapshotDto, ProjectReportDto, ReportAudience, RunKind, RunStatus, RunTrigger, RunErrorDto, CitationState, CitationVisibilityResponse, ComputedTransition, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficSyncResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult } from '@ainyc/canonry-contracts'
 export type { ProjectOverviewDto }
 export type { BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto }
 export type { TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficSyncResponse }
+export type { DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult }
 
 export type { GroundingSource }
 
@@ -176,6 +177,12 @@ export interface ApiRun {
   finishedAt: string | null
   error: RunErrorDto | null
   createdAt: string
+}
+
+export interface ApiDiscoveryRunStartResponse {
+  runId: string
+  sessionId: string
+  status: 'running'
 }
 
 export interface ApiTriggerAllRunsConflict {
@@ -779,6 +786,51 @@ export function triggerDiscoverSitemaps(project: string): Promise<{ sitemaps: Ap
   return apiFetch(`/projects/${encodeURIComponent(project)}/google/gsc/discover-sitemaps`, {
     method: 'POST',
     body: '{}',
+  })
+}
+
+export function triggerDiscoveryRun(
+  project: string,
+  body?: DiscoveryRunRequest,
+): Promise<ApiDiscoveryRunStartResponse> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/discover/run`, {
+    method: 'POST',
+    body: JSON.stringify(body ?? {}),
+  })
+}
+
+export function fetchDiscoverySessions(
+  project: string,
+  opts?: { limit?: number },
+): Promise<DiscoverySessionDto[]> {
+  const qs = new URLSearchParams()
+  if (opts?.limit !== undefined) qs.set('limit', String(opts.limit))
+  const query = qs.toString() ? `?${qs.toString()}` : ''
+  return apiFetch(`/projects/${encodeURIComponent(project)}/discover/sessions${query}`)
+}
+
+export function fetchDiscoverySession(
+  project: string,
+  sessionId: string,
+): Promise<DiscoverySessionDetailDto> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/discover/sessions/${encodeURIComponent(sessionId)}`)
+}
+
+export function previewDiscoveryPromote(
+  project: string,
+  sessionId: string,
+): Promise<DiscoveryPromotePreview> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/discover/sessions/${encodeURIComponent(sessionId)}/promote`)
+}
+
+export function promoteDiscovery(
+  project: string,
+  sessionId: string,
+  body?: DiscoveryPromoteRequest,
+): Promise<DiscoveryPromoteResult> {
+  return apiFetch(`/projects/${encodeURIComponent(project)}/discover/sessions/${encodeURIComponent(sessionId)}/promote`, {
+    method: 'POST',
+    body: JSON.stringify(body ?? {}),
   })
 }
 

@@ -36,6 +36,13 @@ export const queryKeys = {
   agent: {
     providers: (project: string) => ['agent', project, 'providers'] as const,
   },
+  discovery: {
+    project: (project: string) => ['discovery', project] as const,
+    sessions: (project: string) => ['discovery', project, 'sessions'] as const,
+    session: (project: string, sessionId: string) => ['discovery', project, 'sessions', sessionId] as const,
+    promotePreview: (project: string, sessionId: string) =>
+      ['discovery', project, 'sessions', sessionId, 'promote-preview'] as const,
+  },
   citationVisibility: (project: string) => ['citation-visibility', project] as const,
   report: (project: string) => ['report', project] as const,
   traffic: {

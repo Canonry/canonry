@@ -10,6 +10,9 @@ import {
   runs,
 } from '@ainyc/canonry-db'
 import {
+  DEFAULT_DISCOVERY_PROMOTE_BUCKETS,
+  DISCOVERY_PROMOTE_COMPETITOR_CAP,
+  DISCOVERY_PROMOTE_COMPETITOR_MIN_HITS,
   DiscoveryBuckets,
   DiscoverySessionStatuses,
   RunKinds,
@@ -30,14 +33,6 @@ import {
   type DiscoverySessionStatus,
 } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from '../helpers.js'
-
-/**
- * Cap on competitor domains surfaced by the GET preview and adopted by the
- * POST promote — what you preview is exactly what you promote. The session's
- * competitor map is sorted by hit count, so this keeps the highest-signal
- * domains.
- */
-const PROMOTE_COMPETITOR_CAP = 20
 
 /**
  * Fired after a `discovery_sessions` row + matching `runs` row are inserted
@@ -228,11 +223,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
       }
 
       const competitorMap = parseJsonColumn<DiscoveryCompetitorMapEntry[]>(session.competitorMap, [])
-      // Slice-then-filter (not filter-then-slice) so this preview matches POST
-      // promote exactly — both weigh the same top-CAP slice of the map, then
-      // drop the domains already tracked.
-      const newCompetitors = competitorMap
-        .slice(0, PROMOTE_COMPETITOR_CAP)
+      const newCompetitors = selectEligibleCompetitors(competitorMap)
         .filter(entry => !seenCompetitors.has(entry.domain.toLowerCase()))
 
       return reply.send({
@@ -250,8 +241,8 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
   )
 
   // POST /projects/:name/discover/sessions/:id/promote — adopt a completed
-  // session's bucketed queries (and, by default, its discovered competitor
-  // domains) into the project's tracked basket. Add-only and idempotent:
+  // session's bucketed queries (and, by default, recurring discovered
+  // competitor domains) into the project's tracked basket. Add-only and idempotent:
   // queries/domains already tracked land in `skipped`, never inserted twice,
   // so re-running a promote is safe.
   app.post<{
@@ -288,11 +279,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
       )
     }
 
-    const buckets: DiscoveryBucket[] = parsed.data.buckets ?? [
-      DiscoveryBuckets.cited,
-      DiscoveryBuckets.aspirational,
-      DiscoveryBuckets['wasted-surface'],
-    ]
+    const buckets: readonly DiscoveryBucket[] = parsed.data.buckets ?? DEFAULT_DISCOVERY_PROMOTE_BUCKETS
     const bucketSet = new Set<DiscoveryBucket>(buckets)
     const includeCompetitors = parsed.data.includeCompetitors ?? true
 
@@ -342,10 +329,10 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
           .all()
           .map(r => r.domain.toLowerCase()),
       )
-      // Mirror the GET preview: the session's competitor map (sorted by hit
-      // count) capped at PROMOTE_COMPETITOR_CAP, minus domains already tracked.
+      // Mirror the GET preview's recurrence + cap policy; existing domains are
+      // returned as skipped for idempotency instead of being inserted again.
       const competitorMap = parseJsonColumn<DiscoveryCompetitorMapEntry[]>(session.competitorMap, [])
-      for (const entry of competitorMap.slice(0, PROMOTE_COMPETITOR_CAP)) {
+      for (const entry of selectEligibleCompetitors(competitorMap)) {
         const key = entry.domain.toLowerCase()
         if (existingCompetitors.has(key)) {
           skippedCompetitors.push(entry.domain)
@@ -435,4 +422,12 @@ function serializeProbe(row: typeof discoveryProbes.$inferSelect): DiscoveryProb
     citedDomains: parseJsonColumn<string[]>(row.citedDomains, []),
     createdAt: row.createdAt,
   }
+}
+
+function selectEligibleCompetitors(
+  competitorMap: readonly DiscoveryCompetitorMapEntry[],
+): DiscoveryCompetitorMapEntry[] {
+  return competitorMap
+    .filter(entry => entry.hits >= DISCOVERY_PROMOTE_COMPETITOR_MIN_HITS)
+    .slice(0, DISCOVERY_PROMOTE_COMPETITOR_CAP)
 }

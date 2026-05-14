@@ -2994,7 +2994,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/discover/sessions/{id}/promote',
     summary: 'Preview a discovery promotion plan (read-only)',
-    description: 'Returns the payload `POST .../promote` would persist: queries grouped by bucket, plus suggested new competitor domains not already tracked. Read-only — use the POST to actually adopt them.',
+    description: 'Returns available promotion candidates: queries grouped by bucket, plus recurring suggested competitor domains not already tracked. Read-only — use the POST to actually adopt the default subset or an explicit bucket subset.',
     tags: ['discovery'],
     parameters: [
       nameParameter,
@@ -3010,7 +3010,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/discover/sessions/{id}/promote',
     summary: 'Promote a discovery session into the tracked basket',
     description:
-      "Adopts a completed session's bucketed queries — and, by default, its discovered competitor domains — into the project's tracked basket, tagged with `provenance=\"discovery:<sessionId>\"`. Add-only and idempotent: queries/domains already tracked are returned under `skipped` rather than inserted twice. Only sessions with `status: \"completed\"` can be promoted.",
+      "Adopts a completed session's bucketed queries into the project's tracked basket, tagged with `provenance=\"discovery:<sessionId>\"`. By default, only `cited` and `aspirational` queries are promoted; include `wasted-surface` explicitly when off-ICP competitor gaps should also be tracked. Recurring discovered competitor domains are also merged by default. Add-only and idempotent: queries/domains already tracked are returned under `skipped` rather than inserted twice. Only sessions with `status: \"completed\"` can be promoted.",
     tags: ['discovery'],
     parameters: [
       nameParameter,
@@ -3026,11 +3026,11 @@ const routeCatalog: OpenApiOperation[] = [
               buckets: {
                 type: 'array',
                 items: { type: 'string', enum: ['cited', 'aspirational', 'wasted-surface'] },
-                description: 'Which probe buckets to promote. Omitted means all three.',
+                description: 'Which probe buckets to promote. Omitted means cited + aspirational.',
               },
               includeCompetitors: {
                 type: 'boolean',
-                description: 'Whether to also merge the session\'s discovered competitor domains. Defaults to true.',
+                description: 'Whether to also merge recurring discovered competitor domains. Defaults to true.',
               },
             },
           },

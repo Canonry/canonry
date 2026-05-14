@@ -45,27 +45,52 @@ Per session: ~$1 at the default probe budget (100 queries × 1 Gemini grounded c
 Things to call out without being asked:
 
 - **High wasted-surface ratio** (≥ 40% of probes, or > cited count at ≥ 20%) → the project is missing from its own competitive space. The auto-written `discovery.basket-divergence` insight flags this as `high` severity.
-- **New competitor domains** in `competitorMap` that aren't already in the project's tracked competitor list → `canonry discover promote` adopts these automatically alongside the queries; or add them à la carte with `canonry competitor add <project> <domain>`.
+- **Recurring new competitor domains** in `competitorMap` that aren't already in the project's tracked competitor list → `canonry discover promote` adopts domains with at least 2 hits automatically alongside the queries; or add them à la carte with `canonry competitor add <project> <domain>`.
 - **Aspirational greenfield** queries with no tracked competitor and no canonical cite → low-friction content opportunities.
 
 ## Promoting a session into the tracked basket
 
-Once a session is `completed`, adopt its findings into the project:
+Once a session is `completed`, preview first unless the operator has already approved the write:
 
 ```bash
-canonry discover promote <project> <session-id>                          # all three buckets + competitor domains
+canonry discover promote preview <project> <session-id>
+```
+
+Or the MCP equivalent: `canonry_discover_promote_preview` with `{ project, sessionId }`.
+
+The preview returns every bucket so you can explain the tradeoff:
+
+- `cited` — already grounded to the project, safe to track.
+- `aspirational` — greenfield ICP-fit opportunities, safe to track as a growth basket.
+- `wasted-surface` — competitor-cited but project-missing. Treat as content-planning evidence first; do not add it to the weekly tracked basket unless the operator explicitly wants those off-ICP competitor gaps tracked.
+- `suggestedCompetitors` — recurring domains not already tracked. The promote path only auto-adopts domains with at least 2 hits.
+
+Promote with one of these paths:
+
+```bash
+canonry discover promote <project> <session-id>                          # cited + aspirational buckets + recurring competitor domains
 canonry discover promote <project> <session-id> --bucket aspirational    # scope to a bucket subset (repeatable / comma-separated)
+canonry discover promote <project> <session-id> --bucket wasted-surface  # explicitly track off-ICP competitor gaps
 canonry discover promote <project> <session-id> --no-competitors         # queries only, skip the competitor merge
 ```
 
-Or the MCP equivalent: `canonry_discover_promote` with `{ project, sessionId, request?: { buckets?, includeCompetitors? } }`.
+Or the MCP equivalent:
 
-- **Default is all three buckets.** `cited`, `aspirational`, and `wasted-surface` are all legitimate tracked-query targets — promote the lot unless the operator wants a subset.
+```json
+{ "project": "<project>", "sessionId": "<session-id>" }
+```
+
+That default request promotes `cited` + `aspirational` queries and recurring competitors. For scoped writes, pass `request`:
+
+```json
+{ "project": "<project>", "sessionId": "<session-id>", "request": { "buckets": ["aspirational"], "includeCompetitors": false } }
+```
+
+- **Default is cited + aspirational.** `wasted-surface` queries are off-ICP competitor gaps; promote them only when the operator explicitly wants those tracked in the weekly basket.
+- **Competitor promotion requires recurrence.** Default competitor merge ignores one-off domains and adopts only domains with at least 2 hits.
 - **Add-only and idempotent.** Queries and competitor domains already tracked are returned under `skipped`, never inserted twice. Re-running a promote is safe.
 - **Completed sessions only.** Promoting a `queued`/`seeding`/`probing`/`failed` session is rejected — the buckets aren't final.
 - Promoted rows carry `provenance="discovery:<sessionId>"`, so a tracked query can always be traced back to the session that surfaced it.
-
-Preview first with `canonry discover promote preview` (or `canonry_discover_promote_preview`) when the operator wants to see the bucketed lists + suggested competitors before committing.
 
 ## When you wake on `aeo-discover-probe.completed`
 
@@ -81,8 +106,10 @@ Respond with:
 
 1. A one-line headline naming the dominant bucket.
 2. The top 2-3 wasted-surface queries (call `canonry_discover_session_get` to fetch them — don't guess).
-3. The top 1-2 new competitor domains worth tracking.
-4. A single recommended next step. Examples: "promote this session to start tracking the basket (`canonry discover promote`)", "the wasted-surface set warrants a content plan around X", "the aspirational set is greenfield — pick the 3 with highest commercial intent and write content".
+3. The top 1-2 recurring new competitor domains worth tracking, ignoring one-hit domains unless the operator asks for the full long tail.
+4. A single recommended next step. Examples: "preview and promote cited + aspirational findings (`canonry discover promote preview`, then `canonry discover promote`)", "the wasted-surface set warrants a content plan around X before tracking", "the aspirational set is greenfield — pick the 3 with highest commercial intent and write content".
+
+Do not recommend "promote everything" as the default. The safe path is: inspect session detail, preview promotion candidates, then promote the default cited + aspirational set. Escalate `wasted-surface` to tracking only when the operator deliberately chooses that tradeoff.
 
 Keep it tight. The operator wakes to a short, decision-ready summary, not a full report.
 

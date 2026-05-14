@@ -113,24 +113,26 @@ describe('discover promote CLI command', () => {
     return sessionId
   }
 
-  it('promotes all buckets by default and reports counts', async () => {
+  it('promotes cited + aspirational by default and reports counts', async () => {
     const sessionId = seedSession({
       probes: [
         { query: 'best solar quoting tool', bucket: 'cited' },
         { query: 'solar crm for installers', bucket: 'aspirational' },
         { query: 'aurora alternatives', bucket: 'wasted-surface' },
       ],
-      competitorMap: [{ domain: 'helioscope.com', hits: 2 }],
+      competitorMap: [
+        { domain: 'helioscope.com', hits: 2 },
+        { domain: 'oneoff.example', hits: 1 },
+      ],
     })
 
     const result = await invokeCli(['discover', 'promote', 'demand-iq', sessionId])
     expect(result.exitCode).toBeUndefined()
-    expect(result.stdout).toMatch(/Queries:\s+3 added/)
+    expect(result.stdout).toMatch(/Queries:\s+2 added/)
     expect(result.stdout).toMatch(/Competitors:\s+1 added/)
 
     const queryRows = db.select().from(queries).all()
     expect(queryRows.map(r => r.query).sort()).toEqual([
-      'aurora alternatives',
       'best solar quoting tool',
       'solar crm for installers',
     ])
@@ -189,6 +191,15 @@ describe('discover promote CLI command', () => {
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toMatch(/invalid --bucket value/i)
     // The bad flag short-circuits — nothing is promoted.
+    expect(db.select().from(queries).all()).toHaveLength(0)
+  })
+
+  it('rejects an empty --bucket value before touching the API', async () => {
+    const sessionId = seedSession({ probes: [{ query: 'q', bucket: 'cited' }] })
+
+    const result = await invokeCli(['discover', 'promote', 'demand-iq', sessionId, '--bucket', ','])
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toMatch(/--bucket must include at least one value/i)
     expect(db.select().from(queries).all()).toHaveLength(0)
   })
 

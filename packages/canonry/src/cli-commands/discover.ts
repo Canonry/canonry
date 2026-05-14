@@ -40,6 +40,15 @@ function parseBucketsOption(values: CliValues, usage: string): DiscoveryBucket[]
   // Accept both repeated flags (--bucket cited --bucket aspirational) and
   // comma-separated values (--bucket cited,aspirational).
   const expanded = raw.flatMap(v => v.split(',')).map(v => v.trim()).filter(Boolean)
+  if (expanded.length === 0) {
+    throw usageError(
+      `Error: --bucket must include at least one value (valid: cited, aspirational, wasted-surface)\nUsage: ${usage}`,
+      {
+        message: '--bucket must include at least one value',
+        details: { command: 'discover.promote', usage, option: 'bucket', value: raw },
+      },
+    )
+  }
   const buckets: DiscoveryBucket[] = []
   for (const value of expanded) {
     const parsed = discoveryBucketSchema.safeParse(value)

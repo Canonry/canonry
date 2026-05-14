@@ -369,7 +369,7 @@ export async function createServer(opts: {
             `[system] Discovery run ${ctx.runId} completed for project ${project.name} (session ${ctx.sessionId}). ` +
             `Buckets — cited:${ctx.buckets.cited}, wasted-surface:${ctx.buckets['wasted-surface']}, aspirational:${ctx.buckets.aspirational} ` +
             `(${ctx.probeCount} probes; seed provider: ${ctx.seedProvider ?? 'unknown'}). Top recurring competitor domains: ${top}. ` +
-            `Use canonry_discover_session_get to pull per-query buckets and call out anything worth promoting to the tracked basket. Keep it tight.`
+            `Use canonry_discover_session_get to pull per-query buckets and call out cited + aspirational findings worth promoting. Keep it tight.`
         }
       } else {
         content =

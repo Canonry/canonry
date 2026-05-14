@@ -2,8 +2,11 @@ import { test, expect } from 'vitest'
 import {
   RunKinds,
   runKindSchema,
-  DiscoveryBuckets,
-  discoveryBucketSchema,
+	  DiscoveryBuckets,
+	  DEFAULT_DISCOVERY_PROMOTE_BUCKETS,
+	  DISCOVERY_PROMOTE_COMPETITOR_CAP,
+	  DISCOVERY_PROMOTE_COMPETITOR_MIN_HITS,
+	  discoveryBucketSchema,
   DiscoverySessionStatuses,
   discoverySessionStatusSchema,
   DISCOVERY_MAX_PROBES_CAP,
@@ -29,6 +32,16 @@ test('discoveryBucketSchema covers the three named buckets and rejects others', 
   expect(DiscoveryBuckets.aspirational).toBe('aspirational')
   expect(DiscoveryBuckets['wasted-surface']).toBe('wasted-surface')
   expect(() => discoveryBucketSchema.parse('unknown')).toThrow()
+})
+
+test('discovery promote defaults are production-safe', () => {
+  expect(DEFAULT_DISCOVERY_PROMOTE_BUCKETS).toEqual([
+    DiscoveryBuckets.cited,
+    DiscoveryBuckets.aspirational,
+  ])
+  expect(DEFAULT_DISCOVERY_PROMOTE_BUCKETS).not.toContain(DiscoveryBuckets['wasted-surface'])
+  expect(DISCOVERY_PROMOTE_COMPETITOR_MIN_HITS).toBe(2)
+  expect(DISCOVERY_PROMOTE_COMPETITOR_CAP).toBe(20)
 })
 
 test('discoverySessionStatusSchema enumerates the lifecycle states', () => {
@@ -194,7 +207,7 @@ test('queryProvenanceSchema rejects other strings', () => {
   expect(() => queryProvenanceSchema.parse('')).toThrow()
 })
 
-test('discoveryPromoteRequestSchema accepts an empty object (promote all buckets + competitors)', () => {
+test('discoveryPromoteRequestSchema accepts an empty object (server applies safe defaults)', () => {
   const req = discoveryPromoteRequestSchema.parse({})
   expect(req.buckets).toBeUndefined()
   expect(req.includeCompetitors).toBeUndefined()

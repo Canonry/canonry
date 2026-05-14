@@ -310,11 +310,11 @@ const discoveryPromoteInputSchema = z.object({
         .array(discoveryBucketSchema)
         .min(1)
         .optional()
-        .describe('Which probe buckets to adopt into the tracked basket. Omitted promotes all three (cited, aspirational, wasted-surface).'),
+        .describe('Which probe buckets to adopt into the tracked basket. Omitted promotes cited + aspirational; include wasted-surface explicitly for off-ICP competitor gaps.'),
       includeCompetitors: z
         .boolean()
         .optional()
-        .describe("Whether to also merge the session's discovered competitor domains into the project. Defaults to true."),
+        .describe("Whether to also merge recurring discovered competitor domains into the project. Defaults to true."),
     })
     .optional(),
 })
@@ -1265,7 +1265,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_discover_promote_preview',
     title: 'Preview discovery promotion',
-    description: 'Read-only preview of what canonry_discover_promote would persist for a session: bucketed query lists and suggested new competitor domains (those not already in the project\'s tracked competitor list). Use it to confirm a basket before calling canonry_discover_promote.',
+    description: 'Read-only preview of available promotion candidates for a session: bucketed query lists and recurring suggested competitor domains not already in the project\'s tracked competitor list. Use it to confirm a basket before calling canonry_discover_promote.',
     access: 'read',
     tier: 'discovery',
     inputSchema: discoverySessionIdInputSchema,
@@ -1276,7 +1276,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_discover_promote',
     title: 'Promote discovery session',
-    description: 'Adopt a completed discovery session\'s bucketed queries — and, by default, its discovered competitor domains — into the project\'s tracked basket, tagged with provenance "discovery:<sessionId>". Add-only and idempotent: queries/domains already tracked are returned under `skipped`, never inserted twice. Only sessions with status "completed" can be promoted. Call canonry_discover_promote_preview first to see exactly what would be adopted.',
+    description: 'Adopt a completed discovery session\'s bucketed queries into the project\'s tracked basket, tagged with provenance "discovery:<sessionId>". By default, only cited + aspirational queries are promoted; include wasted-surface explicitly when off-ICP competitor gaps should also be tracked. Recurring discovered competitor domains are also merged by default. Add-only and idempotent: queries/domains already tracked are returned under `skipped`, never inserted twice. Only sessions with status "completed" can be promoted. Call canonry_discover_promote_preview first to inspect candidates.',
     access: 'write',
     tier: 'discovery',
     inputSchema: discoveryPromoteInputSchema,

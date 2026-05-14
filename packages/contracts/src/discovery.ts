@@ -4,6 +4,12 @@ import { citationStateSchema } from './run.js'
 export const discoveryBucketSchema = z.enum(['cited', 'aspirational', 'wasted-surface'])
 export type DiscoveryBucket = z.infer<typeof discoveryBucketSchema>
 export const DiscoveryBuckets = discoveryBucketSchema.enum
+export const DEFAULT_DISCOVERY_PROMOTE_BUCKETS = [
+  DiscoveryBuckets.cited,
+  DiscoveryBuckets.aspirational,
+] as const satisfies readonly DiscoveryBucket[]
+export const DISCOVERY_PROMOTE_COMPETITOR_CAP = 20
+export const DISCOVERY_PROMOTE_COMPETITOR_MIN_HITS = 2
 
 export const discoverySessionStatusSchema = z.enum(['queued', 'seeding', 'probing', 'completed', 'failed'])
 export type DiscoverySessionStatus = z.infer<typeof discoverySessionStatusSchema>
@@ -71,10 +77,13 @@ export type DiscoveryRunRequest = z.infer<typeof discoveryRunRequestSchema>
  * `POST /projects/:name/discover/sessions/:id/promote` request.
  *
  * - `buckets` — which probe buckets to adopt into the tracked basket. Omitted
- *   means all three (`cited`, `aspirational`, `wasted-surface`); every bucket
- *   is a legitimate tracked-query target, so the common case promotes the lot.
+ *   means the production-safe default (`cited`, `aspirational`). Include
+ *   `wasted-surface` explicitly when off-ICP competitor gaps should also be
+ *   tracked.
  * - `includeCompetitors` — whether to also merge the session's discovered
- *   competitor domains into the project. Omitted means `true`.
+ *   competitor domains into the project. Omitted means `true`; only recurring
+ *   domains with at least `DISCOVERY_PROMOTE_COMPETITOR_MIN_HITS` hits are
+ *   eligible.
  */
 export const discoveryPromoteRequestSchema = z.object({
   buckets: z.array(discoveryBucketSchema).min(1).optional(),

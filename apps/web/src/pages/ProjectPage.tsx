@@ -21,6 +21,7 @@ import { ActivitySection } from '../components/project/ActivitySection.js'
 import { GscSection } from '../components/project/GscSection.js'
 import { BacklinksSection } from '../components/project/BacklinksSection.js'
 import { CitationVisibilitySection } from '../components/project/CitationVisibilitySection.js'
+import { DiscoverySection } from '../components/project/DiscoverySection.js'
 import { ReportPage } from './ReportPage.js'
 import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric } from '../lib/format-helpers.js'
 import { addToast } from '../lib/toast-store.js'
@@ -68,7 +69,7 @@ import { useDrawer } from '../hooks/use-drawer.js'
 import { findProjectVm } from '../mock-data.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
-export type ProjectPageTab = 'overview' | 'search-console' | 'report' | 'activity' | 'inbound'
+export type ProjectPageTab = 'overview' | 'search-console' | 'discovery' | 'report' | 'activity' | 'inbound'
 
 type SearchConsoleWorkspace = 'google' | 'bing'
 
@@ -1311,6 +1312,7 @@ export function ProjectPage({
   const projectTabItems: Array<{ key: ProjectPageTab; label: string; href: string }> = [
     { key: 'overview', label: 'Overview', href: `/projects/${model.project.id}` },
     { key: 'search-console', label: 'Search Engine Intelligence', href: `/projects/${model.project.id}/search-console` },
+    { key: 'discovery', label: 'Discovery', href: `/projects/${model.project.id}/discovery` },
     { key: 'activity', label: 'Activity', href: `/projects/${model.project.id}/activity` },
     { key: 'report', label: 'Report', href: `/projects/${model.project.id}/report` },
     { key: 'inbound', label: 'Inbound', href: `/projects/${model.project.id}/inbound` },
@@ -1714,6 +1716,8 @@ export function ProjectPage({
         </>
       ) : tab === 'report' ? (
         <ReportPage projectName={model.project.name} />
+      ) : tab === 'discovery' ? (
+        <DiscoverySection projectName={projectName} />
       ) : tab === 'activity' ? (
         <ActivitySection projectName={model.project.name} />
       ) : tab === 'inbound' ? (
