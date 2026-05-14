@@ -123,6 +123,22 @@ Keep it tight. The operator wakes to a short, decision-ready summary, not a full
 - **Gemini not configured** → orchestrator throws early; `runs.status='failed'` with `Gemini provider is not configured.` Surface as "configure Gemini before running discovery" — link to `canonry init` or `~/.canonry/config.yaml`.
 - **Vertex-only Gemini** → embeddings step throws (Vertex embeddings deferred). Same surface, "use a Gemini API key for now."
 - **ICP missing** → route returns 400 with `VALIDATION_ERROR`. Ask the operator for the ICP description in plain language.
+- **Seed collapse (hyperlocal/niche businesses)** → 40 raw seeds collapse to 1-2 canonical queries after embedding+clustering, even at low dedup thresholds. This happens when Gemini generates seed queries that all live in the same semantic pocket (e.g. all variants of "boutique hotel Venice Beach"). The embedding model sees them as near-identical, so clustering produces one representative.
+
+  **Diagnostic signal:** `seedCountRaw / seedCount > 10:1` (e.g. 40 raw → 1 selected).
+
+  **Remediation:** break the ICP into 3-5 distinct purchase-intent angles and run one session per angle via `--icp-angle`:
+
+  ```bash
+  canonry discover run <project> \
+    --icp-angle "romantic anniversary stay in Venice Beach" \
+    --icp-angle "best rooftop bars and dining hotels LA" \
+    --icp-angle "walkable Venice Beach hotels near Abbot Kinney" \
+    --icp-angle "design-forward boutique hotels for creative professionals" \
+    --wait
+  ```
+
+  Each angle generates its own 40-seed cluster independently, so aggregate coverage grows while per-session dedup stays clean. The `--wait` output prints a combined summary with per-session session IDs and a `promote` command for each. Promote the sessions individually after reviewing previews.
 
 ## Memory hygiene
 

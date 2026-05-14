@@ -16,6 +16,7 @@ import {
 import type { DiscoveryPromoteResult } from '@ainyc/canonry-contracts'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
+import { resolveIcpAngles } from '../src/commands/discover.js'
 import { invokeCli, parseJsonOutput } from './cli-test-utils.js'
 
 describe('discover promote CLI command', () => {
@@ -212,5 +213,30 @@ describe('discover promote CLI command', () => {
     const result = await invokeCli(['discover', 'promote', 'demand-iq', sessionId])
     expect(result.exitCode).toBe(1)
     expect(db.select().from(queries).all()).toHaveLength(0)
+  })
+})
+
+describe('discover multi-angle ICP', () => {
+  it('returns [undefined] when neither icp nor icpAngles are set (fallback to project ICP)', () => {
+    expect(resolveIcpAngles({})).toEqual([undefined])
+  })
+
+  it('returns [icp] when only icp is set', () => {
+    expect(resolveIcpAngles({ icp: 'single ICP' })).toEqual(['single ICP'])
+  })
+
+  it('returns icpAngles when set (takes priority over icp)', () => {
+    expect(resolveIcpAngles({ icp: 'ignored', icpAngles: ['angle a', 'angle b'] })).toEqual([
+      'angle a',
+      'angle b',
+    ])
+  })
+
+  it('returns icpAngles even when icp is empty', () => {
+    expect(resolveIcpAngles({ icpAngles: ['only angle'] })).toEqual(['only angle'])
+  })
+
+  it('returns icpAngles as-is when provided as a single-item array', () => {
+    expect(resolveIcpAngles({ icpAngles: ['solo'] })).toEqual(['solo'])
   })
 })

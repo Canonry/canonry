@@ -20,39 +20,81 @@ function getClient(): ApiClient {
 
 export interface DiscoverRunOptions {
   icp?: string
+  icpAngles?: string[]
   dedupThreshold?: number
   maxProbes?: number
   wait?: boolean
   format?: string
 }
 
-export async function discoverRun(project: string, opts: DiscoverRunOptions): Promise<void> {
-  const client = getClient()
+function buildRunBody(opts: DiscoverRunOptions, icpDescription?: string): Record<string, unknown> {
   const body: Record<string, unknown> = {}
-  if (opts.icp) body.icpDescription = opts.icp
+  if (icpDescription) body.icpDescription = icpDescription
   if (opts.dedupThreshold !== undefined) body.dedupThreshold = opts.dedupThreshold
   if (opts.maxProbes !== undefined) body.maxProbes = opts.maxProbes
+  return body
+}
 
-  const start: DiscoveryRunStartResponse = await client.triggerDiscoveryRun(project, body)
+export function resolveIcpAngles(opts: DiscoverRunOptions): Array<string | undefined> {
+  if (opts.icpAngles && opts.icpAngles.length > 0) return opts.icpAngles
+  if (opts.icp) return [opts.icp]
+  return [undefined]
+}
+
+export async function discoverRun(project: string, opts: DiscoverRunOptions): Promise<void> {
+  const client = getClient()
+  const angles = resolveIcpAngles(opts)
+
+  const runs: Array<{ angle: string | undefined; start: DiscoveryRunStartResponse }> = []
+  for (const angle of angles) {
+    const body = buildRunBody(opts, angle)
+    const start = await client.triggerDiscoveryRun(project, body)
+    runs.push({ angle, start })
+  }
 
   if (!opts.wait) {
     if (opts.format === 'json') {
-      console.log(JSON.stringify(start, null, 2))
+      console.log(JSON.stringify(runs.length === 1 ? runs[0]!.start : runs.map(r => r.start), null, 2))
       return
     }
-    console.log(`Discovery run started: ${start.runId}`)
-    console.log(`  Session: ${start.sessionId}`)
-    console.log(`  Status:  ${start.status}`)
-    console.log(`  Tail:    canonry discover show ${project} ${start.sessionId}`)
+    for (const { angle, start } of runs) {
+      if (angle) console.log(`[${angle}]`)
+      console.log(`Discovery run started: ${start.runId}`)
+      console.log(`  Session: ${start.sessionId}`)
+      console.log(`  Status:  ${start.status}`)
+      console.log(`  Tail:    canonry discover show ${project} ${start.sessionId}`)
+      if (runs.length > 1) console.log()
+    }
     return
   }
 
-  const final = await pollSession(client, project, start.sessionId)
+  const results = await Promise.all(
+    runs.map(r => pollSession(client, project, r.start.sessionId).then(session => ({ angle: r.angle, session }))),
+  )
+
   if (opts.format === 'json') {
-    console.log(JSON.stringify(final, null, 2))
+    console.log(JSON.stringify(results.length === 1 ? results[0]!.session : results.map(r => r.session), null, 2))
     return
   }
-  printSessionDetail(final)
+
+  for (const { angle, session } of results) {
+    if (angle) console.log(`## ICP angle: ${angle}\n`)
+    printSessionDetail(session)
+    if (results.length > 1) console.log()
+  }
+
+  if (results.length > 1) {
+    const totalProbes = results.reduce((sum, r) => sum + (r.session.probeCount ?? 0), 0)
+    const totalCited = results.reduce((sum, r) => sum + (r.session.citedCount ?? 0), 0)
+    const totalWasted = results.reduce((sum, r) => sum + (r.session.wastedCount ?? 0), 0)
+    const totalAsp = results.reduce((sum, r) => sum + (r.session.aspirationalCount ?? 0), 0)
+    console.log(`── Summary across ${results.length} angle(s) ──`)
+    console.log(`  Probes: ${totalProbes}  Cited: ${totalCited}  Wasted: ${totalWasted}  Aspirational: ${totalAsp}`)
+    console.log('\n  Promote each session:')
+    for (const { session } of results) {
+      console.log(`    canonry discover promote ${project} ${session.id}`)
+    }
+  }
 }
 
 export async function discoverSeed(project: string, opts: DiscoverRunOptions): Promise<void> {
