@@ -10,7 +10,7 @@ description: Workflow recipes — baseline, regression response, weekly review, 
 Trigger: First sweep completes for a new project
 
 Steps:
-1. `canonry evidence <project> --format json` → get initial citation data
+1. `cnry evidence <project> --format json` → get initial citation data
 2. Compute baseline: cited rate, provider breakdown, top/bottom queries
 3. `npx @ainyc/aeo-audit "<domain>" --format json` → site readiness score
 4. Identify top 3 gaps (uncited queries with fixable site issues)
@@ -22,9 +22,9 @@ Steps:
 Trigger: Comparison shows decline or webhook fires regression.detected
 
 Steps:
-1. `canonry evidence <project> --format json` → current state
-2. `canonry history <project>` → trend for affected query
-3. Check indexing: `canonry google coverage <project>` → is the page still indexed?
+1. `cnry evidence <project> --format json` → current state
+2. `cnry history <project>` → trend for affected query
+3. Check indexing: `cnry google coverage <project>` → is the page still indexed?
 4. Check competitor: did a competitor gain the citation we lost?
 5. Audit the page: `npx @ainyc/aeo-audit "<page-url>" --format json`
 6. Diagnose cause: indexing issue / content issue / competitive displacement
@@ -37,7 +37,7 @@ Steps:
 Trigger: Scheduled (weekly, or on-demand)
 
 Steps:
-1. `canonry evidence <project> --format json` → current metrics
+1. `cnry evidence <project> --format json` → current metrics
 2. Compare to baseline/prior week from memory
 3. Compute deltas: citations gained, lost, stable
 4. Flag any new regressions not yet addressed
@@ -49,7 +49,7 @@ Steps:
 Trigger: User asks "why aren't we cited for X?" or multiple uncited queries detected
 
 Steps:
-1. `canonry evidence <project>` → confirm uncited
+1. `cnry evidence <project>` → confirm uncited
 2. Check if a relevant page exists on the domain
 3. If no page: recommend content creation (topic, target queries)
 4. If page exists: `npx @ainyc/aeo-audit "<page-url>"` → diagnose why uncited

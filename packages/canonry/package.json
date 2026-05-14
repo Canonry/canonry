@@ -15,6 +15,7 @@
   },
   "bin": {
     "canonry": "./bin/canonry.mjs",
+    "cnry": "./bin/canonry.mjs",
     "canonry-mcp": "./bin/canonry-mcp.mjs"
   },
   "exports": {

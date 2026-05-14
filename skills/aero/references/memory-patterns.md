@@ -22,12 +22,12 @@ Aero ships with a built-in durable notes store — the `canonry_memory_set`, `ca
 Prefer Aero's read tools (`canonry_project_overview`, `canonry_health_latest`, `canonry_timeline_get`, `canonry_insights_list`, `canonry_queries_list`, `canonry_competitors_list`, `canonry_run_get`) over shelling out, but the CLI exists for operators too:
 
 ```bash
-canonry status <project> --format json
-canonry health <project> --format json
-canonry timeline <project> --since <YYYY-MM-DD> --format json
-canonry insights <project> --format json
-canonry evidence <project> --format json
-canonry audit <project> --format json
+cnry status <project> --format json
+cnry health <project> --format json
+cnry timeline <project> --since <YYYY-MM-DD> --format json
+cnry insights <project> --format json
+cnry evidence <project> --format json
+cnry audit <project> --format json
 ```
 
 If the data you need isn't reachable with a single read tool or CLI call, that's a bug in canonry's API surface — file it rather than working around it in memory.
@@ -47,9 +47,9 @@ Derived interpretations (trend summaries, correlations between events) are cheap
 **CLI parity.** Operators can manage memory without talking to you:
 
 ```bash
-canonry agent memory list <project> --format json
-canonry agent memory set <project> --key <k> --value <v>
-canonry agent memory forget <project> --key <k>
+cnry agent memory list <project> --format json
+cnry agent memory set <project> --key <k> --value <v>
+cnry agent memory forget <project> --key <k>
 ```
 
 ## Good remember candidates

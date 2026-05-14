@@ -6,16 +6,16 @@ Canonry integrates with WordPress through the core REST API plus Application Pas
 
 - Read and write page content, titles, slugs, and status
 - Audit pages for `noindex`, missing SEO title, missing meta description, missing schema, and thin content
-- Compare live vs staging for a page with `canonry wordpress diff`
+- Compare live vs staging for a page with `cnry wordpress diff`
 - Update SEO meta when the site exposes writable REST meta fields
 
 ## What Stays Manual
 
 Canonry generates payloads and instructions for these workflows, but it does not apply them remotely:
 
-- `canonry wordpress set-schema`
-- `canonry wordpress set-llms-txt`
-- `canonry wordpress staging push`
+- `cnry wordpress set-schema`
+- `cnry wordpress set-llms-txt`
+- `cnry wordpress staging push`
 
 Expect those commands to return:
 
@@ -39,13 +39,13 @@ Env-sensitive commands accept `--live` or `--staging`. If neither is provided, c
 ## Typical Workflow
 
 ```bash
-canonry wordpress connect mysite --url https://example.com --user admin --staging-url https://staging.example.com --default-env staging
-canonry wordpress pages mysite --staging
-canonry wordpress page mysite pricing --staging
-canonry wordpress set-meta mysite pricing --title "SEO title" --description "Meta description" --staging
-canonry wordpress audit mysite --staging
-canonry wordpress diff mysite pricing
-canonry wordpress staging push mysite
+cnry wordpress connect mysite --url https://example.com --user admin --staging-url https://staging.example.com --default-env staging
+cnry wordpress pages mysite --staging
+cnry wordpress page mysite pricing --staging
+cnry wordpress set-meta mysite pricing --title "SEO title" --description "Meta description" --staging
+cnry wordpress audit mysite --staging
+cnry wordpress diff mysite pricing
+cnry wordpress staging push mysite
 ```
 
 ## Important Constraints

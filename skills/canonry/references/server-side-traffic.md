@@ -45,13 +45,13 @@ Future adapters slot in by implementing the same contract.
 # 1. Create a service account in the Cloud project that hosts the Cloud Run
 #    service. Grant it `roles/logging.viewer`. Download the JSON key.
 
-# 2. Connect from canonry CLI:
-canonry traffic connect cloud-run <project> \
+# 2. Connect from cnry CLI:
+cnry traffic connect cloud-run <project> \
   --gcp-project <gcp-project-id> \
   --service-account-key <path/to/key.json>
 
 # 3. (Optional) narrow to a specific service or location:
-canonry traffic connect cloud-run <project> \
+cnry traffic connect cloud-run <project> \
   --gcp-project <id> \
   --service-account-key <path> \
   --service my-service-name \
@@ -59,7 +59,7 @@ canonry traffic connect cloud-run <project> \
 ```
 
 Credentials are stored in `~/.canonry/config.yaml` (not the DB). The
-canonical key lives only on the host that runs `canonry serve`. The
+canonical key lives only on the host that runs `cnry serve`. The
 sync flow does NOT echo the private key back in any response.
 
 ## Connecting a WordPress source
@@ -82,8 +82,8 @@ exposes a paginated REST endpoint protected by an Application Password.
 #    7–365 days; default is 90. The page also shows the current event
 #    count and the oldest event timestamp.
 
-# 4. Connect from canonry CLI:
-canonry traffic connect wordpress <project> \
+# 4. Connect from cnry CLI:
+cnry traffic connect wordpress <project> \
   --url https://example.com \
   --username admin \
   --app-password "xxxx xxxx xxxx xxxx xxxx xxxx"
@@ -109,10 +109,10 @@ window change it in `Settings → Canonry Traffic Logger`.
 ```bash
 # Manual sync — defaults to a 30-day lookback on the first run; subsequent
 # runs are clamped forward to lastSyncedAt to avoid re-pulling.
-canonry traffic sync <project> --source <id>
+cnry traffic sync <project> --source <id>
 
 # Override the lookback window (minutes):
-canonry traffic sync <project> --source <id> --since-minutes 4320  # 3 days
+cnry traffic sync <project> --source <id> --since-minutes 4320  # 3 days
 ```
 
 Cross-sync dedupe via the `last_event_ids` ring buffer means re-running a
@@ -123,14 +123,14 @@ hits. Safe to schedule (see "Scheduling" below) or trigger from CI.
 
 ```bash
 # All sources with last-24h totals + latest sync run (single-call):
-canonry traffic status <project> --format json
+cnry traffic status <project> --format json
 
 # Just the source list:
-canonry traffic sources <project> --format json
+cnry traffic sources <project> --format json
 
 # Windowed events (defaults to last 24h):
-canonry traffic events <project> --kind crawler --limit 200 --format json
-canonry traffic events <project> --kind ai-referral --since 2026-04-01 --until 2026-04-30
+cnry traffic events <project> --kind crawler --limit 200 --format json
+cnry traffic events <project> --kind ai-referral --since 2026-04-01 --until 2026-04-30
 ```
 
 The `traffic status` composite returns the same per-source detail
@@ -144,8 +144,8 @@ MCP `canonry_traffic_status` tool.
 |---|---|
 | Project dashboard `/projects/:name/activity` | Live source table + 24h totals + GA4 referrals (combined view) |
 | Top-level `/traffic` route | Cross-project source admin (connect, sync, archive) |
-| `canonry report <project>` (HTML + SPA) | "AI Visibility — Server-Side" section, ranked above Indexing Health |
-| `canonry doctor --project <name>` | `traffic.source.connected`, `recent-data`, `credentials`, `scopes` checks |
+| `cnry report <project>` (HTML + SPA) | "AI Visibility — Server-Side" section, ranked above Indexing Health |
+| `cnry doctor --project <name>` | `traffic.source.connected`, `recent-data`, `credentials`, `scopes` checks |
 | MCP toolkit `traffic` | Tools: `canonry_traffic_status`, `_sources_list`, `_source_get`, `_events`, `_connect_cloud_run`, `_sync` |
 
 ## Doctor signals
@@ -154,15 +154,15 @@ The doctor checks are adapter-agnostic. When they fail or warn:
 
 | Check | Code | What to do |
 |---|---|---|
-| `traffic.source.connected` | `traffic.source.none` | No source — `canonry traffic connect cloud-run …` |
+| `traffic.source.connected` | `traffic.source.none` | No source — `cnry traffic connect cloud-run …` |
 | `traffic.source.connected` | `traffic.source.all-errored` | Re-connect the source. The check's `details.lastError` shows the underlying reason. |
-| `traffic.source.recent-data` | `traffic.recent-data.stale` | Last sync was >7d ago. Run `canonry traffic sync …` or schedule a recurring sync. |
-| `traffic.source.recent-data` | `traffic.recent-data.empty` | Source connected but no data in 30d. Verify config and credentials with `canonry traffic sources <project>`. |
+| `traffic.source.recent-data` | `traffic.recent-data.stale` | Last sync was >7d ago. Run `cnry traffic sync …` or schedule a recurring sync. |
+| `traffic.source.recent-data` | `traffic.recent-data.empty` | Source connected but no data in 30d. Verify config and credentials with `cnry traffic sources <project>`. |
 | `traffic.source.credentials` | `traffic.credentials.resolve-failed` | Service-account key in `~/.canonry/config.yaml` is invalid or expired. Re-connect. |
 
 ## Scheduling
 
-`canonry schedule` supports `--kind traffic-sync`. Recurring syncs are
+`cnry schedule` supports `--kind traffic-sync`. Recurring syncs are
 safe because of the `last_event_ids` cross-sync dedupe ring buffer
 described above. Recommended cadence:
 

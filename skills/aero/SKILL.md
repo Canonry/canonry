@@ -9,12 +9,12 @@ repository: https://github.com/AINYC/aero
 # Aero Orchestration Skill
 
 You coordinate across two tools to deliver comprehensive AEO monitoring:
-- **canonry** — the source of truth for project state (runs, snapshots, timelines, insights, audit log, **GA4 traffic + AI/social referrals**). Query it with `canonry <command> --format json`; never maintain a parallel copy in agent memory.
+- **canonry** — the source of truth for project state (runs, snapshots, timelines, insights, audit log, **GA4 traffic + AI/social referrals**). Query it with `cnry <command> --format json` (the CLI is also installed as `canonry` — the two are interchangeable); never maintain a parallel copy in agent memory.
 - **aeo-audit** — on-demand site analysis and fix generation.
 
 Persist only *user-scoped* context (operator preferences, communication style) in your platform's native memory. Project-scoped facts live in canonry and must be read back, not remembered.
 
-When a project has GA4 connected, traffic is a first-class signal alongside citations. Use `canonry ga traffic` / `canonry ga attribution --trend` for the current snapshot, `canonry ga ai-referral-history` and `canonry ga social-referral-history` for daily series. Reads query a local DB synced by `canonry ga sync` — confirm `canonry ga status` shows a recent `lastSyncedAt` before quoting numbers; if stale, re-sync first. Full command reference and return shapes live in the co-installed `canonry/references/canonry-cli.md` (look for the "Google Analytics 4" section).
+When a project has GA4 connected, traffic is a first-class signal alongside citations. Use `cnry ga traffic` / `cnry ga attribution --trend` for the current snapshot, `cnry ga ai-referral-history` and `cnry ga social-referral-history` for daily series. Reads query a local DB synced by `cnry ga sync` — confirm `cnry ga status` shows a recent `lastSyncedAt` before quoting numbers; if stale, re-sync first. Full command reference and return shapes live in the co-installed `canonry/references/canonry-cli.md` (look for the "Google Analytics 4" section).
 
 ## Judgment Rules
 

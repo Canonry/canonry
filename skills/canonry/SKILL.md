@@ -36,6 +36,8 @@ Agent-first open-source AEO (Answer Engine Optimization) operating platform. Tra
 
 **Website:** [ainyc.ai](https://ainyc.ai) | **Docs:** [github.com/AINYC/canonry](https://github.com/AINYC/canonry)
 
+**CLI:** invoke as `cnry` (short form) or `canonry` — both ship with the npm package and are interchangeable. Examples in this skill use `cnry`.
+
 ## When to Use
 
 - Tracking query citations across AI providers
@@ -56,11 +58,11 @@ Agent-first open-source AEO (Answer Engine Optimization) operating platform. Tra
 
 A canonry engagement follows the same loop regardless of project size:
 
-1. **Diagnose** — Run a baseline sweep (`canonry run <project> --wait`) and a technical audit (`npx @ainyc/aeo-audit@latest <url> --format json`). See `references/aeo-analysis.md` for interpretation.
+1. **Diagnose** — Run a baseline sweep (`cnry run <project> --wait`) and a technical audit (`npx @ainyc/aeo-audit@latest <url> --format json`). See `references/aeo-analysis.md` for interpretation.
 2. **Prioritize** — Triage by impact: indexing gaps → schema gaps → content gaps → query strategy. Branded-term losses are urgent.
 3. **Execute** — Apply fixes via the canonry CLI or platform integrations. See `references/canonry-cli.md` for the full command catalog and `references/wordpress-integration.md` for the WordPress workflow.
 4. **Monitor** — Re-run sweeps weekly. Correlate visibility shifts with deployments and competitor moves.
-5. **Report** — Lead with data, not interpretation: "Lost `<query>` on Gemini between <date> and <date> — two competitors moved in. Here's what to fix." For a one-command client-facing summary, run `canonry report <project>` to generate a self-contained HTML bundle (executive summary, citation scorecard, competitor landscape, GSC + GA4 performance, insights). Same payload is available via `--format json` and the `canonry_report` MCP tool.
+5. **Report** — Lead with data, not interpretation: "Lost `<query>` on Gemini between <date> and <date> — two competitors moved in. Here's what to fix." For a one-command client-facing summary, run `cnry report <project>` to generate a self-contained HTML bundle (executive summary, citation scorecard, competitor landscape, GSC + GA4 performance, insights). Same payload is available via `--format json` and the `canonry_report` MCP tool.
 
 ## Common Starting Points
 
@@ -70,7 +72,7 @@ A canonry engagement follows the same loop regardless of project size:
 
 ## Google Analytics 4
 
-GA4 is a first-class signal alongside citation tracking. Connect once with `canonry ga connect <project> --property-id <id> --key-file <path>`; `canonry ga sync` then pulls daily landing-page traffic, AI-referral sessions across 10 known providers (chatgpt, perplexity, claude, gemini, openai, anthropic, copilot, phind, you.com, meta.ai), and social referrals split into Organic vs Paid via GA4's `channelGroup` — and persists everything into four DB tables (`gaTrafficSnapshots`, `gaAiReferrals`, `gaSocialReferrals`, `gaTrafficSummaries`). All read commands query that local store, so they are fast and quotaless once a sync has run. AI referrals are tracked across three GA4 attribution dimensions (session source / first-user source / manual UTM) and joined to landing pages, so you can see which page each AI provider sent traffic to. Use `canonry ga traffic` for the current snapshot, `canonry ga attribution --trend` for a unified channel-share overview with biggest-mover deltas, and `canonry ga ai-referral-history` / `canonry ga social-referral-history` for daily series. See `references/canonry-cli.md` for the full command catalog and return-shape details.
+GA4 is a first-class signal alongside citation tracking. Connect once with `cnry ga connect <project> --property-id <id> --key-file <path>`; `cnry ga sync` then pulls daily landing-page traffic, AI-referral sessions across 10 known providers (chatgpt, perplexity, claude, gemini, openai, anthropic, copilot, phind, you.com, meta.ai), and social referrals split into Organic vs Paid via GA4's `channelGroup` — and persists everything into four DB tables (`gaTrafficSnapshots`, `gaAiReferrals`, `gaSocialReferrals`, `gaTrafficSummaries`). All read commands query that local store, so they are fast and quotaless once a sync has run. AI referrals are tracked across three GA4 attribution dimensions (session source / first-user source / manual UTM) and joined to landing pages, so you can see which page each AI provider sent traffic to. Use `cnry ga traffic` for the current snapshot, `cnry ga attribution --trend` for a unified channel-share overview with biggest-mover deltas, and `cnry ga ai-referral-history` / `cnry ga social-referral-history` for daily series. See `references/canonry-cli.md` for the full command catalog and return-shape details.
 
 ## Boundaries & Safety
 

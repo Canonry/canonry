@@ -57,7 +57,7 @@ Shows which source categories AI models cite for your queries. Helps identify:
 ### Step 1: Check indexing first
 Not cited ≠ bad content. Often the page isn't indexed yet.
 ```bash
-canonry google coverage <project>
+cnry google coverage <project>
 ```
 If key pages are "unknown to Google," submit them before drawing conclusions.
 
@@ -70,28 +70,28 @@ For competitive queries, if others are cited and the client isn't:
 - Do they have stronger schema/structured data?
 - Are they more established in the index?
 
-Run `canonry evidence <project> --format json` and check `competitorOverlap` in snapshots.
+Run `cnry evidence <project> --format json` and check `competitorOverlap` in snapshots.
 
 ### Step 4: Check across providers
 Gemini, OpenAI, Claude, and Perplexity may behave differently. One citing a domain while another doesn't is normal — each has its own knowledge base and update schedule.
 
 ### Step 5: Check analytics trends
 ```bash
-canonry analytics <project> --feature gaps --window 30d
+cnry analytics <project> --feature gaps --window 30d
 ```
 Look for patterns: are gaps growing or shrinking? Are new competitors appearing?
 
 ### Step 6: Check GA4 traffic for impact
 A lost citation isn't always a lost user. Before declaring a regression real, confirm whether AI-referral traffic actually fell on the same window:
 ```bash
-canonry ga status <project>                          # confirm lastSyncedAt is recent; re-sync if stale
-canonry ga ai-referral-history <project> --format json
+cnry ga status <project>                          # confirm lastSyncedAt is recent; re-sync if stale
+cnry ga ai-referral-history <project> --format json
                                                       # daily {date, source, medium, attribution, sessions, users}
-canonry ga attribution <project> --trend             # 7d/30d direction per channel + biggest mover
+cnry ga attribution <project> --trend             # 7d/30d direction per channel + biggest mover
 ```
 Read the result against the citation loss window:
 - **AI sessions flat or up** → the citation loss may be sweep-side noise (provider variance, query refresh). Track for one more cycle before alarming the client.
-- **AI sessions dropped on the same date** → real outage; escalate. Cross-reference `aiReferrals[]` from `canonry ga traffic` to identify which provider lost traffic.
+- **AI sessions dropped on the same date** → real outage; escalate. Cross-reference `aiReferrals[]` from `cnry ga traffic` to identify which provider lost traffic.
 - **Organic dropped but AI held** → the citation loss is masking a separate indexing issue. Re-run Step 1.
 
 GA4 also covers the inverse case: a *gain* on `attribution --trend` for the AI channel that isn't reflected in citation count usually means a provider expanded an existing citation's exposure (more queries triggering it) — a quiet win worth flagging in the next report.
@@ -106,14 +106,14 @@ GA4 also covers the inverse case: a *gain* on `attribution --trend` for the AI c
 - Did a competitor page launch?
 - Did the page get deindexed or go down?
 - Did the model update?
-- Check `canonry google deindexed <project>` for index losses
+- Check `cnry google deindexed <project>` for index losses
 
 **Fluctuation** (cited in some runs, not others) — normal for competitive queries. Track trend over 5+ runs before drawing conclusions. AI answers are non-deterministic.
 
 ## What to Recommend
 
 ### Low overall citation (< 50%)
-1. Audit indexing — `canonry google coverage <project>`
+1. Audit indexing — `cnry google coverage <project>`
 2. Submit unindexed pages to Google Indexing API
 3. Submit sitemap to Bing WMT + send IndexNow batch
 4. Check core pages for schema (LocalBusiness / Organization / FAQPage)

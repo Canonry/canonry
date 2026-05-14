@@ -14,7 +14,7 @@ Getting pages indexed fast is high-leverage AEO work. Unindexed pages are invisi
 
 ### Check coverage
 ```bash
-canonry google coverage <project>
+cnry google coverage <project>
 ```
 
 Statuses to act on:
@@ -24,43 +24,43 @@ Statuses to act on:
 
 ### Sync GSC data
 ```bash
-canonry google sync <project>                    # incremental sync
-canonry google sync <project> --full --wait      # full re-sync
+cnry google sync <project>                    # incremental sync
+cnry google sync <project> --full --wait      # full re-sync
 ```
 
 ### Check search performance
 ```bash
-canonry google performance <project>                        # default 28 days
-canonry google performance <project> --days 90 --keyword "term"
+cnry google performance <project>                        # default 28 days
+cnry google performance <project> --days 90 --keyword "term"
 ```
 
 ### Discover and inspect sitemaps
 ```bash
-canonry google discover-sitemaps <project> --wait   # auto-discover sitemaps and queue inspection
-canonry google list-sitemaps <project>               # list submitted sitemaps
-canonry google inspect-sitemap <project> --wait      # bulk inspect all sitemap URLs
+cnry google discover-sitemaps <project> --wait   # auto-discover sitemaps and queue inspection
+cnry google list-sitemaps <project>               # list submitted sitemaps
+cnry google inspect-sitemap <project> --wait      # bulk inspect all sitemap URLs
 ```
 
 ### Inspect individual URLs
 ```bash
-canonry google inspect <project> <url>              # inspect specific URL
-canonry google inspections <project>                # inspection history
-canonry google inspections <project> --url <url>    # filter by URL
-canonry google deindexed <project>                  # pages that lost indexing
+cnry google inspect <project> <url>              # inspect specific URL
+cnry google inspections <project>                # inspection history
+cnry google inspections <project> --url <url>    # filter by URL
+cnry google deindexed <project>                  # pages that lost indexing
 ```
 
 ### Submit URLs to Google Indexing API
 ```bash
 # Single URL
-canonry google request-indexing <project> <url>
+cnry google request-indexing <project> <url>
 
 # All unindexed at once
-canonry google request-indexing <project> --all-unindexed
+cnry google request-indexing <project> --all-unindexed
 ```
 
 **Requirements:**
 - "Web Search Indexing API" enabled in the GCP project
-- OAuth connection set up in canonry (`canonry settings` shows Google connection)
+- OAuth connection set up in canonry (`cnry settings` shows Google connection)
 - Officially intended for JobPosting/BroadcastEvent schema; in practice Google processes all URLs
 
 **After submitting:** Check coverage again after 48h. Once indexed, run a sweep — pages must be indexed before citation is possible.
@@ -71,37 +71,37 @@ canonry google request-indexing <project> --all-unindexed
 
 ### One-time setup
 ```bash
-canonry bing connect <project> --api-key <key>
-canonry bing set-site <project> https://example.com/
+cnry bing connect <project> --api-key <key>
+cnry bing set-site <project> https://example.com/
 ```
 
 Get API key from: https://www.bing.com/webmasters/ → Settings → API Access
 
 ### Check connection and coverage
 ```bash
-canonry bing status <project>
-canonry bing coverage <project>
-canonry bing performance <project>
+cnry bing status <project>
+cnry bing coverage <project>
+cnry bing performance <project>
 ```
 
 ### Inspect URLs
 ```bash
-canonry bing inspect <project> <url>
-canonry bing inspections <project>
+cnry bing inspect <project> <url>
+cnry bing inspections <project>
 ```
 
 ### Inspect every URL in your sitemap
 ```bash
-canonry bing inspect-sitemap <project>                       # default https://<domain>/sitemap.xml
-canonry bing inspect-sitemap <project> --sitemap-url <url>   # explicit sitemap or sitemap index
-canonry bing inspect-sitemap <project> --wait                # block until the run finishes
+cnry bing inspect-sitemap <project>                       # default https://<domain>/sitemap.xml
+cnry bing inspect-sitemap <project> --sitemap-url <url>   # explicit sitemap or sitemap index
+cnry bing inspect-sitemap <project> --wait                # block until the run finishes
 ```
 Bing has no native sitemap inspection API — this command fetches the sitemap, diffs against the tracked URL set, then calls `GetUrlInfo` for each discovered URL so coverage reflects the full sitemap rather than only previously inspected pages.
 
 ### Submit URLs for indexing
 ```bash
-canonry bing request-indexing <project> <url>
-canonry bing request-indexing <project> --all-unindexed
+cnry bing request-indexing <project> <url>
+cnry bing request-indexing <project> --all-unindexed
 ```
 
 ### Submit sitemap (manual, one-time)
@@ -143,20 +143,20 @@ Expected response: `202 Accepted`
 |---|---|
 | Get pages into ChatGPT / Perplexity / Claude | Google Indexing API |
 | Get pages into Copilot / Bing AI | IndexNow + Bing WMT |
-| Audit what Google currently knows | `canonry google coverage <project>` |
-| Audit what Bing currently knows | `canonry bing coverage <project>` |
+| Audit what Google currently knows | `cnry google coverage <project>` |
+| Audit what Bing currently knows | `cnry bing coverage <project>` |
 | Fast crawl of new/updated pages on Bing | IndexNow batch submit |
-| Ongoing Google crawl health | `canonry google sync` + `canonry google performance` |
-| Ongoing Bing crawl health | Bing WMT sitemap + `canonry bing performance` |
-| Find deindexed pages | `canonry google deindexed <project>` |
+| Ongoing Google crawl health | `cnry google sync` + `cnry google performance` |
+| Ongoing Bing crawl health | Bing WMT sitemap + `cnry bing performance` |
+| Find deindexed pages | `cnry google deindexed <project>` |
 
 ---
 
 ## General Workflow for New Client Pages
 
-1. `canonry google coverage <project>` — identify unindexed pages
-2. `canonry google request-indexing <project> --all-unindexed` — push to Google
-3. `canonry bing request-indexing <project> --all-unindexed` — push to Bing
+1. `cnry google coverage <project>` — identify unindexed pages
+2. `cnry google request-indexing <project> --all-unindexed` — push to Google
+3. `cnry bing request-indexing <project> --all-unindexed` — push to Bing
 4. Submit sitemap to Bing WMT (manual, one-time per site)
 5. Send IndexNow batch for key URLs
 6. Re-check coverage after 48h

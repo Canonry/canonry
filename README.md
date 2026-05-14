@@ -8,9 +8,9 @@
 - Watch AI engines crawl and refer traffic via [server-log ingestion](skills/canonry/references/server-side-traffic.md) — Cloud Run logs and the WordPress Traffic Logger plugin today
 - Diagnose against real traffic with built-in [GSC](docs/google-search-console-setup.md), [GA4](docs/google-analytics-setup.md), and [Bing Webmaster](docs/bing-webmaster-setup.md)
 - Execute fixes via [WordPress](docs/wordpress-setup.md), JSON-LD schema, and indexing submissions
-- Manage many clients declaratively — config-as-code YAML + `canonry apply`
+- Manage many clients declaratively — config-as-code YAML + `cnry apply`
 - Schedule recurring visibility checks AND traffic syncs, with webhook alerts on regressions
-- Generate client-ready HTML reports — `canonry report <project>`
+- Generate client-ready HTML reports — `cnry report <project>`
 - Drive from your own agent via the [67-tool MCP adapter](docs/mcp.md) or webhooks
 - Or use **Aero** — Canonry's built-in agent that wakes up after every run
 
@@ -22,28 +22,30 @@ Every dashboard view has a matching CLI command and API endpoint. The CLI is the
 
 ```bash
 npm install -g @ainyc/canonry
-canonry init
-canonry serve
+cnry init
+cnry serve
 ```
+
+The CLI installs as `cnry` (short form) and `canonry` — the two are interchangeable.
 
 Open [http://localhost:4100/setup](http://localhost:4100/setup). A guided wizard walks you through provider keys, project setup, queries, and your first visibility check.
 
 Prefer the terminal?
 
 ```bash
-canonry project create my-site --domain example.com
-canonry query add my-site "your first query" "second query"
-canonry run my-site --wait
-canonry evidence my-site
-canonry insights my-site
+cnry project create my-site --domain example.com
+cnry query add my-site "your first query" "second query"
+cnry run my-site --wait
+cnry evidence my-site
+cnry insights my-site
 ```
 
 ## If you get stuck
 
 | Problem | Fix |
 |---------|-----|
-| No provider key configured | Grab a free [Gemini key](https://aistudio.google.com/apikey), set `GEMINI_API_KEY`, restart `canonry serve`. |
-| No results after a run | Visibility checks are async — check the Runs tab or use `canonry run <project> --wait`. |
+| No provider key configured | Grab a free [Gemini key](https://aistudio.google.com/apikey), set `GEMINI_API_KEY`, restart `cnry serve`. |
+| No results after a run | Visibility checks are async — check the Runs tab or use `cnry run <project> --wait`. |
 | Not sure what queries to test | The setup wizard auto-generates them by analyzing your site. |
 | `npm install` fails on `node-gyp` | Install build tools for `better-sqlite3` ([guide](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/troubleshooting.md)). |
 
@@ -57,7 +59,7 @@ canonry insights my-site
 | Perplexity | [perplexity.ai/settings/api](https://www.perplexity.ai/settings/api) | `PERPLEXITY_API_KEY` |
 | Local LLMs | Any OpenAI-compatible endpoint | `LOCAL_LLM_URL` |
 
-Configure during `canonry init`, in the dashboard `/settings`, or as env vars.
+Configure during `cnry init`, in the dashboard `/settings`, or as env vars.
 
 ## Documentation
 
@@ -69,7 +71,7 @@ Configure during `canonry init`, in the dashboard `/settings`, or as env vars.
 | **Integrations** | [GSC](docs/google-search-console-setup.md) · [GA4](docs/google-analytics-setup.md) · [Bing](docs/bing-webmaster-setup.md) · [WordPress](docs/wordpress-setup.md) · [Server-side traffic (Cloud Run + WordPress logs)](skills/canonry/references/server-side-traffic.md) |
 | **Deployment** — Docker, Railway, Render, systemd, Tailscale | [docs/deployment.md](docs/deployment.md) |
 | **API** — 118+ endpoints | `GET /api/v1/openapi.json` (no auth) |
-| **Skills bundle** for Claude Code / Codex | `canonry skills install` ([details](skills/canonry/SKILL.md)) |
+| **Skills bundle** for Claude Code / Codex | `cnry skills install` ([details](skills/canonry/SKILL.md)) |
 | **Roadmap & ADRs** | [docs/roadmap.md](docs/roadmap.md) · [docs/adr/](docs/adr/) |
 | **All docs** | [docs/README.md](docs/README.md) |
 
