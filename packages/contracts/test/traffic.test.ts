@@ -4,7 +4,9 @@ import {
   TrafficEvidenceKinds,
   TrafficSourceTypes,
   normalizedTrafficRequestSchema,
+  trafficConnectVercelRequestSchema,
   trafficConnectWordpressRequestSchema,
+  vercelTrafficSourceConfigSchema,
   wordpressTrafficSourceConfigSchema,
 } from '../src/traffic.js'
 
@@ -97,6 +99,73 @@ describe('trafficConnectWordpressRequestSchema', () => {
       baseUrl: 'https://example.com',
       username: 'canonry-bot',
       applicationPassword: '',
+    })).toThrow()
+  })
+})
+
+describe('vercelTrafficSourceConfigSchema', () => {
+  it('accepts a valid Vercel traffic source config', () => {
+    const parsed = vercelTrafficSourceConfigSchema.parse({
+      projectId: 'prj_abc123',
+      teamId: 'team_xyz789',
+      environment: 'production',
+    })
+    expect(parsed.projectId).toBe('prj_abc123')
+    expect(parsed.teamId).toBe('team_xyz789')
+    expect(parsed.environment).toBe('production')
+  })
+
+  it('rejects an unknown environment', () => {
+    expect(() => vercelTrafficSourceConfigSchema.parse({
+      projectId: 'prj_abc123',
+      teamId: 'team_xyz789',
+      environment: 'staging',
+    })).toThrow()
+  })
+
+  it('rejects an empty projectId or teamId', () => {
+    expect(() => vercelTrafficSourceConfigSchema.parse({
+      projectId: '',
+      teamId: 'team_xyz789',
+      environment: 'production',
+    })).toThrow()
+    expect(() => vercelTrafficSourceConfigSchema.parse({
+      projectId: 'prj_abc123',
+      teamId: '',
+      environment: 'production',
+    })).toThrow()
+  })
+})
+
+describe('trafficConnectVercelRequestSchema', () => {
+  it('accepts a connect request with all fields', () => {
+    const parsed = trafficConnectVercelRequestSchema.parse({
+      projectId: 'prj_abc123',
+      teamId: 'team_xyz789',
+      token: 'vcp_secret',
+      environment: 'preview',
+      displayName: 'Example Vercel',
+    })
+    expect(parsed.token).toBe('vcp_secret')
+    expect(parsed.environment).toBe('preview')
+    expect(parsed.displayName).toBe('Example Vercel')
+  })
+
+  it('allows omitting environment and displayName', () => {
+    const parsed = trafficConnectVercelRequestSchema.parse({
+      projectId: 'prj_abc123',
+      teamId: 'team_xyz789',
+      token: 'vcp_secret',
+    })
+    expect(parsed.environment).toBeUndefined()
+    expect(parsed.displayName).toBeUndefined()
+  })
+
+  it('rejects an empty token', () => {
+    expect(() => trafficConnectVercelRequestSchema.parse({
+      projectId: 'prj_abc123',
+      teamId: 'team_xyz789',
+      token: '',
     })).toThrow()
   })
 })
