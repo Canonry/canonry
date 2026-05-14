@@ -103,6 +103,23 @@ export const wordpressTrafficSourceConfigSchema = z.object({
 })
 export type WordpressTrafficSourceConfig = z.infer<typeof wordpressTrafficSourceConfigSchema>
 
+export const vercelTrafficEnvironmentSchema = z.enum(['production', 'preview'])
+export type VercelTrafficEnvironment = z.infer<typeof vercelTrafficEnvironmentSchema>
+export const VercelTrafficEnvironments = vercelTrafficEnvironmentSchema.enum
+
+/**
+ * Persisted in `traffic_sources.configJson` for `sourceType = 'vercel'`.
+ * The Vercel API token lives in `~/.canonry/config.yaml`, never here.
+ */
+export const vercelTrafficSourceConfigSchema = z.object({
+  /** Vercel project id (e.g. `prj_...`). */
+  projectId: z.string().min(1),
+  /** Vercel team / owner id (e.g. `team_...`). */
+  teamId: z.string().min(1),
+  environment: vercelTrafficEnvironmentSchema,
+})
+export type VercelTrafficSourceConfig = z.infer<typeof vercelTrafficSourceConfigSchema>
+
 export const trafficSourceDtoSchema = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -137,6 +154,19 @@ export const trafficConnectWordpressRequestSchema = z.object({
   displayName: z.string().min(1).optional(),
 })
 export type TrafficConnectWordpressRequest = z.infer<typeof trafficConnectWordpressRequestSchema>
+
+export const trafficConnectVercelRequestSchema = z.object({
+  /** Vercel project id (e.g. `prj_...`) — from the Vercel dashboard or `.vercel/project.json`. */
+  projectId: z.string().min(1),
+  /** Vercel team / owner id (e.g. `team_...`). */
+  teamId: z.string().min(1),
+  /** Vercel API token (personal access token). Stored in `~/.canonry/config.yaml`, never the DB. */
+  token: z.string().min(1),
+  /** Which deployment environment's request logs to pull. Default: `production`. */
+  environment: vercelTrafficEnvironmentSchema.optional(),
+  displayName: z.string().min(1).optional(),
+})
+export type TrafficConnectVercelRequest = z.infer<typeof trafficConnectVercelRequestSchema>
 
 export const trafficSyncResponseSchema = z.object({
   sourceId: z.string(),
