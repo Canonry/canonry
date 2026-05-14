@@ -19,8 +19,6 @@ import {
   requireProject,
   stringOption,
 } from '../cli-command-helpers.js'
-
-export type { DiscoverRunOptions } from '../commands/discover.js'
 import { usageError } from '../cli-error.js'
 
 function parseFloatOption(values: Record<string, unknown>, key: string, usage: string): number | undefined {

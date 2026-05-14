@@ -35,26 +35,75 @@ function buildRunBody(opts: DiscoverRunOptions, icpDescription?: string): Record
   return body
 }
 
-export function resolveIcpAngles(opts: DiscoverRunOptions): Array<string | undefined> {
-  if (opts.icpAngles && opts.icpAngles.length > 0) return opts.icpAngles
-  if (opts.icp) return [opts.icp]
-  return [undefined]
+export interface ResolvedIcpAngles {
+  /** One entry per discovery session to start. `undefined` lets the API fall back to the project-stored ICP. */
+  angles: Array<string | undefined>
+  /** True when `--icp-angle` supplied at least one non-empty value — drives array-vs-object JSON output. */
+  multiAngle: boolean
+}
+
+export function resolveIcpAngles(opts: DiscoverRunOptions): ResolvedIcpAngles {
+  const angles = (opts.icpAngles ?? []).map(a => a.trim()).filter(a => a.length > 0)
+  if (angles.length > 0) return { angles, multiAngle: true }
+  const icp = opts.icp?.trim()
+  if (icp) return { angles: [icp], multiAngle: false }
+  return { angles: [undefined], multiAngle: false }
+}
+
+export interface AngleSummary {
+  angleCount: number
+  totalProbes: number
+  totalCited: number
+  totalWasted: number
+  totalAspirational: number
+}
+
+type DiscoverySessionCounts = Pick<
+  DiscoverySessionDetailDto,
+  'probeCount' | 'citedCount' | 'wastedCount' | 'aspirationalCount'
+>
+
+export function summarizeAngles(sessions: readonly DiscoverySessionCounts[]): AngleSummary {
+  return {
+    angleCount: sessions.length,
+    totalProbes: sessions.reduce((sum, s) => sum + (s.probeCount ?? 0), 0),
+    totalCited: sessions.reduce((sum, s) => sum + (s.citedCount ?? 0), 0),
+    totalWasted: sessions.reduce((sum, s) => sum + (s.wastedCount ?? 0), 0),
+    totalAspirational: sessions.reduce((sum, s) => sum + (s.aspirationalCount ?? 0), 0),
+  }
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
 }
 
 export async function discoverRun(project: string, opts: DiscoverRunOptions): Promise<void> {
   const client = getClient()
-  const angles = resolveIcpAngles(opts)
+  const { angles, multiAngle } = resolveIcpAngles(opts)
 
   const runs: Array<{ angle: string | undefined; start: DiscoveryRunStartResponse }> = []
   for (const angle of angles) {
-    const body = buildRunBody(opts, angle)
-    const start = await client.triggerDiscoveryRun(project, body)
-    runs.push({ angle, start })
+    try {
+      const start = await client.triggerDiscoveryRun(project, buildRunBody(opts, angle))
+      runs.push({ angle, start })
+    } catch (err) {
+      // A trigger failure mid-loop leaves earlier sessions already running
+      // server-side — surface their IDs so the operator can recover them.
+      if (runs.length > 0) {
+        process.stderr.write(
+          `\nFailed to start ${angle ? `angle "${angle}"` : 'discovery run'}: ${errorMessage(err)}\n` +
+            `Sessions already started (recover with \`canonry discover show ${project} <id>\`):\n` +
+            runs.map(r => `  ${r.start.sessionId}`).join('\n') +
+            '\n',
+        )
+      }
+      throw err
+    }
   }
 
   if (!opts.wait) {
     if (opts.format === 'json') {
-      console.log(JSON.stringify(runs.length === 1 ? runs[0]!.start : runs.map(r => r.start), null, 2))
+      console.log(JSON.stringify(multiAngle ? runs.map(r => r.start) : runs[0]!.start, null, 2))
       return
     }
     for (const { angle, start } of runs) {
@@ -68,32 +117,63 @@ export async function discoverRun(project: string, opts: DiscoverRunOptions): Pr
     return
   }
 
-  const results = await Promise.all(
-    runs.map(r => pollSession(client, project, r.start.sessionId).then(session => ({ angle: r.angle, session }))),
+  // Poll every session even if some fail — one timeout must not discard the
+  // sessions that completed. Multiple sessions poll quietly under a single
+  // status line so their progress dots don't interleave on stderr.
+  const parallel = runs.length > 1
+  if (parallel) process.stderr.write(`Waiting for ${runs.length} discovery sessions...\n`)
+  const settled = await Promise.allSettled(
+    runs.map(r => pollSession(client, project, r.start.sessionId, parallel)),
   )
 
-  if (opts.format === 'json') {
-    console.log(JSON.stringify(results.length === 1 ? results[0]!.session : results.map(r => r.session), null, 2))
-    return
-  }
-
-  for (const { angle, session } of results) {
-    if (angle) console.log(`## ICP angle: ${angle}\n`)
-    printSessionDetail(session)
-    if (results.length > 1) console.log()
-  }
-
-  if (results.length > 1) {
-    const totalProbes = results.reduce((sum, r) => sum + (r.session.probeCount ?? 0), 0)
-    const totalCited = results.reduce((sum, r) => sum + (r.session.citedCount ?? 0), 0)
-    const totalWasted = results.reduce((sum, r) => sum + (r.session.wastedCount ?? 0), 0)
-    const totalAsp = results.reduce((sum, r) => sum + (r.session.aspirationalCount ?? 0), 0)
-    console.log(`── Summary across ${results.length} angle(s) ──`)
-    console.log(`  Probes: ${totalProbes}  Cited: ${totalCited}  Wasted: ${totalWasted}  Aspirational: ${totalAsp}`)
-    console.log('\n  Promote each session:')
-    for (const { session } of results) {
-      console.log(`    canonry discover promote ${project} ${session.id}`)
+  const results: Array<{ angle: string | undefined; session: DiscoverySessionDetailDto }> = []
+  const failures: Array<{ angle: string | undefined; sessionId: string; reason: unknown }> = []
+  settled.forEach((outcome, i) => {
+    const run = runs[i]!
+    if (outcome.status === 'fulfilled') {
+      results.push({ angle: run.angle, session: outcome.value })
+    } else {
+      failures.push({ angle: run.angle, sessionId: run.start.sessionId, reason: outcome.reason })
     }
+  })
+
+  if (results.length > 0) {
+    if (opts.format === 'json') {
+      console.log(JSON.stringify(multiAngle ? results.map(r => r.session) : results[0]!.session, null, 2))
+    } else {
+      for (const { angle, session } of results) {
+        if (angle) console.log(`## ICP angle: ${angle}\n`)
+        printSessionDetail(session)
+        if (results.length > 1) console.log()
+      }
+      if (results.length > 1) {
+        const summary = summarizeAngles(results.map(r => r.session))
+        console.log(`── Summary across ${summary.angleCount} angle(s) ──`)
+        console.log(
+          `  Probes: ${summary.totalProbes}  Cited: ${summary.totalCited}` +
+            `  Wasted: ${summary.totalWasted}  Aspirational: ${summary.totalAspirational}`,
+        )
+        console.log('\n  Promote each session:')
+        for (const { session } of results) {
+          console.log(`    canonry discover promote ${project} ${session.id}`)
+        }
+      }
+    }
+  }
+
+  if (failures.length > 0) {
+    // Single-angle (legacy) path: surface the original poll error untouched.
+    if (!multiAngle) throw failures[0]!.reason
+    for (const f of failures) {
+      process.stderr.write(
+        `Discovery session ${f.sessionId}${f.angle ? ` ("${f.angle}")` : ''} did not complete: ${errorMessage(f.reason)}\n`,
+      )
+    }
+    throw new CliError({
+      code: 'DISCOVERY_INCOMPLETE',
+      message: `${failures.length} of ${runs.length} discovery session(s) did not complete`,
+      details: { failed: failures.map(f => f.sessionId) },
+    })
   }
 }
 
@@ -246,8 +326,9 @@ async function pollSession(
   client: ApiClient,
   project: string,
   sessionId: string,
+  quiet = false,
 ): Promise<DiscoverySessionDetailDto> {
-  process.stderr.write(`Waiting for discovery session ${sessionId}`)
+  if (!quiet) process.stderr.write(`Waiting for discovery session ${sessionId}`)
   const deadline = Date.now() + POLL_TIMEOUT_MS
   for (;;) {
     await new Promise(r => setTimeout(r, POLL_INTERVAL_MS))
@@ -258,9 +339,9 @@ async function pollSession(
       })
     }
     const session = await client.getDiscoverySession(project, sessionId)
-    process.stderr.write('.')
+    if (!quiet) process.stderr.write('.')
     if (TERMINAL_DISCOVERY_STATUSES.has(session.status)) {
-      process.stderr.write('\n')
+      if (!quiet) process.stderr.write('\n')
       return session
     }
   }
