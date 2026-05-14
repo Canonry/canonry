@@ -84,6 +84,7 @@ canonry doctor --project <name> --check google.auth.* --format json   # filter b
 # Discovery — expand a tracked-query basket from an ICP description
 canonry discover run <project> --icp "..." [--wait] [--format json]
 canonry discover run <project> --dedup-threshold 0.85 --max-probes 100 --wait     # tune dedup / per-session probe budget (cap 500)
+canonry discover run <project> --icp-angle "angle 1" --icp-angle "angle 2" --wait  # multi-angle: one session per ICP angle, aggregates coverage across niches
 canonry discover list <project> [--limit 20] [--format json]
 canonry discover show <project> <session-id> [--format json]
 canonry discover probe <project> <session-id> [--format json]                       # alias of show (read-only) until a later PR splits phases

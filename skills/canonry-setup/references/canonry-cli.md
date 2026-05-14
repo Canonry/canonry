@@ -230,6 +230,7 @@ canonry google request-indexing <project> --all-unindexed # push all unknown pag
 canonry discover run <project> --icp "..." --wait --format json    # full pipeline: seed → embed → cluster → probe → bucket
 canonry discover run <project> --icp "..." --dedup-threshold 0.85  # tune cosine threshold (default 0.85)
 canonry discover run <project> --icp "..." --max-probes 100         # per-session probe budget (default 100, hard cap 500)
+canonry discover run <project> --icp-angle "angle 1" --icp-angle "angle 2" --wait  # multi-angle: one session per ICP angle, useful for hyperlocal/niche businesses
 
 canonry discover list <project>                                     # newest-first session list
 canonry discover show <project> <session-id>                        # per-query probe rows + buckets

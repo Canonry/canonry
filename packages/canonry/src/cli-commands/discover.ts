@@ -70,22 +70,21 @@ export const DISCOVER_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['discover', 'run'],
     usage:
-      'canonry discover run <project> [--icp "..."] [--dedup-threshold 0.85] [--max-probes 100] [--wait] [--format json]',
+      'canonry discover run <project> [--icp "..."] [--icp-angle "..."] [--dedup-threshold 0.85] [--max-probes 100] [--wait] [--format json]',
     options: {
       icp: stringOption(),
+      'icp-angle': multiStringOption(),
       'dedup-threshold': stringOption(),
       'max-probes': stringOption(),
       wait: { type: 'boolean', default: false },
     },
     run: async (input) => {
-      const project = requireProject(
-        input,
-        'discover.run',
-        'canonry discover run <project> [--icp "..."] [--wait] [--format json]',
-      )
-      const usage = 'canonry discover run <project> [--icp "..."] [--dedup-threshold 0.85] [--max-probes 100] [--wait] [--format json]'
+      const usage =
+        'canonry discover run <project> [--icp "..."] [--icp-angle "..."] [--dedup-threshold 0.85] [--max-probes 100] [--wait] [--format json]'
+      const project = requireProject(input, 'discover.run', usage)
       await discoverRun(project, {
         icp: getString(input.values, 'icp'),
+        icpAngles: getStringArray(input.values, 'icp-angle'),
         dedupThreshold: parseFloatOption(input.values, 'dedup-threshold', usage),
         maxProbes: parseIntegerOption(input, 'max-probes', {
           command: 'discover.run',
@@ -100,22 +99,21 @@ export const DISCOVER_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['discover', 'seed'],
     usage:
-      'canonry discover seed <project> [--icp "..."] [--dedup-threshold 0.85] [--max-probes 100] [--wait] [--format json]',
+      'canonry discover seed <project> [--icp "..."] [--icp-angle "..."] [--dedup-threshold 0.85] [--max-probes 100] [--wait] [--format json]',
     options: {
       icp: stringOption(),
+      'icp-angle': multiStringOption(),
       'dedup-threshold': stringOption(),
       'max-probes': stringOption(),
       wait: { type: 'boolean', default: false },
     },
     run: async (input) => {
-      const project = requireProject(
-        input,
-        'discover.seed',
-        'canonry discover seed <project> [--icp "..."] [--wait] [--format json]',
-      )
-      const usage = 'canonry discover seed <project> [--icp "..."] [--dedup-threshold 0.85] [--max-probes 100] [--wait] [--format json]'
+      const usage =
+        'canonry discover seed <project> [--icp "..."] [--icp-angle "..."] [--dedup-threshold 0.85] [--max-probes 100] [--wait] [--format json]'
+      const project = requireProject(input, 'discover.seed', usage)
       await discoverSeed(project, {
         icp: getString(input.values, 'icp'),
+        icpAngles: getStringArray(input.values, 'icp-angle'),
         dedupThreshold: parseFloatOption(input.values, 'dedup-threshold', usage),
         maxProbes: parseIntegerOption(input, 'max-probes', {
           command: 'discover.seed',

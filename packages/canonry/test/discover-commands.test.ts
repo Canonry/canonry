@@ -16,9 +16,11 @@ import {
 import type { DiscoveryPromoteResult } from '@ainyc/canonry-contracts'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
+import type { DiscoveryRunStartResponse } from '../src/client.js'
+import { resolveIcpAngles, summarizeAngles } from '../src/commands/discover.js'
 import { invokeCli, parseJsonOutput } from './cli-test-utils.js'
 
-describe('discover promote CLI command', () => {
+describe('discover CLI commands', () => {
   let tmpDir: string
   let origConfigDir: string | undefined
   let projectId: string
@@ -212,5 +214,139 @@ describe('discover promote CLI command', () => {
     const result = await invokeCli(['discover', 'promote', 'demand-iq', sessionId])
     expect(result.exitCode).toBe(1)
     expect(db.select().from(queries).all()).toHaveLength(0)
+  })
+
+  it('discover run --icp-angle starts one session per angle and emits a JSON array', async () => {
+    const result = await invokeCli([
+      'discover', 'run', 'demand-iq',
+      '--icp-angle', 'angle one',
+      '--icp-angle', 'angle two',
+      '--format', 'json',
+    ])
+    expect(result.exitCode).toBeUndefined()
+
+    const json = parseJsonOutput(result.stdout) as DiscoveryRunStartResponse[]
+    expect(Array.isArray(json)).toBe(true)
+    expect(json).toHaveLength(2)
+    expect(new Set(json.map(r => r.sessionId)).size).toBe(2)
+
+    // Each angle is threaded into its own session body, not collapsed to one ICP.
+    const sessions = db.select().from(discoverySessions).all()
+    expect(sessions).toHaveLength(2)
+    expect(sessions.map(s => s.icpDescription).sort()).toEqual(['angle one', 'angle two'])
+  })
+
+  it('discover run with a single --icp emits a bare object (legacy shape preserved)', async () => {
+    const result = await invokeCli([
+      'discover', 'run', 'demand-iq',
+      '--icp', 'just one icp',
+      '--format', 'json',
+    ])
+    expect(result.exitCode).toBeUndefined()
+
+    const json = parseJsonOutput(result.stdout) as DiscoveryRunStartResponse
+    expect(Array.isArray(json)).toBe(false)
+    expect(typeof json.sessionId).toBe('string')
+
+    const sessions = db.select().from(discoverySessions).all()
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0]!.icpDescription).toBe('just one icp')
+  })
+})
+
+describe('resolveIcpAngles', () => {
+  it('falls back to [undefined] when neither icp nor icpAngles are set', () => {
+    expect(resolveIcpAngles({})).toEqual({ angles: [undefined], multiAngle: false })
+  })
+
+  it('returns the bare icp as a single non-multi angle', () => {
+    expect(resolveIcpAngles({ icp: 'single ICP' })).toEqual({ angles: ['single ICP'], multiAngle: false })
+  })
+
+  it('trims a bare icp and treats a whitespace-only icp as absent', () => {
+    expect(resolveIcpAngles({ icp: '  spaced ICP  ' })).toEqual({ angles: ['spaced ICP'], multiAngle: false })
+    expect(resolveIcpAngles({ icp: '   ' })).toEqual({ angles: [undefined], multiAngle: false })
+  })
+
+  it('uses icpAngles over icp and flags multiAngle', () => {
+    expect(resolveIcpAngles({ icp: 'ignored', icpAngles: ['angle a', 'angle b'] })).toEqual({
+      angles: ['angle a', 'angle b'],
+      multiAngle: true,
+    })
+  })
+
+  it('keeps multiAngle true even for a single icp-angle', () => {
+    expect(resolveIcpAngles({ icpAngles: ['solo'] })).toEqual({ angles: ['solo'], multiAngle: true })
+  })
+
+  it('trims and drops empty / whitespace-only angles', () => {
+    expect(resolveIcpAngles({ icpAngles: ['  kept  ', '', '   ', 'also kept'] })).toEqual({
+      angles: ['kept', 'also kept'],
+      multiAngle: true,
+    })
+  })
+
+  it('falls back to icp when every icp-angle is blank', () => {
+    expect(resolveIcpAngles({ icp: 'fallback', icpAngles: ['', '  '] })).toEqual({
+      angles: ['fallback'],
+      multiAngle: false,
+    })
+  })
+
+  it('falls back to [undefined] when icp-angles are all blank and no icp is given', () => {
+    expect(resolveIcpAngles({ icpAngles: ['', '   '] })).toEqual({ angles: [undefined], multiAngle: false })
+  })
+})
+
+describe('summarizeAngles', () => {
+  it('sums each bucket across sessions and counts angles', () => {
+    const summary = summarizeAngles([
+      { probeCount: 40, citedCount: 3, wastedCount: 5, aspirationalCount: 8 },
+      { probeCount: 38, citedCount: 1, wastedCount: 9, aspirationalCount: 4 },
+      { probeCount: 40, citedCount: 2, wastedCount: 0, aspirationalCount: 11 },
+    ])
+    expect(summary).toEqual({
+      angleCount: 3,
+      totalProbes: 118,
+      totalCited: 6,
+      totalWasted: 14,
+      totalAspirational: 23,
+    })
+  })
+
+  it('treats null / missing counts as zero', () => {
+    const summary = summarizeAngles([
+      { probeCount: 10, citedCount: null, wastedCount: 1, aspirationalCount: 2 },
+      { citedCount: 4, wastedCount: null, aspirationalCount: null },
+    ])
+    expect(summary).toEqual({
+      angleCount: 2,
+      totalProbes: 10,
+      totalCited: 4,
+      totalWasted: 1,
+      totalAspirational: 2,
+    })
+  })
+
+  it('returns all-zero totals for an empty session list', () => {
+    expect(summarizeAngles([])).toEqual({
+      angleCount: 0,
+      totalProbes: 0,
+      totalCited: 0,
+      totalWasted: 0,
+      totalAspirational: 0,
+    })
+  })
+
+  it('passes a single session through unchanged', () => {
+    expect(
+      summarizeAngles([{ probeCount: 40, citedCount: 7, wastedCount: 3, aspirationalCount: 12 }]),
+    ).toEqual({
+      angleCount: 1,
+      totalProbes: 40,
+      totalCited: 7,
+      totalWasted: 3,
+      totalAspirational: 12,
+    })
   })
 })
