@@ -951,7 +951,7 @@ function SearchConsoleSection({
       </div>
 
       {workspace === 'google' && (
-        <GscSection projectName={projectName} />
+        <GscSection projectName={projectName} refreshNonce={workspaceRefreshNonce} />
       )}
 
       {workspace === 'bing' && (
