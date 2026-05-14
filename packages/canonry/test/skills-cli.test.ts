@@ -18,7 +18,7 @@ describe('canonry skills list', () => {
   it('lists bundled skills in text mode', async () => {
     const result = await invokeCli(['skills', 'list'])
     expect(result.exitCode).toBeUndefined()
-    expect(result.stdout).toContain('canonry-setup')
+    expect(result.stdout).toContain('canonry')
     expect(result.stdout).toContain('aero')
   })
 
@@ -27,7 +27,7 @@ describe('canonry skills list', () => {
     const parsed = parseJsonOutput(result.stdout) as {
       skills: Array<{ name: string; description: string }>
     }
-    expect(parsed.skills.map(s => s.name).sort()).toEqual(['aero', 'canonry-setup'])
+    expect(parsed.skills.map(s => s.name).sort()).toEqual(['aero', 'canonry'])
   })
 })
 
@@ -35,7 +35,7 @@ describe('canonry skills install', () => {
   it('installs both skills into the target directory', async () => {
     const result = await invokeCli(['skills', 'install', '--dir', tmpRoot])
     expect(result.exitCode).toBeUndefined()
-    expect(fs.existsSync(path.join(tmpRoot, '.claude', 'skills', 'canonry-setup', 'SKILL.md'))).toBe(true)
+    expect(fs.existsSync(path.join(tmpRoot, '.claude', 'skills', 'canonry', 'SKILL.md'))).toBe(true)
     expect(fs.existsSync(path.join(tmpRoot, '.claude', 'skills', 'aero', 'SKILL.md'))).toBe(true)
     expect(fs.lstatSync(path.join(tmpRoot, '.codex', 'skills', 'aero')).isSymbolicLink()).toBe(true)
   })

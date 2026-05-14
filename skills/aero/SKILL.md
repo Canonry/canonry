@@ -14,7 +14,7 @@ You coordinate across two tools to deliver comprehensive AEO monitoring:
 
 Persist only *user-scoped* context (operator preferences, communication style) in your platform's native memory. Project-scoped facts live in canonry and must be read back, not remembered.
 
-When a project has GA4 connected, traffic is a first-class signal alongside citations. Use `canonry ga traffic` / `canonry ga attribution --trend` for the current snapshot, `canonry ga ai-referral-history` and `canonry ga social-referral-history` for daily series. Reads query a local DB synced by `canonry ga sync` — confirm `canonry ga status` shows a recent `lastSyncedAt` before quoting numbers; if stale, re-sync first. Full command reference and return shapes live in the co-installed `canonry-setup/references/canonry-cli.md` (look for the "Google Analytics 4" section).
+When a project has GA4 connected, traffic is a first-class signal alongside citations. Use `canonry ga traffic` / `canonry ga attribution --trend` for the current snapshot, `canonry ga ai-referral-history` and `canonry ga social-referral-history` for daily series. Reads query a local DB synced by `canonry ga sync` — confirm `canonry ga status` shows a recent `lastSyncedAt` before quoting numbers; if stale, re-sync first. Full command reference and return shapes live in the co-installed `canonry/references/canonry-cli.md` (look for the "Google Analytics 4" section).
 
 ## Judgment Rules
 

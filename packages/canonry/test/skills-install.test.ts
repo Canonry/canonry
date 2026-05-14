@@ -60,7 +60,7 @@ describe('installSkills (claude only)', () => {
   it('copies the references/ subdirectory along with SKILL.md', async () => {
     await installSkills({ dir: tmpRoot, client: 'claude' })
 
-    const refDir = path.join(tmpRoot, '.claude', 'skills', 'canonry-setup', 'references')
+    const refDir = path.join(tmpRoot, '.claude', 'skills', 'canonry', 'references')
     expect(fs.existsSync(refDir)).toBe(true)
     const refs = fs.readdirSync(refDir).filter(f => f.endsWith('.md'))
     expect(refs.length).toBeGreaterThan(0)
@@ -142,7 +142,7 @@ describe('installSkills — selective skills', () => {
 
     expect(summary.results).toHaveLength(1)
     expect(summary.results[0]!.skill).toBe('aero')
-    expect(fs.existsSync(path.join(tmpRoot, '.claude', 'skills', 'canonry-setup'))).toBe(false)
+    expect(fs.existsSync(path.join(tmpRoot, '.claude', 'skills', 'canonry'))).toBe(false)
   })
 
   it('rejects unknown skill names with VALIDATION_ERROR', async () => {

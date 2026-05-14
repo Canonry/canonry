@@ -73,7 +73,7 @@ The repo ships **two** Claude skills under `skills/`, both bundled into the publ
 
 | Skill | Audience | Purpose |
 |---|---|---|
-| `skills/canonry-setup/` | External users (their Claude Code / Codex) | Operator playbook: how to install canonry, run sweeps, audit indexing, fix integrations |
+| `skills/canonry/` | External users (their Claude Code / Codex) | Operator playbook: how to install canonry, run sweeps, audit indexing, fix integrations |
 | `skills/aero/` | Aero (canonry's built-in analyst) AND external users | Analyst playbook: regression diagnosis, orchestration, memory patterns, reporting |
 
 **Keep both skills in sync with the codebase.** Both are co-equal — the analyst playbook ships alongside the operator playbook in every install (see `feedback_analyst_is_core` memory).
@@ -93,9 +93,9 @@ skills/<name>/
 
 ### When to update skills
 
-- **New CLI command** → add it to `skills/canonry-setup/references/canonry-cli.md`
+- **New CLI command** → add it to `skills/canonry/references/canonry-cli.md`
 - **New provider** → update the provider list in `SKILL.md` and `canonry-cli.md`
-- **New integration** (Google/Bing/CDP feature) → update the relevant reference file in `skills/canonry-setup/references/`
+- **New integration** (Google/Bing/CDP feature) → update the relevant reference file in `skills/canonry/references/`
 - **Changed troubleshooting patterns** → update the troubleshooting table in `SKILL.md`
 - **New analytics feature** → update `references/aeo-analysis.md`
 - **New analyst workflow / reporting template** → update `skills/aero/references/`

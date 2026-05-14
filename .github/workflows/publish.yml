@@ -143,7 +143,7 @@ jobs:
           SHORT_SHA="${GITHUB_SHA::7}"
           SKILL_VERSION="${VERSION}+${SHORT_SHA}"
           clawhub login --token "$CLAWHUB_TOKEN" --no-browser
-          clawhub publish ./skills/canonry-setup \
+          clawhub publish ./skills/canonry \
             --slug canonry \
             --version "$SKILL_VERSION" \
             --tags latest \

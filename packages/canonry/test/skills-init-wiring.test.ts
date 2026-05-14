@@ -39,7 +39,7 @@ describe('canonry init + skills auto-install', () => {
       format: 'json',
     })
 
-    expect(fs.existsSync(path.join(projectDir, '.claude', 'skills', 'canonry-setup', 'SKILL.md'))).toBe(true)
+    expect(fs.existsSync(path.join(projectDir, '.claude', 'skills', 'canonry', 'SKILL.md'))).toBe(true)
     expect(fs.existsSync(path.join(projectDir, '.claude', 'skills', 'aero', 'SKILL.md'))).toBe(true)
     expect(fs.lstatSync(path.join(projectDir, '.codex', 'skills', 'aero')).isSymbolicLink()).toBe(true)
   })

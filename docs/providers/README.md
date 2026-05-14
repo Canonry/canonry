@@ -44,7 +44,7 @@ interface ProviderAdapter {
 2. Add the provider name to the `ProviderName` union in `packages/contracts/src/provider.ts`.
 3. Import and register the adapter in `packages/canonry/src/server.ts`.
 4. Add a `docs/providers/<name>.md` file documenting service-specific quirks.
-5. Update the skills reference in `skills/canonry-setup/references/canonry-cli.md`.
+5. Update the skills reference in `skills/canonry/references/canonry-cli.md`.
 
 ## Provider-Specific Documentation
 

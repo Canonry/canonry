@@ -5,7 +5,7 @@
 **Agent-first AEO operating platform. Open source. Self-hosted.**
 
 - Track citations across Gemini, ChatGPT, Claude, Perplexity, and local LLMs
-- Watch AI engines crawl and refer traffic via [server-log ingestion](skills/canonry-setup/references/server-side-traffic.md) — Cloud Run logs and the WordPress Traffic Logger plugin today
+- Watch AI engines crawl and refer traffic via [server-log ingestion](skills/canonry/references/server-side-traffic.md) — Cloud Run logs and the WordPress Traffic Logger plugin today
 - Diagnose against real traffic with built-in [GSC](docs/google-search-console-setup.md), [GA4](docs/google-analytics-setup.md), and [Bing Webmaster](docs/bing-webmaster-setup.md)
 - Execute fixes via [WordPress](docs/wordpress-setup.md), JSON-LD schema, and indexing submissions
 - Manage many clients declaratively — config-as-code YAML + `canonry apply`
@@ -66,10 +66,10 @@ Configure during `canonry init`, in the dashboard `/settings`, or as env vars.
 | **Architecture & data model** | [docs/architecture.md](docs/architecture.md) · [docs/data-model.md](docs/data-model.md) |
 | **Aero — built-in agent** | [skills/aero/SKILL.md](skills/aero/SKILL.md) |
 | **MCP — Claude Desktop / Cursor / Codex** | [docs/mcp.md](docs/mcp.md) |
-| **Integrations** | [GSC](docs/google-search-console-setup.md) · [GA4](docs/google-analytics-setup.md) · [Bing](docs/bing-webmaster-setup.md) · [WordPress](docs/wordpress-setup.md) · [Server-side traffic (Cloud Run + WordPress logs)](skills/canonry-setup/references/server-side-traffic.md) |
+| **Integrations** | [GSC](docs/google-search-console-setup.md) · [GA4](docs/google-analytics-setup.md) · [Bing](docs/bing-webmaster-setup.md) · [WordPress](docs/wordpress-setup.md) · [Server-side traffic (Cloud Run + WordPress logs)](skills/canonry/references/server-side-traffic.md) |
 | **Deployment** — Docker, Railway, Render, systemd, Tailscale | [docs/deployment.md](docs/deployment.md) |
 | **API** — 118+ endpoints | `GET /api/v1/openapi.json` (no auth) |
-| **Skills bundle** for Claude Code / Codex | `canonry skills install` ([details](skills/canonry-setup/SKILL.md)) |
+| **Skills bundle** for Claude Code / Codex | `canonry skills install` ([details](skills/canonry/SKILL.md)) |
 | **Roadmap & ADRs** | [docs/roadmap.md](docs/roadmap.md) · [docs/adr/](docs/adr/) |
 | **All docs** | [docs/README.md](docs/README.md) |
 
