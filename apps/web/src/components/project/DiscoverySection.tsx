@@ -77,8 +77,8 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
       setIcpDescription('')
       await refreshDiscovery(queryClient, projectName, result.sessionId)
       addToast({
-        title: 'Discovery queued',
-        detail: `Session ${shortId(result.sessionId)} is probing representative queries.`,
+        title: 'Discovery started',
+        detail: `Run ${shortId(result.sessionId)} is testing questions your customers might ask.`,
         tone: 'neutral',
         dedupeKey: `discovery:start:${result.sessionId}`,
         dedupeMode: 'replace',
@@ -87,7 +87,7 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
     onError: (error) => {
       addToast({
         title: 'Discovery failed to start',
-        detail: error instanceof Error ? error.message : 'Could not queue discovery.',
+        detail: error instanceof Error ? error.message : 'Could not start discovery.',
         tone: 'negative',
       })
     },
@@ -102,7 +102,7 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
       await refreshDiscovery(queryClient, projectName, result.sessionId)
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all })
       addToast({
-        title: 'Discovery promoted',
+        title: 'Queries added',
         detail: promoteResultDetail(result),
         tone: 'positive',
         dedupeKey: `discovery:promote:${result.sessionId}`,
@@ -111,8 +111,8 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
     },
     onError: (error) => {
       addToast({
-        title: 'Promotion failed',
-        detail: error instanceof Error ? error.message : 'Could not promote this session.',
+        title: 'Could not add queries',
+        detail: error instanceof Error ? error.message : 'Could not add queries from this run.',
         tone: 'negative',
       })
     },
@@ -128,9 +128,9 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
       <div className="section-head section-head-inline">
         <div>
           <p className="eyebrow eyebrow-soft">Discovery</p>
-          <h2>Grounded query discovery</h2>
+          <h2>Find new queries to track</h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-zinc-500">
-            Seed representative ICP queries, probe grounding citations, then promote the safe default basket when the results make sense.
+            Describe your ideal customer and Canonry generates the questions they would ask an AI engine, checks which ones already cite your site, then lets you add the promising ones to your tracked queries.
           </p>
         </div>
         <Button
@@ -150,29 +150,32 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
           <Card className="surface-card">
             <div className="section-head section-head-inline">
               <div>
-                <p className="eyebrow eyebrow-soft">Run</p>
-                <h3>Start discovery</h3>
+                <p className="eyebrow eyebrow-soft">Step 1</p>
+                <h3>Describe your customer</h3>
               </div>
-              <ToneBadge tone="neutral">Gemini</ToneBadge>
+              <ToneBadge tone="neutral">Runs on Gemini</ToneBadge>
             </div>
             <div className="space-y-3">
               <label className="block">
-                <span className="text-xs text-zinc-500">ICP description</span>
+                <span className="text-xs text-zinc-500">Who is your ideal customer?</span>
                 <textarea
                   className="mt-1 min-h-24 w-full rounded border border-zinc-700 bg-transparent px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
-                  placeholder="Leave blank to use the ICP stored on the project."
+                  placeholder="e.g. Small e-commerce stores that want AI-powered customer support. Leave blank to use the customer profile saved on this project."
                   value={icpDescription}
                   onChange={(event) => setIcpDescription(event.target.value)}
                 />
               </label>
               <label className="block">
-                <span className="text-xs text-zinc-500">Probe budget</span>
+                <span className="text-xs text-zinc-500">How many questions to test</span>
                 <input
                   className="mt-1 w-full rounded border border-zinc-700 bg-transparent px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
                   inputMode="numeric"
                   value={maxProbes}
                   onChange={(event) => setMaxProbes(event.target.value)}
                 />
+                <span className="mt-1 block text-[11px] text-zinc-600">
+                  More questions means broader coverage but a longer run. 100 is a good default.
+                </span>
               </label>
               <Button
                 type="button"
@@ -181,7 +184,7 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
                 onClick={() => startMutation.mutate()}
               >
                 <Play size={14} />
-                {startMutation.isPending ? 'Queueing...' : 'Start discovery'}
+                {startMutation.isPending ? 'Starting…' : 'Find queries'}
               </Button>
             </div>
           </Card>
@@ -189,13 +192,13 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
           <Card className="surface-card">
             <div className="section-head section-head-inline">
               <div>
-                <p className="eyebrow eyebrow-soft">Sessions</p>
+                <p className="eyebrow eyebrow-soft">History</p>
                 <h3>Recent runs</h3>
               </div>
               {sessionsQuery.isFetching && <ToneBadge tone="neutral">Loading</ToneBadge>}
             </div>
             {sessions.length === 0 ? (
-              <p className="text-sm text-zinc-500">No discovery sessions yet.</p>
+              <p className="text-sm text-zinc-500">No discovery runs yet. Describe your customer above to start your first one.</p>
             ) : (
               <div className="space-y-2">
                 {sessions.map(session => (
@@ -215,8 +218,8 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
                     </div>
                     <div className="mt-2 grid grid-cols-3 gap-2 text-[11px] text-zinc-500">
                       <span>Cited {session.citedCount ?? 0}</span>
-                      <span>Aspir. {session.aspirationalCount ?? 0}</span>
-                      <span>Waste {session.wastedCount ?? 0}</span>
+                      <span>Opportunity {session.aspirationalCount ?? 0}</span>
+                      <span>Low value {session.wastedCount ?? 0}</span>
                     </div>
                   </button>
                 ))}
@@ -229,21 +232,21 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
           <Card className="surface-card">
             <div className="section-head section-head-inline">
               <div>
-                <p className="eyebrow eyebrow-soft">Selected session</p>
-                <h3>{activeSession ? shortId(activeSession.id) : 'No session selected'}</h3>
+                <p className="eyebrow eyebrow-soft">Run detail</p>
+                <h3>{activeSession ? shortId(activeSession.id) : 'No run selected'}</h3>
               </div>
               {activeSession && <ToneBadge tone={toneForSession(activeSession.status)}>{activeSession.status}</ToneBadge>}
             </div>
 
             {!activeSession ? (
-              <p className="text-sm text-zinc-500">Start or select a session to inspect discovery progress.</p>
+              <p className="text-sm text-zinc-500">Start a run above, or pick one from Recent runs to see its progress.</p>
             ) : (
               <div className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-4">
-                  <DiscoveryMetric label="Probes" value={activeSession.probeCount ?? 0} />
-                  <DiscoveryMetric label="Cited" value={activeSession.citedCount ?? 0} tone="positive" />
-                  <DiscoveryMetric label="Aspirational" value={activeSession.aspirationalCount ?? 0} tone="caution" />
-                  <DiscoveryMetric label="Wasted" value={activeSession.wastedCount ?? 0} tone="negative" />
+                  <DiscoveryMetric label="Questions tested" value={activeSession.probeCount ?? 0} />
+                  <DiscoveryMetric label="Already cited" value={activeSession.citedCount ?? 0} tone="positive" />
+                  <DiscoveryMetric label="Opportunities" value={activeSession.aspirationalCount ?? 0} tone="caution" />
+                  <DiscoveryMetric label="Low value" value={activeSession.wastedCount ?? 0} tone="negative" />
                 </div>
 
                 {activeSession.error && (
@@ -254,14 +257,14 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
 
                 {activeSession.icpDescription && (
                   <div className="rounded-md border border-zinc-800/60 bg-zinc-900/30 px-3 py-2">
-                    <p className="text-[10px] uppercase tracking-wide text-zinc-500">ICP</p>
+                    <p className="text-[10px] uppercase tracking-wide text-zinc-500">Customer profile</p>
                     <p className="mt-1 text-sm text-zinc-300">{activeSession.icpDescription}</p>
                   </div>
                 )}
 
                 {activeSession.competitorMap.length > 0 && (
                   <div>
-                    <p className="mb-2 text-xs font-medium text-zinc-400">Recurring citation domains</p>
+                    <p className="mb-2 text-xs font-medium text-zinc-400">Sites that keep getting cited</p>
                     <div className="flex flex-wrap gap-2">
                       {activeSession.competitorMap.slice(0, 8).map(entry => (
                         <span key={entry.domain} className="rounded-md border border-zinc-800/60 bg-zinc-950 px-2 py-1 text-xs text-zinc-300">
@@ -279,8 +282,8 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
             <Card className="surface-card">
               <div className="section-head section-head-inline">
                 <div>
-                  <p className="eyebrow eyebrow-soft">Promotion</p>
-                  <h3>Preview candidates</h3>
+                  <p className="eyebrow eyebrow-soft">Step 2</p>
+                  <h3>Add queries to your project</h3>
                 </div>
                 <Button
                   type="button"
@@ -289,25 +292,25 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
                   onClick={() => promoteMutation.mutate(undefined)}
                 >
                   <CheckCircle2 size={14} />
-                  {promoteMutation.isPending ? 'Promoting...' : 'Promote safe default'}
+                  {promoteMutation.isPending ? 'Adding…' : 'Add recommended queries'}
                 </Button>
               </div>
               {previewQuery.isLoading ? (
-                <p className="text-sm text-zinc-500">Loading promotion preview...</p>
+                <p className="text-sm text-zinc-500">Loading recommendations…</p>
               ) : preview ? (
                 <div className="space-y-4">
                   <div className="grid gap-3 sm:grid-cols-4">
-                    <DiscoveryMetric label="Default query add" value={safeDefaultCount} tone="positive" />
-                    <DiscoveryMetric label="Cited" value={preview.queriesByBucket.cited.length} tone="positive" />
-                    <DiscoveryMetric label="Aspirational" value={preview.queriesByBucket.aspirational.length} tone="caution" />
-                    <DiscoveryMetric label="Wasted opt-in" value={preview.queriesByBucket['wasted-surface'].length} tone="negative" />
+                    <DiscoveryMetric label="Queries to add" value={safeDefaultCount} tone="positive" />
+                    <DiscoveryMetric label="Already cited" value={preview.queriesByBucket.cited.length} tone="positive" />
+                    <DiscoveryMetric label="Opportunities" value={preview.queriesByBucket.aspirational.length} tone="caution" />
+                    <DiscoveryMetric label="Low value (skipped)" value={preview.queriesByBucket['wasted-surface'].length} tone="negative" />
                   </div>
                   <p className="text-xs leading-5 text-zinc-500">
-                    The button promotes cited + aspirational queries and recurring competitors. Wasted-surface remains visible here as planning evidence and is not added unless an operator opts in through CLI or MCP.
+                    Adding queries starts tracking the “already cited” and “opportunity” questions, plus any competitor sites that kept showing up. “Low value” questions are listed below for reference only and are not added.
                   </p>
                   {preview.suggestedCompetitors.length > 0 && (
                     <div>
-                      <p className="mb-2 text-xs font-medium text-zinc-400">Competitors promoted by default</p>
+                      <p className="mb-2 text-xs font-medium text-zinc-400">Competitor sites that will be added</p>
                       <div className="flex flex-wrap gap-2">
                         {preview.suggestedCompetitors.map(entry => (
                           <span key={entry.domain} className="rounded-md border border-zinc-800/60 bg-zinc-950 px-2 py-1 text-xs text-zinc-300">
@@ -319,7 +322,7 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
                   )}
                 </div>
               ) : (
-                <p className="text-sm text-zinc-500">No promotion preview available.</p>
+                <p className="text-sm text-zinc-500">No recommendations available for this run.</p>
               )}
             </Card>
           )}
@@ -327,21 +330,21 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
           <Card className="surface-card">
             <div className="section-head section-head-inline">
               <div>
-                <p className="eyebrow eyebrow-soft">Probe detail</p>
-                <h3>Bucketed queries</h3>
+                <p className="eyebrow eyebrow-soft">All results</p>
+                <h3>Every question we tested</h3>
               </div>
               {detailQuery.isFetching && <ToneBadge tone="neutral">Loading</ToneBadge>}
             </div>
             {probeRows.length === 0 ? (
-              <p className="text-sm text-zinc-500">Probe rows appear once the session reaches the probing phase.</p>
+              <p className="text-sm text-zinc-500">Results show up here once the run starts testing questions.</p>
             ) : (
               <div className="evidence-table-wrap">
                 <table className="evidence-table">
                   <thead>
                     <tr>
-                      <th>Query</th>
-                      <th>Bucket</th>
-                      <th>Cited domains</th>
+                      <th>Question</th>
+                      <th>Result</th>
+                      <th>Sites cited</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -349,7 +352,7 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
                       <tr key={probe.id}>
                         <td className="font-medium text-zinc-100">{probe.query}</td>
                         <td>
-                          <ToneBadge tone={toneForBucket(probe.bucket)}>{probe.bucket ?? 'unbucketed'}</ToneBadge>
+                          <ToneBadge tone={toneForBucket(probe.bucket)}>{bucketLabel(probe.bucket)}</ToneBadge>
                         </td>
                         <td className="text-zinc-400">
                           {probe.citedDomains.length > 0 ? probe.citedDomains.slice(0, 3).join(', ') : '-'}
@@ -398,6 +401,16 @@ function toneForBucket(bucket: DiscoveryBucket | null) {
   if (bucket === 'aspirational') return 'caution'
   if (bucket === 'wasted-surface') return 'negative'
   return 'neutral'
+}
+
+const BUCKET_LABELS: Record<DiscoveryBucket, string> = {
+  cited: 'Already cited',
+  aspirational: 'Opportunity',
+  'wasted-surface': 'Low value',
+}
+
+function bucketLabel(bucket: DiscoveryBucket | null): string {
+  return bucket ? BUCKET_LABELS[bucket] : 'Not classified'
 }
 
 function shortId(id: string): string {

@@ -45,8 +45,10 @@ const EXPANDED_PERFORMANCE_LIMIT = 500
 
 export function GscSection({
   projectName,
+  refreshNonce,
 }: {
   projectName: string
+  refreshNonce: number
 }) {
   const queryClient = useQueryClient()
   const [googleConfigured, setGoogleConfigured] = useState(false)
@@ -385,9 +387,11 @@ export function GscSection({
     }
   }
 
+  // Reloads on mount, on project switch, and when a project-level "Refresh all"
+  // bumps refreshNonce (after it syncs Google data and invalidates the cache).
   useEffect(() => {
     void loadSection()
-  }, [projectName])
+  }, [projectName, refreshNonce])
 
   useEffect(() => {
     setPerformanceOffset(0)
@@ -526,28 +530,21 @@ export function GscSection({
           <p className="eyebrow eyebrow-soft">Search Console</p>
           <h2>Google Search Console</h2>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex gap-1">
-            {GSC_WINDOWS.map(w => (
-              <button
-                key={w}
-                type="button"
-                className={`px-3 py-1 text-xs rounded-full border transition-colors ${
-                  gscWindow === w
-                    ? 'bg-zinc-700 border-zinc-600 text-zinc-50'
-                    : 'border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-300'
-                }`}
-                onClick={() => setGscWindow(w)}
-              >
-                {w === 'all' ? 'All' : w}
-              </button>
-            ))}
-          </div>
-          {gscConn && (
-            <Button type="button" variant="outline" size="sm" disabled={loadingPerformance} onClick={() => { setPerformanceOffset(0); void loadPerformanceRows(0) }}>
-              {loadingPerformance ? 'Refreshing\u2026' : 'Refresh data'}
-            </Button>
-          )}
+        <div className="flex gap-1">
+          {GSC_WINDOWS.map(w => (
+            <button
+              key={w}
+              type="button"
+              className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                gscWindow === w
+                  ? 'bg-zinc-700 border-zinc-600 text-zinc-50'
+                  : 'border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-300'
+              }`}
+              onClick={() => setGscWindow(w)}
+            >
+              {w === 'all' ? 'All' : w}
+            </button>
+          ))}
         </div>
       </div>
 
