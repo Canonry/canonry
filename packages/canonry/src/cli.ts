@@ -7,9 +7,9 @@ import { dispatchRegisteredCommand } from './cli-dispatch.js'
 import { REGISTERED_CLI_COMMANDS } from './cli-commands.js'
 
 const USAGE = `
-canonry — AEO monitoring CLI
+cnry — AEO monitoring CLI   ('canonry' also works)
 
-Usage:  canonry <command> [options]
+Usage:  cnry <command> [options]
 
 Setup:
   init                  Initialize config and database
@@ -57,7 +57,7 @@ Global options:
   --help, -h            Show help (use with any command group)
   --version, -v         Show version
 
-Run 'canonry <command> --help' for details on a specific command.
+Run 'cnry <command> --help' for details on a specific command.
 `.trim()
 
 import { createRequire } from 'node:module'
@@ -131,11 +131,11 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
     if (await dispatchRegisteredCommand(args, format, REGISTERED_CLI_COMMANDS)) {
       return 0
     }
-    throw usageError(`Error: unknown command: ${command}\nRun "canonry --help" for usage.`, {
+    throw usageError(`Error: unknown command: ${command}\nRun "cnry --help" for usage.`, {
       message: `unknown command: ${command}`,
       details: {
         command,
-        usage: 'canonry --help',
+        usage: 'cnry --help',
       },
     })
   } catch (err: unknown) {

@@ -1,6 +1,6 @@
 {
   "name": "@ainyc/canonry",
-  "version": "4.29.1",
+  "version": "4.30.0",
   "type": "module",
   "description": "Agent-first open-source AEO operating platform - track how answer engines cite your domain",
   "license": "FSL-1.1-ALv2",
@@ -15,6 +15,7 @@
   },
   "bin": {
     "canonry": "./bin/canonry.mjs",
+    "cnry": "./bin/canonry.mjs",
     "canonry-mcp": "./bin/canonry-mcp.mjs"
   },
   "exports": {

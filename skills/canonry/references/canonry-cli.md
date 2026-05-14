@@ -1,15 +1,17 @@
 # Canonry CLI Reference
 
+The CLI is invoked as `cnry` (short form) or `canonry` — both ship with the `@ainyc/canonry` npm package and behave identically. This reference uses `cnry`.
+
 ## Server Management
 
 ```bash
-canonry init                                      # interactive setup
-canonry bootstrap                                 # non-interactive setup from env vars
-canonry start                                     # start daemon
-canonry stop                                      # stop daemon
-canonry serve                                     # foreground mode
-canonry serve --host 0.0.0.0 --port 4100
-canonry --version
+cnry init                                      # interactive setup
+cnry bootstrap                                 # non-interactive setup from env vars
+cnry start                                     # start daemon
+cnry stop                                      # stop daemon
+cnry serve                                     # foreground mode
+cnry serve --host 0.0.0.0 --port 4100
+cnry --version
 ```
 
 Production managed by PM2:
@@ -22,12 +24,12 @@ pm2 restart canonry
 ## Project Management
 
 ```bash
-canonry project list                              # list all projects
-canonry project create <name> --domain <url> --country US --language en
-canonry project show <name>                       # project detail
-canonry project update <name>                     # update project settings
-canonry project delete <name>                     # delete a project
-canonry status <project>                          # citation summary + domain info
+cnry project list                              # list all projects
+cnry project create <name> --domain <url> --country US --language en
+cnry project show <name>                       # project detail
+cnry project update <name>                     # update project settings
+cnry project delete <name>                     # delete a project
+cnry status <project>                          # citation summary + domain info
 ```
 
 ### Locations
@@ -35,32 +37,32 @@ canonry status <project>                          # citation summary + domain in
 Projects support multi-region location context for geographically-aware sweeps:
 
 ```bash
-canonry project add-location <name> --label "NYC" --city "New York" --region NY --country US
-canonry project locations <name>                  # list configured locations
-canonry project set-default-location <name> <label>
-canonry project remove-location <name> <label>
+cnry project add-location <name> --label "NYC" --city "New York" --region NY --country US
+cnry project locations <name>                  # list configured locations
+cnry project set-default-location <name> <label>
+cnry project remove-location <name> <label>
 ```
 
 ## Sweeps
 
 ```bash
-canonry snapshot "Acme Corp" --domain acme.example.com      # one-shot sales snapshot
-canonry snapshot "Acme Corp" --domain acme.example.com --md          # save markdown report
-canonry snapshot "Acme Corp" --domain acme.example.com --output report.md  # custom path
-canonry snapshot "Acme Corp" --domain acme.example.com --pdf         # save PDF report
-canonry snapshot "Acme Corp" --domain acme.example.com --format json
+cnry snapshot "Acme Corp" --domain acme.example.com      # one-shot sales snapshot
+cnry snapshot "Acme Corp" --domain acme.example.com --md          # save markdown report
+cnry snapshot "Acme Corp" --domain acme.example.com --output report.md  # custom path
+cnry snapshot "Acme Corp" --domain acme.example.com --pdf         # save PDF report
+cnry snapshot "Acme Corp" --domain acme.example.com --format json
 
-canonry run <project>                             # sweep all configured providers
-canonry run <project> --provider gemini           # single provider only
-canonry run <project> --query "alpha" --query "beta"  # scope sweep to a subset of tracked queries (repeatable)
-canonry run <project> --wait                      # block until complete
-canonry run <project> --location <label>          # run with specific location context
-canonry run <project> --all-locations             # run for every configured location
-canonry run <project> --no-location               # explicitly skip location context
-canonry run --all --wait                          # all projects
-canonry run cancel <project> [run-id]             # force-cancel stuck runs
-canonry runs <project> --limit 10                 # list recent runs
-canonry run show <id>                             # show run details
+cnry run <project>                             # sweep all configured providers
+cnry run <project> --provider gemini           # single provider only
+cnry run <project> --query "alpha" --query "beta"  # scope sweep to a subset of tracked queries (repeatable)
+cnry run <project> --wait                      # block until complete
+cnry run <project> --location <label>          # run with specific location context
+cnry run <project> --all-locations             # run for every configured location
+cnry run <project> --no-location               # explicitly skip location context
+cnry run --all --wait                          # all projects
+cnry run cancel <project> [run-id]             # force-cancel stuck runs
+cnry runs <project> --limit 10                 # list recent runs
+cnry run show <id>                             # show run details
 ```
 
 Run statuses: `queued` → `running` → `completed` / `failed` / `partial`
@@ -72,12 +74,12 @@ Run statuses: `queued` → `running` → `completed` / `failed` / `partial`
 ## Citation Data
 
 ```bash
-canonry evidence <project>                        # per-query cited/not-cited
-canonry evidence <project> --format json          # JSON output
-canonry history <project>                         # audit trail
-canonry export <project> --include-results        # export as YAML
-canonry backfill answer-visibility                # recompute answer visibility from stored answers
-canonry backfill answer-visibility --project <name> --format json
+cnry evidence <project>                        # per-query cited/not-cited
+cnry evidence <project> --format json          # JSON output
+cnry history <project>                         # audit trail
+cnry export <project> --include-results        # export as YAML
+cnry backfill answer-visibility                # recompute answer visibility from stored answers
+cnry backfill answer-visibility --project <name> --format json
 ```
 
 Output shows:
@@ -88,9 +90,9 @@ Output shows:
 ## Reports
 
 ```bash
-canonry report <project>                          # write canonry-report-<project>-YYYY-MM-DD.html
-canonry report <project> --output dist/aeo.html   # custom path
-canonry report <project> --format json            # raw report payload to stdout
+cnry report <project>                          # write canonry-report-<project>-YYYY-MM-DD.html
+cnry report <project> --output dist/aeo.html   # custom path
+cnry report <project> --format json            # raw report payload to stdout
 ```
 
 One-command client-facing AEO report. Bundles the latest visibility sweep, competitor landscape, AI citation sources, GSC + GA4 performance, social and AI referrals, indexing health, citations trend, prioritized insights, and recommended next steps into a self-contained HTML file (inline CSS + SVG charts, no network dependencies). Backed by `GET /api/v1/projects/<name>/report` and the `canonry_report` MCP tool.
@@ -106,56 +108,56 @@ Behavior to know when narrating numbers from the report:
 ## Analytics
 
 ```bash
-canonry analytics <project>                       # default analytics view
-canonry analytics <project> --feature metrics     # citation rate trends
-canonry analytics <project> --feature gaps        # brand gap analysis (cited/gap/uncited)
-canonry analytics <project> --feature sources     # source breakdown by category
-canonry analytics <project> --window 7d           # time window: 7d, 30d, 90d, all
+cnry analytics <project>                       # default analytics view
+cnry analytics <project> --feature metrics     # citation rate trends
+cnry analytics <project> --feature gaps        # brand gap analysis (cited/gap/uncited)
+cnry analytics <project> --feature sources     # source breakdown by category
+cnry analytics <project> --window 7d           # time window: 7d, 30d, 90d, all
 ```
 
 ## Intelligence
 
 ```bash
-canonry insights <project>                        # list active insights (regressions, gains, opportunities)
-canonry insights <project> --dismissed            # include dismissed insights
-canonry insights <project> --format json          # JSON output
-canonry insights dismiss <project> <id>           # dismiss an insight
-canonry health <project>                          # latest citation health snapshot
-canonry health <project> --history                # health trend over time
-canonry health <project> --history --limit 10     # limit history entries
-canonry health <project> --format json            # JSON output
-canonry backfill insights <project>              # backfill insights for all completed runs
-canonry backfill insights <project> --from-run <id> --to-run <id>  # backfill a range
+cnry insights <project>                        # list active insights (regressions, gains, opportunities)
+cnry insights <project> --dismissed            # include dismissed insights
+cnry insights <project> --format json          # JSON output
+cnry insights dismiss <project> <id>           # dismiss an insight
+cnry health <project>                          # latest citation health snapshot
+cnry health <project> --history                # health trend over time
+cnry health <project> --history --limit 10     # limit history entries
+cnry health <project> --format json            # JSON output
+cnry backfill insights <project>              # backfill insights for all completed runs
+cnry backfill insights <project> --from-run <id> --to-run <id>  # backfill a range
 ```
 
 ## Queries & Competitors
 
 ```bash
-canonry query add <project> "phrase one" "phrase two"
-canonry query remove <project> "phrase"
-canonry query list <project>
-canonry query import <project> queries.txt
-canonry query generate <project> --provider gemini --count 10 --save
+cnry query add <project> "phrase one" "phrase two"
+cnry query remove <project> "phrase"
+cnry query list <project>
+cnry query import <project> queries.txt
+cnry query generate <project> --provider gemini --count 10 --save
 
-canonry competitor add <project> competitor1.com competitor2.com
-canonry competitor list <project>
+cnry competitor add <project> competitor1.com competitor2.com
+cnry competitor list <project>
 ```
 
 ## Scheduling & Notifications
 
 ```bash
-canonry schedule set <project> --preset daily     # or: weekly, twice-daily, daily@09
-canonry schedule set <project> --cron "0 9 * * *" --timezone America/New_York
-canonry schedule show <project>
-canonry schedule enable <project>
-canonry schedule disable <project>
-canonry schedule remove <project>
+cnry schedule set <project> --preset daily     # or: weekly, twice-daily, daily@09
+cnry schedule set <project> --cron "0 9 * * *" --timezone America/New_York
+cnry schedule show <project>
+cnry schedule enable <project>
+cnry schedule disable <project>
+cnry schedule remove <project>
 
-canonry notify add <project> --webhook <url> --events citation.lost,citation.gained
-canonry notify events                             # list all available event types
-canonry notify list <project>
-canonry notify remove <project> <id>
-canonry notify test <project> <id>
+cnry notify add <project> --webhook <url> --events citation.lost,citation.gained
+cnry notify events                             # list all available event types
+cnry notify list <project>
+cnry notify remove <project> <id>
+cnry notify test <project> <id>
 ```
 
 Available events: `citation.lost`, `citation.gained`, `run.completed`, `run.failed`, `insight.critical`, `insight.high`
@@ -165,11 +167,11 @@ Available events: `citation.lost`, `citation.gained`, `run.completed`, `run.fail
 ## Provider Settings & Quotas
 
 ```bash
-canonry settings                                  # show config: providers, apiUrl, db path
-canonry settings --format json
-canonry settings provider gemini --api-key <KEY> --model gemini-2.5-flash
-canonry settings provider openai --max-per-day 1000 --max-per-minute 20
-canonry settings provider perplexity --api-key <KEY>
+cnry settings                                  # show config: providers, apiUrl, db path
+cnry settings --format json
+cnry settings provider gemini --api-key <KEY> --model gemini-2.5-flash
+cnry settings provider openai --max-per-day 1000 --max-per-minute 20
+cnry settings provider perplexity --api-key <KEY>
 ```
 
 Quota flags: `--max-concurrent`, `--max-per-minute`, `--max-per-day`
@@ -197,46 +199,46 @@ When Vertex AI is configured, no `GEMINI_API_KEY` is required. The provider uses
 ## Google Search Console
 
 ```bash
-canonry google connect <project>                          # initiate OAuth flow
-canonry google disconnect <project>                       # disconnect GSC
-canonry google status <project>                           # connection status
-canonry google properties <project>                       # list available properties
-canonry google set-property <project> <url>               # set GSC property URL
-canonry google set-sitemap <project> <url>                # set sitemap URL
-canonry google list-sitemaps <project>                    # list submitted sitemaps
-canonry google discover-sitemaps <project> --wait         # auto-discover and inspect
+cnry google connect <project>                          # initiate OAuth flow
+cnry google disconnect <project>                       # disconnect GSC
+cnry google status <project>                           # connection status
+cnry google properties <project>                       # list available properties
+cnry google set-property <project> <url>               # set GSC property URL
+cnry google set-sitemap <project> <url>                # set sitemap URL
+cnry google list-sitemaps <project>                    # list submitted sitemaps
+cnry google discover-sitemaps <project> --wait         # auto-discover and inspect
 
-canonry google sync <project>                             # sync GSC data
-canonry google sync <project> --days 30 --full --wait     # full sync with wait
+cnry google sync <project>                             # sync GSC data
+cnry google sync <project> --days 30 --full --wait     # full sync with wait
 
-canonry google coverage <project>                         # index coverage summary
-canonry google refresh <project>                         # force-fetch fresh GSC coverage data
-canonry google performance <project>                      # search performance data
-canonry google performance <project> --days 30 --keyword "term" --page "/url"
+cnry google coverage <project>                         # index coverage summary
+cnry google refresh <project>                         # force-fetch fresh GSC coverage data
+cnry google performance <project>                      # search performance data
+cnry google performance <project> --days 30 --keyword "term" --page "/url"
 
-canonry google inspect <project> <url>                    # inspect specific URL
-canonry google inspect-sitemap <project> --wait           # bulk inspect all sitemap URLs
-canonry google inspections <project>                      # inspection history
-canonry google inspections <project> --url <url>          # filter by URL
-canonry google deindexed <project>                        # pages that lost indexing
+cnry google inspect <project> <url>                    # inspect specific URL
+cnry google inspect-sitemap <project> --wait           # bulk inspect all sitemap URLs
+cnry google inspections <project>                      # inspection history
+cnry google inspections <project> --url <url>          # filter by URL
+cnry google deindexed <project>                        # pages that lost indexing
 
-canonry google request-indexing <project> <url>           # push URL to Google
-canonry google request-indexing <project> --all-unindexed # push all unknown pages
+cnry google request-indexing <project> <url>           # push URL to Google
+cnry google request-indexing <project> --all-unindexed # push all unknown pages
 ```
 
 ## Discovery (Tracked-Basket Expansion)
 
 ```bash
-canonry discover run <project> --icp "..." --wait --format json    # full pipeline: seed → embed → cluster → probe → bucket
-canonry discover run <project> --icp "..." --dedup-threshold 0.85  # tune cosine threshold (default 0.85)
-canonry discover run <project> --icp "..." --max-probes 100         # per-session probe budget (default 100, hard cap 500)
-canonry discover run <project> --icp-angle "angle 1" --icp-angle "angle 2" --wait  # multi-angle: one session per ICP angle, useful for hyperlocal/niche businesses
+cnry discover run <project> --icp "..." --wait --format json    # full pipeline: seed → embed → cluster → probe → bucket
+cnry discover run <project> --icp "..." --dedup-threshold 0.85  # tune cosine threshold (default 0.85)
+cnry discover run <project> --icp "..." --max-probes 100         # per-session probe budget (default 100, hard cap 500)
+cnry discover run <project> --icp-angle "angle 1" --icp-angle "angle 2" --wait  # multi-angle: one session per ICP angle, useful for hyperlocal/niche businesses
 
-canonry discover list <project>                                     # newest-first session list
-canonry discover show <project> <session-id>                        # per-query probe rows + buckets
-canonry discover promote preview <project> <session-id>             # preview bucketed candidates + recurring suggested competitors (read-only)
-canonry discover promote <project> <session-id>                     # adopt cited + aspirational queries + recurring competitors
-canonry discover promote <project> <session-id> --bucket aspirational --no-competitors   # scope to a bucket subset / skip competitor merge
+cnry discover list <project>                                     # newest-first session list
+cnry discover show <project> <session-id>                        # per-query probe rows + buckets
+cnry discover promote preview <project> <session-id>             # preview bucketed candidates + recurring suggested competitors (read-only)
+cnry discover promote <project> <session-id>                     # adopt cited + aspirational queries + recurring competitors
+cnry discover promote <project> <session-id> --bucket aspirational --no-competitors   # scope to a bucket subset / skip competitor merge
 ```
 
 Discovery requires Gemini configured (API key today; Vertex-mode embeddings are deferred). The pipeline writes a `discovery_sessions` row, a `runs` row (kind `aeo-discover-probe`), and one `discovery.basket-divergence` insight when the session completes. Aero wakes unprompted with the bucket-count payload so the operator can act without polling. `discover promote` defaults to cited + aspirational queries and recurring competitor domains; include `--bucket wasted-surface` explicitly for off-ICP competitor gaps. Promotion is add-only and idempotent — queries/domains already tracked are reported as skipped, never inserted twice — and only works on `completed` sessions; promoted rows carry `provenance="discovery:<sessionId>"`.
@@ -244,45 +246,45 @@ Discovery requires Gemini configured (API key today; Vertex-mode embeddings are 
 ## Bing Webmaster Tools
 
 ```bash
-canonry bing connect <project> --api-key <key>   # connect Bing WMT
-canonry bing disconnect <project>                # disconnect
-canonry bing status <project>                    # connection status
-canonry bing sites <project>                     # list verified sites
-canonry bing set-site <project> <url>            # set active site URL
-canonry bing coverage <project>                  # URL coverage data
-canonry bing refresh <project>                  # force-fetch fresh Bing coverage data
-canonry bing inspect <project> <url>             # inspect specific URL
-canonry bing inspect-sitemap <project>           # discover sitemap URLs and inspect each via Bing
-canonry bing inspect-sitemap <project> --sitemap-url <url> --wait  # explicit sitemap, wait for run
-canonry bing inspections <project>               # inspection history
-canonry bing request-indexing <project> <url>    # submit URL for indexing
-canonry bing request-indexing <project> --all-unindexed  # submit all unindexed
-canonry bing performance <project>               # search performance data
+cnry bing connect <project> --api-key <key>   # connect Bing WMT
+cnry bing disconnect <project>                # disconnect
+cnry bing status <project>                    # connection status
+cnry bing sites <project>                     # list verified sites
+cnry bing set-site <project> <url>            # set active site URL
+cnry bing coverage <project>                  # URL coverage data
+cnry bing refresh <project>                  # force-fetch fresh Bing coverage data
+cnry bing inspect <project> <url>             # inspect specific URL
+cnry bing inspect-sitemap <project>           # discover sitemap URLs and inspect each via Bing
+cnry bing inspect-sitemap <project> --sitemap-url <url> --wait  # explicit sitemap, wait for run
+cnry bing inspections <project>               # inspection history
+cnry bing request-indexing <project> <url>    # submit URL for indexing
+cnry bing request-indexing <project> --all-unindexed  # submit all unindexed
+cnry bing performance <project>               # search performance data
 ```
 
 ## WordPress Integration
 
 ```bash
-canonry wordpress connect <project> --url <url> --user <user>   # connect (prompts for app password)
-canonry wordpress disconnect <project>                          # disconnect
-canonry wordpress status <project>                              # connection status
-canonry wordpress pages <project> [--live|--staging]            # list pages
-canonry wordpress page <project> <slug>                         # show page detail
-canonry wordpress create-page <project> --title <t> --slug <s> --content <c>  # create page
-canonry wordpress update-page <project> <slug> --content <c>   # update page
-canonry wordpress set-meta <project> <slug> --title <t>        # set SEO meta (single page)
-canonry wordpress set-meta <project> --from <file>              # bulk set SEO meta from JSON
-canonry wordpress schema <project> <slug>                       # read page JSON-LD
-canonry wordpress schema deploy <project> --profile <file>      # deploy schema from profile
-canonry wordpress schema status <project>                       # schema status per page
-canonry wordpress set-schema <project> <slug>                   # manual schema handoff
-canonry wordpress audit <project>                               # audit pages for SEO issues
-canonry wordpress diff <project> <slug>                         # compare live vs staging
-canonry wordpress staging status <project>                      # staging config status
-canonry wordpress staging push <project>                        # manual staging push handoff
-canonry wordpress llms-txt <project>                            # read /llms.txt
-canonry wordpress set-llms-txt <project>                        # manual llms.txt handoff
-canonry wordpress onboard <project> --url <url> --user <user>  # full onboarding workflow
+cnry wordpress connect <project> --url <url> --user <user>   # connect (prompts for app password)
+cnry wordpress disconnect <project>                          # disconnect
+cnry wordpress status <project>                              # connection status
+cnry wordpress pages <project> [--live|--staging]            # list pages
+cnry wordpress page <project> <slug>                         # show page detail
+cnry wordpress create-page <project> --title <t> --slug <s> --content <c>  # create page
+cnry wordpress update-page <project> <slug> --content <c>   # update page
+cnry wordpress set-meta <project> <slug> --title <t>        # set SEO meta (single page)
+cnry wordpress set-meta <project> --from <file>              # bulk set SEO meta from JSON
+cnry wordpress schema <project> <slug>                       # read page JSON-LD
+cnry wordpress schema deploy <project> --profile <file>      # deploy schema from profile
+cnry wordpress schema status <project>                       # schema status per page
+cnry wordpress set-schema <project> <slug>                   # manual schema handoff
+cnry wordpress audit <project>                               # audit pages for SEO issues
+cnry wordpress diff <project> <slug>                         # compare live vs staging
+cnry wordpress staging status <project>                      # staging config status
+cnry wordpress staging push <project>                        # manual staging push handoff
+cnry wordpress llms-txt <project>                            # read /llms.txt
+cnry wordpress set-llms-txt <project>                        # manual llms.txt handoff
+cnry wordpress onboard <project> --url <url> --user <user>  # full onboarding workflow
 ```
 
 **Onboard** runs: connect → audit → set-meta → schema deploy → Google submit → Bing submit. Use `--skip-schema` or `--skip-submit` to skip steps. `--profile <file>` provides business data and page-to-schema mapping for schema deployment.
@@ -292,31 +294,31 @@ canonry wordpress onboard <project> --url <url> --user <user>  # full onboarding
 GA4 integration uses service account authentication (no OAuth). The service account must have Viewer access on the GA4 property. `ga sync` writes to four DB tables (`gaTrafficSnapshots`, `gaAiReferrals`, `gaSocialReferrals`, `gaTrafficSummaries`); every subsequent read command queries the local store rather than re-fetching from GA4, so reads are fast and quotaless. AI-referral rows are tracked across 10 known providers (chatgpt, perplexity, claude, gemini, openai, anthropic, copilot, phind, you.com, meta.ai), three GA4 attribution dimensions (`session` / `first_user` / `manual_utm`), and joined to landing pages. Social referrals are split Organic vs Paid via GA4's `sessionDefaultChannelGroup`. All commands support `--format json`.
 
 ```bash
-canonry ga connect <project> --property-id <id> --key-file ./sa-key.json
+cnry ga connect <project> --property-id <id> --key-file ./sa-key.json
                                                   # connect via service account (auth method = service_account)
-canonry ga disconnect <project>                  # disconnect; deletes all synced rows for the project
-canonry ga status <project>                      # connected, propertyId, authMethod, lastSyncedAt
-canonry ga sync <project> [--days 30] [--only traffic|ai|social]
+cnry ga disconnect <project>                  # disconnect; deletes all synced rows for the project
+cnry ga status <project>                      # connected, propertyId, authMethod, lastSyncedAt
+cnry ga sync <project> [--days 30] [--only traffic|ai|social]
                                                   # refresh from GA4 → DB; --only restricts which slice is replaced
                                                   # returns: synced, rowCount, aiReferralCount, socialReferralCount,
                                                   #          syncedComponents, syncedAt
-canonry ga traffic <project>                     # current-period rollup; returns: totalSessions,
+cnry ga traffic <project>                     # current-period rollup; returns: totalSessions,
                                                   # totalOrganicSessions/totalDirectSessions/totalUsers,
                                                   # organicSharePct/aiSharePct/socialSharePct/directSharePct,
                                                   # topPages[], aiReferrals[], aiReferralLandingPages[],
                                                   # aiSessionsDeduped, aiUsersBySession, socialReferrals[]
-canonry ga attribution <project> [--trend]       # unified channel breakdown (organic / ai / social / direct
+cnry ga attribution <project> [--trend]       # unified channel breakdown (organic / ai / social / direct
                                                   # sessions + raw and display share %s); --trend adds 7d/30d
                                                   # direction per channel + biggest mover
-canonry ga ai-referral-history <project>         # daily array of {date, source, medium, attribution,
+cnry ga ai-referral-history <project>         # daily array of {date, source, medium, attribution,
                                                   # sessions, users}; one row per (day × source × dimension)
-canonry ga social-referral-history <project>     # daily array of {date, source, medium, channel,
+cnry ga social-referral-history <project>     # daily array of {date, source, medium, channel,
                                                   # sessions, users}; channel ∈ {Organic Social, Paid Social}
-canonry ga social-referral-summary <project> [--trend]
+cnry ga social-referral-summary <project> [--trend]
                                                   # one-line social rollup: socialSessions, socialUsers,
                                                   # socialSharePct, topSources[]; --trend adds 7d/30d direction
-canonry ga session-history <project>             # daily totals: {date, sessions, organicSessions, users}
-canonry ga coverage <project>                    # per-page overlay: {landingPage, sessions,
+cnry ga session-history <project>             # daily totals: {date, sessions, organicSessions, users}
+cnry ga coverage <project>                    # per-page overlay: {landingPage, sessions,
                                                   # organicSessions, users}
 ```
 
@@ -324,20 +326,20 @@ Every read command queries persisted DB rows, so a stale `lastSyncedAt` means th
 
 ## Backlinks (Common Crawl)
 
-Workspace-level Common Crawl release sync + per-project backlink extraction. Requires DuckDB; install once with `canonry backlinks install`. Releases are downloaded once per workspace and reused across all projects.
+Workspace-level Common Crawl release sync + per-project backlink extraction. Requires DuckDB; install once with `cnry backlinks install`. Releases are downloaded once per workspace and reused across all projects.
 
 ```bash
-canonry backlinks install                         # install bundled DuckDB binary
-canonry backlinks doctor                          # show install + plugin status
-canonry backlinks status                          # latest workspace release sync
-canonry backlinks releases                        # list cached releases on disk
-canonry backlinks sync --release <id>             # download + query a release (workspace-wide)
-canonry backlinks sync --release <id> --wait      # block until ready/failed
-canonry backlinks list <project>                  # top linking domains for the project
-canonry backlinks list <project> --limit 100 --release <id>
-canonry backlinks extract <project>               # re-extract this project against the latest ready release
-canonry backlinks extract <project> --release <id> --wait
-canonry backlinks cache prune --release <id>      # delete cached release files from disk
+cnry backlinks install                         # install bundled DuckDB binary
+cnry backlinks doctor                          # show install + plugin status
+cnry backlinks status                          # latest workspace release sync
+cnry backlinks releases                        # list cached releases on disk
+cnry backlinks sync --release <id>             # download + query a release (workspace-wide)
+cnry backlinks sync --release <id> --wait      # block until ready/failed
+cnry backlinks list <project>                  # top linking domains for the project
+cnry backlinks list <project> --limit 100 --release <id>
+cnry backlinks extract <project>               # re-extract this project against the latest ready release
+cnry backlinks extract <project> --release <id> --wait
+cnry backlinks cache prune --release <id>      # delete cached release files from disk
 ```
 
 All commands support `--format json`. A release sync has statuses `queued` → `downloading` → `querying` → `ready` / `failed`. Per-project extract runs use the standard run statuses (`queued` → `running` → `completed` / `failed`). Projects with the `autoExtractBacklinks` setting enabled get an extract run enqueued automatically when a release sync transitions to `ready`.
@@ -347,10 +349,10 @@ All commands support `--format json`. A release sync has statuses `queued` → `
 The CDP (Chrome DevTools Protocol) provider enables browser-based queries against AI chat interfaces (e.g., ChatGPT). This gives more accurate results than API-based providers for some use cases.
 
 ```bash
-canonry cdp connect --host localhost --port 9222  # connect to Chrome CDP
-canonry cdp status                                # show connection status
-canonry cdp targets                               # list available targets (ChatGPT, etc.)
-canonry cdp screenshot <query> --targets chatgpt  # screenshot a query result
+cnry cdp connect --host localhost --port 9222  # connect to Chrome CDP
+cnry cdp status                                # show connection status
+cnry cdp targets                               # list available targets (ChatGPT, etc.)
+cnry cdp screenshot <query> --targets chatgpt  # screenshot a query result
 ```
 
 **Requires:** Chrome running with `--remote-debugging-port=9222`
@@ -358,18 +360,18 @@ canonry cdp screenshot <query> --targets chatgpt  # screenshot a query result
 ## Telemetry
 
 ```bash
-canonry telemetry status                          # show telemetry status
-canonry telemetry enable                          # enable anonymous telemetry
-canonry telemetry disable                         # disable telemetry
+cnry telemetry status                          # show telemetry status
+cnry telemetry enable                          # enable anonymous telemetry
+cnry telemetry disable                         # disable telemetry
 ```
 
 ## Config as Code
 
 ```bash
-canonry apply project.yaml                        # apply declarative config
-canonry apply file1.yaml file2.yaml               # multiple files
-canonry export <project> --include-results > project.yaml
-canonry sitemap inspect <project>
+cnry apply project.yaml                        # apply declarative config
+cnry apply file1.yaml file2.yaml               # multiple files
+cnry export <project> --include-results > project.yaml
+cnry sitemap inspect <project>
 ```
 
 ## Agent
@@ -382,21 +384,21 @@ drive Canonry from Claude Code / Codex / a custom agent.
 
 ```bash
 # One-shot turn — Aero picks its own tools, streams events to stdout.
-canonry agent ask <project> "<prompt>"
-canonry agent ask <project> "<prompt>" --format json      # JSON event stream
+cnry agent ask <project> "<prompt>"
+cnry agent ask <project> "<prompt>" --format json      # JSON event stream
 
 # Select a specific provider / model (otherwise auto-detected from config).
-canonry agent ask <project> "<prompt>" --provider anthropic --model claude-opus-4-7
-canonry agent ask <project> "<prompt>" --provider zai      --model glm-5.1
-canonry agent ask <project> "<prompt>" --provider openai
-canonry agent ask <project> "<prompt>" --provider google
+cnry agent ask <project> "<prompt>" --provider anthropic --model claude-opus-4-7
+cnry agent ask <project> "<prompt>" --provider zai      --model glm-5.1
+cnry agent ask <project> "<prompt>" --provider openai
+cnry agent ask <project> "<prompt>" --provider google
 
 # Restrict the tool surface. Default is --scope all (full 13-tool surface:
 # 7 read + 6 write). --scope read-only exposes only the 7 read tools and
 # is what the dashboard bar uses by default so pasted "Copy as CLI"
 # commands can't enable writes the UI turn couldn't perform.
-canonry agent ask <project> "<prompt>" --scope read-only
-canonry agent ask <project> "<prompt>" --scope all
+cnry agent ask <project> "<prompt>" --scope read-only
+cnry agent ask <project> "<prompt>" --scope all
 ```
 
 **Provider detection order** when `--provider` is omitted: `anthropic` →
@@ -404,7 +406,7 @@ canonry agent ask <project> "<prompt>" --scope all
 (from `~/.canonry/config.yaml` providers block, or the matching env var
 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` / `ZAI_API_KEY`).
 
-Conversations **persist per project** — `canonry agent ask` continues the
+Conversations **persist per project** — `cnry agent ask` continues the
 same rolling thread each invocation. Reset with `DELETE /api/v1/projects/<name>/agent/transcript`
 or via the dashboard bar's reset button.
 
@@ -412,10 +414,10 @@ or via the dashboard bar's reset button.
 
 ```bash
 # Wire an external agent webhook to a project
-canonry agent attach <project> --url <webhook-url>        # register webhook subscription
-canonry agent attach <project> --url <url> --format json  # JSON output
-canonry agent detach <project>                            # remove the agent webhook
-canonry agent detach <project> --format json              # JSON output
+cnry agent attach <project> --url <webhook-url>        # register webhook subscription
+cnry agent attach <project> --url <url> --format json  # JSON output
+cnry agent detach <project>                            # remove the agent webhook
+cnry agent detach <project> --format json              # JSON output
 ```
 
 **Agent webhooks** fire on `run.completed`, `insight.critical`, `insight.high`, and `citation.gained`. The attach/detach pair is idempotent per project (one agent webhook per project, matched by source tag).

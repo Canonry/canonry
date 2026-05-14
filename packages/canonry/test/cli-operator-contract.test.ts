@@ -987,6 +987,6 @@ describe('operator CLI contract', () => {
     expect(parsed.error.code).toBe('CLI_USAGE_ERROR')
     expect(parsed.error.message).toBe('unknown command: does-not-exist')
     expect(parsed.error.details.command).toBe('does-not-exist')
-    expect(parsed.error.details.usage).toBe('canonry --help')
+    expect(parsed.error.details.usage).toBe('cnry --help')
   })
 })

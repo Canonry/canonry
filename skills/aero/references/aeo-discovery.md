@@ -24,7 +24,7 @@ Plus a competitor map: every non-canonical domain that shows up in probe citatio
 The operator runs:
 
 ```bash
-canonry discover run <project> --icp "..." --wait
+cnry discover run <project> --icp "..." --wait
 ```
 
 Or the MCP equivalent: `canonry_discover_run_start` with `{ project, request: { icpDescription, dedupThreshold?, maxProbes? } }`. The endpoint returns `{ runId, sessionId, status: "running" }` immediately and finishes the work in the background. Poll `canonry_discover_session_get` until `status` is `completed` or `failed`.
@@ -45,7 +45,7 @@ Per session: ~$1 at the default probe budget (100 queries × 1 Gemini grounded c
 Things to call out without being asked:
 
 - **High wasted-surface ratio** (≥ 40% of probes, or > cited count at ≥ 20%) → the project is missing from its own competitive space. The auto-written `discovery.basket-divergence` insight flags this as `high` severity.
-- **Recurring new competitor domains** in `competitorMap` that aren't already in the project's tracked competitor list → `canonry discover promote` adopts domains with at least 2 hits automatically alongside the queries; or add them à la carte with `canonry competitor add <project> <domain>`.
+- **Recurring new competitor domains** in `competitorMap` that aren't already in the project's tracked competitor list → `cnry discover promote` adopts domains with at least 2 hits automatically alongside the queries; or add them à la carte with `cnry competitor add <project> <domain>`.
 - **Aspirational greenfield** queries with no tracked competitor and no canonical cite → low-friction content opportunities.
 
 ## Promoting a session into the tracked basket
@@ -53,7 +53,7 @@ Things to call out without being asked:
 Once a session is `completed`, preview first unless the operator has already approved the write:
 
 ```bash
-canonry discover promote preview <project> <session-id>
+cnry discover promote preview <project> <session-id>
 ```
 
 Or the MCP equivalent: `canonry_discover_promote_preview` with `{ project, sessionId }`.
@@ -68,10 +68,10 @@ The preview returns every bucket so you can explain the tradeoff:
 Promote with one of these paths:
 
 ```bash
-canonry discover promote <project> <session-id>                          # cited + aspirational buckets + recurring competitor domains
-canonry discover promote <project> <session-id> --bucket aspirational    # scope to a bucket subset (repeatable / comma-separated)
-canonry discover promote <project> <session-id> --bucket wasted-surface  # explicitly track off-ICP competitor gaps
-canonry discover promote <project> <session-id> --no-competitors         # queries only, skip the competitor merge
+cnry discover promote <project> <session-id>                          # cited + aspirational buckets + recurring competitor domains
+cnry discover promote <project> <session-id> --bucket aspirational    # scope to a bucket subset (repeatable / comma-separated)
+cnry discover promote <project> <session-id> --bucket wasted-surface  # explicitly track off-ICP competitor gaps
+cnry discover promote <project> <session-id> --no-competitors         # queries only, skip the competitor merge
 ```
 
 Or the MCP equivalent:
@@ -107,7 +107,7 @@ Respond with:
 1. A one-line headline naming the dominant bucket.
 2. The top 2-3 wasted-surface queries (call `canonry_discover_session_get` to fetch them — don't guess).
 3. The top 1-2 recurring new competitor domains worth tracking, ignoring one-hit domains unless the operator asks for the full long tail.
-4. A single recommended next step. Examples: "preview and promote cited + aspirational findings (`canonry discover promote preview`, then `canonry discover promote`)", "the wasted-surface set warrants a content plan around X before tracking", "the aspirational set is greenfield — pick the 3 with highest commercial intent and write content".
+4. A single recommended next step. Examples: "preview and promote cited + aspirational findings (`cnry discover promote preview`, then `cnry discover promote`)", "the wasted-surface set warrants a content plan around X before tracking", "the aspirational set is greenfield — pick the 3 with highest commercial intent and write content".
 
 Do not recommend "promote everything" as the default. The safe path is: inspect session detail, preview promotion candidates, then promote the default cited + aspirational set. Escalate `wasted-surface` to tracking only when the operator deliberately chooses that tradeoff.
 
@@ -120,7 +120,7 @@ Keep it tight. The operator wakes to a short, decision-ready summary, not a full
 
 ## Failure modes
 
-- **Gemini not configured** → orchestrator throws early; `runs.status='failed'` with `Gemini provider is not configured.` Surface as "configure Gemini before running discovery" — link to `canonry init` or `~/.canonry/config.yaml`.
+- **Gemini not configured** → orchestrator throws early; `runs.status='failed'` with `Gemini provider is not configured.` Surface as "configure Gemini before running discovery" — link to `cnry init` or `~/.canonry/config.yaml`.
 - **Vertex-only Gemini** → embeddings step throws (Vertex embeddings deferred). Same surface, "use a Gemini API key for now."
 - **ICP missing** → route returns 400 with `VALIDATION_ERROR`. Ask the operator for the ICP description in plain language.
 - **Seed collapse (hyperlocal/niche businesses)** → 40 raw seeds collapse to 1-2 canonical queries after embedding+clustering, even at low dedup thresholds. This happens when Gemini generates seed queries that all live in the same semantic pocket (e.g. all variants of "boutique hotel Venice Beach"). The embedding model sees them as near-identical, so clustering produces one representative.
@@ -130,7 +130,7 @@ Keep it tight. The operator wakes to a short, decision-ready summary, not a full
   **Remediation:** break the ICP into 3-5 distinct purchase-intent angles and run one session per angle via `--icp-angle`:
 
   ```bash
-  canonry discover run <project> \
+  cnry discover run <project> \
     --icp-angle "romantic anniversary stay in Venice Beach" \
     --icp-angle "best rooftop bars and dining hotels LA" \
     --icp-angle "walkable Venice Beach hotels near Abbot Kinney" \

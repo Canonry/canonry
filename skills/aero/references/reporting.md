@@ -10,9 +10,9 @@ description: Weekly and monthly report templates with metric tables, regression/
 When a client asks for a "current state" or "AEO report" without a specific custom narrative, prefer the bundled report instead of hand-rolling sections:
 
 ```bash
-canonry report <project>                          # writes canonry-report-<project>-YYYY-MM-DD.html in cwd
-canonry report <project> --output dist/aeo.html   # custom path
-canonry report <project> --format json            # raw payload, useful for narrating in chat
+cnry report <project>                          # writes canonry-report-<project>-YYYY-MM-DD.html in cwd
+cnry report <project> --output dist/aeo.html   # custom path
+cnry report <project> --format json            # raw payload, useful for narrating in chat
 ```
 
 The HTML is self-contained (inline CSS + SVG charts, no network dependencies) and covers: executive summary, per-query × per-provider citation matrix, competitor landscape, AI citation sources, GSC + GA4 performance, social and AI referrals, indexing health, citations trend, prioritized insights, and recommended next steps. Same payload is available via `GET /api/v1/projects/<name>/report` and the `canonry_report` MCP tool — use `--format json` when you want to summarize specific numbers in a thread instead of attaching the file.
