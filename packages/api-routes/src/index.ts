@@ -339,6 +339,7 @@ export {
 } from './discovery/index.js'
 export type {
   DiscoveryDeps,
+  DiscoveryDomainClassification,
   DiscoveryProjectContext,
   DiscoverySeedResult,
   DiscoveryProbeResult,

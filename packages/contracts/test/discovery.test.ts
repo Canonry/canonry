@@ -4,9 +4,12 @@ import {
   runKindSchema,
 	  DiscoveryBuckets,
 	  DEFAULT_DISCOVERY_PROMOTE_BUCKETS,
+	  DEFAULT_DISCOVERY_PROMOTE_COMPETITOR_TYPES,
 	  DISCOVERY_PROMOTE_COMPETITOR_CAP,
 	  DISCOVERY_PROMOTE_COMPETITOR_MIN_HITS,
 	  discoveryBucketSchema,
+	  DiscoveryCompetitorTypes,
+	  discoveryCompetitorTypeSchema,
   DiscoverySessionStatuses,
   discoverySessionStatusSchema,
   DISCOVERY_MAX_PROBES_CAP,
@@ -42,6 +45,26 @@ test('discovery promote defaults are production-safe', () => {
   expect(DEFAULT_DISCOVERY_PROMOTE_BUCKETS).not.toContain(DiscoveryBuckets['wasted-surface'])
   expect(DISCOVERY_PROMOTE_COMPETITOR_MIN_HITS).toBe(2)
   expect(DISCOVERY_PROMOTE_COMPETITOR_CAP).toBe(20)
+})
+
+test('discoveryCompetitorTypeSchema enumerates the classification categories', () => {
+  for (const type of ['direct-competitor', 'ota-aggregator', 'editorial-media', 'other', 'unknown'] as const) {
+    expect(discoveryCompetitorTypeSchema.parse(type)).toBe(type)
+    expect(DiscoveryCompetitorTypes[type]).toBe(type)
+  }
+  expect(() => discoveryCompetitorTypeSchema.parse('partner')).toThrow()
+})
+
+test('default promote competitor types is direct-competitor only', () => {
+  expect(DEFAULT_DISCOVERY_PROMOTE_COMPETITOR_TYPES).toEqual([
+    DiscoveryCompetitorTypes['direct-competitor'],
+  ])
+  // Aggregators, editorial media, `other`, and legacy `unknown` are excluded
+  // from the default promote — they require an explicit competitorTypes opt-in.
+  expect(DEFAULT_DISCOVERY_PROMOTE_COMPETITOR_TYPES).not.toContain(DiscoveryCompetitorTypes['ota-aggregator'])
+  expect(DEFAULT_DISCOVERY_PROMOTE_COMPETITOR_TYPES).not.toContain(DiscoveryCompetitorTypes['editorial-media'])
+  expect(DEFAULT_DISCOVERY_PROMOTE_COMPETITOR_TYPES).not.toContain(DiscoveryCompetitorTypes.other)
+  expect(DEFAULT_DISCOVERY_PROMOTE_COMPETITOR_TYPES).not.toContain(DiscoveryCompetitorTypes.unknown)
 })
 
 test('discoverySessionStatusSchema enumerates the lifecycle states', () => {
@@ -105,14 +128,16 @@ test('discoverySessionDtoSchema parses an in-flight session with pre/post dedup 
     seedCount: 48,
     dedupThreshold: 0.85,
     probeCount: 12,
-    competitorMap: [{ domain: 'theyellowsign.com', hits: 4 }],
+    competitorMap: [{ domain: 'theyellowsign.com', hits: 4, competitorType: 'direct-competitor' }],
     createdAt: '2026-05-11T12:00:00.000Z',
   })
   expect(session.status).toBe('probing')
   expect(session.seedCountRaw).toBe(142)
   expect(session.seedCount).toBe(48)
   expect(session.dedupThreshold).toBeCloseTo(0.85)
-  expect(session.competitorMap).toEqual([{ domain: 'theyellowsign.com', hits: 4 }])
+  expect(session.competitorMap).toEqual([
+    { domain: 'theyellowsign.com', hits: 4, competitorType: 'direct-competitor' },
+  ])
 })
 
 test('discoverySessionDtoSchema defaults bucket counts to null when unset', () => {
@@ -155,9 +180,28 @@ test('discoveryCompetitorMapEntrySchema requires positive hit count', () => {
   expect(discoveryCompetitorMapEntrySchema.parse({ domain: 'x.com', hits: 1 })).toEqual({
     domain: 'x.com',
     hits: 1,
+    competitorType: 'unknown',
   })
   expect(() => discoveryCompetitorMapEntrySchema.parse({ domain: 'x.com', hits: 0 })).toThrow()
   expect(() => discoveryCompetitorMapEntrySchema.parse({ domain: '', hits: 1 })).toThrow()
+})
+
+test('discoveryCompetitorMapEntrySchema defaults competitorType to unknown and accepts explicit types', () => {
+  // Legacy entries persisted before classification existed have no
+  // competitorType — they must still parse, defaulting to unknown.
+  expect(discoveryCompetitorMapEntrySchema.parse({ domain: 'legacy.com', hits: 3 }).competitorType).toBe(
+    'unknown',
+  )
+  expect(
+    discoveryCompetitorMapEntrySchema.parse({
+      domain: 'rival.com',
+      hits: 5,
+      competitorType: 'direct-competitor',
+    }),
+  ).toEqual({ domain: 'rival.com', hits: 5, competitorType: 'direct-competitor' })
+  expect(() =>
+    discoveryCompetitorMapEntrySchema.parse({ domain: 'x.com', hits: 1, competitorType: 'rival' }),
+  ).toThrow()
 })
 
 test('discoveryRunRequestSchema accepts ICP override + dedupThreshold + maxProbes', () => {
@@ -211,20 +255,25 @@ test('discoveryPromoteRequestSchema accepts an empty object (server applies safe
   const req = discoveryPromoteRequestSchema.parse({})
   expect(req.buckets).toBeUndefined()
   expect(req.includeCompetitors).toBeUndefined()
+  expect(req.competitorTypes).toBeUndefined()
 })
 
-test('discoveryPromoteRequestSchema accepts a bucket subset and includeCompetitors', () => {
+test('discoveryPromoteRequestSchema accepts a bucket subset, includeCompetitors, and competitorTypes', () => {
   const req = discoveryPromoteRequestSchema.parse({
     buckets: ['cited', 'aspirational'],
     includeCompetitors: false,
+    competitorTypes: ['direct-competitor', 'editorial-media'],
   })
   expect(req.buckets).toEqual(['cited', 'aspirational'])
   expect(req.includeCompetitors).toBe(false)
+  expect(req.competitorTypes).toEqual(['direct-competitor', 'editorial-media'])
 })
 
-test('discoveryPromoteRequestSchema rejects an empty buckets array and unknown bucket names', () => {
+test('discoveryPromoteRequestSchema rejects empty / unknown buckets and competitorTypes', () => {
   expect(() => discoveryPromoteRequestSchema.parse({ buckets: [] })).toThrow()
   expect(() => discoveryPromoteRequestSchema.parse({ buckets: ['not-a-bucket'] })).toThrow()
+  expect(() => discoveryPromoteRequestSchema.parse({ competitorTypes: [] })).toThrow()
+  expect(() => discoveryPromoteRequestSchema.parse({ competitorTypes: ['not-a-type'] })).toThrow()
 })
 
 test('discoveryPromoteResultSchema requires promoted + skipped query/competitor lists', () => {

@@ -23,9 +23,11 @@ import {
   classifyProbeBucket,
   executeDiscovery,
   type DiscoveryDeps,
+  type DiscoveryDomainClassification,
   type DiscoveryProjectContext,
 } from '../src/discovery/index.js'
 import type {
+  DiscoveryCompetitorType,
   DiscoveryPromoteResult,
   DiscoverySessionDetailDto,
   DiscoverySessionDto,
@@ -138,15 +140,15 @@ describe('buildCompetitorMap', () => {
   it('counts each domain at most once per probe (within-probe dedup)', () => {
     const probes = [{ citedDomains: ['aurora-solar.com', 'aurora-solar.com', 'enerflo.com'] }]
     expect(buildCompetitorMap(probes, project)).toEqual([
-      { domain: 'aurora-solar.com', hits: 1 },
-      { domain: 'enerflo.com', hits: 1 },
+      { domain: 'aurora-solar.com', hits: 1, competitorType: 'unknown' },
+      { domain: 'enerflo.com', hits: 1, competitorType: 'unknown' },
     ])
   })
 
   it('excludes the project canonical from the map', () => {
     const probes = [{ citedDomains: ['demand-iq.com', 'enerflo.com'] }]
     expect(buildCompetitorMap(probes, project)).toEqual([
-      { domain: 'enerflo.com', hits: 1 },
+      { domain: 'enerflo.com', hits: 1, competitorType: 'unknown' },
     ])
   })
 
@@ -158,9 +160,9 @@ describe('buildCompetitorMap', () => {
       { citedDomains: ['enerflo.com', 'helioscope.com'] },
     ]
     expect(buildCompetitorMap(probes, project)).toEqual([
-      { domain: 'enerflo.com', hits: 3 },
-      { domain: 'aurora-solar.com', hits: 2 },
-      { domain: 'helioscope.com', hits: 1 },
+      { domain: 'enerflo.com', hits: 3, competitorType: 'unknown' },
+      { domain: 'aurora-solar.com', hits: 2, competitorType: 'unknown' },
+      { domain: 'helioscope.com', hits: 1, competitorType: 'unknown' },
     ])
   })
 
@@ -172,7 +174,25 @@ describe('buildCompetitorMap', () => {
   it('canonical match is case-insensitive', () => {
     const probes = [{ citedDomains: ['Demand-IQ.com', 'enerflo.com'] }]
     expect(buildCompetitorMap(probes, project)).toEqual([
-      { domain: 'enerflo.com', hits: 1 },
+      { domain: 'enerflo.com', hits: 1, competitorType: 'unknown' },
+    ])
+  })
+
+  it('attaches competitorType from the classification map, defaulting unmapped domains to unknown', () => {
+    const probes = [
+      { citedDomains: ['enerflo.com'] },
+      { citedDomains: ['enerflo.com', 'expedia.com'] },
+      { citedDomains: ['timeout.com'] },
+    ]
+    const classification: DiscoveryDomainClassification = {
+      'enerflo.com': 'direct-competitor',
+      'expedia.com': 'ota-aggregator',
+      // timeout.com intentionally omitted — must fall back to unknown.
+    }
+    expect(buildCompetitorMap(probes, project, classification)).toEqual([
+      { domain: 'enerflo.com', hits: 2, competitorType: 'direct-competitor' },
+      { domain: 'expedia.com', hits: 1, competitorType: 'ota-aggregator' },
+      { domain: 'timeout.com', hits: 1, competitorType: 'unknown' },
     ])
   })
 })
@@ -181,6 +201,7 @@ describe('executeDiscovery', () => {
   function buildDeps(input: {
     candidates: string[]
     probeResults: Array<{ query: string; citationState: 'cited' | 'not-cited'; citedDomains: string[] }>
+    classification?: DiscoveryDomainClassification
   }): DiscoveryDeps {
     const probeMap = new Map(input.probeResults.map(r => [r.query, r]))
     return {
@@ -208,6 +229,16 @@ describe('executeDiscovery', () => {
           citedDomains: hit.citedDomains,
           rawResponse: { provider: 'gemini-test', query },
         }
+      },
+      async classifyDomains({ domains }) {
+        // Echo back only the domains present in the supplied classification map;
+        // anything else is left for the orchestrator to fall back to unknown.
+        const map: DiscoveryDomainClassification = {}
+        for (const domain of domains) {
+          const type = input.classification?.[domain]
+          if (type) map[domain] = type
+        }
+        return map
       },
     }
   }
@@ -274,6 +305,11 @@ describe('executeDiscovery', () => {
           citedDomains: ['enerflo.com', 'aurora-solar.com'],
         },
       ],
+      classification: {
+        'aurora-solar.com': 'direct-competitor',
+        'enerflo.com': 'direct-competitor',
+        'random.com': 'other',
+      },
     })
 
     const result = await executeDiscovery({
@@ -293,10 +329,11 @@ describe('executeDiscovery', () => {
     expect(result.seedCountRaw).toBe(6)
     expect(result.seedCount).toBe(4) // 6 candidates dedupe to 4 clusters via first-letter
     expect(result.buckets).toEqual({ cited: 1, aspirational: 1, 'wasted-surface': 2 })
+    // The post-probe classification call types every recurring cited domain.
     expect(result.competitorMap).toEqual([
-      { domain: 'aurora-solar.com', hits: 2 },
-      { domain: 'enerflo.com', hits: 1 },
-      { domain: 'random.com', hits: 1 },
+      { domain: 'aurora-solar.com', hits: 2, competitorType: 'direct-competitor' },
+      { domain: 'enerflo.com', hits: 1, competitorType: 'direct-competitor' },
+      { domain: 'random.com', hits: 1, competitorType: 'other' },
     ])
 
     const sessionRow = db.select().from(discoverySessions).get()!
@@ -307,9 +344,9 @@ describe('executeDiscovery', () => {
     expect(sessionRow.aspirationalCount).toBe(1)
     expect(sessionRow.wastedCount).toBe(2)
     expect(parseJsonColumn(sessionRow.competitorMap, [])).toEqual([
-      { domain: 'aurora-solar.com', hits: 2 },
-      { domain: 'enerflo.com', hits: 1 },
-      { domain: 'random.com', hits: 1 },
+      { domain: 'aurora-solar.com', hits: 2, competitorType: 'direct-competitor' },
+      { domain: 'enerflo.com', hits: 1, competitorType: 'direct-competitor' },
+      { domain: 'random.com', hits: 1, competitorType: 'other' },
     ])
     expect(sessionRow.seedProvider).toBe('gemini-test')
     expect(sessionRow.startedAt).not.toBeNull()
@@ -413,6 +450,53 @@ describe('executeDiscovery', () => {
     // 4 raw → 2 after string dedup → 2 after clustering (different first-char)
     expect(result.seedCountRaw).toBe(2)
     expect(result.seedCount).toBe(2)
+  })
+
+  it('falls back to unknown competitor types when classifyDomains throws (best-effort)', async () => {
+    const { db, tmpDir } = buildApp()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+
+    const { projectId } = seedProject(db)
+    const sessionId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    db.insert(discoverySessions).values({
+      id: sessionId,
+      projectId,
+      status: 'queued',
+      competitorMap: '[]',
+      createdAt: now,
+    }).run()
+
+    const deps = buildDeps({
+      candidates: ['alpha q', 'beta q'],
+      probeResults: [
+        { query: 'alpha q', citationState: 'not-cited', citedDomains: ['enerflo.com'] },
+        { query: 'beta q', citationState: 'not-cited', citedDomains: ['enerflo.com'] },
+      ],
+    })
+    // Classification outage must degrade the competitor map, not fail the run.
+    deps.classifyDomains = async () => {
+      throw new Error('classification provider unavailable')
+    }
+
+    const result = await executeDiscovery({
+      db,
+      runId: crypto.randomUUID(),
+      sessionId,
+      project: {
+        id: projectId,
+        name: 'demand-iq',
+        canonicalDomains: ['demand-iq.com'],
+        competitorDomains: [],
+      },
+      icpDescription: 'classification failure test',
+      deps,
+    })
+
+    expect(result.competitorMap).toEqual([
+      { domain: 'enerflo.com', hits: 2, competitorType: 'unknown' },
+    ])
+    expect(db.select().from(discoverySessions).get()!.status).toBe('completed')
   })
 })
 
@@ -629,10 +713,13 @@ describe('discovery routes', () => {
     const detail = response.json() as DiscoverySessionDetailDto
     expect(detail.probes).toHaveLength(2)
     expect(detail.probes!.map(p => p.bucket)).toEqual(expect.arrayContaining(['cited', 'wasted-surface']))
-    expect(detail.competitorMap).toEqual([{ domain: 'aurora-solar.com', hits: 1 }])
+    // A competitor map persisted without competitorType normalizes to unknown.
+    expect(detail.competitorMap).toEqual([
+      { domain: 'aurora-solar.com', hits: 1, competitorType: 'unknown' },
+    ])
   })
 
-  it('GET /discover/sessions/:id/promote returns bucketed queries + suggested new competitors', async () => {
+  it('GET /discover/sessions/:id/promote returns bucketed queries + suggested new competitors of every type', async () => {
     const { app, db, tmpDir } = buildAppWithRoutes([])
     cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
     const { projectId } = seedProject(db) // aurora-solar.com and enerflo.com are already tracked
@@ -643,10 +730,11 @@ describe('discovery routes', () => {
       projectId,
       status: 'completed',
       competitorMap: JSON.stringify([
-        { domain: 'aurora-solar.com', hits: 3 }, // already tracked
-        { domain: 'enerflo.com', hits: 2 }, // already tracked
-        { domain: 'helioscope.com', hits: 2 }, // new + recurring
-        { domain: 'oneoff.example', hits: 1 }, // new but too noisy to suggest
+        { domain: 'aurora-solar.com', hits: 3, competitorType: 'direct-competitor' }, // already tracked
+        { domain: 'enerflo.com', hits: 2, competitorType: 'direct-competitor' }, // already tracked
+        { domain: 'expedia.com', hits: 3, competitorType: 'ota-aggregator' }, // new + recurring aggregator
+        { domain: 'helioscope.com', hits: 2, competitorType: 'direct-competitor' }, // new + recurring
+        { domain: 'oneoff.example', hits: 1, competitorType: 'direct-competitor' }, // new but too noisy to suggest
       ]),
       createdAt: new Date().toISOString(),
     }).run()
@@ -690,13 +778,18 @@ describe('discovery routes', () => {
     expect(response.statusCode).toBe(200)
     const body = response.json() as {
       queriesByBucket: { cited: string[]; aspirational: string[]; 'wasted-surface': string[] }
-      suggestedCompetitors: Array<{ domain: string; hits: number }>
+      suggestedCompetitors: Array<{ domain: string; hits: number; competitorType: string }>
     }
     expect(body.queriesByBucket.cited).toEqual(['q1'])
     expect(body.queriesByBucket.aspirational).toEqual(['q2'])
     expect(body.queriesByBucket['wasted-surface']).toEqual(['q3'])
-    // Only recurring new domains are suggested — tracked and one-off domains are skipped.
-    expect(body.suggestedCompetitors).toEqual([{ domain: 'helioscope.com', hits: 2 }])
+    // Recurring new domains of EVERY type are surfaced (sorted by hits desc) so
+    // the operator can see what --competitor-types would unlock — tracked and
+    // one-off domains are still skipped.
+    expect(body.suggestedCompetitors).toEqual([
+      { domain: 'expedia.com', hits: 3, competitorType: 'ota-aggregator' },
+      { domain: 'helioscope.com', hits: 2, competitorType: 'direct-competitor' },
+    ])
   })
 })
 
@@ -736,16 +829,25 @@ describe('POST /discover/sessions/:id/promote', () => {
     opts: {
       status?: string
       probes?: Array<{ query: string; bucket: string }>
-      competitorMap?: Array<{ domain: string; hits: number }>
+      competitorMap?: Array<{ domain: string; hits: number; competitorType?: DiscoveryCompetitorType }>
     } = {},
   ): string {
     const sessionId = crypto.randomUUID()
     const now = new Date().toISOString()
+    // Default a seeded competitor to `direct-competitor` — the promotable type
+    // — so tests that don't exercise the type filter keep their original
+    // "recurring competitor → promoted" intent. Tests for the type filter pass
+    // explicit competitorType values.
+    const competitorMap = (opts.competitorMap ?? []).map(entry => ({
+      domain: entry.domain,
+      hits: entry.hits,
+      competitorType: entry.competitorType ?? ('direct-competitor' as DiscoveryCompetitorType),
+    }))
     db.insert(discoverySessions).values({
       id: sessionId,
       projectId,
       status: opts.status ?? 'completed',
-      competitorMap: JSON.stringify(opts.competitorMap ?? []),
+      competitorMap: JSON.stringify(competitorMap),
       createdAt: now,
     }).run()
     for (const p of opts.probes ?? []) {
@@ -925,9 +1027,13 @@ describe('POST /discover/sessions/:id/promote', () => {
       url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
     })
     expect(preview.statusCode).toBe(200)
-    expect((preview.json() as { suggestedCompetitors: Array<{ domain: string; hits: number }> }).suggestedCompetitors[0]).toEqual({
+    expect(
+      (preview.json() as { suggestedCompetitors: Array<{ domain: string; hits: number; competitorType: string }> })
+        .suggestedCompetitors[0],
+    ).toEqual({
       domain: 'comp-24.com',
       hits: 26,
+      competitorType: 'direct-competitor',
     })
 
     const response = await app.inject({
@@ -941,6 +1047,101 @@ describe('POST /discover/sessions/:id/promote', () => {
     expect(body.promoted.competitors[0]).toBe('comp-24.com') // highest hits
     expect(body.promoted.competitors).not.toContain('comp-04.com') // beyond the cap
     expect(db.select().from(competitors).all()).toHaveLength(22) // 2 seeded + 20 promoted
+  })
+
+  it('promotes only direct-competitor domains by default, skipping aggregators / media / unknown', async () => {
+    const { app, db, tmpDir } = buildAppWithRoutes()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db)
+
+    const sessionId = seedSession(db, projectId, {
+      competitorMap: [
+        { domain: 'rival-solar.com', hits: 4, competitorType: 'direct-competitor' },
+        { domain: 'expedia.com', hits: 5, competitorType: 'ota-aggregator' },
+        { domain: 'timeout.com', hits: 3, competitorType: 'editorial-media' },
+        { domain: 'gov.example', hits: 2, competitorType: 'other' },
+        { domain: 'legacy.example', hits: 2, competitorType: 'unknown' },
+      ],
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+      payload: {},
+    })
+    expect(response.statusCode).toBe(200)
+    const body = response.json() as DiscoveryPromoteResult
+    // Only the direct-competitor is adopted; the aggregator, media, other, and
+    // legacy-unknown domains are suppressed even though they clear the hit floor.
+    expect(body.promoted.competitors).toEqual(['rival-solar.com'])
+    expect(db.select().from(competitors).all().map(c => c.domain).sort()).toEqual([
+      'aurora-solar.com',
+      'enerflo.com',
+      'rival-solar.com',
+    ])
+  })
+
+  it('competitorTypes request field widens the promote to the listed types', async () => {
+    const { app, db, tmpDir } = buildAppWithRoutes()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db)
+
+    const sessionId = seedSession(db, projectId, {
+      competitorMap: [
+        { domain: 'rival-solar.com', hits: 4, competitorType: 'direct-competitor' },
+        { domain: 'timeout.com', hits: 3, competitorType: 'editorial-media' },
+        { domain: 'expedia.com', hits: 5, competitorType: 'ota-aggregator' },
+        { domain: 'legacy.example', hits: 2, competitorType: 'unknown' },
+      ],
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+      payload: { competitorTypes: ['direct-competitor', 'editorial-media'] },
+    })
+    expect(response.statusCode).toBe(200)
+    const body = response.json() as DiscoveryPromoteResult
+    // direct-competitor + editorial-media adopted (sorted by hits desc); the
+    // aggregator and legacy-unknown domains stay suppressed.
+    expect(body.promoted.competitors).toEqual(['rival-solar.com', 'timeout.com'])
+  })
+
+  it('competitorTypes: ["unknown"] recovers a legacy session promoted before classification existed', async () => {
+    const { app, db, tmpDir } = buildAppWithRoutes()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db)
+
+    // A session whose competitor_map JSON predates classification: entries have
+    // no competitorType field at all, so they normalize to `unknown`.
+    const sessionId = crypto.randomUUID()
+    db.insert(discoverySessions).values({
+      id: sessionId,
+      projectId,
+      status: 'completed',
+      competitorMap: JSON.stringify([
+        { domain: 'helioscope.com', hits: 3 },
+        { domain: 'solargraf.com', hits: 2 },
+      ]),
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    const defaultRun = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+      payload: { buckets: ['cited'] },
+    })
+    expect((defaultRun.json() as DiscoveryPromoteResult).promoted.competitors).toEqual([])
+
+    const recovered = await app.inject({
+      method: 'POST',
+      url: `/api/v1/projects/demand-iq/discover/sessions/${sessionId}/promote`,
+      payload: { buckets: ['cited'], competitorTypes: ['unknown'] },
+    })
+    expect((recovered.json() as DiscoveryPromoteResult).promoted.competitors).toEqual([
+      'helioscope.com',
+      'solargraf.com',
+    ])
   })
 
   it('rejects promotion of a session that is not completed', async () => {

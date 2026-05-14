@@ -5,6 +5,7 @@ import {
   competitorBatchRequestSchema,
   DISCOVERY_MAX_PROBES_CAP,
   discoveryBucketSchema,
+  discoveryCompetitorTypeSchema,
   discoveryPromoteRequestSchema,
   discoveryRunRequestSchema,
   keywordBatchRequestSchema,
@@ -315,6 +316,11 @@ const discoveryPromoteInputSchema = z.object({
         .boolean()
         .optional()
         .describe("Whether to also merge recurring discovered competitor domains into the project. Defaults to true."),
+      competitorTypes: z
+        .array(discoveryCompetitorTypeSchema)
+        .min(1)
+        .optional()
+        .describe('Which classified competitor types to merge. Omitted promotes direct-competitor only; pass an explicit list to also adopt editorial-media channels or to recover legacy unknown entries. Ignored when includeCompetitors is false.'),
     })
     .optional(),
 })
@@ -1276,7 +1282,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_discover_promote',
     title: 'Promote discovery session',
-    description: 'Adopt a completed discovery session\'s bucketed queries into the project\'s tracked basket, tagged with provenance "discovery:<sessionId>". By default, only cited + aspirational queries are promoted; include wasted-surface explicitly when off-ICP competitor gaps should also be tracked. Recurring discovered competitor domains are also merged by default. Add-only and idempotent: queries/domains already tracked are returned under `skipped`, never inserted twice. Only sessions with status "completed" can be promoted. Call canonry_discover_promote_preview first to inspect candidates.',
+    description: 'Adopt a completed discovery session\'s bucketed queries into the project\'s tracked basket, tagged with provenance "discovery:<sessionId>". By default, only cited + aspirational queries are promoted; include wasted-surface explicitly when off-ICP competitor gaps should also be tracked. Recurring discovered competitor domains classified as direct-competitor are also merged by default — pass request.competitorTypes to adopt editorial-media channels or recover legacy unknown entries. Add-only and idempotent: queries/domains already tracked are returned under `skipped`, never inserted twice. Only sessions with status "completed" can be promoted. Call canonry_discover_promote_preview first to inspect candidates.',
     access: 'write',
     tier: 'discovery',
     inputSchema: discoveryPromoteInputSchema,

@@ -9,14 +9,17 @@ import {
   runs,
 } from '@ainyc/canonry-db'
 import {
+  DiscoveryCompetitorTypes,
   effectiveDomains,
   RunStatuses,
+  type DiscoveryCompetitorType,
 } from '@ainyc/canonry-contracts'
 import { embedQueries } from '@ainyc/canonry-provider-gemini'
 import {
   executeDiscovery,
   markSessionFailed,
   type DiscoveryDeps,
+  type DiscoveryDomainClassification,
   type DiscoveryProjectContext,
   type DiscoveryProbeResult,
   type DiscoverySeedResult,
@@ -200,7 +203,150 @@ function buildDefaultDeps(registry: ProviderRegistry): DiscoveryDeps {
         rawResponse: raw.rawResponse as Record<string, unknown>,
       }
     },
+    async classifyDomains(input): Promise<DiscoveryDomainClassification> {
+      // One plain-text generation per session — no grounding tool needed, the
+      // model just types the domains it is handed. The orchestrator catches a
+      // throw here and degrades every domain to `unknown`.
+      const prompt = buildClassificationPrompt(input)
+      const text = await adapter.generateText(prompt, cfg)
+      return parseClassificationResponse(text, input.domains)
+    },
   }
+}
+
+/**
+ * Recognized competitor categories the classifier emits. `unknown` is the
+ * orchestrator's fallback, not a category the model is asked to assign.
+ */
+const CLASSIFICATION_CATEGORIES: readonly DiscoveryCompetitorType[] = [
+  DiscoveryCompetitorTypes['direct-competitor'],
+  DiscoveryCompetitorTypes['ota-aggregator'],
+  DiscoveryCompetitorTypes['editorial-media'],
+  DiscoveryCompetitorTypes.other,
+]
+
+/**
+ * `CLASSIFICATION_CATEGORIES` paired with whole-token matchers. The
+ * alphanumeric boundaries keep a category from matching inside a hostname —
+ * without them `other` matches inside `brothersolar.com` on an arrow-less line.
+ */
+const CLASSIFICATION_CATEGORY_MATCHERS: ReadonlyArray<{
+  category: DiscoveryCompetitorType
+  pattern: RegExp
+}> = CLASSIFICATION_CATEGORIES.map(category => ({
+  category,
+  pattern: new RegExp(`(?<![a-z0-9])${category}(?![a-z0-9])`),
+}))
+
+/**
+ * Build the post-probe domain-classification prompt. Hands the model the
+ * project context plus the deduped cited-domain list and asks for one
+ * `domain => category` line per domain. Exported for unit testing.
+ */
+export function buildClassificationPrompt(input: {
+  project: DiscoveryProjectContext
+  icpDescription: string
+  domains: string[]
+}): string {
+  const tracked = input.project.competitorDomains.length > 0
+    ? input.project.competitorDomains.join(', ')
+    : 'none'
+  return [
+    'You are an AEO (Answer Engine Optimization) analyst classifying the domains that AI answer engines cited for a customer\'s tracked queries.',
+    '',
+    `Customer: ${input.project.name} (own domains: ${input.project.canonicalDomains.join(', ')})`,
+    `ICP: ${input.icpDescription}`,
+    `Already-tracked competitors: ${tracked}`,
+    '',
+    'Classify EACH domain below into exactly one category:',
+    ' - direct-competitor: a business competing directly with the customer for the same customers (another company in the same category). Every already-tracked competitor above is a direct-competitor.',
+    ' - ota-aggregator: online travel agencies, marketplaces, directories, booking platforms, or review aggregators that list many businesses (e.g. expedia.com, booking.com, tripadvisor.com, yelp.com, g2.com).',
+    ' - editorial-media: news sites, magazines, blogs, or "best of" listicle / round-up articles (e.g. timeout.com, nytimes.com, personal blogs).',
+    ' - other: anything else — government sites, social media, the customer itself, or domains unrelated to the competitive space.',
+    '',
+    'Domains:',
+    ...input.domains,
+    '',
+    'Return ONE line per domain in EXACTLY this format:',
+    '<domain> => <category>',
+    '',
+    'Plain text only. No numbering, bullets, commentary, or markdown.',
+  ].join('\n')
+}
+
+/**
+ * Parse the classifier's response into a domain → type map. Forgiving by
+ * design: it locates each input domain in the response and reads the category
+ * to the right of `=>` (falling back to a whole-line scan). Any domain the
+ * model omits or labels with an unrecognized category is left out of the map,
+ * which the orchestrator treats as `unknown`. Exported for unit testing.
+ */
+export function parseClassificationResponse(
+  text: string,
+  domains: string[],
+): DiscoveryDomainClassification {
+  const lines = text
+    .split('\n')
+    .map(l => l.trim().toLowerCase())
+    .filter(Boolean)
+  const result: DiscoveryDomainClassification = {}
+  for (const domain of domains) {
+    const key = domain.toLowerCase()
+    // Match the domain as a whole token so a shorter domain can't pick up a
+    // longer domain's line (`solar.com` inside `mysolar.com` / `solar.com.au`).
+    // Prefer a line that starts with the domain (the `domain => category`
+    // shape the prompt asks for); fall back to a token match anywhere on the
+    // line for output the model prefixed with numbering / bullets / markdown.
+    const line =
+      lines.find(l => startsWithDomainToken(l, key)) ?? lines.find(l => containsDomainToken(l, key))
+    if (!line) continue
+    const category = extractClassificationCategory(line)
+    if (category) result[domain] = category
+  }
+  return result
+}
+
+/** A domain token can be extended left or right by these characters. */
+function isDomainChar(ch: string): boolean {
+  return /[a-z0-9.-]/.test(ch)
+}
+
+/**
+ * True if `line` begins with `domain` as a complete token — the next character
+ * can't be a domain character, or `solar.com` would match a `solar.com.au` line.
+ */
+function startsWithDomainToken(line: string, domain: string): boolean {
+  return line.startsWith(domain) && !isDomainChar(line[domain.length] ?? '')
+}
+
+/**
+ * True if `domain` appears anywhere in `line` as a complete token. The boundary
+ * check stops a shorter domain from matching inside a longer one (`solar.com`
+ * inside `mysolar.com`) once a numbering/bullet prefix has pushed the domain
+ * off the start of the line.
+ */
+function containsDomainToken(line: string, domain: string): boolean {
+  let idx = line.indexOf(domain)
+  while (idx !== -1) {
+    const before = line[idx - 1] ?? ''
+    const after = line[idx + domain.length] ?? ''
+    if (!isDomainChar(before) && !isDomainChar(after)) return true
+    idx = line.indexOf(domain, idx + 1)
+  }
+  return false
+}
+
+function extractClassificationCategory(line: string): DiscoveryCompetitorType | null {
+  // Read the category from the right of `=>` (the shape the prompt asks for)
+  // so a category word inside the hostname can't pollute the match. Without an
+  // arrow, scan the whole line — but each category must match as a whole
+  // token, so `other` can't match inside a domain like `brothersolar.com`.
+  const arrowIdx = line.indexOf('=>')
+  const haystack = arrowIdx >= 0 ? line.slice(arrowIdx + 2) : line
+  for (const { category, pattern } of CLASSIFICATION_CATEGORY_MATCHERS) {
+    if (pattern.test(haystack)) return category
+  }
+  return null
 }
 
 function buildSeedPrompt(input: { project: DiscoveryProjectContext; icpDescription: string }): string {
@@ -319,4 +465,10 @@ function buildDiscoveryInsightTitle(input: {
 }
 
 /** Re-export so the canonry-side has one place to import the orchestrator hook. */
-export type { DiscoveryDeps, DiscoveryProjectContext, DiscoverySeedResult, DiscoveryProbeResult }
+export type {
+  DiscoveryDeps,
+  DiscoveryDomainClassification,
+  DiscoveryProjectContext,
+  DiscoverySeedResult,
+  DiscoveryProbeResult,
+}

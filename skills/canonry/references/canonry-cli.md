@@ -235,13 +235,14 @@ cnry discover run <project> --icp "..." --max-probes 100         # per-session p
 cnry discover run <project> --icp-angle "angle 1" --icp-angle "angle 2" --wait  # multi-angle: one session per ICP angle, useful for hyperlocal/niche businesses
 
 cnry discover list <project>                                     # newest-first session list
-cnry discover show <project> <session-id>                        # per-query probe rows + buckets
-cnry discover promote preview <project> <session-id>             # preview bucketed candidates + recurring suggested competitors (read-only)
-cnry discover promote <project> <session-id>                     # adopt cited + aspirational queries + recurring competitors
+cnry discover show <project> <session-id>                        # per-query probe rows + buckets + classified competitor domains
+cnry discover promote preview <project> <session-id>             # preview bucketed candidates + recurring suggested competitors of every classified type (read-only)
+cnry discover promote <project> <session-id>                     # adopt cited + aspirational queries + direct-competitor domains
+cnry discover promote <project> <session-id> --competitor-types direct-competitor,editorial-media   # widen the competitor merge to other classified types
 cnry discover promote <project> <session-id> --bucket aspirational --no-competitors   # scope to a bucket subset / skip competitor merge
 ```
 
-Discovery requires Gemini configured (API key today; Vertex-mode embeddings are deferred). The pipeline writes a `discovery_sessions` row, a `runs` row (kind `aeo-discover-probe`), and one `discovery.basket-divergence` insight when the session completes. Aero wakes unprompted with the bucket-count payload so the operator can act without polling. `discover promote` defaults to cited + aspirational queries and recurring competitor domains; include `--bucket wasted-surface` explicitly for off-ICP competitor gaps. Promotion is add-only and idempotent — queries/domains already tracked are reported as skipped, never inserted twice — and only works on `completed` sessions; promoted rows carry `provenance="discovery:<sessionId>"`.
+Discovery requires Gemini configured (API key today; Vertex-mode embeddings are deferred). The pipeline writes a `discovery_sessions` row, a `runs` row (kind `aeo-discover-probe`), and one `discovery.basket-divergence` insight when the session completes. After probing, one Gemini call classifies every recurring cited domain as `direct-competitor`, `ota-aggregator`, `editorial-media`, or `other` (a failed/legacy classification leaves domains `unknown`). Aero wakes unprompted with the bucket-count payload so the operator can act without polling. `discover promote` defaults to cited + aspirational queries and `direct-competitor` domains only — aggregators and editorial media are suppressed; pass `--competitor-types` to widen the merge (or to recover legacy `unknown` entries) and `--bucket wasted-surface` for off-ICP competitor gaps. Promotion is add-only and idempotent — queries/domains already tracked are reported as skipped, never inserted twice — and only works on `completed` sessions; promoted rows carry `provenance="discovery:<sessionId>"`.
 
 ## Bing Webmaster Tools
 
