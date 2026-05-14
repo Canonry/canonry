@@ -5,6 +5,7 @@ import { TrafficSourceStatuses } from '@ainyc/canonry-contracts'
 
 import {
   connectServerTrafficCloudRun,
+  connectServerTrafficWordpress,
   fetchServerTrafficEvents,
   fetchServerTrafficSource,
   fetchServerTrafficSources,
@@ -16,6 +17,7 @@ import {
   type ApiTrafficStatus,
   type ApiTrafficSyncResult,
   type TrafficConnectCloudRunRequest,
+  type TrafficConnectWordpressRequest,
 } from '../api.js'
 import type { MetricTone } from '../view-models.js'
 import { TRAFFIC_STALE_MS } from './query-client.js'
@@ -105,6 +107,20 @@ export function useConnectServerTrafficCloudRun(project: string | null) {
     mutationFn: (request: TrafficConnectCloudRunRequest) => {
       if (!project) throw new Error('Project is required to connect a Cloud Run source')
       return connectServerTrafficCloudRun(project, request)
+    },
+    onSuccess: () => {
+      if (!project) return
+      void queryClient.invalidateQueries({ queryKey: queryKeys.serverTraffic.project(project) })
+    },
+  })
+}
+
+export function useConnectServerTrafficWordpress(project: string | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (request: TrafficConnectWordpressRequest) => {
+      if (!project) throw new Error('Project is required to connect a WordPress source')
+      return connectServerTrafficWordpress(project, request)
     },
     onSuccess: () => {
       if (!project) return

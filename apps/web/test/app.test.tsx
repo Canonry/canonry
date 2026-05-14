@@ -79,6 +79,14 @@ test('settings route renders provider state, quota summary, and service health',
   expect(html).toMatch(/Gemini/)
 })
 
+test('traffic route offers Cloud Run and WordPress server-log connections', async () => {
+  const html = await renderApp('/traffic')
+
+  expect(html).toMatch(/Server traffic/)
+  expect(html).toMatch(/Connect WordPress/)
+  expect(html).toMatch(/Connect Cloud Run/)
+})
+
 test('settings route renders the Google Search Console OAuth configuration card', async () => {
   const html = await renderApp('/settings')
 

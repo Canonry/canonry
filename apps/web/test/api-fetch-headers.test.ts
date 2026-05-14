@@ -1,6 +1,6 @@
 import { test, expect, onTestFinished, describe } from 'vitest'
 
-import { installBacklinks, triggerGscSync } from '../src/api.js'
+import { connectServerTrafficWordpress, installBacklinks, triggerGscSync } from '../src/api.js'
 
 function mockFetch(handler: (url: string, init?: RequestInit) => Response | Promise<Response>) {
   const realFetch = globalThis.fetch
@@ -57,5 +57,46 @@ describe('apiFetch Content-Type header', () => {
     expect(observed?.method).toBe('POST')
     expect(observed?.body).toBeDefined()
     expect(headerFromInit(observed, 'Content-Type')).toBe('application/json')
+  })
+
+  test('posts WordPress traffic connects to the adapter-specific endpoint', async () => {
+    let observedUrl = ''
+    let observed: RequestInit | undefined
+    const restore = mockFetch((url, init) => {
+      observedUrl = url
+      observed = init
+      return jsonResponse({
+        id: 'source-1',
+        projectId: 'project-1',
+        sourceType: 'wordpress',
+        displayName: 'WordPress - example.com',
+        status: 'connected',
+        lastSyncedAt: null,
+        lastCursor: null,
+        lastError: null,
+        archivedAt: null,
+        config: { baseUrl: 'https://example.com', username: 'admin' },
+        createdAt: '2026-05-14T00:00:00.000Z',
+        updatedAt: '2026-05-14T00:00:00.000Z',
+      })
+    })
+    onTestFinished(restore)
+
+    await connectServerTrafficWordpress('demo project', {
+      baseUrl: 'https://example.com',
+      username: 'admin',
+      applicationPassword: 'xxxx xxxx',
+      displayName: 'WP logs',
+    })
+
+    expect(observedUrl).toBe('/api/v1/projects/demo%20project/traffic/connect/wordpress')
+    expect(observed?.method).toBe('POST')
+    expect(headerFromInit(observed, 'Content-Type')).toBe('application/json')
+    expect(JSON.parse(String(observed?.body))).toEqual({
+      baseUrl: 'https://example.com',
+      username: 'admin',
+      applicationPassword: 'xxxx xxxx',
+      displayName: 'WP logs',
+    })
   })
 })

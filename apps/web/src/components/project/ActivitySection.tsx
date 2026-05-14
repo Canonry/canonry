@@ -118,7 +118,7 @@ function ServerActivityPanel({ projectName }: { projectName: string }) {
           <div className="text-sm text-zinc-400">
             No server traffic source connected yet.{' '}
             <Link to="/traffic" className="text-blue-400 hover:underline">
-              Connect a Cloud Run source
+              Connect a WordPress or Cloud Run source
             </Link>{' '}
             to surface bot crawls and AI referrals straight from server logs.
           </div>

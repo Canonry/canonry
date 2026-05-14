@@ -10,6 +10,7 @@ import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { ConnectCloudRunDrawer } from '../components/server-traffic/ConnectCloudRunDrawer.js'
+import { ConnectWordpressDrawer } from '../components/server-traffic/ConnectWordpressDrawer.js'
 import { queryKeys } from '../queries/query-keys.js'
 import {
   toneFromTrafficSourceStatus,
@@ -36,7 +37,8 @@ function formatCompact(n: number): string {
 
 export function TrafficPage() {
   const [selectedProject, setSelectedProject] = useState<string>('')
-  const [connectOpen, setConnectOpen] = useState(false)
+  const [cloudRunConnectOpen, setCloudRunConnectOpen] = useState(false)
+  const [wordpressConnectOpen, setWordpressConnectOpen] = useState(false)
 
   const projectsQuery = useQuery({
     queryKey: queryKeys.projects.all,
@@ -58,19 +60,31 @@ export function TrafficPage() {
         <div className="page-header-left">
           <h1 className="page-title">Server traffic</h1>
           <p className="page-subtitle">
-            Crawler hits and AI-referral sessions pulled directly from server logs (Cloud Run, etc.). Independent of GA — useful when you need server-side evidence that GPTBot or ChatGPT-User actually hit a page.
+            Crawler hits and AI-referral sessions pulled directly from Cloud Run logs or the WordPress Traffic Logger plugin. Independent of GA — useful when you need server-side evidence that GPTBot or ChatGPT-User actually hit a page.
           </p>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => setConnectOpen(true)}
-          disabled={!activeProject}
-        >
-          <Plus className="size-3.5" />
-          Connect Cloud Run
-        </Button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setWordpressConnectOpen(true)}
+            disabled={!activeProject}
+          >
+            <Plus className="size-3.5" />
+            Connect WordPress
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setCloudRunConnectOpen(true)}
+            disabled={!activeProject}
+          >
+            <Plus className="size-3.5" />
+            Connect Cloud Run
+          </Button>
+        </div>
       </div>
 
       <section>
@@ -95,9 +109,13 @@ export function TrafficPage() {
         ) : sources.length === 0 ? (
           <Card className="p-8 text-center">
             <p className="text-sm text-zinc-300">No traffic sources connected for {activeProject}.</p>
-            <p className="mt-1 text-xs text-zinc-500">Connect a Cloud Run service to start ingesting crawler hits and AI-referral sessions from server logs.</p>
-            <div className="mt-4">
-              <Button type="button" variant="outline" size="sm" onClick={() => setConnectOpen(true)}>
+            <p className="mt-1 text-xs text-zinc-500">Connect a WordPress site or Cloud Run service to start ingesting crawler hits and AI-referral sessions from server logs.</p>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setWordpressConnectOpen(true)}>
+                <Plus className="size-3.5" />
+                Connect WordPress
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setCloudRunConnectOpen(true)}>
                 <Plus className="size-3.5" />
                 Connect Cloud Run
               </Button>
@@ -109,8 +127,13 @@ export function TrafficPage() {
       </section>
 
       <ConnectCloudRunDrawer
-        open={connectOpen}
-        onOpenChange={setConnectOpen}
+        open={cloudRunConnectOpen}
+        onOpenChange={setCloudRunConnectOpen}
+        projectName={activeProject}
+      />
+      <ConnectWordpressDrawer
+        open={wordpressConnectOpen}
+        onOpenChange={setWordpressConnectOpen}
         projectName={activeProject}
       />
     </div>
@@ -119,8 +142,7 @@ export function TrafficPage() {
 
 function SourcesTable({ projectName, sources }: { projectName: string; sources: TrafficSourceDto[] }) {
   // UI/CLI parity: this view shows last-24h totals + latest run, the same shape `canonry traffic status`
-  // returns. Rather than denormalize the totals onto the list endpoint, fan out to /traffic/sources/:id —
-  // v1 caps a project at one active Cloud Run source so the fan-out is bounded.
+  // returns. Rather than denormalize the totals onto the list endpoint, fan out to /traffic/sources/:id.
   const detailQueries = useQueries({
     queries: sources.map((source) => ({
       queryKey: queryKeys.serverTraffic.sourceDetail(projectName, source.id),
