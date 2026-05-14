@@ -10,6 +10,7 @@ export {
   markSessionFailed,
   pickCanonicals,
   type DiscoveryDeps,
+  type DiscoveryDomainClassification,
   type DiscoveryProjectContext,
   type DiscoverySeedResult,
   type DiscoveryProbeResult,

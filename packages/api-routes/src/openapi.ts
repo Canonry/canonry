@@ -3010,7 +3010,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/discover/sessions/{id}/promote',
     summary: 'Promote a discovery session into the tracked basket',
     description:
-      "Adopts a completed session's bucketed queries into the project's tracked basket, tagged with `provenance=\"discovery:<sessionId>\"`. By default, only `cited` and `aspirational` queries are promoted; include `wasted-surface` explicitly when off-ICP competitor gaps should also be tracked. Recurring discovered competitor domains are also merged by default. Add-only and idempotent: queries/domains already tracked are returned under `skipped` rather than inserted twice. Only sessions with `status: \"completed\"` can be promoted.",
+      "Adopts a completed session's bucketed queries into the project's tracked basket, tagged with `provenance=\"discovery:<sessionId>\"`. By default, only `cited` and `aspirational` queries are promoted; include `wasted-surface` explicitly when off-ICP competitor gaps should also be tracked. Recurring discovered competitor domains classified as `direct-competitor` are also merged by default — pass `competitorTypes` to adopt other classified types or to recover legacy `unknown` entries. Add-only and idempotent: queries/domains already tracked are returned under `skipped` rather than inserted twice. Only sessions with `status: \"completed\"` can be promoted.",
     tags: ['discovery'],
     parameters: [
       nameParameter,
@@ -3031,6 +3031,15 @@ const routeCatalog: OpenApiOperation[] = [
               includeCompetitors: {
                 type: 'boolean',
                 description: 'Whether to also merge recurring discovered competitor domains. Defaults to true.',
+              },
+              competitorTypes: {
+                type: 'array',
+                items: {
+                  type: 'string',
+                  enum: ['direct-competitor', 'ota-aggregator', 'editorial-media', 'other', 'unknown'],
+                },
+                description:
+                  'Which classified competitor types to merge. Omitted means direct-competitor only. Ignored when includeCompetitors is false.',
               },
             },
           },

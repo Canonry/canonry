@@ -13,7 +13,7 @@ import {
   projects,
   queries,
 } from '@ainyc/canonry-db'
-import type { DiscoveryPromoteResult } from '@ainyc/canonry-contracts'
+import type { DiscoveryCompetitorType, DiscoveryPromoteResult } from '@ainyc/canonry-contracts'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 import type { DiscoveryRunStartResponse } from '../src/client.js'
@@ -89,15 +89,22 @@ describe('discover CLI commands', () => {
   function seedSession(opts: {
     status?: string
     probes?: Array<{ query: string; bucket: string }>
-    competitorMap?: Array<{ domain: string; hits: number }>
+    competitorMap?: Array<{ domain: string; hits: number; competitorType?: DiscoveryCompetitorType }>
   }): string {
     const sessionId = crypto.randomUUID()
     const now = new Date().toISOString()
+    // Default a seeded competitor to the promotable `direct-competitor` type so
+    // tests not exercising the type filter keep their original intent.
+    const competitorMap = (opts.competitorMap ?? []).map(entry => ({
+      domain: entry.domain,
+      hits: entry.hits,
+      competitorType: entry.competitorType ?? ('direct-competitor' as DiscoveryCompetitorType),
+    }))
     db.insert(discoverySessions).values({
       id: sessionId,
       projectId,
       status: opts.status ?? 'completed',
-      competitorMap: JSON.stringify(opts.competitorMap ?? []),
+      competitorMap: JSON.stringify(competitorMap),
       createdAt: now,
     }).run()
     for (const p of opts.probes ?? []) {
@@ -172,6 +179,55 @@ describe('discover CLI commands', () => {
     expect(result.exitCode).toBeUndefined()
     expect(db.select().from(competitors).all()).toHaveLength(0)
     expect(db.select().from(queries).all()).toHaveLength(1)
+  })
+
+  it('promotes only direct-competitor domains by default, skipping other classified types', async () => {
+    const sessionId = seedSession({
+      probes: [{ query: 'q', bucket: 'cited' }],
+      competitorMap: [
+        { domain: 'rival.com', hits: 3, competitorType: 'direct-competitor' },
+        { domain: 'timeout.com', hits: 2, competitorType: 'editorial-media' },
+        { domain: 'expedia.com', hits: 4, competitorType: 'ota-aggregator' },
+      ],
+    })
+
+    const result = await invokeCli(['discover', 'promote', 'demand-iq', sessionId])
+    expect(result.exitCode).toBeUndefined()
+    expect(db.select().from(competitors).all().map(c => c.domain)).toEqual(['rival.com'])
+  })
+
+  it('--competitor-types widens the promote to the listed classified types', async () => {
+    const sessionId = seedSession({
+      probes: [{ query: 'q', bucket: 'cited' }],
+      competitorMap: [
+        { domain: 'rival.com', hits: 3, competitorType: 'direct-competitor' },
+        { domain: 'timeout.com', hits: 2, competitorType: 'editorial-media' },
+        { domain: 'expedia.com', hits: 4, competitorType: 'ota-aggregator' },
+      ],
+    })
+
+    const result = await invokeCli([
+      'discover', 'promote', 'demand-iq', sessionId,
+      '--competitor-types', 'direct-competitor,editorial-media',
+    ])
+    expect(result.exitCode).toBeUndefined()
+    expect(db.select().from(competitors).all().map(c => c.domain).sort()).toEqual([
+      'rival.com',
+      'timeout.com',
+    ])
+  })
+
+  it('rejects an invalid --competitor-types value before touching the API', async () => {
+    const sessionId = seedSession({ probes: [{ query: 'q', bucket: 'cited' }] })
+
+    const result = await invokeCli([
+      'discover', 'promote', 'demand-iq', sessionId, '--competitor-types', 'frenemy',
+    ])
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toMatch(/invalid --competitor-types value/i)
+    // The bad flag short-circuits — nothing is promoted.
+    expect(db.select().from(competitors).all()).toHaveLength(0)
+    expect(db.select().from(queries).all()).toHaveLength(0)
   })
 
   it('--format json emits the DiscoveryPromoteResult contract', async () => {

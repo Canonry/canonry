@@ -16,7 +16,11 @@ import {
 } from '@ainyc/canonry-db'
 import type { DiscoveryDeps } from '@ainyc/canonry-api-routes'
 import { ProviderRegistry } from '../src/provider-registry.js'
-import { executeDiscoveryRun } from '../src/discovery-run.js'
+import {
+  buildClassificationPrompt,
+  executeDiscoveryRun,
+  parseClassificationResponse,
+} from '../src/discovery-run.js'
 
 function setup(): { db: ReturnType<typeof createClient>; projectId: string; sessionId: string; runId: string } {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-disc-run-'))
@@ -94,6 +98,18 @@ function buildDeps(opts: { probeBuckets: Array<'cited' | 'wasted' | 'aspirationa
       }
       return { citationState: 'not-cited', citedDomains: ['random.com'], rawResponse: {} }
     },
+    async classifyDomains({ domains }) {
+      const known: Record<string, 'direct-competitor' | 'other'> = {
+        'aurora-solar.com': 'direct-competitor',
+        'random.com': 'other',
+      }
+      const map: Record<string, 'direct-competitor' | 'other'> = {}
+      for (const domain of domains) {
+        const type = known[domain]
+        if (type) map[domain] = type
+      }
+      return map
+    },
   }
 }
 
@@ -117,6 +133,11 @@ describe('executeDiscoveryRun', () => {
     expect(sessionRow.wastedCount).toBe(2)
     expect(sessionRow.aspirationalCount).toBe(1)
     expect(sessionRow.seedProvider).toBe('gemini-test')
+    // The orchestrator's classification pass types every recurring cited domain.
+    expect(parseJsonColumn(sessionRow.competitorMap, [])).toEqual([
+      { domain: 'aurora-solar.com', hits: 2, competitorType: 'direct-competitor' },
+      { domain: 'random.com', hits: 1, competitorType: 'other' },
+    ])
 
     const runRow = db.select().from(runs).get()!
     expect(runRow.status).toBe('completed')
@@ -155,6 +176,9 @@ describe('executeDiscoveryRun', () => {
       async probe() {
         return { citationState: 'not-cited', citedDomains: [], rawResponse: {} }
       },
+      async classifyDomains() {
+        return {}
+      },
     }
 
     await executeDiscoveryRun({
@@ -192,6 +216,9 @@ describe('executeDiscoveryRun', () => {
       },
       async probe() {
         return { citationState: 'not-cited', citedDomains: [], rawResponse: {} }
+      },
+      async classifyDomains() {
+        return {}
       },
     }
 
@@ -247,5 +274,125 @@ describe('executeDiscoveryRun', () => {
 
     const insight = db.select().from(insights).get()!
     expect(insight.severity).toBe('low')
+  })
+})
+
+describe('buildClassificationPrompt', () => {
+  const project = {
+    id: 'p',
+    name: 'Demand IQ',
+    canonicalDomains: ['demand-iq.com'],
+    competitorDomains: ['aurora-solar.com', 'enerflo.com'],
+  }
+
+  it('includes project context, the ICP, tracked competitors, every domain, and every category', () => {
+    const prompt = buildClassificationPrompt({
+      project,
+      icpDescription: 'solar installers shopping for quoting software',
+      domains: ['helioscope.com', 'expedia.com', 'timeout.com'],
+    })
+    expect(prompt).toContain('Demand IQ')
+    expect(prompt).toContain('demand-iq.com')
+    expect(prompt).toContain('solar installers shopping for quoting software')
+    expect(prompt).toContain('aurora-solar.com, enerflo.com')
+    for (const domain of ['helioscope.com', 'expedia.com', 'timeout.com']) {
+      expect(prompt).toContain(domain)
+    }
+    // The full category menu must be spelled out for the model.
+    for (const category of ['direct-competitor', 'ota-aggregator', 'editorial-media', 'other']) {
+      expect(prompt).toContain(category)
+    }
+  })
+
+  it('says "none" when the project tracks no competitors yet', () => {
+    const prompt = buildClassificationPrompt({
+      project: { ...project, competitorDomains: [] },
+      icpDescription: 'x',
+      domains: ['a.com'],
+    })
+    expect(prompt).toContain('Already-tracked competitors: none')
+  })
+})
+
+describe('parseClassificationResponse', () => {
+  it('parses the domain => category line format', () => {
+    const text = [
+      'helioscope.com => direct-competitor',
+      'expedia.com => ota-aggregator',
+      'timeout.com => editorial-media',
+      'sec.gov => other',
+    ].join('\n')
+    expect(
+      parseClassificationResponse(text, ['helioscope.com', 'expedia.com', 'timeout.com', 'sec.gov']),
+    ).toEqual({
+      'helioscope.com': 'direct-competitor',
+      'expedia.com': 'ota-aggregator',
+      'timeout.com': 'editorial-media',
+      'sec.gov': 'other',
+    })
+  })
+
+  it('is case-insensitive and tolerates surrounding markdown / numbering', () => {
+    const text = ['```', '1. HelioScope.com => Direct-Competitor', '- EXPEDIA.COM  =>  ota-aggregator', '```'].join(
+      '\n',
+    )
+    expect(parseClassificationResponse(text, ['helioscope.com', 'expedia.com'])).toEqual({
+      'helioscope.com': 'direct-competitor',
+      'expedia.com': 'ota-aggregator',
+    })
+  })
+
+  it('omits domains the model skipped or labeled with an unrecognized category', () => {
+    const text = ['helioscope.com => direct-competitor', 'mystery.com => partner'].join('\n')
+    expect(
+      parseClassificationResponse(text, ['helioscope.com', 'mystery.com', 'notmentioned.com']),
+    ).toEqual({ 'helioscope.com': 'direct-competitor' })
+  })
+
+  it('reads the category from the right of => so a category word in the hostname does not pollute', () => {
+    expect(parseClassificationResponse('competitor-news.com => other', ['competitor-news.com'])).toEqual({
+      'competitor-news.com': 'other',
+    })
+  })
+
+  it('does not let a shorter domain match a longer domain\'s line', () => {
+    const text = ['mysolar.com => editorial-media', 'solar.com => direct-competitor'].join('\n')
+    expect(parseClassificationResponse(text, ['solar.com', 'mysolar.com'])).toEqual({
+      'solar.com': 'direct-competitor',
+      'mysolar.com': 'editorial-media',
+    })
+  })
+
+  it('keeps the shorter-domain guard when numbering pushes the domain off the line start', () => {
+    // `startsWith` fails on every numbered line, so the lookup falls through to
+    // the token scan — which must still not let `solar.com` pick up
+    // `mysolar.com`'s line.
+    const text = ['1. mysolar.com => editorial-media', '2. solar.com => direct-competitor'].join('\n')
+    expect(parseClassificationResponse(text, ['solar.com', 'mysolar.com'])).toEqual({
+      'solar.com': 'direct-competitor',
+      'mysolar.com': 'editorial-media',
+    })
+  })
+
+  it('does not let a domain match the line of a longer domain it prefixes', () => {
+    const text = ['solar.com.au => editorial-media', 'solar.com => direct-competitor'].join('\n')
+    expect(parseClassificationResponse(text, ['solar.com', 'solar.com.au'])).toEqual({
+      'solar.com': 'direct-competitor',
+      'solar.com.au': 'editorial-media',
+    })
+  })
+
+  it('does not match `other` inside a hostname on an arrow-less line', () => {
+    // No `=>` forces the whole-line category scan; `other` must match as a
+    // whole token, not inside `brothersolar.com`.
+    expect(parseClassificationResponse('brothersolar.com', ['brothersolar.com'])).toEqual({})
+    expect(
+      parseClassificationResponse('brothersolar.com => direct-competitor', ['brothersolar.com']),
+    ).toEqual({ 'brothersolar.com': 'direct-competitor' })
+  })
+
+  it('returns an empty map for empty input', () => {
+    expect(parseClassificationResponse('', [])).toEqual({})
+    expect(parseClassificationResponse('helioscope.com => direct-competitor', [])).toEqual({})
   })
 })

@@ -11,7 +11,15 @@ Discovery turns a free-text ICP description into a deduped basket of representat
 - **wasted-surface** — a tracked competitor is cited but the project is not
 - **aspirational** — neither the project nor a tracked competitor is cited (greenfield)
 
-Plus a competitor map: every non-canonical domain that shows up in probe citations, ranked by hit count, so the operator can spot recurring competitors that aren't yet on the watchlist.
+Plus a competitor map: every non-canonical domain that shows up in probe citations, ranked by hit count and classified by type, so the operator can spot recurring competitors that aren't yet on the watchlist.
+
+After probing, one Gemini call classifies every recurring cited domain into a `competitorType`:
+
+- **direct-competitor** — a business competing for the same customers (another hotel, another tool in the category). The only type promoted by default.
+- **ota-aggregator** — OTAs, marketplaces, directories, review aggregators (expedia.com, booking.com, g2.com). Suppressed from competitor tracking.
+- **editorial-media** — news, blogs, "best of" round-ups (timeout.com, a personal blog). A *channel* to earn placement in, not a competitor — suppressed by default.
+- **other** — government sites, social platforms, off-topic domains. Suppressed.
+- **unknown** — classification failed, or a session that pre-dates classification. Excluded from the default promote.
 
 ## When discovery is the right move
 
@@ -39,13 +47,13 @@ Per session: ~$1 at the default probe budget (100 queries × 1 Gemini grounded c
 
 `canonry_discover_session_get` returns:
 
-- Session-level: `seedCountRaw` vs `seedCount` (proves embedding dedup did real work), bucket counts, `competitorMap` (top recurring non-tracked domains).
+- Session-level: `seedCountRaw` vs `seedCount` (proves embedding dedup did real work), bucket counts, `competitorMap` (top recurring non-tracked domains, each with `hits` and `competitorType`).
 - Per-probe: query, bucket, citation state, the cited domains list.
 
 Things to call out without being asked:
 
 - **High wasted-surface ratio** (≥ 40% of probes, or > cited count at ≥ 20%) → the project is missing from its own competitive space. The auto-written `discovery.basket-divergence` insight flags this as `high` severity.
-- **Recurring new competitor domains** in `competitorMap` that aren't already in the project's tracked competitor list → `cnry discover promote` adopts domains with at least 2 hits automatically alongside the queries; or add them à la carte with `cnry competitor add <project> <domain>`.
+- **Recurring `direct-competitor` domains** in `competitorMap` that aren't already in the project's tracked competitor list → `cnry discover promote` adopts `direct-competitor` domains with at least 2 hits automatically alongside the queries; or add them à la carte with `cnry competitor add <project> <domain>`. Domains classified `ota-aggregator` / `editorial-media` / `other` are surfaced but **not** promoted by default — flag a recurring `editorial-media` site as a placement opportunity, not a competitor.
 - **Aspirational greenfield** queries with no tracked competitor and no canonical cite → low-friction content opportunities.
 
 ## Promoting a session into the tracked basket
@@ -63,15 +71,16 @@ The preview returns every bucket so you can explain the tradeoff:
 - `cited` — already grounded to the project, safe to track.
 - `aspirational` — greenfield ICP-fit opportunities, safe to track as a growth basket.
 - `wasted-surface` — competitor-cited but project-missing. Treat as content-planning evidence first; do not add it to the weekly tracked basket unless the operator explicitly wants those off-ICP competitor gaps tracked.
-- `suggestedCompetitors` — recurring domains not already tracked. The promote path only auto-adopts domains with at least 2 hits.
+- `suggestedCompetitors` — recurring domains (≥ 2 hits) not already tracked, of **every** classified type, each tagged with `competitorType`. The default promote adopts only the `direct-competitor` ones; the others are shown so you can recommend a `--competitor-types` widening.
 
 Promote with one of these paths:
 
 ```bash
-cnry discover promote <project> <session-id>                          # cited + aspirational buckets + recurring competitor domains
-cnry discover promote <project> <session-id> --bucket aspirational    # scope to a bucket subset (repeatable / comma-separated)
-cnry discover promote <project> <session-id> --bucket wasted-surface  # explicitly track off-ICP competitor gaps
-cnry discover promote <project> <session-id> --no-competitors         # queries only, skip the competitor merge
+cnry discover promote <project> <session-id>                                          # cited + aspirational buckets + direct-competitor domains
+cnry discover promote <project> <session-id> --bucket aspirational                    # scope to a bucket subset (repeatable / comma-separated)
+cnry discover promote <project> <session-id> --bucket wasted-surface                  # explicitly track off-ICP competitor gaps
+cnry discover promote <project> <session-id> --competitor-types direct-competitor,editorial-media   # widen the competitor merge to other classified types
+cnry discover promote <project> <session-id> --no-competitors                         # queries only, skip the competitor merge
 ```
 
 Or the MCP equivalent:
@@ -80,14 +89,14 @@ Or the MCP equivalent:
 { "project": "<project>", "sessionId": "<session-id>" }
 ```
 
-That default request promotes `cited` + `aspirational` queries and recurring competitors. For scoped writes, pass `request`:
+That default request promotes `cited` + `aspirational` queries and `direct-competitor` domains. For scoped writes, pass `request`:
 
 ```json
-{ "project": "<project>", "sessionId": "<session-id>", "request": { "buckets": ["aspirational"], "includeCompetitors": false } }
+{ "project": "<project>", "sessionId": "<session-id>", "request": { "buckets": ["aspirational"], "competitorTypes": ["direct-competitor", "editorial-media"], "includeCompetitors": false } }
 ```
 
 - **Default is cited + aspirational.** `wasted-surface` queries are off-ICP competitor gaps; promote them only when the operator explicitly wants those tracked in the weekly basket.
-- **Competitor promotion requires recurrence.** Default competitor merge ignores one-off domains and adopts only domains with at least 2 hits.
+- **Competitor promotion requires recurrence + a promotable type.** The default competitor merge ignores one-off domains (< 2 hits) and adopts only domains classified `direct-competitor`. Pass `competitorTypes` (CLI: `--competitor-types`) to also adopt `editorial-media` channels, or `competitorTypes: ["unknown"]` to recover a legacy session promoted before classification existed.
 - **Add-only and idempotent.** Queries and competitor domains already tracked are returned under `skipped`, never inserted twice. Re-running a promote is safe.
 - **Completed sessions only.** Promoting a `queued`/`seeding`/`probing`/`failed` session is rejected — the buckets aren't final.
 - Promoted rows carry `provenance="discovery:<sessionId>"`, so a tracked query can always be traced back to the session that surfaced it.
@@ -106,7 +115,7 @@ Respond with:
 
 1. A one-line headline naming the dominant bucket.
 2. The top 2-3 wasted-surface queries (call `canonry_discover_session_get` to fetch them — don't guess).
-3. The top 1-2 recurring new competitor domains worth tracking, ignoring one-hit domains unless the operator asks for the full long tail.
+3. The top 1-2 recurring `direct-competitor` domains worth tracking, ignoring one-hit domains unless the operator asks for the full long tail. If a recurring `editorial-media` domain stands out, mention it separately as a placement opportunity — not a competitor.
 4. A single recommended next step. Examples: "preview and promote cited + aspirational findings (`cnry discover promote preview`, then `cnry discover promote`)", "the wasted-surface set warrants a content plan around X before tracking", "the aspirational set is greenfield — pick the 3 with highest commercial intent and write content".
 
 Do not recommend "promote everything" as the default. The safe path is: inspect session detail, preview promotion candidates, then promote the default cited + aspirational set. Escalate `wasted-surface` to tracking only when the operator deliberately chooses that tradeoff.

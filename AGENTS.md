@@ -88,8 +88,8 @@ canonry discover run <project> --icp-angle "angle 1" --icp-angle "angle 2" --wai
 canonry discover list <project> [--limit 20] [--format json]
 canonry discover show <project> <session-id> [--format json]
 canonry discover probe <project> <session-id> [--format json]                       # alias of show (read-only) until a later PR splits phases
-canonry discover promote preview <project> <session-id> [--format json]             # preview bucketed candidates + recurring suggested competitors (read-only)
-canonry discover promote <project> <session-id> [--bucket cited,aspirational,wasted-surface] [--no-competitors] [--format json]   # adopt cited + aspirational queries + recurring competitors by default
+canonry discover promote preview <project> <session-id> [--format json]             # preview bucketed candidates + recurring suggested competitors of every classified type (read-only)
+canonry discover promote <project> <session-id> [--bucket cited,aspirational,wasted-surface] [--competitor-types direct-competitor,editorial-media] [--no-competitors] [--format json]   # adopt cited + aspirational queries + direct-competitor domains by default
 
 # MCP adapter (separate bin, stdio only)
 canonry-mcp                                          # core tier (~12 tools); load toolkits on demand

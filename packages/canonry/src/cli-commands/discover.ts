@@ -7,7 +7,12 @@ import {
   discoverSeed,
   discoverShow,
 } from '../commands/discover.js'
-import { discoveryBucketSchema, type DiscoveryBucket } from '@ainyc/canonry-contracts'
+import {
+  discoveryBucketSchema,
+  discoveryCompetitorTypeSchema,
+  type DiscoveryBucket,
+  type DiscoveryCompetitorType,
+} from '@ainyc/canonry-contracts'
 import type { CliCommandSpec, CliValues } from '../cli-dispatch.js'
 import {
   getBoolean,
@@ -64,6 +69,39 @@ function parseBucketsOption(values: CliValues, usage: string): DiscoveryBucket[]
     buckets.push(parsed.data)
   }
   return buckets
+}
+
+const COMPETITOR_TYPE_VALUES = 'direct-competitor, ota-aggregator, editorial-media, other, unknown'
+
+function parseCompetitorTypesOption(values: CliValues, usage: string): DiscoveryCompetitorType[] | undefined {
+  const raw = getStringArray(values, 'competitor-types')
+  if (!raw || raw.length === 0) return undefined
+  // Accept both repeated flags and comma-separated values, mirroring --bucket.
+  const expanded = raw.flatMap(v => v.split(',')).map(v => v.trim()).filter(Boolean)
+  if (expanded.length === 0) {
+    throw usageError(
+      `Error: --competitor-types must include at least one value (valid: ${COMPETITOR_TYPE_VALUES})\nUsage: ${usage}`,
+      {
+        message: '--competitor-types must include at least one value',
+        details: { command: 'discover.promote', usage, option: 'competitor-types', value: raw },
+      },
+    )
+  }
+  const types: DiscoveryCompetitorType[] = []
+  for (const value of expanded) {
+    const parsed = discoveryCompetitorTypeSchema.safeParse(value)
+    if (!parsed.success) {
+      throw usageError(
+        `Error: invalid --competitor-types value "${value}" (valid: ${COMPETITOR_TYPE_VALUES})\nUsage: ${usage}`,
+        {
+          message: `invalid --competitor-types value "${value}"`,
+          details: { command: 'discover.promote', usage, option: 'competitor-types', value },
+        },
+      )
+    }
+    types.push(parsed.data)
+  }
+  return types
 }
 
 export const DISCOVER_CLI_COMMANDS: readonly CliCommandSpec[] = [
@@ -184,14 +222,15 @@ export const DISCOVER_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['discover', 'promote'],
     usage:
-      'canonry discover promote <project> <session-id> [--bucket cited,aspirational,wasted-surface] [--no-competitors] [--format json]',
+      'canonry discover promote <project> <session-id> [--bucket cited,aspirational,wasted-surface] [--competitor-types direct-competitor,editorial-media] [--no-competitors] [--format json]',
     options: {
       bucket: multiStringOption(),
+      'competitor-types': multiStringOption(),
       'no-competitors': { type: 'boolean', default: false },
     },
     run: async (input) => {
       const usage =
-        'canonry discover promote <project> <session-id> [--bucket cited,aspirational,wasted-surface] [--no-competitors] [--format json]'
+        'canonry discover promote <project> <session-id> [--bucket cited,aspirational,wasted-surface] [--competitor-types direct-competitor,editorial-media] [--no-competitors] [--format json]'
       const project = requireProject(input, 'discover.promote', usage)
       const sessionId = requirePositional(input, 1, {
         command: 'discover.promote',
@@ -200,6 +239,7 @@ export const DISCOVER_CLI_COMMANDS: readonly CliCommandSpec[] = [
       })
       await discoverPromote(project, sessionId, {
         buckets: parseBucketsOption(input.values, usage),
+        competitorTypes: parseCompetitorTypesOption(input.values, usage),
         includeCompetitors: !getBoolean(input.values, 'no-competitors'),
         format: input.format,
       })

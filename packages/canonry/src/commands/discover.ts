@@ -2,6 +2,7 @@ import { createApiClient } from '../client.js'
 import type { ApiClient, DiscoveryRunStartResponse } from '../client.js'
 import type {
   DiscoveryBucket,
+  DiscoveryCompetitorType,
   DiscoveryPromotePreview,
   DiscoveryPromoteRequest,
   DiscoverySessionDetailDto,
@@ -249,7 +250,10 @@ export async function discoverPromotePreview(project: string, sessionId: string,
   for (const q of preview.queriesByBucket.aspirational.slice(0, 10)) console.log(`    + ${q}`)
   if (preview.suggestedCompetitors.length > 0) {
     console.log(`  Suggested new competitors:`)
-    for (const c of preview.suggestedCompetitors) console.log(`    - ${c.domain} (${c.hits} hits)`)
+    for (const c of preview.suggestedCompetitors) {
+      console.log(`    - ${c.domain} (${c.hits} hits, ${c.competitorType})`)
+    }
+    console.log('    Only direct-competitor is promoted by default — pass --competitor-types to include other types.')
   }
   console.log(`\n  Run \`canonry discover promote ${project} ${sessionId}\` to merge cited + aspirational queries.`)
   console.log('  Add `--bucket wasted-surface` only when off-ICP competitor gaps should be tracked.')
@@ -257,6 +261,7 @@ export async function discoverPromotePreview(project: string, sessionId: string,
 
 export interface DiscoverPromoteOptions {
   buckets?: DiscoveryBucket[]
+  competitorTypes?: DiscoveryCompetitorType[]
   includeCompetitors?: boolean
   format?: string
 }
@@ -269,6 +274,7 @@ export async function discoverPromote(
   const client = getClient()
   const body: DiscoveryPromoteRequest = {}
   if (opts.buckets && opts.buckets.length > 0) body.buckets = opts.buckets
+  if (opts.competitorTypes && opts.competitorTypes.length > 0) body.competitorTypes = opts.competitorTypes
   if (opts.includeCompetitors === false) body.includeCompetitors = false
 
   const result = await client.promoteDiscovery(project, sessionId, body)
@@ -301,7 +307,9 @@ function printSessionDetail(session: DiscoverySessionDetailDto): void {
   console.log(`  Buckets:       cited=${session.citedCount ?? 0}  wasted-surface=${session.wastedCount ?? 0}  aspirational=${session.aspirationalCount ?? 0}`)
   if (session.competitorMap.length > 0) {
     console.log(`  Top recurring competitor domains:`)
-    for (const c of session.competitorMap.slice(0, 10)) console.log(`    - ${c.domain} (${c.hits} hits)`)
+    for (const c of session.competitorMap.slice(0, 10)) {
+      console.log(`    - ${c.domain} (${c.hits} hits, ${c.competitorType})`)
+    }
   }
   if (session.error) console.log(`  Error:         ${session.error}`)
   if (session.startedAt) console.log(`  Started:       ${session.startedAt}`)

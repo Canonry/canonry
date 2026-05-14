@@ -5,12 +5,14 @@ import { discoveryProbes, discoverySessions } from '@ainyc/canonry-db'
 import {
   CitationStates,
   DiscoveryBuckets,
+  DiscoveryCompetitorTypes,
   DiscoverySessionStatuses,
   clusterByCosine,
   pickClusterRepresentative,
   type CitationState,
   type DiscoveryBucket,
   type DiscoveryCompetitorMapEntry,
+  type DiscoveryCompetitorType,
 } from '@ainyc/canonry-contracts'
 
 const DEFAULT_DEDUP_THRESHOLD = 0.85
@@ -44,6 +46,13 @@ export interface DiscoveryProbeResult {
 }
 
 /**
+ * Maps each input domain to a `DiscoveryCompetitorType`. A domain the
+ * classifier omits is treated as `unknown` by the orchestrator, so an
+ * implementation may return a partial map.
+ */
+export type DiscoveryDomainClassification = Record<string, DiscoveryCompetitorType>
+
+/**
  * Injection seam — canonry's side wires the real Gemini calls behind these.
  * Keeping the orchestrator pure of provider clients makes it easy to test
  * end-to-end without spinning up the network.
@@ -60,6 +69,20 @@ export interface DiscoveryDeps {
     project: DiscoveryProjectContext
     query: string
   }): Promise<DiscoveryProbeResult>
+
+  /**
+   * Classify every recurring cited domain into a `DiscoveryCompetitorType` in
+   * a single call. Runs once per session after probing; `domains` is the
+   * deduped non-canonical cited-domain set. Best-effort — the orchestrator
+   * catches a thrown error and falls back to `unknown` for every domain, so a
+   * classification outage degrades the competitor map rather than failing the
+   * session.
+   */
+  classifyDomains(input: {
+    project: DiscoveryProjectContext
+    icpDescription: string
+    domains: string[]
+  }): Promise<DiscoveryDomainClassification>
 }
 
 export interface ExecuteDiscoveryOptions {
@@ -120,10 +143,16 @@ export function classifyProbeBucket(input: {
  * counts at most once per probe (a single answer that lists the same domain
  * twice still counts as one hit for that probe). The project's canonical
  * domains are excluded.
+ *
+ * `classification` attaches a `competitorType` to each entry — a domain absent
+ * from the map (or the whole argument omitted) falls back to `unknown`. The
+ * orchestrator calls this once without classification to derive the domain
+ * list, then again with the classification result.
  */
 export function buildCompetitorMap(
   probes: Array<{ citedDomains: string[] }>,
   project: DiscoveryProjectContext,
+  classification: DiscoveryDomainClassification = {},
 ): DiscoveryCompetitorMapEntry[] {
   const canonical = new Set(project.canonicalDomains.map(d => d.toLowerCase()))
   const counts = new Map<string, number>()
@@ -138,8 +167,32 @@ export function buildCompetitorMap(
     }
   }
   return Array.from(counts.entries())
-    .map(([domain, hits]) => ({ domain, hits }))
+    .map(([domain, hits]) => ({
+      domain,
+      hits,
+      competitorType: classification[domain] ?? DiscoveryCompetitorTypes.unknown,
+    }))
     .sort((a, b) => b.hits - a.hits || a.domain.localeCompare(b.domain))
+}
+
+/**
+ * Best-effort wrapper around `deps.classifyDomains`. Skips the call entirely
+ * when there are no domains, and swallows a thrown error into an empty map so
+ * a classification outage degrades the competitor map (every domain stays
+ * `unknown`) rather than failing the whole discovery session.
+ */
+async function classifyCompetitorDomains(
+  deps: DiscoveryDeps,
+  project: DiscoveryProjectContext,
+  icpDescription: string,
+  domains: string[],
+): Promise<DiscoveryDomainClassification> {
+  if (domains.length === 0) return {}
+  try {
+    return await deps.classifyDomains({ project, icpDescription, domains })
+  } catch {
+    return {}
+  }
 }
 
 /**
@@ -169,7 +222,9 @@ export async function pickCanonicals(
  *   1. `seeding`   — `deps.seed()` returns raw candidate queries
  *   2. `probing`   — embed + cluster + pick representative, then `deps.probe()`
  *                    each canonical, classify into a bucket, persist a row
- *   3. `completed` — write final counts + competitor_map to the session
+ *   3. classify    — one `deps.classifyDomains()` call types every recurring
+ *                    cited domain (best-effort; failures fall back to `unknown`)
+ *   4. `completed` — write final counts + classified competitor_map to the session
  */
 export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<ExecuteDiscoveryResult> {
   const dedupThreshold = opts.dedupThreshold ?? DEFAULT_DEDUP_THRESHOLD
@@ -241,7 +296,17 @@ export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<E
     }).run()
   }
 
-  const competitorMap = buildCompetitorMap(probeRows, opts.project)
+  // First pass derives the deduped non-canonical domain list; the
+  // classification call types those domains; the second pass attaches the
+  // result. Both passes are pure and O(probes) — cheap enough to run twice.
+  const domains = buildCompetitorMap(probeRows, opts.project).map(entry => entry.domain)
+  const classification = await classifyCompetitorDomains(
+    opts.deps,
+    opts.project,
+    opts.icpDescription,
+    domains,
+  )
+  const competitorMap = buildCompetitorMap(probeRows, opts.project, classification)
 
   opts.db
     .update(discoverySessions)

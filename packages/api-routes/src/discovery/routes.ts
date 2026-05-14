@@ -11,9 +11,11 @@ import {
 } from '@ainyc/canonry-db'
 import {
   DEFAULT_DISCOVERY_PROMOTE_BUCKETS,
+  DEFAULT_DISCOVERY_PROMOTE_COMPETITOR_TYPES,
   DISCOVERY_PROMOTE_COMPETITOR_CAP,
   DISCOVERY_PROMOTE_COMPETITOR_MIN_HITS,
   DiscoveryBuckets,
+  DiscoveryCompetitorTypes,
   DiscoverySessionStatuses,
   RunKinds,
   RunStatuses,
@@ -26,6 +28,7 @@ import {
   validationError,
   type DiscoveryBucket,
   type DiscoveryCompetitorMapEntry,
+  type DiscoveryCompetitorType,
   type DiscoveryProbeDto,
   type DiscoveryPromoteResult,
   type DiscoverySessionDetailDto,
@@ -222,7 +225,11 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
         else if (bucket === DiscoveryBuckets['wasted-surface']) wasted.add(probe.query)
       }
 
-      const competitorMap = parseJsonColumn<DiscoveryCompetitorMapEntry[]>(session.competitorMap, [])
+      // Preview surfaces every recurring candidate regardless of type — each
+      // entry carries its `competitorType` so the operator can see what
+      // promote adopts by default (direct-competitor) vs. what needs an
+      // explicit `--competitor-types` override.
+      const competitorMap = parseCompetitorMap(session.competitorMap)
       const newCompetitors = selectEligibleCompetitors(competitorMap)
         .filter(entry => !seenCompetitors.has(entry.domain.toLowerCase()))
 
@@ -247,7 +254,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
   // so re-running a promote is safe.
   app.post<{
     Params: { name: string; id: string }
-    Body: { buckets?: string[]; includeCompetitors?: boolean }
+    Body: { buckets?: string[]; includeCompetitors?: boolean; competitorTypes?: string[] }
   }>('/projects/:name/discover/sessions/:id/promote', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const session = app.db
@@ -282,6 +289,11 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
     const buckets: readonly DiscoveryBucket[] = parsed.data.buckets ?? DEFAULT_DISCOVERY_PROMOTE_BUCKETS
     const bucketSet = new Set<DiscoveryBucket>(buckets)
     const includeCompetitors = parsed.data.includeCompetitors ?? true
+    // Default to direct-competitor only — aggregators, editorial media, and
+    // `other` are noise for a tracked-competitor watchlist, and legacy
+    // `unknown` entries are excluded until the caller opts them in explicitly.
+    const competitorTypes: readonly DiscoveryCompetitorType[] =
+      parsed.data.competitorTypes ?? DEFAULT_DISCOVERY_PROMOTE_COMPETITOR_TYPES
 
     // Candidate queries: probes whose bucket is in the requested set.
     const probeRows = app.db
@@ -329,10 +341,11 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
           .all()
           .map(r => r.domain.toLowerCase()),
       )
-      // Mirror the GET preview's recurrence + cap policy; existing domains are
-      // returned as skipped for idempotency instead of being inserted again.
-      const competitorMap = parseJsonColumn<DiscoveryCompetitorMapEntry[]>(session.competitorMap, [])
-      for (const entry of selectEligibleCompetitors(competitorMap)) {
+      // Mirror the GET preview's recurrence + cap policy, narrowed to the
+      // requested competitor types; existing domains are returned as skipped
+      // for idempotency instead of being inserted again.
+      const competitorMap = parseCompetitorMap(session.competitorMap)
+      for (const entry of selectEligibleCompetitors(competitorMap, competitorTypes)) {
         const key = entry.domain.toLowerCase()
         if (existingCompetitors.has(key)) {
           skippedCompetitors.push(entry.domain)
@@ -401,7 +414,7 @@ function serializeSession(row: typeof discoverySessions.$inferSelect): Discovery
     citedCount: row.citedCount ?? null,
     aspirationalCount: row.aspirationalCount ?? null,
     wastedCount: row.wastedCount ?? null,
-    competitorMap: parseJsonColumn<DiscoveryCompetitorMapEntry[]>(row.competitorMap, []),
+    competitorMap: parseCompetitorMap(row.competitorMap),
     error: row.error ?? null,
     startedAt: row.startedAt ?? null,
     finishedAt: row.finishedAt ?? null,
@@ -424,11 +437,41 @@ function serializeProbe(row: typeof discoveryProbes.$inferSelect): DiscoveryProb
   }
 }
 
+/**
+ * Parse a `discovery_sessions.competitor_map` JSON column into normalized
+ * entries. `parseJsonColumn` does not apply Zod defaults, so a competitor map
+ * persisted before classification existed has entries without
+ * `competitorType` — normalize those to `unknown` here so every consumer sees
+ * a well-formed `DiscoveryCompetitorMapEntry`.
+ */
+function parseCompetitorMap(json: string): DiscoveryCompetitorMapEntry[] {
+  const raw = parseJsonColumn<Array<Partial<DiscoveryCompetitorMapEntry> & { domain: string; hits: number }>>(
+    json,
+    [],
+  )
+  return raw.map(entry => ({
+    domain: entry.domain,
+    hits: entry.hits,
+    competitorType: entry.competitorType ?? DiscoveryCompetitorTypes.unknown,
+  }))
+}
+
+/**
+ * Recurring competitor domains eligible for promotion: at least
+ * `DISCOVERY_PROMOTE_COMPETITOR_MIN_HITS` probe hits, optionally narrowed to a
+ * set of classified `competitorType`s, sorted by hits desc, capped. Omitting
+ * `competitorTypes` applies no type filter — the GET preview uses that to
+ * surface every recurring candidate with its classification so the operator
+ * can decide what to pass to `--competitor-types`.
+ */
 function selectEligibleCompetitors(
   competitorMap: readonly DiscoveryCompetitorMapEntry[],
+  competitorTypes?: readonly DiscoveryCompetitorType[],
 ): DiscoveryCompetitorMapEntry[] {
+  const typeFilter = competitorTypes ? new Set(competitorTypes) : null
   return competitorMap
     .filter(entry => entry.hits >= DISCOVERY_PROMOTE_COMPETITOR_MIN_HITS)
+    .filter(entry => !typeFilter || typeFilter.has(entry.competitorType))
     .sort((a, b) => b.hits - a.hits || a.domain.localeCompare(b.domain))
     .slice(0, DISCOVERY_PROMOTE_COMPETITOR_CAP)
 }
