@@ -66,6 +66,7 @@ const expectedToolNames = [
   'canonry_traffic_events',
   'canonry_traffic_connect_cloud_run',
   'canonry_traffic_connect_wordpress',
+  'canonry_traffic_connect_vercel',
   'canonry_traffic_sync',
   'canonry_traffic_backfill',
   'canonry_project_upsert',
@@ -100,7 +101,7 @@ const expectedToolNames = [
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(80)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(81)
     expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(52)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
@@ -141,7 +142,7 @@ describe('MCP tool registry', () => {
     expect(counts.get('setup')).toBe(21)
     expect(counts.get('gsc')).toBe(7)
     expect(counts.get('ga')).toBe(8)
-    expect(counts.get('traffic')).toBe(8)
+    expect(counts.get('traffic')).toBe(9)
     expect(counts.get('agent')).toBe(5)
     expect(counts.get('discovery')).toBe(5)
   })
@@ -502,6 +503,18 @@ const handlerCases: HandlerCase[] = [
       },
     },
     methods: ['trafficConnectCloudRun'],
+  },
+  {
+    tool: 'canonry_traffic_connect_vercel',
+    input: {
+      project: 'acme',
+      request: {
+        projectId: 'prj_abc',
+        teamId: 'team_xyz',
+        token: 'vcp_test_token',
+      },
+    },
+    methods: ['trafficConnectVercel'],
   },
   {
     tool: 'canonry_traffic_sync',

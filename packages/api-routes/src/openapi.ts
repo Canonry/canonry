@@ -2813,6 +2813,39 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'post',
+    path: '/api/v1/projects/{name}/traffic/connect/vercel',
+    summary: 'Connect a Vercel traffic source',
+    description:
+      'Probes Vercel\'s internal `request-logs` endpoint with the supplied API token (single page, 60-minute window) before persisting. On success, stores the token in `~/.canonry/config.yaml` and creates / updates the project\'s active Vercel `traffic_sources` row. A probe failure (bad token, wrong project / team id, unreachable host) surfaces as 502 with the upstream status in the message so the caller learns about it up front instead of at the first sync. The project id, team id, and environment are stored as non-secret config on the row; only the API token lives in the credential file.',
+    tags: ['traffic'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['projectId', 'teamId', 'token'],
+            properties: {
+              projectId: { ...stringSchema, description: 'Vercel project id (e.g. `prj_...`) — from the Vercel dashboard or `.vercel/project.json`.' },
+              teamId: { ...stringSchema, description: 'Vercel team / owner id (e.g. `team_...`).' },
+              token: { ...stringSchema, description: 'Vercel API token (personal access token). Stored in `~/.canonry/config.yaml`, never the DB or response.' },
+              environment: { type: 'string', enum: ['production', 'preview'], description: 'Which deployment environment\'s request logs to pull. Default: `production`.' },
+              displayName: stringSchema,
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: { description: 'Traffic source DTO returned.' },
+      400: { description: 'Invalid Vercel connection request.' },
+      404: { description: 'Project not found.' },
+      502: { description: 'Vercel request-logs endpoint probe failed (bad token, wrong project / team id, unreachable host, etc.).' },
+    },
+  },
+  {
+    method: 'post',
     path: '/api/v1/projects/{name}/traffic/sources/{id}/sync',
     summary: 'Trigger a sync run for a traffic source',
     description:

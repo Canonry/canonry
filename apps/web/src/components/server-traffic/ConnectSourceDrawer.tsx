@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, Cloud, Globe } from 'lucide-react'
+import { ArrowLeft, Cloud, Globe, Triangle } from 'lucide-react'
 
 import { ApiError } from '../../api.js'
 import {
   useConnectServerTrafficCloudRun,
+  useConnectServerTrafficVercel,
   useConnectServerTrafficWordpress,
 } from '../../queries/server-traffic.js'
 import { Button } from '../ui/button.js'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet.js'
 
-type SourceType = 'wordpress' | 'cloud-run'
+type SourceType = 'wordpress' | 'cloud-run' | 'vercel'
 type Step = 'pick' | SourceType
 
 /**
@@ -57,6 +58,12 @@ export function ConnectSourceDrawer({
             onBack={() => setStep('pick')}
             onClose={handleClose}
           />
+        ) : step === 'vercel' ? (
+          <VercelSourceForm
+            projectName={projectName}
+            onBack={() => setStep('pick')}
+            onClose={handleClose}
+          />
         ) : (
           <CloudRunSourceForm
             projectName={projectName}
@@ -91,6 +98,14 @@ const SOURCE_TYPES: Array<{
     description:
       'Connect a Google Cloud service account so Canonry can read your Cloud Run request logs.',
     icon: Cloud,
+  },
+  {
+    type: 'vercel',
+    name: 'Vercel project',
+    tagline: 'For sites hosted on Vercel',
+    description:
+      'Connect a Vercel API token so Canonry can pull request logs straight from Vercel — no in-app instrumentation needed.',
+    icon: Triangle,
   },
 ]
 
@@ -467,6 +482,180 @@ function CloudRunSourceForm({
             />
             <span className="rounded-md border border-zinc-800 px-2 py-1">Or upload a key file</span>
           </label>
+        </Field>
+
+        {error ? (
+          <p className="rounded-md border border-rose-800/50 bg-rose-950/30 px-3 py-2 text-xs text-rose-200">
+            {error}
+          </p>
+        ) : null}
+        {success ? (
+          <p className="rounded-md border border-emerald-800/50 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-200">
+            {success}
+          </p>
+        ) : null}
+
+        <div className="mt-2 flex items-center justify-end gap-2 border-t border-zinc-800/60 pt-4">
+          <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+            Close
+          </Button>
+          <Button type="submit" disabled={connect.isPending} size="sm">
+            {connect.isPending ? 'Connecting…' : 'Connect'}
+          </Button>
+        </div>
+      </form>
+    </>
+  )
+}
+
+function VercelSourceForm({
+  projectName,
+  onBack,
+  onClose,
+}: {
+  projectName: string
+  onBack: () => void
+  onClose: () => void
+}) {
+  const [projectId, setProjectId] = useState('')
+  const [teamId, setTeamId] = useState('')
+  const [token, setToken] = useState('')
+  const [environment, setEnvironment] = useState<'production' | 'preview'>('production')
+  const [displayName, setDisplayName] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+
+  const connect = useConnectServerTrafficVercel(projectName || null)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    setSuccess(null)
+    if (!projectId.trim()) {
+      setError('Vercel project ID is required.')
+      return
+    }
+    if (!teamId.trim()) {
+      setError('Vercel team ID is required.')
+      return
+    }
+    if (!token.trim()) {
+      setError('Vercel API token is required.')
+      return
+    }
+    try {
+      const result = await connect.mutateAsync({
+        projectId: projectId.trim(),
+        teamId: teamId.trim(),
+        token: token.trim(),
+        environment,
+        displayName: displayName.trim() || undefined,
+      })
+      // Don't keep the API token around in memory after submit.
+      setToken('')
+      setSuccess(`Connected ${result.displayName}.`)
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e)
+      setError(message)
+    }
+  }
+
+  return (
+    <>
+      <WizardHeader
+        title="Connect a Vercel project"
+        description={
+          <>
+            Pulls request logs straight from Vercel — no in-app instrumentation needed. The API
+            token is stored in <code>~/.canonry/config.yaml</code> on the server and never echoed
+            back to the dashboard.
+          </>
+        }
+        onBack={onBack}
+      />
+
+      <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-5 overflow-y-auto pr-1">
+        <Field label="Project" description="Canonry project this source attaches to.">
+          <input
+            type="text"
+            value={projectName}
+            disabled
+            className="w-full rounded border border-zinc-700 bg-zinc-900/50 px-2 py-1.5 text-sm text-zinc-300"
+          />
+        </Field>
+
+        <Field
+          label="Vercel project ID"
+          description="The prj_… id from the Vercel dashboard or .vercel/project.json."
+          required
+        >
+          <input
+            type="text"
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+            required
+            autoComplete="off"
+            placeholder="prj_…"
+            className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          />
+        </Field>
+
+        <Field
+          label="Vercel team ID"
+          description="The team_… (or owner) id the project belongs to."
+          required
+        >
+          <input
+            type="text"
+            value={teamId}
+            onChange={(e) => setTeamId(e.target.value)}
+            required
+            autoComplete="off"
+            placeholder="team_…"
+            className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          />
+        </Field>
+
+        <Field
+          label="API token"
+          description="Create one in Vercel under Account Settings → Tokens. Tokens can expire — use a long-lived token."
+          required
+        >
+          <input
+            type="password"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            required
+            autoComplete="new-password"
+            className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          />
+        </Field>
+
+        <Field
+          label="Environment"
+          description="Which deployment environment's request logs to pull."
+        >
+          <select
+            value={environment}
+            onChange={(e) => setEnvironment(e.target.value as 'production' | 'preview')}
+            className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 focus:border-zinc-500 focus:outline-none"
+          >
+            <option value="production">production</option>
+            <option value="preview">preview</option>
+          </select>
+        </Field>
+
+        <Field
+          label="Display name (optional)"
+          description="Friendly label shown in the dashboard. Defaults to the Vercel project ID."
+        >
+          <input
+            type="text"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            autoComplete="off"
+            className="w-full rounded border border-zinc-700 bg-transparent px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-zinc-500 focus:outline-none"
+          />
         </Field>
 
         {error ? (

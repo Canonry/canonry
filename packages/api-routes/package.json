@@ -26,6 +26,7 @@
     "@ainyc/canonry-integration-commoncrawl": "workspace:*",
     "@ainyc/canonry-integration-google-analytics": "workspace:*",
     "@ainyc/canonry-integration-traffic": "workspace:*",
+    "@ainyc/canonry-integration-vercel": "workspace:*",
     "@ainyc/canonry-integration-wordpress": "workspace:*",
     "@ainyc/canonry-integration-wordpress-traffic": "workspace:*",
     "drizzle-orm": "^0.45.1",

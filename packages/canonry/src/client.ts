@@ -78,6 +78,7 @@ import type {
   TrafficEventsResponse,
   TrafficConnectCloudRunRequest,
   TrafficConnectWordpressRequest,
+  TrafficConnectVercelRequest,
   TrafficSyncResponse,
   TrafficBackfillResponse,
   DiscoverySessionDto,
@@ -822,6 +823,14 @@ export class ApiClient {
     return this.request<TrafficSourceDto>(
       'POST',
       `/projects/${encodeURIComponent(project)}/traffic/connect/wordpress`,
+      body,
+    )
+  }
+
+  async trafficConnectVercel(project: string, body: TrafficConnectVercelRequest): Promise<TrafficSourceDto> {
+    return this.request<TrafficSourceDto>(
+      'POST',
+      `/projects/${encodeURIComponent(project)}/traffic/connect/vercel`,
       body,
     )
   }

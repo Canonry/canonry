@@ -68,4 +68,9 @@ with **no in-app instrumentation** required on the user's Vercel project.
 - `packages/integration-traffic/` — provider-neutral classifier + hourly rollup
 - `packages/integration-cloud-run/` / `packages/integration-wordpress-traffic/`
   — sibling pull adapters; mirror this file layout
+- `packages/api-routes/src/traffic.ts` — the consumer: `POST /traffic/connect/vercel`
+  + the `vercel` branch of the sync / backfill dispatchers. The sync route drains
+  the whole time window in one pass (page-number pagination has no resumable
+  cursor) and fails loudly if `hasMore` is still true rather than advancing
+  `lastSyncedAt` past un-pulled rows.
 - `plans/server-side-ai-traffic-ingestion.md` — overall traffic plan

@@ -21,6 +21,7 @@ import {
   TrafficSourceAuthModes,
   TrafficEventKinds,
   trafficConnectWordpressRequestSchema,
+  trafficConnectVercelRequestSchema,
 } from '@ainyc/canonry-contracts'
 import type {
   NormalizedTrafficRequest,
@@ -54,6 +55,14 @@ import type {
   ListWordpressTrafficEventsOptions,
   WordpressTrafficEventsPage,
 } from '@ainyc/canonry-integration-wordpress-traffic'
+import {
+  listVercelTrafficEvents,
+  VercelLogsApiError,
+} from '@ainyc/canonry-integration-vercel'
+import type {
+  ListVercelTrafficEventsOptions,
+  VercelTrafficEventsPage,
+} from '@ainyc/canonry-integration-vercel'
 import { resolveProject, writeAuditLog } from './helpers.js'
 
 export interface CloudRunCredentialRecord {
@@ -89,6 +98,26 @@ export interface WordpressTrafficCredentialRecord {
 export interface WordpressTrafficCredentialStore {
   getConnection: (projectName: string) => WordpressTrafficCredentialRecord | undefined
   upsertConnection: (record: WordpressTrafficCredentialRecord) => WordpressTrafficCredentialRecord
+  deleteConnection: (projectName: string) => boolean
+}
+
+export interface VercelTrafficCredentialRecord {
+  projectName: string
+  /** Vercel project id (`prj_...`). */
+  projectId: string
+  /** Vercel team / owner id (`team_...`). */
+  teamId: string
+  /** Vercel API token (personal access token). The only secret in this record. */
+  token: string
+  /** Deployment environment whose request logs are pulled. */
+  environment: 'production' | 'preview'
+  createdAt: string
+  updatedAt: string
+}
+
+export interface VercelTrafficCredentialStore {
+  getConnection: (projectName: string) => VercelTrafficCredentialRecord | undefined
+  upsertConnection: (record: VercelTrafficCredentialRecord) => VercelTrafficCredentialRecord
   deleteConnection: (projectName: string) => boolean
 }
 
@@ -129,6 +158,23 @@ export interface TrafficRoutesOptions {
   pullWordpressTrafficEvents?: (
     options: ListWordpressTrafficEventsOptions,
   ) => Promise<WordpressTrafficEventsPage>
+  /**
+   * Store for Vercel traffic API-token credentials. When absent, the Vercel
+   * connect / sync routes return a configuration error.
+   */
+  vercelTrafficCredentialStore?: VercelTrafficCredentialStore
+  /** Override the Vercel traffic pull function (for tests). Defaults to `listVercelTrafficEvents`. */
+  pullVercelTrafficEvents?: (
+    options: ListVercelTrafficEventsOptions,
+  ) => Promise<VercelTrafficEventsPage>
+  /**
+   * Max `request-logs` pages to walk per Vercel sync. Vercel paginates by page
+   * number within a fixed time window with no resumable cursor, so a sync must
+   * drain the whole window in one pass — if the budget is exhausted with
+   * `hasMore` still true, the sync fails rather than advancing the cursor past
+   * un-pulled rows.
+   */
+  defaultVercelMaxPages?: number
   /** Default lookback window in minutes when a sync is triggered without an explicit `since`. */
   defaultSyncWindowMinutes?: number
   /** Default page size for entries.list pulls. */
@@ -162,6 +208,13 @@ const DEFAULT_SAMPLE_LIMIT = 100
 // runaway plugin can't exhaust the route. Adjust via TrafficRoutesOptions.
 const DEFAULT_WP_PAGE_SIZE = 500
 const DEFAULT_WP_MAX_PAGES = 20
+// Vercel's `request-logs` endpoint paginates by page number within a fixed
+// `[startDate, endDate]` window and exposes no resumable page cursor — so a
+// sync must drain the entire window in one pass. This budget is generous
+// enough that an incremental sync (window clamped forward to `lastSyncedAt`)
+// never hits it; if it does, the sync fails loudly rather than advancing
+// `lastSyncedAt` past the un-pulled pages. Backfill uses BACKFILL_MAX_PAGES.
+const DEFAULT_VERCEL_MAX_PAGES = 50
 // Bounded ring buffer of the most-recent normalized event IDs from the last
 // sync. Used to dedupe events that fall in the small overlap window between
 // `lastSyncedAt` and the new sync's `windowStart`. Sized for the practical
@@ -482,6 +535,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
   const pullEvents = opts.pullCloudRunEvents ?? listCloudRunTrafficEvents
   const resolveAccessToken = opts.resolveCloudRunAccessToken ?? defaultResolveAccessToken
   const pullWordpressEvents = opts.pullWordpressTrafficEvents ?? listWordpressTrafficEvents
+  const pullVercelEvents = opts.pullVercelTrafficEvents ?? listVercelTrafficEvents
+  const vercelMaxPages = opts.defaultVercelMaxPages ?? DEFAULT_VERCEL_MAX_PAGES
   const syncWindowMinutes = opts.defaultSyncWindowMinutes ?? DEFAULT_SYNC_WINDOW_MINUTES
   const pageSize = opts.defaultPageSize ?? DEFAULT_PAGE_SIZE
   const maxPages = opts.defaultMaxPages ?? DEFAULT_MAX_PAGES
@@ -736,6 +791,139 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     return rowToDto(sourceRow)
   })
 
+  // POST /projects/:name/traffic/connect/vercel
+  //
+  // Probes Vercel's internal `request-logs` endpoint with the supplied API
+  // token (single page, tiny recent window) before persisting — a probe
+  // failure surfaces as `providerError()` so the caller sees a bad token /
+  // wrong project or team id up front instead of at the first sync.
+  app.post<{
+    Params: { name: string }
+    Body: {
+      projectId?: string
+      teamId?: string
+      token?: string
+      environment?: string
+      displayName?: string
+    }
+  }>('/projects/:name/traffic/connect/vercel', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    if (!opts.vercelTrafficCredentialStore) {
+      throw validationError('Vercel traffic credential storage is not configured for this deployment')
+    }
+    const credentialStore = opts.vercelTrafficCredentialStore
+
+    const parsed = trafficConnectVercelRequestSchema.safeParse(request.body ?? {})
+    if (!parsed.success) {
+      throw validationError(parsed.error.issues.map((i) => i.message).join('; '))
+    }
+    const { projectId, teamId, token, displayName } = parsed.data
+    const environment = parsed.data.environment ?? 'production'
+
+    // Probe the request-logs endpoint up-front so the caller learns about a
+    // bad token / wrong project or team id before we touch persistent state.
+    // A 60-minute window keeps the probe cheap; we only need an HTTP 2xx.
+    const probeEnd = Date.now()
+    try {
+      await pullVercelEvents({
+        token,
+        projectId,
+        teamId,
+        environment,
+        startDate: probeEnd - 60 * 60_000,
+        endDate: probeEnd,
+        maxPages: 1,
+      })
+    } catch (e) {
+      if (e instanceof VercelLogsApiError) {
+        throw providerError(
+          `Vercel traffic probe failed (HTTP ${e.status}): ${e.message}${e.body ? ` — ${e.body}` : ''}`,
+        )
+      }
+      const msg = e instanceof Error ? e.message : String(e)
+      throw providerError(`Vercel traffic probe failed: ${msg}`)
+    }
+
+    const now = new Date().toISOString()
+    const existing = credentialStore.getConnection(project.name)
+    credentialStore.upsertConnection({
+      projectName: project.name,
+      projectId,
+      teamId,
+      token,
+      environment,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    })
+
+    // Single active Vercel source per project; reconnect updates it.
+    const activeSource = app.db
+      .select()
+      .from(trafficSources)
+      .where(eq(trafficSources.projectId, project.id))
+      .all()
+      .find((row) => row.sourceType === TrafficSourceTypes.vercel && row.status !== TrafficSourceStatuses.archived)
+
+    // Only non-secret config goes on the row — the API token lives in
+    // ~/.canonry/config.yaml via the credential store.
+    const config: Record<string, unknown> = { projectId, teamId, environment }
+    const fallbackName = displayName ?? `Vercel · ${projectId}`
+
+    let sourceRow: typeof trafficSources.$inferSelect
+    if (activeSource) {
+      app.db
+        .update(trafficSources)
+        .set({
+          displayName: fallbackName,
+          status: TrafficSourceStatuses.connected,
+          lastError: null,
+          configJson: JSON.stringify(config),
+          updatedAt: now,
+        })
+        .where(eq(trafficSources.id, activeSource.id))
+        .run()
+      sourceRow = app.db
+        .select()
+        .from(trafficSources)
+        .where(eq(trafficSources.id, activeSource.id))
+        .get()!
+    } else {
+      const newId = crypto.randomUUID()
+      app.db
+        .insert(trafficSources)
+        .values({
+          id: newId,
+          projectId: project.id,
+          sourceType: TrafficSourceTypes.vercel,
+          displayName: fallbackName,
+          status: TrafficSourceStatuses.connected,
+          lastSyncedAt: null,
+          lastCursor: null,
+          lastError: null,
+          archivedAt: null,
+          configJson: JSON.stringify(config),
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run()
+      sourceRow = app.db
+        .select()
+        .from(trafficSources)
+        .where(eq(trafficSources.id, newId))
+        .get()!
+    }
+
+    writeAuditLog(app.db, {
+      projectId: project.id,
+      actor: 'api',
+      action: 'traffic.vercel.connected',
+      entityType: 'traffic_source',
+      entityId: sourceRow.id,
+    })
+
+    return rowToDto(sourceRow)
+  })
+
   // POST /projects/:name/traffic/sources/:id/sync
   //
   // Source-type-agnostic shell. The handler resolves the source row, sets up
@@ -760,9 +948,10 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     if (
       sourceRow.sourceType !== TrafficSourceTypes['cloud-run']
       && sourceRow.sourceType !== TrafficSourceTypes.wordpress
+      && sourceRow.sourceType !== TrafficSourceTypes.vercel
     ) {
       throw validationError(
-        `Sync for source type "${sourceRow.sourceType}" is not implemented yet — only cloud-run and wordpress are supported in v1.`,
+        `Sync for source type "${sourceRow.sourceType}" is not implemented yet — only cloud-run, wordpress, and vercel are supported in v1.`,
       )
     }
 
@@ -892,7 +1081,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         markFailed(msg, 'PROVIDER_PULL')
         throw providerError(`Cloud Run pull failed: ${msg}`)
       }
-    } else {
+    } else if (sourceRow.sourceType === TrafficSourceTypes.wordpress) {
       // WordPress traffic-logger adapter. Pages through `next_cursor` until
       // exhausted, then persists the final cursor + advances `lastSyncedAt`
       // to windowEnd. The `lastCursor` column drives resume semantics; the
@@ -956,6 +1145,78 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         markFailed(msg, 'PROVIDER_PULL')
         throw providerError(`WordPress pull failed: ${msg}`)
       }
+    } else {
+      // Vercel `request-logs` adapter. Pulls a clamped `[windowStart,
+      // windowEnd]` time window — like Cloud Run — but Vercel paginates by
+      // page number with no resumable cursor, so the whole window must be
+      // drained in one pass. We walk every page up to `vercelMaxPages`; if
+      // the adapter still reports `hasMore`, the window overflowed the
+      // budget and we fail rather than advance `lastSyncedAt` past the
+      // un-pulled pages (which would silently drop them).
+      auditAction = 'traffic.vercel.synced'
+      const credentialStore = opts.vercelTrafficCredentialStore
+      if (!credentialStore) {
+        app.db.delete(runs).where(eq(runs.id, runId)).run()
+        throw validationError('Vercel traffic credential storage is not configured for this deployment')
+      }
+      const credential = credentialStore.getConnection(project.name)
+      if (!credential) {
+        // User-config error before any pull happens — the global handler's
+        // validationError envelope is the right surface. Drop the run row so
+        // it doesn't linger as 'running'.
+        app.db.delete(runs).where(eq(runs.id, runId)).run()
+        throw validationError(
+          `No Vercel credential found for project "${project.name}". Run "canonry traffic connect vercel" first.`,
+        )
+      }
+
+      const config = parseSourceConfig(sourceRow)
+      const vercelProjectId = (config.projectId as string | undefined) ?? credential.projectId
+      const vercelTeamId = (config.teamId as string | undefined) ?? credential.teamId
+      const vercelEnvironment = (config.environment as 'production' | 'preview' | undefined)
+        ?? credential.environment
+
+      const requestedMinutes = request.body?.sinceMinutes
+      const windowMinutes = Number.isFinite(requestedMinutes) && requestedMinutes && requestedMinutes > 0
+        ? Math.floor(requestedMinutes)
+        : syncWindowMinutes
+
+      // Clamp windowStart forward to lastSyncedAt so back-to-back syncs don't
+      // re-pull the previous window and double-count via the `hits + ?` upsert.
+      const requestedStartMs = windowEnd.getTime() - windowMinutes * 60_000
+      const lastSyncedMs = sourceRow.lastSyncedAt
+        ? new Date(sourceRow.lastSyncedAt).getTime()
+        : Number.NEGATIVE_INFINITY
+      windowStart = new Date(
+        Math.min(windowEnd.getTime(), Math.max(requestedStartMs, lastSyncedMs)),
+      )
+
+      let page: VercelTrafficEventsPage
+      try {
+        page = await pullVercelEvents({
+          token: credential.token,
+          projectId: vercelProjectId,
+          teamId: vercelTeamId,
+          environment: vercelEnvironment,
+          startDate: windowStart.getTime(),
+          endDate: windowEnd.getTime(),
+          maxPages: vercelMaxPages,
+        })
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        markFailed(msg, 'PROVIDER_PULL')
+        throw providerError(`Vercel pull failed: ${msg}`)
+      }
+      if (page.hasMore) {
+        // Budget exhausted with the window not fully drained. Advancing
+        // `lastSyncedAt` here would skip the un-pulled pages, so fail
+        // instead — the next sync (or a narrower `--since-minutes`, or a
+        // backfill) can cover the window without losing rows.
+        const msg = `Vercel sync window exceeded the ${vercelMaxPages}-page budget — narrow the window with --since-minutes or run a backfill`
+        markFailed(msg, 'PROVIDER_PULL')
+        throw providerError(`Vercel pull failed: ${msg}`)
+      }
+      allEvents = page.events
     }
 
     let crawlerBucketRows = 0
@@ -1224,9 +1485,10 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     if (
       sourceRow.sourceType !== TrafficSourceTypes['cloud-run']
       && sourceRow.sourceType !== TrafficSourceTypes.wordpress
+      && sourceRow.sourceType !== TrafficSourceTypes.vercel
     ) {
       throw validationError(
-        `Backfill for source type "${sourceRow.sourceType}" is not implemented yet — only cloud-run and wordpress are supported in v1.`,
+        `Backfill for source type "${sourceRow.sourceType}" is not implemented yet — only cloud-run, wordpress, and vercel are supported in v1.`,
       )
     }
 
@@ -1291,7 +1553,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         })
         return page.events
       }
-    } else {
+    } else if (sourceRow.sourceType === TrafficSourceTypes.wordpress) {
       const credentialStore = opts.wordpressTrafficCredentialStore
       if (!credentialStore) {
         throw validationError('WordPress traffic credential storage is not configured for this deployment')
@@ -1335,6 +1597,49 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           if (!cursor || cursor === previousCursor) break
         }
         return collected
+      }
+    } else {
+      // Vercel `request-logs` window backfill. Pulls the fixed
+      // `[windowStart, windowEnd]` window with a large page budget. Backfill
+      // is replace mode — runBackfillTask deletes the window's rollup buckets
+      // before re-ingesting — so a truncated pull would wipe existing data
+      // and leave only a partial set. If the budget is exhausted with
+      // `hasMore` still true, fail loudly (mirrors the sync path) so the
+      // operator re-runs with a narrower `--days` instead of losing rows.
+      const credentialStore = opts.vercelTrafficCredentialStore
+      if (!credentialStore) {
+        throw validationError('Vercel traffic credential storage is not configured for this deployment')
+      }
+      const credential = credentialStore.getConnection(project.name)
+      if (!credential) {
+        throw validationError(
+          `No Vercel credential found for project "${project.name}". Run "canonry traffic connect vercel" first.`,
+        )
+      }
+
+      const config = parseSourceConfig(sourceRow)
+      const vercelProjectId = (config.projectId as string | undefined) ?? credential.projectId
+      const vercelTeamId = (config.teamId as string | undefined) ?? credential.teamId
+      const vercelEnvironment = (config.environment as 'production' | 'preview' | undefined)
+        ?? credential.environment
+
+      pullErrorPrefix = 'Vercel pull failed'
+      pullForBackfill = async () => {
+        const page = await pullVercelEvents({
+          token: credential.token,
+          projectId: vercelProjectId,
+          teamId: vercelTeamId,
+          environment: vercelEnvironment,
+          startDate: windowStart.getTime(),
+          endDate: windowEnd.getTime(),
+          maxPages: BACKFILL_MAX_PAGES,
+        })
+        if (page.hasMore) {
+          throw new Error(
+            `backfill window exceeded the ${BACKFILL_MAX_PAGES}-page budget — narrow the window with --days`,
+          )
+        }
+        return page.events
       }
     }
 

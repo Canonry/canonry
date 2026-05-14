@@ -21,6 +21,7 @@ import {
   scheduleUpsertRequestSchema,
   trafficConnectCloudRunRequestSchema,
   trafficConnectWordpressRequestSchema,
+  trafficConnectVercelRequestSchema,
   trafficEventKindSchema,
   type NotificationEvent,
 } from '@ainyc/canonry-contracts'
@@ -238,6 +239,11 @@ const trafficConnectCloudRunInputSchema = z.object({
 const trafficConnectWordpressInputSchema = z.object({
   project: projectNameSchema,
   request: trafficConnectWordpressRequestSchema,
+})
+
+const trafficConnectVercelInputSchema = z.object({
+  project: projectNameSchema,
+  request: trafficConnectVercelRequestSchema,
 })
 
 const trafficSyncInputSchema = z.object({
@@ -914,6 +920,17 @@ export const canonryMcpTools = [
     annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/traffic/connect/wordpress'],
     handler: (client, input) => client.trafficConnectWordpress(input.project, input.request),
+  }),
+  defineTool({
+    name: 'canonry_traffic_connect_vercel',
+    title: 'Connect Vercel traffic source',
+    description: 'Connect a Vercel project as a server-side traffic source. Pulls request logs from Vercel\'s internal request-logs endpoint — no in-app instrumentation needed. Probes the endpoint with the supplied API token before persisting — a bad token or wrong project / team id surfaces as a 502 error. Reconnecting updates the existing active Vercel source in place. The API token is stored in ~/.canonry/config.yaml (not the DB) and never echoed back.',
+    access: 'write',
+    tier: 'traffic',
+    inputSchema: trafficConnectVercelInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/traffic/connect/vercel'],
+    handler: (client, input) => client.trafficConnectVercel(input.project, input.request),
   }),
   defineTool({
     name: 'canonry_traffic_sync',

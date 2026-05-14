@@ -1,6 +1,7 @@
 import {
   trafficBackfill,
   trafficConnectCloudRun,
+  trafficConnectVercel,
   trafficConnectWordpress,
   trafficEvents,
   trafficSources,
@@ -74,13 +75,46 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['traffic', 'connect', 'vercel'],
+    usage: 'canonry traffic connect vercel <project> --project-id <prj> --team-id <team> (--token <token> | --token-file <path>) [--environment production|preview] [--display-name <name>] [--format json]',
+    options: {
+      'project-id': stringOption(),
+      'team-id': stringOption(),
+      token: stringOption(),
+      'token-file': stringOption(),
+      environment: stringOption(),
+      'display-name': stringOption(),
+    },
+    run: async (input) => {
+      const project = requireProject(
+        input,
+        'traffic.connect.vercel',
+        'canonry traffic connect vercel <project> --project-id <prj> --team-id <team> (--token <token> | --token-file <path>)',
+      )
+      const projectId = getString(input.values, 'project-id')
+      if (!projectId) throw new Error('--project-id is required')
+      const teamId = getString(input.values, 'team-id')
+      if (!teamId) throw new Error('--team-id is required')
+
+      await trafficConnectVercel(project, {
+        projectId,
+        teamId,
+        token: getString(input.values, 'token'),
+        tokenFile: getString(input.values, 'token-file'),
+        environment: getString(input.values, 'environment'),
+        displayName: getString(input.values, 'display-name'),
+        format: input.format,
+      })
+    },
+  },
+  {
     path: ['traffic', 'connect'],
     usage: 'canonry traffic connect <provider> <project> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'traffic connect',
         usage: 'canonry traffic connect <provider> <project> [args]',
-        available: ['cloud-run', 'wordpress'],
+        available: ['cloud-run', 'wordpress', 'vercel'],
       })
     },
   },

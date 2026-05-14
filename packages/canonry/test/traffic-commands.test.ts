@@ -218,6 +218,71 @@ describe('traffic CLI commands', () => {
     expect(result.stderr).toMatch(/failed to read --app-password-file/i)
   })
 
+  it('rejects traffic connect vercel without --project-id', async () => {
+    const result = await invokeCli([
+      'traffic', 'connect', 'vercel', 'test-proj',
+      '--team-id', 'team_xyz',
+      '--token', 'vcp_test',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/--project-id/)
+  })
+
+  it('rejects traffic connect vercel without --team-id', async () => {
+    const result = await invokeCli([
+      'traffic', 'connect', 'vercel', 'test-proj',
+      '--project-id', 'prj_abc',
+      '--token', 'vcp_test',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/--team-id/)
+  })
+
+  it('rejects traffic connect vercel without --token or --token-file', async () => {
+    const result = await invokeCli([
+      'traffic', 'connect', 'vercel', 'test-proj',
+      '--project-id', 'prj_abc',
+      '--team-id', 'team_xyz',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/--token/)
+  })
+
+  it('rejects traffic connect vercel when both --token and --token-file are passed', async () => {
+    const result = await invokeCli([
+      'traffic', 'connect', 'vercel', 'test-proj',
+      '--project-id', 'prj_abc',
+      '--team-id', 'team_xyz',
+      '--token', 'vcp_test',
+      '--token-file', '/tmp/token.txt',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/not both/i)
+  })
+
+  it('reports a clear error when --token-file cannot be read', async () => {
+    const result = await invokeCli([
+      'traffic', 'connect', 'vercel', 'test-proj',
+      '--project-id', 'prj_abc',
+      '--team-id', 'team_xyz',
+      '--token-file', '/tmp/this-file-really-does-not-exist-vercelxyzzy.txt',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/failed to read --token-file/i)
+  })
+
+  it('rejects traffic connect vercel with an invalid --environment', async () => {
+    const result = await invokeCli([
+      'traffic', 'connect', 'vercel', 'test-proj',
+      '--project-id', 'prj_abc',
+      '--team-id', 'team_xyz',
+      '--token', 'vcp_test',
+      '--environment', 'staging',
+    ])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/--environment must be/i)
+  })
+
   it('rejects traffic sync without --source', async () => {
     const result = await invokeCli(['traffic', 'sync', 'test-proj'])
     expect(result.exitCode).not.toBe(0)

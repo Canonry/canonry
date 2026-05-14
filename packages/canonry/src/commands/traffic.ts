@@ -162,6 +162,98 @@ export async function trafficConnectCloudRun(project: string, opts: {
   console.log(`Next: canonry traffic sync ${project} --source ${result.id}`)
 }
 
+export async function trafficConnectVercel(project: string, opts: {
+  projectId: string
+  teamId: string
+  /** Inline Vercel API token value. Mutually exclusive with `tokenFile`. */
+  token?: string
+  /** Path to a file containing the Vercel API token. Preferred — keeps the secret out of shell history. */
+  tokenFile?: string
+  environment?: string
+  displayName?: string
+  format?: string
+}): Promise<void> {
+  if (!opts.projectId) {
+    throw new CliError({
+      code: 'TRAFFIC_VERCEL_PROJECT_ID_REQUIRED',
+      message: '--project-id is required',
+      displayMessage: 'Error: --project-id is required (the Vercel project id, e.g. prj_...)',
+      details: { project },
+    })
+  }
+  if (!opts.teamId) {
+    throw new CliError({
+      code: 'TRAFFIC_VERCEL_TEAM_ID_REQUIRED',
+      message: '--team-id is required',
+      displayMessage: 'Error: --team-id is required (the Vercel team / owner id, e.g. team_...)',
+      details: { project },
+    })
+  }
+  if (opts.token && opts.tokenFile) {
+    throw new CliError({
+      code: 'TRAFFIC_VERCEL_TOKEN_CONFLICT',
+      message: '--token and --token-file are mutually exclusive',
+      displayMessage: 'Error: pass either --token <token> or --token-file <path>, not both',
+      details: { project },
+    })
+  }
+  let token = opts.token?.trim() ?? ''
+  if (!token && opts.tokenFile) {
+    const fs = await import('node:fs')
+    try {
+      token = fs.readFileSync(opts.tokenFile, 'utf-8').trim()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      throw new CliError({
+        code: 'TRAFFIC_VERCEL_TOKEN_FILE_READ_ERROR',
+        message: `Failed to read --token-file: ${msg}`,
+        displayMessage: `Error: failed to read --token-file "${opts.tokenFile}": ${msg}`,
+        details: { project, tokenFile: opts.tokenFile },
+      })
+    }
+  }
+  if (!token) {
+    throw new CliError({
+      code: 'TRAFFIC_VERCEL_TOKEN_REQUIRED',
+      message: '--token or --token-file is required',
+      displayMessage: 'Error: pass --token <token> or --token-file <path>',
+      details: { project },
+    })
+  }
+  if (opts.environment && opts.environment !== 'production' && opts.environment !== 'preview') {
+    throw new CliError({
+      code: 'TRAFFIC_VERCEL_INVALID_ENVIRONMENT',
+      message: '--environment must be "production" or "preview"',
+      displayMessage: 'Error: --environment must be "production" or "preview"',
+      details: { project, environment: opts.environment },
+    })
+  }
+
+  const client = getClient()
+  const result: TrafficSourceDto = await client.trafficConnectVercel(project, {
+    projectId: opts.projectId,
+    teamId: opts.teamId,
+    token,
+    environment: opts.environment as 'production' | 'preview' | undefined,
+    displayName: opts.displayName,
+  })
+
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  console.log(`Vercel traffic source connected for project "${project}".`)
+  console.log(`  Source ID:    ${result.id}`)
+  console.log(`  Display name: ${result.displayName}`)
+  console.log(`  Status:       ${result.status}`)
+  console.log(`  Project ID:   ${result.config.projectId ?? '(unset)'}`)
+  console.log(`  Team ID:      ${result.config.teamId ?? '(unset)'}`)
+  console.log(`  Environment:  ${result.config.environment ?? '(unset)'}`)
+  console.log('')
+  console.log(`Next: canonry traffic sync ${project} --source ${result.id}`)
+}
+
 export async function trafficBackfill(project: string, opts: {
   source: string
   days?: number

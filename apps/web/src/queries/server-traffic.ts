@@ -5,6 +5,7 @@ import { TrafficSourceStatuses } from '@ainyc/canonry-contracts'
 
 import {
   connectServerTrafficCloudRun,
+  connectServerTrafficVercel,
   connectServerTrafficWordpress,
   fetchServerTrafficEvents,
   fetchServerTrafficSource,
@@ -17,6 +18,7 @@ import {
   type ApiTrafficStatus,
   type ApiTrafficSyncResult,
   type TrafficConnectCloudRunRequest,
+  type TrafficConnectVercelRequest,
   type TrafficConnectWordpressRequest,
 } from '../api.js'
 import type { MetricTone } from '../view-models.js'
@@ -121,6 +123,20 @@ export function useConnectServerTrafficWordpress(project: string | null) {
     mutationFn: (request: TrafficConnectWordpressRequest) => {
       if (!project) throw new Error('Project is required to connect a WordPress source')
       return connectServerTrafficWordpress(project, request)
+    },
+    onSuccess: () => {
+      if (!project) return
+      void queryClient.invalidateQueries({ queryKey: queryKeys.serverTraffic.project(project) })
+    },
+  })
+}
+
+export function useConnectServerTrafficVercel(project: string | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (request: TrafficConnectVercelRequest) => {
+      if (!project) throw new Error('Project is required to connect a Vercel source')
+      return connectServerTrafficVercel(project, request)
     },
     onSuccess: () => {
       if (!project) return
