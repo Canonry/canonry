@@ -4,6 +4,8 @@ import {
   AGENT_MEMORY_VALUE_MAX_BYTES,
   competitorBatchRequestSchema,
   DISCOVERY_MAX_PROBES_CAP,
+  discoveryBucketSchema,
+  discoveryPromoteRequestSchema,
   discoveryRunRequestSchema,
   keywordBatchRequestSchema,
   keywordGenerateRequestSchema,
@@ -296,6 +298,25 @@ const discoverySessionsListInputSchema = z.object({
 const discoverySessionIdInputSchema = z.object({
   project: projectNameSchema,
   sessionId: z.string().min(1).describe('Discovery session ID returned by canonry_discover_run_start.'),
+})
+
+const discoveryPromoteInputSchema = z.object({
+  project: projectNameSchema,
+  sessionId: z.string().min(1).describe('Discovery session ID returned by canonry_discover_run_start.'),
+  request: discoveryPromoteRequestSchema
+    .extend({
+      // Stronger descriptions for the LLM. The base Zod schema enforces the shape.
+      buckets: z
+        .array(discoveryBucketSchema)
+        .min(1)
+        .optional()
+        .describe('Which probe buckets to adopt into the tracked basket. Omitted promotes cited + aspirational; include wasted-surface explicitly for off-ICP competitor gaps.'),
+      includeCompetitors: z
+        .boolean()
+        .optional()
+        .describe("Whether to also merge recurring discovered competitor domains into the project. Defaults to true."),
+    })
+    .optional(),
 })
 
 const AGENT_WEBHOOK_EVENTS = [
@@ -1233,7 +1254,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_discover_session_get',
     title: 'Get discovery session',
-    description: 'Get one discovery session with the full probe list (per-query bucket + cited domains). Use after canonry_discover_run_start to inspect what the discovery pipeline produced; this is the canonical read for "what did discovery find" before PR 2 lands `canonry discover promote`.',
+    description: 'Get one discovery session with the full probe list (per-query bucket + cited domains). Use after canonry_discover_run_start to inspect what the discovery pipeline produced; this is the canonical read for "what did discovery find" before calling canonry_discover_promote.',
     access: 'read',
     tier: 'discovery',
     inputSchema: discoverySessionIdInputSchema,
@@ -1244,13 +1265,24 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_discover_promote_preview',
     title: 'Preview discovery promotion',
-    description: 'Read-only preview of what `canonry discover promote` (PR 2) would persist for a session: bucketed query lists and suggested new competitor domains (those not already in the project\'s tracked competitor list). v1 returns the preview only; use it to confirm a basket before PR 2 ships the merge step.',
+    description: 'Read-only preview of available promotion candidates for a session: bucketed query lists and recurring suggested competitor domains not already in the project\'s tracked competitor list. Use it to confirm a basket before calling canonry_discover_promote.',
     access: 'read',
     tier: 'discovery',
     inputSchema: discoverySessionIdInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/discover/sessions/{id}/promote'],
     handler: (client, input) => client.previewDiscoveryPromote(input.project, input.sessionId),
+  }),
+  defineTool({
+    name: 'canonry_discover_promote',
+    title: 'Promote discovery session',
+    description: 'Adopt a completed discovery session\'s bucketed queries into the project\'s tracked basket, tagged with provenance "discovery:<sessionId>". By default, only cited + aspirational queries are promoted; include wasted-surface explicitly when off-ICP competitor gaps should also be tracked. Recurring discovered competitor domains are also merged by default. Add-only and idempotent: queries/domains already tracked are returned under `skipped`, never inserted twice. Only sessions with status "completed" can be promoted. Call canonry_discover_promote_preview first to inspect candidates.',
+    access: 'write',
+    tier: 'discovery',
+    inputSchema: discoveryPromoteInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/discover/sessions/{id}/promote'],
+    handler: (client, input) => client.promoteDiscovery(input.project, input.sessionId, input.request),
   }),
 ] as const
 

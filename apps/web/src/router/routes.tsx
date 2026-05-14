@@ -77,6 +77,12 @@ export const projectSearchConsoleRoute = createRoute({
   component: () => <ProjectPage tab="search-console" />,
 })
 
+export const projectDiscoveryRoute = createRoute({
+  getParentRoute: () => projectLayoutRoute,
+  path: '/discovery',
+  component: () => <ProjectPage tab="discovery" />,
+})
+
 export const projectReportRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
   path: '/report',
@@ -152,6 +158,7 @@ export const routeTree = rootRoute.addChildren([
   projectLayoutRoute.addChildren([
     projectOverviewRoute,
     projectSearchConsoleRoute,
+    projectDiscoveryRoute,
     projectReportRoute,
     projectActivityRoute,
     projectInboundRoute,

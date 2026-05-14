@@ -45,6 +45,7 @@ Detailed playbooks live alongside this file. Read them on demand when the task m
 |---|---|
 | `references/orchestration.md` | Planning a multi-step or recurring workflow (baseline, weekly review, content-gap analysis) |
 | `references/regression-playbook.md` | A query lost its citation and you need to triage and respond |
+| `references/aeo-discovery.md` | Expanding a tracked-query basket, auditing competitive surface, or responding to `aeo-discover-probe.completed` |
 | `references/memory-patterns.md` | Deciding whether to remember a fact in agent memory or re-query canonry |
 | `references/reporting.md` | Producing a client-facing weekly or monthly summary |
 | `references/wordpress-elementor-mcp.md` | Editing WordPress pages with the Elementor MCP integration |

@@ -1,6 +1,12 @@
 import { createApiClient } from '../client.js'
-import type { ApiClient, DiscoveryPromotePreview, DiscoveryRunStartResponse } from '../client.js'
-import type { DiscoverySessionDetailDto, DiscoverySessionDto } from '@ainyc/canonry-contracts'
+import type { ApiClient, DiscoveryRunStartResponse } from '../client.js'
+import type {
+  DiscoveryBucket,
+  DiscoveryPromotePreview,
+  DiscoveryPromoteRequest,
+  DiscoverySessionDetailDto,
+  DiscoverySessionDto,
+} from '@ainyc/canonry-contracts'
 import { CliError } from '../cli-error.js'
 
 const TERMINAL_DISCOVERY_STATUSES = new Set<DiscoverySessionDto['status']>([
@@ -51,7 +57,7 @@ export async function discoverRun(project: string, opts: DiscoverRunOptions): Pr
 
 export async function discoverSeed(project: string, opts: DiscoverRunOptions): Promise<void> {
   // PR 1 ships a single combined seed+probe pipeline behind one POST.
-  // The `seed` subcommand is offered for symmetry with the planned PR 2 flow
+  // The `seed` subcommand is offered for symmetry with a planned future flow
   // (`canonry discover seed → review → probe`); for now it kicks off the
   // same combined pipeline and aliases the experience.
   await discoverRun(project, opts)
@@ -60,7 +66,7 @@ export async function discoverSeed(project: string, opts: DiscoverRunOptions): P
 export async function discoverProbe(project: string, sessionId: string, opts: { format?: string }): Promise<void> {
   // PR 1's combined pipeline already probes during `discover run`. The probe
   // subcommand is provided as a read-only inspection of an existing session
-  // until PR 2 splits the phases.
+  // until a later PR splits the phases.
   const client = getClient()
   const session = await client.getDiscoverySession(project, sessionId)
   if (opts.format === 'json') {
@@ -123,7 +129,41 @@ export async function discoverPromotePreview(project: string, sessionId: string,
     console.log(`  Suggested new competitors:`)
     for (const c of preview.suggestedCompetitors) console.log(`    - ${c.domain} (${c.hits} hits)`)
   }
-  console.log(`\n  (PR 2 will add \`canonry discover promote\` to actually merge these into the project.)`)
+  console.log(`\n  Run \`canonry discover promote ${project} ${sessionId}\` to merge cited + aspirational queries.`)
+  console.log('  Add `--bucket wasted-surface` only when off-ICP competitor gaps should be tracked.')
+}
+
+export interface DiscoverPromoteOptions {
+  buckets?: DiscoveryBucket[]
+  includeCompetitors?: boolean
+  format?: string
+}
+
+export async function discoverPromote(
+  project: string,
+  sessionId: string,
+  opts: DiscoverPromoteOptions,
+): Promise<void> {
+  const client = getClient()
+  const body: DiscoveryPromoteRequest = {}
+  if (opts.buckets && opts.buckets.length > 0) body.buckets = opts.buckets
+  if (opts.includeCompetitors === false) body.includeCompetitors = false
+
+  const result = await client.promoteDiscovery(project, sessionId, body)
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+
+  const { promoted, skipped } = result
+  console.log(`Promoted discovery session ${sessionId} into "${project}":`)
+  console.log(`  Queries:     ${promoted.queries.length} added, ${skipped.queries.length} already tracked`)
+  for (const q of promoted.queries) console.log(`    + ${q}`)
+  console.log(`  Competitors: ${promoted.competitors.length} added, ${skipped.competitors.length} already tracked`)
+  for (const c of promoted.competitors) console.log(`    + ${c}`)
+  if (promoted.queries.length === 0 && promoted.competitors.length === 0) {
+    console.log(`  Nothing new — the project's basket already covers this session.`)
+  }
 }
 
 function printSessionDetail(session: DiscoverySessionDetailDto): void {

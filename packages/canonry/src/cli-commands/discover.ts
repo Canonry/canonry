@@ -1,15 +1,19 @@
 import {
   discoverList,
   discoverProbe,
+  discoverPromote,
   discoverPromotePreview,
   discoverRun,
   discoverSeed,
   discoverShow,
 } from '../commands/discover.js'
-import type { CliCommandSpec } from '../cli-dispatch.js'
+import { discoveryBucketSchema, type DiscoveryBucket } from '@ainyc/canonry-contracts'
+import type { CliCommandSpec, CliValues } from '../cli-dispatch.js'
 import {
   getBoolean,
   getString,
+  getStringArray,
+  multiStringOption,
   parseIntegerOption,
   requirePositional,
   requireProject,
@@ -28,6 +32,38 @@ function parseFloatOption(values: Record<string, unknown>, key: string, usage: s
     })
   }
   return parsed
+}
+
+function parseBucketsOption(values: CliValues, usage: string): DiscoveryBucket[] | undefined {
+  const raw = getStringArray(values, 'bucket')
+  if (!raw || raw.length === 0) return undefined
+  // Accept both repeated flags (--bucket cited --bucket aspirational) and
+  // comma-separated values (--bucket cited,aspirational).
+  const expanded = raw.flatMap(v => v.split(',')).map(v => v.trim()).filter(Boolean)
+  if (expanded.length === 0) {
+    throw usageError(
+      `Error: --bucket must include at least one value (valid: cited, aspirational, wasted-surface)\nUsage: ${usage}`,
+      {
+        message: '--bucket must include at least one value',
+        details: { command: 'discover.promote', usage, option: 'bucket', value: raw },
+      },
+    )
+  }
+  const buckets: DiscoveryBucket[] = []
+  for (const value of expanded) {
+    const parsed = discoveryBucketSchema.safeParse(value)
+    if (!parsed.success) {
+      throw usageError(
+        `Error: invalid --bucket value "${value}" (valid: cited, aspirational, wasted-surface)\nUsage: ${usage}`,
+        {
+          message: `invalid --bucket value "${value}"`,
+          details: { command: 'discover.promote', usage, option: 'bucket', value },
+        },
+      )
+    }
+    buckets.push(parsed.data)
+  }
+  return buckets
 }
 
 export const DISCOVER_CLI_COMMANDS: readonly CliCommandSpec[] = [
@@ -145,6 +181,30 @@ export const DISCOVER_CLI_COMMANDS: readonly CliCommandSpec[] = [
         message: 'session ID is required',
       })
       await discoverShow(project, sessionId, { format: input.format })
+    },
+  },
+  {
+    path: ['discover', 'promote'],
+    usage:
+      'canonry discover promote <project> <session-id> [--bucket cited,aspirational,wasted-surface] [--no-competitors] [--format json]',
+    options: {
+      bucket: multiStringOption(),
+      'no-competitors': { type: 'boolean', default: false },
+    },
+    run: async (input) => {
+      const usage =
+        'canonry discover promote <project> <session-id> [--bucket cited,aspirational,wasted-surface] [--no-competitors] [--format json]'
+      const project = requireProject(input, 'discover.promote', usage)
+      const sessionId = requirePositional(input, 1, {
+        command: 'discover.promote',
+        usage,
+        message: 'session ID is required',
+      })
+      await discoverPromote(project, sessionId, {
+        buckets: parseBucketsOption(input.values, usage),
+        includeCompetitors: !getBoolean(input.values, 'no-competitors'),
+        format: input.format,
+      })
     },
   },
   {

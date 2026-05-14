@@ -290,7 +290,7 @@ function writeDiscoveryInsight(
     provider: input.seedProvider,
     recommendation: JSON.stringify({
       action: 'review-discovered-basket',
-      summary: `Run \`canonry discover show ${input.sessionId} --format json\` to inspect the per-query breakdown. PR 2 will add \`canonry discover promote\` to merge the basket into the project.`,
+      summary: `Run \`canonry discover show ${input.sessionId} --format json\` to inspect the per-query breakdown, then \`canonry discover promote <project> ${input.sessionId}\` to merge cited + aspirational findings into the project.`,
       bucketCounts: buckets,
       topCompetitors,
     }),

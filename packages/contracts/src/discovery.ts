@@ -4,6 +4,12 @@ import { citationStateSchema } from './run.js'
 export const discoveryBucketSchema = z.enum(['cited', 'aspirational', 'wasted-surface'])
 export type DiscoveryBucket = z.infer<typeof discoveryBucketSchema>
 export const DiscoveryBuckets = discoveryBucketSchema.enum
+export const DEFAULT_DISCOVERY_PROMOTE_BUCKETS = [
+  DiscoveryBuckets.cited,
+  DiscoveryBuckets.aspirational,
+] as const satisfies readonly DiscoveryBucket[]
+export const DISCOVERY_PROMOTE_COMPETITOR_CAP = 20
+export const DISCOVERY_PROMOTE_COMPETITOR_MIN_HITS = 2
 
 export const discoverySessionStatusSchema = z.enum(['queued', 'seeding', 'probing', 'completed', 'failed'])
 export type DiscoverySessionStatus = z.infer<typeof discoverySessionStatusSchema>
@@ -68,11 +74,66 @@ export const discoveryRunRequestSchema = z.object({
 export type DiscoveryRunRequest = z.infer<typeof discoveryRunRequestSchema>
 
 /**
+ * `POST /projects/:name/discover/sessions/:id/promote` request.
+ *
+ * - `buckets` — which probe buckets to adopt into the tracked basket. Omitted
+ *   means the production-safe default (`cited`, `aspirational`). Include
+ *   `wasted-surface` explicitly when off-ICP competitor gaps should also be
+ *   tracked.
+ * - `includeCompetitors` — whether to also merge the session's discovered
+ *   competitor domains into the project. Omitted means `true`; only recurring
+ *   domains with at least `DISCOVERY_PROMOTE_COMPETITOR_MIN_HITS` hits are
+ *   eligible.
+ */
+export const discoveryPromoteRequestSchema = z.object({
+  buckets: z.array(discoveryBucketSchema).min(1).optional(),
+  includeCompetitors: z.boolean().optional(),
+})
+export type DiscoveryPromoteRequest = z.infer<typeof discoveryPromoteRequestSchema>
+
+/**
+ * `GET .../promote` response — a read-only preview of what a promote would
+ * persist. Bucketed query lists plus competitor domains not already tracked.
+ */
+export const discoveryPromotePreviewSchema = z.object({
+  sessionId: z.string(),
+  projectId: z.string(),
+  status: discoverySessionStatusSchema,
+  queriesByBucket: z.object({
+    cited: z.array(z.string()),
+    aspirational: z.array(z.string()),
+    'wasted-surface': z.array(z.string()),
+  }),
+  suggestedCompetitors: z.array(discoveryCompetitorMapEntrySchema),
+})
+export type DiscoveryPromotePreview = z.infer<typeof discoveryPromotePreviewSchema>
+
+/**
+ * `POST .../promote` response. Promotion is add-only and idempotent: queries
+ * and competitor domains already tracked by the project land in `skipped`
+ * rather than being inserted twice, so re-running a promote is safe.
+ */
+export const discoveryPromoteResultSchema = z.object({
+  sessionId: z.string(),
+  projectId: z.string(),
+  promoted: z.object({
+    queries: z.array(z.string()),
+    competitors: z.array(z.string()),
+  }),
+  skipped: z.object({
+    queries: z.array(z.string()),
+    competitors: z.array(z.string()),
+  }),
+})
+export type DiscoveryPromoteResult = z.infer<typeof discoveryPromoteResultSchema>
+
+/**
  * `queries.provenance` / `competitors.provenance` value vocabulary.
  *
  * - `'cli'` — operator-entered via `canonry query add` / `competitor add` (or
  *   the v55 backfill for pre-discovery rows).
- * - `'discovery:<sessionId>'` — promoted out of a discovery session (PR 2 +).
+ * - `'discovery:<sessionId>'` — adopted out of a discovery session via
+ *   `canonry discover promote`.
  *
  * NULL means a post-v55 row whose writer forgot to set provenance; treat as a
  * bug rather than as a meaningful state.

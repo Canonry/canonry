@@ -2,8 +2,11 @@ import { test, expect } from 'vitest'
 import {
   RunKinds,
   runKindSchema,
-  DiscoveryBuckets,
-  discoveryBucketSchema,
+	  DiscoveryBuckets,
+	  DEFAULT_DISCOVERY_PROMOTE_BUCKETS,
+	  DISCOVERY_PROMOTE_COMPETITOR_CAP,
+	  DISCOVERY_PROMOTE_COMPETITOR_MIN_HITS,
+	  discoveryBucketSchema,
   DiscoverySessionStatuses,
   discoverySessionStatusSchema,
   DISCOVERY_MAX_PROBES_CAP,
@@ -12,6 +15,8 @@ import {
   discoverySessionDetailDtoSchema,
   discoveryCompetitorMapEntrySchema,
   discoveryRunRequestSchema,
+  discoveryPromoteRequestSchema,
+  discoveryPromoteResultSchema,
   queryProvenanceSchema,
 } from '../src/index.js'
 
@@ -27,6 +32,16 @@ test('discoveryBucketSchema covers the three named buckets and rejects others', 
   expect(DiscoveryBuckets.aspirational).toBe('aspirational')
   expect(DiscoveryBuckets['wasted-surface']).toBe('wasted-surface')
   expect(() => discoveryBucketSchema.parse('unknown')).toThrow()
+})
+
+test('discovery promote defaults are production-safe', () => {
+  expect(DEFAULT_DISCOVERY_PROMOTE_BUCKETS).toEqual([
+    DiscoveryBuckets.cited,
+    DiscoveryBuckets.aspirational,
+  ])
+  expect(DEFAULT_DISCOVERY_PROMOTE_BUCKETS).not.toContain(DiscoveryBuckets['wasted-surface'])
+  expect(DISCOVERY_PROMOTE_COMPETITOR_MIN_HITS).toBe(2)
+  expect(DISCOVERY_PROMOTE_COMPETITOR_CAP).toBe(20)
 })
 
 test('discoverySessionStatusSchema enumerates the lifecycle states', () => {
@@ -190,4 +205,36 @@ test('queryProvenanceSchema rejects other strings', () => {
   expect(() => queryProvenanceSchema.parse('manual')).toThrow()
   expect(() => queryProvenanceSchema.parse('discovery:')).toThrow()
   expect(() => queryProvenanceSchema.parse('')).toThrow()
+})
+
+test('discoveryPromoteRequestSchema accepts an empty object (server applies safe defaults)', () => {
+  const req = discoveryPromoteRequestSchema.parse({})
+  expect(req.buckets).toBeUndefined()
+  expect(req.includeCompetitors).toBeUndefined()
+})
+
+test('discoveryPromoteRequestSchema accepts a bucket subset and includeCompetitors', () => {
+  const req = discoveryPromoteRequestSchema.parse({
+    buckets: ['cited', 'aspirational'],
+    includeCompetitors: false,
+  })
+  expect(req.buckets).toEqual(['cited', 'aspirational'])
+  expect(req.includeCompetitors).toBe(false)
+})
+
+test('discoveryPromoteRequestSchema rejects an empty buckets array and unknown bucket names', () => {
+  expect(() => discoveryPromoteRequestSchema.parse({ buckets: [] })).toThrow()
+  expect(() => discoveryPromoteRequestSchema.parse({ buckets: ['not-a-bucket'] })).toThrow()
+})
+
+test('discoveryPromoteResultSchema requires promoted + skipped query/competitor lists', () => {
+  const result = discoveryPromoteResultSchema.parse({
+    sessionId: 'sess-1',
+    projectId: 'proj-1',
+    promoted: { queries: ['q1', 'q2'], competitors: ['a.com'] },
+    skipped: { queries: ['q3'], competitors: [] },
+  })
+  expect(result.promoted.queries).toEqual(['q1', 'q2'])
+  expect(result.skipped.competitors).toEqual([])
+  expect(() => discoveryPromoteResultSchema.parse({ sessionId: 'x', projectId: 'y' })).toThrow()
 })

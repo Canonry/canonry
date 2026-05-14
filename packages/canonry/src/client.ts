@@ -82,8 +82,9 @@ import type {
   TrafficBackfillResponse,
   DiscoverySessionDto,
   DiscoverySessionDetailDto,
-  DiscoveryCompetitorMapEntry,
-  DiscoveryBucket,
+  DiscoveryPromotePreview,
+  DiscoveryPromoteRequest,
+  DiscoveryPromoteResult,
 } from '@ainyc/canonry-contracts'
 
 export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry, CompetitorDto, KeywordDto, QueryDto }
@@ -156,15 +157,6 @@ export interface DiscoveryRunStartResponse {
   runId: string
   sessionId: string
   status: 'running'
-}
-
-/** Response shape of GET /projects/:name/discover/sessions/:id/promote */
-export interface DiscoveryPromotePreview {
-  sessionId: string
-  projectId: string
-  queriesByBucket: Record<DiscoveryBucket, string[]>
-  suggestedCompetitors: DiscoveryCompetitorMapEntry[]
-  status: string
 }
 
 /**
@@ -926,6 +918,18 @@ export class ApiClient {
     return this.request<DiscoveryPromotePreview>(
       'GET',
       `/projects/${encodeURIComponent(project)}/discover/sessions/${encodeURIComponent(sessionId)}/promote`,
+    )
+  }
+
+  async promoteDiscovery(
+    project: string,
+    sessionId: string,
+    body?: DiscoveryPromoteRequest,
+  ): Promise<DiscoveryPromoteResult> {
+    return this.request<DiscoveryPromoteResult>(
+      'POST',
+      `/projects/${encodeURIComponent(project)}/discover/sessions/${encodeURIComponent(sessionId)}/promote`,
+      body ?? {},
     )
   }
 

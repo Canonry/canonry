@@ -95,11 +95,12 @@ const expectedToolNames = [
   'canonry_discover_sessions_list',
   'canonry_discover_session_get',
   'canonry_discover_promote_preview',
+  'canonry_discover_promote',
 ] as const
 
 describe('MCP tool registry', () => {
   it('ships the curated v1 surface', () => {
-    expect(CANONRY_MCP_TOOL_COUNT).toBe(79)
+    expect(CANONRY_MCP_TOOL_COUNT).toBe(80)
     expect(CANONRY_MCP_READ_TOOL_COUNT).toBe(52)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read').map(tool => tool.name)
@@ -142,7 +143,7 @@ describe('MCP tool registry', () => {
     expect(counts.get('ga')).toBe(8)
     expect(counts.get('traffic')).toBe(8)
     expect(counts.get('agent')).toBe(5)
-    expect(counts.get('discovery')).toBe(4)
+    expect(counts.get('discovery')).toBe(5)
   })
 
   it('generates JSON schema from every Zod input schema', () => {
@@ -567,6 +568,7 @@ const handlerCases: HandlerCase[] = [
   { tool: 'canonry_discover_sessions_list', input: { project: 'acme', limit: 5 }, methods: ['listDiscoverySessions'] },
   { tool: 'canonry_discover_session_get', input: { project: 'acme', sessionId: 'sess-1' }, methods: ['getDiscoverySession'] },
   { tool: 'canonry_discover_promote_preview', input: { project: 'acme', sessionId: 'sess-1' }, methods: ['previewDiscoveryPromote'] },
+  { tool: 'canonry_discover_promote', input: { project: 'acme', sessionId: 'sess-1' }, methods: ['promoteDiscovery'] },
 ]
 
 function makeClient(calls: Array<{ method: string; args: unknown[] }>, fixture?: 'agent-notification'): ApiClient {
