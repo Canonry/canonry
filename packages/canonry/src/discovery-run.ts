@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import type { DatabaseClient } from '@ainyc/canonry-db'
 import {
   competitors,
@@ -474,33 +474,51 @@ function writeDiscoveryInsight(
     totalProbes,
   })
 
-  db.insert(insights).values({
-    id: crypto.randomUUID(),
-    projectId: input.projectId,
-    runId: input.runId,
-    type: 'discovery.basket-divergence',
-    severity,
-    title,
-    // query/provider fields don't fit the visibility-snapshot model for a
-    // session-level insight. Use the session marker so the
-    // (query, provider) index stays distinct across sessions; PR 5 will
-    // formalize a session-scoped insight subtype.
-    query: `discovery:${input.sessionId}`,
-    provider: input.seedProvider,
-    recommendation: JSON.stringify({
-      action: 'review-discovered-basket',
-      summary: `Run \`canonry discover show ${input.sessionId} --format json\` to inspect the per-query breakdown, then \`canonry discover promote <project> ${input.sessionId}\` to merge cited + aspirational findings into the project.`,
-      bucketCounts: buckets,
-      topCompetitors,
-    }),
-    cause: JSON.stringify({
-      sessionId: input.sessionId,
-      totalProbes,
-      seedProvider: input.seedProvider,
-    }),
-    dismissed: false,
-    createdAt: new Date().toISOString(),
-  }).run()
+  // Dismiss prior basket-divergence insights for this project before
+  // writing the new one. The insight is session-level — every discovery
+  // run produces one. Without this dedup, every session leaves a fresh
+  // insight in the active list AND keeps the older ones around, drowning
+  // the analyst's view (12 stale entries after 12 sessions, as observed
+  // on azcoatings May 2026). The newest session's findings supersede the
+  // older ones by definition, so auto-dismiss is the right semantic.
+  db.transaction((tx) => {
+    tx.update(insights)
+      .set({ dismissed: true })
+      .where(and(
+        eq(insights.projectId, input.projectId),
+        eq(insights.type, 'discovery.basket-divergence'),
+        eq(insights.dismissed, false),
+      ))
+      .run()
+
+    tx.insert(insights).values({
+      id: crypto.randomUUID(),
+      projectId: input.projectId,
+      runId: input.runId,
+      type: 'discovery.basket-divergence',
+      severity,
+      title,
+      // query/provider fields don't fit the visibility-snapshot model for
+      // a session-level insight. Use the session marker so the
+      // (query, provider) index stays distinct across sessions; PR 5 will
+      // formalize a session-scoped insight subtype.
+      query: `discovery:${input.sessionId}`,
+      provider: input.seedProvider,
+      recommendation: JSON.stringify({
+        action: 'review-discovered-basket',
+        summary: `Run \`canonry discover show ${input.sessionId} --format json\` to inspect the per-query breakdown, then \`canonry discover promote <project> ${input.sessionId}\` to merge cited + aspirational findings into the project.`,
+        bucketCounts: buckets,
+        topCompetitors,
+      }),
+      cause: JSON.stringify({
+        sessionId: input.sessionId,
+        totalProbes,
+        seedProvider: input.seedProvider,
+      }),
+      dismissed: false,
+      createdAt: new Date().toISOString(),
+    }).run()
+  })
 }
 
 function buildDiscoveryInsightTitle(input: {

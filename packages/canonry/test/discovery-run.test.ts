@@ -166,6 +166,72 @@ describe('executeDiscoveryRun', () => {
     expect(recommendation.topCompetitors.some(c => c.domain === 'aurora-solar.com')).toBe(true)
   })
 
+  it('dismisses prior basket-divergence insights for the project when a new session writes one', async () => {
+    // Without dedup, the session-level basket-divergence insight accumulates
+    // — every discovery run leaves a fresh insight active and the older
+    // ones stick around. azcoatings May 2026 had 12 active entries from
+    // 12 sessions, all flagging the same aggregate. The newest session's
+    // findings supersede the prior ones by definition, so auto-dismiss
+    // is the right semantic.
+    const { db, projectId, sessionId, runId } = setup()
+
+    // Plant a stale basket-divergence insight from a (notional) earlier
+    // session, and an unrelated regression insight that must NOT be
+    // touched by the dedup.
+    const stalePriorId = crypto.randomUUID()
+    db.insert(insights).values({
+      id: stalePriorId,
+      projectId,
+      runId,
+      type: 'discovery.basket-divergence',
+      severity: 'medium',
+      title: 'Older divergence (notional prior session)',
+      query: 'discovery:older-session',
+      provider: 'gemini-test',
+      recommendation: JSON.stringify({}),
+      cause: JSON.stringify({}),
+      dismissed: false,
+      createdAt: new Date(Date.now() - 60_000).toISOString(),
+    }).run()
+    const unrelatedRegressionId = crypto.randomUUID()
+    db.insert(insights).values({
+      id: unrelatedRegressionId,
+      projectId,
+      runId,
+      type: 'regression',
+      severity: 'high',
+      title: 'Unrelated regression',
+      query: 'some query',
+      provider: 'openai',
+      recommendation: JSON.stringify({}),
+      cause: JSON.stringify({}),
+      dismissed: false,
+      createdAt: new Date(Date.now() - 60_000).toISOString(),
+    }).run()
+
+    await executeDiscoveryRun({
+      db,
+      registry: new ProviderRegistry(),
+      runId,
+      sessionId,
+      projectId,
+      icpDescription: 'AEO test',
+      deps: buildDeps({ probeBuckets: ['cited', 'aspirational'] }),
+    })
+
+    const all = db.select().from(insights).all()
+    const stalePrior = all.find(i => i.id === stalePriorId)!
+    const unrelated = all.find(i => i.id === unrelatedRegressionId)!
+    expect(stalePrior.dismissed).toBe(true) // dismissed by the new session
+    expect(unrelated.dismissed).toBe(false) // untouched — different type
+
+    const activeDivergence = all.filter(
+      i => i.type === 'discovery.basket-divergence' && !i.dismissed,
+    )
+    expect(activeDivergence).toHaveLength(1)
+    expect(activeDivergence[0]!.query).toBe(`discovery:${sessionId}`)
+  })
+
   it('marks the run failed and writes session.error when the orchestrator throws', async () => {
     const { db, projectId, sessionId, runId } = setup()
 
