@@ -270,7 +270,7 @@ export function ProjectSettingsSection({
             <label className={labelClass}>Aliases</label>
             <p className="text-[11px] text-zinc-500 mb-1.5">
               Additional brand names checked against LLM answer text. Use for product names,
-              prior names, or DBAs (e.g. add "LlamaParse" if the project is "LlamaIndex").
+              prior names, or DBAs (e.g. add "Meta" as an alias to facebook.com).
             </p>
             <div className="flex flex-wrap gap-1.5 mb-2">
               {aliases.map((a) => (
@@ -284,7 +284,7 @@ export function ProjectSettingsSection({
               <input
                 className={`${inputClass} flex-1`}
                 type="text"
-                placeholder="LlamaParse"
+                placeholder="Facebook"
                 value={newAlias}
                 onChange={(e) => setNewAlias(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddAlias())}
