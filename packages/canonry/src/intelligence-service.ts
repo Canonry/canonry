@@ -466,6 +466,10 @@ export class IntelligenceService {
         cited: r.citationState === CitationStates.cited,
         citationUrl: domains[0] ?? undefined,
         competitorDomains: competitors,
+        // citedDomains is the FULL set (tracked competitors + third-party
+        // sources). Cause analysis uses it to name the displacing source
+        // when no tracked competitor appears in the response.
+        citedDomains: domains,
       }
     })
 

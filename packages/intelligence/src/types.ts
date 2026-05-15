@@ -12,6 +12,14 @@ export interface Snapshot {
    * tracked rival on the same (query, provider) pair.
    */
   competitorDomains?: readonly string[]
+  /**
+   * Every domain the engine actually cited for this (query, provider) —
+   * tracked competitors + third-party sources (publishers, gov sites,
+   * unrelated brands). Used by cause analysis to name a displacing source
+   * even when no tracked competitor appears, turning "audit yourself" into
+   * "audit who's winning."
+   */
+  citedDomains?: readonly string[]
 }
 
 export interface RunData {
@@ -52,7 +60,16 @@ export interface HealthTrend {
   delta: number
 }
 
-export type SuspectedCause = 'competitor_gain' | 'competitor_loss' | 'indexing_loss' | 'content_change' | 'unknown'
+export type SuspectedCause =
+  | 'competitor_gain'
+  | 'competitor_loss'
+  | 'indexing_loss'
+  | 'content_change'
+  /** Engine cites third-party sources (publishers, gov sites, unrelated
+   * brands) but no tracked competitor — points the analyst at the actual
+   * displacing domains rather than at an opaque self-audit. */
+  | 'third_party_displacement'
+  | 'unknown'
 
 export interface CauseAnalysis {
   cause: SuspectedCause

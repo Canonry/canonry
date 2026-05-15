@@ -29,7 +29,7 @@ describe('analyzeCause', () => {
     expect(result.details).toContain('chatgpt')
   })
 
-  it('returns unknown when no competitor domain is present', () => {
+  it('returns unknown when no competitor or third-party domain is present', () => {
     const reg = makeRegression()
     const snapshots: Snapshot[] = [
       { query: 'roof repair phoenix', provider: 'chatgpt', cited: false },
@@ -38,6 +38,69 @@ describe('analyzeCause', () => {
     const result = analyzeCause(reg, snapshots)
     expect(result.cause).toBe('unknown')
     expect(result.competitorDomain).toBeUndefined()
+  })
+
+  it('identifies third_party_displacement when no tracked competitor is in the snapshot but the engine cited other domains', () => {
+    // The May 2026 azcoatings case: openai stopped citing the project for
+    // "polyurea roof coating michigan" and grounded on michigan.gov + gaf.com
+    // instead. Neither was in the configured competitor list, so the old
+    // detector returned `cause: unknown` and the recommendation was the
+    // useless "audit yourself, position unknown."
+    const reg = makeRegression()
+    const snapshots: Snapshot[] = [
+      {
+        query: 'roof repair phoenix',
+        provider: 'chatgpt',
+        cited: false,
+        competitorDomains: [],
+        citedDomains: ['phoenix.gov', 'angi.com', 'somebody-else.com'],
+      },
+    ]
+
+    const result = analyzeCause(reg, snapshots)
+    expect(result.cause).toBe('third_party_displacement')
+    expect(result.competitorDomain).toBeUndefined()
+    expect(result.details).toContain('phoenix.gov')
+    expect(result.details).toContain('angi.com')
+    expect(result.details).toContain('roof repair phoenix')
+    expect(result.details).toContain('chatgpt')
+  })
+
+  it('prefers competitor_gain over third_party_displacement when both are present', () => {
+    const reg = makeRegression()
+    const snapshots: Snapshot[] = [
+      {
+        query: 'roof repair phoenix',
+        provider: 'chatgpt',
+        cited: false,
+        competitorDomains: ['rival.com'],
+        citedDomains: ['rival.com', 'phoenix.gov'],
+      },
+    ]
+
+    const result = analyzeCause(reg, snapshots)
+    expect(result.cause).toBe('competitor_gain')
+    expect(result.competitorDomain).toBe('rival.com')
+  })
+
+  it('caps third_party_displacement detail at the top 3 displacing domains', () => {
+    const reg = makeRegression()
+    const snapshots: Snapshot[] = [
+      {
+        query: 'roof repair phoenix',
+        provider: 'chatgpt',
+        cited: false,
+        citedDomains: ['a.com', 'b.com', 'c.com', 'd.com', 'e.com'],
+      },
+    ]
+
+    const result = analyzeCause(reg, snapshots)
+    expect(result.cause).toBe('third_party_displacement')
+    expect(result.details).toContain('a.com')
+    expect(result.details).toContain('b.com')
+    expect(result.details).toContain('c.com')
+    expect(result.details).not.toContain('d.com')
+    expect(result.details).not.toContain('e.com')
   })
 
   it('returns unknown when snapshots array is empty', () => {
