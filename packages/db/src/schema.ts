@@ -65,7 +65,14 @@ export const runs = sqliteTable('runs', {
 export const querySnapshots = sqliteTable('query_snapshots', {
   id: text('id').primaryKey(),
   runId: text('run_id').notNull().references(() => runs.id, { onDelete: 'cascade' }),
-  queryId: text('query_id').notNull().references(() => queries.id, { onDelete: 'cascade' }),
+  // `query_id` is nullable + `ON DELETE SET NULL` so historical snapshots
+  // outlive their queries row. Pre-v58 this FK cascaded — deleting a tracked
+  // query (PUT /queries replace, individual delete, `canonry apply` dropping
+  // one) silently wiped the entire citation history for that query. With SET
+  // NULL the snapshot survives; `queryText` keeps it self-describing when
+  // the queries row is gone.
+  queryId: text('query_id').references(() => queries.id, { onDelete: 'set null' }),
+  queryText: text('query_text'),
   provider: text('provider').notNull().default('gemini'),
   model: text('model'),
   citationState: text('citation_state').notNull(),

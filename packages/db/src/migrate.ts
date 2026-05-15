@@ -1107,6 +1107,69 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE runs ADD COLUMN queries TEXT`,
     ],
   },
+  {
+    version: 58,
+    name: 'snapshots-preserve-on-query-delete',
+    // The legacy `query_snapshots.query_id` FK was `ON DELETE CASCADE`, so a
+    // routine basket edit (PUT /queries replace, individual delete, `canonry
+    // apply` dropping a query) silently destroyed every historical citation
+    // snapshot for the removed queries — the regression history, transitions,
+    // and competitor-overlap evidence that are canonry's whole value.
+    //
+    // Fix: rebuild `query_snapshots` with `query_id` nullable + `ON DELETE
+    // SET NULL`, and add a denormalized `query_text` column populated from
+    // `queries.query` via the join. SQLite can't change FK or NOT NULL in
+    // place — same canonical table-rebuild pattern v53 used. All statements
+    // run inside the migration runner's single transaction.
+    //
+    // `run_id` keeps `ON DELETE CASCADE` — deleting a run legitimately
+    // removes its snapshots. Indexes are recreated on the renamed table.
+    statements: [
+      `CREATE TABLE IF NOT EXISTS query_snapshots_v58 (
+         id                       TEXT PRIMARY KEY,
+         run_id                   TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+         query_id                 TEXT REFERENCES queries(id) ON DELETE SET NULL,
+         query_text               TEXT,
+         provider                 TEXT NOT NULL DEFAULT 'gemini',
+         model                    TEXT,
+         citation_state           TEXT NOT NULL,
+         answer_mentioned         INTEGER,
+         answer_text              TEXT,
+         cited_domains            TEXT NOT NULL DEFAULT '[]',
+         competitor_overlap       TEXT NOT NULL DEFAULT '[]',
+         recommended_competitors  TEXT NOT NULL DEFAULT '[]',
+         location                 TEXT,
+         screenshot_path          TEXT,
+         raw_response             TEXT,
+         created_at               TEXT NOT NULL
+       )`,
+      // Backfill `query_text` from joined queries.query so existing snapshots
+      // stay readable even if their query is later deleted. LEFT JOIN so a
+      // row whose query somehow already vanished (shouldn't happen pre-v58,
+      // but be defensive) lands with NULL text rather than disappearing.
+      `INSERT INTO query_snapshots_v58 (
+         id, run_id, query_id, query_text, provider, model, citation_state,
+         answer_mentioned, answer_text, cited_domains, competitor_overlap,
+         recommended_competitors, location, screenshot_path, raw_response,
+         created_at
+       )
+       SELECT qs.id, qs.run_id, qs.query_id, q.query, qs.provider, qs.model,
+              qs.citation_state, qs.answer_mentioned, qs.answer_text,
+              qs.cited_domains, qs.competitor_overlap, qs.recommended_competitors,
+              qs.location, qs.screenshot_path, qs.raw_response, qs.created_at
+       FROM query_snapshots qs
+       LEFT JOIN queries q ON q.id = qs.query_id`,
+      `DROP TABLE query_snapshots`,
+      `ALTER TABLE query_snapshots_v58 RENAME TO query_snapshots`,
+      // Recreate the indexes that didn't survive the rename.
+      `CREATE INDEX IF NOT EXISTS idx_snapshots_run ON query_snapshots(run_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_snapshots_query ON query_snapshots(query_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_snapshots_citation_state ON query_snapshots(citation_state)`,
+      `CREATE INDEX IF NOT EXISTS idx_snapshots_provider_model ON query_snapshots(provider, model)`,
+      `CREATE INDEX IF NOT EXISTS idx_snapshots_location ON query_snapshots(location)`,
+      `CREATE INDEX IF NOT EXISTS idx_snapshots_created_at ON query_snapshots(created_at)`,
+    ],
+  },
 ]
 
 /**

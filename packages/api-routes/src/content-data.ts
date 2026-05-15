@@ -11,6 +11,7 @@
 
 import { and, eq, desc, inArray } from 'drizzle-orm'
 import {
+  filterTrackedSnapshots,
   queries,
   competitors as competitorsTable,
   querySnapshots,
@@ -323,11 +324,13 @@ function buildCandidateQueries(opts: BuildCandidateQueriesOpts): CandidateQuery[
     .map((q) => queryIdByText.get(q))
     .filter((id): id is string => Boolean(id))
 
-  const snapshotRows = opts.db
+  // Drop orphan snapshots (queryId NULL post-v58) before the candidate
+  // filter — `.includes()` typed `string[]` won't accept `string | null`.
+  const snapshotRows = filterTrackedSnapshots(opts.db
     .select()
     .from(querySnapshots)
     .where(inArray(querySnapshots.runId, opts.recentRunIds))
-    .all()
+    .all())
     .filter((r) => candidateQueryIds.includes(r.queryId))
 
   const snapshotsByQuery = new Map<string, typeof snapshotRows>()

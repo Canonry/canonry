@@ -1,6 +1,6 @@
 import { eq, desc, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { groupRunsByCreatedAt, pickGroupRepresentative, querySnapshots, runs, queries, parseJsonColumn } from '@ainyc/canonry-db'
+import { filterTrackedSnapshots, groupRunsByCreatedAt, pickGroupRepresentative, querySnapshots, runs, queries, parseJsonColumn } from '@ainyc/canonry-db'
 import { categorizeSource, categoryLabel, CitationStates, parseWindow, windowCutoff } from '@ainyc/canonry-contracts'
 import type {
   BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto,
@@ -42,7 +42,10 @@ export async function analyticsRoutes(app: FastifyInstance) {
     }
 
     const runIds = projectRuns.map(r => r.id)
-    const rawSnapshots = app.db
+    // Orphan snapshots (queryId NULL post-v58 — see schema.ts) can't be
+    // grouped by query; drop them at load so downstream `byQuery` keys stay
+    // valid `string`s.
+    const rawSnapshots = filterTrackedSnapshots(app.db
       .select({
         runId: querySnapshots.runId,
         queryId: querySnapshots.queryId,
@@ -54,7 +57,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       })
       .from(querySnapshots)
       .where(inArray(querySnapshots.runId, runIds))
-      .all()
+      .all())
 
     // Resolve answerMentioned for each snapshot (handles null/legacy data)
     const allSnapshots = rawSnapshots.map(s => ({
@@ -148,7 +151,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     // Consistency: for each query, count how many *time-points* cited/mentioned it
     const consistencyMap = new Map<string, { citedRuns: Set<string>; totalRuns: Set<string>; mentionedRuns: Set<string> }>()
     if (windowRunIds.length > 0) {
-      const allWindowSnaps = app.db
+      const allWindowSnaps = filterTrackedSnapshots(app.db
         .select({
           queryId: querySnapshots.queryId,
           runId: querySnapshots.runId,
@@ -158,7 +161,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         })
         .from(querySnapshots)
         .where(inArray(querySnapshots.runId, windowRunIds))
-        .all()
+        .all())
 
       for (const s of allWindowSnaps) {
         const timePoint = runIdToCreatedAt.get(s.runId) ?? s.runId
@@ -175,8 +178,9 @@ export async function analyticsRoutes(app: FastifyInstance) {
       }
     }
 
-    // Latest-run snapshots (determines classification)
-    const rawSnapshots = app.db
+    // Latest-run snapshots (determines classification). Skip orphans
+    // (queryId NULL) since byQuery keys must stay non-null.
+    const rawSnapshots = filterTrackedSnapshots(app.db
       .select({
         queryId: querySnapshots.queryId,
         query: queries.query,
@@ -189,7 +193,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       .from(querySnapshots)
       .leftJoin(queries, eq(querySnapshots.queryId, queries.id))
       .where(inArray(querySnapshots.runId, latestGroupRunIds))
-      .all()
+      .all())
 
     // Resolve answer mentions
     const snapshots = rawSnapshots.map(s => ({

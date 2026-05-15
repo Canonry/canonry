@@ -78,10 +78,16 @@ export async function citationRoutes(app: FastifyInstance) {
       return reply.send(emptyCitationVisibility('no-runs-yet'))
     }
 
-    const snapshots: SnapshotRow[] = rawSnapshots.map(s => ({
-      ...s,
-      runCreatedAt: runCreatedAt.get(s.runId) ?? s.createdAt,
-    }))
+    // Skip orphan snapshots (query_id NULL because the tracked query was
+    // deleted post-v58). `byQuery` groups by query; an orphan would collide
+    // with every other orphan under a null key.
+    const snapshots: SnapshotRow[] = rawSnapshots
+      .filter(s => s.queryId !== null)
+      .map(s => ({
+        ...s,
+        queryId: s.queryId as string,
+        runCreatedAt: runCreatedAt.get(s.runId) ?? s.createdAt,
+      }))
 
     const projectCompetitors = app.db
       .select({ domain: competitors.domain })

@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import {
   bingCoverageSnapshots,
   competitors,
+  filterTrackedSnapshots,
   groupRunsByCreatedAt,
   gscCoverageSnapshots,
   gscUrlInspections,
@@ -246,7 +247,9 @@ export async function compositeRoutes(app: FastifyInstance) {
     const escaped = escapeLikePattern(rawQuery)
     const pattern = `%${escaped}%`
 
-    const snapshotMatches = app.db
+    // INNER JOIN already excludes orphan snapshots at the SQL level, but
+    // drizzle still types queryId as `string | null`. Wrap so TS narrows.
+    const snapshotMatches = filterTrackedSnapshots(app.db
       .select({
         id: querySnapshots.id,
         runId: querySnapshots.runId,
@@ -275,7 +278,7 @@ export async function compositeRoutes(app: FastifyInstance) {
       )
       .orderBy(desc(querySnapshots.createdAt))
       .limit(limit + 1)
-      .all()
+      .all())
 
     const insightMatches = app.db
       .select()
@@ -386,7 +389,9 @@ function loadSnapshotsByRunIds(
 ): Map<string, OverviewSnapshot[]> {
   const result = new Map<string, OverviewSnapshot[]>()
   if (runIds.length === 0) return result
-  const rows = app.db
+  // Drop orphan snapshots (queryId NULL post-v58) — overview-snapshot
+  // rollups key by queryId and can't slot null-keyed rows.
+  const rows = filterTrackedSnapshots(app.db
     .select({
       runId: querySnapshots.runId,
       queryId: querySnapshots.queryId,
@@ -398,7 +403,7 @@ function loadSnapshotsByRunIds(
     })
     .from(querySnapshots)
     .where(inArray(querySnapshots.runId, [...runIds]))
-    .all()
+    .all())
   for (const row of rows) {
     const list = result.get(row.runId) ?? []
     list.push({

@@ -3,7 +3,7 @@ import path from 'node:path'
 import os from 'node:os'
 import type { FastifyInstance } from 'fastify'
 import { eq, and } from 'drizzle-orm'
-import { parseJsonColumn, querySnapshots, runs, queries } from '@ainyc/canonry-db'
+import { filterTrackedSnapshots, parseJsonColumn, querySnapshots, runs, queries } from '@ainyc/canonry-db'
 import { CitationStates, notFound, notImplemented, validationError, type GroundingSource } from '@ainyc/canonry-contracts'
 import { resolveProject } from './helpers.js'
 
@@ -137,8 +137,9 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
         return reply.code(err.statusCode).send(err.toJSON())
       }
 
-      // Get all snapshots for this run
-      const snapshots = app.db
+      // Get all snapshots for this run. Skip orphans (queryId NULL
+      // post-v58) — the per-query side-by-side view can't slot them.
+      const snapshots = filterTrackedSnapshots(app.db
         .select({
           id: querySnapshots.id,
           queryId: querySnapshots.queryId,
@@ -150,7 +151,7 @@ export async function cdpRoutes(app: FastifyInstance, opts: CDPRoutesOptions) {
         })
         .from(querySnapshots)
         .where(eq(querySnapshots.runId, runId))
-        .all()
+        .all())
 
       // Get query texts
       const queryRows = app.db
