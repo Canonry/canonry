@@ -33,6 +33,17 @@ const log = createLogger('DiscoveryRun')
 
 const DEFAULT_SEED_COUNT = 30
 
+/**
+ * Per-intent-bucket quota the seed prompt requests. Multiplied by the five
+ * intent buckets (informational / commercial / navigational / comparative /
+ * transactional) it yields {@link DEFAULT_SEED_COUNT}. The bucket structure
+ * is what stops Gemini from collapsing the candidate list into 30+ near-
+ * synonyms of a single intent (issue #505) — semantically distinct intents
+ * cluster apart at the dedup threshold, producing multiple representatives
+ * and therefore multiple probes per session.
+ */
+const QUERIES_PER_INTENT_BUCKET = 6
+
 export interface ExecuteDiscoveryRunOptions {
   db: DatabaseClient
   registry: ProviderRegistry
@@ -402,6 +413,7 @@ export function buildSeedPrompt(input: {
   locations?: readonly LocationContext[]
 }): string {
   const locationConstraint = buildLocationConstraint(input.locations ?? [])
+  const currentYear = new Date().getFullYear()
   return [
     'You are an AEO (Answer Engine Optimization) analyst expanding a tracked-query basket for a customer.',
     '',
@@ -409,14 +421,15 @@ export function buildSeedPrompt(input: {
     `ICP: ${input.icpDescription}`,
     ...(locationConstraint.length > 0 ? ['', ...locationConstraint] : []),
     '',
-    'Brainstorm a wide set of queries a member of this ICP would type into an AI answer engine (Gemini, ChatGPT, Perplexity) when they are about to make a decision in this space. Aim for 30+ candidates covering:',
-    ' - Comparison queries ("best X for Y")',
-    ' - Specific feature / capability queries',
-    ' - Pricing / vendor-shortlist queries',
-    ' - Workflow / how-to queries',
-    ' - Adjacent jobs-to-be-done queries',
+    'Brainstorm queries a member of this ICP would type into an AI answer engine (Gemini, ChatGPT, Perplexity). Generate candidates across the five intent buckets below — these are SEMANTICALLY DISTINCT search intents, not stylistic variants. A query should fit one bucket cleanly. Diversity across buckets is the point: it keeps the list from collapsing into near-synonyms of a single intent.',
     '',
-    'Return ONE query per line. Plain text only — no numbering, bullets, quotes, or commentary.',
+    ' 1. Informational — the searcher wants to understand a concept, market, or problem. Templates: "what is X", "how does X work", "X explained", "why X matters".',
+    ` 2. Commercial — the searcher is researching category leaders before a purchase. Templates: "best X for Y", "top X ${currentYear}", "leading X providers", "X for [use case]".`,
+    ' 3. Navigational — the searcher is looking for a specific brand, place, or directory. Templates: "X near me", "X reviews", "X website", "X directory".',
+    ' 4. Comparative — the searcher is weighing named alternatives head-to-head. Templates: "X vs Y", "X or Y for Z", "alternatives to X".',
+    ' 5. Transactional — the searcher is ready to act on a purchase or booking. Templates: "book X", "X pricing", "X discount code", "buy X online".',
+    '',
+    `Generate EXACTLY ${QUERIES_PER_INTENT_BUCKET} queries per bucket — ${QUERIES_PER_INTENT_BUCKET * 5} total. Return ONE query per line. Plain text only — no numbering, bullets, quotes, bucket labels, or commentary.`,
   ].join('\n')
 }
 

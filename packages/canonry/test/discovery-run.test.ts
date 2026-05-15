@@ -566,13 +566,20 @@ describe('buildSeedPrompt', () => {
   const detroit: LocationContext = { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' }
   const miami: LocationContext = { label: 'florida', city: 'Miami', region: 'Florida', country: 'US' }
 
+  // Sentinels that anchor the bucketed-by-intent prompt structure introduced
+  // for issue #505. A seed run that lost any of these would regress back into
+  // the "30 near-synonyms of one intent" failure mode.
+  const INTENT_BUCKET_LABELS = ['Informational', 'Commercial', 'Navigational', 'Comparative', 'Transactional']
+  const PER_BUCKET_QUOTA_LINE = 'Generate EXACTLY 6 queries per bucket — 30 total'
+
   it('omits the location block entirely when no locations are given', () => {
     const prompt = buildSeedPrompt({ project, icpDescription: 'spray foam installers' })
     expect(prompt).toContain('Customer: AZ Coatings')
     expect(prompt).toContain('ICP: spray foam installers')
     expect(prompt).not.toMatch(/business serves/i)
-    // The standard brainstorm block is still present.
-    expect(prompt).toContain('Brainstorm a wide set of queries')
+    // The intent-bucket scaffold is still present.
+    for (const label of INTENT_BUCKET_LABELS) expect(prompt).toContain(label)
+    expect(prompt).toContain(PER_BUCKET_QUOTA_LINE)
   })
 
   it('injects a single-location constraint with no quota line', () => {
@@ -582,8 +589,12 @@ describe('buildSeedPrompt', () => {
       locations: [detroit],
     })
     expect(prompt).toContain('The business serves Detroit, Michigan, US')
-    expect(prompt).not.toMatch(/at least/i)
-    expect(prompt).toContain('Brainstorm a wide set of queries')
+    // No PER-LOCATION quota line — single-location prompts skip the per-area
+    // quota and only inject the relevance rule. The per-bucket quota line is
+    // unrelated and must still be present.
+    expect(prompt).not.toMatch(/at least \d+ queries for EACH/i)
+    for (const label of INTENT_BUCKET_LABELS) expect(prompt).toContain(label)
+    expect(prompt).toContain(PER_BUCKET_QUOTA_LINE)
   })
 
   it('injects a multi-location constraint with the per-area quota', () => {
@@ -596,6 +607,29 @@ describe('buildSeedPrompt', () => {
     expect(prompt).toContain(' - Detroit, Michigan, US')
     expect(prompt).toContain(' - Miami, Florida, US')
     expect(prompt).toContain('at least 15 queries for EACH')
-    expect(prompt).toContain('Brainstorm a wide set of queries')
+    for (const label of INTENT_BUCKET_LABELS) expect(prompt).toContain(label)
+    expect(prompt).toContain(PER_BUCKET_QUOTA_LINE)
+  })
+
+  it('asks for semantically distinct intents (issue #505 — bucketed-by-intent fix)', () => {
+    // Regression guard: every bucket label must appear, the prompt must call
+    // out that intents are semantically distinct (the prior prompt's vague
+    // categories let Gemini collapse 40 candidates into one cluster), and the
+    // total quota must reflect 6 × 5 = 30.
+    const prompt = buildSeedPrompt({ project, icpDescription: 'spray foam installers' })
+    expect(prompt).toMatch(/SEMANTICALLY DISTINCT/)
+    for (const label of INTENT_BUCKET_LABELS) {
+      expect(prompt).toMatch(new RegExp(`\\b${label}\\b`))
+    }
+    expect(prompt).toContain('EXACTLY 6 queries per bucket — 30 total')
+  })
+
+  it('uses the current year in the "top X <year>" commercial template (not a hardcoded year)', () => {
+    // The Commercial bucket template demonstrates a year-stamped query. It
+    // must always reflect the current year so discovered queries don't drift
+    // toward stale year tokens once the calendar rolls over.
+    const prompt = buildSeedPrompt({ project, icpDescription: 'spray foam installers' })
+    const currentYear = new Date().getFullYear()
+    expect(prompt).toContain(`"top X ${currentYear}"`)
   })
 })
