@@ -13,6 +13,7 @@ import {
   type DiscoveryBucket,
   type DiscoveryCompetitorMapEntry,
   type DiscoveryCompetitorType,
+  type LocationContext,
 } from '@ainyc/canonry-contracts'
 
 const DEFAULT_DEDUP_THRESHOLD = 0.85
@@ -61,6 +62,13 @@ export interface DiscoveryDeps {
   seed(input: {
     project: DiscoveryProjectContext
     icpDescription: string
+    /**
+     * Resolved service-area locations for this session — empty when the
+     * project has no locations configured (or when a deployment does not
+     * resolve them). A location-aware seed implementation geographically
+     * constrains the generated queries to these areas.
+     */
+    locations: LocationContext[]
   }): Promise<DiscoverySeedResult>
 
   embed(queries: string[]): Promise<number[][]>
@@ -93,6 +101,12 @@ export interface ExecuteDiscoveryOptions {
   icpDescription: string
   dedupThreshold?: number
   maxProbes?: number
+  /**
+   * Resolved service-area locations for this session, forwarded to
+   * `deps.seed` so seed generation can geo-constrain its queries. Omitted /
+   * empty leaves seeding location-unaware (the pre-location behaviour).
+   */
+  locations?: LocationContext[]
   deps: DiscoveryDeps
 }
 
@@ -245,6 +259,7 @@ export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<E
   const seedResult = await opts.deps.seed({
     project: opts.project,
     icpDescription: opts.icpDescription,
+    locations: opts.locations ?? [],
   })
 
   const rawCandidates = dedupeStrings(seedResult.candidates)

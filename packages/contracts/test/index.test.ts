@@ -31,7 +31,10 @@ import {
   registrableDomain,
   brandLabelFromDomain,
   locationContextSchema,
+  resolveLocations,
 } from '../src/index.js'
+
+import type { LocationContext } from '../src/index.js'
 
 test('projectDtoSchema applies defaults for tags, labels, configSource, configRevision', () => {
   const project = projectDtoSchema.parse({
@@ -539,6 +542,55 @@ test('projectDtoSchema accepts null defaultLocation', () => {
 })
 
 }) // end projectDtoSchema locations
+
+describe('resolveLocations', () => {
+
+const MICHIGAN: LocationContext = { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' }
+const FLORIDA: LocationContext = { label: 'florida', city: 'Miami', region: 'Florida', country: 'US' }
+const TEXAS: LocationContext = { label: 'texas', city: 'Austin', region: 'Texas', country: 'US' }
+const PROJECT_LOCATIONS = [MICHIGAN, FLORIDA, TEXAS]
+
+test('returns every project location when no override is given', () => {
+  expect(resolveLocations(PROJECT_LOCATIONS, undefined)).toEqual(PROJECT_LOCATIONS)
+})
+
+test('returns every project location when the override is an empty array', () => {
+  expect(resolveLocations(PROJECT_LOCATIONS, [])).toEqual(PROJECT_LOCATIONS)
+})
+
+test('treats an all-blank override as no override (falls back to all)', () => {
+  expect(resolveLocations(PROJECT_LOCATIONS, ['', '   '])).toEqual(PROJECT_LOCATIONS)
+})
+
+test('returns an empty array for a project with no locations and no override', () => {
+  expect(resolveLocations([], undefined)).toEqual([])
+})
+
+test('resolves a subset in requested order, not project order', () => {
+  expect(resolveLocations(PROJECT_LOCATIONS, ['florida', 'michigan'])).toEqual([FLORIDA, MICHIGAN])
+})
+
+test('matches labels case-insensitively and trims whitespace', () => {
+  expect(resolveLocations(PROJECT_LOCATIONS, ['  MICHIGAN  ', 'Florida'])).toEqual([MICHIGAN, FLORIDA])
+})
+
+test('dedupes repeated labels in the override', () => {
+  expect(resolveLocations(PROJECT_LOCATIONS, ['michigan', 'MICHIGAN', 'michigan'])).toEqual([MICHIGAN])
+})
+
+test('throws validationError for a label not configured on the project', () => {
+  expect(() => resolveLocations(PROJECT_LOCATIONS, ['california'])).toThrow(/not configured/i)
+})
+
+test('throws when any override label is unknown even if others match', () => {
+  expect(() => resolveLocations(PROJECT_LOCATIONS, ['michigan', 'california'])).toThrow(/california/)
+})
+
+test('throws when an override is passed but the project has no locations', () => {
+  expect(() => resolveLocations([], ['michigan'])).toThrow(/not configured/i)
+})
+
+}) // end resolveLocations
 
 describe('querySnapshotDtoSchema location', () => {
 

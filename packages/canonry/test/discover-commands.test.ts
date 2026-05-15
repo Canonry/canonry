@@ -75,6 +75,10 @@ describe('discover CLI commands', () => {
       canonicalDomain: 'demand-iq.com',
       country: 'US',
       language: 'en',
+      locations: [
+        { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' },
+        { label: 'florida', city: 'Miami', region: 'Florida', country: 'US' },
+      ],
     })
     projectId = db.select().from(projects).get()!.id
   })
@@ -307,6 +311,33 @@ describe('discover CLI commands', () => {
     const sessions = db.select().from(discoverySessions).all()
     expect(sessions).toHaveLength(1)
     expect(sessions[0]!.icpDescription).toBe('just one icp')
+  })
+
+  it('discover run accepts a comma-separated --locations override matching project locations', async () => {
+    const result = await invokeCli([
+      'discover', 'run', 'demand-iq',
+      '--icp', 'spray foam installers',
+      '--locations', 'michigan,florida',
+      '--format', 'json',
+    ])
+    // The flag is wired CLI → client → API → resolveLocations; valid labels
+    // resolve cleanly and the session is created.
+    expect(result.exitCode).toBeUndefined()
+    const json = parseJsonOutput(result.stdout) as DiscoveryRunStartResponse
+    expect(typeof json.sessionId).toBe('string')
+    expect(db.select().from(discoverySessions).all()).toHaveLength(1)
+  })
+
+  it('discover run exits non-zero when --locations names a label not configured on the project', async () => {
+    const result = await invokeCli([
+      'discover', 'run', 'demand-iq',
+      '--icp', 'spray foam installers',
+      '--locations', 'california',
+    ])
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toMatch(/not configured/i)
+    // The 400 short-circuits before any session row is written.
+    expect(db.select().from(discoverySessions).all()).toHaveLength(0)
   })
 })
 

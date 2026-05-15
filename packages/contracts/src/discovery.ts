@@ -119,6 +119,14 @@ export const discoveryRunRequestSchema = z.object({
   icpDescription: z.string().min(1).optional(),
   dedupThreshold: z.number().min(0).max(1).optional(),
   maxProbes: z.number().int().positive().max(DISCOVERY_MAX_PROBES_CAP).optional(),
+  /**
+   * Optional override of the project's location labels, constraining seed
+   * generation to a subset of the configured service areas. Each label must
+   * match a configured project location (resolved server-side via
+   * `resolveLocations`). Omitted means "use every project location" — a
+   * project with no locations is unaffected.
+   */
+  locations: z.array(z.string().min(1)).optional(),
 })
 export type DiscoveryRunRequest = z.infer<typeof discoveryRunRequestSchema>
 

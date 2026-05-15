@@ -39,6 +39,17 @@ function parseFloatOption(values: Record<string, unknown>, key: string, usage: s
   return parsed
 }
 
+function parseLocationsOption(values: CliValues): string[] | undefined {
+  const raw = getStringArray(values, 'locations')
+  if (!raw || raw.length === 0) return undefined
+  // Accept both repeated flags (--locations michigan --locations florida) and
+  // comma-separated values (--locations michigan,florida), mirroring --bucket.
+  // Labels are validated server-side against the project's configured
+  // locations, so there is no enum check here.
+  const expanded = raw.flatMap(v => v.split(',')).map(v => v.trim()).filter(Boolean)
+  return expanded.length > 0 ? expanded : undefined
+}
+
 function parseBucketsOption(values: CliValues, usage: string): DiscoveryBucket[] | undefined {
   const raw = getStringArray(values, 'bucket')
   if (!raw || raw.length === 0) return undefined
@@ -108,21 +119,23 @@ export const DISCOVER_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['discover', 'run'],
     usage:
-      'canonry discover run <project> [--icp "..."] [--icp-angle "..."] [--dedup-threshold 0.85] [--max-probes 100] [--wait] [--format json]',
+      'canonry discover run <project> [--icp "..."] [--icp-angle "..."] [--locations michigan,florida] [--dedup-threshold 0.85] [--max-probes 100] [--wait] [--format json]',
     options: {
       icp: stringOption(),
       'icp-angle': multiStringOption(),
+      locations: multiStringOption(),
       'dedup-threshold': stringOption(),
       'max-probes': stringOption(),
       wait: { type: 'boolean', default: false },
     },
     run: async (input) => {
       const usage =
-        'canonry discover run <project> [--icp "..."] [--icp-angle "..."] [--dedup-threshold 0.85] [--max-probes 100] [--wait] [--format json]'
+        'canonry discover run <project> [--icp "..."] [--icp-angle "..."] [--locations michigan,florida] [--dedup-threshold 0.85] [--max-probes 100] [--wait] [--format json]'
       const project = requireProject(input, 'discover.run', usage)
       await discoverRun(project, {
         icp: getString(input.values, 'icp'),
         icpAngles: getStringArray(input.values, 'icp-angle'),
+        locations: parseLocationsOption(input.values),
         dedupThreshold: parseFloatOption(input.values, 'dedup-threshold', usage),
         maxProbes: parseIntegerOption(input, 'max-probes', {
           command: 'discover.run',
@@ -137,21 +150,23 @@ export const DISCOVER_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['discover', 'seed'],
     usage:
-      'canonry discover seed <project> [--icp "..."] [--icp-angle "..."] [--dedup-threshold 0.85] [--max-probes 100] [--wait] [--format json]',
+      'canonry discover seed <project> [--icp "..."] [--icp-angle "..."] [--locations michigan,florida] [--dedup-threshold 0.85] [--max-probes 100] [--wait] [--format json]',
     options: {
       icp: stringOption(),
       'icp-angle': multiStringOption(),
+      locations: multiStringOption(),
       'dedup-threshold': stringOption(),
       'max-probes': stringOption(),
       wait: { type: 'boolean', default: false },
     },
     run: async (input) => {
       const usage =
-        'canonry discover seed <project> [--icp "..."] [--icp-angle "..."] [--dedup-threshold 0.85] [--max-probes 100] [--wait] [--format json]'
+        'canonry discover seed <project> [--icp "..."] [--icp-angle "..."] [--locations michigan,florida] [--dedup-threshold 0.85] [--max-probes 100] [--wait] [--format json]'
       const project = requireProject(input, 'discover.seed', usage)
       await discoverSeed(project, {
         icp: getString(input.values, 'icp'),
         icpAngles: getStringArray(input.values, 'icp-angle'),
+        locations: parseLocationsOption(input.values),
         dedupThreshold: parseFloatOption(input.values, 'dedup-threshold', usage),
         maxProbes: parseIntegerOption(input, 'max-probes', {
           command: 'discover.seed',

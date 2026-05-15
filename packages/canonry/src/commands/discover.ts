@@ -24,6 +24,8 @@ export interface DiscoverRunOptions {
   icpAngles?: string[]
   dedupThreshold?: number
   maxProbes?: number
+  /** Project location labels to geo-constrain seed generation. Resolved server-side; omit to use every project location. */
+  locations?: string[]
   wait?: boolean
   format?: string
 }
@@ -33,6 +35,7 @@ function buildRunBody(opts: DiscoverRunOptions, icpDescription?: string): Record
   if (icpDescription) body.icpDescription = icpDescription
   if (opts.dedupThreshold !== undefined) body.dedupThreshold = opts.dedupThreshold
   if (opts.maxProbes !== undefined) body.maxProbes = opts.maxProbes
+  if (opts.locations && opts.locations.length > 0) body.locations = opts.locations
   return body
 }
 
