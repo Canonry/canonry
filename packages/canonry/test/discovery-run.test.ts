@@ -623,4 +623,13 @@ describe('buildSeedPrompt', () => {
     }
     expect(prompt).toContain('EXACTLY 6 queries per bucket — 30 total')
   })
+
+  it('uses the current year in the "top X <year>" commercial template (not a hardcoded year)', () => {
+    // The Commercial bucket template demonstrates a year-stamped query. It
+    // must always reflect the current year so discovered queries don't drift
+    // toward stale year tokens once the calendar rolls over.
+    const prompt = buildSeedPrompt({ project, icpDescription: 'spray foam installers' })
+    const currentYear = new Date().getFullYear()
+    expect(prompt).toContain(`"top X ${currentYear}"`)
+  })
 })

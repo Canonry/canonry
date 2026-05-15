@@ -413,6 +413,7 @@ export function buildSeedPrompt(input: {
   locations?: readonly LocationContext[]
 }): string {
   const locationConstraint = buildLocationConstraint(input.locations ?? [])
+  const currentYear = new Date().getFullYear()
   return [
     'You are an AEO (Answer Engine Optimization) analyst expanding a tracked-query basket for a customer.',
     '',
@@ -423,7 +424,7 @@ export function buildSeedPrompt(input: {
     'Brainstorm queries a member of this ICP would type into an AI answer engine (Gemini, ChatGPT, Perplexity). Generate candidates across the five intent buckets below — these are SEMANTICALLY DISTINCT search intents, not stylistic variants. A query should fit one bucket cleanly. Diversity across buckets is the point: it keeps the list from collapsing into near-synonyms of a single intent.',
     '',
     ' 1. Informational — the searcher wants to understand a concept, market, or problem. Templates: "what is X", "how does X work", "X explained", "why X matters".',
-    ' 2. Commercial — the searcher is researching category leaders before a purchase. Templates: "best X for Y", "top X 2026", "leading X providers", "X for [use case]".',
+    ` 2. Commercial — the searcher is researching category leaders before a purchase. Templates: "best X for Y", "top X ${currentYear}", "leading X providers", "X for [use case]".`,
     ' 3. Navigational — the searcher is looking for a specific brand, place, or directory. Templates: "X near me", "X reviews", "X website", "X directory".',
     ' 4. Comparative — the searcher is weighing named alternatives head-to-head. Templates: "X vs Y", "X or Y for Z", "alternatives to X".',
     ' 5. Transactional — the searcher is ready to act on a purchase or booking. Templates: "book X", "X pricing", "X discount code", "buy X online".',
