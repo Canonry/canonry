@@ -769,10 +769,11 @@ The SPA receives `basePath` via an injected config object. Use it for all API fe
 
 ## Versioning
 
-**Every non-documentation change must include a version bump.** The root `package.json` and `packages/canonry/package.json` versions must always be kept in sync with each other and with the latest published version on npm (`@ainyc/canonry`).
+**Only bump the package version for non-documentation changes that modify more than 100 lines.** When a bump is required, the root `package.json` and `packages/canonry/package.json` versions must always be kept in sync with each other and with the latest published version on npm (`@ainyc/canonry`).
 
 - Documentation-only changes (README, docs/, CLAUDE.md) do not require a bump.
-- All other changes — features, bug fixes, refactors, dependency updates, test additions that accompany code changes — require a semver bump in both `package.json` files.
+- Small non-documentation changes of 100 changed lines or fewer do not require a bump.
+- Larger changes — features, bug fixes, refactors, dependency updates, test additions that accompany code changes — require a semver bump in both `package.json` files when they exceed the 100-line threshold.
 - Use semver: patch for fixes, minor for features, major for breaking changes.
 
 ## Testing

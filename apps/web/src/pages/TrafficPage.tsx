@@ -58,7 +58,7 @@ export function TrafficPage() {
         <div className="page-header-left">
           <h1 className="page-title">Server traffic</h1>
           <p className="page-subtitle">
-            Crawler hits and AI-referral sessions pulled directly from Cloud Run logs or the WordPress Traffic Logger plugin. Independent of GA — useful when you need server-side evidence that GPTBot or ChatGPT-User actually hit a page.
+            Crawler hits and AI-referral sessions pulled directly from your server logs. Independent of GA — useful when you need server-side evidence that GPTBot or ChatGPT-User actually hit a page.
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -97,7 +97,7 @@ export function TrafficPage() {
         ) : sources.length === 0 ? (
           <Card className="p-8 text-center">
             <p className="text-sm text-zinc-300">No traffic sources connected for {activeProject}.</p>
-            <p className="mt-1 text-xs text-zinc-500">Connect a WordPress site or Cloud Run service to start ingesting crawler hits and AI-referral sessions from server logs.</p>
+            <p className="mt-1 text-xs text-zinc-500">Connect a traffic source to start ingesting crawler hits and AI-referral sessions from your server logs.</p>
             <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => setConnectOpen(true)}>
                 <Plus className="size-3.5" />
