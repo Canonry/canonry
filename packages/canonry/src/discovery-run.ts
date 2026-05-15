@@ -13,6 +13,7 @@ import {
   effectiveDomains,
   RunStatuses,
   type DiscoveryCompetitorType,
+  type LocationContext,
 } from '@ainyc/canonry-contracts'
 import { embedQueries } from '@ainyc/canonry-provider-gemini'
 import {
@@ -41,6 +42,13 @@ export interface ExecuteDiscoveryRunOptions {
   icpDescription: string
   dedupThreshold?: number
   maxProbes?: number
+  /**
+   * Resolved service-area locations for this session (see `resolveLocations`
+   * in contracts). Forwarded to the seed prompt so generated queries stay
+   * inside the project's service area. Omitted / empty leaves seeding
+   * location-unaware — the behaviour for projects with no locations.
+   */
+  locations?: LocationContext[]
   /** Override for tests / future multi-provider amplification. Defaults to Gemini-only. */
   deps?: DiscoveryDeps
 }
@@ -97,6 +105,7 @@ export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Pro
       icpDescription: opts.icpDescription,
       dedupThreshold: opts.dedupThreshold,
       maxProbes: opts.maxProbes,
+      locations: opts.locations,
       deps,
     })
 
@@ -349,12 +358,56 @@ function extractClassificationCategory(line: string): DiscoveryCompetitorType | 
   return null
 }
 
-function buildSeedPrompt(input: { project: DiscoveryProjectContext; icpDescription: string }): string {
+/** Render a `LocationContext` as a human "City, Region, Country" line for the prompt. */
+function formatLocationLine(location: LocationContext): string {
+  return [location.city, location.region, location.country].map(part => part.trim()).filter(Boolean).join(', ')
+}
+
+/**
+ * Build the location-constraint lines spliced into the seed prompt. Returns
+ * `[]` for a project with no locations (seeding stays location-unaware).
+ *
+ * - one location  → a single "must be relevant to this service area" rule.
+ * - 2+ locations  → lists every area plus a per-area quota of
+ *   `floor(DEFAULT_SEED_COUNT / locationCount)` (min 1) so one service area
+ *   cannot dominate the seed set.
+ *
+ * Exported for unit testing.
+ */
+export function buildLocationConstraint(locations: readonly LocationContext[]): string[] {
+  if (locations.length === 0) return []
+  const formatted = locations.map(formatLocationLine)
+  if (locations.length === 1) {
+    return [
+      `The business serves ${formatted[0]}. Every query must be relevant to that service area — work the city or region into the query the way a real searcher would.`,
+    ]
+  }
+  const perLocation = Math.max(1, Math.floor(DEFAULT_SEED_COUNT / locations.length))
+  return [
+    'The business serves these locations:',
+    ...formatted.map(line => ` - ${line}`),
+    `Generate at least ${perLocation} queries for EACH service area listed above so coverage stays balanced — do not let one area dominate. Every query must be relevant to at least one of these service areas, working the city or region into the query the way a real searcher would.`,
+  ]
+}
+
+/**
+ * Build the Gemini seed prompt. When `locations` is non-empty the prompt is
+ * geo-constrained via `buildLocationConstraint` so discovered queries stay
+ * inside the project's service area; otherwise the prompt is unchanged from
+ * the pre-location behaviour. Exported for unit testing.
+ */
+export function buildSeedPrompt(input: {
+  project: DiscoveryProjectContext
+  icpDescription: string
+  locations?: readonly LocationContext[]
+}): string {
+  const locationConstraint = buildLocationConstraint(input.locations ?? [])
   return [
     'You are an AEO (Answer Engine Optimization) analyst expanding a tracked-query basket for a customer.',
     '',
     `Customer: ${input.project.name} (domains: ${input.project.canonicalDomains.join(', ')})`,
     `ICP: ${input.icpDescription}`,
+    ...(locationConstraint.length > 0 ? ['', ...locationConstraint] : []),
     '',
     'Brainstorm a wide set of queries a member of this ICP would type into an AI answer engine (Gemini, ChatGPT, Perplexity) when they are about to make a decision in this space. Aim for 30+ candidates covering:',
     ' - Comparison queries ("best X for Y")',

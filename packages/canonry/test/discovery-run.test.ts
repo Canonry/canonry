@@ -15,9 +15,12 @@ import {
   runs,
 } from '@ainyc/canonry-db'
 import type { DiscoveryDeps } from '@ainyc/canonry-api-routes'
+import type { LocationContext } from '@ainyc/canonry-contracts'
 import { ProviderRegistry } from '../src/provider-registry.js'
 import {
   buildClassificationPrompt,
+  buildLocationConstraint,
+  buildSeedPrompt,
   executeDiscoveryRun,
   parseClassificationResponse,
 } from '../src/discovery-run.js'
@@ -275,6 +278,42 @@ describe('executeDiscoveryRun', () => {
     const insight = db.select().from(insights).get()!
     expect(insight.severity).toBe('low')
   })
+
+  it('forwards opts.locations through to the seed dep', async () => {
+    const { db, projectId, sessionId, runId } = setup()
+
+    const seenLocations: LocationContext[][] = []
+    const capturingDeps: DiscoveryDeps = {
+      async seed(input) {
+        seenLocations.push(input.locations)
+        return { candidates: [], provider: 'gemini-test' }
+      },
+      async embed() {
+        return []
+      },
+      async probe() {
+        return { citationState: 'not-cited', citedDomains: [], rawResponse: {} }
+      },
+      async classifyDomains() {
+        return {}
+      },
+    }
+    const michigan: LocationContext = { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' }
+
+    await executeDiscoveryRun({
+      db,
+      registry: new ProviderRegistry(),
+      runId,
+      sessionId,
+      projectId,
+      icpDescription: 'AEO test',
+      locations: [michigan],
+      deps: capturingDeps,
+    })
+
+    // The resolved location set reaches the seed dep unchanged.
+    expect(seenLocations).toEqual([[michigan]])
+  })
 })
 
 describe('buildClassificationPrompt', () => {
@@ -394,5 +433,103 @@ describe('parseClassificationResponse', () => {
   it('returns an empty map for empty input', () => {
     expect(parseClassificationResponse('', [])).toEqual({})
     expect(parseClassificationResponse('helioscope.com => direct-competitor', [])).toEqual({})
+  })
+})
+
+describe('buildLocationConstraint', () => {
+  const loc = (label: string, city: string, region: string): LocationContext => ({
+    label,
+    city,
+    region,
+    country: 'US',
+  })
+
+  it('returns no lines for a project with no locations', () => {
+    expect(buildLocationConstraint([])).toEqual([])
+  })
+
+  it('emits a single relevance rule for one location, with no per-area quota', () => {
+    const lines = buildLocationConstraint([loc('michigan', 'Detroit', 'Michigan')])
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain('Detroit, Michigan, US')
+    expect(lines.join('\n')).not.toMatch(/at least/i)
+  })
+
+  it('splits the seed budget evenly across two locations: floor(30 / 2) = 15', () => {
+    const lines = buildLocationConstraint([
+      loc('michigan', 'Detroit', 'Michigan'),
+      loc('florida', 'Miami', 'Florida'),
+    ])
+    expect(lines[0]).toBe('The business serves these locations:')
+    expect(lines).toContain(' - Detroit, Michigan, US')
+    expect(lines).toContain(' - Miami, Florida, US')
+    expect(lines.join('\n')).toContain('at least 15 queries for EACH')
+  })
+
+  it('floors the per-location quota: 3 locations → 10, 4 locations → 7', () => {
+    const three = buildLocationConstraint([
+      loc('a', 'Aville', 'AR'),
+      loc('b', 'Bville', 'BR'),
+      loc('c', 'Cville', 'CR'),
+    ])
+    expect(three.join('\n')).toContain('at least 10 queries for EACH') // floor(30 / 3)
+    const four = buildLocationConstraint([
+      loc('a', 'Aville', 'AR'),
+      loc('b', 'Bville', 'BR'),
+      loc('c', 'Cville', 'CR'),
+      loc('d', 'Dville', 'DR'),
+    ])
+    expect(four.join('\n')).toContain('at least 7 queries for EACH') // floor(30 / 4)
+  })
+
+  it('clamps the per-location quota to a minimum of 1 when locations outnumber the seed budget', () => {
+    const many = Array.from({ length: 60 }, (_, i) => loc(`l${i}`, `City${i}`, 'Region'))
+    const lines = buildLocationConstraint(many)
+    // floor(30 / 60) = 0 → clamped to 1 so every area still gets a quota.
+    expect(lines.join('\n')).toContain('at least 1 queries for EACH')
+  })
+})
+
+describe('buildSeedPrompt', () => {
+  const project = {
+    id: 'p',
+    name: 'AZ Coatings',
+    canonicalDomains: ['azcoatings.com'],
+    competitorDomains: [],
+  }
+  const detroit: LocationContext = { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' }
+  const miami: LocationContext = { label: 'florida', city: 'Miami', region: 'Florida', country: 'US' }
+
+  it('omits the location block entirely when no locations are given', () => {
+    const prompt = buildSeedPrompt({ project, icpDescription: 'spray foam installers' })
+    expect(prompt).toContain('Customer: AZ Coatings')
+    expect(prompt).toContain('ICP: spray foam installers')
+    expect(prompt).not.toMatch(/business serves/i)
+    // The standard brainstorm block is still present.
+    expect(prompt).toContain('Brainstorm a wide set of queries')
+  })
+
+  it('injects a single-location constraint with no quota line', () => {
+    const prompt = buildSeedPrompt({
+      project,
+      icpDescription: 'spray foam installers',
+      locations: [detroit],
+    })
+    expect(prompt).toContain('The business serves Detroit, Michigan, US')
+    expect(prompt).not.toMatch(/at least/i)
+    expect(prompt).toContain('Brainstorm a wide set of queries')
+  })
+
+  it('injects a multi-location constraint with the per-area quota', () => {
+    const prompt = buildSeedPrompt({
+      project,
+      icpDescription: 'spray foam installers',
+      locations: [detroit, miami],
+    })
+    expect(prompt).toContain('The business serves these locations:')
+    expect(prompt).toContain(' - Detroit, Michigan, US')
+    expect(prompt).toContain(' - Miami, Florida, US')
+    expect(prompt).toContain('at least 15 queries for EACH')
+    expect(prompt).toContain('Brainstorm a wide set of queries')
   })
 })

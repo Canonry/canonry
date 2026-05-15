@@ -25,6 +25,7 @@ import {
   discoveryPromoteRequestSchema,
   discoveryRunRequestSchema,
   notFound,
+  resolveLocations,
   validationError,
   type DiscoveryBucket,
   type DiscoveryCompetitorMapEntry,
@@ -34,6 +35,7 @@ import {
   type DiscoverySessionDetailDto,
   type DiscoverySessionDto,
   type DiscoverySessionStatus,
+  type LocationContext,
 } from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from '../helpers.js'
 
@@ -52,6 +54,13 @@ export type OnDiscoveryRunRequested = (input: {
   icpDescription: string
   dedupThreshold?: number
   maxProbes?: number
+  /**
+   * Resolved service-area locations for this session — every project
+   * location, or the subset named by the request's `locations` override.
+   * Empty when the project has no locations configured. Forwarded to the
+   * seed generator so discovered queries stay inside the service area.
+   */
+  locations: LocationContext[]
 }) => void
 
 export interface DiscoveryRoutesOptions {
@@ -62,7 +71,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
   // POST /projects/:name/discover/run — kick off a discovery session
   app.post<{
     Params: { name: string }
-    Body: { icpDescription?: string; dedupThreshold?: number; maxProbes?: number }
+    Body: { icpDescription?: string; dedupThreshold?: number; maxProbes?: number; locations?: string[] }
   }>('/projects/:name/discover/run', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
@@ -85,6 +94,13 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
         'icpDescription is required. Pass it in the request body or store it on the project (spec.icpDescription).',
       )
     }
+
+    // Resolve the session's service areas: every project location, or the
+    // subset named by `locations`. An unknown label throws validationError.
+    const locations = resolveLocations(
+      parseJsonColumn<LocationContext[]>(project.locations, []),
+      parsed.data.locations,
+    )
 
     if (!opts.onDiscoveryRunRequested) {
       throw validationError('Discovery is not available on this deployment.', {
@@ -133,6 +149,7 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
       icpDescription,
       dedupThreshold: parsed.data.dedupThreshold,
       maxProbes: parsed.data.maxProbes,
+      locations,
     })
 
     return reply.status(201).send({ runId, sessionId, status: 'running' })

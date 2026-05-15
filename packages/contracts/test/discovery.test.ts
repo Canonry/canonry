@@ -220,6 +220,17 @@ test('discoveryRunRequestSchema accepts empty object (use project defaults)', ()
   expect(req.icpDescription).toBeUndefined()
   expect(req.dedupThreshold).toBeUndefined()
   expect(req.maxProbes).toBeUndefined()
+  expect(req.locations).toBeUndefined()
+})
+
+test('discoveryRunRequestSchema accepts a locations label override', () => {
+  const req = discoveryRunRequestSchema.parse({ locations: ['michigan', 'florida'] })
+  expect(req.locations).toEqual(['michigan', 'florida'])
+})
+
+test('discoveryRunRequestSchema rejects empty-string location labels', () => {
+  expect(() => discoveryRunRequestSchema.parse({ locations: [''] })).toThrow()
+  expect(() => discoveryRunRequestSchema.parse({ locations: ['michigan', ''] })).toThrow()
 })
 
 test('discoveryRunRequestSchema rejects out-of-range dedupThreshold', () => {

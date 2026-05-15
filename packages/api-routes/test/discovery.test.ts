@@ -31,6 +31,7 @@ import type {
   DiscoveryPromoteResult,
   DiscoverySessionDetailDto,
   DiscoverySessionDto,
+  LocationContext,
 } from '@ainyc/canonry-contracts'
 
 function buildApp() {
@@ -49,7 +50,10 @@ afterEach(async () => {
   for (const fn of cleanups.splice(0)) fn()
 })
 
-function seedProject(db: ReturnType<typeof createClient>, opts: { icpDescription?: string } = {}) {
+function seedProject(
+  db: ReturnType<typeof createClient>,
+  opts: { icpDescription?: string; locations?: LocationContext[] } = {},
+) {
   const projectId = crypto.randomUUID()
   const now = new Date().toISOString()
   db.insert(projects).values({
@@ -60,6 +64,7 @@ function seedProject(db: ReturnType<typeof createClient>, opts: { icpDescription
     country: 'US',
     language: 'en',
     icpDescription: opts.icpDescription ?? null,
+    locations: JSON.stringify(opts.locations ?? []),
     createdAt: now,
     updatedAt: now,
   }).run()
@@ -498,16 +503,91 @@ describe('executeDiscovery', () => {
     ])
     expect(db.select().from(discoverySessions).get()!.status).toBe('completed')
   })
+
+  it('forwards the session locations to deps.seed (empty array when omitted)', async () => {
+    const { db, tmpDir } = buildApp()
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db)
+    const detroit: LocationContext = { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' }
+
+    const project: DiscoveryProjectContext = {
+      id: projectId,
+      name: 'demand-iq',
+      canonicalDomains: ['demand-iq.com'],
+      competitorDomains: [],
+    }
+
+    function captureSeedLocations(): { deps: DiscoveryDeps; seen: LocationContext[][] } {
+      const seen: LocationContext[][] = []
+      const deps: DiscoveryDeps = {
+        async seed(input) {
+          seen.push(input.locations)
+          return { candidates: [], provider: 'gemini-test' }
+        },
+        async embed() {
+          return []
+        },
+        async probe() {
+          return { citationState: 'not-cited', citedDomains: [], rawResponse: {} }
+        },
+        async classifyDomains() {
+          return {}
+        },
+      }
+      return { deps, seen }
+    }
+
+    // Locations supplied — the exact resolved set reaches the seed dep.
+    const withLocations = captureSeedLocations()
+    const sessionWith = crypto.randomUUID()
+    db.insert(discoverySessions).values({
+      id: sessionWith,
+      projectId,
+      status: 'queued',
+      competitorMap: '[]',
+      createdAt: new Date().toISOString(),
+    }).run()
+    await executeDiscovery({
+      db,
+      runId: crypto.randomUUID(),
+      sessionId: sessionWith,
+      project,
+      icpDescription: 'location forwarding test',
+      locations: [detroit],
+      deps: withLocations.deps,
+    })
+    expect(withLocations.seen).toEqual([[detroit]])
+
+    // Locations omitted — the seed dep still receives a (well-typed) empty array.
+    const withoutLocations = captureSeedLocations()
+    const sessionWithout = crypto.randomUUID()
+    db.insert(discoverySessions).values({
+      id: sessionWithout,
+      projectId,
+      status: 'queued',
+      competitorMap: '[]',
+      createdAt: new Date().toISOString(),
+    }).run()
+    await executeDiscovery({
+      db,
+      runId: crypto.randomUUID(),
+      sessionId: sessionWithout,
+      project,
+      icpDescription: 'location forwarding test',
+      deps: withoutLocations.deps,
+    })
+    expect(withoutLocations.seen).toEqual([[]])
+  })
 })
 
 describe('discovery routes', () => {
-  function buildAppWithRoutes(handlerCalls: Array<{ runId: string; sessionId: string; projectId: string; icp: string; dedup?: number; maxProbes?: number }>) {
+  function buildAppWithRoutes(handlerCalls: Array<{ runId: string; sessionId: string; projectId: string; icp: string; dedup?: number; maxProbes?: number; locations?: LocationContext[] }>) {
     const { app, db, tmpDir } = buildApp()
     app.register(apiRoutes, {
       db,
       skipAuth: true,
-      onDiscoveryRunRequested: ({ runId, sessionId, projectId, icpDescription, dedupThreshold, maxProbes }) => {
-        handlerCalls.push({ runId, sessionId, projectId, icp: icpDescription, dedup: dedupThreshold, maxProbes })
+      onDiscoveryRunRequested: ({ runId, sessionId, projectId, icpDescription, dedupThreshold, maxProbes, locations }) => {
+        handlerCalls.push({ runId, sessionId, projectId, icp: icpDescription, dedup: dedupThreshold, maxProbes, locations })
       },
     } satisfies ApiRoutesOptions)
     return { app, db, tmpDir }
@@ -593,6 +673,75 @@ describe('discovery routes', () => {
     })
     expect(response.statusCode).toBe(400)
     expect(response.json().error.details?.reason).toBe('no-discovery-handler')
+  })
+
+  const MICHIGAN: LocationContext = { label: 'michigan', city: 'Detroit', region: 'Michigan', country: 'US' }
+  const FLORIDA: LocationContext = { label: 'florida', city: 'Miami', region: 'Florida', country: 'US' }
+
+  it('POST /discover/run resolves a locations override to the named subset and hands it to the callback', async () => {
+    const calls: Array<{ runId: string; sessionId: string; projectId: string; icp: string; locations?: LocationContext[] }> = []
+    const { app, db, tmpDir } = buildAppWithRoutes(calls)
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    seedProject(db, { icpDescription: 'spray foam installers', locations: [MICHIGAN, FLORIDA] })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { locations: ['florida'] },
+    })
+    expect(response.statusCode).toBe(201)
+    expect(calls).toHaveLength(1)
+    // Only the requested service area is forwarded — not the whole project set.
+    expect(calls[0]!.locations).toEqual([FLORIDA])
+  })
+
+  it('POST /discover/run with no locations override forwards every project location', async () => {
+    const calls: Array<{ runId: string; sessionId: string; projectId: string; icp: string; locations?: LocationContext[] }> = []
+    const { app, db, tmpDir } = buildAppWithRoutes(calls)
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    seedProject(db, { icpDescription: 'spray foam installers', locations: [MICHIGAN, FLORIDA] })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: {},
+    })
+    expect(response.statusCode).toBe(201)
+    expect(calls[0]!.locations).toEqual([MICHIGAN, FLORIDA])
+  })
+
+  it('POST /discover/run forwards an empty locations array when the project has none', async () => {
+    const calls: Array<{ runId: string; sessionId: string; projectId: string; icp: string; locations?: LocationContext[] }> = []
+    const { app, db, tmpDir } = buildAppWithRoutes(calls)
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    seedProject(db, { icpDescription: 'spray foam installers' })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: {},
+    })
+    expect(response.statusCode).toBe(201)
+    expect(calls[0]!.locations).toEqual([])
+  })
+
+  it('POST /discover/run rejects an unknown location label with 400 and does not fire the handler', async () => {
+    const calls: Array<{ runId: string; sessionId: string; projectId: string; icp: string; locations?: LocationContext[] }> = []
+    const { app, db, tmpDir } = buildAppWithRoutes(calls)
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    seedProject(db, { icpDescription: 'spray foam installers', locations: [MICHIGAN, FLORIDA] })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { locations: ['california'] },
+    })
+    expect(response.statusCode).toBe(400)
+    expect(response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } })
+    // No session/run rows written and the handler never fired.
+    expect(calls).toHaveLength(0)
+    expect(db.select().from(discoverySessions).all()).toHaveLength(0)
+    expect(db.select().from(runs).all()).toHaveLength(0)
   })
 
   it('GET /discover/sessions returns sessions newest-first', async () => {

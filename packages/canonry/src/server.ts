@@ -1009,6 +1009,7 @@ export async function createServer(opts: {
         icpDescription: input.icpDescription,
         dedupThreshold: input.dedupThreshold,
         maxProbes: input.maxProbes,
+        locations: input.locations,
       })
         .then(() => runCoordinator.onRunCompleted(input.runId, input.projectId))
         .catch((err: unknown) => {

@@ -899,7 +899,7 @@ export class ApiClient {
 
   async triggerDiscoveryRun(
     project: string,
-    body?: { icpDescription?: string; dedupThreshold?: number; maxProbes?: number },
+    body?: { icpDescription?: string; dedupThreshold?: number; maxProbes?: number; locations?: string[] },
   ): Promise<DiscoveryRunStartResponse> {
     return this.request<DiscoveryRunStartResponse>(
       'POST',

@@ -2982,6 +2982,11 @@ const routeCatalog: OpenApiOperation[] = [
               icpDescription: { type: 'string', description: 'Free-text ICP. Required if the project does not have spec.icpDescription stored.' },
               dedupThreshold: { type: 'number', description: 'Cosine similarity threshold for clustering. Defaults to 0.85.' },
               maxProbes: { type: 'integer', description: 'Max canonical queries to probe in this session. Default 100, hard cap 500.' },
+              locations: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Optional override of the project location labels used to geo-constrain seed generation. Each label must match a configured project location; an unknown label is a 400. Omit to use every project location.',
+              },
             },
           },
         },

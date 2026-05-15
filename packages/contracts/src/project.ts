@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { validationError } from './errors.js'
 import { locationContextSchema, providerNameSchema, type LocationContext } from './provider.js'
 
 export const configSourceSchema = z.enum(['cli', 'api', 'config-file'])
@@ -25,6 +26,45 @@ export function hasLocationLabel(
 ): boolean {
   if (!label) return true
   return locations.some(location => location.label === label)
+}
+
+/**
+ * Resolve the location set for a per-run operation (e.g. a discovery session)
+ * against a project's configured locations.
+ *
+ * - `requestedLabels` omitted / empty → returns every configured project
+ *   location (the "use all service areas" default). A project with no
+ *   locations resolves to `[]`, leaving location-unaware callers unchanged.
+ * - `requestedLabels` provided → returns the matching subset, in requested
+ *   order, deduped. Matching is case-insensitive and whitespace-trimmed.
+ * - An unknown label throws `validationError` so the caller surfaces a 400
+ *   rather than silently dropping the override.
+ */
+export function resolveLocations(
+  projectLocations: readonly LocationContext[],
+  requestedLabels: readonly string[] | undefined,
+): LocationContext[] {
+  const normalizedRequest = (requestedLabels ?? [])
+    .map(label => label.trim())
+    .filter(label => label.length > 0)
+  if (normalizedRequest.length === 0) return [...projectLocations]
+
+  const byLabel = new Map(projectLocations.map(loc => [loc.label.toLowerCase(), loc]))
+  const resolved: LocationContext[] = []
+  const seen = new Set<string>()
+  for (const label of normalizedRequest) {
+    const key = label.toLowerCase()
+    if (seen.has(key)) continue
+    const match = byLabel.get(key)
+    if (!match) {
+      throw validationError(
+        `Location "${label}" is not configured for this project. Add it to the project's locations or omit the locations override.`,
+      )
+    }
+    seen.add(key)
+    resolved.push(match)
+  }
+  return resolved
 }
 
 export const projectUpsertRequestSchema = z.object({
