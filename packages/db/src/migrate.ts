@@ -1144,16 +1144,27 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
          created_at               TEXT NOT NULL
        )`,
       // Backfill `query_text` from joined queries.query so existing snapshots
-      // stay readable even if their query is later deleted. LEFT JOIN so a
-      // row whose query somehow already vanished (shouldn't happen pre-v58,
-      // but be defensive) lands with NULL text rather than disappearing.
+      // stay readable even if their query is later deleted.
+      //
+      // IMPORTANT: we use `q.id` (the JOINED queries.id), not `qs.query_id`.
+      // Production DBs may already contain snapshots whose `qs.query_id`
+      // dangles — a queries row was hard-deleted at some point without
+      // cascading (PRAGMA foreign_keys was OFF, or pre-FK schema). Copying
+      // `qs.query_id` directly would re-introduce those dangling refs into
+      // the new table, which now validates them at INSERT (the new FK still
+      // requires query_id values to match queries.id when non-null). Reading
+      // through the LEFT JOIN forces every value to be either a valid `q.id`
+      // or NULL — pre-existing orphans land with NULL `query_id` / NULL
+      // `query_text`, preserving the snapshot row instead of failing the
+      // migration. The May 2026 azcoatings DB had 459 such pre-existing
+      // orphans; without this guard, migrate() throws SQLITE_CONSTRAINT_FOREIGNKEY.
       `INSERT INTO query_snapshots_v58 (
          id, run_id, query_id, query_text, provider, model, citation_state,
          answer_mentioned, answer_text, cited_domains, competitor_overlap,
          recommended_competitors, location, screenshot_path, raw_response,
          created_at
        )
-       SELECT qs.id, qs.run_id, qs.query_id, q.query, qs.provider, qs.model,
+       SELECT qs.id, qs.run_id, q.id, q.query, qs.provider, qs.model,
               qs.citation_state, qs.answer_mentioned, qs.answer_text,
               qs.cited_domains, qs.competitor_overlap, qs.recommended_competitors,
               qs.location, qs.screenshot_path, qs.raw_response, qs.created_at

@@ -159,6 +159,56 @@ test('PUT-queries-style replace (DELETE+INSERT) no longer destroys snapshot hist
   expect(after[0]!.queryText).toBe('best polyurea roof coating')
 })
 
+test('migration sanitizes pre-existing dangling query_id refs (production data)', () => {
+  // Real production DBs can contain snapshots whose `query_id` no longer
+  // points to any queries row — earlier deletions that ran with PRAGMA
+  // foreign_keys=OFF, or a pre-FK schema, can leave dangling refs even
+  // though the current FK is CASCADE. The May 2026 azcoatings DB had 459
+  // such rows.
+  //
+  // If v58's INSERT...SELECT copies `qs.query_id` verbatim, the new
+  // table's FK validation rejects those rows and the whole migration
+  // throws SQLITE_CONSTRAINT_FOREIGNKEY at INSERT time. The fix uses
+  // `q.id` from the LEFT JOIN so dangling refs land as NULL instead.
+  // This test forces v58 to re-run on a state that contains a deliberately
+  // dangling row to exercise that path.
+  const db = freshDb()
+  const { runId, now } = seedProjectRunQuery(db)
+  const bogusQueryId = crypto.randomUUID() // never inserted into `queries`
+
+  // Plant a dangling-FK row. PRAGMA foreign_keys=OFF lets the bogus
+  // reference through, simulating the historical corruption shape.
+  db.run(sql`PRAGMA foreign_keys = OFF`)
+  db.insert(querySnapshots).values({
+    id: crypto.randomUUID(),
+    runId,
+    queryId: bogusQueryId,
+    queryText: null,
+    provider: 'gemini',
+    citationState: 'not-cited',
+    citedDomains: '[]',
+    competitorOverlap: '[]',
+    recommendedCompetitors: '[]',
+    createdAt: now,
+  }).run()
+  db.run(sql`PRAGMA foreign_keys = ON`)
+
+  // Force v58 to re-run by removing its tracker row. v58's table-rebuild
+  // is idempotent — the INSERT...LEFT JOIN sees the current rows, and any
+  // row whose query_id doesn't match a real queries.id gets `q.id = NULL`
+  // and lands in the new table with query_id=NULL. No FK violation.
+  db.run(sql`DELETE FROM _migrations WHERE version = 58`)
+  expect(() => migrate(db)).not.toThrow()
+
+  // The orphan survived but its dangling ref was cleaned up to NULL,
+  // matching the new schema's FK semantics.
+  const rows = db.select().from(querySnapshots).all()
+  expect(rows).toHaveLength(1)
+  expect(rows[0]!.queryId).toBeNull()
+  expect(rows[0]!.queryText).toBeNull()
+  expect(db.all<unknown>(sql`PRAGMA foreign_key_check`)).toEqual([])
+})
+
 test('schema declares query_id nullable with ON DELETE SET NULL', () => {
   // PRAGMA-level guard so a future migration that forgets the rebuild can't
   // silently re-introduce the cascade without failing the suite.
