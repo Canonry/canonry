@@ -1446,7 +1446,7 @@ export function ProjectPage({
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-zinc-500 mr-1">
               Also known as
-              <InfoTooltip text="Extra brand names checked against LLM answer text alongside the project name. Use for product names, prior names, or DBAs (e.g. add LlamaParse if the project is LlamaIndex). Changing these recomputes mentions on historical runs." />
+              <InfoTooltip text="Extra brand names checked against LLM answer text alongside the project name. Use for product names, prior names, or DBAs (e.g. add Meta as an alias to facebook.com). Changing these recomputes mentions on historical runs." />
             </span>
             {(model.project.aliases ?? []).map((a) => (
               <span key={a} className="inline-flex items-center gap-1 rounded-full border border-zinc-700/60 bg-zinc-800/40 px-2 py-0.5 text-xs text-zinc-300">
