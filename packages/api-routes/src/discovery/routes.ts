@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { eq, desc } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   competitors,
@@ -67,6 +67,21 @@ export interface DiscoveryRoutesOptions {
   onDiscoveryRunRequested?: OnDiscoveryRunRequested
 }
 
+/**
+ * Upper bound on the age of an in-flight discovery session that the route
+ * will consolidate onto. Rows in `queued`/`seeding`/`probing` older than
+ * this are presumed abandoned — the canonry-side handler was killed
+ * (process restart, OOM, SIGKILL) before its catch block in `discovery-run`
+ * could call `markSessionFailed`, leaving the row stuck. Without this guard
+ * every subsequent `discover run` for the same (project, ICP) would
+ * consolidate onto the zombie and never produce results. 2 hours is well
+ * above the orchestrator's realistic max runtime (~90 min for 500 probes at
+ * ~10s/probe + seed + classify), so a slow-but-still-running orchestrator
+ * is never falsely abandoned. The stale row itself is left untouched so an
+ * operator can inspect it via `canonry discover list`.
+ */
+const MAX_INFLIGHT_DISCOVERY_AGE_MS = 2 * 60 * 60 * 1000
+
 export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoutesOptions) {
   // POST /projects/:name/discover/run — kick off a discovery session
   app.post<{
@@ -109,10 +124,44 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
     }
 
     const now = new Date().toISOString()
-    const sessionId = crypto.randomUUID()
-    const runId = crypto.randomUUID()
 
-    app.db.transaction((tx) => {
+    // The lookup + insert run inside one transaction so two concurrent
+    // discover-run requests for the same ICP can't both miss the dedup check
+    // and start parallel sessions. SQLite serializes writers via the WAL —
+    // the second request blocks on the lock, then observes the first
+    // request's row and returns its IDs. Issue #498.
+    const ageFloorIso = new Date(Date.now() - MAX_INFLIGHT_DISCOVERY_AGE_MS).toISOString()
+    const decision = app.db.transaction((tx) => {
+      // `gte(createdAt, ageFloorIso)` keeps zombie rows from being reused.
+      // `orderBy desc` makes the choice deterministic when both a stale row
+      // and a fresh row exist for the same (project, ICP) — we always
+      // consolidate onto the newest match.
+      const existing = tx
+        .select({ id: discoverySessions.id, runId: discoverySessions.runId })
+        .from(discoverySessions)
+        .where(and(
+          eq(discoverySessions.projectId, project.id),
+          eq(discoverySessions.icpDescription, icpDescription),
+          inArray(discoverySessions.status, [
+            DiscoverySessionStatuses.queued,
+            DiscoverySessionStatuses.seeding,
+            DiscoverySessionStatuses.probing,
+          ]),
+          gte(discoverySessions.createdAt, ageFloorIso),
+        ))
+        .orderBy(desc(discoverySessions.createdAt))
+        .get()
+
+      // An in-flight session without a runId would be a legacy row from before
+      // the route always wrote one — treat it as not-reusable so the caller
+      // gets a real, kickoffable session.
+      if (existing && existing.runId) {
+        return { reused: true as const, sessionId: existing.id, runId: existing.runId }
+      }
+
+      const sessionId = crypto.randomUUID()
+      const runId = crypto.randomUUID()
+
       tx.insert(discoverySessions).values({
         id: sessionId,
         projectId: project.id,
@@ -140,11 +189,26 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
         entityType: 'discovery_session',
         entityId: sessionId,
       })
+
+      return { reused: false as const, sessionId, runId }
     })
 
+    if (decision.reused) {
+      // Nothing was inserted; do not fire the orchestrator callback again.
+      // The caller's `dedupThreshold` / `maxProbes` are intentionally
+      // dropped — the in-flight session was already started with its own
+      // config and changing it mid-flight would silently corrupt the run.
+      return reply.status(200).send({
+        runId: decision.runId,
+        sessionId: decision.sessionId,
+        status: 'running',
+        consolidated: true,
+      })
+    }
+
     opts.onDiscoveryRunRequested({
-      runId,
-      sessionId,
+      runId: decision.runId,
+      sessionId: decision.sessionId,
       projectId: project.id,
       icpDescription,
       dedupThreshold: parsed.data.dedupThreshold,
@@ -152,7 +216,12 @@ export async function discoveryRoutes(app: FastifyInstance, opts: DiscoveryRoute
       locations,
     })
 
-    return reply.status(201).send({ runId, sessionId, status: 'running' })
+    return reply.status(201).send({
+      runId: decision.runId,
+      sessionId: decision.sessionId,
+      status: 'running',
+      consolidated: false,
+    })
   })
 
   // GET /projects/:name/discover/sessions — list sessions for a project

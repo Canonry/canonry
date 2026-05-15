@@ -158,6 +158,13 @@ export interface DiscoveryRunStartResponse {
   runId: string
   sessionId: string
   status: 'running'
+  /**
+   * True when the request landed on an already-in-flight session for the same
+   * project + ICP. Returned IDs point at the existing session; no new
+   * orchestrator run was kicked off and the caller's `dedupThreshold` /
+   * `maxProbes` were ignored. Issue #498.
+   */
+  consolidated: boolean
 }
 
 /**
