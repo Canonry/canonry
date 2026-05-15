@@ -1431,6 +1431,30 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       }
     },
   },
+  {
+    version: 67,
+    name: 'gbp-locations',
+    statements: [
+      // Google Business Profile integration (Phase 1) — gbp_locations table
+      // holds per-project discovered locations and their selection state.
+      `CREATE TABLE IF NOT EXISTS gbp_locations (
+        id                              TEXT PRIMARY KEY,
+        project_id                      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        account_name                    TEXT NOT NULL,
+        location_name                   TEXT NOT NULL,
+        display_name                    TEXT NOT NULL,
+        primary_category_display_name   TEXT,
+        storefront_address              TEXT,
+        website_uri                     TEXT,
+        selected                        INTEGER NOT NULL DEFAULT 1,
+        synced_at                       TEXT,
+        created_at                      TEXT NOT NULL,
+        updated_at                      TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_gbp_locations_project ON gbp_locations(project_id)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS uniq_gbp_locations_project_location ON gbp_locations(project_id, location_name)`,
+    ],
+  },
 ]
 
 /**

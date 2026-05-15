@@ -74,6 +74,7 @@
     "@ainyc/canonry-integration-cloud-run": "workspace:*",
     "@ainyc/canonry-integration-commoncrawl": "workspace:*",
     "@ainyc/canonry-integration-google": "workspace:*",
+    "@ainyc/canonry-integration-google-business-profile": "workspace:*",
     "@ainyc/canonry-integration-traffic": "workspace:*",
     "@ainyc/canonry-integration-wordpress": "workspace:*",
     "@ainyc/canonry-intelligence": "workspace:*",

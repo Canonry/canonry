@@ -64,7 +64,7 @@ const booleanSchema = { type: 'boolean' }
 const integerSchema = { type: 'integer' }
 const objectSchema = { type: 'object', additionalProperties: true }
 const stringArraySchema = { type: 'array', items: stringSchema }
-const googleConnectionTypeSchema = { type: 'string', enum: ['gsc', 'ga4'] }
+const googleConnectionTypeSchema = { type: 'string', enum: ['gsc', 'ga4', 'gbp'] }
 const locationSchema = {
   type: 'object',
   required: ['label', 'city', 'region', 'country'],
@@ -1698,6 +1698,81 @@ const routeCatalog: OpenApiOperation[] = [
       200: jsonResponse('Indexing request results returned.', 'IndexingRequestResponseDto'),
       400: errorResponse('Invalid indexing request.'),
       404: errorResponse('Project or connection not found.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/gbp/locations/discover',
+    summary: 'Discover Google Business Profile locations and persist selection state',
+    tags: ['gbp'],
+    parameters: [nameParameter],
+    requestBody: {
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            properties: { selectAllNew: booleanSchema },
+          },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('List of discovered locations and selection summary returned.', 'GbpLocationListResponse'),
+      400: errorResponse('Invalid discover request or scope/API problem.'),
+      404: errorResponse('Project not found.'),
+      429: errorResponse('GBP API quota exceeded (access form may not be approved).'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/gbp/locations',
+    summary: 'List Google Business Profile locations + selection state',
+    tags: ['gbp'],
+    parameters: [
+      nameParameter,
+      { in: 'query', name: 'selected', required: false, description: 'Filter to selected=true or selected=false', schema: { type: 'string', enum: ['true', 'false'] } },
+    ],
+    responses: {
+      200: jsonResponse('List of locations returned.', 'GbpLocationListResponse'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'put',
+    path: '/api/v1/projects/{name}/gbp/locations/{locationName}/selection',
+    summary: 'Toggle a Google Business Profile location\'s sync selection',
+    tags: ['gbp'],
+    parameters: [
+      nameParameter,
+      { in: 'path', name: 'locationName', required: true, schema: stringSchema, description: 'URL-encoded "locations/{n}" resource name' },
+    ],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['selected'],
+            properties: { selected: booleanSchema },
+          },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Updated location returned.', 'GbpLocationDto'),
+      400: errorResponse('Invalid selection request.'),
+      404: errorResponse('Project or location not found.'),
+    },
+  },
+  {
+    method: 'delete',
+    path: '/api/v1/projects/{name}/gbp/connection',
+    summary: 'Disconnect Google Business Profile and remove discovered locations',
+    tags: ['gbp'],
+    parameters: [nameParameter],
+    responses: {
+      204: { description: 'Disconnected.' },
+      404: errorResponse('Project not found.'),
     },
   },
   {

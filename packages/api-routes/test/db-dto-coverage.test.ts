@@ -19,6 +19,7 @@ import {
   ga4SocialReferralDtoSchema,
   ga4TrafficSnapshotDtoSchema,
   ga4TrafficSummaryDtoSchema,
+  gbpLocationDtoSchema,
   googleConnectionDtoSchema,
   gscCoverageSnapshotDtoSchema,
   gscSearchDataDtoSchema,
@@ -150,6 +151,11 @@ const COVERAGE: Record<string, CoverageEntry> = {
     internal: {
       createdByProjectId: 'Ownership marker for cross-project takeover defense; enforced by the OAuth callback and DELETE route, not exposed on the public DTO.',
     },
+  },
+  gbpLocations: {
+    kind: 'dto',
+    dto: gbpLocationDtoSchema,
+    internal: {},
   },
   gscSearchData: {
     kind: 'dto',

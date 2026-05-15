@@ -39,6 +39,8 @@ import type {
   GA4SessionHistoryEntry,
   AuditLogEntry,
   GoogleConnectionDto,
+  GbpLocationDto,
+  GbpLocationListResponse,
   GscSearchDataDto,
   GscPerformanceDailyDto,
   GscUrlInspectionDto,
@@ -164,6 +166,11 @@ import {
   getApiV1ProjectsByNameGoogleProperties,
   putApiV1ProjectsByNameGoogleConnectionsByTypeProperty,
   putApiV1ProjectsByNameGoogleConnectionsByTypeSitemap,
+  // Google Business Profile
+  postApiV1ProjectsByNameGbpLocationsDiscover,
+  getApiV1ProjectsByNameGbpLocations,
+  putApiV1ProjectsByNameGbpLocationsByLocationNameSelection,
+  deleteApiV1ProjectsByNameGbpConnection,
   // GSC
   postApiV1ProjectsByNameGoogleGscSync,
   getApiV1ProjectsByNameGoogleGscPerformance,
@@ -1110,6 +1117,47 @@ export class ApiClient {
     )
   }
 
+  // Google Business Profile (Phase 1: auth + discovery)
+  async discoverGbpLocations(project: string, body?: { selectAllNew?: boolean }): Promise<GbpLocationListResponse> {
+    return this.invoke<GbpLocationListResponse>(() =>
+      postApiV1ProjectsByNameGbpLocationsDiscover({
+        client: this.heyClient,
+        path: { name: project },
+        body: body ?? {},
+      }),
+    )
+  }
+
+  async listGbpLocations(project: string, opts?: { selected?: boolean }): Promise<GbpLocationListResponse> {
+    return this.invoke<GbpLocationListResponse>(() =>
+      getApiV1ProjectsByNameGbpLocations({
+        client: this.heyClient,
+        path: { name: project },
+        query: opts?.selected === undefined ? undefined : { selected: String(opts.selected) } as never,
+      }),
+    )
+  }
+
+  async setGbpLocationSelection(project: string, locationName: string, selected: boolean): Promise<GbpLocationDto> {
+    return this.invoke<GbpLocationDto>(() =>
+      putApiV1ProjectsByNameGbpLocationsByLocationNameSelection({
+        client: this.heyClient,
+        path: { name: project, locationName } as never,
+        body: { selected },
+      }),
+    )
+  }
+
+  async disconnectGbp(project: string): Promise<void> {
+    await this.invoke<unknown>(() =>
+      deleteApiV1ProjectsByNameGbpConnection({
+        client: this.heyClient,
+        path: { name: project },
+      }),
+    )
+  }
+
+  // GSC data
   async gscSync(project: string, body?: { days?: number; full?: boolean }): Promise<RunDto> {
     return this.invoke<RunDto>(() =>
       postApiV1ProjectsByNameGoogleGscSync({

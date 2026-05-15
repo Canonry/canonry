@@ -4,7 +4,7 @@ import os from 'node:os'
 import { parse, stringify } from 'yaml'
 import type { ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
 
-export type GoogleConnectionType = 'gsc' | 'ga4'
+export type GoogleConnectionType = 'gsc' | 'ga4' | 'gbp'
 
 export interface ProviderConfigEntry {
   apiKey?: string
@@ -42,6 +42,9 @@ export interface GoogleConnectionConfigEntry {
    * unowned (claimable by any project's next connect).
    */
   createdByProjectId?: string | null
+  // Remembered account name (e.g. "accounts/12345") for GBP connections so
+  // we don't re-discover the account on every sync. Unused for gsc/ga4.
+  gbpAccountName?: string | null
   createdAt: string
   updatedAt: string
 }

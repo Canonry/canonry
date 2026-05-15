@@ -171,6 +171,22 @@ const queryGenerateInputSchema = z.object({
   request: queryGenerateRequestSchema,
 })
 
+const gbpListLocationsInputSchema = z.object({
+  project: projectNameSchema,
+  selected: z.boolean().optional(),
+})
+
+const gbpDiscoverInputSchema = z.object({
+  project: projectNameSchema,
+  selectAllNew: z.boolean().optional().default(true),
+})
+
+const gbpLocationSelectionInputSchema = z.object({
+  project: projectNameSchema,
+  locationName: z.string().min(1).regex(/^locations\//, 'locationName must be a Google resource name like "locations/12345"'),
+  selected: z.boolean(),
+})
+
 const keywordsInputSchema = z.object({
   project: projectNameSchema,
   request: keywordBatchRequestSchema,
@@ -883,6 +899,51 @@ export const canonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/ga/session-history'],
     handler: (client, input) => client.gaSessionHistory(input.project, compactStringParams(input, ['window'])),
+  }),
+  // ----- Google Business Profile (Phase 1: auth + discovery) -----
+  defineTool({
+    name: 'canonry_gbp_locations',
+    title: 'List Google Business Profile locations',
+    description: 'List discovered Google Business Profile locations for a Canonry project, including their selection state.',
+    access: 'read',
+    tier: 'gbp',
+    inputSchema: gbpListLocationsInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/gbp/locations'],
+    handler: (client, input) => client.listGbpLocations(input.project, input.selected === undefined ? undefined : { selected: input.selected }),
+  }),
+  defineTool({
+    name: 'canonry_gbp_locations_discover',
+    title: 'Discover Google Business Profile locations',
+    description: 'Re-discover Google Business Profile locations from Google and upsert them. New locations get the default selection state from `selectAllNew`; existing locations keep their selection.',
+    access: 'write',
+    tier: 'gbp',
+    inputSchema: gbpDiscoverInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/gbp/locations/discover'],
+    handler: (client, input) => client.discoverGbpLocations(input.project, { selectAllNew: input.selectAllNew }),
+  }),
+  defineTool({
+    name: 'canonry_gbp_location_select',
+    title: 'Toggle GBP location selection',
+    description: 'Mark a Google Business Profile location as selected or deselected for sync.',
+    access: 'write',
+    tier: 'gbp',
+    inputSchema: gbpLocationSelectionInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['PUT /api/v1/projects/{name}/gbp/locations/{locationName}/selection'],
+    handler: (client, input) => client.setGbpLocationSelection(input.project, input.locationName, input.selected),
+  }),
+  defineTool({
+    name: 'canonry_gbp_disconnect',
+    title: 'Disconnect Google Business Profile',
+    description: 'Remove the Google Business Profile OAuth connection and all discovered locations for a project.',
+    access: 'write',
+    tier: 'gbp',
+    inputSchema: projectInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
+    openApiOperations: ['DELETE /api/v1/projects/{name}/gbp/connection'],
+    handler: (client, input) => client.disconnectGbp(input.project),
   }),
   defineTool({
     name: 'canonry_traffic_sources_list',

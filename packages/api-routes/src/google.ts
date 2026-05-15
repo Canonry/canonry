@@ -1,8 +1,14 @@
 import crypto from 'node:crypto'
 import { eq, and, desc, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, runs, projects } from '@ainyc/canonry-db'
-import { validationError, notFound, normalizeProjectDomain, parseWindow, windowCutoff } from '@ainyc/canonry-contracts'
+import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, runs, projects } from '@ainyc/canonry-db'
+import {
+  validationError, notFound, normalizeProjectDomain, parseWindow, windowCutoff,
+  authRequired, quotaExceeded, providerError,
+  type GoogleConnectionType,
+  gbpDiscoverRequestSchema, gbpLocationSelectionRequestSchema,
+  type GbpLocationDto, type GbpLocationListResponse,
+} from '@ainyc/canonry-contracts'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import {
   getAuthUrl,
@@ -17,10 +23,30 @@ import {
   INDEXING_API_DAILY_LIMIT,
 } from '@ainyc/canonry-integration-google'
 import { GA4_SCOPE } from '@ainyc/canonry-integration-google-analytics'
+import {
+  GBP_SCOPE,
+  GbpApiError,
+  listAccounts as gbpListAccounts,
+  listLocations as gbpListLocations,
+  formatStorefrontAddress,
+} from '@ainyc/canonry-integration-google-business-profile'
+
+/**
+ * Scopes requested per connection type. Centralized so all OAuth surface
+ * (connect + callback + token refresh) speaks the same language. Add new
+ * connection types here, not as inline ternaries.
+ */
+function scopesForConnectionType(type: GoogleConnectionType): string[] {
+  switch (type) {
+    case 'gsc': return [GSC_SCOPE, INDEXING_SCOPE]
+    case 'ga4': return [GA4_SCOPE]
+    case 'gbp': return [GBP_SCOPE]
+  }
+}
 
 export interface GoogleConnectionRecord {
   domain: string
-  connectionType: 'gsc' | 'ga4'
+  connectionType: GoogleConnectionType
   propertyId?: string | null
   sitemapUrl?: string | null
   accessToken?: string
@@ -35,20 +61,21 @@ export interface GoogleConnectionRecord {
    * DELETE route refuses to remove one for the same reason.
    */
   createdByProjectId?: string | null
+  gbpAccountName?: string | null
   createdAt: string
   updatedAt: string
 }
 
 export interface GoogleConnectionStore {
   listConnections: (domain: string) => GoogleConnectionRecord[]
-  getConnection: (domain: string, connectionType: 'gsc' | 'ga4') => GoogleConnectionRecord | undefined
+  getConnection: (domain: string, connectionType: GoogleConnectionType) => GoogleConnectionRecord | undefined
   upsertConnection: (connection: GoogleConnectionRecord) => GoogleConnectionRecord
   updateConnection: (
     domain: string,
-    connectionType: 'gsc' | 'ga4',
+    connectionType: GoogleConnectionType,
     patch: Partial<Omit<GoogleConnectionRecord, 'domain' | 'connectionType' | 'createdAt'>>,
   ) => GoogleConnectionRecord | undefined
-  deleteConnection: (domain: string, connectionType: 'gsc' | 'ga4') => boolean
+  deleteConnection: (domain: string, connectionType: GoogleConnectionType) => boolean
 }
 
 export interface GoogleRoutesOptions {
@@ -86,7 +113,7 @@ function verifySignedState(encoded: string, secret: string): Record<string, unkn
 async function getValidToken(
   store: GoogleConnectionStore,
   domain: string,
-  connectionType: 'gsc' | 'ga4',
+  connectionType: GoogleConnectionType,
   clientId: string,
   clientSecret: string,
 ): Promise<{ accessToken: string; connectionId: string; propertyId: string | null }> {
@@ -193,8 +220,8 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     }
 
     const { type, propertyId, publicUrl } = request.body ?? {}
-    if (!type || (type !== 'gsc' && type !== 'ga4')) {
-      throw validationError('type must be "gsc" or "ga4"')
+    if (!type || (type !== 'gsc' && type !== 'ga4' && type !== 'gbp')) {
+      throw validationError('type must be "gsc", "ga4", or "gbp"')
     }
 
     const project = resolveProject(app.db, request.params.name)
@@ -213,7 +240,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       redirectUri = `${proto}://${host}${opts.routePrefix ?? '/api/v1'}/projects/${encodeURIComponent(request.params.name)}/google/callback`
     }
 
-    const scopes = type === 'gsc' ? [GSC_SCOPE, INDEXING_SCOPE] : [GA4_SCOPE]
+    const scopes = scopesForConnectionType(type)
     // Bind the OAuth state to the *initiating project* (by id and name) in
     // addition to the domain. The callback re-validates all three so an
     // attacker can't (a) initiate OAuth from a different project name with a
@@ -345,7 +372,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
 
     const now = new Date().toISOString()
     const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString()
-    const existing = store.getConnection(domain, type as 'gsc' | 'ga4')
+    const existing = store.getConnection(domain, type as GoogleConnectionType)
 
     // Refuse to overwrite a connection owned by a different project. Legacy
     // rows without an owner (NULL `createdByProjectId`) are claimable; the
@@ -360,9 +387,10 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         )
     }
 
+
     store.upsertConnection({
       domain,
-      connectionType: type as 'gsc' | 'ga4',
+      connectionType: type as GoogleConnectionType,
       propertyId: propertyId ?? existing?.propertyId ?? null,
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token ?? existing?.refreshToken ?? null,
@@ -413,7 +441,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     const store = requireConnectionStore()
 
     const project = resolveProject(app.db, request.params.name)
-    const type = request.params.type as 'gsc' | 'ga4'
+    const type = request.params.type as GoogleConnectionType
 
     // Cross-project takeover defense: only the owning project (or no-owner
     // legacy rows) may disconnect. Without this, an attacker who created a
@@ -1039,7 +1067,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
 
     const conn = store.updateConnection(
       project.canonicalDomain,
-      request.params.type as 'gsc' | 'ga4',
+      request.params.type as GoogleConnectionType,
       { sitemapUrl: sitemapUrl.trim(), updatedAt: new Date().toISOString() },
     )
     if (!conn) {
@@ -1064,7 +1092,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
 
     const conn = store.updateConnection(
       project.canonicalDomain,
-      request.params.type as 'gsc' | 'ga4',
+      request.params.type as GoogleConnectionType,
       { propertyId, updatedAt: new Date().toISOString() },
     )
     if (!conn) {
@@ -1182,6 +1210,234 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       summary: { total: results.length, succeeded, failed },
       results,
     }
+  })
+
+  // ---------------------------------------------------------------------------
+  // Google Business Profile — Phase 1 (auth + discovery)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Map a `GbpApiError` to the most appropriate `AppError`. The error's
+   * structured `reason` field distinguishes scope problems from the 0-QPM
+   * access-form gate so the CLI/UI can show a tailored message.
+   */
+  function gbpErrorToAppError(err: GbpApiError, context: string) {
+    if (err.reason === 'ACCESS_TOKEN_SCOPE_INSUFFICIENT') {
+      return validationError(
+        `${context}: OAuth token is missing the business.manage scope. Reconnect with "canonry gbp connect".`,
+      )
+    }
+    if (err.reason === 'RATE_LIMIT_EXCEEDED' || /quota/i.test(err.message)) {
+      return quotaExceeded(
+        'Google Business Profile API (0 QPM — access form pending approval)',
+      )
+    }
+    if (err.reason === 'API_DISABLED' || err.reason === 'CONSUMER_INVALID') {
+      return providerError(
+        `${context}: required Business Profile API is not enabled on the configured GCP project.`,
+        { reason: err.reason, body: err.body },
+      )
+    }
+    if (err.status === 401) return authRequired()
+    return providerError(`${context}: ${err.message}`, { reason: err.reason ?? undefined, status: err.status })
+  }
+
+  function rowToDto(row: typeof gbpLocations.$inferSelect): GbpLocationDto {
+    return {
+      id: row.id,
+      projectId: row.projectId,
+      accountName: row.accountName,
+      locationName: row.locationName,
+      displayName: row.displayName,
+      primaryCategoryDisplayName: row.primaryCategoryDisplayName ?? null,
+      storefrontAddress: row.storefrontAddress ?? null,
+      websiteUri: row.websiteUri ?? null,
+      selected: Boolean(row.selected),
+      syncedAt: row.syncedAt ?? null,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    }
+  }
+
+  function listSelectionResponse(projectId: string): GbpLocationListResponse {
+    const rows = app.db.select().from(gbpLocations).where(eq(gbpLocations.projectId, projectId)).all()
+    const dtos = rows.map(rowToDto)
+    return {
+      locations: dtos,
+      totalDiscovered: dtos.length,
+      totalSelected: dtos.filter((d) => d.selected).length,
+    }
+  }
+
+  // POST /projects/:name/gbp/locations/discover
+  // Re-discover locations from Google and upsert them. New rows get
+  // `selected = body.selectAllNew`. Existing rows keep their selected state.
+  app.post<{
+    Params: { name: string }
+    Body: { selectAllNew?: boolean }
+  }>('/projects/:name/gbp/locations/discover', async (request) => {
+    const { clientId: googleClientId, clientSecret: googleClientSecret } = getAuthConfig()
+    if (!googleClientId || !googleClientSecret) {
+      throw validationError('Google OAuth is not configured')
+    }
+    const project = resolveProject(app.db, request.params.name)
+    const store = requireConnectionStore()
+
+    const parsed = gbpDiscoverRequestSchema.safeParse(request.body ?? {})
+    if (!parsed.success) {
+      throw validationError(parsed.error.issues[0]?.message ?? 'Invalid discover request')
+    }
+    const { selectAllNew } = parsed.data
+
+    const { accessToken } = await getValidToken(
+      store, project.canonicalDomain, 'gbp', googleClientId, googleClientSecret,
+    )
+
+    // Resolve the account: prefer the remembered one, otherwise pick the
+    // first account visible to the OAuth user.
+    const conn = store.getConnection(project.canonicalDomain, 'gbp')
+    let accountName = conn?.gbpAccountName ?? null
+    if (!accountName) {
+      let accounts
+      try {
+        accounts = await gbpListAccounts(accessToken)
+      } catch (err) {
+        if (err instanceof GbpApiError) throw gbpErrorToAppError(err, 'list accounts')
+        throw err
+      }
+      if (accounts.length === 0) {
+        throw validationError('No GBP accounts are visible to this OAuth user. Confirm the user has manager/owner access on the target Business Profile.')
+      }
+      accountName = accounts[0]!.name
+      // Remember the account for subsequent calls.
+      store.updateConnection(project.canonicalDomain, 'gbp', {
+        gbpAccountName: accountName,
+        updatedAt: new Date().toISOString(),
+      })
+    }
+
+    let remoteLocations
+    try {
+      remoteLocations = await gbpListLocations(accessToken, accountName)
+    } catch (err) {
+      if (err instanceof GbpApiError) throw gbpErrorToAppError(err, 'list locations')
+      throw err
+    }
+
+    const now = new Date().toISOString()
+    app.db.transaction((tx) => {
+      for (const remote of remoteLocations) {
+        const existing = tx.select()
+          .from(gbpLocations)
+          .where(and(eq(gbpLocations.projectId, project.id), eq(gbpLocations.locationName, remote.name)))
+          .get()
+        if (existing) {
+          tx.update(gbpLocations).set({
+            accountName,
+            displayName: remote.title ?? existing.displayName,
+            primaryCategoryDisplayName: remote.categories?.primaryCategory?.displayName ?? null,
+            storefrontAddress: formatStorefrontAddress(remote),
+            websiteUri: remote.websiteUri ?? null,
+            updatedAt: now,
+          }).where(eq(gbpLocations.id, existing.id)).run()
+        } else {
+          tx.insert(gbpLocations).values({
+            id: crypto.randomUUID(),
+            projectId: project.id,
+            accountName,
+            locationName: remote.name,
+            displayName: remote.title ?? remote.name,
+            primaryCategoryDisplayName: remote.categories?.primaryCategory?.displayName ?? null,
+            storefrontAddress: formatStorefrontAddress(remote),
+            websiteUri: remote.websiteUri ?? null,
+            selected: selectAllNew,
+            createdAt: now,
+            updatedAt: now,
+          }).run()
+        }
+      }
+      writeAuditLog(tx, {
+        projectId: project.id,
+        actor: 'api',
+        action: 'gbp.locations.discovered',
+        entityType: 'gbp_locations',
+        diff: { account: accountName, count: remoteLocations.length, selectAllNew },
+      })
+    })
+
+    return listSelectionResponse(project.id)
+  })
+
+  // GET /projects/:name/gbp/locations
+  app.get<{
+    Params: { name: string }
+    Querystring: { selected?: string }
+  }>('/projects/:name/gbp/locations', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const response = listSelectionResponse(project.id)
+    const filter = request.query.selected
+    if (filter === 'true' || filter === 'false') {
+      const want = filter === 'true'
+      response.locations = response.locations.filter((l) => l.selected === want)
+    }
+    return response
+  })
+
+  // PUT /projects/:name/gbp/locations/:locationName/selection
+  // Note: locationName is "locations/{n}" which contains a slash. The CLI
+  // and ApiClient URL-encode it.
+  app.put<{
+    Params: { name: string; locationName: string }
+    Body: { selected?: boolean }
+  }>('/projects/:name/gbp/locations/:locationName/selection', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const locationName = decodeURIComponent(request.params.locationName)
+
+    const parsed = gbpLocationSelectionRequestSchema.safeParse(request.body ?? {})
+    if (!parsed.success) {
+      throw validationError(parsed.error.issues[0]?.message ?? 'Invalid selection request')
+    }
+    const { selected } = parsed.data
+
+    const existing = app.db.select().from(gbpLocations)
+      .where(and(eq(gbpLocations.projectId, project.id), eq(gbpLocations.locationName, locationName)))
+      .get()
+    if (!existing) throw notFound('GBP location', locationName)
+
+    const now = new Date().toISOString()
+    app.db.transaction((tx) => {
+      tx.update(gbpLocations).set({ selected, updatedAt: now }).where(eq(gbpLocations.id, existing.id)).run()
+      writeAuditLog(tx, {
+        projectId: project.id,
+        actor: 'api',
+        action: selected ? 'gbp.location.selected' : 'gbp.location.deselected',
+        entityType: 'gbp_location',
+        entityId: locationName,
+      })
+    })
+
+    const refreshed = app.db.select().from(gbpLocations).where(eq(gbpLocations.id, existing.id)).get()!
+    return rowToDto(refreshed)
+  })
+
+  // DELETE /projects/:name/gbp/connection
+  // Removes the OAuth connection + all gbp_locations rows for the project.
+  app.delete<{ Params: { name: string } }>('/projects/:name/gbp/connection', async (request, reply) => {
+    const project = resolveProject(app.db, request.params.name)
+    const store = requireConnectionStore()
+
+    app.db.transaction((tx) => {
+      tx.delete(gbpLocations).where(eq(gbpLocations.projectId, project.id)).run()
+      writeAuditLog(tx, {
+        projectId: project.id,
+        actor: 'api',
+        action: 'gbp.disconnected',
+        entityType: 'gbp_connection',
+      })
+    })
+    store.deleteConnection(project.canonicalDomain, 'gbp')
+
+    return reply.status(204).send()
   })
 
 }

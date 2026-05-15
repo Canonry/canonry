@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export const googleConnectionTypeSchema = z.enum(['gsc', 'ga4'])
+export const googleConnectionTypeSchema = z.enum(['gsc', 'ga4', 'gbp'])
 export type GoogleConnectionType = z.infer<typeof googleConnectionTypeSchema>
 
 export const googleConnectionDtoSchema = z.object({
