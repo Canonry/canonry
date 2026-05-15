@@ -296,13 +296,19 @@ export class Notifier {
     // Key by (queryId, provider, location) so a florida regression is not
     // masked by an unchanged michigan reading (or vice versa) when both
     // locations are present in the current+previous groups.
+    //
+    // Orphan snapshots (queryId NULL, post-v58: tracked query was deleted)
+    // are skipped — they all collide under a null key and a transition on
+    // a no-longer-tracked query isn't useful to notify on.
     const prevMap = new Map<string, string>()
     for (const s of previousSnapshots) {
+      if (s.queryId == null) continue
       prevMap.set(`${s.queryId}:${s.provider}:${s.location ?? ''}`, s.citationState)
     }
 
     const transitions: Array<{ query: string; from: string; to: string; provider: string; location: string | null }> = []
     for (const s of currentSnapshots) {
+      if (s.queryId == null) continue
       const key = `${s.queryId}:${s.provider}:${s.location ?? ''}`
       const prevState = prevMap.get(key)
       if (prevState && prevState !== s.citationState) {

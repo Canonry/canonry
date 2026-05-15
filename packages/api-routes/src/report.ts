@@ -148,20 +148,26 @@ function loadSnapshotsForRunIds(db: DatabaseClient, runIds: readonly string[]): 
     .from(querySnapshots)
     .where(inArray(querySnapshots.runId, [...runIds]))
     .all()
-  return rows.map(r => ({
-    id: r.id,
-    runId: r.runId,
-    queryId: r.queryId,
-    provider: r.provider,
-    model: r.model,
-    citationState: r.citationState,
-    answerMentioned: r.answerMentioned,
-    answerText: r.answerText,
-    citedDomains: parseJsonColumn<string[]>(r.citedDomains, []),
-    competitorOverlap: parseJsonColumn<string[]>(r.competitorOverlap, []),
-    groundingSources: extractGroundingSources(r.rawResponse),
-    createdAt: r.createdAt,
-  }))
+  // Skip orphan snapshots (query_id NULL because the tracked query was
+  // deleted post-v58). The report groups by query; an orphan can't be
+  // slotted and would collide with every other orphan under a null key.
+  // A future "deleted-query audit" view can opt in via `queryText`.
+  return rows
+    .filter(r => r.queryId !== null)
+    .map(r => ({
+      id: r.id,
+      runId: r.runId,
+      queryId: r.queryId as string,
+      provider: r.provider,
+      model: r.model,
+      citationState: r.citationState,
+      answerMentioned: r.answerMentioned,
+      answerText: r.answerText,
+      citedDomains: parseJsonColumn<string[]>(r.citedDomains, []),
+      competitorOverlap: parseJsonColumn<string[]>(r.competitorOverlap, []),
+      groundingSources: extractGroundingSources(r.rawResponse),
+      createdAt: r.createdAt,
+    }))
 }
 
 interface QueryLookup {
