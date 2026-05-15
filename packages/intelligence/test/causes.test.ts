@@ -83,6 +83,37 @@ describe('analyzeCause', () => {
     expect(result.competitorDomain).toBe('rival.com')
   })
 
+  it('prefers competitor_gain even when a third-party-only snapshot comes first (multi-location order independence)', () => {
+    // Multi-location projects produce one snapshot per (query, provider,
+    // location); the intelligence-service select doesn't pin an order, so
+    // a `find()` that stops at the first match could pick a third-party-only
+    // snapshot and miss a sibling snapshot that has the tracked competitor.
+    // Regression guard for that pitfall — analyzeCause must scan all
+    // matching snapshots and prefer the tracked-competitor signal.
+    const reg = makeRegression()
+    const snapshots: Snapshot[] = [
+      // Third-party-only snapshot — listed FIRST.
+      {
+        query: 'roof repair phoenix',
+        provider: 'chatgpt',
+        cited: false,
+        citedDomains: ['phoenix.gov'],
+      },
+      // Tracked competitor on the SECOND snapshot — must still win.
+      {
+        query: 'roof repair phoenix',
+        provider: 'chatgpt',
+        cited: false,
+        competitorDomains: ['rival.com'],
+        citedDomains: ['rival.com'],
+      },
+    ]
+
+    const result = analyzeCause(reg, snapshots)
+    expect(result.cause).toBe('competitor_gain')
+    expect(result.competitorDomain).toBe('rival.com')
+  })
+
   it('caps third_party_displacement detail at the top 3 displacing domains', () => {
     const reg = makeRegression()
     const snapshots: Snapshot[] = [
