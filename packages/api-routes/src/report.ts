@@ -1307,7 +1307,15 @@ function buildReportActionPlan(input: ReportActionPlanInput): ReportActionPlanIt
 
   for (const [index, opportunity] of input.contentOpportunities.slice(0, 2).entries()) {
     const verb = contentActionVerb(opportunity.action)
-    const target = opportunity.ourBestPage?.url ?? `a new page for "${opportunity.query}"`
+    const bestPageUrl = opportunity.ourBestPage?.url
+    // Treat "/" the same as "no best page" for action copy. Pointing the
+    // operator at the homepage as the place to "Update" or "Create" reads
+    // as nonsense ("Create / so it directly answers…"). The homepage is
+    // the best slug match by default but is rarely the topical page the
+    // analyst should edit. Keep the URL in the evidence so the analyst
+    // still sees what canonry matched against — just don't bake it into
+    // the sentence.
+    const hasUsablePage = !!bestPageUrl && bestPageUrl !== '/' && bestPageUrl.trim() !== ''
     const evidence = [
       `Opportunity score ${Math.round(opportunity.score)} with ${opportunity.actionConfidence} confidence`,
       `Demand source: ${opportunity.demandSource}`,
@@ -1316,20 +1324,31 @@ function buildReportActionPlan(input: ReportActionPlanInput): ReportActionPlanIt
       evidence.push(`${opportunity.winningCompetitor.domain} is the current winning cited source`)
     }
     if (opportunity.ourBestPage) {
-      evidence.push(`Best matching owned page: ${opportunity.ourBestPage.url}`)
+      if (bestPageUrl === '/') {
+        evidence.push('No topical page yet — homepage is the closest slug match')
+      } else {
+        evidence.push(`Best matching owned page: ${bestPageUrl}`)
+      }
     } else {
       evidence.push('No matching owned page was found')
     }
 
+    // `create` action means "this slot needs new dedicated content" even
+    // when ourBestPage exists (a poor-ranking page IS the trigger for the
+    // create classification — see content-classifier.ts). For create
+    // actions, always say "a new page for …" rather than telling the
+    // operator to edit the bad page. Other verbs (Expand, Refresh, Add
+    // schema to) target the existing page.
+    const targetIsExistingPage = opportunity.action !== 'create' && hasUsablePage
     actions.push({
       audience: 'both',
       priority: 20 + index,
       horizon: opportunity.actionConfidence === 'high' ? 'short-term' : 'medium-term',
       category: 'content',
       title: `${verb} content for "${opportunity.query}"`,
-      action: opportunity.ourBestPage
-        ? `${verb} ${target} so it directly answers the tracked query and cites the strongest supporting evidence.`
-        : `${verb} ${target} that directly answers the query and earns citations from AI answer engines.`,
+      action: targetIsExistingPage
+        ? `${verb} the existing page so it directly answers the tracked query and cites the strongest supporting evidence.`
+        : `${verb} a new page for "${opportunity.query}" that directly answers the query and earns citations from AI answer engines.`,
       why: opportunity.drivers.length > 0
         ? opportunity.drivers
         : ['Canonry ranked this as a content opportunity from search-demand and citation evidence.'],
