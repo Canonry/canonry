@@ -112,10 +112,20 @@ export async function discoverRun(project: string, opts: DiscoverRunOptions): Pr
     }
     for (const { angle, start } of runs) {
       if (angle) console.log(`[${angle}]`)
-      console.log(`Discovery run started: ${start.runId}`)
-      console.log(`  Session: ${start.sessionId}`)
-      console.log(`  Status:  ${start.status}`)
-      console.log(`  Tail:    canonry discover show ${project} ${start.sessionId}`)
+      // The headline must tell the operator whether a fresh sweep started or
+      // whether the route latched onto an in-flight one — otherwise the
+      // expensive Gemini seed call looks identical from the CLI. Issue #498.
+      if (start.consolidated) {
+        console.log(`Reusing in-flight discovery session: ${start.sessionId}`)
+        console.log(`  Run:     ${start.runId}`)
+        console.log(`  Status:  ${start.status}`)
+        console.log(`  Tail:    canonry discover show ${project} ${start.sessionId}`)
+      } else {
+        console.log(`Discovery run started: ${start.runId}`)
+        console.log(`  Session: ${start.sessionId}`)
+        console.log(`  Status:  ${start.status}`)
+        console.log(`  Tail:    canonry discover show ${project} ${start.sessionId}`)
+      }
       if (runs.length > 1) console.log()
     }
     return

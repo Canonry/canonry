@@ -339,6 +339,63 @@ describe('discover CLI commands', () => {
     // The 400 short-circuits before any session row is written.
     expect(db.select().from(discoverySessions).all()).toHaveLength(0)
   })
+
+  it('discover run --format json carries consolidated=true when an in-flight session is reused (issue #498)', async () => {
+    // Seed a session that looks in-flight — the route should latch on rather
+    // than starting a second seed/probe sweep.
+    const existingSessionId = crypto.randomUUID()
+    const existingRunId = crypto.randomUUID()
+    db.insert(discoverySessions).values({
+      id: existingSessionId,
+      projectId,
+      runId: existingRunId,
+      status: 'probing',
+      icpDescription: 'in-flight icp',
+      competitorMap: '[]',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    const result = await invokeCli([
+      'discover', 'run', 'demand-iq',
+      '--icp', 'in-flight icp',
+      '--format', 'json',
+    ])
+    expect(result.exitCode).toBeUndefined()
+
+    const json = parseJsonOutput(result.stdout) as DiscoveryRunStartResponse
+    expect(json.consolidated).toBe(true)
+    expect(json.sessionId).toBe(existingSessionId)
+    expect(json.runId).toBe(existingRunId)
+
+    // No new session row was created — the bug the issue calls out is the
+    // explosion of micro-sessions, so the contract here is "exactly one row".
+    expect(db.select().from(discoverySessions).all()).toHaveLength(1)
+  })
+
+  it('discover run prints a "Reusing in-flight session" line when the response is consolidated', async () => {
+    const existingSessionId = crypto.randomUUID()
+    const existingRunId = crypto.randomUUID()
+    db.insert(discoverySessions).values({
+      id: existingSessionId,
+      projectId,
+      runId: existingRunId,
+      status: 'probing',
+      icpDescription: 'in-flight icp',
+      competitorMap: '[]',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    const result = await invokeCli([
+      'discover', 'run', 'demand-iq',
+      '--icp', 'in-flight icp',
+    ])
+    expect(result.exitCode).toBeUndefined()
+    // The operator sees clearly that no fresh sweep started — "Discovery run
+    // started" would mislead them into thinking they paid for another seed.
+    expect(result.stdout).toContain('Reusing in-flight discovery session')
+    expect(result.stdout).toContain(existingSessionId)
+    expect(result.stdout).not.toContain('Discovery run started')
+  })
 })
 
 describe('resolveIcpAngles', () => {

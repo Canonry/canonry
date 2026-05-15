@@ -744,6 +744,261 @@ describe('discovery routes', () => {
     expect(db.select().from(runs).all()).toHaveLength(0)
   })
 
+  it('POST /discover/run reuses an in-flight session with the same ICP (no new rows, no callback)', async () => {
+    // The fragmentation bug in issue #498: back-to-back `canonry discover run`
+    // commands today fire a fresh Gemini seed each time. Consolidation keeps
+    // the in-flight session and tells the caller the existing IDs.
+    const calls: Array<{ runId: string; sessionId: string; projectId: string; icp: string }> = []
+    const { app, db, tmpDir } = buildAppWithRoutes(calls)
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    seedProject(db)
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { icpDescription: 'industrial coatings' },
+    })
+    expect(first.statusCode).toBe(201)
+    const firstBody = first.json() as { runId: string; sessionId: string; consolidated?: boolean }
+    expect(firstBody.consolidated).toBeFalsy()
+
+    // Simulate the orchestrator picking up the session — the row is now in a
+    // non-terminal status, exactly when a second invocation would race in.
+    db.update(discoverySessions).set({ status: 'probing' }).run()
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { icpDescription: 'industrial coatings' },
+    })
+    expect(second.statusCode).toBe(200)
+    const secondBody = second.json() as {
+      runId: string
+      sessionId: string
+      status: string
+      consolidated: boolean
+    }
+    expect(secondBody.consolidated).toBe(true)
+    expect(secondBody.sessionId).toBe(firstBody.sessionId)
+    expect(secondBody.runId).toBe(firstBody.runId)
+
+    // The expensive seed/probe pipeline must not be re-kicked.
+    expect(calls).toHaveLength(1)
+    expect(db.select().from(discoverySessions).all()).toHaveLength(1)
+    expect(db.select().from(runs).all()).toHaveLength(1)
+  })
+
+  it('POST /discover/run reuses a queued session (status check covers the pre-orchestrator window)', async () => {
+    const calls: Array<{ runId: string; sessionId: string }> = []
+    const { app, db, tmpDir } = buildAppWithRoutes(calls as never)
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    seedProject(db)
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { icpDescription: 'industrial coatings' },
+    })
+    const firstBody = first.json() as { sessionId: string }
+
+    // Sit it in `queued` — the orchestrator hasn't started yet. A second POST
+    // racing in here must still consolidate.
+    expect(db.select().from(discoverySessions).get()!.status).toBe('queued')
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { icpDescription: 'industrial coatings' },
+    })
+    const secondBody = second.json() as { sessionId: string; consolidated: boolean }
+    expect(secondBody.consolidated).toBe(true)
+    expect(secondBody.sessionId).toBe(firstBody.sessionId)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('POST /discover/run does NOT consolidate a completed session — that path is for seed-reuse, not consolidation', async () => {
+    const calls: Array<{ sessionId: string }> = []
+    const { app, db, tmpDir } = buildAppWithRoutes(calls as never)
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db)
+
+    db.insert(discoverySessions).values({
+      id: 'old_completed',
+      projectId,
+      status: 'completed',
+      icpDescription: 'industrial coatings',
+      competitorMap: '[]',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { icpDescription: 'industrial coatings' },
+    })
+    expect(response.statusCode).toBe(201)
+    const body = response.json() as { sessionId: string; consolidated?: boolean }
+    expect(body.consolidated).toBeFalsy()
+    expect(body.sessionId).not.toBe('old_completed')
+    expect(calls).toHaveLength(1)
+    expect(db.select().from(discoverySessions).all()).toHaveLength(2)
+  })
+
+  it('POST /discover/run does NOT consolidate a failed session', async () => {
+    const calls: Array<{ sessionId: string }> = []
+    const { app, db, tmpDir } = buildAppWithRoutes(calls as never)
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db)
+
+    db.insert(discoverySessions).values({
+      id: 'old_failed',
+      projectId,
+      status: 'failed',
+      icpDescription: 'industrial coatings',
+      competitorMap: '[]',
+      error: 'gemini quota',
+      createdAt: new Date().toISOString(),
+    }).run()
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { icpDescription: 'industrial coatings' },
+    })
+    expect(response.statusCode).toBe(201)
+    expect((response.json() as { consolidated?: boolean }).consolidated).toBeFalsy()
+    expect(calls).toHaveLength(1)
+  })
+
+  it('POST /discover/run creates a new session when the ICP differs from the in-flight one', async () => {
+    const calls: Array<{ icp: string }> = []
+    const { app, db, tmpDir } = buildAppWithRoutes(calls as never)
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    seedProject(db)
+
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { icpDescription: 'industrial coatings' },
+    })
+    db.update(discoverySessions).set({ status: 'probing' }).run()
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { icpDescription: 'aerospace coatings' },
+    })
+    expect(second.statusCode).toBe(201)
+    expect((second.json() as { consolidated?: boolean }).consolidated).toBeFalsy()
+    expect(calls).toHaveLength(2)
+    expect(db.select().from(discoverySessions).all()).toHaveLength(2)
+  })
+
+  it('POST /discover/run consolidates when the second call only differs by surrounding whitespace', async () => {
+    // The route already trims; the consolidation key must use the same
+    // normalized form so an operator who adds a stray space in a follow-up
+    // command doesn't start a duplicate sweep.
+    const calls: Array<{ icp: string }> = []
+    const { app, db, tmpDir } = buildAppWithRoutes(calls as never)
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    seedProject(db)
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { icpDescription: 'industrial coatings' },
+    })
+    const firstBody = first.json() as { sessionId: string }
+    db.update(discoverySessions).set({ status: 'probing' }).run()
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { icpDescription: '  industrial coatings  ' },
+    })
+    const secondBody = second.json() as { sessionId: string; consolidated: boolean }
+    expect(secondBody.consolidated).toBe(true)
+    expect(secondBody.sessionId).toBe(firstBody.sessionId)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('POST /discover/run consolidates when both calls fall back to project.icpDescription', async () => {
+    const calls: Array<{ icp: string }> = []
+    const { app, db, tmpDir } = buildAppWithRoutes(calls as never)
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    seedProject(db, { icpDescription: 'industrial coatings' })
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: {},
+    })
+    const firstBody = first.json() as { sessionId: string }
+    db.update(discoverySessions).set({ status: 'probing' }).run()
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: {},
+    })
+    const secondBody = second.json() as { sessionId: string; consolidated: boolean }
+    expect(secondBody.consolidated).toBe(true)
+    expect(secondBody.sessionId).toBe(firstBody.sessionId)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('POST /discover/run does NOT consolidate onto a zombie session past the staleness threshold', async () => {
+    // If the canonry-side handler is killed mid-run before its catch block
+    // can call markSessionFailed, the row gets stuck in seeding/probing
+    // forever. Without an age guard every subsequent discover-run for the
+    // same (project, ICP) would consolidate onto that zombie and never
+    // complete. We pick an age comfortably past the 2-hour threshold so
+    // this test doesn't flake if the constant nudges later.
+    const calls: Array<{ sessionId: string }> = []
+    const { app, db, tmpDir } = buildAppWithRoutes(calls as never)
+    cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+    const { projectId } = seedProject(db)
+
+    const longAgoIso = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
+    db.insert(discoverySessions).values({
+      id: 'zombie_session',
+      projectId,
+      runId: 'zombie_run',
+      status: 'probing',
+      icpDescription: 'industrial coatings',
+      competitorMap: '[]',
+      createdAt: longAgoIso,
+    }).run()
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { icpDescription: 'industrial coatings' },
+    })
+    expect(response.statusCode).toBe(201)
+    const body = response.json() as { sessionId: string; consolidated: boolean }
+    expect(body.consolidated).toBe(false)
+    expect(body.sessionId).not.toBe('zombie_session')
+    expect(calls).toHaveLength(1)
+    // Stale row is left in place for an operator to inspect — we only
+    // refuse to consolidate onto it; the new session is the second row.
+    expect(db.select().from(discoverySessions).all()).toHaveLength(2)
+
+    // A follow-up call now consolidates onto the fresh session (orderBy
+    // desc + age guard pick the newest non-stale row), not the zombie.
+    const followUp = await app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/demand-iq/discover/run',
+      payload: { icpDescription: 'industrial coatings' },
+    })
+    expect(followUp.statusCode).toBe(200)
+    const followUpBody = followUp.json() as { sessionId: string; consolidated: boolean }
+    expect(followUpBody.consolidated).toBe(true)
+    expect(followUpBody.sessionId).toBe(body.sessionId)
+    expect(followUpBody.sessionId).not.toBe('zombie_session')
+    expect(calls).toHaveLength(1)
+  })
+
   it('GET /discover/sessions returns sessions newest-first', async () => {
     const { app, db, tmpDir } = buildAppWithRoutes([])
     cleanups.push(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
